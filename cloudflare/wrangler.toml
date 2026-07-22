@@ -1,0 +1,52 @@
+name = "fumoca-r2-storage"
+main = "workers/r2-storage.js"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+# ── R2 bucket binding ─────────────────────────────────────────────────────────
+# Create the bucket first:
+#   npx wrangler r2 bucket create fumoca-assets
+[[r2_buckets]]
+binding = "R2_BUCKET"
+bucket_name = "fumoca-assets"
+# preview_bucket_name = "fumoca-assets-dev"   # optional dev bucket
+
+# ── Routes ────────────────────────────────────────────────────────────────────
+# Option A — dedicated subdomain (recommended):
+#   Set CNAME: cdn.fumoca.co.za → fumoca-r2-storage.<your-subdomain>.workers.dev
+# Option B — path route on existing domain:
+#   routes = [{ pattern = "fumoca.co.za/r2/*", zone_name = "fumoca.co.za" }]
+
+# ── Environment variables (non-secret) ───────────────────────────────────────
+[vars]
+ALLOWED_ORIGIN    = "https://fumoca.co.za"
+PUBLIC_BASE_URL   = "https://fumoca-r2-storage.fumocaapp.workers.dev"
+R2_BUCKET_NAME    = "fumoca-assets"
+
+# ── Secrets (set via CLI, never commit values) ────────────────────────────────
+# Run these after deploy:
+#   npx wrangler secret put FUMOCA_API_SECRET
+#   npx wrangler secret put R2_ACCESS_KEY_ID       ← from Cloudflare R2 API tokens
+#   npx wrangler secret put R2_SECRET_ACCESS_KEY   ← from Cloudflare R2 API tokens
+#   npx wrangler secret put ACCOUNT_ID             ← your CF Account ID
+
+# ── Dev settings ─────────────────────────────────────────────────────────────
+[dev]
+port = 8787
+local_protocol = "http"
+
+# ══════════════════════════════════════════════════════════════════════════════
+# OG Meta Worker — rewrites <meta> tags server-side so social crawlers
+# (WhatsApp, Slack, Twitter, iMessage) see per-splat thumbnails & titles.
+# Deploy: npx wrangler deploy workers/og-meta.js --name fumoca-og-meta
+# ══════════════════════════════════════════════════════════════════════════════
+[[routes]]
+# Intercept all viewer page requests that carry ?id= (social share URLs)
+pattern = "fumoca.co.za/viewer*"
+script  = "fumoca-og-meta"
+
+# Secrets for the OG worker (set separately):
+#   npx wrangler secret put SUPABASE_URL       --name fumoca-og-meta
+#   npx wrangler secret put SUPABASE_ANON_KEY  --name fumoca-og-meta
+#   npx wrangler secret put SITE_ORIGIN        --name fumoca-og-meta
+

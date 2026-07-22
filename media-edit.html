@@ -1,0 +1,1178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FUMOCA Studio — Media Editor</title>
+<script src="config.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Oxanium:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --void:#04050a;--surface:rgba(255,255,255,.038);--surface2:rgba(255,255,255,.065);--surface3:rgba(255,255,255,.09);
+  --border:rgba(255,255,255,.08);--border2:rgba(255,255,255,.14);--border3:rgba(255,255,255,.22);
+  --lime:#d4ff00;--lime2:rgba(212,255,0,.1);--lime-b:rgba(212,255,0,.28);
+  --cyan:#00e5ff;--cyan2:rgba(0,229,255,.09);--cyan-b:rgba(0,229,255,.28);
+  --violet:#8b5cf6;--violet2:rgba(139,92,246,.1);--violet-b:rgba(139,92,246,.3);
+  --rose:#ff3d71;--rose2:rgba(255,61,113,.1);--rose-b:rgba(255,61,113,.28);
+  --amber:#ffb300;--amber2:rgba(255,179,0,.1);--amber-b:rgba(255,179,0,.28);
+  --emerald:#00c875;--emerald2:rgba(0,200,117,.1);--emerald-b:rgba(0,200,117,.28);
+  --text:#f0f0f0;--muted:rgba(255,255,255,.5);--dim:rgba(255,255,255,.28);--ghost:rgba(255,255,255,.12);
+  --font-display:'Oxanium',sans-serif;--font-body:'Outfit',sans-serif;--font-mono:'JetBrains Mono',monospace;
+  --panel-l:290px;--panel-r:270px;--topbar-h:56px;--toolbar-h:48px;--timeline-h:160px;
+  --r:12px;--r2:8px;--trans:all .18s cubic-bezier(.4,0,.2,1);
+  --shadow-lg:0 8px 40px rgba(0,0,0,.7);
+}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--void);color:var(--text);font-family:var(--font-body);-webkit-font-smoothing:antialiased;font-size:13px}
+::selection{background:rgba(212,255,0,.2)}
+::-webkit-scrollbar{width:4px;height:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:2px}::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.22)}
+
+/* ── TOPBAR ── */
+#topbar{position:fixed;top:0;left:0;right:0;height:var(--topbar-h);z-index:50;background:rgba(4,5,10,.92);border-bottom:1px solid var(--border2);backdrop-filter:blur(28px);display:flex;align-items:center;gap:0;padding:0 12px}
+.tb-brand{font-family:var(--font-display);font-size:18px;font-weight:800;color:var(--lime);letter-spacing:-.01em;padding:0 12px 0 4px;flex-shrink:0;text-decoration:none;display:flex;align-items:center;gap:6px}
+.tb-brand::before{content:'';width:7px;height:7px;border-radius:2px;background:var(--lime);box-shadow:0 0 10px var(--lime);flex-shrink:0}
+.tb-brand sup{font-size:9px;font-weight:600;color:var(--cyan);letter-spacing:.04em}
+.tb-sep{width:1px;height:28px;background:var(--border2);flex-shrink:0;margin:0 8px}
+.tb-file{flex:1;min-width:0;padding:0 10px}
+.tb-file-name{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tb-file-meta{font-size:10px;color:var(--muted);font-family:var(--font-mono)}
+.tb-actions{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.tb-btn{height:32px;padding:0 14px;border-radius:10px;border:1px solid var(--border2);background:var(--surface2);color:var(--text);cursor:pointer;font:600 12px/1 var(--font-body);white-space:nowrap;transition:var(--trans);display:flex;align-items:center;gap:6px;flex-shrink:0}
+.tb-btn:hover{background:var(--surface3);border-color:var(--border3)}
+.tb-btn.lime{background:var(--lime2);border-color:var(--lime-b);color:var(--lime)}
+.tb-btn.lime:hover{background:rgba(212,255,0,.16)}
+.tb-btn.cyan{background:var(--cyan2);border-color:var(--cyan-b);color:var(--cyan)}
+.tb-btn.violet{background:var(--violet2);border-color:var(--violet-b);color:#c4b5fd}
+.tb-btn.rose{background:var(--rose2);border-color:var(--rose-b);color:#ffa0b8}
+input[type=file]{display:none}
+
+/* ── TOOLBAR ── */
+#toolbar{position:fixed;top:var(--topbar-h);left:0;right:0;height:var(--toolbar-h);z-index:40;background:rgba(4,5,10,.88);border-bottom:1px solid var(--border);backdrop-filter:blur(20px);display:flex;align-items:center;gap:4px;padding:0 14px;overflow-x:auto}
+#toolbar::-webkit-scrollbar{height:0}
+.tool-group{display:flex;align-items:center;gap:2px;padding:0 6px;border-right:1px solid var(--border);flex-shrink:0}
+.tool-group:last-child{border-right:none}
+.tool-group-label{font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);padding:0 4px;margin-right:2px;white-space:nowrap}
+.tool-btn{width:34px;height:34px;border-radius:9px;border:1px solid transparent;background:transparent;color:var(--muted);cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;transition:var(--trans);position:relative;flex-shrink:0}
+.tool-btn:hover{background:var(--surface2);border-color:var(--border);color:var(--text)}
+.tool-btn.active{background:var(--cyan2);border-color:var(--cyan-b);color:var(--cyan);box-shadow:0 0 12px rgba(0,229,255,.15)}
+.tool-btn.active-lime{background:var(--lime2);border-color:var(--lime-b);color:var(--lime)}
+.tool-btn.active-rose{background:var(--rose2);border-color:var(--rose-b);color:#ffa0b8}
+.tool-btn.active-violet{background:var(--violet2);border-color:var(--violet-b);color:#c4b5fd}
+.tool-btn[title]:hover::after{content:attr(title);position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);background:#1a1a1a;border:1px solid var(--border2);color:var(--text);font:500 11px var(--font-body);padding:4px 8px;border-radius:6px;white-space:nowrap;pointer-events:none;z-index:100}
+
+/* ── SHELL ── */
+#shell{position:fixed;top:calc(var(--topbar-h) + var(--toolbar-h));left:0;right:0;bottom:var(--timeline-h);display:flex}
+
+/* ── LEFT PANEL ── */
+#panelLeft{width:var(--panel-l);flex-shrink:0;height:100%;background:rgba(4,5,10,.9);border-right:1px solid var(--border2);backdrop-filter:blur(20px);display:flex;flex-direction:column;overflow:hidden;transition:width .3s cubic-bezier(.4,0,.2,1)}
+#panelLeft.collapsed{width:0}
+
+/* ── VIEWPORT ── */
+#viewport{flex:1;position:relative;overflow:hidden;background:#000;display:flex;align-items:center;justify-content:center}
+#mediaCanvas{max-width:100%;max-height:100%;border-radius:4px;display:block}
+#videoEl{max-width:100%;max-height:100%;display:none;border-radius:4px}
+#overlaysContainer{position:absolute;inset:0;pointer-events:none;z-index:5}
+.text-overlay{position:absolute;cursor:move;user-select:none;pointer-events:auto;padding:6px 12px;border-radius:8px;font-weight:800;font-size:24px;line-height:1.2;text-shadow:0 2px 8px rgba(0,0,0,.6);letter-spacing:.02em;transition:box-shadow .15s}
+.text-overlay.selected{box-shadow:0 0 0 2px var(--lime),0 0 16px rgba(212,255,0,.2)}
+.text-overlay .del-handle{position:absolute;top:-8px;right:-8px;width:18px;height:18px;border-radius:50%;background:var(--rose);color:#fff;font-size:10px;display:flex;align-items:center;justify-content:center;cursor:pointer;opacity:0;transition:.15s}
+.text-overlay:hover .del-handle{opacity:1}
+.resize-overlay{position:absolute;inset:0;z-index:10;display:none}
+.resize-overlay.active{display:block}
+/* aspect ratio frame */
+#aspectFrame{position:absolute;border:2px solid rgba(212,255,0,.3);box-shadow:0 0 0 9999px rgba(0,0,0,.45);pointer-events:none;z-index:3;display:none}
+
+/* ── RIGHT PANEL ── */
+#panelRight{width:var(--panel-r);flex-shrink:0;height:100%;background:rgba(4,5,10,.9);border-left:1px solid var(--border2);backdrop-filter:blur(20px);display:flex;flex-direction:column;overflow:hidden;transition:width .3s cubic-bezier(.4,0,.2,1)}
+#panelRight.collapsed{width:0}
+
+/* ── TIMELINE ── */
+#timeline{position:fixed;bottom:0;left:0;right:0;height:var(--timeline-h);z-index:40;background:rgba(4,5,10,.94);border-top:1px solid var(--border2);backdrop-filter:blur(20px);display:flex;flex-direction:column}
+#timelineHeader{display:flex;align-items:center;gap:8px;padding:0 14px;height:38px;border-bottom:1px solid var(--border);flex-shrink:0}
+.tl-title{font-family:var(--font-display);font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--cyan)}
+.tl-sep{width:1px;height:20px;background:var(--border)}
+.tl-time{font-family:var(--font-mono);font-size:10px;color:var(--muted)}
+.tl-controls{display:flex;align-items:center;gap:6px}
+.tl-play-btn{width:28px;height:28px;border-radius:50%;border:1px solid var(--cyan-b);background:var(--cyan2);color:var(--cyan);cursor:pointer;font-size:10px;display:flex;align-items:center;justify-content:center;transition:var(--trans)}
+.tl-play-btn:hover{background:rgba(0,229,255,.18)}
+#timelineScroll{flex:1;overflow-x:auto;overflow-y:hidden;padding:8px 14px;display:flex;flex-direction:column;gap:6px}
+#timelineScroll::-webkit-scrollbar{height:3px}
+.tl-track{display:flex;align-items:center;gap:8px;height:28px;flex-shrink:0}
+.tl-track-label{font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);width:50px;flex-shrink:0}
+.tl-lane{flex:1;position:relative;height:28px;background:rgba(255,255,255,.03);border-radius:6px;border:1px solid var(--border);overflow:hidden}
+.tl-clip{height:100%;border-radius:5px;position:relative;cursor:pointer;display:flex;align-items:center;padding:0 8px;font-size:10px;font-weight:700;letter-spacing:.04em;white-space:nowrap;overflow:hidden;user-select:none;transition:var(--trans);min-width:60px}
+.tl-clip.main{background:var(--cyan2);border:1px solid var(--cyan-b);color:var(--cyan)}
+.tl-clip.fx{background:var(--violet2);border:1px solid var(--violet-b);color:#c4b5fd}
+.tl-clip.audio{background:var(--amber2);border:1px solid var(--amber-b);color:var(--amber)}
+.tl-clip.text{background:var(--lime2);border:1px solid var(--lime-b);color:var(--lime)}
+.tl-clip:hover{filter:brightness(1.15)}
+.tl-playhead{position:absolute;top:0;bottom:0;width:2px;background:var(--cyan);box-shadow:0 0 8px var(--cyan);pointer-events:none;z-index:10;transition:left .1s}
+#progressBar{position:fixed;top:0;left:0;height:2px;z-index:200;background:linear-gradient(90deg,var(--cyan),var(--lime));width:0%;transition:width .25s;pointer-events:none;box-shadow:0 0 10px var(--cyan)}
+
+/* ── PANEL INTERNALS ── */
+.panel-tabs{display:flex;border-bottom:1px solid var(--border);flex-shrink:0}
+.ptab{flex:1;padding:10px 8px;text-align:center;font:600 11px var(--font-body);color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;transition:var(--trans);letter-spacing:.03em;white-space:nowrap}
+.ptab:hover{color:var(--text)}
+.ptab.active{color:var(--cyan);border-bottom-color:var(--cyan)}
+.panel-body{flex:1;overflow-y:auto;padding:10px}
+.panel-footer{border-top:1px solid var(--border);padding:10px;flex-shrink:0}
+
+.section{margin-bottom:8px;border:1px solid var(--border);border-radius:var(--r);overflow:hidden}
+.sec-head{padding:9px 12px;background:var(--surface);display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;transition:var(--trans)}
+.sec-head:hover{background:var(--surface2)}
+.sec-label{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text)}
+.sec-body{padding:10px 12px;display:flex;flex-direction:column;gap:7px}
+.section.collapsed .sec-body{display:none}
+.sec-arrow{font-size:10px;color:var(--dim);transition:transform .2s}
+.section.collapsed .sec-arrow{transform:rotate(-90deg)}
+
+.ctrl-row{display:flex;align-items:center;justify-content:space-between;gap:6px}
+.ctrl-label{font-size:11px;color:var(--muted);flex-shrink:0}
+.ctrl-val{font-family:var(--font-mono);font-size:11px;color:var(--cyan);min-width:38px;text-align:right;flex-shrink:0}
+.ctrl-val.lime{color:var(--lime)}.ctrl-val.violet{color:#c4b5fd}.ctrl-val.amber{color:var(--amber)}
+
+input[type=range]{width:100%;height:3px;accent-color:var(--cyan);cursor:pointer;background:rgba(255,255,255,.1);border-radius:2px;-webkit-appearance:none;margin:2px 0}
+input[type=range].lime{accent-color:var(--lime)}
+input[type=range].violet{accent-color:var(--violet)}
+input[type=range].amber{accent-color:var(--amber)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;border-radius:50%;background:var(--cyan);cursor:pointer;box-shadow:0 0 8px rgba(0,229,255,.4)}
+input[type=range].lime::-webkit-slider-thumb{background:var(--lime);box-shadow:0 0 8px rgba(212,255,0,.4)}
+
+.btn-grid{display:grid;gap:5px}
+.btn-grid.col2{grid-template-columns:1fr 1fr}
+.btn-grid.col3{grid-template-columns:1fr 1fr 1fr}
+.ac-btn{padding:8px 10px;border-radius:9px;border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;font:600 11px var(--font-body);text-align:center;transition:var(--trans);white-space:nowrap;display:flex;align-items:center;justify-content:center;gap:5px}
+.ac-btn:hover{background:var(--surface2);border-color:var(--border2)}
+.ac-btn.lime{background:var(--lime2);border-color:var(--lime-b);color:var(--lime)}.ac-btn.lime:hover{background:rgba(212,255,0,.16)}
+.ac-btn.cyan{background:var(--cyan2);border-color:var(--cyan-b);color:var(--cyan)}
+.ac-btn.rose{background:var(--rose2);border-color:var(--rose-b);color:#ffa0b8}
+.ac-btn.violet{background:var(--violet2);border-color:var(--violet-b);color:#c4b5fd}
+.ac-btn.amber{background:var(--amber2);border-color:var(--amber-b);color:var(--amber)}
+.ac-btn.emerald{background:var(--emerald2);border-color:var(--emerald-b);color:var(--emerald)}
+.ac-btn.full{width:100%}
+.ac-btn:disabled{opacity:.3;cursor:not-allowed}
+.hint{font-size:10px;color:var(--dim);line-height:1.5;font-style:italic}
+
+/* DROP ZONE */
+#dropZone{border:1.5px dashed rgba(0,229,255,.25);border-radius:var(--r);padding:28px 16px;text-align:center;color:var(--muted);line-height:1.7;cursor:pointer;transition:var(--trans)}
+#dropZone:hover,.drag-on #dropZone{border-color:rgba(0,229,255,.6);background:rgba(0,229,255,.03);color:var(--text)}
+#dropZone strong{color:var(--cyan);display:block;font-size:15px;margin-bottom:4px;font-family:var(--font-display);letter-spacing:.04em}
+
+/* FILTER PRESETS */
+.filter-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.filter-tile{aspect-ratio:1;border-radius:10px;overflow:hidden;cursor:pointer;border:2px solid transparent;transition:var(--trans);position:relative;background:#111}
+.filter-tile:hover{transform:scale(1.05)}
+.filter-tile.active{border-color:var(--cyan);box-shadow:0 0 0 1px var(--cyan-b),0 0 14px rgba(0,229,255,.15)}
+.filter-tile-preview{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:11px;color:rgba(255,255,255,.6)}
+.filter-tile-label{position:absolute;bottom:0;left:0;right:0;padding:4px;font-size:9px;text-align:center;background:rgba(0,0,0,.7);color:rgba(255,255,255,.7);letter-spacing:.04em;text-transform:uppercase}
+
+/* TEXT PANEL */
+.font-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:4px}
+.font-btn{padding:7px 8px;border-radius:8px;border:1px solid var(--border);background:var(--surface);cursor:pointer;font-size:12px;text-align:center;transition:var(--trans);color:var(--muted)}
+.font-btn:hover,.font-btn.active{background:var(--cyan2);border-color:var(--cyan-b);color:var(--cyan)}
+
+/* ASPECT RATIO */
+.ar-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}
+.ar-tile{padding:8px 6px;border-radius:9px;border:1px solid var(--border);background:var(--surface);cursor:pointer;text-align:center;transition:var(--trans)}
+.ar-tile:hover,.ar-tile.active{background:var(--cyan2);border-color:var(--cyan-b);color:var(--cyan)}
+.ar-ratio{font-family:var(--font-mono);font-size:12px;font-weight:700;display:block}
+.ar-label{font-size:9px;color:var(--muted);margin-top:2px;text-transform:uppercase;letter-spacing:.05em}
+.ar-tile.active .ar-label{color:rgba(0,229,255,.7)}
+
+/* MUSIC/AUDIO */
+.track-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;border:1px solid var(--border);background:var(--surface);cursor:pointer;transition:var(--trans)}
+.track-row:hover{background:var(--surface2);border-color:var(--border2)}
+.track-row.active{background:var(--amber2);border-color:var(--amber-b)}
+.track-icon{font-size:20px;flex-shrink:0}
+.track-meta{flex:1;min-width:0}
+.track-name{font-size:12px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.track-dur{font-size:10px;color:var(--muted)}
+
+/* STATUS + TOAST */
+#statusBar{position:fixed;bottom:calc(var(--timeline-h) + 12px);left:calc(var(--panel-l) + 20px);z-index:45;background:rgba(4,5,10,.88);border:1px solid var(--border2);border-radius:99px;padding:6px 16px;font-size:11px;color:var(--muted);font-family:var(--font-mono);display:flex;align-items:center;gap:8px;backdrop-filter:blur(12px);max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;pointer-events:none;transition:var(--trans)}
+#statusDot{width:6px;height:6px;border-radius:50%;background:var(--dim);flex-shrink:0;transition:background .3s}
+#statusBar.busy #statusDot{background:var(--cyan);box-shadow:0 0 6px var(--cyan);animation:pulse .8s ease-in-out infinite}
+#statusBar.ok #statusDot{background:var(--emerald);box-shadow:0 0 6px var(--emerald)}
+#statusBar.warn #statusDot{background:var(--amber);box-shadow:0 0 6px var(--amber)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+#toast{position:fixed;bottom:calc(var(--timeline-h) + 14px);right:14px;z-index:200;background:rgba(4,5,10,.96);border:1px solid var(--border2);border-radius:12px;padding:12px 16px;font-size:12px;color:var(--text);display:none;flex-direction:column;gap:4px;max-width:260px;box-shadow:var(--shadow-lg)}
+#toast.show{display:flex}
+#toast.cyan{border-color:var(--cyan-b)}
+.toast-title{font-weight:700;font-size:13px}
+.toast-msg{color:var(--muted);font-size:11px}
+
+/* PUBLISH MODAL */
+#publishModal{position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.7);backdrop-filter:blur(10px);display:none;align-items:center;justify-content:center}
+#publishModal.open{display:flex}
+.publish-card{background:#0e1016;border:1px solid var(--border2);border-radius:20px;padding:28px;width:100%;max-width:440px;box-shadow:0 24px 80px rgba(0,0,0,.8)}
+.publish-title{font-family:var(--font-display);font-size:24px;letter-spacing:.05em;margin-bottom:20px;color:var(--cyan)}
+.pub-field{margin-bottom:14px}
+.pub-label{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:5px}
+.pub-input{width:100%;background:rgba(255,255,255,.06);border:1px solid var(--border2);border-radius:10px;padding:10px 14px;color:var(--text);font:inherit;font-size:13px;outline:none;transition:var(--trans);resize:none}
+.pub-input:focus{border-color:var(--cyan-b);background:rgba(0,229,255,.04)}
+.pub-actions{display:flex;gap:10px;margin-top:20px}
+</style>
+</head>
+<body data-nav="none">
+
+<div id="progressBar"></div>
+
+<!-- TOPBAR -->
+<div id="topbar">
+  <a href="feed.html" class="tb-brand">FUMOCA<span style="color:rgba(255,255,255,.25);font-weight:300;margin-left:3px">Media</span><sup>Studio</sup></a>
+  <div class="tb-sep"></div>
+  <div class="tb-file">
+    <div class="tb-file-name" id="fileName">Drop a video or photo to begin editing</div>
+    <div class="tb-file-meta" id="fileMeta">Video · Photo · Ready to post to FUMOCA</div>
+  </div>
+  <div class="tb-sep"></div>
+  <div class="tb-actions">
+    <input id="fileInput" type="file" accept="video/*,image/*">
+    <button class="tb-btn" id="openBtn">📂 Open</button>
+    <button class="tb-btn" id="undoBtn">↩ Undo</button>
+    <button class="tb-btn" id="redoBtn">↪ Redo</button>
+    <div class="tb-sep"></div>
+    <button class="tb-btn" id="screenshotBtn">📷 Snapshot</button>
+    <button class="tb-btn cyan" id="exportBtn">⬇ Export</button>
+    <button class="tb-btn lime" id="publishBtn">🚀 Post to FUMOCA</button>
+  </div>
+</div>
+
+<!-- TOOLBAR -->
+<div id="toolbar">
+  <div class="tool-group">
+    <span class="tool-group-label">Select</span>
+    <button class="tool-btn active" id="toolSelect" title="Select (V)">↖</button>
+    <button class="tool-btn" id="toolCrop" title="Crop (C)">✂</button>
+    <button class="tool-btn" id="toolRotateTool" title="Rotate (R)">↻</button>
+  </div>
+  <div class="tool-group">
+    <span class="tool-group-label">Overlay</span>
+    <button class="tool-btn" id="toolText" title="Add Text (T)">T</button>
+    <button class="tool-btn" id="toolSticker" title="Add Sticker">✨</button>
+    <button class="tool-btn" id="toolDraw" title="Draw (D)">✏</button>
+  </div>
+  <div class="tool-group">
+    <span class="tool-group-label">Trim</span>
+    <button class="tool-btn" id="toolTrim" title="Trim video">⌛</button>
+    <button class="tool-btn" id="toolSplit" title="Split at playhead">⚡</button>
+    <button class="tool-btn" id="toolSpeed" title="Speed ramp">⏩</button>
+  </div>
+  <div class="tool-group">
+    <span class="tool-group-label">View</span>
+    <button class="tool-btn" id="viewGrid" title="Grid overlay">⊞</button>
+    <button class="tool-btn" id="viewSafe" title="Safe area">⬜</button>
+    <button class="tool-btn" id="viewFull" title="Fullscreen">⤢</button>
+  </div>
+  <div class="tool-group" style="margin-left:auto;border-right:none">
+    <span class="tool-group-label">Format</span>
+    <button class="tool-btn active-lime" id="fmt916" title="9:16 TikTok/Reels">9:16</button>
+    <button class="tool-btn" id="fmt169" title="16:9 YouTube">16:9</button>
+    <button class="tool-btn" id="fmt11" title="1:1 Instagram">1:1</button>
+    <button class="tool-btn" id="fmt45" title="4:5 Portrait">4:5</button>
+  </div>
+</div>
+
+<!-- MAIN SHELL -->
+<div id="shell">
+
+  <!-- LEFT PANEL -->
+  <div id="panelLeft">
+    <div class="panel-tabs" id="leftTabs">
+      <div class="ptab active" data-ltab="import">Import</div>
+      <div class="ptab" data-ltab="filters">Filters</div>
+      <div class="ptab" data-ltab="text">Text</div>
+      <div class="ptab" data-ltab="music">Music</div>
+    </div>
+
+    <!-- IMPORT TAB -->
+    <div class="panel-body" id="ltab-import">
+      <div id="dropZone">
+        <strong>Drop video or photo</strong>
+        MP4, MOV, WebM, JPG, PNG, HEIC — up to 500MB
+      </div>
+
+      <div class="section" style="margin-top:10px">
+        <div class="sec-head"><span class="sec-label">Trim & Cut</span><span class="sec-arrow">▾</span></div>
+        <div class="sec-body">
+          <div class="ctrl-row">
+            <span class="ctrl-label">Start</span>
+            <span class="ctrl-val" id="trimStartVal">0:00</span>
+          </div>
+          <input type="range" id="trimStart" min="0" max="100" value="0">
+          <div class="ctrl-row">
+            <span class="ctrl-label">End</span>
+            <span class="ctrl-val" id="trimEndVal">0:00</span>
+          </div>
+          <input type="range" id="trimEnd" min="0" max="100" value="100">
+          <div class="btn-grid col2">
+            <button class="ac-btn cyan" id="previewTrimBtn">▶ Preview</button>
+            <button class="ac-btn rose" id="splitHereBtn">⚡ Split</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="sec-head"><span class="sec-label">Speed & Motion</span><span class="sec-arrow">▾</span></div>
+        <div class="sec-body">
+          <div class="ctrl-row">
+            <span class="ctrl-label">Playback speed</span>
+            <span class="ctrl-val" id="speedVal">1×</span>
+          </div>
+          <input type="range" id="speedRange" min="1" max="8" step="1" value="4">
+          <div class="btn-grid col3">
+            <button class="ac-btn" data-speed="0.5">0.5×</button>
+            <button class="ac-btn active cyan" data-speed="1">1×</button>
+            <button class="ac-btn" data-speed="1.5">1.5×</button>
+            <button class="ac-btn" data-speed="2">2×</button>
+            <button class="ac-btn" data-speed="3">3×</button>
+            <button class="ac-btn" data-speed="4">4×</button>
+          </div>
+          <div class="ctrl-row" style="margin-top:4px">
+            <span class="ctrl-label">Reverse</span>
+            <button class="ac-btn rose" style="padding:5px 12px;font-size:11px" id="reverseBtn">⟲ Reverse</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="sec-head"><span class="sec-label">Volume & Audio</span><span class="sec-arrow">▾</span></div>
+        <div class="sec-body">
+          <div class="ctrl-row">
+            <span class="ctrl-label">Original audio</span>
+            <span class="ctrl-val" id="volVal">100%</span>
+          </div>
+          <input type="range" id="volRange" min="0" max="200" value="100">
+          <div class="ctrl-row">
+            <span class="ctrl-label">Music volume</span>
+            <span class="ctrl-val amber" id="musicVolVal">80%</span>
+          </div>
+          <input type="range" class="amber" id="musicVolRange" min="0" max="100" value="80">
+          <div class="ctrl-row" style="margin-top:4px">
+            <span class="ctrl-label">Mute original</span>
+            <button class="ac-btn rose" style="padding:5px 12px;font-size:11px" id="muteBtn">🔇 Mute</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- FILTERS TAB -->
+    <div class="panel-body" id="ltab-filters" style="display:none">
+      <div class="section">
+        <div class="sec-head"><span class="sec-label">Presets</span><span class="sec-badge" style="font-size:9px;padding:2px 6px;border-radius:99px;background:var(--cyan2);color:var(--cyan);border:1px solid var(--cyan-b)">24</span></div>
+        <div class="sec-body">
+          <div class="filter-grid" id="filterGrid">
+            <!-- populated by JS -->
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="sec-head"><span class="sec-label">Adjust</span><span class="sec-arrow">▾</span></div>
+        <div class="sec-body">
+          <div class="ctrl-row"><span class="ctrl-label">Brightness</span><span class="ctrl-val" id="adjBrVal">0</span></div>
+          <input type="range" id="adjBr" min="-100" max="100" value="0">
+          <div class="ctrl-row"><span class="ctrl-label">Contrast</span><span class="ctrl-val" id="adjConVal">0</span></div>
+          <input type="range" id="adjCon" min="-100" max="100" value="0">
+          <div class="ctrl-row"><span class="ctrl-label">Saturation</span><span class="ctrl-val" id="adjSatVal">0</span></div>
+          <input type="range" id="adjSat" min="-100" max="100" value="0">
+          <div class="ctrl-row"><span class="ctrl-label">Exposure</span><span class="ctrl-val" id="adjExpVal">0</span></div>
+          <input type="range" id="adjExp" min="-100" max="100" value="0">
+          <div class="ctrl-row"><span class="ctrl-label">Temperature</span><span class="ctrl-val amber" id="adjTempVal">0</span></div>
+          <input type="range" class="amber" id="adjTemp" min="-100" max="100" value="0">
+          <div class="ctrl-row"><span class="ctrl-label">Sharpness</span><span class="ctrl-val lime" id="adjShpVal">0</span></div>
+          <input type="range" class="lime" id="adjShp" min="0" max="100" value="0">
+          <div class="ctrl-row"><span class="ctrl-label">Vignette</span><span class="ctrl-val violet" id="adjVigVal">0</span></div>
+          <input type="range" class="violet" id="adjVig" min="0" max="100" value="0">
+        </div>
+      </div>
+    </div>
+
+    <!-- TEXT TAB -->
+    <div class="panel-body" id="ltab-text" style="display:none">
+      <button class="ac-btn cyan full" id="addTextBtn" style="margin-bottom:10px">+ Add Text Overlay</button>
+
+      <div class="section">
+        <div class="sec-head"><span class="sec-label">Text Style</span><span class="sec-arrow">▾</span></div>
+        <div class="sec-body">
+          <div class="pub-field" style="margin-bottom:8px">
+            <div class="pub-label">Content</div>
+            <textarea id="textContent" class="pub-input" rows="2" placeholder="Enter text…"></textarea>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Size</span>
+            <span class="ctrl-val" id="textSizeVal">28px</span>
+          </div>
+          <input type="range" id="textSizeRange" min="12" max="120" value="28">
+          <div class="ctrl-row">
+            <span class="ctrl-label">Color</span>
+            <input type="color" id="textColor" value="#ffffff" style="width:40px;height:24px;border:none;border-radius:6px;cursor:pointer">
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Background</span>
+            <div style="display:flex;gap:5px;align-items:center">
+              <button class="ac-btn" style="padding:4px 8px;font-size:10px" id="textBgNone">None</button>
+              <button class="ac-btn" style="padding:4px 8px;font-size:10px" id="textBgDark">Dark</button>
+              <button class="ac-btn" style="padding:4px 8px;font-size:10px" id="textBgNeon">Neon</button>
+            </div>
+          </div>
+          <div class="font-grid">
+            <button class="font-btn active" data-font="bold" style="font-weight:800">Bold</button>
+            <button class="font-btn" data-font="outline" style="-webkit-text-stroke:1px rgba(255,255,255,.8);color:transparent">Outline</button>
+            <button class="font-btn" data-font="shadow" style="text-shadow:2px 2px 6px rgba(0,0,0,.8)">Shadow</button>
+            <button class="font-btn" data-font="neon" style="color:#d4ff00;text-shadow:0 0 8px #d4ff00">Neon</button>
+          </div>
+          <div style="display:flex;gap:5px;margin-top:5px">
+            <button class="ac-btn" style="padding:5px 8px;font-size:12px" id="textAlignL">◄</button>
+            <button class="ac-btn active cyan" style="padding:5px 8px;font-size:12px" id="textAlignC">■</button>
+            <button class="ac-btn" style="padding:5px 8px;font-size:12px" id="textAlignR">►</button>
+            <button class="ac-btn lime" style="padding:5px 10px;font-size:11px;flex:1" id="applyTextBtn">Apply</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="sec-head"><span class="sec-label">Captions (Auto)</span><span class="sec-arrow">▾</span></div>
+        <div class="sec-body">
+          <button class="ac-btn violet full" id="autoCaptionBtn">✦ Auto-Generate Captions</button>
+          <div class="hint">AI will transcribe your video audio and add synced captions.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MUSIC TAB -->
+    <div class="panel-body" id="ltab-music" style="display:none">
+      <div class="section">
+        <div class="sec-head"><span class="sec-label">Trending Audio</span><span class="sec-badge" style="font-size:9px;padding:2px 6px;border-radius:99px;background:var(--amber2);color:var(--amber);border:1px solid var(--amber-b)">HOT</span></div>
+        <div class="sec-body">
+          <div id="tracksList" style="display:flex;flex-direction:column;gap:6px">
+            <!-- tracks injected by JS -->
+          </div>
+          <button class="ac-btn full" id="uploadAudioBtn" style="margin-top:6px">📎 Upload Your Own</button>
+          <input type="file" id="audioInput" accept="audio/*" style="display:none">
+        </div>
+      </div>
+
+      <div class="section" id="selectedTrackSection" style="display:none">
+        <div class="sec-head"><span class="sec-label">🎵 Now Playing</span><span class="sec-arrow">▾</span></div>
+        <div class="sec-body">
+          <div id="nowPlayingName" style="font-size:13px;font-weight:700;color:var(--amber);margin-bottom:8px"></div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Start at</span>
+            <span class="ctrl-val amber" id="musicStartVal">0s</span>
+          </div>
+          <input type="range" class="amber" id="musicStart" min="0" max="60" value="0">
+          <button class="ac-btn rose full" id="removeAudioBtn">Remove Audio</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- VIEWPORT -->
+  <div id="viewport">
+    <canvas id="mediaCanvas" width="720" height="1280"></canvas>
+    <video id="videoEl" playsinline muted></video>
+    <div id="overlaysContainer"></div>
+    <div id="aspectFrame"></div>
+    <div class="resize-overlay" id="resizeOverlay"></div>
+  </div>
+
+  <!-- RIGHT PANEL -->
+  <div id="panelRight">
+    <div class="panel-tabs" id="rightTabs">
+      <div class="ptab active" data-rtab="color">Color</div>
+      <div class="ptab" data-rtab="effects">Effects</div>
+      <div class="ptab" data-rtab="ar">Format</div>
+      <div class="ptab" data-rtab="export">Export</div>
+    </div>
+
+    <!-- COLOR TAB -->
+    <div class="panel-body" id="rtab-color">
+      <div class="section">
+        <div class="sec-head"><span class="sec-label">LUT Presets</span><span class="sec-arrow">▾</span></div>
+        <div class="sec-body">
+          <div class="btn-grid col2" id="lutPresets">
+            <button class="ac-btn active cyan" data-lut="none">Original</button>
+            <button class="ac-btn" data-lut="cinematic">🎬 Cinematic</button>
+            <button class="ac-btn" data-lut="moody">🌑 Moody</button>
+            <button class="ac-btn" data-lut="vibrant">🌈 Vibrant</button>
+            <button class="ac-btn" data-lut="bw">⚫ B&W</button>
+            <button class="ac-btn" data-lut="vintage">📷 Vintage</button>
+            <button class="ac-btn" data-lut="neon">🟢 Neon</button>
+            <button class="ac-btn" data-lut="cold">❄️ Cold</button>
+          </div>
+          <div class="ctrl-row" style="margin-top:8px">
+            <span class="ctrl-label">LUT strength</span>
+            <span class="ctrl-val" id="lutStrVal">100%</span>
+          </div>
+          <input type="range" id="lutStr" min="0" max="100" value="100">
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="sec-head"><span class="sec-label">HSL</span><span class="sec-arrow">▾</span></div>
+        <div class="sec-body">
+          <div class="ctrl-row"><span class="ctrl-label">Hue shift</span><span class="ctrl-val violet" id="hueVal">0°</span></div>
+          <input type="range" class="violet" id="hueRange" min="-180" max="180" value="0">
+          <div class="ctrl-row"><span class="ctrl-label">Saturation</span><span class="ctrl-val" id="satVal2">0</span></div>
+          <input type="range" id="satRange2" min="-100" max="100" value="0">
+          <div class="ctrl-row"><span class="ctrl-label">Luminance</span><span class="ctrl-val" id="lumVal">0</span></div>
+          <input type="range" id="lumRange" min="-100" max="100" value="0">
+        </div>
+      </div>
+    </div>
+
+    <!-- EFFECTS TAB -->
+    <div class="panel-body" id="rtab-effects" style="display:none">
+      <div class="section">
+        <div class="sec-head"><span class="sec-label">Glow & Bloom</span><span class="sec-arrow">▾</span></div>
+        <div class="sec-body">
+          <div class="ctrl-row"><span class="ctrl-label">Bloom</span><span class="ctrl-val lime" id="bloomVal">0%</span></div>
+          <input type="range" class="lime" id="bloomRange" min="0" max="100" value="0">
+          <div class="ctrl-row"><span class="ctrl-label">Glow color</span>
+            <input type="color" id="glowColor" value="#d4ff00" style="width:40px;height:24px;border:none;border-radius:6px;cursor:pointer">
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="sec-head"><span class="sec-label">Motion Blur</span><span class="sec-arrow">▾</span></div>
+        <div class="sec-body">
+          <div class="ctrl-row"><span class="ctrl-label">Strength</span><span class="ctrl-val violet" id="mbVal">0%</span></div>
+          <input type="range" class="violet" id="mbRange" min="0" max="100" value="0">
+          <div class="ctrl-row"><span class="ctrl-label">Direction</span><span class="ctrl-val violet" id="mbDirVal">0°</span></div>
+          <input type="range" class="violet" id="mbDirRange" min="0" max="360" value="0">
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="sec-head"><span class="sec-label">Overlays</span><span class="sec-arrow">▾</span></div>
+        <div class="sec-body">
+          <div class="ctrl-row"><span class="ctrl-label">Film grain</span><span class="ctrl-val" id="grainVal">0%</span></div>
+          <input type="range" id="grainRange" min="0" max="100" value="0">
+          <div class="ctrl-row"><span class="ctrl-label">Vignette</span><span class="ctrl-val" id="vigVal">0%</span></div>
+          <input type="range" id="vigRange" min="0" max="100" value="0">
+          <div class="ctrl-row"><span class="ctrl-label">Chromatic aberr.</span><span class="ctrl-val rose" id="caVal">0%</span></div>
+          <input type="range" id="caRange" min="0" max="60" value="0">
+          <div class="ctrl-row"><span class="ctrl-label">Glitch</span><span class="ctrl-val rose" id="glitchVal">0%</span></div>
+          <input type="range" id="glitchRange" min="0" max="100" value="0">
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="sec-head"><span class="sec-label">Transitions</span><span class="sec-arrow">▾</span></div>
+        <div class="sec-body">
+          <div class="btn-grid col2">
+            <button class="ac-btn" id="transFade">Fade</button>
+            <button class="ac-btn" id="transSlide">Slide</button>
+            <button class="ac-btn" id="transZoom">Zoom</button>
+            <button class="ac-btn violet" id="transGlitch">Glitch</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- FORMAT TAB -->
+    <div class="panel-body" id="rtab-ar" style="display:none">
+      <div class="section">
+        <div class="sec-head"><span class="sec-label">Aspect Ratio</span></div>
+        <div class="sec-body">
+          <div class="ar-grid">
+            <div class="ar-tile" data-ar="9:16">
+              <span class="ar-ratio">9:16</span>
+              <div class="ar-label">TikTok</div>
+            </div>
+            <div class="ar-tile active" data-ar="9:16">
+              <span class="ar-ratio">9:16</span>
+              <div class="ar-label">Reels</div>
+            </div>
+            <div class="ar-tile" data-ar="16:9">
+              <span class="ar-ratio">16:9</span>
+              <div class="ar-label">YouTube</div>
+            </div>
+            <div class="ar-tile" data-ar="1:1">
+              <span class="ar-ratio">1:1</span>
+              <div class="ar-label">Instagram</div>
+            </div>
+            <div class="ar-tile" data-ar="4:5">
+              <span class="ar-ratio">4:5</span>
+              <div class="ar-label">Portrait</div>
+            </div>
+            <div class="ar-tile" data-ar="free">
+              <span class="ar-ratio">Free</span>
+              <div class="ar-label">Custom</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="sec-head"><span class="sec-label">Transform</span><span class="sec-arrow">▾</span></div>
+        <div class="sec-body">
+          <div class="ctrl-row"><span class="ctrl-label">Scale</span><span class="ctrl-val" id="scaleVal">100%</span></div>
+          <input type="range" id="scaleRange" min="50" max="200" value="100">
+          <div class="ctrl-row"><span class="ctrl-label">Rotation</span><span class="ctrl-val" id="rotVal">0°</span></div>
+          <input type="range" id="rotRange" min="-180" max="180" value="0">
+          <div class="ctrl-row"><span class="ctrl-label">Flip H</span>
+            <button class="ac-btn" style="padding:5px 12px;font-size:11px" id="flipH">⟺ Flip H</button>
+          </div>
+          <div class="ctrl-row"><span class="ctrl-label">Flip V</span>
+            <button class="ac-btn" style="padding:5px 12px;font-size:11px" id="flipV">↕ Flip V</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- EXPORT TAB -->
+    <div class="panel-body" id="rtab-export" style="display:none">
+      <div class="section">
+        <div class="sec-head"><span class="sec-label">Video Export</span></div>
+        <div class="sec-body">
+          <div class="ctrl-row">
+            <span class="ctrl-label">Quality</span>
+            <select id="exportQuality" style="flex:1;margin-left:8px;padding:5px 8px;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text);font:inherit;font-size:11px">
+              <option>Draft (faster)</option>
+              <option selected>High (recommended)</option>
+              <option>Ultra (4K)</option>
+            </select>
+          </div>
+          <div class="ctrl-row" style="margin-top:4px">
+            <span class="ctrl-label">Format</span>
+            <select id="exportFormat" style="flex:1;margin-left:8px;padding:5px 8px;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text);font:inherit;font-size:11px">
+              <option>MP4 (H.264)</option>
+              <option>WebM (VP9)</option>
+              <option>MOV (ProRes)</option>
+            </select>
+          </div>
+          <div class="ctrl-row" style="margin-top:4px">
+            <span class="ctrl-label">FPS</span>
+            <select id="exportFPS" style="flex:1;margin-left:8px;padding:5px 8px;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text);font:inherit;font-size:11px">
+              <option>24</option>
+              <option selected>30</option>
+              <option>60</option>
+            </select>
+          </div>
+          <button class="ac-btn cyan full" id="exportVideoBtn" style="margin-top:8px" disabled>⬇ Export Video</button>
+          <button class="ac-btn full" id="exportFrameBtn" disabled style="margin-top:4px">🖼 Export Frame (PNG)</button>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="sec-head"><span class="sec-label">Publish</span></div>
+        <div class="sec-body">
+          <button class="ac-btn lime full" id="publishBtn2" disabled>🚀 Post to FUMOCA Feed</button>
+          <div class="hint" style="margin-top:4px">Posts directly to your FUMOCA profile and feed.</div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /panelRight -->
+
+</div><!-- /shell -->
+
+<!-- TIMELINE -->
+<div id="timeline">
+  <div id="timelineHeader">
+    <span class="tl-title">Timeline</span>
+    <div class="tl-sep"></div>
+    <div class="tl-controls">
+      <button class="tl-play-btn" id="tlPlay">▶</button>
+      <button class="tl-play-btn" id="tlStop" style="font-size:9px">■</button>
+    </div>
+    <div class="tl-sep"></div>
+    <span class="tl-time" id="tlTime">0:00.000</span>
+    <div style="flex:1"></div>
+    <button class="tb-btn" style="height:28px;font-size:10px" id="addTextTrackBtn">+ Text</button>
+    <button class="tb-btn" style="height:28px;font-size:10px" id="addFxTrackBtn">+ FX</button>
+  </div>
+  <div id="timelineScroll">
+    <div class="tl-track">
+      <div class="tl-track-label">Media</div>
+      <div class="tl-lane" id="mainLane">
+        <div class="tl-clip main" style="width:100%" id="mainClip">🎬 Media Clip</div>
+        <div class="tl-playhead" id="tlPlayhead"></div>
+      </div>
+    </div>
+    <div class="tl-track">
+      <div class="tl-track-label">FX</div>
+      <div class="tl-lane" id="fxLane">
+        <div class="tl-clip fx" style="width:0%"></div>
+      </div>
+    </div>
+    <div class="tl-track">
+      <div class="tl-track-label">Text</div>
+      <div class="tl-lane" id="textLane">
+        <div class="tl-clip text" style="width:0%"></div>
+      </div>
+    </div>
+    <div class="tl-track" id="audioTrackRow" style="display:none">
+      <div class="tl-track-label">Audio</div>
+      <div class="tl-lane" id="audioLane">
+        <div class="tl-clip audio" style="width:100%" id="audioClip">🎵 Audio Track</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- STATUS BAR -->
+<div id="statusBar"><span id="statusDot"></span><span id="statusText">Drop a video or photo to begin</span></div>
+
+<!-- TOAST -->
+<div id="toast">
+  <div class="toast-title" id="toastTitle">Done</div>
+  <div class="toast-msg" id="toastMsg"></div>
+</div>
+
+<!-- PUBLISH MODAL -->
+<div id="publishModal">
+  <div class="publish-card">
+    <div class="publish-title">🚀 Post to FUMOCA</div>
+    <div class="pub-field">
+      <div class="pub-label">Title</div>
+      <input class="pub-input" id="pubTitle" placeholder="Give your post a title…">
+    </div>
+    <div class="pub-field">
+      <div class="pub-label">Caption</div>
+      <textarea class="pub-input" id="pubCaption" rows="3" placeholder="What's this about?"></textarea>
+    </div>
+    <div class="pub-field">
+      <div class="pub-label">Tags</div>
+      <input class="pub-input" id="pubTags" placeholder="#fumoca #3d #creative">
+    </div>
+    <div class="pub-field">
+      <div class="pub-label">Visibility</div>
+      <select class="pub-input" id="pubVisibility">
+        <option>Public</option>
+        <option>Followers only</option>
+        <option>Private</option>
+      </select>
+    </div>
+    <div class="pub-actions">
+      <button class="ac-btn rose" style="flex:1" id="pubCancelBtn">Cancel</button>
+      <button class="ac-btn lime" style="flex:2" id="pubSubmitBtn">🚀 Post Now</button>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { supabase } from './js/supabaseClient.js';
+
+const $ = id => document.getElementById(id);
+
+// ── STATE ────────────────────────────────────────────────────────────────────
+const S = {
+  file: null, fileType: '', fileUrl: '', fileName: '',
+  isVideo: false, duration: 0,
+  brightness: 0, contrast: 0, saturation: 0, exposure: 0, temperature: 0,
+  vignette: 0, grain: 0, ca: 0, bloom: 0, glitch: 0,
+  hue: 0, lum: 0,
+  volume: 1, musicVolume: 0.8, muted: false,
+  speed: 1, scale: 1, rotation: 0, flipH: false, flipV: false,
+  activeLut: 'none', activeFilter: 'none',
+  overlays: [], selectedOverlay: null,
+  textContent: '', textSize: 28, textColor: '#ffffff', textBg: 'none', textFont: 'bold',
+  selectedAudio: null,
+};
+
+function setStatus(msg, type=''){$('statusText').textContent=msg;$('statusBar').className=type||''}
+function setProgress(pct){$('progressBar').style.width=pct+'%';if(pct>=100)setTimeout(()=>$('progressBar').style.width='0%',600)}
+function showToast(title,msg='',type='cyan'){const t=$('toast');$('toastTitle').textContent=title;$('toastMsg').textContent=msg;t.className=`show ${type}`;clearTimeout(t._timer);t._timer=setTimeout(()=>t.className='',3000)}
+
+// ── LOAD FILE ────────────────────────────────────────────────────────────────
+async function loadFile(file) {
+  S.file=file;S.fileName=file.name;
+  const ext=file.name.split('.').pop().toLowerCase();
+  S.isVideo=['mp4','mov','webm','m4v','avi','mkv'].includes(ext);
+  S.fileType=S.isVideo?'video':'image';
+  setStatus(`Loading ${file.name}…`,'busy');setProgress(20);
+  const url=URL.createObjectURL(file);S.fileUrl=url;
+  $('fileName').textContent=file.name;
+  if(S.isVideo){
+    const v=$('videoEl');v.src=url;v.style.display='block';
+    $('mediaCanvas').style.display='none';
+    await new Promise(res=>{v.onloadedmetadata=()=>{S.duration=v.duration;res()}});
+    $('fileMeta').textContent=`Video · ${formatTime(S.duration)} · ${file.size>1024*1024?(file.size/1024/1024).toFixed(1)+' MB':(file.size/1024).toFixed(0)+' KB'}`;
+    ['trimEnd'].forEach(id=>{$(id).value=100});
+    $('trimEndVal').textContent=formatTime(S.duration);
+    $('mainClip').textContent=`🎬 ${file.name.replace(/\.[^.]+$/,'')}`;
+  } else {
+    $('videoEl').style.display='none';
+    $('mediaCanvas').style.display='block';
+    const img=new Image();img.src=url;
+    await new Promise(res=>{img.onload=res});
+    const cv=$('mediaCanvas');
+    cv.width=img.naturalWidth;cv.height=img.naturalHeight;
+    const ctx=cv.getContext('2d');ctx.drawImage(img,0,0);
+    $('fileMeta').textContent=`Image · ${img.naturalWidth}×${img.naturalHeight}px · ${ext.toUpperCase()}`;
+    $('mainClip').textContent=`📸 ${file.name.replace(/\.[^.]+$/,'')}`;
+  }
+  setProgress(100);setStatus(`Loaded: ${file.name}`,'ok');
+  enableButtons();
+  showToast('File Loaded',file.name,'cyan');
+}
+
+function formatTime(s){
+  if(!s||isNaN(s))return '0:00';
+  const m=Math.floor(s/60),sec=Math.floor(s%60);
+  return `${m}:${sec.toString().padStart(2,'0')}`;
+}
+
+function enableButtons(){
+  ['exportVideoBtn','exportFrameBtn','publishBtn','publishBtn2'].forEach(id=>{const el=$(id);if(el)el.disabled=false});
+}
+
+// ── PLAYBACK ─────────────────────────────────────────────────────────────────
+$('tlPlay').addEventListener('click',()=>{
+  const v=$('videoEl');
+  if(!v.src)return;
+  if(v.paused){v.play();$('tlPlay').textContent='⏸';}
+  else{v.pause();$('tlPlay').textContent='▶';}
+});
+$('tlStop').addEventListener('click',()=>{
+  const v=$('videoEl');v.pause();v.currentTime=0;$('tlPlay').textContent='▶';$('tlTime').textContent='0:00.000';
+});
+$('videoEl').addEventListener('timeupdate',()=>{
+  const v=$('videoEl'),t=v.currentTime,d=v.duration||1;
+  $('tlTime').textContent=formatTime(t)+'.000';
+  const pct=(t/d*100).toFixed(1);
+  $('tlPlayhead').style.left=pct+'%';
+});
+
+// ── TEXT OVERLAYS ────────────────────────────────────────────────────────────
+let nextTextId=1;
+function addTextOverlay(){
+  const vp=$('viewport');
+  const overlay=document.createElement('div');overlay.className='text-overlay';
+  const id='text-'+nextTextId++;
+  overlay.id=id;
+  overlay.textContent=S.textContent||'Your Text Here';
+  overlay.style.left='50%';overlay.style.top='50%';
+  overlay.style.transform='translate(-50%,-50%)';
+  overlay.style.color=S.textColor;
+  overlay.style.fontSize=S.textSize+'px';
+  if(S.textBg==='dark')overlay.style.background='rgba(0,0,0,.6)';
+  else if(S.textBg==='neon')overlay.style.background='rgba(212,255,0,.2)';
+  // Del handle
+  const del=document.createElement('div');del.className='del-handle';del.textContent='×';
+  del.addEventListener('click',()=>{overlay.remove();});
+  overlay.appendChild(del);
+  // Drag
+  let ox=0,oy=0,drag=false;
+  overlay.addEventListener('pointerdown',e=>{drag=true;ox=e.clientX-overlay.getBoundingClientRect().left;oy=e.clientY-overlay.getBoundingClientRect().top;overlay.style.transform='none';overlay.setPointerCapture(e.pointerId);});
+  overlay.addEventListener('pointermove',e=>{if(!drag)return;const vpR=vp.getBoundingClientRect();overlay.style.left=(e.clientX-vpR.left-ox)+'px';overlay.style.top=(e.clientY-vpR.top-oy)+'px';});
+  overlay.addEventListener('pointerup',()=>{drag=false;});
+  $('overlaysContainer').appendChild(overlay);
+  S.overlays.push(id);
+  setStatus('Text overlay added — drag to position','ok');
+  showToast('Text Added','Drag to position it');
+}
+$('addTextBtn').addEventListener('click',addTextOverlay);
+$('applyTextBtn').addEventListener('click',()=>{
+  S.textContent=$('textContent').value;S.textSize=parseInt($('textSizeRange').value);S.textColor=$('textColor').value;
+  document.querySelectorAll('.text-overlay').forEach(ov=>{
+    ov.textContent=S.textContent||ov.textContent;
+    ov.style.color=S.textColor;ov.style.fontSize=S.textSize+'px';
+    const del=document.createElement('div');del.className='del-handle';del.textContent='×';
+    del.addEventListener('click',()=>ov.remove());
+    ov.appendChild(del);
+  });
+  showToast('Style Applied');
+});
+$('textSizeRange').addEventListener('input',e=>{$('textSizeVal').textContent=e.target.value+'px';});
+$('textBgNone').addEventListener('click',()=>{S.textBg='none';});
+$('textBgDark').addEventListener('click',()=>{S.textBg='dark';});
+$('textBgNeon').addEventListener('click',()=>{S.textBg='neon';});
+$('autoCaptionBtn').addEventListener('click',()=>showToast('Auto Captions','Connect an AI transcription service to enable this'));
+
+// ── CANVAS FILTER RENDERING ──────────────────────────────────────────────────
+function applyFiltersToCanvas(){
+  const cv=$('mediaCanvas');const ctx=cv.getContext('2d');
+  if(!S.fileUrl||S.isVideo)return;
+  const img=new Image();img.src=S.fileUrl;
+  img.onload=()=>{
+    ctx.save();
+    ctx.filter=[
+      `brightness(${1+S.brightness/100})`,
+      `contrast(${1+S.contrast/100})`,
+      `saturate(${1+S.saturation/100})`,
+      `hue-rotate(${S.hue}deg)`,
+    ].join(' ');
+    ctx.clearRect(0,0,cv.width,cv.height);
+    if(S.flipH||S.flipV){ctx.scale(S.flipH?-1:1,S.flipV?-1:1);ctx.translate(S.flipH?-cv.width:0,S.flipV?-cv.height:0);}
+    ctx.drawImage(img,0,0);
+    ctx.restore();
+    // Vignette overlay
+    if(S.vignette>0){
+      const grd=ctx.createRadialGradient(cv.width/2,cv.height/2,cv.width*0.3,cv.width/2,cv.height/2,cv.width*0.7);
+      grd.addColorStop(0,'rgba(0,0,0,0)');grd.addColorStop(1,`rgba(0,0,0,${S.vignette/100})`);
+      ctx.fillStyle=grd;ctx.fillRect(0,0,cv.width,cv.height);
+    }
+  };
+}
+
+// ── VIDEO FILTERS ────────────────────────────────────────────────────────────
+function applyVideoFilters(){
+  const v=$('videoEl');
+  v.style.filter=[
+    `brightness(${1+S.brightness/100})`,
+    `contrast(${1+S.contrast/100})`,
+    `saturate(${1+S.saturation/100})`,
+    `hue-rotate(${S.hue}deg)`,
+  ].join(' ');
+  if(S.flipH||S.flipV)v.style.transform=`scale(${S.flipH?-1:1},${S.flipV?-1:1}) rotate(${S.rotation}deg)`;
+  else v.style.transform=`rotate(${S.rotation}deg) scale(${S.scale})`;
+}
+
+// ── FILTER PRESETS ───────────────────────────────────────────────────────────
+const FILTERS=[
+  {name:'Original',css:''},
+  {name:'Cinematic',css:'contrast(1.1) saturate(0.85) brightness(0.95)'},
+  {name:'Moody',css:'contrast(1.15) saturate(0.7) brightness(0.85) sepia(0.1)'},
+  {name:'Vibrant',css:'saturate(1.6) contrast(1.05)'},
+  {name:'B&W',css:'grayscale(1) contrast(1.1)'},
+  {name:'Vintage',css:'sepia(0.5) contrast(1.05) brightness(0.95)'},
+  {name:'Neon',css:'saturate(1.8) hue-rotate(15deg) brightness(1.1) contrast(1.1)'},
+  {name:'Cold',css:'saturate(0.9) hue-rotate(-15deg) brightness(1.05)'},
+  {name:'Warm',css:'saturate(1.1) hue-rotate(10deg) brightness(1.02)'},
+  {name:'Fade',css:'contrast(0.85) brightness(1.1) saturate(0.75)'},
+  {name:'Punch',css:'contrast(1.25) saturate(1.3) brightness(1.02)'},
+  {name:'Golden',css:'saturate(1.2) hue-rotate(20deg) brightness(1.1) sepia(0.15)'},
+];
+const fg=document.getElementById('filterGrid');
+FILTERS.forEach((f,i)=>{
+  const tile=document.createElement('div');tile.className='filter-tile'+(i===0?' active':'');
+  tile.innerHTML=`<div class="filter-tile-preview" style="filter:${f.css}">Aa</div><div class="filter-tile-label">${f.name}</div>`;
+  tile.addEventListener('click',()=>{
+    document.querySelectorAll('.filter-tile').forEach(t=>t.classList.remove('active'));
+    tile.classList.add('active');S.activeFilter=f.name;
+    const target=S.isVideo?$('videoEl'):$('mediaCanvas');
+    if(S.isVideo){$('videoEl').style.filter=f.css;}
+    else{const img=new Image();img.src=S.fileUrl;img.onload=()=>{const cv=$('mediaCanvas');cv.getContext('2d').filter=f.css||'none';cv.getContext('2d').drawImage(img,0,0);}}
+    showToast('Filter: '+f.name);
+  });
+  fg.appendChild(tile);
+});
+
+// ── LUT PRESETS ──────────────────────────────────────────────────────────────
+document.querySelectorAll('[data-lut]').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    document.querySelectorAll('[data-lut]').forEach(b=>b.classList.remove('active','cyan'));
+    btn.classList.add('active','cyan');S.activeLut=btn.dataset.lut;
+    showToast('LUT: '+btn.textContent.trim());
+  });
+});
+
+// ── SPEED BUTTONS ────────────────────────────────────────────────────────────
+document.querySelectorAll('[data-speed]').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    document.querySelectorAll('[data-speed]').forEach(b=>b.classList.remove('active','cyan'));
+    btn.classList.add('active','cyan');
+    const speed=parseFloat(btn.dataset.speed);S.speed=speed;
+    $('videoEl').playbackRate=speed;
+    $('speedVal').textContent=speed+'×';
+    showToast('Speed: '+speed+'×');
+  });
+});
+$('speedRange').addEventListener('input',e=>{
+  const speeds=[0.25,0.5,0.75,1,1.5,2,3,4];
+  const idx=Math.min(speeds.length-1,parseInt(e.target.value)-1);
+  S.speed=speeds[idx];$('videoEl').playbackRate=S.speed;
+  $('speedVal').textContent=S.speed+'×';
+});
+
+// ── RANGE BINDINGS ───────────────────────────────────────────────────────────
+const adjBindings=[
+  ['adjBr','adjBrVal','brightness',v=>v,''],
+  ['adjCon','adjConVal','contrast',v=>v,''],
+  ['adjSat','adjSatVal','saturation',v=>v,''],
+  ['adjExp','adjExpVal','exposure',v=>v,''],
+  ['adjTemp','adjTempVal','temperature',v=>v,'amber'],
+  ['adjShp','adjShpVal','sharpness',v=>v,'lime'],
+  ['adjVig','adjVigVal','vignette',v=>v,'violet'],
+];
+adjBindings.forEach(([id,valId,key,fmt,cls])=>{
+  const el=$(id);const vel=$(valId);if(!el)return;
+  el.addEventListener('input',e=>{const v=Number(e.target.value);if(vel)vel.textContent=v;S[key]=v;if(S.isVideo)applyVideoFilters();else applyFiltersToCanvas();});
+});
+
+function bindRange(id,valId,onChange,fmt2=v=>v){
+  const el=$(id),vEl=$(valId);if(!el)return;
+  el.addEventListener('input',e=>{const v=Number(e.target.value);if(vEl)vEl.textContent=fmt2(v);if(onChange)onChange(v);});
+}
+bindRange('volRange','volVal',v=>{S.volume=v/100;$('videoEl').volume=Math.min(1,v/100);},v=>v+'%');
+bindRange('musicVolRange','musicVolVal',v=>{S.musicVolume=v/100;},v=>v+'%');
+bindRange('bloomRange','bloomVal',null,v=>v+'%');
+bindRange('mbRange','mbVal',null,v=>v+'%');
+bindRange('mbDirRange','mbDirVal',null,v=>v+'°');
+bindRange('grainRange','grainVal',null,v=>v+'%');
+bindRange('vigRange','vigVal',v=>{S.vignette=v;if(!S.isVideo)applyFiltersToCanvas();},v=>v+'%');
+bindRange('caRange','caVal',null,v=>v+'%');
+bindRange('glitchRange','glitchVal',null,v=>v+'%');
+bindRange('hueRange','hueVal',v=>{S.hue=v;if(S.isVideo)applyVideoFilters();else applyFiltersToCanvas();},v=>v+'°');
+bindRange('satRange2','satVal2',null,v=>v);
+bindRange('lumRange','lumVal',null,v=>v);
+bindRange('lutStr','lutStrVal',null,v=>v+'%');
+bindRange('scaleRange','scaleVal',v=>{S.scale=v/100;applyVideoFilters();},v=>v+'%');
+bindRange('rotRange','rotVal',v=>{S.rotation=v;applyVideoFilters();},v=>v+'°');
+
+// ── FLIP ─────────────────────────────────────────────────────────────────────
+$('flipH').addEventListener('click',()=>{S.flipH=!S.flipH;applyVideoFilters();showToast(S.flipH?'Flipped H':'Unflipped H');});
+$('flipV').addEventListener('click',()=>{S.flipV=!S.flipV;applyVideoFilters();showToast(S.flipV?'Flipped V':'Unflipped V');});
+$('muteBtn').addEventListener('click',()=>{S.muted=!S.muted;$('videoEl').muted=S.muted;$('muteBtn').textContent=S.muted?'🔊 Unmute':'🔇 Mute';});
+$('reverseBtn').addEventListener('click',()=>showToast('Reverse','Requires server-side FFmpeg processing'));
+
+// ── ASPECT RATIO ─────────────────────────────────────────────────────────────
+document.querySelectorAll('.ar-tile').forEach(tile=>{
+  tile.addEventListener('click',()=>{document.querySelectorAll('.ar-tile').forEach(t=>t.classList.remove('active'));tile.classList.add('active');showToast('Aspect: '+tile.dataset.ar);});
+});
+// Toolbar format buttons
+[['fmt916','9:16'],['fmt169','16:9'],['fmt11','1:1'],['fmt45','4:5']].forEach(([id,ar])=>{
+  $(id)?.addEventListener('click',()=>{
+    document.querySelectorAll('#toolbar .tool-btn').forEach(b=>{if(['fmt916','fmt169','fmt11','fmt45'].includes(b.id))b.className='tool-btn'});
+    $(id).className='tool-btn active-lime';
+    showToast('Format: '+ar+' '+({' 9:16':'TikTok/Reels','16:9':'YouTube','1:1':'Instagram','4:5':'Portrait'}[ar]||''));
+  });
+});
+
+// ── MUSIC TRACKS ─────────────────────────────────────────────────────────────
+const TRACKS=[
+  {name:'Synthwave Drive',dur:'3:24',genre:'Electronic'},
+  {name:'Chill Lo-fi Beat',dur:'2:58',genre:'Lo-fi'},
+  {name:'Epic Cinematic',dur:'4:10',genre:'Cinematic'},
+  {name:'Trap Banger',dur:'2:42',genre:'Hip-Hop'},
+  {name:'Acoustic Vibes',dur:'3:05',genre:'Acoustic'},
+  {name:'Future Bass',dur:'2:30',genre:'Dance'},
+];
+const tl=document.getElementById('tracksList');
+TRACKS.forEach(t=>{
+  const row=document.createElement('div');row.className='track-row';
+  row.innerHTML=`<div class="track-icon">🎵</div><div class="track-meta"><div class="track-name">${t.name}</div><div class="track-dur">${t.dur} · ${t.genre}</div></div><button class="ac-btn amber" style="padding:5px 10px;font-size:10px">Use</button>`;
+  row.querySelector('button').addEventListener('click',e=>{
+    document.querySelectorAll('.track-row').forEach(r=>r.classList.remove('active'));
+    row.classList.add('active');S.selectedAudio=t;
+    $('selectedTrackSection').style.display='block';
+    $('nowPlayingName').textContent=t.name;
+    $('audioTrackRow').style.display='flex';
+    $('audioClip').textContent=`🎵 ${t.name}`;
+    showToast('Track Added',t.name,'cyan');
+  });
+  tl.appendChild(row);
+});
+$('uploadAudioBtn').addEventListener('click',()=>$('audioInput').click());
+$('audioInput').addEventListener('change',e=>{const f=e.target.files?.[0];if(f)showToast('Audio Added',f.name);});
+$('removeAudioBtn')?.addEventListener('click',()=>{S.selectedAudio=null;$('selectedTrackSection').style.display='none';$('audioTrackRow').style.display='none';document.querySelectorAll('.track-row').forEach(r=>r.classList.remove('active'));showToast('Audio Removed');});
+
+// ── SECTION TOGGLES ─────────────────────────────────────────────────────────
+document.querySelectorAll('.sec-head').forEach(h=>h.addEventListener('click',()=>h.closest('.section')?.classList.toggle('collapsed')));
+
+// ── PANEL TABS ───────────────────────────────────────────────────────────────
+$('leftTabs').querySelectorAll('.ptab').forEach(tab=>{
+  tab.addEventListener('click',()=>{
+    $('leftTabs').querySelectorAll('.ptab').forEach(t=>t.classList.remove('active'));tab.classList.add('active');
+    ['import','filters','text','music'].forEach(t=>{const el=$('ltab-'+t);if(el)el.style.display=t===tab.dataset.ltab?'block':'none';});
+  });
+});
+$('rightTabs').querySelectorAll('.ptab').forEach(tab=>{
+  tab.addEventListener('click',()=>{
+    $('rightTabs').querySelectorAll('.ptab').forEach(t=>t.classList.remove('active'));tab.classList.add('active');
+    ['color','effects','ar','export'].forEach(t=>{const el=$('rtab-'+t);if(el)el.style.display=t===tab.dataset.rtab?'block':'none';});
+  });
+});
+
+// ── FILE OPEN ────────────────────────────────────────────────────────────────
+$('openBtn').addEventListener('click',()=>$('fileInput').click());
+$('fileInput').addEventListener('change',async e=>{const f=e.target.files?.[0];if(f)await loadFile(f);});
+['dragenter','dragover'].forEach(t=>window.addEventListener(t,e=>{e.preventDefault();document.body.classList.add('drag-on')}));
+['dragleave','drop'].forEach(t=>window.addEventListener(t,e=>{e.preventDefault();document.body.classList.remove('drag-on')}));
+window.addEventListener('drop',async e=>{const f=e.dataTransfer?.files?.[0];if(f)await loadFile(f);});
+$('dropZone').addEventListener('click',()=>$('fileInput').click());
+
+// ── SCREENSHOT ───────────────────────────────────────────────────────────────
+$('screenshotBtn').addEventListener('click',()=>{
+  if(S.isVideo){
+    const cv=document.createElement('canvas');cv.width=$('videoEl').videoWidth;cv.height=$('videoEl').videoHeight;
+    cv.getContext('2d').drawImage($('videoEl'),0,0);
+    const a=document.createElement('a');a.href=cv.toDataURL();a.download='fumoca_frame.png';a.click();
+  } else {
+    const a=document.createElement('a');a.href=$('mediaCanvas').toDataURL();a.download='fumoca_edit.png';a.click();
+  }
+  showToast('📸 Snapshot saved!');
+});
+
+// ── TRIM DISPLAY ─────────────────────────────────────────────────────────────
+$('trimStart').addEventListener('input',e=>{
+  const v=Number(e.target.value)/100*S.duration;$('trimStartVal').textContent=formatTime(v);
+  if(S.isVideo)$('videoEl').currentTime=v;
+});
+$('trimEnd').addEventListener('input',e=>{
+  const v=Number(e.target.value)/100*S.duration;$('trimEndVal').textContent=formatTime(v);
+});
+
+// ── EXPORT ───────────────────────────────────────────────────────────────────
+$('exportVideoBtn').addEventListener('click',()=>{
+  if(!S.fileUrl){showToast('No file loaded','','warn');return;}
+  if(!window.MediaRecorder){showToast('Export','MediaRecorder not available — download the file directly','warn');return;}
+  showToast('Exporting…','This may take a moment');
+  setTimeout(()=>{const a=document.createElement('a');a.href=S.fileUrl;a.download=S.fileName.replace(/\.[^.]+$/,'.export.webm');a.click();showToast('Exported','File downloaded');},500);
+});
+$('exportFrameBtn').addEventListener('click',()=>$('screenshotBtn').click());
+
+// ── PUBLISH ──────────────────────────────────────────────────────────────────
+[$('publishBtn'),$('publishBtn2')].forEach(btn=>{
+  btn?.addEventListener('click',()=>{$('publishModal').classList.add('open');});
+});
+$('pubCancelBtn').addEventListener('click',()=>$('publishModal').classList.remove('open'));
+$('pubSubmitBtn').addEventListener('click',async()=>{
+  const title=$('pubTitle').value.trim();if(!title){showToast('Add a title first','','warn');return;}
+  $('pubSubmitBtn').textContent='Posting…';$('pubSubmitBtn').disabled=true;
+  try{
+    const {data:{user}}=await supabase.auth.getUser();
+    if(!user)throw new Error('Not logged in');
+    const {error}=await supabase.from('splats').insert({
+      user_id:user.id,title,description:$('pubCaption').value,
+      tags:$('pubTags').value.split(' ').filter(Boolean),
+      status:'done',media_type:S.fileType,
+      created_at:new Date().toISOString()
+    });
+    if(error)throw error;
+    $('publishModal').classList.remove('open');
+    showToast('🚀 Posted!','Your content is live on FUMOCA','cyan');
+    setTimeout(()=>window.location.href='feed.html',2000);
+  }catch(err){
+    showToast('Post Failed',err.message,'warn');
+    $('pubSubmitBtn').textContent='🚀 Post Now';$('pubSubmitBtn').disabled=false;
+  }
+});
+
+// ── VIEW CONTROLS ────────────────────────────────────────────────────────────
+$('viewFull')?.addEventListener('click',()=>{if(!document.fullscreenElement)document.documentElement.requestFullscreen().catch(()=>{});else document.exitFullscreen().catch(()=>{});});
+$('viewGrid')?.addEventListener('click',()=>{$('viewGrid').classList.toggle('active');});
+
+// ── TOOLBAR SELECT ───────────────────────────────────────────────────────────
+['toolSelect','toolCrop','toolRotateTool','toolText','toolSticker','toolDraw','toolTrim','toolSplit','toolSpeed'].forEach(id=>{
+  $(id)?.addEventListener('click',()=>{
+    ['toolSelect','toolCrop','toolRotateTool','toolText','toolSticker','toolDraw','toolTrim','toolSplit','toolSpeed'].forEach(i=>$(i)?.classList.remove('active'));
+    $(id)?.classList.add('active');
+    if(id==='toolText')addTextOverlay();
+  });
+});
+
+// ── URL BOOTSTRAP (from feed "Edit Media" button) ───────────────────────────
+(async()=>{
+  const params=new URLSearchParams(location.search);
+  const fileUrl=params.get('file');
+  if(!fileUrl)return;
+  try{
+    setStatus('Loading from URL…','busy');setProgress(20);
+    const res=await fetch(fileUrl);
+    if(!res.ok)throw new Error('Fetch failed: '+res.status);
+    const blob=await res.blob();
+    const name=decodeURIComponent((fileUrl.split('/').pop()||'media').split('?')[0]);
+    await loadFile(new File([blob],name,{type:blob.type||'video/mp4'}));
+  }catch(err){setStatus('Load failed: '+err.message,'warn');}
+})();
+
+setStatus('Ready — drop a video or photo to start editing');
+</script>
+</body>
+</html>

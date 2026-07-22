@@ -1,0 +1,1 @@
+console.log('FUMOCA upload page loaded');

@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>FUMOCA Embed</title>
+  <script src="../config.js"></script>
+  <style>
+    html,body,iframe{width:100%;height:100%;margin:0;border:0;background:#05070b;overflow:hidden}
+    body{font-family:Arial,sans-serif}
+  </style>
+</head>
+<body>
+  <iframe id="embedFrame" allow="autoplay; fullscreen; web-share" allowfullscreen loading="eager"></iframe>
+  <script>
+    (async () => {
+      const p = new URLSearchParams(location.search);
+      const teaserMode = p.get('mode') === 'teaser' || p.get('teaser') === '1' || p.get('preview') === '1';
+      if (teaserMode) {
+        p.delete('mode');
+        p.delete('teaser');
+        p.delete('preview');
+        document.getElementById('embedFrame').src = `../public-preview.html?${p.toString()}`;
+        return;
+      }
+
+      const token = p.get('token');
+      if (token) {
+        // Resolve the embed token → splat_id via the real embeds table, and
+        // track the view. If the table/token isn't found (e.g. this
+        // migration hasn't been run yet), fail loud in the console instead
+        // of silently rendering nothing.
+        try {
+          const cfg = window.FUMOCA_CONFIG || {};
+          const base = cfg.supabaseUrl, key = cfg.supabaseAnonKey;
+          const r = await fetch(`${base}/rest/v1/embeds?token=eq.${encodeURIComponent(token)}&select=splat_id,allowed_origins`, {
+            headers: { apikey: key, Authorization: `Bearer ${key}` },
+          });
+          const rows = r.ok ? await r.json() : [];
+          if (!rows[0]) {
+            document.body.innerHTML = '<p style="color:#fff;font:14px sans-serif;padding:24px">This embed link is invalid or has been revoked.</p>';
+            return;
+          }
+          const { splat_id, allowed_origins } = rows[0];
+          if (Array.isArray(allowed_origins) && allowed_origins.length && document.referrer) {
+            const refOrigin = new URL(document.referrer).origin;
+            if (!allowed_origins.includes(refOrigin)) {
+              document.body.innerHTML = '<p style="color:#fff;font:14px sans-serif;padding:24px">This embed isn\'t authorized for this site.</p>';
+              return;
+            }
+          }
+          // Fire-and-forget view tracking — don't block render on it
+          fetch(`${base}/rest/v1/rpc/increment_embed_view`, {
+            method: 'POST',
+            headers: { apikey: key, Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ p_token: token }),
+          }).catch(() => {});
+
+          p.delete('token');
+          p.set('id', splat_id);
+        } catch (err) {
+          console.error('[embed] token resolution failed:', err);
+          document.body.innerHTML = '<p style="color:#fff;font:14px sans-serif;padding:24px">Couldn\'t load this embed right now.</p>';
+          return;
+        }
+      }
+
+      p.set('embed','1');
+      // sdk/fumoca-embed.js sends the product identifier as ?splatId= (matching
+      // its own data-splat-id attribute name), but viewer-core.html only reads
+      // ?id=. Normalize here so both naming conventions actually work.
+      if (p.get('splatId') && !p.get('id')) {
+        p.set('id', p.get('splatId'));
+        p.delete('splatId');
+      }
+      // Pass the embedding page URL as ?back= so the full viewer's back button
+      // returns the user to the site they came from, not a blank history entry.
+      if (document.referrer && !p.get('back')) {
+        p.set('back', document.referrer);
+      }
+      if (!p.get('quality')) {
+        const isMobile = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
+        p.set('quality', isMobile ? 'mobile' : 'full');
+      }
+      // viewer-core.html is the lean public embed — no auth, no dashboard UI
+      document.getElementById('embedFrame').src = `../viewer-core.html?${p.toString()}`;
+    })();
+  </script>
+</body>
+</html>

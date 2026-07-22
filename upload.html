@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="manifest" href="/manifest.json">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FUMOCA — Create Capture</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/dashboard.css">
+<script src="config.js"></script>
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/nav.css">
+<script src="js/modules/nav.js" defer></script>
+</head>
+<body>
+<div class="app-shell">
+<main class="main-content">
+  <div class="topbar">
+    <div class="search-bar"><span>🔍</span><input placeholder="Search or navigate..."></div>
+  </div>
+  <div class="page-body">
+    <div class="page-header">
+      <div class="page-kicker">Create</div>
+      <div class="page-title">UPLOAD SOURCE VIDEO</div>
+    </div>
+    
+<div class="grid-2">
+  <section class="panel">
+    <p class="page-sub" style="margin-top:0;margin-bottom:18px">Upload a source video or register a finished splat from another provider. Feed cards, thumbnails, teaser videos and interactive viewer links now share the same publishing flow.</p>
+
+    <div class="panel" style="margin-bottom:18px;">
+      <label style="margin-bottom:10px;display:block;">Creation mode</label>
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;">
+        <button type="button" id="modePipelineBtn" class="mode-btn" onclick="setUploadMode('pipeline')" style="padding:14px 16px;border-radius:14px;border:1px solid rgba(200,255,0,.3);background:rgba(200,255,0,.08);color:#C8FF00;font-weight:700;cursor:pointer;">🎬 Process from video</button>
+        <button type="button" id="modePhotosBtn" class="mode-btn" onclick="setUploadMode('photos')" style="padding:14px 16px;border-radius:14px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);color:#FAFAFA;font-weight:700;cursor:pointer;">📸 Process from photos</button>
+        <button type="button" id="modePlyBtn" class="mode-btn" onclick="setUploadMode('ply')" style="padding:14px 16px;border-radius:14px;border:1px solid rgba(0,229,255,.3);background:rgba(0,229,255,.06);color:#0ef;font-weight:700;cursor:pointer;">📂 Upload .ply directly</button>
+        <button type="button" id="modeExternalBtn" class="mode-btn" onclick="setUploadMode('external')" style="padding:14px 16px;border-radius:14px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);color:#FAFAFA;font-weight:700;cursor:pointer;">🧊 Publish finished splat</button>
+      </div>
+    </div>
+
+    <div class="panel" id="uploadZone" onclick="window.currentUploadMode !== 'external' && document.getElementById('fileInput').click()"
+         ondragover="handleDragOver(event)" ondrop="handleDrop(event)"
+         ondragleave="this.classList.remove('dragover')"
+         style="border:2px dashed rgba(255,255,255,0.15); background:rgba(255,255,255,.02); cursor:pointer; text-align:center; padding:44px 28px; margin-bottom:20px;">
+      <div id="uploadIcon" style="font-size:38px; margin-bottom:10px;">🎬</div>
+      <div id="uploadTitle" style="font-size:22px; font-weight:800; margin-bottom:8px;">Drop your video here</div>
+      <div id="uploadSub" class="muted">MP4, MOV, AVI up to 2GB<br>Walk slowly around your subject. 30–90 seconds works best.</div>
+      <input type="file" id="fileInput" accept="video/*" onchange="handleFileSelect(this)" style="display:none">
+    </div>
+
+    <div class="grid-2" style="grid-template-columns:repeat(3,1fr); margin-bottom:20px;">
+      <div class="info-card"><strong style="font-size:20px">🚶</strong><span class="muted">Move slowly around the subject</span></div>
+      <div class="info-card"><strong style="font-size:20px">☀️</strong><span class="muted">Use even, stable lighting</span></div>
+      <div class="info-card"><strong style="font-size:20px">📐</strong><span class="muted">Keep subject filling the frame</span></div>
+    </div>
+
+    <div class="panel">
+      <div class="form-grid">
+        <div>
+          <label>Title</label>
+          <input type="text" id="splatTitle" placeholder="Give your splat a strong title">
+        </div>
+        <div>
+          <label>Category</label>
+          <select id="splatCategory">
+            <option value="other">Other</option>
+            <option value="fashion">Fashion</option>
+            <option value="product">Product</option>
+            <option value="travel">Travel</option>
+            <option value="art">Art</option>
+            <option value="architecture">Architecture</option>
+            <option value="music">Music</option>
+            <option value="food">Food</option>
+          </select>
+        </div>
+      </div>
+
+      <div style="margin-top:16px">
+        <label>Description</label>
+        <textarea id="splatDesc" rows="4" placeholder="What are viewers seeing, buying, or exploring?"></textarea>
+      </div>
+
+      <div style="margin-top:16px">
+        <label>Tags</label>
+        <div id="tagsWrap" style="display:flex;gap:8px;flex-wrap:wrap;padding:10px 12px;border-radius:14px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);">
+          <input id="tagInput" placeholder="Press enter to add tags" style="min-width:140px;border:none;background:none;padding:6px 4px;">
+        </div>
+      </div>
+
+      <div style="margin-top:16px">
+        <label>Visibility</label>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">
+          <div class="vis-option selected" onclick="selectVis(this,'public')" style="padding:12px;border-radius:12px;background:rgba(200,255,0,.08);border:1px solid var(--neon);text-align:center;cursor:pointer;">🌍<br>Public</div>
+          <div class="vis-option" onclick="selectVis(this,'followers')" style="padding:12px;border-radius:12px;background:var(--glass);border:1px solid var(--glass-border);text-align:center;cursor:pointer;">👥<br>Followers</div>
+          <div class="vis-option" onclick="selectVis(this,'private')" style="padding:12px;border-radius:12px;background:var(--glass);border:1px solid var(--glass-border);text-align:center;cursor:pointer;">🔒<br>Private</div>
+        </div>
+      </div>
+
+      <div id="externalFields" style="display:none;margin-top:16px;">
+        <label>Provider</label>
+        <input type="text" id="providerName" placeholder="e.g. Luma, Polycam, Scaniverse, artist studio">
+        <div class="form-grid" style="margin-top:16px;">
+          <div>
+            <label>Interactive splat URL</label>
+            <input type="url" id="externalSplatUrl" placeholder="https://.../scene.ksplat or .ply or .splat">
+          </div>
+          <div>
+            <label>Thumbnail URL</label>
+            <input type="url" id="thumbnailUrl" placeholder="https://.../thumbnail.jpg">
+          </div>
+        </div>
+        <div style="margin-top:16px;">
+          <label>Social teaser video URL</label>
+          <input type="url" id="previewVideoUrl" placeholder="https://.../teaser.mp4">
+        </div>
+      </div>
+
+      <div style="margin-top:16px">
+        <label>Monetisation</label>
+        <div onclick="toggleMono('sale')" style="display:flex;justify-content:space-between;gap:16px;padding:16px;border-radius:12px;background:var(--glass);border:1px solid var(--glass-border);cursor:pointer;margin-bottom:12px;">
+          <div><div style="font-weight:700">Sell digital model</div><div class="muted" style="font-size:13px;">Set a price for processed output</div></div>
+          <div id="saleToggle" style="width:44px;height:24px;border-radius:999px;background:rgba(255,255,255,.14);"></div>
+        </div>
+        <div id="priceField" style="display:none; margin-bottom:12px;">
+          <input type="number" id="splatPrice" placeholder="Price in ZAR" min="0" step="10">
+        </div>
+        <div onclick="toggleMono('print')" style="display:flex;justify-content:space-between;gap:16px;padding:16px;border-radius:12px;background:var(--glass);border:1px solid var(--glass-border);cursor:pointer;">
+          <div><div style="font-weight:700">Enable 3D print orders</div><div class="muted" style="font-size:13px;">Allow physical print enquiries later</div></div>
+          <div id="printToggle" style="width:44px;height:24px;border-radius:999px;background:rgba(255,255,255,.14);"></div>
+        </div>
+      </div>
+
+      <div id="msgBox" class="empty-state" style="margin-top:16px;display:none"></div>
+      <div style="margin-top:16px">
+        <button id="submitBtn" onclick="handleSubmit()" disabled><span id="submitLabel">Select a video to start</span></button>
+      </div>
+    </div>
+  </section>
+
+  <aside>
+    <div class="panel">
+      <div class="panel-title">Processing pipeline</div>
+      <div id="progressSection" style="display:none;margin-bottom:16px;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span id="progressLabel">Uploading...</span><span id="progressPct">0%</span></div>
+        <div style="height:10px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden;"><div id="progressFill" style="height:100%;width:0;background:var(--neon)"></div></div>
+      </div>
+      <div class="mini-item" id="step-upload"><div class="mini-item-title">📤 Upload video</div><div class="mini-item-sub">Store source video in Supabase Storage.</div></div>
+      <div class="mini-item" id="step-frames"><div class="mini-item-title">🎞️ Extract frames</div><div class="mini-item-sub">Queued for downstream processing.</div></div>
+      <div class="mini-item" id="step-colmap"><div class="mini-item-title">📍 Pose estimation</div><div class="mini-item-sub">Worker will reconstruct camera positions.</div></div>
+      <div class="mini-item" id="step-train"><div class="mini-item-title">🧠 Train splat</div><div class="mini-item-sub">Gaussian splat generation runs in the worker.</div></div>
+      <div class="mini-item" id="step-export"><div class="mini-item-title">📦 Export</div><div class="mini-item-sub">Processed result is uploaded back to storage.</div></div>
+      <div class="mini-item" id="step-live"><div class="mini-item-title">🌐 Live</div><div class="mini-item-sub">Feed and viewer open your finished result.</div></div>
+    </div>
+  </aside>
+</div>
+<script type="module" src="js/modules/upload-page.js"></script>
+
+  </div>
+</main>
+
+<aside class="right-panel">
+  
+<div class="panel-title">Create</div>
+<div class="side-card">
+  <div class="mini-item">
+    <div class="mini-item-title">Same shell, cleaner flow</div>
+    <div class="mini-item-sub">Upload now matches the rest of the workspace instead of switching to a different page style.</div>
+  </div>
+</div>
+
+</aside>
+</div>
+<script type="module" src="js/modules/dashboard-shell.js"></script>
+</body>
+</html>

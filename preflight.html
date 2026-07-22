@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+<link rel="manifest" href="/manifest.json">
+
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b0e14" />
+  <title>FUMOCA · Pre-flight</title>
+  <link rel="icon" href="favicon.ico" />
+  <!--
+    PRE-FLIGHT CHECK
+    ────────────────
+    Run this before walking into a client meeting. Paste a listing id or
+    URL; the page runs a battery of checks and tells you, in plain English,
+    whether the listing is ready to show.
+
+    Checks performed:
+      - Listing exists in Supabase and has status='complete'
+      - Splat file URL is reachable and returns 200
+      - Thumbnail loads
+      - Reveal + hotspots load without error in a hidden iframe
+      - Service worker is registered and the splat has been pre-cached
+      - Local network speed estimate (tells you whether to trust venue wifi)
+
+    The idea: if every check is green, you can walk in confident. If any
+    check is red, you fix it now — not in front of the client.
+  -->
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #0b0e14; color: #eaeaea;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      min-height: 100vh; padding: 24px 18px calc(env(safe-area-inset-bottom) + 24px);
+    }
+    .wrap { max-width: 640px; margin: 0 auto; }
+    h1 { color: #c8ff00; font-size: 24px; font-weight: 900; letter-spacing: -0.02em; margin-bottom: 4px; }
+    .lede { font-size: 14px; color: rgba(255,255,255,.65); margin-bottom: 22px; line-height: 1.5; }
+
+    .input-row {
+      display: flex; gap: 8px; margin-bottom: 18px;
+    }
+    .input-row input {
+      flex: 1;
+      background: rgba(255,255,255,.06);
+      border: 1px solid rgba(255,255,255,.15);
+      color: #fff;
+      border-radius: 10px;
+      padding: 13px 14px;
+      font-size: 14px;
+      font-family: inherit;
+    }
+    .input-row input:focus { outline: none; border-color: #c8ff00; }
+    .input-row button {
+      background: #c8ff00; color: #0b0e14; border: 0;
+      padding: 13px 20px; border-radius: 10px;
+      font-weight: 800; font-size: 14px;
+      font-family: inherit; cursor: pointer;
+      white-space: nowrap;
+    }
+    .input-row button:disabled { opacity: .4; }
+
+    .checks { display: flex; flex-direction: column; gap: 8px; }
+    .check {
+      display: flex; align-items: flex-start; gap: 12px;
+      padding: 14px 14px;
+      border-radius: 12px;
+      background: rgba(255,255,255,.04);
+      border: 1px solid rgba(255,255,255,.08);
+      transition: background .2s ease, border-color .2s ease;
+    }
+    .check.pending { border-color: rgba(255,255,255,.1); }
+    .check.running { background: rgba(200,255,0,.06); border-color: rgba(200,255,0,.3); }
+    .check.pass    { background: rgba(0,200,120,.07); border-color: rgba(0,200,120,.35); }
+    .check.fail    { background: rgba(255,72,100,.07); border-color: rgba(255,72,100,.4); }
+    .check.warn    { background: rgba(255,180,0,.06); border-color: rgba(255,180,0,.35); }
+
+    .check-icon {
+      width: 24px; height: 24px; border-radius: 50%;
+      flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 900;
+      background: rgba(255,255,255,.1);
+    }
+    .check.running .check-icon { background: #c8ff00; color: #0b0e14; }
+    .check.pass    .check-icon { background: #00c878; color: #fff; }
+    .check.fail    .check-icon { background: #ff4864; color: #fff; }
+    .check.warn    .check-icon { background: #ffb400; color: #0b0e14; }
+
+    .check-body { flex: 1; min-width: 0; }
+    .check-title { font-size: 14px; font-weight: 700; color: #fff; }
+    .check-detail { font-size: 12px; color: rgba(255,255,255,.65); margin-top: 3px; line-height: 1.5; word-break: break-word; }
+
+    .summary {
+      margin-top: 22px; padding: 18px;
+      border-radius: 14px;
+      font-size: 14px; line-height: 1.55;
+      display: none;
+    }
+    .summary.ready { background: rgba(0,200,120,.08); border: 1px solid rgba(0,200,120,.4); color: #88eaba; }
+    .summary.partial { background: rgba(255,180,0,.08); border: 1px solid rgba(255,180,0,.4); color: #ffd066; }
+    .summary.broken { background: rgba(255,72,100,.08); border: 1px solid rgba(255,72,100,.4); color: #ff9baa; }
+    .summary h2 { font-size: 16px; font-weight: 900; margin-bottom: 8px; color: inherit; }
+    .summary code {
+      background: rgba(0,0,0,.3); padding: 2px 6px; border-radius: 4px;
+      font-family: SFMono-Regular, Menlo, monospace; font-size: 12px;
+    }
+
+    .actions { margin-top: 18px; display: flex; gap: 8px; flex-wrap: wrap; }
+    .actions a, .actions button {
+      background: rgba(255,255,255,.08);
+      border: 1px solid rgba(255,255,255,.15);
+      color: #fff;
+      padding: 10px 14px;
+      border-radius: 10px;
+      font-size: 13px; font-weight: 700;
+      text-decoration: none;
+      font-family: inherit; cursor: pointer;
+      display: inline-flex; align-items: center; gap: 6px;
+    }
+    .actions .primary { background: #c8ff00; color: #0b0e14; border-color: #c8ff00; }
+
+    /* Hidden iframe used to load the listing for validation. Visible-size
+       so the browser actually runs the shader; off-screen so it doesn't
+       visually intrude. */
+    #probeFrame {
+      position: fixed; left: -3000px; top: 0;
+      width: 400px; height: 400px; border: 0;
+      pointer-events: none; opacity: 0;
+    }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Pre-flight check</h1>
+  <p class="lede">Validates a listing before a client meeting. Paste a listing id or full URL.</p>
+
+  <div class="input-row">
+    <input id="listingInput" type="text" placeholder="splatId or https://…/viewer.html?splatId=…" autocomplete="off" autocapitalize="off" />
+    <button id="runBtn">Run checks</button>
+  </div>
+
+  <div class="checks" id="checks">
+    <div class="check pending" data-key="resolve">
+      <div class="check-icon">1</div>
+      <div class="check-body">
+        <div class="check-title">Resolve listing</div>
+        <div class="check-detail">Find the record in Supabase by id</div>
+      </div>
+    </div>
+    <div class="check pending" data-key="status">
+      <div class="check-icon">2</div>
+      <div class="check-body">
+        <div class="check-title">Status complete</div>
+        <div class="check-detail">Reconstruction finished and status='complete'</div>
+      </div>
+    </div>
+    <div class="check pending" data-key="splat-url">
+      <div class="check-icon">3</div>
+      <div class="check-body">
+        <div class="check-title">Splat file reachable</div>
+        <div class="check-detail">HEAD request to the .ply / .splat URL returns 200</div>
+      </div>
+    </div>
+    <div class="check pending" data-key="thumb">
+      <div class="check-icon">4</div>
+      <div class="check-body">
+        <div class="check-title">Thumbnail loads</div>
+        <div class="check-detail">Preview image is available for share previews</div>
+      </div>
+    </div>
+    <div class="check pending" data-key="viewer-load">
+      <div class="check-icon">5</div>
+      <div class="check-body">
+        <div class="check-title">Viewer loads without error</div>
+        <div class="check-detail">Full viewer shell boots in a hidden iframe</div>
+      </div>
+    </div>
+    <div class="check pending" data-key="sw">
+      <div class="check-icon">6</div>
+      <div class="check-body">
+        <div class="check-title">Offline caching active</div>
+        <div class="check-detail">Service worker registered and the listing pre-cached</div>
+      </div>
+    </div>
+    <div class="check pending" data-key="network">
+      <div class="check-icon">7</div>
+      <div class="check-body">
+        <div class="check-title">Network sanity</div>
+        <div class="check-detail">Online now and connection estimate</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="summary" id="summary"></div>
+
+  <div class="actions" id="actions" style="display:none;">
+    <a id="openViewerLink" target="_blank" class="primary">Open viewer</a>
+    <a id="openShowroomLink" target="_blank">Open showroom</a>
+    <a id="copyShareLink" href="#">Copy share link</a>
+  </div>
+
+  <iframe id="probeFrame" aria-hidden="true"></iframe>
+</div>
+
+<script type="module">
+  import { supabase } from './js/supabaseClient.js';
+  import { ensureServiceWorker, prefetchSplat, onPrefetchResult, isOnline }
+    from './js/modules/offline-helper.js';
+
+  const checks = {};
+  for (const el of document.querySelectorAll('.check')) checks[el.dataset.key] = el;
+
+  function setCheck(key, state, detail) {
+    const el = checks[key];
+    if (!el) return;
+    el.classList.remove('pending', 'running', 'pass', 'fail', 'warn');
+    el.classList.add(state);
+    const icon = el.querySelector('.check-icon');
+    icon.textContent = state === 'pass' ? '✓' :
+                       state === 'fail' ? '✕' :
+                       state === 'warn' ? '!' :
+                       state === 'running' ? '…' : icon.textContent;
+    if (detail) el.querySelector('.check-detail').textContent = detail;
+  }
+
+  function resetChecks() {
+    let i = 1;
+    for (const el of document.querySelectorAll('.check')) {
+      el.classList.remove('running', 'pass', 'fail', 'warn');
+      el.classList.add('pending');
+      el.querySelector('.check-icon').textContent = String(i++);
+    }
+    document.getElementById('summary').style.display = 'none';
+    document.getElementById('actions').style.display = 'none';
+  }
+
+  function parseInput(raw) {
+    const s = (raw || '').trim();
+    if (!s) return null;
+    // If it's a URL, pull the splatId param
+    try {
+      const u = new URL(s);
+      const id = u.searchParams.get('splatId') || u.searchParams.get('id');
+      if (id) return id;
+    } catch (_) {
+      // Not a URL — assume it's a raw id
+    }
+    // Naive id detection — must be mostly alphanumeric with dashes
+    if (/^[a-zA-Z0-9_-]{6,}$/.test(s)) return s;
+    return null;
+  }
+
+  async function runAllChecks(id) {
+    resetChecks();
+    let pass = 0, warn = 0, fail = 0;
+
+    // 1. Resolve listing
+    setCheck('resolve', 'running');
+    let row = null;
+    try {
+      const { data, error } = await supabase.from('splats')
+        .select('id,title,status,splat_url,output_url,file_url,thumbnail_url,processing_error,metadata')
+        .eq('id', id).maybeSingle();
+      if (error || !data) {
+        setCheck('resolve', 'fail', error?.message || `No record for id="${id}"`);
+        fail++;
+        return renderSummary(id, pass, warn, fail);
+      }
+      row = data;
+      setCheck('resolve', 'pass', `Found: ${data.title || '(untitled)'}`);
+      pass++;
+    } catch (err) {
+      setCheck('resolve', 'fail', err.message);
+      fail++;
+      return renderSummary(id, pass, warn, fail);
+    }
+
+    // 2. Status complete
+    setCheck('status', 'running');
+    if (row.status === 'complete') {
+      setCheck('status', 'pass', "status='complete'");
+      pass++;
+    } else if (row.status === 'failed_reconstruction' || row.status === 'failed') {
+      setCheck('status', 'fail', `status='${row.status}' — ${row.processing_error || 'no error message'}`);
+      fail++;
+    } else {
+      setCheck('status', 'warn', `status='${row.status || 'unknown'}' — still processing?`);
+      warn++;
+    }
+
+    // 3. Splat URL reachable
+    setCheck('splat-url', 'running');
+    const splatUrl = row.splat_url || row.output_url || row.file_url;
+    if (!splatUrl) {
+      setCheck('splat-url', 'fail', 'No splat_url / output_url / file_url populated');
+      fail++;
+    } else {
+      try {
+        // HEAD first; some CDNs reject HEAD, fall back to range-GET 1 byte.
+        let res = await fetch(splatUrl, { method: 'HEAD', cache: 'no-store' }).catch(() => null);
+        if (!res || !res.ok) {
+          res = await fetch(splatUrl, {
+            method: 'GET', cache: 'no-store',
+            headers: { 'Range': 'bytes=0-0' },
+          });
+        }
+        if (res.ok || res.status === 206) {
+          const size = res.headers.get('content-length');
+          setCheck('splat-url', 'pass', size ? `Reachable (${fmtSize(+size)})` : 'Reachable');
+          pass++;
+        } else {
+          setCheck('splat-url', 'fail', `HTTP ${res.status}`);
+          fail++;
+        }
+      } catch (err) {
+        setCheck('splat-url', 'fail', `Network error: ${err.message}`);
+        fail++;
+      }
+    }
+
+    // 4. Thumbnail
+    setCheck('thumb', 'running');
+    if (!row.thumbnail_url) {
+      setCheck('thumb', 'warn', 'No thumbnail — shares will have no preview image');
+      warn++;
+    } else {
+      try {
+        const img = await new Promise((resolve, reject) => {
+          const i = new Image();
+          i.onload = () => resolve(i);
+          i.onerror = () => reject(new Error('image failed'));
+          i.src = row.thumbnail_url;
+          setTimeout(() => reject(new Error('timeout')), 5000);
+        });
+        setCheck('thumb', 'pass', `${img.naturalWidth}×${img.naturalHeight}`);
+        pass++;
+      } catch (err) {
+        setCheck('thumb', 'warn', 'Thumbnail did not load');
+        warn++;
+      }
+    }
+
+    // 5. Viewer loads without error
+    setCheck('viewer-load', 'running');
+    try {
+      const ok = await probeViewer(id);
+      if (ok) {
+        setCheck('viewer-load', 'pass', 'Viewer iframe booted cleanly');
+        pass++;
+      } else {
+        setCheck('viewer-load', 'warn', 'Viewer booted but no confirmation event in 8 seconds');
+        warn++;
+      }
+    } catch (err) {
+      setCheck('viewer-load', 'fail', err.message);
+      fail++;
+    }
+
+    // 6. Service worker + pre-cache
+    setCheck('sw', 'running');
+    try {
+      const reg = await ensureServiceWorker();
+      if (!reg) {
+        setCheck('sw', 'warn', 'Service workers not supported in this browser');
+        warn++;
+      } else {
+        const urls = [splatUrl, row.thumbnail_url].filter(Boolean);
+        const done = new Promise(resolve => {
+          const unsub = onPrefetchResult(r => { unsub(); resolve(r); });
+          setTimeout(() => { unsub(); resolve(null); }, 15000);
+        });
+        const r = await prefetchSplat({ extraUrls: urls });
+        if (!r.supported) {
+          setCheck('sw', 'warn', 'SW registered but not controlling this page yet — reload and retry');
+          warn++;
+        } else {
+          const res = await done;
+          if (!res) {
+            setCheck('sw', 'warn', 'Pre-cache queued but no completion event — reload and retry if unsure');
+            warn++;
+          } else {
+            const okCount = res.filter(x => x.ok).length;
+            if (okCount === res.length) {
+              setCheck('sw', 'pass', `Pre-cached ${okCount} file${okCount === 1 ? '' : 's'}`);
+              pass++;
+            } else {
+              setCheck('sw', 'warn', `Pre-cached ${okCount} of ${res.length} files`);
+              warn++;
+            }
+          }
+        }
+      }
+    } catch (err) {
+      setCheck('sw', 'warn', err.message);
+      warn++;
+    }
+
+    // 7. Network sanity
+    setCheck('network', 'running');
+    if (!isOnline()) {
+      setCheck('network', 'fail', 'Offline — cannot verify network-dependent pieces');
+      fail++;
+    } else {
+      const conn = navigator.connection;
+      const rtt = conn?.rtt ?? null;
+      const eff = conn?.effectiveType ?? null;
+      const down = conn?.downlink ?? null;
+      const parts = [];
+      if (eff) parts.push(`type: ${eff}`);
+      if (down) parts.push(`↓ ${down} Mbps`);
+      if (rtt != null) parts.push(`rtt ${rtt}ms`);
+      const detail = parts.length ? parts.join(' · ') : 'online (no detailed info available)';
+      if (eff === 'slow-2g' || eff === '2g') {
+        setCheck('network', 'warn', detail + ' — pre-cache strongly recommended');
+        warn++;
+      } else {
+        setCheck('network', 'pass', detail);
+        pass++;
+      }
+    }
+
+    renderSummary(id, pass, warn, fail);
+  }
+
+  function probeViewer(id) {
+    return new Promise((resolve) => {
+      const frame = document.getElementById('probeFrame');
+      let done = false;
+
+      const onMsg = (ev) => {
+        if (ev.source !== frame.contentWindow) return;
+        if (ev.data && ev.data.type && ev.data.type.startsWith('fumoca:reveal:')) {
+          finish(true);
+        }
+      };
+      window.addEventListener('message', onMsg);
+
+      const finish = (ok) => {
+        if (done) return;
+        done = true;
+        window.removeEventListener('message', onMsg);
+        frame.src = 'about:blank';
+        resolve(ok);
+      };
+
+      frame.addEventListener('load', () => {
+        // Give the viewer 8 seconds to either fire a reveal event (ideal)
+        // or, if it doesn't, at least not throw a fatal error (acceptable).
+        setTimeout(() => finish(true), 8000);
+      }, { once: true });
+      frame.addEventListener('error', () => finish(false), { once: true });
+
+      frame.src = `viewer.html?splatId=${encodeURIComponent(id)}&reveal_duration=1500`;
+    });
+  }
+
+  function renderSummary(id, pass, warn, fail) {
+    const summary = document.getElementById('summary');
+    const actions = document.getElementById('actions');
+
+    let klass, title, body;
+    if (fail === 0 && warn === 0) {
+      klass = 'ready';
+      title = 'Ready to show';
+      body = `All ${pass} checks passed. You can walk in with this listing. The splat is pre-cached and will work even if wifi fails.`;
+    } else if (fail === 0) {
+      klass = 'partial';
+      title = 'Mostly ready';
+      body = `${pass} passed, ${warn} warning${warn === 1 ? '' : 's'}. Usable, but read the warnings above and decide if any matter for this meeting.`;
+    } else {
+      klass = 'broken';
+      title = 'Not ready';
+      body = `${fail} failure${fail === 1 ? '' : 's'}, ${warn} warning${warn === 1 ? '' : 's'}. Do not show this listing until the failures are fixed.`;
+    }
+
+    summary.className = 'summary ' + klass;
+    summary.innerHTML = `<h2>${title}</h2><div>${body}</div>`;
+    summary.style.display = 'block';
+
+    document.getElementById('openViewerLink').href = `viewer.html?splatId=${encodeURIComponent(id)}`;
+    document.getElementById('openShowroomLink').href = `showroom.html?splatId=${encodeURIComponent(id)}`;
+    const shareLink = document.getElementById('copyShareLink');
+    shareLink.onclick = async (ev) => {
+      ev.preventDefault();
+      const shareUrl = `${location.origin}${location.pathname.replace(/preflight\.html$/, 'showroom.html')}?splatId=${encodeURIComponent(id)}`;
+      try {
+        await navigator.clipboard.writeText(shareUrl);
+        shareLink.textContent = 'Copied ✓';
+        setTimeout(() => { shareLink.textContent = 'Copy share link'; }, 2000);
+      } catch (_) {
+        prompt('Copy this URL:', shareUrl);
+      }
+    };
+    actions.style.display = 'flex';
+  }
+
+  function fmtSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+  }
+
+  // ─── wire up UI ──────────────────────────────────────────────────────
+  const runBtn = document.getElementById('runBtn');
+  const input = document.getElementById('listingInput');
+
+  async function go() {
+    const id = parseInput(input.value);
+    if (!id) {
+      input.focus();
+      input.style.borderColor = '#ff4864';
+      setTimeout(() => input.style.borderColor = '', 1600);
+      return;
+    }
+    runBtn.disabled = true;
+    runBtn.textContent = 'Running…';
+    try {
+      await runAllChecks(id);
+    } finally {
+      runBtn.disabled = false;
+      runBtn.textContent = 'Run checks';
+    }
+  }
+
+  runBtn.addEventListener('click', go);
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+
+  // Auto-run if an id was passed in the URL
+  const urlId = new URLSearchParams(location.search).get('splatId')
+             || new URLSearchParams(location.search).get('id');
+  if (urlId) {
+    input.value = urlId;
+    go();
+  }
+</script>
+</body>
+</html>

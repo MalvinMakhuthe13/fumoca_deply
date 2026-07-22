@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="manifest" href="/manifest.json">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FUMOCA — Settings</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/dashboard.css">
+<script src="config.js"></script>
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/nav.css">
+<script src="js/modules/nav.js" defer></script>
+</head>
+<body>
+<div class="app-shell">
+<main class="main-content">
+  <div class="topbar">
+    <div class="search-bar"><span>🔍</span><input placeholder="Search or navigate..."></div>
+  </div>
+  <div class="page-body">
+    <div class="page-header">
+      <div class="page-kicker">Account</div>
+      <div class="page-title">SETTINGS</div>
+    </div>
+    
+<div class="grid-2 tight">
+  <section class="panel">
+    <h3 style="margin:0 0 18px;font-size:28px;">Profile settings</h3>
+    <div class="form-grid">
+      <div>
+        <label>Display name</label>
+        <input id="displayName" placeholder="Your name">
+      </div>
+      <div>
+        <label>Website</label>
+        <input id="website" placeholder="https://...">
+      </div>
+    </div>
+    <div style="margin-top:18px">
+      <label>Bio</label>
+      <textarea id="bio" rows="6" placeholder="Tell people what you create"></textarea>
+    </div>
+    <div style="margin-top:20px;display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+      <button onclick="saveSettings()">Save settings</button>
+      <div id="saveMsg" class="muted">Changes save to your real profile record.</div>
+    </div>
+  </section>
+
+  <aside class="stack-18">
+    <div class="panel">
+      <h3 style="margin:0 0 10px;">How this affects your profile</h3>
+      <div class="panel-subtitle">These fields shape how you appear across FUMOCA as a creator, collaborator, and future seller of splat-based experiences.</div>
+    </div>
+    <div class="panel">
+      <h3 style="margin:0 0 10px;">Design note</h3>
+      <div class="panel-subtitle">This page now has the same breathing room and centered layout logic as feed, profile, and upload.</div>
+    </div>
+  </aside>
+</div>
+<script type="module" src="js/modules/settings.js"></script>
+
+  </div>
+</main>
+
+<aside class="right-panel">
+  
+<div class="panel-title">Settings</div>
+<div class="side-card">
+  <div class="mini-item">
+    <div class="mini-item-title">Single design system</div>
+    <div class="mini-item-sub">Settings now matches feed, upload, profile, and notifications with the same dashboard shell.</div>
+  </div>
+</div>
+
+</aside>
+</div>
+<script type="module" src="js/modules/dashboard-shell.js"></script>
+</body>
+</html>

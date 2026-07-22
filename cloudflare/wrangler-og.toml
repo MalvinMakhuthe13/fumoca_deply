@@ -1,0 +1,55 @@
+# FUMOCA OG Meta Worker — standalone wrangler config
+# Deploy independently of the R2 storage worker.
+#
+# Usage:
+#   npx wrangler deploy --config cloudflare/wrangler-og.toml
+#
+# Or add to CI:
+#   wrangler deploy --config cloudflare/wrangler-og.toml --env production
+
+name = "fumoca-og-meta"
+main = "workers/og-meta.js"
+compatibility_date = "2024-09-23"
+
+# ── Routes ────────────────────────────────────────────────────────────────────
+# Intercept viewer.html requests so social crawlers get real per-splat OG tags.
+# The worker fetches the static HTML from Cloudflare Pages, rewrites the <meta>
+# tags with live Supabase data, and caches the result at the CF edge.
+#
+# Adjust the pattern to match your actual Pages domain:
+[[routes]]
+pattern = "fumoca.co.za/viewer*"
+zone_name = "fumoca.co.za"
+
+# Also intercept the lean public embed viewer
+[[routes]]
+pattern = "fumoca.co.za/viewer-core*"
+zone_name = "fumoca.co.za"
+
+# ── Non-secret vars ───────────────────────────────────────────────────────────
+[vars]
+SITE_ORIGIN = "https://fumoca.co.za"
+
+# ── Secrets — set once via CLI, never commit values ───────────────────────────
+# npx wrangler secret put SUPABASE_URL       --config cloudflare/wrangler-og.toml
+#   → e.g. https://xyzabc.supabase.co
+#
+# npx wrangler secret put SUPABASE_ANON_KEY  --config cloudflare/wrangler-og.toml
+#   → your project's public anon key (read-only, safe to use in a worker)
+#
+# npx wrangler secret put SITE_ORIGIN        --config cloudflare/wrangler-og.toml
+#   → https://fumoca.co.za  (overrides [vars] above in production)
+
+# ── Dev ───────────────────────────────────────────────────────────────────────
+[dev]
+port = 8788    # different port from the R2 worker (8787) so both can run locally
+local_protocol = "http"
+
+# ── Environments ─────────────────────────────────────────────────────────────
+# Optional: separate staging deploy
+# [env.staging]
+# name = "fumoca-og-meta-staging"
+# [[env.staging.routes]]
+# pattern = "staging.fumoca.co.za/viewer*"
+# zone_name = "fumoca.co.za"
+

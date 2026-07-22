@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="manifest" href="/manifest.json">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FUMOCA — Join the 3D Revolution</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,700;1,400&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root {
+    --black: #0A0A0A;
+    --white: #FAFAFA;
+    --neon: #C8FF00;
+    --purple: #7B2FFF;
+    --pink: #FF2D78;
+    --orange: #FF4D00;
+    --glass: rgba(255,255,255,0.06);
+    --glass-border: rgba(255,255,255,0.12);
+    --font-display: 'Bebas Neue', sans-serif;
+    --font-body: 'DM Sans', sans-serif;
+    --error: #FF4D4D;
+    --success: #00FF88;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--black);
+    color: var(--white);
+    font-family: var(--font-body);
+    min-height: 100vh;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  /* LEFT PANEL */
+  .left-panel {
+    position: relative;
+    overflow: hidden;
+    display: flex; flex-direction: column;
+    justify-content: space-between;
+    padding: 48px;
+    background: rgba(123,47,255,0.05);
+    border-right: 1px solid var(--glass-border);
+  }
+
+  .left-bg {
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(ellipse 60% 50% at 30% 60%, rgba(123,47,255,0.25) 0%, transparent 70%),
+      radial-gradient(ellipse 40% 40% at 80% 20%, rgba(255,45,120,0.15) 0%, transparent 60%);
+    pointer-events: none;
+  }
+
+  .left-logo {
+    font-family: var(--font-display);
+    font-size: 36px;
+    letter-spacing: 4px;
+    text-decoration: none;
+    color: var(--white);
+    position: relative;
+  }
+  .left-logo span { color: var(--neon); }
+
+  .left-headline {
+    position: relative;
+  }
+  .left-headline h2 {
+    font-family: var(--font-display);
+    font-size: 72px;
+    line-height: 0.95;
+    letter-spacing: 1px;
+    margin-bottom: 20px;
+  }
+  .left-headline h2 .neon { color: var(--neon); }
+  .left-headline p {
+    color: rgba(255,255,255,0.55);
+    font-size: 16px;
+    line-height: 1.7;
+    max-width: 360px;
+  }
+
+  .left-stats {
+    display: flex; gap: 40px;
+    position: relative;
+  }
+  .ls-num {
+    font-family: var(--font-display);
+    font-size: 36px;
+    color: var(--neon);
+    line-height: 1;
+  }
+  .ls-label {
+    font-size: 12px;
+    color: rgba(255,255,255,0.4);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-top: 4px;
+  }
+
+  /* RIGHT PANEL */
+  .right-panel {
+    display: flex; align-items: center; justify-content: center;
+    padding: 48px;
+  }
+
+  .auth-box {
+    width: 100%;
+    max-width: 420px;
+  }
+
+  .auth-title {
+    font-family: var(--font-display);
+    font-size: 48px;
+    letter-spacing: 2px;
+    margin-bottom: 8px;
+  }
+  .auth-sub {
+    color: rgba(255,255,255,0.5);
+    font-size: 15px;
+    margin-bottom: 36px;
+  }
+  .auth-sub a { color: var(--neon); text-decoration: none; }
+
+  .tabs {
+    display: flex;
+    background: var(--glass);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    padding: 4px;
+    margin-bottom: 32px;
+  }
+  .tab {
+    flex: 1;
+    padding: 10px;
+    text-align: center;
+    font-size: 14px;
+    font-weight: 600;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+    color: rgba(255,255,255,0.5);
+  }
+  .tab.active {
+    background: var(--neon);
+    color: var(--black);
+  }
+
+  .form-group {
+    margin-bottom: 20px;
+  }
+  .form-label {
+    display: block;
+    font-size: 13px;
+    font-weight: 500;
+    color: rgba(255,255,255,0.6);
+    margin-bottom: 8px;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .form-input {
+    width: 100%;
+    padding: 14px 18px;
+    background: var(--glass);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    color: var(--white);
+    font-family: var(--font-body);
+    font-size: 15px;
+    outline: none;
+    transition: border-color 0.2s, background 0.2s;
+  }
+  .form-input:focus {
+    border-color: var(--neon);
+    background: rgba(200,255,0,0.04);
+  }
+  .form-input::placeholder { color: rgba(255,255,255,0.25); }
+  .form-input.error { border-color: var(--error); }
+
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+
+  .form-select {
+    width: 100%;
+    padding: 14px 18px;
+    background: var(--glass);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    color: var(--white);
+    font-family: var(--font-body);
+    font-size: 15px;
+    outline: none;
+    cursor: pointer;
+    -webkit-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' fill='none'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23ffffff50' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 16px center;
+  }
+  .form-select option { background: #1a1a1a; }
+
+  .creator-types {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    margin-top: 0;
+  }
+  .creator-type {
+    padding: 10px 8px;
+    text-align: center;
+    background: var(--glass);
+    border: 1px solid var(--glass-border);
+    border-radius: 10px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    color: rgba(255,255,255,0.6);
+  }
+  .creator-type span { display: block; font-size: 18px; margin-bottom: 4px; }
+  .creator-type.selected {
+    background: rgba(200,255,0,0.1);
+    border-color: var(--neon);
+    color: var(--neon);
+  }
+
+  .submit-btn {
+    width: 100%;
+    padding: 16px;
+    background: var(--neon);
+    color: var(--black);
+    border: none;
+    border-radius: 12px;
+    font-family: var(--font-body);
+    font-size: 16px;
+    font-weight: 700;
+    cursor: pointer;
+    margin-top: 8px;
+    transition: all 0.2s;
+    position: relative;
+    overflow: hidden;
+  }
+  .submit-btn:hover:not(:disabled) { background: #d4ff1a; transform: scale(1.02); }
+  .submit-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+  .divider {
+    display: flex; align-items: center; gap: 16px;
+    margin: 24px 0;
+    color: rgba(255,255,255,0.3);
+    font-size: 13px;
+  }
+  .divider::before, .divider::after {
+    content: ''; flex: 1;
+    height: 1px;
+    background: var(--glass-border);
+  }
+
+  .social-btn {
+    width: 100%;
+    padding: 14px;
+    background: var(--glass);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    color: var(--white);
+    font-family: var(--font-body);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    transition: all 0.2s;
+    text-decoration: none;
+  }
+  .social-btn:hover { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.25); }
+
+  .msg {
+    padding: 12px 16px;
+    border-radius: 10px;
+    font-size: 14px;
+    margin-bottom: 20px;
+    display: none;
+  }
+  .msg.error-msg { background: rgba(255,77,77,0.1); border: 1px solid rgba(255,77,77,0.3); color: #FF8080; }
+  .msg.success-msg { background: rgba(0,255,136,0.1); border: 1px solid rgba(0,255,136,0.3); color: var(--success); }
+  .msg.show { display: block; }
+
+  @media (max-width: 800px) {
+    body { grid-template-columns: 1fr; }
+    .left-panel { display: none; }
+    .right-panel { padding: 32px 24px; }
+  }
+</style>
+<link rel="stylesheet" href="css/ui-system.css"><script src="config.js"></script>
+</head>
+<body>
+
+<!-- LEFT PANEL -->
+<div class="left-panel">
+  <div class="left-bg"></div>
+  <a href="index.html" class="left-logo">FUMO<span>C</span>A</a>
+  <div class="left-headline">
+    <h2>CREATE<br>YOUR<br><span class="neon">3D WORLD</span></h2>
+    <p>Turn any moment into an interactive 3D experience your audience can explore, not just watch.</p>
+  </div>
+  <div class="left-stats">
+    <div>
+      <div class="ls-num">3DGS</div>
+      <div class="ls-label">Technology</div>
+    </div>
+    <div>
+      <div class="ls-num">Free</div>
+      <div class="ls-label">To start</div>
+    </div>
+    <div>
+      <div class="ls-num">SA</div>
+      <div class="ls-label">Built local</div>
+    </div>
+  </div>
+</div>
+
+<!-- RIGHT PANEL -->
+<div class="right-panel">
+  <div class="auth-box">
+    <h1 class="auth-title">Join FUMOCA</h1>
+    <p class="auth-sub">Already have an account? <a href="login.html">Log in</a></p>
+
+    <div class="tabs">
+      <div class="tab active" onclick="switchTab('creator')">Creator</div>
+      <div class="tab" onclick="switchTab('brand')">Brand</div>
+    </div>
+
+    <div id="msg" class="msg"></div>
+
+    <form id="signup-form" onsubmit="handleSignup(event)">
+
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">First name</label>
+          <input type="text" class="form-input" id="firstName" placeholder="Thabo" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Last name</label>
+          <input type="text" class="form-input" id="lastName" placeholder="Nkosi" required>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Username</label>
+        <input type="text" class="form-input" id="username" placeholder="@yourname" required
+               pattern="[a-zA-Z0-9_]+" oninput="this.value = this.value.replace(/[^a-zA-Z0-9_]/g,'')">
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Email address</label>
+        <input type="email" class="form-input" id="email" placeholder="you@example.com" required>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Password</label>
+        <input type="password" class="form-input" id="password" placeholder="Min 8 characters" required minlength="8">
+      </div>
+
+      <!-- Creator type selector (hidden for brand) -->
+      <div class="form-group" id="creator-type-group">
+        <label class="form-label">I create</label>
+        <div class="creator-types">
+          <div class="creator-type" onclick="selectType(this, 'art')"><span>🎨</span>Art</div>
+          <div class="creator-type" onclick="selectType(this, 'fashion')"><span>👗</span>Fashion</div>
+          <div class="creator-type" onclick="selectType(this, 'travel')"><span>✈️</span>Travel</div>
+          <div class="creator-type" onclick="selectType(this, 'music')"><span>🎵</span>Music</div>
+          <div class="creator-type" onclick="selectType(this, 'food')"><span>🍽️</span>Food</div>
+          <div class="creator-type" onclick="selectType(this, 'lifestyle')"><span>💫</span>Lifestyle</div>
+        </div>
+      </div>
+
+      <!-- Brand field (hidden for creator) -->
+      <div class="form-group" id="brand-name-group" style="display:none;">
+        <label class="form-label">Brand / Company name</label>
+        <input type="text" class="form-input" id="brandName" placeholder="e.g. Nike South Africa">
+      </div>
+
+      <button type="submit" class="submit-btn" id="submit-btn">
+        Create my account →
+      </button>
+    </form>
+
+    <div class="divider">or continue with</div>
+
+    <button class="social-btn" onclick="handleGoogleSignup()">
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+        <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" fill="#4285F4"/>
+        <path d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9 18z" fill="#34A853"/>
+        <path d="M3.964 10.71c-.18-.54-.282-1.117-.282-1.71s.102-1.17.282-1.71V4.958H.957C.347 6.173 0 7.548 0 9s.348 2.827.957 4.042l3.007-2.332z" fill="#FBBC05"/>
+        <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0 5.482 0 2.438 2.017.957 4.958L3.964 6.29C4.672 4.163 6.656 3.58 9 3.58z" fill="#EA4335"/>
+      </svg>
+      Continue with Google
+    </button>
+
+  </div>
+</div>
+
+
+<script type="module">
+import { supabase } from './js/supabaseClient.js';
+
+let currentTab = 'creator';
+let selectedCreatorType = '';
+
+function switchTab(tab) {
+  currentTab = tab;
+}
+
+function showMsg(text, type) {
+  const el = document.getElementById('msg');
+  el.textContent = text;
+  el.className = `msg ${type}-msg show`;
+}
+
+window.handleSignup = async function(e){
+  e.preventDefault();
+
+  const email = document.getElementById('email').value;
+  const password = document.getElementById('password').value;
+
+  const { error } = await supabase.auth.signUp({ email, password });
+
+  if(error){
+    showMsg(error.message,'error');
+  } else {
+    showMsg('Account created!','success');
+    setTimeout(()=>{window.location.href='login.html';},1500);
+  }
+};
+</script>
+
+</body>
+</html>

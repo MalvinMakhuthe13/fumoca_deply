@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>FUMOCA</title>
+
+<!-- OG / Social — rewritten server-side by cloudflare/workers/og-meta.js -->
+<meta property="og:type"         content="website">
+<meta property="og:site_name"    content="FUMOCA">
+<meta property="og:title"        content="3D Scene — FUMOCA" id="meta-og-title">
+<meta property="og:description"  content="Interactive 3D scene. Open on any device." id="meta-og-desc">
+<meta property="og:image"        content="/icons/og-default.jpg" id="meta-og-image">
+<meta property="og:image:width"  content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:url"          content="" id="meta-og-url">
+<meta name="twitter:card"        content="summary_large_image">
+<meta name="twitter:title"       content="3D Scene — FUMOCA" id="meta-tw-title">
+<meta name="twitter:description" content="Interactive 3D scene" id="meta-tw-desc">
+<meta name="twitter:image"       content="/icons/og-default.jpg" id="meta-tw-image">
+<meta name="description"         content="Interactive 3D scene." id="meta-desc">
+
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2305070b'/%3E%3Ctext x='50%25' y='56%25' dominant-baseline='middle' text-anchor='middle' font-family='Arial' font-size='36' fill='%23c8ff00'%3EF%3C/text%3E%3C/svg%3E">
+
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #030508; }
+
+  #viewer {
+    position: fixed; inset: 0;
+  }
+
+  /* Top bar — title + share */
+  #topbar {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 10;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 16px;
+    background: linear-gradient(to bottom, rgba(3,5,8,.85), transparent);
+    pointer-events: none;
+  }
+  #topTitle {
+    font-family: system-ui, sans-serif; font-size: 13px; font-weight: 700;
+    color: rgba(255,255,255,.7); letter-spacing: .02em;
+    opacity: 0; transition: opacity .4s;
+  }
+  #topTitle.visible { opacity: 1; }
+  #shareBtn {
+    pointer-events: auto;
+    background: rgba(200,255,0,.12); border: 1px solid rgba(200,255,0,.3);
+    border-radius: 99px; color: #c8ff00; font-size: 12px; font-weight: 700;
+    padding: 6px 14px; cursor: pointer; font-family: inherit;
+    transition: background .15s;
+    display: none;
+  }
+  #shareBtn:hover { background: rgba(200,255,0,.22); }
+
+  /* Hotspot markers — shown when mesh tap hits a registered point */
+  .hotspot {
+    position: fixed; z-index: 20;
+    width: 20px; height: 20px; border-radius: 50%;
+    border: 2px solid rgba(200,255,0,.9);
+    background: rgba(200,255,0,.15);
+    box-shadow: 0 0 0 6px rgba(200,255,0,.08);
+    transform: translate(-50%, -50%);
+    pointer-events: auto; cursor: pointer;
+    transition: transform .2s;
+  }
+  .hotspot:hover { transform: translate(-50%,-50%) scale(1.3); }
+  .hotspot-pill {
+    position: absolute; left: 26px; top: 50%; transform: translateY(-50%);
+    background: rgba(3,5,8,.85); border: 1px solid rgba(200,255,0,.25);
+    border-radius: 99px; padding: 4px 10px; white-space: nowrap;
+    font-size: 11px; font-weight: 700; color: #c8ff00; font-family: system-ui;
+    pointer-events: none;
+  }
+
+  /* Info panel — appears on hotspot tap */
+  #infoPanel {
+    position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
+    z-index: 30; width: min(360px, calc(100vw - 32px));
+    background: rgba(6,8,14,.96); border: 1px solid rgba(255,255,255,.1);
+    border-radius: 20px; padding: 20px; display: none;
+    font-family: system-ui, sans-serif;
+  }
+  #infoPanel.visible { display: block; }
+  #infoPanelClose {
+    position: absolute; top: 12px; right: 14px;
+    background: none; border: none; color: rgba(255,255,255,.4);
+    font-size: 20px; cursor: pointer; padding: 0 4px;
+  }
+  #infoPanelTitle { font-size: 16px; font-weight: 800; color: #fff; margin-bottom: 6px; }
+  #infoPanelBody  { font-size: 13px; color: rgba(255,255,255,.55); line-height: 1.6; }
+  #infoPanelLink  {
+    display: inline-block; margin-top: 12px;
+    background: rgba(200,255,0,.12); border: 1px solid rgba(200,255,0,.3);
+    border-radius: 99px; color: #c8ff00; font-size: 12px; font-weight: 700;
+    padding: 7px 16px; cursor: pointer; text-decoration: none;
+  }
+
+  /* Teaser record button */
+  #teaserBtn {
+    position: fixed; bottom: 20px; right: 16px; z-index: 20;
+    background: rgba(200,255,0,.12); border: 1px solid rgba(200,255,0,.3);
+    border-radius: 99px; color: #c8ff00; font-size: 12px; font-weight: 700;
+    padding: 8px 14px; cursor: pointer; font-family: system-ui;
+    display: none; transition: background .15s;
+  }
+  #teaserBtn:hover { background: rgba(200,255,0,.22); }
+  #teaserBtn:disabled { opacity: .5; cursor: default; }
+
+  /* Buy / CTA button — driven by ?ctaLabel=&ctaUrl= (set by sdk/fumoca-embed.js
+     from data-cta-label/data-cta-url on the host page's embed tag) */
+  #ctaBtn {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    z-index: 25;
+    background: #c8ff00; border: none;
+    border-radius: 99px; color: #05070b; font-size: 14px; font-weight: 800;
+    padding: 12px 28px; cursor: pointer; font-family: system-ui, sans-serif;
+    display: none; box-shadow: 0 4px 24px rgba(200,255,0,.25);
+    transition: transform .15s ease;
+  }
+  #ctaBtn:hover { transform: translateX(-50%) scale(1.04); }
+
+  /* Background music toggle — starts muted (browser autoplay policy), tap to
+     unmute. Only shown when the NIF actually has a musicUrl in its meta. */
+  #audioToggleBtn {
+    position: fixed; bottom: 20px; right: 20px; z-index: 25;
+    width: 44px; height: 44px; border-radius: 50%;
+    background: rgba(11,11,12,.72); backdrop-filter: blur(4px);
+    border: 1px solid rgba(255,255,255,.2); color: #fff; font-size: 18px;
+    cursor: pointer; display: none; align-items: center; justify-content: center;
+  }
+  #audioToggleBtn.visible { display: flex; }
+  #audioToggleBtn.pulse { animation: audioPulse 1.6s ease-in-out infinite; }
+  @keyframes audioPulse {
+    0%,100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255,255,255,.25); }
+    50% { transform: scale(1.08); box-shadow: 0 0 0 6px rgba(255,255,255,0); }
+  }
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <div id="topTitle"></div>
+  <button id="shareBtn">Share ↗</button>
+</div>
+
+<fumoc-player id="viewer"></fumoc-player>
+
+<div id="infoPanel">
+  <button id="infoPanelClose">×</button>
+  <div id="infoPanelTitle"></div>
+  <div id="infoPanelBody"></div>
+  <a id="infoPanelLink" href="#" target="_blank" rel="noopener" style="display:none">View more →</a>
+</div>
+
+<button id="teaserBtn">🎥 Record</button>
+<button id="ctaBtn"></button>
+<button id="audioToggleBtn" title="Toggle background music"></button>
+
+<!-- Player SDK — zero dependencies, handles decode + render + mesh -->
+<script src="/sdk/fumoc-player.js"></script>
+
+<script>
+(async function() {
+  'use strict';
+
+  const params  = new URLSearchParams(location.search);
+  const fileUrl = params.get('id')    // Supabase record ID — player fetches via config
+               || params.get('file')  // direct .fumoc URL
+               || params.get('url');
+
+  const viewer   = document.getElementById('viewer');
+  const topTitle = document.getElementById('topTitle');
+  const shareBtn = document.getElementById('shareBtn');
+  const teaserBtn= document.getElementById('teaserBtn');
+  const ctaBtn   = document.getElementById('ctaBtn');
+  const audioToggleBtn = document.getElementById('audioToggleBtn');
+
+  // ── Background music — real, not spatial/HRTF (that's a separate, unwired
+  // system in engine-next/editor/NIFAudioLayer.js). Just: loop a track,
+  // start muted because browsers block audible autoplay without a prior
+  // user gesture, let the visitor unmute with one tap.
+  let bgAudio = null;
+  function initBackgroundAudio(musicUrl) {
+    if (!musicUrl || bgAudio) return;
+    bgAudio = new Audio(musicUrl);
+    bgAudio.loop = true;
+
+    // Try unmuted first — this is the actual Reels/Stories behavior, and it
+    // genuinely works on most browsers when the page load came from a direct
+    // link click (Chrome in particular treats that as sufficient gesture).
+    // Only fall back to muted if the browser explicitly refuses — Safari is
+    // the likely holdout here, and there's no way around that from code;
+    // it's a platform policy, not a bug.
+    bgAudio.muted = false;
+    bgAudio.play()
+      .then(() => {
+        audioToggleBtn.textContent = '🔊';
+        audioToggleBtn.classList.add('visible');
+      })
+      .catch(() => {
+        // Blocked — fall back to the safe muted-autoplay + tap-to-unmute path.
+        bgAudio.muted = true;
+        bgAudio.play().catch(() => {});
+        audioToggleBtn.textContent = '🔇';
+        audioToggleBtn.classList.add('visible', 'pulse');
+      });
+
+    audioToggleBtn.addEventListener('click', () => {
+      bgAudio.muted = !bgAudio.muted;
+      audioToggleBtn.textContent = bgAudio.muted ? '🔇' : '🔊';
+      audioToggleBtn.classList.remove('pulse');
+      if (!bgAudio.muted) bgAudio.play().catch(() => {});
+    });
+
+    // Reel-style: pause when the tab/page isn't actually visible, resume
+    // (respecting whatever mute state the visitor left it in) when it is.
+    document.addEventListener('visibilitychange', () => {
+      if (!bgAudio) return;
+      if (document.hidden) bgAudio.pause();
+      else bgAudio.play().catch(() => {});
+    });
+  }
+  // Works even before a record loads — e.g. testing directly with ?music=
+  if (params.get('music')) initBackgroundAudio(params.get('music'));
+
+  // ── Embed mode: strip to just the interactive product + buy button ──────
+  // embed/viewer.html has always set ?embed=1 when handing off here (for
+  // links redirected from Instagram/WhatsApp/etc.), but nothing ever read
+  // it — Share and Record buttons showed regardless, which looks like
+  // dashboard clutter inside someone else's ad, not "one standard viewer
+  // and nothing else". This is the fix.
+  const isEmbed = params.get('embed') === '1';
+  if (isEmbed) {
+    if (shareBtn) shareBtn.style.display = 'none';
+    if (teaserBtn) teaserBtn.style.display = 'none';
+  }
+
+  // ── Return to the originating site — "locked to the viewer, then sent
+  // back where you came from" ─────────────────────────────────────────────
+  // embed/viewer.html has set ?back=<referrer> since it was written, but
+  // nothing here ever read it — a redirected visitor had no way back to the
+  // site they actually came from. Only active when we know there IS an
+  // origin to return to (embed mode + a real back URL); visiting
+  // fumoca.co.za directly never triggers this.
+  const backUrl = params.get('back');
+  const canReturnToOrigin = isEmbed && !!backUrl;
+
+  function returnToOrigin() {
+    if (!canReturnToOrigin) return;
+    try {
+      (window.top || window).location.href = backUrl;
+    } catch (_) {
+      location.href = backUrl; // cross-origin frame access denied — just navigate this frame
+    }
+  }
+
+  if (canReturnToOrigin) {
+    // Trigger 1: after buying — give the new tab a moment to actually open,
+    // then send this tab/frame back to the site the person came from
+    // instead of leaving them stranded on a bare product viewer.
+    window.addEventListener('fumoca:returned-from-cta', () => {
+      setTimeout(returnToOrigin, 1200);
+    });
+
+    // Trigger 2: engagement timeout — if they've looked around but never
+    // clicked anything, don't leave them on a dead-end page forever.
+    const ENGAGEMENT_TIMEOUT_MS = 60_000;
+    let idleTimer = setTimeout(returnToOrigin, ENGAGEMENT_TIMEOUT_MS);
+    ['pointerdown', 'touchstart', 'wheel'].forEach(evt => {
+      window.addEventListener(evt, () => {
+        clearTimeout(idleTimer);
+        idleTimer = setTimeout(returnToOrigin, ENGAGEMENT_TIMEOUT_MS);
+      }, { passive: true });
+    });
+  }
+
+  // ── Buy / CTA button — real, not a stub. sdk/fumoca-embed.js sets these
+  // query params from data-cta-label/data-cta-url and already listens for
+  // the fumoca:ctaClick postMessage event on the parent page; this is the
+  // other half of that contract, which previously didn't exist anywhere.
+  const ctaLabel = params.get('ctaLabel');
+  const ctaUrl   = params.get('ctaUrl');
+  if (ctaLabel && ctaUrl) {
+    ctaBtn.textContent = ctaLabel;
+    ctaBtn.style.display = 'block';
+    ctaBtn.addEventListener('click', () => {
+      const detail = { ctaUrl, splatId: fileUrl, title: window._fumocaCurrentRecord?.title || document.title };
+      try {
+        window.parent.postMessage({ fumoca: true, event: 'fumoca:ctaClick', detail }, '*');
+      } catch (_) {}
+      window.open(ctaUrl, '_blank', 'noopener');
+      window.dispatchEvent(new CustomEvent('fumoca:returned-from-cta'));
+    });
+  }
+
+  // ── Load the file ───────────────────────────────────────────────────────
+  if (!fileUrl) {
+    // Drag-and-drop on empty viewer
+    document.addEventListener('dragover', e => e.preventDefault());
+    document.addEventListener('drop', async e => {
+      e.preventDefault();
+      const file = e.dataTransfer.files[0];
+      if (file && (file.name.endsWith('.nif') || file.name.endsWith('.fumoc') || file.name.endsWith('.splat'))) {
+        viewer._player?.load(file);
+      }
+    });
+    return;
+  }
+
+  // Resolve ID to URL if it looks like a Supabase UUID
+  let srcUrl = fileUrl;
+  if (/^[0-9a-f-]{36}$/i.test(fileUrl)) {
+    // Fetch record from Supabase to get the splat URL and metadata
+    try {
+      const cfg = window.FUMOCA_CONFIG || {};
+      const supaUrl = cfg.supabaseUrl || '';
+      const supaKey = cfg.supabaseAnonKey || '';
+      const workerUrl = cfg.r2WorkerUrl || 'https://cdn.fumoca.co.za';
+      if (supaUrl && supaKey) {
+        // nif_files is the real, live table (confirmed against production —
+        // `splats` does not exist there). r2_key is a storage key, not a URL;
+        // it's resolved through the same Cloudflare Worker every other R2
+        // read in this app uses.
+        const r = await fetch(`${supaUrl}/rest/v1/nif_files?id=eq.${fileUrl}&select=r2_key,title,description,thumbnail_url,meta`, {
+          headers: { apikey: supaKey, Authorization: `Bearer ${supaKey}` }
+        });
+        if (r.ok) {
+          const rows = await r.json();
+          if (rows?.[0]) {
+            const rec = rows[0];
+            srcUrl = `${workerUrl}/file/${encodeURIComponent(rec.r2_key)}`;
+
+            // Update OG tags dynamically (the CF worker handles crawler bots)
+            if (rec.title) {
+              document.title = rec.title + ' — FUMOCA';
+              document.getElementById('meta-og-title').setAttribute('content', rec.title);
+              document.getElementById('meta-tw-title').setAttribute('content', rec.title);
+              topTitle.textContent = rec.title;
+              topTitle.classList.add('visible');
+            }
+            if (rec.thumbnail_url) {
+              document.getElementById('meta-og-image').setAttribute('content', rec.thumbnail_url);
+              document.getElementById('meta-tw-image').setAttribute('content', rec.thumbnail_url);
+            }
+            document.getElementById('meta-og-url').setAttribute('content', location.href);
+
+            // Store for social sharing — flatten meta.hotspots/tourStops onto the
+            // record shape the rest of this page (and the CTA handler above)
+            // already expects.
+            window._fumocaCurrentRecord = { ...rec, ...(rec.meta || {}) };
+            if (!params.get('music') && window._fumocaCurrentRecord.musicUrl) {
+              initBackgroundAudio(window._fumocaCurrentRecord.musicUrl);
+            }
+            shareBtn.style.display = 'block';
+
+            // Real view-count RPC (increment_view_count exists in production;
+            // increment_embed_view is the separate per-embed-link counter used
+            // only when arriving via a token, tracked in embed/viewer.html).
+            fetch(`${supaUrl}/rest/v1/rpc/increment_view_count`, {
+              method: 'POST',
+              headers: { apikey: supaKey, Authorization: `Bearer ${supaKey}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ nif_uuid: fileUrl }),
+            }).catch(() => {});
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  // Mount player — <fumoc-player> custom element, but we use JS API for control
+  const player = FumocPlayer.mount(viewer, { src: srcUrl });
+  window._fumocaPlayer = player;
+
+  // ── Scene loaded ─────────────────────────────────────────────────────────
+  viewer.addEventListener('fumoc:ready', e => {
+    const { header, hasMesh, hotspots, tour } = e.detail;
+
+    if (header?.title && !topTitle.textContent) {
+      document.title   = header.title + ' — FUMOCA';
+      topTitle.textContent = header.title;
+      topTitle.classList.add('visible');
+    }
+
+    // Show teaser record button
+    teaserBtn.style.display = 'block';
+
+    // Render hotspots if present
+    if (hotspots?.length && hasMesh) {
+      _renderHotspots(hotspots);
+    }
+  });
+
+  viewer.addEventListener('fumoc:error', e => {
+    console.error('[viewer]', e.detail.message);
+  });
+
+  // ── Surface tap → check against hotspot proximity ────────────────────────
+  viewer.addEventListener('fumoc:tap', e => {
+    const { worldHit } = e.detail;
+    if (!worldHit || !window._fumocaHotspots) return;
+    const closest = _nearestHotspot(worldHit, window._fumocaHotspots);
+    if (closest) _showInfoPanel(closest);
+  });
+
+  // ── Share button ─────────────────────────────────────────────────────────
+  shareBtn.addEventListener('click', async () => {
+    const rec   = window._fumocaCurrentRecord;
+    const title = rec?.title || document.title;
+    const url   = location.href;
+    if (navigator.share) {
+      try {
+        await navigator.share({ title, url });
+      } catch (_) {}
+    } else {
+      await navigator.clipboard.writeText(url).catch(() => {});
+      shareBtn.textContent = 'Copied!';
+      setTimeout(() => { shareBtn.textContent = 'Share ↗'; }, 2000);
+    }
+  });
+
+  // ── Teaser video record ──────────────────────────────────────────────────
+  teaserBtn.addEventListener('click', async () => {
+    teaserBtn.disabled = true;
+    teaserBtn.textContent = '⏳ Recording…';
+    try {
+      const { isRecordingSupported, recordTeaser, downloadBlob, remuxToMp4 } =
+        await import('/js/modules/social-recorder.js');
+
+      const support = isRecordingSupported();
+      if (!support.supported) { alert(support.reason); return; }
+
+      const canvas = viewer.querySelector('canvas');
+      if (!canvas) { alert('Viewer not ready — try again.'); return; }
+
+      const rec     = window._fumocaCurrentRecord;
+      const brand   = rec?.brand || 'FUMOCA';
+      const vehicle = rec?.title || 'View in 3D';
+
+      const { blob, mime } = await recordTeaser({
+        sourceCanvas: canvas,
+        aspect: 'vertical',
+        branding: { text: brand, cta: vehicle },
+        fps: 30,
+        triggerReveal: async () => {}, // no reveal on this viewer — already showing
+        onProgress: ({ phase }) => {
+          teaserBtn.textContent = '⏳ ' + phase.replace(/_/g, ' ');
+        },
+      });
+
+      const safeTitle = (vehicle||'clip').replace(/[^a-z0-9]+/gi,'_').toLowerCase().slice(0,40);
+      const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
+
+      if (isIOS && mime?.includes('webm')) {
+        teaserBtn.textContent = '⏳ Converting…';
+        const mp4 = await remuxToMp4(blob);
+        downloadBlob(mp4, `fumoca-${safeTitle}.mp4`);
+      } else {
+        downloadBlob(blob, `fumoca-${safeTitle}.${mime?.includes('mp4')?'mp4':'webm'}`);
+      }
+    } catch (err) {
+      console.warn('[teaser]', err);
+      alert('Could not record: ' + err.message);
+    } finally {
+      teaserBtn.disabled = false;
+      teaserBtn.textContent = '🎥 Record';
+    }
+  });
+
+  // ── Hotspot rendering ────────────────────────────────────────────────────
+
+  function _renderHotspots(hotspots) {
+    window._fumocaHotspots = hotspots;
+    hotspots.forEach((hs, i) => {
+      const el = document.createElement('div');
+      el.className = 'hotspot';
+      el.style.left = '50%'; el.style.top = '50%'; // positioned by world-to-screen on each frame
+      el.dataset.index = i;
+      const pill = document.createElement('div');
+      pill.className = 'hotspot-pill';
+      pill.textContent = hs.title || `Point ${i+1}`;
+      el.appendChild(pill);
+      el.addEventListener('click', () => _showInfoPanel(hs));
+      document.body.appendChild(el);
+    });
+    // TODO: project world positions to screen on rAF tick
+    // For now hotspots are triggered by mesh tap proximity
+  }
+
+  function _nearestHotspot(worldHit, hotspots) {
+    if (!hotspots?.length || !worldHit) return null;
+    let best = null, bestDist = Infinity;
+    for (const hs of hotspots) {
+      if (!hs.position) continue;
+      const dx = worldHit[0]-hs.position[0], dy = worldHit[1]-hs.position[1], dz = worldHit[2]-hs.position[2];
+      const d = Math.sqrt(dx*dx+dy*dy+dz*dz);
+      if (d < bestDist && d < 0.5) { bestDist = d; best = hs; }
+    }
+    return best;
+  }
+
+  function _showInfoPanel(hs) {
+    const panel = document.getElementById('infoPanel');
+    document.getElementById('infoPanelTitle').textContent = hs.title || '';
+    document.getElementById('infoPanelBody').textContent  = hs.description || '';
+    const link = document.getElementById('infoPanelLink');
+    if (hs.link) { link.href = hs.link; link.style.display = 'inline-block'; }
+    else           { link.style.display = 'none'; }
+    panel.classList.add('visible');
+  }
+
+  document.getElementById('infoPanelClose').addEventListener('click', () => {
+    document.getElementById('infoPanel').classList.remove('visible');
+  });
+
+})();
+</script>
+
+</body>
+</html>

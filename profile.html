@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="manifest" href="/manifest.json">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FUMOCA — Profile</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/dashboard.css">
+<script src="config.js"></script>
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/nav.css">
+<script src="js/modules/nav.js" defer></script>
+</head>
+<body>
+<div class="app-shell">
+<main class="main-content">
+  <div class="topbar">
+    <div class="search-bar"><span>🔍</span><input placeholder="Search or navigate..."></div>
+  </div>
+  <div class="page-body">
+    <div class="page-header">
+      <div class="page-kicker">Creator</div>
+      <div class="page-title">PROFILE</div>
+    </div>
+    
+<div class="grid-2 tight">
+  <section class="stack-18">
+    <div class="panel">
+      <div class="profile-hero">
+        <div class="profile-avatar" id="profileAvatar">F</div>
+        <div>
+          <h2 id="profileName" style="font-size:34px;margin:0 0 6px;">Loading...</h2>
+          <div id="profileHandle" class="muted">@...</div>
+          <div class="panel-subtitle">Your creator profile, upload history, and pipeline status in one place.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid-3 hero-metric">
+      <div class="info-card"><strong id="countFollowers">0</strong><span class="muted">Followers</span></div>
+      <div class="info-card"><strong id="countFollowing">0</strong><span class="muted">Following</span></div>
+      <div class="info-card"><strong id="countSplats">0</strong><span class="muted">Splats</span></div>
+    </div>
+
+    <div class="panel">
+      <h3 style="margin:0 0 12px">Recent uploads</h3>
+      <div id="recentSplats"></div>
+    </div>
+
+    <div class="panel">
+      <div style="display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:12px;">
+        <div>
+          <h3 style="margin:0 0 6px">Manage uploads</h3>
+          <div class="panel-subtitle">Delete failed or unwanted uploads here instead of from the public feed.</div>
+        </div>
+        <button id="bulkDeleteFailedBtn" type="button" style="display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:10px 14px;border-radius:14px;font-weight:700;border:1px solid rgba(255,72,72,0.28);background:rgba(255,72,72,0.12);color:#ffb1b1;cursor:pointer;">Delete my failed uploads</button>
+      </div>
+      <div id="manageUploads"></div>
+    </div>
+  </section>
+
+  <aside class="stack-18">
+    <div class="panel">
+      <h3 style="margin:0 0 10px">Profile summary</h3>
+      <div class="panel-subtitle">This page now shares the exact same spacing, shell, and breathing room as the rest of the workspace.</div>
+    </div>
+    <div class="panel">
+      <h3 style="margin:0 0 10px">Quick actions</h3>
+      <div style="display:flex;gap:12px;flex-wrap:wrap">
+        <a href="upload.html" style="display:inline-flex;align-items:center;gap:8px;padding:12px 16px;border-radius:14px;background:var(--neon);color:var(--black);text-decoration:none;font-weight:800;">Create Splat</a>
+        <a href="settings.html" style="display:inline-flex;align-items:center;gap:8px;padding:12px 16px;border-radius:14px;background:var(--glass);border:1px solid var(--glass-border);color:var(--white);text-decoration:none;font-weight:600;">Open Settings</a>
+      </div>
+    </div>
+  </aside>
+</div>
+<script type="module" src="js/modules/profile.js"></script>
+
+  </div>
+</main>
+
+<aside class="right-panel">
+  
+<div class="panel-title">Profile</div>
+<div class="side-card">
+  <div class="mini-item">
+    <div class="mini-item-title">Unified dashboard</div>
+    <div class="mini-item-sub">Profile no longer collapses into a tighter or different-looking page. It now sits inside the same full workspace system as feed and upload.</div>
+  </div>
+</div>
+
+</aside>
+</div>
+<script type="module" src="js/modules/dashboard-shell.js"></script>
+</body>
+</html>

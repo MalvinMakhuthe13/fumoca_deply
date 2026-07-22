@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FUMOCA — Interactive Cover</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:    #0B0B0C;
+    --paper:  #F2EFE6;
+    --lime:   #C8FF00;
+    --rust:   #FF3C1F;
+    --grey:   #8B877A;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:var(--ink);color:var(--paper);
+    font-family:'Inter',sans-serif;}
+
+  .cover{
+    max-width:520px; margin:0 auto; min-height:100vh;
+    position:relative; overflow:hidden;
+    display:flex; flex-direction:column;
+  }
+
+  /* ── Masthead ─────────────────────────────────────────────────── */
+  .masthead{
+    display:flex; justify-content:space-between; align-items:flex-start;
+    padding:22px 22px 0;
+  }
+  .wordmark{
+    font-family:'Anton',sans-serif; font-size:34px; letter-spacing:1px;
+    line-height:.85; color:var(--paper); text-decoration:none;
+  }
+  .issue{
+    font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--grey);
+    text-align:right; line-height:1.5; padding-top:4px;
+  }
+  .issue b{color:var(--lime); font-weight:500;}
+
+  /* ── Nav — static, real, clickable ───────────────────────────── */
+  nav{
+    display:flex; gap:18px; padding:14px 22px 12px;
+    border-bottom:1px solid rgba(242,239,230,.14);
+    font-size:12px; letter-spacing:.06em;
+  }
+  nav a{color:var(--grey); text-decoration:none; font-weight:600;
+    transition:color .15s ease;}
+  nav a:hover, nav a:focus-visible{color:var(--paper);}
+  nav a.current{color:var(--lime);}
+
+  /* ── Cover lines ──────────────────────────────────────────────── */
+  .kicker{
+    padding:26px 22px 0; font-family:'IBM Plex Mono',monospace;
+    font-size:12px; letter-spacing:.08em; color:var(--lime);
+  }
+  h1{
+    font-family:'Anton',sans-serif; font-weight:400;
+    font-size:clamp(40px,11vw,58px); line-height:.92; letter-spacing:.3px;
+    margin:8px 0 0; padding:0 22px; color:var(--paper);
+  }
+  .deck{
+    padding:14px 22px 0; font-size:15px; line-height:1.5; color:#CFCBC0;
+    max-width:34ch;
+  }
+
+  /* ── Product window — the signature element ──────────────────── */
+  .stage-wrap{ padding:22px; }
+  .stage{
+    position:relative; border-radius:2px;
+    border:1px solid rgba(242,239,230,.18);
+    background:
+      radial-gradient(ellipse at 50% 20%, rgba(200,255,0,.07), transparent 60%),
+      #121214;
+    aspect-ratio:4/5; width:100%;
+    animation:reveal .7s cubic-bezier(.2,.7,.2,1) both;
+  }
+  @keyframes reveal{
+    from{ clip-path:inset(0 0 100% 0); }
+    to{ clip-path:inset(0 0 0 0); }
+  }
+  .live-badge{
+    position:absolute; top:12px; left:12px; z-index:5;
+    display:flex; align-items:center; gap:6px;
+    font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:.05em;
+    color:var(--paper); background:rgba(11,11,12,.72); backdrop-filter:blur(4px);
+    padding:6px 10px; border:1px solid rgba(242,239,230,.2); border-radius:99px;
+  }
+  .live-dot{
+    width:6px; height:6px; border-radius:50%; background:var(--lime);
+    animation:pulse 1.8s ease-in-out infinite;
+  }
+  @keyframes pulse{ 0%,100%{opacity:1;} 50%{opacity:.35;} }
+  .rotate-hint{
+    position:absolute; bottom:12px; right:12px; z-index:5;
+    font-family:'IBM Plex Mono',monospace; font-size:10px; letter-spacing:.05em;
+    color:var(--grey); background:rgba(11,11,12,.72); backdrop-filter:blur(4px);
+    padding:6px 10px; border:1px solid rgba(242,239,230,.14); border-radius:99px;
+    transition:opacity .3s ease;
+  }
+  #fumoca-viewer{ position:absolute; inset:0; border-radius:2px; overflow:hidden; }
+  .stage-empty{
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    text-align:center; padding:32px; font-size:13px; color:var(--grey); line-height:1.6;
+  }
+  .stage-empty code{ color:var(--lime); font-family:'IBM Plex Mono',monospace; }
+
+  /* ── Price / CTA row ──────────────────────────────────────────── */
+  .buy-row{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:0 22px 26px; gap:12px;
+  }
+  .price{
+    font-family:'IBM Plex Mono',monospace; font-size:14px; color:var(--paper);
+  }
+  .price span{ display:block; font-size:10px; color:var(--grey); letter-spacing:.06em; }
+  .shop-btn{
+    font-family:'Inter',sans-serif; font-weight:800; font-size:13px;
+    background:var(--lime); color:var(--ink); border:none; border-radius:99px;
+    padding:13px 26px; cursor:pointer; text-decoration:none;
+    display:inline-block; transition:transform .15s ease;
+  }
+  .shop-btn:hover{ transform:scale(1.03); }
+
+  /* ── Footer strip ─────────────────────────────────────────────── */
+  footer{
+    margin-top:auto; padding:14px 22px 22px;
+    border-top:1px solid rgba(242,239,230,.1);
+    display:flex; justify-content:space-between; align-items:center;
+  }
+  .barcode{
+    display:flex; gap:2px; align-items:flex-end; height:20px;
+  }
+  .barcode i{ display:block; width:2px; background:var(--grey); }
+  footer small{ font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--grey); }
+
+  @media (prefers-reduced-motion: reduce){
+    .stage{ animation:none; }
+    .live-dot{ animation:none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="cover">
+  <div class="masthead">
+    <a href="/" class="wordmark">FUMOCA</a>
+    <div class="issue">VOL. 01 — <b id="dropLabel">DROP OF THE WEEK</b><br>ISSUE №<span id="issueNum">014</span></div>
+  </div>
+
+  <nav>
+    <a href="#" class="current">COVER</a>
+    <a href="feed.html">DROPS</a>
+    <a href="ad-studio.html">STORIES</a>
+    <a href="#">ABOUT</a>
+  </nav>
+
+  <p class="kicker" id="kicker">NIKE AIR FORCE 1 '07</p>
+  <h1 id="headline">TOUCH.<br>TURN.<br>TAKE IT HOME.</h1>
+  <p class="deck" id="deck">The icon, from every angle. Drag to rotate — tap Shop Now when you're ready.</p>
+
+  <div class="stage-wrap">
+    <div class="stage">
+      <div class="live-badge"><span class="live-dot"></span> LIVE OBJECT</div>
+      <div class="rotate-hint" id="rotateHint">DRAG TO ROTATE ↻</div>
+      <div id="fumoca-viewer"></div>
+      <div class="stage-empty" id="stageEmpty">
+        No product wired up yet.<br>
+        Open this page with <code>?id=&lt;nif_files UUID&gt;</code><br>
+        (or <code>?token=&lt;embed token&gt;</code>) to load a real one.
+      </div>
+    </div>
+  </div>
+
+  <div class="buy-row">
+    <div class="price"><span>PRICE</span><b id="priceText">$115</b></div>
+    <a class="shop-btn" id="shopBtnFallback" href="#">SHOP NOW →</a>
+  </div>
+
+  <footer>
+    <div class="barcode" aria-hidden="true"></div>
+    <small>PRINTED IN PIXELS — FUMOCA.CO.ZA</small>
+  </footer>
+</div>
+
+<script>
+  // ── Reusable per product via query params ─────────────────────────────────
+  // ?id=<nif_files uuid>        real product, direct by ID
+  // ?token=<embed token>        real product, via a shareable embed link
+  // ?kicker= &title= &deck= &price= &ctaUrl= &drop=       cover copy overrides
+  const p = new URLSearchParams(location.search);
+
+  const setText = (id, key, fallback) => {
+    const v = p.get(key);
+    if (v) document.getElementById(id).textContent = v;
+  };
+  setText('kicker', 'kicker');
+  setText('deck', 'deck');
+  setText('priceText', 'price');
+  setText('dropLabel', 'drop');
+  if (p.get('title')) {
+    document.getElementById('headline').innerHTML =
+      p.get('title').split('. ').join('.<br>');
+  }
+  if (p.get('issue')) document.getElementById('issueNum').textContent = p.get('issue');
+
+  // Random-ish but stable barcode decoration (pure decoration, aria-hidden)
+  const barcode = document.querySelector('.barcode');
+  for (let i = 0; i < 24; i++) {
+    const bar = document.createElement('i');
+    const h = 6 + ((i * 37) % 14);
+    bar.style.height = h + 'px';
+    barcode.appendChild(bar);
+  }
+
+  const nifId    = p.get('id');
+  const nifToken = p.get('token');
+  const ctaUrl   = p.get('ctaUrl') || '#';
+  const ctaLabel = p.get('ctaLabel') || 'SHOP NOW →';
+  document.getElementById('shopBtnFallback').textContent = ctaLabel;
+  document.getElementById('shopBtnFallback').href = ctaUrl;
+
+  if (nifId || nifToken) {
+    document.getElementById('stageEmpty').style.display = 'none';
+    // Hide the static fallback button — the embedded viewer's own CTA
+    // button (wired in viewer-core.html) takes over once it mounts.
+    document.getElementById('shopBtnFallback').style.display = 'none';
+
+    if (nifToken) {
+      // fumoca-embed.js (the SDK) only supports data-splat-id + data-api-key —
+      // it has no concept of an anonymous embed token. For a token-based link
+      // (e.g. one generated by embed-manager.js), embed/viewer.html is the
+      // real, correct target — this IS the page that resolves a token.
+      const iframe = document.createElement('iframe');
+      iframe.src = `embed/viewer.html?token=${encodeURIComponent(nifToken)}`;
+      iframe.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;border:0;';
+      iframe.allow = 'autoplay; fullscreen; web-share';
+      document.getElementById('fumoca-viewer').appendChild(iframe);
+    } else {
+      const s = document.createElement('script');
+      s.src = 'sdk/fumoca-embed.js';
+      s.dataset.splatId  = nifId;
+      s.dataset.container = 'fumoca-viewer';
+      s.dataset.ctaLabel  = ctaLabel;
+      if (p.get('ctaUrl')) s.dataset.ctaUrl = p.get('ctaUrl');
+      document.body.appendChild(s);
+    }
+
+    // Listen for the real postMessage events the embed already fires
+    window.addEventListener('message', (e) => {
+      if (!e.data || !e.data.fumoca) return;
+      if (e.data.event === 'fumoca:ctaClick') {
+        console.log('[cover] shop click →', e.data.detail?.ctaUrl);
+      }
+    });
+  }
+
+  // Fade the rotate hint after first interaction
+  let hintFaded = false;
+  document.getElementById('fumoca-viewer').addEventListener('pointerdown', () => {
+    if (hintFaded) return;
+    hintFaded = true;
+    document.getElementById('rotateHint').style.opacity = '0';
+  });
+</script>
+
+</body>
+</html>

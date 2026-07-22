@@ -1,0 +1,39 @@
+# Cloudflare Pages _headers
+# Controls HTTP headers for all routes
+
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: SAMEORIGIN
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+
+/sdk/fumoc-player.js
+  Content-Type: application/javascript
+  Access-Control-Allow-Origin: *
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+
+/sdk/*
+  Access-Control-Allow-Origin: *
+  Cache-Control: public, max-age=86400
+
+/*.fumoc
+  Content-Type: application/fumoc
+  Access-Control-Allow-Origin: *
+  Cache-Control: public, max-age=604800
+
+/docs/*
+  Cache-Control: public, max-age=3600
+
+/icons/*
+  Cache-Control: public, max-age=2592000
+
+/open
+  X-Robots-Tag: noindex
+  Cache-Control: no-store
+  X-Frame-Options: DENY
+
+/public-preview.html
+  Cache-Control: no-cache
+
+/viewer
+  Cache-Control: no-cache

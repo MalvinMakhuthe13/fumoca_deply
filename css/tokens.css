@@ -1,0 +1,51 @@
+/* ============================================================
+   FUMOCA — CANONICAL DESIGN TOKENS
+   Single source of truth. Every page should load this FIRST,
+   before any page-specific <style> block, and page-specific
+   styles should stop redefining :root color values.
+   (index.html, feed.html, profile.html previously each defined
+   their own --black/--neon/etc with different actual values —
+   this file replaces all of those.)
+   ============================================================ */
+:root {
+  /* Core surface colors */
+  --black: #05070b;
+  --bg: #05070b;
+  --surface: #0e1016;
+  --surface2: #13151f;
+  --surface3: rgba(255, 255, 255, 0.06);
+  --white: #fafafa;
+  --text: #ffffff;
+  --muted: rgba(255, 255, 255, 0.62);
+  --dim: rgba(255, 255, 255, 0.2);
+
+  /* Borders */
+  --border: rgba(255, 255, 255, 0.09);
+  --border2: rgba(255, 255, 255, 0.14);
+  --glass: rgba(255, 255, 255, 0.06);
+  --glass-border: rgba(255, 255, 255, 0.12);
+
+  /* Brand */
+  --neon: #c8ff00;
+  --neon2: rgba(200, 255, 0, 0.1);
+  --neon-b: rgba(200, 255, 0, 0.22);
+  --neon-glow: 0 0 20px rgba(200, 255, 0, 0.25);
+  --purple: #7b2fff;
+  --pink: #ff2d78;
+  --orange: #ff4d00;
+  --rose: #ff2d78;
+
+  /* Status */
+  --success: #00ff88;
+  --error: #ff4d4d;
+
+  /* Type */
+  --font-display: 'Bebas Neue', sans-serif;
+  --font-body: 'DM Sans', sans-serif;
+
+  /* Shape / motion */
+  --r1: 10px;
+  --r2: 14px;
+  --r3: 20px;
+  --trans: 0.2s ease;
+}

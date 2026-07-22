@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Open .fumoc — FUMOCA</title>
+  <link rel="manifest" href="/manifest.json">
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    html,body{height:100%;background:#05070b;color:#fff;font-family:system-ui,-apple-system,sans-serif;overflow:hidden}
+    #root{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:24px;padding:24px}
+    #drop{width:min(420px,100%);border:2px dashed rgba(200,255,0,.3);border-radius:20px;
+          padding:48px 32px;text-align:center;cursor:pointer;transition:all .25s;position:relative;
+          background:rgba(200,255,0,.03)}
+    #drop.over{border-color:#c8ff00;background:rgba(200,255,0,.08)}
+    #drop svg{width:48px;height:48px;margin-bottom:16px;opacity:.4}
+    #drop h2{font-size:18px;font-weight:600;margin-bottom:8px;color:#fff}
+    #drop p{font-size:13px;color:rgba(255,255,255,.4);line-height:1.5}
+    #fileInput{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+    #url-row{display:flex;gap:10px;width:min(420px,100%)}
+    #urlInput{flex:1;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);
+              border-radius:10px;padding:10px 14px;color:#fff;font-size:13px;outline:none;
+              transition:border-color .2s}
+    #urlInput:focus{border-color:#c8ff00}
+    #urlInput::placeholder{color:rgba(255,255,255,.3)}
+    #urlBtn{background:#c8ff00;color:#05070b;border:none;border-radius:10px;
+            padding:10px 18px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;
+            transition:opacity .2s}
+    #urlBtn:hover{opacity:.85}
+    #status{font-size:13px;color:rgba(255,255,255,.45);min-height:18px;text-align:center}
+    #progress-bar{width:min(320px,80%);height:3px;background:rgba(255,255,255,.08);
+                  border-radius:99px;overflow:hidden;opacity:0;transition:opacity .3s}
+    #progress-fill{height:100%;width:0%;background:#c8ff00;transition:width .3s}
+    .logo{font-size:13px;font-weight:700;letter-spacing:.12em;color:rgba(200,255,0,.5);
+          text-transform:uppercase;margin-bottom:8px}
+    a.spec-link{font-size:11px;color:rgba(255,255,255,.2);text-decoration:none;
+                position:fixed;bottom:14px;left:50%;transform:translateX(-50%)}
+    a.spec-link:hover{color:rgba(200,255,0,.5)}
+  </style>
+</head>
+<body>
+<div id="root">
+  <div class="logo">FUMOCA</div>
+
+  <div id="drop">
+    <input type="file" id="fileInput" accept=".fumoc,application/fumoc,application/octet-stream">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+      <path d="M12 16V4m0 0-4 4m4-4 4 4" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M3 16v2a2 2 0 002 2h14a2 2 0 002-2v-2" stroke-linecap="round"/>
+    </svg>
+    <h2>Open a .fumoc file</h2>
+    <p>Drop a .fumoc file here, click to browse,<br>or paste a URL below</p>
+  </div>
+
+  <div id="url-row">
+    <input id="urlInput" type="url" placeholder="https://example.com/scene.fumoc">
+    <button id="urlBtn">Open URL</button>
+  </div>
+
+  <div id="status"></div>
+  <div id="progress-bar"><div id="progress-fill"></div></div>
+</div>
+
+<a class="spec-link" href="#" title="Spec page not published yet" aria-disabled="true" style="opacity:.5;cursor:not-allowed;pointer-events:none;" onclick="return false;">.fumoc open format — spec &amp; docs (coming soon)</a>
+
+<script type="module">
+  import '/sdk/fumoc-player.js';
+
+  const drop        = document.getElementById('drop');
+  const fileInput   = document.getElementById('fileInput');
+  const urlInput    = document.getElementById('urlInput');
+  const urlBtn      = document.getElementById('urlBtn');
+  const status      = document.getElementById('status');
+  const progressBar = document.getElementById('progress-bar');
+  const progressFill= document.getElementById('progress-fill');
+
+  function setStatus(msg, pct) {
+    status.textContent = msg;
+    if (pct != null) {
+      progressBar.style.opacity = '1';
+      progressFill.style.width  = pct + '%';
+    } else {
+      progressBar.style.opacity = '0';
+    }
+  }
+
+  // ── PWA launchQueue handler (file_handlers in manifest) ──────────────────
+  if ('launchQueue' in window) {
+    window.launchQueue.setConsumer(async launchParams => {
+      if (!launchParams.files?.length) return;
+      const fileHandle = launchParams.files[0];
+      const file = await fileHandle.getFile();
+      processFile(file);
+    });
+  }
+
+  // ── PWA share_target handler ──────────────────────────────────────────────
+  if (location.search.includes('share-target=1')) {
+    const bc = new BroadcastChannel('fumoc_share_target');
+    setStatus('Receiving shared file…');
+    navigator.serviceWorker?.ready.then(reg => {
+      reg.active?.postMessage({ type: 'GET_SHARED_FILE' });
+    });
+    bc.onmessage = e => {
+      if (e.data?.type === 'SHARED_FILE' && e.data.file) processFile(e.data.file);
+      else if (e.data?.type === 'NO_SHARED_FILE') setStatus('No file received. Try again.');
+    };
+  }
+
+  // ── ?url= query param (direct URL open from other platforms) ─────────────
+  const qUrl = new URLSearchParams(location.search).get('url') || new URLSearchParams(location.search).get('uri');
+  if (qUrl) processUrl(qUrl);
+
+  // ── Drag & drop ──────────────────────────────────────────────────────────
+  drop.addEventListener('dragover',  e => { e.preventDefault(); drop.classList.add('over'); });
+  drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+  drop.addEventListener('drop', e => {
+    e.preventDefault(); drop.classList.remove('over');
+    const file = e.dataTransfer.files[0];
+    if (file) processFile(file);
+  });
+
+  // ── File input ───────────────────────────────────────────────────────────
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files?.[0]) processFile(fileInput.files[0]);
+  });
+
+  // ── URL open ─────────────────────────────────────────────────────────────
+  urlBtn.addEventListener('click', () => {
+    const v = urlInput.value.trim();
+    if (v) processUrl(v);
+  });
+  urlInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { const v = urlInput.value.trim(); if (v) processUrl(v); }
+  });
+
+  // ── Core: process a File object ──────────────────────────────────────────
+  async function processFile(file) {
+    setStatus('Reading…', 2);
+    try {
+      const buffer = await file.arrayBuffer();
+      await navigateToViewer(buffer, file.name.replace(/\.fumoc$/i, '') || 'Scene');
+    } catch (err) {
+      setStatus('Error: ' + err.message, null);
+    }
+  }
+
+  // ── Core: process a URL ──────────────────────────────────────────────────
+  async function processUrl(url) {
+    setStatus('Fetching…', 5);
+    try {
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const buffer = await resp.arrayBuffer();
+      const name   = url.split('/').pop().replace(/\.fumoc$/i,'') || 'Scene';
+      await navigateToViewer(buffer, name);
+    } catch (err) {
+      setStatus('Failed to fetch: ' + err.message, null);
+    }
+  }
+
+  // ── Core: decode header+thumbnail, store blob, navigate ─────────────────
+  async function navigateToViewer(buffer, title) {
+    setStatus('Decoding…', 15);
+
+    // Quick magic check
+    const bytes = new Uint8Array(buffer);
+    const magic = String.fromCharCode(bytes[0],bytes[1],bytes[2],bytes[3],bytes[4]);
+    if (!magic.startsWith('FUMOC')) throw new Error('Not a valid .fumoc file');
+
+    // Store raw bytes in IndexedDB — no size limit, survives navigation.
+    // sessionStorage/base64 fails on files >~3.5MB (QuotaExceededError).
+    setStatus('Preparing…', 60);
+    await new Promise((resolve, reject) => {
+      const req = indexedDB.open('fumoca_handoff', 1);
+      req.onupgradeneeded = e => e.target.result.createObjectStore('pending');
+      req.onsuccess = e => {
+        const db = e.target.result;
+        const tx = db.transaction('pending', 'readwrite');
+        tx.objectStore('pending').put(buffer, 'fumoc_file');
+        tx.objectStore('pending').put(title,  'fumoc_title');
+        tx.oncomplete = resolve;
+        tx.onerror    = reject;
+      };
+      req.onerror = reject;
+    });
+
+    setStatus('Opening viewer…', 90);
+
+    sessionStorage.setItem('fumoc_pending_splat_type', 'fumoc');
+    sessionStorage.setItem('fumoc_open_header',        JSON.stringify({ title }));
+
+    window.location.href = `/viewer?mode=fumoc_open&title=${encodeURIComponent(title)}`;
+  }
+</script>
+</body>
+</html>

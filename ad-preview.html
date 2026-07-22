@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#000">
+<title>FUMOCA Ad Preview</title>
+<script src="config.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 100%; height: 100vh; background: #000; overflow: hidden; }
+#adContainer {
+  width: 100%; height: 100%;
+  position: relative;
+}
+#loading {
+  position: fixed; inset: 0; background: #000;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+  z-index: 100; font-family: 'DM Sans', system-ui; color: #fff;
+}
+#spinner {
+  width: 40px; height: 40px; border-radius: 50%;
+  border: 2px solid rgba(255,255,255,.15); border-top-color: #c8ff00;
+  animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+#loadLabel { font-size: 13px; color: rgba(255,255,255,.5); }
+#backBtn {
+  position: fixed; top: 16px; left: 16px; z-index: 200;
+  background: rgba(5,7,11,.8); border: 1px solid rgba(255,255,255,.15);
+  border-radius: 999px; padding: 8px 16px; color: #fff;
+  font-size: 12px; font-weight: 700; cursor: pointer;
+  font-family: 'DM Sans', system-ui; backdrop-filter: blur(8px);
+}
+#formatBadge {
+  position: fixed; top: 16px; right: 16px; z-index: 200;
+  background: rgba(200,255,0,.12); border: 1px solid rgba(200,255,0,.3);
+  border-radius: 999px; padding: 6px 14px;
+  font-size: 11px; font-weight: 800; color: #c8ff00; letter-spacing: .06em;
+  font-family: 'DM Sans', system-ui;
+}
+</style>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<div id="loading">
+  <div id="spinner"></div>
+  <div id="loadLabel">Loading ad experience…</div>
+</div>
+
+<button id="backBtn" onclick="window.close()">← Close Preview</button>
+<div id="formatBadge">FUMOCA AD FORMAT</div>
+<div id="adContainer"></div>
+
+<script type="module">
+import FumocDecoder  from './js/modules/fumoc-decoder.js';
+import FumocAdPlayer from './js/modules/fumoc-ad-player.js';
+
+const loading    = document.getElementById('loading');
+const loadLabel  = document.getElementById('loadLabel');
+const container  = document.getElementById('adContainer');
+
+// Signal we're ready
+const bc = new BroadcastChannel('fumoc_open');
+bc.postMessage('fumoc_ad_preview_ready');
+
+bc.onmessage = async (e) => {
+  if (e.data?.type !== 'fumoc_ad_load') return;
+  bc.close();
+
+  try {
+    loadLabel.textContent = 'Decoding .fumoc…';
+    const decoded = await FumocDecoder.decode(e.data.buffer, {
+      splatBinary: true,
+      onProgress: (pct, label) => { loadLabel.textContent = label; },
+    });
+
+    loadLabel.textContent = 'Initialising player…';
+
+    // Build a minimal THREE scene
+    const { FumocAdPlayer: Player } = await import('./js/modules/fumoc-ad-player.js');
+
+    loading.style.display = 'none';
+
+    Player.init(container, decoded, {
+      onInteract: () => {
+        document.getElementById('formatBadge').textContent = 'INTERACTIVE · FUMOCA';
+      },
+      onResume: () => {
+        document.getElementById('formatBadge').textContent = 'FUMOCA AD FORMAT';
+      },
+    });
+
+    // Show state info
+    const state = Player.getState();
+    console.log('[AdPreview] Player state:', state);
+
+  } catch (err) {
+    loadLabel.textContent = '⚠ ' + err.message;
+    console.error('[AdPreview]', err);
+  }
+};
+</script>
+</body>
+</html>

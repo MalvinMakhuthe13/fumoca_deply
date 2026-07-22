@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+<link rel="manifest" href="/manifest.json">
+
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="theme-color" content="#000000" />
+  <title>FUMOCA · Showroom</title>
+  <link rel="icon" href="favicon.ico" />
+  <!--
+    SHOWROOM PAGE
+    ─────────────
+    The client-facing listing page. One vehicle, one 3D splat, optimized
+    for "open on phone, explore, share" moments — whether that's a sales
+    rep showing a car on their phone, a buyer clicking a WhatsApp link, or
+    an embed on a dealership's own website.
+
+    Three goals:
+      1. Open fast, even on bad wifi (service worker + pre-cached splats)
+      2. Feel premium in the first 3 seconds (cinematic reveal, clean UI)
+      3. Make it dead-easy to share to WhatsApp / Facebook / email
+
+    Usage:
+      showroom.html?splatId=abc-123
+      showroom.html?splatId=abc-123&brand=MyDealership&vehicle=2023+BMW+X5
+
+    The page loads the splat in an iframe, not by embedding the full
+    viewer here directly, so this shell stays small (<15 KB) and the
+    viewer.html can evolve independently.
+  -->
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    html, body { height: 100%; background: #000; color: #fff; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; overflow: hidden; }
+
+    /* Splash — shown during the first load while the iframe warms up.
+       Matches the viewer's reveal timing so the handoff feels continuous. */
+    #splash {
+      position: fixed; inset: 0; z-index: 10;
+      background: #0b0e14;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 16px;
+      transition: opacity .5s ease; opacity: 1;
+    }
+    #splash.hidden { opacity: 0; pointer-events: none; }
+    #splash .brand { font-size: 32px; font-weight: 900; color: #c8ff00; letter-spacing: -0.02em; }
+    #splash .vehicle { font-size: 16px; color: rgba(255,255,255,.7); }
+    #splash .progress {
+      width: 180px; height: 3px; background: rgba(255,255,255,.1); border-radius: 999px;
+      margin-top: 8px; overflow: hidden; position: relative;
+    }
+    #splash .progress::before {
+      content: ''; position: absolute; inset: 0 auto 0 0;
+      width: 40%; background: #c8ff00; border-radius: 999px;
+      animation: loading 1.4s infinite ease-in-out;
+    }
+    @keyframes loading {
+      0%   { transform: translateX(-100%); }
+      100% { transform: translateX(300%); }
+    }
+
+    /* The splat viewer iframe — full screen */
+    #viewerFrame {
+      position: fixed; inset: 0; width: 100%; height: 100%;
+      border: 0;
+    }
+
+    /* Top info bar — vehicle + brand */
+    .top-info {
+      position: fixed; top: 0; left: 0; right: 0;
+      padding: calc(env(safe-area-inset-top) + 10px) 16px 12px;
+      background: linear-gradient(to bottom, rgba(0,0,0,.7), transparent);
+      z-index: 5;
+      pointer-events: none;
+    }
+    .vehicle-line { font-size: 17px; font-weight: 800; letter-spacing: -0.01em; }
+    .brand-line { font-size: 12px; color: rgba(255,255,255,.6); margin-top: 2px; }
+
+    /* Bottom action strip — one-tap share actions */
+    .action-strip {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      padding: 16px 14px calc(env(safe-area-inset-bottom) + 14px);
+      background: linear-gradient(to top, rgba(0,0,0,.75), transparent);
+      z-index: 5;
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+    }
+    .action-btn {
+      background: rgba(255,255,255,.1);
+      border: 1px solid rgba(255,255,255,.15);
+      color: #fff;
+      border-radius: 14px;
+      padding: 12px 8px;
+      font-size: 12px; font-weight: 700;
+      font-family: inherit;
+      cursor: pointer;
+      display: flex; flex-direction: column; align-items: center; gap: 4px;
+      transition: background .15s ease, transform .1s ease;
+    }
+    .action-btn:active { transform: scale(.96); background: rgba(255,255,255,.18); }
+    .action-btn.primary {
+      background: #c8ff00; color: #0b0e14;
+      border-color: #c8ff00;
+    }
+    .action-btn .icon { font-size: 20px; }
+
+    /* Share sheet — shown when the user taps "Share" */
+    .share-sheet {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.8); backdrop-filter: blur(12px);
+      z-index: 20;
+      display: none;
+      align-items: flex-end; justify-content: center;
+    }
+    .share-sheet.visible { display: flex; }
+    .share-panel {
+      background: #12151d;
+      width: 100%; max-width: 520px;
+      border-radius: 22px 22px 0 0;
+      padding: 24px 20px calc(env(safe-area-inset-bottom) + 20px);
+    }
+    .share-panel h3 { font-size: 17px; margin-bottom: 4px; color: #c8ff00; font-weight: 800; }
+    .share-panel .share-url {
+      background: rgba(255,255,255,.06);
+      padding: 10px 12px;
+      border-radius: 10px;
+      font-size: 12px; font-family: SFMono-Regular, Menlo, monospace;
+      margin: 12px 0;
+      word-break: break-all;
+      color: rgba(255,255,255,.85);
+    }
+    .share-panel .share-row {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px;
+    }
+    .share-target {
+      background: rgba(255,255,255,.08);
+      border: 0; color: #fff;
+      border-radius: 14px;
+      padding: 14px 6px;
+      font-size: 11px; font-weight: 700;
+      font-family: inherit;
+      cursor: pointer;
+      display: flex; flex-direction: column; align-items: center; gap: 4px;
+    }
+    .share-target:active { background: rgba(255,255,255,.14); }
+    .share-target .ic { font-size: 22px; }
+    .share-close {
+      background: transparent; border: 0; color: rgba(255,255,255,.55);
+      font-size: 14px; padding: 12px; width: 100%; margin-top: 10px;
+      font-family: inherit; cursor: pointer;
+    }
+
+    /* Toast — confirms an action happened */
+    .toast {
+      position: fixed; top: 72px; left: 50%; transform: translateX(-50%) translateY(-20px);
+      background: rgba(0,0,0,.9); border: 1px solid rgba(200,255,0,.4);
+      color: #c8ff00; font-size: 13px; font-weight: 700;
+      padding: 10px 18px; border-radius: 999px;
+      opacity: 0; transition: transform .3s ease, opacity .3s ease;
+      pointer-events: none; z-index: 30;
+    }
+    .toast.visible { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    /* Offline warning if the splat isn't cached */
+    .offline-gate {
+      position: fixed; inset: 0; z-index: 15;
+      background: #0b0e14; display: none;
+      flex-direction: column; align-items: center; justify-content: center;
+      padding: 32px; text-align: center; gap: 12px;
+    }
+    .offline-gate.visible { display: flex; }
+    .offline-gate h2 { color: #ff2466; font-size: 22px; }
+    .offline-gate p { color: rgba(255,255,255,.75); font-size: 14px; line-height: 1.5; max-width: 320px; }
+    .offline-gate button {
+      background: #c8ff00; color: #0b0e14; border: 0;
+      padding: 12px 22px; border-radius: 12px;
+      font-weight: 800; font-size: 14px; font-family: inherit;
+      cursor: pointer; margin-top: 8px;
+    }
+  </style>
+</head>
+<body data-nav="none">
+
+<!-- Splash while the iframe warms up -->
+<div id="splash">
+  <div class="brand" id="splashBrand">FUMOCA</div>
+  <div class="vehicle" id="splashVehicle">Loading interactive 3D…</div>
+  <div class="progress"></div>
+</div>
+
+<!-- Offline gate if the splat truly can't load (not cached, no network) -->
+<div class="offline-gate" id="offlineGate">
+  <h2>Listing not available offline</h2>
+  <p>This vehicle hasn't been viewed on this device yet. Please reconnect to wifi or mobile data for the first load — after that it works offline.</p>
+  <button id="retryBtn">Retry</button>
+</div>
+
+<!-- Top info overlay -->
+<div class="top-info">
+  <div class="vehicle-line" id="vehicleLabel"></div>
+  <div class="brand-line" id="brandLabel"></div>
+</div>
+
+<!-- The splat viewer itself in an iframe -->
+<iframe id="viewerFrame" allow="accelerometer; gyroscope; magnetometer; autoplay" allowfullscreen></iframe>
+
+<!-- Bottom action strip -->
+<div class="action-strip">
+  <button class="action-btn" id="fullscreenBtn" aria-label="Fullscreen">
+    <span class="icon">⛶</span>
+    <span>Full screen</span>
+  </button>
+  <button class="action-btn primary" id="shareBtn" aria-label="Share">
+    <span class="icon">↗</span>
+    <span>Share</span>
+  </button>
+  <button class="action-btn" id="quoteBtn" aria-label="Get a quote">
+    <span class="icon">📩</span>
+    <span>Get quote</span>
+  </button>
+</div>
+
+<!-- Share sheet -->
+<div class="share-sheet" id="shareSheet">
+  <div class="share-panel">
+    <h3>Share this 3D listing</h3>
+    <div class="share-url" id="shareUrl"></div>
+    <div class="share-row">
+      <button class="share-target" data-target="whatsapp">
+        <span class="ic">💬</span><span>WhatsApp</span>
+      </button>
+      <button class="share-target" data-target="sms">
+        <span class="ic">📱</span><span>SMS</span>
+      </button>
+      <button class="share-target" data-target="email">
+        <span class="ic">✉️</span><span>Email</span>
+      </button>
+      <button class="share-target" data-target="copy">
+        <span class="ic">🔗</span><span>Copy</span>
+      </button>
+    </div>
+    <button class="share-close" id="shareClose">Close</button>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script type="module">
+  import {
+    ensureServiceWorker, prefetchSplat, isOnline, installOfflineBanner
+  } from './js/modules/offline-helper.js';
+
+  // ─── Read params ────────────────────────────────────────────────────────
+  const params = new URLSearchParams(location.search);
+  const splatId = params.get('splatId') || params.get('id');
+  const brand   = decodeURIComponent(params.get('brand')   || 'FUMOCA');
+  const vehicle = decodeURIComponent(params.get('vehicle') || (splatId ? 'Interactive 3D listing' : 'Vehicle'));
+  const quoteUrl = params.get('quote_url') || '';   // dealership's lead-capture URL
+  const quotePhone = params.get('quote_phone') || '';  // dealership phone (tel: link)
+  const revealDuration = params.get('reveal_duration') || '4200';
+
+  document.getElementById('splashBrand').textContent = brand;
+  document.getElementById('splashVehicle').textContent = vehicle;
+  document.getElementById('vehicleLabel').textContent = vehicle;
+  document.getElementById('brandLabel').textContent = `Powered by ${brand === 'FUMOCA' ? 'FUMOCA' : brand + ' · FUMOCA'}`;
+  document.title = `${brand} · ${vehicle}`;
+
+  // ─── Register the service worker for offline resilience ────────────────
+  ensureServiceWorker();
+  installOfflineBanner();
+
+  // ─── Load the splat ────────────────────────────────────────────────────
+  if (!splatId) {
+    document.getElementById('splashVehicle').textContent = 'No splatId provided in URL.';
+  } else {
+    // Point the iframe at the existing viewer with reveal tuned for this listing.
+    const viewerUrl = `viewer.html?splatId=${encodeURIComponent(splatId)}&reveal_duration=${encodeURIComponent(revealDuration)}`;
+    const frame = document.getElementById('viewerFrame');
+    frame.src = viewerUrl;
+    // Hide splash when the iframe tells us it's ready, or after a safety
+    // timeout so we never leave the splash stuck.
+    let hidden = false;
+    const hide = () => {
+      if (hidden) return; hidden = true;
+      document.getElementById('splash').classList.add('hidden');
+    };
+    frame.addEventListener('load', () => setTimeout(hide, 400));
+    // Listen for reveal-complete messages from the viewer iframe (if we
+    // later post them) to hide splash at the natural reveal boundary.
+    window.addEventListener('message', (ev) => {
+      if (ev.data && ev.data.type === 'fumoca:reveal:complete') hide();
+    });
+    setTimeout(hide, 6000); // hard safety
+
+    // Detect the offline-503 case and show the offline gate
+    setTimeout(async () => {
+      try {
+        const head = await fetch(viewerUrl, { method: 'HEAD' });
+        if (head.status === 503) {
+          document.getElementById('offlineGate').classList.add('visible');
+        }
+      } catch (_) {
+        if (!isOnline()) {
+          document.getElementById('offlineGate').classList.add('visible');
+        }
+      }
+    }, 1500);
+  }
+
+  // ─── Action buttons ────────────────────────────────────────────────────
+  document.getElementById('fullscreenBtn').addEventListener('click', async () => {
+    const frame = document.getElementById('viewerFrame');
+    try {
+      if (frame.requestFullscreen) await frame.requestFullscreen();
+      else if (frame.webkitRequestFullscreen) frame.webkitRequestFullscreen();
+    } catch (_) {
+      toast('Fullscreen not supported here — the viewer is already full-screen on phones.');
+    }
+  });
+
+  document.getElementById('shareBtn').addEventListener('click', () => {
+    const shareUrl = `${location.origin}${location.pathname}?splatId=${encodeURIComponent(splatId)}${brand !== 'FUMOCA' ? '&brand=' + encodeURIComponent(brand) : ''}&vehicle=${encodeURIComponent(vehicle)}`;
+    document.getElementById('shareUrl').textContent = shareUrl;
+    // If the browser has the native share API, offer it. Otherwise use the
+    // in-page sheet (Android Chrome often has native share; iOS Safari always).
+    if (navigator.share) {
+      navigator.share({
+        title: `${vehicle} · ${brand}`,
+        text: `Interactive 3D of ${vehicle}`,
+        url: shareUrl,
+      }).catch(() => {});
+    } else {
+      document.getElementById('shareSheet').classList.add('visible');
+    }
+  });
+
+  document.getElementById('quoteBtn').addEventListener('click', () => {
+    if (quoteUrl) {
+      window.open(quoteUrl, '_blank', 'noopener');
+      return;
+    }
+    if (quotePhone) {
+      location.href = `tel:${quotePhone}`;
+      return;
+    }
+    toast('Contact link not configured for this listing.');
+  });
+
+  // Share sheet handlers
+  document.getElementById('shareClose').addEventListener('click', () => {
+    document.getElementById('shareSheet').classList.remove('visible');
+  });
+  document.getElementById('shareSheet').addEventListener('click', (e) => {
+    if (e.target.id === 'shareSheet') {
+      document.getElementById('shareSheet').classList.remove('visible');
+    }
+  });
+  document.querySelectorAll('[data-target]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const target = btn.dataset.target;
+      const url = document.getElementById('shareUrl').textContent;
+      const text = `3D tour of ${vehicle}: ${url}`;
+      switch (target) {
+        case 'whatsapp':
+          window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+          break;
+        case 'sms':
+          // sms: URL scheme works on iOS and Android — Safari requires
+          // the ampersand-body syntax; Android chrome accepts either.
+          location.href = `sms:?&body=${encodeURIComponent(text)}`;
+          break;
+        case 'email':
+          location.href = `mailto:?subject=${encodeURIComponent(vehicle)}&body=${encodeURIComponent(text)}`;
+          break;
+        case 'copy':
+          try {
+            await navigator.clipboard.writeText(url);
+            toast('Link copied — paste it anywhere');
+          } catch (_) {
+            toast('Could not copy — long-press the URL to copy manually');
+          }
+          break;
+      }
+      document.getElementById('shareSheet').classList.remove('visible');
+    });
+  });
+
+  // Retry button on the offline gate
+  document.getElementById('retryBtn').addEventListener('click', () => {
+    document.getElementById('offlineGate').classList.remove('visible');
+    location.reload();
+  });
+
+  function toast(msg) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.classList.add('visible');
+    setTimeout(() => el.classList.remove('visible'), 2400);
+  }
+</script>
+</body>
+</html>

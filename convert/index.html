@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Convert to .fumoc — FUMOCA</title>
+<link rel="manifest" href="/manifest.json">
+<script src="/config.js"></script>
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/nav.css">
+<script src="js/modules/nav.js" defer></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#05070b;--surface:rgba(255,255,255,.04);--border:rgba(255,255,255,.08);
+  --accent:#c8ff00;--accent-dim:rgba(200,255,0,.12);--text:rgba(255,255,255,.85);
+  --muted:rgba(255,255,255,.4);--radius:16px;
+}
+html,body{min-height:100%;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,sans-serif;font-size:15px}
+.shell{display:flex;min-height:100vh}
+.main{flex:1;padding:40px 32px;max-width:780px}
+@media(max-width:640px){.main{padding:24px 16px}}
+.page-tag{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);margin-bottom:10px}
+h1{font-size:28px;font-weight:800;color:#fff;margin-bottom:8px;line-height:1.2}
+.subtitle{font-size:14px;color:var(--muted);margin-bottom:32px;line-height:1.6}
+.info-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:32px}
+.info-box{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px}
+.info-box .num{font-size:22px;font-weight:800;color:var(--accent)}
+.info-box .lbl{font-size:11px;color:var(--muted);margin-top:2px}
+/* drop zone */
+#dropzone{border:2px dashed rgba(200,255,0,.25);border-radius:var(--radius);padding:52px 32px;
+  text-align:center;cursor:pointer;transition:all .2s;background:rgba(200,255,0,.02);
+  position:relative;margin-bottom:24px}
+#dropzone.over{border-color:var(--accent);background:var(--accent-dim)}
+#dropzone input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+#dropzone svg{width:40px;height:40px;margin-bottom:14px;opacity:.35;display:block;margin-inline:auto}
+#dropzone h2{font-size:17px;font-weight:700;margin-bottom:8px}
+#dropzone p{font-size:13px;color:var(--muted)}
+#file-info{display:none;align-items:center;gap:12px;background:var(--surface);
+  border:1px solid var(--border);border-radius:10px;padding:12px 16px;margin-bottom:16px}
+#file-name{font-size:13px;font-weight:600;color:#fff}
+#file-size{font-size:11px;color:var(--muted)}
+/* URL input */
+.url-row{display:flex;gap:10px;margin-bottom:24px}
+.url-row input{flex:1;background:var(--surface);border:1px solid var(--border);
+  border-radius:10px;padding:10px 14px;color:#fff;font-size:13px;outline:none;transition:border-color .2s}
+.url-row input:focus{border-color:var(--accent)}
+.url-row input::placeholder{color:var(--muted)}
+.url-row button{background:var(--surface);border:1px solid var(--border);border-radius:10px;
+  color:var(--text);font-size:13px;padding:10px 16px;cursor:pointer;white-space:nowrap;transition:all .2s}
+.url-row button:hover{border-color:var(--accent);color:var(--accent)}
+/* fields */
+.field{margin-bottom:16px}
+.field label{display:block;font-size:12px;font-weight:600;color:var(--muted);
+  letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px}
+.field input{width:100%;background:var(--surface);border:1px solid var(--border);
+  border-radius:10px;padding:10px 14px;color:#fff;font-size:14px;outline:none;transition:border-color .2s}
+.field input:focus{border-color:var(--accent)}
+.field input::placeholder{color:var(--muted)}
+/* quality */
+.opt-row{display:flex;gap:10px;margin-bottom:24px;flex-wrap:wrap}
+.opt{flex:1;min-width:130px;border:1px solid var(--border);border-radius:12px;
+  padding:12px;cursor:pointer;transition:all .2s;background:var(--surface);text-align:center}
+.opt.sel{border-color:var(--accent);background:var(--accent-dim)}
+.opt h4{font-size:13px;font-weight:700;color:#fff;margin-bottom:3px}
+.opt p{font-size:11px;color:var(--muted)}
+/* convert btn */
+#convertBtn{width:100%;padding:14px;background:var(--accent);color:#05070b;border:none;
+  border-radius:12px;font-size:15px;font-weight:800;cursor:pointer;transition:opacity .2s}
+#convertBtn:disabled{opacity:.4;cursor:not-allowed}
+/* progress */
+#prog-wrap{display:none;margin-top:28px}
+.prog-head{display:flex;justify-content:space-between;font-size:13px;color:var(--muted);margin-bottom:8px}
+.prog-bar{height:5px;background:rgba(255,255,255,.08);border-radius:99px;overflow:hidden;margin-bottom:20px}
+.prog-fill{height:100%;width:0%;background:var(--accent);border-radius:99px;transition:width .35s}
+.stage-list{display:flex;flex-direction:column;gap:10px}
+.stage{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--muted);transition:color .3s}
+.stage.active{color:#fff;font-weight:600}
+.stage.done{color:var(--accent)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--border);flex-shrink:0;transition:background .3s}
+.stage.active .dot{background:var(--accent);box-shadow:0 0 8px rgba(200,255,0,.6);animation:pulse 1.2s infinite}
+.stage.done .dot{background:var(--accent)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+/* result */
+#result{display:none;margin-top:28px;background:var(--surface);border:1px solid rgba(200,255,0,.2);
+  border-radius:var(--radius);padding:24px}
+#result h3{font-size:16px;font-weight:700;color:#fff;margin-bottom:6px}
+#result-desc{font-size:13px;color:var(--muted);margin-bottom:16px}
+.pills{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px}
+.pill{display:inline-flex;align-items:center;gap:5px;background:rgba(200,255,0,.08);
+  border:1px solid rgba(200,255,0,.2);border-radius:99px;padding:4px 12px;font-size:12px;color:var(--accent);font-weight:600}
+.actions{display:flex;gap:10px;flex-wrap:wrap}
+.btn{padding:10px 18px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;
+  border:none;transition:opacity .2s;text-decoration:none;display:inline-flex;align-items:center;gap:6px}
+.btn:hover{opacity:.85}
+.btn-primary{background:var(--accent);color:#05070b}
+.btn-outline{background:transparent;border:1px solid var(--border);color:var(--text)}
+.btn-ghost{background:rgba(255,255,255,.05);color:var(--muted);border:1px solid transparent}
+/* no-server badge */
+.badge-serverless{display:inline-flex;align-items:center;gap:6px;background:rgba(200,255,0,.07);
+  border:1px solid rgba(200,255,0,.18);border-radius:99px;padding:5px 12px;font-size:12px;
+  color:var(--accent);font-weight:600;margin-bottom:20px}
+.msg{padding:12px 16px;border-radius:10px;font-size:13px;margin-bottom:16px;display:none}
+.msg.error{background:rgba(255,94,91,.1);border:1px solid rgba(255,94,91,.25);color:#ff9e9c}
+</style>
+</head>
+<body>
+<div class="shell">
+  <main class="main">
+    <div class="page-tag">Convert</div>
+    <h1>Turn any splat into .fumoc</h1>
+    <p class="subtitle">
+      Upload a <strong>.ply</strong> or <strong>.splat</strong> from Luma AI, Polycam, Kiri Engine,
+      or any Gaussian Splatting tool. Converted entirely in your browser — no server, no waiting for a GPU queue.
+    </p>
+
+    <div class="badge-serverless">⚡ Runs 100% in your browser — no upload to any server</div>
+
+    <div class="info-grid">
+      <div class="info-box"><div class="num">~30×</div><div class="lbl">Smaller than .ply</div></div>
+      <div class="info-box"><div class="num">&lt;2 min</div><div class="lbl">In-browser, no queue</div></div>
+      <div class="info-box"><div class="num">Any device</div><div class="lbl">No app to view result</div></div>
+      <div class="info-box"><div class="num">Free</div><div class="lbl">No account required</div></div>
+    </div>
+
+    <div id="msg" class="msg"></div>
+
+    <!-- drop zone -->
+    <div id="dropzone">
+      <input type="file" id="fileInput" accept=".ply,.splat">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M12 16V4m0 0-4 4m4-4 4 4" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M3 16v2a2 2 0 002 2h14a2 2 0 002-2v-2" stroke-linecap="round"/>
+      </svg>
+      <h2>Drop .ply or .splat here</h2>
+      <p>Or click to browse · Up to 500 MB · Stays on your device</p>
+    </div>
+
+    <!-- URL import -->
+    <div class="url-row">
+      <input id="urlInput" type="url" placeholder="Or paste a URL to a .ply / .splat file…">
+      <button id="urlBtn">Fetch</button>
+    </div>
+
+    <!-- file pill -->
+    <div id="file-info">
+      <span style="font-size:26px">🧊</span>
+      <div><div id="file-name">—</div><div id="file-size">—</div></div>
+    </div>
+
+    <!-- title -->
+    <div class="field">
+      <label>Scene title</label>
+      <input id="titleInput" type="text" placeholder="My scene" maxlength="120">
+    </div>
+
+    <!-- quality -->
+    <div class="field"><label>Mesh quality</label></div>
+    <div class="opt-row" id="qualRow">
+      <div class="opt" data-tris="2048">
+        <h4>Fast</h4>
+        <p>2k tris · quickest</p>
+      </div>
+      <div class="opt sel" data-tris="6000">
+        <h4>Balanced ✓</h4>
+        <p>6k tris · recommended</p>
+      </div>
+      <div class="opt" data-tris="15000">
+        <h4>High</h4>
+        <p>15k tris · sharpest</p>
+      </div>
+      <div class="opt" data-tris="0">
+        <h4>Splat only</h4>
+        <p>No mesh · fastest</p>
+      </div>
+    </div>
+
+    <button id="convertBtn" disabled>Select a file to convert</button>
+
+    <!-- progress -->
+    <div id="prog-wrap">
+      <div class="prog-head">
+        <span id="prog-label">Starting…</span>
+        <span id="prog-pct">0%</span>
+      </div>
+      <div class="prog-bar"><div class="prog-fill" id="prog-fill"></div></div>
+      <div class="stage-list">
+        <div class="stage" id="s-parse"> <div class="dot"></div>Parsing Gaussian data</div>
+        <div class="stage" id="s-sort">  <div class="dot"></div>Computing depth sort</div>
+        <div class="stage" id="s-ans">   <div class="dot"></div>ANS-compressing channels</div>
+        <div class="stage" id="s-mesh">  <div class="dot"></div>Building surface mesh</div>
+        <div class="stage" id="s-thumb"> <div class="dot"></div>Rendering thumbnail</div>
+        <div class="stage" id="s-write"> <div class="dot"></div>Writing .fumoc file</div>
+      </div>
+    </div>
+
+    <!-- result -->
+    <div id="result">
+      <h3>✓ .fumoc ready</h3>
+      <p id="result-desc"></p>
+      <div class="pills" id="result-pills"></div>
+      <div class="actions">
+        <a  id="btn-dl"    class="btn btn-primary" href="#" download>⬇ Download .fumoc</a>
+        <button id="btn-open"  class="btn btn-outline">🧊 Open in viewer</button>
+        <button id="btn-share" class="btn btn-ghost">🔗 Copy share link</button>
+        <button id="btn-upload"class="btn btn-ghost">☁ Upload to FUMOCA</button>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script type="module">
+// ── Worker ────────────────────────────────────────────────────────────────────
+const WORKER_URL = '/sdk/fumoc-encode-worker.js';
+
+let selectedFile   = null;
+let resultBuffer   = null;
+let resultBlobUrl  = null;
+let meshTris       = 6000;
+let worker         = null;
+
+const dropzone  = document.getElementById('dropzone');
+const fileInput = document.getElementById('fileInput');
+const urlInput  = document.getElementById('urlInput');
+const urlBtn    = document.getElementById('urlBtn');
+const fileInfo  = document.getElementById('file-info');
+const fileName  = document.getElementById('file-name');
+const fileSize  = document.getElementById('file-size');
+const titleInput= document.getElementById('titleInput');
+const convertBtn= document.getElementById('convertBtn');
+const progWrap  = document.getElementById('prog-wrap');
+const progFill  = document.getElementById('prog-fill');
+const progLabel = document.getElementById('prog-label');
+const progPct   = document.getElementById('prog-pct');
+const resultEl  = document.getElementById('result');
+const resultDesc= document.getElementById('result-desc');
+const resultPills=document.getElementById('result-pills');
+const btnDl     = document.getElementById('btn-dl');
+const btnOpen   = document.getElementById('btn-open');
+const btnShare  = document.getElementById('btn-share');
+const btnUpload = document.getElementById('btn-upload');
+
+// ── Quality selector ──────────────────────────────────────────────────────────
+document.getElementById('qualRow').addEventListener('click', e => {
+  const card = e.target.closest('.opt'); if (!card) return;
+  document.querySelectorAll('.opt').forEach(c=>c.classList.remove('sel'));
+  card.classList.add('sel');
+  meshTris = parseInt(card.dataset.tris);
+});
+
+// ── Drag & drop ───────────────────────────────────────────────────────────────
+dropzone.addEventListener('dragover',  e=>{e.preventDefault();dropzone.classList.add('over');});
+dropzone.addEventListener('dragleave', ()=>dropzone.classList.remove('over'));
+dropzone.addEventListener('drop', e=>{e.preventDefault();dropzone.classList.remove('over');const f=e.dataTransfer.files[0];if(f)setFile(f);});
+fileInput.addEventListener('change', ()=>{if(fileInput.files[0])setFile(fileInput.files[0]);});
+
+// ── URL fetch ─────────────────────────────────────────────────────────────────
+urlBtn.addEventListener('click', fetchUrl);
+urlInput.addEventListener('keydown', e=>{if(e.key==='Enter')fetchUrl();});
+async function fetchUrl() {
+  const url = urlInput.value.trim(); if (!url) return;
+  urlBtn.textContent = 'Fetching…'; urlBtn.disabled = true;
+  try {
+    const r = await fetch(url); if (!r.ok) throw new Error('HTTP '+r.status);
+    const blob = await r.blob();
+    const name = url.split('/').pop().split('?')[0] || 'scene.ply';
+    const file = new File([blob], name);
+    setFile(file);
+    urlInput.value = '';
+  } catch(e) { showMsg('Fetch failed: '+e.message); }
+  urlBtn.textContent='Fetch'; urlBtn.disabled=false;
+}
+
+function setFile(f) {
+  selectedFile = f;
+  fileName.textContent  = f.name;
+  fileSize.textContent  = (f.size/1048576).toFixed(1)+' MB';
+  fileInfo.style.display='flex';
+  if (!titleInput.value) titleInput.value = f.name.replace(/\.(ply|splat)$/i,'');
+  convertBtn.disabled   = false;
+  convertBtn.textContent= 'Convert to .fumoc';
+  resultEl.style.display= 'none';
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function showMsg(txt) {
+  const el=document.getElementById('msg');
+  el.textContent=txt;el.className='msg error';el.style.display='block';
+}
+function setStage(id, state) { const el=document.getElementById(id);if(el)el.className='stage '+state; }
+function setProgress(pct, label) {
+  progFill.style.width=pct+'%'; progPct.textContent=pct+'%'; progLabel.textContent=label;
+}
+function fmtMB(b){return(b/1048576).toFixed(2)+' MB';}
+
+// ── Convert ───────────────────────────────────────────────────────────────────
+convertBtn.addEventListener('click', async ()=>{
+  if (!selectedFile) return;
+  convertBtn.disabled=true;
+  progWrap.style.display='block';
+  resultEl.style.display='none';
+  document.getElementById('msg').style.display='none';
+  ['s-parse','s-sort','s-ans','s-mesh','s-thumb','s-write'].forEach(s=>setStage(s,''));
+  setProgress(0,'Starting…');
+
+  if (resultBlobUrl) { URL.revokeObjectURL(resultBlobUrl); resultBlobUrl=null; }
+  if (worker)        { worker.terminate(); worker=null; }
+
+  const buffer = await selectedFile.arrayBuffer();
+  worker = new Worker(WORKER_URL);
+
+  worker.onmessage = async (e) => {
+    const d = e.data;
+
+    if (d.type === 'progress') {
+      const pct = d.pct;
+      setProgress(pct, d.label);
+      // Map pct to stages
+      if(pct>=5)  setStage('s-parse', pct>=25?'done':'active');
+      if(pct>=18) setStage('s-sort',  pct>=28?'done':'active');
+      if(pct>=28) setStage('s-ans',   pct>=65?'done':'active');
+      if(pct>=67) setStage('s-mesh',  pct>=84?'done':'active');
+      if(pct>=84) setStage('s-thumb', pct>=90?'done':'active');
+      if(pct>=90) setStage('s-write', pct>=100?'done':'active');
+    }
+
+    if (d.type === 'done') {
+      ['s-parse','s-sort','s-ans','s-mesh','s-thumb','s-write'].forEach(s=>setStage(s,'done'));
+      setProgress(100,'Done!');
+      resultBuffer = d.buffer;
+      showResult(d.stats);
+      worker = null;
+    }
+
+    if (d.type === 'error') {
+      showMsg('Conversion failed: '+d.message);
+      convertBtn.disabled=false;
+      convertBtn.textContent='Try again';
+      worker=null;
+    }
+  };
+
+  worker.postMessage({
+    type: 'encode',
+    buffer,
+    filename: selectedFile.name,
+    opts: {
+      title:     titleInput.value.trim() || selectedFile.name.replace(/\.(ply|splat)$/i,''),
+      meshTris,
+      buildMesh: meshTris > 0,
+    }
+  }, [buffer]); // transfer buffer ownership — zero copy
+});
+
+// ── Show result ───────────────────────────────────────────────────────────────
+function showResult(stats) {
+  const ratio = stats.inputBytes && stats.outputBytes
+    ? (stats.inputBytes/stats.outputBytes).toFixed(1)+'×' : '';
+
+  resultDesc.textContent = `"${titleInput.value}" has been converted successfully.`;
+  resultPills.innerHTML  = `
+    <span class="pill">📦 ${fmtMB(stats.inputBytes)} → ${fmtMB(stats.outputBytes)} ${ratio?'('+ratio+' smaller)':''}</span>
+    ${stats.hasMesh?`<span class="pill">🧊 ${stats.meshTris.toLocaleString()} triangle mesh</span>`:''}
+    ${stats.hasThumb?'<span class="pill">🖼 Thumbnail included</span>':''}
+    <span class="pill">⚡ ${stats.N.toLocaleString()} Gaussians</span>
+  `;
+
+  // Create blob URL for download + viewer
+  const blob   = new Blob([resultBuffer], {type:'application/fumoc'});
+  resultBlobUrl= URL.createObjectURL(blob);
+  const dlName = (titleInput.value||'scene').replace(/[^a-z0-9]/gi,'_')+'.fumoc';
+
+  btnDl.href    = resultBlobUrl;
+  btnDl.download= dlName;
+
+  btnOpen.onclick = () => {
+    sessionStorage.setItem('fumoc_pending_splat_url',  resultBlobUrl);
+    sessionStorage.setItem('fumoc_pending_splat_type', 'fumoc');
+    sessionStorage.setItem('fumoc_open_header', JSON.stringify({title:titleInput.value}));
+    window.open('/viewer?mode=fumoc_open&title='+encodeURIComponent(titleInput.value), '_blank');
+  };
+
+  btnShare.onclick = async () => {
+    // Upload to FUMOCA storage for a shareable link
+    btnShare.textContent='Uploading…'; btnShare.disabled=true;
+    try {
+      const shareUrl = await uploadForShare(resultBuffer, dlName);
+      await navigator.clipboard.writeText(shareUrl);
+      btnShare.textContent='✓ Link copied!';
+      setTimeout(()=>{btnShare.textContent='🔗 Copy share link';btnShare.disabled=false;},3000);
+    } catch(e) {
+      btnShare.textContent='Upload failed';
+      setTimeout(()=>{btnShare.textContent='🔗 Copy share link';btnShare.disabled=false;},2000);
+    }
+  };
+
+  btnUpload.onclick = async () => {
+    btnUpload.textContent='Uploading…'; btnUpload.disabled=true;
+    try {
+      const shareUrl = await uploadForShare(resultBuffer, dlName);
+      btnUpload.textContent='☁ Uploaded!';
+      window.open(shareUrl, '_blank');
+    } catch(e) {
+      btnUpload.textContent='Failed: '+e.message;
+      setTimeout(()=>{btnUpload.textContent='☁ Upload to FUMOCA';btnUpload.disabled=false;},3000);
+    }
+  };
+
+  resultEl.style.display='block';
+  resultEl.scrollIntoView({behavior:'smooth',block:'nearest'});
+  convertBtn.disabled=false;
+  convertBtn.textContent='Convert another';
+}
+
+// ── Upload for share link ─────────────────────────────────────────────────────
+async function uploadForShare(buffer, filename) {
+  const cfg  = window.FUMOCA_CONFIG || {};
+  if (!cfg.supabaseUrl) throw new Error('Supabase not configured');
+  const {createClient} = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm');
+  const sb   = createClient(cfg.supabaseUrl, cfg.supabaseAnonKey);
+  const ts   = Date.now();
+  const path = `public-convert/${ts}/${filename}`;
+  const { error } = await sb.storage.from('splat-files').upload(path, buffer, {contentType:'application/fumoc',upsert:false});
+  if (error) throw new Error(error.message);
+  const {data:{publicUrl}} = sb.storage.from('splat-files').getPublicUrl(path);
+  return `${location.origin}/open?url=${encodeURIComponent(publicUrl)}`;
+}
+</script>
+</body>
+</html>

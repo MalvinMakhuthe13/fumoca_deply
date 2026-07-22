@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#05070b">
+<title>FUMOCA · Scene Splat</title>
+<link rel="manifest" href="/manifest.json">
+<script src="config.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --neon: #c8ff00; --black: #05070b; --font: 'DM Sans', system-ui, sans-serif;
+}
+html, body {
+  width: 100%; min-height: 100vh; background: var(--black); color: #fff;
+  font-family: var(--font); overflow-x: hidden;
+}
+
+/* ── Header ── */
+.header {
+  padding: 20px 20px 0; display: flex; align-items: center; gap: 12px;
+}
+.logo { font-size: 22px; font-weight: 800; color: var(--neon); letter-spacing: .04em; }
+.header-sub { font-size: 12px; color: rgba(255,255,255,.4); }
+
+/* ── Drop zone ── */
+#dropZone {
+  margin: 24px 20px 0; border: 2px dashed rgba(255,255,255,.15);
+  border-radius: 20px; padding: 48px 20px; text-align: center;
+  cursor: pointer; transition: all .2s; position: relative;
+}
+#dropZone:hover, #dropZone.drag { border-color: var(--neon); background: rgba(200,255,0,.04); }
+#dropZone input { position:absolute;inset:0;opacity:0;cursor:pointer;width:100%; }
+#dropZone .dz-icon { font-size: 52px; margin-bottom: 12px; display: block; }
+#dropZone .dz-title { font-size: 18px; font-weight: 800; color: #fff; margin-bottom: 6px; }
+#dropZone .dz-sub   { font-size: 13px; color: rgba(255,255,255,.45); line-height: 1.6; }
+
+/* ── Source type bar ── */
+.source-bar {
+  display: flex; gap: 8px; padding: 16px 20px 0; overflow-x: auto; scrollbar-width: none;
+}
+.source-bar::-webkit-scrollbar { display: none; }
+.source-chip {
+  flex-shrink: 0; padding: 8px 16px; border-radius: 999px; cursor: pointer;
+  background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.1);
+  color: rgba(255,255,255,.7); font-size: 12px; font-weight: 700; transition: all .15s;
+}
+.source-chip.active { background: rgba(200,255,0,.15); border-color: rgba(200,255,0,.4); color: var(--neon); }
+
+/* ── Mode chips ── */
+.mode-row { display: flex; gap: 8px; padding: 12px 20px 0; }
+.mode-chip {
+  padding: 7px 14px; border-radius: 10px; cursor: pointer; font-size: 12px; font-weight: 700;
+  background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.08);
+  color: rgba(255,255,255,.65); transition: all .15s;
+}
+.mode-chip.active { background: rgba(200,255,0,.12); border-color: rgba(200,255,0,.3); color: var(--neon); }
+
+/* ── Preview area ── */
+#previewArea { padding: 16px 20px 0; display: none; }
+#previewArea.show { display: block; }
+.preview-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+.preview-panel { border-radius: 14px; overflow: hidden; aspect-ratio: 4/3; background: #0a0c12; }
+.preview-panel canvas, .preview-panel img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.preview-label { font-size: 11px; color: rgba(255,255,255,.4); font-weight: 700;
+  text-transform: uppercase; letter-spacing: .06em; margin-bottom: 6px; }
+
+/* ── Progress ── */
+#progressArea { padding: 16px 20px 0; display: none; }
+#progressArea.show { display: block; }
+#progressBar { height: 4px; background: rgba(255,255,255,.08); border-radius: 999px; overflow: hidden; margin-bottom: 8px; }
+#progressFill { height: 100%; width: 0%; background: var(--neon); border-radius: 999px; transition: width .4s; }
+#progressLabel { font-size: 13px; color: rgba(255,255,255,.5); }
+
+/* ── Stats ── */
+#statsArea { padding: 16px 20px 0; display: none; }
+#statsArea.show { display: block; }
+.stat-row { display: flex; justify-content: space-between; font-size: 13px; padding: 6px 0;
+  border-bottom: 1px solid rgba(255,255,255,.05); }
+.stat-row:last-child { border-bottom: none; }
+.stat-k { color: rgba(255,255,255,.5); }
+.stat-v { font-weight: 700; color: #fff; }
+.stat-v.lime { color: var(--neon); }
+
+/* ── Actions ── */
+#actionsArea { padding: 16px 20px 24px; display: none; }
+#actionsArea.show { display: block; }
+.action-btn {
+  width: 100%; padding: 14px; border-radius: 14px; border: none;
+  font-size: 15px; font-weight: 800; cursor: pointer; transition: all .15s; margin-bottom: 8px;
+}
+.action-btn.primary { background: var(--neon); color: var(--black); }
+.action-btn.primary:hover { background: #d4ff33; }
+.action-btn.ghost { background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.1); color: #fff; }
+.action-btn.ghost:hover { background: rgba(255,255,255,.13); }
+
+/* ── Forensic warning ── */
+#forensicWarning {
+  margin: 12px 20px 0; padding: 12px 14px; border-radius: 12px;
+  background: rgba(255,72,72,.08); border: 1px solid rgba(255,72,72,.25);
+  font-size: 12px; color: rgba(255,138,138,.9); line-height: 1.6; display: none;
+}
+#forensicWarning.show { display: block; }
+</style>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;700;800&display=swap" rel="stylesheet">
+</head>
+<body data-nav="none">
+
+<div class="header">
+  <div class="logo">FUMOCA</div>
+  <div class="header-sub">Scene Splat · Any image → navigable 3D</div>
+</div>
+
+<!-- Source type -->
+<div class="source-bar">
+  <div class="source-chip active" data-type="photo">📷 Photo</div>
+  <div class="source-chip" data-type="movie_frame">🎬 Movie frame</div>
+  <div class="source-chip" data-type="cctv">📹 CCTV / security</div>
+  <div class="source-chip" data-type="news">📰 News photo</div>
+  <div class="source-chip" data-type="historical">🏛 Historical</div>
+  <div class="source-chip" data-type="sports">⚽ Sports</div>
+</div>
+
+<!-- Mode -->
+<div class="mode-row">
+  <div class="mode-chip active" data-depth="auto">Auto depth</div>
+  <div class="mode-chip"        data-depth="heuristic">Fast (no model)</div>
+  <div class="mode-chip"        data-depth="midas_small">High quality</div>
+  <div class="mode-chip"        data-forensic="1">🔒 Forensic mode</div>
+</div>
+
+<!-- Drop zone -->
+<div id="dropZone">
+  <input type="file" id="fileInput" accept="image/*,video/mp4,video/webm">
+  <span class="dz-icon">🖼</span>
+  <div class="dz-title">Drop any image here</div>
+  <div class="dz-sub">
+    Photo · movie still · CCTV frame · news photo · historical image<br>
+    JPG · PNG · WebP · HEIC · or paste from clipboard
+  </div>
+</div>
+
+<!-- Forensic warning -->
+<div id="forensicWarning">
+  ⚠ <strong>Forensic Reconstruction Mode</strong><br>
+  This scene uses estimated depth from a single 2D image. Measurements
+  are approximations, not ground-truth surveying data. All annotations
+  are timestamped and hashed. This file includes a reconstruction
+  disclaimer in its metadata. Not admissible as primary forensic evidence
+  without independent expert certification.
+</div>
+
+<!-- Preview: original + depth map -->
+<div id="previewArea">
+  <div class="preview-label">Source image</div>
+  <div class="preview-grid">
+    <div class="preview-panel"><img id="previewImg" src="" alt="Source"></div>
+    <div class="preview-panel"><canvas id="depthCanvas"></canvas></div>
+  </div>
+  <div style="display:flex;gap:8px;font-size:11px;color:rgba(255,255,255,.35);">
+    <span>◀ Original</span><span style="margin-left:auto;">Depth map ▶</span>
+  </div>
+</div>
+
+<!-- Progress -->
+<div id="progressArea">
+  <div id="progressBar"><div id="progressFill"></div></div>
+  <div id="progressLabel">Loading…</div>
+</div>
+
+<!-- Stats -->
+<div id="statsArea">
+  <div class="stat-row"><span class="stat-k">Image resolution</span><span class="stat-v" id="statRes">—</span></div>
+  <div class="stat-row"><span class="stat-k">Gaussians generated</span><span class="stat-v lime" id="statN">—</span></div>
+  <div class="stat-row"><span class="stat-k">Depth method</span><span class="stat-v" id="statDepth">—</span></div>
+  <div class="stat-row"><span class="stat-k">Splat size (raw)</span><span class="stat-v" id="statRaw">—</span></div>
+  <div class="stat-row"><span class="stat-k">After .fumoc compression</span><span class="stat-v lime" id="statComp">—</span></div>
+  <div class="stat-row"><span class="stat-k">Source type</span><span class="stat-v" id="statType">—</span></div>
+</div>
+
+<!-- Actions -->
+<div id="actionsArea">
+  <button class="action-btn primary" id="openViewerBtn">🚀 Open in Viewer + Inspect</button>
+  <button class="action-btn ghost"   id="exportFumocBtn">⬇ Export .fumoc v2</button>
+  <button class="action-btn ghost"   id="reconstructAgainBtn">↺ Try different settings</button>
+</div>
+
+<script type="module">
+import FumocSceneReconstructor from './js/modules/fumoc-scene-reconstructor.js';
+import FumocEncoder            from './js/modules/fumoc-encoder.js';
+
+let _sourceType   = 'photo';
+let _depthMethod  = 'auto';
+let _forensicMode = false;
+let _lastResult   = null;
+let _lastBuffer   = null;
+
+// ── Source type chips ──────────────────────────────────────────────────────
+document.querySelectorAll('.source-chip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    document.querySelectorAll('.source-chip').forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+    _sourceType = chip.dataset.type;
+  });
+});
+
+// ── Mode chips ─────────────────────────────────────────────────────────────
+document.querySelectorAll('.mode-chip[data-depth]').forEach(chip => {
+  chip.addEventListener('click', () => {
+    document.querySelectorAll('.mode-chip[data-depth]').forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+    _depthMethod = chip.dataset.depth;
+  });
+});
+document.querySelector('.mode-chip[data-forensic]').addEventListener('click', function() {
+  _forensicMode = !_forensicMode;
+  this.classList.toggle('active', _forensicMode);
+  document.getElementById('forensicWarning').classList.toggle('show', _forensicMode);
+});
+
+// ── Drop zone ──────────────────────────────────────────────────────────────
+const dropZone = document.getElementById('dropZone');
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag'));
+dropZone.addEventListener('drop', async e => {
+  e.preventDefault(); dropZone.classList.remove('drag');
+  const file = e.dataTransfer?.files?.[0];
+  if (file) processFile(file);
+});
+document.getElementById('fileInput').addEventListener('change', e => {
+  if (e.target.files[0]) processFile(e.target.files[0]);
+});
+
+// Paste from clipboard
+document.addEventListener('paste', async e => {
+  const item = Array.from(e.clipboardData?.items || []).find(i => i.type.startsWith('image/'));
+  if (item) processFile(item.getAsFile());
+});
+
+// ── Process ────────────────────────────────────────────────────────────────
+async function processFile(file) {
+  // Show progress
+  document.getElementById('progressArea').classList.add('show');
+  document.getElementById('previewArea').classList.remove('show');
+  document.getElementById('statsArea').classList.remove('show');
+  document.getElementById('actionsArea').classList.remove('show');
+
+  const onProgress = (pct, label) => {
+    document.getElementById('progressFill').style.width = pct + '%';
+    document.getElementById('progressLabel').textContent = label;
+  };
+
+  try {
+    // Show source preview immediately
+    if (file.type.startsWith('image/')) {
+      const url = URL.createObjectURL(file);
+      document.getElementById('previewImg').src = url;
+    }
+
+    onProgress(2, 'Reconstructing scene…');
+
+    const result = await FumocSceneReconstructor.reconstruct(file, {
+      depthMethod:  _depthMethod,
+      resolution:   512,
+      depthScale:   8.0,
+      fov:          60,
+      forensicMode: _forensicMode,
+      sourceType:   _sourceType,
+      filename:     file.name,
+      onProgress,
+    });
+
+    _lastResult = result;
+
+    // Show depth map
+    FumocSceneReconstructor.visualiseDepth(
+      result.depthMap, result.imageData.width, result.imageData.height,
+      document.getElementById('depthCanvas')
+    );
+    document.getElementById('previewArea').classList.add('show');
+
+    onProgress(96, 'Compressing to .fumoc v2…');
+
+    // Compress immediately
+    const meta = {
+      title:       file.name.replace(/\.[^.]+$/, ''),
+      description: `Scene reconstruction from ${_sourceType}`,
+      mode:        'scene',
+      source_type: _sourceType,
+    };
+
+    const encoded = await FumocEncoder.encode(_lastResult.splatBinary.buffer, {
+      quality:    'medium',
+      meta,
+      onProgress: (p, l) => onProgress(96 + p * 0.04, l),
+      // Pass scene metadata as extras — encoder includes in META section
+    });
+
+    _lastBuffer = encoded.buffer;
+
+    // Stats
+    document.getElementById('statRes').textContent   =
+      `${result.imageData.width} × ${result.imageData.height}`;
+    document.getElementById('statN').textContent      =
+      Math.floor(result.splatBinary.length / 32).toLocaleString();
+    document.getElementById('statDepth').textContent  = result.depthMethod;
+    document.getElementById('statRaw').textContent    =
+      (result.splatBinary.length / 1048576).toFixed(1) + ' MB';
+    document.getElementById('statComp').textContent   =
+      (encoded.stats.outputBytes / 1048576).toFixed(1) + ' MB (' + encoded.stats.ratio.toFixed(1) + '× smaller)';
+    document.getElementById('statType').textContent   = _sourceType;
+
+    document.getElementById('statsArea').classList.add('show');
+    document.getElementById('actionsArea').classList.add('show');
+    document.getElementById('progressArea').classList.remove('show');
+
+  } catch (err) {
+    console.error('[SceneSplat]', err);
+    document.getElementById('progressLabel').textContent = '⚠ ' + err.message;
+  }
+}
+
+// ── Actions ────────────────────────────────────────────────────────────────
+
+// v86: Pass scene limits metadata with the fumoc buffer
+// The viewer will auto-activate FumocaSceneLimits.fromSceneMeta() on load
+
+document.getElementById('openViewerBtn').addEventListener('click', () => {
+  if (!_lastBuffer) return;
+  // Pass via BroadcastChannel (same as /open.html flow)
+  const bc = new BroadcastChannel('fumoc_open');
+  const win = window.open('/viewer.html?mode=fumoc_open&inspect=1', '_blank');
+  bc.onmessage = e => {
+    if (e.data === 'fumoc_viewer_ready') {
+      bc.postMessage({
+        type:   'fumoc_load',
+        buffer: _lastBuffer,
+        header: { title: 'Scene Reconstruction', mode: 'scene' },
+        inspect: true,
+        forensicMode: _forensicMode,
+      });
+    }
+  };
+});
+
+document.getElementById('exportFumocBtn').addEventListener('click', () => {
+  if (!_lastBuffer) return;
+  const fname = (_lastResult?.sceneMeta?.source_filename || 'scene').replace(/\.[^.]+$/, '');
+  const blob  = new Blob([_lastBuffer], { type: 'application/octet-stream' });
+  const url   = URL.createObjectURL(blob);
+  const a     = document.createElement('a');
+  a.href = url; a.download = fname + '_scene.fumoc'; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+});
+
+document.getElementById('reconstructAgainBtn').addEventListener('click', () => {
+  document.getElementById('statsArea').classList.remove('show');
+  document.getElementById('actionsArea').classList.remove('show');
+  document.getElementById('previewArea').classList.remove('show');
+  document.getElementById('fileInput').click();
+});
+</script>
+</body>
+</html>

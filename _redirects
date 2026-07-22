@@ -1,0 +1,13 @@
+# Cloudflare Pages _redirects
+
+# Short share URL — /s/<id> → viewer-core (public, no auth)
+/s/:id   /viewer-core.html?id=:id   200
+
+
+
+# Canonical view route → lean viewer
+/view/*  /viewer-core.html   200
+
+
+# Spec doc
+/spec   /FUMOC_V2_SPEC.md   302

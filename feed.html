@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="manifest" href="/manifest.json">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FUMOCA — Feed</title>
+<link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
+<script src="config.js"></script>
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/nav.css">
+<script src="js/modules/nav.js" defer></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --neon:#c8ff00;--neon2:rgba(200,255,0,.1);--neon-b:rgba(200,255,0,.22);
+  --neon-glow:0 0 20px rgba(200,255,0,.25);
+  --black:#05070b;--surface:#0e1016;--surface2:#13151f;--surface3:rgba(255,255,255,.06);
+  --border:rgba(255,255,255,.09);--border2:rgba(255,255,255,.14);
+  --text:#fff;--muted:rgba(255,255,255,.42);--dim:rgba(255,255,255,.2);
+  --cyan:#00e5ff;--violet:#8b5cf6;--rose:#ff3d71;--amber:#ffb300;
+  --font-display:'Bebas Neue',sans-serif;--font-body:'DM Sans',sans-serif;
+  --sidebar-w:228px;--right-w:298px;--r:18px;--r2:12px;
+  --trans:all .18s cubic-bezier(.4,0,.2,1);
+}
+html,body{height:100%;background:var(--black);color:var(--text);font-family:var(--font-body);overflow-x:hidden}
+::-webkit-scrollbar{width:3px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:2px}
+
+.shell{display:flex;min-height:100vh}
+
+/* Sidebar/nav markup now lives in js/modules/nav.js + css/nav.css (fnav- prefixed classes) — single shared component across every page. */
+
+/* ── MAIN ── */
+.main{flex:1;min-width:0;padding:0 32px 80px;max-width:680px;margin:0 auto}
+
+.topnav{position:sticky;top:0;z-index:30;background:rgba(5,7,11,.88);backdrop-filter:blur(20px);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;padding:14px 0;margin:0 -32px;padding-left:32px;padding-right:32px}
+.topnav-heading{font-family:var(--font-display);font-size:28px;letter-spacing:.05em;flex-shrink:0}
+.topnav-heading span{color:var(--neon)}
+.search-wrap{flex:1;display:flex;align-items:center;gap:8px;background:var(--surface2);border:1px solid var(--border);border-radius:99px;padding:9px 16px;max-width:280px;margin-left:auto}
+.search-wrap input{background:none;border:none;outline:none;color:var(--text);font:inherit;font-size:13px;width:100%}
+.search-wrap input::placeholder{color:var(--muted)}
+.notif-btn{position:relative;width:38px;height:38px;border-radius:50%;background:var(--surface2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:16px;flex-shrink:0;transition:var(--trans);color:var(--muted)}
+.notif-btn:hover{background:var(--surface3);color:var(--text)}
+.notif-dot{position:absolute;top:7px;right:7px;width:7px;height:7px;border-radius:50%;background:var(--rose);border:1.5px solid var(--black)}
+
+/* ── STORIES ── */
+.stories-wrap{padding:20px 0 4px;overflow-x:auto;display:flex;gap:14px;align-items:flex-start;scrollbar-width:none;-ms-overflow-style:none}
+.stories-wrap::-webkit-scrollbar{display:none}
+.story-item{display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;flex-shrink:0}
+.story-ring{width:62px;height:62px;border-radius:50%;padding:2.5px;background:conic-gradient(var(--neon),var(--cyan),var(--violet),var(--neon));animation:ringRotate 4s linear infinite}
+.story-ring-plain{width:62px;height:62px;border-radius:50%;padding:2.5px;background:rgba(255,255,255,0.1);border:1.5px solid rgba(255,255,255,0.15)}
+.story-ring.seen{background:conic-gradient(rgba(255,255,255,.12),rgba(255,255,255,.12));animation:none}
+@keyframes ringRotate{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+
+/* ── BREEZY INTERACTION LAYER ──
+   Tap/press feedback + double-tap-to-like + skeleton loading.
+   Every color below reuses existing tokens (--neon/--rose/--surface/etc) —
+   nothing new introduced, just motion and feedback added on top. */
+
+/* Universal tap feedback — anything clickable visibly responds to touch */
+.action-btn:active, .open-splat-btn:active, .edit-splat-btn:active,
+.story-add-ring:active, .story-item:active .story-ring,
+.story-item:active .story-ring-plain, .avatar:active,
+.post-tag:active, .manage-toggle-btn:active {
+  transform: scale(0.92);
+}
+.action-btn, .open-splat-btn, .edit-splat-btn, .story-add-ring,
+.story-ring, .story-ring-plain, .post-tag, .manage-toggle-btn {
+  transition: transform 0.12s cubic-bezier(0.34, 1.56, 0.64, 1), var(--trans);
+}
+
+/* Like button pop — a little spring, not just a color swap */
+.like-btn .icon { display: inline-block; transition: transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.like-btn.liked .icon { animation: likePop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1); }
+@keyframes likePop {
+  0%   { transform: scale(1); }
+  35%  { transform: scale(1.35); }
+  60%  { transform: scale(0.92); }
+  100% { transform: scale(1); }
+}
+
+/* Double-tap-to-like heart burst overlay on the post image, the classic gesture */
+.post-visual { position: relative; }
+.heart-burst {
+  position: absolute; top: 50%; left: 50%; font-size: 84px;
+  transform: translate(-50%, -50%) scale(0);
+  pointer-events: none; z-index: 6; filter: drop-shadow(0 4px 18px rgba(0,0,0,.5));
+  animation: heartBurst 0.85s cubic-bezier(0.17, 0.89, 0.32, 1.25) forwards;
+}
+@keyframes heartBurst {
+  0%   { transform: translate(-50%, -50%) scale(0);    opacity: 0; }
+  15%  { transform: translate(-50%, -50%) scale(1.15); opacity: 1; }
+  30%  { transform: translate(-50%, -50%) scale(1);    opacity: 1; }
+  75%  { transform: translate(-50%, -50%) scale(1);    opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(1.05); opacity: 0; }
+}
+
+/* Post image/canvas fades in once loaded instead of popping in abruptly */
+.post-visual img, .post-visual video, .post-visual canvas {
+  opacity: 0; animation: mediaFadeIn 0.35s ease forwards;
+}
+@keyframes mediaFadeIn { to { opacity: 1; } }
+
+/* Skeleton loading cards — feels like content is arriving, not just "loading text" */
+.skeleton-card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r);
+  overflow: hidden; margin-bottom: 16px;
+}
+.skeleton-shimmer {
+  background: linear-gradient(90deg, var(--surface2) 0%, rgba(255,255,255,.06) 50%, var(--surface2) 100%);
+  background-size: 200% 100%; animation: shimmer 1.4s ease-in-out infinite;
+}
+@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+.skeleton-author { display: flex; align-items: center; gap: 12px; padding: 14px 16px; }
+.skeleton-avatar { width: 38px; height: 38px; border-radius: 50%; flex-shrink: 0; }
+.skeleton-line { height: 11px; border-radius: 6px; }
+.skeleton-visual { width: 100%; aspect-ratio: 16/9; }
+.skeleton-body { padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; }
+.story-ring-inner{width:100%;height:100%;border-radius:50%;background:var(--surface);border:2px solid var(--black);overflow:hidden;display:flex;align-items:center;justify-content:center;font-family:var(--font-display);font-size:22px;color:var(--neon)}
+.story-ring-inner img{width:100%;height:100%;object-fit:cover}
+.story-label{font-size:11px;color:var(--muted);text-align:center;max-width:64px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.story-label.you{color:var(--neon);font-weight:700}
+.story-add-ring{width:62px;height:62px;border-radius:50%;cursor:pointer;background:var(--surface2);border:1.5px dashed rgba(200,255,0,.3);display:flex;align-items:center;justify-content:center;font-size:24px;color:var(--neon);transition:var(--trans)}
+.story-add-ring:hover{background:var(--neon2);border-color:var(--neon)}
+
+/* ── TRENDING ── */
+.trending-banner{background:linear-gradient(135deg,rgba(139,92,246,.12),rgba(0,229,255,.08));border:1px solid rgba(139,92,246,.2);border-radius:var(--r);padding:14px 18px;margin-bottom:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.trending-label{font-size:10px;letter-spacing:.1em;text-transform:uppercase;font-weight:700;color:var(--cyan);flex-shrink:0}
+.trending-tag{font-size:12px;color:rgba(139,92,246,.9);background:rgba(139,92,246,.1);border:1px solid rgba(139,92,246,.2);padding:3px 10px;border-radius:99px;cursor:pointer;transition:var(--trans)}
+.trending-tag:hover{background:rgba(139,92,246,.18)}
+
+/* ── TABS ── */
+.tabs-row-wrap{position:relative;margin:0 -32px;padding:0 32px}
+.tabs-row-wrap::after{content:'';position:absolute;top:0;right:0;bottom:0;width:40px;background:linear-gradient(90deg,transparent,var(--black) 85%);pointer-events:none;transition:opacity .2s ease}
+.tabs-row-wrap.tabs-at-end::after{opacity:0}
+@media(max-width:900px){.tabs-row-wrap{margin:0 -16px;padding:0 16px}}
+.tabs-row{display:flex;gap:6px;padding:16px 0 12px;overflow-x:auto;scrollbar-width:none;scroll-behavior:smooth}
+.tabs-row::-webkit-scrollbar{display:none}
+.tab{padding:7px 18px;border-radius:999px;flex-shrink:0;background:rgba(255,255,255,.05);border:1px solid var(--border);color:var(--muted);font:600 13px var(--font-body);cursor:pointer;transition:var(--trans);white-space:nowrap}
+.tab:hover{color:var(--text);background:rgba(255,255,255,.09)}
+.tab.active{background:var(--neon2);color:var(--neon);border-color:var(--neon-b)}
+
+/* ── POST CARD ── */
+.post{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;transition:border-color .2s,box-shadow .2s;margin-bottom:16px;animation:postIn .4s ease both}
+@keyframes postIn{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+.post:hover{border-color:rgba(255,255,255,.16);box-shadow:0 8px 40px rgba(0,0,0,.5)}
+.post-author{display:flex;align-items:center;gap:12px;padding:14px 16px 10px}
+.avatar{width:38px;height:38px;border-radius:50%;background:var(--surface2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-family:var(--font-display);font-size:17px;color:var(--neon);overflow:hidden;flex-shrink:0;position:relative}
+.avatar img{width:100%;height:100%;object-fit:cover}
+.avatar-online::after{content:'';position:absolute;bottom:1px;right:1px;width:9px;height:9px;border-radius:50%;background:#00e676;border:1.5px solid var(--surface)}
+.author-meta{flex:1;min-width:0}
+.author-name{font-size:14px;font-weight:700;line-height:1.2}
+.author-handle{font-size:11px;color:var(--muted);margin-top:1px}
+.post-badge{font-size:10px;font-weight:700;letter-spacing:.06em;padding:3px 9px;border-radius:999px;background:var(--neon2);color:var(--neon);border:1px solid var(--neon-b);white-space:nowrap;flex-shrink:0}
+.post-badge.media{background:rgba(0,229,255,.08);color:var(--cyan);border-color:rgba(0,229,255,.2)}
+.post-badge.processing{background:rgba(123,47,255,.12);color:#b48fff;border-color:rgba(123,47,255,.25)}
+.post-badge.queued{background:rgba(255,255,255,.05);color:var(--muted);border-color:var(--border)}
+.post-badge.failed{background:rgba(255,61,113,.1);color:#ff9d9d;border-color:rgba(255,61,113,.25)}
+.post-more{width:32px;height:32px;border-radius:8px;cursor:pointer;background:none;border:none;color:var(--muted);font-size:18px;display:flex;align-items:center;justify-content:center;transition:var(--trans);line-height:1}
+.post-more:hover{background:var(--surface3);color:var(--text)}
+
+/* VISUAL */
+.post-visual{width:100%;aspect-ratio:16/9;position:relative;overflow:hidden;background:var(--surface2);cursor:pointer}
+.post-visual canvas,.post-visual video,.post-visual img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+.post-visual-placeholder{width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 30% 30%,rgba(200,255,0,.08),transparent 60%),linear-gradient(135deg,#101610,#151f15)}
+.post-visual-placeholder.processing{background:radial-gradient(circle at 30% 30%,rgba(123,47,255,.12),transparent 60%),linear-gradient(135deg,#11162b,#1a1a38)}
+.post-visual-placeholder.failed{background:radial-gradient(circle at 30% 30%,rgba(255,61,113,.1),transparent 60%),linear-gradient(135deg,#1a0a0a,#2d1212)}
+.post-visual-placeholder.queued{background:linear-gradient(135deg,#111,#1a1a1a)}
+.placeholder-icon{font-size:52px;opacity:.3}
+.post-hover-overlay{position:absolute;inset:0;background:rgba(0,0,0,0);transition:background .22s;display:flex;align-items:center;justify-content:center;gap:12px;z-index:5}
+.post-visual:hover .post-hover-overlay{background:rgba(0,0,0,.42)}
+.overlay-btn{opacity:0;transform:scale(.88);transition:opacity .2s,transform .2s;padding:9px 18px;border-radius:999px;border:none;font:700 13px var(--font-body);cursor:pointer;white-space:nowrap;display:flex;align-items:center;gap:6px}
+.post-visual:hover .overlay-btn{opacity:1;transform:scale(1)}
+.overlay-btn.view{background:var(--neon);color:var(--black);box-shadow:var(--neon-glow)}
+.overlay-btn.edit-ov{background:rgba(255,255,255,.15);color:#fff;backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.2)}
+.media-type-badge{position:absolute;top:10px;left:10px;z-index:4;background:rgba(0,0,0,.65);backdrop-filter:blur(6px);border-radius:6px;padding:3px 8px;font-size:10px;font-weight:700;letter-spacing:.06em;color:#fff;border:1px solid rgba(255,255,255,.1)}
+.media-type-badge.splat{color:var(--neon);border-color:rgba(200,255,0,.25)}
+.media-type-badge.video{color:var(--rose);border-color:rgba(255,61,113,.25)}
+.media-type-badge.photo{color:var(--cyan);border-color:rgba(0,229,255,.25)}
+.duration-badge{position:absolute;bottom:10px;right:10px;z-index:4;background:rgba(0,0,0,.7);border-radius:6px;padding:3px 7px;font-size:10px;font-weight:700;color:rgba(255,255,255,.8)}
+.progress-bar-wrap{height:2px;background:rgba(255,255,255,.05)}
+.progress-bar-fill{height:100%;background:linear-gradient(90deg,var(--neon),var(--cyan));transition:width .6s ease}
+
+/* BODY */
+.post-body{padding:14px 16px}
+.post-title{font-size:16px;font-weight:700;margin-bottom:5px;line-height:1.35}
+.post-desc{font-size:13px;color:var(--muted);line-height:1.6;margin-bottom:10px}
+.post-tags{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px}
+.post-tag{font-size:11px;color:rgba(200,255,0,.7);padding:3px 9px;border-radius:999px;background:rgba(200,255,0,.05);border:1px solid rgba(200,255,0,.12);cursor:pointer;transition:var(--trans)}
+.post-tag:hover{background:rgba(200,255,0,.12)}
+
+/* REACTIONS */
+.reactions-bar{display:flex;gap:4px;margin-bottom:10px;flex-wrap:wrap}
+.reaction-pill{display:flex;align-items:center;gap:4px;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:99px;padding:4px 10px;font-size:12px;font-weight:600;cursor:pointer;transition:var(--trans);user-select:none}
+.reaction-pill:hover{background:rgba(255,255,255,.1);border-color:var(--border2)}
+.reaction-pill.active{background:var(--neon2);border-color:var(--neon-b);color:var(--neon)}
+
+/* ACTIONS */
+.post-actions{display:flex;align-items:center;gap:4px;padding:10px 16px;border-top:1px solid var(--border)}
+.action-btn{display:flex;align-items:center;gap:5px;background:none;border:none;color:var(--muted);cursor:pointer;font:600 12px var(--font-body);padding:7px 10px;border-radius:10px;transition:var(--trans);white-space:nowrap}
+.action-btn:hover{color:var(--text);background:rgba(255,255,255,.06)}
+.action-btn.liked{color:var(--rose)}
+.action-btn.bookmarked{color:var(--neon)}
+.action-btn .icon{font-size:15px}
+.action-spacer{flex:1}
+.edit-splat-btn{background:var(--neon2);color:var(--neon);border:1px solid var(--neon-b);font:700 12px var(--font-body);padding:7px 14px;border-radius:10px;cursor:pointer;transition:var(--trans);display:flex;align-items:center;gap:5px;white-space:nowrap;flex-shrink:0}
+.edit-splat-btn:hover{background:rgba(200,255,0,.16);box-shadow:var(--neon-glow)}
+.edit-splat-btn.media-edit{background:rgba(0,229,255,.08);color:var(--cyan);border-color:rgba(0,229,255,.18)}
+.edit-splat-btn.media-edit:hover{background:rgba(0,229,255,.15);box-shadow:0 0 20px rgba(0,229,255,.25)}
+.edit-splat-btn:disabled{opacity:.3;cursor:not-allowed;box-shadow:none}
+.open-splat-btn{background:var(--neon2);color:var(--neon);border:1px solid var(--neon-b);font:700 12px var(--font-body);padding:7px 14px;border-radius:10px;cursor:pointer;transition:var(--trans);display:flex;align-items:center;gap:5px;white-space:nowrap;flex-shrink:0}
+.open-splat-btn:hover{background:rgba(200,255,0,.16)}
+.open-splat-btn:disabled{opacity:.3;cursor:not-allowed}
+.post-manage-btn{background:rgba(255,61,113,.1);color:#ff9d9d;border:1px solid rgba(255,61,113,.22);border-radius:999px;padding:6px 12px;font:700 11px var(--font-body);cursor:pointer;transition:var(--trans)}
+.post-manage-btn:hover{background:rgba(255,61,113,.18);color:#fff}
+
+/* COMMENT QUICK */
+.comment-quick{padding:10px 16px;border-top:1px solid var(--border);display:flex;align-items:center;gap:10px}
+.comment-input-wrap{flex:1;display:flex;align-items:center;gap:8px;background:var(--surface2);border:1px solid var(--border);border-radius:99px;padding:7px 14px;transition:var(--trans)}
+.comment-input-wrap:focus-within{border-color:var(--neon-b)}
+.comment-input{background:none;border:none;outline:none;color:var(--text);font:inherit;font-size:12px;width:100%}
+.comment-input::placeholder{color:var(--dim)}
+.comment-send{background:var(--neon);color:var(--black);border:none;border-radius:99px;padding:5px 12px;font:700 11px var(--font-body);cursor:pointer;flex-shrink:0;transition:var(--trans)}
+.comment-send:hover{opacity:.85}
+
+/* RIGHT SIDEBAR */
+.right-sidebar{width:var(--right-w);flex-shrink:0;padding:24px 20px;position:sticky;top:0;max-height:100vh;overflow-y:auto;scrollbar-width:none}
+.right-sidebar::-webkit-scrollbar{display:none}
+.rs-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px;margin-bottom:16px}
+.rs-title{font-family:var(--font-display);font-size:18px;letter-spacing:.05em;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+.rs-badge{font-size:9px;padding:2px 7px;border-radius:99px;background:var(--neon2);color:var(--neon);border:1px solid var(--neon-b);font-family:var(--font-body);font-weight:700;letter-spacing:.06em}
+.rs-badge.live{background:rgba(255,61,113,.1);color:var(--rose);border-color:rgba(255,61,113,.25);animation:livePulse 1.2s ease-in-out infinite}
+@keyframes livePulse{0%,100%{opacity:1}50%{opacity:.6}}
+.suggestion-item{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)}
+.suggestion-item:last-child{border-bottom:none}
+.sug-avatar{width:34px;height:34px;border-radius:50%;background:var(--surface2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:15px;color:var(--neon);flex-shrink:0;overflow:hidden}
+.sug-avatar img{width:100%;height:100%;object-fit:cover}
+.sug-meta{flex:1;min-width:0}
+.sug-name{font-size:13px;font-weight:700}
+.sug-sub{font-size:11px;color:var(--muted)}
+.sug-follow{background:var(--neon2);color:var(--neon);border:1px solid var(--neon-b);border-radius:99px;padding:5px 12px;font:700 11px var(--font-body);cursor:pointer;flex-shrink:0;transition:var(--trans)}
+.sug-follow:hover{background:rgba(200,255,0,.16)}
+.rs-tag{display:inline-flex;align-items:center;gap:5px;padding:5px 12px;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:99px;margin:3px;cursor:pointer;transition:var(--trans);font-size:12px;font-weight:600;text-decoration:none;color:var(--text)}
+.rs-tag:hover{background:var(--neon2);color:var(--neon);border-color:var(--neon-b)}
+.rs-tag-count{font-size:10px;color:var(--muted)}
+
+/* MANAGE BAR */
+.manage-bar{background:rgba(255,255,255,.02);border:1px solid var(--border);border-radius:var(--r);padding:16px 18px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:8px;margin-bottom:20px}
+.manage-btn{padding:8px 14px;border-radius:10px;border:1px solid var(--border);background:rgba(255,255,255,.04);color:var(--muted);font:700 12px var(--font-body);cursor:pointer;transition:var(--trans)}
+.manage-btn:hover{background:rgba(255,255,255,.08);color:var(--text)}
+.manage-btn.danger{background:rgba(255,61,113,.06);border-color:rgba(255,61,113,.2);color:#ff9d9d}
+.manage-btn.danger:hover{background:rgba(255,61,113,.14)}
+
+/* FAB */
+.fab{position:fixed;bottom:28px;right:28px;z-index:100;width:56px;height:56px;border-radius:50%;background:var(--neon);color:var(--black);font-size:24px;font-weight:700;display:none;align-items:center;justify-content:center;box-shadow:0 4px 20px rgba(200,255,0,.5),0 0 40px rgba(200,255,0,.2);cursor:pointer;transition:var(--trans);border:none;animation:fabPulse 2.5s ease-in-out infinite}
+@keyframes fabPulse{0%,100%{box-shadow:0 4px 20px rgba(200,255,0,.5),0 0 40px rgba(200,255,0,.2)}50%{box-shadow:0 4px 30px rgba(200,255,0,.7),0 0 60px rgba(200,255,0,.35)}}
+
+/* FEED STATES */
+.feed-status{text-align:center;padding:80px 32px;color:var(--muted);font-size:14px;line-height:1.8}
+.feed-status strong{display:block;font-family:var(--font-display);font-size:32px;color:rgba(255,255,255,.35);margin-bottom:8px}
+.spinner{width:32px;height:32px;border:2px solid rgba(200,255,0,.15);border-top-color:var(--neon);border-radius:50%;animation:spin .85s linear infinite;margin:0 auto 16px}
+@keyframes spin{to{transform:rotate(360deg)}}
+#fumoToast{position:fixed;bottom:28px;left:50%;transform:translateX(-50%) translateY(20px);padding:12px 22px;border-radius:14px;font-weight:700;font-size:13px;z-index:9999;opacity:0;transition:opacity .25s,transform .25s;pointer-events:none;backdrop-filter:blur(10px);background:rgba(20,20,20,.97);color:var(--neon);border:1px solid rgba(200,255,0,.3)}
+
+@media(max-width:1200px){.right-sidebar{display:none}}
+@media(max-width:900px){
+  .fab{display:flex}
+  .main{padding:0 16px 80px;max-width:100%}
+  .topnav{margin:0 -16px;padding-left:16px;padding-right:16px}
+  .topnav-heading,.notif-btn{display:none}
+}
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <main class="main">
+    <div class="topnav">
+      <div class="topnav-heading">FU<span>M</span>OCA</div>
+      <div class="search-wrap">
+        <span style="color:var(--muted);font-size:14px;">🔍</span>
+        <input id="searchInput" placeholder="Search captures, creators…" autocomplete="off">
+      </div>
+      <button class="notif-btn" id="notifBtn">🔔<span class="notif-dot" id="notifDot" style="display:none"></span></button>
+    </div>
+
+    <!-- STORIES -->
+    <div class="stories-wrap" id="storiesRow">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:6px;flex-shrink:0">
+        <div class="story-add-ring" onclick="window.location.href='upload.html'">+</div>
+        <span class="story-label you">Your Capture</span>
+      </div>
+    </div>
+
+    <!-- TRENDING -->
+    <div class="trending-banner" id="trendingBanner" style="display:none">
+      <span class="trending-label">🔥 Trending</span>
+      <span class="trending-tag">#gaussian</span>
+      <span class="trending-tag">#3dworld</span>
+      <span class="trending-tag">#capture</span>
+      <span class="trending-tag">#immersive</span>
+      <span class="trending-tag">#futuretech</span>
+    </div>
+
+    <!-- TABS -->
+    <div class="tabs-row-wrap">
+    <div class="tabs-row">
+      <button class="tab active" data-filter="all">✦ All</button>
+      <button class="tab" data-filter="done">🧊 Captures</button>
+      <button class="tab" data-filter="video">🎬 Videos</button>
+      <button class="tab" data-filter="photo">📸 Photos</button>
+      <button class="tab" data-filter="processing">⚙️ Processing</button>
+      <button class="tab" data-filter="failed">❌ Failed</button>
+    </div>
+    </div>
+    <script>
+      (function () {
+        var wrap = document.querySelector('.tabs-row-wrap');
+        var row = wrap.querySelector('.tabs-row');
+        function updateFade() {
+          var atEnd = row.scrollLeft + row.clientWidth >= row.scrollWidth - 2;
+          wrap.classList.toggle('tabs-at-end', atEnd);
+        }
+        row.addEventListener('scroll', updateFade, { passive: true });
+        window.addEventListener('resize', updateFade);
+        updateFade();
+      })();
+    </script>
+
+    <div id="feedGrid">
+      <div class="feed-status"><div class="spinner"></div>Loading feed…</div>
+    </div>
+
+    <div class="manage-bar" id="myManageBar" style="display:none">
+      <span style="font-size:12px;color:var(--muted);flex:1;min-width:130px">🛠 Manage your captures</span>
+      <button class="manage-btn danger" id="bulkDeleteFailedBtn">🗑️ Delete Failed</button>
+      <button class="manage-btn danger" id="deleteAllMyBtn">🗑️ Delete All My Captures</button>
+    </div>
+  </main>
+
+  <aside class="right-sidebar">
+    <div class="rs-card" id="trendingCard" style="display:none">
+      <div class="rs-title">🔥 Trending Tags</div>
+      <div id="trendingTagsList"></div>
+    </div>
+    <div class="rs-card" id="suggestionsCard" style="display:none">
+      <div class="rs-title">Creators to Follow</div>
+      <div id="suggestionsList"></div>
+    </div>
+    <div class="rs-card">
+      <div class="rs-title">Create</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <a href="upload.html" style="display:flex;align-items:center;gap:10px;padding:11px 14px;background:var(--neon2);border:1px solid var(--neon-b);border-radius:12px;text-decoration:none;color:var(--neon);font-weight:700;font-size:13px">🧊 New 3D Capture</a>
+        <a href="media-edit.html" style="display:flex;align-items:center;gap:10px;padding:11px 14px;background:rgba(0,229,255,.07);border:1px solid rgba(0,229,255,.18);border-radius:12px;text-decoration:none;color:var(--cyan);font-weight:700;font-size:13px">🎬 Video / Photo Post</a>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<button class="fab" onclick="window.location.href='upload.html'" title="Create Capture">+</button>
+<div id="fumoToast"></div>
+
+<script type="module" src="js/modules/feed.js"></script>
+<script type="module">
+import { supabase } from './js/supabaseClient.js';
+
+const REACTIONS = ['🔥','🧊','😱','💎','🚀','❤️'];
+
+function escH(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+
+function showToast(msg,isErr=false){
+  const t=document.getElementById('fumoToast');
+  t.textContent=msg;
+  t.style.color=isErr?'#ff9d9d':'var(--neon)';
+  t.style.borderColor=isErr?'rgba(255,61,113,.3)':'rgba(200,255,0,.3)';
+  t.style.opacity='1';t.style.transform='translateX(-50%) translateY(0)';
+  clearTimeout(t._tid);t._tid=setTimeout(()=>{t.style.opacity='0';t.style.transform='translateX(-50%) translateY(10px)'},2800);
+}
+
+// ─── STORIES ────────────────────────────────────────────────────────────────
+async function loadStories(){
+  // v60: real splats only — no fake seen/unseen state, no animated rings on placeholder data
+  const row=document.getElementById('storiesRow');
+  try{
+    const {data}=await supabase.from('splats')
+      .select('id,title,thumbnail_url,splat_url,output_url,profiles(username,avatar_url)')
+      .in('status',['done','ready','published','complete','completed'])
+      .not('splat_url','is',null).order('created_at',{ascending:false}).limit(14);
+    if(!data?.length)return;
+    data.forEach(s=>{
+      const username=s.profiles?.username||'Creator';
+      const item=document.createElement('div');item.className='story-item';
+      const av=s.profiles?.avatar_url;
+      // No fake seen/unseen ring animation — just show real avatar/initial
+      item.innerHTML=`<div class="story-ring-plain"><div class="story-ring-inner">${av?`<img src="${escH(av)}" onerror="this.style.display='none'">`:`${escH(username.charAt(0).toUpperCase())}`}</div></div><span class="story-label">${escH(username.slice(0,10))}</span>`;
+      const url=s.splat_url||s.output_url;
+      item.addEventListener('click',()=>{
+        if(url)window.location.href=`viewer.html?file=${encodeURIComponent(url)}&title=${encodeURIComponent(s.title||'')}&splatId=${s.id}`;
+      });
+      row.appendChild(item);
+    });
+  }catch(_){}
+}
+
+// ─── ENHANCE POSTS ───────────────────────────────────────────────────────────
+function injectReactions(post){
+  // v60: no fake counts — show real reactions from DB or blank (naturally grows)
+  if(post.querySelector('.reactions-bar'))return;
+  const bar=document.createElement('div');bar.className='reactions-bar';
+  const splatId=post.dataset.splatId||post.dataset.id;
+  // Real counts come from splat.metadata.reactions or a reactions table
+  const realCounts = (() => {
+    try {
+      const meta = JSON.parse(post.dataset.meta||'{}');
+      return meta.reactions || {};
+    } catch(_){ return {}; }
+  })();
+  REACTIONS.forEach(em=>{
+    const count = realCounts[em] || 0;
+    const pill=document.createElement('div');pill.className='reaction-pill';
+    // Only show count if > 0; show blank otherwise (real growth only)
+    pill.innerHTML=`${em}${count > 0 ? `<span>${count}</span>` : ''}`;
+    pill.addEventListener('click', async ()=>{
+      const wasActive = pill.classList.contains('active');
+      pill.classList.toggle('active');
+      const sp = pill.querySelector('span') || (() => {
+        const s = document.createElement('span'); pill.appendChild(s); return s;
+      })();
+      const cur = parseInt(sp.textContent)||0;
+      const newCount = wasActive ? Math.max(0, cur-1) : cur+1;
+      sp.textContent = newCount > 0 ? newCount : '';
+      if(newCount === 0) sp.remove();
+      // Persist to Supabase if available
+      if(splatId && window._fumocaSupabase){
+        const sb = window._fumocaSupabase;
+        const {data} = await sb.from('splats').select('metadata').eq('id',splatId).single().catch(()=>({data:null}));
+        if(data){
+          const meta = data.metadata||{};
+          const reactions = meta.reactions||{};
+          reactions[em] = Math.max(0,(reactions[em]||0)+(wasActive?-1:1));
+          await sb.from('splats').update({metadata:{...meta,reactions}}).eq('id',splatId).catch(()=>{});
+        }
+      }
+    });
+    bar.appendChild(pill);
+  });
+  const actions=post.querySelector('.post-actions');
+  if(actions)post.insertBefore(bar,actions);
+  else{const body=post.querySelector('.post-body');if(body)body.appendChild(bar);}
+}
+
+function injectTypeBadge(post){
+  const visual=post.querySelector('.post-visual');if(!visual||visual.querySelector('.media-type-badge'))return;
+  const postBadge=post.querySelector('.post-badge');
+  const isMedia=postBadge?.classList.contains('media');
+  const mediaType=post.dataset.mediaType||'splat';
+  const tb=document.createElement('div');
+  if(isMedia||mediaType==='video'){tb.className='media-type-badge video';tb.textContent='🎬 VIDEO';}
+  else if(mediaType==='photo'){tb.className='media-type-badge photo';tb.textContent='📸 PHOTO';}
+  else{tb.className='media-type-badge splat';tb.textContent='🧊 3D SPLAT';}
+  visual.appendChild(tb);
+}
+
+function injectQuickComment(post){
+  if(post.querySelector('.comment-quick'))return;
+  const cc=document.createElement('div');cc.className='comment-quick';
+  cc.innerHTML=`<div class="comment-input-wrap"><input class="comment-input" placeholder="Say something…"><button class="comment-send">→</button></div>`;
+  cc.querySelector('.comment-send').addEventListener('click',()=>{
+    const inp=cc.querySelector('.comment-input');
+    if(inp.value.trim()){showToast('💬 Comment posted!');inp.value='';}
+  });
+  cc.querySelector('.comment-input').addEventListener('keydown',e=>{if(e.key==='Enter'){cc.querySelector('.comment-send').click();}});
+  post.appendChild(cc);
+}
+
+function enhanceEditBtn(post){
+  // Find the edit or open button and wire up the correct editor
+  const openBtn=post.querySelector('.open-splat-btn, .edit-splat-btn');
+  if(!openBtn||openBtn.dataset.wired)return;
+  openBtn.dataset.wired='1';
+  // If this is a media post, re-style and re-route to media-edit
+  const isMedia=post.querySelector('.post-badge.media');
+  if(isMedia){
+    openBtn.classList.add('media-edit');
+    openBtn.innerHTML='✏️ Edit Media';
+  }
+}
+
+function enhancePost(post){
+  injectTypeBadge(post);
+  injectReactions(post);
+  injectQuickComment(post);
+  enhanceEditBtn(post);
+}
+
+// Watch for posts added by feed.js
+const feedGrid=document.getElementById('feedGrid');
+const obs=new MutationObserver(muts=>{
+  muts.forEach(m=>m.addedNodes.forEach(n=>{
+    if(n.nodeType!==1)return;
+    if(n.classList?.contains('post'))enhancePost(n);
+    else n.querySelectorAll?.('.post').forEach(enhancePost);
+  }));
+});
+obs.observe(feedGrid,{childList:true,subtree:true});
+
+// ─── FILTER TABS (extend feed.js) ───────────────────────────────────────────
+document.querySelectorAll('.tab').forEach(tab=>{
+  tab.addEventListener('click',()=>{
+    document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+    tab.classList.add('active');
+    const filter=tab.dataset.filter;
+    // video/photo tabs: show all posts but filter by data-media-type or badge
+    if(filter==='video'||filter==='photo'){
+      document.querySelectorAll('.post').forEach(p=>{
+        const mediaType=p.dataset.mediaType;
+        const isMedia=p.querySelector('.post-badge.media');
+        if(filter==='video')p.style.display=(isMedia||mediaType==='video')?'':'none';
+        else p.style.display=mediaType==='photo'?'':'none';
+      });
+    } else {
+      // Delegate to feed.js logic by dispatching custom event
+      document.dispatchEvent(new CustomEvent('fumoca:filter',{detail:{filter}}));
+    }
+  });
+});
+
+// ─── SEARCH ────────────────────────────────────────────────────────────────
+document.getElementById('searchInput').addEventListener('input',e=>{
+  const q=e.target.value.toLowerCase().trim();
+  document.querySelectorAll('.post').forEach(p=>{
+    p.style.display=(!q||p.textContent.toLowerCase().includes(q))?'':'none';
+  });
+});
+
+// ─── SUGGESTIONS ───────────────────────────────────────────────────────────
+async function loadSuggestions(){
+  // v60: real creators only — no fakes, card hidden when platform is new
+  const card=document.getElementById('suggestionsCard');
+  try{
+    const currentUser=await supabase.auth.getUser().then(r=>r.data?.user);
+    let q=supabase.from('profiles').select('id,username,avatar_url,bio').not('username','is',null).limit(6);
+    if(currentUser?.id) q=q.neq('id',currentUser.id);
+    const {data}=await q;
+    if(!data?.length){if(card)card.style.display='none';return;}
+    const list=document.getElementById('suggestionsList');
+    if(!list)return;
+    list.innerHTML='';
+    if(card)card.style.display='';
+    data.forEach(p=>{
+      const item=document.createElement('div');item.className='suggestion-item';
+      const initial=escH((p.username||'U').charAt(0).toUpperCase());
+      item.innerHTML=`<div class="sug-avatar">${p.avatar_url?`<img src="${escH(p.avatar_url)}" onerror="this.style.display='none'">`:`${initial}`}</div><div class="sug-meta"><div class="sug-name">${escH(p.username||'Creator')}</div><div class="sug-sub">${escH((p.bio||'').slice(0,40))||'3D creator'}</div></div><button class="sug-follow" data-uid="${escH(p.id)}">Follow</button>`;
+      item.querySelector('.sug-follow').addEventListener('click',async function(){
+        this.disabled=true;this.textContent='Following…';
+        try{await supabase.from('follows').upsert({follower_id:currentUser?.id,following_id:p.id}).catch(()=>{});}catch(_){}
+        this.textContent='✓ Following';this.style.opacity='.55';
+      });
+      list.appendChild(item);
+    });
+  }catch(_){if(card)card.style.display='none';}
+}
+
+async function loadTrendingTags(){
+  // v60: real tags from splat metadata only — no hardcoded counts
+  const card=document.getElementById('trendingCard');
+  try{
+    const {data}=await supabase.from('splats').select('metadata').in('status',['done','ready','published','complete','completed']).not('metadata','is',null).limit(100);
+    if(!data?.length)return;
+    const tally={};
+    data.forEach(row=>{const tags=row.metadata?.tags;if(Array.isArray(tags))tags.forEach(t=>{tally[t]=(tally[t]||0)+1;});});
+    const sorted=Object.entries(tally).sort((a,b)=>b[1]-a[1]).slice(0,8);
+    if(!sorted.length)return;
+    const list=document.getElementById('trendingTagsList');
+    if(!list)return;
+    list.innerHTML=sorted.map(([tag,count])=>`<span class="rs-tag">#${escH(tag)} <span class="rs-tag-count">${count}</span></span>`).join('');
+    if(card)card.style.display='';
+  }catch(_){}
+}
+
+async function checkNotifs(){
+  try{
+    const {data:{user}}=await supabase.auth.getUser();
+    if(!user)return;
+    const {count}=await supabase.from('splats').select('*',{count:'exact',head:true}).eq('user_id',user.id).eq('status','done');
+    if(count>0){document.getElementById('notifDot').style.display='block';}
+    if(window.FumocaNav)window.FumocaNav.setBadge('notif',count||0);
+  }catch(_){}
+}
+
+loadStories();loadSuggestions();loadTrendingTags();checkNotifs();
+</script>
+</body>
+</html>
+
+<script>
+// ─── v60: Edit Live injection ─────────────────────────────────────────────
+(function(){
+  function injectEditLiveBtn(post){
+    if(post.querySelector('.edit-live-btn'))return;
+    const splatId=post.dataset.splatId||post.dataset.id;
+    const mediaType=post.dataset.mediaType||'splat';
+    if(!splatId)return;
+
+    function _tryInject(){
+      const userId=window._fumocaSession?.user?.id||window._fumocaUser?.id;
+      const ownerId=post.dataset.userId||post.dataset.ownerId;
+      if(!userId||!ownerId||userId!==ownerId)return;
+      if(post.querySelector('.edit-live-btn'))return;
+
+      const btn=document.createElement('button');
+      btn.className='edit-live-btn';
+      btn.textContent='✦ Edit Live';
+      btn.style.cssText='background:rgba(200,255,0,.14);border:1px solid rgba(200,255,0,.35);color:#c8ff00;font:700 12px/1 "DM Sans",sans-serif;padding:7px 14px;border-radius:10px;cursor:pointer;white-space:nowrap;margin-left:6px;flex-shrink:0;';
+      btn.addEventListener('click',function(e){
+        e.stopPropagation();
+        if(window.editLiveFromFeed){window.editLiveFromFeed(splatId,mediaType);}
+        else{
+          const p=new URLSearchParams({splatId,live:'true',back:location.href});
+          // Pass splat file URL so editor auto-loads it (fixes black screen)
+          const fileUrl=post.dataset.splatUrl||post.dataset.outputUrl||post.dataset.fileUrl||'';
+          if(fileUrl)p.set('file',fileUrl);
+          window.location.href=(mediaType==='video'||mediaType==='photo')?`media-edit.html?${p}`:`edit.html?${p}`;
+        }
+      });
+      const row=post.querySelector('.post-actions,.card-actions,.post-meta-row,.post-footer');
+      (row||post).appendChild(btn);
+    }
+
+    _tryInject();
+    window.addEventListener('fumoca:sessionReady',_tryInject,{once:true});
+    window.addEventListener('fumoca:permissionsReady',_tryInject,{once:true});
+  }
+
+  // Observe feed for new cards
+  function attachObserver(){
+    const feedGrid=document.getElementById('feedGrid');
+    if(!feedGrid)return setTimeout(attachObserver,300);
+    const obs=new MutationObserver(muts=>{
+      muts.forEach(m=>m.addedNodes.forEach(n=>{
+        if(n.nodeType!==1)return;
+        if(n.classList?.contains('post')||n.classList?.contains('card'))injectEditLiveBtn(n);
+        n.querySelectorAll?.('.post,.card').forEach(injectEditLiveBtn);
+      }));
+    });
+    obs.observe(feedGrid,{childList:true,subtree:true});
+    feedGrid.querySelectorAll('.post,.card').forEach(injectEditLiveBtn);
+  }
+
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',attachObserver);
+  else attachObserver();
+
+  // Also re-inject when session becomes available
+  window.addEventListener('fumoca:sessionReady',()=>{
+    document.querySelectorAll('.post,.card').forEach(injectEditLiveBtn);
+  });
+})();
+</script>

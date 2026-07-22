@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>FUMOCA Scene</title>
+
+  <!-- ── Social / OG meta — filled by edge worker or static fallbacks ── -->
+  <meta property="og:type"        content="website">
+  <meta property="og:site_name"   content="FUMOCA">
+  <meta property="og:title"       id="og-title"       content="3D Scene — FUMOCA">
+  <meta property="og:description" id="og-description" content="Interactive 3D scene in .fumoc format. Open on any device.">
+  <meta property="og:image"       id="og-image"       content="https://fumoca.pages.dev/icons/og-default.jpg">
+  <meta property="og:image:width"  content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card"       content="summary_large_image">
+  <meta name="twitter:title"      id="tw-title"       content="3D Scene — FUMOCA">
+  <meta name="twitter:description"id="tw-description" content="Interactive 3D scene in .fumoc format">
+  <meta name="twitter:image"      id="tw-image"       content="https://fumoca.pages.dev/icons/og-default.jpg">
+
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    html,body{height:100%;background:#05070b;color:#fff;font-family:system-ui,sans-serif;overflow:hidden}
+    #shell{display:flex;flex-direction:column;height:100%}
+    #topbar{display:flex;align-items:center;gap:12px;padding:10px 16px;
+            background:rgba(5,7,11,.95);border-bottom:1px solid rgba(255,255,255,.07);
+            flex-shrink:0;z-index:10}
+    .logo{font-size:12px;font-weight:700;letter-spacing:.12em;color:rgba(200,255,0,.7);text-transform:uppercase}
+    #scene-title{font-size:14px;color:rgba(255,255,255,.7);font-weight:500;overflow:hidden;
+                 text-overflow:ellipsis;white-space:nowrap;flex:1}
+    #open-btn{background:#c8ff00;color:#05070b;border:none;border-radius:8px;padding:7px 14px;
+              font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0}
+    #player-wrap{flex:1;position:relative;overflow:hidden}
+    fumoc-player{display:block;width:100%;height:100%}
+    #loading-overlay{position:absolute;inset:0;display:flex;flex-direction:column;
+                     align-items:center;justify-content:center;gap:16px;
+                     background:#05070b;transition:opacity .5s;pointer-events:none}
+    #loading-overlay.hidden{opacity:0}
+    #thumb{width:120px;height:120px;object-fit:cover;border-radius:12px;opacity:.6}
+    #load-label{font-size:13px;color:rgba(255,255,255,.4)}
+    #progress{width:160px;height:3px;background:rgba(255,255,255,.1);border-radius:99px;overflow:hidden}
+    #progress-fill{height:100%;width:0%;background:#c8ff00;transition:width .3s}
+    #bottombar{display:flex;align-items:center;justify-content:space-between;
+               padding:8px 16px;background:rgba(5,7,11,.9);border-top:1px solid rgba(255,255,255,.07);
+               flex-shrink:0}
+    #fumoc-badge{font-size:10px;color:rgba(200,255,0,.5);letter-spacing:.1em;font-family:monospace}
+    #share-btn{background:none;border:1px solid rgba(255,255,255,.15);border-radius:6px;
+               color:rgba(255,255,255,.5);font-size:11px;padding:4px 10px;cursor:pointer}
+    #share-btn:hover{border-color:rgba(200,255,0,.4);color:#c8ff00}
+  </style>
+</head>
+<body>
+<div id="shell">
+  <div id="topbar">
+    <span class="logo">FUMOCA</span>
+    <span id="scene-title">Loading…</span>
+    <button id="open-btn">Open full viewer</button>
+  </div>
+
+  <div id="player-wrap">
+    <fumoc-player id="player"></fumoc-player>
+    <div id="loading-overlay">
+      <img id="thumb" src="" alt="" style="display:none">
+      <div id="load-label">Loading scene…</div>
+      <div id="progress"><div id="progress-fill"></div></div>
+    </div>
+  </div>
+
+  <div id="bottombar">
+    <span id="fumoc-badge">.fumoc — open 3D format</span>
+    <button id="share-btn">Share</button>
+  </div>
+</div>
+
+<script type="module">
+  const p          = new URLSearchParams(location.search);
+  const fumocUrl   = p.get('url')   || p.get('file') || p.get('src') || '';
+  const splatId    = p.get('splatId') || p.get('id') || '';
+  const titleParam = p.get('title') || p.get('name') || 'Untitled Scene';
+
+  const playerEl  = document.getElementById('player');
+  const titleEl   = document.getElementById('scene-title');
+  const overlay   = document.getElementById('loading-overlay');
+  const fillEl    = document.getElementById('progress-fill');
+  const labelEl   = document.getElementById('load-label');
+  const thumbEl   = document.getElementById('thumb');
+  const openBtn   = document.getElementById('open-btn');
+  const shareBtn  = document.getElementById('share-btn');
+
+  titleEl.textContent = titleParam;
+  document.title      = titleParam + ' — FUMOCA';
+
+  // Update OG meta with real values (for crawlers that execute JS)
+  document.querySelector('#og-title').content    = titleParam + ' — FUMOCA';
+  document.querySelector('#tw-title').content    = titleParam + ' — FUMOCA';
+
+  // ── Resolve source URL ────────────────────────────────────────────────────
+  let srcUrl = fumocUrl;
+
+  if (!srcUrl && splatId) {
+    // Load from Supabase via config
+    import('/config.js').then(async () => {
+      const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm');
+      const sb = createClient(window.FUMOCA_SUPABASE_URL, window.FUMOCA_SUPABASE_ANON_KEY);
+      const { data } = await sb.from('splats').select('fumoc_url,title,thumbnail_url').eq('id', splatId).single();
+      if (data) {
+        titleEl.textContent = data.title || titleParam;
+        if (data.thumbnail_url) _setThumb(data.thumbnail_url);
+        if (data.fumoc_url)    _loadPlayer(data.fumoc_url);
+      }
+    });
+  } else if (srcUrl) {
+    _loadPlayer(srcUrl);
+  } else {
+    labelEl.textContent = 'No scene specified';
+  }
+
+  function _setThumb(url) {
+    thumbEl.src             = url;
+    thumbEl.style.display   = 'block';
+    document.querySelector('#og-image').content = url;
+    document.querySelector('#tw-image').content = url;
+  }
+
+  function _loadPlayer(url) {
+    playerEl.addEventListener('fumoc:progress', e => {
+      fillEl.style.width  = e.detail.pct + '%';
+      labelEl.textContent = e.detail.label;
+    });
+    playerEl.addEventListener('fumoc:ready', e => {
+      overlay.classList.add('hidden');
+      titleEl.textContent = e.detail.header?.title || titleParam;
+    });
+    playerEl.addEventListener('fumoc:error', e => {
+      labelEl.textContent = '⚠ ' + e.detail.message;
+    });
+    playerEl.setAttribute('src', url);
+  }
+
+  // ── Open full viewer ──────────────────────────────────────────────────────
+  openBtn.addEventListener('click', () => {
+    const dest = fumocUrl
+      ? `/open?url=${encodeURIComponent(fumocUrl)}`
+      : splatId
+        ? `/viewer?id=${splatId}`
+        : '/open';
+    window.open(dest, '_blank');
+  });
+
+  // ── Share ─────────────────────────────────────────────────────────────────
+  shareBtn.addEventListener('click', async () => {
+    const shareData = {
+      title: titleEl.textContent,
+      text:  'Check out this 3D scene on FUMOCA',
+      url:   location.href,
+    };
+    if (navigator.share && navigator.canShare?.(shareData)) {
+      await navigator.share(shareData);
+    } else {
+      await navigator.clipboard.writeText(location.href);
+      shareBtn.textContent = 'Link copied!';
+      setTimeout(() => shareBtn.textContent = 'Share', 2000);
+    }
+  });
+</script>
+<script src="/sdk/fumoc-player.js"></script>
+</body>
+</html>

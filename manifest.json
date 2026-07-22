@@ -1,0 +1,81 @@
+{
+  "name": "FUMOCA — Interactive 3D",
+  "short_name": "FUMOCA",
+  "description": "View, share and explore .fumoc 3D scenes. The open format for Gaussian Splats.",
+  "start_url": "/index.html",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
+  "orientation": "any",
+  "theme_color": "#05070b",
+  "background_color": "#05070b",
+  "lang": "en",
+  "dir": "ltr",
+  "categories": ["utilities", "photography", "productivity", "social"],
+
+  "icons": [
+    { "src": "/icons/icon-72.png",   "sizes": "72x72",   "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-96.png",   "sizes": "96x96",   "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-128.png",  "sizes": "128x128", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-144.png",  "sizes": "144x144", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-152.png",  "sizes": "152x152", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-192.png",  "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icons/icon-384.png",  "sizes": "384x384", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png",  "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ],
+
+  "screenshots": [
+    { "src": "/screenshots/viewer-wide.jpg",   "sizes": "1280x720", "type": "image/jpeg", "form_factor": "wide",   "label": "FUMOCA 3D Viewer" },
+    { "src": "/screenshots/viewer-mobile.jpg", "sizes": "390x844",  "type": "image/jpeg", "form_factor": "narrow", "label": "FUMOCA on mobile" }
+  ],
+
+  "file_handlers": [
+    {
+      "action": "/open",
+      "accept": {
+        "application/fumoc": [".fumoc"],
+        "application/octet-stream": [".fumoc"]
+      },
+      "icons": [{ "src": "/icons/fumoc-file-icon.png", "sizes": "256x256", "type": "image/png" }],
+      "launch_type": "single-client"
+    }
+  ],
+
+  "share_target": {
+    "action": "/open",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text":  "text",
+      "url":   "url",
+      "files": [
+        {
+          "name": "fumoc",
+          "accept": ["application/fumoc", "application/octet-stream", ".fumoc"]
+        }
+      ]
+    }
+  },
+
+  "shortcuts": [
+    { "name": "Open .fumoc file", "short_name": "Open file", "description": "Open a .fumoc 3D scene file", "url": "/open", "icons": [{ "src": "/icons/icon-96.png", "sizes": "96x96" }] },
+    { "name": "My Splats",        "short_name": "My Splats", "description": "Browse your 3D captures",     "url": "/feed.html", "icons": [{ "src": "/icons/icon-96.png", "sizes": "96x96" }] },
+    { "name": "Upload & Capture", "short_name": "Upload",    "description": "Upload a new 3D scene",        "url": "/upload.html", "icons": [{ "src": "/icons/icon-96.png", "sizes": "96x96" }] }
+  ],
+
+  "protocol_handlers": [
+    { "protocol": "web+fumoc", "url": "/open?uri=%s" }
+  ],
+
+  "handle_links": "preferred",
+  "prefer_related_applications": false,
+
+  "edge_side_panel": { "preferred_width": 400 },
+
+  "launch_handler": {
+    "client_mode": ["navigate-existing", "auto"]
+  },
+
+  "id": "fumoca-pwa-v1"
+}

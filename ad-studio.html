@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#05070b">
+<title>FUMOCA · Ad Studio</title>
+<link rel="manifest" href="/manifest.json">
+<script src="config.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --neon: #c8ff00; --black: #05070b; --ink: #0b0e14;
+  --border: rgba(255,255,255,.1); --font: 'DM Sans', system-ui, sans-serif;
+}
+html, body {
+  width: 100%; min-height: 100vh; background: var(--black); color: #fff;
+  font-family: var(--font); overflow-x: hidden;
+}
+
+/* ── Layout ── */
+.layout { display: flex; height: 100vh; }
+#previewPane {
+  flex: 1; background: #06080e; position: relative;
+  display: flex; align-items: center; justify-content: center;
+}
+#sidebar {
+  width: 340px; background: #08090f; border-left: 1px solid var(--border);
+  display: flex; flex-direction: column; overflow-y: auto; flex-shrink: 0;
+}
+
+/* ── Viewer embed ── */
+#viewerFrame {
+  width: 640px; height: 360px; border-radius: 14px; overflow: hidden;
+  border: 1px solid rgba(255,255,255,.08); background: #000;
+  position: relative;
+}
+#viewerFrame iframe {
+  width: 100%; height: 100%; border: none;
+}
+
+/* ── Sidebar sections ── */
+.sb-section { padding: 16px; border-bottom: 1px solid var(--border); }
+.sb-title {
+  font-size: 11px; font-weight: 800; color: rgba(255,255,255,.4);
+  text-transform: uppercase; letter-spacing: .08em; margin-bottom: 12px;
+}
+
+/* ── Pause point timeline ── */
+#timeline {
+  position: relative; height: 48px; background: rgba(255,255,255,.04);
+  border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+  cursor: crosshair; margin-bottom: 10px;
+}
+#timelineProgress {
+  position: absolute; top: 0; left: 0; height: 100%;
+  background: rgba(200,255,0,.08); transition: width .1s linear;
+}
+#timelineTrack {
+  position: absolute; bottom: 0; left: 0; right: 0; height: 3px;
+  background: rgba(255,255,255,.1);
+}
+#timelineFill {
+  height: 100%; width: 0%; background: var(--neon); transition: width .1s;
+}
+.pp-marker {
+  position: absolute; top: 0; width: 3px; height: 100%;
+  background: var(--neon); cursor: pointer; z-index: 2;
+  transition: opacity .15s;
+}
+.pp-marker:hover { opacity: .7; }
+.pp-marker::after {
+  content: attr(data-label);
+  position: absolute; top: 4px; left: 6px;
+  font-size: 9px; color: var(--neon); white-space: nowrap;
+  font-family: var(--font); font-weight: 700;
+}
+#timelineLabel {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+  font-size: 11px; color: rgba(255,255,255,.3); pointer-events: none;
+}
+
+/* ── Pause point list ── */
+.pp-item {
+  display: flex; align-items: center; gap: 8px; padding: 8px 0;
+  border-bottom: 1px solid rgba(255,255,255,.05); cursor: pointer;
+}
+.pp-item:last-child { border-bottom: none; }
+.pp-item:hover { opacity: .85; }
+.pp-time {
+  font-size: 11px; font-weight: 700; color: var(--neon); font-family: monospace;
+  width: 36px; flex-shrink: 0;
+}
+.pp-label { font-size: 12px; color: rgba(255,255,255,.8); flex: 1; }
+.pp-trigger {
+  font-size: 10px; color: rgba(255,255,255,.35); flex-shrink: 0;
+}
+.pp-delete {
+  background: none; border: none; color: rgba(255,72,72,.5); cursor: pointer;
+  font-size: 14px; padding: 0 2px; flex-shrink: 0;
+}
+.pp-delete:hover { color: #ff4848; }
+
+/* ── Inputs ── */
+.field { margin-bottom: 10px; }
+.field label { font-size: 11px; color: rgba(255,255,255,.45); display: block; margin-bottom: 4px; }
+.field input, .field select, .field textarea {
+  width: 100%; padding: 9px 11px; border-radius: 10px;
+  background: rgba(255,255,255,.06); border: 1px solid var(--border);
+  color: #fff; font-size: 13px; outline: none; font-family: var(--font);
+}
+.field input:focus, .field select:focus { border-color: rgba(200,255,0,.4); }
+.field select option { background: #111; }
+
+/* ── Buttons ── */
+.btn {
+  width: 100%; padding: 12px; border-radius: 12px; border: none;
+  font-size: 14px; font-weight: 800; cursor: pointer; transition: all .15s;
+  margin-bottom: 6px;
+}
+.btn.primary { background: var(--neon); color: var(--black); }
+.btn.primary:hover { background: #d4ff33; }
+.btn.primary:disabled { background: rgba(200,255,0,.25); color: rgba(5,7,11,.4); cursor: default; }
+.btn.ghost { background: rgba(255,255,255,.07); border: 1px solid var(--border); color: #fff; }
+.btn.ghost:hover { background: rgba(255,255,255,.12); }
+
+/* ── Progress ── */
+#bakeProgress { display: none; margin-bottom: 10px; }
+#bakeBar { height: 3px; background: rgba(255,255,255,.08); border-radius: 999px; overflow: hidden; margin-bottom: 6px; }
+#bakeFill { height: 100%; width: 0%; background: var(--neon); border-radius: 999px; transition: width .3s; }
+#bakeLabel { font-size: 11px; color: rgba(255,255,255,.45); }
+
+/* ── Stats ── */
+#bakeStats {
+  display: none; background: rgba(200,255,0,.06); border: 1px solid rgba(200,255,0,.18);
+  border-radius: 10px; padding: 10px 12px; margin-bottom: 10px;
+}
+.bstat { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 4px; }
+.bstat-k { color: rgba(255,255,255,.45); }
+.bstat-v { font-weight: 700; color: var(--neon); }
+
+/* ── 4D indicator ── */
+#fourDBar {
+  display: none; background: rgba(255,255,255,.04); border: 1px solid var(--border);
+  border-radius: 10px; padding: 10px 12px; margin-bottom: 10px;
+}
+.fd-label { font-size: 11px; color: rgba(255,255,255,.4); margin-bottom: 6px; }
+.fd-frames { display: flex; gap: 6px; flex-wrap: wrap; }
+.fd-frame {
+  padding: 5px 12px; border-radius: 999px; font-size: 11px; font-weight: 700;
+  background: rgba(255,255,255,.07); border: 1px solid var(--border);
+  color: rgba(255,255,255,.6); cursor: pointer; transition: all .15s;
+}
+.fd-frame.active { background: rgba(200,255,0,.15); border-color: rgba(200,255,0,.4); color: var(--neon); }
+
+/* ── Header ── */
+.header {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  background: rgba(5,7,11,.95); border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(12px); height: 52px;
+  display: flex; align-items: center; gap: 16px; padding: 0 20px;
+}
+.header-logo { font-size: 16px; font-weight: 800; color: var(--neon); }
+.header-title { font-size: 13px; color: rgba(255,255,255,.5); }
+.header-spacer { flex: 1; }
+.layout { padding-top: 52px; }
+</style>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<div class="header">
+  <span class="header-logo">FUMOCA</span>
+  <span class="header-title">Ad Studio · Video + Interactive</span>
+  <div class="header-spacer"></div>
+  <span style="font-size:11px;color:rgba(255,255,255,.3);" id="headerSplatName">No splat loaded</span>
+</div>
+
+<div class="layout">
+
+  <!-- ── Preview pane ── -->
+  <div id="previewPane">
+    <div id="viewerFrame">
+      <iframe id="viewerIframe" src="/viewer.html?embed=ad-studio" title="FUMOCA Ad Preview"></iframe>
+      <div id="ppOverlay" style="position:absolute;inset:0;z-index:50;pointer-events:none;"></div>
+    </div>
+    <div style="position:absolute;bottom:16px;left:50%;transform:translateX(-50%);
+      font-size:11px;color:rgba(255,255,255,.25);text-align:center;">
+      Click on the timeline to add pause points
+    </div>
+  </div>
+
+  <!-- ── Sidebar ── -->
+  <div id="sidebar">
+
+    <!-- Load splat -->
+    <div class="sb-section">
+      <div class="sb-title">1 · Load Splat</div>
+      <button class="btn ghost" id="loadSplatBtn">📦 Load from My Splats</button>
+      <div style="font-size:11px;color:rgba(255,255,255,.3);margin-top:4px;">
+        Or drag a .fumoc file onto the viewer
+      </div>
+    </div>
+
+    <!-- 4D frames indicator -->
+    <div class="sb-section" id="fourDBar">
+      <div class="fd-label">4D Sequence — select a frame per pause point</div>
+      <div class="fd-frames" id="fdFrames"></div>
+    </div>
+
+    <!-- Pause points -->
+    <div class="sb-section">
+      <div class="sb-title">2 · Pause Points</div>
+      <div id="timeline">
+        <div id="timelineProgress"></div>
+        <div id="timelineTrack"><div id="timelineFill"></div></div>
+        <div id="timelineLabel">Click to add a pause point</div>
+      </div>
+      <div id="ppList"></div>
+      <button class="btn ghost" id="addPauseBtn" style="margin-top:8px;">
+        + Add pause point at current camera
+      </button>
+    </div>
+
+    <!-- Pause point config -->
+    <div class="sb-section">
+      <div class="sb-title">3 · Selected Pause Point</div>
+      <div class="field">
+        <label>Hint text shown to viewer</label>
+        <input type="text" id="ppHintText" placeholder="Drag to explore" value="Drag to explore">
+      </div>
+      <div class="field">
+        <label>Trigger mode</label>
+        <select id="ppTrigger">
+          <option value="hint">Hint — show text, activate on drag</option>
+          <option value="auto">Auto — pause and activate automatically</option>
+          <option value="gesture">Gesture only — no hint, activate on drag</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Auto-resume after (seconds, 0 = wait for user)</label>
+        <input type="number" id="ppDuration" value="0" min="0" max="30">
+      </div>
+      <div class="field">
+        <label>Label (internal)</label>
+        <input type="text" id="ppLabel" placeholder="e.g. Front view">
+      </div>
+    </div>
+
+    <!-- Ad metadata -->
+    <div class="sb-section">
+      <div class="sb-title">4 · Ad Details</div>
+      <div class="field">
+        <label>Brand name</label>
+        <input type="text" id="adBrand" placeholder="e.g. Toyota South Africa">
+      </div>
+      <div class="field">
+        <label>Campaign name</label>
+        <input type="text" id="adCampaign" placeholder="e.g. Land Cruiser 2026">
+      </div>
+      <div class="field">
+        <label>CTA button text</label>
+        <input type="text" id="adCtaText" placeholder="Learn more" value="Learn more">
+      </div>
+      <div class="field">
+        <label>CTA URL</label>
+        <input type="url" id="adCtaUrl" placeholder="https://...">
+      </div>
+    </div>
+
+    <!-- Bake and export -->
+    <div class="sb-section">
+      <div class="sb-title">5 · Bake & Export</div>
+
+      <div id="bakeProgress">
+        <div id="bakeBar"><div id="bakeFill"></div></div>
+        <div id="bakeLabel">Starting…</div>
+      </div>
+
+      <div id="bakeStats">
+        <div class="bstat"><span class="bstat-k">Video duration</span><span class="bstat-v" id="bsDuration">—</span></div>
+        <div class="bstat"><span class="bstat-k">Video size</span><span class="bstat-v" id="bsVideoSize">—</span></div>
+        <div class="bstat"><span class="bstat-k">Total .fumoc size</span><span class="bstat-v" id="bsTotal">—</span></div>
+        <div class="bstat"><span class="bstat-k">Pause points</span><span class="bstat-v" id="bsPP">—</span></div>
+      </div>
+
+      <button class="btn primary" id="bakeBtn" disabled>
+        🎬 Bake Video + Interactive
+      </button>
+      <button class="btn ghost" id="downloadBtn" disabled>⬇ Download .fumoc Ad</button>
+      <button class="btn ghost" id="previewBtn"  disabled>▶ Preview Ad Experience</button>
+
+      <div style="margin-top:8px;padding:10px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:10px;">
+        <div style="font-size:10px;color:rgba(255,255,255,.3);line-height:1.7;">
+          <strong style="color:rgba(255,255,255,.5);">Embed on any site:</strong><br>
+          <code style="font-size:9px;color:rgba(200,255,0,.6);">
+            &lt;div class="fumoca-ad" data-src="YOUR_URL.fumoc"&gt;&lt;/div&gt;<br>
+            &lt;script src="fumoca.co.za/embed/fumoca-ad.js"&gt;&lt;/script&gt;
+          </code>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script type="module">
+import FumocAdEngine from './js/modules/fumoc-ad-engine.js';
+import FumocEncoder  from './js/modules/fumoc-encoder.js';
+import FumocDecoder  from './js/modules/fumoc-decoder.js';
+import { supabase }  from './js/supabaseClient.js';
+
+// ── State ──────────────────────────────────────────────────────────────────
+let _pausePoints   = [];
+let _selectedPP    = null;
+let _currentRecord = null;
+let _splatBuffer   = null;
+let _videoDuration = 0;
+let _lastAdBuffer  = null;
+let _4dSplats      = [];       // array of Uint8Array for 4D sequences
+let _selectedFrame = 0;
+
+// ── Viewer comms via postMessage ───────────────────────────────────────────
+const iframe = document.getElementById('viewerIframe');
+
+function _sendToViewer(msg) {
+  iframe.contentWindow?.postMessage({ fumocaAdStudio: true, ...msg }, '*');
+}
+
+window.addEventListener('message', e => {
+  if (!e.data?.fumocaAdStudio) return;
+  if (e.data.type === 'viewerReady') {
+    document.getElementById('bakeBtn').disabled = false;
+    _renderTimeline();
+  }
+  if (e.data.type === 'splatLoaded') {
+    _currentRecord = e.data.record;
+    _splatBuffer   = null; // will fetch on bake
+    const is4D     = e.data.is4D || false;
+    document.getElementById('headerSplatName').textContent = e.data.title || 'Splat loaded';
+    if (is4D && e.data.frameCount > 1) _setup4D(e.data.frameCount);
+  }
+  if (e.data.type === 'cameraState') {
+    _currentCamera = e.data.camera; // {position, lookAt}
+  }
+});
+
+let _currentCamera = { position: [0,1,5], lookAt: [0,0,0] };
+
+// ── Load splat ─────────────────────────────────────────────────────────────
+document.getElementById('loadSplatBtn').addEventListener('click', async () => {
+  const { data: splats } = await supabase
+    .from('splats').select('id,title,metadata').order('created_at', { ascending: false }).limit(20);
+  if (!splats?.length) { alert('No splats found.'); return; }
+
+  const choice = splats[0]; // TODO: show picker
+  _sendToViewer({ type: 'loadSplat', splatId: choice.id });
+});
+
+// ── 4D setup ──────────────────────────────────────────────────────────────
+function _setup4D(frameCount) {
+  const bar    = document.getElementById('fourDBar');
+  const frames = document.getElementById('fdFrames');
+  bar.style.display = 'block';
+  frames.innerHTML  = '';
+  for (let i = 0; i < frameCount; i++) {
+    const btn = document.createElement('div');
+    btn.className = 'fd-frame' + (i === 0 ? ' active' : '');
+    btn.textContent = `Frame ${i+1}`;
+    btn.onclick = () => {
+      document.querySelectorAll('.fd-frame').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      _selectedFrame = i;
+      if (_selectedPP !== null) {
+        _pausePoints[_selectedPP].splatIndex = i;
+        _renderPPList();
+      }
+    };
+    frames.appendChild(btn);
+  }
+}
+
+// ── Timeline ───────────────────────────────────────────────────────────────
+const timeline = document.getElementById('timeline');
+timeline.addEventListener('click', e => {
+  const rect = timeline.getBoundingClientRect();
+  const pct  = (e.clientX - rect.left) / rect.width;
+  const ts   = _videoDuration > 0 ? pct * _videoDuration : pct * 30; // default 30s
+  _addPausePoint(ts);
+});
+
+document.getElementById('addPauseBtn').addEventListener('click', () => {
+  _addPausePoint(null); // at current viewer camera position
+});
+
+function _addPausePoint(timestamp) {
+  const pp = FumocAdEngine.definePausePoint({
+    timestamp:  timestamp ?? (_pausePoints.length * 5),
+    camera:     { ..._currentCamera },
+    splatIndex: _selectedFrame,
+    trigger:    document.getElementById('ppTrigger').value,
+    hintText:   document.getElementById('ppHintText').value || 'Drag to explore',
+    duration:   parseFloat(document.getElementById('ppDuration').value) || 0,
+    label:      document.getElementById('ppLabel').value || `Stop ${_pausePoints.length + 1}`,
+  });
+  _pausePoints.push(pp);
+  _pausePoints.sort((a,b) => a.timestamp - b.timestamp);
+  _selectPP(_pausePoints.indexOf(pp));
+  _renderTimeline();
+  _renderPPList();
+  document.getElementById('timelineLabel').style.display = 'none';
+}
+
+function _selectPP(index) {
+  _selectedPP = index;
+  const pp = _pausePoints[index];
+  if (!pp) return;
+  document.getElementById('ppHintText').value = pp.hintText || '';
+  document.getElementById('ppTrigger').value  = pp.trigger  || 'hint';
+  document.getElementById('ppDuration').value = pp.duration || 0;
+  document.getElementById('ppLabel').value    = pp.label    || '';
+}
+
+function _renderTimeline() {
+  const markers = timeline.querySelectorAll('.pp-marker');
+  markers.forEach(m => m.remove());
+  const totalDur = _videoDuration || 30;
+  _pausePoints.forEach((pp, i) => {
+    const pct = (pp.timestamp / totalDur) * 100;
+    const m   = document.createElement('div');
+    m.className    = 'pp-marker';
+    m.style.left   = Math.min(99, pct) + '%';
+    m.dataset.label = pp.label || `P${i+1}`;
+    m.onclick = e => { e.stopPropagation(); _selectPP(i); };
+    timeline.appendChild(m);
+  });
+}
+
+function _renderPPList() {
+  const list = document.getElementById('ppList');
+  list.innerHTML = _pausePoints.map((pp, i) => `
+    <div class="pp-item" onclick="window._selectPP(${i})">
+      <span class="pp-time">${pp.timestamp.toFixed(1)}s</span>
+      <span class="pp-label">${pp.label}</span>
+      <span class="pp-trigger">${pp.trigger}</span>
+      ${pp.splatIndex > 0 ? `<span style="font-size:10px;color:#c8ff00;">4D:${pp.splatIndex+1}</span>` : ''}
+      <button class="pp-delete" onclick="event.stopPropagation();window._deletePP(${i})">✕</button>
+    </div>
+  `).join('');
+}
+
+window._selectPP  = _selectPP;
+window._deletePP  = i => { _pausePoints.splice(i, 1); _renderTimeline(); _renderPPList(); };
+
+// Update selected PP when fields change
+['ppHintText','ppTrigger','ppDuration','ppLabel'].forEach(id => {
+  document.getElementById(id).addEventListener('input', () => {
+    if (_selectedPP === null) return;
+    const pp = _pausePoints[_selectedPP];
+    if (!pp) return;
+    pp.hintText = document.getElementById('ppHintText').value;
+    pp.trigger  = document.getElementById('ppTrigger').value;
+    pp.duration = parseFloat(document.getElementById('ppDuration').value) || 0;
+    pp.label    = document.getElementById('ppLabel').value;
+    _renderTimeline(); _renderPPList();
+  });
+});
+
+// ── Bake ──────────────────────────────────────────────────────────────────
+document.getElementById('bakeBtn').addEventListener('click', async () => {
+  if (!_pausePoints.length) {
+    alert('Add at least one pause point before baking.');
+    return;
+  }
+
+  const bakeBtn     = document.getElementById('bakeBtn');
+  const bakeProgress = document.getElementById('bakeProgress');
+  const bakeStats   = document.getElementById('bakeStats');
+
+  bakeBtn.disabled       = true;
+  bakeProgress.style.display = 'block';
+  bakeStats.style.display    = 'none';
+
+  const onProgress = (pct, label) => {
+    document.getElementById('bakeFill').style.width  = pct + '%';
+    document.getElementById('bakeLabel').textContent = label;
+  };
+
+  try {
+    onProgress(5, 'Fetching splat data…');
+
+    // Get splat from current record
+    if (!_splatBuffer && _currentRecord?.splat_url) {
+      const resp    = await fetch(_currentRecord.splat_url);
+      _splatBuffer  = await resp.arrayBuffer();
+    }
+    if (!_splatBuffer) throw new Error('No splat loaded. Load a splat first.');
+
+    // Build tour stops from pause points
+    const tourStops = _pausePoints.map(pp => ({
+      title:       pp.label,
+      position:    pp.camera.position,
+      lookAt:      pp.camera.lookAt,
+      duration:    3000,
+      splatIndex:  pp.splatIndex || 0,
+      hintText:    pp.hintText,
+      pauseTrigger:pp.trigger,
+      interactiveDuration: pp.duration,
+    }));
+
+    onProgress(10, 'Baking video from tour…');
+
+    // Get canvas from iframe
+    const iframeCanvas = iframe.contentDocument?.querySelector('canvas');
+
+    const { blob: videoBlob, duration, pausePoints: bakedPPs } = await FumocAdEngine.bakeVideoFromTour(
+      tourStops,
+      {
+        canvas:    iframeCanvas,
+        fps:       30,
+        quality:   3_000_000,
+        onProgress: (pct, label) => onProgress(10 + pct * 0.6, label),
+        onFrame: (cmd) => {
+          // Tell the iframe viewer to navigate
+          _sendToViewer({ type: 'adBakeFrame', cmd });
+        },
+      }
+    );
+
+    _videoDuration = duration;
+    _renderTimeline();
+
+    onProgress(72, 'Building ad sections…');
+    const adMeta = {
+      brand:    document.getElementById('adBrand').value,
+      campaign: document.getElementById('adCampaign').value,
+      ctaText:  document.getElementById('adCtaText').value,
+      ctaUrl:   document.getElementById('adCtaUrl').value,
+      duration,
+    };
+
+    const { vidpBytes, iptsJson } = await FumocAdEngine.buildAdSections(videoBlob, bakedPPs, adMeta);
+
+    onProgress(80, 'Compressing to .fumoc v2…');
+    const meta = {
+      title:      adMeta.campaign || adMeta.brand || 'FUMOCA Ad',
+      mode:       'ad',
+      brand:      adMeta.brand,
+      campaign:   adMeta.campaign,
+      cta_text:   adMeta.ctaText,
+      cta_url:    adMeta.ctaUrl,
+      video_mime_type: videoBlob.type,
+    };
+
+    const encoded = await FumocEncoder.encode(_splatBuffer, {
+      quality:     'medium',
+      meta,
+      videoPayload: vidpBytes,
+      pausePoints:  iptsJson,
+      onProgress:  (pct, label) => onProgress(80 + pct * 0.18, label),
+    });
+
+    _lastAdBuffer = encoded.buffer;
+
+    // Stats
+    document.getElementById('bsDuration').textContent  = duration.toFixed(1) + 's';
+    document.getElementById('bsVideoSize').textContent = (videoBlob.size / 1048576).toFixed(1) + ' MB';
+    document.getElementById('bsTotal').textContent     = (encoded.stats.outputBytes / 1048576).toFixed(1) + ' MB';
+    document.getElementById('bsPP').textContent        = bakedPPs.length;
+    bakeStats.style.display = 'block';
+    bakeProgress.style.display = 'none';
+
+    document.getElementById('downloadBtn').disabled = false;
+    document.getElementById('previewBtn').disabled  = false;
+    bakeBtn.disabled = false;
+    bakeBtn.textContent = '🎬 Bake Again';
+
+  } catch (err) {
+    console.error('[AdStudio]', err);
+    document.getElementById('bakeLabel').textContent = '⚠ ' + err.message;
+    bakeBtn.disabled = false;
+  }
+});
+
+// ── Download ──────────────────────────────────────────────────────────────
+document.getElementById('downloadBtn').addEventListener('click', () => {
+  if (!_lastAdBuffer) return;
+  const brand = document.getElementById('adBrand').value || 'ad';
+  const fname = brand.replace(/\s+/g, '_').toLowerCase() + '_fumoca.fumoc';
+  const blob  = new Blob([_lastAdBuffer], { type: 'application/octet-stream' });
+  const url   = URL.createObjectURL(blob);
+  const a     = document.createElement('a');
+  a.href = url; a.download = fname; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+});
+
+// ── Preview ───────────────────────────────────────────────────────────────
+document.getElementById('previewBtn').addEventListener('click', () => {
+  if (!_lastAdBuffer) return;
+  const bc = new BroadcastChannel('fumoc_open');
+  window.open('/ad-preview.html', '_blank');
+  bc.onmessage = e => {
+    if (e.data === 'fumoc_ad_preview_ready') {
+      bc.postMessage({ type: 'fumoc_ad_load', buffer: _lastAdBuffer });
+    }
+  };
+});
+</script>
+</body>
+</html>

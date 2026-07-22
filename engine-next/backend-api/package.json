@@ -1,0 +1,26 @@
+{
+  "name": "nif-platform-backend",
+  "version": "1.0.0",
+  "description": "NIF — Neural Interactive Format backend API · fumoca.co.za · © Fumoca Technologies",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "dev": "node --env-file=.env index.js",
+    "start": "node --env-file=.env index.js",
+    "test": "node tests/rateLimit.test.mjs && node tests/webhookSigning.test.mjs"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.600.0",
+    "@aws-sdk/s3-request-presigner": "^3.600.0",
+    "@supabase/supabase-js": "^2.43.0",
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "helmet": "^7.1.0",
+    "multer": "^1.4.5-lts.1",
+    "uuid": "^10.0.0"
+  },
+  "_note": "package.json.reference (v4's original) also existed at the project root, not just here — kept as reference in case the deploy setup expected it there instead. This copy is scoped to engine-next/backend-api specifically so `npm install && npm test` works from this directory without needing the full original v4 tree."
+}

@@ -1,0 +1,2367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="manifest" href="/manifest.json">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FUMOCA Viewer</title>
+
+<!-- Open Graph / Social sharing -->
+<meta property="og:type"         content="website">
+<meta property="og:site_name"    content="FUMOCA">
+<meta property="og:title"        content="3D Scene — FUMOCA" id="meta-og-title">
+<meta property="og:description"  content="Interactive 3D scene in .fumoc format. Open on any device — no app required." id="meta-og-desc">
+<meta property="og:image"        content="https://fumoca.pages.dev/icons/og-default.jpg" id="meta-og-image">
+<meta property="og:image:width"  content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:url"          content="" id="meta-og-url">
+<meta name="twitter:card"        content="summary_large_image">
+<meta name="twitter:title"       content="3D Scene — FUMOCA" id="meta-tw-title">
+<meta name="twitter:description" content="Interactive 3D scene in .fumoc format" id="meta-tw-desc">
+<meta name="twitter:image"       content="https://fumoca.pages.dev/icons/og-default.jpg" id="meta-tw-image">
+<meta name="description"         content="Interactive 3D scene in .fumoc format. Open on any device." id="meta-desc">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 64%22%3E%3Crect width=%2264%22 height=%2264%22 rx=%2214%22 fill=%22%2305070b%22/%3E%3Ctext x=%2250%25%22 y=%2256%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22 font-family=%22Arial%22 font-size=%2236%22 fill=%22%23c8ff00%22%3EF%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<script src="config.js"></script>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160/examples/jsm/"
+  }
+}
+</script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --neon: #c8ff00;
+    --acid2: #00ffc8;
+    --danger: #ff4848;
+    --warn: #ffb800;
+    --black: #05070b;
+    --ink2: #0b0e14;
+    --glass: rgba(10,12,18,0.72);
+    --border: rgba(255,255,255,0.10);
+    --border-neon: rgba(200,255,0,0.28);
+    --font-display: 'Bebas Neue', sans-serif;
+    --font-body: 'DM Sans', sans-serif;
+    --font-mono: 'Space Mono', monospace;
+    --focus-x: 50%; --focus-y: 42%; --focus-opacity: 0.18;
+    --focus-size: 42%; --focus-feather: 10%; --outer-opacity: 0.24;
+    --subject-scale: 1; --subject-shift-x: 0px; --subject-shift-y: 0px;
+    --crop-width: 100%; --crop-height: 100%; --crop-radius: 24px;
+  }
+  html, body { width:100%; height:100%; background:var(--black); color:#fff; font-family:var(--font-body); overflow:hidden; }
+
+  /* ── SPLAT STAGE ── */
+  #viewerShell { position:fixed; inset:0; }
+  #heroBackdrop { position:fixed; inset:0; z-index:0; background:center/cover no-repeat; opacity:0; transition:opacity .35s ease; }
+  #heroBackdrop.visible { opacity:.24; }
+  #heroBackdrop::after { content:""; position:absolute; inset:0; backdrop-filter:blur(30px); -webkit-backdrop-filter:blur(30px); background:radial-gradient(circle at 50% 40%,rgba(200,255,0,.08),transparent 28%),linear-gradient(180deg,rgba(5,7,11,.35),rgba(5,7,11,.92)); }
+  #stage { position:fixed; inset:0; z-index:1; transition:filter .2s ease; }
+  #stageHost { position:absolute; inset:0; }
+  #stage canvas { display:block; width:100% !important; height:100% !important; }
+  #focusFrame { position:fixed; z-index:3; left:50%; top:50%; width:var(--crop-width); height:var(--crop-height); transform:translate(-50%,-50%); border:1px dashed rgba(200,255,0,.55); border-radius:999px; pointer-events:none; opacity:0; box-shadow:0 0 0 1px rgba(200,255,0,.12) inset,0 0 0 9999px rgba(0,0,0,0); cursor:move; }
+  #focusFrame::before { content:""; position:absolute; inset:10px; border:1px solid rgba(200,255,0,.18); border-radius:inherit; pointer-events:none; }
+  #focusFrame.visible { opacity:.92; }
+  #focusFrame.box { border-radius:var(--crop-radius); }
+  .crop-handle { position:absolute; width:14px; height:14px; border-radius:999px; background:var(--neon); box-shadow:0 0 0 2px rgba(5,8,12,.9); pointer-events:none; }
+  .handle-nw { left:0; top:0; transform:translate(-50%,-50%); }
+  .handle-ne { right:0; top:0; transform:translate(50%,-50%); }
+  .handle-sw { left:0; bottom:0; transform:translate(-50%,50%); }
+  .handle-se { right:0; bottom:0; transform:translate(50%,50%); }
+  #maskLayer { position:fixed; inset:0; z-index:3; pointer-events:none; }
+  .cutout-hole { position:absolute; transform:translate(-50%,-50%); background:transparent; border:1px dashed rgba(200,255,0,.82); box-shadow:0 0 0 1px rgba(200,255,0,.08) inset; pointer-events:auto; cursor:pointer; }
+  .cutout-hole.ellipse { border-radius:999px; }
+  .cutout-hole.rect { border-radius:22px; }
+  .cutout-hole:hover { box-shadow:0 0 0 1px rgba(200,255,0,.18) inset,0 0 24px rgba(200,255,0,.08); }
+  #lassoLayer { position:fixed; inset:0; z-index:4; pointer-events:none; }
+  #lassoSvg { width:100%; height:100%; display:block; }
+  .lasso-poly { fill:rgba(200,255,0,.14); stroke:rgba(200,255,0,.95); stroke-width:.35; vector-effect:non-scaling-stroke; }
+  .lasso-poly.remove { fill:rgba(255,72,72,.14); stroke:rgba(255,122,122,.95); }
+  .lasso-poly.keep { fill:rgba(200,255,0,.14); stroke:rgba(200,255,0,.95); }
+  .lasso-ghost { fill:rgba(200,255,0,.08); stroke:rgba(200,255,0,.75); stroke-width:.25; stroke-dasharray:1 1; vector-effect:non-scaling-stroke; }
+  .lasso-chip-row { display:flex; gap:8px; flex-wrap:wrap; }
+  .lasso-badge { display:inline-flex; align-items:center; gap:6px; padding:4px 8px; border-radius:999px; font-size:11px; background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.08); color:rgba(255,255,255,.72); }
+  #hotspotLayer { position:fixed; inset:0; z-index:5; pointer-events:none; }
+  .hotspot-marker { position:absolute; width:18px; height:18px; border-radius:999px; border:2px solid rgba(200,255,0,.92); background:rgba(200,255,0,.18); box-shadow:0 0 0 6px rgba(200,255,0,.08); transform:translate(-50%,-50%); pointer-events:auto; cursor:pointer; }
+  .hotspot-marker::after { content:''; position:absolute; inset:4px; border-radius:999px; background:var(--neon); }
+  .hotspot-pill { position:absolute; top:22px; left:50%; transform:translateX(-50%); background:rgba(5,7,11,.86); border:1px solid rgba(255,255,255,.14); color:#fff; padding:6px 10px; border-radius:999px; font-size:11px; white-space:nowrap; display:none; }
+  .hotspot-marker:hover .hotspot-pill,.hotspot-marker.active .hotspot-pill { display:block; }
+  #stageHost,#stage canvas { transform:none; transform-origin:50% 50%; }
+  #focusOverlay { position:fixed; inset:0; z-index:2; pointer-events:none; background:radial-gradient(circle at var(--focus-x) var(--focus-y),transparent 0,transparent calc(var(--focus-size) - var(--focus-feather)),rgba(3,5,8,var(--focus-opacity)) var(--focus-size),rgba(3,5,8,calc(var(--focus-opacity) + var(--outer-opacity))) 100%); mix-blend-mode:multiply; }
+
+  /* ── EDIT ENGINE CANVAS (overlaid on stage when edit mode active) ── */
+  #editCanvas {
+    position:fixed; inset:0; z-index:40; display:none;
+    cursor:crosshair; background:transparent; pointer-events:auto; touch-action:none;
+  }
+  #editCanvas.orbit-mode { cursor:grab; }
+  #editCanvas.orbit-mode:active { cursor:grabbing; }
+  #editCanvas.active { display:block; }
+  #editSelRect {
+    position:fixed; border:1px solid var(--neon);
+    background:rgba(200,255,0,.07);
+    box-shadow:0 0 0 .5px rgba(200,255,0,.3) inset;
+    pointer-events:none; display:none; z-index:41;
+  }
+
+  /* ── TOPBAR ── */
+  /* ── v88 CLEAN VIEWER SHELL ── */
+  /* Topbar: minimal pill — back arrow + title only. Everything else in menu */
+  #topbar {
+    position:fixed; top:12px; left:12px; right:12px; z-index:10;
+    display:flex; align-items:center; gap:10px;
+    background:rgba(5,7,11,.75); border:1px solid rgba(255,255,255,.1);
+    backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px);
+    border-radius:999px; padding:8px 10px 8px 14px;
+    transition:opacity .35s ease;
+  }
+  #backBtn {
+    background:none; border:none; color:rgba(255,255,255,.7);
+    font-family:var(--font-body); font-size:13px; font-weight:700;
+    cursor:pointer; white-space:nowrap; padding:0; flex-shrink:0;
+  }
+  #backBtn:hover { color:#fff; }
+  .ghostBtn {
+    background:rgba(255,255,255,.07); border:1px solid var(--border);
+    color:#fff; font-family:var(--font-body); font-size:13px; font-weight:700;
+    padding:9px 14px; border-radius:12px; cursor:pointer;
+    white-space:nowrap; transition:background .15s; flex-shrink:0;
+  }
+  .ghostBtn:hover { background:rgba(255,255,255,.14); }
+  #thumbDock { display:flex; align-items:center; gap:8px; min-width:0; flex:1; }
+  #thumbDock img { width:30px; height:30px; object-fit:cover; border-radius:8px;
+    border:1px solid rgba(255,255,255,.1); background:#0a0c12; flex-shrink:0; }
+  #titleBlock { min-width:0; flex:1; }
+  #splatTitle {
+    font-family:var(--font-body); font-size:13px; font-weight:700;
+    color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  #splatDesc, #mediaMeta { display:none; } /* hidden — clean is key */
+  /* topActions hidden — all moved to hamburger menu */
+  #topActions { display:none; }
+  /* Hamburger menu button */
+  #menuBtn {
+    width:36px; height:36px; border-radius:999px; border:none; cursor:pointer;
+    background:rgba(255,255,255,.1); color:#fff; font-size:18px;
+    display:flex; align-items:center; justify-content:center; flex-shrink:0;
+    transition:background .15s;
+  }
+  #menuBtn:hover { background:rgba(255,255,255,.2); }
+  /* ── Slide-up menu panel ── */
+  #fumocMenu {
+    position:fixed; inset:0; z-index:500;
+    display:none; align-items:flex-end; justify-content:center;
+    background:rgba(0,0,0,.5); backdrop-filter:blur(8px);
+  }
+  #fumocMenu.open { display:flex; }
+  #fumocMenuInner {
+    width:min(480px,100vw); max-height:80vh; overflow-y:auto;
+    background:rgba(6,8,14,.97); border:1px solid rgba(255,255,255,.1);
+    border-radius:24px 24px 0 0; padding:8px 0 calc(env(safe-area-inset-bottom) + 16px);
+    font-family:var(--font-body);
+  }
+  #fumocMenuHandle {
+    width:36px; height:4px; border-radius:999px;
+    background:rgba(255,255,255,.2); margin:12px auto 16px;
+  }
+  .fmenu-section {
+    padding:0 16px 8px; border-bottom:1px solid rgba(255,255,255,.06);
+    margin-bottom:4px;
+  }
+  .fmenu-section:last-child { border-bottom:none; }
+  .fmenu-label {
+    font-size:10px; font-weight:700; color:rgba(255,255,255,.3);
+    text-transform:uppercase; letter-spacing:.08em;
+    padding:10px 16px 6px; display:block;
+  }
+  .fmenu-row {
+    display:flex; align-items:center; gap:12px;
+    padding:11px 16px; cursor:pointer; border-radius:12px;
+    transition:background .12s; color:#fff;
+  }
+  .fmenu-row:hover, .fmenu-row:active { background:rgba(255,255,255,.07); }
+  .fmenu-icon { font-size:18px; width:26px; text-align:center; flex-shrink:0; }
+  .fmenu-text { flex:1; }
+  .fmenu-name { font-size:14px; font-weight:700; }
+  .fmenu-sub  { font-size:11px; color:rgba(255,255,255,.4); margin-top:1px; }
+  .fmenu-row.neon .fmenu-name { color:#c8ff00; }
+  .fmenu-row.danger .fmenu-name { color:#ff8a8a; }
+  /* ── FAB: single floating action button for primary action ── */
+  #fumocFAB {
+    position:fixed; bottom:24px; right:16px; z-index:11;
+    width:52px; height:52px; border-radius:999px; border:none; cursor:pointer;
+    background:rgba(200,255,0,.15); border:1px solid rgba(200,255,0,.35);
+    color:#c8ff00; font-size:22px;
+    display:flex; align-items:center; justify-content:center;
+    backdrop-filter:blur(12px); transition:all .2s;
+    box-shadow:0 4px 24px rgba(200,255,0,.15);
+  }
+  #fumocFAB:hover { background:rgba(200,255,0,.25); transform:scale(1.06); }
+  #fumocFAB.hidden { opacity:0; pointer-events:none; }
+  /* ── Edit mode indicator — slim, bottom-left ── */
+  #editModeBadge {
+    position:fixed; bottom:24px; left:16px; z-index:11;
+    background:rgba(200,255,0,.12); border:1px solid rgba(200,255,0,.3);
+    border-radius:999px; padding:6px 14px;
+    font-size:10px; font-weight:800; color:#c8ff00;
+    letter-spacing:.06em; text-transform:uppercase;
+    opacity:0; transition:opacity .3s; pointer-events:none;
+    font-family:var(--font-body);
+  }
+  #editModeBadge.visible { opacity:1; }
+  /* legacy compat */
+  #teaserBtn,#copyLinkBtn,#applyStudioBtn,#compareBtn,#editModeBtn { display:none; }
+  body.compare-original #focusOverlay,body.compare-original #focusFrame,body.compare-original #maskLayer { opacity:0 !important; }
+  body.compare-original #stage { filter:none !important; }
+
+  /* ── LOADING / ERROR ── */
+  #loadingOverlay { position:fixed; inset:0; z-index:5; background:var(--black); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px; transition:opacity .5s; }
+  #loadingOverlay.hidden { opacity:0; pointer-events:none; }
+  .spinner { width:38px; height:38px; border:3px solid rgba(200,255,0,.15); border-top-color:var(--neon); border-radius:50%; animation:spin .85s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  #loadingText { font-size:12px; color:rgba(255,255,255,.4); letter-spacing:.1em; text-transform:uppercase; }
+  #errorBox { position:fixed; inset:0; z-index:6; display:none; flex-direction:column; align-items:center; justify-content:center; gap:14px; padding:32px; text-align:center; }
+  #errorBox.visible { display:flex; }
+  #errorTitle { font-family:var(--font-display); font-size:30px; color:rgba(255,255,255,.65); }
+  #errorMsg { font-size:13px; color:rgba(255,255,255,.42); max-width:420px; line-height:1.65; }
+  #errorBackBtn { margin-top:6px; background:rgba(255,255,255,.07); border:1px solid var(--border); color:#fff; font-family:var(--font-body); font-size:13px; font-weight:700; padding:10px 24px; border-radius:14px; cursor:pointer; }
+  #hint { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); z-index:10; background:var(--glass); border:1px solid var(--border); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); border-radius:100px; padding:8px 20px; font-size:12px; color:rgba(255,255,255,.52); letter-spacing:.05em; pointer-events:none; transition:opacity 1s ease; }
+  #hint.hidden { opacity:0; }
+
+  /* ── PANEL BASE ── */
+  #studioPanel,#editPanel {
+    position:fixed; right:16px; top:92px; z-index:10; width:min(380px,calc(100vw - 32px));
+    background:rgba(7,10,16,.82); border:1px solid rgba(255,255,255,.10); border-radius:24px;
+    backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px); box-shadow:0 18px 70px rgba(0,0,0,.4);
+    padding:0; max-height:calc(100vh - 110px); overflow:hidden; display:flex; flex-direction:column;
+  }
+  #studioPanel {
+    display: none; /* Fixed: this used to render for EVERY viewer by default (even
+    the owner just casually opening their own item), showing raw editing controls
+    like the noise-cleanup slider before anyone asked for them. The real editor
+    (#editPanel / Edit Engine, opened via the Edit button) already has its own
+    "Smart cleanup" that supersedes this panel, so nothing is lost by keeping it
+    hidden — viewing an item now just shows the item. */
+  }
+  #editPanel { display:none; border-color:rgba(200,255,0,.18); }
+  #editPanel.open { display:flex; }
+
+  /* ── STUDIO PANEL ── */
+  .studio-scroll { flex:1; overflow-y:auto; padding:16px; scrollbar-width:thin; }
+  .studio-scroll::-webkit-scrollbar { width:3px; }
+  .studio-scroll::-webkit-scrollbar-thumb { background:rgba(200,255,0,.2); border-radius:999px; }
+  .studio-head { display:flex; justify-content:space-between; align-items:flex-start; gap:14px; margin-bottom:14px; position:sticky; top:-16px; background:linear-gradient(180deg,rgba(7,10,16,.98),rgba(7,10,16,.9)); padding:16px 16px 10px; z-index:2; }
+  .studio-title { font-family:var(--font-display); color:var(--neon); letter-spacing:.05em; font-size:24px; line-height:1; }
+  .studio-sub { font-size:11px; color:rgba(255,255,255,.5); margin-top:4px; line-height:1.5; }
+  .studio-grid { display:grid; gap:12px; padding:0 16px 16px; }
+  .control { background:rgba(255,255,255,.035); border:1px solid rgba(255,255,255,.07); border-radius:16px; padding:12px; }
+  .control-head { display:flex; justify-content:space-between; gap:12px; align-items:center; margin-bottom:8px; }
+  .control-label { font-size:12px; font-weight:700; color:#fff; }
+  .control-value { font-size:12px; color:var(--neon); }
+  .control-note { font-size:11px; color:rgba(255,255,255,.5); line-height:1.45; margin-top:8px; }
+  input[type=range] { width:100%; accent-color:var(--neon); }
+  .preset-row { display:flex; gap:8px; flex-wrap:wrap; }
+  .preset-btn { padding:8px 10px; border-radius:12px; border:1px solid rgba(255,255,255,.1); background:rgba(255,255,255,.05); color:#fff; cursor:pointer; font-size:12px; }
+  .preset-btn.active { border-color:rgba(200,255,0,.28); color:var(--neon); background:rgba(200,255,0,.08); }
+  .panel-actions { display:flex; gap:8px; margin-top:8px; }
+  .panel-actions button { flex:1; }
+  .segmented-row { display:flex; gap:8px; flex-wrap:wrap; }
+  .segmented-btn { flex:1; min-width:0; padding:9px 10px; border-radius:12px; border:1px solid rgba(255,255,255,.1); background:rgba(255,255,255,.05); color:#fff; cursor:pointer; font-size:12px; font-weight:700; }
+  .segmented-btn.active { border-color:rgba(200,255,0,.28); color:var(--neon); background:rgba(200,255,0,.08); }
+
+  /* ── EDIT PANEL ── */
+  .edit-header {
+    display:flex; align-items:flex-start; justify-content:space-between; gap:12px;
+    padding:16px 16px 0; flex-shrink:0;
+  }
+  .edit-title { font-family:var(--font-display); font-size:22px; color:var(--neon); letter-spacing:.08em; line-height:1; }
+  .edit-sub { font-size:10px; color:rgba(255,255,255,.45); margin-top:3px; font-family:var(--font-mono); }
+  .edit-tabs { display:flex; gap:0; padding:12px 16px 0; flex-shrink:0; }
+  .edit-tab { flex:1; padding:9px 8px; border:1px solid rgba(255,255,255,.08); background:rgba(255,255,255,.03); color:rgba(255,255,255,.45); font-family:var(--font-body); font-size:12px; font-weight:700; cursor:pointer; letter-spacing:.05em; transition:all .15s; }
+  .edit-tab:first-child { border-radius:12px 0 0 12px; }
+  .edit-tab:last-child { border-radius:0 12px 12px 0; }
+  .edit-tab:not(:first-child) { border-left:none; }
+  .edit-tab.active { background:rgba(200,255,0,.12); color:var(--neon); border-color:rgba(200,255,0,.28); }
+  .edit-pane { display:none; flex:1; overflow-y:auto; padding:12px 16px 16px; scrollbar-width:thin; }
+  .edit-pane::-webkit-scrollbar { width:3px; }
+  .edit-pane::-webkit-scrollbar-thumb { background:rgba(200,255,0,.2); border-radius:999px; }
+  .edit-pane.active { display:block; }
+
+  /* ── EDIT STATS ROW ── */
+  .e-stats { display:flex; gap:6px; margin-bottom:12px; }
+  .e-stat { flex:1; background:rgba(255,255,255,.03); border:1px solid rgba(255,255,255,.06); border-radius:12px; padding:10px 8px; text-align:center; }
+  .e-stat-val { font-family:var(--font-mono); font-size:15px; font-weight:700; color:var(--neon); }
+  .e-stat-lbl { font-size:9px; color:rgba(255,255,255,.38); text-transform:uppercase; letter-spacing:.08em; margin-top:2px; }
+  .e-stat.danger .e-stat-val { color:var(--danger); }
+  .e-stat.warn .e-stat-val { color:var(--warn); }
+  .e-stat.sel .e-stat-val { color:var(--acid2); }
+
+  /* ── EDIT CONTROLS ── */
+  .e-control { background:rgba(255,255,255,.03); border:1px solid rgba(255,255,255,.06); border-radius:14px; padding:12px; margin-bottom:10px; }
+  .e-label { font-size:11px; font-weight:700; color:rgba(255,255,255,.7); text-transform:uppercase; letter-spacing:.08em; margin-bottom:8px; display:flex; justify-content:space-between; align-items:center; }
+  .e-val { color:var(--neon); font-family:var(--font-mono); }
+  .e-note { font-size:10px; color:rgba(255,255,255,.38); line-height:1.5; margin-top:6px; font-family:var(--font-mono); }
+  .e-btn { display:block; width:100%; padding:10px 14px; border-radius:10px; font-family:var(--font-body); font-size:12px; font-weight:700; cursor:pointer; text-align:center; letter-spacing:.05em; transition:all .15s; margin-bottom:6px; border:1px solid; }
+  .e-btn:last-child { margin-bottom:0; }
+  .e-btn-primary { background:var(--neon); color:var(--black); border-color:var(--neon); }
+  .e-btn-primary:hover { opacity:.88; }
+  .e-btn-ghost { background:rgba(255,255,255,.05); color:#fff; border-color:rgba(255,255,255,.1); }
+  .e-btn-ghost:hover { background:rgba(255,255,255,.1); }
+  .e-btn-danger { background:rgba(255,72,72,.1); color:var(--danger); border-color:rgba(255,72,72,.3); }
+  .e-btn-danger:hover { background:rgba(255,72,72,.18); }
+  .e-btn-warn { background:rgba(255,184,0,.08); color:var(--warn); border-color:rgba(255,184,0,.28); }
+  .e-btn-warn:hover { background:rgba(255,184,0,.15); }
+  .e-btn-acid { background:rgba(0,255,200,.08); color:var(--acid2); border-color:rgba(0,255,200,.28); }
+  .e-btn-acid:hover { background:rgba(0,255,200,.15); }
+  .e-btn:disabled { opacity:.32; cursor:not-allowed; }
+  .e-seg { display:flex; gap:6px; }
+  .e-seg-btn { flex:1; padding:8px 6px; border-radius:9px; border:1px solid rgba(255,255,255,.08); background:rgba(255,255,255,.03); color:rgba(255,255,255,.5); font-family:var(--font-body); font-size:11px; font-weight:700; cursor:pointer; letter-spacing:.04em; transition:all .15s; }
+  .e-seg-btn.active { background:rgba(200,255,0,.12); color:var(--neon); border-color:rgba(200,255,0,.28); }
+  .e-divider { height:1px; background:rgba(255,255,255,.06); margin:10px 0; }
+
+  /* ── HISTORY ── */
+  .e-hist { font-family:var(--font-mono); font-size:10px; }
+  .e-hist-item { display:flex; justify-content:space-between; align-items:center; padding:5px 8px; border-radius:7px; margin-bottom:3px; color:rgba(255,255,255,.4); background:rgba(255,255,255,.02); }
+  .e-hist-item.new { color:var(--acid2); background:rgba(0,255,200,.04); border:1px solid rgba(0,255,200,.1); }
+
+  /* ── EDIT MODE BADGE ── */
+  #editModeBadge {
+    position:fixed; bottom:20px; left:50%; transform:translateX(-50%); z-index:11;
+    background:rgba(200,255,0,.12); border:1px solid rgba(200,255,0,.35);
+    backdrop-filter:blur(16px); border-radius:100px; padding:8px 20px;
+    font-size:12px; color:var(--neon); font-family:var(--font-mono); letter-spacing:.08em;
+    pointer-events:none; opacity:0; transition:opacity .3s;
+  }
+  #editModeBadge.visible { opacity:1; }
+
+  /* ── PREVIEW OVERLAY ── */
+  #previewOverlay { position:fixed; inset:0; z-index:20; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.82); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); padding:24px; }
+  #previewOverlay.visible { display:flex; }
+  #previewCard { width:min(1040px,100%); border-radius:28px; overflow:hidden; background:rgba(10,12,18,.95); border:1px solid rgba(255,255,255,.12); position:relative; box-shadow:0 20px 80px rgba(0,0,0,.45); }
+  #closePreviewBtn { position:absolute; top:14px; right:14px; z-index:2; width:42px; height:42px; border-radius:999px; border:1px solid rgba(255,255,255,.14); background:rgba(5,7,11,.72); color:#fff; cursor:pointer; }
+  #previewMediaWrap { position:relative; background:#000; min-height:380px; overflow:hidden; }
+  #previewVideo,#previewPoster,#syntheticTeaser { display:block; width:100%; max-height:72vh; object-fit:contain; background:#000; }
+  #previewPoster.hidden,#syntheticTeaser.hidden,#previewVideo.hidden { display:none; }
+  #syntheticTeaser { position:relative; background:center/cover no-repeat; min-height:440px; }
+  #syntheticTeaser::before { content:""; position:absolute; inset:0; background:inherit; filter:blur(24px) saturate(1.25) contrast(1.08); transform:scale(1.14); animation:splatResolve 2.6s ease-in-out infinite alternate; }
+  #syntheticTeaser::after { content:""; position:absolute; inset:0; background:radial-gradient(circle at 50% 42%,rgba(255,255,255,.05),transparent 22%),linear-gradient(180deg,rgba(0,0,0,.02),rgba(0,0,0,.4)); mix-blend-mode:screen; }
+  .splat-pixels { position:absolute; inset:0; background-image:linear-gradient(rgba(200,255,0,.06) 1px,transparent 1px),linear-gradient(90deg,rgba(200,255,0,.06) 1px,transparent 1px); background-size:14px 14px; opacity:.5; animation:gridPulse 1.8s ease-in-out infinite alternate; }
+  @keyframes splatResolve { from { transform:scale(1.18); filter:blur(32px) contrast(1.28) saturate(1.4); } to { transform:scale(1.04); filter:blur(2px) contrast(1.12) saturate(1.1); } }
+  @keyframes gridPulse { from { opacity:.56; transform:scale(1.02); } to { opacity:.18; transform:scale(1); } }
+  #previewFooter { display:flex; justify-content:space-between; gap:16px; align-items:center; padding:18px 20px; font-size:13px; color:rgba(255,255,255,.72); }
+  .preview-actions { display:flex; gap:8px; align-items:center; }
+  #viewInteractiveBtn,.previewModeBtn { background:var(--neon); color:#000; border:none; border-radius:12px; padding:10px 16px; font-weight:700; cursor:pointer; }
+  .previewModeBtn.alt { background:rgba(255,255,255,.08); color:#fff; border:1px solid rgba(255,255,255,.1); }
+  #hiddenSvgFilters { position:absolute; width:0; height:0; }
+
+  /* ── RESPONSIVE ── */
+  @media (max-width:980px) {
+    #topbar { flex-wrap:wrap; }
+    #studioPanel,#editPanel { top:auto; bottom:16px; left:16px; right:16px; width:auto; max-height:44vh; }
+  }
+  body.fumoca-edit-locked #editPanel { display:none !important; }
+  body.fumoca-edit-locked #editModeBadge { display:none !important; }
+
+  /* ── PUBLIC VIEWER LOCK — hides all admin UI for embed/share links ── */
+  body.fumoca-public-viewer #editModeBtn,
+  body.fumoca-public-viewer #deleteUploadBtn,
+  body.fumoca-public-viewer #saveVariantBtn,
+  body.fumoca-public-viewer #captureToggleBtn,
+  body.fumoca-public-viewer #fourDBtn,
+  body.fumoca-public-viewer #studioPanel,
+  body.fumoca-public-viewer #editPanel,
+  body.fumoca-public-viewer #editModeBadge { display:none !important; }
+
+  /* v88: hide old bottom bar — menu replaces it */
+  #bottomBar { display:none !important; }
+  #uiRevealBtn { display:none !important; }
+  /* v88: topbar auto-hides on idle, FAB stays */
+  body.ui-idle #topbar { opacity:0; pointer-events:none; }
+  body.ui-idle #fumocFAB { opacity:1 !important; pointer-events:auto !important; }
+  /* hint sits above FAB */
+  #hint { bottom:88px; }
+  /* Mobile: topbar pill shrinks further */
+  @media (max-width:480px) {
+    #topbar { top:8px; left:8px; right:8px; padding:6px 8px 6px 12px; }
+    #splatTitle { font-size:12px; }
+    #thumbDockImg { width:24px; height:24px; border-radius:6px; }
+    #fumocFAB { bottom:20px; right:12px; width:46px; height:46px; font-size:20px; }
+  }
+  /* Hotspot info card — stays clear of FAB */
+  #hotspotInfoCard { bottom:80px; right:12px; }
+  /* Tour HUD — sits above FAB */
+  #fumocaTourHUDv80 { bottom:80px; }
+  /* Walk mode HUD */
+  #fumocaWalkHUD { top:60px; }
+  /* Inspection HUD */
+  #fumocInspectHUD { bottom:80px; }
+  /* Volume widget */
+  #fumocVolumeWidget { bottom:80px; right:12px; }
+
+  @media (max-width:680px) {
+    #thumbDock img { width:44px; height:44px; }
+    #topActions { width:100%; justify-content:space-between; }
+    #previewFooter { flex-direction:column; align-items:flex-start; }
+    #editModeBtn span { display:none; }
+  }
+
+
+  /* ── HOTSPOT PRO PANEL ── */
+  #hotspotProPanel {
+    position: fixed; left: 16px; bottom: 16px; z-index: 12;
+    width: min(430px, calc(100vw - 32px)); max-height: min(64vh, 760px);
+    display: none; flex-direction: column; overflow: hidden;
+    background: rgba(7,10,16,.88); border: 1px solid rgba(200,255,0,.16);
+    border-radius: 24px; backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    box-shadow: 0 18px 70px rgba(0,0,0,.42);
+  }
+  #hotspotProPanel.open { display: flex; }
+  .hp-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; padding:16px 16px 12px; border-bottom:1px solid rgba(255,255,255,.07); }
+  .hp-title { font-family: var(--font-display); color: var(--neon); font-size: 24px; letter-spacing: .05em; line-height:1; }
+  .hp-sub { font-size: 11px; color: rgba(255,255,255,.52); margin-top: 4px; }
+  .hp-scroll { overflow-y: auto; padding: 14px 16px 16px; display:grid; gap:12px; }
+  .hp-card { background: rgba(255,255,255,.035); border:1px solid rgba(255,255,255,.07); border-radius:16px; padding:12px; }
+  .hp-row { display:flex; gap:8px; align-items:center; }
+  .hp-row.wrap { flex-wrap: wrap; }
+  .hp-label { font-size: 11px; font-weight: 700; color: rgba(255,255,255,.72); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 8px; }
+  .hp-input, .hp-select, .hp-textarea { width:100%; background: rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.1); color:#fff; border-radius:12px; padding:10px 12px; font: 12px var(--font-body); }
+  .hp-textarea { min-height: 86px; resize: vertical; }
+  .hp-btn { border-radius: 12px; padding: 10px 14px; border:1px solid rgba(255,255,255,.1); background: rgba(255,255,255,.06); color:#fff; font:700 12px var(--font-body); cursor:pointer; }
+  .hp-btn.primary { background: rgba(200,255,0,.15); color: var(--neon); border-color: rgba(200,255,0,.3); }
+  .hp-btn.acid { background: rgba(0,255,200,.08); color: var(--acid2); border-color: rgba(0,255,200,.25); }
+  .hp-btn.warn { background: rgba(255,184,0,.08); color: var(--warn); border-color: rgba(255,184,0,.26); }
+  .hp-btn.danger { background: rgba(255,72,72,.1); color: var(--danger); border-color: rgba(255,72,72,.28); }
+  .hp-btn:disabled { opacity:.35; cursor:not-allowed; }
+  .hp-grid { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:8px; }
+  .hp-list { display:grid; gap:8px; }
+  .hp-item { background: rgba(255,255,255,.03); border:1px solid rgba(255,255,255,.07); border-radius:14px; padding:10px; }
+  .hp-item.active { border-color: rgba(200,255,0,.28); box-shadow: 0 0 0 1px rgba(200,255,0,.08) inset; }
+  .hp-item-top { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; }
+  .hp-item-title { font-size:13px; font-weight:700; color:#fff; }
+  .hp-meta { font-size:11px; color: rgba(255,255,255,.46); margin-top:3px; }
+  .hp-desc { font-size:11px; color: rgba(255,255,255,.66); margin-top:6px; line-height:1.45; }
+  .hp-pill { display:inline-flex; padding:4px 8px; border-radius:999px; background: rgba(200,255,0,.1); color: var(--neon); font-size:10px; border:1px solid rgba(200,255,0,.18); }
+  #hotspotInfoCard { position: fixed; right: 16px; bottom: 16px; z-index: 12; width:min(360px, calc(100vw - 32px)); display:none; background: rgba(7,10,16,.9); border:1px solid rgba(255,255,255,.1); border-radius:22px; backdrop-filter: blur(18px); box-shadow: 0 18px 70px rgba(0,0,0,.42); overflow:hidden; }
+  #hotspotInfoCard.visible { display:block; }
+
+  #nestedSplatOverlay { position:fixed; inset:0; z-index:25; display:none; align-items:center; justify-content:center; padding:24px; background:rgba(0,0,0,.78); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); }
+  #nestedSplatOverlay.visible { display:flex; }
+  #nestedSplatCard { width:min(1180px,100%); height:min(86vh,900px); background:rgba(7,10,16,.95); border:1px solid rgba(255,255,255,.14); border-radius:24px; overflow:hidden; display:grid; grid-template-rows:auto 1fr auto; box-shadow:0 24px 90px rgba(0,0,0,.5); }
+  #nestedSplatHead { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; padding:14px 16px; border-bottom:1px solid rgba(255,255,255,.08); }
+  #nestedSplatTitle { font-family:var(--font-display); color:var(--neon); letter-spacing:.05em; font-size:28px; line-height:1; }
+  #nestedSplatSub { margin-top:4px; font-size:12px; color:rgba(255,255,255,.55); line-height:1.5; }
+  #nestedSplatActions { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  #nestedSplatFrameWrap { position:relative; min-height:320px; background:#05070b; }
+  #nestedSplatFrame { width:100%; height:100%; border:0; display:block; background:#05070b; }
+  #nestedSplatLoading { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:rgba(255,255,255,.65); font-family:var(--font-mono); letter-spacing:.08em; text-transform:uppercase; background:linear-gradient(180deg, rgba(5,7,11,.55), rgba(5,7,11,.82)); pointer-events:none; }
+  #nestedSplatOverlay.ready #nestedSplatLoading { display:none; }
+  #nestedSplatFoot { display:flex; justify-content:space-between; gap:12px; align-items:center; padding:12px 16px; border-top:1px solid rgba(255,255,255,.08); color:rgba(255,255,255,.68); font-size:12px; }
+  .nested-pill { display:inline-flex; align-items:center; gap:6px; padding:5px 10px; border-radius:999px; font-size:11px; border:1px solid rgba(255,255,255,.1); background:rgba(255,255,255,.05); color:rgba(255,255,255,.78); }
+
+  .hi-media { height: 5px; background: linear-gradient(90deg, rgba(200,255,0,.95), rgba(0,255,200,.9)); }
+  .hi-body { padding: 16px; }
+  .hi-title { font-family: var(--font-display); color: var(--neon); font-size: 28px; letter-spacing:.04em; line-height:1; }
+  .hi-type { font: 700 10px var(--font-mono); color: rgba(255,255,255,.5); text-transform: uppercase; letter-spacing:.1em; margin-top: 6px; }
+  .hi-desc { margin-top: 10px; font-size: 13px; line-height: 1.6; color: rgba(255,255,255,.8); }
+  .hi-actions { display:flex; gap:8px; padding: 0 16px 16px; }
+  .hi-actions .hp-btn { flex:1; }
+  .hotspot-marker[data-type="audio"] { border-color: rgba(0,255,200,.95); }
+  .hotspot-marker[data-type="link"] { border-color: rgba(255,184,0,.95); }
+  .hotspot-marker[data-type="tour"] { border-color: rgba(255,255,255,.9); }
+  .hotspot-marker.pulse::before { content:''; position:absolute; inset:-10px; border-radius:999px; border:1px solid rgba(200,255,0,.3); animation: hotspotPulse 1.8s ease-out infinite; }
+  @keyframes hotspotPulse { from { transform: scale(.6); opacity: .7; } to { transform: scale(1.5); opacity: 0; } }
+  @media (max-width: 980px) {
+    #hotspotProPanel { left: 16px; right: 16px; width: auto; bottom: 16px; }
+    #hotspotInfoCard { left: 16px; right: 16px; width: auto; }
+  }
+
+
+  /* ═══════════════════════════════════════════════════════════════
+     FUMOCA v60 — Mobile-First Viewer
+     Goal: the splat fills 100% of the screen. All UI auto-hides
+     after 3 s of inactivity and collapses into a single bottom
+     action bar on small screens. Nothing blocks the view.
+     ═══════════════════════════════════════════════════════════════ */
+
+  /* ── Auto-hide shell: fades when .ui-idle is on <body> ── */
+  body.ui-idle #topbar,
+  body.ui-idle #hint,
+  body.ui-idle #bottomBar { opacity: 0; pointer-events: none; }
+  #topbar, #hint, #bottomBar { transition: opacity 0.35s ease; }
+
+  /* ── Bottom action bar (mobile primary UI) ── */
+  #bottomBar {
+    display: none;        /* shown via media query below */
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    z-index: 10;
+    padding: 0 12px env(safe-area-inset-bottom, 12px);
+    background: linear-gradient(to top, rgba(5,7,11,.92) 70%, transparent);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+  #bottomBarInner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 0 14px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  #bottomBarInner::-webkit-scrollbar { display: none; }
+  .bb-btn {
+    flex-shrink: 0;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.12);
+    color: #fff;
+    font-family: var(--font-body);
+    font-size: 12px;
+    font-weight: 700;
+    padding: 9px 14px;
+    border-radius: 999px;
+    cursor: pointer;
+    white-space: nowrap;
+    letter-spacing: .02em;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .bb-btn:active { background: rgba(255,255,255,.18); }
+  .bb-btn.neon  { background: rgba(200,255,0,.14); border-color: rgba(200,255,0,.35); color: #c8ff00; }
+  .bb-btn.back  { background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.1); }
+
+  /* ── Tap-to-reveal button (always visible bottom-right) ── */
+  #uiRevealBtn {
+    display: none;
+    position: fixed;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
+    right: 16px;
+    z-index: 11;
+    width: 44px; height: 44px;
+    border-radius: 999px;
+    background: rgba(200,255,0,.18);
+    border: 1px solid rgba(200,255,0,.4);
+    color: #c8ff00;
+    font-size: 18px;
+    cursor: pointer;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 24px rgba(0,0,0,.45);
+    transition: opacity 0.3s;
+  }
+
+  /* ── Panels: full-screen bottom-sheet on mobile ── */
+  @media (max-width: 680px) {
+    /* Splat gets 100% — topbar only 52px at top, fades when idle */
+    #topbar {
+      top: 0;
+      left: 0; right: 0;
+      border-radius: 0;
+      border-left: none; border-right: none; border-top: none;
+      padding: 10px 12px;
+      padding-top: calc(env(safe-area-inset-top, 0px) + 10px);
+      gap: 8px;
+      flex-wrap: nowrap;
+      overflow: hidden;
+    }
+    /* Hide heavy topbar items — only back + title visible */
+    #topActions { display: none !important; }
+    #thumbDock #splatDesc,
+    #thumbDock #mediaMeta { display: none; }
+    #splatTitle { font-size: 13px; max-width: 55vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* Show bottom bar */
+    #bottomBar { display: block; }
+    #uiRevealBtn { display: flex; }
+
+    /* Panels become bottom sheets */
+    #studioPanel,
+    #editPanel,
+    #hotspotProPanel,
+    #hotspotInfoCard {
+      top: auto !important;
+      bottom: 0 !important;
+      left: 0 !important; right: 0 !important;
+      width: 100% !important;
+      max-height: 55vh !important;
+      border-radius: 20px 20px 0 0 !important;
+      border-bottom: none !important;
+    }
+    /* Hint moves up above bottom bar */
+    #hint { bottom: 80px; }
+
+    /* Hotspot pills: always below marker (never clipped by topbar) */
+    .hotspot-pill { top: 22px; bottom: auto; }
+
+    /* Hotspot info card: slim on mobile */
+    #hotspotInfoCard { max-height: 50vh !important; overflow-y: auto; }
+
+    /* Nested splat overlay full screen */
+    #nestedSplatOverlay { padding: 0 !important; }
+    #nestedSplatFrame { border-radius: 0 !important; }
+
+    /* Loading / error overlays: safe area */
+    #loadingOverlay, #errorBox { padding: 32px 24px; }
+  }
+
+  @media (max-width: 480px) {
+    #topbar { padding: 8px 10px; padding-top: calc(env(safe-area-inset-top, 0px) + 8px); }
+    #splatTitle { font-size: 12px; }
+  }
+
+  /* ── Tablet: topbar wraps but panels stay sidebar ── */
+  @media (max-width: 980px) and (min-width: 681px) {
+    #topbar { flex-wrap: wrap; gap: 8px; border-radius: 16px; }
+    #topActions {
+      width: 100%;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    #topActions button { font-size: 11px; padding: 7px 11px; }
+    #studioPanel, #editPanel {
+      top: auto;
+      bottom: 16px; left: 16px; right: 16px;
+      width: auto;
+      max-height: 42vh;
+    }
+  }
+</style>
+</head>
+<body data-nav="none">
+
+<svg id="hiddenSvgFilters" aria-hidden="true" focusable="false">
+  <defs>
+    <mask id="viewerCutMask" maskUnits="objectBoundingBox" maskContentUnits="objectBoundingBox">
+      <rect id="maskBaseRect" x="0" y="0" width="1" height="1" fill="white"></rect>
+      <rect id="maskOutsideRect" x="0" y="0" width="0" height="0" fill="black"></rect>
+      <ellipse id="maskKeepEllipse" cx="0.5" cy="0.5" rx="0.36" ry="0.42" fill="white"></ellipse>
+      <rect id="maskKeepRect" x="0.14" y="0.08" width="0.72" height="0.84" rx="0.05" ry="0.05" fill="white"></rect>
+      <g id="maskLassoKeepGroup"></g>
+      <g id="maskEraseGroup"></g>
+      <g id="maskLassoRemoveGroup"></g>
+    </mask>
+  </defs>
+  <filter id="splatSharpen">
+    <feConvolveMatrix id="sharpenKernel" order="3" kernelMatrix="0 -1 0 -1 5 -1 0 -1 0" divisor="1" preserveAlpha="true"></feConvolveMatrix>
+  </filter>
+</svg>
+
+<!-- SPLAT VIEWER SHELL -->
+<div id="viewerShell">
+  <div id="heroBackdrop"></div>
+  <div id="stage"><div id="stageHost"></div></div>
+  <div id="focusOverlay"></div>
+  <div id="focusFrame">
+    <div class="crop-handle handle-nw" data-handle="nw"></div>
+    <div class="crop-handle handle-ne" data-handle="ne"></div>
+    <div class="crop-handle handle-sw" data-handle="sw"></div>
+    <div class="crop-handle handle-se" data-handle="se"></div>
+  </div>
+  <div id="maskLayer"></div>
+  <div id="lassoLayer"><svg id="lassoSvg" viewBox="0 0 100 100" preserveAspectRatio="none"></svg></div>
+  <div id="hotspotLayer"></div>
+</div>
+
+<!-- EDIT ENGINE WebGL CANVAS (sits above stage when active) -->
+<canvas id="editCanvas"></canvas>
+<div id="editSelRect"></div>
+
+<!-- LOADING / ERROR -->
+<div id="loadingOverlay">
+  <div class="spinner"></div>
+  <div id="loadingText">Loading capture…</div>
+</div>
+<div id="errorBox">
+  <div id="errorTitle">Couldn't load capture</div>
+  <div id="errorMsg"></div>
+  <button id="errorBackBtn" onclick="history.back()">← Back to feed</button>
+</div>
+
+<!-- v88 CLEAN TOPBAR — minimal pill, everything else in hamburger menu -->
+<div id="topbar">
+  <button id="backBtn" onclick="history.back()">←</button>
+  <div id="thumbDock">
+    <img id="thumbDockImg" alt="" hidden>
+    <div id="titleBlock">
+      <div id="splatTitle"></div>
+      <div id="splatDesc"></div>
+      <div id="mediaMeta"></div>
+    </div>
+  </div>
+  <div id="topActions"><!-- legacy compat, hidden --></div>
+  <!-- Hidden legacy buttons (JS still references them) -->
+  <button id="teaserBtn"        style="display:none;"></button>
+  <button id="hotspotBtn"       style="display:none;"></button>
+  <button id="soundPlayBtn"     style="display:none;"></button>
+  <button id="captureToggleBtn" style="display:none;"></button>
+  <button id="fourDBtn"         style="display:none;"></button>
+  <button id="saveVariantBtn"   style="display:none;"></button>
+  <button id="deleteUploadBtn"  style="display:none;"></button>
+  <button id="editModeBtn"      style="display:none;"></button>
+  <button id="copyLinkBtn"      style="display:none;"></button>
+  <button id="compareBtn"       style="display:none;"></button>
+  <button id="fumocCleanBtn"    style="display:none;"></button>
+  <button id="fumocInspectBtn"  style="display:none;"></button>
+  <button id="fumocStitchBtn"   style="display:none;"></button>
+  <button id="fumocShareBtn"    style="display:none;"></button>
+  <button id="fumocExportBtn"   style="display:none;"></button>
+  <button id="applyStudioBtn"   style="display:none;"></button>
+  <!-- Hamburger -->
+  <button id="menuBtn" onclick="window._fumocaOpenMenu()" aria-label="Menu">☰</button>
+</div>
+
+<!-- FAB — floating action button (share/export quick access) -->
+<button id="fumocFAB" onclick="window._fumocaOpenMenu()" title="Actions">⋯</button>
+
+<!-- Edit mode badge (slim, bottom-left) -->
+<div id="editModeBadge">✦ EDIT</div>
+
+<!-- ── HAMBURGER MENU ── -->
+<div id="fumocMenu" onclick="if(event.target===this)window._fumocaCloseMenu()">
+  <div id="fumocMenuInner">
+    <div id="fumocMenuHandle"></div>
+
+    <span class="fmenu-label">View</span>
+    <div class="fmenu-section">
+      <div class="fmenu-row" onclick="window._fumocaCloseMenu();window.FumocaTourV80?.start(window._fumocaTourStops||[])">
+        <span class="fmenu-icon">▶</span>
+        <div class="fmenu-text"><div class="fmenu-name">Start Tour</div><div class="fmenu-sub">Guided camera path through the scene</div></div>
+      </div>
+      <div class="fmenu-row" onclick="window._fumocaCloseMenu();window.FumocaTourV80?.enterWalk()">
+        <span class="fmenu-icon">🚶</span>
+        <div class="fmenu-text"><div class="fmenu-name">Walk Mode</div><div class="fmenu-sub">First-person navigation (WASD / joystick)</div></div>
+      </div>
+      <div class="fmenu-row" onclick="window._fumocaCloseMenu();window.FumocInspectionLayer?.activate()">
+        <span class="fmenu-icon">🔍</span>
+        <div class="fmenu-text"><div class="fmenu-name">Inspect & Measure</div><div class="fmenu-sub">Click to measure distance, height, angle</div></div>
+      </div>
+    </div>
+
+    <span class="fmenu-label">Create</span>
+    <div class="fmenu-section">
+      <div class="fmenu-row" onclick="window._fumocaCloseMenu();document.getElementById('hotspotBtn')?.click()">
+        <span class="fmenu-icon">📍</span>
+        <div class="fmenu-text"><div class="fmenu-name">Add Hotspots</div><div class="fmenu-sub">Place labels, links, and media in the scene</div></div>
+      </div>
+      <div class="fmenu-row" onclick="window._fumocaCloseMenu();window.FumocQualityUI?.open()">
+        <span class="fmenu-icon">✨</span>
+        <div class="fmenu-text"><div class="fmenu-name">Clean & Isolate</div><div class="fmenu-sub">Remove floaters, isolate subject, set background</div></div>
+      </div>
+      <div class="fmenu-row" onclick="window._fumocaCloseMenu();document.getElementById('teaserBtn')?.click()">
+        <span class="fmenu-icon">🎥</span>
+        <div class="fmenu-text"><div class="fmenu-name">Create Teaser Video</div><div class="fmenu-sub">Record a shareable video of this capture</div></div>
+      </div>
+      <div class="fmenu-row" onclick="window._fumocaCloseMenu();window.FumocStitchUI?.open()">
+        <span class="fmenu-icon">🚗</span>
+        <div class="fmenu-text"><div class="fmenu-name">Stitch Interior + Exterior</div><div class="fmenu-sub">Merge two captures into one seamless scene</div></div>
+      </div>
+      <div class="fmenu-row" onclick="window._fumocaCloseMenu();window.FumocMeshUI?.open()">
+        <span class="fmenu-icon">🖨</span>
+        <div class="fmenu-text"><div class="fmenu-name">3D Print Export</div><div class="fmenu-sub">Convert to printable mesh — keychains, statues, models</div></div>
+      </div>
+    </div>
+
+    <span class="fmenu-label">Share & Export</span>
+    <div class="fmenu-section">
+      <div class="fmenu-row neon" onclick="window._fumocaCloseMenu();window._fumocaOpenSharePanel()">
+        <span class="fmenu-icon">🌐</span>
+        <div class="fmenu-text"><div class="fmenu-name">Share</div><div class="fmenu-sub">WhatsApp, Instagram, LinkedIn, QR code, embed</div></div>
+      </div>
+      <div class="fmenu-row neon" onclick="window._fumocaCloseMenu();window.FumocExportUI?.open()">
+        <span class="fmenu-icon">⬇</span>
+        <div class="fmenu-text"><div class="fmenu-name">Export .fumoc</div><div class="fmenu-sub">Compressed, shareable 3D file</div></div>
+      </div>
+      <div class="fmenu-row" onclick="window._fumocaCloseMenu();navigator.clipboard?.writeText(location.href)">
+        <span class="fmenu-icon">⎘</span>
+        <div class="fmenu-text"><div class="fmenu-name">Copy Link</div><div class="fmenu-sub">Share a direct link to this scene</div></div>
+      </div>
+    </div>
+
+    <span class="fmenu-label" id="fmenuOwnerLabel" style="display:none;">Owner</span>
+    <div class="fmenu-section" id="fmenuOwnerSection" style="display:none;">
+      <div class="fmenu-row" onclick="window._fumocaCloseMenu();document.getElementById('editModeBtn')?.click()">
+        <span class="fmenu-icon">✦</span>
+        <div class="fmenu-text"><div class="fmenu-name">Edit Studio</div><div class="fmenu-sub">Full editing tools and variants</div></div>
+      </div>
+      <div class="fmenu-row" onclick="window._fumocaCloseMenu();document.getElementById('saveVariantBtn')?.click()">
+        <span class="fmenu-icon">💾</span>
+        <div class="fmenu-text"><div class="fmenu-name">Save Variant</div><div class="fmenu-sub">Save current edits as a new version</div></div>
+      </div>
+      <div class="fmenu-row danger" onclick="window._fumocaCloseMenu();document.getElementById('deleteUploadBtn')?.click()">
+        <span class="fmenu-icon">🗑</span>
+        <div class="fmenu-text"><div class="fmenu-name">Delete</div><div class="fmenu-sub">Permanently remove this scene</div></div>
+      </div>
+    </div>
+
+    <div style="height:8px;"></div>
+  </div>
+</div>
+
+<!-- SOCIAL SHARE PANEL (v80) -->
+<div id="fumocSharePanelOverlay" style="
+  position:fixed;inset:0;z-index:400;background:rgba(0,0,0,.6);
+  backdrop-filter:blur(8px);display:none;align-items:flex-end;justify-content:center;
+">
+  <div style="
+    width:min(480px,100vw);max-height:80vh;overflow-y:auto;
+    background:rgba(8,10,16,.97);border:1px solid rgba(255,255,255,.1);
+    border-radius:24px 24px 0 0;padding:20px;
+  ">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+      <span style="font-size:16px;font-weight:700;color:#fff;">Share & Export</span>
+      <button onclick="document.getElementById('fumocSharePanelOverlay').style.display='none'"
+        style="background:none;border:none;color:rgba(255,255,255,.4);font-size:22px;cursor:pointer;">×</button>
+    </div>
+    <div id="fumocSharePanelInner"></div>
+  </div>
+</div>
+
+<!-- STUDIO PANEL -->
+<div id="studioPanel">
+  <div class="studio-head">
+    <div>
+      <div class="studio-title">Capture Studio</div>
+      <div class="studio-sub">Cleanup recipes, lasso selections, variants, mesh export.</div>
+    </div>
+    <button id="resetStudioBtn" class="ghostBtn">Reset</button>
+  </div>
+  <div class="studio-scroll">
+    <div class="studio-grid">
+      <div class="control">
+        <div class="control-head"><div class="control-label">Noise cleanup</div><div class="control-value" id="cleanupValue">5</div></div>
+        <input id="cleanupRange" type="range" min="0" max="40" step="1" value="5">
+        <div class="control-note">Alpha removal threshold sent to backend pruning pipeline.</div>
+      </div>
+      <div class="control">
+        <div class="control-head"><div class="control-label">Point sharpness</div><div class="control-value" id="sharpnessValue">20</div></div>
+        <input id="sharpnessRange" type="range" min="0" max="100" step="1" value="20">
+      </div>
+      <div class="control">
+        <div class="control-head"><div class="control-label">Presence boost</div><div class="control-value" id="presenceValue">100%</div></div>
+        <input id="presenceRange" type="range" min="80" max="150" step="1" value="100">
+      </div>
+      <div class="control">
+        <div class="control-head"><div class="control-label">Focus spotlight</div><div class="control-value" id="focusValue">42%</div></div>
+        <input id="focusRange" type="range" min="20" max="70" step="1" value="42">
+      </div>
+      <div class="control">
+        <div class="control-head"><div class="control-label">Subject X</div><div class="control-value" id="focusXValue">50%</div></div>
+        <input id="focusXRange" type="range" min="10" max="90" step="1" value="50">
+      </div>
+      <div class="control">
+        <div class="control-head"><div class="control-label">Subject Y</div><div class="control-value" id="focusYValue">42%</div></div>
+        <input id="focusYRange" type="range" min="10" max="90" step="1" value="42">
+      </div>
+      <div class="control">
+        <div class="control-head"><div class="control-label">Background suppression</div><div class="control-value" id="suppressionValue">24%</div></div>
+        <input id="suppressionRange" type="range" min="0" max="60" step="1" value="24">
+      </div>
+      <div class="control">
+        <div class="control-head"><div class="control-label">Edge feather</div><div class="control-value" id="featherValue">10%</div></div>
+        <input id="featherRange" type="range" min="4" max="24" step="1" value="10">
+      </div>
+      <div class="control">
+        <div class="control-head"><div class="control-label">Hero zoom</div><div class="control-value" id="scaleValue">100%</div></div>
+        <input id="scaleRange" type="range" min="90" max="130" step="1" value="100">
+      </div>
+      <div class="control">
+        <div class="control-head"><div class="control-label">Isolation cut</div><div class="control-value" id="isolationValue">0%</div></div>
+        <input id="isolationRange" type="range" min="0" max="100" step="1" value="0">
+      </div>
+      <div class="control">
+        <div class="control-head"><div class="control-label">Crop width</div><div class="control-value" id="cropWidthValue">36%</div></div>
+        <input id="cropWidthRange" type="range" min="12" max="70" step="1" value="36">
+      </div>
+      <div class="control">
+        <div class="control-head"><div class="control-label">Crop height</div><div class="control-value" id="cropHeightValue">42%</div></div>
+        <input id="cropHeightRange" type="range" min="12" max="80" step="1" value="42">
+      </div>
+      <div class="control">
+        <div class="control-head"><div class="control-label">Isolation shape</div><div class="control-value" id="maskShapeValue">Oval</div></div>
+        <div class="segmented-row">
+          <button id="maskOvalBtn" class="segmented-btn active">Oval</button>
+          <button id="maskBoxBtn" class="segmented-btn">Box</button>
+        </div>
+      </div>
+      <div class="control">
+        <div class="control-head"><div class="control-label">Scene mode</div><div class="control-value" id="sceneModeValue">Product</div></div>
+        <div class="segmented-row">
+          <button id="modeProductBtn" class="segmented-btn active">Product</button>
+          <button id="modeCarBtn" class="segmented-btn">Car</button>
+          <button id="modeRealEstateBtn" class="segmented-btn">Space</button>
+          <button id="modePersonBtn" class="segmented-btn">Person</button>
+        </div>
+      </div>
+      <div class="control">
+        <div class="control-head"><div class="control-label">Erase masks</div><div class="control-value" id="eraseModeValue">Off</div></div>
+        <div class="segmented-row">
+          <button id="eraseModeBtn" class="segmented-btn">Click to stamp</button>
+          <button id="clearMasksBtn" class="segmented-btn">Clear</button>
+        </div>
+        <div class="control-note">Stamps saved as backend pruning recipe inputs — no fake paint.</div>
+      </div>
+      <div class="control">
+        <div class="control-head"><div class="control-label">Erase size</div><div class="control-value" id="eraseSizeValue">18%</div></div>
+        <input id="eraseSizeRange" type="range" min="6" max="40" step="1" value="18">
+      </div>
+      <div class="control">
+        <div class="control-head"><div class="control-label">Erase strength</div><div class="control-value" id="eraseStrengthValue">92%</div></div>
+        <input id="eraseStrengthRange" type="range" min="55" max="100" step="1" value="92">
+      </div>
+      <div class="control">
+        <div class="control-head"><div class="control-label">Erase shape</div><div class="control-value" id="eraseShapeValue">Oval</div></div>
+        <div class="segmented-row">
+          <button id="eraseOvalBtn" class="segmented-btn active">Oval</button>
+          <button id="eraseRectBtn" class="segmented-btn">Box</button>
+        </div>
+      </div>
+      <div class="control">
+        <div class="control-head"><div class="control-label">Lasso selection</div><div class="control-value" id="lassoModeValue">Off</div></div>
+        <div class="segmented-row">
+          <button id="lassoModeBtn" class="segmented-btn">Draw lasso</button>
+          <button id="clearLassoBtn" class="segmented-btn">Clear</button>
+        </div>
+        <div class="segmented-row" style="margin-top:8px;">
+          <button id="lassoKeepBtn" class="segmented-btn active">Keep subject</button>
+          <button id="lassoRemoveBtn" class="segmented-btn">Remove region</button>
+        </div>
+        <div class="lasso-chip-row" style="margin-top:8px;">
+          <span class="lasso-badge" id="lassoCountBadge">0 shapes</span>
+          <span class="lasso-badge" id="variantStateBadge">Unsaved</span>
+        </div>
+      </div>
+      <div class="control">
+        <div class="control-head"><div class="control-label">Print export</div></div>
+        <div style="font-size:12px; color:rgba(255,255,255,.55); margin-bottom:8px; line-height:1.4;">
+          Isolate your subject with lasso/erase above, then export just that
+          selection as a real, watertight 3D-printable STL — runs server-side.
+        </div>
+        <button id="exportFigurineBtn" class="segmented-btn" style="width:100%;">🖨 Export as figurine (STL)</button>
+        <div id="exportFigurineStatus" style="font-size:12px; color:rgba(255,255,255,.6); margin-top:8px; display:none;"></div>
+      </div>
+      <div class="control">
+        <div class="control-head"><div class="control-label">3D crop depth</div><div class="control-value" id="cropDepthValue">65%</div></div>
+        <input id="cropDepthRange" type="range" min="20" max="100" step="1" value="65">
+      </div>
+      <div class="control">
+        <div class="control-head"><div class="control-label">Variant + export</div><div class="control-value">Backend-ready</div></div>
+        <div class="panel-actions">
+          <button id="saveVariantPanelBtn">Save variant</button>
+          <button id="downloadRecipeBtn" class="ghostBtn">Recipe</button>
+        </div>
+        <div class="panel-actions">
+          <button id="queueMeshCleanupBtn">Queue mesh</button>
+          <button id="queuePrintCleanupBtn" class="ghostBtn">Queue print</button>
+        </div>
+      </div>
+      <div class="control">
+        <div class="control-head"><div class="control-label">Saved look</div><div class="control-value">Per capture</div></div>
+        <div class="panel-actions">
+          <button id="saveLookBtn">Save look</button>
+          <button id="loadLookBtn" class="ghostBtn">Load</button>
+        </div>
+      </div>
+      <!-- ── IMAGE QUALITY — GPU realtime controls ────────────────── -->
+      <div class="control" style="border-top:1px solid rgba(200,255,0,.15);padding-top:14px;margin-top:4px;">
+        <div class="control-head">
+          <div class="control-label" style="color:#c8ff00;font-weight:700;">⚡ Image Quality</div>
+          <div class="control-value" style="font-size:10px;opacity:.55;">GPU · realtime</div>
+        </div>
+      </div>
+      <div class="control">
+        <div class="control-head"><div class="control-label">Brightness</div><div class="control-value" id="qBrightnessValue">1.00</div></div>
+        <input id="qBrightnessRange" type="range" min="0.4" max="2.2" step="0.01" value="1.0">
+      </div>
+      <div class="control">
+        <div class="control-head"><div class="control-label">Contrast</div><div class="control-value" id="qContrastValue">1.08</div></div>
+        <input id="qContrastRange" type="range" min="0.6" max="1.8" step="0.01" value="1.08">
+      </div>
+      <div class="control">
+        <div class="control-head"><div class="control-label">Saturation</div><div class="control-value" id="qSaturationValue">1.12</div></div>
+        <input id="qSaturationRange" type="range" min="0.0" max="2.2" step="0.01" value="1.12">
+      </div>
+      <div class="control">
+        <div class="control-head"><div class="control-label">Capture sharpness</div><div class="control-value" id="qSharpnessValue">0.72</div></div>
+        <input id="qSharpnessRange" type="range" min="0.0" max="1.0" step="0.01" value="0.72">
+        <div class="control-note">Tighter gaussian sigma — crisper edges without geometry rebuild.</div>
+      </div>
+      <div class="control">
+        <div class="control-head"><div class="control-label">Bloom</div><div class="control-value" id="qBloomValue">0.55</div></div>
+        <input id="qBloomRange" type="range" min="0.0" max="2.0" step="0.01" value="0.55">
+        <div class="control-note">Filmic light spill on bright splats. 0 = off.</div>
+      </div>
+      <div class="control">
+        <div class="control-head"><div class="control-label">Quality preset</div><div class="control-value" id="qPresetValue">Balanced</div></div>
+        <div class="preset-row">
+          <button class="preset-btn active" data-qpreset="balanced">Balanced</button>
+          <button class="preset-btn" data-qpreset="postshot">PostShot+</button>
+          <button class="preset-btn" data-qpreset="cinematic">Cinematic</button>
+          <button class="preset-btn" data-qpreset="raw">Raw</button>
+        </div>
+      </div>
+      <!-- ── QUICK LOOKS ────────────────────────────────────────────── -->
+      <div class="control">
+        <div class="control-head"><div class="control-label">Quick looks</div><div class="control-value">Instant presets</div></div>
+        <div class="preset-row">
+          <button class="preset-btn active" data-preset="balanced">Balanced</button>
+          <button class="preset-btn" data-preset="hero">Hero focus</button>
+          <button class="preset-btn" data-preset="crisp">Crisp sell</button>
+          <button class="preset-btn" data-preset="cinematic">Cinematic</button>
+        </div>
+        <div class="panel-actions">
+          <button id="applyStudioBtn">Apply cleanup</button>
+          <button id="shareTeaserBtn" class="ghostBtn">Teaser</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════
+     EDIT ENGINE PANEL — True Gaussian surgery
+═══════════════════════════════════════════ -->
+<div id="editPanel">
+  <div class="edit-header">
+    <div>
+      <div class="edit-title">✦ EDIT ENGINE</div>
+      <div class="edit-sub">REAL BINARY · REAL DELETION · REAL EXPORT</div>
+    </div>
+    <button id="closeEditBtn" class="ghostBtn" style="flex-shrink:0;">✕ Close</button>
+  </div>
+
+  <div class="edit-tabs">
+    <button class="edit-tab active" data-etab="select">Select</button>
+    <button class="edit-tab" data-etab="clean">Clean</button>
+    <button class="edit-tab" data-etab="export">Export</button>
+    <button class="edit-tab" data-etab="history">Log</button>
+  </div>
+
+  <!-- SELECT TAB -->
+  <div class="edit-pane active" id="etab-select">
+    <div class="e-stats">
+      <div class="e-stat"><div class="e-stat-val" id="eTotal">—</div><div class="e-stat-lbl">Total</div></div>
+      <div class="e-stat"><div class="e-stat-val" id="eAlive">—</div><div class="e-stat-lbl">Alive</div></div>
+      <div class="e-stat danger"><div class="e-stat-val" id="eDel">—</div><div class="e-stat-lbl">Deleted</div></div>
+      <div class="e-stat sel"><div class="e-stat-val" id="eSel">—</div><div class="e-stat-lbl">Selected</div></div>
+    </div>
+
+    <div class="e-control">
+      <div class="e-label">Interaction mode</div>
+      <div class="e-seg">
+        <button class="e-seg-btn active" id="eModeOrbit">🔭 Orbit</button>
+        <button class="e-seg-btn" id="eModeBox">▭ Box Select</button>
+        <button class="e-seg-btn" id="eModeBrush">🖌 Brush Erase</button>
+      </div>
+      <div class="e-note">Orbit: rotate/pan. Box: click to pick or drag to select. Brush: paint directly over floating junk to erase it live.</div>
+    </div>
+
+    <div class="e-control">
+      <div class="e-label">Brush erase
+        <span class="e-val" id="eBrushSizeLbl">size 28</span>
+      </div>
+      <input type="range" id="eBrushSize" min="6" max="80" step="1" value="28" style="accent-color:var(--neon);width:100%;margin-bottom:8px;">
+      <div class="e-label" style="margin-top:4px;">Brush depth bias
+        <span class="e-val" id="eBrushDepthLbl">front 0.10</span>
+      </div>
+      <input type="range" id="eBrushDepth" min="0.02" max="0.4" step="0.01" value="0.10" style="accent-color:var(--neon);width:100%;margin-bottom:8px;">
+      <div class="e-note">Brush erase removes front-most splats under the cursor as you paint, so you can shave off haze around the subject instead of fighting box selection.</div>
+    </div>
+
+    <div class="e-control">
+      <div class="e-label">Selection</div>
+      <div class="e-seg" style="margin-bottom:6px;">
+        <button class="e-seg-btn" id="eSelAll">All</button>
+        <button class="e-seg-btn" id="eSelInvert">Invert</button>
+        <button class="e-seg-btn" id="eSelClear">Clear</button>
+      </div>
+      <button class="e-btn e-btn-danger" id="eDeleteQuick" style="margin-top:4px;">🗑 Delete current selection</button>
+      <div class="e-note">Tip: click directly on a splat to pick one, or drag a box around problem areas.</div>
+    </div>
+
+    <div class="e-control">
+      <div class="e-label">Auto-select floaters
+        <span class="e-val" id="eFloatRLbl">r=0.25</span>
+      </div>
+      <input type="range" id="eFloatR" min="0.05" max="1.5" step="0.05" value="0.25" style="accent-color:var(--neon);width:100%;margin-bottom:8px;">
+      <div class="e-label" style="margin-top:4px;">Min neighbours
+        <span class="e-val" id="eFloatNLbl">8</span>
+      </div>
+      <input type="range" id="eFloatN" min="2" max="40" step="1" value="8" style="accent-color:var(--neon);width:100%;margin-bottom:8px;">
+      <button class="e-btn e-btn-warn" id="eSelectFloaters">⚡ Auto-select floaters</button>
+      <div class="e-note">Marks isolated Gaussians with fewer than N neighbours — the stray splats destroying your edges.</div>
+    </div>
+
+    <div class="e-control">
+      <div class="e-label">Select by opacity
+        <span class="e-val" id="eOpThreshLbl">α ≤ 0.15</span>
+      </div>
+      <input type="range" id="eOpThresh" min="0.01" max="0.99" step="0.01" value="0.15" style="accent-color:var(--neon);width:100%;margin-bottom:8px;">
+      <button class="e-btn e-btn-warn" id="eSelectLowOp">Select ghost splats</button>
+      <div class="e-note">Grabs translucent Gaussians that blur edges and break mesh export.</div>
+    </div>
+
+    <div class="e-control">
+      <div class="e-label">Select oversized splats
+        <span class="e-val" id="eScaleSelLbl">max 2.0</span>
+      </div>
+      <input type="range" id="eScaleSel" min="0.1" max="8.0" step="0.1" value="2.0" style="accent-color:var(--neon);width:100%;margin-bottom:8px;">
+      <button class="e-btn e-btn-warn" id="eSelectLargeScale">Select halo splats</button>
+      <div class="e-note">Selects blown-up Gaussians causing smear and halos around your subject.</div>
+    </div>
+  </div>
+
+  <!-- CLEAN TAB -->
+  <div class="edit-pane" id="etab-clean">
+    <div class="e-control">
+      <div class="e-label">Delete selection</div>
+      <button class="e-btn e-btn-danger" id="eDelete">🗑 Delete selected Gaussians</button>
+      <button class="e-btn e-btn-ghost" id="eUndo">↩ Undo last delete</button>
+      <div class="e-note">Permanently removes selected Gaussians from memory. Undo restores the previous state.</div>
+    </div>
+
+    <div class="e-divider"></div>
+
+    <div class="e-control">
+      <div class="e-label">Opacity sharpen
+        <span class="e-val" id="eKillLbl">kill ≤ 0.08</span>
+      </div>
+      <input type="range" id="eKillThresh" min="0.01" max="0.5" step="0.01" value="0.08" style="accent-color:var(--neon);width:100%;margin-bottom:8px;">
+      <div class="e-label" style="margin-top:4px;">Boost survivors
+        <span class="e-val" id="eBoostLbl">1.6×</span>
+      </div>
+      <input type="range" id="eBoost" min="1.0" max="3.0" step="0.1" value="1.6" style="accent-color:var(--neon);width:100%;margin-bottom:8px;">
+      <button class="e-btn e-btn-acid" id="eSharpen">✦ Apply opacity sharpen</button>
+      <div class="e-note">Kills ghost splats below threshold, boosts opacity of survivors. This is how you beat Kiri and SupaSplat — crisp edges baked into the actual data.</div>
+    </div>
+
+    <div class="e-divider"></div>
+
+    <div class="e-control">
+      <div class="e-label">Density prune
+        <span class="e-val" id="eDensityLbl">keep 85%</span>
+      </div>
+      <input type="range" id="eDensity" min="50" max="99" step="1" value="85" style="accent-color:var(--neon);width:100%;margin-bottom:8px;">
+      <button class="e-btn e-btn-warn" id="eDensityPrune">Density prune</button>
+      <div class="e-note">Scores every Gaussian by neighbourhood density, removes the sparsest percentile. Tightens the model for mesh export.</div>
+    </div>
+
+    <div class="e-divider"></div>
+
+    <div class="e-control">
+      <div class="e-label">Scale filter
+        <span class="e-val" id="eScaleFilterLbl">max 2.0</span>
+      </div>
+      <input type="range" id="eScaleFilter" min="0.1" max="8.0" step="0.1" value="2.0" style="accent-color:var(--neon);width:100%;margin-bottom:8px;">
+      <button class="e-btn e-btn-warn" id="eScaleFilterBtn">Remove oversized splats</button>
+      <div class="e-note">Deletes Gaussians larger than max scale. Critical for clean STL mesh and 3D print pipeline.</div>
+    </div>
+
+    <div class="e-divider"></div>
+
+    <div class="e-control">
+      <div class="e-label">Smart cleanup</div>
+      <button class="e-btn e-btn-acid" id="eSmartCleanup">✨ Smart cleanup pass</button>
+      <div class="e-note">One-pass cleanup that targets floaters, ghost splats, blown-up halos and far-outliers while protecting the densest subject cluster.</div>
+    </div>
+
+    <div class="e-divider"></div>
+
+    <div class="e-control">
+      <div class="e-label">3D crop cube</div>
+      <button class="e-btn e-btn-primary" id="eCubeFromSelection">▣ Build cube from current selection</button>
+      <button class="e-btn e-btn-warn" id="eCropOutsideCube">✂ Delete outside cube</button>
+      <button class="e-btn e-btn-danger" id="eCropInsideCube">🗑 Delete inside cube</button>
+      <button class="e-btn e-btn-ghost" id="eClearCube">Clear crop cube</button>
+      <div class="e-note" id="eCubeStatus">No crop cube yet. Select the wheelchair or subject first, then build a real 3D crop volume from that selection.</div>
+    </div>
+  </div>
+
+  <!-- EXPORT TAB -->
+  <div class="edit-pane" id="etab-export">
+    <div class="e-stats">
+      <div class="e-stat"><div class="e-stat-val" id="eExportAlive">—</div><div class="e-stat-lbl">To Export</div></div>
+      <div class="e-stat danger"><div class="e-stat-val" id="eExportDel">—</div><div class="e-stat-lbl">Removed</div></div>
+    </div>
+
+    <div class="e-control">
+      <div class="e-label">Export cleaned .splat</div>
+      <button class="e-btn e-btn-primary" id="eExportSplat">⬇ Download cleaned .splat</button>
+      <div class="e-note">Writes a real .splat binary with all deletions baked in and opacity edits applied. Drop it straight into nerfstudio, Luma, or your print pipeline.</div>
+    </div>
+
+    <div class="e-divider"></div>
+
+    <div class="e-control">
+      <div class="e-label">Save to Supabase</div>
+      <button class="e-btn e-btn-acid" id="eSaveToSupabase">☁ Save cleaned capture to cloud</button>
+      <div class="e-note">Uploads the cleaned .splat to Supabase storage and creates a new splat record linked to this one as a cleaned variant. Requires an active session.</div>
+    </div>
+
+    <div class="e-divider"></div>
+
+    <div class="e-control">
+      <div class="e-label">Edit report</div>
+      <button class="e-btn e-btn-ghost" id="eExportReport">Export edit report (.txt)</button>
+      <div class="e-note">Documents all operations performed, deletion counts, and edit timestamps for pipeline traceability.</div>
+    </div>
+
+    <div id="eSaveStatus" style="margin-top:10px;font-family:var(--font-mono);font-size:11px;color:var(--acid2);display:none;"></div>
+  </div>
+
+  <!-- HISTORY TAB -->
+  <div class="edit-pane" id="etab-history">
+    <div class="e-hist" id="eHistList">
+      <div class="e-hist-item" style="color:rgba(255,255,255,.2);">No edits yet — load the capture and start editing</div>
+    </div>
+  </div>
+</div>
+
+<div id="editModeBadge">✦ EDIT ENGINE ACTIVE — real Gaussian selection</div>
+
+<div id="hotspotProPanel" aria-hidden="true"></div>
+<div id="hotspotInfoCard" aria-hidden="true"></div>
+
+<div id="nestedSplatOverlay" aria-hidden="true">
+  <div id="nestedSplatCard">
+    <div id="nestedSplatHead">
+      <div>
+        <div id="nestedSplatTitle">Nested experience</div>
+        <div id="nestedSplatSub">Interactive overlay capture</div>
+      </div>
+      <div id="nestedSplatActions">
+        <button id="nestedSplatOpenNew" class="ghostBtn">Open full</button>
+        <button id="nestedSplatClose" class="ghostBtn">✕</button>
+      </div>
+    </div>
+    <div id="nestedSplatFrameWrap">
+      <iframe id="nestedSplatFrame" allowfullscreen loading="eager"></iframe>
+      <div id="nestedSplatLoading">Loading nested capture…</div>
+    </div>
+    <div id="nestedSplatFoot">
+      <div id="nestedSplatMeta">Overlay captures let one scene open another interactive scene.</div>
+      <div class="lasso-chip-row">
+        <span class="nested-pill">Nested capture</span>
+        <span class="nested-pill">Interactive portal</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<div id="hint">Drag to rotate · Scroll to zoom · Right-drag to pan · Tap Edit to fine-tune</div>
+
+<!-- PREVIEW OVERLAY -->
+<div id="previewOverlay">
+  <div id="previewCard">
+    <button id="closePreviewBtn">✕</button>
+    <div id="previewMediaWrap">
+      <div id="syntheticTeaser" class="hidden"><div class="splat-pixels"></div></div>
+      <img id="previewPoster" class="hidden" alt="Splat thumbnail">
+      <video id="previewVideo" controls playsinline muted loop class="hidden"></video>
+    </div>
+    <div id="previewFooter">
+      <div>Stylish capture teaser for social, then send people into the interactive view.</div>
+      <div class="preview-actions">
+        <button id="splatModeBtn" class="previewModeBtn alt">Capture mode</button>
+        <button id="videoModeBtn" class="previewModeBtn alt">Video mode</button>
+        <button id="viewInteractiveBtn">Back to interactive</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="js/modules/viewer.js"></script>
+<script type="module" src="js/modules/sound-engine.js"></script>
+<script type="module" src="js/modules/edit-engine.js"></script>
+<script type="module" src="js/modules/camera-engine.js"></script>
+<script type="module" src="js/modules/hotspot-pro.js"></script>
+<script type="module" src="js/modules/performance.js"></script>
+<script type="module" src="js/modules/mobile.js"></script>
+<script type="module" src="js/modules/analytics.js"></script>
+<script type="module" src="js/modules/fumoca-platform.js"></script>
+<script type="module" src="js/modules/splat-capture.js"></script>
+<script type="module" src="js/modules/capture-ui.js"></script>
+<script type="module" src="js/modules/ai-cleanup.js"></script>
+<script type="module" src="js/modules/transition-engine.js"></script>
+<script type="module" src="js/modules/event-mode.js"></script>
+<script type="module" src="js/modules/motion-analyzer.js"></script>
+<script type="module" src="js/modules/subject-isolator.js"></script>
+<script type="module" src="js/modules/motion-states.js"></script>
+<script type="module" src="js/modules/motion-tracking.js"></script>
+<script type="module" src="js/modules/fourd-capture.js"></script>
+<script type="module" src="js/modules/4d-engine.js"></script>
+<script type="module" src="js/modules/hybrid-tri-splat.js"></script>
+<script type="module" src="js/modules/ai-clean-v2.js"></script>
+<script type="module" src="js/modules/teaser-video.js"></script>
+<script type="module" src="js/modules/auto-fix.js"></script>
+<script type="module" src="js/modules/visual-fx.js"></script>
+<script type="module" src="js/modules/asset-parts.js"></script>
+<script type="module" src="js/modules/embed-manager.js"></script>
+<script type="module" src="js/modules/mobile-asset.js"></script>
+<!-- V56: White-label, Commerce, Cinematic Tour, Analytics Dashboard -->
+<script type="module" src="js/modules/whitelabel.js"></script>
+<script type="module" src="js/modules/commerce.js"></script>
+<script type="module" src="js/modules/tour-builder.js"></script>
+<script type="module" src="js/modules/analytics-dashboard.js"></script>
+<!-- v87: Quality pipeline + Sound manager -->
+<script type="module" src="js/modules/fumoc-quality-pipeline.js"></script>
+<!-- v91 mesh extractor -->
+<script type="module" src="js/modules/fumoc-mesh-extractor.js"></script>
+<script type="module" src="js/modules/fumoc-mesh-ui.js"></script>
+<script type="module" src="js/modules/fumoc-mesh-splitter.js"></script>
+<script type="module" src="js/modules/fumoc-density-boost.js"></script>
+<script type="module" src="js/modules/fumoc-gap-filler.js"></script>
+<script type="module" src="js/modules/fumoc-quality-ui.js"></script>
+<script type="module" src="js/modules/fumoc-sound-manager.js"></script>
+<!-- v86: Scene limits + polish -->
+<script type="module" src="js/modules/fumoca-scene-limits.js"></script>
+<!-- v85: Ad engine modules -->
+<script type="module" src="js/modules/fumoc-ad-engine.js"></script>
+<script type="module" src="js/modules/fumoc-ad-player.js"></script>
+<!-- v84: Scene + Inspection modules -->
+<script type="module" src="js/modules/fumoc-scene-reconstructor.js"></script>
+<script type="module" src="js/modules/fumoc-inspection-layer.js"></script>
+<!-- v83: Portal modules -->
+<script type="module" src="js/modules/fumoc-stitch-ui.js"></script>
+<script type="module" src="js/modules/fumoc-portal-stitcher.js"></script>
+<script type="module" src="js/modules/fumoc-portal-renderer.js"></script>
+<!-- v82: Codec modules -->
+<script type="module" src="js/modules/fumoc-codec.js"></script>
+<script type="module" src="js/modules/fumoc-encoder.js"></script>
+<script type="module" src="js/modules/fumoc-decoder.js"></script>
+<script type="module" src="js/modules/fumoc-export-ui.js"></script>
+<script type="module" src="js/modules/fumoc-format.js"></script>
+<script type="module" src="js/modules/tour-engine-v80.js"></script>
+<script type="module" src="js/modules/social-hub.js"></script>
+<script type="module" src="js/modules/tour-mode-v80.js"></script>
+<script type="module">
+// v83: Initialise portal renderer when a .fumoc file with portals is loaded
+window.addEventListener('fumoc:load', async (e) => {
+  const portals = e.detail?.decoded?.portals || window._fumocaPortals || [];
+  if (portals.length && window.FumocPortalRenderer) {
+    FumocPortalRenderer.init(portals, {
+      camera:   window._fumocaCamera,
+      controls: window._fumocaControls,
+      canvas:   document.querySelector('#stage canvas'),
+    });
+    // Wire portal navigation to tour stops that have portalId
+    window.addEventListener('fumoca:portal', ev => {
+      const side = ev.detail.side;
+      const modeBtn = document.getElementById(side === 'interior' ? 'modeCarBtn' : null);
+    });
+  }
+}, { once: false });
+
+// v80 boot: activate tour mode and inject OG meta after viewer is ready
+window.addEventListener('fumoca:viewerReady', async (e) => {
+  const record = e.detail?.record || window._fumocaCurrentRecord;
+  if (!record) return;
+
+  // Inject OG meta tags for rich social previews
+  if (window.FumocSocialHub) {
+    window.FumocSocialHub.injectOgMeta(record);
+  }
+
+  // Activate property or vehicle tour mode based on splat metadata
+  if (window.FumocTourMode) {
+    window.FumocTourMode.activateTourMode(record);
+  }
+
+  // If ?tour=1 in URL, start enhanced tour
+  const params = new URLSearchParams(location.search);
+  if (params.get('tour') === '1' && window.FumocaTourV80) {
+    const stops = window._fumocaTourStops
+      || record.metadata?.tourStops
+      || window.FumocaTourV80.loadFromHotspots(record.metadata?.hotspots || []);
+    if (stops?.length) window.FumocaTourV80.start(stops, { loop: params.get('loop') === '1' });
+  }
+}, { once: true });
+
+// File drop support — accepts .fumoc, .splat, and .ply files
+document.addEventListener('dragover', e => e.preventDefault());
+document.addEventListener('drop', async e => {
+  e.preventDefault();
+  const file = e.dataTransfer?.files?.[0];
+  if (!file) return;
+  const name = file.name.toLowerCase();
+
+  if (name.endsWith('.fumoc')) {
+    // .fumoc — decode and load
+    const buf = await file.arrayBuffer();
+    if (window.FumocFormat) {
+      const { header, splatUrl } = await window.FumocFormat.loadIntoViewer(buf);
+      window.dispatchEvent(new CustomEvent('fumoc:externalLoad', { detail: { header, splatUrl } }));
+    }
+  } else if (name.endsWith('.splat') || name.endsWith('.ply')) {
+    // .splat or .ply — reload viewer with file= param pointing to blob URL
+    const buf  = await file.arrayBuffer();
+    const blob = new Blob([buf], { type: 'application/octet-stream' });
+    const url  = URL.createObjectURL(blob);
+    const fname = file.name.replace(/\.(splat|ply)$/i, '');
+
+    // The viewer.js resolves fileUrl from ?file= at startup.
+    // Since we're post-startup, we need to trigger the renderer directly.
+    // Try all known entry points in order:
+    if (typeof window._loadSplatUrl === 'function') {
+      window._loadSplatUrl(url);
+    } else if (typeof window.FumocaGaussianRenderer?.loadUrl === 'function') {
+      window.FumocaGaussianRenderer.loadUrl(url);
+    } else if (window.S && typeof window.S.load === 'function') {
+      window.S.load(url);
+    } else {
+      // Last resort: reload the viewer with the blob URL as ?file= param
+      // This is reliable because viewer.js reads ?file= at startup
+      location.href = '/viewer.html?file=' + encodeURIComponent(url) + '&title=' + encodeURIComponent(fname);
+      return;
+    }
+
+    // Hide loading overlay
+    const overlay = document.getElementById('fumocLoadingOverlay');
+    if (overlay) { overlay.style.opacity = '0'; setTimeout(() => overlay.remove(), 600); }
+
+    // Show "couldn't load" message hidden, show canvas
+    const errMsg = document.querySelector('.error-state, #errorState, [data-error]');
+    if (errMsg) errMsg.style.display = 'none';
+
+    // Update title
+    const titleEl = document.getElementById('splatTitle');
+    if (titleEl) titleEl.textContent = fname;
+  }
+});
+
+// URL param support — ?url= or ?splat= redirects to ?file= which viewer.js reads at startup
+(function() {
+  const params = new URLSearchParams(location.search);
+  const splatUrl = params.get('url') || params.get('splat');
+  // Only redirect if ?file= is not already set (avoid loop)
+  if (!splatUrl || params.get('file')) return;
+  // Redirect to same page with ?file= instead — viewer.js reads this at startup
+  const newParams = new URLSearchParams(location.search);
+  newParams.delete('url');
+  newParams.delete('splat');
+  newParams.set('file', splatUrl);
+  location.replace('/viewer.html?' + newParams.toString());
+})();
+</script>
+<script>
+// Wire the topbar capture button to the CaptureUI
+window.addEventListener('fumoca:permissionsReady', (e) => {
+  const btn = document.getElementById('captureToggleBtn');
+  if (!btn) return;
+  if (e.detail?.canManage) {
+    btn.style.display = '';
+    if (!btn.dataset.wired) {
+      btn.dataset.wired = '1';
+      btn.addEventListener('click', () => window._fumocaCaptureUI?.toggle());
+    }
+  }
+});
+window.addEventListener('fumoca:permissionsUpdated', (e) => {
+  const btn = document.getElementById('captureToggleBtn');
+  if (!btn) return;
+  btn.style.display = e.detail?.canManage ? '' : 'none';
+});
+
+// Wire 4D Capture button — owner/admin only
+window.addEventListener('fumoca:permissionsReady', (e) => {
+  const btn = document.getElementById('fourDBtn');
+  if (!btn) return;
+  if (e.detail?.canManage) {
+    btn.style.display = '';
+    if (!btn.dataset.wired4d) {
+      btn.dataset.wired4d = '1';
+      btn.addEventListener('click', () => window.FumocaFourDCapture?.toggle());
+    }
+  }
+});
+window.addEventListener('fumoca:permissionsUpdated', (e) => {
+  const btn = document.getElementById('fourDBtn');
+  if (btn) btn.style.display = e.detail?.canManage ? '' : 'none';
+});
+
+// Init 4D Capture + Motion States when record loads
+window.addEventListener('fumoca:recordLoaded', (e) => {
+  const record = e.detail?.record || window._fumocaCurrentRecord || null;
+  if (window.FumocaFourDCapture) window.FumocaFourDCapture.init(record);
+  if (window.FumocaMotionStates) {
+    window.FumocaMotionStates.init(record, (state, idx) => {
+      console.log('[MotionStates] active:', state?.label, idx);
+    });
+  }
+  if (window.FumocaMotionTracking) window.FumocaMotionTracking.init(record);
+
+  // v60: init 4D blending engine
+  if (window.Fumoca4D) {
+    window.Fumoca4D.init(record, window._fumocaRenderer || window._fumocaViewer)
+      .then(active => {
+        const btn = document.getElementById('fourDBtn');
+        if (btn) { btn.style.display = ''; btn.textContent = active ? '⏳ 4D ON' : '⏳ 4D'; }
+      });
+  }
+});
+
+// If record already loaded before these listeners fired
+if (window._fumocaCurrentRecord) {
+  if (window.FumocaFourDCapture) window.FumocaFourDCapture.init(window._fumocaCurrentRecord);
+  if (window.FumocaMotionStates) window.FumocaMotionStates.init(window._fumocaCurrentRecord);
+  if (window.FumocaMotionTracking) window.FumocaMotionTracking.init(window._fumocaCurrentRecord);
+  if (window.Fumoca4D) window.Fumoca4D.init(window._fumocaCurrentRecord, window._fumocaRenderer || window._fumocaViewer);
+}
+
+// v60: Teaser video button  (v79: generate via social-recorder module)
+document.getElementById('teaserBtn')?.addEventListener('click', async () => {
+  const rec = window._fumocaCurrentRecord;
+  const videoUrl = window._fumocaPreviewVideoUrl
+    || rec?.teaser_video_url || rec?.preview_video_url || '';
+
+  // If a teaser video already exists — open the preview overlay with it
+  if (videoUrl) {
+    const overlay = document.getElementById('previewOverlay');
+    const vid = document.getElementById('previewVideo');
+    const poster = document.getElementById('previewPoster');
+    const synth = document.getElementById('syntheticTeaser');
+    if (vid) {
+      vid.src = videoUrl;
+      vid.classList.remove('hidden');
+      if (poster) poster.classList.add('hidden');
+      if (synth) synth.classList.add('hidden');
+      overlay?.classList.add('visible');
+      vid.play().catch(() => {});
+    }
+    return;
+  }
+
+  // No existing teaser — record the cinematic reveal via v79 social-recorder
+  const btn = document.getElementById('teaserBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Recording…'; }
+  try {
+    const { isRecordingSupported, recordTeaser, downloadBlob, remuxToMp4 } =
+      await import('./js/modules/social-recorder.js');
+    const { runRevealSequence, readRevealConfig } =
+      await import('./js/modules/cinematic-reveal.js');
+
+    const support = isRecordingSupported();
+    if (!support.supported) {
+      alert(support.reason);
+      return;
+    }
+
+    // Pick the viewer canvas. The main viewer renders into a canvas inside
+    // the #stageHost / #stage tree — query it at click time so we don't
+    // capture a stale reference if the viewer re-mounted.
+    const canvas = document.querySelector('#stageHost canvas')
+                || document.querySelector('#stage canvas')
+                || document.querySelector('canvas');
+    if (!canvas) {
+      alert('Viewer canvas not ready — try again in a moment.');
+      return;
+    }
+
+    const material = window.__fumocaViewerMaterial;
+    if (!material) {
+      alert('Cinematic reveal not initialized — please reload the page and try again.');
+      return;
+    }
+
+    // Read the vehicle title from the loaded record so the CTA overlay
+    // feels like a real listing, not a generic "FUMOCA" watermark.
+    const brand = rec?.metadata?.brand || 'FUMOCA';
+    const vehicle = rec?.title || 'View in 3D';
+
+    const { blob, mime } = await recordTeaser({
+      sourceCanvas: canvas,
+      aspect: 'vertical',
+      branding: { text: brand, cta: vehicle },
+      fps: 30,
+      triggerReveal: async () => {
+        await runRevealSequence({ material, config: readRevealConfig() });
+      },
+      onProgress: ({ phase }) => {
+        if (btn) btn.textContent = `⏳ ${phase.replace(/_/g, ' ')}`;
+      },
+    });
+
+    const safeTitle = (vehicle || 'clip').replace(/[^a-z0-9]+/gi, '_').toLowerCase().slice(0, 40);
+
+    // Detect iOS / WhatsApp context — iOS cannot share WebM, so remux to MP4.
+    // We check for iOS Safari specifically; Android Chrome handles WebM fine.
+    const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent)
+               || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const needsMp4 = isIOS && mime && mime.includes('webm');
+
+    if (needsMp4) {
+      if (btn) btn.textContent = '⏳ Converting to MP4…';
+      const mp4Blob = await remuxToMp4(blob);
+      downloadBlob(mp4Blob, `fumoca-${safeTitle}-${Date.now()}.mp4`);
+    } else {
+      // Non-iOS or already MP4 (Safari macOS MediaRecorder)
+      const ext = mime?.includes('mp4') ? 'mp4' : 'webm';
+      downloadBlob(blob, `fumoca-${safeTitle}-${Date.now()}.${ext}`);
+    }
+  } catch (err) {
+    console.warn('[teaser]', err);
+    alert('Could not record clip: ' + err.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🎥 Teaser Video'; }
+  }
+});
+
+// v60: 4D toggle
+document.getElementById('fourDBtn')?.addEventListener('click', () => {
+  if (window.Fumoca4D) {
+    window.Fumoca4D.toggle4D();
+    const btn = document.getElementById('fourDBtn');
+    if (btn) btn.textContent = window.Fumoca4D.isActive() ? '⏳ 4D ON' : '⏳ 4D';
+  }
+});
+
+// v60: "Edit Live" button — shown only to owners (permissionsReady fires with canManage)
+window.addEventListener('fumoca:permissionsReady', (e) => {
+  if (!e.detail?.canManage) return;
+  let editLiveBtn = document.getElementById('viewerEditLiveBtn');
+  if (!editLiveBtn) {
+    editLiveBtn = document.createElement('button');
+    editLiveBtn.id        = 'viewerEditLiveBtn';
+    editLiveBtn.className = 'ghostBtn';
+    editLiveBtn.textContent = '✦ Edit Live';
+    editLiveBtn.style.cssText = 'background:rgba(200,255,0,.14);border:1px solid rgba(200,255,0,.35);color:#c8ff00;font-weight:700;padding:9px 16px;border-radius:12px;cursor:pointer;';
+    const topbar = document.querySelector('.viewer-topbar') || document.querySelector('#viewerTopbar');
+    topbar?.appendChild(editLiveBtn);
+  }
+  editLiveBtn.addEventListener('click', () => {
+    const rec = window._fumocaCurrentRecord;
+    if (!rec?.id) return;
+    if (window.editLiveFromFeed) { window.editLiveFromFeed(rec.id, rec.media_type || 'splat'); }
+    else {
+      const p = new URLSearchParams({ splatId: rec.id, live: 'true', back: location.href });
+      // Prefer the latest edited file; fall back to original
+      const editFile = rec.output_url || rec.ply_url || rec.splat_url || '';
+      if (editFile) p.set('file', editFile);
+      window.location.href = `edit.html?${p.toString()}`;
+    }
+  });
+});
+
+// v60: show last-edited badge when splat was recently edited
+window.addEventListener('fumoca:recordLoaded', (e) => {
+  const rec = e.detail?.record || e.detail || window._fumocaCurrentRecord;
+  if (!rec?.last_edited_at) return;
+  const diffMs = Date.now() - new Date(rec.last_edited_at).getTime();
+  if (diffMs > 24 * 60 * 60 * 1000) return; // only show within 24h
+  const badge = document.createElement('div');
+  badge.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:rgba(200,255,0,.14);border:1px solid rgba(200,255,0,.35);color:#c8ff00;font-size:11px;padding:6px 14px;border-radius:999px;z-index:20;pointer-events:none;';
+  badge.textContent = '✦ Recently edited by creator';
+  document.body.appendChild(badge);
+  setTimeout(() => badge.remove(), 5000);
+});
+</script>
+
+<script type="module">
+// ── FUMOCA v79 — Offline resilience ──────────────────────────────────────────
+// Registers the service worker so splat files get cache-first'd for repeat
+// views. Safe no-op on browsers without SW support.
+import { ensureServiceWorker } from './js/modules/offline-helper.js';
+ensureServiceWorker();
+
+// ── FUMOCA V57 Viewer Sound Engine ───────────────────────────────────────────
+// Plays ambient audio when a splat with ambient_audio_url is opened.
+// The 🔊 Sound button is shown only when audio is available.
+import { SoundEngine } from './js/modules/sound-engine.js';
+
+let _se = null;
+let _ambientUrl = null;
+let _ambientVol = 0.35;
+let _ambientLoop = true;
+let _playing = false;
+let _unlocked = false;
+
+const soundBtn = document.getElementById('soundPlayBtn');
+
+function initSoundEngine() {
+  if (!_se) _se = new SoundEngine();
+}
+
+function unlockAndPlay() {
+  if (!_se) return;
+  _se.startOnUserGesture().then(() => {
+    _unlocked = true;
+    if (_ambientUrl && !_playing) {
+      _se.setAmbient(_ambientUrl, { volume: _ambientVol, loop: _ambientLoop });
+      _playing = true;
+      if (soundBtn) { soundBtn.textContent = '🔇 Stop'; }
+    }
+  });
+}
+
+function stopAmbient() {
+  if (_se) _se._stopAmbient(400);
+  _playing = false;
+  if (soundBtn) soundBtn.textContent = '🔊 Sound';
+}
+
+if (soundBtn) {
+  soundBtn.addEventListener('click', () => {
+    initSoundEngine();
+    if (_playing) {
+      stopAmbient();
+    } else {
+      unlockAndPlay();
+    }
+  });
+}
+
+// Listen for record load — show/hide button, cache audio settings
+window.addEventListener('fumoca:recordLoaded', (e) => {
+  const record = e.detail || window._fumocaCurrentRecord;
+  if (!record) return;
+
+  _ambientUrl  = record.ambient_audio_url  || null;
+  _ambientVol  = record.ambient_audio_volume != null ? record.ambient_audio_volume : 0.35;
+  _ambientLoop = record.ambient_audio_loop  != null ? record.ambient_audio_loop  : true;
+
+  if (soundBtn) {
+    soundBtn.style.display = _ambientUrl ? '' : 'none';
+    soundBtn.textContent = '🔊 Sound';
+  }
+
+  // Stop previous audio when navigating to a different splat
+  if (_playing && _se) { stopAmbient(); }
+});
+
+// Unlock on first any-interaction so audio context can start
+document.addEventListener('pointerdown', () => {
+  initSoundEngine();
+  _se.startOnUserGesture();
+}, { once: true });
+</script>
+<!-- ═══════════════════════════════════════════════════════════════
+     FUMOCA v60 — Mobile bottom action bar
+     Mirrors topActions but in a horizontal scrollable pill row.
+     Only visible on ≤680px via CSS.
+     ═══════════════════════════════════════════════════════════════ -->
+<div id="bottomBar">
+  <div id="bottomBarInner">
+    <button class="bb-btn back"   id="bbBackBtn">← Back</button>
+    <button class="bb-btn neon"   id="bbEditBtn"    style="display:none;">✦ Edit Live</button>
+    <button class="bb-btn"        id="bbHotspotBtn">📍 Hotspots</button>
+    <button class="bb-btn"        id="bbTourBtn">▶ Tour</button>
+    <button class="bb-btn"        id="bbTeaserBtn">🎥 Teaser</button>
+    <button class="bb-btn"        id="bbSoundBtn"   style="display:none;">🔊 Sound</button>
+    <button class="bb-btn"        id="bb4DBtn"      style="display:none;">⏳ 4D</button>
+    <button class="bb-btn"        id="bbStudioBtn">🎛 Studio</button>
+    <button class="bb-btn"        id="bbShareBtn">⎘ Share</button>
+  </div>
+</div>
+
+<!-- tap-to-reveal when UI is idle -->
+<button id="uiRevealBtn" title="Show controls" aria-label="Show controls">⋯</button>
+
+<script>
+/* ─── v60 Mobile Viewer UX ─────────────────────────────────────────────────
+   1. Auto-hides all UI after 3 s of no interaction → pure splat view
+   2. Any tap/scroll/move reveals UI again for 3 s
+   3. Bottom bar mirrors topActions on mobile; owner gets Edit Live button
+   4. All bottom buttons delegate to existing topbar counterparts
+   5. uiRevealBtn is always visible when UI is hidden (allows re-reveal)
+──────────────────────────────────────────────────────────────────────────── */
+(function () {
+  const IDLE_MS = 3000;
+  let _idleTimer = null;
+
+  function _showUI() {
+    document.body.classList.remove('ui-idle');
+    if (_idleTimer) clearTimeout(_idleTimer);
+    _idleTimer = setTimeout(_hideUI, IDLE_MS);
+  }
+
+  function _hideUI() {
+    document.body.classList.add('ui-idle');
+  }
+
+  // Reveal on any interaction
+  ['pointermove','pointerdown','touchstart','keydown','wheel'].forEach(ev => {
+    window.addEventListener(ev, _showUI, { passive: true });
+  });
+
+  // Reveal button always clickable even when idle
+  document.getElementById('uiRevealBtn')?.addEventListener('pointerdown', (e) => {
+    e.stopPropagation();
+    _showUI();
+  });
+
+  // Start the idle timer once the viewer is ready
+  window.addEventListener('fumoca:viewerReady', () => _showUI());
+  window.addEventListener('fumoca:recordLoaded', () => _showUI());
+  _showUI(); // initial reveal
+
+  // ── Wire bottom bar buttons ───────────────────────────────────────────────
+
+  // Back
+  document.getElementById('bbBackBtn')?.addEventListener('click', () =>
+    document.getElementById('backBtn')?.click() || history.back());
+
+  // Hotspots
+  document.getElementById('bbHotspotBtn')?.addEventListener('click', () =>
+    document.getElementById('hotspotBtn')?.click());
+
+  // Guided tour
+  document.getElementById('bbTourBtn')?.addEventListener('click', () =>
+    window._fumocaTour?.start?.());
+
+  // Teaser video
+  document.getElementById('bbTeaserBtn')?.addEventListener('click', () =>
+    document.getElementById('teaserBtn')?.click());
+
+  // Sound
+  document.getElementById('bbSoundBtn')?.addEventListener('click', () =>
+    document.getElementById('soundPlayBtn')?.click());
+
+  // 4D
+  document.getElementById('bb4DBtn')?.addEventListener('click', () =>
+    document.getElementById('fourDBtn')?.click());
+
+  // Studio
+  document.getElementById('bbStudioBtn')?.addEventListener('click', () => {
+    const studioBtn = document.getElementById('editModeBtn') ||
+                      document.querySelector('[data-opens-studio]');
+    studioBtn?.click();
+  });
+
+  // Share / copy link
+  document.getElementById('bbShareBtn')?.addEventListener('click', async () => {
+    const copyBtn = document.getElementById('copyLinkBtn');
+    if (copyBtn) { copyBtn.click(); return; }
+    try {
+      await navigator.clipboard.writeText(location.href);
+      const btn = document.getElementById('bbShareBtn');
+      if (btn) { const orig = btn.textContent; btn.textContent = '✓ Copied!'; setTimeout(() => btn.textContent = orig, 1800); }
+    } catch (_) {}
+  });
+
+  // ── Sync sound button visibility with top counterpart ────────────────────
+  const soundObs = new MutationObserver(() => {
+    const top = document.getElementById('soundPlayBtn');
+    const bb  = document.getElementById('bbSoundBtn');
+    if (top && bb) bb.style.display = top.style.display === 'none' ? 'none' : '';
+  });
+  const soundTopBtn = document.getElementById('soundPlayBtn');
+  if (soundTopBtn) soundObs.observe(soundTopBtn, { attributes: true, attributeFilter: ['style'] });
+
+  // ── Show 4D bottom button when 4D activates ───────────────────────────────
+  window.addEventListener('fumoca:4dActivated', () => {
+    const bb = document.getElementById('bb4DBtn');
+    if (bb) bb.style.display = '';
+  });
+
+  // ── Show Edit Live bottom button for owners ───────────────────────────────
+  window.addEventListener('fumoca:permissionsReady', (e) => {
+    if (!e.detail?.canManage) return;
+    const bb = document.getElementById('bbEditBtn');
+    if (bb) {
+      bb.style.display = '';
+      bb.addEventListener('click', () => {
+        const rec = window._fumocaCurrentRecord;
+        if (!rec?.id) return;
+        if (window.editLiveFromFeed) window.editLiveFromFeed(rec.id, rec.media_type || 'splat');
+        else {
+          const p = new URLSearchParams({ splatId: rec.id, live: 'true', back: location.href });
+          // Always use splat_url for the viewer file= param — output_url may be .ply
+          const _ef = rec.splat_url || rec.output_url || '';
+          if (_ef && !_ef.toLowerCase().endsWith('.ply')) p.set('file', _ef);
+          window.location.href = `edit.html?${p}`;
+        }
+      }, { once: true });
+    }
+  });
+
+})();
+</script>
+
+<script type="module">
+// v80: Share button wiring
+document.getElementById('fumocShareBtn')?.addEventListener('click', async () => {
+  const record = window._fumocaCurrentRecord;
+  if (!record || !window.FumocSocialHub) return;
+  const overlay = document.getElementById('fumocSharePanelOverlay');
+  const inner   = document.getElementById('fumocSharePanelInner');
+  overlay.style.display = 'flex';
+  inner.innerHTML = '<div style="color:rgba(255,255,255,.4);text-align:center;padding:20px">Loading…</div>';
+  const embed = window._fumocaCurrentEmbed || null;
+  const lastTeaser = window._fumocaLastTeaserBlob || null;
+  FumocSocialHub.buildSharePanel(record, {
+    embedToken: embed?.token || null,
+    teaserBlob: lastTeaser,
+    containerId: 'fumocSharePanelInner',
+  });
+});
+
+// v80: .fumoc export button
+document.getElementById('fumocExportBtn')?.addEventListener('click', () => {
+  // v82: open the full compression export panel
+  if (window.FumocExportUI) {
+    FumocExportUI.open();
+  } else {
+    alert('Export UI not loaded. Please refresh the page.');
+  }
+});
+
+// v80: Walk mode keyboard shortcut (W key while not in input)
+window.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  if (e.key === 'F' && e.shiftKey && window.FumocaTourV80) {
+    window.FumocaTourV80.enterWalk();
+  }
+});
+</script>
+
+
+<script type="module">
+// v86: Loading overlay — shown while .fumoc is decoding
+(function() {
+  const overlay = document.createElement('div');
+  overlay.id = 'fumocLoadingOverlay';
+  overlay.style.cssText = `
+    position:fixed;inset:0;z-index:999;background:rgba(5,7,11,.95);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:14px;font-family:'DM Sans',system-ui;transition:opacity .5s ease;
+  `;
+  overlay.innerHTML = `
+    <div style="width:44px;height:44px;border-radius:50%;
+      border:2px solid rgba(255,255,255,.1);border-top-color:#c8ff00;
+      animation:fumocSpin .8s linear infinite;"></div>
+    <div id="fumocLoadMsg" style="font-size:13px;color:rgba(255,255,255,.5);">Loading…</div>
+    <style>@keyframes fumocSpin{to{transform:rotate(360deg)}}</style>
+  `;
+  document.body.appendChild(overlay);
+  window._fumocaLoadingOverlay = overlay;
+  window._fumocaLoadingMsg     = overlay.querySelector('#fumocLoadMsg');
+
+  // Hide when viewer is ready
+  window.addEventListener('fumoca:viewerReady', () => {
+    overlay.style.opacity = '0';
+    setTimeout(() => overlay.remove(), 600);
+  }, { once: true });
+})();
+
+// v92: Check sessionStorage for pending splat URL (from fumoc_open flow)
+(function() {
+  const pending  = sessionStorage.getItem('fumoc_pending_splat_url');
+  const pending_type = sessionStorage.getItem('fumoc_pending_splat_type') || 'splat';
+  if (!pending) return;
+  sessionStorage.removeItem('fumoc_pending_splat_url');
+  sessionStorage.removeItem('fumoc_pending_splat_type');
+  sessionStorage.removeItem('fumoc_open_header');
+
+  // Wait for renderer to init
+  setTimeout(async () => {
+    const overlay = document.getElementById('fumocLoadingOverlay');
+
+    try {
+      let loadUrl = pending;
+
+      // If this is a .fumoc blob, decode it first to get raw .splat data
+      if (pending_type === 'fumoc' || pending_type === 'splat') {
+        // Fetch the blob URL to get the raw bytes
+        const resp = await fetch(pending);
+        const buf  = await resp.arrayBuffer();
+        const bytes = new Uint8Array(buf);
+
+        // Detect .fumoc by magic bytes: "FUMOC" at offset 0
+        const magic = String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3], bytes[4]);
+        if (magic === 'FUMOC') {
+          // It's a .fumoc file — decode through FumocDecoder
+          if (window.FumocDecoder && typeof FumocDecoder.decode === 'function') {
+            const result = await FumocDecoder.decode(buf, { wantBinary: true });
+            if (result?.splatBinary) {
+              const blob2 = new Blob([result.splatBinary], { type: 'application/octet-stream' });
+              loadUrl = URL.createObjectURL(blob2);
+              // Expose thumbnail for OG meta updater
+              if (result.thumbnail) {
+                const tBlob = new Blob([result.thumbnail], { type: 'image/jpeg' });
+                window._fumocaThumbnailUrl = URL.createObjectURL(tBlob);
+              }
+              // Expose header for OG meta updater
+              if (result.header) window._fumocaFileHeader = result.header;
+            } else {
+              console.error('[v92] FumocDecoder returned no splatBinary');
+              return;
+            }
+          } else {
+            // FumocDecoder not ready yet — dispatch event and let other modules handle it
+            window.dispatchEvent(new CustomEvent('fumoca:loadFumocBuffer', { detail: { buffer: buf } }));
+            if (overlay) { overlay.style.opacity = '0'; setTimeout(() => overlay.remove(), 600); }
+            return;
+          }
+        }
+        // else: already a raw .splat blob, use loadUrl as-is
+      }
+
+      if (overlay) { overlay.style.opacity = '0'; setTimeout(() => overlay.remove(), 600); }
+
+      if (typeof window._loadSplatUrl === 'function') window._loadSplatUrl(loadUrl);
+      else if (window.FumocaGaussianRenderer?.loadUrl) window.FumocaGaussianRenderer.loadUrl(loadUrl);
+      else window.dispatchEvent(new CustomEvent('fumoca:loadUrl', { detail: { url: loadUrl } }));
+
+    } catch (err) {
+      console.error('[v92] fumoc_open sessionStorage load failed:', err);
+      if (overlay) { overlay.style.opacity = '0'; setTimeout(() => overlay.remove(), 600); }
+    }
+  }, 1000);
+})();
+
+// v81: Receive .fumoc buffer from /open.html via BroadcastChannel
+// This fires when the user taps "Open in Viewer" on the /open page.
+(function() {
+  const bc = new BroadcastChannel('fumoc_open');
+  bc.postMessage('fumoc_viewer_ready'); // tell /open.html we're ready
+
+  bc.onmessage = async (e) => {
+    if (e.data?.type !== 'fumoc_load') return;
+    bc.close();
+
+    const buffer = e.data.buffer;
+    const header = e.data.header;
+    if (!buffer || !window.FumocFormat) return;
+
+    try {
+      const { splatUrl, sections } = await FumocFormat.loadIntoViewer(buffer);
+
+      // Hide the loading overlay
+      const overlay = document.getElementById('fumocLoadingOverlay');
+      if (overlay) { overlay.style.opacity = '0'; setTimeout(() => overlay.remove(), 600); }
+
+      // Load into the actual renderer — try all known entry points
+      if (splatUrl) {
+        if (typeof window._loadSplatUrl === 'function') {
+          window._loadSplatUrl(splatUrl);
+        } else if (typeof window.FumocaGaussianRenderer?.loadUrl === 'function') {
+          window.FumocaGaussianRenderer.loadUrl(splatUrl);
+        } else if (window.S && typeof window.S.load === 'function') {
+          window.S.load(splatUrl);
+        }
+        // Store URL in sessionStorage as a fallback signal
+        sessionStorage.setItem('fumoc_pending_splat_url', splatUrl);
+      }
+
+      // Dispatch event for other modules
+      window.dispatchEvent(new CustomEvent('fumoca:loadUrl', {
+        detail: { url: splatUrl, title: header?.title, meta: header }
+      }));
+
+      // Update page title + topbar
+      if (header?.title) {
+        document.title = 'FUMOCA · ' + header.title;
+        const titleEl = document.getElementById('splatTitle');
+        if (titleEl) titleEl.textContent = header.title;
+      }
+    } catch (err) {
+      console.error('[v81] fumoc_open load failed:', err);
+    }
+  };
+
+  // Also check sessionStorage fallback (same-tab navigation)
+  if (sessionStorage.getItem('fumoc_open_pending')) {
+    sessionStorage.removeItem('fumoc_open_pending');
+    // Let the BroadcastChannel message arrive — nothing extra needed
+  }
+})();
+</script>
+
+
+<script>
+// v88 — hamburger menu controller
+(function() {
+  'use strict';
+
+  function openMenu() {
+    document.getElementById('fumocMenu')?.classList.add('open');
+    // Show owner section only for splat owners
+    const isOwner = !document.body.classList.contains('fumoca-public-viewer');
+    const ownerLabel   = document.getElementById('fmenuOwnerLabel');
+    const ownerSection = document.getElementById('fmenuOwnerSection');
+    if (ownerLabel)   ownerLabel.style.display   = isOwner ? 'block' : 'none';
+    if (ownerSection) ownerSection.style.display = isOwner ? 'block' : 'none';
+  }
+
+  function closeMenu() {
+    document.getElementById('fumocMenu')?.classList.remove('open');
+  }
+
+  // Swipe down to close
+  let _touchY = 0;
+  document.getElementById('fumocMenuInner')?.addEventListener('touchstart', e => {
+    _touchY = e.touches[0].clientY;
+  }, { passive: true });
+  document.getElementById('fumocMenuInner')?.addEventListener('touchmove', e => {
+    const dy = e.touches[0].clientY - _touchY;
+    if (dy > 60) closeMenu();
+  }, { passive: true });
+
+  window._fumocaOpenMenu  = openMenu;
+  window._fumocaCloseMenu = closeMenu;
+
+  // Share panel helper
+  window._fumocaOpenSharePanel = () => {
+    const overlay = document.getElementById('fumocSharePanelOverlay');
+    const inner   = document.getElementById('fumocSharePanelInner');
+    if (!overlay) return;
+    overlay.style.display = 'flex';
+    const record = window._fumocaCurrentRecord;
+    if (record && window.FumocSocialHub && inner) {
+      FumocSocialHub.buildSharePanel(record, { containerId: 'fumocSharePanelInner' });
+    }
+  };
+
+  // FAB: update icon based on context
+  function updateFAB() {
+    const fab = document.getElementById('fumocFAB');
+    if (!fab) return;
+    // If in edit mode show edit icon, otherwise show menu dots
+    fab.textContent = document.body.classList.contains('fumoca-edit-locked') ? '⋯' : '⋯';
+  }
+
+  // Show title in topbar when splat loads
+  window.addEventListener('fumoca:viewerReady', e => {
+    const record = e.detail?.record || window._fumocaCurrentRecord;
+    if (record?.title) {
+      const el = document.getElementById('splatTitle');
+      if (el) el.textContent = record.title;
+    }
+    // Show thumbnail
+    if (record?.thumbnail_url) {
+      const img = document.getElementById('thumbDockImg');
+      if (img) { img.src = record.thumbnail_url; img.hidden = false; }
+    }
+  });
+
+  // Keyboard shortcut: Escape closes menu
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeMenu();
+  });
+
+})();
+</script>
+
+
+<script type="module">
+// v88 — lasso refinement bridge
+// After auto-isolation runs, the "Refine with lasso" option in the
+// quality panel pre-seeds the lasso mask with the isolated region's
+// bounding sphere, then opens the lasso tool for manual refinement.
+window.addEventListener('fumoca:subjectIsolated', async e => {
+  const { centroid, radius } = e.detail || {};
+  if (!centroid || !radius) return;
+  if (!window.FumocaLasso) return; // lasso module not loaded
+
+  // Project the 3D bounding sphere to screen space and
+  // pre-draw a circular lasso selection around the subject
+  const cam = window._fumocaCamera;
+  if (!cam) return;
+
+  // Convert centroid to screen position
+  const THREE = window.THREE;
+  if (!THREE) return;
+  const vec  = new THREE.Vector3(centroid.x, centroid.y, centroid.z);
+  vec.project(cam);
+
+  const canvas = document.querySelector('#stage canvas');
+  if (!canvas) return;
+  const rect = canvas.getBoundingClientRect();
+  const sx   = (vec.x  * 0.5 + 0.5) * rect.width;
+  const sy   = (-vec.y * 0.5 + 0.5) * rect.height;
+
+  // Estimate screen radius from world radius
+  const screenRadius = Math.min(rect.width, rect.height) * 0.35;
+
+  // Pre-seed the lasso with a circle
+  const N      = 48;
+  const points = [];
+  for (let i = 0; i <= N; i++) {
+    const a = (i / N) * Math.PI * 2;
+    points.push({ x: sx + Math.cos(a) * screenRadius, y: sy + Math.sin(a) * screenRadius });
+  }
+
+  // Dispatch to lasso module to set initial path
+  window.dispatchEvent(new CustomEvent('fumoca:lassoPreSeed', { detail: { points } }));
+
+  // Brief toast
+  const toast = document.createElement('div');
+  toast.style.cssText = `position:fixed;top:72px;left:50%;transform:translateX(-50%);
+    z-index:300;background:rgba(5,7,11,.9);border:1px solid rgba(200,255,0,.3);
+    border-radius:999px;padding:8px 18px;font-family:'DM Sans',system-ui;
+    font-size:12px;font-weight:700;color:#c8ff00;white-space:nowrap;
+    opacity:0;transition:opacity .3s;`;
+  toast.textContent = 'Drag to refine the selection';
+  document.body.appendChild(toast);
+  requestAnimationFrame(() => { toast.style.opacity = '1'; });
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    setTimeout(() => toast.remove(), 400);
+  }, 3000);
+});
+</script>
+
+
+<!-- v90 compatibility shim — must load last -->
+<script type="module" src="js/modules/fumoca-v90-shim.js"></script>
+
+<!-- VIDP encoder, video-interactive bridge, hotspot video editor, recorder UI -->
+<script type="module">
+  import { VidpEncoder }    from './js/modules/vidp-encoder.js';
+  import VideoInteractive   from './js/modules/video-interactive.js';
+  import HotspotVideoEditor from './js/modules/hotspot-video-editor.js';
+  import VidpRecorderUI     from './js/modules/vidp-recorder-ui.js';
+
+  // Expose globally for cross-module access
+  window.VidpEncoder        = VidpEncoder;
+  window.VideoInteractive   = VideoInteractive;
+  window.HotspotVideoEditor = HotspotVideoEditor;
+  window.VidpRecorderUI     = VidpRecorderUI;
+
+  // Initialise the video-interactive bridge
+  VideoInteractive.init({
+    onEnterInteractive: ({ theta, hotspot } = {}) => {
+      console.log('[VideoInteractive] entered interactive mode', { theta, hotspot });
+      // Trigger hotspot render in hotspot-pro if hotspots exist
+      if (window._fumocaHotspots?.length > 0) {
+        window.dispatchEvent(new CustomEvent('fumoca:hotspotsLoaded', {
+          detail: { count: window._fumocaHotspots.length }
+        }));
+      }
+    }
+  });
+
+  // When a .fumoc file is loaded, expose its raw buffer for VIDP embedding
+  window.addEventListener('fumoca:viewerReady', async (e) => {
+    // Load hotspots from the file for the video editor
+    const pending = sessionStorage.getItem('fumoc_pending_splat_url');
+    if (pending) {
+      try {
+        const resp = await fetch(pending);
+        if (resp.ok) {
+          const buf = await resp.arrayBuffer();
+          window._fumocaRawBuffer = buf;
+          await VideoInteractive.loadHotspots(buf);
+          // If file has video section, offer video mode
+          const vidResult = VidpEncoder.extractVideoUrl(buf);
+          if (vidResult) {
+            VideoInteractive.showVideo(buf);
+          }
+        }
+      } catch(_) {}
+    }
+    // Mount recorder UI (shows record button in viewer)
+    VidpRecorderUI.mount?.();
+  });
+
+  // Listen for fly-to-position events from video-interactive
+  window.addEventListener('fumoca:flyToPosition', e => {
+    const { pos } = e.detail;
+    if (!pos || !window._fumocaViewerControls) return;
+    const cam  = window._fumocaViewerCamera;
+    const ctrl = window._fumocaViewerControls;
+    if (cam && ctrl?.target) {
+      ctrl.target.set(pos[0], pos[1], pos[2]);
+      ctrl.update?.();
+    }
+  });
+</script>
+
+<script>
+// ── OG meta updater — runs after fumoca:viewerReady ───────────────────────
+// Updates social meta tags from loaded .fumoc header + THUM thumbnail
+// so that crawlers executing JS see correct preview data.
+window.addEventListener('fumoca:viewerReady', e => {
+  try {
+    const header = e.detail?.header || {};
+    const title  = header.title || new URLSearchParams(location.search).get('title') || 'FUMOCA Scene';
+    const url    = location.href;
+
+    const _set = (id, val) => { const el = document.getElementById(id); if (el) el.content = val; };
+    _set('meta-og-title',  title + ' — FUMOCA');
+    _set('meta-og-desc',   header.description || 'Interactive 3D scene in .fumoc format');
+    _set('meta-og-url',    url);
+    _set('meta-tw-title',  title + ' — FUMOCA');
+    _set('meta-tw-desc',   header.description || 'Interactive 3D scene in .fumoc format');
+    _set('meta-desc',      header.description || 'Interactive 3D scene in .fumoc format');
+    document.title = title + ' — FUMOCA';
+
+    // If thumbnail blob URL was created during decode, use it for OG image
+    if (window._fumocaThumbnailUrl) {
+      _set('meta-og-image', window._fumocaThumbnailUrl);
+      _set('meta-tw-image', window._fumocaThumbnailUrl);
+    }
+  } catch (err) {
+    console.warn('[OG meta] update failed:', err);
+  }
+});
+
+// ── fumoca:recordLoaded also updates title ────────────────────────────────
+window.addEventListener('fumoca:recordLoaded', e => {
+  try {
+    const rec   = e.detail;
+    if (!rec) return;
+    const title = rec.title || rec.name || 'FUMOCA Scene';
+    document.title = title + ' — FUMOCA';
+    const ogTitle = document.getElementById('meta-og-title');
+    if (ogTitle) ogTitle.content = title + ' — FUMOCA';
+    if (rec.thumbnail_url) {
+      const _set = (id, val) => { const el = document.getElementById(id); if (el) el.content = val; };
+      _set('meta-og-image', rec.thumbnail_url);
+      _set('meta-tw-image', rec.thumbnail_url);
+    }
+  } catch (_) {}
+});
+</script>
+
+<script>
+// ── WebGL context loss guard ────────────────────────────────────────────────
+// Prevents the lost→restore→lost crash loop that lags the entire machine.
+// If the context is lost twice within 10s, we stop restoring and show an error.
+(function() {
+  let _lossCount = 0;
+  let _lossTimer  = null;
+
+  document.addEventListener('webglcontextlost', function(e) {
+    e.preventDefault(); // required to allow restore
+    _lossCount++;
+    console.warn('[WebGL] Context lost — count:', _lossCount);
+
+    // Reset counter after 10s of stability
+    clearTimeout(_lossTimer);
+    _lossTimer = setTimeout(() => { _lossCount = 0; }, 10000);
+
+    if (_lossCount >= 3) {
+      // Too many losses — stop the restore loop, show user-friendly error
+      console.error('[WebGL] Context lost 3+ times — halting restore loop');
+      // Prevent the default restore from firing
+      document.addEventListener('webglcontextrestored', function stopRestore(ev) {
+        ev.stopImmediatePropagation();
+        document.removeEventListener('webglcontextrestored', stopRestore);
+      }, true);
+
+      // Show error to user
+      const errorEl = document.getElementById('errorBox') || document.getElementById('errorMsg');
+      if (errorEl) {
+        errorEl.textContent = 'Your GPU ran out of memory rendering this splat. Try closing other tabs or refreshing.';
+        errorEl.classList.add('visible', 'show');
+        errorEl.style.display = 'block';
+      }
+
+      // Kill the animation loop to stop GPU thrash
+      if (window.viewerInstance?.stop) window.viewerInstance.stop();
+    }
+  }, true);
+
+  document.addEventListener('webglcontextrestored', function(e) {
+    console.log('[WebGL] Context restored — resuming renderer');
+    // Let the GaussianSplats3D viewer handle its own restore
+  }, true);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,25 @@
+{
+  "name": "fumoc",
+  "version": "1.0.0",
+  "description": "CLI tool to convert .ply/.splat files to .fumoc format",
+  "main": "fumoc-cli.js",
+  "bin": {
+    "fumoc": "./fumoc-cli.js"
+  },
+  "scripts": {
+    "start": "node fumoc-cli.js"
+  },
+  "keywords": ["gaussian-splat", "fumoc", "3d", "ply", "splat", "converter"],
+  "author": "FUMOCA",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fumoca/fumoc-cli"
+  },
+  "optionalDependencies": {
+    "@supabase/supabase-js": "^2.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

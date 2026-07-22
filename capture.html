@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+<link rel="manifest" href="/manifest.json">
+
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="theme-color" content="#000000" />
+  <title>FUMOCA · Capture</title>
+  <link rel="icon" href="favicon.ico" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    html, body { height: 100%; background: #000; color: #fff; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; overflow: hidden; }
+    /* Full-bleed camera preview */
+    #capVideo {
+      position: fixed; inset: 0; width: 100%; height: 100%;
+      object-fit: cover; background: #000;
+    }
+    /* Top bar: script picker + hint */
+    .top-bar {
+      position: fixed; top: 0; left: 0; right: 0;
+      padding: calc(env(safe-area-inset-top) + 10px) 14px 14px;
+      background: linear-gradient(to bottom, rgba(0,0,0,.8), transparent);
+      z-index: 10;
+    }
+    .top-bar .row { display: flex; gap: 10px; align-items: center; }
+    .top-bar select {
+      background: rgba(255,255,255,.12);
+      color: #fff; border: 1px solid rgba(255,255,255,.2);
+      border-radius: 10px; padding: 10px 12px;
+      font-size: 14px; font-weight: 600;
+      font-family: inherit; flex: 1;
+      -webkit-appearance: none; appearance: none;
+    }
+    .top-bar .hint { margin-top: 8px; font-size: 12px; line-height: 1.4; color: rgba(255,255,255,.7); }
+    /* Center prompt — the big instruction on screen */
+    .prompt-panel {
+      position: fixed; left: 14px; right: 14px;
+      top: 50%; transform: translateY(-50%);
+      background: rgba(0,0,0,.55); backdrop-filter: blur(10px);
+      border-radius: 18px; padding: 22px 20px;
+      text-align: center;
+      border: 1px solid rgba(200,255,0,.25);
+      transition: opacity .2s ease;
+      z-index: 5;
+    }
+    .prompt-panel.recording {
+      background: rgba(0,0,0,.45);
+      top: auto; bottom: 180px; transform: none;
+    }
+    .prompt-main { font-size: 20px; font-weight: 800; line-height: 1.25; color: #c8ff00; }
+    .prompt-sub  { font-size: 14px; color: rgba(255,255,255,.8); margin-top: 8px; line-height: 1.45; }
+    /* Timer */
+    .timer {
+      position: fixed; top: calc(env(safe-area-inset-top) + 70px); right: 14px;
+      background: rgba(255,0,80,.85); color: #fff;
+      font-weight: 900; font-size: 18px;
+      padding: 8px 14px; border-radius: 999px;
+      min-width: 64px; text-align: center;
+      display: none;
+      z-index: 11;
+      box-shadow: 0 4px 14px rgba(255,0,80,.35);
+    }
+    .timer.active { display: block; }
+    /* Live sensor warning (pace/tilt) — shown only while actively flagged */
+    .motion-warning {
+      position: fixed; top: calc(env(safe-area-inset-top) + 70px); left: 14px;
+      background: rgba(255,180,0,.92); color: #1a1200;
+      font-weight: 800; font-size: 13px; letter-spacing: .02em;
+      padding: 8px 14px; border-radius: 999px;
+      max-width: 62%;
+      display: none;
+      z-index: 11;
+      box-shadow: 0 4px 14px rgba(255,180,0,.35);
+      animation: motionPulse 1s ease-in-out infinite;
+    }
+    .motion-warning.active { display: block; }
+    @keyframes motionPulse { 0%,100%{ opacity:1; } 50%{ opacity:.72; } }
+    /* Progress bar */
+    .progress-track {
+      position: fixed; left: 14px; right: 14px; bottom: calc(env(safe-area-inset-bottom) + 110px);
+      height: 4px; background: rgba(255,255,255,.15); border-radius: 999px;
+      overflow: hidden; z-index: 6;
+      display: none;
+    }
+    .progress-track.active { display: block; }
+    .progress-bar { height: 100%; background: #c8ff00; width: 0%; transition: width .1s linear; }
+    /* Bottom bar — the start/stop button */
+    .bottom-bar {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      padding: 16px 16px calc(env(safe-area-inset-bottom) + 20px);
+      background: linear-gradient(to top, rgba(0,0,0,.85), transparent);
+      z-index: 10;
+      display: flex; flex-direction: column; gap: 10px; align-items: stretch;
+    }
+    .primary-btn {
+      background: #c8ff00; color: #0b0e14;
+      border: 0; border-radius: 14px;
+      padding: 18px 24px;
+      font-size: 17px; font-weight: 800;
+      font-family: inherit;
+      cursor: pointer;
+      transition: transform .1s ease, background .2s ease;
+    }
+    .primary-btn:active { transform: scale(.97); }
+    .primary-btn:disabled { opacity: .4; }
+    .primary-btn.recording {
+      background: #ff2466; color: #fff;
+    }
+    .status-line {
+      font-size: 12px; color: rgba(255,255,255,.7);
+      text-align: center; min-height: 16px;
+    }
+    /* Permission banner shown before camera starts */
+    #permissionGate {
+      position: fixed; inset: 0;
+      background: #0b0e14;
+      display: flex; flex-direction: column;
+      justify-content: center; align-items: center;
+      padding: 32px; gap: 16px;
+      z-index: 100;
+      text-align: center;
+    }
+    #permissionGate h1 { font-size: 28px; font-weight: 900; color: #c8ff00; }
+    #permissionGate p  { font-size: 15px; line-height: 1.55; color: rgba(255,255,255,.75); max-width: 320px; }
+    /* Link back to viewer after upload */
+    .post-upload-links {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.92); backdrop-filter: blur(20px);
+      display: none; flex-direction: column;
+      justify-content: center; align-items: center; text-align: center;
+      padding: 32px; gap: 20px; z-index: 50;
+    }
+    .post-upload-links.visible { display: flex; }
+    .post-upload-links h2 { font-size: 24px; color: #c8ff00; font-weight: 900; }
+    .post-upload-links p { font-size: 14px; color: rgba(255,255,255,.8); line-height: 1.5; }
+    .post-upload-links a {
+      background: #c8ff00; color: #0b0e14;
+      padding: 14px 22px; border-radius: 12px;
+      text-decoration: none; font-weight: 800;
+      display: inline-block;
+    }
+  </style>
+</head>
+<body>
+
+<!-- Permission gate shown until user taps to grant camera access -->
+<div id="permissionGate">
+  <h1>FUMOCA Capture</h1>
+  <p>We'll guide you around the car. Stand arm's-length away, walk slowly, keep the car centered in frame.</p>
+  <p style="font-size: 13px; color: rgba(255,255,255,.55);">Capture works best in daylight or well-lit interiors. Avoid reflective puddles and direct sun on glass.</p>
+  <button class="primary-btn" id="grantBtn">Allow camera & start</button>
+</div>
+
+<!-- Live preview (filled by getUserMedia) -->
+<video id="capVideo" autoplay muted playsinline></video>
+
+<!-- Top bar: script selector + hint -->
+<div class="top-bar">
+  <div class="row">
+    <select id="capScriptSel">
+      <option value="exterior_car">Exterior walk-around</option>
+      <option value="interior_front">Interior — front</option>
+      <option value="interior_rear">Interior — rear</option>
+    </select>
+  </div>
+  <div class="hint" id="capHint"></div>
+</div>
+
+<!-- Recording timer badge (top-right) -->
+<div class="timer" id="capTimer">0s</div>
+
+<!-- Live sensor-driven warning (pace/tilt) — hidden unless actively flagged -->
+<div class="motion-warning" id="capMotionWarning"></div>
+
+<!-- Big center prompt -->
+<div class="prompt-panel" id="promptPanel">
+  <div class="prompt-main" id="capPrompt">Tap Start when ready.</div>
+  <div class="prompt-sub"  id="capSub">Allow camera access first.</div>
+</div>
+
+<!-- Progress bar just above the bottom button -->
+<div class="progress-track" id="progressTrack">
+  <div class="progress-bar" id="capProgress"></div>
+</div>
+
+<!-- Bottom action bar -->
+<div class="bottom-bar">
+  <button class="primary-btn" id="capStartBtn" disabled>Start capture</button>
+  <div class="status-line" id="capUploadStatus"></div>
+</div>
+
+<!-- Post-upload success panel -->
+<div class="post-upload-links" id="postUpload">
+  <h2>Uploaded ✓</h2>
+  <p id="postUploadText">Your capture is queued for processing. It usually takes 30–45 minutes. We'll show you the viewer URL when it's ready.</p>
+  <a id="viewerLinkBtn" href="#">Open viewer</a>
+  <button class="primary-btn" id="captureAnotherBtn" style="background:rgba(255,255,255,.12); color:#fff;">Capture another</button>
+</div>
+
+<script type="module">
+  import { CaptureGuide, CAPTURE_SCRIPTS } from './js/modules/capture-guide.js';
+  import { supabase } from './js/supabaseClient.js';
+
+  const guide = new CaptureGuide({
+    supabase,
+    onUploadComplete: ({ id, viewerUrl }) => {
+      document.getElementById('viewerLinkBtn').href = viewerUrl;
+      document.getElementById('postUploadText').textContent =
+        `Splat id: ${id}. Processing is queued. Check back in 30-45 minutes, or use the viewer URL once ready.`;
+      document.getElementById('postUpload').classList.add('visible');
+    },
+    onError: (msg) => {
+      document.getElementById('capUploadStatus').textContent = msg;
+    },
+  });
+
+  // Stage 1: permission gate → startPreview
+  document.getElementById('grantBtn').addEventListener('click', async () => {
+    await guide.startPreview();
+    if (guide.state === 'preview') {
+      document.getElementById('permissionGate').style.display = 'none';
+    }
+  });
+
+  // Script switcher
+  document.getElementById('capScriptSel').addEventListener('change', (e) => {
+    guide.setScript(e.target.value);
+  });
+  // Initialize with default
+  guide.setScript('exterior_car');
+
+  // Main button — state machine
+  const startBtn = document.getElementById('capStartBtn');
+  startBtn.addEventListener('click', async () => {
+    if (guide.state === 'preview') {
+      await guide.startRecording();
+      document.getElementById('capTimer').classList.add('active');
+      document.getElementById('progressTrack').classList.add('active');
+      document.getElementById('promptPanel').classList.add('recording');
+    } else if (guide.state === 'recording') {
+      await guide.stopRecording();
+    } else if (guide.state === 'done') {
+      startBtn.disabled = true;
+      startBtn.textContent = 'Uploading…';
+      try {
+        const scriptKey = document.getElementById('capScriptSel').value;
+        await guide.uploadLatest({ scriptKey });
+      } catch (err) {
+        document.getElementById('capUploadStatus').textContent = 'Upload failed: ' + err.message;
+        startBtn.disabled = false;
+        startBtn.textContent = 'Retry upload';
+      }
+    }
+  });
+
+  // Capture another — reload the page (simplest reliable reset)
+  document.getElementById('captureAnotherBtn').addEventListener('click', () => {
+    location.reload();
+  });
+</script>
+</body>
+</html>

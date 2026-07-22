@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#05070b">
+<title>FUMOCA · Vehicle Capture</title>
+<link rel="manifest" href="/manifest.json">
+<script src="config.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --neon: #c8ff00; --black: #05070b; --warn: #ffb800; --danger: #ff4848;
+  --font: 'DM Sans', system-ui, sans-serif;
+}
+html, body {
+  width: 100%; height: 100%; background: var(--black); color: #fff;
+  font-family: var(--font); overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ── Video preview ── */
+#preview {
+  position: fixed; inset: 0; object-fit: cover;
+  width: 100%; height: 100%; z-index: 0;
+  transform: scaleX(-1); /* mirror for rear cam */
+}
+#preview.rear { transform: none; }
+
+/* ── Overlay ── */
+#overlay {
+  position: fixed; inset: 0; z-index: 10;
+  display: flex; flex-direction: column;
+  padding: env(safe-area-inset-top, 20px) 20px env(safe-area-inset-bottom, 20px);
+}
+
+/* ── Phase indicator ── */
+#phaseBar {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 16px;
+}
+.phase-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: rgba(255,255,255,.25); transition: background .3s;
+  flex-shrink: 0;
+}
+.phase-dot.done   { background: var(--neon); }
+.phase-dot.active { background: #fff; box-shadow: 0 0 0 3px rgba(255,255,255,.2); }
+#phaseName {
+  font-size: 12px; font-weight: 700; color: rgba(255,255,255,.5);
+  text-transform: uppercase; letter-spacing: .08em; margin-left: 4px;
+}
+
+/* ── Progress bar ── */
+#progressWrap {
+  height: 3px; background: rgba(255,255,255,.1); border-radius: 999px;
+  overflow: hidden; margin-bottom: 20px;
+}
+#progressFill {
+  height: 100%; width: 0%; background: var(--neon);
+  border-radius: 999px; transition: width .5s linear;
+}
+
+/* ── Prompt card ── */
+#promptCard {
+  background: rgba(5,7,11,.82); border: 1px solid rgba(255,255,255,.1);
+  backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+  border-radius: 20px; padding: 18px 20px;
+}
+#promptMain {
+  font-size: 19px; font-weight: 800; color: #fff;
+  line-height: 1.25; margin-bottom: 6px;
+}
+#promptSub {
+  font-size: 13px; color: rgba(255,255,255,.55); line-height: 1.5;
+}
+
+/* ── Tilt indicator ── */
+#tiltBar {
+  display: flex; align-items: center; gap: 10px; margin-top: 14px;
+}
+#tiltLabel { font-size: 11px; color: rgba(255,255,255,.4); width: 44px; }
+#tiltTrack {
+  flex: 1; height: 4px; background: rgba(255,255,255,.1);
+  border-radius: 999px; position: relative;
+}
+#tiltKnob {
+  position: absolute; top: -4px; width: 12px; height: 12px;
+  border-radius: 50%; background: var(--neon);
+  transform: translateX(-50%); left: 50%;
+  transition: left .1s linear, background .2s;
+}
+#tiltKnob.warn { background: var(--warn); }
+#tiltKnob.bad  { background: var(--danger); }
+
+/* ── Timer ── */
+#timerRing {
+  position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
+  z-index: 11; pointer-events: none; opacity: 0; transition: opacity .3s;
+}
+#timerRing.show { opacity: 1; }
+#timerSvg { width: 90px; height: 90px; }
+#timerText {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+  font-size: 26px; font-weight: 800; color: var(--neon);
+}
+
+/* ── Bottom controls ── */
+#controls {
+  margin-top: auto; display: flex; flex-direction: column; gap: 10px;
+}
+.ctrl-btn {
+  width: 100%; padding: 16px; border-radius: 18px;
+  font-size: 17px; font-weight: 800; border: none; cursor: pointer;
+  transition: all .15s; -webkit-tap-highlight-color: transparent;
+}
+.ctrl-btn.primary { background: var(--neon); color: var(--black); }
+.ctrl-btn.primary:active { background: #d4ff33; transform: scale(.97); }
+.ctrl-btn.ghost {
+  background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.12);
+  color: #fff;
+}
+.ctrl-btn.danger { background: rgba(255,72,72,.2); border: 1px solid rgba(255,72,72,.35); color: #ff8a8a; }
+
+/* ── Anchor placement UI ── */
+#anchorUI {
+  position: fixed; inset: 0; z-index: 20; background: rgba(0,0,0,.75);
+  backdrop-filter: blur(12px); display: none;
+  flex-direction: column; align-items: center; justify-content: center; padding: 28px;
+}
+#anchorUI.show { display: flex; }
+.anchor-title { font-size: 21px; font-weight: 800; color: #fff; margin-bottom: 8px; text-align: center; }
+.anchor-sub   { font-size: 14px; color: rgba(255,255,255,.55); text-align: center; line-height: 1.6; margin-bottom: 24px; }
+.anchor-list  { width: 100%; max-width: 340px; display: flex; flex-direction: column; gap: 10px; margin-bottom: 24px; }
+.anchor-item  {
+  display: flex; align-items: center; gap: 12px; padding: 12px 14px;
+  background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.1);
+  border-radius: 14px;
+}
+.anchor-icon { font-size: 22px; width: 32px; text-align: center; }
+.anchor-text { font-size: 13px; color: rgba(255,255,255,.8); line-height: 1.4; }
+.anchor-check { margin-left: auto; font-size: 18px; color: var(--neon); display: none; }
+.anchor-item.done .anchor-check { display: block; }
+.anchor-item.done { border-color: rgba(200,255,0,.3); background: rgba(200,255,0,.07); }
+
+/* ── Upload state ── */
+#uploadState {
+  position: fixed; inset: 0; z-index: 30; background: var(--black);
+  display: none; flex-direction: column; align-items: center; justify-content: center;
+  gap: 16px; padding: 28px;
+}
+#uploadState.show { display: flex; }
+#uploadSpinner {
+  width: 60px; height: 60px; border: 3px solid rgba(255,255,255,.1);
+  border-top-color: var(--neon); border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+#uploadLabel { font-size: 16px; color: rgba(255,255,255,.7); text-align: center; }
+#uploadBar { width: 240px; height: 4px; background: rgba(255,255,255,.1); border-radius: 999px; }
+#uploadFill { height: 100%; width: 0%; background: var(--neon); border-radius: 999px; transition: width .4s; }
+</style>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<video id="preview" autoplay muted playsinline></video>
+
+<div id="overlay">
+  <div id="phaseBar">
+    <div class="phase-dot active" data-phase="0"></div>
+    <div class="phase-dot" data-phase="1"></div>
+    <div class="phase-dot" data-phase="2"></div>
+    <div class="phase-dot" data-phase="3"></div>
+    <div class="phase-dot" data-phase="4"></div>
+    <span id="phaseName">Exterior</span>
+  </div>
+
+  <div id="progressWrap"><div id="progressFill"></div></div>
+
+  <div id="promptCard">
+    <div id="promptMain">Get ready to start</div>
+    <div id="promptSub">Stand arm's-length from the front of the car.</div>
+    <div id="tiltBar">
+      <span id="tiltLabel">Level</span>
+      <div id="tiltTrack"><div id="tiltKnob"></div></div>
+    </div>
+  </div>
+
+  <div id="controls">
+    <button class="ctrl-btn primary" id="mainBtn">Start Capture</button>
+    <button class="ctrl-btn ghost"   id="skipBtn" style="display:none">Skip this step</button>
+    <button class="ctrl-btn danger"  id="restartBtn" style="display:none">Restart</button>
+  </div>
+</div>
+
+<!-- Timer ring (shown during countdown) -->
+<div id="timerRing">
+  <svg id="timerSvg" viewBox="0 0 90 90">
+    <circle cx="45" cy="45" r="40" fill="none" stroke="rgba(255,255,255,.1)" stroke-width="3"/>
+    <circle id="timerArc" cx="45" cy="45" r="40" fill="none"
+      stroke="#c8ff00" stroke-width="3" stroke-linecap="round"
+      stroke-dasharray="251" stroke-dashoffset="0"
+      transform="rotate(-90 45 45)"/>
+  </svg>
+  <div id="timerText">3</div>
+</div>
+
+<!-- Anchor placement guide -->
+<div id="anchorUI">
+  <div class="anchor-title">Place your anchor markers</div>
+  <div class="anchor-sub">
+    Stick the printed QR markers at these 4 locations.<br>
+    They must be visible in both exterior AND interior captures.
+  </div>
+  <div class="anchor-list" id="anchorList">
+    <div class="anchor-item" data-anchor="0">
+      <span class="anchor-icon">🚗</span>
+      <div class="anchor-text"><strong>Driver door frame</strong><br>Top corner, outside</div>
+      <span class="anchor-check">✓</span>
+    </div>
+    <div class="anchor-item" data-anchor="1">
+      <span class="anchor-icon">🪑</span>
+      <div class="anchor-text"><strong>B-pillar</strong><br>Centre, eye height</div>
+      <span class="anchor-check">✓</span>
+    </div>
+    <div class="anchor-item" data-anchor="2">
+      <span class="anchor-icon">🔽</span>
+      <div class="anchor-text"><strong>Door sill</strong><br>Driver side, centre</div>
+      <span class="anchor-check">✓</span>
+    </div>
+    <div class="anchor-item" data-anchor="3">
+      <span class="anchor-icon">🚪</span>
+      <div class="anchor-text"><strong>Passenger door frame</strong><br>Top corner, outside</div>
+      <span class="anchor-check">✓</span>
+    </div>
+  </div>
+  <button class="ctrl-btn primary" id="anchorsReadyBtn" style="width:100%;max-width:340px">
+    All markers placed — Continue
+  </button>
+</div>
+
+<!-- Upload state -->
+<div id="uploadState">
+  <div id="uploadSpinner"></div>
+  <div id="uploadLabel">Uploading captures…</div>
+  <div id="uploadBar"><div id="uploadFill"></div></div>
+</div>
+
+<script type="module">
+import { supabase } from './js/supabaseClient.js';
+import r2 from './js/r2Client.js';
+
+// ── Phases ─────────────────────────────────────────────────────────────────
+const PHASES = [
+  {
+    id: 'anchor',
+    name: 'Anchor markers',
+    label: 'Anchors',
+    description: 'Place 4 QR anchor markers at the door frame locations before filming.',
+    action: 'Place Markers',
+    skipable: false,
+  },
+  {
+    id: 'exterior',
+    name: 'Exterior walk-around',
+    label: 'Exterior',
+    description: 'Walk slowly around the full exterior. Keep the car centred.',
+    action: 'Start Exterior Capture',
+    duration: 90,
+    script: [
+      { t: 0,  prompt: 'Start at the front bumper.',               sub: 'Hold steady 2 seconds. Car centred.' },
+      { t: 3,  prompt: 'Walk slowly to the driver side.',           sub: 'Keep camera at mirror height.' },
+      { t: 18, prompt: 'Driver door — capture the handles.',        sub: 'Slightly lower. Include door sill.' },
+      { t: 28, prompt: 'Continue to the rear.',                     sub: 'Smooth pace. QR markers in frame.' },
+      { t: 45, prompt: 'Rear — pan slowly across the boot.',        sub: 'Tail-light height.' },
+      { t: 55, prompt: 'Continue to the passenger side.',           sub: 'Same pace as before.' },
+      { t: 68, prompt: 'Passenger door — capture handles + sill.',  sub: 'Match your driver-side angle.' },
+      { t: 78, prompt: 'Walk back to the front.',                   sub: 'Almost done.' },
+      { t: 85, prompt: 'Finish at the front bumper.',               sub: 'Hold 3 seconds.' },
+    ],
+  },
+  {
+    id: 'anchor_scan',
+    name: 'Anchor scan',
+    label: 'Anchors',
+    description: 'Film all 4 QR markers up close so the computer can lock them precisely.',
+    action: 'Start Anchor Scan',
+    duration: 30,
+    script: [
+      { t: 0,  prompt: 'Film the driver door-frame marker.',  sub: 'Hold 5 seconds. Fill the frame with the QR code.' },
+      { t: 8,  prompt: 'Film the B-pillar marker.',           sub: 'Hold 5 seconds. Nice and steady.' },
+      { t: 16, prompt: 'Film the door-sill marker.',          sub: 'Hold 5 seconds. Tilt down slowly.' },
+      { t: 24, prompt: 'Film the passenger frame marker.',    sub: 'Hold 5 seconds. Last one.' },
+    ],
+  },
+  {
+    id: 'interior',
+    name: 'Interior capture',
+    label: 'Interior',
+    description: 'Capture the full interior. Start with the anchors in frame.',
+    action: 'Start Interior Capture',
+    duration: 80,
+    script: [
+      { t: 0,  prompt: 'Open the driver door. Film the anchors.',   sub: 'Get all 3 door-area markers in frame.' },
+      { t: 8,  prompt: 'Move inside. Steering wheel and dash.',     sub: 'Hold camera at eye height.' },
+      { t: 18, prompt: 'Sweep slowly across the dash.',             sub: 'Left to right. Don\'t rush.' },
+      { t: 30, prompt: 'Centre console and infotainment.',          sub: 'Capture gearstick, armrest, screens.' },
+      { t: 42, prompt: 'Passenger side dash and footwell.',         sub: 'Keep camera level.' },
+      { t: 52, prompt: 'Look into the rear through the gap.',       sub: 'Show back of front seats.' },
+      { t: 60, prompt: 'Move to rear door. Back bench.',            sub: 'Film both rear seats and footwells.' },
+      { t: 72, prompt: 'Finish on the driver door from inside.',    sub: 'Get anchors in frame again. Done.' },
+    ],
+  },
+  {
+    id: 'done',
+    name: 'Done',
+    label: 'Done',
+    description: 'All captures complete. Uploading for processing.',
+    action: null,
+  },
+];
+
+// ── State ──────────────────────────────────────────────────────────────────
+
+let stream        = null;
+let recorder      = null;
+let chunks        = [];
+let wakeLock      = null;
+let phaseIdx      = 0;
+let recording     = false;
+let scriptTimer   = null;
+let progressTimer = null;
+let stageStart    = 0;
+
+const blobs       = {}; // { exterior, anchor_scan, interior }
+const splatId     = new URLSearchParams(location.search).get('splatId') || crypto.randomUUID();
+
+// ── DOM refs ───────────────────────────────────────────────────────────────
+
+const preview     = document.getElementById('preview');
+const phaseName   = document.getElementById('phaseName');
+const promptMain  = document.getElementById('promptMain');
+const promptSub   = document.getElementById('promptSub');
+const progressFill= document.getElementById('progressFill');
+const mainBtn     = document.getElementById('mainBtn');
+const skipBtn     = document.getElementById('skipBtn');
+const restartBtn  = document.getElementById('restartBtn');
+const timerRing   = document.getElementById('timerRing');
+const timerText   = document.getElementById('timerText');
+const timerArc    = document.getElementById('timerArc');
+const tiltKnob    = document.getElementById('tiltKnob');
+const anchorUI    = document.getElementById('anchorUI');
+const uploadState = document.getElementById('uploadState');
+
+// ── Camera init ────────────────────────────────────────────────────────────
+
+async function initCamera() {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
+      audio: false,
+    });
+    preview.srcObject = stream;
+    preview.classList.add('rear');
+  } catch (err) {
+    promptMain.textContent = 'Camera permission needed';
+    promptSub.textContent  = 'Please allow camera access and reload.';
+    mainBtn.style.display  = 'none';
+  }
+}
+
+// ── Device orientation tilt indicator ─────────────────────────────────────
+
+window.addEventListener('deviceorientation', e => {
+  const gamma = e.gamma || 0; // left-right tilt (-90 to 90)
+  const pct   = ((gamma + 30) / 60) * 100; // map -30..+30 to 0..100%
+  const clamped = Math.max(5, Math.min(95, pct));
+  tiltKnob.style.left = clamped + '%';
+  const abs = Math.abs(gamma);
+  tiltKnob.classList.toggle('warn', abs > 15 && abs <= 25);
+  tiltKnob.classList.toggle('bad',  abs > 25);
+  document.getElementById('tiltLabel').textContent =
+    abs < 10 ? 'Level' : abs < 20 ? 'Tilting' : 'Too tilted';
+}, { passive: true });
+
+// ── Phase navigation ───────────────────────────────────────────────────────
+
+function updatePhaseUI() {
+  const phase = PHASES[phaseIdx];
+  document.querySelectorAll('.phase-dot').forEach((dot, i) => {
+    dot.classList.toggle('done',   i < phaseIdx);
+    dot.classList.toggle('active', i === phaseIdx);
+  });
+  phaseName.textContent  = phase.label;
+  promptMain.textContent = phase.name;
+  promptSub.textContent  = phase.description;
+  mainBtn.textContent    = phase.action || '—';
+  mainBtn.style.display  = phase.action ? 'block' : 'none';
+}
+
+async function advancePhase() {
+  phaseIdx++;
+  if (phaseIdx >= PHASES.length) return;
+  updatePhaseUI();
+  progressFill.style.width = '0%';
+
+  const phase = PHASES[phaseIdx];
+  if (phase.id === 'anchor')       { showAnchorUI(); return; }
+  if (phase.id === 'done')         { await uploadAll(); return; }
+}
+
+// ── Anchor UI ──────────────────────────────────────────────────────────────
+
+function showAnchorUI() {
+  anchorUI.classList.add('show');
+}
+
+document.getElementById('anchorsReadyBtn').addEventListener('click', () => {
+  // Mark all anchors as done
+  document.querySelectorAll('.anchor-item').forEach(el => el.classList.add('done'));
+  setTimeout(() => {
+    anchorUI.classList.remove('show');
+    advancePhase(); // move to exterior
+  }, 600);
+});
+
+// ── Countdown ─────────────────────────────────────────────────────────────
+
+async function countdown(n = 3) {
+  timerRing.classList.add('show');
+  const circumference = 2 * Math.PI * 40; // ≈ 251
+  for (let i = n; i >= 1; i--) {
+    timerText.textContent = i;
+    timerArc.style.strokeDashoffset = ((n - i) / n * circumference).toString();
+    await new Promise(r => setTimeout(r, 1000));
+  }
+  timerRing.classList.remove('show');
+}
+
+// ── Recording ──────────────────────────────────────────────────────────────
+
+async function startRecording() {
+  const phase = PHASES[phaseIdx];
+  if (!phase.duration || !stream) return;
+
+  await countdown(3);
+
+  // Wake lock
+  try { wakeLock = await navigator.wakeLock?.request('screen'); } catch {}
+
+  // MediaRecorder
+  chunks = [];
+  const mime = ['video/mp4;codecs=h264','video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm']
+    .find(m => MediaRecorder.isTypeSupported(m)) || '';
+  recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : {});
+  recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+  recorder.start(1000);
+  recording = true;
+  stageStart = performance.now();
+
+  mainBtn.textContent  = '⏹ Stop';
+  mainBtn.onclick      = stopRecording;
+  restartBtn.style.display = 'block';
+
+  // Run script
+  runScript(phase.script, phase.duration);
+}
+
+function runScript(script, duration) {
+  let scriptIdx = 0;
+  const tick = () => {
+    if (!recording) return;
+    const elapsed = (performance.now() - stageStart) / 1000;
+    const pct     = Math.min(100, (elapsed / duration) * 100);
+    progressFill.style.width = pct + '%';
+
+    // Advance script stage
+    while (scriptIdx < script.length - 1 && elapsed >= script[scriptIdx + 1].t) {
+      scriptIdx++;
+    }
+    const stage = script[scriptIdx];
+    promptMain.textContent = stage.prompt;
+    promptSub.textContent  = stage.sub;
+
+    // Auto-stop at duration
+    if (elapsed >= duration) { stopRecording(); return; }
+    scriptTimer = setTimeout(tick, 500);
+  };
+  tick();
+}
+
+async function stopRecording() {
+  if (!recording) return;
+  recording = false;
+  clearTimeout(scriptTimer);
+  wakeLock?.release(); wakeLock = null;
+
+  recorder.stop();
+  await new Promise(r => { recorder.onstop = r; });
+
+  const phase = PHASES[phaseIdx];
+  const blob  = new Blob(chunks, { type: recorder.mimeType });
+  blobs[phase.id] = blob;
+
+  progressFill.style.width = '100%';
+  promptMain.textContent   = `${phase.label} captured ✓`;
+  promptSub.textContent    = `${(blob.size / 1048576).toFixed(1)} MB recorded.`;
+  mainBtn.textContent      = 'Next Phase →';
+  mainBtn.onclick          = advancePhase;
+  restartBtn.style.display = 'none';
+}
+
+// ── Upload ─────────────────────────────────────────────────────────────────
+
+async function uploadAll() {
+  uploadState.classList.add('show');
+  const uploadFill  = document.getElementById('uploadFill');
+  const uploadLabel = document.getElementById('uploadLabel');
+
+  const toUpload = Object.entries(blobs);
+  let uploaded = 0;
+
+  for (const [type, blob] of toUpload) {
+    uploadLabel.textContent = `Uploading ${type.replace('_', ' ')} capture…`;
+    const ext  = blob.type.includes('mp4') ? 'mp4' : 'webm';
+    const path = `captures/${splatId}/${type}.${ext}`;
+
+    try {
+      await r2.upload(path, blob);
+    } catch {
+      // Fallback: Supabase storage
+      await supabase.storage.from('captures').upload(path, blob, { upsert: true });
+    }
+
+    uploaded++;
+    uploadFill.style.width = ((uploaded / toUpload.length) * 80) + '%';
+  }
+
+  // Create processing job in Supabase
+  uploadLabel.textContent = 'Queuing for processing…';
+  await supabase.from('processing_jobs').insert({
+    splat_id:    splatId,
+    status:      'queued',
+    stage:       'dual_capture_stitch',
+    metadata: {
+      capture_types: Object.keys(blobs),
+      anchor_count:  4,
+      stitch_mode:   'portal_v83',
+    },
+  }).catch(console.warn);
+
+  uploadFill.style.width = '100%';
+  uploadLabel.textContent = '✓ Uploaded! Processing will begin shortly.';
+
+  setTimeout(() => {
+    window.location.href = `/viewer.html?id=${splatId}&processing=1`;
+  }, 2500);
+}
+
+// ── Restart current phase ──────────────────────────────────────────────────
+
+restartBtn.addEventListener('click', () => {
+  recording = false;
+  clearTimeout(scriptTimer);
+  recorder?.stop();
+  wakeLock?.release();
+  chunks = [];
+  progressFill.style.width = '0%';
+  restartBtn.style.display = 'none';
+  mainBtn.textContent = PHASES[phaseIdx].action;
+  mainBtn.onclick     = () => startRecording();
+  updatePhaseUI();
+});
+
+// ── Main button ────────────────────────────────────────────────────────────
+
+mainBtn.addEventListener('click', async () => {
+  const phase = PHASES[phaseIdx];
+  if (phase.id === 'anchor') {
+    showAnchorUI();
+  } else if (phase.duration) {
+    await startRecording();
+  }
+});
+
+// ── Boot ───────────────────────────────────────────────────────────────────
+
+await initCamera();
+
+// If splatId provided, show it
+const urlId = new URLSearchParams(location.search).get('splatId');
+if (urlId) {
+  const { data } = await supabase.from('splats').select('title').eq('id', urlId).single();
+  if (data?.title) document.title = `FUMOCA Capture · ${data.title}`;
+}
+
+// Start at anchor phase
+updatePhaseUI();
+// Immediately show anchor instructions
+showAnchorUI();
+</script>
+</body>
+</html>

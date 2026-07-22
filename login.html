@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="manifest" href="/manifest.json">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FUMOCA — Log In</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root {
+    --black:#0A0A0A;--white:#FAFAFA;--neon:#C8FF00;--purple:#7B2FFF;--pink:#FF2D78;
+    --glass:rgba(255,255,255,0.06);--glass-border:rgba(255,255,255,0.12);
+    --font-display:'Bebas Neue',sans-serif;--font-body:'DM Sans',sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{background:var(--black);color:var(--white);font-family:var(--font-body);min-height:100vh;display:grid;grid-template-columns:1fr 1fr;}
+  .left-panel{position:relative;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between;padding:48px;background:rgba(255,45,120,0.04);border-right:1px solid var(--glass-border);}
+  .left-bg{position:absolute;inset:0;background:radial-gradient(ellipse 60% 50% at 30% 60%,rgba(255,45,120,0.2) 0%,transparent 70%),radial-gradient(ellipse 40% 40% at 80% 20%,rgba(123,47,255,0.15) 0%,transparent 60%);pointer-events:none;}
+  .left-logo{font-family:var(--font-display);font-size:36px;letter-spacing:4px;text-decoration:none;color:var(--white);position:relative;}
+  .left-logo span{color:var(--neon);}
+  .left-headline{position:relative;}
+  .left-headline h2{font-family:var(--font-display);font-size:72px;line-height:0.95;letter-spacing:1px;margin-bottom:20px;}
+  .left-headline h2 .neon{color:var(--neon);}
+  .left-headline p{color:rgba(255,255,255,0.55);font-size:16px;line-height:1.7;max-width:360px;}
+  .left-bottom{position:relative;display:flex;gap:32px;}
+  .lb-item{font-family:var(--font-display);}
+  .lb-num{font-size:36px;color:var(--neon);}
+  .lb-label{font-size:12px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:1px;}
+  .right-panel{display:flex;align-items:center;justify-content:center;padding:48px;}
+  .auth-box{width:100%;max-width:400px;}
+  .auth-title{font-family:var(--font-display);font-size:48px;letter-spacing:2px;margin-bottom:8px;}
+  .auth-sub{color:rgba(255,255,255,0.5);font-size:15px;margin-bottom:36px;}
+  .auth-sub a{color:var(--neon);text-decoration:none;}
+  .form-group{margin-bottom:20px;}
+  .form-label{display:block;font-size:12px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:rgba(255,255,255,0.5);margin-bottom:8px;}
+  .form-input{width:100%;padding:14px 18px;background:var(--glass);border:1px solid var(--glass-border);border-radius:12px;color:var(--white);font-family:var(--font-body);font-size:15px;outline:none;transition:border-color 0.2s;}
+  .form-input:focus{border-color:var(--neon);}
+  .form-input::placeholder{color:rgba(255,255,255,0.25);}
+  .forgot{text-align:right;margin-top:8px;font-size:13px;}
+  .forgot a{color:rgba(255,255,255,0.4);text-decoration:none;transition:color 0.2s;}
+  .forgot a:hover{color:var(--neon);}
+  .submit-btn{width:100%;padding:16px;background:var(--neon);color:var(--black);border:none;border-radius:12px;font-family:var(--font-body);font-size:16px;font-weight:700;cursor:pointer;margin-top:8px;transition:all 0.2s;}
+  .submit-btn:hover:not(:disabled){background:#d4ff1a;transform:scale(1.02);}
+  .submit-btn:disabled{opacity:0.5;cursor:not-allowed;transform:none;}
+  .divider{display:flex;align-items:center;gap:16px;margin:24px 0;color:rgba(255,255,255,0.3);font-size:13px;}
+  .divider::before,.divider::after{content:'';flex:1;height:1px;background:var(--glass-border);}
+  .social-btn{width:100%;padding:14px;background:var(--glass);border:1px solid var(--glass-border);border-radius:12px;color:var(--white);font-family:var(--font-body);font-size:14px;font-weight:500;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;transition:all 0.2s;}
+  .social-btn:hover{background:rgba(255,255,255,0.1);}
+  .msg{padding:12px 16px;border-radius:10px;font-size:14px;margin-bottom:20px;display:none;}
+  .msg.error{background:rgba(255,77,77,0.1);border:1px solid rgba(255,77,77,0.3);color:#FF8080;}
+  .msg.success{background:rgba(0,255,136,0.1);border:1px solid rgba(0,255,136,0.3);color:#00FF88;}
+  .msg.show{display:block;}
+  @media(max-width:800px){body{grid-template-columns:1fr;}.left-panel{display:none;}.right-panel{padding:32px 24px;}}
+</style>
+<link rel="stylesheet" href="css/ui-system.css"><script src="config.js"></script>
+</head>
+<body>
+<div class="left-panel">
+  <div class="left-bg"></div>
+  <a href="index.html" class="left-logo">FUMO<span>C</span>A</a>
+  <div class="left-headline">
+    <h2>WELCOME<br>BACK TO<br><span class="neon">3D WORLD</span></h2>
+    <p>Your splats, your followers, your revenue — all waiting for you.</p>
+  </div>
+  <div class="left-bottom">
+    <div class="lb-item"><div class="lb-num">3D</div><div class="lb-label">Everything</div></div>
+    <div class="lb-item"><div class="lb-num">∞</div><div class="lb-label">Creativity</div></div>
+  </div>
+</div>
+<div class="right-panel">
+  <div class="auth-box">
+    <h1 class="auth-title">Log in</h1>
+    <p class="auth-sub">New here? <a href="signup.html">Create an account</a></p>
+    <div id="msg" class="msg"></div>
+    <form onsubmit="handleLogin(event)">
+      <div class="form-group">
+        <label class="form-label">Email</label>
+        <input type="email" class="form-input" id="email" placeholder="you@example.com" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Password</label>
+        <input type="password" class="form-input" id="password" placeholder="Your password" required>
+        <div class="forgot"><a href="#">Forgot password?</a></div>
+      </div>
+      <button type="submit" class="submit-btn" id="loginBtn">Log in →</button>
+    </form>
+    <div class="divider">or</div>
+    <button class="social-btn" onclick="handleGoogleLogin()">
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+        <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" fill="#4285F4"/>
+        <path d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9 18z" fill="#34A853"/>
+        <path d="M3.964 10.71c-.18-.54-.282-1.117-.282-1.71s.102-1.17.282-1.71V4.958H.957C.347 6.173 0 7.548 0 9s.348 2.827.957 4.042l3.007-2.332z" fill="#FBBC05"/>
+        <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0 5.482 0 2.438 2.017.957 4.958L3.964 6.29C4.672 4.163 6.656 3.58 9 3.58z" fill="#EA4335"/>
+      </svg>
+      Continue with Google
+    </button>
+  </div>
+</div>
+
+<script type="module">
+import { supabase } from './js/supabaseClient.js';
+
+function showMsg(t,type){
+  const el=document.getElementById('msg');
+  el.textContent=t;
+  el.className=`msg ${type}-msg show`;
+}
+
+window.handleLogin = async function(e){
+  e.preventDefault();
+
+  const btn=document.getElementById('loginBtn');
+  btn.disabled=true;
+  btn.textContent='Logging in...';
+
+  const email=document.getElementById('email').value;
+  const password=document.getElementById('password').value;
+
+  const { error } = await supabase.auth.signInWithPassword({
+    email,
+    password
+  });
+
+  if(error){
+    showMsg(error.message,'error');
+    btn.disabled=false;
+    btn.textContent='Log in →';
+  } else {
+    showMsg('Welcome back!','success');
+    setTimeout(()=>{window.location.href='feed.html';},800);
+  }
+};
+
+supabase.auth.getSession().then(({data:{session}})=>{
+  if(session) window.location.href='feed.html';
+});
+</script>
+
+</body>
+</html>
