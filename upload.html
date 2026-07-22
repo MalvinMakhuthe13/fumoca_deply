@@ -28,7 +28,7 @@
     
 <div class="grid-2">
   <section class="panel">
-    <p class="page-sub" style="margin-top:0;margin-bottom:18px">Upload a source video or register a finished splat from another provider. Feed cards, thumbnails, teaser videos and interactive viewer links now share the same publishing flow.</p>
+    <p class="page-sub" style="margin-top:0;margin-bottom:18px">Upload a source video or register a finished nif from another provider. Feed cards, thumbnails, teaser videos and interactive viewer links now share the same publishing flow.</p>
 
     <div class="panel" style="margin-bottom:18px;">
       <label style="margin-bottom:10px;display:block;">Creation mode</label>
@@ -36,7 +36,7 @@
         <button type="button" id="modePipelineBtn" class="mode-btn" onclick="setUploadMode('pipeline')" style="padding:14px 16px;border-radius:14px;border:1px solid rgba(200,255,0,.3);background:rgba(200,255,0,.08);color:#C8FF00;font-weight:700;cursor:pointer;">🎬 Process from video</button>
         <button type="button" id="modePhotosBtn" class="mode-btn" onclick="setUploadMode('photos')" style="padding:14px 16px;border-radius:14px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);color:#FAFAFA;font-weight:700;cursor:pointer;">📸 Process from photos</button>
         <button type="button" id="modePlyBtn" class="mode-btn" onclick="setUploadMode('ply')" style="padding:14px 16px;border-radius:14px;border:1px solid rgba(0,229,255,.3);background:rgba(0,229,255,.06);color:#0ef;font-weight:700;cursor:pointer;">📂 Upload .ply directly</button>
-        <button type="button" id="modeExternalBtn" class="mode-btn" onclick="setUploadMode('external')" style="padding:14px 16px;border-radius:14px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);color:#FAFAFA;font-weight:700;cursor:pointer;">🧊 Publish finished splat</button>
+        <button type="button" id="modeExternalBtn" class="mode-btn" onclick="setUploadMode('external')" style="padding:14px 16px;border-radius:14px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);color:#FAFAFA;font-weight:700;cursor:pointer;">🧊 Publish finished nif</button>
       </div>
     </div>
 
@@ -60,11 +60,11 @@
       <div class="form-grid">
         <div>
           <label>Title</label>
-          <input type="text" id="splatTitle" placeholder="Give your splat a strong title">
+          <input type="text" id="nifTitle" placeholder="Give your nif a strong title">
         </div>
         <div>
           <label>Category</label>
-          <select id="splatCategory">
+          <select id="nifCategory">
             <option value="other">Other</option>
             <option value="fashion">Fashion</option>
             <option value="product">Product</option>
@@ -79,7 +79,7 @@
 
       <div style="margin-top:16px">
         <label>Description</label>
-        <textarea id="splatDesc" rows="4" placeholder="What are viewers seeing, buying, or exploring?"></textarea>
+        <textarea id="nifDesc" rows="4" placeholder="What are viewers seeing, buying, or exploring?"></textarea>
       </div>
 
       <div style="margin-top:16px">
@@ -103,8 +103,8 @@
         <input type="text" id="providerName" placeholder="e.g. Luma, Polycam, Scaniverse, artist studio">
         <div class="form-grid" style="margin-top:16px;">
           <div>
-            <label>Interactive splat URL</label>
-            <input type="url" id="externalSplatUrl" placeholder="https://.../scene.ksplat or .ply or .splat">
+            <label>Interactive nif URL</label>
+            <input type="url" id="externalNifUrl" placeholder="https://.../scene.knif or .ply or .nif">
           </div>
           <div>
             <label>Thumbnail URL</label>
@@ -124,7 +124,7 @@
           <div id="saleToggle" style="width:44px;height:24px;border-radius:999px;background:rgba(255,255,255,.14);"></div>
         </div>
         <div id="priceField" style="display:none; margin-bottom:12px;">
-          <input type="number" id="splatPrice" placeholder="Price in ZAR" min="0" step="10">
+          <input type="number" id="nifPrice" placeholder="Price in ZAR" min="0" step="10">
         </div>
         <div onclick="toggleMono('print')" style="display:flex;justify-content:space-between;gap:16px;padding:16px;border-radius:12px;background:var(--glass);border:1px solid var(--glass-border);cursor:pointer;">
           <div><div style="font-weight:700">Enable 3D print orders</div><div class="muted" style="font-size:13px;">Allow physical print enquiries later</div></div>
@@ -149,7 +149,7 @@
       <div class="mini-item" id="step-upload"><div class="mini-item-title">📤 Upload video</div><div class="mini-item-sub">Store source video in Supabase Storage.</div></div>
       <div class="mini-item" id="step-frames"><div class="mini-item-title">🎞️ Extract frames</div><div class="mini-item-sub">Queued for downstream processing.</div></div>
       <div class="mini-item" id="step-colmap"><div class="mini-item-title">📍 Pose estimation</div><div class="mini-item-sub">Worker will reconstruct camera positions.</div></div>
-      <div class="mini-item" id="step-train"><div class="mini-item-title">🧠 Train splat</div><div class="mini-item-sub">Gaussian splat generation runs in the worker.</div></div>
+      <div class="mini-item" id="step-train"><div class="mini-item-title">🧠 Train nif</div><div class="mini-item-sub">Gaussian nif generation runs in the worker.</div></div>
       <div class="mini-item" id="step-export"><div class="mini-item-title">📦 Export</div><div class="mini-item-sub">Processed result is uploaded back to storage.</div></div>
       <div class="mini-item" id="step-live"><div class="mini-item-title">🌐 Live</div><div class="mini-item-sub">Feed and viewer open your finished result.</div></div>
     </div>
