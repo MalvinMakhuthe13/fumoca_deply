@@ -27,8 +27,8 @@ function firstNonEmpty(...values) {
 }
 
 function resolveUrl(row) {
-  return firstNonEmpty(row.splat_url, row.output_url, row.public_url,
-    row.file_url, row.external_splat_url, row.provider_splat_url);
+  return firstNonEmpty(row.nif_url, row.output_url, row.public_url,
+    row.file_url, row.external_nif_url, row.provider_nif_url);
 }
 function resolveThumbnail(row) {
   return firstNonEmpty(row.thumbnail_url, row.poster_url, row.preview_image_url);
@@ -100,7 +100,7 @@ function showToast(msg, isError = false) {
 }
 
 // ─── CORE DELETE ─────────────────────────────────────────────────────────────
-// Deletes: storage files (video + splat + thumbnail), processing_jobs, splat row.
+// Deletes: storage files (video + nif + thumbnail), reconstruction_jobs, nif row.
 async function deletePostRecord(post, opts = {}) {
   const { silent = false } = opts;
 
@@ -112,10 +112,10 @@ async function deletePostRecord(post, opts = {}) {
     const p = extractStoragePath(post.video_url);
     if (p) filesToDelete.push(p);
   }
-  // Splat output (only if not external)
-  const splatUrl = resolveUrl(post);
-  if (splatUrl && !post.external_splat_url) {
-    const p = extractStoragePath(splatUrl);
+  // Nif output (only if not external)
+  const nifUrl = resolveUrl(post);
+  if (nifUrl && !post.external_nif_url) {
+    const p = extractStoragePath(nifUrl);
     if (p) filesToDelete.push(p);
   }
   // Thumbnail
@@ -135,10 +135,10 @@ async function deletePostRecord(post, opts = {}) {
   );
 
   // 3. Delete processing jobs (cascade handles it too, but explicit is safer for RLS)
-  await supabase.from('processing_jobs').delete().eq('splat_id', post.id);
+  await supabase.from('reconstruction_jobs').delete().eq('nif_file_id', post.id);
 
-  // 4. Delete splat row
-  const { error } = await supabase.from('splats').delete().eq('id', post.id);
+  // 4. Delete nif file row
+  const { error } = await supabase.from('nif_files').delete().eq('id', post.id);
   if (error) throw error;
 
   // 5. Animate card out
@@ -156,7 +156,7 @@ async function deletePostRecord(post, opts = {}) {
 }
 
 // ─── BULK DELETE ALL ──────────────────────────────────────────────────────────
-async function deleteAllSplatsForCurrentUser() {
+async function deleteAllNifsForCurrentUser() {
   if (!currentUserId) return;
   const mine = allPosts.filter(p => p.user_id === currentUserId);
   if (!mine.length) { showToast('You have no captures to delete.', false); return; }
@@ -226,7 +226,7 @@ function renderPost(post) {
     <div class="post-manage-wrap" style="position:relative;margin-left:auto;">
       <button class="manage-toggle-btn" title="Manage" style="background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.13);border-radius:8px;padding:5px 10px;color:#aaa;font-size:15px;cursor:pointer;line-height:1;">⋯</button>
       <div class="post-manage-dropdown" style="display:none;position:absolute;right:0;top:34px;min-width:195px;background:#1c1c1c;border:1px solid rgba(255,255,255,.12);border-radius:12px;z-index:200;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,.55);">
-        ${canOpen ? `<button class="manage-item" data-action="edit-splat" style="display:flex;align-items:center;gap:9px;width:100%;padding:12px 16px;background:none;border:none;border-bottom:1px solid rgba(255,255,255,.07);color:#FAFAFA;font:inherit;font-size:13px;cursor:pointer;">✏️ Edit in Editor</button>` : ''}
+        ${canOpen ? `<button class="manage-item" data-action="edit-nif" style="display:flex;align-items:center;gap:9px;width:100%;padding:12px 16px;background:none;border:none;border-bottom:1px solid rgba(255,255,255,.07);color:#FAFAFA;font:inherit;font-size:13px;cursor:pointer;">✏️ Edit in Editor</button>` : ''}
         <button class="manage-item" data-action="delete-upload" style="display:flex;align-items:center;gap:9px;width:100%;padding:12px 16px;background:none;border:none;color:#ff9d9d;font:inherit;font-size:13px;cursor:pointer;">🗑️ Delete this capture</button>
       </div>
     </div>` : '';
@@ -264,10 +264,10 @@ function renderPost(post) {
         ? `<button class="action-btn preview-btn"><span class="icon">🎬</span><span>Teaser</span></button>`
         : `<button class="action-btn" disabled><span class="icon">💬</span><span>${Number(post.comment_count || 0)}</span></button>`}
       ${canOpen
-        ? `<button class="open-splat-btn" data-id="${esc(post.id)}" data-url="${esc(url)}">View →</button>`
-        : `<button class="open-splat-btn" disabled>${badgeLabel(status)}</button>`}
+        ? `<button class="open-nif-btn" data-id="${esc(post.id)}" data-url="${esc(url)}">View →</button>`
+        : `<button class="open-nif-btn" disabled>${badgeLabel(status)}</button>`}
       ${canManagePost(post) && canOpen
-        ? `<button class="edit-splat-btn" data-action="edit-splat-inline" data-id="${esc(post.id)}" data-url="${esc(url)}" title="Edit in Editor">✏️ Edit</button>`
+        ? `<button class="edit-nif-btn" data-action="edit-nif-inline" data-id="${esc(post.id)}" data-url="${esc(url)}" title="Edit in Editor">✏️ Edit</button>`
         : ''}
     </div>`;
 
@@ -303,15 +303,15 @@ function renderPost(post) {
     vis.addEventListener('keydown', e => { if (e.key==='Enter'||e.key===' ') { e.preventDefault(); openViewer(post); } });
   }
 
-  article.querySelector(".open-splat-btn:not([disabled])")?.addEventListener("click", () => openViewer(post));
-  article.querySelector("[data-action=\"edit-splat-inline\"]")?.addEventListener("click", e => {
+  article.querySelector(".open-nif-btn:not([disabled])")?.addEventListener("click", () => openViewer(post));
+  article.querySelector("[data-action=\"edit-nif-inline\"]")?.addEventListener("click", e => {
     e.stopPropagation();
     const fileUrl = resolveUrl(post);
     if (!fileUrl) { showToast("No capture file to edit", true); return; }
     const p = new URLSearchParams();
-    // Use splat_url for viewer — output_url may be .ply which viewer cannot render
-  const editUrl = post.splat_url || (post.output_url && !post.output_url.toLowerCase().endsWith('.ply') ? post.output_url : null) || fileUrl;
-  p.set("file", editUrl); p.set("splatId", post.id); p.set("back", window.location.href);
+    // Use nif_url for viewer — output_url may be .ply which viewer cannot render
+  const editUrl = post.nif_url || (post.output_url && !post.output_url.toLowerCase().endsWith('.ply') ? post.output_url : null) || fileUrl;
+  p.set("file", editUrl); p.set("nifId", post.id); p.set("back", window.location.href);
     const mediaType = String(post.media_type || post.source_type || "").toLowerCase();
     const isMedia = ["video","photo","image","mp4","mov","jpg","png"].some(t => mediaType.includes(t));
     window.location.href = isMedia ? `media-edit.html?${p.toString()}` : `edit.html?${p.toString()}`;
@@ -348,15 +348,15 @@ function renderPost(post) {
     }
   });
 
-  // edit in editor — route to edit.html (Splat Studio) for splats, media-edit.html for video/photo
-  article.querySelector('[data-action="edit-splat"]')?.addEventListener('click', e => {
+  // edit in editor — route to edit.html (nif Studio) for nifs, media-edit.html for video/photo
+  article.querySelector('[data-action="edit-nif"]')?.addEventListener('click', e => {
     e.stopPropagation();
     if (dropdown) dropdown.style.display = 'none';
     const fileUrl = resolveUrl(post);
     if (!fileUrl) return;
     const p = new URLSearchParams();
-    p.set('file', fileUrl); p.set('splatId', post.id); p.set('back', window.location.href);
-    // Route media posts to media-edit, splats to edit studio
+    p.set('file', fileUrl); p.set('nifId', post.id); p.set('back', window.location.href);
+    // Route media posts to media-edit, nifs to edit studio
     const mediaType = String(post.media_type || post.source_type || '').toLowerCase();
     const isMedia = ['video','photo','image','mp4','mov','jpg','png'].some(t => mediaType.includes(t));
     window.location.href = isMedia ? `media-edit.html?${p.toString()}` : `edit.html?${p.toString()}`;
@@ -367,7 +367,7 @@ function renderPost(post) {
 
 function openViewer(post, openTeaser = false) {
   try {
-    sessionStorage.setItem('fumoca:selectedSplat', JSON.stringify({
+    sessionStorage.setItem('fumoca:selectedNif', JSON.stringify({
       id: post?.id||'', title: post?.title||'', description: post?.description||'',
       thumbnail: resolveThumbnail(post), previewVideo: resolvePreviewVideo(post),
       provider: post?.provider_name||'', status: post?.status||'', file: resolveUrl(post)
@@ -375,7 +375,7 @@ function openViewer(post, openTeaser = false) {
   } catch (_) {}
   const p = new URLSearchParams();
   const url = resolveUrl(post); const thumb = resolveThumbnail(post); const previewVideo = resolvePreviewVideo(post);
-  if (post?.id) p.set('splatId', post.id);
+  if (post?.id) p.set('nifId', post.id);
   if (url) p.set('file', url);
   if (thumb) p.set('thumbnail', thumb);
   if (previewVideo) p.set('previewVideo', previewVideo);
@@ -383,20 +383,20 @@ function openViewer(post, openTeaser = false) {
   window.location.href = `viewer.html?${p.toString()}`;
 }
 
-async function toggleLike(splatId, btn) {
+async function toggleLike(nifId, btn) {
   if (!currentUserId || !btn) return;
-  const isLiked = likedIds.has(splatId);
+  const isLiked = likedIds.has(nifId);
   const countEl = btn.querySelector('.like-count');
   const iconEl = btn.querySelector('.icon');
   const current = parseInt(countEl.textContent, 10) || 0;
   if (isLiked) {
-    likedIds.delete(splatId); btn.classList.remove('liked'); iconEl.textContent = '🤍';
+    likedIds.delete(nifId); btn.classList.remove('liked'); iconEl.textContent = '🤍';
     countEl.textContent = Math.max(0, current-1);
-    await supabase.from('likes').delete().eq('user_id', currentUserId).eq('splat_id', splatId);
+    await supabase.from('likes').delete().eq('user_id', currentUserId).eq('nif_id', nifId);
   } else {
-    likedIds.add(splatId); btn.classList.add('liked'); iconEl.textContent = '❤️';
+    likedIds.add(nifId); btn.classList.add('liked'); iconEl.textContent = '❤️';
     countEl.textContent = current+1;
-    await supabase.from('likes').insert({ user_id: currentUserId, splat_id: splatId });
+    await supabase.from('likes').insert({ user_id: currentUserId, nif_id: nifId });
   }
 }
 
@@ -433,15 +433,15 @@ function applyFilters() {
   updateManageBtns();
 }
 
-async function fetchFeedSplats() {
+async function fetchFeedNifs() {
   const visibilityFilter = ['public', 'followers'];
   const batches = [];
-  const { data: publicRows, error: publicError } = await supabase.from('splats').select('*')
+  const { data: publicRows, error: publicError } = await supabase.from('nif_files').select('*')
     .in('visibility', visibilityFilter).eq('is_demo', false).order('created_at', { ascending: false }).limit(60);
   if (publicError) throw publicError;
   batches.push(...(publicRows || []));
   if (currentUserId) {
-    const { data: ownRows, error: ownError } = await supabase.from('splats').select('*')
+    const { data: ownRows, error: ownError } = await supabase.from('nif_files').select('*')
       .eq('user_id', currentUserId).order('created_at', { ascending: false }).limit(60);
     if (ownError) throw ownError;
     batches.push(...(ownRows || []));
@@ -481,10 +481,10 @@ function skeletonCards(count = 3) {
 async function loadFeed() {
   feedGrid.innerHTML = skeletonCards(3);
   try {
-    const rows = await fetchFeedSplats();
+    const rows = await fetchFeedNifs();
     if (currentUserId) {
-      const { data: myLikes } = await supabase.from('likes').select('splat_id').eq('user_id', currentUserId);
-      likedIds = new Set((myLikes||[]).map(l => l.splat_id));
+      const { data: myLikes } = await supabase.from('likes').select('nif_id').eq('user_id', currentUserId);
+      likedIds = new Set((myLikes||[]).map(l => l.nif_id));
     }
     let profilesById = new Map();
     try { profilesById = await fetchProfilesFor(rows); }
@@ -499,8 +499,8 @@ async function loadFeed() {
         avatar_url: profile.avatar_url || '',
         thumbnail_url: resolveThumbnail(row),
         preview_video_url: resolvePreviewVideo(row),
-        source_type: row.source_type || (row.external_splat_url ? 'external' : 'fumoca'),
-        provider_name: row.provider_name || (row.external_splat_url ? 'External provider' : 'FUMOCA'),
+        source_type: row.source_type || (row.external_nif_url ? 'external' : 'fumoca'),
+        provider_name: row.provider_name || (row.external_nif_url ? 'External provider' : 'FUMOCA'),
         isViewable: ns === 'done' && !!url,
       };
     });
@@ -528,7 +528,7 @@ async function init() {
   searchInput?.addEventListener('input', applyFilters);
 
   document.getElementById('bulkDeleteFailedBtn')?.addEventListener('click', deleteFailedUploadsForCurrentUser);
-  document.getElementById('deleteAllMyBtn')?.addEventListener('click', deleteAllSplatsForCurrentUser);
+  document.getElementById('deleteAllMyBtn')?.addEventListener('click', deleteAllNifsForCurrentUser);
 
   // Close all manage dropdowns when clicking outside them
   document.addEventListener('click', () => {
@@ -542,24 +542,24 @@ async function init() {
 init();
 
 // ─── v60: Live Edit from Feed ─────────────────────────────────────────────────
-window.editLiveFromFeed = async function(splatId, mediaType) {
-  if (!splatId) return;
+window.editLiveFromFeed = async function(nifId, mediaType) {
+  if (!nifId) return;
   const sb = window._fumocaSupabase;
   if (!sb) return;
   if (!sb) { console.warn('[Feed] Supabase not ready'); return; }
-  const { data: splat } = await sb.from('splats').select('splat_url,video_url,source_video_url').eq('id', splatId).single();
-  if (!splat) { alert('Capture not found'); return; }
+  const { data: nif } = await sb.from('nif_files').select('nif_url,video_url,source_video_url').eq('id', nifId).single();
+  if (!nif) { showToast("Capture not found", true); return; }
   const p = new URLSearchParams();
-  p.set('splatId', splatId);
+  p.set('nifId', nifId);
   p.set('live', 'true');
   p.set('back', window.location.href);
-  const mt = String(mediaType || 'splat').toLowerCase();
+  const mt = String(mediaType || 'nif').toLowerCase();
   if (['video','photo','image'].includes(mt)) {
-    const file = splat.video_url || splat.source_video_url || '';
+    const file = nif.video_url || nif.source_video_url || '';
     if (file) p.set('file', file);
     window.location.href = `media-edit.html?${p.toString()}`;
   } else {
-    if (splat.splat_url) p.set('file', splat.splat_url);
+    if (nif.nif_url) p.set('file', nif.nif_url);
     window.location.href = `edit.html?${p.toString()}`;
   }
 };
@@ -575,11 +575,11 @@ window.saveLiveEdit = async function(recipeDelta) {
     edit_recipe:    merged,
     last_edited_at: new Date().toISOString(),
   };
-  if (window._fumocaEditedSplatUrl) payload.splat_url = window._fumocaEditedSplatUrl;
-  const { error } = await sb.from('splats').update(payload).eq('id', rec.id);
+  if (window._fumocaEditedNifUrl) payload.nif_url = window._fumocaEditedNifUrl;
+  const { error } = await sb.from('nif_files').update(payload).eq('id', rec.id);
   if (!error) {
     window._fumocaCurrentRecord = { ...rec, edit_recipe: merged };
-    window.dispatchEvent(new CustomEvent('fumoca:liveEditSaved', { detail: { splatId: rec.id } }));
+    window.dispatchEvent(new CustomEvent('fumoca:liveEditSaved', { detail: { nifId: rec.id } }));
   }
   return !error;
 };

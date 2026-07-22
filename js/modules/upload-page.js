@@ -2,7 +2,7 @@ import { supabase } from '../supabaseClient.js';
 import { runtimeConfig } from '../runtime-config.js';
 import r2 from '../r2Client.js';
 
-const VIDEO_BUCKET = 'splat-videos';
+const VIDEO_BUCKET = 'nif-videos';
 let selectedFile = null;
 let selectedFiles = []; // used only in 'photos' mode
 let tags = [];
@@ -87,23 +87,23 @@ window.setUploadMode = function(mode) {
     submitBtn.disabled = selectedFiles.length < 3;
     submitLabel.textContent = selectedFiles.length ? 'Upload and queue' : 'Select 3+ photos to start';
   } else if (currentUploadMode === 'ply') {
-    // Switch file input to accept .ply and .splat
-    if (fileInput) { fileInput.accept = '.ply,.splat'; fileInput.multiple = false; }
+    // Switch file input to accept .ply and .nif
+    if (fileInput) { fileInput.accept = '.ply,.nif'; fileInput.multiple = false; }
     uploadZone.querySelector('#uploadIcon').textContent = '📂';
     uploadZone.querySelector('#uploadTitle').textContent = selectedFile ? selectedFile.name : 'Drop your .ply file here';
     uploadZone.querySelector('#uploadSub').innerHTML = selectedFile
       ? `<strong>${(selectedFile.size / 1024 / 1024).toFixed(1)} MB</strong> · PLY ready`
-      : '.ply or .splat files · Full capture data preserved<br>Camera positions, colours, and Gaussian structure imported directly.';
+      : '.ply or .nif files · Full capture data preserved<br>Camera positions, colours, and Gaussian structure imported directly.';
     submitBtn.disabled = !selectedFile;
     submitLabel.textContent = selectedFile ? 'Upload & open in Studio' : 'Select a .ply file to start';
     showMsg('PLY mode — drop a .ply capture file to upload directly and open in the editor.', false);
   } else if (currentUploadMode === 'external') {
     if (fileInput) { fileInput.accept = 'video/*'; fileInput.multiple = false; }
     uploadZone.querySelector('#uploadIcon').textContent = '🧊';
-    uploadZone.querySelector('#uploadTitle').textContent = 'Publish a finished splat';
-    uploadZone.querySelector('#uploadSub').innerHTML = 'Paste a ready-made splat URL, thumbnail and optional teaser video.';
+    uploadZone.querySelector('#uploadTitle').textContent = 'Publish a finished nif';
+    uploadZone.querySelector('#uploadSub').innerHTML = 'Paste a ready-made nif URL, thumbnail and optional teaser video.';
     submitBtn.disabled = false;
-    submitLabel.textContent = 'Publish finished splat';
+    submitLabel.textContent = 'Publish finished nif';
     showMsg('External-provider mode is ready. Paste your finished scene links below.', false);
   } else {
     if (fileInput) { fileInput.accept = 'video/*'; fileInput.multiple = false; }
@@ -118,9 +118,9 @@ window.setUploadMode = function(mode) {
 };
 
 function setFile(file) {
-  const isPly = file.name.match(/\.(ply|splat)$/i);
+  const isPly = file.name.match(/\.(ply|nif)$/i);
   if (currentUploadMode === 'ply') {
-    if (!isPly) return showMsg('Please select a .ply or .splat file in PLY mode.', true);
+    if (!isPly) return showMsg('Please select a .ply or .nif file in PLY mode.', true);
     if (file.size > 500 * 1024 * 1024) return showMsg('PLY file is very large (>500MB) — upload may be slow.', false);
   } else {
     if (!file.type.startsWith('video/') && !isPly) return showMsg('Please select a video file.', true);
@@ -232,13 +232,13 @@ function setProgress(pct, label) {
 }
 
 function storageFixHtml() {
-  return `Storage setup still needs attention.<br><br><strong>Verify that <code>supabase_storage_policies.sql</code> was run in the same Supabase project this app is using, then hard refresh and retry.</strong><br><br>Required buckets: <code>splat-videos</code>, <code>splat-files</code>, <code>thumbnails</code>, <code>avatars</code>.`;
+  return `Storage setup still needs attention.<br><br><strong>Verify that <code>supabase_storage_policies.sql</code> was run in the same Supabase project this app is using, then hard refresh and retry.</strong><br><br>Required buckets: <code>nif-videos</code>, <code>nif-files</code>, <code>thumbnails</code>, <code>avatars</code>.`;
 }
 
 function humanizeStorageError(errorLike) {
   const msg = String(errorLike?.message || errorLike?.error_description || errorLike?.details || errorLike || '');
   const lower = msg.toLowerCase();
-  if (lower.includes('row-level security')) return 'Storage upload blocked by Supabase RLS. Confirm the signed-in user is uploading to <code>splat-videos</code> under their own user folder, then retry.';
+  if (lower.includes('row-level security')) return 'Storage upload blocked by Supabase RLS. Confirm the signed-in user is uploading to <code>nif-videos</code> under their own user folder, then retry.';
   if (lower.includes('jwt') || lower.includes('unauthorized') || lower.includes('auth')) return 'Your session is not valid for upload right now. Sign out, sign back in, then retry.';
   if (lower.includes('timed out')) return 'Upload timed out. Check your network or try a shorter clip first.';
   if (lower.includes('bucket') && lower.includes('not')) return storageFixHtml();
@@ -252,7 +252,7 @@ async function uploadSingleBucket(fileName, file, _accessToken) {
   setProgress(10, 'Uploading source video...');
 
   const { publicUrl, error } = await r2
-    .from('splat-videos')
+    .from('nif-videos')
     .upload(fileName, file, { contentType: file?.type || 'video/mp4' });
 
   if (error) throw new Error('R2 video upload failed: ' + error.message);
@@ -263,7 +263,7 @@ async function uploadSingleBucket(fileName, file, _accessToken) {
   return { path: fileName, publicUrl };
 }
 
-function baseSplatPayload(user, title, desc, category, price) {
+function baseNifPayload(user, title, desc, category, price) {
   return {
     user_id: user.id,
     title,
@@ -280,45 +280,45 @@ function baseSplatPayload(user, title, desc, category, price) {
   };
 }
 
-async function createExternalSplat(user, title, desc, category, price) {
-  const externalSplatUrl = document.getElementById('externalSplatUrl').value.trim();
+async function createExternalNif(user, title, desc, category, price) {
+  const externalNifUrl = document.getElementById('externalnifUrl').value.trim();
   const thumbnailUrl = document.getElementById('thumbnailUrl').value.trim();
   const previewVideoUrl = document.getElementById('previewVideoUrl').value.trim();
   const providerName = document.getElementById('providerName').value.trim();
 
-  if (!externalSplatUrl) throw new Error('Add the interactive splat URL for the external provider.');
+  if (!externalNifUrl) throw new Error('Add the interactive nif URL for the external provider.');
 
-  setProgress(35, 'Publishing finished splat...');
+  setProgress(35, 'Publishing finished nif...');
   setStep('step-upload', 'done');
   setStep('step-live', 'active');
 
   const payload = {
-    ...baseSplatPayload(user, title, desc, category, price),
+    ...baseNifPayload(user, title, desc, category, price),
     status: 'done',
     processing_stage: 'published',
     processing_progress: 100,
     processing_completed_at: new Date().toISOString(),
-    splat_url: externalSplatUrl,
-    external_splat_url: externalSplatUrl,
+    nif_url: externalnifUrl,
+    external_nif_url: externalnifUrl,
     thumbnail_url: thumbnailUrl || null,
     preview_video_url: previewVideoUrl || null,
     provider_name: providerName || 'External provider',
     source_type: 'external'
   };
 
-  const { data: splat, error } = await supabase.from('splats').insert([payload]).select().single();
+  const { data: nif, error } = await supabase.from('nif_files').insert([payload]).select().single();
   if (error) throw error;
 
   setProgress(100, 'Published successfully');
-  showMsg(`Finished splat published. Open it <a href="viewer.html?splatId=${splat.id}" style="color:#fff;text-decoration:underline;">here</a>.`, false);
+  showMsg(`Finished nif published. Open it <a href="viewer.html?nifId=${nif.id}" style="color:#fff;text-decoration:underline;">here</a>.`, false);
   document.getElementById('submitLabel').textContent = 'Published';
 }
 
 window.handleSubmit = async function() {
-  const title = document.getElementById('splatTitle').value.trim();
-  const desc = document.getElementById('splatDesc').value.trim();
-  const category = document.getElementById('splatCategory').value || 'other';
-  const price = saleEnabled ? (parseFloat(document.getElementById('splatPrice').value) || 0) : null;
+  const title = document.getElementById('nifTitle').value.trim();
+  const desc = document.getElementById('nifDesc').value.trim();
+  const category = document.getElementById('nifCategory').value || 'other';
+  const price = saleEnabled ? (parseFloat(document.getElementById('nifPrice').value) || 0) : null;
   if (!title) return showMsg('Please add a title.', true);
   if (currentUploadMode === 'pipeline' && !selectedFile) return showMsg('Please select a video file first.', true);
   if (currentUploadMode === 'photos' && selectedFiles.length < 3) return showMsg('Select at least 3 photos first.', true);
@@ -328,7 +328,7 @@ window.handleSubmit = async function() {
   document.getElementById('submitLabel').textContent = currentUploadMode === 'external' ? 'Publishing...' : 'Uploading...';
   setStep('step-upload', 'active');
   setProgress(10, currentUploadMode === 'external' ? 'Preparing publish...' : 'Uploading source...');
-  showMsg(currentUploadMode === 'external' ? 'Saving finished splat...' : 'Uploading...', false);
+  showMsg(currentUploadMode === 'external' ? 'Saving finished nif...' : 'Uploading...', false);
 
   try {
     const { data: { user }, error: userError } = await supabase.auth.getUser();
@@ -338,7 +338,7 @@ window.handleSubmit = async function() {
     }
 
     if (currentUploadMode === 'external') {
-      await createExternalSplat(user, title, desc, category, price);
+      await createExternalNif(user, title, desc, category, price);
       return;
     }
 
@@ -352,7 +352,7 @@ window.handleSubmit = async function() {
       setProgress(45, `Uploading ${(zipBlob.size / 1024 / 1024).toFixed(1)} MB…`);
       const zipPath = `raw/${user.id}/${Date.now()}_burst.zip`;
       const { fileKey, error: r2Err } = await r2
-        .from('splat-files')
+        .from('nif-files')
         .upload(zipPath, zipBlob, { contentType: 'application/zip' });
       if (r2Err) throw new Error('R2 upload failed — ' + r2Err.message);
 
@@ -394,17 +394,17 @@ window.handleSubmit = async function() {
 
       // Upload to R2 (replaces supabase.storage bucket fallback loop)
       const { publicUrl, error: r2Err } = await r2
-        .from('splat-files')
+        .from('nif-files')
         .upload(filePath, selectedFile, { contentType: 'model/x-ply' });
       if (r2Err) throw new Error('R2 upload failed — ' + r2Err.message);
 
       setProgress(60, 'Creating record...');
-      const { data: splat, error: dbErr } = await supabase.from('splats').insert([{
+      const { data: nif, error: dbErr } = await supabase.from('nif_files').insert([{
         user_id: user.id,
         title: title || selectedFile.name,
         description: desc || '',
         category: category || 'general',
-        splat_url: publicUrl,
+        nif_url: publicUrl,
         output_url: publicUrl,
         status: 'done',
         processing_stage: 'published',
@@ -420,12 +420,12 @@ window.handleSubmit = async function() {
       setProgress(100, 'Ready!');
       setStep('step-upload', 'done');
       setStep('step-live', 'done');
-      showMsg(`PLY uploaded. <a href="edit.html?file=${encodeURIComponent(publicUrl)}&splatId=${splat.id}&live=true" style="color:#0ef;text-decoration:underline;">Open in Studio →</a>`, false);
+      showMsg(`PLY uploaded. <a href="edit.html?file=${encodeURIComponent(publicUrl)}&nifId=${nif.id}&live=true" style="color:#0ef;text-decoration:underline;">Open in Studio →</a>`, false);
       document.getElementById('submitLabel').textContent = 'Open in Studio';
       document.getElementById('submitBtn').textContent = 'Open in Studio';
       document.getElementById('submitBtn').disabled = false;
       document.getElementById('submitBtn').onclick = () => {
-        window.location.href = `edit.html?file=${encodeURIComponent(publicUrl)}&splatId=${splat.id}&live=true`;
+        window.location.href = `edit.html?file=${encodeURIComponent(publicUrl)}&nifId=${nif.id}&live=true`;
       };
       return;
     }
@@ -443,7 +443,7 @@ window.handleSubmit = async function() {
     setProgress(35, 'Queueing reconstruction job...');
 
     // reconstruction_jobs is the real, live table (confirmed against
-    // production; `splats`/`processing_jobs` do not exist there). No
+    // production; `nif_files`/`processing_jobs` do not exist there). No
     // nif_files row yet — there's no processed NIF at upload time;
     // pipeline.py's own _register() creates that once processing completes.
     const { data: job, error: jobError } = await supabase.from('reconstruction_jobs').insert({

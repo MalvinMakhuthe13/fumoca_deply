@@ -4,18 +4,18 @@ import * as THREE from 'three';
 /**
  * FUMOCA Edit Engine v1.0
  * ════════════════════════════════════════════════════════════════
- * True Gaussian splat surgery integrated into the viewer.
+ * True Gaussian nif surgery integrated into the viewer.
  *
  * What this does that no competitor does:
- *   - Parses the actual .splat/.ply binary from the live viewer URL
+ *   - Parses the actual .nif/.ply binary from the live viewer URL
  *   - Renders all Gaussians via a dedicated WebGL2 canvas overlaid on the stage
  *   - Implements real 3D box-selection (projects positions through MVP matrix)
  *   - Auto-detects floaters by neighbourhood count (O(N²) with early exit)
  *   - Opacity sharpening: kill ghosts, boost survivors — data-level, not CSS
  *   - Density pruning: score every Gaussian, cull the sparse tail
  *   - Scale filtering: removes blown-up halos
- *   - Exports a real cleaned .splat binary (32 bytes/Gaussian, standard format)
- *   - Uploads cleaned .splat to Supabase storage + creates variant record
+ *   - Exports a real cleaned .nif binary (32 bytes/Gaussian, standard format)
+ *   - Uploads cleaned .nif to Supabase storage + creates variant record
  * ════════════════════════════════════════════════════════════════
  */
 
@@ -81,7 +81,7 @@ const eClearCube = document.getElementById('eClearCube');
 const eCubeStatus = document.getElementById('eCubeStatus');
 
 // Export tab
-const eExportSplat   = document.getElementById('eExportSplat');
+const eExportNif   = document.getElementById('eExportNif');
 const eSaveToSupabase= document.getElementById('eSaveToSupabase');
 const eExportReport  = document.getElementById('eExportReport');
 const eSaveStatus    = document.getElementById('eSaveStatus');
@@ -90,7 +90,7 @@ const eSaveStatus    = document.getElementById('eSaveStatus');
 const eHistList = document.getElementById('eHistList');
 
 // ── STATE ───────────────────────────────────────────────────────
-const SPLAT_ROW = 32; // pos(12) + scale(12) + rgba(4) + quat(4)
+const NIF_ROW = 32; // pos(12) + scale(12) + rgba(4) + quat(4)
 
 let engineReady  = false;
 let editActive   = false;
@@ -105,8 +105,8 @@ let deletedMask  = null; // Uint8Array N
 let selectedMask = null; // Uint8Array N
 let undoStack    = [];   // Array<Uint8Array> (snapshots of deletedMask)
 let editHistory  = [];
-let splatFileName = 'splat';
-let loadedSplatUrl = '';
+let nifFileName = 'nif';
+let loadedNifUrl = '';
 
 // WebGL
 let gl, prog, vao, posBuf, colBuf, _pointCount = 0;
@@ -204,7 +204,7 @@ function updateButtonStates(sel, alive) {
   [eSharpen, eDensityPrune, eScaleFilterBtn,
    eSelectFloaters, eSelectLowOp, eSelectLargeScale,
    eSelAll, eSelInvert, eSelClear,
-   eExportSplat, eSaveToSupabase, eExportReport
+   eExportNif, eSaveToSupabase, eExportReport
   ].forEach(el => { if (el) el.disabled = !loaded; });
 }
 
@@ -256,9 +256,9 @@ function openEditEngine() {
   if (sp) sp.style.display = 'none';
   setEditMode('box');
   setViewerInteractionLocked(true);
-  const currentUrl = window._fumocaSplatUrl || new URLSearchParams(window.location.search).get('file') || '';
-  // Reload when opening a different / legacy splat, not just the first time
-  if (!engineReady || !loadedSplatUrl || currentUrl !== loadedSplatUrl) loadSplatForEngine(true);
+  const currentUrl = window._fumocaNifUrl || new URLSearchParams(window.location.search).get('file') || '';
+  // Reload when opening a different / legacy nif, not just the first time
+  if (!engineReady || !loadedNifUrl || currentUrl !== loadedNifUrl) loadNifForEngine(true);
   else {
     try { updateStats(); } catch (_) {}
   }
@@ -279,11 +279,11 @@ function closeEditEngine() {
 editModeBtn?.addEventListener('click', () => {
   // Navigate to the dedicated Edit Studio page
   const params = new URLSearchParams(window.location.search);
-  const splatId = params.get('id') || params.get('splatId');
-  const fileUrl = window._fumocaCurrentSplatUrl || '';
+  const nifId = params.get('id') || params.get('nifId');
+  const fileUrl = window._fumocaCurrentNifUrl || '';
   const back = encodeURIComponent(window.location.href);
   let editUrl = 'edit.html?back=' + back;
-  if (splatId) editUrl += '&splatId=' + encodeURIComponent(splatId);
+  if (nifId) editUrl += '&nifId=' + encodeURIComponent(nifId);
   if (fileUrl) editUrl += '&file=' + encodeURIComponent(fileUrl);
   window.location.href = editUrl;
 });
@@ -300,37 +300,37 @@ document.querySelectorAll('.edit-tab').forEach(btn => {
   });
 });
 
-// ── LOAD SPLAT DATA ─────────────────────────────────────────────
-async function loadSplatForEngine(forceReload = false) {
+// ── LOAD nif DATA ─────────────────────────────────────────────
+async function loadNifForEngine(forceReload = false) {
   // Get URL from viewer state (set by viewer.js on window)
-  const url = window._fumocaSplatUrl || new URLSearchParams(window.location.search).get('file') || '';
+  const url = window._fumocaNifUrl || new URLSearchParams(window.location.search).get('file') || '';
   if (!url) {
-    addHistory('No splat URL found — open a splat first');
+    addHistory('No nif URL found — open a nif first');
     return;
   }
-  if (!forceReload && engineReady && loadedSplatUrl === url && positions && deletedMask) {
+  if (!forceReload && engineReady && loadedNifUrl === url && positions && deletedMask) {
     return;
   }
   engineReady = false;
-  loadedSplatUrl = url;
-  addHistory('Fetching splat binary…');
+  loadedNifUrl = url;
+  addHistory('Fetching nif binary…');
   try {
     const res = await fetch(url);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const buf = await res.arrayBuffer();
-    splatFileName = url.split('/').pop().replace(/\?.*$/, '').replace(/\.[^.]+$/, '') || 'splat';
+    nifFileName = url.split('/').pop().replace(/\?.*$/, '').replace(/\.[^.]+$/, '') || 'nif';
     const ext = url.split('.').pop().split('?')[0].toLowerCase();
     if (ext === 'ply') {
       parsePly(buf);
     } else {
-      parseSplat(buf); // .splat or .ksplat treated as .splat
+      parseNif(buf); // .nif or .knif treated as .nif
     }
     initGL();
     uploadGPU();
     autofitCamera();
     engineReady = true;
     updateStats();
-    addHistory(`Loaded ${fmt(numG)} Gaussians from ${splatFileName}`);
+    addHistory(`Loaded ${fmt(numG)} Gaussians from ${nifFileName}`);
     if (!_rafRunning) requestAnimationFrame(renderLoop);
   } catch (err) {
     addHistory(`Load failed: ${err.message}`);
@@ -339,14 +339,14 @@ async function loadSplatForEngine(forceReload = false) {
 }
 
 // ── PARSERS ─────────────────────────────────────────────────────
-function parseSplat(buf) {
-  numG = Math.floor(buf.byteLength / SPLAT_ROW);
-  if (!numG) throw new Error('Empty or invalid .splat file');
+function parseNif(buf) {
+  numG = Math.floor(buf.byteLength / NIF_ROW);
+  if (!numG) throw new Error('Empty or invalid .nif file');
   allocArrays();
   const view = new DataView(buf);
   const bytes = new Uint8Array(buf);
   for (let i = 0; i < numG; i++) {
-    const b = i * SPLAT_ROW;
+    const b = i * NIF_ROW;
     positions[i*3]   = view.getFloat32(b,    true);
     positions[i*3+1] = view.getFloat32(b+4,  true);
     positions[i*3+2] = view.getFloat32(b+8,  true);
@@ -686,7 +686,7 @@ function runSmartCleanup() {
   }
   if (!removed) { undoStack.pop(); return 0; }
   uploadGPU(); updateStats();
-  addHistory(`Smart cleanup removed ${fmt(removed)} floaters / ghosts / halo splats`);
+  addHistory(`Smart cleanup removed ${fmt(removed)} floaters / ghosts / halo nifs`);
   return removed;
 }
 // ── MOUSE / CAMERA CONTROLS ─────────────────────────────────────
@@ -959,7 +959,7 @@ eSelectLowOp?.addEventListener('click', () => {
     if (!deletedMask[i] && opacities[i] <= thresh) { selectedMask[i]=1; count++; }
   }
   uploadGPU(); updateStats();
-  addHistory(`Selected ${fmt(count)} ghost splats (α≤${thresh})`);
+  addHistory(`Selected ${fmt(count)} ghost nifs (α≤${thresh})`);
 });
 
 // ── SCALE SELECTION ─────────────────────────────────────────────
@@ -976,7 +976,7 @@ eSelectLargeScale?.addEventListener('click', () => {
     if (s > maxS) { selectedMask[i]=1; count++; }
   }
   uploadGPU(); updateStats();
-  addHistory(`Selected ${fmt(count)} halo splats (scale>${maxS})`);
+  addHistory(`Selected ${fmt(count)} halo nifs (scale>${maxS})`);
 });
 
 // ── DELETE ──────────────────────────────────────────────────────
@@ -1068,7 +1068,7 @@ eScaleFilterBtn?.addEventListener('click', () => {
     if (s > maxS) { deletedMask[i]=1; removed++; }
   }
   uploadGPU(); updateStats();
-  addHistory(`Scale filter: removed ${fmt(removed)} halo splats (max=${maxS})`);
+  addHistory(`Scale filter: removed ${fmt(removed)} halo nifs (max=${maxS})`);
 });
 
 
@@ -1094,16 +1094,16 @@ eCropInsideCube?.addEventListener('click', () => {
 eClearCube?.addEventListener('click', () => { cropCube = null; updateCubeStatus(); addHistory('Cleared crop cube'); });
 
 // ── EXPORT ───────────────────────────────────────────────────────
-function buildCleanedSplatBuffer() {
+function buildCleanedNifBuffer() {
   let alive = 0;
   for (let i=0;i<numG;i++) if(!deletedMask[i]) alive++;
-  const out = new ArrayBuffer(alive * SPLAT_ROW);
+  const out = new ArrayBuffer(alive * NIF_ROW);
   const view = new DataView(out);
   const ob   = new Uint8Array(out);
   let wi = 0;
   for (let i=0;i<numG;i++) {
     if (deletedMask[i]) continue;
-    const b = wi * SPLAT_ROW;
+    const b = wi * NIF_ROW;
     view.setFloat32(b,    positions[i*3],   true);
     view.setFloat32(b+4,  positions[i*3+1], true);
     view.setFloat32(b+8,  positions[i*3+2], true);
@@ -1131,11 +1131,11 @@ function downloadBlob(blob, name) {
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }
 
-eExportSplat?.addEventListener('click', () => {
+eExportNif?.addEventListener('click', () => {
   if (!positions) return;
-  const {buf, alive} = buildCleanedSplatBuffer();
-  downloadBlob(new Blob([buf], {type:'application/octet-stream'}), `${splatFileName}_cleaned.splat`);
-  addHistory(`⬇ Exported ${fmt(alive)} Gaussians → ${splatFileName}_cleaned.splat`);
+  const {buf, alive} = buildCleanedNifBuffer();
+  downloadBlob(new Blob([buf], {type:'application/octet-stream'}), `${nifFileName}_cleaned.nif`);
+  addHistory(`⬇ Exported ${fmt(alive)} Gaussians → ${nifFileName}_cleaned.nif`);
 });
 
 eExportReport?.addEventListener('click', () => {
@@ -1145,7 +1145,7 @@ eExportReport?.addEventListener('click', () => {
   const lines = [
     'FUMOCA Edit Engine — Edit Report',
     '══════════════════════════════════════════',
-    `File:          ${splatFileName}`,
+    `File:          ${nifFileName}`,
     `Date:          ${new Date().toISOString()}`,
     `Total:         ${numG}`,
     `Alive:         ${numG - dead}`,
@@ -1155,9 +1155,9 @@ eExportReport?.addEventListener('click', () => {
     '── Edit History ──',
     ...editHistory.map(h => `[${h.t}] ${h.msg}`),
     '',
-    'Generated by FUMOCA Edit Engine v1.0 — SplatWorld'
+    'Generated by FUMOCA Edit Engine v1.0 — nifWorld'
   ];
-  downloadBlob(new Blob([lines.join('\n')], {type:'text/plain'}), `${splatFileName}_edit_report.txt`);
+  downloadBlob(new Blob([lines.join('\n')], {type:'text/plain'}), `${nifFileName}_edit_report.txt`);
   addHistory('Exported edit report');
 });
 
@@ -1171,21 +1171,21 @@ eSaveToSupabase?.addEventListener('click', async () => {
   }
   eSaveToSupabase.disabled = true;
   eSaveToSupabase.textContent = 'Uploading…';
-  setStatus('Building cleaned .splat…', 'progress');
+  setStatus('Building cleaned .nif…', 'progress');
   try {
-    const {buf, alive} = buildCleanedSplatBuffer();
-    const cleanedName = `${splatFileName}_cleaned_${Date.now()}.splat`;
-    const path = `splats/${cleanedName}`;
+    const {buf, alive} = buildCleanedNifBuffer();
+    const cleanedName = `${nifFileName}_cleaned_${Date.now()}.nif`;
+    const path = `nifs/${cleanedName}`;
     setStatus('Uploading to R2 storage…', 'progress');
     const { publicUrl, error: uploadErr } = await r2
-      .from('splat-files')
+      .from('nif-files')
       .upload(path, new Blob([buf], { type: 'application/octet-stream' }), { contentType: 'application/octet-stream' });
     if (uploadErr) throw new Error('R2 upload: ' + uploadErr.message);
-    setStatus('Creating splat record…', 'progress');
+    setStatus('Creating nif record…', 'progress');
     const { user } = (await supabase.auth.getUser()).data;
     const variantRecord = {
       user_id: user?.id,
-      title: (currentRecord?.title || splatFileName) + ' (cleaned)',
+      title: (currentRecord?.title || nifFileName) + ' (cleaned)',
       description: `Cleaned variant — ${fmt(alive)} Gaussians, ${fmt(numG - alive)} removed`,
       file_url: publicUrl,
       status: 'ready',
@@ -1194,7 +1194,7 @@ eSaveToSupabase?.addEventListener('click', async () => {
       gaussian_count: alive,
       edit_recipe: JSON.stringify({ history: editHistory.slice(0, 20) }),
     };
-    const { error: insertErr } = await supabase.from('splats').insert(variantRecord);
+    const { error: insertErr } = await supabase.from('nifs').insert(variantRecord);
     if (insertErr) throw new Error('DB insert: ' + insertErr.message);
     setStatus(`✓ Saved — ${fmt(alive)} Gaussians → ${cleanedName}`, 'success');
     addHistory(`☁ Saved to Supabase: ${cleanedName} (${fmt(alive)} Gaussians)`);
@@ -1203,7 +1203,7 @@ eSaveToSupabase?.addEventListener('click', async () => {
     addHistory('☁ Supabase save failed: ' + err.message);
     console.error('[EditEngine] Supabase save:', err);
   } finally {
-    eSaveToSupabase.textContent = '☁ Save cleaned splat to cloud';
+    eSaveToSupabase.textContent = '☁ Save cleaned nif to cloud';
     eSaveToSupabase.disabled = false;
   }
 });
@@ -1231,7 +1231,7 @@ window.addEventListener('keydown', e => {
 });
 
 // ── EXPOSE TO VIEWER ──────────────────────────────────────────────
-// viewer.js exposes window._fumocaSplatUrl after loading
+// viewer.js exposes window._fumocaNifUrl after loading
 // We also expose the engine state so other modules can read it
 window._editEngine = {
   isActive: () => editActive,
@@ -1240,13 +1240,13 @@ window._editEngine = {
 };
 
 // Sync the current fileUrl when it becomes available
-function watchForSplatUrl() {
-  if (window._fumocaSplatUrl && !engineReady && editActive) {
-    loadSplatForEngine();
+function watchForNifUrl() {
+  if (window._fumocaNifUrl && !engineReady && editActive) {
+    loadNifForEngine();
   }
 }
 // Disabled polling reload loop; rely on explicit recordLoaded/open events for a stable editing feel.
-// setInterval(watchForSplatUrl, 800);
+// setInterval(watchForNifUrl, 800);
 
 // ── Renderer preview bridge ─────────────────────────────────────
 let _fumocaPreviewUrl = null;
@@ -1259,12 +1259,12 @@ function _fumocaRevokePreviewUrl() {
 }
 function _fumocaBuildPreviewBlobUrl() {
   if (!positions || !deletedMask) return null;
-  const { buf, alive } = buildCleanedSplatBuffer();
+  const { buf, alive } = buildCleanedNifBuffer();
   _fumocaRevokePreviewUrl();
   _fumocaPreviewUrl = URL.createObjectURL(new Blob([buf], { type: 'application/octet-stream' }));
-  // GaussianSplats3D checks the URL string for an extension. Blob URLs have none,
+  // Gaussiannifs3D checks the URL string for an extension. Blob URLs have none,
   // so provide a display URL with a fragment hint while keeping the raw blob URL for revoke().
-  _fumocaPreviewDisplayUrl = `${_fumocaPreviewUrl}#preview.splat`;
+  _fumocaPreviewDisplayUrl = `${_fumocaPreviewUrl}#preview.nif`;
   return { url: _fumocaPreviewDisplayUrl, rawUrl: _fumocaPreviewUrl, alive, total: numG || 0 };
 }
 function _fumocaScheduleRendererPreview() {
@@ -1305,7 +1305,7 @@ function _fumocaEmitEditMask() {
     const selected = selectedMask ? Array.from(selectedMask) : [];
     window._fumocaEditMask = { deleted, selected, total: numG || 0 };
     window._editEngine = Object.assign(window._editEngine || {}, {
-      buildCleanedSplatBuffer,
+      buildCleanedNifBuffer,
       getPointCloud: () => ({ positions, count: numG || 0, center: { x: cam.cx || 0, y: cam.cy || 0, z: cam.cz || 0 }, radius: cam.radius || 1 }),
       getPreviewBlobUrl: () => _fumocaPreviewDisplayUrl || _fumocaPreviewUrl,
       requestRendererPreview: _fumocaScheduleRendererPreview,
@@ -1321,8 +1321,8 @@ uploadGPU = function patchedUploadGPU() {
   return out;
 };
 window.addEventListener('fumoca:recordLoaded', () => {
-  const currentUrl = window._fumocaSplatUrl || new URLSearchParams(window.location.search).get('file') || '';
-  if (currentUrl && currentUrl !== loadedSplatUrl) {
+  const currentUrl = window._fumocaNifUrl || new URLSearchParams(window.location.search).get('file') || '';
+  if (currentUrl && currentUrl !== loadedNifUrl) {
     engineReady = false;
     try { window.dispatchEvent(new CustomEvent('fumoca:editPreviewCleared', { detail: { total: numG || 0 } })); } catch (_) {}
   }
@@ -1330,25 +1330,25 @@ window.addEventListener('fumoca:recordLoaded', () => {
 window.addEventListener('fumoca:requestEditMask', _fumocaEmitEditMask);
 
 // ─── v60: Live Edit Mode ──────────────────────────────────────────────────────
-// When launched with ?live=true&splatId=X, patches the save button to update
-// the existing published splat instead of creating a new variant.
+// When launched with ?live=true&nifId=X, patches the save button to update
+// the existing published nif instead of creating a new variant.
 (async () => {
   const params   = new URLSearchParams(location.search);
   const isLive   = params.get('live') === 'true';
-  const splatId  = params.get('splatId');
-  if (!isLive || !splatId) return;
+  const nifId  = params.get('nifId');
+  if (!isLive || !nifId) return;
 
   const sb = window._fumocaSupabase;
   if (!sb) return;
 
-  const { data } = await sb.from('splats').select('*').eq('id', splatId).single();
+  const { data } = await sb.from('nifs').select('*').eq('id', nifId).single();
   if (!data) return;
 
   window._fumocaCurrentRecord = data;
 
   // Restore previous edit_recipe if present
   if (data.edit_recipe && typeof data.edit_recipe === 'object' && Object.keys(data.edit_recipe).length) {
-    console.log('[EditEngine v60] Restoring edit recipe from live splat:', data.edit_recipe);
+    console.log('[EditEngine v60] Restoring edit recipe from live nif:', data.edit_recipe);
     window._fumocaEditRecipeRestored = data.edit_recipe;
   }
 
@@ -1356,7 +1356,7 @@ window.addEventListener('fumoca:requestEditMask', _fumocaEmitEditMask);
   const saveBtn = document.getElementById('eSaveToSupabase') || document.querySelector('[id*="save" i]');
   if (saveBtn) {
     saveBtn.textContent = '💾 Save Live Changes';
-    saveBtn.title       = 'Updates the published splat visible to everyone on the feed';
+    saveBtn.title       = 'Updates the published nif visible to everyone on the feed';
   }
 
   // Override saveLiveEdit so edit-engine can call it directly
@@ -1366,12 +1366,12 @@ window.addEventListener('fumoca:requestEditMask', _fumocaEmitEditMask);
       if (!rec?.id) return false;
       const merged = { ...(rec.edit_recipe || {}), ...delta, lastSaved: new Date().toISOString() };
       const payload = { edit_recipe: merged, last_edited_at: new Date().toISOString() };
-      if (window._fumocaEditedSplatUrl) payload.splat_url = window._fumocaEditedSplatUrl;
-      const { error } = await sb.from('splats').update(payload).eq('id', rec.id);
+      if (window._fumocaEditedNifUrl) payload.nif_url = window._fumocaEditedNifUrl;
+      const { error } = await sb.from('nifs').update(payload).eq('id', rec.id);
       if (!error) window._fumocaCurrentRecord = { ...rec, edit_recipe: merged };
       return !error;
     };
   }
 
-  console.log('%c[EditEngine v60] Live Edit Mode active — changes update the published splat', 'color:#c8ff00;font-weight:800');
+  console.log('%c[EditEngine v60] Live Edit Mode active — changes update the published nif', 'color:#c8ff00;font-weight:800');
 })();

@@ -1,12 +1,12 @@
 import r2 from '../r2Client.js';
-import * as GaussianSplats3D from 'https://cdn.jsdelivr.net/npm/@mkkellogg/gaussian-splats-3d@0.4.7/build/gaussian-splats-3d.module.js';
+import * as Gaussiannif_files3D from 'https://cdn.jsdelivr.net/npm/@mkkellogg/gaussian-nif_files-3d@0.4.7/build/gaussian-nif_files-3d.module.js';
 import * as THREE from 'three';
 import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { supabase } from '../supabaseClient.js';
 import { triggerRevealForViewer } from './reveal-hook.js';
 import FumocDecoder from './fumoc-decoder.js';
-import { decodeNif, geometryToSplatRows } from './nif-format.js';
+import { decodeNif, geometryTonifRows } from './nif-format.js';
 window._fumocaSupabase = window._fumocaSupabase || supabase;
 
 const stageEl = document.getElementById('stage');
@@ -22,8 +22,8 @@ const loadingOverlay = document.getElementById('loadingOverlay');
 const loadingText = document.getElementById('loadingText');
 const errorBox = document.getElementById('errorBox');
 const errorMsg = document.getElementById('errorMsg');
-const splatTitle = document.getElementById('splatTitle');
-const splatDesc = document.getElementById('splatDesc');
+const nifTitle = document.getElementById('nifTitle');
+const nifDesc = document.getElementById('nifDesc');
 const hint = document.getElementById('hint');
 const teaserBtn = document.getElementById('teaserBtn');
 const copyLinkBtn = document.getElementById('copyLinkBtn');
@@ -38,7 +38,7 @@ const previewPoster = document.getElementById('previewPoster');
 const syntheticTeaser = document.getElementById('syntheticTeaser');
 const viewInteractiveBtn = document.getElementById('viewInteractiveBtn');
 const closePreviewBtn = document.getElementById('closePreviewBtn');
-const splatModeBtn = document.getElementById('splatModeBtn');
+const nifModeBtn = document.getElementById('nifModeBtn');
 const videoModeBtn = document.getElementById('videoModeBtn');
 const mediaMeta = document.getElementById('mediaMeta');
 const cleanupRange = document.getElementById('cleanupRange');
@@ -115,8 +115,8 @@ const cropHandles = Array.from(document.querySelectorAll('.crop-handle'));
 
 const params = new URLSearchParams(window.location.search);
 // Validate the file= param — if the file doesn't exist (400/404), ignore it
-// and let the viewer fall back to splat_url from the DB record
-// v92: also check sessionStorage for a pending .fumoc splat URL (from open.html handoff)
+// and let the viewer fall back to nif_url from the DB record
+// v92: also check sessionStorage for a pending .fumoc nif URL (from open.html handoff)
 let fileUrl = await (async () => {
   // Check IndexedDB first — open.html stores the raw ArrayBuffer there
   // (sessionStorage base64 fails on files >~3.5MB due to QuotaExceededError)
@@ -151,10 +151,10 @@ let fileUrl = await (async () => {
     console.error('[Viewer] IndexedDB handoff failed:', e);
   }
   // Legacy: direct blob URL handoff (same-page context only)
-  const pending = sessionStorage.getItem('fumoc_pending_splat_url');
+  const pending = sessionStorage.getItem('fumoc_pending_nif_url');
   if (pending) {
-    sessionStorage.removeItem('fumoc_pending_splat_url');
-    console.log('[Viewer] Loading from sessionStorage fumoc_pending_splat_url');
+    sessionStorage.removeItem('fumoc_pending_nif_url');
+    console.log('[Viewer] Loading from sessionStorage fumoc_pending_nif_url');
     return pending;
   }
   const f = params.get('file') || '';
@@ -171,7 +171,7 @@ let fileUrl = await (async () => {
     return '';
   }
 })();
-const splatId = params.get('splatId') || '';
+const nifId = params.get('nifId') || '';
 let previewVideoUrl = params.get('previewVideo') || '';
 let thumbnailUrl = params.get('thumbnail') || '';
 const autoplayPreview = params.get('autoplayPreview') === '1';
@@ -217,7 +217,7 @@ if (IS_PUBLIC_VIEWER) {
     }
   }
 
-  // Prevent referrer leaking the splat URL back to the brand page
+  // Prevent referrer leaking the nif URL back to the brand page
   if (_isEmbedParam) {
     const _metaRef = document.createElement('meta');
     _metaRef.name = 'referrer';
@@ -238,14 +238,14 @@ function _applyPublicViewerLock() {
 }
 let viewerInstance = null;
 let currentRecord = null;
-let previewMode = 'splat';
+let previewMode = 'nif';
 let rendererPreviewUrl = null;
 let rendererPreviewSeq = 0;
 let rendererPreviewPending = false;
 let stageFreezeHideTimer = null;
 let stageFreezeEl = null;
 let pipelineVisualTimer = null;
-const originalSplatUrl = fileUrl || '';
+const originalnifUrl = fileUrl || '';
 const pipelineQueueKey = 'fumoca_pipeline_reliability_queue';
 let pipelineRetryTimer = null;
 const defaultStudio = { cleanup: 5, sharpness: 20, presence: 100, focus: 42, focusX: 50, focusY: 42, suppression: 24, feather: 10, scale: 100, isolation: 0, cropWidth: 36, cropHeight: 42, cropDepth: 65, maskShape: 'ellipse', sceneMode: 'product', eraseSize: 18, eraseStrength: 92, eraseShape: 'ellipse' };
@@ -318,7 +318,7 @@ async function deleteCurrentUpload() {
   if (btn) { btn.disabled = true; btn.textContent = 'Deleting…'; }
   try {
     const candidates = [
-      currentRecord?.splat_url, currentRecord?.file_url, currentRecord?.file, currentRecord?.thumbnail_url,
+      currentRecord?.nif_url, currentRecord?.file_url, currentRecord?.file, currentRecord?.thumbnail_url,
       currentRecord?.thumbnail, currentRecord?.preview_video_url, currentRecord?.previewVideo,
       currentRecord?.source_video_url, currentRecord?.video_url,
     ].filter(Boolean);
@@ -327,8 +327,8 @@ async function deleteCurrentUpload() {
       if (!hit) continue;
       try { await r2.from(hit.bucket).remove([hit.path]); } catch (_) {}
     }
-    try { await supabase.from('processing_jobs').delete().eq('splat_id', currentRecord.id); } catch (_) {}
-    const { error } = await supabase.from('splats').delete().eq('id', currentRecord.id);
+    try { await supabase.from('reconstruction_jobs').delete().eq('nif_id', currentRecord.id); } catch (_) {}
+    const { error } = await supabase.from('nif_files').delete().eq('id', currentRecord.id);
     if (error) throw error;
     window.location.href = 'feed.html';
   } catch (err) {
@@ -340,10 +340,10 @@ async function deleteCurrentUpload() {
 
 function firstNonEmpty(...values) { return values.find(v => typeof v === 'string' && v.trim()) || ''; }
 
-function getHotspotStorageKey() { return `fumoca:hotspots:${splatId || fileUrl || 'default'}`; }
-function getLookStorageKey() { return `fumoca:look:${splatId || fileUrl || 'default'}`; }
-function getMaskStorageKey() { return `fumoca:masks:${splatId || fileUrl || 'default'}`; }
-function getLassoStorageKey() { return `fumoca:lasso:${splatId || fileUrl || 'default'}`; }
+function getHotspotStorageKey() { return `fumoca:hotspots:${nifId || fileUrl || 'default'}`; }
+function getLookStorageKey() { return `fumoca:look:${nifId || fileUrl || 'default'}`; }
+function getMaskStorageKey() { return `fumoca:masks:${nifId || fileUrl || 'default'}`; }
+function getLassoStorageKey() { return `fumoca:lasso:${nifId || fileUrl || 'default'}`; }
 function loadHotspots() {
   try { hotspots = JSON.parse(localStorage.getItem(getHotspotStorageKey()) || '[]'); } catch (_) { hotspots = []; }
 }
@@ -450,9 +450,9 @@ function buildCleanupRecipe(kind = 'variant') {
     type: kind,
     created_at: new Date().toISOString(),
     source: {
-      splat_id: splatId || currentRecord?.id || null,
+      nif_id: nifId || currentRecord?.id || null,
       file_url: fileUrl || null,
-      title: currentRecord?.title || splatTitle?.textContent || 'Untitled splat',
+      title: currentRecord?.title || nifTitle?.textContent || 'Untitled nif',
     },
     studio: { ...studioState },
     architecture: {
@@ -502,7 +502,7 @@ function buildCleanupRecipe(kind = 'variant') {
       platform_pipeline: {
         save_variant_recipe: true,
         backend_pruning_job: true,
-        cleaned_splat_output: true,
+        cleaned_nif_output: true,
         cleaned_mesh_output: true,
         embed_ready: true,
       },
@@ -521,7 +521,7 @@ function buildCleanupRecipe(kind = 'variant') {
       selection_strategy: lassoShapes.some(s => s.action === 'keep') ? 'keep-subject-with-negative-cuts' : 'remove-selected',
     },
     requested_outputs: {
-      cleaned_splat_variant: true,
+      cleaned_nif_variant: true,
       mesh_cleanup_variant: kind === 'mesh_cleanup' || kind === 'print_export',
       print_export: kind === 'print_export',
     },
@@ -532,7 +532,7 @@ async function downloadCleanupRecipe(kind = 'variant') {
   const blob = new Blob([JSON.stringify(recipe, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `fumoca_cleanup_${kind}_${(splatId || 'local')}.json`;
+  a.download = `fumoca_cleanup_${kind}_${(nifId || 'local')}.json`;
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -546,15 +546,15 @@ async function saveVariantRecord(kind = 'variant') {
     return { ok: true, mode: 'download' };
   }
   try {
-    const title = `${currentRecord.title || 'Splat'} · ${kind === 'print_export' ? 'Print cleanup' : kind === 'mesh_cleanup' ? 'Mesh cleanup' : 'Cleaned variant'}`;
-    const { error } = await supabase.from('splat_variants').insert({
-      parent_splat_id: currentRecord.id,
+    const title = `${currentRecord.title || 'nif'} · ${kind === 'print_export' ? 'Print cleanup' : kind === 'mesh_cleanup' ? 'Mesh cleanup' : 'Cleaned variant'}`;
+    const { error } = await supabase.from('nif_variants').insert({
+      parent_nif_id: currentRecord.id,
       user_id: currentRecord.user_id,
       title,
       variant_kind: kind,
       status: 'pending',
       cleanup_recipe: recipe,
-      source_splat_url: fileUrl || null,
+      source_nif_url: fileUrl || null,
     });
     if (error) throw error;
     setVariantDirty(false);
@@ -654,25 +654,25 @@ function setEraseMaskMode(enabled) {
 function setLoading(msg) { loadingText.textContent = msg; loadingOverlay.classList.remove('hidden'); }
 function hideLoading() { loadingOverlay.classList.add('hidden'); }
 function showError(msg) { hideLoading(); errorMsg.textContent = msg; errorBox.classList.add('visible'); }
-function isSplatUrl(url) { const clean = String(url || '').split('?')[0].toLowerCase(); return clean.startsWith('blob:') || clean.endsWith('.ply') || clean.endsWith('.splat') || clean.endsWith('.ksplat') || clean.endsWith('.nif'); }
+function isnifUrl(url) { const clean = String(url || '').split('?')[0].toLowerCase(); return clean.startsWith('blob:') || clean.endsWith('.ply') || clean.endsWith('.nif') || clean.endsWith('.knif') || clean.endsWith('.nif'); }
 function _isNifUrl(url) { return String(url || '').split('?')[0].toLowerCase().endsWith('.nif'); }
-// Returns url only if GaussianSplats3D can render it — strips .ply URLs completely
-function _validSplatUrl(url) {
+// Returns url only if Gaussiannif_files3D can render it — strips .ply URLs completely
+function _validnifUrl(url) {
   if (!url) return '';
-  // Accept .ply, .splat, .ksplat — we handle .ply ourselves via Three.js
+  // Accept .ply, .nif, .knif — we handle .ply ourselves via Three.js
   return url;
 }
 function _isPlyUrl(url) {
   return String(url || '').split('?')[0].toLowerCase().endsWith('.ply');
 }
-function resolveSplatUrl(record) {
+function resolvenifUrl(record) {
   if (!record) return '';
   const candidates = [
-    record.output_url, record.splat_url, record.public_url,
-    record.file_url, record.external_splat_url, record.provider_splat_url
+    record.output_url, record.nif_url, record.public_url,
+    record.file_url, record.external_nif_url, record.provider_nif_url
   ];
   for (const url of candidates) {
-    const v = _validSplatUrl(url);
+    const v = _validnifUrl(url);
     if (v) return v;
   }
   return '';
@@ -684,10 +684,10 @@ function resolvePublicTeaserUrl(record) {
   if (record?.id) p.set('id', record.id);
   const preview = resolvePreviewVideo(record);
   const thumb = resolveThumbnail(record);
-  const splat = resolveSplatUrl(record);
+  const nif = resolvenifUrl(record);
   if (preview) p.set('video', preview);
   if (thumb) p.set('thumb', thumb);
-  if (splat) p.set('file', splat);
+  if (nif) p.set('file', nif);
   return `public-preview.html?${p.toString()}`;
 }
 function normalizeStatus(status, url) {
@@ -701,7 +701,7 @@ function normalizeStatus(status, url) {
 
 function hydrateFromSession() {
   try {
-    const raw = sessionStorage.getItem('fumoca:selectedSplat');
+    const raw = sessionStorage.getItem('fumoca:selectedNif');
     return raw ? JSON.parse(raw) : null;
   } catch (_) {
     return null;
@@ -772,17 +772,17 @@ function setSceneMode(mode) {
 }
 
 async function fetchRecord() {
-  if (!splatId) return null;
-  const { data: splat } = await supabase.from('splats').select('*').eq('id', splatId).maybeSingle();
-  if (splat) return splat;
-  const { data: job } = await supabase.from('processing_jobs').select('*').eq('splat_id', splatId).maybeSingle();
+  if (!nifId) return null;
+  const { data: nif } = await supabase.from('nif_files').select('*').eq('id', nifId).maybeSingle();
+  if (nif) return nif;
+  const { data: job } = await supabase.from('reconstruction_jobs').select('*').eq('nif_id', nifId).maybeSingle();
   if (!job) return null;
   return {
-    id: splatId,
+    id: nifId,
     title: job.title || '',
     description: job.description || '',
     status: job.status || 'queued',
-    splat_url: firstNonEmpty(job.output_url, job.splat_url, job.public_url, job.file_url),
+    nif_url: firstNonEmpty(job.output_url, job.nif_url, job.public_url, job.file_url),
     thumbnail_url: firstNonEmpty(job.thumbnail_url, job.poster_url),
     preview_video_url: firstNonEmpty(job.preview_video_url, job.video_url),
     provider_name: job.provider_name || 'FUMOCA',
@@ -791,21 +791,21 @@ async function fetchRecord() {
 }
 
 async function incrementViewCount() {
-  if (!splatId) return;
+  if (!nifId) return;
   try {
-    const { data } = await supabase.from('splats').select('view_count').eq('id', splatId).maybeSingle();
+    const { data } = await supabase.from('nif_files').select('view_count').eq('id', nifId).maybeSingle();
     const currentViews = Number(data?.view_count || 0);
-    await supabase.from('splats').update({ view_count: currentViews + 1 }).eq('id', splatId);
+    await supabase.from('nif_files').update({ view_count: currentViews + 1 }).eq('id', nifId);
   } catch (error) {
     console.warn('[FUMOCA viewer] unable to increment view count', error);
   }
 }
 
 function applyHeader(record) {
-  if (record?.title) splatTitle.textContent = record.title;
-  if (record?.description) splatDesc.textContent = record.description;
+  if (record?.title) nifTitle.textContent = record.title;
+  if (record?.description) nifDesc.textContent = record.description;
   const provider = firstNonEmpty(record?.provider_name, record?.source_type === 'external' ? 'External provider' : 'FUMOCA');
-  const status = normalizeStatus(record?.status, resolveSplatUrl(record));
+  const status = normalizeStatus(record?.status, resolvenifUrl(record));
   mediaMeta.textContent = `${provider} · ${status === 'done' ? 'Interactive ready' : status} · Feed-connected viewer`;
 }
 
@@ -841,7 +841,7 @@ function configurePreview(record) {
 function setPreviewMode(mode) {
   previewMode = mode;
   const hasVideo = !!previewVideoUrl;
-  splatModeBtn.classList.toggle('alt', mode !== 'splat');
+  nifModeBtn.classList.toggle('alt', mode !== 'nif');
   videoModeBtn.classList.toggle('alt', mode !== 'video');
   if (mode === 'video' && hasVideo) {
     previewVideo.classList.remove('hidden');
@@ -859,7 +859,7 @@ function setPreviewMode(mode) {
 function openPreview(mode = previewMode) {
   if (!previewVideoUrl && !thumbnailUrl) return;
   previewOverlay.classList.add('visible');
-  setPreviewMode(previewVideoUrl && mode === 'video' ? 'video' : 'splat');
+  setPreviewMode(previewVideoUrl && mode === 'video' ? 'video' : 'nif');
 }
 function closePreview() { previewOverlay.classList.remove('visible'); previewVideo.pause(); }
 
@@ -1005,7 +1005,7 @@ function applyStageFilters() {
   const scale = Number(studioState.scale || 100) / 100;
   const kernelCenter = (5 + (sharpness / 100) * 4).toFixed(2);
   sharpenKernel.setAttribute('kernelMatrix', `0 -1 0 -1 ${kernelCenter} -1 0 -1 0`);
-  stageEl.style.filter = `url(#splatSharpen) contrast(${(1 + (presence - 1) * 0.8).toFixed(2)}) saturate(${(1 + (presence - 1) * 0.7).toFixed(2)}) brightness(${(1 + (presence - 1) * 0.18).toFixed(2)})`;
+  stageEl.style.filter = `url(#nif_filesharpen) contrast(${(1 + (presence - 1) * 0.8).toFixed(2)}) saturate(${(1 + (presence - 1) * 0.7).toFixed(2)}) brightness(${(1 + (presence - 1) * 0.18).toFixed(2)})`;
   document.documentElement.style.setProperty('--focus-size', `${focus}%`);
   document.documentElement.style.setProperty('--focus-x', `${focusX}%`);
   document.documentElement.style.setProperty('--focus-y', `${focusY}%`);
@@ -1110,8 +1110,8 @@ async function destroyViewer() {
   rebuildStageHost();
 }
 
-function getActiveSplatUrl() {
-  return rendererPreviewUrl || fileUrl || originalSplatUrl || '';
+function getActivenifUrl() {
+  return rendererPreviewUrl || fileUrl || originalnifUrl || '';
 }
 
 
@@ -1131,7 +1131,7 @@ async function mountPlyViewer(url) {
   _plyScene = new THREE.Scene();
   _plyCamera = new THREE.PerspectiveCamera(55, container.clientWidth / container.clientHeight, 0.001, 2000);
   // nerfstudio/COLMAP uses OpenCV convention: Y is DOWN, Z into scene.
-  // Match the GaussianSplats3D cameraUp of [0,-1,-0.6] so splats sit upright.
+  // Match the Gaussiannif_files3D cameraUp of [0,-1,-0.6] so nif_files sit upright.
   _plyCamera.up.set(0, -1, -0.6).normalize();
   _plyRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
   _plyRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -1165,7 +1165,7 @@ async function mountPlyViewer(url) {
     const bAttr = geo.getAttribute('blue') || geo.getAttribute('diffuse_blue');
 
     if (fdc0 && fdc1 && fdc2) {
-      // nerfstudio/gsplat: SH DC band → sigmoid colour
+      // nerfstudio/gnif: SH DC band → sigmoid colour
       const SH = 0.28209479177387814;
       for (let i = 0; i < count; i++) {
         colors[i*3]   = Math.max(0, Math.min(1, SH * fdc0.array[i] + 0.5));
@@ -1206,7 +1206,7 @@ async function mountPlyViewer(url) {
 
     // ── Per-point size: scale_* from 3DGS are log-scale world units ──────────
     // exp-decoded they are tiny (0.001–0.15). Use scene radius to compute a
-    // sensible base size so splats are always visible, with scale as a soft multiplier.
+    // sensible base size so nif_files are always visible, with scale as a soft multiplier.
     const sizes = new Float32Array(count);
     const sc0 = geo.getAttribute('scale_0');
     const sc1 = geo.getAttribute('scale_1');
@@ -1234,7 +1234,7 @@ async function mountPlyViewer(url) {
     geo.setAttribute('aOpacity', new THREE.BufferAttribute(opacities, 1));
     geo.setAttribute('aSize',    new THREE.BufferAttribute(sizes, 1));
 
-    // ── Photoreal Gaussian splat shader ───────────────────────────────────────
+    // ── Photoreal Gaussian nif shader ───────────────────────────────────────
     const mat = new THREE.ShaderMaterial({
       uniforms: {
         uBaseSize:   { value: 1.0 },   // set after boundingSphere below
@@ -1254,7 +1254,7 @@ async function mountPlyViewer(url) {
           vec4 mv   = modelViewMatrix * vec4(position, 1.0);
           float dist = max(0.1, -mv.z);
           // aSize is the normalised per-point multiplier (0–1 range after rescaling).
-          // uBaseSize encodes the scene-radius-relative splat diameter in pixels.
+          // uBaseSize encodes the scene-radius-relative nif diameter in pixels.
           float sz = uBaseSize * (0.4 + aSize * 0.6);
           gl_PointSize = clamp(sz / dist * 80.0, 1.5, 60.0);
           gl_Position  = projectionMatrix * mv;
@@ -1266,7 +1266,7 @@ async function mountPlyViewer(url) {
           vec2  uv = gl_PointCoord - 0.5;
           float r2 = dot(uv, uv);
           if (r2 > 0.25) discard;
-          // Gaussian falloff gives smooth splat discs
+          // Gaussian falloff gives smooth nif discs
           float a = exp(-7.0 * r2) * vAlpha;
           if (a < 0.006) discard;
           gl_FragColor = vec4(vColor, a);
@@ -1280,7 +1280,7 @@ async function mountPlyViewer(url) {
     const pts = new THREE.Points(geo, mat);
     _plyScene.add(pts);
 
-    // Auto-fit camera — match nerfstudio convention used by GaussianSplats3D:
+    // Auto-fit camera — match nerfstudio convention used by Gaussiannif_files3D:
     // cameraUp=[0,-1,-0.6], initialCameraPosition=[0,1,4], lookAt=[0,0,0]
     // Offset everything by the bounding center so the subject is centered.
     geo.computeBoundingSphere();
@@ -1288,7 +1288,7 @@ async function mountPlyViewer(url) {
     const c = geo.boundingSphere.center;
 
     // Normalise per-point sizes to 0–1 range using the median as anchor,
-    // then set uBaseSize so splats cover ~0.8% of the scene radius at 1× distance.
+    // then set uBaseSize so nif_files cover ~0.8% of the scene radius at 1× distance.
     const sArr = geo.getAttribute('aSize').array;
     const sorted = Float32Array.from(sArr).sort();
     const median = sorted[Math.floor(sorted.length * 0.5)] || 1;
@@ -1307,7 +1307,7 @@ async function mountPlyViewer(url) {
     _plyControls.maxDistance = r * 14;
     _plyControls.update();
     hideLoading();
-    // v78 — cinematic dots→splats reveal (per-embed via ?reveal_duration=, etc)
+    // v78 — cinematic dots→nif_files reveal (per-embed via ?reveal_duration=, etc)
     triggerRevealForViewer({ material: mat, pointsMesh: pts });
     // Expose material for the social-recorder's re-trigger path
     window.__fumocaViewerMaterial = mat;
@@ -1331,14 +1331,14 @@ async function mountPlyViewer(url) {
 }
 
 async function mountInteractiveViewer(forceReload = false) {
-  const activeUrl = getActiveSplatUrl();
+  const activeUrl = getActivenifUrl();
   if ((!forceReload && viewerInstance) || !activeUrl) return;
   if (forceReload) { rendererPreviewPending = true; showStageFreeze(); _fumocaShowPipelineIllusion('Applying edits…', 1680); }
   if (forceReload) await destroyViewer();
-  setLoading(forceReload ? 'Refreshing cleanup…' : 'Loading interactive splat…');
+  setLoading(forceReload ? 'Refreshing cleanup…' : 'Loading interactive nif…');
 
   try {
-    viewerInstance = new GaussianSplats3D.Viewer({
+    viewerInstance = new Gaussiannif_files3D.Viewer({
       rootElement: stageHost || stageEl,
       cameraUp: [0, -1, -0.6],
       initialCameraPosition: [0, 1, 4],
@@ -1350,19 +1350,19 @@ async function mountInteractiveViewer(forceReload = false) {
       ignoreDevicePixelRatio: false,
       dynamicScene: false,
     });
-    const _activeUrl = getActiveSplatUrl();
-    // For blob URLs, GaussianSplats3D can't infer format from URL — pass it explicitly
+    const _activeUrl = getActivenifUrl();
+    // For blob URLs, Gaussiannif_files3D can't infer format from URL — pass it explicitly
     const _sceneOpts = {
       showLoadingUI: false,
       progressiveLoad: true,
-      splatAlphaRemovalThreshold: Number(studioState.cleanup || 5),
+      nifAlphaRemovalThreshold: Number(studioState.cleanup || 5),
     };
     if (String(_activeUrl).startsWith('blob:')) {
-      // Force .splat format — blob URLs from fumoc decoding are always raw .splat binary
-      // GaussianSplats3D.SceneFormat: Ply=0, Splat=1, KSplat=2
-      _sceneOpts.format = GaussianSplats3D.SceneFormat?.Splat ?? 1;
+      // Force .nif format — blob URLs from fumoc decoding are always raw .nif binary
+      // Gaussiannif_files3D.SceneFormat: Ply=0, nif=1, Knif=2
+      _sceneOpts.format = Gaussiannif_files3D.SceneFormat?.nif ?? 1;
     }
-    await viewerInstance.addSplatScene(_activeUrl, _sceneOpts);
+    await viewerInstance.addnif_filescene(_activeUrl, _sceneOpts);
     viewerInstance.start();
     hideLoading();
     hideStageFreeze(forceReload ? 220 : 90);
@@ -1372,24 +1372,24 @@ async function mountInteractiveViewer(forceReload = false) {
     if (!forceReload) await incrementViewCount();
 
     // ── Post-load: extract Gaussian positions and fire fumoca:viewerReady ──
-    // GaussianSplats3D doesn't expose positions synchronously — wait one frame
-    // for the internal sort worker to finish, then probe the splatMesh.
+    // Gaussiannif_files3D doesn't expose positions synchronously — wait one frame
+    // for the internal sort worker to finish, then probe the nifMesh.
     setTimeout(() => {
       try {
-        // Extract position data from the GaussianSplats3D viewer instance
+        // Extract position data from the Gaussiannif_files3D viewer instance
         let positions = null;
-        const splatMesh = viewerInstance.splatMesh || viewerInstance.getSplatMesh?.();
-        if (splatMesh) {
+        const nifMesh = viewerInstance.nifMesh || viewerInstance.getnifMesh?.();
+        if (nifMesh) {
           // Try the sorted positions buffer first (most accurate)
-          const geo = splatMesh.geometry;
-          const posAttr = geo?.attributes?.position || geo?.attributes?.splatPosition;
+          const geo = nifMesh.geometry;
+          const posAttr = geo?.attributes?.position || geo?.attributes?.nifPosition;
           if (posAttr?.array) {
             positions = posAttr.array; // Float32Array, stride 3
           }
-          // Fallback: read from splatBuffer directly
-          if (!positions && splatMesh.splatBuffer) {
-            const buf = splatMesh.splatBuffer;
-            const N = buf.getSplatCount?.() || 0;
+          // Fallback: read from nifBuffer directly
+          if (!positions && nifMesh.nifBuffer) {
+            const buf = nifMesh.nifBuffer;
+            const N = buf.getnifCount?.() || 0;
             if (N > 0) {
               positions = new Float32Array(N * 3);
               for (let i = 0; i < N; i++) {
@@ -1453,12 +1453,12 @@ async function mountInteractiveViewer(forceReload = false) {
       try {
         rendererPreviewSeq += 1;
         _fumocaClearRendererPreview();
-        showError('Live renderer preview is limited on this viewer build. Edit overlay remains active; save a variant to apply the cleaned splat.');
+        showError('Live renderer preview is limited on this viewer build. Edit overlay remains active; save a variant to apply the cleaned nif.');
         await mountInteractiveViewer(true);
         return;
       } catch (_) {}
     }
-    showError(`Failed to load splat: ${msg}`);
+    showError(`Failed to load nif: ${msg}`);
   }
 }
 
@@ -1496,13 +1496,13 @@ function activatePreset(name) {
 }
 
 async function boot() {
-  setLoading('Fetching splat…');
+  setLoading('Fetching nif…');
   const sessionRecord = hydrateFromSession();
   currentRecord = (await fetchRecord()) || sessionRecord;
   if (sessionRecord) {
     thumbnailUrl = thumbnailUrl || sessionRecord.thumbnail || '';
     previewVideoUrl = previewVideoUrl || sessionRecord.previewVideo || '';
-    fileUrl = fileUrl || _validSplatUrl(sessionRecord.file) || '';
+    fileUrl = fileUrl || _validnifUrl(sessionRecord.file) || '';
   }
 
   // Probe fileUrl — if storage returns 400/404 it's a ghost file, use DB record
@@ -1522,11 +1522,11 @@ async function boot() {
 
   // If fileUrl was bad, wipe sessionStorage so the ghost URL can't come back
   if (!fileUrl) {
-    try { sessionStorage.removeItem('fumoca:selectedSplat'); } catch(_) {}
+    try { sessionStorage.removeItem('fumoca:selectedNif'); } catch(_) {}
   }
 
   applyHeader(currentRecord);
-  if (!fileUrl && currentRecord) fileUrl = resolveSplatUrl(currentRecord);
+  if (!fileUrl && currentRecord) fileUrl = resolvenifUrl(currentRecord);
   console.log('[Viewer] Final fileUrl:', fileUrl || '(empty — no renderable file found)');
   configurePreview(currentRecord);
   await detectManagePermission();
@@ -1543,29 +1543,29 @@ async function boot() {
   const status = normalizeStatus(currentRecord?.status, fileUrl);
   if (!fileUrl) {
     if (status === 'processing' || status === 'queued') {
-      showError('This splat is still processing. Open the teaser while the interactive version finishes.');
-      if ((previewVideoUrl || thumbnailUrl) && autoplayPreview) openPreview('splat');
+      showError('This nif is still processing. Open the teaser while the interactive version finishes.');
+      if ((previewVideoUrl || thumbnailUrl) && autoplayPreview) openPreview('nif');
     } else if (status === 'failed') {
-      showError('Processing failed for this splat.');
+      showError('Processing failed for this nif.');
     } else {
-      showError('No interactive splat file found for this record.');
+      showError('No interactive nif file found for this record.');
     }
     return;
   }
-  if (!isSplatUrl(fileUrl)) {
+  if (!isnifUrl(fileUrl)) {
     showError(`Unrecognised file type: ${fileUrl.split('?')[0].split('/').pop()}`);
     return;
   }
-  if ((previewVideoUrl || thumbnailUrl) && autoplayPreview) openPreview('splat');
-  // Route PLY files to THREE.js viewer; .splat/.ksplat to GaussianSplats3D
+  if ((previewVideoUrl || thumbnailUrl) && autoplayPreview) openPreview('nif');
+  // Route PLY files to THREE.js viewer; .nif/.knif to Gaussiannif_files3D
   // Check type hint from open.html (blob URLs have no extension)
-  const _blobType = sessionStorage.getItem('fumoc_pending_splat_type');
-  if (_blobType) sessionStorage.removeItem('fumoc_pending_splat_type');
+  const _blobType = sessionStorage.getItem('fumoc_pending_nif_type');
+  if (_blobType) sessionStorage.removeItem('fumoc_pending_nif_type');
 
   if (_isNifUrl(fileUrl) || (_blobType === 'nif' && fileUrl.startsWith('blob:'))) {
     // .nif is the native format — decode its KEYFRAME_GEO chunk and hand the
-    // gaussian data to the existing GaussianSplats3D renderer for full
-    // anisotropic-splat fidelity (no re-wrap into any other container format).
+    // gaussian data to the existing Gaussiannif_files3D renderer for full
+    // anisotropic-nif fidelity (no re-wrap into any other container format).
     setLoading('Decoding .nif…');
     try {
       const nifResp   = await fetch(fileUrl);
@@ -1573,9 +1573,9 @@ async function boot() {
       if (fileUrl.startsWith('blob:')) URL.revokeObjectURL(fileUrl);
 
       const { meta, gaussians } = decodeNif(nifBuffer);
-      const splatBytes = geometryToSplatRows(gaussians);
-      const splatBlob  = new Blob([splatBytes], { type: 'application/octet-stream' });
-      fileUrl = URL.createObjectURL(splatBlob);
+      const nifBytes = geometryTonifRows(gaussians);
+      const nifBlob  = new Blob([nifBytes], { type: 'application/octet-stream' });
+      fileUrl = URL.createObjectURL(nifBlob);
 
       // Mirror the same window globals FumocDecoder.loadIntoViewer exposed,
       // so hotspot/tour/title UI code elsewhere in this file keeps working.
@@ -1590,16 +1590,16 @@ async function boot() {
       return;
     }
   } else if (_blobType === 'fumoc' && fileUrl.startsWith('blob:')) {
-    // .fumoc is a container — must decode to raw .splat before rendering
+    // .fumoc is a container — must decode to raw .nif before rendering
     setLoading('Decoding .fumoc…');
     try {
       const fumocResp   = await fetch(fileUrl);
       const fumocBuffer = await fumocResp.arrayBuffer();
       URL.revokeObjectURL(fileUrl); // free the .fumoc blob
-      const { splatUrl, decoded } = await FumocDecoder.loadIntoViewer(fumocBuffer);
-      fileUrl = splatUrl; // swap to the decoded .splat blob URL
+      const { nifUrl, decoded } = await FumocDecoder.loadIntoViewer(fumocBuffer);
+      fileUrl = nifUrl; // swap to the decoded .nif blob URL
       // Expose tour/hotspot data that loadIntoViewer sets on window
-      console.log('[Viewer] .fumoc decoded → splat blob ready');
+      console.log('[Viewer] .fumoc decoded → nif blob ready');
     } catch (err) {
       showError('Failed to decode .fumoc file: ' + err.message);
       console.error('[Viewer] fumoc decode error:', err);
@@ -1607,26 +1607,26 @@ async function boot() {
     }
   }
 
-  if (_isPlyUrl(fileUrl) && _blobType !== 'splat') {
+  if (_isPlyUrl(fileUrl) && _blobType !== 'nif') {
     await mountPlyViewer(fileUrl);
   } else {
     await mountInteractiveViewer();
   }
 }
 
-teaserBtn?.addEventListener('click', () => { _fumocaTrack('preview_open', { mode: 'splat' }); openPreview('splat'); });
+teaserBtn?.addEventListener('click', () => { _fumocaTrack('preview_open', { mode: 'nif' }); openPreview('nif'); });
 closePreviewBtn?.addEventListener('click', closePreview);
 viewInteractiveBtn?.addEventListener('click', closePreview);
-shareTeaserBtn?.addEventListener('click', () => openPreview('splat'));
-splatModeBtn?.addEventListener('click', () => setPreviewMode('splat'));
-videoModeBtn?.addEventListener('click', () => setPreviewMode(previewVideoUrl ? 'video' : 'splat'));
+shareTeaserBtn?.addEventListener('click', () => openPreview('nif'));
+nifModeBtn?.addEventListener('click', () => setPreviewMode('nif'));
+videoModeBtn?.addEventListener('click', () => setPreviewMode(previewVideoUrl ? 'video' : 'nif'));
 copyLinkBtn?.addEventListener('click', async () => {
   _fumocaTrack('share_copy_attempt', { recordId: currentRecord?.id || null });
   const shareUrl = new URL(window.location.href);
   // Always generate a clean public link — strip admin/session params, add ?public=1
   shareUrl.searchParams.delete('embed');
   shareUrl.searchParams.set('public', '1');
-  if (currentRecord?.id && !shareUrl.searchParams.get('splatId')) shareUrl.searchParams.set('splatId', currentRecord.id);
+  if (currentRecord?.id && !shareUrl.searchParams.get('nifId')) shareUrl.searchParams.set('nifId', currentRecord.id);
   if (thumbnailUrl && !shareUrl.searchParams.get('thumbnail')) shareUrl.searchParams.set('thumbnail', thumbnailUrl);
   if (previewVideoUrl && !shareUrl.searchParams.get('previewVideo')) shareUrl.searchParams.set('previewVideo', previewVideoUrl);
   // Strip any back= param so recipient's back button just closes/goes back normally
@@ -1720,11 +1720,11 @@ function _fumocaClearRendererPreview() {
 async function _fumocaApplyRendererPreview(url) {
   if (!url) return;
   const seq = ++rendererPreviewSeq;
-  // This viewer build cannot reliably ingest blob/object URLs as live splat scenes.
+  // This viewer build cannot reliably ingest blob/object URLs as live nif scenes.
   // Keep the original viewer mounted and let the edit overlay remain the active editing surface.
   if (String(url).startsWith('blob:')) {
     rendererPreviewPending = false;
-    hint.textContent = 'Edit overlay active. Save variant to apply the cleaned splat.';
+    hint.textContent = 'Edit overlay active. Save variant to apply the cleaned nif.';
     hint.classList.remove('hidden');
     exposeToEditEngine();
     _fumocaExposeViewerBridge();
@@ -1785,7 +1785,7 @@ async function _fumocaFlushPipelineQueue() {
         queue.unshift(item.payload);
         currentMeta.processing_requests = queue.slice(0, 50);
         currentMeta.last_processing_request = item.payload;
-        const { error } = await supabase.from('splats').update({ metadata: currentMeta }).eq('id', currentRecord.id);
+        const { error } = await supabase.from('nif_files').update({ metadata: currentMeta }).eq('id', currentRecord.id);
         if (error) throw error;
         currentRecord = { ...(currentRecord || {}), metadata: currentMeta };
         window._fumocaCurrentRecord = currentRecord;
@@ -1977,9 +1977,9 @@ deleteUploadBtn?.addEventListener('click', () => { _fumocaTrack('delete_upload_c
 
 // ── EXPOSE STATE TO EDIT ENGINE ──────────────────────────────────
 // edit-engine.js reads these window properties to access the live
-// splat URL, Supabase client, and current record without coupling.
+// nif URL, Supabase client, and current record without coupling.
 function exposeToEditEngine() {
-  window._fumocaSplatUrl = getActiveSplatUrl() || '';
+  window._fumocanifUrl = getActivenifUrl() || '';
   window._fumocaSupabase = supabase;
   window._fumocaCurrentRecord = currentRecord;
 }
@@ -2121,7 +2121,7 @@ detectManagePermission = async function patchedDetectManagePermission() {
 function _fumocaCreateEmbedUrl() {
   const u = new URL(window.location.href);
   u.searchParams.set('embed', '1');
-  if (currentRecord?.id && !u.searchParams.get('splatId')) u.searchParams.set('splatId', currentRecord.id);
+  if (currentRecord?.id && !u.searchParams.get('nifId')) u.searchParams.set('nifId', currentRecord.id);
   if (fileUrl && !u.searchParams.get('file')) u.searchParams.set('file', fileUrl);
   if (/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) && !u.searchParams.get('quality')) {
     u.searchParams.set('quality', 'mobile');
@@ -2141,7 +2141,7 @@ function _fumocaBuildRecipe(name = 'Working Variant') {
     scene_mode: _fumocaGetSceneMode(),
     studio: { ...studioState },
     hotspots: Array.isArray(window._fumocaHotspots) ? window._fumocaHotspots : undefined,
-    source_splat_url: fileUrl || '',
+    source_nif_url: fileUrl || '',
     record_id: currentRecord?.id || null,
   };
 }
@@ -2158,7 +2158,7 @@ async function _fumocaSaveVariant(name = null) {
   let savedRemote = false;
   if (supabase && rec.id) {
     try {
-      const { error } = await supabase.from('splats').update({ metadata }).eq('id', rec.id);
+      const { error } = await supabase.from('nif_files').update({ metadata }).eq('id', rec.id);
       if (error) throw error;
       savedRemote = true;
     } catch (err) {
@@ -2207,8 +2207,8 @@ async function _fumocaQueuePipeline(kind = 'mesh_cleanup', extraPayload = {}) {
     kind,
     created_at: safeExtra.created_at || new Date().toISOString(),
     scene_mode: safeExtra.scene_mode || _fumocaGetSceneMode(),
-    source_splat_id: safeExtra.source_splat_id || rec.id || null,
-    source_splat_url: safeExtra.source_splat_url || fileUrl || rec.splat_url || '',
+    source_nif_id: safeExtra.source_nif_id || rec.id || null,
+    source_nif_url: safeExtra.source_nif_url || fileUrl || rec.nif_url || '',
     source_record_id: safeExtra.source_record_id || rec.id || null,
     status: safeExtra.status || 'queued',
   };
@@ -2220,7 +2220,7 @@ async function _fumocaQueuePipeline(kind = 'mesh_cleanup', extraPayload = {}) {
   let savedRemote = false;
   if (supabase && rec.id) {
     try {
-      const { error } = await supabase.from('splats').update({ metadata }).eq('id', rec.id);
+      const { error } = await supabase.from('nif_files').update({ metadata }).eq('id', rec.id);
       if (error) throw error;
       savedRemote = true;
     } catch (err) {
@@ -2263,13 +2263,13 @@ function _fumocaExposePlatform() {
   window._fumocaQueuePipeline = _fumocaQueuePipeline;
   window._fumocaApplyAutoCleanPreset = _fumocaApplyAutoCleanPreset;
   window._fumocaApi = {
-    upload: '/api/splats/upload',
-    getSplat: '/api/splats/:id',
-    updateSplat: '/api/splats/:id',
-    deleteSplat: '/api/splats/:id',
-    hotspots: '/api/splats/:id/hotspots',
-    variants: '/api/splats/:id/variants',
-    tours: '/api/splats/:id/tours',
+    upload: '/api/nif_files/upload',
+    getnif: '/api/nif_files/:id',
+    updatenif: '/api/nif_files/:id',
+    deletenif: '/api/nif_files/:id',
+    hotspots: '/api/nif_files/:id/hotspots',
+    variants: '/api/nif_files/:id/variants',
+    tours: '/api/nif_files/:id/tours',
     jobs: '/api/jobs/:id',
   };
   window._fumocaPerformance = window._fumocaPerformance || {
@@ -2347,8 +2347,8 @@ _fumocaSyncPermissions();
 _fumocaSchedulePipelineFlush(1200);
 window.dispatchEvent(new CustomEvent('fumoca:requestEditPreview'));
 
-// ── SPLAT CAPTURE BRIDGE ─────────────────────────────────────────
-// Exposes the renderer canvas so SplatCapture can record the live viewer.
+// ── nif CAPTURE BRIDGE ─────────────────────────────────────────
+// Exposes the renderer canvas so nifCapture can record the live viewer.
 function _fumocaExposeCaptureBridge() {
   try {
     const vi = viewerInstance;
@@ -2379,7 +2379,7 @@ setTimeout(() => clearInterval(_captureBridgeInterval), 12000);
 // ── AUTO PREVIEW GENERATION ─────────────────────────────────────
 function _fumocaSupportsAutoCapture() {
   try {
-    return !!(window.SplatCapture && window.MediaRecorder && HTMLCanvasElement.prototype.captureStream);
+    return !!(window.nifCapture && window.MediaRecorder && HTMLCanvasElement.prototype.captureStream);
   } catch (_) {
     return false;
   }
@@ -2434,12 +2434,12 @@ async function _fumocaAutoGeneratePreviewVideo() {
   }
   try {
     _fumocaRunTeaserMotion();
-    await window.SplatCapture.start({
+    await window.nifCapture.start({
       fps: /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) ? 24 : 30,
       duration: 6400,
       videoBitrate: /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) ? 2500000 : 4200000,
     });
-    const publicUrl = await window.SplatCapture.uploadToSupabase('preview-videos', currentRecord?.id || null);
+    const publicUrl = await window.nifCapture.uploadToSupabase('preview-videos', currentRecord?.id || null);
     if (publicUrl) {
       previewVideoUrl = publicUrl;
       if (currentRecord) {

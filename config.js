@@ -1,6 +1,6 @@
 window.FUMOCA_CONFIG = {
-  supabaseUrl: 'https://sjxkgdaaknflnviwjbej.supabase.co',
-  supabaseAnonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNqeGtnZGFha25mbG52aXdqYmVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUzODcyNTYsImV4cCI6MjA5MDk2MzI1Nn0.Ycak6EMEvRnRVVkbpVwbAnEBpIgy1Kqz9qWtqK6AL8w',
+  supabaseUrl: 'https://cicaxmthjdinbqvqmwxe.supabase.co',
+  supabaseAnonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNpY2F4bXRoamRpbmJxdnFtd3hlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ3MjI2MzgsImV4cCI6MjEwMDI5ODYzOH0.TQSVB0MrxhMVpktzzEnRtNWgFgn7solzQmWC3hIeqAo',
   kaggleNotebookUrl: 'https://www.kaggle.com/code/malvinmakhuthe/notebook6ce27d38de',
   siteBaseUrl: 'https://fumoca.co.za',
 
