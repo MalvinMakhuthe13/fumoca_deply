@@ -1,0 +1,38 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+
+  "name": "fumoca-r2",
+
+  "main": "cloudflare/workers/r2-storage.js",
+
+  "compatibility_date": "2026-07-26",
+
+  "workers_dev": true,
+
+  "observability": {
+    "enabled": true
+  },
+
+  "r2_buckets": [
+    {
+      "binding": "NIF_VIDEOS",
+      "bucket_name": "nif-videos"
+    },
+    {
+      "binding": "NIF_FILES",
+      "bucket_name": "nif-files"
+    },
+    {
+      "binding": "THUMBNAILS",
+      "bucket_name": "thumbnails"
+    },
+    {
+      "binding": "PREVIEW_VIDEOS",
+      "bucket_name": "preview-videos"
+    },
+    {
+      "binding": "AVATARS",
+      "bucket_name": "avatars"
+    }
+  ]
+}
