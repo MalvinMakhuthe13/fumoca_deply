@@ -96,7 +96,13 @@ console.log("Supabase auth status:", resp.status);
 console.log("Supabase auth body:", text);
 
 if (!resp.ok) {
-  return null;
+  return json(
+    {
+      supabaseStatus: resp.status,
+      supabaseBody: text
+    },
+    401
+  );
 }
 
 const user = JSON.parse(text);
