@@ -36,14 +36,19 @@
   ];
 
   const FOOTER_ITEMS = [
-    { href: 'settings.html', icon: '⚙️', label: 'Settings', match: ['settings.html'] }
+    { href: 'settings.html', icon: '⚙️', label: 'Settings', match: ['settings.html'] },
+     {
+    action: 'logout',
+    icon: '🚪',
+    label: 'Logout'
+  }
   ];
 
   function isActive(item) {
     return item.match.includes(CURRENT);
   }
 
-  function linkHTML(item, extraClass) {
+  /*function linkHTML(item, extraClass) {
     const active = isActive(item) ? ' fnav-active' : '';
     const badge = item.badge
       ? `<span class="fnav-badge" data-badge="${item.badge}" hidden>0</span>`
@@ -51,7 +56,35 @@
     return `<a href="${item.href}" class="fnav-item ${extraClass}${active}">
       <span class="fnav-icon">${item.icon}</span><span class="fnav-label">${item.label}</span>${badge}
     </a>`;
+  }*/
+  function linkHTML(item, extraClass) {
+
+  if (item.action === 'logout') {
+    return `
+      <button type="button"
+              class="fnav-item ${extraClass}"
+              data-action="logout">
+        <span class="fnav-icon">${item.icon}</span>
+        <span class="fnav-label">${item.label}</span>
+      </button>
+    `;
   }
+
+  const active = isActive(item) ? ' fnav-active' : '';
+
+  const badge = item.badge
+      ? `<span class="fnav-badge" data-badge="${item.badge}" hidden>0</span>`
+      : '';
+
+  return `
+    <a href="${item.href}"
+       class="fnav-item ${extraClass}${active}">
+      <span class="fnav-icon">${item.icon}</span>
+      <span class="fnav-label">${item.label}</span>
+      ${badge}
+    </a>
+  `;
+}
 
   function buildMarkup() {
     const mainLinks = MAIN_ITEMS.map((i) => linkHTML(i, 'fnav-main')).join('');
@@ -143,6 +176,34 @@
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') closeDrawer();
     });
+
+
+    document.querySelectorAll('[data-action="logout"]').forEach(btn => {
+
+  btn.addEventListener('click', async () => {
+
+    try {
+
+      if (window.supabase) {
+
+        await window.supabase.auth.signOut();
+
+      }
+
+    } catch (err) {
+
+      console.error(err);
+
+    }
+
+    localStorage.clear();
+    sessionStorage.clear();
+
+    window.location.href = 'login.html';
+
+  });
+
+});
 
     window.FumocaNav = {
       setBadge(name, count) {
