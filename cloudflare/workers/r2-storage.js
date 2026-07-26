@@ -79,7 +79,10 @@ async function authorize(request, env) {
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
   if (!token || !env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) return null;
 
+
   try {
+    console.log("SUPABASE_URL:", env.SUPABASE_URL);
+    console.log("ANON_KEY exists:", !!env.SUPABASE_ANON_KEY);
     const resp = await fetch(`${env.SUPABASE_URL}/auth/v1/user`, {
       headers: {
         Authorization: `Bearer ${token}`,
