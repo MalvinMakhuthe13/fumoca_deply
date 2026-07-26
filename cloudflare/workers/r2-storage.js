@@ -86,9 +86,19 @@ async function authorize(request, env) {
         apikey: env.SUPABASE_ANON_KEY,
       },
     });
-    if (!resp.ok) return null;
-    const user = await resp.json();
-    return user?.id ? { id: user.id, kind: 'user' } : null;
+    /*if (!resp.ok) return null;*/
+    const text = await resp.text();
+
+console.log("Supabase auth status:", resp.status);
+console.log("Supabase auth body:", text);
+
+if (!resp.ok) {
+  return null;
+}
+
+const user = JSON.parse(text);
+return user?.id ? { id: user.id, kind: "user" } : null;
+    
   } catch (e) {
     console.error('[R2 auth check failed]', e);
     return null;
