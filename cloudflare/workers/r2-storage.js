@@ -1,44 +1,36 @@
-
-
 /**
  * FUMOCA R2 Storage Worker
  * ════════════════════════════════════════════════════════════
  * Handles all file storage operations via Cloudflare R2.
- * Replaces Supabase Storage for all splat/video/thumbnail files.
  *
  * Routes:
- *   POST   /upload/presign     → Returns a presigned PUT URL for direct browser upload
- *   PUT    /upload/:key        → Direct upload (fallback, small files)
- *   GET    /file/:key          → Serve file (with CDN caching)
- *   DELETE /file/:key          → Delete file (admin/owner only)
- *   GET    /health             → Health check
+ *   POST   /upload/presign        → Returns an upload URL (presigned or worker-fallback)
+ *   PUT    /upload/:key           → Direct upload (fallback, small files)
+ *                                   optional ?bucket=<name>, defaults to nif-files
+ *   GET    /file/:key             → Serve file (with CDN caching)
+ *                                   optional ?bucket=<name>, defaults to nif-files
+ *   DELETE /file/:key             → Delete file (any authenticated user — see NOTE below)
+ *                                   optional ?bucket=<name>, defaults to nif-files
+ *   GET    /health                → Health check
  *
  * Env vars required (set in Cloudflare dashboard → Workers → Settings → Variables):
- *   R2_BUCKET         → R2 bucket binding (set as R2 binding, not plaintext)
+ *   NIF_FILES, NIF_VIDEOS, PREVIEW_VIDEOS, THUMBNAILS, AVATARS
+ *                     → R2 bucket bindings (one per bucket name below)
  *   FUMOCA_API_SECRET → shared secret for SERVER-TO-SERVER calls only (kaggle
  *                       worker, backend API) — must NEVER be sent from a browser.
- *                       If you previously shipped this in config.js, rotate it now:
- *                       `wrangler secret put FUMOCA_API_SECRET` with a fresh value.
  *   SUPABASE_URL      → e.g. https://xxxx.supabase.co (used to verify user sessions)
  *   SUPABASE_ANON_KEY → Supabase anon/publishable key (safe to be public, same
  *                       value already in your frontend config.js)
  *   ALLOWED_ORIGIN    → e.g. https://fumoca.co.za  (CORS)
  *   PUBLIC_BASE_URL   → e.g. https://cdn.fumoca.co.za (served file base)
+ *
+ *   Optional, only needed for real presigned PUT URLs (S3-compatible API):
+ *   ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME
  * ════════════════════════════════════════════════════════════
  */
 
 const CACHE_TTL = 60 * 60 * 24 * 7; // 7 days for splat/ply files
-const THUMB_TTL = 60 * 60 * 24;      // 1 day for thumbnails
-
-// ── Bucket → path prefix mapping (mirrors old Supabase buckets) ──────────────
-/*const BUCKET_MAP = {
-  'splat-videos':   'videos',
-  'splat-files':    'splats',
-  'splats':         'splats',
-  'preview-videos': 'previews',
-  'thumbnails':     'thumbs',
-  'avatars':        'avatars',
-};*/
+const THUMB_TTL = 60 * 60 * 24;     // 1 day for thumbnails
 
 // ── CORS headers ──────────────────────────────────────────────────────────────
 function corsHeaders(origin, allowedOrigin) {
@@ -61,13 +53,16 @@ function json(data, status = 200, extraHeaders = {}) {
 /**
  * Authorize a write request one of two ways:
  *   1. A real, currently-valid Supabase user session (Authorization: Bearer <token>)
- *      — this is how the browser authenticates now. Verified by asking Supabase
- *      itself whether the token is valid, not by trusting anything the client claims.
+ *      — verified by asking Supabase itself whether the token is valid, not by
+ *      trusting anything the client claims.
  *   2. The FUMOCA_API_SECRET header — reserved for genuine server-to-server calls
  *      (the Kaggle reconstruction worker, the backend API). This secret must never
  *      be sent by browser-side code; if it's absent from env, that path is simply
  *      unavailable rather than silently open.
+ *
  * Returns the authenticated user object (or a synthetic server-principal), or null.
+ * IMPORTANT: this function must only ever return a principal object or null —
+ * never a Response — or callers' `if (!principal)` checks silently stop working.
  */
 async function authorize(request, env) {
   const serverSecret = request.headers.get('X-Fumoca-Secret');
@@ -79,73 +74,75 @@ async function authorize(request, env) {
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
   if (!token || !env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) return null;
 
-
   try {
-    console.log("SUPABASE_URL:", env.SUPABASE_URL);
-    console.log("ANON_KEY exists:", !!env.SUPABASE_ANON_KEY);
     const resp = await fetch(`${env.SUPABASE_URL}/auth/v1/user`, {
       headers: {
         Authorization: `Bearer ${token}`,
         apikey: env.SUPABASE_ANON_KEY,
       },
     });
-    /*if (!resp.ok) return null;*/
+
     const text = await resp.text();
 
-console.log("Supabase auth status:", resp.status);
-console.log("Supabase auth body:", text);
+    if (!resp.ok) {
+      console.error('[R2 auth] Supabase rejected token', resp.status, text);
+      return null;
+    }
 
-if (!resp.ok) {
-  return json(
-    {
-      supabaseStatus: resp.status,
-      supabaseBody: text
-    },
-    401
-  );
-}
-
-const user = JSON.parse(text);
-return user?.id ? { id: user.id, kind: "user" } : null;
-    
+    const user = JSON.parse(text);
+    return user?.id ? { id: user.id, kind: 'user' } : null;
   } catch (e) {
     console.error('[R2 auth check failed]', e);
     return null;
   }
 }
 
-// ── Build R2 key from bucket + user path ─────────────────────────────────────
-/*function buildKey(bucket, userPath) {
-  const prefix = BUCKET_MAP[bucket] || bucket;
-  // Sanitise: strip leading slashes, prevent traversal
-  const safe = userPath.replace(/\.\./g, '').replace(/^\/+/, '');
-  return `${prefix}/${safe}`;
-}*/
+// ── Key sanitisation ──────────────────────────────────────────────────────────
+// Strips traversal attempts, backslashes, and collapses duplicate slashes.
+// Also enforces a sane max length so absurdly long paths can't be used to
+// abuse R2 key limits or your CDN/cache layer.
+const MAX_KEY_LENGTH = 500;
 
+function sanitiseKey(rawPath) {
+  const cleaned = rawPath
+    .replace(/\.\./g, '')
+    .replace(/\\/g, '/')
+    .replace(/\/+/g, '/')
+    .replace(/^\/+/, '');
+  return cleaned.slice(0, MAX_KEY_LENGTH);
+}
+
+// ── MIME whitelist per bucket ─────────────────────────────────────────────────
+// Starting point only — adjust to match what each bucket actually needs to accept.
+const ALLOWED_MIME_TYPES = {
+  'nif-videos': ['video/mp4', 'video/webm', 'video/quicktime'],
+  'preview-videos': ['video/mp4', 'video/webm'],
+  'nif-files': ['application/octet-stream', 'application/x-ply', 'model/gltf-binary'],
+  'thumbnails': ['image/jpeg', 'image/png', 'image/webp'],
+  'avatars': ['image/jpeg', 'image/png', 'image/webp'],
+};
+
+function isAllowedMimeType(bucketName, contentType) {
+  const allowed = ALLOWED_MIME_TYPES[bucketName];
+  if (!allowed) return true; // unknown bucket name is caught elsewhere
+  return allowed.includes(contentType);
+}
+
+// Max direct-upload body size, in bytes (default 200MB). Only enforced on the
+// worker-proxied PUT /upload/:key path — presigned uploads go straight to R2
+// and aren't covered by this check.
+const DEFAULT_MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
+
+// ── Bucket resolver ───────────────────────────────────────────────────────────
 function getBucket(bucketName, env) {
-
-  switch (bucketName) {
-
-    case 'nif-videos':
-      return env.NIF_VIDEOS;
-
-    case 'nif-files':
-      return env.NIF_FILES;
-
-    case 'preview-videos':
-      return env.PREVIEW_VIDEOS;
-
-    case 'thumbnails':
-      return env.THUMBNAILS;
-
-    case 'avatars':
-      return env.AVATARS;
-
-    default:
-      return null;
-
-  }
-
+  const buckets = {
+    'nif-files': env.NIF_FILES,
+    'nif-videos': env.NIF_VIDEOS,
+    'preview-videos': env.PREVIEW_VIDEOS,
+    'thumbnails': env.THUMBNAILS,
+    'avatars': env.AVATARS,
+  };
+  return buckets[bucketName] ?? null;
 }
 
 // ── Main handler ──────────────────────────────────────────────────────────────
@@ -161,14 +158,33 @@ export default {
     }
 
     const path = url.pathname;
+    const bucketParam = url.searchParams.get('bucket') || 'nif-files';
 
     // ── GET /health ───────────────────────────────────────────────────────────
     if (request.method === 'GET' && path === '/health') {
-      return json({ ok: true, service: 'fumoca-r2', ts: Date.now() }, 200, cors);
+      const buckets = {
+        'nif-files': !!env.NIF_FILES,
+        'nif-videos': !!env.NIF_VIDEOS,
+        'preview-videos': !!env.PREVIEW_VIDEOS,
+        'thumbnails': !!env.THUMBNAILS,
+        'avatars': !!env.AVATARS,
+      };
+      const presignConfigured = !!(env.ACCOUNT_ID && env.R2_ACCESS_KEY_ID && env.R2_SECRET_ACCESS_KEY && env.R2_BUCKET_NAME);
+      const supabaseConfigured = !!(env.SUPABASE_URL && env.SUPABASE_ANON_KEY);
+      const allBucketsBound = Object.values(buckets).every(Boolean);
+
+      return json({
+        ok: allBucketsBound && supabaseConfigured,
+        service: 'fumoca-r2',
+        ts: Date.now(),
+        buckets,
+        presignConfigured,
+        supabaseConfigured,
+      }, 200, cors);
     }
 
     // ── POST /upload/presign ──────────────────────────────────────────────────
-    // Body: { bucket, path, contentType, userId }
+    // Body: { bucket, path, contentType }
     // Returns: { uploadUrl, fileKey, publicUrl }
     if (request.method === 'POST' && path === '/upload/presign') {
       const principal = await authorize(request, env);
@@ -177,51 +193,41 @@ export default {
       }
 
       let body;
-      try { body = await request.json(); }
-      catch { return json({ error: 'Invalid JSON body' }, 400, cors); }
+      try {
+        body = await request.json();
+      } catch {
+        return json({ error: 'Invalid JSON body' }, 400, cors);
+      }
 
-     /* const { bucket = 'splat-files', path: userPath, contentType = 'application/octet-stream' } = body;
+      const {
+        bucket = 'nif-files',
+        path: userPath,
+        contentType = 'application/octet-stream',
+      } = body;
+
       if (!userPath) return json({ error: 'Missing path' }, 400, cors);
 
-      const fileKey = buildKey(bucket, userPath);*/
+      const r2Bucket = getBucket(bucket, env);
+      if (!r2Bucket) {
+        return json({ error: `Unknown bucket: ${bucket}` }, 400, cors);
+      }
 
-    const {
+      if (!isAllowedMimeType(bucket, contentType)) {
+        return json({ error: `Content type not allowed for bucket ${bucket}: ${contentType}` }, 400, cors);
+      }
 
-  bucket = 'nif-files',
+      const fileKey = sanitiseKey(userPath);
+      if (!fileKey) return json({ error: 'Invalid path' }, 400, cors);
 
-  path: userPath,
+      // R2 presigned URL — valid for 1 hour. generatePresignedPut() itself checks
+      // whether S3-compat credentials are configured and falls back to null,
+      // so we always call it and let it decide rather than guessing here.
+      const presigned = await generatePresignedPut(r2Bucket, fileKey, contentType, env);
 
-  contentType = 'application/octet-stream'
-
-} = body;
-
-const r2Bucket = getBucket(bucket, env);
-
-if (!r2Bucket) {
-
-  return json(
-    { error: `Unknown bucket: ${bucket}` },
-    400,
-    cors
-  );
-
-}
-
-const fileKey = userPath.replace(/^\/+/, '');  
-
-      // R2 presigned URL — valid for 1 hour
-      /*const presigned = await env.R2_BUCKET.createMultipartUpload
-        ? await generatePresignedPut(env.R2_BUCKET, fileKey, contentType, env)
-        : null;*/
-
-      const presigned = r2Bucket.createMultipartUpload
-      ? await generatePresignedPut(r2Bucket, fileKey, contentType, env)
-      : null;
-       
-
-      // Fallback: return a direct-upload URL pointing back to this worker
-      const uploadUrl = presigned || `${env.PUBLIC_BASE_URL || url.origin}/upload/${encodeURIComponent(fileKey)}`;
-      const publicUrl = `${env.PUBLIC_BASE_URL || url.origin}/file/${encodeURIComponent(fileKey)}`;
+      const uploadUrl =
+        presigned ||
+        `${env.PUBLIC_BASE_URL || url.origin}/upload/${encodeURIComponent(fileKey)}?bucket=${encodeURIComponent(bucket)}`;
+      const publicUrl = `${env.PUBLIC_BASE_URL || url.origin}/file/${encodeURIComponent(fileKey)}?bucket=${encodeURIComponent(bucket)}`;
 
       return json({ uploadUrl, fileKey, publicUrl }, 200, cors);
     }
@@ -233,22 +239,42 @@ const fileKey = userPath.replace(/^\/+/, '');
         return json({ error: 'Unauthorized — sign in and try again' }, 401, cors);
       }
 
-      const fileKey = decodeURIComponent(path.slice('/upload/'.length));
+      const fileKey = sanitiseKey(decodeURIComponent(path.slice('/upload/'.length)));
       if (!fileKey) return json({ error: 'Missing key' }, 400, cors);
 
+      const r2Bucket = getBucket(bucketParam, env);
+      if (!r2Bucket) {
+        return json({ error: `Unknown bucket: ${bucketParam}` }, 400, cors);
+      }
+
       const contentType = request.headers.get('Content-Type') || 'application/octet-stream';
-      const body = request.body;
+      if (!isAllowedMimeType(bucketParam, contentType)) {
+        return json({ error: `Content type not allowed for bucket ${bucketParam}: ${contentType}` }, 400, cors);
+      }
 
-      /*await env.R2_BUCKET.put(fileKey, body, {*/
+      if (!request.body) {
+        return json({ error: 'Empty upload body' }, 400, cors);
+      }
 
-      const bucket = getBucket('nif-files', env);
+      const contentLengthHeader = request.headers.get('Content-Length');
+      if (!contentLengthHeader) {
+        return json({ error: 'Content-Length header is required' }, 411, cors);
+      }
+      const contentLength = Number(contentLengthHeader);
+      if (!contentLength) {
+        return json({ error: 'Empty upload body' }, 400, cors);
+      }
+      const maxUploadBytes = Number(env.MAX_UPLOAD_BYTES) || DEFAULT_MAX_UPLOAD_BYTES;
+      if (contentLength > maxUploadBytes) {
+        return json({ error: `File too large (max ${maxUploadBytes} bytes)` }, 413, cors);
+      }
 
-        await bucket.put(fileKey, body, {
+      await r2Bucket.put(fileKey, request.body, {
         httpMetadata: { contentType },
         customMetadata: { uploadedAt: new Date().toISOString() },
       });
 
-      const publicUrl = `${env.PUBLIC_BASE_URL || url.origin}/file/${encodeURIComponent(fileKey)}`;
+      const publicUrl = `${env.PUBLIC_BASE_URL || url.origin}/file/${encodeURIComponent(fileKey)}?bucket=${encodeURIComponent(bucketParam)}`;
       return json({ ok: true, fileKey, publicUrl }, 200, cors);
     }
 
@@ -263,14 +289,15 @@ const fileKey = userPath.replace(/^\/+/, '');
       const cached = await cache.match(cacheKey);
       if (cached) return cached;
 
-      /*const obj = await env.R2_BUCKET.get(fileKey);*/
+      const r2Bucket = getBucket(bucketParam, env);
+      if (!r2Bucket) {
+        return json({ error: `Unknown bucket: ${bucketParam}` }, 400, cors);
+      }
 
-      const bucket = getBucket('nif-files', env);
-
-      const obj = await bucket.get(fileKey);
+      const obj = await r2Bucket.get(fileKey);
       if (!obj) return json({ error: 'Not found' }, 404, cors);
 
-      const isThumb = fileKey.startsWith('thumbs/') || fileKey.startsWith('avatars/');
+      const isThumb = fileKey.startsWith('thumbs/') || fileKey.startsWith('avatars/') || bucketParam === 'thumbnails' || bucketParam === 'avatars';
       const ttl = isThumb ? THUMB_TTL : CACHE_TTL;
       const contentType = obj.httpMetadata?.contentType || 'application/octet-stream';
 
@@ -297,18 +324,18 @@ const fileKey = userPath.replace(/^\/+/, '');
       // NOTE — remaining gap, not fixed here: this only confirms the caller is SOME
       // authenticated user, not that they own this specific file. Any signed-in user
       // can currently delete any file if they know/guess its key. Closing that fully
-      // needs a query against your `splats` table (matching this fileKey's public URL
-      // to a row's user_id) — didn't want to guess at exact column names/RLS setup
-      // without checking your live schema first. Worth doing before this is trusted
-      // with real user data at scale.
+      // needs a lookup against your DB (matching this fileKey to a row's user_id)
+      // before this is trusted with real user data at scale.
 
-      const fileKey = decodeURIComponent(path.slice('/file/'.length));
+      const fileKey = sanitiseKey(decodeURIComponent(path.slice('/file/'.length)));
+      if (!fileKey) return json({ error: 'Missing key' }, 400, cors);
 
-      const bucket = getBucket('nif-files', env);
+      const r2Bucket = getBucket(bucketParam, env);
+      if (!r2Bucket) {
+        return json({ error: `Unknown bucket: ${bucketParam}` }, 400, cors);
+      }
 
-      await bucket.delete(fileKey);
-
-      /*await env.R2_BUCKET.delete(fileKey);*/
+      await r2Bucket.delete(fileKey);
       return json({ ok: true, deleted: fileKey }, 200, cors);
     }
 
@@ -320,7 +347,7 @@ const fileKey = userPath.replace(/^\/+/, '');
 async function generatePresignedPut(bucket, key, contentType, env) {
   try {
     // Cloudflare R2 presigned URLs via the S3-compat API
-    // Requires ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY env vars
+    // Requires ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME
     if (!env.R2_ACCESS_KEY_ID || !env.R2_SECRET_ACCESS_KEY || !env.ACCOUNT_ID || !env.R2_BUCKET_NAME) {
       return null; // fall back to direct worker upload
     }
@@ -365,7 +392,6 @@ async function generatePresignedPut(bucket, key, contentType, env) {
 
     params.set('X-Amz-Signature', signature);
     return `${s3Url}?${params.toString()}`;
-
   } catch (e) {
     console.error('[R2 presign error]', e);
     return null;
