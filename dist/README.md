@@ -1,0 +1,1 @@
+This folder contains the built output assets for the worker "fumoca-r2" generated at 2026-07-26T12:58:57.859Z.

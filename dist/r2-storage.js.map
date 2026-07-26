@@ -1,0 +1,8 @@
+{
+  "version": 3,
+  "sources": ["../cloudflare/workers/r2-storage.js"],
+  "sourceRoot": "dist",
+  "sourcesContent": ["export default {\r\n\r\n  async fetch(request, env) {\r\n\r\n    const url = new URL(request.url);\r\n\r\n    if (request.method === \"OPTIONS\") {\r\n      return new Response(null, {\r\n        headers: {\r\n          \"Access-Control-Allow-Origin\": \"*\",\r\n          \"Access-Control-Allow-Headers\":\r\n            \"Authorization, Content-Type\",\r\n          \"Access-Control-Allow-Methods\":\r\n            \"GET,POST,PUT,DELETE,OPTIONS\"\r\n        }\r\n      });\r\n    }\r\n\r\n    if (url.pathname === \"/health\") {\r\n\r\n      return Response.json({\r\n\r\n        ok: true,\r\n\r\n        service: \"fumoca-r2\",\r\n\r\n        version: \"2.0\"\r\n\r\n      });\r\n\r\n    }\r\n\r\n    return Response.json({\r\n\r\n      error: \"Not Found\"\r\n\r\n    }, { status: 404 });\r\n\r\n  }\r\n\r\n}"],
+  "mappings": ";AAAA,IAAO,qBAAQ;AAAA,EAEb,MAAM,MAAM,SAAS,KAAK;AAExB,UAAM,MAAM,IAAI,IAAI,QAAQ,GAAG;AAE/B,QAAI,QAAQ,WAAW,WAAW;AAChC,aAAO,IAAI,SAAS,MAAM;AAAA,QACxB,SAAS;AAAA,UACP,+BAA+B;AAAA,UAC/B,gCACE;AAAA,UACF,gCACE;AAAA,QACJ;AAAA,MACF,CAAC;AAAA,IACH;AAEA,QAAI,IAAI,aAAa,WAAW;AAE9B,aAAO,SAAS,KAAK;AAAA,QAEnB,IAAI;AAAA,QAEJ,SAAS;AAAA,QAET,SAAS;AAAA,MAEX,CAAC;AAAA,IAEH;AAEA,WAAO,SAAS,KAAK;AAAA,MAEnB,OAAO;AAAA,IAET,GAAG,EAAE,QAAQ,IAAI,CAAC;AAAA,EAEpB;AAEF;",
+  "names": []
+}

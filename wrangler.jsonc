@@ -3,6 +3,8 @@
 
   "name": "fumoca-r2",
 
+  "account_id": "ac5596f205c0173c0f28b4292ebc5e26",
+
   "main": "cloudflare/workers/r2-storage.js",
 
   "compatibility_date": "2026-07-26",
