@@ -436,8 +436,12 @@ function applyFilters() {
 async function fetchFeedNifs() {
   const visibilityFilter = ['public', 'followers'];
   const batches = [];
-  const { data: publicRows, error: publicError } = await supabase.from('nif_files').select('*')
-    .in('visibility', visibilityFilter).eq('is_demo', false).order('created_at', { ascending: false }).limit(60);
+  const { data: publicRows, error: publicError } =
+  await supabase
+  .from('nif_files')
+  .select('*')
+  .order('created_at', { ascending: false })
+  .limit(60);
   if (publicError) throw publicError;
   batches.push(...(publicRows || []));
   if (currentUserId) {
