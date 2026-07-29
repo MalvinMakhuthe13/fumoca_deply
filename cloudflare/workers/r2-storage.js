@@ -72,6 +72,12 @@ async function authorize(request, env) {
 
   const authHeader = request.headers.get('Authorization') || '';
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+
+  console.log({
+    workerSupabaseUrl: env.SUPABASE_URL,
+    hasAnonKey: !!env.SUPABASE_ANON_KEY,
+    tokenLength: token?.length || 0
+    });
   if (!token || !env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) return null;
 
   try {
@@ -83,6 +89,11 @@ async function authorize(request, env) {
     });
 
     const text = await resp.text();
+
+    console.log({
+    status: resp.status,
+    body: text
+    });
 
     if (!resp.ok) {
       console.error('[R2 auth] Supabase rejected token', resp.status, text);
