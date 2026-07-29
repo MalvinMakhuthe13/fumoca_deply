@@ -5,7 +5,7 @@ window.FUMOCA_CONFIG = {
   siteBaseUrl: 'https://fumoca.co.za',
 
   // ── Cloudflare R2 Storage ──────────────────────────────────────────────────
-  r2WorkerUrl: 'https://fumoca-r2-storage.fumocaapp.workers.dev',
+ r2WorkerUrl: 'https://fumoca-r2.ntuthukochildofkrist.workers.dev',
   // r2ApiSecret intentionally removed — it was being shipped to every browser
   // (readable via view-source), which let anyone authenticate as your trusted
   // backend and write/delete files in R2. The worker now verifies the user's
