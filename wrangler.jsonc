@@ -15,6 +15,27 @@
     "enabled": true
   },
 
+  // ── Non-secret vars ──────────────────────────────────────────────────────
+  // This is the ONLY wrangler config that should be deployed for the R2
+  // storage worker (see cloudflare/wrangler.toml for why it's deprecated).
+  // PUBLIC_BASE_URL must match config.js's r2WorkerUrl exactly — the worker
+  // uses it to build the uploadUrl it hands back from /upload/presign, and if
+  // it's missing the worker falls back to whatever domain the request came in
+  // on, which can point at a URL nothing is listening on.
+  "vars": {
+    "ALLOWED_ORIGIN": "https://fumoca.co.za",
+    "PUBLIC_BASE_URL": "https://fumoca-r2.ntuthukochildofkrist.workers.dev"
+  },
+
+  // Still required, set via `wrangler secret put <NAME>` — not stored here:
+  //   FUMOCA_API_SECRET   (server-to-server only, never sent from a browser)
+  //   SUPABASE_URL        (same value as config.js's supabaseUrl)
+  //   SUPABASE_ANON_KEY   (same value as config.js's supabaseAnonKey)
+  // Optional, only for real presigned direct-to-R2 PUT URLs:
+  //   ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME
+  // Without those four, uploads proxy through this worker instead — that's
+  // fine for now (works up to MAX_UPLOAD_BYTES, default 200MB).
+
   "r2_buckets": [
     {
       "binding": "NIF_VIDEOS",

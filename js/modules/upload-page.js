@@ -253,7 +253,14 @@ async function uploadSingleBucket(fileName, file, _accessToken) {
 
   const { publicUrl, error } = await r2
     .from('nif-videos')
-    .upload(fileName, file, { contentType: file?.type || 'video/mp4' });
+    .upload(fileName, file, {
+      contentType: file?.type || 'video/mp4',
+      onProgress: (pct) => {
+        // Map raw byte progress (0-100%) into this stage's 10-34% band so the
+        // bar keeps moving during the transfer instead of parking at 10%.
+        setProgress(10 + Math.round((pct / 100) * 24), `Uploading source video... ${pct}%`);
+      },
+    });
 
   if (error) throw new Error('R2 video upload failed: ' + error.message);
 
@@ -353,7 +360,12 @@ window.handleSubmit = async function() {
       const zipPath = `raw/${user.id}/${Date.now()}_burst.zip`;
       const { fileKey, error: r2Err } = await r2
         .from('nif-files')
-        .upload(zipPath, zipBlob, { contentType: 'application/zip' });
+        .upload(zipPath, zipBlob, {
+          contentType: 'application/zip',
+          onProgress: (pct) => {
+            setProgress(45 + Math.round((pct / 100) * 25), `Uploading ${(zipBlob.size / 1024 / 1024).toFixed(1)} MB… ${pct}%`);
+          },
+        });
       if (r2Err) throw new Error('R2 upload failed — ' + r2Err.message);
 
       setStep('step-upload', 'done');
@@ -395,7 +407,12 @@ window.handleSubmit = async function() {
       // Upload to R2 (replaces supabase.storage bucket fallback loop)
       const { publicUrl, error: r2Err } = await r2
         .from('nif-files')
-        .upload(filePath, selectedFile, { contentType: 'model/x-ply' });
+        .upload(filePath, selectedFile, {
+          contentType: 'model/x-ply',
+          onProgress: (pct) => {
+            setProgress(20 + Math.round((pct / 100) * 35), `Uploading .ply file... ${pct}%`);
+          },
+        });
       if (r2Err) throw new Error('R2 upload failed — ' + r2Err.message);
 
       setProgress(60, 'Creating record...');
