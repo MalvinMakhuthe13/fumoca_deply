@@ -175,7 +175,7 @@ const FumocaVisualFX = (() => {
   async function savePreset(presetName) {
     const rec = window._fumocaCurrentRecord;
     if (!rec?.id) return;
-    const current = rec.visual_presets || {};
+    const current = rec.meta?.visual_presets || rec.visual_presets || {};
     current[presetName] = {
       glowRadius: getComputedStyle(document.documentElement).getPropertyValue('--vfx-glow-radius'),
       glowColor:  getComputedStyle(document.documentElement).getPropertyValue('--vfx-glow-color'),
@@ -185,15 +185,15 @@ const FumocaVisualFX = (() => {
       brightness: getComputedStyle(document.documentElement).getPropertyValue('--vfx-brightness'),
       saturate:   getComputedStyle(document.documentElement).getPropertyValue('--vfx-saturate'),
     };
-    await window._fumocaSupabase?.from('splats')
-      .update({ visual_presets: current })
+    await window._fumocaSupabase?.from('nif_files')
+      .update({ meta: { ...(rec.meta || {}), visual_presets: current } })
       .eq('id', rec.id);
     console.log(`[VFX] Preset "${presetName}" saved live`);
   }
 
   async function loadFromRecord(rec) {
     if (!rec) return;
-    const presets = rec.visual_presets || {};
+    const presets = rec.meta?.visual_presets || rec.visual_presets || {};
     const active  = presets._active;
     if (active && presets[active]) apply(presets[active]);
     else if (rec.asset_type === 'car') apply('car_hero');

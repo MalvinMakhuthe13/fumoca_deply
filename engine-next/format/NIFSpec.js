@@ -29,6 +29,14 @@ export const CHUNK = Object.freeze({
   ALPHA_MASK:    0x0008,  // Per-pixel alpha/segmentation mask (uint8, HxW) — background removal
   LAYER_GEO:     0x0009,  // Layered depth field: each layer = {label, depth_range, geo}
   ASSET_REF:     0x000A,  // External asset reference (glTF/USD/video/image/LAS URL + type)
+  CAMERAS:       0x000B,  // Per-frame 4×4 view matrices + pose_source — see pipeline.py's
+                           // _pack_cameras(). Independent of KEYFRAME_GEO — deleting the
+                           // Gaussian chunk doesn't take the camera path with it.
+  PHYSICS:       0x000C,  // Per-object physics properties for engine-next/physics/NIFPhysics.js
+                           // (mass, friction, restitution, collision shape, joints/constraints,
+                           // body type: rigid | soft | cloth). See encodePhysicsChunk() below
+                           // for the schema. The engine existed before the file format had
+                           // anywhere to persist its output — this chunk is that missing slot.
   SPATIAL_AUDIO: 0x0010,  // Ambisonics B-format + HRTF source positions
   INTERACTION:   0x0011,  // Clickable object graph + trigger/action pairs
   AVATAR:        0x0012,  // SMPL-X body mesh + pose parameters
@@ -72,11 +80,15 @@ export const CRS = Object.freeze({
 export const CODEC = Object.freeze({
   RAW:   0x00,
   ZSTD:  0x01,
-  DRACO: 0x02,
+  GZIP:  0x02,  // matches pipeline.py's CODEC_GZIP and SPAXSpec.js's SPAX_CODEC_GZIP —
+                // this is what's actually on disk in every real .nif chunk >1KB
   MPEG4: 0x03,
   HEVC:  0x04,
   OPUS:  0x05,
   LZ4:   0x06,
+  DRACO: 0x07,  // moved from 0x02 — DRACO was never implemented or written by any
+                // encoder in this codebase, so nothing reads/writes 0x07 today either,
+                // but 0x02 was actively colliding with real gzip-compressed chunks
 });
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
@@ -122,6 +134,62 @@ function concat(...arrays) {
     offset += a.byteLength;
   }
   return out;
+}
+
+// ─── Gzip (de)compression ──────────────────────────────────────────────────────
+// Every real .nif produced by engine-next/reconstruction/pipeline.py auto-gzips
+// any chunk ≥1KB (see pipeline.py's _compress()) — which is virtually every
+// geometry/mesh/depth chunk. Without this, NIFReader.getGeometry() and friends
+// would be handed raw gzip bytes and either crash or silently return garbage.
+// Uses the browser/Node native CompressionStream/DecompressionStream — no WASM
+// dependency, same approach already used in SPAXSpec.js.
+export async function gzipDecompress(bytes) {
+  if (typeof DecompressionStream === 'undefined') {
+    throw new Error('[NIFSpec] DecompressionStream unsupported in this environment — cannot decode gzip chunk');
+  }
+  const ds     = new DecompressionStream('gzip');
+  const writer = ds.writable.getWriter();
+  const reader = ds.readable.getReader();
+  writer.write(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes));
+  writer.close();
+  const parts = []; let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    parts.push(value); total += value.length;
+  }
+  const out = new Uint8Array(total); let off = 0;
+  for (const p of parts) { out.set(p, off); off += p.length; }
+  return out;
+}
+
+export async function gzipCompress(bytes) {
+  if (typeof CompressionStream === 'undefined') {
+    throw new Error('[NIFSpec] CompressionStream unsupported in this environment — cannot gzip chunk');
+  }
+  const cs     = new CompressionStream('gzip');
+  const writer = cs.writable.getWriter();
+  const reader = cs.readable.getReader();
+  writer.write(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes));
+  writer.close();
+  const parts = []; let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    parts.push(value); total += value.length;
+  }
+  const out = new Uint8Array(total); let off = 0;
+  for (const p of parts) { out.set(p, off); off += p.length; }
+  return out;
+}
+
+/** Returns a chunk's data decompressed, regardless of what codec it was stored with. */
+export async function decompressChunk(chunk) {
+  if (!chunk) return null;
+  if (chunk.codec === CODEC.RAW) return chunk.data;
+  if (chunk.codec === CODEC.GZIP) return gzipDecompress(chunk.data);
+  console.warn(`[NIFSpec] Chunk type 0x${chunk.type.toString(16)} uses unsupported codec 0x${chunk.codec.toString(16)} — returning raw bytes, likely unusable`);
+  return chunk.data;
 }
 
 // Write a big-endian float32 into a DataView at offset
@@ -295,6 +363,52 @@ export function decodeMetaChunk(chunk) {
 export function encodeThumbnailChunk(jpegBytes) {
   const data = jpegBytes instanceof Uint8Array ? jpegBytes : new Uint8Array(jpegBytes);
   return new NIFChunk(CHUNK.THUMBNAIL, data, CODEC.RAW);
+}
+
+/**
+ * PHYSICS chunk — JSON, same approach as META (variable-shape per-object data,
+ * not worth a fixed binary layout). Schema matches what
+ * engine-next/physics/NIFPhysics.js's constructors actually take, so a
+ * consumer can pass a decoded body straight into `new RigidBody(opts)` /
+ * `new ClothSimulator(vertices, triangles, opts)` / `new FEMSoftBody(...)`
+ * without a translation layer:
+ *
+ * {
+ *   bodies: [
+ *     {
+ *       objectId: string,              // matches an INTERACTION chunk object id
+ *       type: 'rigid' | 'cloth' | 'soft' | 'spring',
+ *       // rigid:
+ *       mass: number, friction: number, restitution: number,
+ *       collisionShape: 'box' | 'sphere' | 'mesh',
+ *       // cloth (ClothSimulator opts):
+ *       compliance: number, bendCompliance: number, damping: number,
+ *       gravity: [number,number,number], selfCollisionR: number,
+ *       // spring (SpringDamper):
+ *       stiffness: number, dampingCoeff: number, restLength: number,
+ *     }
+ *   ],
+ *   constraints: [ { type: 'joint'|'distance', bodyA: string, bodyB: string, params: {...} } ],
+ * }
+ *
+ * Bodies with no recognised `type` are preserved on decode (round-tripped
+ * as-is) rather than dropped — forward-compatible with body types added to
+ * NIFPhysics.js later without needing a NIFSpec.js version bump.
+ */
+export function encodePhysicsChunk(physicsObj) {
+  const json = JSON.stringify(physicsObj ?? { bodies: [], constraints: [] });
+  return new NIFChunk(CHUNK.PHYSICS, new TextEncoder().encode(json), CODEC.RAW);
+}
+
+export async function decodePhysicsChunk(chunk) {
+  if (!chunk) return { bodies: [], constraints: [] };
+  try {
+    const bytes = await decompressChunk(chunk);
+    return JSON.parse(new TextDecoder().decode(bytes));
+  } catch (e) {
+    console.warn('[NIFSpec] PHYSICS chunk failed to decode:', e.message);
+    return { bodies: [], constraints: [] };
+  }
 }
 
 // ─── Writer (Node.js pipeline — server-side) ──────────────────────────────────
@@ -549,22 +663,22 @@ export class NIFReader {
    * canonical format regardless of which encoding was used. The viewer and
    * renderer see the same layout either way.
    */
-  getGeometry() {
+  async getGeometry() {
     const chunk = this.getChunk(CHUNK.KEYFRAME_GEO);
     if (!chunk) return null;
-    const dv = new DataView(chunk.data.buffer, chunk.data.byteOffset, chunk.data.byteLength);
+    const decompressed = await decompressChunk(chunk);
+    const dv = new DataView(decompressed.buffer, decompressed.byteOffset, decompressed.byteLength);
 
     const flag  = dv.getUint8(0);
     const count = dv.getUint32(1, false);   // big-endian
 
     if (flag === 0x00) {
       // ── Raw float32 (fallback format) ──────────────────────────────────────
-      // Copy into a fresh, 4-byte-aligned buffer first: chunk.data.byteOffset + 5
-      // is not guaranteed to be a multiple of 4 (chunk data sits right after a
-      // 16-byte chunk header + variable header offset in the parent buffer),
-      // and Float32Array construction throws if the view isn't aligned.
+      // Copy into a fresh, 4-byte-aligned buffer first: decompressed.byteOffset + 5
+      // is not guaranteed to be a multiple of 4, and Float32Array construction
+      // throws if the view isn't aligned.
       const byteLen = count * 14 * 4;
-      const raw  = new Uint8Array(chunk.data.buffer, chunk.data.byteOffset + 5, byteLen);
+      const raw  = new Uint8Array(decompressed.buffer, decompressed.byteOffset + 5, byteLen);
       const copy = new ArrayBuffer(byteLen);
       new Uint8Array(copy).set(raw);
       return { count, data: new Float32Array(copy) };
@@ -587,7 +701,7 @@ export class NIFReader {
       const SCALE_MIN = -8.0, SCALE_RANGE = 10.0; // maps [0,255] → [-8, 2]
 
       const out   = new Float32Array(count * 14);
-      let   base  = 29; // byte offset into chunk.data where points start
+      let   base  = 29; // byte offset into decompressed where points start
 
       for (let i = 0; i < count; i++) {
         const o  = i * 14;  // output offset
@@ -601,9 +715,9 @@ export class NIFReader {
         out[o + 2] = ((pz + 32767) / 65534) * rangeZ + bbMinZ;
 
         // Log scales (3 × uint8)
-        out[o + 3] = (chunk.data[base + 6]  / 255) * SCALE_RANGE + SCALE_MIN;
-        out[o + 4] = (chunk.data[base + 7]  / 255) * SCALE_RANGE + SCALE_MIN;
-        out[o + 5] = (chunk.data[base + 8]  / 255) * SCALE_RANGE + SCALE_MIN;
+        out[o + 3] = (decompressed[base + 6]  / 255) * SCALE_RANGE + SCALE_MIN;
+        out[o + 4] = (decompressed[base + 7]  / 255) * SCALE_RANGE + SCALE_MIN;
+        out[o + 5] = (decompressed[base + 8]  / 255) * SCALE_RANGE + SCALE_MIN;
 
         // Quaternion (4 × int8)
         out[o + 6] = dv.getInt8(base + 9)  / 127;
@@ -612,16 +726,13 @@ export class NIFReader {
         out[o + 9] = dv.getInt8(base + 12) / 127;
 
         // Opacity (uint8 → logit-space)
-        // Was: sigmoid(logit) × 255, dequantise: val/255 → sigmoid, then logit
-        const opSig = chunk.data[base + 13] / 255;
+        const opSig = decompressed[base + 13] / 255;
         out[o + 10] = Math.log(Math.max(opSig, 1e-6) / Math.max(1 - opSig, 1e-6));
 
         // SH0 colour (3 × uint8)
-        // Was: (sigmoid(sh) + 0.5 - 0.5) × 255, simplifies to: sigmoid(sh) × 255
-        // Dequantise: val/255 → sigmoid → logit
-        const r = chunk.data[base + 14] / 255;
-        const g = chunk.data[base + 15] / 255;
-        const b = chunk.data[base + 16] / 255;
+        const r = decompressed[base + 14] / 255;
+        const g = decompressed[base + 15] / 255;
+        const b = decompressed[base + 16] / 255;
         out[o + 11] = Math.log(Math.max(r, 1e-6) / Math.max(1 - r, 1e-6));
         out[o + 12] = Math.log(Math.max(g, 1e-6) / Math.max(1 - g, 1e-6));
         out[o + 13] = Math.log(Math.max(b, 1e-6) / Math.max(1 - b, 1e-6));
@@ -634,5 +745,56 @@ export class NIFReader {
 
     console.warn(`[NIFSpec] Unknown geometry format flag: 0x${flag.toString(16)}`);
     return null;
+  }
+
+  /**
+   * Parse CAMERAS chunk → { poseSource: string, matrices: Float32Array[] }
+   * where each matrix is a 16-element row-major 4×4 view matrix (world→camera),
+   * matching pipeline.py's _pack_cameras() layout exactly:
+   *   [count:u32 BE][pose_source_len:u8][pose_source: ascii bytes]
+   *   then count × 16 float32 BE
+   *
+   * Returns null if the file has no CAMERAS chunk — true for any .nif written
+   * before this chunk existed, so callers must treat a missing camera path as
+   * "unknown", not "empty scene".
+   */
+  async getCameras() {
+    const chunk = this.getChunk(CHUNK.CAMERAS);
+    if (!chunk) return null;
+    const decompressed = await decompressChunk(chunk);
+    const dv = new DataView(decompressed.buffer, decompressed.byteOffset, decompressed.byteLength);
+
+    const count = dv.getUint32(0, false);
+    const srcLen = dv.getUint8(4);
+    const poseSource = new TextDecoder('ascii').decode(decompressed.subarray(5, 5 + srcLen));
+
+    let offset = 5 + srcLen;
+    const matrices = [];
+    for (let i = 0; i < count; i++) {
+      const m = new Float32Array(16);
+      for (let j = 0; j < 16; j++) { m[j] = dv.getFloat32(offset, false); offset += 4; }
+      matrices.push(m);
+    }
+    return { poseSource, matrices };
+  }
+
+  /** Convenience wrapper — decodePhysicsChunk() applied to this reader's PHYSICS chunk. */
+  async getPhysics() {
+    return decodePhysicsChunk(this.getChunk(CHUNK.PHYSICS));
+  }
+
+  /**
+   * Generic accessor for any non-geometry chunk that needs decompression
+   * (MESH, DEPTH_MAP, ALPHA_MASK, LAYER_GEO, SEMANTIC_MAP, PRINT_EXPORT, etc).
+   * getGeometry() has its own decoder above because KEYFRAME_GEO has a further
+   * quantization layer on top of gzip; everything else is just "decompress
+   * and hand back the bytes" — callers interpret the payload themselves
+   * (e.g. MESH is a binary STL/trimesh export, DEPTH_MAP is a packed float16
+   * buffer).
+   */
+  async getDecompressed(type) {
+    const chunk = this.getChunk(type);
+    if (!chunk) return null;
+    return decompressChunk(chunk);
   }
 }

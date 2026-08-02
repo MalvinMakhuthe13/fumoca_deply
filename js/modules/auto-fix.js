@@ -134,15 +134,19 @@ const FumocaAutoFix = (() => {
     const fixed = fixCamera(bounds);
 
     // Persist bounding_box to DB so future loads skip recompute
-    if (fixed && splatRecord.id && !splatRecord.bounding_box?.center) {
+    if (fixed && splatRecord.id && !splatRecord.meta?.bounding_box?.center) {
       try {
-        await window._fumocaSupabase?.from('splats').update({
-          bounding_box: {
-            min:    { x: bounds.min?.x||0, y: bounds.min?.y||0, z: bounds.min?.z||0 },
-            max:    { x: bounds.max?.x||0, y: bounds.max?.y||0, z: bounds.max?.z||0 },
-            center: { x: bounds.center.x,  y: bounds.center.y,  z: bounds.center.z  },
-            radius: bounds.radius
-          }
+        const bounding_box = {
+          min:    { x: bounds.min?.x||0, y: bounds.min?.y||0, z: bounds.min?.z||0 },
+          max:    { x: bounds.max?.x||0, y: bounds.max?.y||0, z: bounds.max?.z||0 },
+          center: { x: bounds.center.x,  y: bounds.center.y,  z: bounds.center.z  },
+          radius: bounds.radius
+        };
+        // nif_files (the live table splatRecord actually comes from — see
+        // window._fumocaCurrentRecord) has no bounding_box column; fold it
+        // into meta instead, same pattern as hotspots/variants elsewhere.
+        await window._fumocaSupabase?.from('nif_files').update({
+          meta: { ...(splatRecord.meta || {}), bounding_box }
         }).eq('id', splatRecord.id);
       } catch (_) {}
     }

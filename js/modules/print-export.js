@@ -66,7 +66,7 @@ export async function exportSelectionAsFigurine({ title, onStatus } = {}) {
   const { data: { user } } = await sb.auth.getUser().catch(() => ({ data: {} }));
   const path = `print-source/${user?.id || 'anon'}/${Date.now()}_selection.bin`;
   const { fileKey, error: upErr } = await r2
-    .from('splat-files')
+    .from('nif-files')
     .upload(path, new Blob([geoBlob], { type: 'application/octet-stream' }), {
       contentType: 'application/octet-stream',
     });

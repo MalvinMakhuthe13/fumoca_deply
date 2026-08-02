@@ -198,8 +198,8 @@ const FumocaTeaserVideo = (() => {
           uploadedUrl = _teaserUrl || null;
 
           if (uploadedUrl) {
-            await sb.from('splats')
-              .update({ teaser_video_url: uploadedUrl, last_edited_at: new Date().toISOString() })
+            await sb.from('nif_files')
+              .update({ meta: { ...(splatRecord?.meta || {}), teaser_video_url: uploadedUrl, last_edited_at: new Date().toISOString() } })
               .eq('id', splatId);
 
             if (typeof window.saveLiveEdit === 'function') {

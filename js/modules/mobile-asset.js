@@ -106,7 +106,7 @@ const FumocaMobileAsset = (() => {
 
     let assetUrl = null;
     try {
-      const { publicUrl: _assetPub } = await r2.from('splat-files').upload(path, blob, { contentType: 'text/html' });
+      const { publicUrl: _assetPub } = await r2.from('nif-files').upload(path, blob, { contentType: 'text/html' });
       assetUrl = _assetPub;
     } catch (e) {
       console.warn('[MobileAsset] Widget upload failed:', e);
@@ -121,10 +121,9 @@ const FumocaMobileAsset = (() => {
       states:            config.states,
     }, { onConflict: 'splat_id' }).select().single();
 
-    // Also update splat record
-    await sb.from('splats').update({
-      mobile_asset_url:  assetUrl,
-      mobile_asset_meta: config,
+    // Also update the current record's meta
+    await sb.from('nif_files').update({
+      meta: { ...(splatRecord.meta || {}), mobile_asset_url: assetUrl, mobile_asset_meta: config }
     }).eq('id', splatRecord.id);
 
     console.log('%c[MobileAsset] Widget saved →', 'color:#c8ff00', assetUrl);

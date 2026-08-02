@@ -1,56 +1,88 @@
 # FUMOCA Kaggle worker setup
 
-Use this version for testing the real queue flow without an extra backend in the middle.
+## Use `fumoca_nif_worker.py` — this is the real NIF pipeline
 
-## What Kaggle does here
-- polls Supabase for queued jobs
-- downloads the private source video from Supabase
-- runs frame extraction / COLMAP / Gaussian Splatting
-- uploads outputs back to Supabase storage
-- updates `processing_jobs` and `splats` directly
+As of this pass, `kaggle/fumoca_nif_worker.py` + `engine-next/reconstruction/pipeline.py`
+is the worker that matches what NIF is actually supposed to be: it trains Gaussians only
+as an intermediate step, then extracts a real watertight triangulated **mesh** (marching
+cubes over a signed-distance volume built from the trained Gaussians) plus depth maps,
+alpha masks, layered geometry, and semantic labels, and packs all of it into one chunked
+`.nif` binary. The old worker below produces a raw Gaussian point cloud — not a NIF in
+the sense the format is meant to have.
 
-## Folder to use
-- `kaggle/kaggle_bootstrap.py`
-- `kaggle/fumoca_kaggle_worker.py`
+### What it does
+- Polls `reconstruction_jobs` (the real, live queue table — confirmed directly against
+  the fumoca-production Supabase project) via the `claim_next_reconstruction_job()` RPC
+- Downloads the raw capture from the `nif-videos` R2 bucket
+- Runs: deblur → depth estimation → background removal → SAM2 segmentation → COLMAP
+  pose estimation → Gaussian training → **real mesh extraction** → layer splitting →
+  proxy video encode → pack `.nif`
+- Uploads outputs to the `nif-files` R2 bucket
+- Writes progress directly to `reconstruction_jobs`, and on success registers the result
+  in `nif_files`
 
-## Recommended Kaggle flow
-1. Create a Kaggle notebook with internet enabled.
-2. Add your secrets:
-   - `SUPABASE_URL`
-   - `SUPABASE_SERVICE_ROLE_KEY`
-3. Copy the files from the `kaggle/` folder into the notebook working area.
+### Setup
+1. Create a Kaggle notebook. **Notebook Settings → Accelerator → GPU** (T4 x2 or P100 —
+   Gaussian training is impractical on CPU).
+2. Add secrets (Add-ons → Secrets):
+   - `SUPABASE_URL` — `https://cicaxmthjdinbqvqmwxe.supabase.co`
+   - `SUPABASE_SECRET_KEY` — your **service_role** key (Supabase dashboard → Settings →
+     API — NOT the anon key)
+   - `CF_ACCOUNT_ID` — your Cloudflare account ID (same one in `wrangler.jsonc`)
+   - `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` — create an R2 API token in the
+     Cloudflare dashboard (R2 → Manage API Tokens) with read/write on `nif-videos` and
+     `nif-files`
+3. Copy `kaggle/kaggle_nif_bootstrap.py`, `kaggle/fumoca_nif_worker.py`, and
+   `engine-next/reconstruction/pipeline.py` (keep pipeline.py at
+   `engine-next/reconstruction/pipeline.py` relative to the worker, or edit the
+   `sys.path.insert` line at the top of `fumoca_nif_worker.py`) into the notebook.
 4. Run:
-   - `python kaggle_bootstrap.py`
-   - `python fumoca_kaggle_worker.py`
+   ```
+   python kaggle_nif_bootstrap.py
+   python fumoca_nif_worker.py
+   ```
+5. Upload a video through FUMOCA. Watch the notebook logs — `[NIF-WORKER]` lines show
+   claim/progress/completion; `[NIF]` lines are from inside `pipeline.py` itself.
 
-## Suggested environment variables
-- `VIDEO_BUCKET=splat-videos`
-- `SPLAT_BUCKET=splat-files`
-- `THUMB_BUCKET=thumbnails`
-- `POLL_SECONDS=10`
-- `FRAME_FPS=3`
-- `MAX_FRAMES=180`
-- `TRAIN_ITERS=7000`
-- `USE_REAL_ENGINE=1`
-- `GS_REPO_DIR=/kaggle/working/gaussian-splatting`
-- `GS_DATA_ROOT=/kaggle/working/fumoca_jobs`
-- `COLMAP_BIN=colmap`
-- `FFMPEG_BIN=ffmpeg`
+### Optional environment variables
+- `POLL_SECONDS=15` — how often to check for a new queued job
+- `R2_RAW_BUCKET=nif-videos` / `R2_OUTPUT_BUCKET=nif-files` — override if your bucket
+  names differ from production's
+- `FUMOCA_MAX_RECON_FRAMES=40` — caps frames fed into COLMAP (even-strided across the
+  capture, not truncated, so full orbit coverage is kept). This is the single biggest
+  lever on processing time — COLMAP's feature matching scales badly with frame count.
+  Raise it later for quality once the pipeline is proven end-to-end; 40 is tuned for
+  fast first-test turnaround, not final quality.
+- `FUMOCA_N_GAUSSIANS=20000` — starting Gaussian count (was a fixed 50,000). Lower =
+  faster training, less fine detail.
+- `FUMOCA_GS_ITERS=1200` — Gaussian training steps (was a fixed 3,000). Lower = faster,
+  less converged/noisier result.
 
-## Clean testing flow
-1. User uploads a video in FUMOCA.
-2. Frontend stores the video in Supabase Storage.
-3. Frontend inserts a queued `splats` row.
-4. Frontend inserts a queued `processing_jobs` row.
-5. Kaggle worker picks up the next queued job.
-6. Kaggle worker updates progress in Supabase.
-7. Viewer loads the produced asset when the job is done.
+These three defaults together should meaningfully cut turnaround time for early
+testing at a real, visible quality cost — that trade is intentional right now (get
+something working end-to-end fast, dial quality back up once the pipeline itself is
+proven). To go back toward original quality once you're past initial testing:
+```
+FUMOCA_MAX_RECON_FRAMES=120
+FUMOCA_N_GAUSSIANS=50000
+FUMOCA_GS_ITERS=3000
+```
 
-## Notes
-- Kaggle is good for proving the loop and getting test results.
-- It is not your forever production worker.
-- Once the loop is stable, you can later swap Kaggle for a dedicated GPU worker without changing the frontend queue flow.
+### Known gaps (real, not yet fixed)
+- COLMAP pose estimation falls back to synthetic (non-multiview) poses if it fails,
+  degrading reconstruction quality without hard-failing the job — worth watching
+  `reconstruction_quality` in a completed job's `meta` to see how often this triggers
+- SAM2 segmentation is optional — `pipeline.py` falls back to single-segment mode if the
+  import fails, which affects only the semantic/interactive-layer chunk, not the mesh
 
-## Kaggle headless COLMAP note
+---
 
-This bundle now runs COLMAP in headless mode with `QT_QPA_PLATFORM=offscreen` and CPU SIFT (`--SiftExtraction.use_gpu 0`, `--SiftMatching.use_gpu 0`) because Kaggle notebooks do not provide a normal X display for Qt-based GPU SIFT.
+## Legacy: `fumoca_kaggle_worker.py` — old Gaussian-splat worker
+
+Still present in `kaggle/` but **no longer the one to run** for new work. It polls
+`processing_jobs`/`splats` (a separate, older queue table also live in production) and
+produces a raw `.ply` (optionally wrapped via `fumoc_encoder`), not a real `.nif`. Kept
+only for reference/rollback — don't point new capture uploads at this path.
+
+- `kaggle/kaggle_bootstrap.py` (old bootstrap — clones graphdeco-inria/gaussian-splatting)
+- `kaggle/fumoca_kaggle_worker.py`

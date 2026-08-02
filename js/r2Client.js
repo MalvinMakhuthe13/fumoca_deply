@@ -138,6 +138,21 @@ const r2 = {
   from(bucketName) {
     return bucketRef(bucketName);
   },
+
+  /**
+   * Build a playable/downloadable URL for a key that's already in R2,
+   * without needing a stored URL column. Needed because
+   * engine-next/reconstruction/pipeline.py's _register() only ever writes
+   * `r2_key` to nif_files — there is no nif_url/output_url/public_url
+   * column in that table — so anything reading nif_files rows (feed,
+   * viewer, profile) has to construct the URL itself from r2_key, the
+   * same way uploads already get a `publicUrl` back from the Worker's
+   * presign response.
+   */
+  publicUrl(bucketName, key) {
+    if (!WORKER_URL || !key) return null;
+    return `${WORKER_URL}/file/${encodeURIComponent(key)}?bucket=${encodeURIComponent(bucketName)}`;
+  },
 };
 
 // Both import styles are used across the codebase (`import r2 from`

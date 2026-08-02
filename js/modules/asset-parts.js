@@ -48,8 +48,9 @@ const FumocaAssetParts = (() => {
     }
 
     // Also load from scene_parts JSONB if asset_parts table is empty
-    if (!_parts.length && splatRecord.scene_parts) {
-      _parts = Object.entries(splatRecord.scene_parts).map(([name, cfg]) => ({
+    if (!_parts.length && (splatRecord.meta?.scene_parts || splatRecord.scene_parts)) {
+      const sceneParts = splatRecord.meta?.scene_parts || splatRecord.scene_parts;
+      _parts = Object.entries(sceneParts).map(([name, cfg]) => ({
         id: `local_${name}`,
         part_name: name,
         part_type:  cfg.type || 'static',
@@ -183,10 +184,10 @@ const FumocaAssetParts = (() => {
 
     // Save the active swap to the splat's scene_parts
     if (_record?.id && window._fumocaSupabase) {
-      const sceneParts = { ...(_record.scene_parts || {}) };
+      const sceneParts = { ...(_record.meta?.scene_parts || _record.scene_parts || {}) };
       sceneParts[partName] = { ...(sceneParts[partName] || {}), active_swap: swapIndex };
-      await window._fumocaSupabase.from('splats')
-        .update({ scene_parts: sceneParts })
+      await window._fumocaSupabase.from('nif_files')
+        .update({ meta: { ...(_record.meta || {}), scene_parts: sceneParts } })
         .eq('id', _record.id);
     }
 

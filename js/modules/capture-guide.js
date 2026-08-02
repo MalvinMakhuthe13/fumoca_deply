@@ -41,6 +41,32 @@
  * refusing to hold the recording buffer.
  */
 export const CAPTURE_SCRIPTS = Object.freeze({
+  orbit_360: Object.freeze({
+    label: '360° full orbit (any object)',
+    targetDuration: 40,
+    hint: 'Walk a full circle around the subject at a steady arm\'s-length distance, then capture top and underside angles.',
+    stages: Object.freeze([
+      { t: 0,  prompt: 'Start facing the subject. Center it in frame.', sub: 'Hold steady 2 seconds.' },
+      { t: 2,  prompt: 'Begin walking slowly clockwise around it.', sub: 'Keep the subject centered the whole way.' },
+      { t: 11, prompt: 'Quarter turn — you\'re at the side.', sub: 'Same pace, same distance.' },
+      { t: 20, prompt: 'Halfway — you\'re now behind the subject.', sub: 'Keep going, don\'t rush.' },
+      { t: 29, prompt: 'Three-quarter turn.', sub: 'Almost back to the start.' },
+      { t: 35, prompt: 'Back at the front. Now raise the phone above the subject.', sub: 'Angle down to catch the top.' },
+      { t: 37, prompt: 'Lower the phone below subject height.', sub: 'Angle up to catch the underside. Hold 3 seconds to finish.' },
+    ]),
+  }),
+  orbit_180: Object.freeze({
+    label: '180° half orbit (against a wall / can\'t go all the way round)',
+    targetDuration: 45,
+    hint: 'For subjects you can only approach from one side. Sweep a half circle, then top and bottom angles.',
+    stages: Object.freeze([
+      { t: 0,  prompt: 'Start at one far edge, subject centered.', sub: 'Hold steady 2 seconds.' },
+      { t: 3,  prompt: 'Walk slowly across to the opposite edge.', sub: 'Keep distance and height consistent.' },
+      { t: 25, prompt: 'You\'re at the far edge now.', sub: 'Keep the subject centered.' },
+      { t: 35, prompt: 'Raise the phone above, angle down.', sub: 'Catch the top.' },
+      { t: 40, prompt: 'Lower below subject height, angle up.', sub: 'Catch the underside. Hold 3 seconds to finish.' },
+    ]),
+  }),
   exterior_car: Object.freeze({
     label: 'Exterior walk-around (car)',
     targetDuration: 90,
@@ -173,6 +199,27 @@ export class CaptureGuide {
     if (!s) return;
     this.script = s;
     this._setHint(s.hint);
+  }
+
+  /**
+   * Fetch the active verticals + their capture_tips from Supabase (the
+   * `verticals` table — property/automotive/fashion/mining/agriculture/
+   * generic). Returns [] on any failure so the host can just skip
+   * rendering the picker rather than crash the capture flow over it.
+   */
+  async fetchVerticals() {
+    if (!this.supabase) return [];
+    try {
+      const { data, error } = await this.supabase
+        .from('verticals')
+        .select('id, label, capture_tips')
+        .eq('is_active', true);
+      if (error) throw error;
+      return data || [];
+    } catch (err) {
+      this.onError('Could not load vertical list: ' + err.message);
+      return [];
+    }
   }
 
   /**
@@ -439,7 +486,7 @@ export class CaptureGuide {
    * the *job*, since there's no processed NIF yet at upload time.
    * Returns the new reconstruction_jobs id (poll it for status/progress).
    */
-  async uploadLatest({ title, scriptKey } = {}) {
+  async uploadLatest({ title, scriptKey, vertical } = {}) {
     const { blob, mime } = this.getLatestBlob();
     if (!blob) throw new Error('No recorded video to upload');
     if (!this.supabase) throw new Error('supabase client not provided to CaptureGuide');
@@ -450,7 +497,7 @@ export class CaptureGuide {
     const r2 = (await import('../r2Client.js')).default;
     const path = `raw/${user?.user?.id || 'anon'}/${Date.now()}.${ext}`;
     const { fileKey, error: upErr } = await r2
-      .from('splat-files')
+      .from('nif-videos')
       .upload(path, blob, { contentType: blob.type });
     if (upErr) throw upErr;
 
@@ -459,7 +506,7 @@ export class CaptureGuide {
       user_id:      user?.user?.id || null,
       status:       'queued',
       progress:     0,
-      vertical:     'generic',
+      vertical:     vertical || 'generic',
       capture_mode: scriptKey || 'exterior_car',
       raw_r2_key:   fileKey,
       meta: {

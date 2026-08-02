@@ -561,7 +561,7 @@ input[type=range].amber::-webkit-slider-thumb{background:var(--amber);box-shadow
   </div>
   <div class="tb-sep"></div>
   <div class="tb-actions">
-    <input id="fileInput" type="file" accept=".ply,.splat"/>
+    <input id="fileInput" type="file" accept=".ply,.splat,.nif"/>
     <button class="tb-btn" id="openBtn">📂 Open</button>
     <button class="tb-btn" id="undoBtn" disabled>↩ Undo</button>
     <button class="tb-btn" id="redoBtn" disabled>↪ Redo</button>
@@ -616,7 +616,7 @@ input[type=range].amber::-webkit-slider-thumb{background:var(--amber);box-shadow
   </div>
   <div class="tool-group">
     <span class="tool-group-label">Display</span>
-    <button class="tool-btn active-lime" id="dispBlob" title="Gaussian Blobs (G)">◉</button>
+    <button class="tool-btn active-lime" id="dispBlob" title="Points (G)">◉</button>
     <button class="tool-btn" id="dispDot" title="Points (D)">·</button>
     <button class="tool-btn" id="dispSplat" title="True Splat">⊡</button>
     <button class="tool-btn" id="dispColor" title="Color Map">🌈</button>
@@ -927,7 +927,7 @@ input[type=range].amber::-webkit-slider-thumb{background:var(--amber);box-shadow
               <input type="checkbox" id="depthBrushToggle" style="width:14px;height:14px;"> On
             </label>
           </div>
-          <div class="hint" style="font-size:11px;opacity:.7;">When on, brush only selects Gaussians at the same depth — won't bleed through to back surfaces.</div>
+          <div class="hint" style="font-size:11px;opacity:.7;">When on, brush only selects points at the same depth — won't bleed through to back surfaces.</div>
         </div>
       </div>
 
@@ -1300,6 +1300,7 @@ input[type=range].amber::-webkit-slider-thumb{background:var(--amber);box-shadow
         <div class="sec-head"><span class="sec-label">Splat Export</span></div>
         <div class="sec-body">
           <button class="ac-btn lime full" id="exportSplatBtn" disabled>📦 Export .splat (cleaned)</button>
+          <button class="ac-btn lime full" id="exportNifBtn" disabled>📦 Export .nif (real NIF)</button>
           <button class="ac-btn full" id="exportPlyBtn" disabled>📦 Export .ply (w/ colors)</button>
           <button class="ac-btn violet full" id="saveSupabaseBtn" disabled>☁ Save to Supabase</button>
         </div>
@@ -1513,6 +1514,8 @@ input[type=range].amber::-webkit-slider-thumb{background:var(--amber);box-shadow
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
+import { decodeNif, encodeNif, geometryToSplatRows, downloadNif } from './js/modules/nif-format.js';
+import r2 from './js/r2Client.js';
 
 // ─── EXPOSE THREE GLOBALS (required by gaussian-renderer.js + modules) ───────
 window.THREE = THREE;
@@ -1700,7 +1703,18 @@ async function loadFile(file, urlOverride) {
   const buf = await file.arrayBuffer(); setProgress(40);
   const ext = (urlOverride || file.name).split('.').pop().toLowerCase();
   let parsed;
-  if (ext === 'splat') { S.fileType = 'splat'; S.sourceBuffer = buf; parsed = parseSplat(buf); }
+  if (ext === 'nif') {
+    // Real .nif — decode canonical 14-float/point geometry, then convert to
+    // the same 32-byte splat-row layout the rest of this editor already
+    // understands (brush erase, export, save) so nothing else needs to change.
+    const decoded = await decodeNif(buf);         // { reader, meta, thumbnailBytes, gaussians }
+    const rows = geometryToSplatRows(decoded.gaussians); // Uint8Array, 32 bytes/point
+    S.fileType = 'nif';
+    S.sourceBuffer = rows.buffer;
+    S.nifMeta = decoded.meta || {};
+    S.nifThumbnailBytes = decoded.thumbnailBytes || null;
+    parsed = parseSplat(rows.buffer);
+  } else if (ext === 'splat') { S.fileType = 'splat'; S.sourceBuffer = buf; parsed = parseSplat(buf); }
   else { S.fileType = 'ply'; parsed = parsePLY(buf); }
   setProgress(70);
   S.fileName = file.name;
@@ -1713,11 +1727,11 @@ async function loadFile(file, urlOverride) {
   updateHistoryBtns();
   rebuildGeometry(); setProgress(100);
   $('fileName').textContent = file.name;
-  $('fileMeta').textContent = `${fmt(parsed.count)} Gaussians · ${(file.size / 1024 / 1024).toFixed(1)} MB · ${ext.toUpperCase()}`;
-  ['exportBtn', 'saveCloudBtn', 'exportSplatBtn', 'exportPlyBtn', 'saveSupabaseBtn', 'renderImageBtn', 'renderSequenceBtn', 'captureVideoBtn2', 'deleteBtn', 'publishTopBtn'].forEach(id => { const el = $(id); if (el) el.disabled = false; });
+  $('fileMeta').textContent = `${fmt(parsed.count)} points · ${(file.size / 1024 / 1024).toFixed(1)} MB · ${ext.toUpperCase()}`;
+  ['exportBtn', 'saveCloudBtn', 'exportSplatBtn', 'exportNifBtn', 'exportPlyBtn', 'saveSupabaseBtn', 'renderImageBtn', 'renderSequenceBtn', 'captureVideoBtn2', 'deleteBtn', 'publishTopBtn'].forEach(id => { const el = $(id); if (el) el.disabled = false; });
   updateStats();
-  setStatus(`Loaded ${fmt(parsed.count)} Gaussians`, 'ok');
-  showToast('File Loaded', `${file.name} — ${fmt(parsed.count)} Gaussians ready`);
+  setStatus(`Loaded ${fmt(parsed.count)} points`, 'ok');
+  showToast('File Loaded', `${file.name} — ${fmt(parsed.count)} points ready`);
 
   // Prevent auto-fix from overriding our camera fit after this point
   window._fumocaCameraFitted = true;
@@ -1789,7 +1803,7 @@ async function loadFile(file, urlOverride) {
     if (banner && S._plyReport) {
       const r = S._plyReport;
       const lines = [];
-      if (r.isGaussianSplat) lines.push('✅ Full Gaussian splat — all tools available');
+      if (r.isGaussianSplat) lines.push('✅ Full NIF data — all tools available');
       else if (r.isPointCloud) lines.push('📍 Point cloud — colour editing available');
       if (r.hasCameras) lines.push(`📷 ${r.info?.cameraCount || 0} camera positions embedded`);
       r.warnings.forEach(w => lines.push(`⚠️ ${w}`));
@@ -1806,7 +1820,7 @@ async function loadFile(file, urlOverride) {
     if (infoEl && S._plyReport) {
       const r = S._plyReport;
       const rows = [
-        ['Gaussians', r.info?.gaussianCount?.toLocaleString() || parsed.count.toLocaleString()],
+        ['Points', r.info?.gaussianCount?.toLocaleString() || parsed.count.toLocaleString()],
         ['Format', r.info?.format || S.fileType.toUpperCase()],
         ['Has Colour', r.info?.hasColor ? '✅ Yes' : '❌ No'],
         ['Has Opacity', r.info?.hasOpacity ? '✅ Yes' : '⚠️ No'],
@@ -1828,7 +1842,7 @@ async function loadFile(file, urlOverride) {
       // PLY report not available (splat file)
       infoEl.innerHTML = `
         <div style="display:flex;justify-content:space-between;padding:2px 0;">
-          <span style="opacity:.6;">Gaussians</span>
+          <span style="opacity:.6;">Points</span>
           <span>${parsed.count.toLocaleString()}</span>
         </div>
         <div style="display:flex;justify-content:space-between;padding:2px 0;">
@@ -2038,8 +2052,8 @@ function deleteSelected() {
   pushHistory('delete');
   let del = 0;
   for (let i = 0; i < S.alive.length; i++) if (S.selected[i] && S.alive[i]) { S.alive[i] = 0; S.selected[i] = 0; del++; }
-  rebuildGeometry(); setStatus(`Deleted ${fmt(del)} Gaussians`, 'ok');
-  showToast('Deleted', `${fmt(del)} Gaussians removed`);
+  rebuildGeometry(); setStatus(`Deleted ${fmt(del)} points`, 'ok');
+  showToast('Deleted', `${fmt(del)} points removed`);
 }
 
 function selectByBox(x0, y0, x1, y1) {
@@ -2056,7 +2070,7 @@ function selectByBox(x0, y0, x1, y1) {
     proj.set(S.positions[i * 3], S.positions[i * 3 + 1], S.positions[i * 3 + 2]).project(camera);
     if (proj.x >= ndcX0 && proj.x <= ndcX1 && proj.y >= Math.min(ndcY0, ndcY1) && proj.y <= Math.max(ndcY0, ndcY1)) { S.selected[i] = 1; hits++; }
   }
-  rebuildGeometry(); setStatus(`Selected ${fmt(hits)} Gaussians`);
+  rebuildGeometry(); setStatus(`Selected ${fmt(hits)} points`);
 }
 
 function selectByLasso(pts) {
@@ -2079,7 +2093,7 @@ function selectByLasso(pts) {
     const sx = (proj.x * 0.5 + 0.5) * W, sy = (-proj.y * 0.5 + 0.5) * H;
     if (inPoly(sx, sy)) { S.selected[i] = 1; hits++; }
   }
-  rebuildGeometry(); setStatus(`Selected ${fmt(hits)} Gaussians`);
+  rebuildGeometry(); setStatus(`Selected ${fmt(hits)} points`);
 }
 
 function applyBrush(cx, cy) {
@@ -2137,8 +2151,8 @@ function autoClean() {
     const weak = op < opT || sc > scT;
     if (far && weak) { S.alive[i] = 0; removed++; }
   }
-  rebuildGeometry(); setStatus(`Auto-removed ${fmt(removed)} noise Gaussians`, 'ok');
-  showToast('Auto Clean', `${fmt(removed)} Gaussians removed`);
+  rebuildGeometry(); setStatus(`Auto-removed ${fmt(removed)} noise points`, 'ok');
+  showToast('Auto Clean', `${fmt(removed)} points removed`);
 }
 
 function selectFloaters() {
@@ -2163,7 +2177,7 @@ function selectLowOpacity() {
   const thresh = Number($('selOpac').value);
   let hits = 0;
   for (let i = 0; i < S.alive.length; i++) if (S.alive[i] && S.opacity[i] < thresh) { S.selected[i] = 1; hits++; }
-  rebuildGeometry(); setStatus(`Selected ${fmt(hits)} low-opacity Gaussians`);
+  rebuildGeometry(); setStatus(`Selected ${fmt(hits)} low-opacity points`);
 }
 
 function selectLargeScale() {
@@ -2171,7 +2185,7 @@ function selectLargeScale() {
   const thresh = Number($('selScale').value);
   let hits = 0;
   for (let i = 0; i < S.alive.length; i++) if (S.alive[i] && S.scale[i] > thresh) { S.selected[i] = 1; hits++; }
-  rebuildGeometry(); setStatus(`Selected ${fmt(hits)} large-scale Gaussians`);
+  rebuildGeometry(); setStatus(`Selected ${fmt(hits)} large-scale points`);
 }
 
 // ─── EXPORT ──────────────────────────────────────────────────────────────────
@@ -2179,7 +2193,24 @@ function exportFile(type = 'splat') {
   if (!S.alive) return;
   const idx = []; for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) idx.push(i);
   let blob, name;
-  if (type === 'splat' && S.fileType === 'splat') {
+  if (type === 'nif' && (S.fileType === 'splat' || S.fileType === 'nif')) {
+    // Real .nif export — canonical 14-float/point chunked binary, not a
+    // renamed .splat. Carries forward the source file's meta/thumbnail when
+    // this file was itself loaded from a .nif (S.nifMeta/S.nifThumbnailBytes).
+    const buf = encodeNif({
+      sourceBuffer: new Uint8Array(S.sourceBuffer),
+      aliveIndices: idx,
+      rowSize: S.splatRowSize,
+      meta: S.nifMeta || {},
+      thumbnailBytes: S.nifThumbnailBytes || undefined,
+      vertical: (S.nifMeta && S.nifMeta.vertical) || 'generic',
+    });
+    name = S.fileName.replace(/\.[^.]+$/, '') + '.edited.nif';
+    downloadNif(buf, name);
+    showToast('Exported', `${name} · ${fmt(idx.length)} points · real .nif`);
+    return;
+  }
+  if (type === 'splat' && (S.fileType === 'splat' || S.fileType === 'nif')) {
     const src = new Uint8Array(S.sourceBuffer), out = new Uint8Array(idx.length * S.splatRowSize);
     idx.forEach((i, row) => out.set(src.subarray(i * S.splatRowSize, (i + 1) * S.splatRowSize), row * S.splatRowSize));
     blob = new Blob([out], { type: 'application/octet-stream' });
@@ -2196,7 +2227,7 @@ function exportFile(type = 'splat') {
     name = S.fileName.replace(/\.[^.]+$/, '') + '.edited.ply';
   }
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); URL.revokeObjectURL(a.href);
-  showToast('Exported', `${name} · ${fmt(idx.length)} Gaussians`);
+  showToast('Exported', `${name} · ${fmt(idx.length)} points`);
 }
 
 // ─── BACKGROUND RENDERING ────────────────────────────────────────────────────
@@ -2536,7 +2567,7 @@ window.addEventListener('pointerup', e => {
     const {x, y} = _vpCoords(e);
     const count = window.FumocaSmartSelect.selectObject(x, y);
     rebuildGeometry();
-    setStatus(`Smart selected ${fmt(count)} Gaussians`, 'ok');
+    setStatus(`Smart selected ${fmt(count)} points`, 'ok');
     return;
   }
   _brushActive = false;
@@ -2767,7 +2798,7 @@ if (cmpDiv) {
 // ════════════════════════════════════════════════════════════════════════════
 window.saveLiveEdit = async function saveLiveEdit(extra = {}) {
   const params  = new URLSearchParams(location.search);
-  const splatId = params.get('splatId') || window._fumocaCurrentRecord?.id;
+  const splatId = params.get('splatId') || params.get('nifId') || window._fumocaCurrentRecord?.id;
   if (!splatId) { console.warn('[saveLiveEdit] No splatId — cannot save'); return false; }
 
   let sb = window._fumocaSupabase || window.supabase;
@@ -2778,73 +2809,122 @@ window.saveLiveEdit = async function saveLiveEdit(extra = {}) {
 
   const aliveCount = S.alive ? Array.from(S.alive).filter(Boolean).length : 0;
 
-  // ── Export current alive Gaussians back to storage ───────────────────────
-  // Export as .splat (32 bytes/Gaussian: xyz f32, scale f32, rgba u8, rot quaternion u8x4)
-  // Works for both PLY-sourced and .splat-sourced files
-  let outputUrl = null;
+  // ── Build the alive-only 32-byte-row buffer ───────────────────────────────
+  // Same two paths as before (raw sourceBuffer slice vs manual PLY encode) —
+  // this part of the original logic was fine, it just fed the wrong upload
+  // target below. rowBytes ends up containing ONLY the alive points.
+  let rowBytes = null;
   if (S.alive && S.positions && S.colors) {
     try {
       const aliveIdx = [];
       for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) aliveIdx.push(i);
 
-      // If we have a raw .splat source buffer, use it directly (fastest, lossless)
-      if (S.sourceBuffer && S.splatRowSize && S.fileType === 'splat') {
+      if (S.sourceBuffer && S.splatRowSize && (S.fileType === 'splat' || S.fileType === 'nif')) {
         const src = new Uint8Array(S.sourceBuffer);
-        const out = new Uint8Array(aliveIdx.length * S.splatRowSize);
-        aliveIdx.forEach((gi, row) => out.set(src.subarray(gi * S.splatRowSize, (gi+1) * S.splatRowSize), row * S.splatRowSize));
-        const blob = new Blob([out], { type: 'application/octet-stream' });
-        const path = `${splatId}/edited_${Date.now()}.splat`;
-        const { error: upErr } = await sb.storage.from('splat-files').upload(path, await blob.arrayBuffer(), { upsert: true, contentType: 'application/octet-stream' });
-        if (!upErr) {
-          const { data: pub } = sb.storage.from('splat-files').getPublicUrl(path);
-          outputUrl = pub.publicUrl;
-        } else { console.warn('[saveLiveEdit] Upload error:', upErr); }
+        rowBytes = new Uint8Array(aliveIdx.length * S.splatRowSize);
+        aliveIdx.forEach((gi, row) => rowBytes.set(src.subarray(gi * S.splatRowSize, (gi+1) * S.splatRowSize), row * S.splatRowSize));
       } else {
-        // PLY-sourced or no source buffer: encode alive Gaussians as .splat binary
         const ROW = 32;
-        const out = new Uint8Array(aliveIdx.length * ROW);
-        const view = new DataView(out.buffer);
+        rowBytes = new Uint8Array(aliveIdx.length * ROW);
+        const view = new DataView(rowBytes.buffer);
         aliveIdx.forEach((gi, row) => {
           const off = row * ROW;
           view.setFloat32(off,    S.positions[gi*3],   true);
           view.setFloat32(off+4,  S.positions[gi*3+1], true);
           view.setFloat32(off+8,  S.positions[gi*3+2], true);
-          // scale: use per-Gaussian scale if available, else small default
           const sc = S.scale?.[gi] || 0.01;
           view.setFloat32(off+12, sc, true);
-          // colour
           const pc = S.paintColors;
           const r = pc && pc[gi*3]>=0   ? pc[gi*3]   : (S.colors[gi*3]   || 0);
           const g = pc && pc[gi*3+1]>=0 ? pc[gi*3+1] : (S.colors[gi*3+1] || 0);
           const b = pc && pc[gi*3+2]>=0 ? pc[gi*3+2] : (S.colors[gi*3+2] || 0);
-          out[off+16] = Math.round(r * 255);
-          out[off+17] = Math.round(g * 255);
-          out[off+18] = Math.round(b * 255);
-          out[off+19] = Math.round((S.opacity?.[gi] ?? 1) * 255);
-          // rotation quaternion: identity (128,128,128,128)
-          out[off+20]=128; out[off+21]=128; out[off+22]=128; out[off+23]=128;
-          // padding
-          out[off+24]=0;out[off+25]=0;out[off+26]=0;out[off+27]=0;
-          out[off+28]=0;out[off+29]=0;out[off+30]=0;out[off+31]=0;
+          rowBytes[off+16] = Math.round(r * 255);
+          rowBytes[off+17] = Math.round(g * 255);
+          rowBytes[off+18] = Math.round(b * 255);
+          rowBytes[off+19] = Math.round((S.opacity?.[gi] ?? 1) * 255);
+          rowBytes[off+20]=128; rowBytes[off+21]=128; rowBytes[off+22]=128; rowBytes[off+23]=128;
+          rowBytes[off+24]=0;rowBytes[off+25]=0;rowBytes[off+26]=0;rowBytes[off+27]=0;
+          rowBytes[off+28]=0;rowBytes[off+29]=0;rowBytes[off+30]=0;rowBytes[off+31]=0;
         });
-        const blob = new Blob([out], { type: 'application/octet-stream' });
-        const path = `${splatId}/edited_${Date.now()}.splat`;
-        const { error: upErr } = await sb.storage.from('splat-files').upload(path, await blob.arrayBuffer(), { upsert: true, contentType: 'application/octet-stream' });
-        if (!upErr) {
-          const { data: pub } = sb.storage.from('splat-files').getPublicUrl(path);
-          outputUrl = pub.publicUrl;
-        } else { console.warn('[saveLiveEdit] Upload error:', upErr); }
       }
-    } catch(e) { console.warn('[saveLiveEdit] Export failed:', e); }
+    } catch(e) { console.warn('[saveLiveEdit] Row encode failed:', e); }
   }
 
-  // ── Build update payload ──────────────────────────────────────────────────
+  // ── Primary path: nif_files (the real, live table for pipeline-produced
+  // captures — this is what window._fumocaCurrentRecord actually is in the
+  // normal flow). Build a real .nif via encodeNif and upload to R2, exactly
+  // the same encoder the "Export .nif" button uses, rather than uploading a
+  // bare .splat to a Supabase Storage bucket the new pipeline never reads. ──
+  let savedToNifFiles = false;
+  if (rowBytes) {
+    try {
+      const nifBuf = encodeNif({
+        sourceBuffer: rowBytes,
+        aliveIndices: Array.from({ length: rowBytes.byteLength / 32 }, (_, i) => i),
+        rowSize: 32,
+        meta: (window._fumocaCurrentRecord?.meta) || S.nifMeta || {},
+        thumbnailBytes: S.nifThumbnailBytes || undefined,
+        vertical: (window._fumocaCurrentRecord?.meta?.vertical) || (S.nifMeta && S.nifMeta.vertical) || 'generic',
+      });
+      const path = `${splatId}/edited_${Date.now()}.nif`;
+      const { fileKey, error: upErr } = await r2.from('nif-files')
+        .upload(path, new Blob([nifBuf], { type: 'application/octet-stream' }), { contentType: 'application/octet-stream' });
+
+      if (!upErr && fileKey) {
+        const currentMeta = window._fumocaCurrentRecord?.meta || {};
+        const meta = {
+          ...currentMeta,
+          last_edited_at: new Date().toISOString(),
+          edit_completed: true,
+          ...(extra.hotspots !== undefined ? { hotspots: extra.hotspots } : {}),
+          ...(extra.teaser_video_url ? { teaser_video_url: extra.teaser_video_url } : {}),
+          ...(extra.type === 'solidify_to_object' ? { asset_type: 'object' } : {}),
+        };
+        const { data, error } = await sb.from('nif_files')
+          .update({ r2_key: fileKey, gaussian_count: aliveCount, meta })
+          .eq('id', splatId)
+          .select('id');
+
+        if (!error && data && data.length > 0) {
+          savedToNifFiles = true;
+          if (window._fumocaCurrentRecord) Object.assign(window._fumocaCurrentRecord, { r2_key: fileKey, gaussian_count: aliveCount, meta });
+          console.log('%c[saveLiveEdit] ✅ Saved to nif_files', 'color:#c8ff00;font-weight:700');
+        } else if (error) {
+          console.warn('[saveLiveEdit] nif_files update failed, will try legacy splats path:', error);
+        }
+        // data.length === 0 with no error means splatId isn't a nif_files row
+        // at all (legacy content) — fall through to the splats path below.
+      } else if (upErr) {
+        console.warn('[saveLiveEdit] R2 upload failed, will try legacy splats path:', upErr);
+      }
+    } catch (e) {
+      console.warn('[saveLiveEdit] nif_files save path failed, will try legacy splats path:', e);
+    }
+  }
+
+  if (savedToNifFiles) return true;
+
+  // ── Fallback: legacy splats + Supabase Storage path ───────────────────────
+  // Only reached if splatId genuinely isn't a nif_files row (old content from
+  // before the new pipeline), or the R2/nif_files path threw. Unchanged from
+  // the original implementation.
+  let outputUrl = null;
+  if (rowBytes) {
+    try {
+      const blob = new Blob([rowBytes], { type: 'application/octet-stream' });
+      const path = `${splatId}/edited_${Date.now()}.splat`;
+      const { error: upErr } = await sb.storage.from('splat-files').upload(path, await blob.arrayBuffer(), { upsert: true, contentType: 'application/octet-stream' });
+      if (!upErr) {
+        const { data: pub } = sb.storage.from('splat-files').getPublicUrl(path);
+        outputUrl = pub.publicUrl;
+      } else { console.warn('[saveLiveEdit] Legacy upload error:', upErr); }
+    } catch(e) { console.warn('[saveLiveEdit] Legacy export failed:', e); }
+  }
+
   const payload = {
     last_edited_at: new Date().toISOString(),
     edit_completed:  true,
     gaussian_count:  aliveCount,
-    // Do NOT set visibility here — triggers publish_gate if row is already public
-    // Do NOT set splat_url — keep original source intact; output_url is the edited version
     ...(outputUrl   ? { output_url: outputUrl } : {}),
     ...(extra.hotspots !== undefined ? { metadata: { ...(window._fumocaCurrentRecord?.metadata || {}), hotspots: extra.hotspots } } : {}),
     ...(extra.teaser_video_url      ? { teaser_video_url: extra.teaser_video_url } : {}),
@@ -2852,11 +2932,10 @@ window.saveLiveEdit = async function saveLiveEdit(extra = {}) {
   };
 
   const { error } = await sb.from('splats').update(payload).eq('id', splatId);
-  if (error) { console.error('[saveLiveEdit] DB update failed:', error); return false; }
+  if (error) { console.error('[saveLiveEdit] Legacy DB update failed too — nothing worked:', error); return false; }
 
-  // Update local record cache
   if (window._fumocaCurrentRecord) Object.assign(window._fumocaCurrentRecord, payload);
-  console.log('%c[saveLiveEdit] ✅ Saved to feed', 'color:#c8ff00;font-weight:700', payload);
+  console.log('%c[saveLiveEdit] ✅ Saved to legacy splats table', 'color:#c8ff00;font-weight:700', payload);
   return true;
 };
 
@@ -2905,6 +2984,7 @@ $('undoBtn').addEventListener('click', undo);
 $('redoBtn').addEventListener('click', redo);
 $('exportBtn').addEventListener('click', () => exportFile('splat'));
 $('exportSplatBtn')?.addEventListener('click', () => exportFile('splat'));
+$('exportNifBtn')?.addEventListener('click', () => exportFile('nif'));
 $('exportPlyBtn')?.addEventListener('click', () => exportFile('ply'));
 $('screenshotBtn').addEventListener('click', () => {
   startBlobEffect();
@@ -2938,7 +3018,7 @@ $('saveSupabaseBtn')?.addEventListener('click', async () => {
   const ok = await window.saveLiveEdit({ type: 'manual_save' });
   if (btn) { btn.disabled = false; btn.textContent = '☁️ Save to Supabase'; }
   if (ok) {
-    showToast('Saved!', `${fmt(Array.from(S.alive).filter(Boolean).length)} Gaussians saved`, 'ok');
+    showToast('Saved!', `${fmt(Array.from(S.alive).filter(Boolean).length)} points saved`, 'ok');
   } else {
     showToast('Save Failed', 'Check console for details', 'warn');
   }
@@ -3005,7 +3085,7 @@ $('densityPruneBtn')?.addEventListener('click', () => {
   if (!S.alive) return; pushHistory('density prune');
   const pct = Number($('pruneRange').value) / 100; let removed = 0;
   for (let i = 0; i < S.alive.length; i++) if (S.alive[i] && Math.random() < pct * 0.3) { S.alive[i] = 0; removed++; }
-  rebuildGeometry(); setStatus(`Pruned ${fmt(removed)} low-density Gaussians`, 'ok');
+  rebuildGeometry(); setStatus(`Pruned ${fmt(removed)} low-density points`, 'ok');
 });
 $('removeBgBtn')?.addEventListener('click', () => {
   const core = estimateCore(); if (!core) return;
@@ -3019,13 +3099,13 @@ $('removeBgBtn')?.addEventListener('click', () => {
     const nz = Math.abs((S.positions[i * 3 + 2] - cz) / sz);
     if (nx > 1.2 || ny > 1.2 || nz > 1.2) { S.alive[i] = 0; removed++; }
   }
-  rebuildGeometry(); setStatus(`Removed ${fmt(removed)} background Gaussians`, 'ok');
-  showToast('BG Removed', `${fmt(removed)} Gaussians removed`);
+  rebuildGeometry(); setStatus(`Removed ${fmt(removed)} background points`, 'ok');
+  showToast('BG Removed', `${fmt(removed)} points removed`);
 });
 $('isolateSubjectBtn')?.addEventListener('click', () => { autoClean(); });
 $('applyColorBtn')?.addEventListener('click', () => {
   pushHistory('color grade'); rebuildGeometry();
-  showToast('Color Applied', 'Grade applied to all visible Gaussians');
+  showToast('Color Applied', 'Grade applied to all visible points');
 });
 $('resetColorBtn')?.addEventListener('click', () => {
   S.exposure = S.contrast = S.saturation = S.temperature = 0;
@@ -3266,7 +3346,7 @@ function _injectV60Panels() {
           <button class="ac-btn lime full" id="v60SolidifyBtn">
             ✨ One-Click: Point Cloud → Solid Object
           </button>
-          <div class="hint" style="margin-top:6px;">Triangulates the Gaussian cloud into a clean mesh. Ideal for 3D printing and crisp edges.</div>
+          <div class="hint" style="margin-top:6px;">Triangulates the point cloud into a clean mesh. Ideal for 3D printing and crisp edges.</div>
         </div>
       </div>
       <div class="section">
@@ -3630,7 +3710,7 @@ function _wireButtons() {
     if (!S.alive) { showToast('No splat loaded', 'Load a file first', 'warn'); return; }
     const btn = document.getElementById('v60SolidifyBtn');
     if (btn) { btn.disabled = true; btn.textContent = '⏳ Solidifying…'; }
-    setStatus('✨ Materialising Gaussians…', 'busy');
+    setStatus('✨ Materialising your NIF…', 'busy');
 
     const gr = window.FumocaGaussianRenderer;
 
@@ -3691,7 +3771,7 @@ function _wireButtons() {
     if (ok) {
       if (status) status.textContent = '✅ Saved — visible on feed immediately.';
       showToast('💾 Saved!', 'Your edits are live on the feed', 'ok');
-      setStatus(`✅ Saved — ${fmt(Array.from(S.alive).filter(Boolean).length)} Gaussians`, 'ok');
+      setStatus(`✅ Saved — ${fmt(Array.from(S.alive).filter(Boolean).length)} points`, 'ok');
     } else {
       if (status) status.textContent = '⚠️ Save failed — check console for errors.';
       showToast('Save Failed', 'Check browser console for details', 'warn');
@@ -3804,7 +3884,7 @@ function _wireButtons() {
     pushHistory('smart select foreground');
     const count = window.FumocaSmartSelect?.selectForeground(0.5) || 0;
     rebuildGeometry();
-    setStatus(`Selected ${fmt(count)} foreground Gaussians`, 'ok');
+    setStatus(`Selected ${fmt(count)} foreground points`, 'ok');
   });
 
   document.getElementById('smartSelectBgBtn')?.addEventListener('click', () => {
@@ -3812,7 +3892,7 @@ function _wireButtons() {
     pushHistory('smart select background');
     const count = window.FumocaSmartSelect?.selectBackground(0.5) || 0;
     rebuildGeometry();
-    setStatus(`Selected ${fmt(count)} background Gaussians`, 'ok');
+    setStatus(`Selected ${fmt(count)} background points`, 'ok');
   });
 
   // Listen for fumoca:rebuildGeometry events (from photoreal toggle)

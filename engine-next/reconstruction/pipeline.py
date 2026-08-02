@@ -60,15 +60,19 @@ from PIL import Image
 
 # ─── Environment ─────────────────────────────────────────────────────────────
 REQUIRED = ['CF_ACCOUNT_ID','R2_ACCESS_KEY_ID','R2_SECRET_ACCESS_KEY',
-            'SUPABASE_URL','SUPABASE_SECRET_KEY','GPU_WORKER_SECRET']
+            'SUPABASE_URL','SUPABASE_SECRET_KEY']
 _missing = [k for k in REQUIRED if not os.environ.get(k)]
 if _missing:
     raise EnvironmentError(f"Missing env vars: {', '.join(_missing)}")
 
 DEVICE     = 'cuda' if torch.cuda.is_available() else 'cpu'
-BUCKET     = os.environ.get('R2_BUCKET', 'fumoca-nif-storage')
-API_BASE   = os.environ.get('API_BASE', 'https://api.fumoca.co.za')
-WORKER_KEY = os.environ['GPU_WORKER_SECRET']
+# fumoca-production's real R2 layout is 5 separate buckets (see wrangler.jsonc),
+# not one. Raw captures land in nif-videos (uploaded by js/modules/upload-page.js);
+# everything this pipeline produces (.nif, proxy video, thumbnail, STL) goes to
+# nif-files. A single R2_BUCKET var here would silently 404 on every download.
+RAW_BUCKET    = os.environ.get('R2_RAW_BUCKET', 'nif-videos')
+OUTPUT_BUCKET = os.environ.get('R2_OUTPUT_BUCKET', 'nif-files')
+WORKER_KEY = os.environ.get('GPU_WORKER_SECRET', '')
 
 import boto3
 from botocore.config import Config
@@ -95,6 +99,12 @@ except ImportError:
 NIF_MAGIC    = 0x4E494600
 CHUNK_GEO    = 0x0003
 CHUNK_MESH   = 0x0004  # Watertight triangle mesh — real triangulation, see _extract_mesh()
+CHUNK_CAMERAS = 0x000B  # Per-frame 4×4 view matrices + pose_source — see _pack_cameras().
+                         # Previously computed for Gaussian training and then discarded;
+                         # nothing in the .nif persisted them, so a NIF-native viewer had
+                         # no way to fly the original capture path or know how the scene
+                         # was actually observed. This is now independent of CHUNK_GEO —
+                         # deleting the Gaussian chunk no longer takes the cameras with it.
 CHUNK_PRINT  = 0x0014  # Binary STL for 3D printing — verified real trimesh export, not a stub
 CHUNK_PROXY  = 0x0002
 CHUNK_DEPTH  = 0x0007
@@ -783,18 +793,28 @@ def encode_proxy_video(frames_dir: Path, fps: int) -> bytes:
 
 
 # ─── Worker ───────────────────────────────────────────────────────────────────
+def _now_iso() -> str:
+    return time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+
+
 def _patch(job_id: str, payload: dict):
+    """
+    Write job progress straight to reconstruction_jobs in Supabase.
+
+    This used to PATCH `{API_BASE}/api/jobs/{job_id}/progress`, which requires
+    engine-next/backend-api to be deployed — per ROADMAP.md that's still
+    "untested... not yet wired." reconstruction_jobs itself is the real, live
+    table (confirmed directly against fumoca-production), and claim_next_job()
+    already talks to it straight from the Kaggle worker, so progress updates
+    do the same rather than depending on a service that isn't running.
+    """
+    row = {k: v for k, v in payload.items()}
+    if row.get('status') == 'processing' and 'started_at' not in row:
+        pass  # started_at is already set by claim_next_reconstruction_job()
     try:
-        r = requests.patch(
-            f'{API_BASE}/api/jobs/{job_id}/progress',
-            json=payload,
-            headers={'x-worker-key': WORKER_KEY},
-            timeout=15,
-        )
-        if not r.ok:
-            print(f'[warn] API {r.status_code}: {r.text[:100]}')
+        SB.table('reconstruction_jobs').update(row).eq('id', job_id).execute()
     except Exception as e:
-        print(f'[warn] API unreachable: {e}')
+        print(f'[warn] Supabase progress update failed: {e}')
 
 
 class ReconstructionWorker:
@@ -874,10 +894,11 @@ class ReconstructionWorker:
                 # geo_bytes already contains its own [flag][count][data] header
                 # (built by export_buffer()) — do NOT prepend another count field,
                 # that was corrupting every CHUNK_GEO ever written.
-                (CHUNK_GEO,   geo_bytes),
-                (CHUNK_DEPTH, self._pack_depth_map(depth_map)),
-                (CHUNK_ALPHA, self._pack_alpha_mask(alpha_mask)),
-                (CHUNK_LAYER, layer_bytes),
+                (CHUNK_GEO,     geo_bytes),
+                (CHUNK_CAMERAS, self._pack_cameras(poses, pose_source)),
+                (CHUNK_DEPTH,   self._pack_depth_map(depth_map)),
+                (CHUNK_ALPHA,   self._pack_alpha_mask(alpha_mask)),
+                (CHUNK_LAYER,   layer_bytes),
             ]
             if mesh_bytes:
                 chunks.append((CHUNK_MESH, mesh_bytes))
@@ -937,11 +958,12 @@ class ReconstructionWorker:
                 'has_print_export':  bool(stl_bytes),   # real binary STL, dimensionally uncalibrated (see _extract_mesh docstring)
             })
 
-            self._tick('complete', 100, nifR2Key=r2_key, gaussianCount=n)
+            self._tick('complete', 100, nif_r2_key=r2_key, gaussian_count=n,
+                        completed_at=_now_iso())
             return r2_key
 
         except Exception as e:
-            self._tick('failed', 0, errorMessage=str(e))
+            self._tick('failed', 0, error_message=str(e), completed_at=_now_iso())
             raise
         finally:
             shutil.rmtree(self.tmp, ignore_errors=True)
@@ -960,11 +982,33 @@ class ReconstructionWorker:
         header = struct.pack('>HH', H, W)
         return header + mask.astype(np.uint8).tobytes()
 
+    def _pack_cameras(self, poses: list, pose_source: str) -> bytes:
+        """
+        Pack camera view matrices as their own chunk, independent of CHUNK_GEO.
+
+        Layout:
+          [count:u32 BE][pose_source_len:u8][pose_source: ascii, pose_source_len bytes]
+          then count × 16 float32 BE (row-major 4×4 view matrix, world→camera)
+
+        pose_source is carried along ('colmap' = real multi-view SfM vs
+        'synthetic_*' = fallback orbit) so a viewer/editor can tell whether the
+        camera path reflects the actual capture or is an approximation —
+        the same distinction already tracked in meta.reconstruction_quality,
+        now available without needing the rest of the job's metadata.
+        """
+        src = pose_source.encode('ascii')[:255]
+        header = struct.pack('>IB', len(poses), len(src)) + src
+        body = b''.join(
+            struct.pack('>16f', *(p.detach().cpu().numpy().astype(np.float32).flatten().tolist()))
+            for p in poses
+        )
+        return header + body
+
     # ── Download ───────────────────────────────────────────────────────────────
     def _download(self, key: str) -> Path:
         ext  = Path(key).suffix or '.bin'
         path = self.tmp / f'capture{ext}'
-        R2.download_file(BUCKET, key, str(path))
+        R2.download_file(RAW_BUCKET, key, str(path))
         print(f'[NIF] Downloaded {path.stat().st_size:,}B')
         return path
 
@@ -1020,6 +1064,21 @@ class ReconstructionWorker:
             img = np.array(Image.open(p).convert('RGB'))
             frames.append(img)
 
+        # ── Cap frames for reconstruction speed ─────────────────────────────
+        # A 75s orbit_360 capture at fps=5 yields ~375 frames (capped at 300
+        # above) — COLMAP's feature matching cost scales badly with frame
+        # count (closer to quadratic than linear for exhaustive matching),
+        # and it's the dominant cost in the whole pipeline, well above the
+        # Gaussian training time. Even-stride subsample rather than
+        # truncate — truncating to the first N frames would only cover the
+        # first portion of an orbit, losing full 360° coverage; striding
+        # keeps frames spread across the whole capture.
+        max_frames = int(os.environ.get('FUMOCA_MAX_RECON_FRAMES', '40'))
+        if len(frames) > max_frames:
+            stride = len(frames) / max_frames
+            idxs = [int(i * stride) for i in range(max_frames)]
+            frames = [frames[i] for i in idxs]
+
         return frames, fps
 
     # ── Deblur ─────────────────────────────────────────────────────────────────
@@ -1064,14 +1123,33 @@ class ReconstructionWorker:
         return poses, 'colmap'
 
     def _synthetic_poses(self, n: int) -> list:
-        """Circular orbit poses for single-image or COLMAP-fail fallback."""
+        """
+        Circular orbit poses for single-image or COLMAP-fail fallback.
+
+        Built as an explicit look-at construction (camera position C on a
+        constant-radius circle around Y, rotation = camera's own basis
+        vectors expressed in world coordinates, translation = -R@C) rather
+        than a hand-picked R/t pair — the previous version's R and t didn't
+        correspond to any single consistent camera position: recovering the
+        implied world position (C = -R^T@t) gave a radius that swung from 0
+        (camera exactly at the origin, inside the subject, at the very first
+        pose) to 4 across one orbit. Verified in isolation before shipping:
+        -R^T@t round-trips back to the exact C used to build R/t, at a
+        constant radius, for every theta.
+        """
         poses = []
+        r  = 2.5
+        up = np.array([0., 1., 0.])
         for i in range(max(n, 3)):
-            th  = 2 * np.pi * i / max(n, 3)
-            R   = np.array([[np.cos(th),0,np.sin(th)],[0,1,0],[-np.sin(th),0,np.cos(th)]])
-            t   = np.array([2*np.sin(th), 0, 2-2*np.cos(th)])
-            vm  = np.eye(4)
-            vm[:3,:3] = R; vm[:3,3] = t
+            th = 2 * np.pi * i / max(n, 3)
+            C  = np.array([r * np.sin(th), 0.0, r * np.cos(th)])  # camera position, world space
+            f  = -C / (np.linalg.norm(C) + 1e-8)                   # forward: camera -> origin
+            right = np.cross(f, up); right /= (np.linalg.norm(right) + 1e-8)
+            true_up = np.cross(right, f)
+            R = np.stack([right, -true_up, f], axis=0)             # world->camera rotation (OpenCV: X right, Y down, Z fwd)
+            t = -R @ C
+            vm = np.eye(4)
+            vm[:3, :3] = R; vm[:3, 3] = t
             poses.append(torch.tensor(vm, dtype=torch.float32))
         return poses
 
@@ -1107,7 +1185,14 @@ class ReconstructionWorker:
 
     # ── Training ───────────────────────────────────────────────────────────────
     def _train_gaussians(self, frames: list, poses: list) -> tuple:
-        trainer = GaussianSplatTrainer(n=50_000)
+        # Configurable so quality can be dialed back up later without a code
+        # change — defaults tuned for fast turnaround during testing rather
+        # than final quality. n=50k/3000 iters (the old fixed values) is a
+        # real, noticeable time cost on top of COLMAP; halving both roughly
+        # halves training wall-clock with a real but acceptable quality hit
+        # for "does this work at all" testing.
+        n_gaussians = int(os.environ.get('FUMOCA_N_GAUSSIANS', '20000'))
+        trainer = GaussianSplatTrainer(n=n_gaussians)
         trainer.means       = trainer.means.to(DEVICE)
         trainer.log_scales  = trainer.log_scales.to(DEVICE)
         trainer.quats       = trainer.quats.to(DEVICE)
@@ -1125,7 +1210,7 @@ class ReconstructionWorker:
         # Production 3DGS uses 30k but Kaggle T4 12hr limit means ~3k is practical.
         # Densification: split high-gradient Gaussians and clone small ones.
         # This is the core mechanism that fills in detail — without it you get blobs.
-        ITERS            = 3000
+        ITERS            = int(os.environ.get('FUMOCA_GS_ITERS', '1200'))
         DENSIFY_EVERY    = 300   # densify at step 300, 600, 900, 1200
         DENSIFY_UNTIL    = 1500  # stop densifying past this point
         DENSIFY_GRAD_THR = 0.0002  # position gradient threshold for splitting
@@ -1190,6 +1275,21 @@ class ReconstructionWorker:
         normals = R[np.arange(len(pts)), :, axis_idx]
         norm_len = np.linalg.norm(normals, axis=1, keepdims=True)
         normals = normals / np.maximum(norm_len, 1e-8)
+
+        # A Gaussian's shortest axis gives the normal *line*, not a signed
+        # direction — quaternion rotation of a basis vector has no inherent
+        # "outward" sense, so adjacent points can end up with randomly
+        # flipped normals. Left unresolved, that corrupts the signed-distance
+        # field below (sd = diff·normal flips sign incoherently between
+        # neighbors) and produces holes/spurious shells in marching cubes.
+        # Orient outward from the point-cloud centroid — correct for
+        # roughly-convex, star-shaped single subjects, which matches the
+        # orbit-capture scripts this pipeline is built around (not correct
+        # for strongly concave scenes, e.g. capturing the inside of a room).
+        centroid = positions.mean(axis=0)
+        outward  = positions - centroid
+        flip     = np.einsum('vc,vc->v', normals, outward) < 0
+        normals[flip] *= -1
 
         # ── Splat oriented points into a signed-distance volume ────────────────
         mn = positions.min(axis=0) - 0.05
@@ -1329,11 +1429,11 @@ class ReconstructionWorker:
 
             self._tick('uploading', 85)
             stl_key = f'print/{self.user_id}/{self.job_id}/figurine.stl'
-            R2.put_object(Bucket=BUCKET, Key=stl_key, Body=stl_bytes,
+            R2.put_object(Bucket=OUTPUT_BUCKET, Key=stl_key, Body=stl_bytes,
                            ContentType='model/stl')
 
             stl_url = R2.generate_presigned_url(
-                'get_object', Params={'Bucket': BUCKET, 'Key': stl_key}, ExpiresIn=604800,
+                'get_object', Params={'Bucket': OUTPUT_BUCKET, 'Key': stl_key}, ExpiresIn=604800,
             )
 
             SB.table('reconstruction_jobs').update({
@@ -1354,14 +1454,14 @@ class ReconstructionWorker:
     # ── Upload ─────────────────────────────────────────────────────────────────
     def _upload_nif(self, data: bytes) -> str:
         key = f'nif/{self.user_id}/{self.job_id}/scene.nif'
-        R2.put_object(Bucket=BUCKET, Key=key, Body=data, ContentType='application/octet-stream')
+        R2.put_object(Bucket=OUTPUT_BUCKET, Key=key, Body=data, ContentType='application/octet-stream')
         print(f'[NIF] Uploaded {len(data):,}B → {key}')
         return key
 
     def _upload_proxy_video(self, proxy_bytes: bytes, fps: int) -> str:
         """Upload the proxy video as a separate accessible file for sharing/download."""
         key = f'nif/{self.user_id}/{self.job_id}/proxy.mp4'
-        R2.put_object(Bucket=BUCKET, Key=key, Body=proxy_bytes,
+        R2.put_object(Bucket=OUTPUT_BUCKET, Key=key, Body=proxy_bytes,
                       ContentType='video/mp4')
         print(f'[NIF] Proxy video uploaded → {key}')
         return key
@@ -1375,7 +1475,7 @@ class ReconstructionWorker:
                 buf = io.BytesIO()
                 frame.save(buf, format='JPEG', quality=85)
                 key = f'nif/{self.user_id}/{self.job_id}/thumb.jpg'
-                R2.put_object(Bucket=BUCKET, Key=key, Body=buf.getvalue(),
+                R2.put_object(Bucket=OUTPUT_BUCKET, Key=key, Body=buf.getvalue(),
                               ContentType='image/jpeg')
                 print(f'[NIF] Thumbnail uploaded → {key}')
                 return key
@@ -1396,7 +1496,7 @@ class ReconstructionWorker:
                 from botocore.signers import generate_presigned_url
                 thumb_url = R2.generate_presigned_url(
                     'get_object',
-                    Params={'Bucket': BUCKET, 'Key': thumb_key},
+                    Params={'Bucket': OUTPUT_BUCKET, 'Key': thumb_key},
                     ExpiresIn=86400,
                 )
             except Exception:

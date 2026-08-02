@@ -675,10 +675,27 @@ function resolvenifUrl(record) {
     const v = _validnifUrl(url);
     if (v) return v;
   }
+  // nif_files (the real, live table for pipeline-produced NIFs) has no URL
+  // column at all — engine-next/reconstruction/pipeline.py's _register()
+  // only ever writes r2_key. Every candidate above is always empty for a
+  // pipeline-produced NIF, so without this fallback the viewer had no way
+  // to load the very files the new pipeline exists to produce.
+  if (record.r2_key) {
+    const built = r2.publicUrl('nif-files', record.r2_key);
+    if (built) return built;
+  }
   return '';
 }
 function resolvePreviewVideo(record) { return record ? firstNonEmpty(record.preview_video_url, record.teaser_video_url, record.video_url) : ''; }
-function resolveThumbnail(record) { return record ? firstNonEmpty(record.thumbnail_url, record.poster_url, record.preview_image_url) : ''; }
+function resolveThumbnail(record) {
+  if (!record) return '';
+  const thumbKey = record.meta?.thumbnail_r2_key;
+  if (thumbKey) {
+    const built = r2.publicUrl('nif-files', thumbKey);
+    if (built) return built;
+  }
+  return firstNonEmpty(record.thumbnail_url, record.poster_url, record.preview_image_url);
+}
 function resolvePublicTeaserUrl(record) {
   const p = new URLSearchParams();
   if (record?.id) p.set('id', record.id);
@@ -775,18 +792,26 @@ async function fetchRecord() {
   if (!nifId) return null;
   const { data: nif } = await supabase.from('nif_files').select('*').eq('id', nifId).maybeSingle();
   if (nif) return nif;
-  const { data: job } = await supabase.from('reconstruction_jobs').select('*').eq('nif_id', nifId).maybeSingle();
+  // Not in nif_files yet — it's still processing (nif_files only gets a row
+  // on success, via pipeline.py's _register()). The job shares the same id
+  // as the eventual nif_files row (see ReconstructionWorker(job_id, ...) /
+  // _register()'s 'id': self.job_id) — reconstruction_jobs has no separate
+  // nif_id column, so querying by one always returned nothing and made an
+  // in-progress capture look like a dead link instead of "processing".
+  const { data: job } = await supabase.from('reconstruction_jobs').select('*').eq('id', nifId).maybeSingle();
   if (!job) return null;
   return {
     id: nifId,
-    title: job.title || '',
-    description: job.description || '',
+    title: job.meta?.title || '',
+    description: job.meta?.description || '',
     status: job.status || 'queued',
-    nif_url: firstNonEmpty(job.output_url, job.nif_url, job.public_url, job.file_url),
-    thumbnail_url: firstNonEmpty(job.thumbnail_url, job.poster_url),
-    preview_video_url: firstNonEmpty(job.preview_video_url, job.video_url),
-    provider_name: job.provider_name || 'FUMOCA',
-    source_type: job.source_type || 'fumoca'
+    progress: job.progress ?? 0,
+    error_message: job.error_message || '',
+    nif_url: '',            // never populated until nif_files gets a row — correct while processing
+    thumbnail_url: '',
+    preview_video_url: '',
+    provider_name: 'FUMOCA',
+    source_type: 'fumoca',
   };
 }
 
@@ -1778,16 +1803,16 @@ async function _fumocaFlushPipelineQueue() {
       continue;
     }
     try {
-      const currentMeta = { ...((currentRecord || {}).metadata || {}) };
+      const currentMeta = { ...((currentRecord || {}).meta || {}) };
       const queue = Array.isArray(currentMeta.processing_requests) ? currentMeta.processing_requests.slice() : [];
       const existing = queue.find((q) => q && q.id === item.payload?.id);
       if (!existing && supabase && currentRecord?.id) {
         queue.unshift(item.payload);
         currentMeta.processing_requests = queue.slice(0, 50);
         currentMeta.last_processing_request = item.payload;
-        const { error } = await supabase.from('nif_files').update({ metadata: currentMeta }).eq('id', currentRecord.id);
+        const { error } = await supabase.from('nif_files').update({ meta: currentMeta }).eq('id', currentRecord.id);
         if (error) throw error;
-        currentRecord = { ...(currentRecord || {}), metadata: currentMeta };
+        currentRecord = { ...(currentRecord || {}), meta: currentMeta };
         window._fumocaCurrentRecord = currentRecord;
       }
       _fumocaShowPipelineIllusion('Finishing background prep…', 1400);
@@ -2150,7 +2175,7 @@ async function _fumocaSaveVariant(name = null) {
   const variantName = (name || window.prompt('Variant name', 'Clean Variant') || '').trim();
   if (!variantName) return null;
   const rec = currentRecord || {};
-  const metadata = { ...(rec.metadata || {}) };
+  const metadata = { ...(rec.meta || {}) };
   const variants = Array.isArray(metadata.variants) ? metadata.variants.slice() : [];
   const recipe = _fumocaBuildRecipe(variantName);
   variants.unshift(recipe);
@@ -2158,14 +2183,14 @@ async function _fumocaSaveVariant(name = null) {
   let savedRemote = false;
   if (supabase && rec.id) {
     try {
-      const { error } = await supabase.from('nif_files').update({ metadata }).eq('id', rec.id);
+      const { error } = await supabase.from('nif_files').update({ meta: metadata }).eq('id', rec.id);
       if (error) throw error;
       savedRemote = true;
     } catch (err) {
       console.warn('[fumoca] variant remote save failed', err);
     }
   }
-  currentRecord = { ...rec, metadata };
+  currentRecord = { ...rec, meta: metadata };
   window._fumocaCurrentRecord = currentRecord;
   try {
     localStorage.setItem(`fumoca_variants_${rec.id || location.pathname}`, JSON.stringify(metadata.variants));
@@ -2177,7 +2202,7 @@ async function _fumocaSaveVariant(name = null) {
 
 function _fumocaLoadVariants() {
   const rec = currentRecord || {};
-  const metadata = rec.metadata || {};
+  const metadata = rec.meta || {};
   let variants = Array.isArray(metadata.variants) ? metadata.variants.slice() : [];
   if (!variants.length) {
     try {
@@ -2212,7 +2237,7 @@ async function _fumocaQueuePipeline(kind = 'mesh_cleanup', extraPayload = {}) {
     source_record_id: safeExtra.source_record_id || rec.id || null,
     status: safeExtra.status || 'queued',
   };
-  const metadata = { ...(rec.metadata || {}) };
+  const metadata = { ...(rec.meta || {}) };
   const queue = Array.isArray(metadata.processing_requests) ? metadata.processing_requests.slice() : [];
   queue.unshift(payload);
   metadata.processing_requests = queue.slice(0, 50);
@@ -2220,7 +2245,7 @@ async function _fumocaQueuePipeline(kind = 'mesh_cleanup', extraPayload = {}) {
   let savedRemote = false;
   if (supabase && rec.id) {
     try {
-      const { error } = await supabase.from('nif_files').update({ metadata }).eq('id', rec.id);
+      const { error } = await supabase.from('nif_files').update({ meta: metadata }).eq('id', rec.id);
       if (error) throw error;
       savedRemote = true;
     } catch (err) {

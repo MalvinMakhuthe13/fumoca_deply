@@ -228,7 +228,9 @@ const SplatCapture = (() => {
       // Update splat record with preview video URL
       if (publicUrl && window._fumocaCurrentRecord?.id) {
         try {
-          await sb.from('splats').update({ preview_video_url: publicUrl }).eq('id', window._fumocaCurrentRecord.id);
+          await sb.from('nif_files').update({
+            meta: { ...(window._fumocaCurrentRecord.meta || {}), preview_video_url: publicUrl }
+          }).eq('id', window._fumocaCurrentRecord.id);
           if (window._fumocaCurrentRecord) window._fumocaCurrentRecord.preview_video_url = publicUrl;
         } catch (_) {}
       }

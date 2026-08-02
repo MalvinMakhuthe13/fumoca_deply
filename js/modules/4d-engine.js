@@ -184,8 +184,8 @@ const Fumoca4D = (() => {
     console.log(`%c[4D] Keyframe "${data.step_label}" saved at t=${timeOff}s`, 'color:#c8ff00');
 
     // Mark splat as having 4D data
-    await sb.from('splats')
-      .update({ metadata: { ...(S.record.metadata || {}), has_4d: true } })
+    await sb.from('nif_files')
+      .update({ meta: { ...(S.record.meta || {}), has_4d: true } })
       .eq('id', S.record.id);
 
     return data;

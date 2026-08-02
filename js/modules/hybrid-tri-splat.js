@@ -34,10 +34,13 @@ const FumocaHybridTriSplat = (() => {
 
       // ── Step 4: persist live (only if Supabase is connected) ──────
       if (sb) {
-        await sb.from('splats').update({
-          hybrid_mesh_url:     mesh.url || null,
-          tri_binding_recipe:  binding,
-          last_edited_at:      new Date().toISOString(),
+        await sb.from('nif_files').update({
+          meta: {
+            ...(splatRecord.meta || {}),
+            hybrid_mesh_url:    mesh.url || null,
+            tri_binding_recipe: binding,
+            last_edited_at:     new Date().toISOString(),
+          },
         }).eq('id', splatRecord.id);
       }
 

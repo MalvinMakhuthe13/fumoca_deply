@@ -260,12 +260,12 @@ export function encodeNif(opts = {}) {
 }
 
 // ── Public: decode a .nif ArrayBuffer back into render-ready data ────────────
-export function decodeNif(arrayBuffer) {
+export async function decodeNif(arrayBuffer) {
   const reader = new NIFReader(arrayBuffer);
   if (reader.isCorrupted) {
     console.warn('[nif-format] NIF has corrupted chunks:', reader.errors);
   }
-  const geometry = reader.getGeometry(); // { count, data: Float32Array(14/point) } | null
+  const geometry = await reader.getGeometry(); // { count, data: Float32Array(14/point) } | null
   if (!geometry) throw new Error('[nif-format] .nif file has no KEYFRAME_GEO chunk');
 
   const meta = decodeMetaChunk(reader.getChunk(CHUNK.META));

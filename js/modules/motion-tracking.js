@@ -127,10 +127,10 @@ const MotionTracking = (() => {
   async function persistToRecord(tracking = _lastTracking, record = _record) {
     if (!tracking || !record?.id || !window._fumocaSupabase) return false;
     try {
-      const metadata = { ...(record.metadata || {}), motion_tracking: tracking };
-      await window._fumocaSupabase.from('splats').update({ metadata }).eq('id', record.id);
+      const metadata = { ...(record.meta || {}), motion_tracking: tracking };
+      await window._fumocaSupabase.from('nif_files').update({ meta: metadata }).eq('id', record.id);
       if (window._fumocaCurrentRecord?.id === record.id) {
-        window._fumocaCurrentRecord.metadata = metadata;
+        window._fumocaCurrentRecord.meta = metadata;
       }
       return true;
     } catch (err) {

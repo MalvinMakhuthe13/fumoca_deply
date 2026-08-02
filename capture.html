@@ -150,7 +150,7 @@
 <!-- Permission gate shown until user taps to grant camera access -->
 <div id="permissionGate">
   <h1>FUMOCA Capture</h1>
-  <p>We'll guide you around the car. Stand arm's-length away, walk slowly, keep the car centered in frame.</p>
+  <p>We'll guide you all the way around your subject. Stand arm's-length away, move slowly, keep it centered in frame.</p>
   <p style="font-size: 13px; color: rgba(255,255,255,.55);">Capture works best in daylight or well-lit interiors. Avoid reflective puddles and direct sun on glass.</p>
   <button class="primary-btn" id="grantBtn">Allow camera & start</button>
 </div>
@@ -162,9 +162,16 @@
 <div class="top-bar">
   <div class="row">
     <select id="capScriptSel">
-      <option value="exterior_car">Exterior walk-around</option>
+      <option value="orbit_360">360° full orbit (any object)</option>
+      <option value="orbit_180">180° half orbit</option>
+      <option value="exterior_car">Exterior walk-around (car)</option>
       <option value="interior_front">Interior — front</option>
       <option value="interior_rear">Interior — rear</option>
+    </select>
+  </div>
+  <div class="row" style="margin-top: 8px;">
+    <select id="capVerticalSel">
+      <option value="generic">Generic</option>
     </select>
   </div>
   <div class="hint" id="capHint"></div>
@@ -218,6 +225,36 @@
     },
   });
 
+  // Populate the vertical picker from the real `verticals` table instead of
+  // hardcoding the list — capture_tips per vertical get appended to the hint
+  // so the coaching reflects what actually matters for that subject type
+  // (e.g. "avoid direct sun on glass" for automotive, "diffuse light" for
+  // fashion) rather than one generic hint for everything.
+  let verticalTipsById = {};
+  (async () => {
+    const verticals = await guide.fetchVerticals();
+    if (!verticals.length) return;
+    const sel = document.getElementById('capVerticalSel');
+    sel.innerHTML = '';
+    verticals.forEach(v => {
+      verticalTipsById[v.id] = v.capture_tips || [];
+      const opt = document.createElement('option');
+      opt.value = v.id;
+      opt.textContent = v.label;
+      sel.appendChild(opt);
+    });
+    updateHint();
+  })();
+
+  function updateHint() {
+    const vertId = document.getElementById('capVerticalSel').value;
+    const tips = verticalTipsById[vertId] || [];
+    const base = guide.script.hint;
+    document.getElementById('capHint').textContent =
+      tips.length ? `${base} ${tips.join('. ')}.` : base;
+  }
+  document.getElementById('capVerticalSel').addEventListener('change', updateHint);
+
   // Stage 1: permission gate → startPreview
   document.getElementById('grantBtn').addEventListener('click', async () => {
     await guide.startPreview();
@@ -229,9 +266,10 @@
   // Script switcher
   document.getElementById('capScriptSel').addEventListener('change', (e) => {
     guide.setScript(e.target.value);
+    updateHint();
   });
-  // Initialize with default
-  guide.setScript('exterior_car');
+  // Initialize with the general-purpose orbit script — not car-specific
+  guide.setScript('orbit_360');
 
   // Main button — state machine
   const startBtn = document.getElementById('capStartBtn');
@@ -248,7 +286,8 @@
       startBtn.textContent = 'Uploading…';
       try {
         const scriptKey = document.getElementById('capScriptSel').value;
-        await guide.uploadLatest({ scriptKey });
+        const vertical = document.getElementById('capVerticalSel').value;
+        await guide.uploadLatest({ scriptKey, vertical });
       } catch (err) {
         document.getElementById('capUploadStatus').textContent = 'Upload failed: ' + err.message;
         startBtn.disabled = false;

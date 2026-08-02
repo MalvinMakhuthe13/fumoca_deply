@@ -305,7 +305,7 @@ async function pickWorldAnchorFromEvent(event) {
     if (exact) return exact;
   } catch (_) {}
   const viewer = window._fumocaViewer || {};
-  const meta = window._fumocaCurrentRecord?.metadata || {};
+  const meta = window._fumocaCurrentRecord?.meta || {};
   const boundsRadius = Number(meta.radius || meta.bounding_radius || meta.bounds_radius || pointCloudCache.boundsRadius || viewer.boundsRadius || 0);
   const viewDist = Math.max(0.5, ray.origin.distanceTo(fallbackTarget));
   const radius = boundsRadius || Math.max(0.8, viewDist * 0.35);
@@ -401,7 +401,7 @@ function normalizeHotspot(h, index = 0) {
 
 async function loadHotspots() {
   const rec = window._fumocaCurrentRecord || {};
-  const meta = rec.metadata || {};
+  const meta = rec.meta || {};
   let list = Array.isArray(meta.hotspots) ? meta.hotspots : null;
   if (!list) {
     try {
@@ -430,10 +430,10 @@ async function saveRemote() {
   }
   state.saving = true;
   try {
-    const metadata = { ...(rec.metadata || {}), hotspots: state.hotspots };
-    const { error } = await sb.from('splats').update({ metadata }).eq('id', rec.id);
+    const metadata = { ...(rec.meta || {}), hotspots: state.hotspots };
+    const { error } = await sb.from('nif_files').update({ meta: metadata }).eq('id', rec.id);
     if (error) throw error;
-    window._fumocaCurrentRecord = { ...rec, metadata };
+    window._fumocaCurrentRecord = { ...rec, meta: metadata };
     persistLocal();
     track('hotspot_save', { recordId: rec.id, count: state.hotspots.length });
     return true;

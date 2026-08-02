@@ -35,6 +35,15 @@ function extractStoragePath(urlString) {
 }
 
 async function deleteUploadRecord(item) {
+  if (item.source === 'nif_files') {
+    if (item.output_url) {
+      const hit = extractStoragePath(item.output_url);
+      if (hit) { try { await r2.from(hit.bucket).remove([hit.path]); } catch (_) {} }
+    }
+    const { error } = await supabase.from('nif_files').delete().eq('id', item.id).eq('user_id', item.user_id);
+    if (error) throw error;
+    return;
+  }
   const candidates = [
     item?.splat_url, item?.output_url, item?.public_url, item?.file_url, item?.external_splat_url, item?.provider_splat_url,
     item?.thumbnail_url, item?.poster_url, item?.preview_image_url,
@@ -163,7 +172,30 @@ async function init() {
     .eq('user_id', user.id)
     .order('created_at', { ascending: false });
 
-  uploads = Array.isArray(splats) ? splats : [];
+  // nif_files is the real, live table for anything captured through the
+  // new pipeline — profile.js only ever queried splats, so nothing
+  // processed by engine-next/reconstruction/pipeline.py ever showed up
+  // here. Normalize each row into the same shape the rest of this file
+  // (resolveUrl, deleteUploadRecord, renderRecent, renderManage) already
+  // expects, rather than touching every consumer.
+  const { data: nifRows } = await supabase
+    .from('nif_files')
+    .select('id,user_id,title,created_at,r2_key,thumbnail_url,meta')
+    .eq('user_id', user.id)
+    .order('created_at', { ascending: false });
+  const nifs = (Array.isArray(nifRows) ? nifRows : []).map((row) => ({
+    id: row.id,
+    user_id: row.user_id,
+    status: 'done', // a nif_files row only ever exists after a successful pipeline run
+    title: row.title,
+    created_at: row.created_at,
+    output_url: row.r2_key ? r2.publicUrl('nif-files', row.r2_key) : '',
+    thumbnail_url: (row.meta?.thumbnail_r2_key && r2.publicUrl('nif-files', row.meta.thumbnail_r2_key)) || row.thumbnail_url || '',
+    source: 'nif_files', // deleteUploadRecord needs this to know which table/bucket to clean up
+  }));
+
+  uploads = [...nifs, ...(Array.isArray(splats) ? splats : [])]
+    .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
 
   document.getElementById('profileName').textContent = displayName;
   document.getElementById('profileHandle').textContent = '@' + username;

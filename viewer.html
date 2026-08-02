@@ -987,7 +987,7 @@
       <div class="control">
         <div class="control-head"><div class="control-label">Capture sharpness</div><div class="control-value" id="qSharpnessValue">0.72</div></div>
         <input id="qSharpnessRange" type="range" min="0.0" max="1.0" step="0.01" value="0.72">
-        <div class="control-note">Tighter gaussian sigma — crisper edges without geometry rebuild.</div>
+        <div class="control-note">Tighter point sigma — crisper edges without geometry rebuild.</div>
       </div>
       <div class="control">
         <div class="control-head"><div class="control-label">Bloom</div><div class="control-value" id="qBloomValue">0.55</div></div>
@@ -1092,7 +1092,7 @@
       </div>
       <input type="range" id="eFloatN" min="2" max="40" step="1" value="8" style="accent-color:var(--neon);width:100%;margin-bottom:8px;">
       <button class="e-btn e-btn-warn" id="eSelectFloaters">⚡ Auto-select floaters</button>
-      <div class="e-note">Marks isolated Gaussians with fewer than N neighbours — the stray splats destroying your edges.</div>
+      <div class="e-note">Marks isolated points with fewer than N neighbours — the stray specks destroying your edges.</div>
     </div>
 
     <div class="e-control">
@@ -1101,7 +1101,7 @@
       </div>
       <input type="range" id="eOpThresh" min="0.01" max="0.99" step="0.01" value="0.15" style="accent-color:var(--neon);width:100%;margin-bottom:8px;">
       <button class="e-btn e-btn-warn" id="eSelectLowOp">Select ghost splats</button>
-      <div class="e-note">Grabs translucent Gaussians that blur edges and break mesh export.</div>
+      <div class="e-note">Grabs translucent points that blur edges and break mesh export.</div>
     </div>
 
     <div class="e-control">
@@ -1110,7 +1110,7 @@
       </div>
       <input type="range" id="eScaleSel" min="0.1" max="8.0" step="0.1" value="2.0" style="accent-color:var(--neon);width:100%;margin-bottom:8px;">
       <button class="e-btn e-btn-warn" id="eSelectLargeScale">Select halo splats</button>
-      <div class="e-note">Selects blown-up Gaussians causing smear and halos around your subject.</div>
+      <div class="e-note">Selects blown-up points causing smear and halos around your subject.</div>
     </div>
   </div>
 
@@ -1118,9 +1118,9 @@
   <div class="edit-pane" id="etab-clean">
     <div class="e-control">
       <div class="e-label">Delete selection</div>
-      <button class="e-btn e-btn-danger" id="eDelete">🗑 Delete selected Gaussians</button>
+      <button class="e-btn e-btn-danger" id="eDelete">🗑 Delete selected points</button>
       <button class="e-btn e-btn-ghost" id="eUndo">↩ Undo last delete</button>
-      <div class="e-note">Permanently removes selected Gaussians from memory. Undo restores the previous state.</div>
+      <div class="e-note">Permanently removes selected points from memory. Undo restores the previous state.</div>
     </div>
 
     <div class="e-divider"></div>
@@ -1146,7 +1146,7 @@
       </div>
       <input type="range" id="eDensity" min="50" max="99" step="1" value="85" style="accent-color:var(--neon);width:100%;margin-bottom:8px;">
       <button class="e-btn e-btn-warn" id="eDensityPrune">Density prune</button>
-      <div class="e-note">Scores every Gaussian by neighbourhood density, removes the sparsest percentile. Tightens the model for mesh export.</div>
+      <div class="e-note">Scores every point by neighbourhood density, removes the sparsest percentile. Tightens the model for mesh export.</div>
     </div>
 
     <div class="e-divider"></div>
@@ -1157,7 +1157,7 @@
       </div>
       <input type="range" id="eScaleFilter" min="0.1" max="8.0" step="0.1" value="2.0" style="accent-color:var(--neon);width:100%;margin-bottom:8px;">
       <button class="e-btn e-btn-warn" id="eScaleFilterBtn">Remove oversized splats</button>
-      <div class="e-note">Deletes Gaussians larger than max scale. Critical for clean STL mesh and 3D print pipeline.</div>
+      <div class="e-note">Deletes points larger than max scale. Critical for clean STL mesh and 3D print pipeline.</div>
     </div>
 
     <div class="e-divider"></div>
@@ -1220,7 +1220,7 @@
   </div>
 </div>
 
-<div id="editModeBadge">✦ EDIT ENGINE ACTIVE — real Gaussian selection</div>
+<div id="editModeBadge">✦ EDIT ENGINE ACTIVE — real point selection</div>
 
 <div id="hotspotProPanel" aria-hidden="true"></div>
 <div id="hotspotInfoCard" aria-hidden="true"></div>

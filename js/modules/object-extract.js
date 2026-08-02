@@ -461,7 +461,7 @@ export async function saveExtractedAsNewSplat({
 
   // Upload via r2Client (same API used elsewhere in the editor).
   const { publicUrl, error: uploadErr } = await r2
-    .from('splat-files')
+    .from('nif-files')
     .upload(storagePath, blob, { contentType: 'application/octet-stream' });
   if (uploadErr) {
     // Best-effort: delete the row we just created so we don't leave orphans.

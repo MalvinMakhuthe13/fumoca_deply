@@ -97,7 +97,7 @@ const FumocaPublish = (() => {
 
     // ── Upload to Cloudflare R2 (replaces supabase.storage) ─────────────────
     const { publicUrl, fileKey, error: uploadError } = await r2
-      .from('splat-files')
+      .from('nif-files')
       .upload(path, blob, { contentType: 'application/octet-stream' });
 
     if (uploadError) throw new Error('R2 upload failed: ' + uploadError.message);

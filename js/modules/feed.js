@@ -27,10 +27,23 @@ function firstNonEmpty(...values) {
 }
 
 function resolveUrl(row) {
-  return firstNonEmpty(row.nif_url, row.output_url, row.public_url,
+  const stored = firstNonEmpty(row.nif_url, row.output_url, row.public_url,
     row.file_url, row.external_nif_url, row.provider_nif_url);
+  if (stored) return stored;
+  // nif_files (the real, live table for pipeline-produced NIFs) has no
+  // URL column at all — pipeline.py's _register() only ever writes r2_key.
+  // Every row from the new pipeline was falling through to '' here and
+  // failing to load. Construct the real URL from the key instead.
+  return row.r2_key ? r2.publicUrl('nif-files', row.r2_key) : '';
 }
 function resolveThumbnail(row) {
+  // Prefer a URL built from the stored key (permanent) over thumbnail_url
+  // (a presigned URL pipeline.py generates with a 24h expiry — it works
+  // today but silently breaks a day later). meta.thumbnail_r2_key is set
+  // because pipeline.py merges its `capabilities` dict (which includes
+  // thumbnail_r2_key) into the meta column on every insert.
+  const thumbKey = row.meta?.thumbnail_r2_key;
+  if (thumbKey) return r2.publicUrl('nif-files', thumbKey);
   return firstNonEmpty(row.thumbnail_url, row.poster_url, row.preview_image_url);
 }
 function resolvePreviewVideo(row) {
@@ -551,7 +564,7 @@ window.editLiveFromFeed = async function(nifId, mediaType) {
   const sb = window._fumocaSupabase;
   if (!sb) return;
   if (!sb) { console.warn('[Feed] Supabase not ready'); return; }
-  const { data: nif } = await sb.from('nif_files').select('nif_url,video_url,source_video_url').eq('id', nifId).single();
+  const { data: nif } = await sb.from('nif_files').select('r2_key,meta').eq('id', nifId).single();
   if (!nif) { showToast("Capture not found", true); return; }
   const p = new URLSearchParams();
   p.set('nifId', nifId);
@@ -559,11 +572,12 @@ window.editLiveFromFeed = async function(nifId, mediaType) {
   p.set('back', window.location.href);
   const mt = String(mediaType || 'nif').toLowerCase();
   if (['video','photo','image'].includes(mt)) {
-    const file = nif.video_url || nif.source_video_url || '';
+    const file = nif.meta?.video_url || nif.meta?.source_video_url || '';
     if (file) p.set('file', file);
     window.location.href = `media-edit.html?${p.toString()}`;
   } else {
-    if (nif.nif_url) p.set('file', nif.nif_url);
+    const nifUrl = nif.r2_key ? r2.publicUrl('nif-files', nif.r2_key) : '';
+    if (nifUrl) p.set('file', nifUrl);
     window.location.href = `edit.html?${p.toString()}`;
   }
 };
