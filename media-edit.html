@@ -86,6 +86,44 @@ input[type=file]{display:none}
 #panelRight{width:var(--panel-r);flex-shrink:0;height:100%;background:rgba(4,5,10,.9);border-left:1px solid var(--border2);backdrop-filter:blur(20px);display:flex;flex-direction:column;overflow:hidden;transition:width .3s cubic-bezier(.4,0,.2,1)}
 #panelRight.collapsed{width:0}
 
+/* ── MOBILE / SMALL SCREENS ──────────────────────────────────────────────────
+   Below 900px there's no room for a 290px + flex-viewport + 270px 3-column
+   row — the viewport (the actual media you're editing) was getting squeezed
+   to almost nothing. Panels become slide-in overlay drawers instead,
+   triggered by hamburger buttons in the topbar, and default to hidden so
+   the viewport gets full width. */
+.mobile-panel-toggle{display:none}
+@media (max-width: 900px){
+  :root{ --timeline-h: 128px; }
+  .mobile-panel-toggle{
+    display:flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:9px; border:1px solid var(--border2);
+    background:var(--surface2); color:var(--text); cursor:pointer; font-size:16px; flex-shrink:0;
+  }
+  .mobile-panel-toggle.active{background:var(--lime2);border-color:var(--lime-b);color:var(--lime)}
+  #panelLeft, #panelRight{
+    position:fixed; top:calc(var(--topbar-h) + var(--toolbar-h)); bottom:var(--timeline-h);
+    z-index:60; width:min(86vw, 320px); box-shadow:var(--shadow-lg);
+  }
+  #panelLeft{ left:0; transform:translateX(-100%); transition:transform .28s cubic-bezier(.4,0,.2,1); }
+  #panelLeft.mobile-open{ transform:translateX(0); }
+  #panelRight{ right:0; transform:translateX(100%); transition:transform .28s cubic-bezier(.4,0,.2,1); }
+  #panelRight.mobile-open{ transform:translateX(0); }
+  #panelLeft.collapsed, #panelRight.collapsed{ width:min(86vw, 320px); } /* the old desktop 'collapsed → 0' rule doesn't apply here — position/transform drives visibility instead */
+  #mobilePanelBackdrop{
+    display:none; position:fixed; inset:0; top:calc(var(--topbar-h) + var(--toolbar-h)); bottom:var(--timeline-h);
+    background:rgba(0,0,0,.55); z-index:55;
+  }
+  #mobilePanelBackdrop.show{ display:block; }
+  #viewport{ width:100%; }
+  #topbar{ padding:0 8px; gap:4px; }
+  .tb-file{ display:none; } /* file name/meta isn't essential on a phone screen this narrow — recovers room for the buttons that matter */
+  .tb-actions{ overflow-x:auto; scrollbar-width:none; }
+  .tb-actions::-webkit-scrollbar{ display:none; }
+  .tb-brand{ padding:0 6px; font-size:15px; }
+  .tb-brand sup{ display:none; }
+}
+
 /* ── TIMELINE ── */
 #timeline{position:fixed;bottom:0;left:0;right:0;height:var(--timeline-h);z-index:40;background:rgba(4,5,10,.94);border-top:1px solid var(--border2);backdrop-filter:blur(20px);display:flex;flex-direction:column}
 #timelineHeader{display:flex;align-items:center;gap:8px;padding:0 14px;height:38px;border-bottom:1px solid var(--border);flex-shrink:0}
@@ -195,6 +233,17 @@ input[type=range].lime::-webkit-slider-thumb{background:var(--lime);box-shadow:0
 #statusBar.ok #statusDot{background:var(--emerald);box-shadow:0 0 6px var(--emerald)}
 #statusBar.warn #statusDot{background:var(--amber);box-shadow:0 0 6px var(--amber)}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+@keyframes fumocaTransFade{0%{opacity:0}100%{opacity:1}}
+@keyframes fumocaTransSlide{0%{transform:translateX(6%);opacity:0}100%{transform:translateX(0);opacity:1}}
+@keyframes fumocaTransZoom{0%{transform:scale(1.08);opacity:0}100%{transform:scale(1);opacity:1}}
+@keyframes fumocaTransGlitch{
+  0%{transform:translate(0,0);filter:hue-rotate(0deg)}
+  20%{transform:translate(-2px,1px);filter:hue-rotate(20deg)}
+  40%{transform:translate(2px,-1px);filter:hue-rotate(-15deg)}
+  60%{transform:translate(-1px,2px);filter:hue-rotate(10deg)}
+  80%{transform:translate(1px,-2px);filter:hue-rotate(-5deg)}
+  100%{transform:translate(0,0);filter:hue-rotate(0deg)}
+}
 #toast{position:fixed;bottom:calc(var(--timeline-h) + 14px);right:14px;z-index:200;background:rgba(4,5,10,.96);border:1px solid var(--border2);border-radius:12px;padding:12px 16px;font-size:12px;color:var(--text);display:none;flex-direction:column;gap:4px;max-width:260px;box-shadow:var(--shadow-lg)}
 #toast.show{display:flex}
 #toast.cyan{border-color:var(--cyan-b)}
@@ -219,6 +268,7 @@ input[type=range].lime::-webkit-slider-thumb{background:var(--lime);box-shadow:0
 
 <!-- TOPBAR -->
 <div id="topbar">
+  <button class="mobile-panel-toggle" id="mobileToolsToggle" title="Tools & filters">☰</button>
   <a href="feed.html" class="tb-brand">FUMOCA<span style="color:rgba(255,255,255,.25);font-weight:300;margin-left:3px">Media</span><sup>Studio</sup></a>
   <div class="tb-sep"></div>
   <div class="tb-file">
@@ -236,7 +286,9 @@ input[type=range].lime::-webkit-slider-thumb{background:var(--lime);box-shadow:0
     <button class="tb-btn cyan" id="exportBtn">⬇ Export</button>
     <button class="tb-btn lime" id="publishBtn">🚀 Post to FUMOCA</button>
   </div>
+  <button class="mobile-panel-toggle" id="mobileEffectsToggle" title="Color & effects">⚙</button>
 </div>
+<div id="mobilePanelBackdrop"></div>
 
 <!-- TOOLBAR -->
 <div id="toolbar">
@@ -778,6 +830,134 @@ function setStatus(msg, type=''){$('statusText').textContent=msg;$('statusBar').
 function setProgress(pct){$('progressBar').style.width=pct+'%';if(pct>=100)setTimeout(()=>$('progressBar').style.width='0%',600)}
 function showToast(title,msg='',type='cyan'){const t=$('toast');$('toastTitle').textContent=title;$('toastMsg').textContent=msg;t.className=`show ${type}`;clearTimeout(t._timer);t._timer=setTimeout(()=>t.className='',3000)}
 
+// ── MOBILE PANEL TOGGLES ──────────────────────────────────────────────────────
+function closeMobilePanels(){
+  $('panelLeft')?.classList.remove('mobile-open');
+  $('panelRight')?.classList.remove('mobile-open');
+  $('mobileToolsToggle')?.classList.remove('active');
+  $('mobileEffectsToggle')?.classList.remove('active');
+  $('mobilePanelBackdrop')?.classList.remove('show');
+}
+$('mobileToolsToggle')?.addEventListener('click',()=>{
+  const opening = !$('panelLeft').classList.contains('mobile-open');
+  closeMobilePanels();
+  if(opening){ $('panelLeft').classList.add('mobile-open'); $('mobileToolsToggle').classList.add('active'); $('mobilePanelBackdrop').classList.add('show'); }
+});
+$('mobileEffectsToggle')?.addEventListener('click',()=>{
+  const opening = !$('panelRight').classList.contains('mobile-open');
+  closeMobilePanels();
+  if(opening){ $('panelRight').classList.add('mobile-open'); $('mobileEffectsToggle').classList.add('active'); $('mobilePanelBackdrop').classList.add('show'); }
+});
+$('mobilePanelBackdrop')?.addEventListener('click', closeMobilePanels);
+// Snapshot-based history over every field an edit action actually changes —
+// adjustments, filters, LUT, speed, flips, glow, transitions, trim, and the
+// full set of text overlays (position/text/style). Not wired to canvas
+// pixel edits (there aren't any raw pixel-paint tools in this studio) or
+// live overlay dragging (mouse-move-driven — out of scope for now, noted
+// honestly rather than half-implemented).
+S.history = []; S.future = [];
+const HISTORY_LIMIT = 50;
+const HISTORY_KEYS = ['brightness','contrast','saturation','exposure','temperature','sharpness',
+  'vignette','hue','scale','rotation','flipH','flipV','activeLut','activeFilter','speed',
+  'glowIntensity','glowColor','glowOn','textAlign','transition'];
+
+function snapshotState(){
+  const snap = {};
+  HISTORY_KEYS.forEach(k=>{ snap[k]=S[k]; });
+  snap.trimStart = $('trimStart')?.value;
+  snap.trimEnd = $('trimEnd')?.value;
+  snap.overlays = Array.from(document.querySelectorAll('.text-overlay')).map(ov=>({
+    text: ov.dataset.text||ov.textContent, color: ov.style.color, fontSize: ov.style.fontSize,
+    left: ov.style.left, top: ov.style.top, transform: ov.style.transform,
+    textAlign: ov.style.textAlign, background: ov.style.background,
+  }));
+  return JSON.parse(JSON.stringify(snap));
+}
+
+function pushHistory(){
+  S.history.push(snapshotState());
+  if(S.history.length>HISTORY_LIMIT) S.history.shift();
+  S.future = []; // any new action invalidates the redo stack
+}
+
+function restoreState(snap){
+  HISTORY_KEYS.forEach(k=>{ if(k in snap) S[k]=snap[k]; });
+
+  // Sync sliders/toggles back to the restored values
+  const sliderMap = [
+    ['adjBr','adjBrVal','brightness',v=>v], ['adjCon','adjConVal','contrast',v=>v],
+    ['adjSat','adjSatVal','saturation',v=>v], ['adjExp','adjExpVal','exposure',v=>v],
+    ['adjTemp','adjTempVal','temperature',v=>v], ['adjShp','adjShpVal','sharpness',v=>v],
+    ['adjVig','adjVigVal','vignette',v=>v], ['hueRange','hueVal','hue',v=>v+'°'],
+    ['scaleRange','scaleVal','scale',v=>Math.round(v*100)+'%'], ['rotRange','rotVal','rotation',v=>v+'°'],
+    ['bloomRange','bloomVal','glowIntensity',v=>v+'%'],
+  ];
+  sliderMap.forEach(([id,valId,key])=>{
+    const el=$(id); if(!el) return;
+    const v = key==='scale' ? Math.round(S[key]*100) : S[key];
+    el.value=v;
+    const vel=$(valId); if(vel) vel.textContent = id==='scaleRange'?Math.round(S[key]*100)+'%':id==='rotRange'||id==='hueRange'?S[key]+'°':id==='bloomRange'?S[key]+'%':S[key];
+  });
+  if($('glowColor')) $('glowColor').value = S.glowColor||'#d4ff00';
+  if($('trimStart') && snap.trimStart!==undefined) $('trimStart').value=snap.trimStart;
+  if($('trimEnd') && snap.trimEnd!==undefined) $('trimEnd').value=snap.trimEnd;
+
+  // Rebuild overlays from scratch
+  document.querySelectorAll('.text-overlay').forEach(ov=>ov.remove());
+  (snap.overlays||[]).forEach(o=>{
+    S.textContent=o.text; S.textColor=o.color; S.textSize=parseInt(o.fontSize)||28;
+    addTextOverlay();
+    const created = document.querySelector('.text-overlay:last-child');
+    if(created){
+      created.style.left=o.left; created.style.top=o.top; created.style.transform=o.transform;
+      created.style.textAlign=o.textAlign; created.style.background=o.background||'';
+    }
+  });
+
+  // Re-render
+  if(S.isVideo){ applyVideoFilters(); }
+  else if(typeof applyFiltersToCanvas==='function'){ applyFiltersToCanvas(); }
+  applyGlow?.();
+}
+
+$('undoBtn')?.addEventListener('click',()=>{
+  if(!S.history.length){ showToast('Nothing to undo','','warn'); return; }
+  S.future.push(snapshotState());
+  restoreState(S.history.pop());
+  showToast('Undone');
+});
+$('redoBtn')?.addEventListener('click',()=>{
+  if(!S.future.length){ showToast('Nothing to redo','','warn'); return; }
+  S.history.push(snapshotState());
+  restoreState(S.future.pop());
+  showToast('Redone');
+});
+
+// Capture-phase so this runs BEFORE each action's own bubble-phase handler —
+// snapshots state right before it changes, for every discrete (non-slider)
+// edit action in one place instead of touching every individual handler.
+document.addEventListener('click', e=>{
+  if(e.target.closest('[data-lut],[data-speed],.filter-tile,#flipH,#flipV,#addTextBtn,#addTextTrackBtn,#applyTextBtn,#transFade,#transSlide,#transZoom,#transGlitch,#textAlignL,#textAlignC,#textAlignR,#addFxTrackBtn,.del-handle')){
+    pushHistory();
+  }
+}, true);
+
+// Push history once per slider drag (on release), not once per pixel of
+// movement — snapshot the pre-drag value on pointerdown, commit it to
+// history on change (fires once, when the interaction ends).
+let _preDragSnap = null;
+document.addEventListener('pointerdown', e=>{
+  if(e.target.matches?.('input[type="range"]')) _preDragSnap = snapshotState();
+});
+document.addEventListener('change', e=>{
+  if(e.target.matches?.('input[type="range"]') && _preDragSnap){
+    S.history.push(_preDragSnap);
+    if(S.history.length>HISTORY_LIMIT) S.history.shift();
+    S.future = [];
+    _preDragSnap = null;
+  }
+});
+
 // ── LOAD FILE ────────────────────────────────────────────────────────────────
 async function loadFile(file) {
   S.file=file;S.fileName=file.name;
@@ -846,6 +1026,7 @@ function addTextOverlay(){
   const id='text-'+nextTextId++;
   overlay.id=id;
   overlay.textContent=S.textContent||'Your Text Here';
+  overlay.dataset.text=S.textContent||'Your Text Here';
   overlay.style.left='50%';overlay.style.top='50%';
   overlay.style.transform='translate(-50%,-50%)';
   overlay.style.color=S.textColor;
@@ -871,6 +1052,7 @@ $('applyTextBtn').addEventListener('click',()=>{
   S.textContent=$('textContent').value;S.textSize=parseInt($('textSizeRange').value);S.textColor=$('textColor').value;
   document.querySelectorAll('.text-overlay').forEach(ov=>{
     ov.textContent=S.textContent||ov.textContent;
+    ov.dataset.text=S.textContent||ov.dataset.text;
     ov.style.color=S.textColor;ov.style.fontSize=S.textSize+'px';
     const del=document.createElement('div');del.className='del-handle';del.textContent='×';
     del.addEventListener('click',()=>ov.remove());
@@ -879,6 +1061,56 @@ $('applyTextBtn').addEventListener('click',()=>{
   showToast('Style Applied');
 });
 $('textSizeRange').addEventListener('input',e=>{$('textSizeVal').textContent=e.target.value+'px';});
+// ── TIMELINE TRACK BUTTONS ───────────────────────────────────────────────────
+// Reuse the real, already-working overlay/effect functions rather than
+// building a second, separate "add text/fx" implementation — one working
+// path instead of two to keep in sync.
+$('addTextTrackBtn')?.addEventListener('click',()=>{
+  addTextOverlay();
+  const clip = document.querySelector('#textLane .tl-clip.text');
+  if(clip) clip.style.width = '100%';
+  showToast('Text layer added', 'Drag it into position on the preview');
+});
+$('addFxTrackBtn')?.addEventListener('click',()=>{
+  if($('bloomRange')){ $('bloomRange').value = Math.max(30, Number($('bloomRange').value)); $('bloomRange').dispatchEvent(new Event('input')); }
+  const clip = document.querySelector('#fxLane .tl-clip.fx');
+  if(clip) clip.style.width = '100%';
+  showToast('FX layer added', 'Glow enabled — adjust color and intensity in the Color tab');
+});
+S.transition=null;
+const TRANSITION_PREVIEW_CSS = {
+  fade:   'fumocaTransFade 0.6s ease',
+  slide:  'fumocaTransSlide 0.5s cubic-bezier(.2,.9,.3,1)',
+  zoom:   'fumocaTransZoom 0.5s cubic-bezier(.2,.9,.3,1)',
+  glitch: 'fumocaTransGlitch 0.4s steps(6)',
+};
+[['transFade','fade'],['transSlide','slide'],['transZoom','zoom'],['transGlitch','glitch']].forEach(([id,name])=>{
+  $(id)?.addEventListener('click',()=>{
+    ['transFade','transSlide','transZoom','transGlitch'].forEach(bid=>$(bid)?.classList.remove('active','cyan'));
+    $(id).classList.add('active','cyan');
+    S.transition = S.transition===name ? null : name; // click again to clear
+    const vp = document.getElementById('viewport');
+    vp.style.animation = S.transition ? TRANSITION_PREVIEW_CSS[S.transition] : '';
+    void vp.offsetWidth; // restart animation on repeat clicks
+    if(S.transition) vp.style.animation = TRANSITION_PREVIEW_CSS[S.transition];
+    showToast(
+      S.transition ? `Transition: ${name}` : 'Transition cleared',
+      name==='fade' ? 'Applied on preview and baked into export' : 'Preview only for now — not yet baked into exported file'
+    );
+  });
+});
+
+// ── TEXT ALIGNMENT ───────────────────────────────────────────────────────────
+S.textAlign='center';
+[['textAlignL','left'],['textAlignC','center'],['textAlignR','right']].forEach(([id,align])=>{
+  $(id)?.addEventListener('click',()=>{
+    ['textAlignL','textAlignC','textAlignR'].forEach(bid=>$(bid)?.classList.remove('active','cyan'));
+    $(id).classList.add('active','cyan');
+    S.textAlign=align;
+    document.querySelectorAll('.text-overlay').forEach(ov=>{ ov.style.textAlign=align; });
+    showToast('Text align: '+align);
+  });
+});
 $('textBgNone').addEventListener('click',()=>{S.textBg='none';});
 $('textBgDark').addEventListener('click',()=>{S.textBg='dark';});
 $('textBgNeon').addEventListener('click',()=>{S.textBg='neon';});
@@ -913,12 +1145,14 @@ function applyFiltersToCanvas(){
 // ── VIDEO FILTERS ────────────────────────────────────────────────────────────
 function applyVideoFilters(){
   const v=$('videoEl');
-  v.style.filter=[
+  const parts=[
     `brightness(${1+S.brightness/100})`,
     `contrast(${1+S.contrast/100})`,
     `saturate(${1+S.saturation/100})`,
     `hue-rotate(${S.hue}deg)`,
-  ].join(' ');
+  ];
+  if(S.glowOn && S.glowColor) parts.push(`drop-shadow(0 0 ${S.glowIntensity/4}px ${S.glowColor})`);
+  v.style.filter=parts.join(' ');
   if(S.flipH||S.flipV)v.style.transform=`scale(${S.flipH?-1:1},${S.flipV?-1:1}) rotate(${S.rotation}deg)`;
   else v.style.transform=`rotate(${S.rotation}deg) scale(${S.scale})`;
 }
@@ -1001,7 +1235,14 @@ function bindRange(id,valId,onChange,fmt2=v=>v){
 }
 bindRange('volRange','volVal',v=>{S.volume=v/100;$('videoEl').volume=Math.min(1,v/100);},v=>v+'%');
 bindRange('musicVolRange','musicVolVal',v=>{S.musicVolume=v/100;},v=>v+'%');
-bindRange('bloomRange','bloomVal',null,v=>v+'%');
+S.glowOn=false; S.glowColor=$('glowColor')?.value||'#d4ff00'; S.glowIntensity=0;
+function applyGlow(){
+  S.glowOn = S.glowIntensity>0;
+  if(S.isVideo) applyVideoFilters();
+  else { $('mediaCanvas').style.filter = S.glowOn ? `drop-shadow(0 0 ${S.glowIntensity/4}px ${S.glowColor})` : ''; }
+}
+bindRange('bloomRange','bloomVal',v=>{S.glowIntensity=v;applyGlow();},v=>v+'%');
+$('glowColor')?.addEventListener('input',e=>{S.glowColor=e.target.value;applyGlow();});
 bindRange('mbRange','mbVal',null,v=>v+'%');
 bindRange('mbDirRange','mbDirVal',null,v=>v+'°');
 bindRange('grainRange','grainVal',null,v=>v+'%');
@@ -1107,15 +1348,225 @@ $('trimStart').addEventListener('input',e=>{
 $('trimEnd').addEventListener('input',e=>{
   const v=Number(e.target.value)/100*S.duration;$('trimEndVal').textContent=formatTime(v);
 });
+function getTrimRange(){
+  const s=Number($('trimStart')?.value||0)/100*S.duration;
+  const e=Number($('trimEnd')?.value||100)/100*S.duration||S.duration;
+  return e>s ? {start:s,end:e} : {start:0,end:S.duration};
+}
 
-// ── EXPORT ───────────────────────────────────────────────────────────────────
-$('exportVideoBtn').addEventListener('click',()=>{
-  if(!S.fileUrl){showToast('No file loaded','','warn');return;}
-  if(!window.MediaRecorder){showToast('Export','MediaRecorder not available — download the file directly','warn');return;}
-  showToast('Exporting…','This may take a moment');
-  setTimeout(()=>{const a=document.createElement('a');a.href=S.fileUrl;a.download=S.fileName.replace(/\.[^.]+$/,'.export.webm');a.click();showToast('Exported','File downloaded');},500);
+// ── PREVIEW TRIM ─────────────────────────────────────────────────────────────
+// Plays exactly the trimmed range, then stops — the fastest way to check a
+// trim point without doing a full export first.
+$('previewTrimBtn')?.addEventListener('click',()=>{
+  if(!S.isVideo){showToast('Preview Trim','Trim only applies to video','warn');return;}
+  const {start,end}=getTrimRange();
+  const v=$('videoEl');
+  v.currentTime=start; v.play();
+  showToast('Previewing trim','Playing selected range');
+  const stopAtEnd=()=>{ if(v.currentTime>=end-0.05){ v.pause(); v.removeEventListener('timeupdate',stopAtEnd); } };
+  v.addEventListener('timeupdate',stopAtEnd);
 });
-$('exportFrameBtn').addEventListener('click',()=>$('screenshotBtn').click());
+
+// ── SPLIT ─────────────────────────────────────────────────────────────────────
+// There's a single media clip, not a multi-clip timeline, so "split" records
+// a marker at the current playhead and exports it as two real, separately
+// trimmed files rather than pretending to cut a clip that doesn't exist as
+// a data structure yet. Genuine two-file output, honestly scoped.
+S.splitPoint = null;
+$('splitHereBtn')?.addEventListener('click',()=>{
+  if(!S.isVideo){showToast('Split','Split only applies to video','warn');return;}
+  const t=$('videoEl').currentTime;
+  const {start,end}=getTrimRange();
+  if(t<=start||t>=end){showToast('Split','Move the playhead inside the trimmed range first','warn');return;}
+  S.splitPoint=t;
+  let marker=document.getElementById('splitMarker');
+  if(!marker){marker=document.createElement('div');marker.id='splitMarker';marker.style.cssText='position:absolute;top:0;bottom:0;width:2px;background:var(--rose,#ff2d78);z-index:5;';document.getElementById('mainLane')?.appendChild(marker);}
+  const pct=S.duration?((t-start)/(end-start))*100:0;
+  marker.style.left=pct+'%';
+  showToast('Split point set',`At ${formatTime(t)} — Export will produce two clips`);
+});
+
+// ── EXPORT (real compositing — bakes in filters, trim, and text overlays) ────
+function pickSupportedMime(formatLabel){
+  const chains = {
+    'MP4 (H.264)': ['video/mp4;codecs=avc1.42E01E','video/mp4','video/webm;codecs=vp9','video/webm'],
+    'WebM (VP9)':  ['video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'],
+    'MOV (ProRes)':['video/webm;codecs=vp9','video/webm'], // no browser can record ProRes/MOV — always falls back, extension matches actual content below
+  };
+  const chain = chains[formatLabel] || chains['WebM (VP9)'];
+  for(const mime of chain){ if(window.MediaRecorder?.isTypeSupported?.(mime)) return mime; }
+  return null;
+}
+function extForMime(mime){
+  if(mime.includes('mp4')) return '.mp4';
+  return '.webm';
+}
+function qualityToBitrate(label){
+  if(label?.startsWith('Draft')) return 2_500_000;
+  if(label?.startsWith('Ultra')) return 15_000_000;
+  return 6_000_000; // High (recommended)
+}
+function collectOverlaysForCompositing(){
+  const vpRect = document.getElementById('viewport').getBoundingClientRect();
+  return Array.from(document.querySelectorAll('.text-overlay')).map(ov=>{
+    const r = ov.getBoundingClientRect();
+    return {
+      text: ov.dataset.text || ov.textContent.replace('×','').trim(),
+      color: ov.style.color || '#fff',
+      fontPx: parseInt(ov.style.fontSize) || 24,
+      // Position as a 0..1 fraction of the viewport — resolution-independent,
+      // so it maps correctly onto whatever size canvas we render at.
+      xFrac: (r.left + r.width/2 - vpRect.left) / vpRect.width,
+      yFrac: (r.top  + r.height/2 - vpRect.top ) / vpRect.height,
+      align: ov.style.textAlign || 'center',
+      bg: ov.style.background || null,
+    };
+  });
+}
+function drawOverlaysOnCanvas(ctx, cw, ch, overlays){
+  overlays.forEach(o=>{
+    const scale = cw/720; // overlay font sizes were set relative to the 720px-wide viewport
+    const px = o.xFrac*cw, py = o.yFrac*ch;
+    const fontPx = Math.round(o.fontPx*scale);
+    ctx.save();
+    ctx.font = `800 ${fontPx}px sans-serif`;
+    ctx.textAlign = o.align==='left'?'left':o.align==='right'?'right':'center';
+    ctx.textBaseline = 'middle';
+    if(o.bg){
+      const w = ctx.measureText(o.text).width + 24*scale;
+      ctx.fillStyle = o.bg;
+      ctx.fillRect(px-w/2, py-fontPx*0.75, w, fontPx*1.5);
+    }
+    ctx.fillStyle = o.color;
+    ctx.shadowColor = 'rgba(0,0,0,.6)'; ctx.shadowBlur = 6*scale;
+    ctx.fillText(o.text, px, py);
+    ctx.restore();
+  });
+}
+
+async function doVideoExport(){
+  if(!S.fileUrl){showToast('No file loaded','','warn');return;}
+  if(!window.MediaRecorder || !HTMLCanvasElement.prototype.captureStream){
+    showToast('Export unsupported','This browser can\'t record video — try Chrome or Edge','warn');return;
+  }
+  const qualityLabel = $('exportQuality')?.value || 'High (recommended)';
+  const formatLabel   = $('exportFormat')?.value || 'WebM (VP9)';
+  const fps           = parseInt($('exportFPS')?.value || '30');
+  const mime = pickSupportedMime(formatLabel);
+  if(!mime){showToast('Export unsupported','No recordable video format available in this browser','warn');return;}
+  if(formatLabel==='MOV (ProRes)'){showToast('Format note',`Browsers can't record ProRes — exporting as ${extForMime(mime)} instead`,'warn');}
+  else if(formatLabel==='MP4 (H.264)' && !mime.includes('mp4')){showToast('Format note',`MP4 recording isn't supported here — exporting as .webm instead`,'warn');}
+
+  const srcVideo = $('videoEl');
+  const {start,end} = getTrimRange();
+  const segments = (S.splitPoint && S.splitPoint>start && S.splitPoint<end)
+    ? [{start,end:S.splitPoint,suffix:'_part1'},{start:S.splitPoint,end,suffix:'_part2'}]
+    : [{start,end,suffix:''}];
+
+  showToast('Exporting…', segments.length>1 ? 'Rendering 2 clips — this takes a moment' : 'Rendering — this takes a moment');
+  setStatus?.('Exporting…','busy');
+
+  for(const seg of segments){
+    await exportOneSegment(seg, mime, fps, qualityToBitrate(qualityLabel), srcVideo);
+  }
+  setStatus?.('Export complete','ok');
+  showToast('Exported', segments.length>1 ? 'Both clips downloaded' : 'File downloaded');
+}
+
+function exportOneSegment(seg, mime, fps, bitrate, srcVideo){
+  return new Promise((resolve)=>{
+    const cw = srcVideo.videoWidth || 720, ch = srcVideo.videoHeight || 1280;
+    const off = document.createElement('canvas'); off.width=cw; off.height=ch;
+    const ctx = off.getContext('2d');
+    const stream = off.captureStream(fps);
+    // Carry real audio through if the browser supports capturing it from
+    // the source element — some don't (notably older Safari), in which
+    // case we still export video-only rather than silently failing.
+    try{
+      const audioTracks = srcVideo.captureStream?.().getAudioTracks?.() || [];
+      audioTracks.forEach(t=>stream.addTrack(t));
+    }catch(_){}
+
+    const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: bitrate });
+    const chunks = [];
+    rec.ondataavailable = e => { if(e.data.size>0) chunks.push(e.data); };
+    rec.onstop = () => {
+      const blob = new Blob(chunks, { type: mime.split(';')[0] });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = S.fileName.replace(/\.[^.]+$/,'') + seg.suffix + extForMime(mime);
+      a.click();
+      setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
+      resolve();
+    };
+
+    const wasMuted = srcVideo.muted;
+    srcVideo.muted = S.muted; // export honors current mute state
+    srcVideo.currentTime = seg.start;
+    srcVideo.playbackRate = S.speed || 1;
+
+    const fadeMs = 400; // only 'fade' is baked into the exported file — slide/zoom/glitch stay preview-only, noted honestly in the UI copy
+    const overlays = collectOverlaysForCompositing();
+
+    let raf;
+    const drawFrame = ()=>{
+      ctx.save();
+      ctx.filter = srcVideo.style.filter || 'none';
+      if(S.flipH||S.flipV){ctx.translate(S.flipH?cw:0,S.flipV?ch:0);ctx.scale(S.flipH?-1:1,S.flipV?-1:1);}
+      ctx.drawImage(srcVideo,0,0,cw,ch);
+      ctx.restore();
+      if(S.vignette>0){
+        const grd=ctx.createRadialGradient(cw/2,ch/2,cw*0.3,cw/2,ch/2,cw*0.7);
+        grd.addColorStop(0,'rgba(0,0,0,0)');grd.addColorStop(1,`rgba(0,0,0,${S.vignette/100})`);
+        ctx.fillStyle=grd;ctx.fillRect(0,0,cw,ch);
+      }
+      if(S.glowOn && S.glowColor){
+        ctx.save(); ctx.globalCompositeOperation='lighter'; ctx.globalAlpha=0.18;
+        ctx.fillStyle=S.glowColor; ctx.fillRect(0,0,cw,ch); ctx.restore();
+      }
+      drawOverlaysOnCanvas(ctx, cw, ch, overlays);
+      if(S.transition==='fade'){
+        const elapsedMs=(srcVideo.currentTime-seg.start)*1000, remainMs=(seg.end-srcVideo.currentTime)*1000;
+        let alpha=1;
+        if(elapsedMs<fadeMs) alpha=elapsedMs/fadeMs;
+        else if(remainMs<fadeMs) alpha=Math.max(0,remainMs/fadeMs);
+        ctx.fillStyle=`rgba(0,0,0,${1-alpha})`; ctx.fillRect(0,0,cw,ch);
+      }
+      if(srcVideo.currentTime<seg.end && !srcVideo.paused && !srcVideo.ended){
+        raf=requestAnimationFrame(drawFrame);
+      } else {
+        cancelAnimationFrame(raf);
+        srcVideo.pause();
+        srcVideo.muted=wasMuted;
+        rec.stop();
+      }
+    };
+
+    srcVideo.onseeked = ()=>{
+      srcVideo.onseeked=null;
+      rec.start();
+      srcVideo.play().then(drawFrame).catch(()=>{ rec.stop(); resolve(); });
+    };
+  });
+}
+
+function doImageExport(){
+  // Bake the positioned text overlays into the already-filtered mediaCanvas
+  // before downloading — previously the download only included filters,
+  // never the text you'd actually added.
+  const cv=$('mediaCanvas');
+  drawOverlaysOnCanvas(cv.getContext('2d'), cv.width, cv.height, collectOverlaysForCompositing());
+  const a=document.createElement('a');a.href=cv.toDataURL();a.download=S.fileName.replace(/\.[^.]+$/,'')+'.edit.png';a.click();
+  showToast('Exported','Image downloaded');
+}
+
+function runExport(){
+  if(S.isVideo) doVideoExport();
+  else doImageExport();
+}
+$('exportBtn')?.addEventListener('click', runExport);
+$('exportVideoBtn')?.addEventListener('click', runExport);
+$('exportFrameBtn')?.addEventListener('click', ()=>$('screenshotBtn').click());
 
 // ── PUBLISH ──────────────────────────────────────────────────────────────────
 [$('publishBtn'),$('publishBtn2')].forEach(btn=>{

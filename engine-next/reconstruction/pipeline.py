@@ -111,6 +111,24 @@ CHUNK_DEPTH  = 0x0007
 CHUNK_ALPHA  = 0x0008
 CHUNK_LAYER  = 0x0009
 CHUNK_CERT   = 0x0020  # Encoder certificate — fumoca INTERNAL tier
+CHUNK_META   = 0x0001  # UTF-8 JSON: title/description/vertical/hotspots — same wire format
+                        # NIFSpec.js's encodeMetaChunk()/decodeMetaChunk() use. Until this was
+                        # added, pipeline.py never wrote it: title/vertical only ever lived in
+                        # the Supabase `meta` column, so a .nif produced by this worker (as
+                        # opposed to the JS editor's save path, which already writes this
+                        # chunk) had no title and no hotspots if opened on its own — not
+                        # actually "self-describing" per the spec's own stated design goal.
+CHUNK_THUMB  = 0x0015  # Raw JPEG poster image, embedded — same reason as CHUNK_META above.
+                        # Previously the thumbnail only existed as a separate thumb.jpg R2
+                        # object; the .nif itself shipped with no poster image at all.
+CHUNK_PHYSICS = 0x000C  # JSON, same schema encodePhysicsChunk()/decodePhysicsChunk() in
+                        # NIFSpec.js use. Written as an empty {bodies:[],constraints:[]}
+                        # skeleton here — this pipeline has no way to know where a
+                        # capture's hinges/joints actually are (that's authored, not
+                        # reconstructed). Writing it always (even empty) means every .nif
+                        # has a well-formed PHYSICS chunk to append to later — via
+                        # NIFHingeAuthor.js — rather than every downstream tool needing to
+                        # handle "chunk may not exist at all" as a separate case.
 
 # Encoder tier constants (must match NIFSpec.js ENCODER_TIER)
 ENCODER_TIER_UNCERTIFIED = 0x00
@@ -707,18 +725,37 @@ def split_layers(geo_data: np.ndarray, depth_map: np.ndarray,
     """
     Split the reconstructed depth field into layers based on depth + segmentation.
 
-    Layer structure packed as bytes:
+    Layer structure packed as bytes (v2 — adds the indices block):
       [n_layers: uint32]
       per layer:
         [label_len: uint8][label: ascii]
         [depth_min: float32][depth_max: float32]
         [n_points: uint32][points: n_points × 14 × float32]
+        [indices: n_points × uint32]   -- original row index into the full
+                                        -- KEYFRAME_GEO buffer for each point
+                                        -- in this layer, in the same order.
+                                        --
+                                        -- Added because without this, a
+                                        -- layer's points are an unlinked copy:
+                                        -- nothing can tell you which points in
+                                        -- the main buffer they came from, so a
+                                        -- layer could be *viewed* but never
+                                        -- *moved* — e.g. NIFAnimator can't
+                                        -- rotate "just the door" in the live
+                                        -- render buffer without this mapping.
+                                        -- (See engine-next/animation/
+                                        -- NIFAnimator.js.) NIFViewer.js's
+                                        -- _parseLayers() was updated to match
+                                        -- — this is a breaking change to the
+                                        -- internal (non-public) LAYER_GEO byte
+                                        -- layout, not just an appended field.
 
     The foreground/background split enables:
       - Rendering foreground over arbitrary backgrounds
       - Selecting individual objects (Coca-Cola can, person, product)
       - Parallax depth effect when the viewer tilts the device
       - Background replacement in the video editor
+      - Part-level animation (hinge/rotate a named layer) — new
     """
     # geo_data: (N, 14) float32
     positions = geo_data[:, 0:3]  # x,y,z world positions
@@ -753,12 +790,25 @@ def split_layers(geo_data: np.ndarray, depth_map: np.ndarray,
 
     for ld in layer_defs:
         mask = (z_vals >= ld['z_min']) & (z_vals < ld['z_max'])
+        indices = np.where(mask)[0].astype('>u4')  # big-endian uint32 — matches
+                                                    # every other integer in this
+                                                    # format (JS reads via
+                                                    # DataView with `false` =
+                                                    # big-endian throughout).
+                                                    # Plain np.uint32.tobytes()
+                                                    # would use native byte order
+                                                    # (little-endian on the
+                                                    # Kaggle GPU boxes this
+                                                    # actually runs on), which
+                                                    # would silently corrupt
+                                                    # every index on read.
         pts  = geo_data[mask]
         label_b = ld['label'].encode('ascii')[:32]
         parts.append(struct.pack('>B', len(label_b)) + label_b)
         parts.append(struct.pack('>ff', float(ld['z_min']), float(ld['z_max'])))
         parts.append(struct.pack('>I', len(pts)))
         parts.append(pts.astype(np.float32).tobytes())
+        parts.append(indices.tobytes())  # big-endian to match struct.pack('>I', ...) above
 
     layer_summary = ', '.join(
         f'{ld["label"]}:{int(((z_vals >= ld["z_min"]) & (z_vals < ld["z_max"])).sum())}'
@@ -888,6 +938,9 @@ class ReconstructionWorker:
             frames_dir  = self.tmp / 'frames'
             proxy_bytes = encode_proxy_video(frames_dir, fps)
 
+            # ── Thumbnail bytes (built once, used two ways below) ──────────────
+            thumb_bytes = self._make_thumbnail_bytes(frames)
+
             # ── Pack .nif ─────────────────────────────────────────────────────
             self._tick('processing', 84)
             chunks = [
@@ -899,7 +952,15 @@ class ReconstructionWorker:
                 (CHUNK_DEPTH,   self._pack_depth_map(depth_map)),
                 (CHUNK_ALPHA,   self._pack_alpha_mask(alpha_mask)),
                 (CHUNK_LAYER,   layer_bytes),
+                # META/THUMBNAIL make the file self-describing on its own, matching
+                # what the JS editor's save path already writes (see NIFSpec.js /
+                # nif-format.js) — without these, a .nif produced by this worker
+                # had no title, no hotspots, and no poster image outside Supabase.
+                (CHUNK_META,    self._pack_meta(vertical, meta)),
+                (CHUNK_PHYSICS, json.dumps({'bodies': [], 'constraints': []}).encode('utf-8')),
             ]
+            if thumb_bytes:
+                chunks.append((CHUNK_THUMB, thumb_bytes))
             if mesh_bytes:
                 chunks.append((CHUNK_MESH, mesh_bytes))
             if stl_bytes:
@@ -921,10 +982,9 @@ class ReconstructionWorker:
 
             # ── Upload proxy video separately for sharing/delivery ─────────────
             proxy_r2_key  = None
-            thumbnail_r2  = None
             if proxy_bytes:
                 proxy_r2_key = self._upload_proxy_video(proxy_bytes, fps)
-                thumbnail_r2 = self._upload_thumbnail(frames)
+            thumbnail_r2 = self._upload_thumbnail_bytes(thumb_bytes)
 
             # ── Compute captured dimensions from depth field ──────────────────
             captured_dims = None
@@ -1018,16 +1078,7 @@ class ReconstructionWorker:
         out_dir.mkdir()
         fps = 5
 
-        if mode in ('video', '360'):
-            r = subprocess.run([
-                'ffmpeg', '-i', str(src), '-q:v', '2',
-                '-vf', f'fps={fps},scale=1280:-2',
-                str(out_dir / 'frame_%05d.jpg'),
-            ], capture_output=True, text=True)
-            if r.returncode != 0:
-                raise RuntimeError(f'ffmpeg failed:\n{r.stderr[-500:]}')
-
-        elif mode == 'burst':
+        if mode == 'burst':
             # Multi-photo capture arrives as a single .zip (built client-side
             # by js/modules/zip-writer.js) — unzip it first. Previously this
             # branch assumed images were already loose next to the downloaded
@@ -1058,6 +1109,23 @@ class ReconstructionWorker:
             shutil.copy(src, out_dir / 'frame_00001.jpg')
             shutil.copy(src, out_dir / 'frame_00002.jpg')
             fps = 1
+
+        else:
+            # Default: everything else really is a video file — this
+            # includes every real capture_mode value the app's own UI
+            # actually sends (orbit_360, orbit_180, exterior_car,
+            # interior_front, interior_rear — see CAPTURE_SCRIPTS in
+            # js/modules/capture-guide.js, which sets capture_mode to the
+            # script's own key, never the literal string 'video'). A
+            # whitelist of exact mode strings here would silently produce
+            # zero frames for every one of those — this happened.
+            r = subprocess.run([
+                'ffmpeg', '-i', str(src), '-q:v', '2',
+                '-vf', f'fps={fps},scale=1280:-2',
+                str(out_dir / 'frame_%05d.jpg'),
+            ], capture_output=True, text=True)
+            if r.returncode != 0:
+                raise RuntimeError(f'ffmpeg failed:\n{r.stderr[-500:]}')
 
         frames = []
         for p in sorted(out_dir.glob('*.jpg'))[:300]:
@@ -1466,22 +1534,65 @@ class ReconstructionWorker:
         print(f'[NIF] Proxy video uploaded → {key}')
         return key
 
-    def _upload_thumbnail(self, frames: list) -> str:
-        """Upload the first clean frame as a JPEG thumbnail."""
+    def _make_thumbnail_bytes(self, frames: list) -> bytes:
+        """
+        Build a JPEG thumbnail from a quarter-way-through frame (tends to be
+        cleaner than frame 0, which is often still mid-motion at capture start).
+
+        Bug fixed here: this previously read frames[min(len(frames)//4, 0)] —
+        min(x, 0) is always 0 for any non-negative x, so despite the "quarter-way
+        frame" comment, this always grabbed frame 0. Fixed to actually pick the
+        quarter-way frame (clamped to a valid index).
+        """
         import io
+        if not frames:
+            return None
+        idx = min(len(frames) // 4, len(frames) - 1)
+        frame = frames[idx]
         try:
-            frame = frames[min(len(frames)//4, 0)]  # quarter-way frame
             if hasattr(frame, 'save'):
                 buf = io.BytesIO()
                 frame.save(buf, format='JPEG', quality=85)
-                key = f'nif/{self.user_id}/{self.job_id}/thumb.jpg'
-                R2.put_object(Bucket=OUTPUT_BUCKET, Key=key, Body=buf.getvalue(),
-                              ContentType='image/jpeg')
-                print(f'[NIF] Thumbnail uploaded → {key}')
-                return key
+                return buf.getvalue()
+            # frame may be a raw numpy array rather than a PIL Image
+            Image.fromarray(frame).convert('RGB').save(
+                (buf := __import__('io').BytesIO()), format='JPEG', quality=85)
+            return buf.getvalue()
+        except Exception as e:
+            print(f'[NIF] Thumbnail encode failed: {e}')
+            return None
+
+    def _upload_thumbnail_bytes(self, jpeg_bytes: bytes) -> str:
+        """Upload thumbnail bytes to R2 as a standalone object too (used for
+        quick gallery/feed previews without needing to parse the .nif itself)."""
+        if not jpeg_bytes:
+            return None
+        try:
+            key = f'nif/{self.user_id}/{self.job_id}/thumb.jpg'
+            R2.put_object(Bucket=OUTPUT_BUCKET, Key=key, Body=jpeg_bytes,
+                          ContentType='image/jpeg')
+            print(f'[NIF] Thumbnail uploaded → {key}')
+            return key
         except Exception as e:
             print(f'[NIF] Thumbnail upload failed: {e}')
-        return None
+            return None
+
+    def _pack_meta(self, vertical: str, meta: dict) -> bytes:
+        """
+        Build the CHUNK_META JSON payload — same shape NIFSpec.js's
+        encodeMetaChunk()/decodeMetaChunk() read/write on the JS editor path,
+        so a .nif produced by either encoder decodes identically.
+        """
+        payload = {
+            'title':       meta.get('title') or 'Untitled NIF',
+            'description': meta.get('description') or '',
+            'author':      self.user_id,
+            'vertical':    vertical,
+            'hotspots':    meta.get('hotspots') or [],
+            'tourStops':   meta.get('tourStops') or [],
+            'createdAt':   _now_iso(),
+        }
+        return json.dumps(payload).encode('utf-8')
 
     # ── Register ───────────────────────────────────────────────────────────────
     def _register(self, r2_key: str, n: int, vertical: str,

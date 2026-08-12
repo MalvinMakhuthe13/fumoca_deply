@@ -1,5 +1,6 @@
 import r2 from '../r2Client.js';
 import { encodeNif } from './nif-format.js';
+import { NIFReader, CHUNK } from '../../engine-next/format/NIFSpec.js';
 /**
  * FUMOCA Publish Engine v1
  * ══════════════════════════════════════════════════════
@@ -14,12 +15,54 @@ import { encodeNif } from './nif-format.js';
 
 const FumocaPublish = (() => {
 
+  // ── Fetch + decode the file currently open in the editor, so we can carry
+  // its vertical and non-geometry chunks (CAMERAS/DEPTH/ALPHA/LAYER/MESH/
+  // PRINT/etc.) forward into the re-encoded file. Previously _buildNifBlob
+  // rebuilt the .nif from only positions/colors/opacities, which meant every
+  // edit+publish silently threw away cameras, depth maps, meshes, the
+  // print-ready STL, and reset vertical to 'generic' — regardless of what
+  // the capture actually was (automotive/property/fashion/etc). Falls back
+  // to {vertical:'generic', passthroughChunks:[]} if there's no original
+  // .nif to read from (e.g. brand-new upload, not an edit of an existing one).
+  async function _loadOriginalForPassthrough() {
+    const url = window._fumocaNifUrl || new URLSearchParams(location.search).get('file');
+    let vertical = 'generic';
+    let passthroughChunks = [];
+
+    if (url && /\.nif(\?|$)/i.test(url)) {
+      try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const buf = await res.arrayBuffer();
+        const reader = new NIFReader(buf);
+        passthroughChunks = reader.chunks.filter(c =>
+          c.type !== CHUNK.KEYFRAME_GEO && c.type !== CHUNK.META && c.type !== CHUNK.THUMBNAIL);
+        vertical = reader.header?.vertical || 'generic';
+      } catch (e) {
+        console.warn('[Publish] Could not read original .nif for passthrough — proceeding without it:', e.message);
+      }
+    }
+
+    // A hinge/slide authored this session via NIFHingeAuthorPanel lives only
+    // in memory until now — the fetch above reads whatever PHYSICS chunk is
+    // still on disk, which doesn't have it yet. Splice the in-session one in
+    // so it actually gets persisted on this publish, instead of silently
+    // vanishing the moment the tab closes.
+    if (window._fumocaAuthoredPhysicsChunk) {
+      passthroughChunks = passthroughChunks.filter(c => c.type !== CHUNK.PHYSICS);
+      passthroughChunks.push(window._fumocaAuthoredPhysicsChunk);
+    }
+
+    return { vertical, passthroughChunks };
+  }
+
   // ── Collect current edit state, encode as a real .nif ─────────────────────
-  function _buildNifBlob({ title, description } = {}) {
+  async function _buildNifBlob({ title, description } = {}) {
     const S = window.S;
     if (!S?.alive) throw new Error('No splat loaded');
 
     const meta = { title: title || S.fileName || 'Untitled', description: description || '' };
+    const { vertical, passthroughChunks } = await _loadOriginalForPassthrough();
 
     // PLY source: isotropic point cloud (no per-point scale/rotation)
     if (S.fileType === 'ply') {
@@ -39,7 +82,7 @@ const FumocaPublish = (() => {
         colors01[row*3]   = r; colors01[row*3+1] = g; colors01[row*3+2] = b;
         opacities01[row]  = S.opacity[i];
       });
-      const buf = encodeNif({ positions, colors01, opacities01, meta, vertical: 'generic' });
+      const buf = encodeNif({ positions, colors01, opacities01, meta, vertical, passthroughChunks });
       return new Blob([buf], { type: 'application/octet-stream' });
     }
 
@@ -52,7 +95,8 @@ const FumocaPublish = (() => {
       aliveIndices,
       rowSize: S.splatRowSize,
       meta,
-      vertical: 'generic',
+      vertical,
+      passthroughChunks,
     });
     return new Blob([buf], { type: 'application/octet-stream' });
   }
@@ -83,14 +127,15 @@ const FumocaPublish = (() => {
     onProgress?.('Preparing splat…', 10);
 
     // 1. Build a genuine .nif blob (no .fumoc, no bare .splat/.ply)
-    const blob = _buildNifBlob({ title, description });
+    const blob = await _buildNifBlob({ title, description });
     onProgress?.('Uploading…', 20);
 
     // 2. Upload to storage
     const timestamp = Date.now();
-    // Path: {splatId}/edited_{ts}.nif — directly under splat-files bucket.
-    // NOTE: bucket name/DB column names (splat_url) are unchanged to avoid a
-    // schema migration — they now simply point at a .nif URL instead of .splat.
+    // Path: {splatId}/edited_{ts}.nif — under the real R2 'nif-files' bucket
+    // (comment previously said "splat-files", a pre-R2-migration bucket name
+    // that doesn't exist — the actual .from('nif-files') call below was
+    // already correct, just the comment was stale).
     const path = splatId
       ? `${splatId}/edited_${timestamp}.nif`
       : `new/upload_${timestamp}.nif`;

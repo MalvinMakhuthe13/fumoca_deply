@@ -49,9 +49,10 @@ html, body {
 .source-chip.active { background: rgba(200,255,0,.15); border-color: rgba(200,255,0,.4); color: var(--neon); }
 
 /* ── Mode chips ── */
-.mode-row { display: flex; gap: 8px; padding: 12px 20px 0; }
+.mode-row { display: flex; gap: 8px; padding: 12px 20px 0; overflow-x: auto; scrollbar-width: none; }
+.mode-row::-webkit-scrollbar { display: none; }
 .mode-chip {
-  padding: 7px 14px; border-radius: 10px; cursor: pointer; font-size: 12px; font-weight: 700;
+  flex-shrink: 0; padding: 7px 14px; border-radius: 10px; cursor: pointer; font-size: 12px; font-weight: 700;
   background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.08);
   color: rgba(255,255,255,.65); transition: all .15s;
 }

@@ -809,7 +809,7 @@ function getMeshEngine() {
         if(scoreEl){scoreEl.textContent=sc;scoreEl.style.color=scColor;}
         if(gradeEl){gradeEl.textContent=report.grade;gradeEl.style.color=scColor;}
         if(warnEl){
-          const sizeInfo=(report.sizeX&&Number(report.sizeX)>0)?`<div style="color:#aaa;font-size:11px;">📐 ${report.sizeX}×${report.sizeY}×${report.sizeZ} mm</div>`:'';
+          const sizeInfo=(report.sizeX&&Number(report.sizeX)>0)?`<div style="color:#aaa;font-size:11px;">📐 ${report.sizeX}×${report.sizeY}×${report.sizeZ} mm ${report.calibrated?'<span style=\"color:#C8FF00;\">✓ calibrated</span>':'<span style=\"color:#ff9d9d;\">⚠ estimate — not calibrated</span>'}</div>`:'';
           warnEl.innerHTML=[
             `<div style="color:#aaa;font-size:11px;">▸ ${(report.triCount||0).toLocaleString()} tris · ${(report.vertCount||0).toLocaleString()} verts</div>`,
             sizeInfo,
@@ -878,7 +878,19 @@ function initMeshPanel() {
             <span id="meshPrintGrade" style="font-size:22px;font-weight:900;color:#555"></span>
             <span style="font-size:10px;color:#444">/ 100</span>
           </div>
-          <div id="meshPrintWarnings" style="display:flex;flex-direction:column;gap:4px"></div>`,'#ff9d9d')}
+          <div id="meshPrintWarnings" style="display:flex;flex-direction:column;gap:4px"></div>
+          <div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.08)">
+            <div style="font-size:10px;color:#aaa;margin-bottom:5px">
+              Recalibrate a specific axis (works after sculpting/repair too — video reconstruction has no absolute scale, so this is the only way to know these numbers are real mm, not a guess)
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">
+              <select id="meshCalAxis" style="padding:6px;border-radius:8px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);color:#f5f5f5;font:inherit;font-size:11px">
+                <option value="x">X axis</option><option value="y">Y axis</option><option value="z">Z axis</option>
+              </select>
+              ${N('meshCalMM','','0.1','99999','0.1','known mm')}
+              <button id="meshCalibrateBtn" style="padding:6px;border-radius:8px;background:rgba(255,157,157,.12);border:1px solid rgba(255,157,157,.3);color:#ff9d9d;font:700 11px/1 inherit;cursor:pointer">Apply</button>
+            </div>
+          </div>`,'#ff9d9d')}
         <div id="meshStatus" style="font-size:11px;color:#aaa;padding:8px;border-radius:8px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);margin-bottom:8px">Load a splat or PLY, then click Build.</div>
         ${SEC('EXPORT',`
           ${B('meshExportStlBtn','📦 STL — Universal (Cura, Bambu, PrusaSlicer)','rgba(200,255,0,.08)','rgba(200,255,0,.2)','#C8FF00')}
@@ -929,6 +941,11 @@ function initMeshPanel() {
   });
   g('meshUndoBtn').addEventListener('click',()=>getMeshEngine().undo());
   g('meshToggleVisBtn').addEventListener('click',()=>{if(_meshEngine){_meshVisible=!_meshVisible;_meshVisible?_meshEngine.show():_meshEngine.hide();}});
+  g('meshCalibrateBtn').addEventListener('click',()=>{
+    const axis=g('meshCalAxis').value;const mm=Number(g('meshCalMM').value);
+    if(!(mm>0)){document.getElementById('meshStatus').textContent='Enter a positive real-world measurement in mm first.';return;}
+    getMeshEngine().calibrateScale(axis,mm);
+  });
   const bname=()=>(state.fileName||'fumoca').replace(/\.[^.]+$/,'');
   g('meshExportStlBtn').addEventListener('click',()=>getMeshEngine().exportSTL(bname()+'.stl'));
   g('meshExport3mfBtn').addEventListener('click',()=>getMeshEngine().export3MF(bname()+'.3mf'));

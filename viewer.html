@@ -1512,6 +1512,29 @@ if (window._fumocaCurrentRecord) {
   if (window.Fumoca4D) window.Fumoca4D.init(window._fumocaCurrentRecord, window._fumocaRenderer || window._fumocaViewer);
 }
 
+document.getElementById('splatModeBtn')?.addEventListener('click', () => {
+  const vid = document.getElementById('previewVideo');
+  const poster = document.getElementById('previewPoster');
+  const synth = document.getElementById('syntheticTeaser');
+  if (vid) { vid.pause(); vid.classList.add('hidden'); }
+  if (poster && poster.src) poster.classList.remove('hidden');
+  else if (synth) synth.classList.remove('hidden');
+  document.getElementById('splatModeBtn')?.classList.remove('alt');
+  document.getElementById('videoModeBtn')?.classList.add('alt');
+});
+document.getElementById('videoModeBtn')?.addEventListener('click', () => {
+  const vid = document.getElementById('previewVideo');
+  const poster = document.getElementById('previewPoster');
+  const synth = document.getElementById('syntheticTeaser');
+  if (!vid?.src) { showToast?.('Video mode', 'No video available for this capture yet'); return; }
+  poster?.classList.add('hidden');
+  synth?.classList.add('hidden');
+  vid.classList.remove('hidden');
+  vid.play().catch(() => {});
+  document.getElementById('videoModeBtn')?.classList.remove('alt');
+  document.getElementById('splatModeBtn')?.classList.add('alt');
+});
+
 // v60: Teaser video button  (v79: generate via social-recorder module)
 document.getElementById('teaserBtn')?.addEventListener('click', async () => {
   const rec = window._fumocaCurrentRecord;

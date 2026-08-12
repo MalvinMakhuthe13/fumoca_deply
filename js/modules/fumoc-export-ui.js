@@ -354,7 +354,7 @@ function _wire() {
           tourStops: record?.metadata?.tourStops || [],
         },
         thumbnailBytes: thumbnailBuffer,
-        vertical: 'generic',
+        vertical: record?.metadata?.vertical || record?.vertical || 'generic',
       });
       onProgress(90, 'Finishing…');
 

@@ -2,6 +2,7 @@ window._fumocaUseHotspotPro = true;
 
 import * as THREE from 'three';
 import { renderActionButtons } from './hotspot-actions.js';
+import { authorPartToggle } from './nif-part-toggle.js';
 
 const hotspotLayer = document.getElementById('hotspotLayer');
 const hotspotBtn = document.getElementById('hotspotBtn');
@@ -202,6 +203,7 @@ const state = {
   tourActive: false,
   tourTimer: null,
   tourDelay: 2800,
+  tourLoop: true,
   activeAudio: null,
   overlayUrl: '',
 };
@@ -420,6 +422,59 @@ function persistLocal() {
   try { localStorage.setItem(localKey(), JSON.stringify(state.hotspots)); } catch (_) {}
 }
 
+/**
+ * Keep a real nif_products row in sync with any product-type hotspot.
+ *
+ * WHY THIS EXISTS: the existing product-authoring flow (advancedPrompt())
+ * stores productLabel/productPrice directly on the hotspot as plain text —
+ * there was never a real backing product record. That's fine for display,
+ * but js/modules/commerce.js's checkout now calls a server-side RPC
+ * (create_order_from_cart, see supabase_migration_commerce.sql) that
+ * re-prices from the real nif_products table and ignores anything it
+ * doesn't recognize — a security requirement, not a choice, since the
+ * whole point is never trusting a price the browser sends. Without this
+ * sync, cart.js's `productId: hotspot.productId || hotspot.id` would
+ * resolve to a hotspot ID that matches no real product row, and the RPC
+ * would silently skip every single item — an empty order on every checkout
+ * for every hotspot authored the old way. This keeps a real row present so
+ * that path actually works, and writes the resulting id back onto the
+ * hotspot so both systems agree on which product it is.
+ */
+async function _syncProductHotspots(sb, nifId, userId) {
+  for (const h of state.hotspots) {
+    if (h.type !== 'product' || !h.productLabel) continue;
+    const payload = {
+      nif_id: nifId, user_id: userId, hotspot_id: h.id,
+      title: h.productLabel,
+      price_cents: _parsePriceToCents(h.productPrice),
+      currency: 'ZAR', active: true,
+    };
+    try {
+      if (h.productId) {
+        const { error } = await sb.from('nif_products').update(payload).eq('id', h.productId);
+        if (error) console.warn('[hotspot-pro] product record update failed:', error.message);
+      } else {
+        const { data, error } = await sb.from('nif_products').insert(payload).select('id').single();
+        if (error) { console.warn('[hotspot-pro] product record create failed:', error.message); continue; }
+        h.productId = data.id;
+      }
+    } catch (err) {
+      // Table may not exist yet if supabase_migration_commerce.sql hasn't
+      // been run — don't let that break hotspot saving entirely.
+      console.warn('[hotspot-pro] product sync skipped (has the commerce migration been run?):', err.message);
+    }
+  }
+}
+
+// Extracts the first number from a price string like "R199.99", "$49", "199"
+// and converts to integer cents. Defensive since this field has always been
+// free-text — there's no guarantee of a consistent currency symbol/format.
+function _parsePriceToCents(priceStr) {
+  const match = String(priceStr || '').match(/\d+(?:[.,]\d{1,2})?/);
+  if (!match) return 0;
+  return Math.round(parseFloat(match[0].replace(',', '.')) * 100);
+}
+
 async function saveRemote() {
   if (state.saving) return;
   const sb = window._fumocaSupabase;
@@ -430,6 +485,7 @@ async function saveRemote() {
   }
   state.saving = true;
   try {
+    await _syncProductHotspots(sb, rec.id, rec.user_id);
     const metadata = { ...(rec.meta || {}), hotspots: state.hotspots };
     const { error } = await sb.from('nif_files').update({ meta: metadata }).eq('id', rec.id);
     if (error) throw error;
@@ -612,7 +668,8 @@ function actionButtons(h) {
   if (h.ctaLink) buttons.push(`<a href="${escapeHtml(h.ctaLink)}" target="_blank" rel="noopener" class="e-btn e-btn-warn" style="text-decoration:none;display:inline-block;">${escapeHtml(h.ctaLabel || 'Open')}</a>`);
   else if (h.link) buttons.push(`<a href="${escapeHtml(h.link)}" target="_blank" rel="noopener" class="e-btn e-btn-warn" style="text-decoration:none;display:inline-block;">Open link</a>`);
   if (state.canManage) buttons.push(`<button class="e-btn e-btn-ghost" data-hs-edit="${h.id}">Edit hotspot</button><button class="e-btn e-btn-danger" data-hs-delete="${h.id}">Delete hotspot</button>`);
-  buttons.push(`<button class="e-btn e-btn-acid" id="hsNextBtn">Next</button>`);
+  if (state.hotspots.length > 1) buttons.push(`<button class="e-btn e-btn-acid" id="hsPrevBtn">← Prev</button>`);
+  buttons.push(`<button class="e-btn e-btn-acid" id="hsNextBtn">Next →</button>`);
   return buttons.join('');
 }
 
@@ -634,14 +691,20 @@ function openInfo(h) {
   const sponsor = h.sponsorLabel ? `<span class="lasso-badge">Sponsor · ${escapeHtml(h.sponsorLabel)}</span>` : '';
   const product = h.productLabel ? `<span class="lasso-badge">${escapeHtml(h.productLabel)}${h.productPrice ? ` · ${escapeHtml(h.productPrice)}` : ''}</span>` : '';
   const preset = h.scenePreset ? `<span class="lasso-badge">${escapeHtml(h.scenePreset)}</span>` : '';
+  const idxInList = state.hotspots.findIndex(x => x.id === h.id);
+  const progress = state.hotspots.length > 1
+    ? `<div style="font-size:11px;color:rgba(255,255,255,.5);margin-top:2px;">${idxInList + 1} of ${state.hotspots.length}${state.tourActive ? ' · touring' : ''}</div>`
+    : '';
   hotspotInfoCard.innerHTML = `
     <div style="padding:16px 16px 10px;border-bottom:1px solid rgba(255,255,255,.08);display:flex;justify-content:space-between;gap:12px;align-items:flex-start;">
       <div>
         <div style="font-family:var(--font-display);font-size:24px;line-height:1;color:var(--neon);letter-spacing:.05em;">${escapeHtml(h.title)}</div>
         <div style="font-size:11px;color:rgba(255,255,255,.45);margin-top:4px;text-transform:uppercase;letter-spacing:.08em;">${escapeHtml(h.type)}</div>
+        ${progress}
       </div>
       <button class="ghostBtn" id="hsCloseInfo">✕</button>
     </div>
+    ${h.presenterNotes ? `<div style="padding:10px 16px;background:rgba(255,209,102,.08);border-bottom:1px solid rgba(255,209,102,.15);font-size:12px;color:#ffd166;"><strong>🎤 Presenter note:</strong> ${escapeHtml(h.presenterNotes)}</div>` : ''}
     <div style="padding:14px 16px 16px;display:grid;gap:10px;max-height:min(72vh,760px);overflow:auto;">
       ${renderMedia(h)}
       <div style="font-size:13px;line-height:1.6;color:rgba(255,255,255,.78);">${escapeHtml(h.description || 'Interactive focus point')}</div>
@@ -656,6 +719,7 @@ function openInfo(h) {
 
   document.getElementById('hsCloseInfo')?.addEventListener('click', closeInfo);
   document.getElementById('hsNextBtn')?.addEventListener('click', nextHotspot);
+  document.getElementById('hsPrevBtn')?.addEventListener('click', prevHotspot);
   hotspotInfoCard.querySelector('[data-hs-edit]')?.addEventListener('click', () => openPanel(true));
   hotspotInfoCard.querySelector('[data-hs-delete]')?.addEventListener('click', async () => {
     if (!state.canManage || !confirm('Delete this hotspot?')) return;
@@ -704,11 +768,34 @@ function renderHotspots() {
   }
 }
 
+function _gotoTourIndex(idx) {
+  if (!state.hotspots.length) return;
+  const n = state.hotspots.length;
+  state.tourIndex = ((idx % n) + n) % n; // handles negative wraparound too
+  const h = state.hotspots[state.tourIndex];
+  activateHotspot(h);
+  // Manual navigation during an active tour must cancel and reschedule the
+  // pending auto-advance timer from THIS position — without this, clicking
+  // Next/Prev while a tour is running left the old timer armed, and it would
+  // fire moments later and jump again from the position the tour thought it
+  // was still at, not the one just manually selected. Confusing mid-jump for
+  // a live presenter, and a real bug independent of anything added today.
+  if (state.tourActive) {
+    if (state.tourTimer) clearTimeout(state.tourTimer);
+    state.tourTimer = setTimeout(_advanceTour, state.tourDelay);
+  }
+}
+
 function nextHotspot() {
   if (!state.hotspots.length) return;
-  const idx = state.hotspots.findIndex(h => h.id === state.activeId);
-  const next = state.hotspots[(idx + 1 + state.hotspots.length) % state.hotspots.length];
-  if (next) activateHotspot(next);
+  const idx = state.activeId != null ? state.hotspots.findIndex(h => h.id === state.activeId) : state.tourIndex;
+  _gotoTourIndex(idx + 1);
+}
+
+function prevHotspot() {
+  if (!state.hotspots.length) return;
+  const idx = state.activeId != null ? state.hotspots.findIndex(h => h.id === state.activeId) : state.tourIndex;
+  _gotoTourIndex(idx - 1);
 }
 
 function stopTour() {
@@ -719,19 +806,25 @@ function stopTour() {
   renderPanel();
 }
 
+function _advanceTour() {
+  if (!state.tourActive || !state.hotspots.length) return;
+  const atEnd = state.tourIndex >= state.hotspots.length - 1;
+  if (atEnd && !state.tourLoop) {
+    stopTour();
+    window.dispatchEvent(new CustomEvent('fumoca:tourComplete'));
+    return;
+  }
+  state.tourIndex = (state.tourIndex + 1) % state.hotspots.length;
+  activateHotspot(state.hotspots[state.tourIndex]);
+  state.tourTimer = setTimeout(_advanceTour, state.tourDelay);
+}
+
 function startTour() {
   if (!state.hotspots.length) return;
   state.tourActive = true;
-  const ordered = state.hotspots.slice();
-  const run = () => {
-    if (!state.tourActive || !ordered.length) return;
-    state.tourIndex = (state.tourIndex + 1) % ordered.length;
-    const h = ordered[state.tourIndex];
-    activateHotspot(h);
-    state.tourTimer = setTimeout(run, state.tourDelay);
-  };
-  run();
-  window.dispatchEvent(new CustomEvent('fumoca:tourStarted', { detail: { count: ordered.length } }));
+  state.tourIndex = -1;
+  _advanceTour();
+  window.dispatchEvent(new CustomEvent('fumoca:tourStarted', { detail: { count: state.hotspots.length } }));
   renderPanel();
 }
 
@@ -756,7 +849,8 @@ function advancedPrompt(defaults = {}) {
     revealTarget: defaults.revealTarget || '',
     nextId: defaults.nextId || '',
     productLabel: defaults.productLabel || '',
-    productPrice: defaults.productPrice || ''
+    productPrice: defaults.productPrice || '',
+    presenterNotes: defaults.presenterNotes || ''
   };
   const raw = prompt('Optional advanced hotspot JSON. Leave as-is or edit fields like overlayUrl, audioUrl, ctaLink, sponsorLabel, mediaImage, gallery.', JSON.stringify(template, null, 2));
   if (raw == null) return defaults;
@@ -803,7 +897,7 @@ function renderPanel() {
       <div class="panel-actions" style="margin-top:10px;">
         <button class="e-btn e-btn-acid" data-action="fly" data-id="${h.id}">Go</button>
         ${buildNestedSplatUrl(h) ? `<button class="e-btn e-btn-primary" data-action="overlay" data-id="${h.id}">Overlay</button>` : ''}
-        ${state.canManage ? `<button class="e-btn e-btn-ghost" data-action="edit" data-id="${h.id}">Edit</button><button class="e-btn e-btn-danger" data-action="delete" data-id="${h.id}">Delete</button>` : ''}
+        ${state.canManage ? `<button class="e-btn e-btn-ghost" data-action="edit" data-id="${h.id}">Edit</button><button class="e-btn e-btn-ghost" data-action="animate" data-id="${h.id}">Animate part</button><button class="e-btn e-btn-danger" data-action="delete" data-id="${h.id}">Delete</button>` : ''}
       </div>
     </div>`).join('');
 
@@ -825,6 +919,10 @@ function renderPanel() {
         <div class="e-label"><span>Experience actions</span><span class="e-val">${state.saving ? 'Saving…' : 'Ready'}</span></div>
         <button class="e-btn e-btn-primary" id="hsNextTour">Next hotspot</button>
         <button class="e-btn e-btn-warn" id="hsToggleTour">${state.tourActive ? 'Stop tour' : 'Start tour'}</button>
+        <button class="e-btn e-btn-ghost" id="hsPresentBtn">${document.fullscreenElement ? '🡼 Exit present' : '🎦 Present'}</button>
+        <label style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:rgba(255,255,255,.6);margin-left:8px;">
+          <input type="checkbox" id="hsTourLoop" ${state.tourLoop ? 'checked' : ''}> Loop
+        </label>
         ${state.canManage ? '<button class="e-btn e-btn-acid" id="hsAdd">Add hotspot</button><button class="e-btn e-btn-ghost" id="hsCaptureCurrent">Capture current view</button><button class="e-btn e-btn-ghost" id="hsSave">Save hotspots</button>' : ''}
         <div class="e-note">Every hotspot can become a universal scene action. Use type splat_overlay for nested interactive splats, audio for sound triggers, product/sponsor for commerce-ready moments, and reveal or tour_jump for guided journeys. Shift + double-click the stage to capture a hotspot from the real viewer focus.</div>
       </div>
@@ -834,6 +932,17 @@ function renderPanel() {
   hotspotPanel.querySelector('#hsPanelClose')?.addEventListener('click', () => openPanel(false));
   hotspotPanel.querySelector('#hsNextTour')?.addEventListener('click', nextHotspot);
   hotspotPanel.querySelector('#hsToggleTour')?.addEventListener('click', () => { if (state.tourActive) stopTour(); else startTour(); });
+  hotspotPanel.querySelector('#hsTourLoop')?.addEventListener('change', (e) => { state.tourLoop = e.target.checked; });
+  hotspotPanel.querySelector('#hsPresentBtn')?.addEventListener('click', () => {
+    // document.documentElement, not #viewerShell — #hotspotInfoCard (the
+    // panel showing title/description/presenter notes/Next/Prev) lives
+    // outside #viewerShell in the DOM. Fullscreening just #viewerShell would
+    // make the info card vanish entirely during "Present" mode, defeating
+    // the point of a presenter view.
+    if (document.fullscreenElement) document.exitFullscreen?.();
+    else document.documentElement.requestFullscreen?.().catch(err =>
+      console.warn('[hotspot-pro] Fullscreen request failed:', err.message));
+  });
   hotspotPanel.querySelector('#hsAdd')?.addEventListener('click', async () => {
     const created = promptHotspot({ x: 50, y: 50 });
     if (!created) return;
@@ -872,6 +981,97 @@ function renderPanel() {
     renderHotspots(); renderPanel();
     saveRemote();
   }));
+  hotspotPanel.querySelectorAll('[data-action="animate"]').forEach(btn => btn.addEventListener('click', () => {
+    const h = state.hotspots.find(x => x.id === btn.dataset.id);
+    if (h) animatePartFlow(h);
+  }));
+}
+
+/**
+ * Real authoring flow for a "toggle this part open/closed" hotspot action —
+ * see js/modules/nif-part-toggle.js for exactly what this bakes and why it's
+ * a snap toggle, not smooth animation (the live viewer's third-party splat
+ * library has no supported fast path for moving points post-load, and this
+ * codebase already has one abandoned attempt at live blob-URL scene
+ * swapping — see _fumocaApplyRendererPreview's own comment in viewer.js).
+ *
+ * Uses the same prompt()-based pattern as promptHotspot()/advancedPrompt()
+ * elsewhere in this file, rather than introducing a new form UI style.
+ */
+async function animatePartFlow(h) {
+  const nifUrl = window._fumocanifUrl || window._fumocaCurrentRecord?.nif_url;
+  if (!nifUrl) { alert('No active .nif URL found — open a file in the viewer first.'); return; }
+
+  // KNOWN LIMITATION, not fixed here: this toggle swaps the ENTIRE loaded
+  // scene between "closed" and "open" files. If a NIF has two independently
+  // animated parts (a door AND a trunk), opening the trunk swaps to a file
+  // baked with ONLY the trunk rotated — which resets the door back to
+  // closed, since that file was baked from the original, not from the
+  // door-open variant. Simultaneous multi-part open states would need a
+  // combinatorial set of baked files (door-only, trunk-only, both-open,
+  // etc.) — real, buildable, but not attempted here. Fine for "one moving
+  // part per file" today; flagging so it's a known tradeoff, not a surprise.
+
+  const layer = prompt(
+    'Layer to animate (must match a LAYER_GEO label from this .nif — e.g. "segment_3". ' +
+    'Files reconstructed before the indices-carrying pipeline.py can\'t be animated this way.)',
+    ''
+  );
+  if (!layer) return;
+
+  const axisStr = prompt('Rotation axis as "x,y,z" (default 0,1,0 = vertical hinge, like a side-opening door)', '0,1,0');
+  if (axisStr == null) return;
+  const axis = axisStr.split(',').map(Number);
+  if (axis.length !== 3 || axis.some(Number.isNaN)) { alert('Axis must be three numbers, e.g. 0,1,0'); return; }
+
+  const angleStr = prompt('Open angle in degrees', '60');
+  if (angleStr == null) return;
+  const angleDeg = Number(angleStr) || 60;
+
+  const statusBtn = hotspotPanel.querySelector(`[data-action="animate"][data-id="${h.id}"]`);
+  const originalLabel = statusBtn?.textContent;
+  if (statusBtn) { statusBtn.textContent = 'Baking…'; statusBtn.disabled = true; }
+
+  try {
+    const { openNifUrl, layers } = await authorPartToggle(nifUrl, layer, { axis, angleDeg });
+
+    // Preview before committing — show the baked "open" state live via the
+    // same toggle mechanism the hotspot will use, instead of saving blind
+    // and only finding out it looks wrong after publishing to visitors.
+    if (window._fumocaApplyRendererPreview) {
+      if (statusBtn) statusBtn.textContent = 'Previewing…';
+      window._fumocaApplyRendererPreview(openNifUrl);
+      const looksRight = confirm(
+        `Showing "${layer}" rotated ${angleDeg}° around axis [${axis.join(',')}]. ` +
+        `Does this look correct?\n\nOK = save this as the hotspot's toggle action.\n` +
+        `Cancel = discard and try different values.`
+      );
+      window._fumocaRestoreRendererPreview?.();
+      if (!looksRight) {
+        if (statusBtn) { statusBtn.textContent = originalLabel; statusBtn.disabled = false; }
+        return;
+      }
+    }
+
+    h.actions = Array.isArray(h.actions) ? h.actions : [];
+    // Replace any existing animate action for this same layer on this hotspot
+    // — one toggle definition per layer per hotspot, last authored wins.
+    h.actions = h.actions.filter(a => !(a?.action?.type === 'animate' && a.action.layer === layer));
+    h.actions.push({
+      id: `animate_${layer}_${Date.now()}`,
+      label: `Toggle ${layer}`,
+      action: { type: 'animate', layer, openNifUrl },
+    });
+    await saveRemote();
+    renderPanel();
+    alert(`Saved. This hotspot now has a "Toggle ${layer}" button that snaps it open/closed.\n` +
+      `Animatable layers found in this file: ${layers.map(l => l.label).join(', ') || '(none)'}`);
+  } catch (err) {
+    console.error('[hotspot-pro] animatePartFlow failed:', err);
+    alert(`Could not bake the open variant: ${err.message}`);
+  } finally {
+    if (statusBtn) { statusBtn.textContent = originalLabel; statusBtn.disabled = false; }
+  }
 }
 
 function openPanel(open = true) {
@@ -886,6 +1086,20 @@ function attachUi() {
   nestedOpenNew?.addEventListener('click', () => { if (state.overlayUrl) window.open(state.overlayUrl, '_blank', 'noopener'); });
   nestedFrame?.addEventListener('load', () => nestedOverlay?.classList.add('ready'));
   window.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeNestedSplat(); });
+  document.addEventListener('fullscreenchange', () => renderPanel());
+
+  // Arrow-key navigation — a standard presenter affordance (clicker/keyboard
+  // during a live demo). Guarded against firing while someone is typing in
+  // any text field/textarea/contenteditable elsewhere on the page, and only
+  // active while the info card is actually open (state.activeId set) so it
+  // doesn't hijack arrow keys used for anything else on the surrounding page.
+  window.addEventListener('keydown', (e) => {
+    const tag = document.activeElement?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement?.isContentEditable) return;
+    if (state.activeId == null || !state.hotspots.length) return;
+    if (e.key === 'ArrowRight') { e.preventDefault(); nextHotspot(); }
+    else if (e.key === 'ArrowLeft') { e.preventDefault(); prevHotspot(); }
+  });
   window.addEventListener('resize', renderHotspots);
   window.addEventListener('fumoca:viewerReady', renderHotspots);
   window.addEventListener('fumoca:recordLoaded', async () => { await detectManagePermission(); await loadHotspots(); renderPanel(); });
@@ -917,6 +1131,34 @@ async function init() {
   else await detectManagePermission();
   await loadHotspots();
   attachUi();
+
+  // Auto-present via ?present=1 — useful for kiosk displays or a link meant
+  // to auto-play a demo. Starts the tour immediately (safe — a JS timer
+  // needs no user gesture). Deliberately does NOT auto-call
+  // requestFullscreen() here: browsers block the Fullscreen API outside a
+  // direct user gesture (click/tap), so an automatic call would just fail
+  // silently and look broken. One clearly-labeled tap satisfies that
+  // requirement honestly instead of pretending auto-fullscreen works.
+  if (new URLSearchParams(location.search).get('present') && state.hotspots.length) {
+    startTour();
+    _showFullscreenPrompt();
+  }
+}
+
+function _showFullscreenPrompt() {
+  if (document.fullscreenElement) return;
+  const btn = document.createElement('button');
+  btn.textContent = '⛶ Tap for fullscreen';
+  btn.setAttribute('aria-label', 'Enter fullscreen presentation mode');
+  btn.style.cssText = 'position:fixed;bottom:16px;left:16px;z-index:9999;padding:10px 16px;' +
+    'border-radius:10px;background:rgba(0,0,0,.75);color:#fff;border:1px solid rgba(255,255,255,.25);' +
+    'font:600 13px/1 -apple-system,sans-serif;cursor:pointer;';
+  btn.addEventListener('click', () => {
+    document.documentElement.requestFullscreen?.().catch(err =>
+      console.warn('[hotspot-pro] Fullscreen request failed:', err.message));
+    btn.remove();
+  });
+  document.body.appendChild(btn);
 }
 
 init();

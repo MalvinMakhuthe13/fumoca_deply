@@ -1138,6 +1138,16 @@ eExportNif?.addEventListener('click', () => {
   addHistory(`⬇ Exported ${fmt(alive)} Gaussians → ${nifFileName}_cleaned.nif`);
 });
 
+document.getElementById('eExportSplat')?.addEventListener('click', () => {
+  if (!positions) return;
+  // buildCleanedNifBuffer()'s row layout (pos f32×3 + scale f32×3 + rgba u8×4
+  // + quat u8×4 = 32 bytes) IS the standard .splat binary format already —
+  // this was previously only exposed under the .nif-labeled button above.
+  const {buf, alive} = buildCleanedNifBuffer();
+  downloadBlob(new Blob([buf], {type:'application/octet-stream'}), `${nifFileName}_cleaned.splat`);
+  addHistory(`⬇ Exported ${fmt(alive)} Gaussians → ${nifFileName}_cleaned.splat`);
+});
+
 eExportReport?.addEventListener('click', () => {
   if (!deletedMask) return;
   let dead=0, sel=0;

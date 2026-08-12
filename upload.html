@@ -32,7 +32,7 @@
 
     <div class="panel" style="margin-bottom:18px;">
       <label style="margin-bottom:10px;display:block;">Creation mode</label>
-      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;">
+      <div class="creation-mode-grid" style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;">
         <button type="button" id="modePipelineBtn" class="mode-btn" onclick="setUploadMode('pipeline')" style="padding:14px 16px;border-radius:14px;border:1px solid rgba(200,255,0,.3);background:rgba(200,255,0,.08);color:#C8FF00;font-weight:700;cursor:pointer;">🎬 Process from video</button>
         <button type="button" id="modePhotosBtn" class="mode-btn" onclick="setUploadMode('photos')" style="padding:14px 16px;border-radius:14px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);color:#FAFAFA;font-weight:700;cursor:pointer;">📸 Process from photos</button>
         <button type="button" id="modePlyBtn" class="mode-btn" onclick="setUploadMode('ply')" style="padding:14px 16px;border-radius:14px;border:1px solid rgba(0,229,255,.3);background:rgba(0,229,255,.06);color:#0ef;font-weight:700;cursor:pointer;">📂 Upload .ply directly</button>
@@ -50,7 +50,7 @@
       <input type="file" id="fileInput" accept="video/*" onchange="handleFileSelect(this)" style="display:none">
     </div>
 
-    <div class="grid-2" style="grid-template-columns:repeat(3,1fr); margin-bottom:20px;">
+    <div class="grid-2 capture-tips" style="grid-template-columns:repeat(3,1fr); margin-bottom:20px;">
       <div class="info-card"><strong style="font-size:20px">🚶</strong><span class="muted">Move slowly around the subject</span></div>
       <div class="info-card"><strong style="font-size:20px">☀️</strong><span class="muted">Use even, stable lighting</span></div>
       <div class="info-card"><strong style="font-size:20px">📐</strong><span class="muted">Keep subject filling the frame</span></div>

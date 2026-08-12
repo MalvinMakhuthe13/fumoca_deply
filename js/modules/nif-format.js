@@ -22,6 +22,7 @@
 import {
   NIFWriter, NIFReader, CHUNK, CODEC,
   encodeMetaChunk, decodeMetaChunk, encodeThumbnailChunk,
+  decompressChunk, decodePhysicsChunk,
 } from '../../engine-next/format/NIFSpec.js';
 
 const FLOATS_PER_POINT = 14;
@@ -256,6 +257,17 @@ export function encodeNif(opts = {}) {
     writer.chunks.push(encodeThumbnailChunk(opts.thumbnailBytes));
   }
 
+  // Carry over any other chunks from a previously-decoded original file
+  // (CAMERAS/DEPTH/ALPHA/LAYER/MESH/PRINT/SEMANTIC_MAP/etc.) — pass an array
+  // of NIFChunk instances from reader.chunks here (filtered by the caller to
+  // exclude KEYFRAME_GEO/META/THUMBNAIL, which are always rebuilt above from
+  // the current edit state). Without this, every edit+re-encode silently
+  // discarded everything except geometry — cameras, depth maps, meshes,
+  // print-ready STL, and the poster thumbnail all vanished on first save.
+  if (Array.isArray(opts.passthroughChunks)) {
+    for (const chunk of opts.passthroughChunks) writer.chunks.push(chunk);
+  }
+
   return writer.build().buffer;
 }
 
@@ -273,6 +285,65 @@ export async function decodeNif(arrayBuffer) {
   const thumbnailBytes = thumbChunk ? thumbChunk.data : null;
 
   return { reader, meta, thumbnailBytes, gaussians: geometry };
+}
+
+/**
+ * Decode LAYER_GEO into [{label, depthMin, depthMax, count, data, indices}].
+ * Added for nif-part-toggle.js's "generate a baked-open variant" flow — this
+ * is the live-app counterpart of engine-next/viewer-src/NIFViewer.js's
+ * _parseLayers(), kept as a separate implementation rather than a shared
+ * import since this file is explicitly "the ONLY encode/decode path the live
+ * app should use" and deliberately doesn't depend on the not-yet-wired
+ * engine-next/viewer-src tree.
+ *
+ * v2 format — the indices block (added alongside pipeline.py's split_layers()
+ * change) is required for a layer's points to be locatable in the main
+ * buffer at all; files without it can be viewed as labeled groups but not
+ * used to build an animated/toggled variant.
+ */
+export async function decodeLayers(reader) {
+  const chunk = reader.getChunk(CHUNK.LAYER_GEO);
+  if (!chunk) return [];
+  const bytes = await decompressChunk(chunk);
+  const arrayBuffer = bytes.buffer ? bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) : bytes;
+  const dv = new DataView(arrayBuffer);
+  const nLayers = dv.getUint32(0, false);
+  const layers = [];
+  let offset = 4;
+
+  for (let i = 0; i < nLayers; i++) {
+    if (offset + 1 > dv.byteLength) break;
+    const labelLen = dv.getUint8(offset); offset += 1;
+    let label = '';
+    for (let j = 0; j < labelLen; j++) label += String.fromCharCode(dv.getUint8(offset++));
+    if (offset + 12 > dv.byteLength) break;
+    const depthMin = dv.getFloat32(offset, false); offset += 4;
+    const depthMax = dv.getFloat32(offset, false); offset += 4;
+    const nPoints  = dv.getUint32 (offset, false); offset += 4;
+    const byteLen  = nPoints * 14 * 4;
+    if (offset + byteLen > dv.byteLength) break;
+
+    const raw  = new Uint8Array(arrayBuffer, offset, byteLen);
+    const copy = new ArrayBuffer(byteLen);
+    new Uint8Array(copy).set(raw);
+    const data = new Float32Array(copy);
+    offset += byteLen;
+
+    const idxByteLen = nPoints * 4;
+    let indices = null;
+    if (offset + idxByteLen <= dv.byteLength) {
+      indices = new Uint32Array(nPoints);
+      for (let p = 0; p < nPoints; p++) indices[p] = dv.getUint32(offset + p * 4, false);
+      offset += idxByteLen;
+    }
+    layers.push({ label, depthMin, depthMax, count: nPoints, data, indices });
+  }
+  return layers;
+}
+
+/** Decode PHYSICS chunk into {bodies, constraints} — see NIFHingeAuthor.js for the shape. */
+export async function decodePhysics(reader) {
+  return decodePhysicsChunk(reader.getChunk(CHUNK.PHYSICS));
 }
 
 // ── Public: turn canonical 14-float NIF geometry into THREE-ready arrays ────

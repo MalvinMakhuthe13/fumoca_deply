@@ -1769,6 +1769,17 @@ function _fumocaRestoreRendererPreview() {
   if (viewerInstance) mountInteractiveViewer(true);
 }
 
+// Exposed for hotspot-actions.js's 'animate' action — these two functions
+// existed with zero callers anywhere in the app until this connected them
+// (confirmed via repo-wide search). Real snap-open/close toggle for a named
+// part: see js/modules/nif-part-toggle.js for how the "open" URL passed here
+// gets baked and uploaded. Real https:// URLs only — _fumocaApplyRendererPreview
+// itself already refuses blob: URLs (see its own comment) because a prior
+// attempt at live blob-URL scene swapping was found unreliable in this
+// specific viewer build.
+window._fumocaApplyRendererPreview  = _fumocaApplyRendererPreview;
+window._fumocaRestoreRendererPreview = _fumocaRestoreRendererPreview;
+
 function _fumocaLoadPipelineQueue() {
   try { return JSON.parse(localStorage.getItem(pipelineQueueKey) || '[]'); } catch (_) { return []; }
 }

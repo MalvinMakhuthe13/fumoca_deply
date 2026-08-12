@@ -40,6 +40,12 @@ export class MeshEngine {
 
     // Current CPU mesh buffers (kept for sculpt/undo)
     this._vArr = null; this._nArr = null; this._cArr = null; this._iArr = null;
+    // Real-world scale calibration — see calibrateScale(). 1.0 until the
+    // user calibrates against a known measurement. Reconstruction from
+    // video (COLMAP SfM) is scale-ambiguous by nature — see pipeline.py's
+    // own comment on this — so every dimension reported/exported before
+    // calibration is "correctly proportioned, unknown absolute size."
+    this._scaleFactor = 1.0;
     this._history = [];
     this._historyMax = 12;
 
@@ -438,8 +444,21 @@ export class MeshEngine {
     // 1 scene unit ≈ 1 m → scale to mm
     const currentMM = longest * 1000;
     const sf = targetMM / currentMM;
+    // BUG FIX: this previously did `vArr[i] * sf * 1000`, which bakes mm units
+    // directly into vArr (i.e. "1 scene unit = 1mm" after this call). That's
+    // the right number for exportSTL()/export3MF() — both write vArr's raw
+    // values straight into the file with no further conversion, and 3MF even
+    // declares unit="millimeter" — but it silently broke _checkPrintability's
+    // OWN separate `(maxX-minX)*1000` display math, which assumes vArr STAYS
+    // in meters-convention. Net effect: a user who set "scale longest axis to
+    // 100mm" would see the printability panel report the object as
+    // 100,000mm — 1000x too large — even though the actual exported STL file
+    // was correctly sized. Fixed by keeping vArr in meters-convention here
+    // too (drop the extra *1000); the exporters now do that mm conversion
+    // themselves, once, at the file-write boundary — see exportSTL/
+    // export3MF/exportOBJ/exportPLY's `* MM_PER_SCENE_UNIT`.
     const out = new Float32Array(vArr.length);
-    for (let i = 0; i < vArr.length; i++) out[i] = vArr[i] * sf * 1000;
+    for (let i = 0; i < vArr.length; i++) out[i] = vArr[i] * sf;
     return out;
   }
 
@@ -541,6 +560,7 @@ export class MeshEngine {
       triCount, vertCount, ovhTri, ovhPct: (ovhPct*100).toFixed(1),
       boundaryEdges, nonManifoldEdges, isWatertight, thinWallTri,
       sizeX: sX, sizeY: sY, sizeZ: sZ,
+      calibrated: this._scaleFactor !== 1, // false = "mm" figure is a scene-unit guess, not a real measurement — see calibrateScale()
       printabilityScore: 100, grade: 'A', warnings: [], suggestions: []
     };
 
@@ -552,6 +572,9 @@ export class MeshEngine {
     if (thinWallTri / (triCount||1) > 0.2) { score -= 12; report.warnings.push(`Many thin walls (<${this._minWallMM}mm) — may not print`); }
     if (triCount < 200) { score -= 8; report.warnings.push('Very low triangle count — reduce voxel size'); }
     if (triCount > 800000) { score -= 5; report.warnings.push('Very high triangle count — increase decimation'); }
+    if (!report.calibrated) {
+      report.warnings.push('Size shown is a scene-unit guess, not a real measurement — video reconstruction has no absolute scale. Use "Calibrate real-world size" before trusting these mm figures or ordering a print.');
+    }
     report.printabilityScore = Math.max(0, score);
     report.grade = score >= 90 ? 'A' : score >= 75 ? 'B' : score >= 55 ? 'C' : 'D';
     if (score >= 90 && !report.warnings.length) report.suggestions.push('🎉 Print-ready!');
@@ -576,6 +599,54 @@ export class MeshEngine {
     const rep = this._checkPrintability(vArr, nArr, iArr);
     this._onPrintReport(rep);
     this._report(100, `Auto repair done — score ${rep.printabilityScore}/100 (${rep.grade})`);
+  }
+
+  // ── Scale calibration ────────────────────────────────────────────────────────
+  /**
+   * Rescale the mesh uniformly so a chosen axis matches a known real-world
+   * measurement. Video-based reconstruction (COLMAP SfM) has no absolute
+   * scale — it gets the PROPORTIONS right but the actual size is arbitrary
+   * (pipeline.py documents this same limitation on the cloud reconstruction
+   * side). Every "sizeX/Y/Z mm" figure before this is called is a guess
+   * based on an assumed unit convention, not a measurement. This is the fix:
+   * tell it one true dimension, it corrects the whole mesh to match.
+   *
+   * @param {'x'|'y'|'z'} axis   which axis you measured
+   * @param {number} knownMM     the real-world length of that axis, in millimeters
+   * @returns {object|null} updated printability report, or null if it couldn't run
+   */
+  calibrateScale(axis, knownMM) {
+    if (!this._vArr) { this._report(100, 'Build a mesh first.'); return null; }
+    if (!(knownMM > 0)) { this._report(100, 'Enter a positive real-world measurement in mm.'); return null; }
+    const dim = { x: 0, y: 1, z: 2 }[axis];
+    if (dim === undefined) { this._report(100, 'Axis must be x, y, or z.'); return null; }
+
+    let min = Infinity, max = -Infinity;
+    for (let i = dim; i < this._vArr.length; i += 3) {
+      const v = this._vArr[i];
+      if (v < min) min = v;
+      if (v > max) max = v;
+    }
+    const currentSceneUnits = max - min;
+    if (!(currentSceneUnits > 0)) { this._report(100, `Could not measure the ${axis.toUpperCase()} axis on the current mesh.`); return null; }
+
+    // Matches _checkPrintability's own *1000 scene-units-as-metres assumption —
+    // calibrating against that same assumption keeps every other reported
+    // dimension self-consistent, not just the one axis you measured.
+    const currentMM = currentSceneUnits * 1000;
+    const factor = knownMM / currentMM;
+
+    this._pushHistory();
+    for (let i = 0; i < this._vArr.length; i++) this._vArr[i] *= factor;
+    this._scaleFactor *= factor;
+    this._nArr = this._recomputeNormals(this._vArr, this._iArr); // uniform scale doesn't change normal directions, but recompute for consistency with other repair steps
+    this._commitGeometry(this._vArr, this._nArr, this._cArr, this._iArr);
+
+    const rep = this._checkPrintability(this._vArr, this._nArr, this._iArr);
+    rep.calibrated = true;
+    this._onPrintReport(rep);
+    this._report(100, `Calibrated: ${axis.toUpperCase()} axis = ${knownMM}mm (×${factor.toFixed(4)} scale applied). Exports are now real-world sized.`);
+    return rep;
   }
 
   // ── Sculpt tools ─────────────────────────────────────────────────────────────
@@ -617,9 +688,16 @@ export class MeshEngine {
   }
 
   // ── Exports ───────────────────────────────────────────────────────────────────
+  // Internal vArr is always meters-convention (see _scaleToRealWorld's fix
+  // note above and _checkPrintability's *1000 display) — STL/3MF have no
+  // embedded unit system and slicers universally assume raw numbers ARE mm,
+  // so the mm conversion happens exactly once, here, at export.
+  static MM_PER_SCENE_UNIT = 1000;
+
   exportSTL(filename = 'fumoca_mesh.stl') {
     if (!this._vArr) { alert('Build a mesh first.'); return; }
     const { vArr, iArr } = { vArr: this._vArr, iArr: this._iArr };
+    const M = MeshEngine.MM_PER_SCENE_UNIT;
     const TC = iArr.length / 3;
     const buf = new ArrayBuffer(84 + 50 * TC);
     const view = new DataView(buf);
@@ -628,9 +706,9 @@ export class MeshEngine {
     let off = 84;
     for (let t = 0; t < TC; t++) {
       const [ai,bi,ci] = [iArr[t*3], iArr[t*3+1], iArr[t*3+2]];
-      const ax=vArr[ai*3],ay=vArr[ai*3+1],az=vArr[ai*3+2];
-      const bx=vArr[bi*3],by=vArr[bi*3+1],bz=vArr[bi*3+2];
-      const cx=vArr[ci*3],cy=vArr[ci*3+1],cz=vArr[ci*3+2];
+      const ax=vArr[ai*3]*M,ay=vArr[ai*3+1]*M,az=vArr[ai*3+2]*M;
+      const bx=vArr[bi*3]*M,by=vArr[bi*3+1]*M,bz=vArr[bi*3+2]*M;
+      const cx=vArr[ci*3]*M,cy=vArr[ci*3+1]*M,cz=vArr[ci*3+2]*M;
       const ex=bx-ax,ey=by-ay,ez=bz-az, fx=cx-ax,fy=cy-ay,fz=cz-az;
       const nx=ey*fz-ez*fy, ny=ez*fx-ex*fz, nz=ex*fy-ey*fx, nl=Math.sqrt(nx*nx+ny*ny+nz*nz)||1;
       view.setFloat32(off,nx/nl,true);off+=4; view.setFloat32(off,ny/nl,true);off+=4; view.setFloat32(off,nz/nl,true);off+=4;
@@ -644,9 +722,10 @@ export class MeshEngine {
   export3MF(filename = 'fumoca_mesh.3mf') {
     if (!this._vArr) { alert('Build a mesh first.'); return; }
     const { vArr, iArr } = { vArr: this._vArr, iArr: this._iArr };
+    const M = MeshEngine.MM_PER_SCENE_UNIT;
     const N = vArr.length / 3, TC = iArr.length / 3;
     const vl = [], tl = [];
-    for (let i = 0; i < N; i++) vl.push(`<vertex x="${vArr[i*3].toFixed(6)}" y="${vArr[i*3+1].toFixed(6)}" z="${vArr[i*3+2].toFixed(6)}"/>`);
+    for (let i = 0; i < N; i++) vl.push(`<vertex x="${(vArr[i*3]*M).toFixed(6)}" y="${(vArr[i*3+1]*M).toFixed(6)}" z="${(vArr[i*3+2]*M).toFixed(6)}"/>`);
     for (let t = 0; t < TC; t++) tl.push(`<triangle v1="${iArr[t*3]}" v2="${iArr[t*3+1]}" v3="${iArr[t*3+2]}"/>`);
     const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">\n  <metadata name="Application">FUMOCA V57</metadata>\n  <resources><object id="1" type="model"><mesh>\n    <vertices>${vl.join('')}</vertices>\n    <triangles>${tl.join('')}</triangles>\n  </mesh></object></resources>\n  <build><item objectid="1"/></build>\n</model>`;
     this._dl(new Blob([xml], { type: 'application/vnd.ms-package.3dmanufacturing-3dmodel+xml' }), filename);
@@ -656,9 +735,10 @@ export class MeshEngine {
   exportOBJ(filename = 'fumoca_mesh.obj') {
     if (!this._vArr) { alert('Build a mesh first.'); return; }
     const { vArr, nArr, cArr, iArr } = { vArr: this._vArr, nArr: this._nArr, cArr: this._cArr, iArr: this._iArr };
+    const M = MeshEngine.MM_PER_SCENE_UNIT;
     const N = vArr.length / 3, TC = iArr.length / 3;
-    const lines = ['# FUMOCA V57 mesh export', ''];
-    for (let i = 0; i < N; i++) lines.push(`v ${vArr[i*3].toFixed(6)} ${vArr[i*3+1].toFixed(6)} ${vArr[i*3+2].toFixed(6)} ${cArr?cArr[i*3].toFixed(4):1} ${cArr?cArr[i*3+1].toFixed(4):1} ${cArr?cArr[i*3+2].toFixed(4):1}`);
+    const lines = ['# FUMOCA V57 mesh export (units: millimeters)', ''];
+    for (let i = 0; i < N; i++) lines.push(`v ${(vArr[i*3]*M).toFixed(6)} ${(vArr[i*3+1]*M).toFixed(6)} ${(vArr[i*3+2]*M).toFixed(6)} ${cArr?cArr[i*3].toFixed(4):1} ${cArr?cArr[i*3+1].toFixed(4):1} ${cArr?cArr[i*3+2].toFixed(4):1}`);
     if (nArr) for (let i = 0; i < N; i++) lines.push(`vn ${nArr[i*3].toFixed(6)} ${nArr[i*3+1].toFixed(6)} ${nArr[i*3+2].toFixed(6)}`);
     lines.push('');
     for (let t = 0; t < TC; t++) { const a=iArr[t*3]+1,b=iArr[t*3+1]+1,c=iArr[t*3+2]+1; lines.push(nArr?`f ${a}//${a} ${b}//${b} ${c}//${c}`:`f ${a} ${b} ${c}`); }
@@ -669,12 +749,13 @@ export class MeshEngine {
   exportPLY(filename = 'fumoca_mesh.ply') {
     if (!this._vArr) { alert('Build a mesh first.'); return; }
     const { vArr, cArr, iArr } = { vArr: this._vArr, cArr: this._cArr, iArr: this._iArr };
+    const M = MeshEngine.MM_PER_SCENE_UNIT;
     const N = vArr.length / 3, TC = iArr.length / 3;
-    const hdr = ['ply','format ascii 1.0',`element vertex ${N}`,'property float x','property float y','property float z','property uchar red','property uchar green','property uchar blue',`element face ${TC}`,'property list uchar int vertex_indices','end_header'];
+    const hdr = ['ply','format ascii 1.0','comment units millimeters',`element vertex ${N}`,'property float x','property float y','property float z','property uchar red','property uchar green','property uchar blue',`element face ${TC}`,'property list uchar int vertex_indices','end_header'];
     const rows = [];
     for (let i = 0; i < N; i++) {
       const r=Math.round(clamp(cArr?cArr[i*3]:0.8,0,1)*255), g=Math.round(clamp(cArr?cArr[i*3+1]:0.8,0,1)*255), b=Math.round(clamp(cArr?cArr[i*3+2]:0.8,0,1)*255);
-      rows.push(`${vArr[i*3].toFixed(6)} ${vArr[i*3+1].toFixed(6)} ${vArr[i*3+2].toFixed(6)} ${r} ${g} ${b}`);
+      rows.push(`${(vArr[i*3]*M).toFixed(6)} ${(vArr[i*3+1]*M).toFixed(6)} ${(vArr[i*3+2]*M).toFixed(6)} ${r} ${g} ${b}`);
     }
     for (let t = 0; t < TC; t++) rows.push(`3 ${iArr[t*3]} ${iArr[t*3+1]} ${iArr[t*3+2]}`);
     this._dl(new Blob([[...hdr,...rows].join('\n')], { type: 'text/plain;charset=utf-8' }), filename);

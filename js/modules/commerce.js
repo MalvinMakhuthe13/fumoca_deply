@@ -20,6 +20,8 @@
  * ═══════════════════════════════════════════════════════════════════
  */
 
+import { supabase } from '../supabaseClient.js';
+
 const FumocaCommerce = (() => {
 
   // ── State ─────────────────────────────────────────────────────
@@ -259,9 +261,67 @@ const FumocaCommerce = (() => {
         openCartPanel(); // re-render
       });
     });
-    document.getElementById('fumocaCheckout')?.addEventListener('click', () => {
+    document.getElementById('fumocaCheckout')?.addEventListener('click', async () => {
       emit('fumoca:checkout', { cart: [...cart], total });
-      // If a checkout URL is configured, navigate there
+
+      const nifId = window._fumocaCurrentRecord?.id;
+      if (!nifId || !cart.length) {
+        const checkoutUrl = window._fumocaWhiteLabel?.getBrandConfig?.()?.ctaUrl;
+        if (checkoutUrl) window.open(checkoutUrl, '_blank', 'noopener');
+        return;
+      }
+
+      // Primary path: create_order_from_cart RPC (see
+      // supabase_migration_commerce.sql) — re-prices every item server-side
+      // inside Postgres itself, so it's live the moment that migration is
+      // run, with no separate backend-api deployment required. This is the
+      // real security guarantee (never trust a price the browser sends)
+      // without the deployment barrier the Express route has.
+      try {
+        const { data, error } = await supabase.rpc('create_order_from_cart', {
+          p_nif_id: nifId,
+          p_items: cart.map(i => ({ productId: i.productId, qty: i.qty || 1, variantLabel: i.variantLabel })),
+          p_buyer_email: (await supabase.auth.getUser())?.data?.user?.email ?? null,
+        });
+        if (!error && data?.length) {
+          emit('fumoca:orderCreated', { orderId: data[0].order_id, subtotalCents: data[0].subtotal_cents, currency: data[0].currency });
+          cart = [];
+          saveCart();
+          _updateCartBadge();
+        } else if (error) {
+          // Function not found (migration not run yet) is expected on an
+          // unmigrated project — fall through to the apiBase path below
+          // rather than treating it as fatal.
+          console.warn('[FumocaCommerce] create_order_from_cart RPC failed:', error.message);
+        }
+      } catch (e) {
+        console.warn('[FumocaCommerce] Could not reach Supabase for checkout:', e.message);
+      }
+
+      // Secondary path: only relevant if someone has actually deployed
+      // engine-next/backend-api and set apiBase — most installs won't have
+      // this, which is fine, the RPC above already covers checkout.
+      const apiBase = window.FUMOCA_CONFIG?.apiBase;
+      if (apiBase) {
+        try {
+          const token = (await supabase.auth.getSession())?.data?.session?.access_token;
+          const res = await fetch(`${apiBase}/api/commerce/orders`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+            body: JSON.stringify({ nifId, items: cart.map(i => ({ productId: i.productId, qty: i.qty || 1 })) }),
+          });
+          const data = await res.json();
+          if (res.ok) {
+            emit('fumoca:orderCreated', { order: data.order });
+            cart = [];
+            saveCart();
+            _updateCartBadge();
+          }
+        } catch (e) {
+          console.warn('[FumocaCommerce] apiBase checkout also failed:', e.message);
+        }
+      }
+
       const checkoutUrl = window._fumocaWhiteLabel?.getBrandConfig?.()?.ctaUrl;
       if (checkoutUrl) window.open(checkoutUrl, '_blank', 'noopener');
     });

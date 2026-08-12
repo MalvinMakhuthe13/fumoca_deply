@@ -206,6 +206,12 @@ function showInfo({ title, body, cta }) {
  * hotspots authored against newer schema might load in older viewers,
  * and we do not want a 404 in the action list to kill the whole viewer.
  */
+// Tracks open/closed state per layer for the live app's snap-toggle animate
+// path (see the 'animate' case below) — in-memory only, resets on page
+// reload, which is fine: a freshly loaded scene is always in its "closed"
+// baseline state anyway.
+const _liveAnimateOpenState = new Map();
+
 export async function runAction(action, context = {}) {
   if (!action || typeof action !== 'object') return;
 
@@ -278,14 +284,80 @@ export async function runAction(action, context = {}) {
 
     case 'multi': {
       // Sequential execution — each action waits for the previous one's
-      // Promise (if any) before running. Parallelism isn't useful here;
-      // a configurator user expects audio to start THEN a card to appear,
-      // not both at once.
+      // Promise (if any) before running.
+      //
+      // Each step may be a bare action object (old shape — uses the single
+      // shared `action.delay` after every step, same as before) or
+      // `{action, delayAfter}` (new — a distinct pause after THIS step).
+      // Without this, there was no way to express "open door, wait 1s, open
+      // trunk, wait 300ms, close door" — only a single uniform gap between
+      // every step regardless of what it was.
       if (!Array.isArray(action.actions)) return;
-      for (const sub of action.actions) {
+      for (const step of action.actions) {
+        const sub = step?.action ?? step;
         await runAction(sub, context);
-        if (action.delay) await new Promise(r => setTimeout(r, action.delay));
+        const wait = step?.delayAfter ?? action.delay;
+        if (wait) await new Promise(r => setTimeout(r, wait));
       }
+      return;
+    }
+
+    case 'animate': {
+      // Two real, verified execution paths depending on which viewer is
+      // actually running this NIF:
+      //
+      // 1. LIVE APP (viewer.html / edit.html) — no smooth per-frame motion
+      //    is possible here (see js/modules/nif-part-toggle.js for exactly
+      //    why: the third-party splat renderer has no supported fast path
+      //    for moving points post-load, and a prior blob-URL scene-swap
+      //    attempt was found unreliable and abandoned in this codebase).
+      //    Instead: action.openNifUrl (baked once at authoring time via
+      //    nif-part-toggle.js's authorPartToggle()) is a real uploaded file
+      //    for the "open" state. Toggling swaps the whole loaded scene
+      //    between original and that file — a real, reliable snap, not
+      //    a guess at undocumented library internals.
+      //
+      // 2. engine-next PROTOTYPE (engine-next/editor/index.html only, not
+      //    the live app) — smooth per-frame hinge/slide via NIFAnimator.js,
+      //    when window._nifRenderer is present.
+      if (action.openNifUrl && window._fumocaApplyRendererPreview) {
+        const isOpen = _liveAnimateOpenState.get(action.layer);
+        if (isOpen) {
+          window._fumocaRestoreRendererPreview?.();
+          _liveAnimateOpenState.set(action.layer, false);
+        } else {
+          window._fumocaApplyRendererPreview(action.openNifUrl);
+          _liveAnimateOpenState.set(action.layer, true);
+        }
+        return;
+      }
+
+      const renderer = context.viewer?.renderer || window._nifRenderer;
+      if (!renderer?.playHingeAnimation) {
+        console.warn('[FumocaHotspotActions] No animate path available — ' +
+          'live app needs action.openNifUrl (see nif-part-toggle.js), or the ' +
+          'engine-next prototype needs an active NIFRenderer. Neither found.');
+        return;
+      }
+      if (!action.layer) {
+        console.warn('[FumocaHotspotActions] animate action missing required "layer" field.');
+        return;
+      }
+      if (action.kind === 'slide') {
+        return void renderer.playSlideAnimation(action.layer, {
+          direction: action.direction,
+          distance: action.distance,
+          durationMs: action.durationMs,
+          toggle: action.toggle,
+        });
+      }
+      renderer.playHingeAnimation(action.layer, {
+        pivot: action.pivot,
+        axis: action.axis,
+        angleDeg: action.angleDeg,
+        durationMs: action.durationMs,
+        toggle: action.toggle,
+      });
       return;
     }
 
@@ -388,7 +460,7 @@ export function validateActions(actions) {
     return { valid: false, errors: ['actions must be an array'] };
   }
   const KNOWN = new Set(['audio', 'audio_stop', 'video', 'link',
-    'nested_splat', 'info', 'state', 'fly', 'multi']);
+    'nested_splat', 'info', 'state', 'fly', 'multi', 'animate']);
   actions.forEach((a, idx) => {
     if (!a || typeof a !== 'object') {
       errors.push(`[${idx}] action entry is not an object`);
@@ -419,6 +491,9 @@ export function validateActions(actions) {
     }
     if (a.action.type === 'multi' && !Array.isArray(a.action.actions)) {
       errors.push(`[${idx}] multi action missing actions array`);
+    }
+    if (a.action.type === 'animate' && !a.action.layer) {
+      errors.push(`[${idx}] animate action missing layer`);
     }
   });
   return { valid: errors.length === 0, errors };

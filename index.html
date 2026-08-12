@@ -63,6 +63,12 @@
     border-bottom: 1px solid var(--glass-border);
   }
 
+  /* Anchor-nav targets need room above them equal to the fixed nav's
+     height — otherwise clicking "How it works" etc. scrolls the heading
+     straight underneath the nav bar (it overlays at z-index:100), which
+     is exactly the overlap you're seeing. */
+  #how, #features, #monetize, #tech { scroll-margin-top: 96px; }
+
   .nav-logo {
     font-family: var(--font-display);
     font-size: 32px;

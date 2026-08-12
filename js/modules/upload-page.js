@@ -459,10 +459,12 @@ window.handleSubmit = async function() {
     setStep('step-frames', 'active');
     setProgress(35, 'Queueing reconstruction job...');
 
-    // reconstruction_jobs is the real, live table (confirmed against
-    // production; `nif_files`/`reconstruction_jobs` do not exist there). No
-    // nif_files row yet — there's no processed NIF at upload time;
-    // pipeline.py's own _register() creates that once processing completes.
+    // reconstruction_jobs is the real, live table — confirmed against the
+    // actual production Supabase project in an earlier session (there was a
+    // stale doubt about whether nif_files/reconstruction_jobs existed there;
+    // they do). No nif_files row yet at this point — there's no processed
+    // NIF at upload time; pipeline.py's own _register() creates that once
+    // processing completes.
     const { data: job, error: jobError } = await supabase.from('reconstruction_jobs').insert({
       user_id: user.id,
       status: 'queued',

@@ -46,6 +46,7 @@
 import { m4, v3, Quat, smoothstep, EPS } from '../../math/NIFMath.js';
 import { raycastGaussians } from '../../physics/NIFPhysics.js';
 import { detectTier } from '../NIFDeviceTier.js';
+import { NIFAnimator } from '../../animation/NIFAnimator.js';
 
 // Maximum device pixel ratio we'll render at.
 // 2.0 is indistinguishable from 3.0 at normal viewing distance and
@@ -405,11 +406,51 @@ void main() {
 
   /**
    * Load layered depth field data — enables foreground/background separation.
-   * @param {Array} layers  [{label, depthMin, depthMax, count, data:Float32Array}]
+   * @param {Array} layers  [{label, depthMin, depthMax, count, data:Float32Array, indices:Uint32Array}]
+   * @param {{bodies:Array, constraints:Array}} physics  decoded PHYSICS chunk, if any —
+   *   lets a layer's hinge/slide be pre-authored (see NIFHingeAuthor.js) instead of
+   *   requiring pivot/axis/angle to be hand-written into every hotspot action.
    */
-  loadLayers(layers) {
+  loadLayers(layers, physics) {
     this._layers = layers;
-    console.log(`[NIFRenderer] Layers: ${layers.map(l=>l.label).join(', ')}`);
+    // Previously this was the entire method — layers were stored and logged,
+    // never rendered separately or moved. They're still drawn as part of the
+    // single main splat buffer (that's unchanged and correct — see render()'s
+    // one drawArraysInstanced call), but now that layers carry `.indices`
+    // (their row numbers in that same main buffer, added in this change),
+    // NIFAnimator can actually rotate/slide a named layer's points in place
+    // within it. That's the part that was missing before: layers existed,
+    // but there was no way to find "this layer's points" back in the buffer
+    // that actually gets rendered.
+    this.animator = new NIFAnimator(this.gaussians, layers, physics);
+    console.log(`[NIFRenderer] Layers: ${layers.map(l=>l.label).join(', ')}` +
+      ` (animatable: ${layers.filter(l=>l.indices?.length).map(l=>l.label).join(', ') || 'none'})`);
+  }
+
+  /**
+   * Play a hinge-style rotation animation on a named layer — e.g. a car door,
+   * a lid, a drawer lid. See engine-next/animation/NIFAnimator.js for the
+   * pivot/axis caveats. Returns false (and logs why) if this file has no
+   * animatable layer with that label.
+   */
+  playHingeAnimation(label, opts = {}) {
+    if (!this.animator) {
+      console.warn('[NIFRenderer] No layers loaded yet — nothing to animate.');
+      return false;
+    }
+    return this.animator.playHinge(label, opts);
+  }
+
+  /**
+   * Play a linear slide animation on a named layer — a drawer, a tray, a
+   * sliding cover. See NIFAnimator.playSlide() for options.
+   */
+  playSlideAnimation(label, opts = {}) {
+    if (!this.animator) {
+      console.warn('[NIFRenderer] No layers loaded yet — nothing to animate.');
+      return false;
+    }
+    return this.animator.playSlide(label, opts);
   }
 
   /**
@@ -604,6 +645,11 @@ void main() {
     const dt = Math.min((timestamp - this._lastTime) / 1000, 0.1);
     this._lastTime = timestamp;
 
+    // Advance any in-progress hinge animation BEFORE sorting/uploading below —
+    // it mutates this.gaussians.data directly, and _sortAndUpload reads that
+    // same reference every frame, so this is the entire integration needed.
+    this.animator?.tick(dt);
+
     const gl = this.gl;
     const W  = this.canvas.width;
     const H  = this.canvas.height;
@@ -625,7 +671,7 @@ void main() {
     const proj = this.camera.projMatrix(W / H);
     this._viewArr.set(view);
     this._projArr.set(proj);
-    this._sortAndUpload(view, moved && (this._frame - this._sortFrame) >= this._sortEvery);
+    this._sortAndUpload(view, this.animator?.isAnimating() || (moved && (this._frame - this._sortFrame) >= this._sortEvery));
 
     // LOD: reduce splat size on slow devices based on recent frame time
     const lodScale = dt > 0.033 ? Math.max(0.5, 1.0 - (dt - 0.033) * 10) : 1.0;
@@ -695,6 +741,12 @@ void main() {
 
     const loop = (ts) => {
       if (!this._playing) return;
+
+      // A hinge animation moving geometry counts as "not idle" even if the
+      // camera itself hasn't moved — otherwise a door-open animation
+      // triggered while the user is just watching (not orbiting) would
+      // freeze mid-swing the moment idle-pause kicks in.
+      if (this.animator?.isAnimating()) this._lastMoveTime = ts;
 
       // Pause rAF when camera has been still for _idleTimeout ms
       // A single render was already done on the last move — scene looks correct

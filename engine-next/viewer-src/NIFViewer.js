@@ -18,7 +18,7 @@
 
 import { NIFRenderer }      from './renderer/NIFRenderer.js';
 import { NIFPreviewSystem } from './preview/NIFPreviewSystem.js';
-import { CHUNK, ENCODER_TIER } from '../format/NIFSpec.js';
+import { CHUNK, ENCODER_TIER, decodeMetaChunk, decodePhysicsChunk } from '../format/NIFSpec.js';
 
 export class NIFViewer {
   /**
@@ -77,11 +77,13 @@ export class NIFViewer {
       const nifBytes  = await this._fetchNIF(streamUrl);
 
       // 3. Parse
-      const { reader, gaussians, depthMap, alphaMask, layers, vertical, meta } = await this._parseNIF(nifBytes);
+      const { reader, gaussians, depthMap, alphaMask, layers, vertical, meta, thumbnailBytes, physics } = await this._parseNIF(nifBytes);
       this._reader   = reader;
       this._gaussians= gaussians;
       this._vertical = vertical;
       this._meta     = meta;
+      this._thumbnailBytes = thumbnailBytes;
+      this._physics = physics;
 
       // 3b. Encoder certificate check
       // Files without a valid CERT chunk are UNCERTIFIED — viewer shows fumoca watermark.
@@ -105,7 +107,7 @@ export class NIFViewer {
         // Expose on window so compare viewer camera sync can reach it
         if (typeof window !== 'undefined') window._nifRenderer = this._renderer;
         // Load depth/layer data if present — enables foreground/background separation
-        if (layers?.length)  this._renderer.loadLayers(layers);
+        if (layers?.length)  this._renderer.loadLayers(layers, physics);
         if (depthMap)        this._renderer.loadDepthMap(depthMap);
         if (alphaMask)       this._renderer.loadAlphaMask(alphaMask);
         this._renderer.setVertical(vertical);
@@ -236,7 +238,6 @@ export class NIFViewer {
     const duration  = dv.getFloat32(20, false);
 
     const meta = { version:`${vMaj}.${vMin}`, vertical, frameCount, duration };
-
     // Parse all chunks
     const chunks = [];
     let offset   = 256;
@@ -389,10 +390,34 @@ export class NIFViewer {
       layers = _parseLayers(layerChunk.data);
     }
 
+    // ── META / THUMBNAIL — title, description, hotspots, tour stops, poster
+    // image. These are written by encodeNif()/pipeline.py's _pack_meta() but
+    // were never read here before — the viewer only ever saw header fields
+    // (version/vertical/frameCount/duration), so a file's title, description,
+    // and hotspots existed in the binary but never reached onReady()/this.meta.
+    const metaChunk = await getChunk(CHUNK.META);
+    const parsedMeta = decodeMetaChunk(metaChunk ? { data: metaChunk.data } : null);
+    Object.assign(meta, parsedMeta);
+
+    const thumbChunk = await getChunk(CHUNK.THUMBNAIL);
+    const thumbnailBytes = thumbChunk ? thumbChunk.data : null;
+
+    // PHYSICS — hinge/joint definitions for part animation (see
+    // engine-next/animation/NIFAnimator.js). Parsed inline rather than via
+    // NIFSpec.js's decodePhysicsChunk(), which calls decompressChunk() on
+    // still-compressed bytes — getChunk() above has already decompressed,
+    // so calling that helper here would double-process the data.
+    const physicsChunk = await getChunk(CHUNK.PHYSICS);
+    let physics = { bodies: [], constraints: [] };
+    if (physicsChunk) {
+      try { physics = JSON.parse(new TextDecoder().decode(physicsChunk.data)); }
+      catch (e) { console.warn('[NIFViewer] PHYSICS chunk failed to decode:', e.message); }
+    }
+
     // Reader — NIFPreviewSystem uses getChunkSync for proxy video (uncompressed)
     const reader = { getChunk: getChunkSync };
 
-    return { reader, gaussians, depthMap, alphaMask, layers, vertical, meta };
+    return { reader, gaussians, depthMap, alphaMask, layers, vertical, meta, thumbnailBytes, physics };
   }
 
   // ── Static helpers ─────────────────────────────────────────────────────────
@@ -484,9 +509,15 @@ function _f16toF32(h) {
   return (s ? -1 : 1) * Math.pow(2, e - 15) * (1 + f / 1024);
 }
 
-// Parse LAYER_GEO chunk into array of {label, depthMin, depthMax, count, data}
+// Parse LAYER_GEO chunk into array of {label, depthMin, depthMax, count, data, indices}
 // Uses a copy-based approach to avoid Float32Array alignment issues
 // (variable-length ASCII labels can leave the data at non-multiple-of-4 offsets)
+//
+// v2 format — adds the trailing indices block (see pipeline.py's split_layers()
+// docstring). Files written before this change have no indices block; this
+// parser has no way to distinguish old files from truncated/corrupt ones for a
+// LAYER_GEO chunk specifically, so it's a hard format-version bump, not a
+// backward-compatible append — matches the writer change made the same session.
 function _parseLayers(arrayBuffer) {
   const dv      = new DataView(arrayBuffer);
   const nLayers = dv.getUint32(0, false);
@@ -513,9 +544,25 @@ function _parseLayers(arrayBuffer) {
     const copy = new ArrayBuffer(byteLen);
     new Uint8Array(copy).set(raw);
     const data = new Float32Array(copy);
-
     offset += byteLen;
-    layers.push({ label, depthMin, depthMax, count: nPoints, data });
+
+    // Indices block — nPoints × uint32, big-endian, immediately after points
+    const idxByteLen = nPoints * 4;
+    let indices = null;
+    if (offset + idxByteLen <= dv.byteLength) {
+      indices = new Uint32Array(nPoints);
+      for (let p = 0; p < nPoints; p++) {
+        indices[p] = dv.getUint32(offset + p * 4, false);
+      }
+      offset += idxByteLen;
+    } else {
+      console.warn(`[NIFViewer] Layer "${label}" has no indices block — ` +
+        `likely written before pipeline.py's indices change; this layer can ` +
+        `be viewed but not animated (NIFAnimator needs indices to locate its ` +
+        `points in the main buffer).`);
+    }
+
+    layers.push({ label, depthMin, depthMax, count: nPoints, data, indices });
   }
   return layers;
 }

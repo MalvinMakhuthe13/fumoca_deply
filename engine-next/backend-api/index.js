@@ -20,6 +20,7 @@ import { limitUpload, limitAuth, limitAPI, limitPublic, limitExport, limitLicens
 import { socialRouter }     from './middleware/social.js';
 import { webhookRouter, dispatchWebhook } from './middleware/webhooks.js';
 import presentationRoutes  from './routes/presentations.js';
+import commerceRoutes      from './routes/commerce.js';
 
 const app = express();
 
@@ -40,6 +41,7 @@ app.use(socialRouter);            // /api/feed, /api/discover, /api/u/:username,
 app.use(analyticsRouter);         // /api/analytics/event, /api/analytics/summary
 app.use(webhookRouter);           // /api/webhooks CRUD
 app.use(presentationRoutes);      // /api/presentations CRUD + export
+app.use(commerceRoutes);          // /api/commerce products + orders
 
 app.options('*', cors());
 // ── R2 client ───────────────────────────────────────────────────────────────
