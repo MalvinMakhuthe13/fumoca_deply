@@ -1,3 +1,6 @@
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+
 /**
  * FUMOCA R2 Storage Worker
  * ════════════════════════════════════════════════════════════
@@ -24,15 +27,33 @@
  *   ALLOWED_ORIGIN    → e.g. https://fumoca.co.za  (CORS)
  *   PUBLIC_BASE_URL   → e.g. https://cdn.fumoca.co.za (served file base)
  *
- *   Optional, only needed for real presigned PUT URLs (S3-compatible API):
- *   ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME
+ *   Required for real presigned PUT URLs (S3-compatible API):
+ *   ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY
+ *   (R2_BUCKET_NAME is NOT needed — the bucket is passed per-request)
  * ════════════════════════════════════════════════════════════
  */
 
 const CACHE_TTL = 60 * 60 * 24 * 7; // 7 days for splat/ply files
 const THUMB_TTL = 60 * 60 * 24;     // 1 day for thumbnails
+const PRESIGN_EXPIRY = 3600;        // 1 hour
+const MAX_KEY_LENGTH = 500;
 
-// ── CORS headers ──────────────────────────────────────────────────────────────
+// Max direct-upload body size, in bytes (default 200MB). Only enforced on the
+// worker-proxied PUT /upload/:key path — presigned uploads go straight to R2
+// and aren't covered by this check.
+const DEFAULT_MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
+
+// MIME whitelist per bucket. Starting point only — adjust to match what each
+// bucket actually needs to accept.
+const ALLOWED_MIME_TYPES = {
+  'nif-videos': ['video/mp4', 'video/webm', 'video/quicktime'],
+  'preview-videos': ['video/mp4', 'video/webm'],
+  'nif-files': ['application/octet-stream', 'application/x-ply', 'model/gltf-binary'],
+  'thumbnails': ['image/jpeg', 'image/png', 'image/webp'],
+  'avatars': ['image/jpeg', 'image/png', 'image/webp'],
+};
+
+// ── CORS ─────────────────────────────────────────────────────────────────────
 function corsHeaders(origin, allowedOrigin) {
   const ok = !allowedOrigin || origin === allowedOrigin || allowedOrigin === '*';
   return {
@@ -73,11 +94,6 @@ async function authorize(request, env) {
   const authHeader = request.headers.get('Authorization') || '';
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
 
-  console.log({
-    workerSupabaseUrl: env.SUPABASE_URL,
-    hasAnonKey: !!env.SUPABASE_ANON_KEY,
-    tokenLength: token?.length || 0
-    });
   if (!token || !env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) return null;
 
   try {
@@ -88,32 +104,23 @@ async function authorize(request, env) {
       },
     });
 
-    const text = await resp.text();
-
-    console.log({
-    status: resp.status,
-    body: text
-    });
-
     if (!resp.ok) {
-      console.error('[R2 auth] Supabase rejected token', resp.status, text);
+      console.error('[R2 auth] Supabase rejected token', resp.status);
       return null;
     }
 
-    const user = JSON.parse(text);
+    const user = await resp.json();
     return user?.id ? { id: user.id, kind: 'user' } : null;
   } catch (e) {
-    console.error('[R2 auth check failed]', e);
+    console.error('[R2 auth] check failed', e);
     return null;
   }
 }
 
-// ── Key sanitisation ──────────────────────────────────────────────────────────
+// ── Key sanitisation ────────────────────────────────────────────────────────
 // Strips traversal attempts, backslashes, and collapses duplicate slashes.
 // Also enforces a sane max length so absurdly long paths can't be used to
 // abuse R2 key limits or your CDN/cache layer.
-const MAX_KEY_LENGTH = 500;
-
 function sanitiseKey(rawPath) {
   const cleaned = rawPath
     .replace(/\.\./g, '')
@@ -123,28 +130,14 @@ function sanitiseKey(rawPath) {
   return cleaned.slice(0, MAX_KEY_LENGTH);
 }
 
-// ── MIME whitelist per bucket ─────────────────────────────────────────────────
-// Starting point only — adjust to match what each bucket actually needs to accept.
-const ALLOWED_MIME_TYPES = {
-  'nif-videos': ['video/mp4', 'video/webm', 'video/quicktime'],
-  'preview-videos': ['video/mp4', 'video/webm'],
-  'nif-files': ['application/octet-stream', 'application/x-ply', 'model/gltf-binary'],
-  'thumbnails': ['image/jpeg', 'image/png', 'image/webp'],
-  'avatars': ['image/jpeg', 'image/png', 'image/webp'],
-};
-
 function isAllowedMimeType(bucketName, contentType) {
   const allowed = ALLOWED_MIME_TYPES[bucketName];
   if (!allowed) return true; // unknown bucket name is caught elsewhere
   return allowed.includes(contentType);
 }
 
-// Max direct-upload body size, in bytes (default 200MB). Only enforced on the
-// worker-proxied PUT /upload/:key path — presigned uploads go straight to R2
-// and aren't covered by this check.
-const DEFAULT_MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
-
-// ── Bucket resolver ───────────────────────────────────────────────────────────
+// ── Bucket resolver ──────────────────────────────────────────────────────────
+// Maps a public bucket name to its R2 binding (used for actual reads/writes).
 function getBucket(bucketName, env) {
   const buckets = {
     'nif-files': env.NIF_FILES,
@@ -156,6 +149,39 @@ function getBucket(bucketName, env) {
   return buckets[bucketName] ?? null;
 }
 
+// ── Presigned PUT URL (S3-compatible API via AWS SDK) ────────────────────────
+// Takes the public bucket NAME (e.g. 'nif-videos'), not the R2 binding object —
+// the AWS SDK talks to R2's S3-compatible endpoint, which addresses buckets by
+// name, not by Worker binding.
+async function generatePresignedPut(bucketName, key, contentType, env) {
+  if (!env.ACCOUNT_ID || !env.R2_ACCESS_KEY_ID || !env.R2_SECRET_ACCESS_KEY) {
+    console.warn('[R2 presign] S3 credentials are not configured');
+    return null;
+  }
+
+  try {
+    const client = new S3Client({
+      region: 'auto',
+      endpoint: `https://${env.ACCOUNT_ID}.r2.cloudflarestorage.com`,
+      credentials: {
+        accessKeyId: env.R2_ACCESS_KEY_ID,
+        secretAccessKey: env.R2_SECRET_ACCESS_KEY,
+      },
+    });
+
+    const command = new PutObjectCommand({
+      Bucket: bucketName,
+      Key: key,
+      ContentType: contentType,
+    });
+
+    return await getSignedUrl(client, command, { expiresIn: PRESIGN_EXPIRY });
+  } catch (error) {
+    console.error('[R2 presign] failed', error);
+    return null;
+  }
+}
+
 // ── Main handler ──────────────────────────────────────────────────────────────
 export default {
   async fetch(request, env, ctx) {
@@ -163,7 +189,6 @@ export default {
     const origin = request.headers.get('Origin') || '';
     const cors = corsHeaders(origin, env.ALLOWED_ORIGIN);
 
-    // Preflight
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: cors });
     }
@@ -171,7 +196,7 @@ export default {
     const path = url.pathname;
     const bucketParam = url.searchParams.get('bucket') || 'nif-files';
 
-    // ── GET /health ───────────────────────────────────────────────────────────
+    // ── GET /health ────────────────────────────────────────────────────────
     if (request.method === 'GET' && path === '/health') {
       const buckets = {
         'nif-files': !!env.NIF_FILES,
@@ -180,7 +205,7 @@ export default {
         'thumbnails': !!env.THUMBNAILS,
         'avatars': !!env.AVATARS,
       };
-      const presignConfigured = !!(env.ACCOUNT_ID && env.R2_ACCESS_KEY_ID && env.R2_SECRET_ACCESS_KEY && env.R2_BUCKET_NAME);
+      const presignConfigured = !!(env.ACCOUNT_ID && env.R2_ACCESS_KEY_ID && env.R2_SECRET_ACCESS_KEY);
       const supabaseConfigured = !!(env.SUPABASE_URL && env.SUPABASE_ANON_KEY);
       const allBucketsBound = Object.values(buckets).every(Boolean);
 
@@ -194,9 +219,9 @@ export default {
       }, 200, cors);
     }
 
-    // ── POST /upload/presign ──────────────────────────────────────────────────
+    // ── POST /upload/presign ──────────────────────────────────────────────
     // Body: { bucket, path, contentType }
-    // Returns: { uploadUrl, fileKey, publicUrl }
+    // Returns: { uploadUrl, fileKey, publicUrl, mode }
     if (request.method === 'POST' && path === '/upload/presign') {
       const principal = await authorize(request, env);
       if (!principal) {
@@ -230,20 +255,23 @@ export default {
       const fileKey = sanitiseKey(userPath);
       if (!fileKey) return json({ error: 'Invalid path' }, 400, cors);
 
-      // R2 presigned URL — valid for 1 hour. generatePresignedPut() itself checks
-      // whether S3-compat credentials are configured and falls back to null,
-      // so we always call it and let it decide rather than guessing here.
-      const presigned = await generatePresignedPut(r2Bucket, fileKey, contentType, env);
+      // Pass the bucket NAME (not the binding) — the S3-compat API needs a name.
+      const presigned = await generatePresignedPut(bucket, fileKey, contentType, env);
 
       const uploadUrl =
         presigned ||
         `${env.PUBLIC_BASE_URL || url.origin}/upload/${encodeURIComponent(fileKey)}?bucket=${encodeURIComponent(bucket)}`;
       const publicUrl = `${env.PUBLIC_BASE_URL || url.origin}/file/${encodeURIComponent(fileKey)}?bucket=${encodeURIComponent(bucket)}`;
 
-      return json({ uploadUrl, fileKey, publicUrl }, 200, cors);
+      return json({
+        uploadUrl,
+        fileKey,
+        publicUrl,
+        mode: presigned ? 'r2-presigned' : 'worker-proxy',
+      }, 200, cors);
     }
 
-    // ── PUT /upload/:key — Direct upload (browser sends file body) ────────────
+    // ── PUT /upload/:key — Direct upload (browser sends file body) ─────────
     if (request.method === 'PUT' && path.startsWith('/upload/')) {
       const principal = await authorize(request, env);
       if (!principal) {
@@ -289,12 +317,11 @@ export default {
       return json({ ok: true, fileKey, publicUrl }, 200, cors);
     }
 
-    // ── GET /file/:key — Serve file with caching ──────────────────────────────
+    // ── GET /file/:key — Serve file with caching ───────────────────────────
     if (request.method === 'GET' && path.startsWith('/file/')) {
       const fileKey = decodeURIComponent(path.slice('/file/'.length));
       if (!fileKey) return json({ error: 'Missing key' }, 400, cors);
 
-      // Try cache first
       const cache = caches.default;
       const cacheKey = new Request(request.url, { method: 'GET' });
       const cached = await cache.match(cacheKey);
@@ -326,7 +353,7 @@ export default {
       return response;
     }
 
-    // ── DELETE /file/:key ─────────────────────────────────────────────────────
+    // ── DELETE /file/:key ────────────────────────────────────────────────
     if (request.method === 'DELETE' && path.startsWith('/file/')) {
       const principal = await authorize(request, env);
       if (!principal) {
@@ -353,80 +380,3 @@ export default {
     return json({ error: 'Not found' }, 404, cors);
   },
 };
-
-// ── Presigned PUT helper (uses R2 signed URL API) ────────────────────────────
-async function generatePresignedPut(bucket, key, contentType, env) {
-  try {
-    // Cloudflare R2 presigned URLs via the S3-compat API
-    // Requires ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME
-    if (!env.R2_ACCESS_KEY_ID || !env.R2_SECRET_ACCESS_KEY || !env.ACCOUNT_ID || !env.R2_BUCKET_NAME) {
-      return null; // fall back to direct worker upload
-    }
-
-    const expiry = 3600; // 1 hour
-    const s3Endpoint = `https://${env.ACCOUNT_ID}.r2.cloudflarestorage.com`;
-    const s3Url = `${s3Endpoint}/${env.R2_BUCKET_NAME}/${key}`;
-
-    // AWS SigV4 presigned URL (R2 is S3-compatible)
-    const now = new Date();
-    const dateStr = now.toISOString().replace(/[-:]/g, '').slice(0, 15) + 'Z';
-    const dateShort = dateStr.slice(0, 8);
-
-    const credential = `${env.R2_ACCESS_KEY_ID}/${dateShort}/auto/s3/aws4_request`;
-    const params = new URLSearchParams({
-      'X-Amz-Algorithm': 'AWS4-HMAC-SHA256',
-      'X-Amz-Credential': credential,
-      'X-Amz-Date': dateStr,
-      'X-Amz-Expires': String(expiry),
-      'X-Amz-SignedHeaders': 'host',
-    });
-
-    const host = new URL(s3Endpoint).host;
-    const canonicalRequest = [
-      'PUT',
-      `/${env.R2_BUCKET_NAME}/${key}`,
-      params.toString(),
-      `host:${host}\n`,
-      'host',
-      'UNSIGNED-PAYLOAD',
-    ].join('\n');
-
-    const stringToSign = [
-      'AWS4-HMAC-SHA256',
-      dateStr,
-      `${dateShort}/auto/s3/aws4_request`,
-      await sha256hex(canonicalRequest),
-    ].join('\n');
-
-    const signingKey = await deriveSigningKey(env.R2_SECRET_ACCESS_KEY, dateShort);
-    const signature = await hmacHex(signingKey, stringToSign);
-
-    params.set('X-Amz-Signature', signature);
-    return `${s3Url}?${params.toString()}`;
-  } catch (e) {
-    console.error('[R2 presign error]', e);
-    return null;
-  }
-}
-
-// ── Crypto helpers for SigV4 ─────────────────────────────────────────────────
-async function sha256hex(str) {
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
-  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
-}
-async function hmac(key, msg) {
-  const k = typeof key === 'string'
-    ? await crypto.subtle.importKey('raw', new TextEncoder().encode(key), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
-    : await crypto.subtle.importKey('raw', key, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  return crypto.subtle.sign('HMAC', k, new TextEncoder().encode(msg));
-}
-async function hmacHex(key, msg) {
-  const buf = await hmac(key, msg);
-  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
-}
-async function deriveSigningKey(secret, dateShort) {
-  const k1 = await hmac(`AWS4${secret}`, dateShort);
-  const k2 = await hmac(k1, 'auto');
-  const k3 = await hmac(k2, 's3');
-  return hmac(k3, 'aws4_request');
-}

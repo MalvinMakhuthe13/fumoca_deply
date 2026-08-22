@@ -16,7 +16,7 @@ except ImportError:
     FUMOC_ENCODER_AVAILABLE = False
     print("[FUMOCA] fumoc_encoder not available — will upload .ply only")
 
-SUPABASE_URL = os.getenv("SUPABASE_URL", "https://sjxkgdaaknflnviwjbej.supabase.co")
+SUPABASE_URL = os.getenv("SUPABASE_URL", "https://cicaxmthjdinbqvqmwxe.supabase.co")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
 VIDEO_BUCKET = os.getenv("VIDEO_BUCKET", "splat-videos")
 SPLAT_BUCKET = os.getenv("SPLAT_BUCKET", "splat-files")
