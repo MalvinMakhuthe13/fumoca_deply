@@ -312,6 +312,7 @@ html,body{height:100%;background:var(--black);color:var(--text);font-family:var(
       <button class="tab" data-filter="done">🧊 Captures</button>
       <button class="tab" data-filter="video">🎬 Videos</button>
       <button class="tab" data-filter="photo">📸 Photos</button>
+      <button class="tab" data-filter="queued">⏳ Queued</button>
       <button class="tab" data-filter="processing">⚙️ Processing</button>
       <button class="tab" data-filter="failed">❌ Failed</button>
     </div>
@@ -366,6 +367,7 @@ html,body{height:100%;background:var(--black);color:var(--text);font-family:var(
 <script type="module" src="js/modules/feed.js"></script>
 <script type="module">
 import { supabase } from './js/supabaseClient.js';
+import r2 from './js/r2Client.js';
 
 const REACTIONS = ['🔥','🧊','😱','💎','🚀','❤️'];
 
@@ -382,13 +384,15 @@ function showToast(msg,isErr=false){
 
 // ─── STORIES ────────────────────────────────────────────────────────────────
 async function loadStories(){
-  // v60: real splats only — no fake seen/unseen state, no animated rings on placeholder data
+  // nif_files is the real, live table — 'splats' doesn't exist in
+  // production, and nif_files has no status column at all (a row only
+  // exists once a job has already succeeded, so there's nothing to filter
+  // on). The stored URL is built from r2_key, same as everywhere else.
   const row=document.getElementById('storiesRow');
   try{
-    const {data}=await supabase.from('splats')
-      .select('id,title,thumbnail_url,splat_url,output_url,profiles(username,avatar_url)')
-      .in('status',['done','ready','published','complete','completed'])
-      .not('splat_url','is',null).order('created_at',{ascending:false}).limit(14);
+    const {data}=await supabase.from('nif_files')
+      .select('id,title,r2_key,profiles(username,avatar_url)')
+      .not('r2_key','is',null).order('created_at',{ascending:false}).limit(14);
     if(!data?.length)return;
     data.forEach(s=>{
       const username=s.profiles?.username||'Creator';
@@ -396,7 +400,7 @@ async function loadStories(){
       const av=s.profiles?.avatar_url;
       // No fake seen/unseen ring animation — just show real avatar/initial
       item.innerHTML=`<div class="story-ring-plain"><div class="story-ring-inner">${av?`<img src="${escH(av)}" onerror="this.style.display='none'">`:`${escH(username.charAt(0).toUpperCase())}`}</div></div><span class="story-label">${escH(username.slice(0,10))}</span>`;
-      const url=s.splat_url||s.output_url;
+      const url=s.r2_key?r2.publicUrl('nif-files',s.r2_key):'';
       item.addEventListener('click',()=>{
         if(url)window.location.href=`viewer.html?file=${encodeURIComponent(url)}&title=${encodeURIComponent(s.title||'')}&splatId=${s.id}`;
       });
@@ -433,15 +437,17 @@ function injectReactions(post){
       const newCount = wasActive ? Math.max(0, cur-1) : cur+1;
       sp.textContent = newCount > 0 ? newCount : '';
       if(newCount === 0) sp.remove();
-      // Persist to Supabase if available
+      // Persist to Supabase if available. nif_files stores this kind of
+      // free-form data in its `meta` jsonb column (there's no `metadata`
+      // column, and no `splats` table in production).
       if(splatId && window._fumocaSupabase){
         const sb = window._fumocaSupabase;
-        const {data} = await sb.from('splats').select('metadata').eq('id',splatId).single().catch(()=>({data:null}));
+        const {data} = await sb.from('nif_files').select('meta').eq('id',splatId).single().catch(()=>({data:null}));
         if(data){
-          const meta = data.metadata||{};
+          const meta = data.meta||{};
           const reactions = meta.reactions||{};
           reactions[em] = Math.max(0,(reactions[em]||0)+(wasActive?-1:1));
-          await sb.from('splats').update({metadata:{...meta,reactions}}).eq('id',splatId).catch(()=>{});
+          await sb.from('nif_files').update({meta:{...meta,reactions}}).eq('id',splatId).catch(()=>{});
         }
       }
     });
@@ -565,13 +571,14 @@ async function loadSuggestions(){
 }
 
 async function loadTrendingTags(){
-  // v60: real tags from splat metadata only — no hardcoded counts
+  // nif_files.tags is already a native text[] column — no metadata.tags
+  // digging required (and 'splats' doesn't exist in production).
   const card=document.getElementById('trendingCard');
   try{
-    const {data}=await supabase.from('splats').select('metadata').in('status',['done','ready','published','complete','completed']).not('metadata','is',null).limit(100);
+    const {data}=await supabase.from('nif_files').select('tags').not('tags','is',null).limit(200);
     if(!data?.length)return;
     const tally={};
-    data.forEach(row=>{const tags=row.metadata?.tags;if(Array.isArray(tags))tags.forEach(t=>{tally[t]=(tally[t]||0)+1;});});
+    data.forEach(row=>{const tags=row.tags;if(Array.isArray(tags))tags.forEach(t=>{tally[t]=(tally[t]||0)+1;});});
     const sorted=Object.entries(tally).sort((a,b)=>b[1]-a[1]).slice(0,8);
     if(!sorted.length)return;
     const list=document.getElementById('trendingTagsList');
@@ -585,7 +592,9 @@ async function checkNotifs(){
   try{
     const {data:{user}}=await supabase.auth.getUser();
     if(!user)return;
-    const {count}=await supabase.from('splats').select('*',{count:'exact',head:true}).eq('user_id',user.id).eq('status','done');
+    // nif_files has no status column — a row existing at all means the
+    // job behind it already completed successfully.
+    const {count}=await supabase.from('nif_files').select('*',{count:'exact',head:true}).eq('user_id',user.id);
     if(count>0){document.getElementById('notifDot').style.display='block';}
     if(window.FumocaNav)window.FumocaNav.setBadge('notif',count||0);
   }catch(_){}

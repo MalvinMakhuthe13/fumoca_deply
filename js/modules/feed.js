@@ -117,6 +117,27 @@ function showToast(msg, isError = false) {
 async function deletePostRecord(post, opts = {}) {
   const { silent = false } = opts;
 
+  // A queued/processing/failed job has no nif_files row yet — post.id is a
+  // synthetic "job:<uuid>" string, not a real row id. Delete the
+  // reconstruction_jobs row directly instead of falling into the nif_files
+  // path below (which would silently no-op or error on a fake id).
+  if (post.__isJob) {
+    if (post.job_id) {
+      const { error } = await supabase.from('reconstruction_jobs').delete().eq('id', post.job_id);
+      if (error) throw error;
+    }
+    const card = document.querySelector(`article[data-id="${post.id}"]`);
+    if (card) {
+      card.style.transition = 'opacity .3s, transform .3s';
+      card.style.opacity = '0';
+      card.style.transform = 'scale(0.95)';
+      setTimeout(() => card.remove(), 340);
+    }
+    allPosts = allPosts.filter(p => p.id !== post.id);
+    if (!silent) showToast('Capture deleted.', false);
+    return;
+  }
+
   // 1. Collect storage paths
   const filesToDelete = [];
   if (post.video_path && post.video_bucket) {
@@ -147,8 +168,12 @@ async function deletePostRecord(post, opts = {}) {
     )
   );
 
-  // 3. Delete processing jobs (cascade handles it too, but explicit is safer for RLS)
-  await supabase.from('reconstruction_jobs').delete().eq('nif_file_id', post.id);
+  // 3. Delete the source processing job (cascade handles it too, but explicit
+  // is safer for RLS). reconstruction_jobs has no nif_file_id column — the
+  // relationship runs the other way (nif_files.job_id -> reconstruction_jobs.id).
+  if (post.job_id) {
+    await supabase.from('reconstruction_jobs').delete().eq('id', post.job_id);
+  }
 
   // 4. Delete nif file row
   const { error } = await supabase.from('nif_files').delete().eq('id', post.id);
@@ -405,11 +430,14 @@ async function toggleLike(nifId, btn) {
   if (isLiked) {
     likedIds.delete(nifId); btn.classList.remove('liked'); iconEl.textContent = '🤍';
     countEl.textContent = Math.max(0, current-1);
-    await supabase.from('likes').delete().eq('user_id', currentUserId).eq('nif_id', nifId);
+    // nif_likes is the real, live table (user_id, nif_id) — 'likes' doesn't
+    // exist in production, which is why every like/unlike was silently a
+    // 400 (and why like counts never persisted).
+    await supabase.from('nif_likes').delete().eq('user_id', currentUserId).eq('nif_id', nifId);
   } else {
     likedIds.add(nifId); btn.classList.add('liked'); iconEl.textContent = '❤️';
     countEl.textContent = current+1;
-    await supabase.from('likes').insert({ user_id: currentUserId, nif_id: nifId });
+    await supabase.from('nif_likes').insert({ user_id: currentUserId, nif_id: nifId });
   }
 }
 
@@ -444,6 +472,41 @@ function applyFilters() {
   });
   renderFeed(filtered);
   updateManageBtns();
+}
+
+// nif_files only ever gets a row once a reconstruction job finishes
+// successfully (pipeline.py's _register() runs at the end of the job).
+// Before that, the only record of the upload is a reconstruction_jobs row
+// with status 'queued' / 'processing' / (on error) 'failed'. Nothing was
+// ever querying that table for display, so an in-progress upload had no
+// home in the feed at all — not a layout/space issue, there was simply no
+// card for it. This fetches the current user's in-flight jobs and turns
+// each into a feed-shaped pseudo-post so it shows up with a progress bar
+// via the badge/placeholder logic that already exists below.
+async function fetchQueuedJobs(userId) {
+  if (!userId) return [];
+  const { data, error } = await supabase
+    .from('reconstruction_jobs')
+    .select('*')
+    .eq('user_id', userId)
+    .in('status', ['queued', 'processing', 'failed'])
+    .order('created_at', { ascending: false })
+    .limit(30);
+  if (error) { console.warn('[FUMOCA feed] queued jobs lookup failed', error); return []; }
+  return (data || []).map(job => ({
+    id: `job:${job.id}`,
+    job_id: job.id,
+    __isJob: true,
+    user_id: job.user_id,
+    title: firstNonEmpty(job.meta?.title) ||
+      (job.meta?.video_filename ? job.meta.video_filename :
+       job.meta?.photo_count ? `${job.meta.photo_count} photos` : 'Processing capture'),
+    description: job.error_message || '',
+    status: job.status,
+    processing_progress: job.progress,
+    created_at: job.created_at,
+    tags: [],
+  }));
 }
 
 async function fetchFeedNifs() {
@@ -498,15 +561,34 @@ function skeletonCards(count = 3) {
 async function loadFeed() {
   feedGrid.innerHTML = skeletonCards(3);
   try {
-    const rows = await fetchFeedNifs();
+    const [rows, queuedJobs] = await Promise.all([
+      fetchFeedNifs(),
+      fetchQueuedJobs(currentUserId),
+    ]);
     if (currentUserId) {
-      const { data: myLikes } = await supabase.from('likes').select('nif_id').eq('user_id', currentUserId);
+      const { data: myLikes } = await supabase.from('nif_likes').select('nif_id').eq('user_id', currentUserId);
       likedIds = new Set((myLikes||[]).map(l => l.nif_id));
     }
     let profilesById = new Map();
     try { profilesById = await fetchProfilesFor(rows); }
     catch (e) { console.warn('[FUMOCA feed] profile lookup failed', e); }
-    allPosts = rows.map(row => {
+    const finishedJobIds = new Set(rows.map(r => r.job_id).filter(Boolean));
+    const jobPosts = queuedJobs
+      // A job can finish (and get its nif_files row) in the moment between
+      // these two fetches — don't show it twice.
+      .filter(job => !finishedJobIds.has(job.job_id))
+      .map(job => {
+        const profile = profilesById.get(job.user_id) || {};
+        return {
+          ...job,
+          username: profile.username || profile.first_name || 'fumoca_user',
+          avatar_url: profile.avatar_url || '',
+          source_type: 'fumoca',
+          provider_name: 'FUMOCA',
+          isViewable: false,
+        };
+      });
+    allPosts = jobPosts.concat(rows.map(row => {
       const profile = profilesById.get(row.user_id) || {};
       const url = resolveUrl(row);
       const ns = normalizeStatus(row.status, url);
@@ -520,7 +602,7 @@ async function loadFeed() {
         provider_name: row.provider_name || (row.external_nif_url ? 'External provider' : 'FUMOCA'),
         isViewable: ns === 'done' && !!url,
       };
-    });
+    }));
     applyFilters();
   } catch (error) {
     console.error('[FUMOCA feed]', error);
