@@ -16,6 +16,14 @@
  * handler) instead of a browser client — that object has no `.from()` method,
  * so every call site above was throwing `r2.from is not a function` the
  * moment it ran. This file replaces that with an actual client.
+ *
+ * UPLOAD TRANSPORT: browser → presigned-R2-S3-URL direct PUT was found to
+ * fail on large files (85MB video PUTs were dying mid-transfer with
+ * net::ERR_CONNECTION..., even though the presign step and CORS preflight
+ * both succeeded). Files at or above WORKER_STREAM_THRESHOLD_BYTES are now
+ * streamed through the Worker's `PUT /upload/:key` route instead, which is
+ * the transport the Worker itself already supports. Small files still use
+ * the presigned direct-to-R2 path when the Worker supplies one.
  * ════════════════════════════════════════════════════════════
  */
 
@@ -23,6 +31,13 @@ import { supabase } from './supabaseClient.js';
 import { runtimeConfig } from './runtime-config.js';
 
 const WORKER_URL = (runtimeConfig.r2WorkerUrl || '').replace(/\/$/, '');
+
+// Files at or above this size skip the presigned direct-to-R2 PUT and
+// stream through the Worker instead. 20MB is comfortably below the
+// point where the direct-to-R2 PUT was observed failing (85MB), while
+// still letting small thumbnail/avatar uploads use the lighter-weight
+// presigned path.
+const WORKER_STREAM_THRESHOLD_BYTES = 20 * 1024 * 1024;
 
 if (!WORKER_URL) {
   console.warn('[FUMOCA] r2WorkerUrl is not configured in config.js — uploads and file deletes will fail.');
@@ -36,7 +51,7 @@ async function getAccessToken() {
 }
 
 /** PUT `body` to `uploadUrl` with real progress events. */
-function putWithProgress(uploadUrl, body, contentType, token, onProgress) {
+function putWithProgress(uploadUrl, body, contentType, token, onProgress, { isWorkerUrl } = {}) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('PUT', uploadUrl, true);
@@ -45,7 +60,7 @@ function putWithProgress(uploadUrl, body, contentType, token, onProgress) {
     // URL is self-authenticating via its query-string signature — sending
     // an extra Authorization header there is unnecessary and, on some S3-
     // compatible setups, can trip CORS preflight for no benefit.
-    if (WORKER_URL && uploadUrl.startsWith(WORKER_URL)) {
+    if (isWorkerUrl) {
       xhr.setRequestHeader('Authorization', `Bearer ${token}`);
     }
     xhr.upload.onprogress = (evt) => {
@@ -57,7 +72,11 @@ function putWithProgress(uploadUrl, body, contentType, token, onProgress) {
       if (xhr.status >= 200 && xhr.status < 300) resolve();
       else reject(new Error(`Upload failed (${xhr.status}): ${xhr.responseText || xhr.statusText}`));
     };
-    xhr.onerror = () => reject(new Error('Network error during upload — check your connection and try again.'));
+    xhr.onerror = () => reject(new Error(
+      isWorkerUrl
+        ? 'Upload failed — the connection to the storage server was interrupted. Please retry.'
+        : 'Upload failed — the connection to storage was interrupted partway through. Please retry.'
+    ));
     xhr.onabort = () => reject(new Error('Upload aborted'));
     xhr.send(body);
   });
@@ -78,8 +97,24 @@ function bucketRef(bucketName) {
       try {
         const token = await getAccessToken();
         const contentType = opts.contentType || fileOrBlob?.type || 'application/octet-stream';
+        const size = fileOrBlob?.size ?? 0;
+        const useWorkerStream = size >= WORKER_STREAM_THRESHOLD_BYTES;
 
-        // 1) Ask the Worker where to upload.
+        if (useWorkerStream) {
+          // Large file: stream straight through the Worker's own PUT route
+          // instead of asking for a presigned direct-to-R2 URL. This avoids
+          // the browser-to-R2-S3-endpoint connection entirely, which is
+          // where large uploads were failing.
+          const fileKey = path.replace(/^\/+/, '');
+          const uploadUrl = `${WORKER_URL}/upload/${encodeURIComponent(fileKey)}?bucket=${encodeURIComponent(bucketName)}`;
+
+          await putWithProgress(uploadUrl, fileOrBlob, contentType, token, opts.onProgress, { isWorkerUrl: true });
+
+          const publicUrl = `${WORKER_URL}/file/${encodeURIComponent(fileKey)}?bucket=${encodeURIComponent(bucketName)}`;
+          return { publicUrl, fileKey, error: null };
+        }
+
+        // Small file: ask the Worker for a presigned URL and PUT directly to R2.
         const presignResp = await fetch(`${WORKER_URL}/upload/presign`, {
           method: 'POST',
           headers: {
@@ -99,9 +134,9 @@ function bucketRef(bucketName) {
         }
 
         const { uploadUrl, fileKey, publicUrl } = presignData;
+        const isWorkerUrl = WORKER_URL && uploadUrl.startsWith(WORKER_URL);
 
-        // 2) Send the actual bytes, reporting real progress as they go.
-        await putWithProgress(uploadUrl, fileOrBlob, contentType, token, opts.onProgress);
+        await putWithProgress(uploadUrl, fileOrBlob, contentType, token, opts.onProgress, { isWorkerUrl });
 
         return { publicUrl, fileKey, error: null };
       } catch (err) {
