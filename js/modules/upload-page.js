@@ -217,6 +217,59 @@ window.toggleMono = function(type) {
   }
 };
 
+// Calibration marker / product-verification section — plain checkbox
+// show/hide, no fancy toggle styling needed since these are optional
+// power-user fields, not primary actions.
+document.getElementById('calibMarkerUsed')?.addEventListener('change', (e) => {
+  document.getElementById('calibMarkerSizeWrap').style.display = e.target.checked ? 'block' : 'none';
+});
+document.getElementById('verifyAgainstRef')?.addEventListener('change', (e) => {
+  document.getElementById('verifyRefWrap').style.display = e.target.checked ? 'block' : 'none';
+});
+
+/**
+ * Reads the optional calibration-marker and product-verification form
+ * fields, uploads the reference mesh to R2 if one was supplied, and
+ * returns the meta fields pipeline.py's estimate_scale()/verify.py already
+ * know how to consume. Both features are additive — an empty return object
+ * changes nothing about the existing capture flow.
+ *
+ * meta.calibration_marker_size_m  → estimate_scale()'s ArUco path
+ * meta.verify_reference_r2_key    → gates verify_against_reference() in
+ *                                    pipeline.py's run(); absence = skipped,
+ *                                    same as today.
+ */
+async function buildCalibVerifyMeta(userId) {
+  const meta = {};
+
+  const markerUsed = document.getElementById('calibMarkerUsed')?.checked;
+  if (markerUsed) {
+    const cm = parseFloat(document.getElementById('calibMarkerSizeCm')?.value);
+    if (cm > 0) meta.calibration_marker_size_m = cm / 100;
+  }
+
+  const wantsVerify = document.getElementById('verifyAgainstRef')?.checked;
+  const refFile = document.getElementById('verifyRefFile')?.files?.[0];
+  if (wantsVerify && refFile) {
+    const safeName = refFile.name.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9._-]/g, '');
+    const refPath = `verify-refs/${userId}/${Date.now()}_${safeName}`;
+    const { fileKey, error: refErr } = await r2.from('nif-files').upload(refPath, refFile, {
+      contentType: 'application/octet-stream',
+    });
+    if (refErr) {
+      // Non-fatal — verification is an optional add-on to the capture, not
+      // a reason to fail the whole upload. Let the main capture proceed.
+      console.warn('[FUMOCA] Reference mesh upload failed, continuing without verification:', refErr.message);
+    } else {
+      meta.verify_reference_r2_key = fileKey || refPath;
+      const tol = parseFloat(document.getElementById('verifyToleranceMm')?.value);
+      meta.verify_tolerance_mm = tol > 0 ? tol : 2.0;
+    }
+  }
+
+  return meta;
+}
+
 function setStep(id, state) {
   const el = document.getElementById(id);
   if (!el) return;
@@ -372,6 +425,8 @@ window.handleSubmit = async function() {
       setStep('step-frames', 'active');
       setProgress(70, 'Queueing reconstruction job…');
 
+      const calibVerifyMeta = await buildCalibVerifyMeta(user.id);
+
       // reconstruction_jobs is the real, live table (confirmed against
       // production) — the GPU worker picks up capture_mode:'burst' jobs
       // and unzips raw_r2_key before frame extraction (see pipeline.py's
@@ -384,7 +439,7 @@ window.handleSubmit = async function() {
         vertical: category || 'generic',
         capture_mode: 'burst',
         raw_r2_key: fileKey,
-        meta: { title, description: desc, tags, photo_count: selectedFiles.length },
+        meta: { title, description: desc, tags, photo_count: selectedFiles.length, ...calibVerifyMeta },
       }).select().single();
       if (jobError) throw jobError;
 
@@ -459,6 +514,8 @@ window.handleSubmit = async function() {
     setStep('step-frames', 'active');
     setProgress(35, 'Queueing reconstruction job...');
 
+    const calibVerifyMeta = await buildCalibVerifyMeta(user.id);
+
     // reconstruction_jobs is the real, live table — confirmed against the
     // actual production Supabase project in an earlier session (there was a
     // stale doubt about whether nif_files/reconstruction_jobs existed there;
@@ -472,7 +529,7 @@ window.handleSubmit = async function() {
       vertical: category || 'generic',
       capture_mode: 'video',
       raw_r2_key: filePath,
-      meta: { title, description: desc, tags, video_filename: selectedFile.name },
+      meta: { title, description: desc, tags, video_filename: selectedFile.name, ...calibVerifyMeta },
     }).select().single();
     if (jobError) throw jobError;
 

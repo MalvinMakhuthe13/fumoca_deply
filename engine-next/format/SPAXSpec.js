@@ -32,6 +32,17 @@
  *   [216–255] Reserved
  *   [256+]  Chunks (same format as NIF: type/codec/size/crc/data)
  *
+ * ✅ RESOLVED — SPATIAL_AUDIO, EDIT_HISTORY, and INTERACTION are now a
+ * single shared ID registry with NIFSpec.js, imported directly below
+ * rather than hardcoded here. Previously these three shared the same
+ * English name across .nif and .spax but used different numeric IDs
+ * (e.g. SPATIAL_AUDIO was 0x0010 in NIFSpec.js, 0x0300 here) — not a
+ * same-number collision, but a real footgun for any future code bridging
+ * the two formats by concept name. Fixed by making SPAXSpec.js import
+ * these three constants from NIFSpec.js instead of maintaining a second
+ * copy, so the two can no longer drift apart. See NIFSpec.js's own
+ * "Shared chunk-ID registry" comment for the full explanation.
+ *
  * Chunk types:
  *   0x0100  PROXY_VIDEO_H264   — H.264 proxy, plays on any device
  *   0x0101  PROXY_VIDEO_HEVC   — H.265 proxy (smaller)
@@ -57,6 +68,12 @@
  *   XR extensions:             Proprietary
  */
 
+// Shared-registry import — see the "Shared chunk-ID registry" comment in
+// NIFSpec.js and the resolution note in this file's header. These three IDs
+// are no longer maintained as separate literals here; they come straight
+// from NIFSpec.js so the two formats structurally cannot diverge again.
+import { CHUNK as NIF_CHUNK } from './NIFSpec.js';
+
 export const SPAX_MAGIC   = 0x53504158;
 export const SPAX_VERSION = { major: 1, minor: 0 };
 
@@ -76,10 +93,10 @@ export const SPAX_CHUNK = {
   LOD_0:            0x0200,
   LOD_1:            0x0201,
   LOD_2:            0x0202,
-  SPATIAL_AUDIO:    0x0300,
+  SPATIAL_AUDIO:    NIF_CHUNK.SPATIAL_AUDIO,  // = 0x0300, single source of truth in NIFSpec.js
   METADATA:         0x0400,
-  EDIT_HISTORY:     0x0500,
-  INTERACTION:      0x0600,
+  EDIT_HISTORY:     NIF_CHUNK.EDIT_HISTORY,   // = 0x0500, single source of truth in NIFSpec.js
+  INTERACTION:      NIF_CHUNK.INTERACTION,    // = 0x0600, single source of truth in NIFSpec.js
   THUMBNAIL:        0x0700,
   SOCIAL_CARD:      0x0800,
 };

@@ -53,6 +53,15 @@ const FumocaPublish = (() => {
       passthroughChunks.push(window._fumocaAuthoredPhysicsChunk);
     }
 
+    // Same fix for MeshEngine.calibrateScale() — see mesh-engine.js. Without
+    // this, a manual in-editor scale correction never reaches the exported
+    // file, so the passed-through CALIBRATION chunk stays stale relative to
+    // the mesh geometry it now describes.
+    if (window._fumocaEditorCalibrationChunk) {
+      passthroughChunks = passthroughChunks.filter(c => c.type !== CHUNK.CALIBRATION);
+      passthroughChunks.push(window._fumocaEditorCalibrationChunk);
+    }
+
     return { vertical, passthroughChunks };
   }
 

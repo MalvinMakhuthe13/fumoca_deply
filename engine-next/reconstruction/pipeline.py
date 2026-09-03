@@ -7,10 +7,20 @@ What this produces per .nif file:
   CHUNK 0x0003  KEYFRAME_GEO   — full 3D depth field (all points, 14 floats each)
   CHUNK 0x0004  KEYFRAME_MESH  — real triangulated watertight mesh, extracted from
                                  the trained Gaussians (see stage 9 below)
-  CHUNK 0x0007  DEPTH_MAP      — per-pixel metric depth (float16 HxW, reference frame)
+  CHUNK 0x0007  DEPTH_MAP      — per-pixel depth (float16 HxW, reference frame). Metric
+                                 (metres) only when CALIBRATION.method used the DepthAnything
+                                 Metric checkpoint or an ArUco/manual reference — check
+                                 CALIBRATION before assuming units.
   CHUNK 0x0008  ALPHA_MASK     — per-pixel foreground alpha (uint8 HxW, 0=bg, 255=fg)
   CHUNK 0x0009  LAYER_GEO      — layered depth field: foreground + background split
-  CHUNK 0x0016  SEMANTIC_MAP   — per-point semantic label (uint8, from SAM segments)
+  CHUNK 0x0016  SEMANTIC_MAP   — per-point semantic label (uint8, from SAM segments) — defined,
+                                 not yet written by this pipeline
+  CHUNK 0x0017  CALIBRATION    — real-world scale record: method/scale_factor/confidence.
+                                 See estimate_scale(). Always written (even when uncalibrated,
+                                 so absence never has to be guessed at).
+  CHUNK 0x0018  VERIFICATION   — product-verification report vs. a reference mesh. Only
+                                 written when meta['verify_reference_r2_key'] is supplied.
+                                 See verify.py.
 
 Pipeline stages:
   1. Download raw capture from R2
@@ -42,6 +52,7 @@ Requirements:
 
 import os
 import sys
+import math
 import struct
 import zlib
 import time
@@ -122,12 +133,15 @@ CHUNK_THUMB  = 0x0015  # Raw JPEG poster image, embedded — same reason as CHUN
                         # Previously the thumbnail only existed as a separate thumb.jpg R2
                         # object; the .nif itself shipped with no poster image at all.
 CHUNK_PHYSICS = 0x000C  # JSON, same schema encodePhysicsChunk()/decodePhysicsChunk() in
-                        # NIFSpec.js use. Written as an empty {bodies:[],constraints:[]}
-                        # skeleton here — this pipeline has no way to know where a
-                        # capture's hinges/joints actually are (that's authored, not
-                        # reconstructed). Writing it always (even empty) means every .nif
-                        # has a well-formed PHYSICS chunk to append to later — via
-                        # NIFHingeAuthor.js — rather than every downstream tool needing to
+                        # NIFSpec.js use. _build_physics_chunk() (below) fills in one real
+                        # whole-object rigid body — mass from actual mesh volume × a per-
+                        # vertical density heuristic when possible, honestly flagged
+                        # otherwise. This pipeline still has no way to know where a
+                        # capture's hinges/joints are (that's authored, not reconstructed —
+                        # per-part physics stays manual via NIFHingeAuthor.js). Writing it
+                        # always (even with an empty bodies list, when mesh extraction
+                        # failed) means every .nif has a well-formed PHYSICS chunk to
+                        # append to later, rather than every downstream tool needing to
                         # handle "chunk may not exist at all" as a separate case.
 
 # Encoder tier constants (must match NIFSpec.js ENCODER_TIER)
@@ -139,13 +153,19 @@ ENCODER_TIER_ENTERPRISE  = 0x04
 ENCODER_TIER_INTERNAL    = 0xFF  # Fumoca pipeline — highest trust
 
 
-def _build_cert_chunk(encoder_id: str, licensee_id: str, tier: int = ENCODER_TIER_INTERNAL) -> bytes:
+def _build_cert_chunk(encoder_id: str, licensee_id: str, tier: int) -> bytes:
     """
     Build a CERT chunk for embedding in every NIF file.
 
     The certificate identifies the encoder that produced the file.
     Fumoca pipeline always uses INTERNAL tier — the highest trust level.
     Third-party licensed encoders use DEVELOPER/COMMERCIAL/OEM/ENTERPRISE.
+
+    `tier` has no default on purpose. INTERNAL is Fumoca's own highest-trust
+    tier — if a future external/licensed-encoder code path called this
+    function and silently inherited a default, it would mint INTERNAL-trust
+    certificates for files Fumoca didn't actually produce. Every caller must
+    state the tier explicitly.
 
     Layout (128 bytes):
       [0]     tier:1         encoder tier byte
@@ -180,10 +200,138 @@ def _build_cert_chunk(encoder_id: str, licensee_id: str, tier: int = ENCODER_TIE
     # sig bytes [73..104] remain zero — validated by encoder registry
     return bytes(cert)
 CHUNK_SEM    = 0x0016
+CHUNK_CALIB  = 0x0017  # Real-world scale calibration record — see estimate_scale().
+                        # Without this, mesh/STL/captured_dims are "correctly shaped,
+                        # unknown size" (COLMAP/monocular-depth scale is arbitrary or
+                        # per-model-relative, not metric on its own). Every consumer
+                        # that cares about real units (print pipeline, product
+                        # verification) reads scale_factor + confidence from here
+                        # instead of assuming raw positions are already in metres.
+CHUNK_VERIFY = 0x0018  # Product-verification report — see verify.py. Only present
+                        # when a reference mesh was supplied for this job; absence of
+                        # this chunk means "not verified", not "passed verification".
 
 CODEC_RAW  = 0x00
 CODEC_GZIP = 0x02
 MIN_COMPRESS = 1024  # don't compress tiny chunks
+
+# See the Draco block in _extract_mesh() for why this used to default False:
+# the JS read path didn't decode Draco. nif-format.js now has a real
+# DRACOLoader-based decoder (see decodeMeshChunk/_decodeDracoMesh there), so
+# it's a real path — but the encode/decode round trip has still NOT been run
+# end-to-end against a real browser (no browser/wasm available from here to
+# verify it, and test_draco_roundtrip.py only proves the Python side).
+#
+# DEFAULTING TO FALSE for the pilot: the goal of the first real capture is
+# to prove the reconstruction pipeline itself (COLMAP → Gaussians → mesh →
+# NIF) with as few unverified variables as possible. Draco introduces two
+# unknowns at once (DracoPy's encode correctness, and THREE.DRACOLoader's
+# decode of it) on top of everything else that's never been executed. The
+# raw struct mesh format (flag 0x00) is the proven, always-works path —
+# use it for pilot capture #1. Once that succeeds end-to-end in the viewer,
+# flip this back to True and re-run specifically to check Draco's round
+# trip (compare vertex/color count and values against the raw-format run
+# of the same capture) — a targeted, isolated test instead of a variable
+# riding along inside the very first real run.
+ENABLE_DRACO_MESH = False
+
+# ── Rough material-density heuristic, by vertical ───────────────────────────
+# NOT measured per-object material — a single average kg/m³ per broad
+# category, used only to turn a real (calibrated, watertight) mesh volume
+# into a physically-plausible mass instead of an arbitrary placeholder.
+# Genuinely wrong for any specific object (a "product" could be a phone or
+# a couch) — this is a starting estimate for physics simulation to feel
+# roughly right, not a materials-science claim. Always paired with a
+# mass_estimation_method field in the PHYSICS chunk so nothing downstream
+# mistakes this for a measured property.
+VERTICAL_DENSITY_KG_M3 = {
+    'fashion':      300.0,   # textile/leather, mostly-hollow garment shapes
+    'product':      950.0,   # generic plastic/consumer-electronics average
+    'travel':       950.0,   # luggage — plastic/fabric shells, mostly hollow
+    'art':         1600.0,   # ceramic/resin/stone sculpture average — highly variable
+    'architecture': 1900.0,  # masonry/model average — see note below, often not applicable
+    'music':        500.0,   # instruments — wood, hollow resonant bodies
+    'food':         800.0,   # varies enormously; below water density on average (hollow/porous)
+    'other':       1000.0,   # neutral default — water-like density
+}
+DEFAULT_DENSITY_KG_M3 = 1000.0
+# Verticals where a single-object rigid-body mass estimate is usually
+# meaningless (a building, a landscape, a whole street) — physics still gets
+# a valid chunk, but mass_estimation_method is set to 'not_applicable'
+# rather than producing a nonsense multi-tonne "object."
+PHYSICS_NOT_APPLICABLE_VERTICALS = {'architecture', 'travel'}
+
+
+def _build_physics_chunk(mesh_info: dict | None, vertical: str, calibration: dict, meta: dict) -> dict:
+    """
+    Builds a real PHYSICS chunk instead of the permanently-empty
+    {'bodies': [], 'constraints': []} skeleton this used to hardcode.
+
+    Scope, deliberately: ONE rigid body representing the whole reconstructed
+    object. Per-part / multi-body physics (e.g. a hinge on a laptop lid)
+    needs object-part segmentation, which this pipeline doesn't do yet — that
+    stays a separate, future feature (and is exactly what the in-browser
+    NIFHingeAuthorPanel + window._fumocaAuthoredPhysicsChunk passthrough
+    already covers for manually-authored cases; see publish-to-fumoca.js).
+
+    Mass is only computed from real geometry when it can be trusted:
+      - mesh_info is None (mesh extraction failed) → no bodies at all,
+        same honest empty chunk as before.
+      - mesh not watertight → trimesh volume is not reliable (can be
+        wildly wrong or negative on an open surface), so mass falls back
+        to a flagged placeholder rather than a fake-precise number.
+      - not calibrated (confidence == 'none') → volume is in an arbitrary
+        reconstruction-space unit, not real m³, so a "kg" mass would be
+        fiction. Falls back to the same flagged placeholder.
+      - watertight AND calibrated → mass = real_volume_m3 × density
+        heuristic for this vertical. Real geometry, heuristic material —
+        method is labeled exactly that, never claimed as "measured."
+    """
+    OBJECT_ID = 'root'  # single whole-object body; see docstring on scope
+    FALLBACK_MASS_KG = 1.0  # generic placeholder when volume can't be trusted
+
+    if mesh_info is None:
+        return {'bodies': [], 'constraints': []}
+
+    density = VERTICAL_DENSITY_KG_M3.get(vertical, DEFAULT_DENSITY_KG_M3)
+    trustworthy_volume = bool(mesh_info.get('is_watertight')) and calibration.get('confidence') not in (None, 'none')
+
+    if vertical in PHYSICS_NOT_APPLICABLE_VERTICALS:
+        mass_kg = None
+        mass_estimation_method = 'not_applicable'
+        note = (f"vertical='{vertical}' is usually a scene/structure, not a single graspable "
+                f"object — mass estimation skipped rather than producing a nonsense value.")
+    elif trustworthy_volume:
+        mass_kg = round(mesh_info['volume_m3'] * density, 4)
+        mass_estimation_method = 'geometry_volume_x_density_heuristic'
+        note = (f"mass = real mesh volume ({mesh_info['volume_m3']:.6f} m³, watertight, "
+                f"calibration confidence={calibration.get('confidence')}) × {density} kg/m³ "
+                f"heuristic density for vertical='{vertical}'. Volume is real; density is a "
+                f"category average, not a measured material property.")
+    else:
+        mass_kg = FALLBACK_MASS_KG
+        mass_estimation_method = 'placeholder_uncalibrated'
+        reasons = []
+        if not mesh_info.get('is_watertight'):
+            reasons.append('mesh is not watertight (volume would be unreliable)')
+        if calibration.get('confidence') in (None, 'none'):
+            reasons.append('capture is not calibrated (no real-world scale)')
+        note = (f"mass is a generic {FALLBACK_MASS_KG}kg placeholder, NOT derived from geometry — "
+                f"{'; '.join(reasons)}.")
+
+    body = {
+        'objectId': OBJECT_ID,
+        'type': 'rigid',
+        'mass': mass_kg,
+        'mass_estimation_method': mass_estimation_method,
+        'note': note,
+        'friction': 0.5,       # generic mid-range default, not per-object measured
+        'restitution': 0.2,    # generic low-bounce default
+        'collisionShape': 'mesh',  # references this file's own KEYFRAME_MESH chunk
+    }
+    return {'bodies': [body], 'constraints': []}
+
+
 
 def _compress(data: bytes) -> tuple[bytes, int]:
     """Compress with gzip. Return (data, codec).
@@ -217,7 +365,7 @@ def pack_nif(chunks: list, vertical: str, fps: int = 30) -> bytes:
     """Pack a list of (chunk_type, data_bytes) into a complete .nif binary."""
     hdr = bytearray(256)
     struct.pack_into('>I', hdr, 0,  NIF_MAGIC)
-    hdr[4], hdr[5] = 1, 0          # version 1.0
+    hdr[4], hdr[5] = 1, 1          # version 1.1 — added CALIBRATION/VERIFICATION chunks
     struct.pack_into('>q', hdr, 8,  int(time.time() * 1000))
     hdr[16] = 0                     # CRS: LOCAL
     struct.pack_into('>H', hdr, 18, 1)   # frameCount
@@ -262,32 +410,65 @@ class DeblurNet(nn.Module):
 
 
 # ─── Stage 2: Depth estimation (DepthAnything v2) ─────────────────────────────
-def estimate_depth(frames: list[np.ndarray]) -> list[np.ndarray]:
+def estimate_depth(frames: list[np.ndarray], vertical: str = '') -> tuple[list[np.ndarray], bool]:
     """
-    Estimate metric depth for each frame using DepthAnything v2.
-    Returns list of float32 depth maps (H, W) in metres.
-    Falls back to MiDaS if DepthAnything v2 unavailable.
+    Estimate depth for each frame using DepthAnything v2.
+    Returns (depth_maps, is_metric) — depth_maps is a list of float32 (H, W)
+    arrays; is_metric tells the caller whether those values are real metres
+    or an arbitrary relative scale.
+
+    IMPORTANT — this used to claim "metric depth in metres" unconditionally
+    while actually loading 'depth-anything/Depth-Anything-V2-Large', which is
+    the *relative*-depth checkpoint. DepthAnything only produces true metric
+    output from its separately fine-tuned Metric-Indoor/Metric-Outdoor
+    checkpoints. That mismatch meant every downstream "_m" field
+    (captured_dims, STL) was silently trusting units that were never actually
+    metric. Fixed here: try the real metric checkpoint first, and — critically
+    — tell the caller which one we actually got so it can decide whether to
+    trust these values directly or lean on estimate_scale() instead.
     """
+    indoor_verticals = {'furniture', 'realestate', 'interior', 'retail'}
+    metric_variant = 'Metric-Indoor-Large' if vertical in indoor_verticals else 'Metric-Outdoor-Large'
     try:
         from depth_anything_v2.dpt import DepthAnythingV2
-        model = DepthAnythingV2(encoder='vitl', features=256, out_channels=[256,512,1024,1024])
-        # Load from HuggingFace Hub
         from huggingface_hub import hf_hub_download
-        ckpt = hf_hub_download('depth-anything/Depth-Anything-V2-Large', 'depth_anything_v2_vitl.pth')
+        model = DepthAnythingV2(encoder='vitl', features=256, out_channels=[256,512,1024,1024],
+                                 max_depth=20 if 'Indoor' in metric_variant else 80)
+        ckpt = hf_hub_download(f'depth-anything/Depth-Anything-V2-{metric_variant}',
+                                f'depth_anything_v2_metric_{"indoor" if "Indoor" in metric_variant else "outdoor"}_vitl.pth')
         model.load_state_dict(torch.load(ckpt, map_location='cpu'))
         model = model.to(DEVICE).eval()
-        print('[NIF] DepthAnything v2 ViT-L loaded')
+        print(f'[NIF] DepthAnything v2 {metric_variant} loaded (real metric depth, metres)')
 
         depths = []
         with torch.no_grad():
             for frame in frames:
-                depth = model.infer_image(frame)  # returns numpy H×W float32
+                depth = model.infer_image(frame)  # returns numpy H×W float32, metres
                 depths.append(depth)
-        return depths
+        return depths, True
+
+    except Exception as e:
+        print(f'[NIF] Metric DepthAnything v2 unavailable ({e}) — trying relative checkpoint')
+
+    try:
+        from depth_anything_v2.dpt import DepthAnythingV2
+        from huggingface_hub import hf_hub_download
+        model = DepthAnythingV2(encoder='vitl', features=256, out_channels=[256,512,1024,1024])
+        ckpt = hf_hub_download('depth-anything/Depth-Anything-V2-Large', 'depth_anything_v2_vitl.pth')
+        model.load_state_dict(torch.load(ckpt, map_location='cpu'))
+        model = model.to(DEVICE).eval()
+        print('[NIF] DepthAnything v2 ViT-L loaded (RELATIVE depth — not metres, needs calibration)')
+
+        depths = []
+        with torch.no_grad():
+            for frame in frames:
+                depth = model.infer_image(frame)
+                depths.append(depth)
+        return depths, False
 
     except ImportError:
         print('[NIF] DepthAnything v2 not available — using MiDaS fallback')
-        return _midas_depth(frames)
+        return _midas_depth(frames), False
 
 def _midas_depth(frames):
     """MiDaS relative depth fallback (relative, not metric but still useful for separation)."""
@@ -306,6 +487,114 @@ def _midas_depth(frames):
     except Exception as e:
         print(f'[NIF] Depth estimation failed: {e} — using linear fallback')
         return [np.ones((f.shape[0], f.shape[1]), dtype=np.float32) for f in frames]
+
+
+# ─── Stage 2b: Real-world scale calibration ───────────────────────────────────
+def estimate_scale(ref_frame: np.ndarray, depth_map: np.ndarray, is_metric_depth: bool,
+                    meta: dict) -> dict:
+    """
+    Determine the scale factor that turns reconstruction-space units into real
+    metres, and how much to trust it. Tries, in order of preference:
+
+      1. ArUco marker in frame with a known physical size (meta['calibration_
+         marker_size_m']) — solvePnP gives the marker's real depth from the
+         camera; comparing that to the (relative or metric) depth map's value
+         at the marker's pixel gives an exact scale factor, independent of
+         whatever the depth model itself produces. This is the only method
+         that also corrects a *metric* model's residual scale drift, not just
+         a relative model's missing scale.
+      2. A manually supplied reference measurement (meta['reference_size_m'] +
+         meta['reference_pixel_span'], e.g. a user-entered "this edge is
+         30cm" from the capture UI).
+      3. The metric depth model's own output, taken as-is (medium confidence —
+         single-image metric depth models are known to drift, typically
+         5-15% error on real objects, but that's still far better than an
+         arbitrary SfM/relative-depth scale).
+      4. Nothing — explicitly reported as uncalibrated rather than silently
+         assumed to be metres.
+
+    Returns {method, scale_factor, confidence, units, note}. scale_factor is
+    the multiplier to apply to reconstruction-space positions to get metres;
+    None if nothing could be determined.
+    """
+    marker_size_m = meta.get('calibration_marker_size_m')
+    if marker_size_m:
+        try:
+            import cv2
+            gray = cv2.cvtColor(ref_frame, cv2.COLOR_RGB2GRAY)
+            aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
+            detector = cv2.aruco.ArucoDetector(aruco_dict, cv2.aruco.DetectorParameters())
+            corners, ids, _ = detector.detectMarkers(gray)
+            if ids is not None and len(corners) > 0:
+                h, w = gray.shape
+                # Approximate intrinsics from image size — no calibration file
+                # available at this stage of the pipeline, so this uses the
+                # common "focal length ≈ image width" heuristic (roughly right
+                # for typical phone camera FOVs, logged so it's not mistaken
+                # for a real calibrated intrinsics matrix).
+                focal = w
+                K = np.array([[focal, 0, w/2], [0, focal, h/2], [0, 0, 1]], dtype=np.float64)
+                dist = np.zeros(5)
+                obj_pts = np.array([
+                    [-marker_size_m/2,  marker_size_m/2, 0],
+                    [ marker_size_m/2,  marker_size_m/2, 0],
+                    [ marker_size_m/2, -marker_size_m/2, 0],
+                    [-marker_size_m/2, -marker_size_m/2, 0],
+                ], dtype=np.float64)
+                ok, rvec, tvec = cv2.solvePnP(obj_pts, corners[0][0], K, dist)
+                if ok:
+                    real_depth_m = float(tvec[2][0])
+                    cx, cy = corners[0][0].mean(axis=0)
+                    px, py = int(np.clip(cx, 0, w-1)), int(np.clip(cy, 0, h-1))
+                    depth_at_marker = float(depth_map[py, px])
+                    if depth_at_marker > 1e-6:
+                        scale_factor = real_depth_m / depth_at_marker
+                        return {
+                            'method': 'aruco_marker', 'scale_factor': scale_factor,
+                            'confidence': 'high', 'units': 'meters',
+                            'note': f'ArUco marker {marker_size_m}m, approx intrinsics '
+                                    f'(focal≈image width) — real distance {real_depth_m:.3f}m',
+                        }
+        except Exception as e:
+            print(f'[NIF] ArUco calibration failed ({e}) — falling back')
+
+    ref_size_m = meta.get('reference_size_m')
+    ref_pixel_span = meta.get('reference_pixel_span')
+    if ref_size_m and ref_pixel_span:
+        try:
+            h, w = depth_map.shape
+            cy, cx = h // 2, w // 2
+            depth_at_center = float(depth_map[cy, cx])
+            angular_span = ref_pixel_span / w
+            if depth_at_center > 1e-6 and angular_span > 1e-6:
+                approx_real_span = 2 * depth_at_center * np.tan(angular_span / 2)
+                scale_factor = float(ref_size_m) / max(approx_real_span, 1e-6)
+                return {
+                    'method': 'manual_reference', 'scale_factor': scale_factor,
+                    'confidence': 'medium', 'units': 'meters',
+                    'note': f'User-supplied reference: {ref_size_m}m spanning '
+                            f'{ref_pixel_span}px',
+                }
+        except Exception as e:
+            print(f'[NIF] Manual reference calibration failed ({e}) — falling back')
+
+    if is_metric_depth:
+        return {
+            'method': 'metric_depth_model', 'scale_factor': 1.0,
+            'confidence': 'medium', 'units': 'meters',
+            'note': 'DepthAnything v2 metric checkpoint output taken as-is — '
+                    'no independent reference to correct residual model drift '
+                    '(typically 5-15% on real objects).',
+        }
+
+    return {
+        'method': 'none', 'scale_factor': None,
+        'confidence': 'none', 'units': 'unknown',
+        'note': 'No calibration marker, no manual reference, and depth model '
+                'output is relative — mesh/dims are shape-correct only, NOT '
+                'dimensionally trustworthy. Do not use for measurement, '
+                'printing, or verification without adding a calibration input.',
+    }
 
 
 # ─── Stage 3: Background removal (rembg / BiRefNet) ──────────────────────────
@@ -393,6 +682,98 @@ def segment_objects(frame: np.ndarray, alpha_mask: np.ndarray) -> dict:
         return {0: {'mask': alpha_mask, 'bbox': [0,0,frame.shape[1],frame.shape[0]], 'label':0, 'area':int(alpha_mask.sum()/255), 'score':1.0}}
 
 
+def track_primary_object(frames: list, alpha_masks: list) -> list:
+    """
+    Track the primary foreground object across every frame using SAM 2's
+    *video* predictor — a genuinely different API from segment_objects()
+    above, which only ever sees one frame at a time and has no concept of
+    "the same object in frame 40 as frame 1". This is real identity
+    tracking: one object ID, propagated through the whole sequence, using
+    SAM 2's internal memory mechanism rather than independent per-frame
+    detection.
+
+    Seeding: rather than requiring a manual click/box, the seed box is
+    derived automatically from alpha_masks[0]'s largest connected
+    foreground component — reusing background removal's own reference-
+    frame mask as "here's roughly where the object is" for frame 0, then
+    letting the video predictor's tracking do the rest across all frames.
+
+    Returns a list of per-frame masks (same length/shape convention as
+    alpha_masks). Falls back to returning alpha_masks UNCHANGED if sam2's
+    video predictor isn't installed, or if tracking fails for any reason
+    (e.g. wrong config/checkpoint filenames for a given install) — same
+    fallback philosophy as segment_objects() above: this is degraded
+    (independent per-frame masks instead of a tracked object identity),
+    not broken, so the pipeline keeps running rather than failing the job.
+
+    CAVEAT: written against SAM 2's documented video predictor API
+    (init_state / add_new_points_or_box / propagate_in_video) but not
+    executed here — no GPU or SAM 2 install in this environment. The
+    config/checkpoint filenames below are guesses at common defaults, not
+    verified paths — check they match what's actually on disk wherever
+    this runs, and expect to correct them.
+    """
+    if len(frames) < 2:
+        return alpha_masks
+
+    try:
+        from sam2.build_sam import build_sam2_video_predictor
+        import cv2
+
+        config_file = os.environ.get('FUMOCA_SAM2_VIDEO_CONFIG', 'sam2_hiera_s.yaml')
+        checkpoint  = os.environ.get('FUMOCA_SAM2_VIDEO_CHECKPOINT', 'sam2_hiera_small.pt')
+        predictor = build_sam2_video_predictor(config_file, checkpoint, device=DEVICE)
+
+        # SAM 2's video predictor expects a directory of frame images on
+        # disk, not in-memory arrays — write them out to a scratch dir.
+        frame_dir = Path(tempfile.mkdtemp(prefix='sam2_track_'))
+        try:
+            for i, f in enumerate(frames):
+                cv2.imwrite(str(frame_dir / f'{i:05d}.jpg'), cv2.cvtColor(f, cv2.COLOR_RGB2BGR))
+
+            inference_state = predictor.init_state(video_path=str(frame_dir))
+
+            # Seed box from alpha_masks[0]'s largest connected foreground
+            # component — this is what "identify primary object" resolves
+            # to automatically, no manual prompt needed.
+            fg = (alpha_masks[0] > 127).astype(np.uint8)
+            n_labels, labels = cv2.connectedComponents(fg)
+            if n_labels <= 1:
+                print('[NIF] No foreground component in alpha_masks[0] — skipping video tracking')
+                return alpha_masks
+            sizes = [(labels == i).sum() for i in range(1, n_labels)]
+            largest_label = 1 + int(np.argmax(sizes))
+            ys, xs = np.where(labels == largest_label)
+            box = np.array([xs.min(), ys.min(), xs.max(), ys.max()], dtype=np.float32)
+
+            predictor.add_new_points_or_box(inference_state, frame_idx=0, obj_id=1, box=box)
+
+            tracked_masks = [None] * len(frames)
+            for out_frame_idx, out_obj_ids, out_mask_logits in predictor.propagate_in_video(inference_state):
+                m = (out_mask_logits[0] > 0.0).cpu().numpy().astype(np.uint8) * 255
+                if m.ndim == 3:
+                    m = m[0]
+                tracked_masks[out_frame_idx] = m
+
+            # Any frame the predictor didn't cover (shouldn't normally
+            # happen) falls back to that frame's own bg-removal mask rather
+            # than leaving None in the list.
+            for i in range(len(frames)):
+                if tracked_masks[i] is None:
+                    tracked_masks[i] = alpha_masks[i]
+
+            print(f'[NIF] SAM 2 video tracking: object propagated across {len(frames)} frames '
+                  f'(seed box from alpha_masks[0], one tracked identity throughout)')
+            return tracked_masks
+        finally:
+            shutil.rmtree(frame_dir, ignore_errors=True)
+
+    except (ImportError, Exception) as e:
+        print(f'[NIF] SAM 2 video tracking not available ({e}) — using per-frame '
+              f'background-removal masks instead (no cross-frame object identity)')
+        return alpha_masks
+
+
 # ─── Stage 5: Gaussian Splatting ─────────────────────────────────────────────
 def _dequantize_geometry(geo_bytes: bytes) -> tuple[int, np.ndarray]:
     """
@@ -446,14 +827,62 @@ def _dequantize_geometry(geo_bytes: bytes) -> tuple[int, np.ndarray]:
 class GaussianSplatTrainer:
     """Train a 3D depth field using gsplat v1.x API."""
 
-    def __init__(self, n: int = 50_000):
+    def __init__(self, n: int = 50_000, init_points: np.ndarray | None = None,
+                 device: str | None = None):
+        """
+        init_points: optional (M, 3) array of real 3D points (COLMAP's sparse
+        SfM point cloud) to seed self.means from, instead of pure random
+        noise. This is the "geometry-derived Gaussians" step — Gaussians
+        start at positions the reconstructed camera geometry actually
+        observed, instead of a random cloud that has to be optimized into
+        the right shape purely from photometric gradient.
+
+        Falls back to the old random-init behavior when init_points is None
+        or too sparse to be a meaningful seed (COLMAP can produce very few
+        points on a weak-texture capture) — a handful of real points isn't a
+        better starting distribution than random for 20k+ Gaussians, so the
+        threshold below avoids seeding from noise that happens to have 3D
+        coordinates.
+
+        device: all parameters are created directly on this device. This
+        matters more than it looks — nn.Parameter().to(device) does NOT
+        preserve leaf-tensor status when device actually changes (the .to()
+        call becomes a tracked, differentiable op, so the result is a
+        non-leaf tensor with a grad_fn). torch.optim.Optimizer explicitly
+        rejects non-leaf tensors ("can't optimize a non-leaf Tensor") when
+        you build the optimizer from them. The previous code created
+        parameters on CPU (torch.randn with no device=) and then reassigned
+        trainer.means = trainer.means.to(DEVICE) etc. in _train_gaussians
+        before building the optimizer — which is exactly that failure mode,
+        and would raise on every real GPU run. Creating tensors on-device
+        from the start avoids the .to() reassignment entirely.
+        """
         self.n    = n
-        self.device = DEVICE
-        self.means       = nn.Parameter(torch.randn(n, 3) * 0.3)
-        self.log_scales  = nn.Parameter(torch.full((n, 3), -3.0))
-        self.quats       = nn.Parameter(F.normalize(torch.randn(n, 4), dim=-1))
-        self.log_opacity = nn.Parameter(torch.zeros(n))
-        self.sh0         = nn.Parameter(torch.zeros(n, 3))
+        self.device = device if device is not None else DEVICE
+        MIN_SEED_POINTS = 200
+        if init_points is not None and len(init_points) >= MIN_SEED_POINTS:
+            pts = torch.tensor(init_points, dtype=torch.float32, device=self.device)
+            # Sample n means from the point cloud (with replacement if the
+            # cloud is smaller than n, which is the common case — COLMAP's
+            # sparse cloud is typically far fewer points than n_gaussians).
+            idx = torch.randint(0, len(pts), (n,), device=self.device)
+            seeded = pts[idx]
+            # Small jitter so Gaussians starting at the exact same COLMAP
+            # point (common under with-replacement sampling) aren't fighting
+            # over identical gradients at step 0.
+            seeded = seeded + torch.randn_like(seeded) * 0.02
+            self.means = nn.Parameter(seeded)
+            print(f'[NIF] Gaussians seeded from {len(pts):,} COLMAP sparse points '
+                  f'(geometry-derived init, not random)')
+        else:
+            if init_points is not None:
+                print(f'[NIF] Only {len(init_points)} COLMAP sparse points — '
+                      f'below the {MIN_SEED_POINTS} minimum to seed from, using random init')
+            self.means = nn.Parameter(torch.randn(n, 3, device=self.device) * 0.3)
+        self.log_scales  = nn.Parameter(torch.full((n, 3), -3.0, device=self.device))
+        self.quats       = nn.Parameter(F.normalize(torch.randn(n, 4, device=self.device), dim=-1))
+        self.log_opacity = nn.Parameter(torch.zeros(n, device=self.device))
+        self.sh0         = nn.Parameter(torch.zeros(n, 3, device=self.device))
         self._opt = self._make_optimizer()
         self._step = 0
 
@@ -472,7 +901,18 @@ class GaussianSplatTrainer:
         quats_n = F.normalize(self.quats, dim=-1)
         scales  = torch.exp(self.log_scales).clamp(min=1e-6)
         opacities = torch.sigmoid(self.log_opacity)
-        colours   = torch.sigmoid(self.sh0) + 0.5
+        # sigmoid alone is already (0,1), matching ground truth's [0,1]
+        # range (frames are /255.0 before training — see _train_gaussians).
+        # The prior "+ 0.5" shifted this to (0.5, 1.5): since sigmoid can
+        # never reach 0, colours could never go below 0.5, so the model was
+        # structurally unable to represent dark colors — shadows, dark
+        # leather, charred edges, black text, all clamp toward a brightness
+        # floor it can't train past. Note this does change the color at
+        # step 0: sh0 initializes to zeros, so init color is now
+        # sigmoid(0)=0.5 (neutral grey) instead of the old sigmoid(0)+0.5=1.0
+        # (pure white) — grey is the more standard splat-init choice, and
+        # unlike the old value it can actually converge toward black.
+        colours   = torch.sigmoid(self.sh0)
 
         rendered, _alpha, _info = gsplat.rasterization(
             means=self.means.unsqueeze(0),
@@ -888,31 +1328,102 @@ class ReconstructionWorker:
             frames, fps = self._extract_frames(raw, capture_mode)
             print(f'[NIF] {len(frames)} frames at {fps}fps')
 
+            # ── Frame usefulness filter — analyze all extracted frames,
+            # keep the ones that add real coverage (drop blur/near-dupes).
+            # Runs before deblur/depth/bg-removal/COLMAP so none of those
+            # more expensive stages pay for frames that add no viewpoint.
+            self._tick('processing', 14)
+            frames = self._select_useful_frames(frames)
+
+            # ── Viewpoint coverage filter — second stage, using actual
+            # estimated relative camera rotation rather than pixel
+            # difference. See _select_by_viewpoint_coverage's docstring for
+            # why this is a cheap proxy rather than full COLMAP-based
+            # coverage (poses aren't known yet at this point).
+            self._tick('processing', 16)
+            frames = self._select_by_viewpoint_coverage(frames)
+
             self._tick('processing', 18)
             frames = self._deblur_frames(frames)
 
-            # ── Depth estimation (reference frame = first frame) ──────────────
+            # ── Depth estimation — now runs on every useful frame, not just
+            # the first. depth_maps[0] (the reference frame) still drives
+            # calibration and the single-frame CHUNK_DEPTH/CHUNK_ALPHA
+            # entries, since those chunks are reference-frame-only by
+            # format — but full-frame depth/masks are available below for
+            # anything that wants per-frame coverage rather than a single
+            # snapshot.
             self._tick('processing', 25)
             ref_frame = frames[0]
-            depth_maps = estimate_depth([ref_frame])
-            depth_map  = depth_maps[0]  # (H, W) float32
+            depth_maps, is_metric_depth = estimate_depth(frames, vertical)
+            depth_map  = depth_maps[0]  # (H, W) float32 — reference frame
 
-            # ── Background removal ────────────────────────────────────────────
+            # ── Scale calibration — determines whether/how reconstruction-
+            # space units map to real metres. Computed here (frame + depth
+            # available) but applied later, after mesh extraction, since that's
+            # where "positions" actually get consumed for anything metric.
+            calibration = estimate_scale(ref_frame, depth_map, is_metric_depth, meta)
+            print(f"[NIF] Calibration: {calibration['method']} "
+                  f"(confidence={calibration['confidence']}) — {calibration['note']}")
+
+            # ── Background removal — now runs on every useful frame.
+            # alpha_masks[0] still backs the single-frame CHUNK_ALPHA and
+            # reference segmentation below.
             self._tick('processing', 33)
-            alpha_masks = remove_background([ref_frame])
-            alpha_mask  = alpha_masks[0]  # (H, W) uint8
+            alpha_masks = remove_background(frames)
+            alpha_mask  = alpha_masks[0]  # (H, W) uint8 — reference frame
+
+            # ── Temporal object tracking — SAM 2's video predictor,
+            # propagating ONE tracked object identity across every frame
+            # (seeded automatically from alpha_masks[0]'s largest foreground
+            # component). This replaces the per-frame independent bg-removal
+            # masks with masks that all refer to the same tracked object —
+            # falls back to the untracked alpha_masks unchanged if SAM 2's
+            # video predictor isn't installed/configured. See
+            # track_primary_object()'s docstring for the real caveat: this
+            # is unexecuted here, no GPU/SAM2 in this environment.
+            self._tick('processing', 36)
+            object_masks = track_primary_object(frames, alpha_masks)
 
             # ── Segmentation ──────────────────────────────────────────────────
             self._tick('processing', 38)
             segments = segment_objects(ref_frame, alpha_mask)
 
-            # ── Pose estimation ───────────────────────────────────────────────
+            # ── Pose estimation — also validates geometry (pose_source tells
+            # us whether COLMAP actually produced real multi-view geometry,
+            # or fell back to a synthetic orbit) and returns COLMAP's sparse
+            # point cloud when available, so training can start from real
+            # geometry instead of random noise.
             self._tick('processing', 42)
-            poses, pose_source = self._estimate_poses(frames)
+            poses, pose_source, sparse_points = self._estimate_poses(frames)
 
-            # ── 3D depth field training ───────────────────────────────────────
+            # ── Geometry quality gate — opt-in hard stop before Gaussian
+            # training. Default is off (FUMOCA_STRICT_GEOMETRY_GATE unset),
+            # which preserves the existing behavior: a synthetic/degraded
+            # pose_source still trains (at reduced budget — see
+            # _train_gaussians) and ships a result explicitly labeled
+            # 'pose_estimation_fallback' in quality_warnings, rather than
+            # failing the job outright. Set FUMOCA_STRICT_GEOMETRY_GATE=1 to
+            # instead abort here — no training, no mesh, no NIF — whenever
+            # pose_source isn't 'colmap'. This is a product decision, not a
+            # correctness one: which behavior you want depends on whether a
+            # visibly-labeled degraded result is useful to ship or worse
+            # than no result at all. Raising here routes through run()'s
+            # existing except-block failure path (self._tick('failed', ...)),
+            # so no new error-handling plumbing is needed.
+            if os.environ.get('FUMOCA_STRICT_GEOMETRY_GATE') == '1' and pose_source != 'colmap':
+                raise RuntimeError(
+                    f'Geometry validation failed (pose_source={pose_source}) — '
+                    f'FUMOCA_STRICT_GEOMETRY_GATE=1 aborts before Gaussian training '
+                    f'instead of training on a synthetic/degraded fallback.'
+                )
+
+            # ── 3D depth field training — geometry-derived init when pose_source
+            # == 'colmap' (real SfM geometry), and a reduced iteration budget
+            # when it isn't, instead of spending the full budget optimizing
+            # against poses already known to be a synthetic fallback.
             self._tick('processing', 52)
-            n, geo_bytes = self._train_gaussians(frames, poses)
+            n, geo_bytes, eval_psnr = self._train_gaussians(frames, poses, sparse_points, pose_source)
 
             # Dequantize for internal use (mesh extraction, layer splitting need
             # the canonical float32 form regardless of which format was written).
@@ -921,9 +1432,21 @@ class ReconstructionWorker:
             # successful training run would have crashed right here.
             count, geo_data = _dequantize_geometry(geo_bytes)
 
+            # ── Apply scale calibration (if any) before anything metric-facing
+            # consumes positions. The raw GEO/LAYER chunks stay in native
+            # reconstruction-space units unchanged (that's what the existing
+            # viewer already renders and nothing needs to break there) — only
+            # the mesh, STL, and captured_dimensions below get calibrated,
+            # since those are exactly the outputs product-verification and
+            # printing actually depend on being real-world accurate.
+            scale_factor = calibration.get('scale_factor')
+            mesh_geo_data = geo_data.copy()
+            if scale_factor:
+                mesh_geo_data[:, 0:3] *= scale_factor
+
             # ── Real mesh extraction — triangulation from the trained Gaussians ─
             self._tick('processing', 65)
-            mesh_bytes, stl_bytes = self._extract_mesh(geo_data)
+            mesh_bytes, stl_bytes, mesh_info = self._extract_mesh(mesh_geo_data)
 
             self._tick('processing', 72)
             layer_bytes = split_layers(
@@ -957,8 +1480,30 @@ class ReconstructionWorker:
                 # nif-format.js) — without these, a .nif produced by this worker
                 # had no title, no hotspots, and no poster image outside Supabase.
                 (CHUNK_META,    self._pack_meta(vertical, meta)),
-                (CHUNK_PHYSICS, json.dumps({'bodies': [], 'constraints': []}).encode('utf-8')),
+                (CHUNK_PHYSICS, json.dumps(_build_physics_chunk(mesh_info, vertical, calibration, meta)).encode('utf-8')),
+                (CHUNK_CALIB,   json.dumps(calibration).encode('utf-8')),
             ]
+            # ── Product verification — only runs when the job explicitly
+            # supplies a reference mesh to compare against (meta
+            # ['verify_reference_r2_key']). Absence of CHUNK_VERIFY means
+            # "not requested", not "passed" — never inferred as a pass.
+            verify_reference_key = meta.get('verify_reference_r2_key')
+            if verify_reference_key and mesh_bytes:
+                try:
+                    from verify import verify_nif_meshes
+                    ref_path = self._download(verify_reference_key)
+                    ref_format = ref_path.suffix.lstrip('.').lower() or 'stl'
+                    verification = verify_nif_meshes(
+                        mesh_bytes, ref_path.read_bytes(),
+                        reference_format=ref_format,
+                        tolerance_mm=float(meta.get('verify_tolerance_mm', 2.0)),
+                        candidate_calibrated=bool(scale_factor),
+                    )
+                    chunks.append((CHUNK_VERIFY, json.dumps(verification).encode('utf-8')))
+                    print(f"[NIF] Verification: pass={verification.get('pass')} "
+                          f"mean_dev={verification.get('mean_deviation')}")
+                except Exception as e:
+                    print(f'[NIF] Verification failed (non-fatal, no CHUNK_VERIFY written): {e}')
             if thumb_bytes:
                 chunks.append((CHUNK_THUMB, thumb_bytes))
             if mesh_bytes:
@@ -986,18 +1531,83 @@ class ReconstructionWorker:
                 proxy_r2_key = self._upload_proxy_video(proxy_bytes, fps)
             thumbnail_r2 = self._upload_thumbnail_bytes(thumb_bytes)
 
-            # ── Compute captured dimensions from depth field ──────────────────
+            # ── Compute captured dimensions from the (possibly calibrated)
+            # mesh-space positions — labeled honestly depending on whether a
+            # real scale_factor was actually applied, not assumed.
             captured_dims = None
             try:
-                xs = geo_data[:,0]; ys = geo_data[:,1]; zs = geo_data[:,2]
+                xs = mesh_geo_data[:,0]; ys = mesh_geo_data[:,1]; zs = mesh_geo_data[:,2]
+                dims_key = 'm' if scale_factor else 'units'
                 captured_dims = {
-                    'height_m': float(round(float(ys.max()-ys.min()), 3)),
-                    'width_m':  float(round(float(xs.max()-xs.min()), 3)),
-                    'depth_m':  float(round(float(zs.max()-zs.min()), 3)),
+                    f'height_{dims_key}': float(round(float(ys.max()-ys.min()), 3)),
+                    f'width_{dims_key}':  float(round(float(xs.max()-xs.min()), 3)),
+                    f'depth_{dims_key}':  float(round(float(zs.max()-zs.min()), 3)),
+                    'calibrated': bool(scale_factor),
                 }
                 print(f'[NIF] Dims: {captured_dims}')
             except Exception as e:
                 print(f'[NIF] Dimension extraction failed: {e}')
+
+            # ── Quality gating — make degraded output loud, not silent. A
+            # verification/print consumer needs to know *before* trusting a
+            # file, not discover it after the fact from a support ticket.
+            quality_warnings = []
+            if pose_source != 'colmap':
+                quality_warnings.append('pose_estimation_fallback')  # synthetic poses, not real multi-view SfM
+            if calibration['confidence'] in ('none', 'medium'):
+                quality_warnings.append(f"scale_confidence_{calibration['confidence']}")
+            if not mesh_bytes:
+                quality_warnings.append('mesh_extraction_failed')
+            if object_masks is alpha_masks:  # `is` check: track_primary_object falls
+                # back by returning alpha_masks unchanged (same object) on any
+                # failure/unavailability — this distinguishes that from a real
+                # tracked result without needing a second return value.
+                quality_warnings.append('object_tracking_unavailable')
+            # PSNR check: eval_psnr is None when there weren't enough poses
+            # to hold any out (see _train_gaussians) — that's a "couldn't
+            # measure" case, not a "measured and it's bad" case, so it does
+            # NOT get flagged here on its own; low_reconstruction_quality
+            # AND holdout_frames_insufficient_for_eval are kept as distinct,
+            # honest signals rather than collapsing "unmeasured" into "bad".
+            if eval_psnr is not None and eval_psnr < 18.0:
+                quality_warnings.append(f'low_reconstruction_psnr_{eval_psnr:.1f}db')
+            elif eval_psnr is None:
+                quality_warnings.append('holdout_frames_insufficient_for_eval')
+            if mesh_info and not mesh_info.get('is_watertight'):
+                quality_warnings.append('mesh_not_watertight')
+            if mesh_info and mesh_info.get('n_degenerate_faces'):
+                n_deg = mesh_info['n_degenerate_faces']
+                n_tot = mesh_info.get('n_faces') or 1
+                if n_deg / n_tot > 0.05:  # >5% degenerate faces — provisional threshold, same caveat as PSNR
+                    quality_warnings.append(f'high_degenerate_face_ratio_{n_deg}_of_{n_tot}')
+            reconstruction_quality = 'full_multiview' if pose_source == 'colmap' else 'degraded_fallback'
+            verified_for_measurement = (
+                pose_source == 'colmap'
+                and calibration['confidence'] in ('high', 'medium')
+                and bool(mesh_bytes)
+            )
+
+            # ── Minimum-acceptable gate — this is the line between "shippable
+            # to a client" and "needs a retry." It is deliberately narrower
+            # than verified_for_measurement: verified_for_measurement is about
+            # whether you can trust a *measurement* off this file (needs real
+            # calibration too); MIN_ACCEPTABLE is about whether the object
+            # reconstructed at all. A capture with no calibration marker can
+            # still legitimately pass this gate and go live — it just won't
+            # be measurement-verified. A capture that fell back to a
+            # synthetic circular-orbit pose (no real multi-view geometry) or
+            # never produced a mesh should NOT reach a client looking like a
+            # finished result — those get sent back for a retry instead.
+            min_acceptable = (pose_source == 'colmap') and bool(mesh_bytes)
+            quality_reason = None
+            if not min_acceptable:
+                reasons = []
+                if pose_source != 'colmap':
+                    reasons.append('not enough usable viewpoints for a real 3D reconstruction — '
+                                    'try recapturing with a slower, fuller orbit around the object')
+                if not mesh_bytes:
+                    reasons.append('mesh extraction failed on the reconstructed geometry')
+                quality_reason = '; '.join(reasons)
 
             # ── Register ──────────────────────────────────────────────────────
             self._tick('processing', 95)
@@ -1013,13 +1623,39 @@ class ReconstructionWorker:
                 'captured_dimensions': captured_dims,
                 'pose_source':       pose_source,  # 'colmap' = real multi-view reconstruction;
                                                     # 'synthetic_*' = depth-based pseudo-3D fallback
-                'reconstruction_quality': 'full_multiview' if pose_source == 'colmap' else 'degraded_fallback',
+                'reconstruction_quality': reconstruction_quality,
                 'has_mesh':          bool(mesh_bytes),  # real triangulated geometry, not just splats
-                'has_print_export':  bool(stl_bytes),   # real binary STL, dimensionally uncalibrated (see _extract_mesh docstring)
-            })
+                # NOT the same as bool(stl_bytes) — STL export can succeed on
+                # a leaky/non-manifold mesh and still fail slicer validation.
+                # This is the actual "will this print" signal; STL bytes
+                # existing only means the export step didn't crash.
+                'mesh_watertight':   bool(mesh_info.get('is_watertight')) if mesh_info else False,
+                'mesh_volume_m3':    mesh_info.get('volume_m3') if mesh_info else None,
+                'has_print_export':  bool(stl_bytes) and bool(mesh_info and mesh_info.get('is_watertight')),
+                'calibration_method':     calibration['method'],
+                'calibration_confidence': calibration['confidence'],
+                'quality_warnings':       quality_warnings,  # [] means nothing flagged
+                # True only when pose + scale + mesh all clear the bar for
+                # trusting a measurement/verification decision on this file.
+                # False does NOT mean "broken" — a nice-looking demo capture
+                # with no calibration marker will still legitimately be False.
+                'verified_for_measurement': verified_for_measurement,
+                'min_acceptable':    min_acceptable,
+                'quality_reason':    quality_reason,
+            }, min_acceptable=min_acceptable, quality_reason=quality_reason)
 
-            self._tick('complete', 100, nif_r2_key=r2_key, gaussian_count=n,
-                        completed_at=_now_iso())
+            if min_acceptable:
+                self._tick('complete', 100, nif_r2_key=r2_key, gaussian_count=n,
+                            completed_at=_now_iso())
+            else:
+                # Terminal state distinct from both 'complete' and 'failed'.
+                # The file IS written and registered (nothing is thrown away —
+                # useful for internal debugging), but the client-facing status
+                # is a clear "try again," not a silently-shipped bad result and
+                # not an opaque "failed" that looks like a system error.
+                print(f'[NIF] {self.job_id[:8]} below minimum-acceptable bar: {quality_reason}')
+                self._tick('needs_retry', 100, nif_r2_key=r2_key, gaussian_count=n,
+                            error_message=quality_reason, completed_at=_now_iso())
             return r2_key
 
         except Exception as e:
@@ -1101,7 +1737,7 @@ class ReconstructionWorker:
                     f'Burst capture needs at least 3 images for real multi-view '
                     f'reconstruction — got {len(img_paths)}.'
                 )
-            for i, img in enumerate(img_paths[:300]):
+            for i, img in enumerate(img_paths):
                 shutil.copy(img, out_dir / f'frame_{i:05d}.jpg')
 
         elif mode in ('image', 'photo'):
@@ -1128,30 +1764,203 @@ class ReconstructionWorker:
                 raise RuntimeError(f'ffmpeg failed:\n{r.stderr[-500:]}')
 
         frames = []
-        for p in sorted(out_dir.glob('*.jpg'))[:300]:
+        for p in sorted(out_dir.glob('*.jpg')):
             img = np.array(Image.open(p).convert('RGB'))
             frames.append(img)
 
-        # ── Cap frames for reconstruction speed ─────────────────────────────
-        # A 75s orbit_360 capture at fps=5 yields ~375 frames (capped at 300
-        # above) — COLMAP's feature matching cost scales badly with frame
-        # count (closer to quadratic than linear for exhaustive matching),
-        # and it's the dominant cost in the whole pipeline, well above the
-        # Gaussian training time. Even-stride subsample rather than
-        # truncate — truncating to the first N frames would only cover the
-        # first portion of an orbit, losing full 360° coverage; striding
-        # keeps frames spread across the whole capture.
-        max_frames = int(os.environ.get('FUMOCA_MAX_RECON_FRAMES', '40'))
-        if len(frames) > max_frames:
-            stride = len(frames) / max_frames
-            idxs = [int(i * stride) for i in range(max_frames)]
-            frames = [frames[i] for i in idxs]
+        # ── Frame cap: opt-in only, off by default ──────────────────────────
+        # No default ceiling — every extracted frame goes to pose estimation
+        # and feeds detail/depth. FUMOCA_MAX_RECON_FRAMES stays available as
+        # an explicit operator override (e.g. to bound cost on a quota'd GPU
+        # box) but is unset by default, so it no longer silently throws away
+        # coverage. Lifting this only stays affordable because
+        # _estimate_poses now uses COLMAP's sequential (video-order) matcher
+        # instead of exhaustive — see the --data_type change there. Without
+        # that change, un-capping frame count here would make matching cost
+        # blow up closer to quadratically instead of linearly.
+        max_frames_env = os.environ.get('FUMOCA_MAX_RECON_FRAMES')
+        if max_frames_env:
+            max_frames = int(max_frames_env)
+            if len(frames) > max_frames:
+                stride = len(frames) / max_frames
+                idxs = [int(i * stride) for i in range(max_frames)]
+                frames = [frames[i] for i in idxs]
 
         return frames, fps
+
+    # ── Frame usefulness filter ───────────────────────────────────────────────
+    def _select_useful_frames(self, frames: list) -> list:
+        """
+        Drop frames that don't add useful coverage: heavily blurred/motion-
+        smeared frames, and frames that are near-duplicates of the last
+        *kept* frame (camera paused, or fps outran actual camera motion).
+
+        This is deliberately a cheap, self-contained filter — grayscale
+        Laplacian variance for blur, downsampled mean-abs-difference for
+        redundancy — not a learned coverage model. It's the "analyze ALL
+        useful frames" / "select useful viewpoints" step: with the frame cap
+        removed (_extract_frames no longer truncates), a 300+ frame orbit
+        capture would otherwise feed COLMAP and per-frame depth/bg-removal
+        with a lot of frames that add compute cost but no new viewpoint —
+        this trims those before the expensive stages, rather than after.
+
+        Always keeps the first and last frame (orbit start/end), and never
+        drops below MIN_KEEP frames even if every frame scores badly — a
+        capture that's uniformly blurry should still get a best-effort
+        reconstruction with a quality warning downstream, not zero frames.
+        """
+        if len(frames) <= 3:
+            return frames
+
+        MIN_KEEP = max(3, int(os.environ.get('FUMOCA_MIN_USEFUL_FRAMES', '12')))
+        BLUR_PERCENTILE = float(os.environ.get('FUMOCA_BLUR_DROP_PERCENTILE', '15'))
+        DUP_THRESHOLD   = float(os.environ.get('FUMOCA_DUP_THRESHOLD', '2.0'))  # mean abs diff, 0-255 scale
+
+        try:
+            import cv2
+            def blur_score(gray):
+                return cv2.Laplacian(gray, cv2.CV_64F).var()
+        except ImportError:
+            # numpy-only fallback: a simple discrete Laplacian via shifted
+            # differences — cruder than cv2's kernel but the same idea
+            # (edge energy — sharp frames have more of it than blurred ones).
+            def blur_score(gray):
+                lap = (-4 * gray
+                       + np.roll(gray, 1, axis=0) + np.roll(gray, -1, axis=0)
+                       + np.roll(gray, 1, axis=1) + np.roll(gray, -1, axis=1))
+                return float(lap.var())
+
+        grays = [np.asarray(Image.fromarray(f).convert('L').resize((160, 90))) for f in frames]
+        blur_scores = np.array([blur_score(g.astype(np.float64)) for g in grays])
+
+        blur_cutoff = np.percentile(blur_scores, BLUR_PERCENTILE)
+
+        kept_idxs = [0]  # always keep first frame
+        last_kept_gray = grays[0].astype(np.float64)
+        for i in range(1, len(frames) - 1):
+            if blur_scores[i] < blur_cutoff:
+                continue  # too blurred — no new usable detail
+            diff = np.abs(grays[i].astype(np.float64) - last_kept_gray).mean()
+            if diff < DUP_THRESHOLD:
+                continue  # near-duplicate of the last kept frame — no new coverage
+            kept_idxs.append(i)
+            last_kept_gray = grays[i].astype(np.float64)
+        kept_idxs.append(len(frames) - 1)  # always keep last frame
+
+        # Floor: if filtering was too aggressive (e.g. a genuinely static
+        # capture), fall back to an even stride over all frames rather than
+        # shipping a near-empty set.
+        if len(kept_idxs) < MIN_KEEP:
+            stride = len(frames) / MIN_KEEP
+            kept_idxs = sorted(set(int(i * stride) for i in range(MIN_KEEP)) | {0, len(frames) - 1})
+
+        useful = [frames[i] for i in sorted(set(kept_idxs))]
+        print(f'[NIF] Frame usefulness filter: {len(frames)} → {len(useful)} frames '
+              f'(dropped blurred/redundant, kept full-orbit coverage)')
+        return useful
+
+    # ── Viewpoint coverage filter ─────────────────────────────────────────────
+    def _select_by_viewpoint_coverage(self, frames: list) -> list:
+        """
+        Second-stage filter, run after _select_useful_frames. That filter
+        only knows "this frame looks different from the last kept one" —
+        which conflates real new viewpoint with things like exposure
+        flicker, motion blur variation, or the subject itself moving while
+        the camera holds still. This filter estimates actual relative
+        camera rotation between consecutive frames (a cheap visual-odometry
+        style keyframe selection, not full SfM) and only keeps a frame once
+        the camera has genuinely rotated past a threshold since the last
+        kept keyframe — the real "does this give a new 3D viewpoint"
+        question, as opposed to "does this look different".
+
+        Deliberately NOT full COLMAP-based coverage: that needs poses,
+        which is exactly the expensive step this filter runs before, to
+        keep affordable on a large frame set. This is the cheap proxy for
+        it — relative pose between adjacent frame *pairs* only, via ORB
+        feature matching + essential matrix decomposition, no global
+        bundle adjustment or absolute pose.
+
+        Safe-by-default on failure: if OpenCV isn't available, or a given
+        pair doesn't have enough feature matches to estimate a reliable
+        essential matrix (common on close-up, low-texture, or blurry
+        pairs), the frame is KEPT rather than dropped — an uncertain-but-
+        kept frame just costs a little extra COLMAP time; an incorrectly
+        dropped frame is coverage that's gone for good.
+        """
+        try:
+            import cv2
+        except ImportError:
+            print('[NIF] cv2 not available — skipping viewpoint-coverage filter, '
+                  'keeping all usefulness-filtered frames')
+            return frames
+
+        if len(frames) <= 3:
+            return frames
+
+        MIN_KEEP = max(3, int(os.environ.get('FUMOCA_MIN_USEFUL_FRAMES', '12')))
+        ANGLE_THRESHOLD_DEG = float(os.environ.get('FUMOCA_VIEWPOINT_ANGLE_DEG', '8.0'))
+        MIN_MATCHES = 20
+
+        H, W = frames[0].shape[:2]
+        fx = fy = max(H, W) * 0.8  # same rough-intrinsics assumption used later in _train_gaussians
+        K = np.array([[fx, 0, W/2], [0, fy, H/2], [0, 0, 1]], dtype=np.float64)
+
+        orb = cv2.ORB_create(nfeatures=800)
+        bf  = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+
+        def relative_angle_deg(img_a, img_b):
+            """Rotation angle (degrees) between two frames via ORB matches
+            + essential matrix, or None if it can't be estimated reliably."""
+            ga = cv2.cvtColor(img_a, cv2.COLOR_RGB2GRAY)
+            gb = cv2.cvtColor(img_b, cv2.COLOR_RGB2GRAY)
+            kp1, des1 = orb.detectAndCompute(ga, None)
+            kp2, des2 = orb.detectAndCompute(gb, None)
+            if des1 is None or des2 is None or len(kp1) < MIN_MATCHES or len(kp2) < MIN_MATCHES:
+                return None
+            matches = bf.match(des1, des2)
+            if len(matches) < MIN_MATCHES:
+                return None
+            pts1 = np.float32([kp1[m.queryIdx].pt for m in matches])
+            pts2 = np.float32([kp2[m.trainIdx].pt for m in matches])
+            E, mask = cv2.findEssentialMat(pts1, pts2, K, method=cv2.RANSAC,
+                                            prob=0.999, threshold=1.0)
+            if E is None or E.shape != (3, 3):
+                return None
+            _, R, _t, _mask = cv2.recoverPose(E, pts1, pts2, K)
+            # Rotation angle from R via the standard trace formula.
+            cos_angle = (np.trace(R) - 1.0) / 2.0
+            cos_angle = np.clip(cos_angle, -1.0, 1.0)
+            return float(np.degrees(np.arccos(cos_angle)))
+
+        kept_idxs = [0]
+        last_kept_frame = frames[0]
+        uncertain_count = 0
+        for i in range(1, len(frames) - 1):
+            angle = relative_angle_deg(last_kept_frame, frames[i])
+            if angle is None:
+                kept_idxs.append(i)  # can't measure — keep, safe default
+                last_kept_frame = frames[i]
+                uncertain_count += 1
+                continue
+            if angle >= ANGLE_THRESHOLD_DEG:
+                kept_idxs.append(i)
+                last_kept_frame = frames[i]
+        kept_idxs.append(len(frames) - 1)
+
+        if len(kept_idxs) < MIN_KEEP:
+            stride = len(frames) / MIN_KEEP
+            kept_idxs = sorted(set(int(i * stride) for i in range(MIN_KEEP)) | {0, len(frames) - 1})
+
+        covered = [frames[i] for i in sorted(set(kept_idxs))]
+        print(f'[NIF] Viewpoint coverage filter: {len(frames)} → {len(covered)} frames '
+              f'(kept where relative rotation ≥{ANGLE_THRESHOLD_DEG}° since last keyframe, '
+              f'{uncertain_count} pairs unmeasurable and kept by default)')
+        return covered
 
     # ── Deblur ─────────────────────────────────────────────────────────────────
     def _deblur_frames(self, frames: list) -> list:
         out = []
+
         with torch.no_grad():
             for frame in frames:
                 t   = torch.from_numpy(frame).float().permute(2,0,1).unsqueeze(0).to(DEVICE) / 255.0
@@ -1161,19 +1970,27 @@ class ReconstructionWorker:
         return out
 
     # ── Pose estimation ────────────────────────────────────────────────────────
-    def _estimate_poses(self, frames: list) -> tuple[list, str]:
+    def _estimate_poses(self, frames: list) -> tuple[list, str, np.ndarray | None]:
         if len(frames) < 3:
             print(f'[NIF] Only {len(frames)} frame(s) — not enough for real multi-view SfM, using synthetic poses')
-            return self._synthetic_poses(len(frames)), 'synthetic_insufficient_frames'
+            return self._synthetic_poses(len(frames)), 'synthetic_insufficient_frames', None
 
         img_dir = self.tmp / 'frames'
         col_dir = self.tmp / 'colmap'
         col_dir.mkdir()
 
+        # data_type='video' makes automatic_reconstructor use sequential
+        # matching (each frame matched against a small nearby window) instead
+        # of exhaustive/vocab-tree matching. Cost scales ~linearly with frame
+        # count rather than ~quadratically — this is what makes it affordable
+        # to feed COLMAP hundreds of frames instead of a 40-frame subsample.
+        # Frames arriving here are always in capture order (video decode or
+        # sorted burst filenames), so the ordering assumption holds.
         r = subprocess.run([
             'colmap', 'automatic_reconstructor',
             '--workspace_path', str(col_dir),
             '--image_path', str(img_dir),
+            '--data_type', 'video',
             '--single_camera', '1',
             '--dense', '0',
         ], capture_output=True, text=True)
@@ -1181,14 +1998,30 @@ class ReconstructionWorker:
         if r.returncode != 0 or not (col_dir / 'sparse' / '0').exists():
             print(f'[NIF] COLMAP failed — using synthetic poses (this capture will be a depth-based '
                   f'pseudo-3D effect, NOT real triangulated multi-view geometry)')
-            return self._synthetic_poses(len(frames)), 'synthetic_colmap_failed'
+            return self._synthetic_poses(len(frames)), 'synthetic_colmap_failed', None
 
         # Parse COLMAP images.bin
         poses = self._parse_colmap(col_dir / 'sparse' / '0' / 'images.bin')
         if len(poses) < 2:
-            return self._synthetic_poses(len(frames)), 'synthetic_colmap_insufficient_poses'
+            return self._synthetic_poses(len(frames)), 'synthetic_colmap_insufficient_poses', None
+
+        # Parse COLMAP's sparse 3D point cloud (points3D.bin) — this is what
+        # lets Gaussian training start from real observed geometry instead of
+        # random noise (see GaussianSplatTrainer.init_points). Best-effort:
+        # a parse failure here shouldn't take down an otherwise-successful
+        # pose estimate, it just means training falls back to random init.
+        sparse_points = None
+        try:
+            points3d_path = col_dir / 'sparse' / '0' / 'points3D.bin'
+            if points3d_path.exists():
+                sparse_points = self._parse_colmap_points3d(points3d_path)
+                print(f'[NIF] {len(sparse_points):,} sparse 3D points parsed from COLMAP')
+        except Exception as e:
+            print(f'[NIF] Failed to parse COLMAP sparse point cloud ({e}) — Gaussian init will use random fallback')
+            sparse_points = None
+
         print(f'[NIF] {len(poses)} poses estimated via COLMAP SfM — real multi-view reconstruction')
-        return poses, 'colmap'
+        return poses, 'colmap', sparse_points
 
     def _synthetic_poses(self, n: int) -> list:
         """
@@ -1251,8 +2084,40 @@ class ReconstructionWorker:
                 poses.append(torch.tensor(vm, dtype=torch.float32))
         return poses
 
+    def _parse_colmap_points3d(self, points3d_bin: Path) -> np.ndarray:
+        """
+        Parse COLMAP binary points3D.bin → (M, 3) float32 array of sparse
+        SfM point positions, in the same reconstruction-space coordinate
+        frame as the poses from _parse_colmap (both come from the same
+        COLMAP run, so no extra alignment is needed).
+
+        Binary layout (COLMAP's documented points3D.bin format):
+          uint64 num_points
+          per point:
+            uint64 point3D_id
+            double x, y, z
+            uint8  r, g, b
+            double error
+            uint64 track_length
+            track_length * (uint32 image_id, uint32 point2D_idx)
+        """
+        points = []
+        with open(points3d_bin, 'rb') as f:
+            n = struct.unpack('<Q', f.read(8))[0]
+            for _ in range(n):
+                f.read(8)  # point3D_id — unused, order is all we need
+                x, y, z = struct.unpack('<ddd', f.read(24))
+                f.read(3)  # rgb — not needed for geometry seeding
+                f.read(8)  # reprojection error
+                track_length = struct.unpack('<Q', f.read(8))[0]
+                f.read(track_length * 8)  # skip (image_id, point2D_idx) pairs
+                points.append((x, y, z))
+        return np.array(points, dtype=np.float32)
+
     # ── Training ───────────────────────────────────────────────────────────────
-    def _train_gaussians(self, frames: list, poses: list) -> tuple:
+    def _train_gaussians(self, frames: list, poses: list,
+                          sparse_points: np.ndarray | None = None,
+                          pose_source: str = 'colmap') -> tuple:
         # Configurable so quality can be dialed back up later without a code
         # change — defaults tuned for fast turnaround during testing rather
         # than final quality. n=50k/3000 iters (the old fixed values) is a
@@ -1260,13 +2125,25 @@ class ReconstructionWorker:
         # halves training wall-clock with a real but acceptable quality hit
         # for "does this work at all" testing.
         n_gaussians = int(os.environ.get('FUMOCA_N_GAUSSIANS', '20000'))
-        trainer = GaussianSplatTrainer(n=n_gaussians)
-        trainer.means       = trainer.means.to(DEVICE)
-        trainer.log_scales  = trainer.log_scales.to(DEVICE)
-        trainer.quats       = trainer.quats.to(DEVICE)
-        trainer.log_opacity = trainer.log_opacity.to(DEVICE)
-        trainer.sh0         = trainer.sh0.to(DEVICE)
-        trainer._opt        = trainer._make_optimizer()
+        # Geometry-derived init: seed from COLMAP's real sparse point cloud
+        # when pose estimation actually succeeded (pose_source == 'colmap').
+        # Deliberately NOT passed when pose_source is a synthetic fallback —
+        # sparse_points is always None in that case anyway (see
+        # _estimate_poses), but the explicit check documents why: synthetic
+        # circular-orbit poses have no COLMAP geometry backing them, so
+        # there's nothing real to seed from.
+        trainer = GaussianSplatTrainer(
+            n=n_gaussians,
+            init_points=sparse_points if pose_source == 'colmap' else None,
+            device=DEVICE,
+        )
+        # No .to(DEVICE) reassignment here — parameters are created directly
+        # on DEVICE inside __init__ above, so they stay real leaf Parameters
+        # and self._opt (built in __init__) is already correct. Reassigning
+        # trainer.means = trainer.means.to(DEVICE) here (the old code) breaks
+        # leaf-tensor status the moment DEVICE differs from where the
+        # parameter was created, and torch.optim.Adam refuses to optimize a
+        # non-leaf tensor — that would have raised on every real GPU run.
 
         H, W = frames[0].shape[:2]
         fx = fy = max(H, W) * 0.8
@@ -1278,15 +2155,48 @@ class ReconstructionWorker:
         # Production 3DGS uses 30k but Kaggle T4 12hr limit means ~3k is practical.
         # Densification: split high-gradient Gaussians and clone small ones.
         # This is the core mechanism that fills in detail — without it you get blobs.
-        ITERS            = int(os.environ.get('FUMOCA_GS_ITERS', '1200'))
+        ITERS = int(os.environ.get('FUMOCA_GS_ITERS', '1200'))
+        # Geometry validation gate, applied here rather than only reported
+        # after the fact: pose_source is already known before this method is
+        # called (it comes from _estimate_poses, run before training). A
+        # synthetic/fallback pose_source means we already know this isn't
+        # real multi-view geometry — training the full iteration budget
+        # against it spends GPU time optimizing something the pipeline
+        # already knows is degraded. Cut the budget instead of skipping
+        # training outright, since the existing design intentionally still
+        # ships a depth-based pseudo-3D result in this case (see
+        # _synthetic_poses' docstring) rather than failing the whole job —
+        # this keeps that behavior but stops paying full price for it.
+        if pose_source != 'colmap':
+            ITERS = max(int(ITERS * 0.4), 200)
+            print(f'[NIF] pose_source={pose_source} (not real multi-view geometry) — '
+                  f'reducing training budget to {ITERS} iterations instead of full budget')
         DENSIFY_EVERY    = 300   # densify at step 300, 600, 900, 1200
         DENSIFY_UNTIL    = 1500  # stop densifying past this point
         DENSIFY_GRAD_THR = 0.0002  # position gradient threshold for splitting
         PRUNE_EVERY      = 100
         MAX_GAUSSIANS    = 150_000
 
+        # ── Held-out evaluation split — this is what makes the eventual
+        # PSNR check below a real reconstruction-quality signal instead of a
+        # training-loss restatement. Reusing training frames for "quality"
+        # measures memorization, not generalization — a severely overfit
+        # reconstruction can still show a low training loss. Held-out frames
+        # never appear in a train_step() call, so rendering them afterward
+        # actually tests whether the Gaussians learned real 3D structure.
+        # Only holds out when there's enough poses to afford it — n_poses<8
+        # means every frame is needed for training, so QA on captures that
+        # small isn't guaranteed to be very meaningful and shouldn't come
+        # at the cost of training quality itself.
+        if n_poses >= 8:
+            holdout_stride = max(4, n_poses // 6)
+            holdout_idxs = set(range(0, n_poses, holdout_stride))
+        else:
+            holdout_idxs = set()
+        train_idxs = [i for i in range(n_poses) if i not in holdout_idxs] or list(range(n_poses))
+
         for step in range(ITERS):
-            idx  = step % n_poses
+            idx  = train_idxs[step % len(train_idxs)]
             gt   = torch.from_numpy(frames[idx]).float().to(DEVICE) / 255.0
             vm   = poses[idx].to(DEVICE)
             loss = trainer.train_step(gt, vm, K)
@@ -1300,7 +2210,43 @@ class ReconstructionWorker:
                 if len(trainer.means) < MAX_GAUSSIANS:
                     trainer._densify(DENSIFY_GRAD_THR)
 
-        return trainer.export_buffer()
+        # ── Held-out PSNR — render each held-out pose (never seen during
+        # training) and compare against the real photo. This is a real,
+        # if approximate, "does this actually look like the object" signal.
+        # PROVISIONAL THRESHOLD: 18dB below is picked as an obviously-bad
+        # floor (well below what even a rough reconstruction should hit),
+        # not a tuned production cutoff — there's no real capture yet to
+        # tune it against. Treat it as a first-pass sanity check, not a
+        # final QA bar; revisit once you've seen PSNR numbers from an
+        # actual capture and know what "good" looks like for this pipeline.
+        eval_psnr = None
+        if holdout_idxs:
+            with torch.no_grad():
+                mses = []
+                for idx in sorted(holdout_idxs):
+                    gt = torch.from_numpy(frames[idx]).float().to(DEVICE) / 255.0
+                    vm = poses[idx].to(DEVICE)
+                    quats_n = F.normalize(trainer.quats, dim=-1)
+                    scales  = torch.exp(trainer.log_scales).clamp(min=1e-6)
+                    opacities = torch.sigmoid(trainer.log_opacity)
+                    colours   = torch.sigmoid(trainer.sh0)
+                    rendered, _a, _i = gsplat.rasterization(
+                        means=trainer.means.unsqueeze(0), quats=quats_n.unsqueeze(0),
+                        scales=scales.unsqueeze(0), opacities=opacities.unsqueeze(0).unsqueeze(-1),
+                        colors=colours.unsqueeze(0), viewmats=vm.unsqueeze(0), Ks=K.unsqueeze(0),
+                        width=gt.shape[1], height=gt.shape[0],
+                        near_plane=0.01, far_plane=100.0, render_mode='RGB',
+                    )
+                    mses.append(float(F.mse_loss(rendered.squeeze(0), gt)))
+                mean_mse = sum(mses) / len(mses)
+                eval_psnr = 10.0 * math.log10(1.0 / max(mean_mse, 1e-10))
+            print(f'[NIF] Held-out PSNR: {eval_psnr:.2f}dB over {len(holdout_idxs)} held-out frames '
+                  f'(provisional 18dB floor — not yet tuned against a real capture)')
+        else:
+            print(f'[NIF] Only {n_poses} poses — too few to hold any out for PSNR eval, skipping')
+
+        n, geo_bytes = trainer.export_buffer()
+        return n, geo_bytes, eval_psnr
 
     def _extract_mesh(self, geo_data: np.ndarray, grid_res: int = 96,
                        opacity_thresh: float = 0.25, max_faces: int = 60_000) -> tuple:
@@ -1317,13 +2263,31 @@ class ReconstructionWorker:
         Returns (mesh_bytes, stl_bytes) — either may be None if too few
         confident points remain to fit a surface (e.g. a very sparse/noisy
         capture), or if STL export specifically fails.
+
+        mesh_bytes layout: [format_flag:u8]
+          flag 0x00 (raw struct — used automatically when DracoPy isn't
+            installed or encoding throws, see the try/except around
+            DracoPy.encode() below):
+            [n_verts:u32 BE][n_faces:u32 BE]
+            [positions: n_verts × 3 × f32 BE][colors: n_verts × 3 × u8]
+            [faces: n_faces × 3 × u32 BE]
+          flag 0x01 (Draco-encoded — the default now that ENABLE_DRACO_MESH=True):
+            remaining bytes are a Draco buffer as produced by DracoPy.encode().
+            nif-format.js's _decodeDracoMesh() reads this via THREE.DRACOLoader.
+            UNVERIFIED end-to-end as of this revision — no browser/wasm
+            execution was available to confirm the round trip on a real file,
+            specifically whether DracoPy's color-attribute encoding lands the
+            way THREE.DRACOLoader expects. Check the first real Draco file's
+            rendered colors before trusting this in front of a client; flip
+            ENABLE_DRACO_MESH back to False if they're wrong (raw struct
+            format is unaffected either way).
         """
         opacity = 1.0 / (1.0 + np.exp(-geo_data[:, 10]))
         keep = opacity > opacity_thresh
         pts = geo_data[keep]
         if len(pts) < 200:
             print(f'[NIF] Only {len(pts)} confident points — skipping mesh extraction')
-            return None, None
+            return None, None, None
         positions = pts[:, 0:3]
         log_scales = pts[:, 3:6]
         quats = pts[:, 6:10]
@@ -1394,7 +2358,7 @@ class ReconstructionWorker:
             verts, faces, _, _ = measure.marching_cubes(tsdf, level=0.0)
         except (ValueError, RuntimeError) as e:
             print(f'[NIF] Marching cubes found no closed surface — skipping mesh ({e})')
-            return None, None
+            return None, None, None
 
         verts_world = verts * voxel_size + mn
 
@@ -1442,6 +2406,33 @@ class ReconstructionWorker:
         face_bytes = mesh.faces.astype('>u4').tobytes()
         mesh_chunk_bytes = header + pos_bytes + col_bytes + face_bytes
 
+        # Optional Draco compression — typically 5-10x smaller than the raw
+        # struct format above for meshes this size. ENABLE_DRACO_MESH=True
+        # now that nif-format.js's decodeMeshChunk()/_decodeDracoMesh() reads
+        # it via THREE.DRACOLoader — but that round trip is UNVERIFIED
+        # end-to-end (no browser/wasm available at authoring time; see the
+        # caveat on ENABLE_DRACO_MESH's definition and in _decodeDracoMesh's
+        # comments about the color-attribute risk specifically). If encoding
+        # itself throws for any reason, this falls back to the raw struct
+        # format automatically — that path is unaffected regardless.
+        if ENABLE_DRACO_MESH:
+            try:
+                import DracoPy
+                draco_bytes = DracoPy.encode(
+                    mesh.vertices, mesh.faces,
+                    colors=colors_out if colors_out is not None else None,
+                    quantization_bits=14, compression_level=7,
+                )
+                # format_flag: 0x00 = raw struct (above), 0x01 = Draco-encoded
+                mesh_chunk_bytes = struct.pack('>B', 0x01) + draco_bytes
+                print(f'[NIF] Mesh Draco-encoded: {len(header+pos_bytes+col_bytes+face_bytes):,}B '
+                      f'→ {len(mesh_chunk_bytes):,}B')
+            except Exception as e:
+                print(f'[NIF] Draco encoding unavailable ({e}) — using raw struct mesh format')
+                mesh_chunk_bytes = struct.pack('>B', 0x00) + mesh_chunk_bytes
+        else:
+            mesh_chunk_bytes = struct.pack('>B', 0x00) + mesh_chunk_bytes
+
         # Real binary STL for the print pipeline. IMPORTANT CAVEAT, logged so
         # it doesn't get lost: mesh coordinates are in reconstruction-space
         # units, not calibrated real-world millimeters — COLMAP SfM is
@@ -1459,7 +2450,28 @@ class ReconstructionWorker:
         except Exception as e:
             print(f'[NIF] STL export failed (non-fatal, mesh chunk still included): {e}')
 
-        return mesh_chunk_bytes, stl_bytes
+        # ── Mesh sanity checks — nondegenerate_faces() is a real, documented
+        # trimesh method (returns a boolean keep-mask); zero/near-zero-area
+        # triangles are a concrete sign of noisy/failed reconstruction (e.g.
+        # duplicate or collapsed vertices from bad Gaussian geometry).
+        # Deliberately not adding a non-manifold-edge check — not confident
+        # enough in the exact trimesh attribute for that without being able
+        # to run it, and a guessed API call that's subtly wrong is worse
+        # than leaving it out.
+        try:
+            keep_mask = mesh.nondegenerate_faces()
+            n_degenerate = int(n_faces - int(np.sum(keep_mask)))
+        except Exception as e:
+            print(f'[NIF] Degenerate-face check failed (non-fatal): {e}')
+            n_degenerate = None
+
+        return mesh_chunk_bytes, stl_bytes, {
+            'volume_m3': float(mesh.volume) if mesh.is_watertight else None,
+            'is_watertight': bool(mesh.is_watertight),
+            'n_verts': n_verts,
+            'n_faces': n_faces,
+            'n_degenerate_faces': n_degenerate,
+        }
 
     def run_mesh_only(self, geo_r2_key: str, meta: dict):
         """
@@ -1485,7 +2497,7 @@ class ReconstructionWorker:
             print(f'[NIF] mesh_only: {count:,} input points')
 
             self._tick('processing', 50)
-            mesh_bytes, stl_bytes = self._extract_mesh(geo_data)
+            mesh_bytes, stl_bytes, mesh_info = self._extract_mesh(geo_data)
 
             if not stl_bytes:
                 raise RuntimeError(
@@ -1494,6 +2506,18 @@ class ReconstructionWorker:
                     'opacity filtering. Try a less aggressive erase, or a '
                     'capture with more coverage of the subject.'
                 )
+
+            # Same gap as the main run() path, same fix: STL bytes existing
+            # only means the export call didn't crash, not that the mesh is
+            # actually manifold. This is the literal "Export Figurine" button
+            # a client presses expecting a printable file — it was shipping
+            # 'complete' + a download link for leaky/non-manifold geometry
+            # with no signal that a slicer might reject it. Now the job
+            # itself is honest about which one the client is getting.
+            watertight = bool(mesh_info.get('is_watertight'))
+            if not watertight:
+                print('[NIF] mesh_only: exported STL is NOT watertight — '
+                      'may fail slicer validation, shipping with a warning flag')
 
             self._tick('uploading', 85)
             stl_key = f'print/{self.user_id}/{self.job_id}/figurine.stl'
@@ -1507,9 +2531,15 @@ class ReconstructionWorker:
             SB.table('reconstruction_jobs').update({
                 'status': 'complete', 'progress': 100,
                 'meta': {**meta, 'stl_r2_key': stl_key, 'stl_url': stl_url,
-                         'mesh_bytes_included': bool(mesh_bytes)},
+                         'mesh_bytes_included': bool(mesh_bytes),
+                         'mesh_watertight': watertight,
+                         'mesh_volume_m3': mesh_info.get('volume_m3'),
+                         'print_warning': None if watertight else
+                             'This mesh has holes or non-manifold edges and may fail '
+                             'slicer validation. Run auto-repair in the mesh editor '
+                             'before sending to a printer.'},
             }).eq('id', self.job_id).execute()
-            print(f'[NIF] mesh_only complete: {stl_key}')
+            print(f'[NIF] mesh_only complete: {stl_key} (watertight={watertight})')
 
         except Exception as e:
             SB.table('reconstruction_jobs').update({
@@ -1596,7 +2626,8 @@ class ReconstructionWorker:
 
     # ── Register ───────────────────────────────────────────────────────────────
     def _register(self, r2_key: str, n: int, vertical: str,
-                  meta: dict, file_size: int, capabilities: dict):
+                  meta: dict, file_size: int, capabilities: dict,
+                  min_acceptable: bool = True, quality_reason: str = None):
         title = meta.get('title', 'Untitled NIF')
 
         # Build a public-ish signed URL for thumbnail (24 hour expiry)
@@ -1621,15 +2652,20 @@ class ReconstructionWorker:
             'r2_key':         r2_key,
             'gaussian_count': n,
             'file_size':      file_size,
+            # is_public stays False regardless of quality — publishing is a
+            # separate, explicit user action. min_acceptable only governs
+            # whether the *job* reports back as done-and-shippable versus
+            # needs-a-retry; it never auto-publishes anything either way.
             'is_public':      False,
             'thumbnail_url':  thumb_url,
             'meta':           {**meta, **capabilities},
         }).execute()
-        SB.table('reconstruction_jobs').update({
-            'status': 'complete', 'progress': 100,
-            'nif_r2_key': r2_key, 'gaussian_count': n,
-        }).eq('id', self.job_id).execute()
-        print(f'[NIF] Registered nif_files id={self.job_id}')
+        # status is set by the caller's self._tick() right after this
+        # (either 'complete' or 'needs_retry') — _register() only creates
+        # the nif_files row so a below-bar capture is still inspectable
+        # internally instead of being thrown away.
+        print(f'[NIF] Registered nif_files id={self.job_id} '
+              f"(min_acceptable={min_acceptable}{f', reason={quality_reason}' if quality_reason else ''})")
 
 
 # ─── CLI ─────────────────────────────────────────────────────────────────────

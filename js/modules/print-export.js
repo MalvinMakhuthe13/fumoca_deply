@@ -104,7 +104,7 @@ export function pollPrintJob(jobId, onUpdate, intervalMs = 4000) {
     const { data: job, error } = await sb.from('reconstruction_jobs').select('*').eq('id', jobId).single();
     if (!error && job) {
       onUpdate(job);
-      if (job.status === 'complete' || job.status === 'failed') return; // stop polling
+      if (job.status === 'complete' || job.status === 'failed' || job.status === 'needs_retry') return; // stop polling
     }
     if (!stopped) setTimeout(tick, intervalMs);
   }

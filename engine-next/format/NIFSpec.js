@@ -16,19 +16,54 @@
 
 export const NIF_MAGIC         = 0x4E494600; // 'NIF\0'
 export const NIF_VERSION_MAJOR = 1;
-export const NIF_VERSION_MINOR = 0;
+export const NIF_VERSION_MINOR = 1;  // 1.1: added CALIBRATION (0x0017) and
+                                      // VERIFICATION (0x0018) chunk types.
+                                      // Per §12 of NIF_SPEC_v1.0.md, this is
+                                      // a minor bump — old readers that
+                                      // ignore unknown chunks stay compatible.
 
+/**
+ * ── Shared chunk-ID registry with .spax ──────────────────────────────────
+ * SPATIAL_AUDIO, EDIT_HISTORY, and INTERACTION are concepts that exist in
+ * both .nif and .spax. They previously had two different numeric IDs per
+ * format (e.g. SPATIAL_AUDIO was 0x0010 here, 0x0300 in SPAXSpec.js) even
+ * though the name and intended meaning were identical — a naming/ID
+ * divergence, not a true same-number collision, but still a real footgun
+ * for the moment either side implements one of these chunks and something
+ * tries to bridge .nif ↔ .spax by concept name instead of by container.
+ *
+ * Fixed by adopting SPAXSpec.js's numbering here (0x0300/0x0500/0x0600 —
+ * nothing else in this enum used that range, so this cost nothing to move),
+ * and SPAXSpec.js now imports these three IDs directly from this file
+ * instead of hardcoding its own copies — see SPAX_CHUNK below its import.
+ * That makes divergence structurally impossible going forward, not just
+ * documented: change the ID here and SPAX picks it up automatically, and
+ * there is no second literal anywhere to forget to update.
+ *
+ * 0x0010, 0x0011, and 0x0013 are now vacant in this enum (previously
+ * SPATIAL_AUDIO/INTERACTION/EDIT_HISTORY) — left unassigned rather than
+ * reused immediately, in case any external tooling somewhere logged one of
+ * those numbers against the old meaning during development.
+ */
 export const CHUNK = Object.freeze({
   META:          0x0001,  // UTF-8 JSON: title, description, author, hotspots, tour stops
   PROXY_VIDEO:   0x0002,  // H.264/H.265 video preview — plays on any device
   KEYFRAME_GEO:  0x0003,  // Packed depth field keyframe data (14 floats per point)
   KEYFRAME_MESH: 0x0004,  // Watertight triangle mesh (SDF-extracted)
-  MATERIAL:      0x0005,  // PBR material bundle
-  TIMELINE:      0x0006,  // Keyframe timestamps + interpolation curve data
-  DEPTH_MAP:     0x0007,  // Per-pixel metric depth map (float16, HxW) from DepthAnything v2
+  // ── RESERVED — defined here, not implemented by any encoder or decoder in
+  // this codebase yet. Nothing writes these, nothing reads these. Listed so
+  // the numeric IDs are reserved for when they ARE built, not because
+  // they're functional today — a format doc that lists these as if real is
+  // exactly the kind of thing that erodes trust in NIF as a standard.
+  MATERIAL:      0x0005,  // RESERVED — PBR material bundle
+  TIMELINE:      0x0006,  // RESERVED — keyframe timestamps + interpolation curve data
+  DEPTH_MAP:     0x0007,  // Per-pixel depth map (float16, HxW). NOTE: metric only when the
+                           // producing encoder's CALIBRATION chunk (0x0017) says so — plain
+                           // DepthAnything v2 output is relative unless the Metric checkpoint
+                           // was used. Do not assume "metres" from this chunk's presence alone.
   ALPHA_MASK:    0x0008,  // Per-pixel alpha/segmentation mask (uint8, HxW) — background removal
   LAYER_GEO:     0x0009,  // Layered depth field: each layer = {label, depth_range, geo}
-  ASSET_REF:     0x000A,  // External asset reference (glTF/USD/video/image/LAS URL + type)
+  ASSET_REF:     0x000A,  // RESERVED — external asset reference (glTF/USD/video/image/LAS URL + type)
   CAMERAS:       0x000B,  // Per-frame 4×4 view matrices + pose_source — see pipeline.py's
                            // _pack_cameras(). Independent of KEYFRAME_GEO — deleting the
                            // Gaussian chunk doesn't take the camera path with it.
@@ -37,15 +72,40 @@ export const CHUNK = Object.freeze({
                            // body type: rigid | soft | cloth). See encodePhysicsChunk() below
                            // for the schema. The engine existed before the file format had
                            // anywhere to persist its output — this chunk is that missing slot.
-  SPATIAL_AUDIO: 0x0010,  // Ambisonics B-format + HRTF source positions
-  INTERACTION:   0x0011,  // Clickable object graph + trigger/action pairs
-  AVATAR:        0x0012,  // SMPL-X body mesh + pose parameters
-  EDIT_HISTORY:  0x0013,  // Non-destructive edit operations (reversible)
-  PRINT_EXPORT:  0x0014,  // Pre-computed STL for 3D print pipeline
-  SEMANTIC_MAP:  0x0016,  // Per-voxel semantic labels (vertical-specific)
+                           // pipeline.py's _build_physics_chunk() now populates a real single
+                           // whole-object rigid body: mass = actual mesh volume × a per-vertical
+                           // density heuristic when the mesh is watertight AND the capture is
+                           // calibrated, otherwise a clearly-flagged placeholder mass — check
+                           // bodies[].mass_estimation_method before trusting a mass value.
+                           // Per-part/multi-body physics (e.g. a hinge on a lid) still needs
+                           // object-part segmentation the pipeline doesn't do yet — that stays
+                           // manually-authored via NIFHingeAuthorPanel in the editor for now.
+  CALIBRATION:   0x0017,  // Real-world scale record — {method, scale_factor, confidence, units,
+                           // note}. See pipeline.py's estimate_scale() and encodeCalibrationChunk()
+                           // below. Absence of this chunk (or confidence:'none') means positions
+                           // elsewhere in the file are shape-correct only, NOT dimensionally
+                           // trustworthy — do not assume metres without checking this first.
+  VERIFICATION:  0x0018,  // Product-verification report vs. a reference mesh — {aligned, pass,
+                           // rmse, mean_deviation, max_deviation, tolerance_mm, ...}. See
+                           // engine-next/reconstruction/verify.py and encodeVerificationChunk()
+                           // below. Absence means "not verified", never inferred as "passed".
+  SPATIAL_AUDIO: 0x0300,  // RESERVED — ambisonics B-format + HRTF source positions.
+                           // Shared ID with SPAXSpec.js's SPAX_CHUNK.SPATIAL_AUDIO — see the
+                           // "Shared chunk-ID registry" note above CHUNK for why this moved
+                           // off its original 0x0010.
+  INTERACTION:   0x0600,  // RESERVED — clickable object graph + trigger/action pairs.
+                           // Shared ID with SPAXSpec.js's SPAX_CHUNK.INTERACTION (moved off 0x0011).
+  AVATAR:        0x0012,  // RESERVED — SMPL-X body mesh + pose parameters
+  EDIT_HISTORY:  0x0500,  // RESERVED — non-destructive edit operations (reversible).
+                           // Shared ID with SPAXSpec.js's SPAX_CHUNK.EDIT_HISTORY (moved off 0x0013).
+  PRINT_EXPORT:  0x0014,  // Pre-computed STL for 3D print pipeline. Dimensionally trustworthy
+                           // only when the same file's CALIBRATION chunk has confidence
+                           // 'high' or 'medium' — otherwise "correctly shaped, unknown size".
+  SEMANTIC_MAP:  0x0016,  // RESERVED — per-voxel semantic labels (vertical-specific). Defined
+                           // in pipeline.py (CHUNK_SEM) but never written or read anywhere.
   THUMBNAIL:     0x0015,  // Raw JPEG bytes — poster image shown before the NIF loads
   CERT:          0x0020,  // Encoder certificate — license tier, encoder ID, HMAC signature
-  WATERMARK:     0x00FF,  // Steganographic ownership mark
+  WATERMARK:     0x00FF,  // RESERVED — steganographic ownership mark
   // 0x8000–0xFFFF reserved for licensed third-party vendor extensions
 });
 
@@ -411,6 +471,62 @@ export async function decodePhysicsChunk(chunk) {
   }
 }
 
+/**
+ * CALIBRATION chunk — JSON. Mirrors pipeline.py's estimate_scale() return
+ * shape exactly, so a decoded chunk needs no translation layer:
+ * { method: 'aruco_marker'|'manual_reference'|'metric_depth_model'|'none',
+ *   scale_factor: number|null, confidence: 'high'|'medium'|'low'|'none',
+ *   units: 'meters'|'unknown', note: string }
+ *
+ * Default (no chunk present) is treated as uncalibrated — callers should
+ * NOT assume metres just because this chunk is missing from an older file.
+ */
+const UNCALIBRATED = Object.freeze({
+  method: 'none', scale_factor: null, confidence: 'none',
+  units: 'unknown', note: 'No CALIBRATION chunk present in this file.',
+});
+
+export function encodeCalibrationChunk(calibObj) {
+  const json = JSON.stringify(calibObj ?? UNCALIBRATED);
+  return new NIFChunk(CHUNK.CALIBRATION, new TextEncoder().encode(json), CODEC.RAW);
+}
+
+export async function decodeCalibrationChunk(chunk) {
+  if (!chunk) return { ...UNCALIBRATED };
+  try {
+    const bytes = await decompressChunk(chunk);
+    return JSON.parse(new TextDecoder().decode(bytes));
+  } catch (e) {
+    console.warn('[NIFSpec] CALIBRATION chunk failed to decode:', e.message);
+    return { ...UNCALIBRATED };
+  }
+}
+
+/**
+ * VERIFICATION chunk — JSON. Mirrors verify.py's verify_against_reference()
+ * return shape. { aligned, pass, dimensionally_trustworthy, rmse,
+ * mean_deviation, max_deviation, tolerance_mm, pct_vertices_within_tolerance,
+ * units, note, ... }. Absence of this chunk means verification was never
+ * requested for this file — a viewer/app MUST treat that as "unknown", never
+ * render it as a pass. Same rule for pass === null (verification ran but
+ * couldn't produce a dimensionally trustworthy result).
+ */
+export function encodeVerificationChunk(verificationObj) {
+  const json = JSON.stringify(verificationObj ?? {});
+  return new NIFChunk(CHUNK.VERIFICATION, new TextEncoder().encode(json), CODEC.RAW);
+}
+
+export async function decodeVerificationChunk(chunk) {
+  if (!chunk) return null;  // null = "not verified", distinct from {pass:false}
+  try {
+    const bytes = await decompressChunk(chunk);
+    return JSON.parse(new TextDecoder().decode(bytes));
+  } catch (e) {
+    console.warn('[NIFSpec] VERIFICATION chunk failed to decode:', e.message);
+    return null;
+  }
+}
+
 // ─── Writer (Node.js pipeline — server-side) ──────────────────────────────────
 export class NIFWriter {
   constructor(headerOpts = {}) {
@@ -591,6 +707,33 @@ export class NIFReader {
                        // reader.errors.length or reader.isCorrupted before trusting a file
                        // with missing chunks; an empty chunk list can mean "no data" OR
                        // "data was corrupted", and callers need to be able to tell which.
+
+    // ── Version gate ──────────────────────────────────────────────────────
+    // NIF_VERSION_MAJOR/MINOR were written and read from day one but never
+    // actually checked — this reader would happily attempt to parse a
+    // hypothetical future v2.x file byte-for-byte as if it were v1.x, with
+    // undefined results rather than a clear "I don't understand this."
+    // Compatibility contract, decided now while only v1.x files exist:
+    //   - Same major version: always readable, regardless of minor. Minor
+    //     version bumps only ever ADD new chunk types (see NIF_SPEC_v1.0.md
+    //     §12) — a v1.0 reader given a v1.1 file just won't see the new
+    //     chunks, which is exactly what the per-chunk defensive parsing
+    //     above already handles gracefully.
+    //   - Different major version: NOT assumed readable. A major bump is
+    //     reserved for changes that break this assumption (e.g. a changed
+    //     chunk header layout), so an unknown major version chunk-parses
+    //     with an explicit warning instead of silently proceeding as if
+    //     nothing changed.
+    this.isVersionSupported = this.header.versionMajor === NIF_VERSION_MAJOR;
+    if (!this.isVersionSupported) {
+      this.errors.push({
+        offset: 4,
+        message: `Unsupported NIF major version ${this.header.versionMajor}.${this.header.versionMinor} `
+                + `(this reader supports major version ${NIF_VERSION_MAJOR}.x). Chunk parsing will still be `
+                + `attempted, but results are not guaranteed — check reader.isVersionSupported before trusting output.`,
+      });
+      console.warn(`[NIFReader] ${this.errors[this.errors.length - 1].message}`);
+    }
 
     let offset = 256;
     while (offset < dv.byteLength) {

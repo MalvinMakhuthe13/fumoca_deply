@@ -125,24 +125,46 @@ and continue reading. This ensures forward compatibility.
 
 | Hex    | Name          | Description |
 |--------|---------------|-------------|
+| 0x0001 | META          | UTF-8 JSON: title, description, author, vertical, hotspots, tour stops. Makes a .nif self-describing on its own. |
 | 0x0002 | PROXY_VIDEO   | H.264 or H.265 proxy video. Codec byte is 0x03 (MPEG4) or 0x04 (HEVC). Plays on any platform without NIF support. |
 | 0x0003 | KEYFRAME_GEO  | Depth field geometry. See §6. |
-| 0x0004 | KEYFRAME_MESH | Watertight triangle mesh (marching cubes output). |
-| 0x0005 | MATERIAL      | PBR material bundle. |
-| 0x0006 | TIMELINE      | Keyframe timestamps and interpolation curves. |
-| 0x0007 | DEPTH_MAP     | Per-pixel metric depth map. See §7. |
+| 0x0004 | KEYFRAME_MESH | Watertight triangle mesh (marching cubes output). See §6b. |
+| 0x0005 | MATERIAL      | **Reserved, not implemented.** No encoder writes this, no decoder reads it, in any reference implementation as of v1.0. PBR material bundle (planned). |
+| 0x0006 | TIMELINE      | **Reserved, not implemented.** Keyframe timestamps and interpolation curves (planned). |
+| 0x0007 | DEPTH_MAP     | Per-pixel depth map. See §7. **Not necessarily metric** — check CALIBRATION (§6c) before assuming units; only true when the producing encoder used a metric depth model or an independent scale reference. |
 | 0x0008 | ALPHA_MASK    | Per-pixel alpha/segmentation mask. See §8. |
 | 0x0009 | LAYER_GEO     | Layered depth field (foreground/midground/background/segments). See §9. |
-| 0x000A | ASSET_REF     | External asset reference (URL + type string). |
-| 0x0010 | SPATIAL_AUDIO | Ambisonics B-format audio + HRTF source positions. |
-| 0x0011 | INTERACTION   | Clickable object graph + trigger/action pairs. |
-| 0x0012 | AVATAR        | SMPL-X body mesh + pose parameters. |
-| 0x0013 | EDIT_HISTORY  | Non-destructive edit operations (reversible). |
-| 0x0014 | PRINT_EXPORT  | Pre-computed STL mesh for 3D print pipeline. |
-| 0x0016 | SEMANTIC_MAP  | Per-voxel semantic labels (vertical-specific schema). |
+| 0x000A | ASSET_REF     | **Reserved, not implemented.** External asset reference (URL + type string) (planned). |
+| 0x000B | CAMERAS       | Per-frame 4×4 view matrices + pose_source ('colmap' = real multi-view reconstruction, 'synthetic_*' = fallback). Independent of KEYFRAME_GEO. |
+| 0x000C | PHYSICS       | Per-object physics properties (mass, friction, restitution, collision shape, joints/constraints, body type: rigid \| soft \| cloth) for engine-next/physics/NIFPhysics.js. A reconstruction-pipeline .nif carries one whole-object rigid body: mass is estimated from real mesh volume × a per-vertical density heuristic only when the mesh is watertight **and** the file is calibrated (§6c) — otherwise mass is an explicitly-flagged placeholder. Always check `bodies[].mass_estimation_method` before treating a mass value as measured. Per-part physics (e.g. a hinge) is authored manually in the editor, not reconstructed. |
+| 0x0012 | AVATAR        | **Reserved, not implemented.** SMPL-X body mesh + pose parameters (planned). |
+| 0x0014 | PRINT_EXPORT  | Pre-computed STL mesh for 3D print pipeline. Dimensionally trustworthy only when the file's CALIBRATION chunk has confidence `high` or `medium` — see §6c. |
+| 0x0015 | THUMBNAIL     | Raw JPEG bytes — poster image shown before the interactive scene loads. |
+| 0x0016 | SEMANTIC_MAP  | **Reserved, not implemented.** Per-voxel semantic labels (vertical-specific schema) (planned). |
+| 0x0017 | CALIBRATION   | Real-world scale record. See §6c. |
+| 0x0018 | VERIFICATION  | Product-verification report against a reference mesh. See §6d. |
 | 0x0020 | CERT          | Encoder certificate. See §10. |
-| 0x00FF | WATERMARK     | Steganographic ownership mark. Format not published. |
+| 0x0300 | SPATIAL_AUDIO | **Reserved, not implemented.** Ambisonics B-format audio + HRTF source positions (planned). ID shared with .spax's SPAX_CHUNK.SPATIAL_AUDIO — see §11a. |
+| 0x0500 | EDIT_HISTORY  | **Reserved, not implemented.** Non-destructive edit operations (reversible) (planned). ID shared with .spax's SPAX_CHUNK.EDIT_HISTORY — see §11a. |
+| 0x0600 | INTERACTION   | **Reserved, not implemented.** Clickable object graph + trigger/action pairs (planned). ID shared with .spax's SPAX_CHUNK.INTERACTION — see §11a. |
+| 0x00FF | WATERMARK     | **Reserved, not implemented.** Steganographic ownership mark (planned). |
 | 0x8000–0xFFFF | VENDOR | Reserved for licensed third-party vendor extensions. |
+
+**§11a — Shared chunk-ID registry with .spax.** SPATIAL_AUDIO, EDIT_HISTORY,
+and INTERACTION exist as concepts in both .nif and .spax. As of this
+revision they use one shared numeric ID per concept (0x0300/0x0500/0x0600,
+adopted from .spax's numbering) instead of two independent IDs for the same
+name — SPAXSpec.js's SPAX_CHUNK now imports these three directly from
+NIFSpec.js's CHUNK rather than maintaining its own copies, so the two
+cannot drift apart again. (Previously SPATIAL_AUDIO/EDIT_HISTORY/INTERACTION
+were 0x0010/0x0013/0x0011 here — those three numeric IDs are now vacant in
+this table, left unassigned rather than immediately reused.)
+
+Chunk types marked **Reserved, not implemented** have their numeric ID
+allocated so future implementations don't collide with each other, but no
+encoder or decoder in the Fumoca reference implementation produces or
+consumes them today. Treat a file that only has non-reserved chunks as a
+completely valid, complete NIF file — reserved chunks are not required.
 
 A reader MUST skip unrecognised chunk types without error.
 
@@ -211,6 +233,88 @@ S = diag(exp(sx), exp(sy), exp(sz))
 M = R · S
 Σ = M · Mᵀ   (3×3 covariance matrix)
 ```
+
+---
+
+## 6b. KEYFRAME_MESH chunk data layout
+
+```
+[format_flag: uint8]
+
+  flag 0x00 — raw struct (the only format any current encoder produces):
+    [n_verts: uint32 BE][n_faces: uint32 BE]
+    [positions: n_verts × 3 × float32 BE]
+    [colors:    n_verts × 3 × uint8]
+    [faces:     n_faces × 3 × uint32 BE]
+
+  flag 0x01 — Draco-encoded. Remaining bytes are a Draco buffer, decoded by
+  nif-format.js's decodeMeshChunk()/_decodeDracoMesh() via THREE.DRACOLoader
+  in the reference viewer. As of this revision the encode/decode round trip
+  has not been confirmed against a real file (no browser/wasm execution
+  available at authoring time) — treat the first Draco-flagged file's
+  colors specifically as unverified until checked. A decoder MUST still
+  reject any format_flag other than 0x00 or 0x01 rather than guessing.
+```
+
+Positions are in the same coordinate space as KEYFRAME_GEO's positions
+*unless* the file's CALIBRATION chunk (§6c) reports a `scale_factor` — the
+reference encoder applies calibration to mesh/print output but leaves
+KEYFRAME_GEO in native reconstruction-space units, so the two chunks are not
+guaranteed to share a scale. Always check CALIBRATION before comparing them.
+
+---
+
+## 6c. CALIBRATION chunk data layout
+
+JSON, UTF-8 encoded:
+
+```json
+{
+  "method": "aruco_marker | manual_reference | metric_depth_model | none",
+  "scale_factor": 1.0,
+  "confidence": "high | medium | low | none",
+  "units": "meters | unknown",
+  "note": "human-readable explanation of how this was derived"
+}
+```
+
+`scale_factor` is the multiplier that converts reconstruction-space units to
+metres for chunks it was applied to (KEYFRAME_MESH, PRINT_EXPORT — see §6b).
+`confidence: "none"` (or a missing CALIBRATION chunk entirely) means every
+other "metric" field in the file is shape-correct only — do not use for
+measurement, printing, or verification without adding a calibration input at
+capture time (a known-size ArUco marker in frame is the most reliable
+option; see the reference encoder's `estimate_scale()`).
+
+---
+
+## 6d. VERIFICATION chunk data layout
+
+JSON, UTF-8 encoded — present only when the encoding job was given a
+reference mesh to compare against. Absence of this chunk means "not
+verified" and MUST NOT be displayed or treated as a pass by any consumer.
+
+```json
+{
+  "aligned": true,
+  "icp_converged": true,
+  "dimensionally_trustworthy": true,
+  "units": "millimeters | unitless_shape_distance",
+  "rmse": 1.2,
+  "mean_deviation": 0.8,
+  "max_deviation": 4.1,
+  "p95_deviation": 2.3,
+  "tolerance_mm": 2.0,
+  "pct_vertices_within_tolerance": 98.4,
+  "pass": true,
+  "note": "..."
+}
+```
+
+`pass` is `null` (not `false`) when `dimensionally_trustworthy` is `false` —
+a shape-only comparison has no tolerance to pass or fail against, and a
+consumer must not render a null `pass` as a failure any more than as a
+success.
 
 ---
 

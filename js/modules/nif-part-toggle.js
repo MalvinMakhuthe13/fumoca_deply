@@ -36,7 +36,7 @@
 
 import { decodeNif, decodeLayers, decodePhysics, encodeNif } from './nif-format.js';
 import { GaussianEdit, Quat, v3 } from '../../engine-next/math/NIFMath.js';
-import r2 from './r2Client.js';
+import r2 from '../r2Client.js';
 
 /**
  * Rotate one layer's points, by index, within the full 14-float-per-point

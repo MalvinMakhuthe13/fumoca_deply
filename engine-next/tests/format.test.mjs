@@ -1,5 +1,7 @@
-import { NIFHeader, NIFChunk, NIFWriter, NIFReader, NIFCertificate, CHUNK, CODEC, CRS, ENCODER_TIER, crc32 }
+import { NIFHeader, NIFChunk, NIFWriter, NIFReader, NIFCertificate, CHUNK, CODEC, CRS, ENCODER_TIER, crc32,
+  encodeCalibrationChunk, decodeCalibrationChunk, encodeVerificationChunk, decodeVerificationChunk }
   from '../format/NIFSpec.js';
+import { SPAX_CHUNK } from '../format/SPAXSpec.js';
 
 let pass = 0, fail = 0;
 function check(name, cond, detail='') {
@@ -42,7 +44,7 @@ check('total byteLength matches writer.byteLength getter', bytes.length === writ
 // --- TEST 2: read it back ---
 const reader = new NIFReader(bytes.buffer);
 check('magic number correct', reader.header.magic === 0x4E494600);
-check('version correct', reader.header.versionMajor === 1 && reader.header.versionMinor === 0);
+check('version correct', reader.header.versionMajor === 1 && reader.header.versionMinor === 1);
 check('captureMode round-trips', reader.header.captureMode === 'video', reader.header.captureMode);
 check('vertical round-trips', reader.header.vertical === 'automotive', reader.header.vertical);
 check('frameCount round-trips', reader.header.frameCount === 120, reader.header.frameCount);
@@ -105,6 +107,67 @@ try {
   badMagicCaught = /Invalid NIF magic/.test(e.message);
 }
 check('wrong magic number rejected', badMagicCaught);
+
+// --- TEST 8: CALIBRATION chunk round-trips exactly, including confidence ---
+// This is the chunk verified_for_measurement depends on — if confidence
+// silently degrades or flips across encode/decode, a file could be treated
+// as trustworthy when it isn't (or vice versa).
+const calibIn = { method: 'aruco_marker', scale_factor: 0.0142, confidence: 'high',
+                   units: 'meters', note: '50mm ArUco marker, 1 detection' };
+const calibChunk = encodeCalibrationChunk(calibIn);
+const calibOut = await decodeCalibrationChunk(calibChunk);
+check('CALIBRATION round-trips method/scale/confidence exactly',
+  calibOut.method === calibIn.method && calibOut.scale_factor === calibIn.scale_factor
+  && calibOut.confidence === calibIn.confidence, JSON.stringify(calibOut));
+
+// --- TEST 9: missing CALIBRATION chunk decodes to explicit "uncalibrated", never metric ---
+// Guards the exact bug estimate_scale() was written to prevent: an absent
+// chunk must never be silently interpreted as "metres."
+const noCalib = await decodeCalibrationChunk(null);
+check('missing CALIBRATION decodes to confidence=none, units=unknown (never assumes metric)',
+  noCalib.confidence === 'none' && noCalib.units === 'unknown', JSON.stringify(noCalib));
+
+// --- TEST 10: VERIFICATION chunk round-trips pass/fail + dimensionally_trustworthy ---
+const verifyIn = { aligned: true, pass: true, dimensionally_trustworthy: true, rmse: 0.4,
+                    mean_deviation: 0.31, max_deviation: 1.8, tolerance_mm: 2.0,
+                    pct_vertices_within_tolerance: 97.2, units: 'mm' };
+const verifyChunk = encodeVerificationChunk(verifyIn);
+const verifyOut = await decodeVerificationChunk(verifyChunk);
+check('VERIFICATION round-trips pass/dimensionally_trustworthy exactly',
+  verifyOut.pass === verifyIn.pass && verifyOut.dimensionally_trustworthy === verifyIn.dimensionally_trustworthy
+  && verifyOut.tolerance_mm === verifyIn.tolerance_mm, JSON.stringify(verifyOut));
+
+// --- TEST 11: missing VERIFICATION chunk decodes to null, never a false pass ---
+// A viewer/app that forgets to null-check could otherwise render an
+// unverified file as if it passed verification.
+const noVerify = await decodeVerificationChunk(null);
+check('missing VERIFICATION decodes to null (never {pass:true} by accident)',
+  noVerify === null, JSON.stringify(noVerify));
+
+// --- TEST 12: version gate — mismatched major version is flagged, not silently accepted ---
+const goodBuf = writer.build().buffer.slice(0);
+const badVersionBuf = goodBuf.slice(0);
+new DataView(badVersionBuf).setUint8(4, 2); // corrupt versionMajor to 2
+const badVersionReader = new NIFReader(badVersionBuf);
+check('unsupported major version: isVersionSupported=false', badVersionReader.isVersionSupported === false);
+check('unsupported major version: surfaces via isCorrupted (existing callers already check this)',
+  badVersionReader.isCorrupted === true);
+
+// --- TEST 13: matching major version, different minor — must NOT be flagged ---
+// (Minor bumps only add chunk types per spec §12; a v1.0 reader given a v1.1
+// file, or vice versa, is a supported, ordinary case.)
+const okMinorBuf = goodBuf.slice(0);
+new DataView(okMinorBuf).setUint8(5, 0); // set versionMinor to 0 (this file was built as 1.1)
+const okMinorReader = new NIFReader(okMinorBuf);
+check('same major, different minor version: isVersionSupported=true', okMinorReader.isVersionSupported === true);
+
+// --- TEST 14: .nif/.spax shared-concept chunk IDs cannot drift apart ---
+// SPAX_CHUNK imports these three directly from NIFSpec.js's CHUNK — this
+// test would fail immediately if a future edit ever hardcoded a literal
+// back into either enum instead of keeping the shared import.
+check('SPATIAL_AUDIO shares one ID across .nif and .spax', SPAX_CHUNK.SPATIAL_AUDIO === CHUNK.SPATIAL_AUDIO);
+check('EDIT_HISTORY shares one ID across .nif and .spax', SPAX_CHUNK.EDIT_HISTORY === CHUNK.EDIT_HISTORY);
+check('INTERACTION shares one ID across .nif and .spax', SPAX_CHUNK.INTERACTION === CHUNK.INTERACTION);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);

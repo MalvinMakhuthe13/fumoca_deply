@@ -20,6 +20,7 @@
  */
 
 import * as THREE from 'three';
+import { encodeCalibrationChunk } from '../../engine-next/format/NIFSpec.js';
 
 const noop = () => {};
 const yieldFrame = () => new Promise(r => setTimeout(r, 0));
@@ -646,6 +647,21 @@ export class MeshEngine {
     rep.calibrated = true;
     this._onPrintReport(rep);
     this._report(100, `Calibrated: ${axis.toUpperCase()} axis = ${knownMM}mm (×${factor.toFixed(4)} scale applied). Exports are now real-world sized.`);
+
+    // Persist into the actual file format, not just the in-editor report —
+    // see the matching splice in publish-to-fumoca.js's
+    // _loadOriginalForPassthrough(). Without this, a republished file's
+    // CALIBRATION chunk stays whatever the original server-side pipeline
+    // wrote (often confidence:'none') even though the mesh geometry itself
+    // has just been rescaled to a real measurement.
+    window._fumocaEditorCalibrationChunk = encodeCalibrationChunk({
+      method: 'manual_reference',
+      scale_factor: this._scaleFactor,
+      confidence: 'high',
+      units: 'meters',
+      note: `Manually calibrated in mesh editor: ${axis.toUpperCase()} axis = ${knownMM}mm`,
+    });
+
     return rep;
   }
 

@@ -1,4 +1,17 @@
 /**
+ * ⚠️ NOT CURRENTLY WIRED TO THE LIVE APP — confirmed by repo-wide grep,
+ * zero imports/references anywhere in *.html or js/modules/*.js. The live
+ * decode/render path is js/modules/nif-format.js + js/modules/viewer.js.
+ * This file's CALIBRATION/VERIFICATION/PHYSICS decode logic is real and
+ * more complete in places, but changes here currently have NO effect on
+ * what a user sees. Before extending this file, either (a) confirm you're
+ * intentionally building a second, not-yet-launched viewer, or (b) port
+ * the logic you need into nif-format.js/viewer.js instead, which is what
+ * actually runs. Left in place rather than deleted since a full trace of
+ * every future integration point (embed SDK? admin tooling?) hasn't been
+ * done — deleting live code sight-unseen is a worse mistake than leaving
+ * dead code clearly labeled.
+ *
  * NIFViewer — Complete Load & Playback Pipeline
  * © Fumoca Technologies · fumoca.co.za
  *
@@ -414,10 +427,34 @@ export class NIFViewer {
       catch (e) { console.warn('[NIFViewer] PHYSICS chunk failed to decode:', e.message); }
     }
 
+    // CALIBRATION — real-world scale record (see NIFSpec.js's
+    // encode/decodeCalibrationChunk and pipeline.py's estimate_scale()).
+    // Exposed here so any consumer (dimension display, print export gating,
+    // verification UI) can check confidence before trusting metric values
+    // elsewhere in this parsed object, instead of assuming raw positions
+    // are already metres.
+    const calibChunk = await getChunk(CHUNK.CALIBRATION);
+    let calibration = { method: 'none', scale_factor: null, confidence: 'none', units: 'unknown' };
+    if (calibChunk) {
+      try { calibration = JSON.parse(new TextDecoder().decode(calibChunk.data)); }
+      catch (e) { console.warn('[NIFViewer] CALIBRATION chunk failed to decode:', e.message); }
+    }
+
+    // VERIFICATION — product-verification report vs. a reference mesh (see
+    // engine-next/reconstruction/verify.py). null (chunk absent) means
+    // "never verified" — must not be displayed as a pass.
+    const verifyChunk = await getChunk(CHUNK.VERIFICATION);
+    let verification = null;
+    if (verifyChunk) {
+      try { verification = JSON.parse(new TextDecoder().decode(verifyChunk.data)); }
+      catch (e) { console.warn('[NIFViewer] VERIFICATION chunk failed to decode:', e.message); }
+    }
+
     // Reader — NIFPreviewSystem uses getChunkSync for proxy video (uncompressed)
     const reader = { getChunk: getChunkSync };
 
-    return { reader, gaussians, depthMap, alphaMask, layers, vertical, meta, thumbnailBytes, physics };
+    return { reader, gaussians, depthMap, alphaMask, layers, vertical, meta, thumbnailBytes,
+             physics, calibration, verification };
   }
 
   // ── Static helpers ─────────────────────────────────────────────────────────

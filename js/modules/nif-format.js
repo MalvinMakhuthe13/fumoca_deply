@@ -23,7 +23,9 @@ import {
   NIFWriter, NIFReader, CHUNK, CODEC,
   encodeMetaChunk, decodeMetaChunk, encodeThumbnailChunk,
   decompressChunk, decodePhysicsChunk,
+  decodeCalibrationChunk, decodeVerificationChunk,
 } from '../../engine-next/format/NIFSpec.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 
 const FLOATS_PER_POINT = 14;
 
@@ -284,7 +286,137 @@ export async function decodeNif(arrayBuffer) {
   const thumbChunk = reader.getChunk(CHUNK.THUMBNAIL);
   const thumbnailBytes = thumbChunk ? thumbChunk.data : null;
 
-  return { reader, meta, thumbnailBytes, gaussians: geometry };
+  // CALIBRATION/VERIFICATION — this is the live app's only decode path, so
+  // if these aren't read here, the calibration confidence and product-
+  // verification report never reach the viewer UI no matter what pipeline.py
+  // wrote into the file. decodeCalibrationChunk/decodeVerificationChunk
+  // already default safely (uncalibrated / null) when the chunk is absent —
+  // see NIFSpec.js.
+  const calibration = await decodeCalibrationChunk(reader.getChunk(CHUNK.CALIBRATION));
+  const verification = await decodeVerificationChunk(reader.getChunk(CHUNK.VERIFICATION));
+
+  // KEYFRAME_MESH — decodes both formats now: raw struct (0x00, what every
+  // file produced until Draco was wired server-side) and Draco (0x01, once
+  // pipeline.py's ENABLE_DRACO_MESH is on). Async because Draco decode goes
+  // through a wasm module — decodeNif already awaits everything else, so
+  // this doesn't change the calling convention.
+  const mesh = await decodeMeshChunk(reader.getChunk(CHUNK.KEYFRAME_MESH));
+
+  return { reader, meta, thumbnailBytes, gaussians: geometry, calibration, verification, mesh };
+}
+
+// ── Draco decoder — lazily created, reused across every mesh this session.
+// Decoder wasm is fetched from Google's official versioned CDN, same source
+// three.js's own examples use; not self-hosted, so this needs network access
+// to gstatic.com. If that's ever a problem (offline/embedded contexts), the
+// fix is hosting the decoder files locally and pointing setDecoderPath() at
+// that instead — DRACOLoader doesn't care where they come from.
+const DRACO_DECODER_PATH = 'https://www.gstatic.com/draco/versioned/decoders/1.5.7/';
+let _dracoLoader = null;
+function _getDracoLoader() {
+  if (!_dracoLoader) {
+    _dracoLoader = new DRACOLoader();
+    _dracoLoader.setDecoderPath(DRACO_DECODER_PATH);
+    _dracoLoader.setDecoderConfig({ type: 'wasm' });
+  }
+  return _dracoLoader;
+}
+
+// Decodes a Draco buffer into the same {positions, colors, faces, nVerts,
+// nFaces} shape the raw-struct path returns, so mountMeshViewer() in
+// viewer.js never has to know which format a given file used.
+//
+// KNOWN INTEGRATION RISK, not yet verified end-to-end: pipeline.py's
+// DracoPy.encode() call passes vertex colors as a plain array with no
+// explicit attribute-type/quantization-bits pairing to what THREE's
+// DRACOLoader expects by default for a COLOR attribute. This *should* work
+// (DracoPy assigns colors as Draco's standard COLOR generic attribute,
+// which DRACOLoader auto-detects) but neither side of this round trip has
+// been run against a real encoded file — I can't execute WebGL/wasm in this
+// environment to confirm it. If colors come through wrong (black, or the
+// wrong scale) on the first real Draco-flagged file, that mismatch — not the
+// vertex/index decode, which is the well-trodden path — is the first place
+// to look.
+function _decodeDracoMesh(dracoBytes) {
+  return new Promise((resolve, reject) => {
+    const loader = _getDracoLoader();
+    const arrayBuffer = dracoBytes.buffer.slice(
+      dracoBytes.byteOffset, dracoBytes.byteOffset + dracoBytes.byteLength);
+    loader.decodeDracoFile(
+      arrayBuffer,
+      (geometry) => {
+        try {
+          const posAttr = geometry.getAttribute('position');
+          const idxAttr = geometry.getIndex();
+          if (!posAttr || !idxAttr) throw new Error('Draco geometry missing position or index');
+          const positions = new Float32Array(posAttr.array);
+          const colAttr = geometry.getAttribute('color');
+          let colors;
+          if (colAttr) {
+            // Draco/three can hand back colors as normalized floats (0-1) or
+            // raw uint8 depending on encode-side quantization — normalize
+            // to the uint8 shape mountMeshViewer() already expects.
+            if (colAttr.array instanceof Uint8Array || colAttr.array instanceof Uint8ClampedArray) {
+              colors = new Uint8Array(colAttr.array);
+            } else {
+              colors = new Uint8Array(colAttr.array.length);
+              for (let i = 0; i < colAttr.array.length; i++) colors[i] = Math.round(clamp01(colAttr.array[i]) * 255);
+            }
+          } else {
+            colors = new Uint8Array(positions.length).fill(200);  // no color attr — flat warm grey, matches the raw-format fallback in viewer.js
+          }
+          const faces = new Uint32Array(idxAttr.array);
+          resolve({ positions, colors, faces, nVerts: positions.length / 3, nFaces: faces.length / 3 });
+        } catch (e) {
+          reject(e);
+        } finally {
+          geometry.dispose?.();
+        }
+      },
+      undefined, undefined,
+    );
+  });
+}
+function clamp01(v) { return v < 0 ? 0 : v > 1 ? 1 : v; }
+
+// ── Decode KEYFRAME_MESH → {positions, colors, faces} typed arrays, or null.
+// Layout (see NIF_SPEC_v1.0.md §6b / pipeline.py's _extract_mesh docstring):
+//   [format_flag:u8]
+//   flag 0x00: [n_verts:u32 BE][n_faces:u32 BE]
+//              [positions: n_verts×3×f32 BE][colors: n_verts×3×u8][faces: n_faces×3×u32 BE]
+//   flag 0x01: Draco buffer — decoded via _decodeDracoMesh() above.
+async function decodeMeshChunk(chunk) {
+  if (!chunk) return null;
+  try {
+    const dv = new DataView(chunk.data.buffer, chunk.data.byteOffset, chunk.data.byteLength);
+    const formatFlag = dv.getUint8(0);
+
+    if (formatFlag === 0x01) {
+      return await _decodeDracoMesh(chunk.data.subarray(1));
+    }
+    if (formatFlag !== 0x00) {
+      console.warn(`[nif-format] KEYFRAME_MESH has format_flag ${formatFlag} — ` +
+                    `no decoder for this format, skipping mesh render.`);
+      return null;
+    }
+    const nVerts = dv.getUint32(1, false);
+    const nFaces = dv.getUint32(5, false);
+    let offset = 9;
+
+    const positions = new Float32Array(nVerts * 3);
+    for (let i = 0; i < nVerts * 3; i++) { positions[i] = dv.getFloat32(offset, false); offset += 4; }
+
+    const colors = new Uint8Array(chunk.data.buffer, chunk.data.byteOffset + offset, nVerts * 3);
+    offset += nVerts * 3;
+
+    const faces = new Uint32Array(nFaces * 3);
+    for (let i = 0; i < nFaces * 3; i++) { faces[i] = dv.getUint32(offset, false); offset += 4; }
+
+    return { positions, colors, faces, nVerts, nFaces };
+  } catch (e) {
+    console.warn('[nif-format] KEYFRAME_MESH failed to decode (non-fatal, falls back to splat render):', e.message);
+    return null;
+  }
 }
 
 /**

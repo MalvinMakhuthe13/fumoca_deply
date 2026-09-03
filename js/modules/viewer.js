@@ -654,6 +654,48 @@ function setEraseMaskMode(enabled) {
 function setLoading(msg) { loadingText.textContent = msg; loadingOverlay.classList.remove('hidden'); }
 function hideLoading() { loadingOverlay.classList.add('hidden'); }
 function showError(msg) { hideLoading(); errorMsg.textContent = msg; errorBox.classList.add('visible'); }
+
+/**
+ * Renders small pill badges for CALIBRATION confidence and VERIFICATION
+ * pass/fail next to the title, so "is this dimensionally trustworthy" is
+ * visible at a glance instead of buried in a JSON chunk nobody looks at.
+ * Both calibration and verification can be null/absent — that's a normal,
+ * legitimate state (most casual captures won't be calibrated), not an error.
+ */
+function renderTrustBadges(calibration, verification) {
+  const el = document.getElementById('trustBadges');
+  if (!el) return;
+  el.innerHTML = '';
+
+  const pill = (text, bg, fg) => {
+    const s = document.createElement('span');
+    s.textContent = text;
+    s.style.cssText = `display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;background:${bg};color:${fg};`;
+    return s;
+  };
+
+  if (calibration && calibration.confidence && calibration.confidence !== 'none') {
+    const colors = { high: ['#C8FF00', '#0a0a0a'], medium: ['#FFD54A', '#0a0a0a'], low: ['#555', '#fff'] };
+    const [bg, fg] = colors[calibration.confidence] || ['#555', '#fff'];
+    const badge = pill(`📏 Scale: ${calibration.confidence}`, bg, fg);
+    badge.title = calibration.note || '';
+    el.appendChild(badge);
+  }
+
+  // Absence of a VERIFICATION chunk means "never requested" — must render as
+  // neutral/nothing, never as a pass. Same for verification.pass === null
+  // (ran, but couldn't reach a dimensionally trustworthy conclusion).
+  if (verification && verification.pass !== null && verification.pass !== undefined) {
+    if (verification.pass && verification.dimensionally_trustworthy) {
+      el.appendChild(pill(`✓ Verified ±${verification.tolerance_mm}mm`, '#2ECC71', '#0a0a0a'));
+    } else if (verification.pass === false) {
+      el.appendChild(pill(`✗ Out of tolerance`, '#E74C3C', '#fff'));
+    } else {
+      // pass true but not dimensionally_trustworthy — shape matched, units didn't
+      el.appendChild(pill(`⚠ Shape-only match`, '#FFD54A', '#0a0a0a'));
+    }
+  }
+}
 function isnifUrl(url) { const clean = String(url || '').split('?')[0].toLowerCase(); return clean.startsWith('blob:') || clean.endsWith('.ply') || clean.endsWith('.nif') || clean.endsWith('.knif') || clean.endsWith('.nif'); }
 function _isNifUrl(url) { return String(url || '').split('?')[0].toLowerCase().endsWith('.nif'); }
 // Returns url only if Gaussiannif_files3D can render it — strips .ply URLs completely
@@ -712,6 +754,12 @@ function normalizeStatus(status, url) {
   if (['done', 'ready', 'published', 'complete', 'completed'].includes(raw)) return 'done';
   if (['processing', 'running', 'training', 'rendering'].includes(raw)) return 'processing';
   if (['failed', 'error'].includes(raw)) return 'failed';
+  // Distinct from 'failed': the pipeline ran successfully but the capture
+  // didn't clear the minimum-acceptable bar (real multi-view geometry +
+  // a mesh) — see pipeline.py's min_acceptable gate. This is a "please
+  // recapture" outcome, not a system error, and should read differently
+  // to the user than a genuine failure.
+  if (raw === 'needs_retry') return 'needs_retry';
   if (raw === 'queued' || raw === 'pending') return 'queued';
   return url ? 'done' : 'queued';
 }
@@ -1139,6 +1187,123 @@ function getActivenifUrl() {
   return rendererPreviewUrl || fileUrl || originalnifUrl || '';
 }
 
+
+// ── Solid mesh overlay — renders the KEYFRAME_MESH chunk (when present) as
+// an actual lit triangle surface instead of the point-cloud splat render.
+// This is additive, not a replacement: the Gaussian splat renderer
+// (mountInteractiveViewer, below) still mounts underneath exactly as
+// before, so editing tools (lasso/erase/paint, which operate on individual
+// Gaussians) keep working unchanged. The mesh sits on top at a higher
+// z-index and is what a client actually sees first — a "Points" toggle
+// hides it to reveal the splat cloud underneath for editing.
+//
+// Why this matters: without this, a .nif with a perfectly good reconstructed
+// mesh underneath still LOOKS like every other soft, blobby Gaussian splat
+// viewer on first open — there was no visual difference between "we did the
+// hard reconstruction work" and "generic splat blob," no matter how solid
+// the actual geometry was. This is that missing visual difference.
+let _meshRenderer = null, _meshScene = null, _meshCamera = null, _meshControls = null, _meshFrame = null;
+
+function destroyMeshViewer() {
+  if (_meshFrame) { cancelAnimationFrame(_meshFrame); _meshFrame = null; }
+  if (_meshRenderer) { _meshRenderer.dispose(); _meshRenderer.domElement.remove(); _meshRenderer = null; }
+  _meshScene = _meshCamera = _meshControls = null;
+  document.getElementById('fumocaMeshToggle')?.remove();
+}
+
+function mountMeshViewer(mesh, calibration) {
+  destroyMeshViewer();
+  const container = stageHost || stageEl;
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(mesh.positions, 3));
+  // Colors arrive as 0-255 uint8 — THREE wants 0-1 floats for vertexColors.
+  const colorsF = new Float32Array(mesh.colors.length);
+  for (let i = 0; i < mesh.colors.length; i++) colorsF[i] = mesh.colors[i] / 255;
+  geo.setAttribute('color', new THREE.BufferAttribute(colorsF, 3));
+  geo.setIndex(new THREE.BufferAttribute(mesh.faces, 1));
+  geo.computeVertexNormals();  // required for lit shading — this is what makes it read as solid, not flat/blobby
+
+  // Lambertian-ish material with vertex colors: matte, physically-plausible
+  // shading (as opposed to the additive/transparent splat material above),
+  // which is precisely the visual cue that reads as "solid object" rather
+  // than "fuzzy point cloud."
+  const mat = new THREE.MeshStandardMaterial({
+    vertexColors: true, metalness: 0.05, roughness: 0.75,
+    side: THREE.DoubleSide,  // reconstructed meshes can have thin/open regions — avoid black backfaces
+  });
+  const meshObj = new THREE.Mesh(geo, mat);
+
+  _meshScene = new THREE.Scene();
+  _meshScene.add(meshObj);
+  _meshScene.add(new THREE.AmbientLight(0xffffff, 0.55));
+  const key = new THREE.DirectionalLight(0xffffff, 1.1);
+  key.position.set(1, 1.2, 1.5);
+  _meshScene.add(key);
+  const fill = new THREE.DirectionalLight(0xffffff, 0.4);
+  fill.position.set(-1.2, 0.6, -1);
+  _meshScene.add(fill);
+
+  _meshCamera = new THREE.PerspectiveCamera(55, container.clientWidth / container.clientHeight, 0.001, 2000);
+  _meshCamera.up.set(0, -1, -0.6).normalize();  // match the splat renderer's convention (see mountPlyViewer)
+  _meshRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
+  _meshRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  _meshRenderer.setSize(container.clientWidth, container.clientHeight);
+  _meshRenderer.setClearColor(0x000000, 0);
+  _meshRenderer.outputColorSpace = THREE.SRGBColorSpace;
+  Object.assign(_meshRenderer.domElement.style, { position: 'absolute', inset: '0', width: '100%', height: '100%', zIndex: '3' });
+  container.appendChild(_meshRenderer.domElement);
+
+  _meshControls = new OrbitControls(_meshCamera, _meshRenderer.domElement);
+  _meshControls.enableDamping = true; _meshControls.dampingFactor = 0.07;
+  _meshControls.rotateSpeed = 0.55; _meshControls.zoomSpeed = 1.1;
+
+  geo.computeBoundingSphere();
+  const r = geo.boundingSphere.radius || 1;
+  const c = geo.boundingSphere.center;
+  _meshCamera.position.set(c.x, c.y - r * 0.25, c.z + r * 2.4);
+  _meshCamera.lookAt(c.x, c.y, c.z);
+  _meshControls.target.set(c.x, c.y, c.z);
+  _meshControls.minDistance = r * 0.05;
+  _meshControls.maxDistance = r * 14;
+  _meshControls.update();
+
+  window.addEventListener('resize', () => {
+    if (!_meshRenderer) return;
+    _meshCamera.aspect = container.clientWidth / container.clientHeight;
+    _meshCamera.updateProjectionMatrix();
+    _meshRenderer.setSize(container.clientWidth, container.clientHeight);
+  });
+  function loop() {
+    _meshFrame = requestAnimationFrame(loop);
+    _meshControls.update();
+    _meshRenderer.render(_meshScene, _meshCamera);
+  }
+  loop();
+
+  // ── Solid ⇄ Points toggle — the splat renderer keeps running underneath
+  // the whole time; this just shows/hides the mesh canvas on top of it.
+  const btn = document.createElement('button');
+  btn.id = 'fumocaMeshToggle';
+  btn.textContent = '● Points view';
+  Object.assign(btn.style, {
+    position: 'absolute', top: '12px', right: '12px', zIndex: '4',
+    padding: '6px 12px', borderRadius: '999px', border: '1px solid rgba(255,255,255,0.25)',
+    background: 'rgba(0,0,0,0.55)', color: '#fff', font: '600 12px system-ui, sans-serif',
+    cursor: 'pointer', backdropFilter: 'blur(6px)',
+  });
+  let showingMesh = true;
+  btn.addEventListener('click', () => {
+    showingMesh = !showingMesh;
+    _meshRenderer.domElement.style.display = showingMesh ? '' : 'none';
+    btn.textContent = showingMesh ? '● Points view' : '▲ Solid view';
+  });
+  container.appendChild(btn);
+
+  console.log(`[Viewer] Solid mesh rendered — ${mesh.nVerts.toLocaleString()} verts, ` +
+              `${mesh.nFaces.toLocaleString()} faces` +
+              (calibration?.confidence && calibration.confidence !== 'none' ? ` (${calibration.confidence} calibration)` : ' (uncalibrated)'));
+}
 
 // ── PLY point cloud viewer using Three.js ────────────────────────────────────
 // Called when fileUrl is a .ply — renders via THREE.js with Gaussian shader
@@ -1570,6 +1735,9 @@ async function boot() {
     if (status === 'processing' || status === 'queued') {
       showError('This nif is still processing. Open the teaser while the interactive version finishes.');
       if ((previewVideoUrl || thumbnailUrl) && autoplayPreview) openPreview('nif');
+    } else if (status === 'needs_retry') {
+      const reason = currentRecord?.meta?.quality_reason;
+      showError(`This capture didn't get enough coverage to build a solid 3D model${reason ? ' — ' + reason : ''}. Try recapturing with a slower, fuller pass around the object.`);
     } else if (status === 'failed') {
       showError('Processing failed for this nif.');
     } else {
@@ -1597,7 +1765,11 @@ async function boot() {
       const nifBuffer = await nifResp.arrayBuffer();
       if (fileUrl.startsWith('blob:')) URL.revokeObjectURL(fileUrl);
 
-      const { meta, gaussians } = decodeNif(nifBuffer);
+      const { meta, gaussians, calibration, verification, mesh } = await decodeNif(nifBuffer);
+      window._fumocaCalibration  = calibration;
+      window._fumocaVerification = verification;
+      window._fumocaDecodedMesh  = mesh;
+      renderTrustBadges(calibration, verification);
       const nifBytes = geometryTonifRows(gaussians);
       const nifBlob  = new Blob([nifBytes], { type: 'application/octet-stream' });
       fileUrl = URL.createObjectURL(nifBlob);
@@ -1636,6 +1808,14 @@ async function boot() {
     await mountPlyViewer(fileUrl);
   } else {
     await mountInteractiveViewer();
+    // Mesh overlay goes on top of the splat renderer once it's mounted, not
+    // before — mountInteractiveViewer owns stageHost/container setup, and
+    // mounting the mesh canvas first would have it torn down along with it.
+    if (window._fumocaDecodedMesh?.nVerts > 0) {
+      mountMeshViewer(window._fumocaDecodedMesh, window._fumocaCalibration);
+    } else {
+      destroyMeshViewer();  // clears any leftover toggle/canvas from a previously-viewed file
+    }
   }
 }
 
@@ -1711,9 +1891,14 @@ exportFigurineBtn?.addEventListener('click', async () => {
     pollPrintJob(jobId, (job) => {
       if (job.status === 'complete') {
         const stlUrl = job.meta?.stl_url;
+        const warning = job.meta?.print_warning;  // set server-side when mesh_watertight is false
         exportFigurineStatus.innerHTML = stlUrl
-          ? `✅ Ready — <a href="${stlUrl}" target="_blank" style="color:#C8FF00;">Download STL</a>`
+          ? `✅ Ready — <a href="${stlUrl}" target="_blank" style="color:#C8FF00;">Download STL</a>` +
+            (warning ? `<br><span style="color:#ffb020;">⚠️ ${warning}</span>` : '')
           : '✅ Done, but no download link came back — check the job record.';
+        exportFigurineBtn.disabled = false;
+      } else if (job.status === 'needs_retry') {
+        setStatus('⚠️ ' + (job.error_message || 'This capture didn\'t reconstruct solidly enough to export — try recapturing with fuller coverage.'));
         exportFigurineBtn.disabled = false;
       } else if (job.status === 'failed') {
         setStatus('❌ ' + (job.error_message || 'Export failed — see server logs.'));
