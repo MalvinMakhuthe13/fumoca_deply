@@ -1979,26 +1979,92 @@ class ReconstructionWorker:
         col_dir = self.tmp / 'colmap'
         col_dir.mkdir()
 
-        # data_type='video' makes automatic_reconstructor use sequential
-        # matching (each frame matched against a small nearby window) instead
-        # of exhaustive/vocab-tree matching. Cost scales ~linearly with frame
-        # count rather than ~quadratically — this is what makes it affordable
-        # to feed COLMAP hundreds of frames instead of a 40-frame subsample.
-        # Frames arriving here are always in capture order (video decode or
-        # sorted burst filenames), so the ordering assumption holds.
-        r = subprocess.run([
-            'colmap', 'automatic_reconstructor',
-            '--workspace_path', str(col_dir),
-            '--image_path', str(img_dir),
-            '--data_type', 'video',
-            '--single_camera', '1',
-            '--dense', '0',
-        ], capture_output=True, text=True)
+        # Run COLMAP explicitly instead of automatic_reconstructor.
+        #
+        # automatic_reconstructor is a convenience wrapper that attempts to
+        # create an OpenGL context on COLMAP 3.7. Kaggle workers are headless,
+        # so that wrapper can fail before SfM even starts.
+        #
+        # The explicit CLI stages are headless:
+        #   1. feature_extractor
+        #   2. sequential_matcher
+        #   3. mapper
+        #
+        # Frames arrive in capture order, so sequential matching preserves
+        # the video's temporal structure and scales better than exhaustive
+        # matching for long captures.
+        database_path = col_dir / 'database.db'
+        sparse_dir = col_dir / 'sparse'
+        sparse_dir.mkdir(exist_ok=True)
 
-        if r.returncode != 0 or not (col_dir / 'sparse' / '0').exists():
-            print(f'[NIF] COLMAP failed — using synthetic poses (this capture will be a depth-based '
-                  f'pseudo-3D effect, NOT real triangulated multi-view geometry)')
+        def _run_colmap(args, stage):
+            print(f'[NIF] COLMAP {stage}...')
+            result = subprocess.run(
+                ['colmap'] + args,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                print(
+                    f'[NIF] COLMAP {stage} failed '
+                    f'(returncode={result.returncode})'
+                )
+                if result.stdout:
+                    print(result.stdout[-6000:])
+                if result.stderr:
+                    print(result.stderr[-6000:])
+                return False
+            return True
+
+        # GPU SIFT extraction with one shared camera model.
+        if not _run_colmap([
+            'feature_extractor',
+            '--database_path', str(database_path),
+            '--image_path', str(img_dir),
+            '--ImageReader.single_camera', '1',
+            '--SiftExtraction.use_gpu', '1',
+        ], 'feature extraction'):
             return self._synthetic_poses(len(frames)), 'synthetic_colmap_failed', None
+
+        # Sequential matching for video frames.
+        if not _run_colmap([
+            'sequential_matcher',
+            '--database_path', str(database_path),
+            '--SequentialMatching.overlap', '10',
+            '--SiftMatching.use_gpu', '1',
+        ], 'sequential matching'):
+            return self._synthetic_poses(len(frames)), 'synthetic_colmap_failed', None
+
+        # Mapper creates the actual SfM cameras and triangulated geometry.
+        # Two-view tracks are retained because they can be useful for
+        # object/turntable captures.
+        if not _run_colmap([
+            'mapper',
+            '--image_path', str(img_dir),
+            '--database_path', str(database_path),
+            '--output_path', str(sparse_dir),
+            '--Mapper.tri_ignore_two_view_track', '0',
+            '--Mapper.multiple_models', '0',
+        ], 'mapping'):
+            return self._synthetic_poses(len(frames)), 'synthetic_colmap_failed', None
+
+        if not (sparse_dir / '0').exists():
+            print('[NIF] COLMAP mapper completed without a sparse/0 model')
+            return self._synthetic_poses(len(frames)), 'synthetic_colmap_failed', None
+
+        # Record basic reconstruction statistics before parsing the binary
+        # model. These metrics make the real SfM result observable in worker
+        # logs instead of treating every weak reconstruction as an opaque
+        # success/failure.
+        model_dir = sparse_dir / '0'
+        images_bin = model_dir / 'images.bin'
+        points3d_bin = model_dir / 'points3D.bin'
+        cameras_bin = model_dir / 'cameras.bin'
+
+        print('[NIF] COLMAP model artifacts:')
+        print(f'       images.bin:  {images_bin.stat().st_size if images_bin.exists() else 0:,} bytes')
+        print(f'       cameras.bin: {cameras_bin.stat().st_size if cameras_bin.exists() else 0:,} bytes')
+        print(f'       points3D.bin:{points3d_bin.stat().st_size if points3d_bin.exists() else 0:,} bytes')
 
         # Parse COLMAP images.bin
         poses = self._parse_colmap(col_dir / 'sparse' / '0' / 'images.bin')
