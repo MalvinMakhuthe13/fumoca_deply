@@ -2022,7 +2022,7 @@ class ReconstructionWorker:
             '--database_path', str(database_path),
             '--image_path', str(img_dir),
             '--ImageReader.single_camera', '1',
-            '--SiftExtraction.use_gpu', '1',
+            '--SiftExtraction.use_gpu', '0',
         ], 'feature extraction'):
             return self._synthetic_poses(len(frames)), 'synthetic_colmap_failed', None
 
