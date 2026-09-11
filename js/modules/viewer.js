@@ -155,19 +155,15 @@ let fileUrl = await (async () => {
     console.log('[Viewer] Loading from sessionStorage fumoc_pending_nif_url');
     return pending;
   }
+
   const f = params.get('file') || '';
   if (!f) return '';
-  try {
-    const probe = await fetch(f, { method: 'HEAD' });
-    if (!probe.ok) {
-      console.warn('[Viewer] file= param returned', probe.status, '— ignoring, will use DB record');
-      return '';
-    }
-    return f;
-  } catch(e) {
-    console.warn('[Viewer] file= param unreachable — ignoring');
-    return '';
-  }
+
+  // The R2 Worker serves files with GET, not HEAD.
+  // Do not HEAD-probe the URL: the Worker correctly returns 404
+  // for unsupported HEAD requests even when the NIF exists.
+  return f;
+
 })();
 const nifId = params.get('nifId') || '';
 let previewVideoUrl = params.get('previewVideo') || '';
@@ -847,13 +843,28 @@ async function incrementViewCount() {
     console.warn('[FUMOCA viewer] unable to increment view count', error);
   }
 }
+
 function applyHeader(record) {
-  if (record?.title) nifTitle.textContent = record.title;
-  if (record?.description) nifDesc.textContent = record.description;
-  const provider = firstNonEmpty(record?.provider_name, record?.source_type === 'external' ? 'External provider' : 'FUMOCA');
-  const status = normalizeStatus(record?.status, resolvenifUrl(record));
-  mediaMeta.textContent = `${provider} · ${status === 'done' ? 'Interactive ready' : status} · Feed-connected viewer`;
+  if (record?.title && nifTitle) nifTitle.textContent = record.title;
+  if (record?.description && nifDesc) nifDesc.textContent = record.description;
+
+  const provider = firstNonEmpty(
+    record?.provider_name,
+    record?.source_type === 'external' ? 'External provider' : 'FUMOCA'
+  );
+
+  const status = normalizeStatus(
+    record?.status,
+    resolvenifUrl(record)
+  );
+
+  if (mediaMeta) {
+    mediaMeta.textContent =
+      `${provider} · ${status === 'done' ? 'Interactive ready' : status} · Feed-connected viewer`;
+  }
 }
+
+
 function applyThumbnailSurfaces() {
   if (!thumbnailUrl) return;
   thumbDockImg.hidden = false;
