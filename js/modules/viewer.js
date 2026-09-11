@@ -1483,14 +1483,14 @@ async function mountInteractiveViewer(forceReload = false) {
     const _sceneOpts = {
       showLoadingUI: false,
       progressiveLoad: true,
-      nifAlphaRemovalThreshold: Number(studioState.cleanup || 5),
+      splatAlphaRemovalThreshold: Number(studioState.cleanup || 5),
     };
+
     if (String(_activeUrl).startsWith('blob:')) {
-      // Force .nif format — blob URLs from fumoc decoding are always raw .nif binary
-      // Gaussiannif_files3D.SceneFormat: Ply=0, nif=1, Knif=2
-      _sceneOpts.format = Gaussiannif_files3D.SceneFormat?.nif ?? 1;
+      // The NIF was decoded above and converted to standard .splat rows.
+      _sceneOpts.format = Gaussiannif_files3D.SceneFormat?.Splat;
     }
-    await viewerInstance.addnif_filescene(_activeUrl, _sceneOpts);
+    await viewerInstance.addSplatScene(_activeUrl, _sceneOpts);
     viewerInstance.start();
     hideLoading();
     hideStageFreeze(forceReload ? 220 : 90);
