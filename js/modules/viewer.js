@@ -1,5 +1,5 @@
 import r2 from '../r2Client.js';
-import * as Gaussiannif_files3D from 'https://cdn.jsdelivr.net/npm/@mkkellogg/gaussian-nif_files-3d@0.4.7/build/gaussian-nif_files-3d.module.js';
+import * as Gaussiannif_files3D from 'https://cdn.jsdelivr.net/npm/@mkkellogg/gaussian-splats-3d@0.4.7/build/gaussian-splats-3d.module.js';
 import * as THREE from 'three';
 import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -2706,3 +2706,5 @@ window.addEventListener('fumoca:captureUploaded', (e) => {
   }
   configurePreview(currentRecord || null);
 });
+
+
