@@ -2066,8 +2066,32 @@ class ReconstructionWorker:
         print(f'       cameras.bin: {cameras_bin.stat().st_size if cameras_bin.exists() else 0:,} bytes')
         print(f'       points3D.bin:{points3d_bin.stat().st_size if points3d_bin.exists() else 0:,} bytes')
 
-        # Parse COLMAP images.bin
-        poses = self._parse_colmap(col_dir / 'sparse' / '0' / 'images.bin')
+        # Parse COLMAP images.bin and restore exact frame/pose alignment.
+        pose_records = self._parse_colmap(col_dir / 'sparse' / '0' / 'images.bin')
+
+        # COLMAP may return images in a different order from our filtered
+        # frame list. Match poses by the authoritative filename stored in
+        # images.bin instead of assuming list indices are identical.
+        pose_by_name = {
+            Path(name).name: pose
+            for name, pose in pose_records
+        }
+
+        aligned_frames = []
+        aligned_poses = []
+
+        for i, frame in enumerate(frames):
+            frame_name = f'frame_{i:05d}.jpg'
+            pose = pose_by_name.get(frame_name)
+
+            if pose is not None:
+                aligned_frames.append(frame)
+                aligned_poses.append(pose)
+
+        # Keep only frames for which COLMAP produced a corresponding pose.
+        frames[:] = aligned_frames
+        poses = aligned_poses
+
         if len(poses) < 2:
             return self._synthetic_poses(len(frames)), 'synthetic_colmap_insufficient_poses', None
 
@@ -2147,7 +2171,7 @@ class ReconstructionWorker:
                 vm = np.eye(4)
                 vm[:3,:3] = R
                 vm[:3,3]  = [tx, ty, tz]
-                poses.append(torch.tensor(vm, dtype=torch.float32))
+                poses.append((os.fsdecode(_name), torch.tensor(vm, dtype=torch.float32)))
         return poses
 
     def _parse_colmap_points3d(self, points3d_bin: Path) -> np.ndarray:
