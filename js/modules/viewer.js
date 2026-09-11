@@ -6,9 +6,8 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { supabase } from '../supabaseClient.js';
 import { triggerRevealForViewer } from './reveal-hook.js';
 import FumocDecoder from './fumoc-decoder.js';
-import { decodeNif, geometryTonifRows } from './nif-format.js';
+import { decodeNif, geometryToSplatRows } from './nif-format.js';
 window._fumocaSupabase = window._fumocaSupabase || supabase;
-
 const stageEl = document.getElementById('stage');
 let stageHost = document.getElementById('stageHost');
 const heroBackdrop = document.getElementById('heroBackdrop');
@@ -112,7 +111,6 @@ const maskLassoKeepGroup = document.getElementById('maskLassoKeepGroup');
 const maskEraseGroup = document.getElementById('maskEraseGroup');
 const maskLassoRemoveGroup = document.getElementById('maskLassoRemoveGroup');
 const cropHandles = Array.from(document.querySelectorAll('.crop-handle'));
-
 const params = new URLSearchParams(window.location.search);
 // Validate the file= param — if the file doesn't exist (400/404), ignore it
 // and let the viewer fall back to nif_url from the DB record
@@ -175,7 +173,6 @@ const nifId = params.get('nifId') || '';
 let previewVideoUrl = params.get('previewVideo') || '';
 let thumbnailUrl = params.get('thumbnail') || '';
 const autoplayPreview = params.get('autoplayPreview') === '1';
-
 // ── PUBLIC / EMBED MODE ──────────────────────────────────────────
 // Detect three ways a public viewer link arrives:
 //   1. ?embed=1  — explicit embed iframe
@@ -190,12 +187,10 @@ const _referrerOrigin = (() => {
 const _isExternalReferrer = !!(_referrerOrigin && _referrerOrigin !== window.location.origin);
 const IS_PUBLIC_VIEWER = _isEmbedParam || _isPublicParam || _isExternalReferrer;
 window.IS_PUBLIC_VIEWER = IS_PUBLIC_VIEWER;
-
 // Return destination for the Back button:
 //   ?back= param > external referrer > history.back()
 const _backParam = params.get('back') || '';
 const _publicBackUrl = _backParam || (_isExternalReferrer ? document.referrer : '');
-
 if (IS_PUBLIC_VIEWER) {
   // Immediately hide every admin-only element — zero flash
   ['editModeBtn','deleteUploadBtn','saveVariantBtn',
@@ -205,7 +200,6 @@ if (IS_PUBLIC_VIEWER) {
     if (el) el.style.display = 'none';
   });
   document.body.classList.add('fumoca-public-viewer');
-
   // Wire back button to return to the originating site
   const _backBtn = document.getElementById('backBtn');
   if (_backBtn) {
@@ -216,7 +210,6 @@ if (IS_PUBLIC_VIEWER) {
       _backBtn.style.display = 'none';
     }
   }
-
   // Prevent referrer leaking the nif URL back to the brand page
   if (_isEmbedParam) {
     const _metaRef = document.createElement('meta');
@@ -225,7 +218,6 @@ if (IS_PUBLIC_VIEWER) {
     document.head.appendChild(_metaRef);
   }
 }
-
 // Belt-and-suspenders: re-enforce public lock after auth resolves
 function _applyPublicViewerLock() {
   if (!IS_PUBLIC_VIEWER) return;
@@ -260,13 +252,10 @@ let hotspots = [];
 let cutoutMasks = [];
 let lassoShapes = [];
 let cropDragState = null;
-
 const manageAccess = { canManage: false, role: null, userId: null, ownerId: null };
-
 function getSessionUserId() {
   return window._fumocaSession?.user?.id || null;
 }
-
 async function detectManagePermission() {
   const userId = getSessionUserId();
   let role = window._fumocaSession?.user?.user_metadata?.role || null;
@@ -287,7 +276,6 @@ async function detectManagePermission() {
   applyManageGating();
   return manageAccess.canManage;
 }
-
 function applyManageGating() {
   const canManage = !!manageAccess.canManage;
   if (editModeBtn) editModeBtn.style.display = canManage ? '' : 'none';
@@ -296,7 +284,6 @@ function applyManageGating() {
   // Public viewer always wins — re-hide regardless of canManage
   _applyPublicViewerLock();
 }
-
 function extractStoragePath(urlString) {
   if (!urlString || typeof urlString !== 'string') return null;
   try {
@@ -306,7 +293,6 @@ function extractStoragePath(urlString) {
     return { bucket: decodeURIComponent(m[1]), path: decodeURIComponent(m[2]).replace(/^public\//,'') };
   } catch (_) { return null; }
 }
-
 async function deleteCurrentUpload() {
   if (!manageAccess.canManage || !currentRecord?.id) {
     alert('Only the owner or admin can delete this upload.');
@@ -337,9 +323,7 @@ async function deleteCurrentUpload() {
     if (btn) { btn.disabled = false; btn.textContent = original; }
   }
 }
-
 function firstNonEmpty(...values) { return values.find(v => typeof v === 'string' && v.trim()) || ''; }
-
 function getHotspotStorageKey() { return `fumoca:hotspots:${nifId || fileUrl || 'default'}`; }
 function getLookStorageKey() { return `fumoca:look:${nifId || fileUrl || 'default'}`; }
 function getMaskStorageKey() { return `fumoca:masks:${nifId || fileUrl || 'default'}`; }
@@ -356,7 +340,6 @@ function loadCutoutMasks() {
 function saveCutoutMasks() {
   try { localStorage.setItem(getMaskStorageKey(), JSON.stringify(cutoutMasks)); } catch (_) {}
 }
-
 function loadLassoShapes() {
   try { lassoShapes = JSON.parse(localStorage.getItem(getLassoStorageKey()) || '[]'); } catch (_) { lassoShapes = []; }
 }
@@ -650,11 +633,9 @@ function setEraseMaskMode(enabled) {
   if (hotspotLayer && !hotspotEditMode) hotspotLayer.style.pointerEvents = 'none';
   renderCutoutMasks();
 }
-
 function setLoading(msg) { loadingText.textContent = msg; loadingOverlay.classList.remove('hidden'); }
 function hideLoading() { loadingOverlay.classList.add('hidden'); }
 function showError(msg) { hideLoading(); errorMsg.textContent = msg; errorBox.classList.add('visible'); }
-
 /**
  * Renders small pill badges for CALIBRATION confidence and VERIFICATION
  * pass/fail next to the title, so "is this dimensionally trustworthy" is
@@ -666,14 +647,12 @@ function renderTrustBadges(calibration, verification) {
   const el = document.getElementById('trustBadges');
   if (!el) return;
   el.innerHTML = '';
-
   const pill = (text, bg, fg) => {
     const s = document.createElement('span');
     s.textContent = text;
     s.style.cssText = `display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;background:${bg};color:${fg};`;
     return s;
   };
-
   if (calibration && calibration.confidence && calibration.confidence !== 'none') {
     const colors = { high: ['#C8FF00', '#0a0a0a'], medium: ['#FFD54A', '#0a0a0a'], low: ['#555', '#fff'] };
     const [bg, fg] = colors[calibration.confidence] || ['#555', '#fff'];
@@ -681,7 +660,6 @@ function renderTrustBadges(calibration, verification) {
     badge.title = calibration.note || '';
     el.appendChild(badge);
   }
-
   // Absence of a VERIFICATION chunk means "never requested" — must render as
   // neutral/nothing, never as a pass. Same for verification.pass === null
   // (ran, but couldn't reach a dimensionally trustworthy conclusion).
@@ -763,7 +741,6 @@ function normalizeStatus(status, url) {
   if (raw === 'queued' || raw === 'pending') return 'queued';
   return url ? 'done' : 'queued';
 }
-
 function hydrateFromSession() {
   try {
     const raw = sessionStorage.getItem('fumoca:selectedNif');
@@ -772,7 +749,6 @@ function hydrateFromSession() {
     return null;
   }
 }
-
 function saveCurrentLook() {
   try {
     localStorage.setItem(getLookStorageKey(), JSON.stringify(studioState));
@@ -835,7 +811,6 @@ function setSceneMode(mode) {
   applyStageFilters();
   setVariantDirty(true);
 }
-
 async function fetchRecord() {
   if (!nifId) return null;
   const { data: nif } = await supabase.from('nif_files').select('*').eq('id', nifId).maybeSingle();
@@ -862,7 +837,6 @@ async function fetchRecord() {
     source_type: 'fumoca',
   };
 }
-
 async function incrementViewCount() {
   if (!nifId) return;
   try {
@@ -873,7 +847,6 @@ async function incrementViewCount() {
     console.warn('[FUMOCA viewer] unable to increment view count', error);
   }
 }
-
 function applyHeader(record) {
   if (record?.title) nifTitle.textContent = record.title;
   if (record?.description) nifDesc.textContent = record.description;
@@ -881,7 +854,6 @@ function applyHeader(record) {
   const status = normalizeStatus(record?.status, resolvenifUrl(record));
   mediaMeta.textContent = `${provider} · ${status === 'done' ? 'Interactive ready' : status} · Feed-connected viewer`;
 }
-
 function applyThumbnailSurfaces() {
   if (!thumbnailUrl) return;
   thumbDockImg.hidden = false;
@@ -892,7 +864,6 @@ function applyThumbnailSurfaces() {
   previewPoster.classList.remove('hidden');
   syntheticTeaser.style.backgroundImage = `url('${thumbnailUrl.replace(/'/g, "%27")}')`;
 }
-
 function configurePreview(record) {
   previewVideoUrl = previewVideoUrl || resolvePreviewVideo(record);
   thumbnailUrl = thumbnailUrl || resolveThumbnail(record);
@@ -910,7 +881,6 @@ function configurePreview(record) {
     teaserBtn.hidden = true;
   }
 }
-
 function setPreviewMode(mode) {
   previewMode = mode;
   const hasVideo = !!previewVideoUrl;
@@ -928,14 +898,12 @@ function setPreviewMode(mode) {
     previewPoster.classList.add('hidden');
   }
 }
-
 function openPreview(mode = previewMode) {
   if (!previewVideoUrl && !thumbnailUrl) return;
   previewOverlay.classList.add('visible');
   setPreviewMode(previewVideoUrl && mode === 'video' ? 'video' : 'nif');
 }
 function closePreview() { previewOverlay.classList.remove('visible'); previewVideo.pause(); }
-
 function renderStudioLabels() {
   cleanupValue.textContent = String(studioState.cleanup);
   sharpnessValue.textContent = String(studioState.sharpness);
@@ -955,9 +923,7 @@ function renderStudioLabels() {
   if (lassoModeValue) lassoModeValue.textContent = lassoMode ? 'On' : 'Off';
   if (variantStateBadge && !variantDirty) variantStateBadge.textContent = 'Variant saved';
 }
-
 function clamp(value, min, max) { return Math.min(max, Math.max(min, value)); }
-
 function pulseStageFeedback(mode = 'edit') {
   if (!stageHost) return;
   const className = mode === 'capture' ? 'fumoca-capture-pulse' : 'fumoca-edit-pulse';
@@ -966,7 +932,6 @@ function pulseStageFeedback(mode = 'edit') {
   stageHost.classList.add(className);
   setTimeout(() => stageHost.classList.remove(className), mode === 'capture' ? 1800 : 900);
 }
-
 function updateViewerMask() {
   if (!stageHost || !maskBaseRect || !maskEraseGroup) return;
   const isolation = Number(studioState.isolation || 0);
@@ -1042,7 +1007,6 @@ function updateViewerMask() {
   stageHost.dataset.cleanupRecipeOnly = hasEraseMasks ? 'true' : 'false';
   pulseStageFeedback('edit');
 }
-
 function syncCropFromPointer(clientX, clientY, handle = 'move') {
   const rect = window.innerWidth || 1;
   const rectH = window.innerHeight || 1;
@@ -1066,7 +1030,6 @@ function syncCropFromPointer(clientX, clientY, handle = 'move') {
   applyStageFilters();
   setVariantDirty(true);
 }
-
 function applyStageFilters() {
   const sharpness = Number(studioState.sharpness || 0);
   const presence = Number(studioState.presence || 100) / 100;
@@ -1112,7 +1075,6 @@ function applyStageFilters() {
   }
   renderStudioLabels();
 }
-
 function ensureStageFreeze() {
   if (stageFreezeEl?.isConnected) return stageFreezeEl;
   const img = document.createElement('img');
@@ -1125,7 +1087,6 @@ function ensureStageFreeze() {
   stageFreezeEl = img;
   return img;
 }
-
 function showStageFreeze() {
   try {
     const canvas = window._fumocaCaptureCanvas || stageHost?.querySelector?.('canvas') || stageEl?.querySelector?.('canvas');
@@ -1136,13 +1097,11 @@ function showStageFreeze() {
     return true;
   } catch (_) { return false; }
 }
-
 function hideStageFreeze(delay = 140) {
   if (!stageFreezeEl) return;
   clearTimeout(stageFreezeHideTimer);
   stageFreezeHideTimer = setTimeout(() => { if (stageFreezeEl) stageFreezeEl.style.opacity = '0'; }, Math.max(0, delay));
 }
-
 function _fumocaShowPipelineIllusion(message = 'Processing cleanup…', ms = 2200) {
   clearTimeout(pipelineVisualTimer);
   if (hint) {
@@ -1159,7 +1118,6 @@ function _fumocaShowPipelineIllusion(message = 'Processing cleanup…', ms = 220
     if (hint) hint.classList.add('hidden');
   }, ms);
 }
-
 function rebuildStageHost() {
   const next = document.createElement('div');
   next.id = 'stageHost';
@@ -1172,7 +1130,6 @@ function rebuildStageHost() {
   }
   stageHost = next;
 }
-
 async function destroyViewer() {
   const instance = viewerInstance;
   viewerInstance = null;
@@ -1182,12 +1139,9 @@ async function destroyViewer() {
   try { instance.renderer?.domElement?.remove?.(); } catch (_) {}
   rebuildStageHost();
 }
-
 function getActivenifUrl() {
   return rendererPreviewUrl || fileUrl || originalnifUrl || '';
 }
-
-
 // ── Solid mesh overlay — renders the KEYFRAME_MESH chunk (when present) as
 // an actual lit triangle surface instead of the point-cloud splat render.
 // This is additive, not a replacement: the Gaussian splat renderer
@@ -1203,18 +1157,15 @@ function getActivenifUrl() {
 // hard reconstruction work" and "generic splat blob," no matter how solid
 // the actual geometry was. This is that missing visual difference.
 let _meshRenderer = null, _meshScene = null, _meshCamera = null, _meshControls = null, _meshFrame = null;
-
 function destroyMeshViewer() {
   if (_meshFrame) { cancelAnimationFrame(_meshFrame); _meshFrame = null; }
   if (_meshRenderer) { _meshRenderer.dispose(); _meshRenderer.domElement.remove(); _meshRenderer = null; }
   _meshScene = _meshCamera = _meshControls = null;
   document.getElementById('fumocaMeshToggle')?.remove();
 }
-
 function mountMeshViewer(mesh, calibration) {
   destroyMeshViewer();
   const container = stageHost || stageEl;
-
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(mesh.positions, 3));
   // Colors arrive as 0-255 uint8 — THREE wants 0-1 floats for vertexColors.
@@ -1223,7 +1174,6 @@ function mountMeshViewer(mesh, calibration) {
   geo.setAttribute('color', new THREE.BufferAttribute(colorsF, 3));
   geo.setIndex(new THREE.BufferAttribute(mesh.faces, 1));
   geo.computeVertexNormals();  // required for lit shading — this is what makes it read as solid, not flat/blobby
-
   // Lambertian-ish material with vertex colors: matte, physically-plausible
   // shading (as opposed to the additive/transparent splat material above),
   // which is precisely the visual cue that reads as "solid object" rather
@@ -1233,7 +1183,6 @@ function mountMeshViewer(mesh, calibration) {
     side: THREE.DoubleSide,  // reconstructed meshes can have thin/open regions — avoid black backfaces
   });
   const meshObj = new THREE.Mesh(geo, mat);
-
   _meshScene = new THREE.Scene();
   _meshScene.add(meshObj);
   _meshScene.add(new THREE.AmbientLight(0xffffff, 0.55));
@@ -1243,7 +1192,6 @@ function mountMeshViewer(mesh, calibration) {
   const fill = new THREE.DirectionalLight(0xffffff, 0.4);
   fill.position.set(-1.2, 0.6, -1);
   _meshScene.add(fill);
-
   _meshCamera = new THREE.PerspectiveCamera(55, container.clientWidth / container.clientHeight, 0.001, 2000);
   _meshCamera.up.set(0, -1, -0.6).normalize();  // match the splat renderer's convention (see mountPlyViewer)
   _meshRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
@@ -1253,11 +1201,9 @@ function mountMeshViewer(mesh, calibration) {
   _meshRenderer.outputColorSpace = THREE.SRGBColorSpace;
   Object.assign(_meshRenderer.domElement.style, { position: 'absolute', inset: '0', width: '100%', height: '100%', zIndex: '3' });
   container.appendChild(_meshRenderer.domElement);
-
   _meshControls = new OrbitControls(_meshCamera, _meshRenderer.domElement);
   _meshControls.enableDamping = true; _meshControls.dampingFactor = 0.07;
   _meshControls.rotateSpeed = 0.55; _meshControls.zoomSpeed = 1.1;
-
   geo.computeBoundingSphere();
   const r = geo.boundingSphere.radius || 1;
   const c = geo.boundingSphere.center;
@@ -1267,7 +1213,6 @@ function mountMeshViewer(mesh, calibration) {
   _meshControls.minDistance = r * 0.05;
   _meshControls.maxDistance = r * 14;
   _meshControls.update();
-
   window.addEventListener('resize', () => {
     if (!_meshRenderer) return;
     _meshCamera.aspect = container.clientWidth / container.clientHeight;
@@ -1280,7 +1225,6 @@ function mountMeshViewer(mesh, calibration) {
     _meshRenderer.render(_meshScene, _meshCamera);
   }
   loop();
-
   // ── Solid ⇄ Points toggle — the splat renderer keeps running underneath
   // the whole time; this just shows/hides the mesh canvas on top of it.
   const btn = document.createElement('button');
@@ -1299,22 +1243,18 @@ function mountMeshViewer(mesh, calibration) {
     btn.textContent = showingMesh ? '● Points view' : '▲ Solid view';
   });
   container.appendChild(btn);
-
   console.log(`[Viewer] Solid mesh rendered — ${mesh.nVerts.toLocaleString()} verts, ` +
               `${mesh.nFaces.toLocaleString()} faces` +
               (calibration?.confidence && calibration.confidence !== 'none' ? ` (${calibration.confidence} calibration)` : ' (uncalibrated)'));
 }
-
 // ── PLY point cloud viewer using Three.js ────────────────────────────────────
 // Called when fileUrl is a .ply — renders via THREE.js with Gaussian shader
 let _plyRenderer = null, _plyScene = null, _plyCamera = null, _plyControls = null, _plyFrame = null;
-
 function destroyPlyViewer() {
   if (_plyFrame) { cancelAnimationFrame(_plyFrame); _plyFrame = null; }
   if (_plyRenderer) { _plyRenderer.dispose(); _plyRenderer.domElement.remove(); _plyRenderer = null; }
   _plyScene = _plyCamera = _plyControls = null;
 }
-
 async function mountPlyViewer(url) {
   destroyPlyViewer();
   const container = stageHost || stageEl;
@@ -1332,7 +1272,6 @@ async function mountPlyViewer(url) {
   _plyControls = new OrbitControls(_plyCamera, _plyRenderer.domElement);
   _plyControls.enableDamping = true; _plyControls.dampingFactor = 0.07;
   _plyControls.rotateSpeed = 0.55; _plyControls.zoomSpeed = 1.1;
-
   setLoading('Loading point cloud…');
   try {
     // Fetch manually so PLYLoader.parse() can access ALL attributes including f_dc_*
@@ -1344,7 +1283,6 @@ async function mountPlyViewer(url) {
     if (!posAttr) throw new Error('PLY has no position attribute');
     const count = posAttr.count;
     const colors = new Float32Array(count * 3);
-
     // Try colour sources in priority order
     const fdc0 = geo.getAttribute('f_dc_0');
     const fdc1 = geo.getAttribute('f_dc_1');
@@ -1353,7 +1291,6 @@ async function mountPlyViewer(url) {
     const rAttr = geo.getAttribute('red') || geo.getAttribute('diffuse_red');
     const gAttr = geo.getAttribute('green') || geo.getAttribute('diffuse_green');
     const bAttr = geo.getAttribute('blue') || geo.getAttribute('diffuse_blue');
-
     if (fdc0 && fdc1 && fdc2) {
       // nerfstudio/gnif: SH DC band → sigmoid colour
       const SH = 0.28209479177387814;
@@ -1393,7 +1330,6 @@ async function mountPlyViewer(url) {
     } else {
       opacities.fill(1.0);
     }
-
     // ── Per-point size: scale_* from 3DGS are log-scale world units ──────────
     // exp-decoded they are tiny (0.001–0.15). Use scene radius to compute a
     // sensible base size so nif_files are always visible, with scale as a soft multiplier.
@@ -1401,7 +1337,6 @@ async function mountPlyViewer(url) {
     const sc0 = geo.getAttribute('scale_0');
     const sc1 = geo.getAttribute('scale_1');
     const sc2 = geo.getAttribute('scale_2');
-
     // We don't know the radius yet (computed after), so store raw for now;
     // we'll rescale below after boundingSphere is computed.
     if (sc0 && sc1 && sc2) {
@@ -1414,16 +1349,13 @@ async function mountPlyViewer(url) {
     } else {
       sizes.fill(0); // will be set to radius-based default below
     }
-
     // Debug: log what attributes are present so we can confirm colour source
     console.log('%c[FUMOCA PLY attrs]', 'color:#c8ff00;font-weight:800',
       [...geo.attributes].map ? 'n/a' :
       Object.keys(geo.attributes).join(', '));
-
     geo.setAttribute('color',    new THREE.BufferAttribute(colors, 3));
     geo.setAttribute('aOpacity', new THREE.BufferAttribute(opacities, 1));
     geo.setAttribute('aSize',    new THREE.BufferAttribute(sizes, 1));
-
     // ── Photoreal Gaussian nif shader ───────────────────────────────────────
     const mat = new THREE.ShaderMaterial({
       uniforms: {
@@ -1469,14 +1401,12 @@ async function mountPlyViewer(url) {
     });
     const pts = new THREE.Points(geo, mat);
     _plyScene.add(pts);
-
     // Auto-fit camera — match nerfstudio convention used by Gaussiannif_files3D:
     // cameraUp=[0,-1,-0.6], initialCameraPosition=[0,1,4], lookAt=[0,0,0]
     // Offset everything by the bounding center so the subject is centered.
     geo.computeBoundingSphere();
     const r = geo.boundingSphere.radius || 1;
     const c = geo.boundingSphere.center;
-
     // Normalise per-point sizes to 0–1 range using the median as anchor,
     // then set uBaseSize so nif_files cover ~0.8% of the scene radius at 1× distance.
     const sArr = geo.getAttribute('aSize').array;
@@ -1487,7 +1417,6 @@ async function mountPlyViewer(url) {
       geo.getAttribute('aSize').needsUpdate = true;
     }
     mat.uniforms.uBaseSize.value = r * 0.9;
-
     // Mirror GS3D's default: sit slightly above (in nerfstudio Y-down space, "above" is negative Y)
     // and back along Z, looking at center
     _plyCamera.position.set(c.x, c.y - r * 0.25, c.z + r * 2.4);
@@ -1519,14 +1448,12 @@ async function mountPlyViewer(url) {
     showError('Failed to load PLY: ' + e.message);
   }
 }
-
 async function mountInteractiveViewer(forceReload = false) {
   const activeUrl = getActivenifUrl();
   if ((!forceReload && viewerInstance) || !activeUrl) return;
   if (forceReload) { rendererPreviewPending = true; showStageFreeze(); _fumocaShowPipelineIllusion('Applying edits…', 1680); }
   if (forceReload) await destroyViewer();
   setLoading(forceReload ? 'Refreshing cleanup…' : 'Loading interactive nif…');
-
   try {
     viewerInstance = new Gaussiannif_files3D.Viewer({
       rootElement: stageHost || stageEl,
@@ -1560,7 +1487,6 @@ async function mountInteractiveViewer(forceReload = false) {
     applyStageFilters();
     setTimeout(() => hint.classList.add('hidden'), 4500);
     if (!forceReload) await incrementViewCount();
-
     // ── Post-load: extract Gaussian positions and fire fumoca:viewerReady ──
     // Gaussiannif_files3D doesn't expose positions synchronously — wait one frame
     // for the internal sort worker to finish, then probe the nifMesh.
@@ -1590,7 +1516,6 @@ async function mountInteractiveViewer(forceReload = false) {
             }
           }
         }
-
         // Build _fumocaCurrentGaussians from positions so AutoFix and shim work
         if (positions && positions.length >= 3) {
           const N = Math.floor(positions.length / 3);
@@ -1602,7 +1527,6 @@ async function mountInteractiveViewer(forceReload = false) {
           };
           console.log(`%c[Viewer] _fumocaCurrentGaussians populated: ${N.toLocaleString()} Gaussians`, 'color:#c8ff00;font-weight:700');
         }
-
         // Expose camera and controls for AutoFix
         const cam      = viewerInstance.camera;
         const controls = viewerInstance.controls || viewerInstance.orbitControls;
@@ -1613,7 +1537,6 @@ async function mountInteractiveViewer(forceReload = false) {
           camera:   cam,
           controls: controls,
         };
-
         // Fire fumoca:viewerReady — triggers AutoFix camera fit and shim population
         window.dispatchEvent(new CustomEvent('fumoca:viewerReady', {
           detail: {
@@ -1623,7 +1546,6 @@ async function mountInteractiveViewer(forceReload = false) {
             gaussians: window._fumocaCurrentGaussians,
           }
         }));
-
         console.log('[Viewer] fumoca:viewerReady dispatched');
       } catch (hookErr) {
         console.warn('[Viewer] post-load hook failed:', hookErr);
@@ -1651,7 +1573,6 @@ async function mountInteractiveViewer(forceReload = false) {
     showError(`Failed to load nif: ${msg}`);
   }
 }
-
 function activatePreset(name) {
   const presets = {
     balanced: { cleanup: 5, sharpness: 20, presence: 100, focus: 42, focusX: 50, focusY: 42, suppression: 24, feather: 10, scale: 100, isolation: 0, cropWidth: 36, cropHeight: 42, cropDepth: 65, maskShape: 'ellipse', sceneMode: 'product' },
@@ -1684,7 +1605,6 @@ function activatePreset(name) {
   presetButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.preset === name));
   applyStageFilters();
 }
-
 async function boot() {
   setLoading('Fetching nif…');
   const sessionRecord = hydrateFromSession();
@@ -1694,7 +1614,6 @@ async function boot() {
     previewVideoUrl = previewVideoUrl || sessionRecord.previewVideo || '';
     fileUrl = fileUrl || _validnifUrl(sessionRecord.file) || '';
   }
-
   // Probe fileUrl — if storage returns 400/404 it's a ghost file, use DB record
   // Skip probe for blob: URLs — they don't support HEAD requests
   if (fileUrl && !fileUrl.startsWith('blob:')) {
@@ -1709,12 +1628,10 @@ async function boot() {
       fileUrl = '';
     }
   }
-
   // If fileUrl was bad, wipe sessionStorage so the ghost URL can't come back
   if (!fileUrl) {
     try { sessionStorage.removeItem('fumoca:selectedNif'); } catch(_) {}
   }
-
   applyHeader(currentRecord);
   if (!fileUrl && currentRecord) fileUrl = resolvenifUrl(currentRecord);
   console.log('[Viewer] Final fileUrl:', fileUrl || '(empty — no renderable file found)');
@@ -1754,7 +1671,6 @@ async function boot() {
   // Check type hint from open.html (blob URLs have no extension)
   const _blobType = sessionStorage.getItem('fumoc_pending_nif_type');
   if (_blobType) sessionStorage.removeItem('fumoc_pending_nif_type');
-
   if (_isNifUrl(fileUrl) || (_blobType === 'nif' && fileUrl.startsWith('blob:'))) {
     // .nif is the native format — decode its KEYFRAME_GEO chunk and hand the
     // gaussian data to the existing Gaussiannif_files3D renderer for full
@@ -1764,22 +1680,19 @@ async function boot() {
       const nifResp   = await fetch(fileUrl);
       const nifBuffer = await nifResp.arrayBuffer();
       if (fileUrl.startsWith('blob:')) URL.revokeObjectURL(fileUrl);
-
       const { meta, gaussians, calibration, verification, mesh } = await decodeNif(nifBuffer);
       window._fumocaCalibration  = calibration;
       window._fumocaVerification = verification;
       window._fumocaDecodedMesh  = mesh;
       renderTrustBadges(calibration, verification);
-      const nifBytes = geometryTonifRows(gaussians);
+      const nifBytes = geometryToSplatRows(gaussians);
       const nifBlob  = new Blob([nifBytes], { type: 'application/octet-stream' });
       fileUrl = URL.createObjectURL(nifBlob);
-
       // Mirror the same window globals FumocDecoder.loadIntoViewer exposed,
       // so hotspot/tour/title UI code elsewhere in this file keeps working.
       window._fumocaTourStops   = meta.tourStops  || [];
       window._fumocaHotspots    = meta.hotspots   || [];
       window._fumocaOpenedMeta  = meta;
-
       console.log(`[Viewer] .nif decoded → ${gaussians.count.toLocaleString()} gaussians`);
     } catch (err) {
       showError('Failed to decode .nif file: ' + err.message);
@@ -1803,7 +1716,6 @@ async function boot() {
       return;
     }
   }
-
   if (_isPlyUrl(fileUrl) && _blobType !== 'nif') {
     await mountPlyViewer(fileUrl);
   } else {
@@ -1818,7 +1730,6 @@ async function boot() {
     }
   }
 }
-
 teaserBtn?.addEventListener('click', () => { _fumocaTrack('preview_open', { mode: 'nif' }); openPreview('nif'); });
 closePreviewBtn?.addEventListener('click', closePreview);
 viewInteractiveBtn?.addEventListener('click', closePreview);
@@ -1862,8 +1773,6 @@ copyLinkBtn?.addEventListener('click', async () => {
   if (!ok) window.prompt('Copy this link', value);
   setTimeout(() => { copyLinkBtn.textContent = 'Copy link'; }, 1800);
 });
-
-
 compareBtn?.addEventListener('mousedown', () => document.body.classList.add('compare-original'));
 compareBtn?.addEventListener('mouseup', () => document.body.classList.remove('compare-original'));
 compareBtn?.addEventListener('mouseleave', () => document.body.classList.remove('compare-original'));
@@ -1877,7 +1786,6 @@ lassoModeBtn?.addEventListener('click', () => setLassoMode(!lassoMode));
 lassoKeepBtn?.addEventListener('click', () => setLassoAction('keep'));
 lassoRemoveBtn?.addEventListener('click', () => setLassoAction('remove'));
 clearLassoBtn?.addEventListener('click', () => { lassoShapes = []; cancelActiveLasso(); saveLassoShapes(); renderLassoShapes(); updateViewerMask(); setVariantDirty(true); });
-
 const exportFigurineBtn = document.getElementById('exportFigurineBtn');
 const exportFigurineStatus = document.getElementById('exportFigurineStatus');
 exportFigurineBtn?.addEventListener('click', async () => {
@@ -1920,13 +1828,11 @@ eraseOvalBtn?.addEventListener('click', () => { studioState.eraseShape = 'ellips
 eraseRectBtn?.addEventListener('click', () => { studioState.eraseShape = 'rect'; eraseRectBtn.classList.add('active'); eraseOvalBtn?.classList.remove('active'); renderStudioLabels(); setVariantDirty(true); });
 saveLookBtn?.addEventListener('click', () => { const ok = saveCurrentLook(); setVariantDirty(false); saveLookBtn.textContent = ok ? 'Saved' : 'Save failed'; setTimeout(() => saveLookBtn.textContent = 'Save look', 1600); });
 loadLookBtn?.addEventListener('click', () => { const ok = loadSavedLook(); loadLookBtn.textContent = ok ? 'Loaded' : 'No saved look'; setTimeout(() => loadLookBtn.textContent = 'Load saved', 1600); });
-
 function _fumocaClearRendererPreview() {
   if (!rendererPreviewUrl) return;
   try { URL.revokeObjectURL(rendererPreviewUrl); } catch (_) {}
   rendererPreviewUrl = null;
 }
-
 async function _fumocaApplyRendererPreview(url) {
   if (!url) return;
   const seq = ++rendererPreviewSeq;
@@ -1947,13 +1853,11 @@ async function _fumocaApplyRendererPreview(url) {
   exposeToEditEngine();
   _fumocaExposeViewerBridge();
 }
-
 function _fumocaRestoreRendererPreview() {
   rendererPreviewSeq += 1;
   _fumocaClearRendererPreview();
   if (viewerInstance) mountInteractiveViewer(true);
 }
-
 // Exposed for hotspot-actions.js's 'animate' action — these two functions
 // existed with zero callers anywhere in the app until this connected them
 // (confirmed via repo-wide search). Real snap-open/close toggle for a named
@@ -1964,7 +1868,6 @@ function _fumocaRestoreRendererPreview() {
 // specific viewer build.
 window._fumocaApplyRendererPreview  = _fumocaApplyRendererPreview;
 window._fumocaRestoreRendererPreview = _fumocaRestoreRendererPreview;
-
 function _fumocaLoadPipelineQueue() {
   try { return JSON.parse(localStorage.getItem(pipelineQueueKey) || '[]'); } catch (_) { return []; }
 }
@@ -2030,13 +1933,11 @@ function _fumocaSchedulePipelineFlush(delay = 2500) {
   clearTimeout(pipelineRetryTimer);
   pipelineRetryTimer = setTimeout(_fumocaFlushPipelineQueue, Math.max(400, delay));
 }
-
 function _fumocaTrack(event, detail = {}) {
   try {
     window.dispatchEvent(new CustomEvent('fumoca:track', { detail: { event, ...detail } }));
   } catch (_) {}
 }
-
 // ── STUDIO PANEL CONTROLS ────────────────────────────────────────
 // (variant save / queue / range inputs wired once here; a second
 //  block further down handles the _fumocaSaveVariant path — kept
@@ -2057,7 +1958,6 @@ cropDepthRange?.addEventListener('input', () => { studioState.cropDepth = Number
 maskOvalBtn?.addEventListener('click', () => { studioState.maskShape = 'ellipse'; maskOvalBtn.classList.add('active'); maskBoxBtn?.classList.remove('active'); applyStageFilters(); setVariantDirty(true); });
 maskBoxBtn?.addEventListener('click', () => { studioState.maskShape = 'inset'; maskBoxBtn.classList.add('active'); maskOvalBtn?.classList.remove('active'); applyStageFilters(); setVariantDirty(true); });
 applyStudioBtn?.addEventListener('click', () => mountInteractiveViewer(true));
-
 // ── GPU Image Quality sliders — realtime, no geometry rebuild ─────────────────
 const Q_PRESETS = {
   balanced:  { brightness:1.00, contrast:1.08, saturation:1.12, sharpness:0.72, bloom:0.55 },
@@ -2065,7 +1965,6 @@ const Q_PRESETS = {
   cinematic: { brightness:0.92, contrast:1.32, saturation:0.95, sharpness:0.60, bloom:1.20 },
   raw:       { brightness:1.00, contrast:1.00, saturation:1.00, sharpness:0.50, bloom:0.00 },
 };
-
 function _applyQuality(opts) {
   window.FumocaGaussianRenderer?.setQuality(opts);
   // Update slider UI to match
@@ -2075,13 +1974,11 @@ function _applyQuality(opts) {
   if (opts.sharpness   != null) { const el=document.getElementById('qSharpnessRange');  if(el){el.value=opts.sharpness;   const _shv=document.getElementById('qSharpnessValue'); if(_shv) _shv.textContent=opts.sharpness.toFixed(2);} }
   if (opts.bloom       != null) { const el=document.getElementById('qBloomRange');      if(el){el.value=opts.bloom;       const _blv=document.getElementById('qBloomValue'); if(_blv) _blv.textContent=opts.bloom.toFixed(2);} }
 }
-
 document.getElementById('qBrightnessRange') ?.addEventListener('input', e => { document.getElementById('qBrightnessValue') .textContent=parseFloat(e.target.value).toFixed(2); window.FumocaGaussianRenderer?.setQuality({brightness:parseFloat(e.target.value)}); });
 document.getElementById('qContrastRange')   ?.addEventListener('input', e => { document.getElementById('qContrastValue')   .textContent=parseFloat(e.target.value).toFixed(2); window.FumocaGaussianRenderer?.setQuality({contrast:parseFloat(e.target.value)}); });
 document.getElementById('qSaturationRange') ?.addEventListener('input', e => { document.getElementById('qSaturationValue') .textContent=parseFloat(e.target.value).toFixed(2); window.FumocaGaussianRenderer?.setQuality({saturation:parseFloat(e.target.value)}); });
 document.getElementById('qSharpnessRange')  ?.addEventListener('input', e => { document.getElementById('qSharpnessValue')  .textContent=parseFloat(e.target.value).toFixed(2); window.FumocaGaussianRenderer?.setQuality({sharpness:parseFloat(e.target.value)}); });
 document.getElementById('qBloomRange')      ?.addEventListener('input', e => { document.getElementById('qBloomValue')      .textContent=parseFloat(e.target.value).toFixed(2); window.FumocaGaussianRenderer?.setQuality({bloom:parseFloat(e.target.value)}); });
-
 // Quality preset buttons
 document.querySelectorAll('[data-qpreset]').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -2093,7 +1990,6 @@ document.querySelectorAll('[data-qpreset]').forEach(btn => {
     btn.classList.add('active');
   });
 });
-
 // Apply balanced preset on load
 window.addEventListener('fumoca:recordLoaded', () => {
   setTimeout(() => _applyQuality(Q_PRESETS.balanced), 400);
@@ -2112,12 +2008,9 @@ resetStudioBtn?.addEventListener('click', async () => {
   await mountInteractiveViewer(true);
 });
 presetButtons.forEach(btn => btn.addEventListener('click', () => activatePreset(btn.dataset.preset || 'balanced')));
-
 previewOverlay?.addEventListener('click', (e) => { if (e.target === previewOverlay) closePreview(); });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closePreview(); cancelActiveLasso(); setLassoMode(false); } });
-
 rebuildStageHost();
-
 const cfg = window.FUMOCA_CONFIG || {};
 if (!cfg.supabaseUrl || cfg.supabaseUrl.includes('YOUR_PROJECT')) {
   showError('Supabase is not configured. Set window.FUMOCA_CONFIG in config.js.');
@@ -2125,7 +2018,6 @@ if (!cfg.supabaseUrl || cfg.supabaseUrl.includes('YOUR_PROJECT')) {
   activatePreset('balanced');
   boot();
 }
-
 window.addEventListener('resize', applyStageFilters);
 window.addEventListener('fumoca:tourStarted', () => _fumocaTrack('tour_started', { recordId: currentRecord?.id || null }));
 window.addEventListener('fumoca:tourStopped', () => _fumocaTrack('tour_stopped', { recordId: currentRecord?.id || null }));
@@ -2168,7 +2060,6 @@ lassoSvg?.addEventListener('pointerup', (e) => {
   completeActiveLasso();
   e.preventDefault();
 });
-
 hotspotLayer?.addEventListener('click', (e) => {
   if (window._fumocaUseHotspotPro || !hotspotEditMode || e.target !== hotspotLayer) return;
   const rect = hotspotLayer.getBoundingClientRect();
@@ -2193,9 +2084,7 @@ maskLayer?.addEventListener('click', (e) => {
   updateViewerMask();
   setVariantDirty(true);
 });
-
 deleteUploadBtn?.addEventListener('click', () => { _fumocaTrack('delete_upload_click', { recordId: currentRecord?.id || null }); return deleteCurrentUpload(); });
-
 // ── EXPOSE STATE TO EDIT ENGINE ──────────────────────────────────
 // edit-engine.js reads these window properties to access the live
 // nif URL, Supabase client, and current record without coupling.
@@ -2216,8 +2105,6 @@ const _bootInterval = setInterval(() => {
 window.addEventListener('fumoca:recordLoaded', exposeToEditEngine);
 // Also expose immediately in case already set
 exposeToEditEngine();
-
-
 // ── V29 bridge patch: expose session, viewer, camera, controls for admin-only tools ──
 async function _fumocaExposeSession() {
   try {
@@ -2229,7 +2116,6 @@ async function _fumocaExposeSession() {
     }
   } catch (_) {}
 }
-
 function _fumocaPick(obj, keys) {
   for (const key of keys) {
     try {
@@ -2239,7 +2125,6 @@ function _fumocaPick(obj, keys) {
   }
   return null;
 }
-
 function _fumocaExposeViewerBridge() {
   try {
     window._fumocaViewerInstance = viewerInstance || null;
@@ -2279,7 +2164,6 @@ function _fumocaExposeViewerBridge() {
     }
   } catch (_) {}
 }
-
 _fumocaExposeSession();
 try {
   if (window._fumocaSupabase?.auth?.onAuthStateChange) {
@@ -2289,7 +2173,6 @@ try {
     });
   }
 } catch (_) {}
-
 const _fumocaBridgeInterval = setInterval(() => {
   _fumocaExposeViewerBridge();
   if (viewerInstance && (window._fumocaViewerCamera || window._fumocaViewerControls)) {
@@ -2300,8 +2183,6 @@ window.addEventListener('fumoca:recordLoaded', () => {
   _fumocaExposeSession();
   _fumocaExposeViewerBridge();
 });
-
-
 // ── V31 FULL-FORCE PLATFORM PATCH ───────────────────────────────
 window._fumocaPermissions = {
   isOwner: false,
@@ -2313,7 +2194,6 @@ window._fumocaPermissions = {
   userId: null,
   ownerId: null,
 };
-
 function _fumocaSyncPermissions() {
   const role = String(manageAccess.role || '').toLowerCase();
   const isAdmin = ['admin', 'super_admin', 'owner'].includes(role);
@@ -2331,14 +2211,12 @@ function _fumocaSyncPermissions() {
   window.dispatchEvent(new CustomEvent('fumoca:permissionsUpdated', { detail: window._fumocaPermissions }));
   window.dispatchEvent(new CustomEvent('fumoca:permissionsReady', { detail: window._fumocaPermissions }));
 }
-
 const _origDetectManagePermission = detectManagePermission;
 detectManagePermission = async function patchedDetectManagePermission() {
   const out = await _origDetectManagePermission.apply(this, arguments);
   _fumocaSyncPermissions();
   return out;
 };
-
 function _fumocaCreateEmbedUrl() {
   const u = new URL(window.location.href);
   u.searchParams.set('embed', '1');
@@ -2349,11 +2227,9 @@ function _fumocaCreateEmbedUrl() {
   }
   return u.toString();
 }
-
 function _fumocaGetSceneMode() {
   return studioState.sceneMode || 'product';
 }
-
 function _fumocaBuildRecipe(name = 'Working Variant') {
   return {
     id: (window.crypto?.randomUUID?.() || `variant_${Date.now()}`),
@@ -2366,7 +2242,6 @@ function _fumocaBuildRecipe(name = 'Working Variant') {
     record_id: currentRecord?.id || null,
   };
 }
-
 async function _fumocaSaveVariant(name = null) {
   const variantName = (name || window.prompt('Variant name', 'Clean Variant') || '').trim();
   if (!variantName) return null;
@@ -2395,7 +2270,6 @@ async function _fumocaSaveVariant(name = null) {
   window.dispatchEvent(new CustomEvent('fumoca:variantSaved', { detail: { savedRemote, recipe } }));
   return { savedRemote, recipe };
 }
-
 function _fumocaLoadVariants() {
   const rec = currentRecord || {};
   const metadata = rec.meta || {};
@@ -2408,7 +2282,6 @@ function _fumocaLoadVariants() {
   }
   return Array.isArray(variants) ? variants : [];
 }
-
 function _fumocaApplyRecipe(recipe) {
   if (!recipe || typeof recipe !== 'object') return false;
   const incoming = recipe.studio || {};
@@ -2418,7 +2291,6 @@ function _fumocaApplyRecipe(recipe) {
   window.dispatchEvent(new CustomEvent('fumoca:recipeApplied', { detail: recipe }));
   return true;
 }
-
 async function _fumocaQueuePipeline(kind = 'mesh_cleanup', extraPayload = {}) {
   const rec = currentRecord || {};
   const safeExtra = (extraPayload && typeof extraPayload === 'object' && !Array.isArray(extraPayload)) ? extraPayload : {};
@@ -2462,7 +2334,6 @@ async function _fumocaQueuePipeline(kind = 'mesh_cleanup', extraPayload = {}) {
   window.dispatchEvent(new CustomEvent('fumoca:pipelineQueued', { detail: { ...payload, savedRemote } }));
   return { ...payload, savedRemote };
 }
-
 function _fumocaApplyAutoCleanPreset(mode = 'product') {
   const presets = {
     car: { cleanup: 9, sharpness: 34, presence: 108, suppression: 26, focus: 38, cropDepth: 72 },
@@ -2475,7 +2346,6 @@ function _fumocaApplyAutoCleanPreset(mode = 'product') {
   try { updateStudioUi(); } catch (_) {}
   window.dispatchEvent(new CustomEvent('fumoca:autoCleanApplied', { detail: { mode, studio: { ...studioState } } }));
 }
-
 function _fumocaExposePlatform() {
   window._fumocaCreateEmbedUrl = _fumocaCreateEmbedUrl;
   window._fumocaSaveVariant = _fumocaSaveVariant;
@@ -2508,7 +2378,6 @@ function _fumocaExposePlatform() {
     record: currentRecord || null,
   };
 }
-
 saveVariantBtn?.addEventListener('click', async () => {
   if (!window._fumocaPermissions?.canManage) return;
   await _fumocaSaveVariant();
@@ -2567,7 +2436,6 @@ _fumocaExposePlatform();
 _fumocaSyncPermissions();
 _fumocaSchedulePipelineFlush(1200);
 window.dispatchEvent(new CustomEvent('fumoca:requestEditPreview'));
-
 // ── nif CAPTURE BRIDGE ─────────────────────────────────────────
 // Exposes the renderer canvas so nifCapture can record the live viewer.
 function _fumocaExposeCaptureBridge() {
@@ -2586,7 +2454,6 @@ function _fumocaExposeCaptureBridge() {
     }
   } catch (_) {}
 }
-
 // Expose on viewer ready and on load
 window.addEventListener('fumoca:viewerReady', _fumocaExposeCaptureBridge);
 // Also poll briefly after mount to catch delayed canvas creation
@@ -2595,8 +2462,6 @@ const _captureBridgeInterval = setInterval(() => {
   if (window._fumocaCaptureCanvas) clearInterval(_captureBridgeInterval);
 }, 500);
 setTimeout(() => clearInterval(_captureBridgeInterval), 12000);
-
-
 // ── AUTO PREVIEW GENERATION ─────────────────────────────────────
 function _fumocaSupportsAutoCapture() {
   try {
@@ -2605,11 +2470,9 @@ function _fumocaSupportsAutoCapture() {
     return false;
   }
 }
-
 function _fumocaPreviewStorageKey() {
   return `fumoca_preview_autocap_${currentRecord?.id || fileUrl || location.pathname}`;
 }
-
 function _fumocaShouldAutoCapture() {
   const q = new URLSearchParams(location.search);
   if (q.get('autocap') === '0') return false;
@@ -2622,11 +2485,9 @@ function _fumocaShouldAutoCapture() {
   } catch (_) {}
   return true;
 }
-
 function _fumocaMarkAutoCapture(state = 'done') {
   try { sessionStorage.setItem(_fumocaPreviewStorageKey(), state); } catch (_) {}
 }
-
 function _fumocaRunTeaserMotion() {
   try {
     const controls = window._fumocaViewerControls || window._fumocaViewer?.controls;
@@ -2644,7 +2505,6 @@ function _fumocaRunTeaserMotion() {
   } catch (_) {}
   return false;
 }
-
 async function _fumocaAutoGeneratePreviewVideo() {
   if (!_fumocaShouldAutoCapture()) return false;
   _fumocaMarkAutoCapture('running');
@@ -2689,7 +2549,6 @@ async function _fumocaAutoGeneratePreviewVideo() {
   }
   return false;
 }
-
 window.addEventListener('fumoca:viewerReady', () => {
   setTimeout(() => { _fumocaAutoGeneratePreviewVideo(); }, 1400);
 });
@@ -2706,5 +2565,3 @@ window.addEventListener('fumoca:captureUploaded', (e) => {
   }
   configurePreview(currentRecord || null);
 });
-
-
