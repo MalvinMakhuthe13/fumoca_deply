@@ -918,7 +918,7 @@ class GaussianSplatTrainer:
             means=self.means.unsqueeze(0),
             quats=quats_n.unsqueeze(0),
             scales=scales.unsqueeze(0),
-            opacities=opacities.unsqueeze(0).unsqueeze(-1),
+            opacities=opacities.unsqueeze(0),
             colors=colours.unsqueeze(0),
             viewmats=viewmat.unsqueeze(0),
             Ks=K.unsqueeze(0),
@@ -2031,7 +2031,7 @@ class ReconstructionWorker:
             'sequential_matcher',
             '--database_path', str(database_path),
             '--SequentialMatching.overlap', '10',
-            '--SiftMatching.use_gpu', '1',
+            '--SiftMatching.use_gpu', '0',
         ], 'sequential matching'):
             return self._synthetic_poses(len(frames)), 'synthetic_colmap_failed', None
 
@@ -2322,7 +2322,7 @@ class ReconstructionWorker:
                     colours   = torch.sigmoid(trainer.sh0)
                     rendered, _a, _i = gsplat.rasterization(
                         means=trainer.means.unsqueeze(0), quats=quats_n.unsqueeze(0),
-                        scales=scales.unsqueeze(0), opacities=opacities.unsqueeze(0).unsqueeze(-1),
+                        scales=scales.unsqueeze(0), opacities=opacities.unsqueeze(0),
                         colors=colours.unsqueeze(0), viewmats=vm.unsqueeze(0), Ks=K.unsqueeze(0),
                         width=gt.shape[1], height=gt.shape[0],
                         near_plane=0.01, far_plane=100.0, render_mode='RGB',
