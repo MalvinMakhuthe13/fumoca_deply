@@ -412,7 +412,7 @@ window.handleSubmit = async function() {
       setProgress(45, `Uploading ${(zipBlob.size / 1024 / 1024).toFixed(1)} MB…`);
       const zipPath = `raw/${user.id}/${Date.now()}_burst.zip`;
       const { fileKey, error: r2Err } = await r2
-        .from('nif-files')
+        .from('nif-videos')
         .upload(zipPath, zipBlob, {
           contentType: 'application/zip',
           onProgress: (pct) => {
