@@ -897,7 +897,7 @@ class GaussianSplatTrainer:
 
     def train_step(self, gt: torch.Tensor, viewmat: torch.Tensor,
                    K: torch.Tensor) -> float:
-        H, W = gt.shape[1:3]
+        H, W = gt.shape[:2]
         quats_n = F.normalize(self.quats, dim=-1)
         scales  = torch.exp(self.log_scales).clamp(min=1e-6)
         opacities = torch.sigmoid(self.log_opacity)
@@ -926,7 +926,7 @@ class GaussianSplatTrainer:
             near_plane=0.01, far_plane=100.0,
             render_mode='RGB',
         )
-        rendered = rendered.squeeze(0)  # H,W,3
+        rendered = rendered.squeeze(0).squeeze(0)  # H,W,3
         gt_rgb   = gt.to(DEVICE)
 
         loss = F.l1_loss(rendered, gt_rgb) + 0.2 * (1 - self._ssim(rendered, gt_rgb))
