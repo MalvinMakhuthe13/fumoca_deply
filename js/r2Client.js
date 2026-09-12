@@ -85,7 +85,7 @@ function putWithProgress(uploadUrl, body, contentType, token, onProgress, { isWo
 
 // ── Multipart upload helpers ───────────────────────────────────────────────────
 
-const MULTIPART_PART_SIZE = 20 * 1024 * 1024;
+const MULTIPART_PART_SIZE = 8 * 1024 * 1024;
 const MULTIPART_MAX_RETRIES = 3;
 
 function sleep(ms) {
