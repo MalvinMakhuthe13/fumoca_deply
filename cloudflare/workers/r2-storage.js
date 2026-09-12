@@ -46,7 +46,7 @@ const DEFAULT_MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
 // MIME whitelist per bucket. Starting point only — adjust to match what each
 // bucket actually needs to accept.
 const ALLOWED_MIME_TYPES = {
-  'nif-videos': ['video/mp4', 'video/webm', 'video/quicktime'],
+  'nif-videos': ['video/mp4', 'video/webm', 'video/quicktime', 'application/zip'],
   'preview-videos': ['video/mp4', 'video/webm'],
   'nif-files': ['application/octet-stream', 'application/x-ply', 'model/gltf-binary', 'application/zip'],
   'thumbnails': ['image/jpeg', 'image/png', 'image/webp'],
