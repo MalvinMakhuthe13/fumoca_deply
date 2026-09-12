@@ -2335,9 +2335,61 @@ class ReconstructionWorker:
         else:
             print(f'[NIF] Only {n_poses} poses — too few to hold any out for PSNR eval, skipping')
 
+        # ── DEBUG: render a trained Gaussian preview before mesh extraction ──
+        # This tells us whether the Gaussian representation itself looks like
+        # the captured product, independently of the mesh reconstruction.
+        try:
+            import imageio.v2 as imageio
+
+            debug_idx = train_idxs[len(train_idxs) // 2]
+            debug_gt = torch.from_numpy(frames[debug_idx]).float().to(DEVICE) / 255.0
+            debug_vm = poses[debug_idx].to(DEVICE)
+
+            with torch.no_grad():
+                quats_n = F.normalize(trainer.quats, dim=-1)
+                scales = torch.exp(trainer.log_scales).clamp(min=1e-6)
+                opacities = torch.sigmoid(trainer.log_opacity)
+                colours = torch.sigmoid(trainer.sh0)
+
+                debug_rendered, _, _ = gsplat.rasterization(
+                    means=trainer.means.unsqueeze(0),
+                    quats=quats_n.unsqueeze(0),
+                    scales=scales.unsqueeze(0),
+                    opacities=opacities.unsqueeze(0),
+                    colors=colours.unsqueeze(0),
+                    viewmats=debug_vm.unsqueeze(0).unsqueeze(1),
+                    Ks=K.unsqueeze(0).unsqueeze(1),
+                    width=debug_gt.shape[1],
+                    height=debug_gt.shape[0],
+                    near_plane=0.01,
+                    far_plane=100.0,
+                    render_mode='RGB',
+                )
+
+                debug_rendered = debug_rendered.squeeze(0).squeeze(0)
+
+                debug_img = (
+                    debug_rendered.clamp(0, 1).cpu().numpy() * 255
+                ).astype(np.uint8)
+
+                debug_gt_img = (
+                    debug_gt.clamp(0, 1).cpu().numpy() * 255
+                ).astype(np.uint8)
+
+            debug_path = '/kaggle/working/gaussian_debug_render.png'
+            gt_path = '/kaggle/working/gaussian_debug_gt.png'
+
+            imageio.imwrite(debug_path, debug_img)
+            imageio.imwrite(gt_path, debug_gt_img)
+
+            print(f'[NIF] Gaussian debug render saved: {debug_path}')
+            print(f'[NIF] Gaussian debug ground truth saved: {gt_path}')
+
+        except Exception as e:
+            print(f'[NIF] Gaussian debug render failed (non-fatal): {e}')
+
         n, geo_bytes = trainer.export_buffer()
         return n, geo_bytes, eval_psnr
-
     def _extract_mesh(self, geo_data: np.ndarray, grid_res: int = 96,
                        opacity_thresh: float = 0.25, max_faces: int = 60_000) -> tuple:
         """
