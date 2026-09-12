@@ -2323,11 +2323,11 @@ class ReconstructionWorker:
                     rendered, _a, _i = gsplat.rasterization(
                         means=trainer.means.unsqueeze(0), quats=quats_n.unsqueeze(0),
                         scales=scales.unsqueeze(0), opacities=opacities.unsqueeze(0),
-                        colors=colours.unsqueeze(0), viewmats=vm.unsqueeze(0), Ks=K.unsqueeze(0).unsqueeze(1),
+                        colors=colours.unsqueeze(0), viewmats=vm.unsqueeze(0).unsqueeze(1), Ks=K.unsqueeze(0).unsqueeze(1),
                         width=gt.shape[1], height=gt.shape[0],
                         near_plane=0.01, far_plane=100.0, render_mode='RGB',
                     )
-                    mses.append(float(F.mse_loss(rendered.squeeze(0), gt)))
+                    mses.append(float(F.mse_loss(rendered.squeeze(0).squeeze(0), gt)))
                 mean_mse = sum(mses) / len(mses)
                 eval_psnr = 10.0 * math.log10(1.0 / max(mean_mse, 1e-10))
             print(f'[NIF] Held-out PSNR: {eval_psnr:.2f}dB over {len(holdout_idxs)} held-out frames '
