@@ -82,6 +82,306 @@ function putWithProgress(uploadUrl, body, contentType, token, onProgress, { isWo
   });
 }
 
+
+// ── Multipart upload helpers ───────────────────────────────────────────────────
+
+const MULTIPART_PART_SIZE = 20 * 1024 * 1024;
+const MULTIPART_MAX_RETRIES = 3;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function workerJson(url, method, token, body) {
+  const response = await fetch(url, {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+
+  const responseText = await response.text();
+
+  let data = null;
+  try {
+    data = JSON.parse(responseText);
+  } catch {
+    // Keep data null.
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      data?.error ||
+      responseText ||
+      `Worker request failed (${response.status})`
+    );
+  }
+
+  return data;
+}
+
+function uploadMultipartPart(
+  uploadUrl,
+  body,
+  token,
+  partNumber,
+  totalBytes,
+  uploadedBeforePart,
+  onProgress
+) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+
+    xhr.open('PUT', uploadUrl, true);
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+
+    xhr.upload.onprogress = (evt) => {
+      if (
+        typeof onProgress === 'function' &&
+        evt.lengthComputable &&
+        totalBytes > 0
+      ) {
+        const overallLoaded =
+          uploadedBeforePart + Math.min(evt.loaded, body.size);
+
+        onProgress(
+          Math.min(100, Math.round((overallLoaded / totalBytes) * 100))
+        );
+      }
+    };
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        let data = null;
+
+        try {
+          data = JSON.parse(xhr.responseText || '{}');
+        } catch {
+          reject(new Error(
+            `Multipart part ${partNumber} returned invalid JSON.`
+          ));
+          return;
+        }
+
+        if (!data?.etag) {
+          reject(new Error(
+            `Multipart part ${partNumber} completed without an ETag.`
+          ));
+          return;
+        }
+
+        resolve({
+          partNumber,
+          etag: data.etag,
+        });
+        return;
+      }
+
+      let message = xhr.responseText || xhr.statusText;
+
+      try {
+        const data = JSON.parse(xhr.responseText || '{}');
+        message = data?.error || message;
+      } catch {
+        // Keep raw response.
+      }
+
+      reject(new Error(
+        `Multipart part ${partNumber} failed (${xhr.status}): ${message}`
+      ));
+    };
+
+    xhr.onerror = () => {
+      reject(new Error(
+        `Multipart part ${partNumber} failed — connection interrupted.`
+      ));
+    };
+
+    xhr.onabort = () => {
+      reject(new Error(
+        `Multipart part ${partNumber} was aborted.`
+      ));
+    };
+
+    xhr.send(body);
+  });
+}
+
+async function uploadMultipart(
+  bucketName,
+  path,
+  fileOrBlob,
+  contentType,
+  token,
+  onProgress
+) {
+  const createUrl =
+    `${WORKER_URL}/upload/multipart/create?bucket=${encodeURIComponent(bucketName)}`;
+
+  const createData = await workerJson(
+    createUrl,
+    'POST',
+    token,
+    {
+      path,
+      contentType,
+    }
+  );
+
+  const uploadId = createData?.uploadId;
+  const fileKey = createData?.fileKey;
+  const initialPublicUrl = createData?.publicUrl;
+
+  if (!uploadId || !fileKey) {
+    throw new Error(
+      'Worker did not return a multipart upload ID and file key.'
+    );
+  }
+
+  const totalBytes = fileOrBlob.size;
+  const totalParts = Math.ceil(totalBytes / MULTIPART_PART_SIZE);
+  const parts = [];
+
+  let uploadedBeforePart = 0;
+
+  try {
+    for (let partNumber = 1; partNumber <= totalParts; partNumber++) {
+      const start = (partNumber - 1) * MULTIPART_PART_SIZE;
+      const end = Math.min(
+        start + MULTIPART_PART_SIZE,
+        totalBytes
+      );
+
+      const partBlob = fileOrBlob.slice(start, end);
+
+      const partUrl =
+        `${WORKER_URL}/upload/multipart/part` +
+        `?bucket=${encodeURIComponent(bucketName)}` +
+        `&uploadId=${encodeURIComponent(uploadId)}` +
+        `&key=${encodeURIComponent(fileKey)}` +
+        `&partNumber=${partNumber}`;
+
+      let result = null;
+      let lastError = null;
+
+      for (
+        let attempt = 1;
+        attempt <= MULTIPART_MAX_RETRIES;
+        attempt++
+      ) {
+        try {
+          result = await uploadMultipartPart(
+            partUrl,
+            partBlob,
+            token,
+            partNumber,
+            totalBytes,
+            uploadedBeforePart,
+            onProgress
+          );
+          break;
+        } catch (err) {
+          lastError =
+            err instanceof Error
+              ? err
+              : new Error(String(err));
+
+          console.warn(
+            `[FUMOCA] Multipart part ${partNumber} attempt ${attempt}/${MULTIPART_MAX_RETRIES} failed:`,
+            lastError.message
+          );
+
+          if (attempt < MULTIPART_MAX_RETRIES) {
+            await sleep(1000 * Math.pow(2, attempt - 1));
+          }
+        }
+      }
+
+      if (!result) {
+        throw lastError || new Error(
+          `Multipart part ${partNumber} failed.`
+        );
+      }
+
+      parts.push({
+        partNumber: result.partNumber,
+        etag: result.etag,
+      });
+
+      uploadedBeforePart += partBlob.size;
+
+      if (
+        typeof onProgress === 'function' &&
+        totalBytes > 0
+      ) {
+        onProgress(
+          Math.min(
+            100,
+            Math.round((uploadedBeforePart / totalBytes) * 100)
+          )
+        );
+      }
+    }
+
+    const completeUrl =
+      `${WORKER_URL}/upload/multipart/complete?bucket=${encodeURIComponent(bucketName)}`;
+
+    const completeData = await workerJson(
+      completeUrl,
+      'POST',
+      token,
+      {
+        uploadId,
+        key: fileKey,
+        parts,
+      }
+    );
+
+    if (!completeData?.fileKey) {
+      throw new Error(
+        'Worker completed the multipart upload without returning a file key.'
+      );
+    }
+
+    if (typeof onProgress === 'function') {
+      onProgress(100);
+    }
+
+    return {
+      publicUrl:
+        completeData.publicUrl ||
+        initialPublicUrl ||
+        `${WORKER_URL}/file/${encodeURIComponent(fileKey)}?bucket=${encodeURIComponent(bucketName)}`,
+      fileKey: completeData.fileKey,
+    };
+  } catch (err) {
+    try {
+      const abortUrl =
+        `${WORKER_URL}/upload/multipart/abort?bucket=${encodeURIComponent(bucketName)}`;
+
+      await workerJson(
+        abortUrl,
+        'POST',
+        token,
+        {
+          uploadId,
+          key: fileKey,
+        }
+      );
+    } catch (abortErr) {
+      console.warn(
+        '[FUMOCA] Multipart abort also failed:',
+        abortErr?.message || abortErr
+      );
+    }
+
+    throw err;
+  }
+}
+
 function bucketRef(bucketName) {
   return {
     /**
@@ -101,17 +401,24 @@ function bucketRef(bucketName) {
         const useWorkerStream = size >= WORKER_STREAM_THRESHOLD_BYTES;
 
         if (useWorkerStream) {
-          // Large file: stream straight through the Worker's own PUT route
-          // instead of asking for a presigned direct-to-R2 URL. This avoids
-          // the browser-to-R2-S3-endpoint connection entirely, which is
-          // where large uploads were failing.
-          const fileKey = path.replace(/^\/+/, '');
-          const uploadUrl = `${WORKER_URL}/upload/${encodeURIComponent(fileKey)}?bucket=${encodeURIComponent(bucketName)}`;
+          // Large file: use R2 multipart upload through the Worker.
+          // Each part is only 20MB, so no single Worker request carries
+          // the entire file. This avoids Cloudflare request-body limits
+          // and makes large browser uploads much more reliable.
+          const multipartResult = await uploadMultipart(
+            bucketName,
+            path,
+            fileOrBlob,
+            contentType,
+            token,
+            opts.onProgress
+          );
 
-          await putWithProgress(uploadUrl, fileOrBlob, contentType, token, opts.onProgress, { isWorkerUrl: true });
-
-          const publicUrl = `${WORKER_URL}/file/${encodeURIComponent(fileKey)}?bucket=${encodeURIComponent(bucketName)}`;
-          return { publicUrl, fileKey, error: null };
+          return {
+            publicUrl: multipartResult.publicUrl,
+            fileKey: multipartResult.fileKey,
+            error: null,
+          };
         }
 
         // Small file: ask the Worker for a presigned URL and PUT directly to R2.

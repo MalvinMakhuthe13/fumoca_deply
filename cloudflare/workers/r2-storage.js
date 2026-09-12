@@ -48,7 +48,7 @@ const DEFAULT_MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
 const ALLOWED_MIME_TYPES = {
   'nif-videos': ['video/mp4', 'video/webm', 'video/quicktime'],
   'preview-videos': ['video/mp4', 'video/webm'],
-  'nif-files': ['application/octet-stream', 'application/x-ply', 'model/gltf-binary'],
+  'nif-files': ['application/octet-stream', 'application/x-ply', 'model/gltf-binary', 'application/zip'],
   'thumbnails': ['image/jpeg', 'image/png', 'image/webp'],
   'avatars': ['image/jpeg', 'image/png', 'image/webp'],
 };
@@ -272,6 +272,258 @@ export default {
     }
 
     // ── PUT /upload/:key — Direct upload (browser sends file body) ─────────
+
+    // ── Multipart upload API — large browser uploads ────────────────────────────────
+
+    if (request.method === 'POST' && path === '/upload/multipart/create') {
+      const principal = await authorize(request, env);
+      if (!principal) {
+        return json({ error: 'Unauthorized — sign in and try again' }, 401, cors);
+      }
+
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return json({ error: 'Invalid JSON body' }, 400, cors);
+      }
+
+      const rawPath = body?.path;
+      const contentType = body?.contentType || 'application/octet-stream';
+
+      if (!rawPath) {
+        return json({ error: 'Missing path' }, 400, cors);
+      }
+
+      const r2Bucket = getBucket(bucketParam, env);
+      if (!r2Bucket) {
+        return json({ error: `Unknown bucket: ${bucketParam}` }, 400, cors);
+      }
+
+      if (!isAllowedMimeType(bucketParam, contentType)) {
+        return json({
+          error: `Content type not allowed for bucket ${bucketParam}: ${contentType}`
+        }, 400, cors);
+      }
+
+      const fileKey = sanitiseKey(rawPath);
+      if (!fileKey) {
+        return json({ error: 'Invalid path' }, 400, cors);
+      }
+
+      try {
+        const upload = await r2Bucket.createMultipartUpload(fileKey, {
+          httpMetadata: { contentType },
+          customMetadata: {
+            uploadedAt: new Date().toISOString(),
+          },
+        });
+
+        return json({
+          ok: true,
+          uploadId: upload.uploadId,
+          fileKey,
+          publicUrl: `${env.PUBLIC_BASE_URL || url.origin}/file/${encodeURIComponent(fileKey)}?bucket=${encodeURIComponent(bucketParam)}`,
+        }, 200, cors);
+      } catch (err) {
+        console.error('[R2 multipart create] failed', err);
+        return json({
+          error: `Could not create multipart upload: ${err?.message || err}`
+        }, 500, cors);
+      }
+    }
+
+    if (request.method === 'PUT' && path === '/upload/multipart/part') {
+      const principal = await authorize(request, env);
+      if (!principal) {
+        return json({ error: 'Unauthorized — sign in and try again' }, 401, cors);
+      }
+
+      const r2Bucket = getBucket(bucketParam, env);
+      if (!r2Bucket) {
+        return json({ error: `Unknown bucket: ${bucketParam}` }, 400, cors);
+      }
+
+      if (!request.body) {
+        return json({ error: 'Empty upload part body' }, 400, cors);
+      }
+
+      const uploadId = url.searchParams.get('uploadId');
+      const fileKeyParam = url.searchParams.get('key');
+      const partNumber = Number(url.searchParams.get('partNumber'));
+
+      if (!uploadId) {
+        return json({ error: 'Missing uploadId' }, 400, cors);
+      }
+
+      if (!fileKeyParam) {
+        return json({ error: 'Missing key' }, 400, cors);
+      }
+
+      if (!Number.isInteger(partNumber) || partNumber < 1 || partNumber > 10000) {
+        return json({ error: 'Invalid partNumber' }, 400, cors);
+      }
+
+      const safeFileKey = sanitiseKey(decodeURIComponent(fileKeyParam));
+      if (!safeFileKey) {
+        return json({ error: 'Invalid key' }, 400, cors);
+      }
+
+      try {
+        const multipart = r2Bucket.resumeMultipartUpload(safeFileKey, uploadId);
+        const uploadedPart = await multipart.uploadPart(partNumber, request.body);
+
+        return json({
+          ok: true,
+          partNumber,
+          etag: uploadedPart.etag,
+        }, 200, cors);
+      } catch (err) {
+        console.error('[R2 multipart part] failed', {
+          fileKey: safeFileKey,
+          partNumber,
+          error: err?.message || String(err),
+        });
+
+        return json({
+          error: `Could not upload part ${partNumber}: ${err?.message || err}`
+        }, 500, cors);
+      }
+    }
+
+    if (request.method === 'POST' && path === '/upload/multipart/complete') {
+      const principal = await authorize(request, env);
+      if (!principal) {
+        return json({ error: 'Unauthorized — sign in and try again' }, 401, cors);
+      }
+
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return json({ error: 'Invalid JSON body' }, 400, cors);
+      }
+
+      const uploadId = body?.uploadId;
+      const rawKey = body?.key;
+      const parts = body?.parts;
+
+      if (!uploadId) {
+        return json({ error: 'Missing uploadId' }, 400, cors);
+      }
+
+      if (!rawKey) {
+        return json({ error: 'Missing key' }, 400, cors);
+      }
+
+      if (!Array.isArray(parts) || parts.length === 0) {
+        return json({ error: 'Missing multipart parts' }, 400, cors);
+      }
+
+      const fileKey = sanitiseKey(rawKey);
+      if (!fileKey) {
+        return json({ error: 'Invalid key' }, 400, cors);
+      }
+
+      const normalisedParts = parts.map((part) => ({
+        partNumber: Number(part?.partNumber),
+        etag: String(part?.etag || ''),
+      }));
+
+      if (normalisedParts.some(
+        (part) =>
+          !Number.isInteger(part.partNumber) ||
+          part.partNumber < 1 ||
+          part.partNumber > 10000 ||
+          !part.etag
+      )) {
+        return json({ error: 'Invalid multipart part list' }, 400, cors);
+      }
+
+      normalisedParts.sort((a, b) => a.partNumber - b.partNumber);
+
+      for (let i = 0; i < normalisedParts.length; i++) {
+        if (normalisedParts[i].partNumber !== i + 1) {
+          return json({
+            error: 'Multipart parts must be consecutive starting at 1'
+          }, 400, cors);
+        }
+      }
+
+      const r2Bucket = getBucket(bucketParam, env);
+      if (!r2Bucket) {
+        return json({ error: `Unknown bucket: ${bucketParam}` }, 400, cors);
+      }
+
+      try {
+        const multipart = r2Bucket.resumeMultipartUpload(fileKey, uploadId);
+        await multipart.complete(normalisedParts);
+
+        const publicUrl =
+          `${env.PUBLIC_BASE_URL || url.origin}/file/${encodeURIComponent(fileKey)}?bucket=${encodeURIComponent(bucketParam)}`;
+
+        return json({
+          ok: true,
+          fileKey,
+          publicUrl,
+        }, 200, cors);
+      } catch (err) {
+        console.error('[R2 multipart complete] failed', err);
+
+        return json({
+          error: `Could not complete multipart upload: ${err?.message || err}`
+        }, 500, cors);
+      }
+    }
+
+    if (request.method === 'POST' && path === '/upload/multipart/abort') {
+      const principal = await authorize(request, env);
+      if (!principal) {
+        return json({ error: 'Unauthorized — sign in and try again' }, 401, cors);
+      }
+
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return json({ error: 'Invalid JSON body' }, 400, cors);
+      }
+
+      const uploadId = body?.uploadId;
+      const rawKey = body?.key;
+
+      if (!uploadId) {
+        return json({ error: 'Missing uploadId' }, 400, cors);
+      }
+
+      if (!rawKey) {
+        return json({ error: 'Missing key' }, 400, cors);
+      }
+
+      const fileKey = sanitiseKey(rawKey);
+      if (!fileKey) {
+        return json({ error: 'Invalid key' }, 400, cors);
+      }
+
+      const r2Bucket = getBucket(bucketParam, env);
+      if (!r2Bucket) {
+        return json({ error: `Unknown bucket: ${bucketParam}` }, 400, cors);
+      }
+
+      try {
+        const multipart = r2Bucket.resumeMultipartUpload(fileKey, uploadId);
+        await multipart.abort();
+
+        return json({ ok: true }, 200, cors);
+      } catch (err) {
+        console.error('[R2 multipart abort] failed', err);
+
+        return json({
+          error: `Could not abort multipart upload: ${err?.message || err}`
+        }, 500, cors);
+      }
+    }
+
     if (request.method === 'PUT' && path.startsWith('/upload/')) {
       const principal = await authorize(request, env);
       if (!principal) {
