@@ -332,7 +332,7 @@ async function uploadMultipart(
     const completeData = await workerJson(
       completeUrl,
       'POST',
-      token,
+      await getAccessToken(),
       {
         uploadId,
         key: fileKey,
@@ -365,7 +365,7 @@ async function uploadMultipart(
       await workerJson(
         abortUrl,
         'POST',
-        token,
+        await getAccessToken(true),
         {
           uploadId,
           key: fileKey,
