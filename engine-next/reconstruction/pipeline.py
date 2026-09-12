@@ -920,8 +920,8 @@ class GaussianSplatTrainer:
             scales=scales.unsqueeze(0),
             opacities=opacities.unsqueeze(0),
             colors=colours.unsqueeze(0),
-            viewmats=viewmat.unsqueeze(0),
-            Ks=K.unsqueeze(0),
+            viewmats=viewmat.unsqueeze(0).unsqueeze(1),
+            Ks=K.unsqueeze(0).unsqueeze(1),
             width=W, height=H,
             near_plane=0.01, far_plane=100.0,
             render_mode='RGB',
@@ -2323,7 +2323,7 @@ class ReconstructionWorker:
                     rendered, _a, _i = gsplat.rasterization(
                         means=trainer.means.unsqueeze(0), quats=quats_n.unsqueeze(0),
                         scales=scales.unsqueeze(0), opacities=opacities.unsqueeze(0),
-                        colors=colours.unsqueeze(0), viewmats=vm.unsqueeze(0), Ks=K.unsqueeze(0),
+                        colors=colours.unsqueeze(0), viewmats=vm.unsqueeze(0), Ks=K.unsqueeze(0).unsqueeze(1),
                         width=gt.shape[1], height=gt.shape[0],
                         near_plane=0.01, far_plane=100.0, render_mode='RGB',
                     )
