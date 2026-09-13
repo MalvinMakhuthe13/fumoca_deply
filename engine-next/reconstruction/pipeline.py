@@ -67,7 +67,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from PIL import Image
+from PIL import Image, ImageFilter
 
 # ─── Environment ─────────────────────────────────────────────────────────────
 REQUIRED = ['CF_ACCOUNT_ID','R2_ACCESS_KEY_ID','R2_SECRET_ACCESS_KEY',
@@ -628,14 +628,126 @@ def remove_background(frames: list[np.ndarray]) -> list[np.ndarray]:
         return _depth_threshold_masks(frames)
 
 def _depth_threshold_masks(frames):
-    """Simple fallback: threshold median depth to separate foreground."""
+    """
+    Dependency-free foreground fallback using border-colour separation.
+
+    The previous fallback classified pixels using global brightness. That is
+    unreliable for coloured objects on coloured backgrounds because both the
+    object and background can have similar brightness.
+
+    Instead, estimate the background colour from the image borders, measure
+    colour distance from that background, then clean the resulting mask with
+    lightweight PIL morphology. This keeps the fallback usable when rembg,
+    SAM2 and OpenCV are unavailable.
+    """
     masks = []
+
     for frame in frames:
-        # Simple edge-based mask using frame brightness (very rough)
-        gray = frame.mean(axis=2)
-        median = np.median(gray)
-        mask = (gray > median * 0.8).astype(np.uint8) * 255
+        h, w = frame.shape[:2]
+
+        # Work at reduced resolution so the fallback stays cheap even for
+        # 4K/12MP source frames.
+        max_side = 768
+        scale = min(1.0, max_side / float(max(h, w)))
+        sh = max(32, int(round(h * scale)))
+        sw = max(32, int(round(w * scale)))
+
+        small = Image.fromarray(
+            frame.astype(np.uint8),
+            mode='RGB'
+        ).resize(
+            (sw, sh),
+            Image.Resampling.BILINEAR
+        )
+
+        arr = np.asarray(small).astype(np.float32)
+
+        # Estimate background colour from a border band. Using multiple
+        # borders makes this much more robust than a single corner sample.
+        band = max(2, min(sh, sw) // 32)
+
+        border_pixels = np.concatenate([
+            arr[:band].reshape(-1, 3),
+            arr[-band:].reshape(-1, 3),
+            arr[:, :band].reshape(-1, 3),
+            arr[:, -band:].reshape(-1, 3),
+        ], axis=0)
+
+        bg_colour = np.median(
+            border_pixels,
+            axis=0
+        )
+
+        # Euclidean colour distance from the estimated background.
+        dist = np.sqrt(
+            np.sum(
+                (arr - bg_colour[None, None, :]) ** 2,
+                axis=2
+            )
+        )
+
+        border_dist = np.concatenate([
+            dist[:band].reshape(-1),
+            dist[-band:].reshape(-1),
+            dist[:, :band].reshape(-1),
+            dist[:, -band:].reshape(-1),
+        ])
+
+        # Adaptive threshold. The floor prevents nearly uniform backgrounds
+        # from producing an all-foreground mask, while the percentile keeps
+        # the threshold tied to the actual capture.
+        p90 = float(np.percentile(border_dist, 90))
+        p99 = float(np.percentile(border_dist, 99))
+
+        threshold = max(
+            18.0,
+            min(70.0, p90 * 2.5 + (p99 - p90) * 0.5)
+        )
+
+        mask_small = (
+            dist > threshold
+        ).astype(np.uint8) * 255
+
+        # Morphological cleanup using PIL only:
+        # MaxFilter closes tiny holes/gaps; MinFilter removes isolated noise.
+        mask_img = Image.fromarray(mask_small, mode='L')
+
+        kernel = 5 if min(sh, sw) >= 256 else 3
+
+        mask_img = mask_img.filter(
+            ImageFilter.MaxFilter(kernel)
+        )
+        mask_img = mask_img.filter(
+            ImageFilter.MinFilter(kernel)
+        )
+
+        # A second, slightly stronger cleanup helps remove thin background
+        # fragments without requiring OpenCV/scipy.
+        if min(sh, sw) >= 256:
+            mask_img = mask_img.filter(
+                ImageFilter.MinFilter(5)
+            )
+            mask_img = mask_img.filter(
+                ImageFilter.MaxFilter(5)
+            )
+
+        # Return to the original frame resolution.
+        mask_full = mask_img.resize(
+            (w, h),
+            Image.Resampling.BILINEAR
+        )
+
+        mask = np.asarray(mask_full).astype(np.uint8)
+
+        # Keep the mask binary-ish while retaining antialiased boundaries.
+        mask = np.where(
+            mask >= 96,
+            255,
+            0
+        ).astype(np.uint8)
+
         masks.append(mask)
+
     return masks
 
 
@@ -879,7 +991,62 @@ class GaussianSplatTrainer:
                 print(f'[NIF] Only {len(init_points)} COLMAP sparse points — '
                       f'below the {MIN_SEED_POINTS} minimum to seed from, using random init')
             self.means = nn.Parameter(torch.randn(n, 3, device=self.device) * 0.3)
-        self.log_scales  = nn.Parameter(torch.full((n, 3), -3.0, device=self.device))
+        # Initialize Gaussian size from the actual COLMAP geometry.
+        # A fixed scale makes every Gaussian start as the same-size blob,
+        # which causes the fuzzy/floaty appearance we are trying to eliminate.
+        if init_points is not None and len(init_points) >= MIN_SEED_POINTS:
+            with torch.no_grad():
+                sample_n = min(len(pts), 4096)
+
+                sample_idx = torch.randperm(
+                    len(pts),
+                    device=self.device
+                )[:sample_n]
+
+                sample_pts = pts[sample_idx]
+
+                d = torch.cdist(
+                    sample_pts,
+                    sample_pts
+                )
+
+                d.fill_diagonal_(float("inf"))
+
+                nearest = d.min(dim=1).values
+
+                local_spacing = torch.median(
+                    nearest
+                ).clamp(min=1e-4)
+
+                initial_scale = (
+                    local_spacing * 0.35
+                ).clamp(
+                    min=1e-4,
+                    max=0.5
+                )
+
+                print(
+                    f'[NIF] Geometry-derived Gaussian scale: '
+                    f'{float(initial_scale):.6f} '
+                    f'(median local spacing='
+                    f'{float(local_spacing):.6f})'
+                )
+
+            self.log_scales = nn.Parameter(
+                torch.full(
+                    (n, 3),
+                    torch.log(initial_scale),
+                    device=self.device
+                )
+            )
+        else:
+            self.log_scales = nn.Parameter(
+                torch.full(
+                    (n, 3),
+                    -3.0,
+                    device=self.device
+                )
+            )
         self.quats       = nn.Parameter(F.normalize(torch.randn(n, 4, device=self.device), dim=-1))
         self.log_opacity = nn.Parameter(torch.zeros(n, device=self.device))
         self.sh0         = nn.Parameter(torch.zeros(n, 3, device=self.device))
@@ -896,7 +1063,8 @@ class GaussianSplatTrainer:
         ], eps=1e-15)
 
     def train_step(self, gt: torch.Tensor, viewmat: torch.Tensor,
-                   K: torch.Tensor) -> float:
+                   K: torch.Tensor,
+                   alpha_mask: torch.Tensor | None = None) -> float:
         H, W = gt.shape[:2]
         quats_n = F.normalize(self.quats, dim=-1)
         scales  = torch.exp(self.log_scales).clamp(min=1e-6)
@@ -914,7 +1082,7 @@ class GaussianSplatTrainer:
         # unlike the old value it can actually converge toward black.
         colours   = torch.sigmoid(self.sh0)
 
-        rendered, _alpha, _info = gsplat.rasterization(
+        rendered, alpha, _info = gsplat.rasterization(
             means=self.means.unsqueeze(0),
             quats=quats_n.unsqueeze(0),
             scales=scales.unsqueeze(0),
@@ -929,7 +1097,57 @@ class GaussianSplatTrainer:
         rendered = rendered.squeeze(0).squeeze(0)  # H,W,3
         gt_rgb   = gt.to(DEVICE)
 
-        loss = F.l1_loss(rendered, gt_rgb) + 0.2 * (1 - self._ssim(rendered, gt_rgb))
+        if alpha_mask is not None:
+            target_mask = alpha_mask.clamp(0.0, 1.0)
+
+            render_alpha = alpha
+            while render_alpha.ndim > 2:
+                render_alpha = render_alpha.squeeze(0)
+
+            if render_alpha.ndim == 3:
+                render_alpha = render_alpha.squeeze(-1)
+
+            render_alpha = render_alpha.clamp(0.0, 1.0)
+
+            fg = target_mask.unsqueeze(-1)
+            fg_pixels = target_mask.sum().clamp(min=1.0)
+
+            rgb_loss = (
+                torch.abs(rendered - gt_rgb) * fg
+            ).sum() / (fg_pixels * 3.0)
+
+            silhouette_loss = F.binary_cross_entropy(
+                render_alpha.clamp(1e-4, 1.0 - 1e-4),
+                target_mask
+            )
+
+            bg = 1.0 - target_mask
+            bg_pixels = bg.sum().clamp(min=1.0)
+
+            background_loss = (
+                render_alpha * bg
+            ).sum() / bg_pixels
+
+            rendered_fg = rendered * fg
+            gt_fg = gt_rgb * fg
+
+            ssim_loss = 1.0 - self._ssim(
+                rendered_fg,
+                gt_fg
+            )
+
+            loss = (
+                rgb_loss
+                + 0.15 * ssim_loss
+                + 0.50 * silhouette_loss
+                + 0.10 * background_loss
+            )
+
+        else:
+            loss = (
+                F.l1_loss(rendered, gt_rgb)
+                + 0.2 * (1.0 - self._ssim(rendered, gt_rgb))
+            )
 
         self._opt.zero_grad()
         loss.backward()
@@ -938,16 +1156,31 @@ class GaussianSplatTrainer:
         self._step += 1
         if self._step % 200 == 0:
             self._prune()
-        return float(loss)
+
+        return float(loss.detach())
 
     def _ssim(self, p, g, ws=11):
-        mu1 = F.avg_pool2d(p.permute(2,0,1).unsqueeze(0), ws, 1, ws//2)
-        mu2 = F.avg_pool2d(g.permute(2,0,1).unsqueeze(0), ws, 1, ws//2)
-        s1  = F.avg_pool2d((p**2).permute(2,0,1).unsqueeze(0), ws,1,ws//2) - mu1**2
-        s2  = F.avg_pool2d((g**2).permute(2,0,1).unsqueeze(0), ws,1,ws//2) - mu2**2
-        s12 = F.avg_pool2d((p*g).permute(2,0,1).unsqueeze(0), ws,1,ws//2) - mu1*mu2
-        c1,c2 = 0.01**2, 0.03**2
-        return float(((2*mu1*mu2+c1)*(2*s12+c2)/((mu1**2+mu2**2+c1)*(s1+s2+c2))).mean())
+        p4 = p.permute(2, 0, 1).unsqueeze(0)
+        g4 = g.permute(2, 0, 1).unsqueeze(0)
+
+        mu1 = F.avg_pool2d(p4, ws, 1, ws // 2)
+        mu2 = F.avg_pool2d(g4, ws, 1, ws // 2)
+
+        s1 = F.avg_pool2d(p4 ** 2, ws, 1, ws // 2) - mu1 ** 2
+        s2 = F.avg_pool2d(g4 ** 2, ws, 1, ws // 2) - mu2 ** 2
+        s12 = F.avg_pool2d(p4 * g4, ws, 1, ws // 2) - mu1 * mu2
+
+        c1 = 0.01 ** 2
+        c2 = 0.03 ** 2
+
+        ssim = (
+            (2 * mu1 * mu2 + c1)
+            * (2 * s12 + c2)
+            /
+            ((mu1 ** 2 + mu2 ** 2 + c1) * (s1 + s2 + c2))
+        )
+
+        return ssim.mean()
 
     def _prune(self, thr=0.005):
         with torch.no_grad():
@@ -1423,7 +1656,13 @@ class ReconstructionWorker:
             # when it isn't, instead of spending the full budget optimizing
             # against poses already known to be a synthetic fallback.
             self._tick('processing', 52)
-            n, geo_bytes, eval_psnr = self._train_gaussians(frames, poses, sparse_points, pose_source)
+            n, geo_bytes, eval_psnr = self._train_gaussians(
+                frames,
+                poses,
+                sparse_points,
+                pose_source,
+                object_masks=object_masks
+            )
 
             # Dequantize for internal use (mesh extraction, layer splitting need
             # the canonical float32 form regardless of which format was written).
@@ -2342,7 +2581,8 @@ class ReconstructionWorker:
     # ── Training ───────────────────────────────────────────────────────────────
     def _train_gaussians(self, frames: list, poses: list,
                           sparse_points: np.ndarray | None = None,
-                          pose_source: str = 'colmap') -> tuple:
+                          pose_source: str = 'colmap',
+                          object_masks: list | None = None) -> tuple:
         # Configurable so quality can be dialed back up later without a code
         # change — defaults tuned for fast turnaround during testing rather
         # than final quality. n=50k/3000 iters (the old fixed values) is a
@@ -2424,7 +2664,21 @@ class ReconstructionWorker:
             idx  = train_idxs[step % len(train_idxs)]
             gt   = torch.from_numpy(frames[idx]).float().to(DEVICE) / 255.0
             vm   = poses[idx].to(DEVICE)
-            loss = trainer.train_step(gt, vm, K)
+
+            alpha_mask = None
+            if object_masks is not None and idx < len(object_masks):
+                mask_np = object_masks[idx]
+                if mask_np is not None:
+                    alpha_mask = torch.from_numpy(
+                        mask_np.astype(np.float32) / 255.0
+                    ).to(DEVICE)
+
+            loss = trainer.train_step(
+                gt,
+                vm,
+                K,
+                alpha_mask=alpha_mask
+            )
 
             if step % 100 == 0:
                 n = len(trainer.means)
