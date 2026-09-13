@@ -1959,17 +1959,152 @@ class ReconstructionWorker:
 
     # ── Deblur ─────────────────────────────────────────────────────────────────
     def _deblur_frames(self, frames: list) -> list:
+        """
+        Deblur full-resolution frames using overlapping tiles.
+
+        Running an entire high-resolution photo through DeblurNet can
+        require several GB of GPU activation memory. Tiling keeps peak
+        VRAM bounded while preserving the original frame resolution.
+        """
         out = []
 
-        with torch.no_grad():
-            for frame in frames:
-                t   = torch.from_numpy(frame).float().permute(2,0,1).unsqueeze(0).to(DEVICE) / 255.0
-                d   = self.deblur(t)
-                arr = (d.squeeze(0).permute(1,2,0).clamp(0,1).cpu().numpy() * 255).astype(np.uint8)
+        TILE = 512
+        OVERLAP = 64
+        STRIDE = TILE - OVERLAP
+
+        with torch.inference_mode():
+            for frame_idx, frame in enumerate(frames):
+                h, w = frame.shape[:2]
+
+                if h <= TILE and w <= TILE:
+                    t = (
+                        torch.from_numpy(frame)
+                        .float()
+                        .permute(2, 0, 1)
+                        .unsqueeze(0)
+                        .to(DEVICE)
+                        / 255.0
+                    )
+
+                    d = self.deblur(t)
+
+                    arr = (
+                        d.squeeze(0)
+                        .permute(1, 2, 0)
+                        .clamp(0, 1)
+                        .cpu()
+                        .numpy()
+                        * 255
+                    ).astype(np.uint8)
+
+                    del t, d
+                    out.append(arr)
+                    continue
+
+                result = np.zeros((h, w, 3), dtype=np.float32)
+                weights = np.zeros((h, w, 1), dtype=np.float32)
+
+                y_positions = list(range(0, max(h - TILE, 0) + 1, STRIDE))
+                x_positions = list(range(0, max(w - TILE, 0) + 1, STRIDE))
+
+                if not y_positions or y_positions[-1] + TILE < h:
+                    y_positions.append(max(h - TILE, 0))
+
+                if not x_positions or x_positions[-1] + TILE < w:
+                    x_positions.append(max(w - TILE, 0))
+
+                for y0 in y_positions:
+                    y1 = min(y0 + TILE, h)
+
+                    for x0 in x_positions:
+                        x1 = min(x0 + TILE, w)
+
+                        tile = frame[y0:y1, x0:x1]
+
+                        t = (
+                            torch.from_numpy(tile)
+                            .float()
+                            .permute(2, 0, 1)
+                            .unsqueeze(0)
+                            .to(DEVICE)
+                            / 255.0
+                        )
+
+                        d = self.deblur(t)
+
+                        tile_out = (
+                            d.squeeze(0)
+                            .permute(1, 2, 0)
+                            .clamp(0, 1)
+                            .cpu()
+                            .numpy()
+                        )
+
+                        th, tw = tile_out.shape[:2]
+
+                        wy = np.ones(th, dtype=np.float32)
+                        wx = np.ones(tw, dtype=np.float32)
+
+                        if y0 > 0:
+                            fade = min(OVERLAP, th)
+                            wy[:fade] = np.linspace(
+                                0.0, 1.0, fade, dtype=np.float32
+                            )
+
+                        if y1 < h:
+                            fade = min(OVERLAP, th)
+                            wy[-fade:] = np.minimum(
+                                wy[-fade:],
+                                np.linspace(
+                                    1.0, 0.0, fade, dtype=np.float32
+                                ),
+                            )
+
+                        if x0 > 0:
+                            fade = min(OVERLAP, tw)
+                            wx[:fade] = np.linspace(
+                                0.0, 1.0, fade, dtype=np.float32
+                            )
+
+                        if x1 < w:
+                            fade = min(OVERLAP, tw)
+                            wx[-fade:] = np.minimum(
+                                wx[-fade:],
+                                np.linspace(
+                                    1.0, 0.0, fade, dtype=np.float32
+                                ),
+                            )
+
+                        weight = wy[:, None, None] * wx[None, :, None]
+
+                        result[y0:y1, x0:x1] += tile_out * weight
+                        weights[y0:y1, x0:x1] += weight
+
+                        del t, d, tile_out, weight
+
+                    if DEVICE == 'cuda':
+                        torch.cuda.empty_cache()
+
+                arr = (
+                    result / np.maximum(weights, 1e-8)
+                ).clip(0, 1)
+
+                arr = (arr * 255).astype(np.uint8)
+
+                del result, weights
+
+                if DEVICE == 'cuda':
+                    torch.cuda.empty_cache()
+
+                print(
+                    f'[NIF] Deblurred frame {frame_idx + 1}/{len(frames)} '
+                    f'({w}x{h}, tiled)'
+                )
+
                 out.append(arr)
+
         return out
 
-    # ── Pose estimation ────────────────────────────────────────────────────────
     def _estimate_poses(self, frames: list) -> tuple[list, str, np.ndarray | None]:
         if len(frames) < 3:
             print(f'[NIF] Only {len(frames)} frame(s) — not enough for real multi-view SfM, using synthetic poses')
