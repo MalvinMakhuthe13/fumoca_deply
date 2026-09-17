@@ -1,0 +1,42 @@
+﻿{
+    "project":  "FUMOCA",
+    "manifest_version":  "1.0",
+    "generated_utc":  "2026-09-17T23:21:29Z",
+    "dependencies":  {
+                         "gsplat":  {
+                                        "repository":  "https://github.com/nerfstudio-project/gsplat.git",
+                                        "commit":  "28e794ca44a4c25ffc39175370c5ee7b38bfcc36",
+                                        "license_file":  "LICENSE"
+                                    },
+                         "colmap":  {
+                                        "repository":  "https://github.com/colmap/colmap.git",
+                                        "commit":  "f8a406c6ea85ac93ddd0b04681249134827d9dd7",
+                                        "license_file":  "LICENSE"
+                                    },
+                         "supersplat":  {
+                                            "repository":  "https://github.com/playcanvas/supersplat.git",
+                                            "commit":  "3ab7965632864a1ed9cf241b23db5a151279996f",
+                                            "license_file":  "LICENSE"
+                                        },
+                         "splat-transform":  {
+                                                 "repository":  "https://github.com/playcanvas/splat-transform.git",
+                                                 "commit":  "c34e2bb8ba0fea4ccb62b33ccaf1f8a83412036f",
+                                                 "license_file":  "LICENSE"
+                                             },
+                         "playcanvas":  {
+                                            "repository":  "https://github.com/playcanvas/engine.git",
+                                            "commit":  "5af48819afe798b8a1fddafc1b64ca4e9bf943e3",
+                                            "license_file":  "LICENSE"
+                                        },
+                         "sam2":  {
+                                      "repository":  "https://github.com/facebookresearch/sam2.git",
+                                      "commit":  "2b90b9f5ceec907a1c18123530e92e794ad901a4",
+                                      "license_file":  "LICENSE"
+                                  },
+                         "depth-anything-v2":  {
+                                                   "repository":  "https://github.com/DepthAnything/Depth-Anything-V2.git",
+                                                   "commit":  "a561b849ebae10a6f5ef49e26c83cbbcd36c71bf",
+                                                   "license_file":  "LICENSE"
+                                               }
+                     }
+}
