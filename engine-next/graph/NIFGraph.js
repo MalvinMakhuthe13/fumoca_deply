@@ -263,6 +263,88 @@ export class InteractionGraph {
     this._listeners = [];        // runtime event listeners
   }
 
+  toPortableJSON() {
+    const triggers = {};
+    for (const [nodeId, entries] of this._triggers) {
+      triggers[nodeId] = entries.map(({ event, actionId }) => ({
+        event,
+        actionId,
+      }));
+    }
+
+    const actions = {};
+    for (const [actionId, action] of this._actions) {
+      actions[actionId] = {
+        type: action.type,
+        payload: action.payload ?? {},
+      };
+    }
+
+    const machines = {};
+    for (const [machineId, machine] of this._machines) {
+      const states = [...machine.states.values()].map((state) => {
+        const safe = { ...state };
+        delete safe.onEnter;
+        delete safe.onExit;
+        return safe;
+      });
+
+      const transitions = (machine.transitions ?? []).map((transition) => {
+        const safe = { ...transition };
+        if (typeof safe.condition === 'function') delete safe.condition;
+        if (typeof safe.action === 'function') delete safe.action;
+        return safe;
+      });
+
+      machines[machineId] = {
+        states,
+        transitions,
+        initial: machine._history?.[0]?.state ?? machine.current,
+      };
+    }
+
+    return {
+      triggers,
+      actions,
+      machines,
+    };
+  }
+
+  fromPortableJSON(data = {}) {
+    this._triggers.clear();
+    this._actions.clear();
+    this._machines.clear();
+
+    for (const [nodeId, entries] of Object.entries(data.triggers ?? {})) {
+      this._triggers.set(
+        nodeId,
+        (entries ?? []).map(({ event, actionId }) => ({
+          event,
+          actionId,
+        }))
+      );
+    }
+
+    for (const [actionId, action] of Object.entries(data.actions ?? {})) {
+      this._actions.set(actionId, {
+        type: action.type,
+        payload: action.payload ?? {},
+      });
+    }
+
+    for (const [machineId, machineData] of Object.entries(data.machines ?? {})) {
+      this._machines.set(
+        machineId,
+        new NIFStateMachine(
+          machineData.states ?? [],
+          machineData.transitions ?? [],
+          machineData.initial
+        )
+      );
+    }
+
+    return this;
+  }
   // Bind a trigger on a node (click, hover, gaze, proximity, time)
   onEvent(nodeId, event, actionId) {
     const list = this._triggers.get(nodeId) ?? [];
@@ -593,6 +675,7 @@ export class NIFGraph {
       sequences:[...this.temporal.sequences.entries()].map(([id,s])=>({id,...s})),
       assets:   [...this._assets.entries()].map(([id,a])=>({id,...a})),
       plugins:  [...this._activePluings],
+      interaction: this.interaction.toPortableJSON(),
     };
   }
 
@@ -604,6 +687,7 @@ export class NIFGraph {
     });
     data.moments?.forEach(m => g.temporal.tagMoment(m.t, m.tag, m));
     data.assets?.forEach(a => g._assets.set(a.id, a));
+    if (data.interaction) g.interaction.fromPortableJSON(data.interaction);
     return g;
   }
 }

@@ -1,5 +1,5 @@
 import { NIFHeader, NIFChunk, NIFWriter, NIFReader, NIFCertificate, CHUNK, CODEC, CRS, ENCODER_TIER, crc32,
-  encodeCalibrationChunk, decodeCalibrationChunk, encodeVerificationChunk, decodeVerificationChunk }
+  encodeCalibrationChunk, decodeCalibrationChunk, encodeVerificationChunk, decodeVerificationChunk, encodeInteractionChunk, decodeInteractionChunk }
   from '../format/NIFSpec.js';
 import { SPAX_CHUNK } from '../format/SPAXSpec.js';
 
@@ -165,6 +165,88 @@ check('same major, different minor version: isVersionSupported=true', okMinorRea
 // SPAX_CHUNK imports these three directly from NIFSpec.js's CHUNK — this
 // test would fail immediately if a future edit ever hardcoded a literal
 // back into either enum instead of keeping the shared import.
+/* --- INTERACTION binary chunk round-trip --- */
+const interactionPortable = {
+  triggers: {
+    wheel: [
+      { event: 'click', actionId: 'showDamage' },
+      { event: 'hover', actionId: 'highlightWheel' },
+    ],
+  },
+  actions: {
+    showDamage: {
+      type: 'run_script',
+      payload: { scriptId: 'damageReport' },
+    },
+    highlightWheel: {
+      type: 'trigger_animation',
+      payload: { animationId: 'wheelHighlight' },
+    },
+  },
+  machines: {
+    doorState: {
+      states: [
+        { id: 'closed' },
+        { id: 'open' },
+      ],
+      transitions: [
+        { from: 'closed', to: 'open', event: 'open' },
+        { from: 'open', to: 'closed', event: 'close' },
+      ],
+      initial: 'closed',
+    },
+  },
+};
+
+const interactionChunk = encodeInteractionChunk(interactionPortable);
+const interactionWriter = new NIFWriter({
+  captureMode: 'video',
+  crs: CRS.WGS84,
+  frameCount: 1,
+  duration: 0,
+  fps: 1,
+  originLat: 0,
+  originLon: 0,
+  originAlt: 0,
+  vertical: 'automotive',
+});
+
+interactionWriter.add(
+  CHUNK.INTERACTION,
+  interactionChunk.data,
+  CODEC.RAW
+);
+
+const interactionBytes = interactionWriter.build();
+const interactionReader = new NIFReader(interactionBytes.buffer);
+const decodedInteraction = await decodeInteractionChunk(
+  interactionReader.getChunk(CHUNK.INTERACTION)
+);
+
+check(
+  'INTERACTION chunk is written to NIF',
+  interactionReader.hasChunk(CHUNK.INTERACTION)
+);
+
+check(
+  'INTERACTION trigger survives binary round-trip',
+  decodedInteraction.triggers.wheel?.some(
+    t => t.event === 'click' && t.actionId === 'showDamage'
+  ) === true
+);
+
+check(
+  'INTERACTION action survives binary round-trip',
+  decodedInteraction.actions.showDamage?.type === 'run_script' &&
+  decodedInteraction.actions.showDamage?.payload?.scriptId === 'damageReport'
+);
+
+check(
+  'INTERACTION state machine survives binary round-trip',
+  decodedInteraction.machines.doorState?.initial === 'closed' &&
+  decodedInteraction.machines.doorState?.states?.length === 2 &&
+  decodedInteraction.machines.doorState?.transitions?.length === 2
+);
 check('SPATIAL_AUDIO shares one ID across .nif and .spax', SPAX_CHUNK.SPATIAL_AUDIO === CHUNK.SPATIAL_AUDIO);
 check('EDIT_HISTORY shares one ID across .nif and .spax', SPAX_CHUNK.EDIT_HISTORY === CHUNK.EDIT_HISTORY);
 check('INTERACTION shares one ID across .nif and .spax', SPAX_CHUNK.INTERACTION === CHUNK.INTERACTION);

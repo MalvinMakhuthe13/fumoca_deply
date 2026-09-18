@@ -1534,7 +1534,8 @@ def _segment_gaussian_indices(
 def split_layers(geo_data: np.ndarray, depth_map: np.ndarray,
                  alpha_mask: np.ndarray, segments: dict,
                  poses: list | None = None,
-                 K: np.ndarray | None = None) -> bytes:
+                 K: np.ndarray | None = None,
+                 reference_pose=None) -> bytes:
     """
     Split the reconstructed depth field into layers based on depth + segmentation.
 
@@ -1596,8 +1597,7 @@ def split_layers(geo_data: np.ndarray, depth_map: np.ndarray,
     #
     # We now project the final Gaussian centers through the reference camera
     # and resolve each SAM mask against the projected Gaussian surface.
-    if segments and poses is not None and K is not None:
-        reference_pose = poses[0]
+    if segments and reference_pose is not None and K is not None:
 
         for seg_id, seg in segments.items():
             if seg.get('area', 0) <= 1000:
@@ -1780,6 +1780,40 @@ class ReconstructionWorker:
             self._tick('processing', 18)
             frames = self._deblur_frames(frames)
 
+            # -- Synchronize the on-disk frame sequence with the FINAL
+            # filtered/deblurred Python frame list.
+            #
+            # Frame selection operates on arrays and can remove frames,
+            # while _extract_frames() originally wrote the pre-filter
+            # sequence to self.tmp/frames. Rebuild the directory here so
+            # Python frame identity, disk filename, COLMAP image identity,
+            # and proxy-video frame identity remain identical.
+            #
+            # Invariant:
+            #   frames[i] <-> frame_%05d.jpg <-> COLMAP image name
+            #
+            # This also normalizes image/photo mode, which historically
+            # started at frame_00001.jpg instead of frame_00000.jpg.
+            frames_dir = self.tmp / 'frames'
+            frames_dir.mkdir(parents=True, exist_ok=True)
+
+            for old_frame_path in frames_dir.glob('frame_*.jpg'):
+                old_frame_path.unlink()
+
+            for frame_idx, frame in enumerate(frames):
+                frame_path = frames_dir / f'frame_{frame_idx:05d}.jpg'
+                Image.fromarray(frame).save(
+                    frame_path,
+                    format='JPEG',
+                    quality=95,
+                )
+
+            print(
+                f'[NIF] Frame directory synchronized: '
+                f'{len(frames)} final frames -> frame_00000.jpg..'
+                f'frame_{max(len(frames) - 1, 0):05d}.jpg'
+            )
+
             # ── Depth estimation — now runs on every useful frame, not just
             # the first. depth_maps[0] (the reference frame) still drives
             # calibration and the single-frame CHUNK_DEPTH/CHUNK_ALPHA
@@ -1830,6 +1864,38 @@ class ReconstructionWorker:
             # geometry instead of random noise.
             self._tick('processing', 42)
             poses, pose_source, sparse_points = self._estimate_poses(frames)
+
+            # -- Resolve the pose belonging to the EXACT reference frame.
+            #
+            # SAM2, depth, alpha and calibration were all generated from
+            # ref_frame before COLMAP alignment. _estimate_poses() may remove
+            # frames that COLMAP failed to reconstruct, so poses[0] is not
+            # necessarily the pose of ref_frame.
+            #
+            # The aligned frame list preserves the original numpy frame
+            # objects, allowing exact identity matching rather than relying
+            # on list position.
+            reference_pose = None
+            reference_frame_index = None
+
+            if pose_source == 'colmap':
+                for frame_idx, aligned_frame in enumerate(frames):
+                    if aligned_frame is ref_frame:
+                        reference_frame_index = frame_idx
+                        reference_pose = poses[frame_idx]
+                        break
+
+            if reference_pose is not None and pose_source == 'colmap':
+                print(
+                    f'[NIF] Reference frame pose resolved: '
+                    f'frame_{reference_frame_index:05d}.jpg '
+                    f'(pose index {reference_frame_index})'
+                )
+            elif pose_source == 'colmap':
+                print(
+                    '[NIF] Reference frame has no COLMAP pose; '
+                    'SAM->Gaussian layer mapping will be skipped for this capture'
+                )
 
             # ── Geometry quality gate — opt-in hard stop before Gaussian
             # training. Default is off (FUMOCA_STRICT_GEOMETRY_GATE unset),
@@ -1906,6 +1972,7 @@ class ReconstructionWorker:
                 segments,
                 poses=poses,
                 K=K_layer,
+                reference_pose=reference_pose,
             )
 
             # ── Proxy video ───────────────────────────────────────────────────

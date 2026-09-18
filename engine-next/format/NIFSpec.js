@@ -472,6 +472,53 @@ export async function decodePhysicsChunk(chunk) {
 }
 
 /**
+ * INTERACTION chunk — JSON representation of the portable interaction graph.
+ *
+ * Runtime JavaScript functions are deliberately NOT serialized.
+ * Declarative triggers, actions and state-machine data are portable.
+ */
+export function encodeInteractionChunk(interactionObj) {
+  const safe = interactionObj ?? {
+    triggers: {},
+    actions: {},
+    machines: {},
+  };
+
+  const json = JSON.stringify(safe);
+
+  return new NIFChunk(
+    CHUNK.INTERACTION,
+    new TextEncoder().encode(json),
+    CODEC.RAW
+  );
+}
+
+export async function decodeInteractionChunk(chunk) {
+  if (!chunk) {
+    return {
+      triggers: {},
+      actions: {},
+      machines: {},
+    };
+  }
+
+  try {
+    const bytes = await decompressChunk(chunk);
+    return JSON.parse(new TextDecoder().decode(bytes));
+  } catch (e) {
+    console.warn(
+      '[NIFSpec] INTERACTION chunk failed to decode:',
+      e.message
+    );
+
+    return {
+      triggers: {},
+      actions: {},
+      machines: {},
+    };
+  }
+}
+/**
  * CALIBRATION chunk — JSON. Mirrors pipeline.py's estimate_scale() return
  * shape exactly, so a decoded chunk needs no translation layer:
  * { method: 'aruco_marker'|'manual_reference'|'metric_depth_model'|'none',

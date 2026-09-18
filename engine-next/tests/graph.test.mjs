@@ -89,5 +89,31 @@ check('fromJSON reconstructs the right number of spatial nodes', g2.spatial.size
 check('fromJSON preserves node type', g2.spatial.get('wheel').type === NODE_TYPE.MESH);
 check('fromJSON preserves vertical/title', g2.vertical === 'automotive' && g2.title === 'Test Vehicle Scan');
 
+check(
+  'interaction trigger survives graph JSON round-trip',
+  g2.interaction._triggers.get('wheel')?.some(
+    t => t.event === 'click' && t.actionId === 'showDamage'
+  ) === true
+);
+
+check(
+  'interaction action survives graph JSON round-trip',
+  g2.interaction._actions.get('showDamage')?.type === 'run_script' &&
+  g2.interaction._actions.get('showDamage')?.payload?.scriptId === 'damageReport'
+);
+
+check(
+  'runtime scripts are not serialized into portable interaction data',
+  Object.keys(g2.interaction._scripts).length === 0 ||
+  g2.interaction._scripts.size === 0
+);
+
+check(
+  'portable interaction JSON has triggers/actions/machines containers',
+  json.interaction &&
+  typeof json.interaction.triggers === 'object' &&
+  typeof json.interaction.actions === 'object' &&
+  typeof json.interaction.machines === 'object'
+);
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail>0?1:0);
