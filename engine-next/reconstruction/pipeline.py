@@ -1393,8 +1393,148 @@ class GaussianSplatTrainer:
 
 
 # ─── Stage 6: Layer splitting ─────────────────────────────────────────────────
+
+def _project_gaussians_to_reference(
+    positions: np.ndarray,
+    pose,
+    K: np.ndarray,
+    height: int,
+    width: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Project world-space Gaussian centers into the reference camera."""
+
+    pts = np.asarray(positions, dtype=np.float32)
+
+    if pts.ndim != 2 or pts.shape[1] != 3:
+        raise ValueError(
+            f"Expected positions shape (N,3), got {pts.shape}"
+        )
+
+    if hasattr(pose, "detach"):
+        vm = pose.detach().cpu().numpy().astype(np.float32)
+    else:
+        vm = np.asarray(pose, dtype=np.float32)
+
+    if vm.shape != (4, 4):
+        raise ValueError(
+            f"Expected 4x4 view matrix, got {vm.shape}"
+        )
+
+    ones = np.ones((len(pts), 1), dtype=np.float32)
+    hom = np.concatenate([pts, ones], axis=1)
+
+    cam = (vm @ hom.T).T[:, :3]
+    z = cam[:, 2]
+
+    valid = np.isfinite(cam).all(axis=1) & (z > 1e-6)
+
+    pixels = np.full(
+        (len(pts), 2),
+        -1,
+        dtype=np.int32,
+    )
+
+    if np.any(valid):
+        xyz = cam[valid]
+        proj = xyz @ K.T
+
+        u = proj[:, 0] / np.maximum(proj[:, 2], 1e-8)
+        v = proj[:, 1] / np.maximum(proj[:, 2], 1e-8)
+
+        px = np.rint(u).astype(np.int32)
+        py = np.rint(v).astype(np.int32)
+
+        inside = (
+            (px >= 0) & (px < width) &
+            (py >= 0) & (py < height)
+        )
+
+        valid_indices = np.where(valid)[0]
+        valid[valid_indices[~inside]] = False
+
+        pixels[valid_indices[inside], 0] = px[inside]
+        pixels[valid_indices[inside], 1] = py[inside]
+
+    return pixels, z, valid
+
+
+def _segment_gaussian_indices(
+    positions: np.ndarray,
+    segment_mask: np.ndarray,
+    pose,
+    K: np.ndarray,
+    visibility_tolerance: float = 0.03,
+) -> np.ndarray:
+    """Map a SAM2 image mask onto final Gaussian indices."""
+
+    mask = np.asarray(segment_mask)
+
+    if mask.ndim != 2:
+        raise ValueError(
+            f"SAM2 mask must be HxW, got {mask.shape}"
+        )
+
+    h, w = mask.shape
+
+    pixels, z, valid = _project_gaussians_to_reference(
+        positions,
+        pose,
+        K,
+        h,
+        w,
+    )
+
+    if not np.any(valid):
+        return np.empty(0, dtype=np.uint32)
+
+    nearest = np.full(
+        h * w,
+        np.inf,
+        dtype=np.float32,
+    )
+
+    valid_idx = np.where(valid)[0]
+
+    px = pixels[valid_idx, 0]
+    py = pixels[valid_idx, 1]
+
+    flat = py * w + px
+
+    np.minimum.at(
+        nearest,
+        flat,
+        z[valid_idx],
+    )
+
+    nearest_at_point = nearest[flat]
+
+    in_segment = mask[py, px] > 127
+
+    depth_delta = np.abs(
+        z[valid_idx] - nearest_at_point
+    )
+
+    depth_limit = np.maximum(
+        np.abs(nearest_at_point) * visibility_tolerance,
+        0.01,
+    )
+
+    visible = (
+        in_segment &
+        np.isfinite(nearest_at_point) &
+        (depth_delta <= depth_limit)
+    )
+
+    return np.asarray(
+        valid_idx[visible],
+        dtype=np.uint32,
+    )
+
+
 def split_layers(geo_data: np.ndarray, depth_map: np.ndarray,
-                 alpha_mask: np.ndarray, segments: dict) -> bytes:
+                 alpha_mask: np.ndarray, segments: dict,
+                 poses: list | None = None,
+                 K: np.ndarray | None = None) -> bytes:
     """
     Split the reconstructed depth field into layers based on depth + segmentation.
 
@@ -1449,33 +1589,87 @@ def split_layers(geo_data: np.ndarray, depth_map: np.ndarray,
         {'label': 'background', 'z_min': z_min + z_range*0.7,    'z_max': z_max + 1.0},
     ]
 
-    # Also add per-segment layers from SAM
-    for seg_id, seg in segments.items():
-        if seg['area'] > 1000:  # only sizeable segments
-            layer_defs.append({
-                'label':  f'segment_{seg_id}',
-                'z_min':  z_min,
-                'z_max':  z_max + 1.0,
-                'mask_filter': seg['mask'],  # optional: spatial mask filter
-            })
+    # Map SAM2 2D masks onto the final Gaussian cloud.
+    #
+    # The previous implementation stored mask_filter but never applied it,
+    # causing every SAM segment to inherit the same Z-selected Gaussian set.
+    #
+    # We now project the final Gaussian centers through the reference camera
+    # and resolve each SAM mask against the projected Gaussian surface.
+    if segments and poses is not None and K is not None:
+        reference_pose = poses[0]
+
+        for seg_id, seg in segments.items():
+            if seg.get('area', 0) <= 1000:
+                continue
+
+            try:
+                seg_indices = _segment_gaussian_indices(
+                    positions,
+                    seg['mask'],
+                    reference_pose,
+                    K,
+                )
+
+                if len(seg_indices) == 0:
+                    print(
+                        f'[NIF] SAM segment {seg_id}: '
+                        f'no projected Gaussians matched'
+                    )
+                    continue
+
+                layer_defs.append({
+                    'label': f'segment_{seg_id}',
+                    'z_min': z_min,
+                    'z_max': z_max + 1.0,
+                    'segment_indices': seg_indices,
+                    'mask_filter': seg['mask'],
+                    'segment_area': int(seg.get('area', 0)),
+                    'segment_score': float(seg.get('score', 0.0)),
+                })
+
+                print(
+                    f'[NIF] SAM segment {seg_id}: '
+                    f'{len(seg_indices):,} Gaussian indices '
+                    f'(area={int(seg.get("area", 0)):,}, '
+                    f'score={float(seg.get("score", 0.0)):.3f})'
+                )
+
+            except Exception as e:
+                print(
+                    f'[NIF] SAM segment {seg_id} -> '
+                    f'Gaussian mapping failed ({e})'
+                )
+
+    elif segments:
+        print(
+            '[NIF] SAM segments present but camera data unavailable '
+            'for 3D mapping; segment layers skipped'
+        )
 
     parts = [struct.pack('>I', len(layer_defs))]
 
     for ld in layer_defs:
-        mask = (z_vals >= ld['z_min']) & (z_vals < ld['z_max'])
-        indices = np.where(mask)[0].astype('>u4')  # big-endian uint32 — matches
-                                                    # every other integer in this
-                                                    # format (JS reads via
-                                                    # DataView with `false` =
-                                                    # big-endian throughout).
-                                                    # Plain np.uint32.tobytes()
-                                                    # would use native byte order
-                                                    # (little-endian on the
-                                                    # Kaggle GPU boxes this
-                                                    # actually runs on), which
-                                                    # would silently corrupt
-                                                    # every index on read.
-        pts  = geo_data[mask]
+        if 'segment_indices' in ld:
+            indices = np.asarray(
+                ld['segment_indices'],
+                dtype=np.uint32,
+            )
+        else:
+            mask = (
+                (z_vals >= ld['z_min']) &
+                (z_vals < ld['z_max'])
+            )
+            indices = np.where(
+                mask
+            )[0].astype(np.uint32)
+
+        indices = np.asarray(
+            indices,
+            dtype='>u4',
+        )
+
+        pts = geo_data[indices.astype(np.uint32)]
         label_b = ld['label'].encode('ascii')[:32]
         parts.append(struct.pack('>B', len(label_b)) + label_b)
         parts.append(struct.pack('>ff', float(ld['z_min']), float(ld['z_max'])))
@@ -1483,10 +1677,17 @@ def split_layers(geo_data: np.ndarray, depth_map: np.ndarray,
         parts.append(pts.astype(np.float32).tobytes())
         parts.append(indices.tobytes())  # big-endian to match struct.pack('>I', ...) above
 
-    layer_summary = ', '.join(
-        f'{ld["label"]}:{int(((z_vals >= ld["z_min"]) & (z_vals < ld["z_max"])).sum())}'
-        for ld in layer_defs
-    )
+    layer_summary_parts = []
+    for ld in layer_defs:
+        if 'segment_indices' in ld:
+            count = len(ld['segment_indices'])
+        else:
+            count = int(
+                ((z_vals >= ld['z_min']) &
+                 (z_vals < ld['z_max'])).sum()
+            )
+        layer_summary_parts.append(f'{ld["label"]}:{count}')
+    layer_summary = ', '.join(layer_summary_parts)
     print(f'[NIF] Layer split: {layer_summary}')
     return b''.join(parts)
 
@@ -1688,11 +1889,23 @@ class ReconstructionWorker:
             mesh_bytes, stl_bytes, mesh_info = self._extract_mesh(mesh_geo_data)
 
             self._tick('processing', 72)
+            H, W = frames[0].shape[:2]
+
+            fx = fy = max(H, W) * 0.8
+
+            K_layer = np.array([
+                [fx, 0.0, W / 2.0],
+                [0.0, fy, H / 2.0],
+                [0.0, 0.0, 1.0],
+            ], dtype=np.float32)
+
             layer_bytes = split_layers(
                 geo_data,
                 depth_map,
                 alpha_mask,
-                segments
+                segments,
+                poses=poses,
+                K=K_layer,
             )
 
             # ── Proxy video ───────────────────────────────────────────────────
