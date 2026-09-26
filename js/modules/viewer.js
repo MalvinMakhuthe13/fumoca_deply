@@ -1,4 +1,4 @@
-import r2 from '../r2Client.js';
+﻿import r2 from '../r2Client.js';
 import * as Gaussiannif_files3D from 'https://cdn.jsdelivr.net/npm/@mkkellogg/gaussian-splats-3d@0.4.7/build/gaussian-splats-3d.module.js';
 import * as THREE from 'three';
 import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
@@ -112,11 +112,11 @@ const maskEraseGroup = document.getElementById('maskEraseGroup');
 const maskLassoRemoveGroup = document.getElementById('maskLassoRemoveGroup');
 const cropHandles = Array.from(document.querySelectorAll('.crop-handle'));
 const params = new URLSearchParams(window.location.search);
-// Validate the file= param — if the file doesn't exist (400/404), ignore it
+// Validate the file= param â€” if the file doesn't exist (400/404), ignore it
 // and let the viewer fall back to nif_url from the DB record
 // v92: also check sessionStorage for a pending .fumoc nif URL (from open.html handoff)
 let fileUrl = await (async () => {
-  // Check IndexedDB first — open.html stores the raw ArrayBuffer there
+  // Check IndexedDB first â€” open.html stores the raw ArrayBuffer there
   // (sessionStorage base64 fails on files >~3.5MB due to QuotaExceededError)
   try {
     const idbBuffer = await new Promise((resolve, reject) => {
@@ -169,11 +169,11 @@ const nifId = params.get('nifId') || '';
 let previewVideoUrl = params.get('previewVideo') || '';
 let thumbnailUrl = params.get('thumbnail') || '';
 const autoplayPreview = params.get('autoplayPreview') === '1';
-// ── PUBLIC / EMBED MODE ──────────────────────────────────────────
+// â”€â”€ PUBLIC / EMBED MODE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Detect three ways a public viewer link arrives:
-//   1. ?embed=1  — explicit embed iframe
-//   2. ?public=1 — explicit public share link
-//   3. referrer is a different origin — brand/product page link-out
+//   1. ?embed=1  â€” explicit embed iframe
+//   2. ?public=1 â€” explicit public share link
+//   3. referrer is a different origin â€” brand/product page link-out
 // In all cases: hide ALL admin UI immediately, before auth resolves.
 const _isEmbedParam  = params.get('embed') === '1';
 const _isPublicParam = params.get('public') === '1';
@@ -188,7 +188,7 @@ window.IS_PUBLIC_VIEWER = IS_PUBLIC_VIEWER;
 const _backParam = params.get('back') || '';
 const _publicBackUrl = _backParam || (_isExternalReferrer ? document.referrer : '');
 if (IS_PUBLIC_VIEWER) {
-  // Immediately hide every admin-only element — zero flash
+  // Immediately hide every admin-only element â€” zero flash
   ['editModeBtn','deleteUploadBtn','saveVariantBtn',
    'studioPanel','captureToggleBtn','fourDBtn',
    'editPanel','editModeBadge'].forEach(id => {
@@ -202,7 +202,7 @@ if (IS_PUBLIC_VIEWER) {
     if (_publicBackUrl) {
       _backBtn.onclick = () => { window.location.href = _publicBackUrl; };
     } else if (!document.referrer) {
-      // No history to go back to — hide rather than strand the user
+      // No history to go back to â€” hide rather than strand the user
       _backBtn.style.display = 'none';
     }
   }
@@ -277,7 +277,7 @@ function applyManageGating() {
   if (editModeBtn) editModeBtn.style.display = canManage ? '' : 'none';
   if (deleteUploadBtn) deleteUploadBtn.style.display = canManage ? '' : 'none';
   if (saveVariantBtn) saveVariantBtn.style.display = canManage ? '' : 'none';
-  // Public viewer always wins — re-hide regardless of canManage
+  // Public viewer always wins â€” re-hide regardless of canManage
   _applyPublicViewerLock();
 }
 function extractStoragePath(urlString) {
@@ -297,7 +297,7 @@ async function deleteCurrentUpload() {
   if (!window.confirm('Delete this upload, linked files, and its processing rows?')) return;
   const btn = deleteUploadBtn;
   const original = btn?.textContent || 'Delete upload';
-  if (btn) { btn.disabled = true; btn.textContent = 'Deleting…'; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Deletingâ€¦'; }
   try {
     const candidates = [
       currentRecord?.nif_url, currentRecord?.file_url, currentRecord?.file, currentRecord?.thumbnail_url,
@@ -525,7 +525,7 @@ async function saveVariantRecord(kind = 'variant') {
     return { ok: true, mode: 'download' };
   }
   try {
-    const title = `${currentRecord.title || 'nif'} · ${kind === 'print_export' ? 'Print cleanup' : kind === 'mesh_cleanup' ? 'Mesh cleanup' : 'Cleaned variant'}`;
+    const title = `${currentRecord.title || 'nif'} Â· ${kind === 'print_export' ? 'Print cleanup' : kind === 'mesh_cleanup' ? 'Mesh cleanup' : 'Cleaned variant'}`;
     const { error } = await supabase.from('nif_variants').insert({
       parent_nif_id: currentRecord.id,
       user_id: currentRecord.user_id,
@@ -558,7 +558,7 @@ function renderCutoutMasks() {
     el.style.top = `${mask.y}%`;
     el.style.width = `${mask.w}%`;
     el.style.height = `${mask.h}%`;
-    el.title = 'Selection stamp — click to remove';
+    el.title = 'Selection stamp â€” click to remove';
     el.addEventListener('click', (e) => {
       if (!eraseMaskMode) return;
       e.stopPropagation();
@@ -636,7 +636,7 @@ function showError(msg) { hideLoading(); errorMsg.textContent = msg; errorBox.cl
  * Renders small pill badges for CALIBRATION confidence and VERIFICATION
  * pass/fail next to the title, so "is this dimensionally trustworthy" is
  * visible at a glance instead of buried in a JSON chunk nobody looks at.
- * Both calibration and verification can be null/absent — that's a normal,
+ * Both calibration and verification can be null/absent â€” that's a normal,
  * legitimate state (most casual captures won't be calibrated), not an error.
  */
 function renderTrustBadges(calibration, verification) {
@@ -652,30 +652,30 @@ function renderTrustBadges(calibration, verification) {
   if (calibration && calibration.confidence && calibration.confidence !== 'none') {
     const colors = { high: ['#C8FF00', '#0a0a0a'], medium: ['#FFD54A', '#0a0a0a'], low: ['#555', '#fff'] };
     const [bg, fg] = colors[calibration.confidence] || ['#555', '#fff'];
-    const badge = pill(`📏 Scale: ${calibration.confidence}`, bg, fg);
+    const badge = pill(`ðŸ“ Scale: ${calibration.confidence}`, bg, fg);
     badge.title = calibration.note || '';
     el.appendChild(badge);
   }
-  // Absence of a VERIFICATION chunk means "never requested" — must render as
+  // Absence of a VERIFICATION chunk means "never requested" â€” must render as
   // neutral/nothing, never as a pass. Same for verification.pass === null
   // (ran, but couldn't reach a dimensionally trustworthy conclusion).
   if (verification && verification.pass !== null && verification.pass !== undefined) {
     if (verification.pass && verification.dimensionally_trustworthy) {
-      el.appendChild(pill(`✓ Verified ±${verification.tolerance_mm}mm`, '#2ECC71', '#0a0a0a'));
+      el.appendChild(pill(`âœ“ Verified Â±${verification.tolerance_mm}mm`, '#2ECC71', '#0a0a0a'));
     } else if (verification.pass === false) {
-      el.appendChild(pill(`✗ Out of tolerance`, '#E74C3C', '#fff'));
+      el.appendChild(pill(`âœ— Out of tolerance`, '#E74C3C', '#fff'));
     } else {
-      // pass true but not dimensionally_trustworthy — shape matched, units didn't
-      el.appendChild(pill(`⚠ Shape-only match`, '#FFD54A', '#0a0a0a'));
+      // pass true but not dimensionally_trustworthy â€” shape matched, units didn't
+      el.appendChild(pill(`âš  Shape-only match`, '#FFD54A', '#0a0a0a'));
     }
   }
 }
 function isnifUrl(url) { const clean = String(url || '').split('?')[0].toLowerCase(); return clean.startsWith('blob:') || clean.endsWith('.ply') || clean.endsWith('.nif') || clean.endsWith('.knif') || clean.endsWith('.nif'); }
 function _isNifUrl(url) { return String(url || '').split('?')[0].toLowerCase().endsWith('.nif'); }
-// Returns url only if Gaussiannif_files3D can render it — strips .ply URLs completely
+// Returns url only if Gaussiannif_files3D can render it â€” strips .ply URLs completely
 function _validnifUrl(url) {
   if (!url) return '';
-  // Accept .ply, .nif, .knif — we handle .ply ourselves via Three.js
+  // Accept .ply, .nif, .knif â€” we handle .ply ourselves via Three.js
   return url;
 }
 function _isPlyUrl(url) {
@@ -692,7 +692,7 @@ function resolvenifUrl(record) {
     if (v) return v;
   }
   // nif_files (the real, live table for pipeline-produced NIFs) has no URL
-  // column at all — engine-next/reconstruction/pipeline.py's _register()
+  // column at all â€” engine-next/reconstruction/pipeline.py's _register()
   // only ever writes r2_key. Every candidate above is always empty for a
   // pipeline-produced NIF, so without this fallback the viewer had no way
   // to load the very files the new pipeline exists to produce.
@@ -730,7 +730,7 @@ function normalizeStatus(status, url) {
   if (['failed', 'error'].includes(raw)) return 'failed';
   // Distinct from 'failed': the pipeline ran successfully but the capture
   // didn't clear the minimum-acceptable bar (real multi-view geometry +
-  // a mesh) — see pipeline.py's min_acceptable gate. This is a "please
+  // a mesh) â€” see pipeline.py's min_acceptable gate. This is a "please
   // recapture" outcome, not a system error, and should read differently
   // to the user than a genuine failure.
   if (raw === 'needs_retry') return 'needs_retry';
@@ -811,10 +811,10 @@ async function fetchRecord() {
   if (!nifId) return null;
   const { data: nif } = await supabase.from('nif_files').select('*').eq('id', nifId).maybeSingle();
   if (nif) return nif;
-  // Not in nif_files yet — it's still processing (nif_files only gets a row
+  // Not in nif_files yet â€” it's still processing (nif_files only gets a row
   // on success, via pipeline.py's _register()). The job shares the same id
   // as the eventual nif_files row (see ReconstructionWorker(job_id, ...) /
-  // _register()'s 'id': self.job_id) — reconstruction_jobs has no separate
+  // _register()'s 'id': self.job_id) â€” reconstruction_jobs has no separate
   // nif_id column, so querying by one always returned nothing and made an
   // in-progress capture look like a dead link instead of "processing".
   const { data: job } = await supabase.from('reconstruction_jobs').select('*').eq('id', nifId).maybeSingle();
@@ -826,7 +826,7 @@ async function fetchRecord() {
     status: job.status || 'queued',
     progress: job.progress ?? 0,
     error_message: job.error_message || '',
-    nif_url: '',            // never populated until nif_files gets a row — correct while processing
+    nif_url: '',            // never populated until nif_files gets a row â€” correct while processing
     thumbnail_url: '',
     preview_video_url: '',
     provider_name: 'FUMOCA',
@@ -860,7 +860,7 @@ function applyHeader(record) {
 
   if (mediaMeta) {
     mediaMeta.textContent =
-      `${provider} · ${status === 'done' ? 'Interactive ready' : status} · Feed-connected viewer`;
+      `${provider} Â· ${status === 'done' ? 'Interactive ready' : status} Â· Feed-connected viewer`;
   }
 }
 
@@ -1113,7 +1113,7 @@ function hideStageFreeze(delay = 140) {
   clearTimeout(stageFreezeHideTimer);
   stageFreezeHideTimer = setTimeout(() => { if (stageFreezeEl) stageFreezeEl.style.opacity = '0'; }, Math.max(0, delay));
 }
-function _fumocaShowPipelineIllusion(message = 'Processing cleanup…', ms = 2200) {
+function _fumocaShowPipelineIllusion(message = 'Processing cleanupâ€¦', ms = 2200) {
   clearTimeout(pipelineVisualTimer);
   if (hint) {
     hint.textContent = message;
@@ -1122,8 +1122,8 @@ function _fumocaShowPipelineIllusion(message = 'Processing cleanup…', ms = 220
   const beatA = Math.max(500, Math.min(ms - 700, 900));
   const beatB = Math.max(900, Math.min(ms - 250, 1700));
   if (hint && ms > 1400) {
-    setTimeout(() => { if (hint && !hint.classList.contains('hidden')) hint.textContent = 'Refining depth and edges…'; }, beatA);
-    setTimeout(() => { if (hint && !hint.classList.contains('hidden')) hint.textContent = 'Locking final result…'; }, beatB);
+    setTimeout(() => { if (hint && !hint.classList.contains('hidden')) hint.textContent = 'Refining depth and edgesâ€¦'; }, beatA);
+    setTimeout(() => { if (hint && !hint.classList.contains('hidden')) hint.textContent = 'Locking final resultâ€¦'; }, beatB);
   }
   pipelineVisualTimer = setTimeout(() => {
     if (hint) hint.classList.add('hidden');
@@ -1153,18 +1153,18 @@ async function destroyViewer() {
 function getActivenifUrl() {
   return rendererPreviewUrl || fileUrl || originalnifUrl || '';
 }
-// ── Solid mesh overlay — renders the KEYFRAME_MESH chunk (when present) as
+// â”€â”€ Solid mesh overlay â€” renders the KEYFRAME_MESH chunk (when present) as
 // an actual lit triangle surface instead of the point-cloud splat render.
 // This is additive, not a replacement: the Gaussian splat renderer
 // (mountInteractiveViewer, below) still mounts underneath exactly as
 // before, so editing tools (lasso/erase/paint, which operate on individual
 // Gaussians) keep working unchanged. The mesh sits on top at a higher
-// z-index and is what a client actually sees first — a "Points" toggle
+// z-index and is what a client actually sees first â€” a "Points" toggle
 // hides it to reveal the splat cloud underneath for editing.
 //
 // Why this matters: without this, a .nif with a perfectly good reconstructed
 // mesh underneath still LOOKS like every other soft, blobby Gaussian splat
-// viewer on first open — there was no visual difference between "we did the
+// viewer on first open â€” there was no visual difference between "we did the
 // hard reconstruction work" and "generic splat blob," no matter how solid
 // the actual geometry was. This is that missing visual difference.
 let _meshRenderer = null, _meshScene = null, _meshCamera = null, _meshControls = null, _meshFrame = null;
@@ -1179,19 +1179,19 @@ function mountMeshViewer(mesh, calibration) {
   const container = stageHost || stageEl;
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(mesh.positions, 3));
-  // Colors arrive as 0-255 uint8 — THREE wants 0-1 floats for vertexColors.
+  // Colors arrive as 0-255 uint8 â€” THREE wants 0-1 floats for vertexColors.
   const colorsF = new Float32Array(mesh.colors.length);
   for (let i = 0; i < mesh.colors.length; i++) colorsF[i] = mesh.colors[i] / 255;
   geo.setAttribute('color', new THREE.BufferAttribute(colorsF, 3));
   geo.setIndex(new THREE.BufferAttribute(mesh.faces, 1));
-  geo.computeVertexNormals();  // required for lit shading — this is what makes it read as solid, not flat/blobby
+  geo.computeVertexNormals();  // required for lit shading â€” this is what makes it read as solid, not flat/blobby
   // Lambertian-ish material with vertex colors: matte, physically-plausible
   // shading (as opposed to the additive/transparent splat material above),
   // which is precisely the visual cue that reads as "solid object" rather
   // than "fuzzy point cloud."
   const mat = new THREE.MeshStandardMaterial({
     vertexColors: true, metalness: 0.05, roughness: 0.75,
-    side: THREE.DoubleSide,  // reconstructed meshes can have thin/open regions — avoid black backfaces
+    side: THREE.DoubleSide,  // reconstructed meshes can have thin/open regions â€” avoid black backfaces
   });
   const meshObj = new THREE.Mesh(geo, mat);
   _meshScene = new THREE.Scene();
@@ -1236,11 +1236,11 @@ function mountMeshViewer(mesh, calibration) {
     _meshRenderer.render(_meshScene, _meshCamera);
   }
   loop();
-  // ── Solid ⇄ Points toggle — the splat renderer keeps running underneath
+  // â”€â”€ Solid â‡„ Points toggle â€” the splat renderer keeps running underneath
   // the whole time; this just shows/hides the mesh canvas on top of it.
   const btn = document.createElement('button');
   btn.id = 'fumocaMeshToggle';
-  btn.textContent = '● Points view';
+  btn.textContent = 'â— Points view';
   Object.assign(btn.style, {
     position: 'absolute', top: '12px', right: '12px', zIndex: '4',
     padding: '6px 12px', borderRadius: '999px', border: '1px solid rgba(255,255,255,0.25)',
@@ -1251,15 +1251,15 @@ function mountMeshViewer(mesh, calibration) {
   btn.addEventListener('click', () => {
     showingMesh = !showingMesh;
     _meshRenderer.domElement.style.display = showingMesh ? '' : 'none';
-    btn.textContent = showingMesh ? '● Points view' : '▲ Solid view';
+    btn.textContent = showingMesh ? 'â— Points view' : 'â–² Solid view';
   });
   container.appendChild(btn);
-  console.log(`[Viewer] Solid mesh rendered — ${mesh.nVerts.toLocaleString()} verts, ` +
+  console.log(`[Viewer] Solid mesh rendered â€” ${mesh.nVerts.toLocaleString()} verts, ` +
               `${mesh.nFaces.toLocaleString()} faces` +
               (calibration?.confidence && calibration.confidence !== 'none' ? ` (${calibration.confidence} calibration)` : ' (uncalibrated)'));
 }
-// ── PLY point cloud viewer using Three.js ────────────────────────────────────
-// Called when fileUrl is a .ply — renders via THREE.js with Gaussian shader
+// â”€â”€ PLY point cloud viewer using Three.js â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Called when fileUrl is a .ply â€” renders via THREE.js with Gaussian shader
 let _plyRenderer = null, _plyScene = null, _plyCamera = null, _plyControls = null, _plyFrame = null;
 function destroyPlyViewer() {
   if (_plyFrame) { cancelAnimationFrame(_plyFrame); _plyFrame = null; }
@@ -1283,7 +1283,7 @@ async function mountPlyViewer(url) {
   _plyControls = new OrbitControls(_plyCamera, _plyRenderer.domElement);
   _plyControls.enableDamping = true; _plyControls.dampingFactor = 0.07;
   _plyControls.rotateSpeed = 0.55; _plyControls.zoomSpeed = 1.1;
-  setLoading('Loading point cloud…');
+  setLoading('Loading point cloudâ€¦');
   try {
     // Fetch manually so PLYLoader.parse() can access ALL attributes including f_dc_*
     const resp = await fetch(url);
@@ -1303,7 +1303,7 @@ async function mountPlyViewer(url) {
     const gAttr = geo.getAttribute('green') || geo.getAttribute('diffuse_green');
     const bAttr = geo.getAttribute('blue') || geo.getAttribute('diffuse_blue');
     if (fdc0 && fdc1 && fdc2) {
-      // nerfstudio/gnif: SH DC band → sigmoid colour
+      // nerfstudio/gnif: SH DC band â†’ sigmoid colour
       const SH = 0.28209479177387814;
       for (let i = 0; i < count; i++) {
         colors[i*3]   = Math.max(0, Math.min(1, SH * fdc0.array[i] + 0.5));
@@ -1327,10 +1327,10 @@ async function mountPlyViewer(url) {
         colors[i*3+2] = bAttr.array[i] * scale;
       }
     } else {
-      // No colour data — warm grey (not white)
+      // No colour data â€” warm grey (not white)
       for (let i = 0; i < count; i++) { colors[i*3]=0.65; colors[i*3+1]=0.60; colors[i*3+2]=0.55; }
     }
-    // ── Per-point opacity (sigmoid-decoded from log-odds if present) ──────────
+    // â”€â”€ Per-point opacity (sigmoid-decoded from log-odds if present) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const opacities = new Float32Array(count);
     const opAttr = geo.getAttribute('opacity');
     if (opAttr) {
@@ -1341,8 +1341,8 @@ async function mountPlyViewer(url) {
     } else {
       opacities.fill(1.0);
     }
-    // ── Per-point size: scale_* from 3DGS are log-scale world units ──────────
-    // exp-decoded they are tiny (0.001–0.15). Use scene radius to compute a
+    // â”€â”€ Per-point size: scale_* from 3DGS are log-scale world units â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // exp-decoded they are tiny (0.001â€“0.15). Use scene radius to compute a
     // sensible base size so nif_files are always visible, with scale as a soft multiplier.
     const sizes = new Float32Array(count);
     const sc0 = geo.getAttribute('scale_0');
@@ -1367,7 +1367,7 @@ async function mountPlyViewer(url) {
     geo.setAttribute('color',    new THREE.BufferAttribute(colors, 3));
     geo.setAttribute('aOpacity', new THREE.BufferAttribute(opacities, 1));
     geo.setAttribute('aSize',    new THREE.BufferAttribute(sizes, 1));
-    // ── Photoreal Gaussian nif shader ───────────────────────────────────────
+    // â”€â”€ Photoreal Gaussian nif shader â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const mat = new THREE.ShaderMaterial({
       uniforms: {
         uBaseSize:   { value: 1.0 },   // set after boundingSphere below
@@ -1386,7 +1386,7 @@ async function mountPlyViewer(url) {
           vAlpha = clamp(aOpacity, 0.0, 1.0);
           vec4 mv   = modelViewMatrix * vec4(position, 1.0);
           float dist = max(0.1, -mv.z);
-          // aSize is the normalised per-point multiplier (0–1 range after rescaling).
+          // aSize is the normalised per-point multiplier (0â€“1 range after rescaling).
           // uBaseSize encodes the scene-radius-relative nif diameter in pixels.
           float sz = uBaseSize * (0.4 + aSize * 0.6);
           gl_PointSize = clamp(sz / dist * 80.0, 1.5, 60.0);
@@ -1412,14 +1412,14 @@ async function mountPlyViewer(url) {
     });
     const pts = new THREE.Points(geo, mat);
     _plyScene.add(pts);
-    // Auto-fit camera — match nerfstudio convention used by Gaussiannif_files3D:
+    // Auto-fit camera â€” match nerfstudio convention used by Gaussiannif_files3D:
     // cameraUp=[0,-1,-0.6], initialCameraPosition=[0,1,4], lookAt=[0,0,0]
     // Offset everything by the bounding center so the subject is centered.
     geo.computeBoundingSphere();
     const r = geo.boundingSphere.radius || 1;
     const c = geo.boundingSphere.center;
-    // Normalise per-point sizes to 0–1 range using the median as anchor,
-    // then set uBaseSize so nif_files cover ~0.8% of the scene radius at 1× distance.
+    // Normalise per-point sizes to 0â€“1 range using the median as anchor,
+    // then set uBaseSize so nif_files cover ~0.8% of the scene radius at 1Ã— distance.
     const sArr = geo.getAttribute('aSize').array;
     const sorted = Float32Array.from(sArr).sort();
     const median = sorted[Math.floor(sorted.length * 0.5)] || 1;
@@ -1437,7 +1437,7 @@ async function mountPlyViewer(url) {
     _plyControls.maxDistance = r * 14;
     _plyControls.update();
     hideLoading();
-    // v78 — cinematic dots→nif_files reveal (per-embed via ?reveal_duration=, etc)
+    // v78 â€” cinematic dotsâ†’nif_files reveal (per-embed via ?reveal_duration=, etc)
     triggerRevealForViewer({ material: mat, pointsMesh: pts });
     // Expose material for the social-recorder's re-trigger path
     window.__fumocaViewerMaterial = mat;
@@ -1453,7 +1453,7 @@ async function mountPlyViewer(url) {
       _plyRenderer.render(_plyScene, _plyCamera);
     }
     loop();
-    console.log('%c[Viewer] PLY loaded — ' + posAttr.count + ' Gaussians', 'color:#c8ff00;font-weight:800');
+    console.log('%c[Viewer] PLY loaded â€” ' + posAttr.count + ' Gaussians', 'color:#c8ff00;font-weight:800');
   } catch(e) {
     hideLoading();
     showError('Failed to load PLY: ' + e.message);
@@ -1462,9 +1462,9 @@ async function mountPlyViewer(url) {
 async function mountInteractiveViewer(forceReload = false) {
   const activeUrl = getActivenifUrl();
   if ((!forceReload && viewerInstance) || !activeUrl) return;
-  if (forceReload) { rendererPreviewPending = true; showStageFreeze(); _fumocaShowPipelineIllusion('Applying edits…', 1680); }
+  if (forceReload) { rendererPreviewPending = true; showStageFreeze(); _fumocaShowPipelineIllusion('Applying editsâ€¦', 1680); }
   if (forceReload) await destroyViewer();
-  setLoading(forceReload ? 'Refreshing cleanup…' : 'Loading interactive nif…');
+  setLoading(forceReload ? 'Refreshing cleanupâ€¦' : 'Loading interactive nifâ€¦');
   try {
     viewerInstance = new Gaussiannif_files3D.Viewer({
       rootElement: stageHost || stageEl,
@@ -1479,7 +1479,7 @@ async function mountInteractiveViewer(forceReload = false) {
       dynamicScene: false,
     });
     const _activeUrl = getActivenifUrl();
-    // For blob URLs, Gaussiannif_files3D can't infer format from URL — pass it explicitly
+    // For blob URLs, Gaussiannif_files3D can't infer format from URL â€” pass it explicitly
     const _sceneOpts = {
       showLoadingUI: false,
       progressiveLoad: true,
@@ -1498,8 +1498,8 @@ async function mountInteractiveViewer(forceReload = false) {
     applyStageFilters();
     setTimeout(() => hint.classList.add('hidden'), 4500);
     if (!forceReload) await incrementViewCount();
-    // ── Post-load: extract Gaussian positions and fire fumoca:viewerReady ──
-    // Gaussiannif_files3D doesn't expose positions synchronously — wait one frame
+    // â”€â”€ Post-load: extract Gaussian positions and fire fumoca:viewerReady â”€â”€
+    // Gaussiannif_files3D doesn't expose positions synchronously â€” wait one frame
     // for the internal sort worker to finish, then probe the nifMesh.
     setTimeout(() => {
       try {
@@ -1548,7 +1548,7 @@ async function mountInteractiveViewer(forceReload = false) {
           camera:   cam,
           controls: controls,
         };
-        // Fire fumoca:viewerReady — triggers AutoFix camera fit and shim population
+        // Fire fumoca:viewerReady â€” triggers AutoFix camera fit and shim population
         window.dispatchEvent(new CustomEvent('fumoca:viewerReady', {
           detail: {
             viewer:    viewerInstance,
@@ -1565,7 +1565,7 @@ async function mountInteractiveViewer(forceReload = false) {
           detail: { viewer: viewerInstance }
         }));
       }
-    }, 800); // 800ms — enough for first sort pass to complete
+    }, 800); // 800ms â€” enough for first sort pass to complete
   } catch (err) {
     rendererPreviewPending = false;
     console.error('[FUMOCA viewer]', err);
@@ -1617,7 +1617,7 @@ function activatePreset(name) {
   applyStageFilters();
 }
 async function boot() {
-  setLoading('Fetching nif…');
+  setLoading('Fetching nifâ€¦');
   const sessionRecord = hydrateFromSession();
   currentRecord = (await fetchRecord()) || sessionRecord;
   if (sessionRecord) {
@@ -1625,17 +1625,17 @@ async function boot() {
     previewVideoUrl = previewVideoUrl || sessionRecord.previewVideo || '';
     fileUrl = fileUrl || _validnifUrl(sessionRecord.file) || '';
   }
-  // Probe fileUrl — if storage returns 400/404 it's a ghost file, use DB record
-  // Skip probe for blob: URLs — they don't support HEAD requests
+  // Probe fileUrl â€” if storage returns 400/404 it's a ghost file, use DB record
+  // Skip probe for blob: URLs â€” they don't support HEAD requests
   if (fileUrl && !fileUrl.startsWith('blob:')) {
     try {
       const probe = await fetch(fileUrl, { method: 'HEAD' });
       if (!probe.ok) {
-        console.warn('[Viewer] file= URL returned HTTP', probe.status, '— falling back to DB record');
+        console.warn('[Viewer] file= URL returned HTTP', probe.status, 'â€” falling back to DB record');
         fileUrl = '';
       }
     } catch(e) {
-      console.warn('[Viewer] file= URL unreachable — falling back to DB record');
+      console.warn('[Viewer] file= URL unreachable â€” falling back to DB record');
       fileUrl = '';
     }
   }
@@ -1644,8 +1644,19 @@ async function boot() {
     try { sessionStorage.removeItem('fumoca:selectedNif'); } catch(_) {}
   }
   applyHeader(currentRecord);
+  console.log('[NIF-DIAG] URL params:', window.location.search);
+  console.log('[NIF-DIAG] nifId:', nifId);
+  console.log('[NIF-DIAG] record:', currentRecord ? {
+    id: currentRecord.id,
+    status: currentRecord.status,
+    r2_key: currentRecord.r2_key,
+    nif_url: currentRecord.nif_url,
+    output_url: currentRecord.output_url
+  } : null);
+  console.log('[NIF-DIAG] session fileUrl:', fileUrl);
+  console.log('[NIF-DIAG] resolved URL:', currentRecord ? resolvenifUrl(currentRecord) : '');
   if (!fileUrl && currentRecord) fileUrl = resolvenifUrl(currentRecord);
-  console.log('[Viewer] Final fileUrl:', fileUrl || '(empty — no renderable file found)');
+  console.log('[Viewer] Final fileUrl:', fileUrl || '(empty â€” no renderable file found)');
   configurePreview(currentRecord);
   await detectManagePermission();
   window.dispatchEvent(new CustomEvent('fumoca:recordLoaded', { detail: currentRecord || null }));
@@ -1665,7 +1676,7 @@ async function boot() {
       if ((previewVideoUrl || thumbnailUrl) && autoplayPreview) openPreview('nif');
     } else if (status === 'needs_retry') {
       const reason = currentRecord?.meta?.quality_reason;
-      showError(`This capture didn't get enough coverage to build a solid 3D model${reason ? ' — ' + reason : ''}. Try recapturing with a slower, fuller pass around the object.`);
+      showError(`This capture didn't get enough coverage to build a solid 3D model${reason ? ' â€” ' + reason : ''}. Try recapturing with a slower, fuller pass around the object.`);
     } else if (status === 'failed') {
       showError('Processing failed for this nif.');
     } else {
@@ -1683,10 +1694,10 @@ async function boot() {
   const _blobType = sessionStorage.getItem('fumoc_pending_nif_type');
   if (_blobType) sessionStorage.removeItem('fumoc_pending_nif_type');
   if (_isNifUrl(fileUrl) || (_blobType === 'nif' && fileUrl.startsWith('blob:'))) {
-    // .nif is the native format — decode its KEYFRAME_GEO chunk and hand the
+    // .nif is the native format â€” decode its KEYFRAME_GEO chunk and hand the
     // gaussian data to the existing Gaussiannif_files3D renderer for full
     // anisotropic-nif fidelity (no re-wrap into any other container format).
-    setLoading('Decoding .nif…');
+    setLoading('Decoding .nifâ€¦');
     try {
       const nifResp   = await fetch(fileUrl);
       const nifBuffer = await nifResp.arrayBuffer();
@@ -1704,15 +1715,15 @@ async function boot() {
       window._fumocaTourStops   = meta.tourStops  || [];
       window._fumocaHotspots    = meta.hotspots   || [];
       window._fumocaOpenedMeta  = meta;
-      console.log(`[Viewer] .nif decoded → ${gaussians.count.toLocaleString()} gaussians`);
+      console.log(`[Viewer] .nif decoded â†’ ${gaussians.count.toLocaleString()} gaussians`);
     } catch (err) {
       showError('Failed to decode .nif file: ' + err.message);
       console.error('[Viewer] nif decode error:', err);
       return;
     }
   } else if (_blobType === 'fumoc' && fileUrl.startsWith('blob:')) {
-    // .fumoc is a container — must decode to raw .nif before rendering
-    setLoading('Decoding .fumoc…');
+    // .fumoc is a container â€” must decode to raw .nif before rendering
+    setLoading('Decoding .fumocâ€¦');
     try {
       const fumocResp   = await fetch(fileUrl);
       const fumocBuffer = await fumocResp.arrayBuffer();
@@ -1720,7 +1731,7 @@ async function boot() {
       const { nifUrl, decoded } = await FumocDecoder.loadIntoViewer(fumocBuffer);
       fileUrl = nifUrl; // swap to the decoded .nif blob URL
       // Expose tour/hotspot data that loadIntoViewer sets on window
-      console.log('[Viewer] .fumoc decoded → nif blob ready');
+      console.log('[Viewer] .fumoc decoded â†’ nif blob ready');
     } catch (err) {
       showError('Failed to decode .fumoc file: ' + err.message);
       console.error('[Viewer] fumoc decode error:', err);
@@ -1732,7 +1743,7 @@ async function boot() {
   } else {
     await mountInteractiveViewer();
     // Mesh overlay goes on top of the splat renderer once it's mounted, not
-    // before — mountInteractiveViewer owns stageHost/container setup, and
+    // before â€” mountInteractiveViewer owns stageHost/container setup, and
     // mounting the mesh canvas first would have it torn down along with it.
     if (window._fumocaDecodedMesh?.nVerts > 0) {
       mountMeshViewer(window._fumocaDecodedMesh, window._fumocaCalibration);
@@ -1750,7 +1761,7 @@ videoModeBtn?.addEventListener('click', () => setPreviewMode(previewVideoUrl ? '
 copyLinkBtn?.addEventListener('click', async () => {
   _fumocaTrack('share_copy_attempt', { recordId: currentRecord?.id || null });
   const shareUrl = new URL(window.location.href);
-  // Always generate a clean public link — strip admin/session params, add ?public=1
+  // Always generate a clean public link â€” strip admin/session params, add ?public=1
   shareUrl.searchParams.delete('embed');
   shareUrl.searchParams.set('public', '1');
   if (currentRecord?.id && !shareUrl.searchParams.get('nifId')) shareUrl.searchParams.set('nifId', currentRecord.id);
@@ -1806,28 +1817,28 @@ exportFigurineBtn?.addEventListener('click', async () => {
   const setStatus = (msg) => { exportFigurineStatus.textContent = msg; };
   try {
     const jobId = await exportSelectionAsFigurine({ onStatus: setStatus });
-    setStatus('Queued — waiting for the server to build your figurine…');
+    setStatus('Queued â€” waiting for the server to build your figurineâ€¦');
     pollPrintJob(jobId, (job) => {
       if (job.status === 'complete') {
         const stlUrl = job.meta?.stl_url;
         const warning = job.meta?.print_warning;  // set server-side when mesh_watertight is false
         exportFigurineStatus.innerHTML = stlUrl
-          ? `✅ Ready — <a href="${stlUrl}" target="_blank" style="color:#C8FF00;">Download STL</a>` +
-            (warning ? `<br><span style="color:#ffb020;">⚠️ ${warning}</span>` : '')
-          : '✅ Done, but no download link came back — check the job record.';
+          ? `âœ… Ready â€” <a href="${stlUrl}" target="_blank" style="color:#C8FF00;">Download STL</a>` +
+            (warning ? `<br><span style="color:#ffb020;">âš ï¸ ${warning}</span>` : '')
+          : 'âœ… Done, but no download link came back â€” check the job record.';
         exportFigurineBtn.disabled = false;
       } else if (job.status === 'needs_retry') {
-        setStatus('⚠️ ' + (job.error_message || 'This capture didn\'t reconstruct solidly enough to export — try recapturing with fuller coverage.'));
+        setStatus('âš ï¸ ' + (job.error_message || 'This capture didn\'t reconstruct solidly enough to export â€” try recapturing with fuller coverage.'));
         exportFigurineBtn.disabled = false;
       } else if (job.status === 'failed') {
-        setStatus('❌ ' + (job.error_message || 'Export failed — see server logs.'));
+        setStatus('âŒ ' + (job.error_message || 'Export failed â€” see server logs.'));
         exportFigurineBtn.disabled = false;
       } else {
-        setStatus(`Processing… (${job.progress || 0}%)`);
+        setStatus(`Processingâ€¦ (${job.progress || 0}%)`);
       }
     });
   } catch (err) {
-    setStatus('❌ ' + err.message);
+    setStatus('âŒ ' + err.message);
     exportFigurineBtn.disabled = false;
   }
 });
@@ -1869,11 +1880,11 @@ function _fumocaRestoreRendererPreview() {
   _fumocaClearRendererPreview();
   if (viewerInstance) mountInteractiveViewer(true);
 }
-// Exposed for hotspot-actions.js's 'animate' action — these two functions
+// Exposed for hotspot-actions.js's 'animate' action â€” these two functions
 // existed with zero callers anywhere in the app until this connected them
 // (confirmed via repo-wide search). Real snap-open/close toggle for a named
 // part: see js/modules/nif-part-toggle.js for how the "open" URL passed here
-// gets baked and uploaded. Real https:// URLs only — _fumocaApplyRendererPreview
+// gets baked and uploaded. Real https:// URLs only â€” _fumocaApplyRendererPreview
 // itself already refuses blob: URLs (see its own comment) because a prior
 // attempt at live blob-URL scene swapping was found unreliable in this
 // specific viewer build.
@@ -1925,7 +1936,7 @@ async function _fumocaFlushPipelineQueue() {
         currentRecord = { ...(currentRecord || {}), meta: currentMeta };
         window._fumocaCurrentRecord = currentRecord;
       }
-      _fumocaShowPipelineIllusion('Finishing background prep…', 1400);
+      _fumocaShowPipelineIllusion('Finishing background prepâ€¦', 1400);
       window.dispatchEvent(new CustomEvent('fumoca:pipelineRetry', { detail: item }));
       item.attempt = (item.attempt || 0) + 1;
       if (item.attempt >= 6) continue;
@@ -1949,9 +1960,9 @@ function _fumocaTrack(event, detail = {}) {
     window.dispatchEvent(new CustomEvent('fumoca:track', { detail: { event, ...detail } }));
   } catch (_) {}
 }
-// ── STUDIO PANEL CONTROLS ────────────────────────────────────────
+// â”€â”€ STUDIO PANEL CONTROLS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // (variant save / queue / range inputs wired once here; a second
-//  block further down handles the _fumocaSaveVariant path — kept
+//  block further down handles the _fumocaSaveVariant path â€” kept
 //  there so the canManage guard applies correctly)
 cleanupRange?.addEventListener('input', () => { studioState.cleanup = Number(cleanupRange.value); renderStudioLabels(); setVariantDirty(true); });
 sharpnessRange?.addEventListener('input', () => { studioState.sharpness = Number(sharpnessRange.value); applyStageFilters(); setVariantDirty(true); });
@@ -1969,7 +1980,7 @@ cropDepthRange?.addEventListener('input', () => { studioState.cropDepth = Number
 maskOvalBtn?.addEventListener('click', () => { studioState.maskShape = 'ellipse'; maskOvalBtn.classList.add('active'); maskBoxBtn?.classList.remove('active'); applyStageFilters(); setVariantDirty(true); });
 maskBoxBtn?.addEventListener('click', () => { studioState.maskShape = 'inset'; maskBoxBtn.classList.add('active'); maskOvalBtn?.classList.remove('active'); applyStageFilters(); setVariantDirty(true); });
 applyStudioBtn?.addEventListener('click', () => mountInteractiveViewer(true));
-// ── GPU Image Quality sliders — realtime, no geometry rebuild ─────────────────
+// â”€â”€ GPU Image Quality sliders â€” realtime, no geometry rebuild â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const Q_PRESETS = {
   balanced:  { brightness:1.00, contrast:1.08, saturation:1.12, sharpness:0.72, bloom:0.55 },
   postshot:  { brightness:1.05, contrast:1.18, saturation:1.28, sharpness:0.88, bloom:0.80 },
@@ -2096,7 +2107,7 @@ maskLayer?.addEventListener('click', (e) => {
   setVariantDirty(true);
 });
 deleteUploadBtn?.addEventListener('click', () => { _fumocaTrack('delete_upload_click', { recordId: currentRecord?.id || null }); return deleteCurrentUpload(); });
-// ── EXPOSE STATE TO EDIT ENGINE ──────────────────────────────────
+// â”€â”€ EXPOSE STATE TO EDIT ENGINE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // edit-engine.js reads these window properties to access the live
 // nif URL, Supabase client, and current record without coupling.
 function exposeToEditEngine() {
@@ -2116,7 +2127,7 @@ const _bootInterval = setInterval(() => {
 window.addEventListener('fumoca:recordLoaded', exposeToEditEngine);
 // Also expose immediately in case already set
 exposeToEditEngine();
-// ── V29 bridge patch: expose session, viewer, camera, controls for admin-only tools ──
+// â”€â”€ V29 bridge patch: expose session, viewer, camera, controls for admin-only tools â”€â”€
 async function _fumocaExposeSession() {
   try {
     if (!window._fumocaSupabase?.auth?.getSession) return;
@@ -2194,7 +2205,7 @@ window.addEventListener('fumoca:recordLoaded', () => {
   _fumocaExposeSession();
   _fumocaExposeViewerBridge();
 });
-// ── V31 FULL-FORCE PLATFORM PATCH ───────────────────────────────
+// â”€â”€ V31 FULL-FORCE PLATFORM PATCH â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 window._fumocaPermissions = {
   isOwner: false,
   isAdmin: false,
@@ -2341,7 +2352,7 @@ async function _fumocaQueuePipeline(kind = 'mesh_cleanup', extraPayload = {}) {
   currentRecord = { ...rec, metadata };
   window._fumocaCurrentRecord = currentRecord;
   const label = String(kind || 'pipeline').replace(/_/g, ' ');
-  _fumocaShowPipelineIllusion(savedRemote ? `${label} queued` : `${label} saved locally — syncing soon`, 1800);
+  _fumocaShowPipelineIllusion(savedRemote ? `${label} queued` : `${label} saved locally â€” syncing soon`, 1800);
   window.dispatchEvent(new CustomEvent('fumoca:pipelineQueued', { detail: { ...payload, savedRemote } }));
   return { ...payload, savedRemote };
 }
@@ -2447,7 +2458,7 @@ _fumocaExposePlatform();
 _fumocaSyncPermissions();
 _fumocaSchedulePipelineFlush(1200);
 window.dispatchEvent(new CustomEvent('fumoca:requestEditPreview'));
-// ── nif CAPTURE BRIDGE ─────────────────────────────────────────
+// â”€â”€ nif CAPTURE BRIDGE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Exposes the renderer canvas so nifCapture can record the live viewer.
 function _fumocaExposeCaptureBridge() {
   try {
@@ -2473,7 +2484,7 @@ const _captureBridgeInterval = setInterval(() => {
   if (window._fumocaCaptureCanvas) clearInterval(_captureBridgeInterval);
 }, 500);
 setTimeout(() => clearInterval(_captureBridgeInterval), 12000);
-// ── AUTO PREVIEW GENERATION ─────────────────────────────────────
+// â”€â”€ AUTO PREVIEW GENERATION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function _fumocaSupportsAutoCapture() {
   try {
     return !!(window.nifCapture && window.MediaRecorder && HTMLCanvasElement.prototype.captureStream);
@@ -2521,7 +2532,7 @@ async function _fumocaAutoGeneratePreviewVideo() {
   _fumocaMarkAutoCapture('running');
   const statusBefore = hint?.textContent || '';
   if (hint) {
-    hint.textContent = 'Generating teaser preview…';
+    hint.textContent = 'Generating teaser previewâ€¦';
     hint.classList.remove('hidden');
   }
   try {
@@ -2576,3 +2587,4 @@ window.addEventListener('fumoca:captureUploaded', (e) => {
   }
   configurePreview(currentRecord || null);
 });
+

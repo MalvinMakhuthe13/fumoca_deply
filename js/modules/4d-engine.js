@@ -78,6 +78,24 @@ const Fumoca4D = (() => {
   function _blendLoop(ts) {
     if (!S.active) return;
 
+    // Defensive guard: never blend an empty or malformed motion-state list.
+    if (!Array.isArray(S.states) || S.states.length < 2) {
+      console.warn('[4D] Invalid or insufficient motion states; stopping 4D playback');
+      S.active = false;
+      return;
+    }
+
+    const validTimeline = S.states.every(
+      state => state && Number.isFinite(Number(state.time_offset))
+    );
+
+    if (!validTimeline) {
+      console.warn('[4D] Motion states contain invalid time_offset values; stopping 4D playback');
+      S.active = false;
+      return;
+    }
+
+
     const elapsed   = (ts - S.startTime) / 1000;
     const totalDur  = S.states[S.states.length - 1].time_offset || 1;
     const loopTime  = elapsed % totalDur;
@@ -211,7 +229,37 @@ const Fumoca4D = (() => {
     init,
     captureKeyframe,
     autoGenerateFromVideo,
-    toggle4D:  () => { S.active = !S.active; if (S.active) { S.startTime = performance.now(); requestAnimationFrame(_blendLoop); } },
+    toggle4D:  () => {
+      // Always allow stopping playback.
+      if (S.active) {
+        S.active = false;
+        return false;
+      }
+
+      // Do not start 4D playback without at least two valid keyframes.
+      if (!Array.isArray(S.states) || S.states.length < 2) {
+        console.warn('[4D] Cannot activate: at least 2 motion states are required');
+        return false;
+      }
+
+      const validTimeline = S.states.every(
+        state => state &&
+          state.time_offset !== null &&
+          state.time_offset !== undefined &&
+          state.time_offset !== '' &&
+          Number.isFinite(Number(state.time_offset))
+      );
+
+      if (!validTimeline) {
+        console.warn('[4D] Cannot activate: invalid motion-state timeline');
+        return false;
+      }
+
+      S.active = true;
+      S.startTime = performance.now();
+      requestAnimationFrame(_blendLoop);
+      return true;
+    },
     isActive:  () => S.active,
     getStates: () => S.states.slice(),
     dispose:   () => { S.active = false; S.audioEl?.pause(); S.audioCtx?.close(); },
