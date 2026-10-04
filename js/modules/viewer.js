@@ -809,16 +809,61 @@ function setSceneMode(mode) {
 }
 async function fetchRecord() {
   if (!nifId) return null;
-  const { data: nif } = await supabase.from('nif_files').select('*').eq('id', nifId).maybeSingle();
-  if (nif) return nif;
-  // Not in nif_files yet — it's still processing (nif_files only gets a row
-  // on success, via pipeline.py's _register()). The job shares the same id
-  // as the eventual nif_files row (see ReconstructionWorker(job_id, ...) /
-  // _register()'s 'id': self.job_id) — reconstruction_jobs has no separate
-  // nif_id column, so querying by one always returned nothing and made an
-  // in-progress capture look like a dead link instead of "processing".
-  const { data: job } = await supabase.from('reconstruction_jobs').select('*').eq('id', nifId).maybeSingle();
-  if (!job) return null;
+
+  console.log('[FUMOCA viewer] fetchRecord() starting', {
+    nifId,
+    supabaseUrl: supabase?.supabaseUrl || '(unknown)'
+  });
+
+  const { data: nif, error: nifError } = await supabase
+    .from('nif_files')
+    .select('*')
+    .eq('id', nifId)
+    .maybeSingle();
+
+  console.log('[FUMOCA viewer] nif_files result', {
+    data: nif,
+    error: nifError
+  });
+
+  if (nifError) {
+    console.error('[FUMOCA viewer] nif_files QUERY ERROR', nifError);
+  }
+
+  if (nif) {
+    console.log('[FUMOCA viewer] nif_files record FOUND', nif);
+    return nif;
+  }
+
+  const { data: job, error: jobError } = await supabase
+    .from('reconstruction_jobs')
+    .select('*')
+    .eq('id', nifId)
+    .maybeSingle();
+
+  console.log('[FUMOCA viewer] reconstruction_jobs result', {
+    data: job,
+    error: jobError
+  });
+
+  if (jobError) {
+    console.error(
+      '[FUMOCA viewer] reconstruction_jobs QUERY ERROR',
+      jobError
+    );
+  }
+
+  if (!job) {
+    console.warn('[FUMOCA viewer] NO RECORD FOUND', {
+      nifId,
+      nifError,
+      jobError
+    });
+    return null;
+  }
+
+  console.log('[FUMOCA viewer] reconstruction job FOUND', job);
+
   return {
     id: nifId,
     title: job.meta?.title || '',
@@ -826,7 +871,7 @@ async function fetchRecord() {
     status: job.status || 'queued',
     progress: job.progress ?? 0,
     error_message: job.error_message || '',
-    nif_url: '',            // never populated until nif_files gets a row — correct while processing
+    nif_url: '',
     thumbnail_url: '',
     preview_video_url: '',
     provider_name: 'FUMOCA',
