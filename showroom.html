@@ -64,8 +64,7 @@
 
     /* The splat viewer iframe — full screen */
     #viewerFrame {
-      position: fixed; inset: 0; width: 100%; height: 100%;
-      border: 0;
+      position: fixed; inset: 0; width: 100%; height: 100%; height: 100dvh; border: 0; display: block; background: #000;
     }
 
     /* Top info bar — vehicle + brand */
@@ -277,7 +276,7 @@
     document.getElementById('splashVehicle').textContent = 'No splatId provided in URL.';
   } else {
     // Point the iframe at the existing viewer with reveal tuned for this listing.
-    const viewerUrl = `viewer.html?splatId=${encodeURIComponent(splatId)}&reveal_duration=${encodeURIComponent(revealDuration)}`;
+    const viewerUrl = `viewer.html?v=914a9a2&splatId=${encodeURIComponent(splatId)}&reveal_duration=${encodeURIComponent(revealDuration)}`;
     const frame = document.getElementById('viewerFrame');
     frame.src = viewerUrl;
     // Hide splash when the iframe tells us it's ready, or after a safety
@@ -403,3 +402,5 @@
 </script>
 </body>
 </html>
+
+
