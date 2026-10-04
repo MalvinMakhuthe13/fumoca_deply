@@ -165,7 +165,7 @@ let fileUrl = await (async () => {
   return f;
 
 })();
-const nifId = params.get('nifId') || '';
+const nifId = params.get('nifId') || params.get('splatId') || '';
 let previewVideoUrl = params.get('previewVideo') || '';
 let thumbnailUrl = params.get('thumbnail') || '';
 const autoplayPreview = params.get('autoplayPreview') === '1';
