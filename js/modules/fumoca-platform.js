@@ -1,4 +1,4 @@
-
+﻿
 const dockId = 'fumocaPlatformDock';
 
 function ensureDock() {
@@ -48,10 +48,111 @@ function applyEmbedMode() {
 function updateDock() {
   const dock = ensureDock();
   dock.innerHTML = '';
+
   const perms = window._fumocaPermissions || {};
   const variants = window._fumocaLoadVariants?.() || [];
   const queue = window._fumocaCurrentRecord?.metadata?.processing_requests || [];
 
+  // ─────────────────────────────────────────────────────────────
+  // Clean viewer:
+  // CORE + PRO OPS are hidden inside the compact admin menu.
+  // The viewer itself stays unobstructed, especially on mobile.
+  // ─────────────────────────────────────────────────────────────
+
+  const menuButton = document.createElement('button');
+  menuButton.id = 'fumocaAdminMenuBtn';
+  menuButton.type = 'button';
+  menuButton.setAttribute('aria-label', 'Open FUMOCA controls');
+  menuButton.setAttribute('aria-expanded', 'false');
+  menuButton.innerHTML = '☰';
+  menuButton.style.cssText = `
+    position: fixed;
+    top: 14px;
+    right: 14px;
+    z-index: 10001;
+    width: 46px;
+    height: 46px;
+    border-radius: 50%;
+    border: 1px solid rgba(255,255,255,.14);
+    background: rgba(7,10,16,.78);
+    color: #fff;
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    box-shadow: 0 10px 30px rgba(0,0,0,.30);
+    font-size: 21px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  `;
+
+  const panel = document.createElement('aside');
+  panel.id = 'fumocaAdminDrawer';
+  panel.setAttribute('aria-label', 'FUMOCA controls');
+  panel.style.cssText = `
+    position: fixed;
+    top: 12px;
+    right: 12px;
+    bottom: 12px;
+    width: min(390px, calc(100vw - 24px));
+    z-index: 10000;
+    overflow-y: auto;
+    padding: 58px 12px 16px;
+    box-sizing: border-box;
+    background: rgba(5,7,11,.94);
+    border: 1px solid rgba(255,255,255,.10);
+    border-radius: 20px;
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    box-shadow: 0 24px 70px rgba(0,0,0,.55);
+    transform: translateX(calc(100% + 30px));
+    opacity: 0;
+    pointer-events: none;
+    transition: transform .22s ease, opacity .18s ease;
+  `;
+
+  const closeButton = document.createElement('button');
+  closeButton.type = 'button';
+  closeButton.setAttribute('aria-label', 'Close FUMOCA controls');
+  closeButton.innerHTML = '×';
+  closeButton.style.cssText = `
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    width: 38px;
+    height: 38px;
+    border-radius: 12px;
+    border: 1px solid rgba(255,255,255,.12);
+    background: rgba(255,255,255,.06);
+    color: #fff;
+    font-size: 24px;
+    line-height: 1;
+    cursor: pointer;
+  `;
+
+  const heading = document.createElement('div');
+  heading.innerHTML = `
+    <div style="
+      font-family:var(--font-display);
+      letter-spacing:.05em;
+      color:var(--neon);
+      font-size:20px;
+      line-height:1;
+      font-weight:800;
+    ">FUMOCA</div>
+    <div style="
+      margin-top:5px;
+      font-size:11px;
+      color:rgba(255,255,255,.52);
+      letter-spacing:.08em;
+      text-transform:uppercase;
+    ">Owner / Admin controls</div>
+  `;
+
+  panel.appendChild(closeButton);
+  panel.appendChild(heading);
+
+  // CORE
   const platformCard = makeCard(
     'FUMOCA CORE',
     `Access: <strong>${perms.canManage ? 'Owner/Admin' : 'Viewer'}</strong> · Variants: <strong>${variants.length}</strong> · Queue: <strong>${queue.length}</strong><br>Embed, tours, variants, nested splat overlays, sponsor-ready hotspots, CTAs, print/mesh prep hooks, API bridges and AI-ready cleanup are active in this bundle.`,
@@ -64,8 +165,10 @@ function updateDock() {
       button('Close nested', 'fpCloseNested', 'ghost'),
     ].join('')
   );
-  dock.appendChild(platformCard);
 
+  panel.appendChild(platformCard);
+
+  // PRO OPS
   if (perms.canManage) {
     const opsCard = makeCard(
       'PRO OPS',
@@ -77,35 +180,109 @@ function updateDock() {
         button('Load last look', 'fpLoadLook', 'ghost'),
       ].join('')
     );
-    dock.appendChild(opsCard);
+
+    panel.appendChild(opsCard);
   }
+
+  const setOpen = (open) => {
+    panel.style.transform = open
+      ? 'translateX(0)'
+      : 'translateX(calc(100% + 30px))';
+    panel.style.opacity = open ? '1' : '0';
+    panel.style.pointerEvents = open ? 'auto' : 'none';
+
+    menuButton.style.opacity = open ? '0' : '1';
+    menuButton.style.pointerEvents = open ? 'none' : 'auto';
+    menuButton.setAttribute('aria-expanded', String(open));
+  };
+
+  menuButton.addEventListener('click', () => {
+    setOpen(true);
+  });
+
+  closeButton.addEventListener('click', () => {
+    setOpen(false);
+  });
+
+  // Close when clicking outside the drawer.
+  document.addEventListener('pointerdown', (event) => {
+    if (
+      panel.style.pointerEvents === 'auto' &&
+      !panel.contains(event.target) &&
+      event.target !== menuButton
+    ) {
+      setOpen(false);
+    }
+  });
+
+  dock.appendChild(menuButton);
+  dock.appendChild(panel);
+
+  // ─────────────────────────────────────────────────────────────
+  // Existing functionality preserved below.
+  // ─────────────────────────────────────────────────────────────
 
   document.getElementById('fpSaveVariant')?.addEventListener('click', async () => {
     if (!perms.canManage) return;
     await window._fumocaSaveVariant?.();
     updateDock();
   });
+
   document.getElementById('fpCopyEmbed')?.addEventListener('click', async () => {
     const embedUrl = window._fumocaCreateEmbedUrl?.() || location.href;
     const code = `<iframe src="${embedUrl}" style="width:100%;height:100%;border:0;" allowfullscreen loading="lazy"></iframe>`;
-    try { await navigator.clipboard.writeText(code); } catch (_) {}
+    try {
+      await navigator.clipboard.writeText(code);
+    } catch (_) {}
   });
-  document.getElementById('fpStartTour')?.addEventListener('click', () => window._fumocaTour?.start?.());
-  document.getElementById('fpStopTour')?.addEventListener('click', () => window._fumocaTour?.stop?.());
+
+  document.getElementById('fpStartTour')?.addEventListener('click', () => {
+    window._fumocaTour?.start?.();
+  });
+
+  document.getElementById('fpStopTour')?.addEventListener('click', () => {
+    window._fumocaTour?.stop?.();
+  });
+
   document.getElementById('fpApiMap')?.addEventListener('click', () => {
     alert(JSON.stringify(window._fumocaApi || {}, null, 2));
   });
-  document.getElementById('fpCloseNested')?.addEventListener('click', () => document.getElementById('nestedSplatClose')?.click());
+
+  document.getElementById('fpCloseNested')?.addEventListener('click', () => {
+    document.getElementById('nestedSplatClose')?.click();
+  });
+
   document.getElementById('fpAutoClean')?.addEventListener('click', () => {
-    const mode = (window._fumocaCurrentRecord?.category || window._fumocaCurrentRecord?.metadata?.scene_mode || 'product').toString().toLowerCase();
-    const mapped = mode.includes('car') ? 'car' : mode.includes('estate') || mode.includes('room') ? 'real_estate' : mode.includes('person') ? 'person' : 'product';
+    const mode = (
+      window._fumocaCurrentRecord?.category ||
+      window._fumocaCurrentRecord?.metadata?.scene_mode ||
+      'product'
+    ).toString().toLowerCase();
+
+    const mapped =
+      mode.includes('car')
+        ? 'car'
+        : mode.includes('estate') || mode.includes('room')
+          ? 'real_estate'
+          : mode.includes('person')
+            ? 'person'
+            : 'product';
+
     window._fumocaApplyAutoCleanPreset?.(mapped);
   });
-  document.getElementById('fpMeshPrep')?.addEventListener('click', () => window._fumocaQueuePipeline?.('mesh_cleanup'));
-  document.getElementById('fpPrintPrep')?.addEventListener('click', () => window._fumocaQueuePipeline?.('print_prep'));
-  document.getElementById('fpLoadLook')?.addEventListener('click', () => document.getElementById('loadLookBtn')?.click());
-}
 
+  document.getElementById('fpMeshPrep')?.addEventListener('click', () => {
+    window._fumocaQueuePipeline?.('mesh_cleanup');
+  });
+
+  document.getElementById('fpPrintPrep')?.addEventListener('click', () => {
+    window._fumocaQueuePipeline?.('print_prep');
+  });
+
+  document.getElementById('fpLoadLook')?.addEventListener('click', () => {
+    document.getElementById('loadLookBtn')?.click();
+  });
+}
 function init() {
   applyEmbedMode();
   updateDock();
@@ -117,3 +294,4 @@ function init() {
 }
 
 init();
+
