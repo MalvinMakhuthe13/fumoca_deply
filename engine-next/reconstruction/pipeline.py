@@ -2548,8 +2548,95 @@ def _multi_view_part_fusion(semantic: dict | None, poses: list | None,
         return base
 
 
+def _part_geometry_evidence(semantic: dict | None, multi_view: dict | None = None) -> dict:
+    """Level 7: derive observed 3D part extent and frame candidates.
+
+    This is geometric evidence only. PCA axes are candidates for a local frame;
+    they are not declared hinges, rotations, or mechanical pivots. The canonical
+    Gaussian geometry remains authoritative.
+    """
+    base = {
+        'status': 'unavailable', 'level': 7, 'parts': [],
+        'policy': (
+            'Part centroids, bounds and principal axes are derived from observed '
+            'reconstructed Gaussians. Axes are frame candidates, not mechanical '
+            'hinges or proof of intended motion.'
+        ),
+        'unseen_geometry_claimed': False,
+    }
+    if not semantic or semantic.get('status') != 'available':
+        return base
+    positions = semantic.get('_positions')
+    labels = np.asarray(semantic.get('labels', []), dtype=np.uint8)
+    if positions is None or len(labels) == 0:
+        return base
+    try:
+        pts = np.asarray(positions, dtype=np.float64)
+        if pts.ndim != 2 or pts.shape[1] < 3 or len(pts) != len(labels):
+            return base
+        parts = []
+        for pid in sorted(int(x) for x in np.unique(labels) if int(x) != 255):
+            idx = np.flatnonzero(labels == pid)
+            if len(idx) < 3:
+                continue
+            p = pts[idx, :3]
+            finite = np.all(np.isfinite(p), axis=1)
+            p = p[finite]
+            if len(p) < 3:
+                continue
+            centroid = np.mean(p, axis=0)
+            bounds_min = np.min(p, axis=0)
+            bounds_max = np.max(p, axis=0)
+            centered = p - centroid
+            cov = (centered.T @ centered) / max(len(p) - 1, 1)
+            try:
+                eigvals, eigvecs = np.linalg.eigh(cov)
+                order = np.argsort(eigvals)[::-1]
+                eigvals = np.maximum(eigvals[order], 0.0)
+                eigvecs = eigvecs[:, order]
+                # Deterministic sign convention: make the largest-magnitude
+                # component of each axis positive. This avoids random flips.
+                for k in range(3):
+                    j = int(np.argmax(np.abs(eigvecs[:, k])))
+                    if eigvecs[j, k] < 0:
+                        eigvecs[:, k] *= -1.0
+                # Keep the frame right-handed after deterministic sign fixing.
+                if np.linalg.det(eigvecs) < 0:
+                    eigvecs[:, 2] *= -1.0
+                total = float(np.sum(eigvals))
+                axis_conf = float(np.clip((eigvals[0] - eigvals[1]) / max(eigvals[0], 1e-12), 0.0, 1.0)) if total > 0 else 0.0
+            except Exception:
+                eigvals = np.zeros(3, dtype=np.float64)
+                eigvecs = np.eye(3, dtype=np.float64)
+                axis_conf = 0.0
+            mv = next((x for x in (multi_view or {}).get('parts', []) if int(x.get('part_id', -1)) == pid), None)
+            pg = next((x for x in (part_geometry or {}).get('parts', []) if int(x.get('part_id', -1)) == pid), None)
+            parts.append({
+                'part_id': pid,
+                'gaussian_count': int(len(p)),
+                'centroid': [float(x) for x in centroid],
+                'bounds_min': [float(x) for x in bounds_min],
+                'bounds_max': [float(x) for x in bounds_max],
+                'dimensions': [float(x) for x in (bounds_max - bounds_min)],
+                'principal_axes': [[float(x) for x in eigvecs[:, k]] for k in range(3)],
+                'principal_variance': [float(x) for x in eigvals],
+                'axis_confidence': axis_conf,
+                'frame_source': 'gaussian_pca_observed_geometry',
+                'pivot_status': 'not_recovered',
+                'mechanical_axis_status': 'not_recovered',
+                'multi_view_stable': bool(mv and mv.get('stable_3d_evidence') is True),
+            })
+        base.update({'status': 'available' if parts else 'insufficient_geometry', 'parts': parts})
+        return base
+    except Exception as e:
+        base['status'] = 'error'
+        base['error'] = str(e)
+        return base
+
+
 def _build_product_part_graph(semantic: dict | None, geometry_confidence: dict | None = None,
-                              multi_view: dict | None = None) -> dict:
+                              multi_view: dict | None = None,
+                              part_geometry: dict | None = None) -> dict:
     """Build the evidence-backed Product Part Graph.
 
     This is intentionally a graph of observed regions, not an AI guess of product
@@ -2570,6 +2657,7 @@ def _build_product_part_graph(semantic: dict | None, geometry_confidence: dict |
                 'geometry': {
                     'semantic_label': pid,
                     'multi_view': mv or {'stable_3d_evidence': False, 'multi_view_score': 0.0},
+                    'observed_3d': pg or {'frame_source': 'unavailable', 'pivot_status': 'not_recovered'},
                     'assigned_gaussians': int(part.get('assigned_gaussians', 0)),
                     'source': part.get('source', 'sam2_reference_frame'),
                     'confidence': float(part.get('mean_confidence', 0.0)),
@@ -2976,8 +3064,10 @@ class ReconstructionWorker:
                 object_masks,
                 image_shape=frames[0].shape[:2] if frames else None,
             )
+            part_geometry_evidence = _part_geometry_evidence(semantic_evidence, multi_view_part_fusion)
             semantic_evidence.pop('_positions', None)
             encapsulation['multi_view_part_fusion'] = multi_view_part_fusion
+            encapsulation['part_geometry_evidence'] = part_geometry_evidence
             if mesh_info is not None:
                 mesh_info['encapsulation'] = encapsulation
 
@@ -3000,7 +3090,7 @@ class ReconstructionWorker:
             # ── Pack .nif ─────────────────────────────────────────────────────
             self._tick('processing', 84)
             semantic_bytes = _pack_semantic_map(semantic_evidence)
-            part_graph = _build_product_part_graph(semantic_evidence, geometry_confidence, multi_view_part_fusion)
+            part_graph = _build_product_part_graph(semantic_evidence, geometry_confidence, multi_view_part_fusion, part_geometry_evidence)
             part_graph_bytes = json.dumps(part_graph, separators=(',', ':')).encode('utf-8')
             chunks = [
                 # geo_bytes already contains its own [flag][count][data] header
