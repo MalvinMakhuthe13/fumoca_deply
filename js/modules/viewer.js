@@ -2057,6 +2057,8 @@ async function boot() {
         console.log('[Viewer] Level 8 boundary evidence:', boundary, 'parts; axis candidates:', axisCandidates, '; no automatic hinges enabled.');
         const authored = (partGraph.parts || []).filter(p => p.capabilities?.interactive_ready === true).length;
         console.log('[Viewer] Level 9 explicit authoring:', authored, 'interactive parts; only explicitly authored transforms are enabled.');
+        const verified = (partGraph.parts || []).filter(p => p.capabilities?.verification_state === 'verified' && p.capabilities?.interactive_ready === true).length;
+        console.log('[Viewer] Level 10 verified interactive parts:', verified, '/', authored, '; unverified authoring remains locked.');
       }
       window._fumocaDecodedGaussians = gaussians;
       renderTrustBadges(calibration, verification);
