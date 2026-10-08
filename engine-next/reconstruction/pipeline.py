@@ -1194,6 +1194,247 @@ def _surface_camera_evidence(surface_geo: np.ndarray | None, poses: list | None,
         }
 
 
+
+def _surface_geometry_confidence(surface_geo: np.ndarray | None,
+                                  encapsulation: dict | None,
+                                  mesh_info: dict | None,
+                                  poses: list | None,
+                                  object_masks: list | None,
+                                  depth_maps: list | None,
+                                  image_shape=None) -> dict:
+    """Build Level 4 geometry-confidence evidence for reconstructed surface samples.
+
+    Confidence is about *observed reconstruction reliability*, never about whether
+    unseen geometry exists. Each sampled Gaussian gets a deterministic score from:
+      1. camera/foreground support,
+      2. depth consistency / occlusion evidence,
+      3. Gaussian opacity,
+      4. Gaussian shape stability,
+      5. global mesh validity.
+
+    The returned sample records are intentionally bounded so the ENCAPSULATION
+    JSON chunk remains usable. The canonical GEO/mesh remain authoritative.
+    """
+    base = {
+        'status': 'unavailable',
+        'level': 4,
+        'surface_samples': 0,
+        'confident_samples': 0,
+        'supported_samples': 0,
+        'uncertain_samples': 0,
+        'unsupported_samples': 0,
+        'occluded_samples': 0,
+        'mean_confidence': 0.0,
+        'confidence_percentiles': [0.0, 0.0, 0.0, 0.0, 0.0],
+        'mesh_quality_factor': 0.0,
+        'evidence_weights': {
+            'camera_support': 0.35,
+            'depth_consistency': 0.30,
+            'gaussian_stability': 0.20,
+            'mesh_validity': 0.15,
+        },
+        'samples': [],
+        'policy': (
+            'Geometry confidence estimates reliability of observed/reconstructed '
+            'surface samples. It is not semantic identity, proof of hidden geometry, '
+            'or permission to fabricate unseen product surfaces.'
+        ),
+    }
+    if surface_geo is None:
+        return base
+
+    try:
+        raw = np.asarray(surface_geo, dtype=np.float32)
+        finite = np.all(np.isfinite(raw[:, :14]), axis=1)
+        idx_all = np.flatnonzero(finite)
+        if not len(idx_all):
+            return base
+
+        # Deterministic sampling, biased toward the complete reconstructed surface
+        # rather than whichever points happened to occur first.
+        cap = max(256, min(int(os.environ.get('FUMOCA_CONFIDENCE_SAMPLES', '8192')), 16384))
+        if len(idx_all) > cap:
+            sample_idx = np.linspace(0, len(idx_all) - 1, cap, dtype=np.int64)
+            idx = idx_all[sample_idx]
+        else:
+            idx = idx_all
+        pts = raw[idx]
+        n = len(pts)
+
+        # Gaussian-native stability evidence.
+        opacity = 1.0 / (1.0 + np.exp(-np.clip(pts[:, 10], -20, 20)))
+        scales = np.exp(np.clip(pts[:, 3:6], -8, 2))
+        max_scale = np.max(scales, axis=1)
+        min_scale = np.min(scales, axis=1)
+        anisotropy = np.clip(1.0 - (min_scale / np.maximum(max_scale, 1e-8)), 0.0, 1.0)
+        opacity_score = np.clip((opacity - 0.08) / 0.72, 0.0, 1.0)
+        # Very large, nearly isotropic splats are less surface-specific. Small
+        # anisotropic splats are generally better localized surface evidence.
+        scale_score = np.clip(1.0 - max_scale / (np.median(max_scale) * 4.0 + 1e-8), 0.0, 1.0)
+        gaussian_stability = np.clip(0.65 * opacity_score + 0.20 * anisotropy + 0.15 * scale_score, 0, 1)
+
+        # Mesh validity is a global prerequisite, not a substitute for observation.
+        if mesh_info:
+            mesh_quality_factor = 1.0
+            if not mesh_info.get('is_watertight'): mesh_quality_factor *= 0.70
+            if not mesh_info.get('is_winding_consistent'): mesh_quality_factor *= 0.75
+            if not mesh_info.get('is_volume'): mesh_quality_factor *= 0.75
+            if mesh_info.get('nonmanifold_edges', 0): mesh_quality_factor *= 0.75
+            if mesh_info.get('boundary_edges', 0): mesh_quality_factor *= 0.80
+            if mesh_info.get('n_degenerate_faces') not in (None, 0): mesh_quality_factor *= 0.90
+        else:
+            mesh_quality_factor = 0.0
+
+        # Camera support per sample.
+        support_counts = np.zeros(n, dtype=np.float32)
+        foreground_counts = np.zeros(n, dtype=np.float32)
+        depth_consistent = np.zeros(n, dtype=np.float32)
+        depth_occluded = np.zeros(n, dtype=np.float32)
+        depth_tested = np.zeros(n, dtype=np.float32)
+
+        if poses and image_shape:
+            H, W = int(image_shape[0]), int(image_shape[1])
+            fx = fy = max(H, W) * 0.8
+            cx, cy = W * 0.5, H * 0.5
+            # Per-frame depth mappings are derived from the full sampled surface,
+            # then applied to these confidence samples. This avoids treating
+            # monocular depth as metric.
+            for fi, pose in enumerate(poses):
+                if fi >= len(depth_maps or []):
+                    break
+                try:
+                    vm = pose[1] if isinstance(pose, tuple) else pose
+                    vm = vm.detach().cpu().numpy() if hasattr(vm, 'detach') else np.asarray(vm)
+                    cam = (vm[:3, :3] @ pts[:, :3].T + vm[:3, 3:4]).T
+                    z = cam[:, 2]
+                    valid = z > 1e-6
+                    u = fx * cam[:, 0] / np.maximum(z, 1e-8) + cx
+                    v = fy * cam[:, 1] / np.maximum(z, 1e-8) + cy
+                    inside = valid & (u >= 0) & (u < W) & (v >= 0) & (v < H)
+                    if not np.any(inside):
+                        continue
+                    support_counts[inside] += 1
+
+                    mask = object_masks[fi] if object_masks and fi < len(object_masks) else None
+                    if mask is not None:
+                        mm = np.asarray(mask)
+                        if mm.ndim >= 2:
+                            yy = np.clip(np.rint(v[inside]).astype(np.int64), 0, H - 1)
+                            xx = np.clip(np.rint(u[inside]).astype(np.int64), 0, W - 1)
+                            fg = mm[yy, xx] > 32
+                            inside_idx = np.flatnonzero(inside)
+                            foreground_counts[inside_idx[fg]] += 1
+
+                    dm = depth_maps[fi]
+                    if dm is None:
+                        continue
+                    dd = np.asarray(dm, dtype=np.float32)
+                    if dd.ndim < 2:
+                        continue
+                    yy = np.clip(np.rint(v[inside]).astype(np.int64), 0, H - 1)
+                    xx = np.clip(np.rint(u[inside]).astype(np.int64), 0, W - 1)
+                    observed = dd[yy, xx]
+                    inside_idx = np.flatnonzero(inside)
+                    finite_d = np.isfinite(observed) & (observed > 0)
+                    if not np.any(finite_d):
+                        continue
+
+                    pred = z[inside_idx][finite_d]
+                    obs = observed[finite_d]
+                    # Use the projected sample population itself to fit the
+                    # relative-depth relationship, matching Level 3's policy.
+                    p10, p50, p90 = np.percentile(pred, [10, 50, 90])
+                    o10, o50, o90 = np.percentile(obs, [10, 50, 90])
+                    pspan = max(float(p90 - p10), 1e-6)
+                    slope = float(o90 - o10) / pspan
+                    intercept = float(o50 - slope * p50)
+                    mapped = slope * pred + intercept
+                    tolerance = max(float(o90 - o10) * 0.20, 1e-6)
+                    residual = obs - mapped
+                    tested_idx = inside_idx[finite_d]
+                    consistent = np.abs(residual) <= tolerance
+                    occluded = residual < -tolerance
+                    depth_tested[tested_idx] += 1
+                    depth_consistent[tested_idx[consistent]] += 1
+                    depth_occluded[tested_idx[occluded]] += 1
+                except Exception:
+                    continue
+
+        support_score = np.clip(support_counts / 3.0, 0.0, 1.0)
+        foreground_score = np.clip(foreground_counts / np.maximum(support_counts, 1.0), 0.0, 1.0)
+        camera_support = np.clip(0.70 * support_score + 0.30 * foreground_score, 0.0, 1.0)
+
+        tested = depth_tested > 0
+        depth_score = np.zeros(n, dtype=np.float32)
+        depth_score[tested] = np.clip(
+            depth_consistent[tested] / np.maximum(depth_tested[tested], 1.0), 0.0, 1.0
+        )
+        depth_score[~tested] = 0.0
+
+        confidence = (
+            0.35 * camera_support +
+            0.30 * depth_score +
+            0.20 * gaussian_stability +
+            0.15 * mesh_quality_factor
+        )
+        # No observation support means the sample cannot become "confident"
+        # merely because its Gaussian/mesh looks mathematically clean.
+        confidence = np.where(support_counts > 0, confidence, confidence * 0.35)
+        confidence = np.clip(confidence, 0.0, 1.0)
+
+        occluded = (depth_occluded > 0) & (depth_consistent == 0)
+        unsupported = support_counts == 0
+        supported = (support_counts > 0) & (confidence >= 0.55) & ~occluded
+        uncertain = ~(supported | unsupported | occluded)
+
+        def pct(q):
+            return [float(x) for x in np.percentile(confidence, q)]
+
+        records = []
+        for j in range(n):
+            records.append({
+                'index': int(idx[j]),
+                'position': [float(x) for x in pts[j, :3]],
+                'confidence': round(float(confidence[j]), 4),
+                'camera_support_views': int(support_counts[j]),
+                'foreground_support_views': int(foreground_counts[j]),
+                'depth_tested_views': int(depth_tested[j]),
+                'depth_consistent_views': int(depth_consistent[j]),
+                'depth_occluded_views': int(depth_occluded[j]),
+                'class': (
+                    'occluded' if occluded[j] else
+                    'unsupported' if unsupported[j] else
+                    'confident' if supported[j] else
+                    'uncertain'
+                ),
+            })
+
+        base.update({
+            'status': 'available',
+            'surface_samples': n,
+            'confident_samples': int(np.sum(supported)),
+            'supported_samples': int(np.sum(support_counts > 0)),
+            'uncertain_samples': int(np.sum(uncertain)),
+            'unsupported_samples': int(np.sum(unsupported)),
+            'occluded_samples': int(np.sum(occluded)),
+            'mean_confidence': float(np.mean(confidence)),
+            'confidence_percentiles': pct([0, 25, 50, 75, 100]),
+            'mesh_quality_factor': float(mesh_quality_factor),
+            'samples': records,
+            'depth_evidence_available': bool(np.any(depth_tested > 0)),
+            'policy': (
+                'Level 4 combines observed camera support, foreground/depth evidence, '
+                'Gaussian stability and mesh validity. A high score means the sampled '
+                'surface is well supported by the capture; it does not mean unseen '
+                'geometry has been recovered.'
+            ),
+        })
+        return base
+    except Exception as e:
+        base['status'] = 'error'
+        base['error'] = str(e)
+        return base
+
 def _surface_depth_visibility_evidence(surface_geo: np.ndarray | None,
                                     poses: list | None,
                                     alpha_masks: list | None,
@@ -2376,6 +2617,16 @@ class ReconstructionWorker:
             )
             encapsulation['surface_camera_evidence'] = surface_camera_evidence
             encapsulation['depth_visibility_evidence'] = depth_visibility_evidence
+            geometry_confidence = _surface_geometry_confidence(
+                mesh_geo_data,
+                encapsulation,
+                mesh_info,
+                poses,
+                object_masks,
+                depth_maps,
+                image_shape=frames[0].shape[:2] if frames else None,
+            )
+            encapsulation['geometry_confidence'] = geometry_confidence
             if mesh_info is not None:
                 mesh_info['encapsulation'] = encapsulation
 
