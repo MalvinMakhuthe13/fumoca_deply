@@ -7,6 +7,7 @@ import { supabase } from '../supabaseClient.js';
 import { triggerRevealForViewer } from './reveal-hook.js';
 import FumocDecoder from './fumoc-decoder.js';
 import { decodeNif, geometryToSplatRows } from './nif-format.js';
+import FumocaNativeGaussianRenderer from './nif-native-renderer.js';
 window._fumocaSupabase = window._fumocaSupabase || supabase;
 const stageEl = document.getElementById('stage');
 let stageHost = document.getElementById('stageHost');
@@ -225,6 +226,7 @@ function _applyPublicViewerLock() {
   });
 }
 let viewerInstance = null;
+let nativeGaussianRenderer = null;
 let currentRecord = null;
 let previewMode = 'nif';
 let rendererPreviewUrl = null;
@@ -1198,6 +1200,45 @@ async function destroyViewer() {
 function getActivenifUrl() {
   return rendererPreviewUrl || fileUrl || originalnifUrl || '';
 }
+function destroyNativeGaussianRenderer() {
+  if (!nativeGaussianRenderer) return;
+  try { nativeGaussianRenderer.destroy(); } catch (e) { console.warn('[Viewer] native renderer cleanup:', e); }
+  nativeGaussianRenderer = null;
+}
+
+async function mountNativeGaussianViewer(gaussians, appearance, calibration) {
+  destroyNativeGaussianRenderer();
+  rebuildStageHost();
+  setLoading('Starting native FUMOCA renderer…');
+  nativeGaussianRenderer = new FumocaNativeGaussianRenderer(stageHost || stageEl, gaussians, appearance, calibration);
+  nativeGaussianRenderer.attachControls(OrbitControls);
+  const controls = nativeGaussianRenderer.controls;
+  if (controls) {
+    controls.enableRotate = true;
+    controls.enableZoom = true;
+    controls.enablePan = true;
+    controls.minPolarAngle = 0.001;
+    controls.maxPolarAngle = Math.PI - 0.001;
+    controls.minAzimuthAngle = -Infinity;
+    controls.maxAzimuthAngle = Infinity;
+  }
+  viewerInstance = {
+    camera: nativeGaussianRenderer.camera,
+    controls,
+    renderer: nativeGaussianRenderer.renderer,
+    start() {},
+    stop() {},
+    async dispose() { destroyNativeGaussianRenderer(); },
+  };
+  window._fumocaViewerCamera = nativeGaussianRenderer.camera;
+  window._fumocaViewerControls = controls;
+  window.__fumocaNativeGaussianRenderer = nativeGaussianRenderer;
+  hideLoading();
+  applyStageFilters();
+  setTimeout(() => hint?.classList.add('hidden'), 4500);
+  console.log(`[Viewer] Native FUMOCA Gaussian renderer mounted — ${gaussians.count.toLocaleString()} gaussians, SH degree ${appearance.degree}`);
+}
+
 // â”€â”€ Solid mesh overlay â€” renders the KEYFRAME_MESH chunk (when present) as
 // an actual lit triangle surface instead of the point-cloud splat render.
 // This is additive, not a replacement: the Gaussian splat renderer
@@ -1998,6 +2039,7 @@ async function boot() {
       window._fumocaVerification = verification;
       window._fumocaDecodedMesh  = mesh;
       window._fumocaAppearanceSH = appearance;
+      window._fumocaDecodedGaussians = gaussians;
       renderTrustBadges(calibration, verification);
       // The NIF SH appearance is authoritative for photorealistic masters.
       // Keep the legacy RGB conversion only as a compatibility fallback for
@@ -2009,7 +2051,11 @@ async function boot() {
           'gaussians=' + appearance.gaussianCount.toLocaleString()
         );
       }
-      const nifBytes = geometryToSplatRows(gaussians, calibration);
+      const useNativeMaster = !!appearance && (IS_PUBLIC_VIEWER || params.get('native') === '1');
+      window._fumocaNativeMaster = useNativeMaster;
+      if (!useNativeMaster) {
+              const nifBytes = geometryToSplatRows(gaussians, calibration);
+      }
       const nifBlob  = new Blob([nifBytes], { type: 'application/octet-stream' });
       fileUrl = URL.createObjectURL(nifBlob);
       // Mirror the same window globals FumocDecoder.loadIntoViewer exposed,
@@ -2042,16 +2088,14 @@ async function boot() {
   }
   if (_isPlyUrl(fileUrl) && _blobType !== 'nif') {
     await mountPlyViewer(fileUrl);
+  } else if (window._fumocaNativeMaster && window._fumocaAppearanceSH) {
+    await mountNativeGaussianViewer(window._fumocaDecodedGaussians, window._fumocaAppearanceSH, window._fumocaCalibration);
+    if (window._fumocaDecodedMesh?.nVerts > 0) mountMeshViewer(window._fumocaDecodedMesh, window._fumocaCalibration);
+    else destroyMeshViewer();
   } else {
     await mountInteractiveViewer();
-    // Mesh overlay goes on top of the splat renderer once it's mounted, not
-    // before â€” mountInteractiveViewer owns stageHost/container setup, and
-    // mounting the mesh canvas first would have it torn down along with it.
-    if (window._fumocaDecodedMesh?.nVerts > 0) {
-      mountMeshViewer(window._fumocaDecodedMesh, window._fumocaCalibration);
-    } else {
-      destroyMeshViewer();  // clears any leftover toggle/canvas from a previously-viewed file
-    }
+    if (window._fumocaDecodedMesh?.nVerts > 0) mountMeshViewer(window._fumocaDecodedMesh, window._fumocaCalibration);
+    else destroyMeshViewer();
   }
 }
 teaserBtn?.addEventListener('click', () => { _fumocaTrack('preview_open', { mode: 'nif' }); openPreview('nif'); });
