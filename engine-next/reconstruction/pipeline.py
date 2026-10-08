@@ -1951,6 +1951,16 @@ class ReconstructionWorker:
                 quality_warnings.append('holdout_frames_insufficient_for_eval')
             if mesh_info and not mesh_info.get('is_watertight'):
                 quality_warnings.append('mesh_not_watertight')
+            if mesh_info and mesh_info.get('boundary_edges', 0):
+                quality_warnings.append(f"mesh_boundary_edges_{mesh_info['boundary_edges']}")
+            if mesh_info and mesh_info.get('nonmanifold_edges', 0):
+                quality_warnings.append(f"mesh_nonmanifold_edges_{mesh_info['nonmanifold_edges']}")
+            if mesh_info and not mesh_info.get('is_winding_consistent', True):
+                quality_warnings.append('mesh_winding_inconsistent')
+            if mesh_info and not mesh_info.get('is_volume', False):
+                quality_warnings.append('mesh_not_valid_volume')
+            if mesh_info and not mesh_info.get('printable', False):
+                quality_warnings.append('mesh_not_printable')
             if mesh_info and mesh_info.get('n_degenerate_faces'):
                 n_deg = mesh_info['n_degenerate_faces']
                 n_tot = mesh_info.get('n_faces') or 1
@@ -2007,7 +2017,7 @@ class ReconstructionWorker:
                 # existing only means the export step didn't crash.
                 'mesh_watertight':   bool(mesh_info.get('is_watertight')) if mesh_info else False,
                 'mesh_volume_m3':    mesh_info.get('volume_m3') if mesh_info else None,
-                'has_print_export':  bool(stl_bytes) and bool(mesh_info and mesh_info.get('is_watertight')),
+                'has_print_export':  bool(stl_bytes) and bool(mesh_info and mesh_info.get('printable')),
                 'calibration_method':     calibration['method'],
                 'calibration_confidence': calibration['confidence'],
                 'quality_warnings':       quality_warnings,  # [] means nothing flagged
@@ -3469,9 +3479,24 @@ class ReconstructionWorker:
             # with no signal that a slicer might reject it. Now the job
             # itself is honest about which one the client is getting.
             watertight = bool(mesh_info.get('is_watertight'))
-            if not watertight:
-                print('[NIF] mesh_only: exported STL is NOT watertight — '
-                      'may fail slicer validation, shipping with a warning flag')
+            printable = bool(mesh_info.get('printable'))
+            if not printable:
+                print('[NIF] mesh_only: mesh is NOT print-ready — '
+                      'STL will not be published as a trusted print export')
+
+            if not printable:
+                SB.table('reconstruction_jobs').update({
+                    'status': 'needs_retry', 'progress': 100,
+                    'meta': {**meta,
+                             'mesh_bytes_included': bool(mesh_bytes),
+                             'mesh_watertight': watertight,
+                             'mesh_printable': printable,
+                             'mesh_quality': mesh_info,
+                             'print_warning': 'The reconstructed mesh is not a trusted printable solid. '
+                                              'Repair or recapture before sending it to a printer.'},
+                }).eq('id', self.job_id).execute()
+                self._tick('needs_retry', 100, error_message='Mesh is not print-ready')
+                return
 
             self._tick('uploading', 85)
             stl_key = f'print/{self.user_id}/{self.job_id}/figurine.stl'
@@ -3487,13 +3512,12 @@ class ReconstructionWorker:
                 'meta': {**meta, 'stl_r2_key': stl_key, 'stl_url': stl_url,
                          'mesh_bytes_included': bool(mesh_bytes),
                          'mesh_watertight': watertight,
+                         'mesh_printable': printable,
+                         'mesh_quality': mesh_info,
                          'mesh_volume_m3': mesh_info.get('volume_m3'),
-                         'print_warning': None if watertight else
-                             'This mesh has holes or non-manifold edges and may fail '
-                             'slicer validation. Run auto-repair in the mesh editor '
-                             'before sending to a printer.'},
+                         'print_warning': None},
             }).eq('id', self.job_id).execute()
-            print(f'[NIF] mesh_only complete: {stl_key} (watertight={watertight})')
+            print(f'[NIF] mesh_only complete: {stl_key} (printable={printable})')
 
         except Exception as e:
             SB.table('reconstruction_jobs').update({
