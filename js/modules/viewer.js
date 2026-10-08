@@ -2047,6 +2047,10 @@ async function boot() {
       if (partGraph) {
         console.log('[Viewer] Product Part Graph loaded:', partGraph.parts?.length || 0, 'evidence-backed regions; mechanics remain explicitly authored.');
       }
+      if (partGraph) {
+        const fused = (partGraph.parts || []).filter(p => p.geometry?.multi_view?.stable_3d_evidence === true).length;
+        console.log('[Viewer] Multi-view fused parts:', fused, '/', partGraph.parts?.length || 0, 'stable 3D evidence; interaction remains authored-only.');
+      }
       window._fumocaDecodedGaussians = gaussians;
       renderTrustBadges(calibration, verification);
       // The NIF SH appearance is authoritative for photorealistic masters.
