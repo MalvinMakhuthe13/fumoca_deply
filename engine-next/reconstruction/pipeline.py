@@ -2794,6 +2794,74 @@ def _validate_part_authoring(authoring: dict | None, graph_parts: list) -> dict:
     return result
 
 
+def _verify_part_behaviour(part_geometry: dict | None, mechanical_candidates: dict | None,
+                            authoring_state: dict | None) -> dict:
+    """Level 10: verify explicit transforms against observed part geometry.
+
+    This verifier is intentionally conservative. It checks only relationships
+    that can be evaluated from captured geometry; it never synthesizes missing
+    geometry or changes an authored pivot/axis.
+    """
+    result = {
+        'status': 'not_verified', 'level': 10, 'parts': [],
+        'policy': (
+            'Verification compares explicit authoring with observed reconstructed '
+            'geometry. It does not prove hidden structure or invent mechanics.'
+        ),
+        'unseen_geometry_claimed': False,
+    }
+    if not isinstance(authoring_state, dict) or authoring_state.get('status') != 'available':
+        return result
+    geometry_parts = {int(p.get('part_id')): p for p in (part_geometry or {}).get('parts', []) if p.get('part_id') is not None}
+    mechanical_parts = {int(p.get('part_id')): p for p in (mechanical_candidates or {}).get('parts', []) if p.get('part_id') is not None}
+    for graph_id, authored in authoring_state.get('parts', {}).items():
+        try:
+            pid = int(str(graph_id).split('-')[-1])
+        except Exception:
+            continue
+        pg = geometry_parts.get(pid)
+        mc = mechanical_parts.get(pid)
+        checks = []
+        if not pg:
+            checks.append({'check': 'observed_geometry', 'status': 'fail', 'reason': 'no observed 3D geometry'})
+        else:
+            checks.append({'check': 'observed_geometry', 'status': 'pass', 'reason': 'part has reconstructed 3D extent'})
+        pivot = authored.get('pivot')
+        if pivot is not None and pg:
+            lo = np.asarray(pg.get('bounds_min', [0, 0, 0]), dtype=np.float64)
+            hi = np.asarray(pg.get('bounds_max', [0, 0, 0]), dtype=np.float64)
+            pv = np.asarray(pivot, dtype=np.float64)
+            diag = float(np.linalg.norm(hi - lo))
+            tol = max(diag * 0.15, 1e-5)
+            distance = float(np.linalg.norm(np.maximum(lo - pv, 0) + np.minimum(hi - pv, 0)))
+            checks.append({'check': 'pivot_near_part_extent', 'status': 'pass' if distance <= tol else 'warn', 'distance': distance, 'tolerance': tol})
+        axis = authored.get('axis')
+        if axis is not None and pg:
+            axes = np.asarray(pg.get('principal_axes', []), dtype=np.float64)
+            best = 0.0
+            if axes.shape == (3, 3):
+                a = np.asarray(axis, dtype=np.float64)
+                for k in range(3):
+                    best = max(best, abs(float(np.dot(a, axes[:, k]))))
+            checks.append({'check': 'axis_agrees_with_observed_frame', 'status': 'pass' if best >= 0.70 else 'warn', 'alignment': best})
+        if mc and mc.get('boundary_status') == 'weak_contact':
+            checks.append({'check': 'boundary_evidence', 'status': 'warn', 'reason': 'only weak observed cross-part contact'})
+        elif mc and mc.get('boundary_status') == 'observed_contact':
+            checks.append({'check': 'boundary_evidence', 'status': 'pass', 'reason': 'observed cross-part contact'})
+        passed = sum(x['status'] == 'pass' for x in checks)
+        failed = sum(x['status'] == 'fail' for x in checks)
+        warned = sum(x['status'] == 'warn' for x in checks)
+        state = 'verified' if failed == 0 and warned == 0 and passed >= 2 else ('warning' if failed == 0 else 'rejected')
+        result['parts'].append({
+            'part_id': pid,
+            'state': state,
+            'checks': checks,
+            'interactive_eligible': bool(state == 'verified' and authored.get('interactive_ready')),
+        })
+    result['status'] = 'available' if result['parts'] else 'not_verified'
+    return result
+
+
 def _build_product_part_graph(semantic: dict | None, geometry_confidence: dict | None = None,
                               multi_view: dict | None = None,
                               part_geometry: dict | None = None,
@@ -2868,11 +2936,19 @@ def _build_product_part_graph(semantic: dict | None, geometry_confidence: dict |
         p['capabilities']['hinge_authored'] = bool(
             authored.get('motion') == 'rotate' and authored.get('pivot') is not None and authored.get('axis') is not None
         )
+    verification = _verify_part_behaviour(part_geometry, mechanical_candidates, authoring_state)
+    for p in parts:
+        check = next((x for x in verification.get('parts', []) if int(x.get('part_id', -1)) == int(p.get('part_id', -1))), None)
+        if check:
+            p['capabilities']['verification_state'] = check['state']
+            p['capabilities']['interactive_ready'] = bool(check.get('interactive_eligible'))
+            p['capabilities']['animatable'] = bool(check.get('interactive_eligible'))
     return {
         'version': 1,
-        'fusion_level': 9 if authoring_state.get('status') == 'available' else (8 if mechanical_candidates and mechanical_candidates.get('status') == 'available' else (6 if multi_view and multi_view.get('status') == 'available' else 5)),
+        'fusion_level': 10 if verification.get('status') == 'available' else (9 if authoring_state.get('status') == 'available' else (8 if mechanical_candidates and mechanical_candidates.get('status') == 'available' else (6 if multi_view and multi_view.get('status') == 'available' else 5)),
         'status': 'evidence_only' if parts else 'unavailable',
         'authoring': authoring_state,
+        'verification': verification,
         'root_id': 'product-root',
         'root': {
             'id': 'product-root',
