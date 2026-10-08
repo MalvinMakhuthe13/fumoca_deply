@@ -48,7 +48,8 @@ export class MeshEngine {
     // calibration is "correctly proportioned, unknown absolute size."
     this._scaleFactor = 1.0;
     this._history = [];
-    this._historyMax = 12;
+    this._redo = [];
+    this._historyMax = 24;
 
     // THREE scene objects
     this._group = new THREE.Group();
@@ -63,8 +64,8 @@ export class MeshEngine {
     this._smoothIter     = 2;
     this._smoothLambda   = 0.5;
     this._decimTarget    = 1.0;
-    this._fillHoles      = true;
-    this._repairManifold = true;
+    this._fillHoles      = false;
+    this._repairManifold = false;
 
     // Display
     this._showWireframe  = false;
@@ -115,15 +116,27 @@ export class MeshEngine {
   _pushHistory() {
     if (!this._vArr) return;
     this._history.push({ vArr: this._vArr.slice(), nArr: this._nArr.slice(), cArr: this._cArr.slice(), iArr: this._iArr.slice() });
+    this._redo.length = 0;
     if (this._history.length > this._historyMax) this._history.shift();
   }
 
   undo() {
     if (!this._history.length) return false;
+    this._redo.push({ vArr: this._vArr.slice(), nArr: this._nArr.slice(), cArr: this._cArr.slice(), iArr: this._iArr.slice() });
     const p = this._history.pop();
     this._vArr = p.vArr; this._nArr = p.nArr; this._cArr = p.cArr; this._iArr = p.iArr;
     this._commitGeometry(this._vArr, this._nArr, this._cArr, this._iArr);
     this._report(100, 'Undo applied.');
+    return true;
+  }
+
+  redo() {
+    if (!this._redo.length) return false;
+    this._history.push({ vArr: this._vArr.slice(), nArr: this._nArr.slice(), cArr: this._cArr.slice(), iArr: this._iArr.slice() });
+    const p = this._redo.pop();
+    this._vArr = p.vArr; this._nArr = p.nArr; this._cArr = p.cArr; this._iArr = p.iArr;
+    this._commitGeometry(this._vArr, this._nArr, this._cArr, this._iArr);
+    this._report(100, 'Redo applied.');
     return true;
   }
 
