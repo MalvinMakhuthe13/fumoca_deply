@@ -67,7 +67,7 @@ vec3 rotateQuat(vec4 q, vec3 v) {
 }
 
 vec3 evalSH(vec3 d) {
-  vec3 c = C0 * sh0;
+  vec3 c = 0.28209479177387814 * sh0;
   if (shDegree < 1) return c + 0.5;
 
   c += -C1 * d.y * sh1;
