@@ -163,6 +163,33 @@ The NIF `ENCAPSULATION` record may carry a bounded deterministic sample map cont
 
 The canonical Gaussian and mesh chunks remain authoritative geometry. The confidence map describes **how strongly the capture supports those surfaces**.
 
+### Level 5 — Semantic part confidence
+
+Level 5 connects observed SAM/SAM2 regions to the reconstructed Gaussian field.
+
+At this stage FUMOCA stores **region identity**, not guessed product terminology. A region may be represented as `part_id=3`, but the pipeline does not claim that it is a door, wheel, cap, handle or other named component unless a later semantic naming/authoring stage establishes that mapping.
+
+For each reconstructed Gaussian that can be projected into the reference capture frame, FUMOCA may record:
+
+- observed SAM/SAM2 region ID;
+- semantic confidence combining segmentation confidence with Level 4 geometry confidence;
+- number of reconstructed Gaussians assigned to the region;
+- source frame and source segmentation method;
+- `name_status='unassigned'` until a product-specific semantic label is explicitly established.
+
+Unknown or unprojectable Gaussians retain the reserved unknown label. They are never forced into a semantic part merely to obtain complete coverage.
+
+This distinction is essential for the future exploration system. Once a part has sufficient evidence and an explicit product identity, the same part ID can become the stable anchor for actions such as:
+
+- open/close a car door;
+- open a bottle cap or pump;
+- rotate a wheel;
+- highlight a light, badge or grille;
+- expose a product compartment;
+- attach sound and animation to the actual structural part.
+
+Until that evidence exists, FUMOCA treats the region as an observed segment, not an interactive mechanical component.
+
 ### Capture implication
 
 For a car, for example, the production capture should cover:
