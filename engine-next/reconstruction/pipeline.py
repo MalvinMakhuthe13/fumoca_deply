@@ -886,6 +886,66 @@ def track_primary_object(frames: list, alpha_masks: list) -> list:
         return alpha_masks
 
 
+def _mesh_quality_report(mesh, method: str, detail_tier: str) -> dict:
+    """Return explicit geometry/printability diagnostics for every mesh output.
+
+    A client-facing FUMOCA asset needs more than a single watertight boolean.
+    Boundary and non-manifold edge counts, winding consistency and volume
+    validity distinguish a real printable solid from a visually plausible
+    surface. Edge counting is vectorized so it remains practical on
+    production meshes.
+    """
+    faces = np.asarray(mesh.faces)
+    edges = np.sort(np.concatenate(
+        [faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]],
+        axis=0
+    ), axis=1) if len(faces) else np.empty((0, 2), dtype=np.int64)
+
+    if len(edges):
+        _unique_edges, edge_counts = np.unique(edges, axis=0, return_counts=True)
+        boundary_edges = int(np.count_nonzero(edge_counts == 1))
+        nonmanifold_edges = int(np.count_nonzero(edge_counts > 2))
+    else:
+        boundary_edges = 0
+        nonmanifold_edges = 0
+
+    try:
+        nondegenerate = mesh.nondegenerate_faces()
+        degenerate_faces = int(len(faces) - int(np.sum(nondegenerate)))
+    except Exception:
+        degenerate_faces = None
+
+    watertight = bool(mesh.is_watertight)
+    winding = bool(mesh.is_winding_consistent)
+    is_volume = bool(mesh.is_volume)
+    printable = bool(
+        watertight and winding and is_volume and
+        boundary_edges == 0 and nonmanifold_edges == 0 and
+        (degenerate_faces in (None, 0))
+    )
+
+    bounds = np.asarray(mesh.bounds, dtype=np.float64) if len(mesh.vertices) else np.zeros((2, 3))
+    extents = (bounds[1] - bounds[0]).tolist() if len(mesh.vertices) else [0.0, 0.0, 0.0]
+
+    return {
+        'method': method,
+        'detail_tier': detail_tier,
+        'n_verts': int(len(mesh.vertices)),
+        'n_faces': int(len(mesh.faces)),
+        'n_degenerate_faces': degenerate_faces,
+        'is_watertight': watertight,
+        'is_winding_consistent': winding,
+        'is_volume': is_volume,
+        'printable': printable,
+        'boundary_edges': boundary_edges,
+        'nonmanifold_edges': nonmanifold_edges,
+        'surface_area_m2': float(mesh.area),
+        'volume_m3': float(mesh.volume) if is_volume else None,
+        'bounds_extent': extents,
+        'euler_number': int(mesh.euler_number) if len(mesh.faces) else None,
+    }
+
+
 # ─── Stage 5: Gaussian Splatting ─────────────────────────────────────────────
 def _dequantize_geometry(geo_bytes: bytes) -> tuple[int, np.ndarray]:
     """
@@ -3173,17 +3233,14 @@ class ReconstructionWorker:
                         except Exception:
                             pass
 
-                        return mesh_chunk_bytes, stl_bytes, {
-                            'volume_m3': float(mesh.volume) if mesh.is_watertight else None,
-                            'is_watertight': bool(mesh.is_watertight),
-                            'n_verts': n_verts,
-                            'n_faces': n_faces,
-                            'n_degenerate_faces': n_degenerate,
-                            'method': 'screened_poisson',
-                            'detail_tier': detail,
+                        mesh_info = _mesh_quality_report(
+                            mesh, 'screened_poisson', detail
+                        )
+                        mesh_info.update({
                             'poisson_depth': poisson_depth,
                             'density_trim_quantile': density_q,
-                        }
+                        })
+                        return mesh_chunk_bytes, stl_bytes, mesh_info
 
                     print('[NIF] Poisson result was not a valid watertight product surface — falling back to marching cubes')
             except ImportError as e:
@@ -3363,15 +3420,12 @@ class ReconstructionWorker:
             print(f'[NIF] Degenerate-face check failed (non-fatal): {e}')
             n_degenerate = None
 
-        return mesh_chunk_bytes, stl_bytes, {
-            'volume_m3': float(mesh.volume) if mesh.is_watertight else None,
-            'is_watertight': bool(mesh.is_watertight),
-            'n_verts': n_verts,
-            'n_faces': n_faces,
-            'n_degenerate_faces': n_degenerate,
-            'method': 'oriented_tsdf_marching_cubes',
-            'detail_tier': os.environ.get('FUMOCA_MESH_DETAIL', 'high').lower(),
-        }
+        mesh_info = _mesh_quality_report(
+            mesh,
+            'oriented_tsdf_marching_cubes',
+            os.environ.get('FUMOCA_MESH_DETAIL', 'high').lower(),
+        )
+        return mesh_chunk_bytes, stl_bytes, mesh_info
 
     def run_mesh_only(self, geo_r2_key: str, meta: dict):
         """
