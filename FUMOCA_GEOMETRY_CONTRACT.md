@@ -364,3 +364,25 @@ This creates the intended architecture:
 Most importantly, Level 11 does **not** close holes, create hidden interiors, detach arbitrary mesh regions, or invent mechanics. It moves only geometry that has an observed Gaussian part assignment and an explicitly authored transform.
 
 The next required upgrade after Level 11 is **master-solid part mapping**: derive evidence-backed mesh-face ownership from the canonical Gaussian/semantic assignment so the exact same verified transform can drive a structural mesh preview. Until that mapping exists, the solid remains immutable and authoritative.
+
+### Level 12 — Master-Solid Part Mapping
+
+Level 12 establishes the missing structural bridge between the observed Gaussian part graph and the **MASTER SOLID**.
+
+After the solid mesh is reconstructed, every mesh vertex is compared against the canonical Gaussian positions. A vertex receives a part ID only when a nearby Gaussian carries an observed semantic label and falls within a conservative evidence distance. A face receives a part ID when its vertices provide a clear ownership majority. Faces with conflicting ownership remain explicitly `mixed`; faces without sufficient evidence remain `unknown`.
+
+The mapping therefore distinguishes:
+
+- **mapped face** — structural mesh face has evidence-backed ownership by an observed Gaussian part;
+- **mixed face** — boundary between observed regions is not clean enough to assign safely;
+- **unknown face** — no sufficiently close observed semantic evidence exists.
+
+FUMOCA never assigns every mesh triangle merely because the mesh is watertight. This is critical for real-product encapsulation: a Poisson surface can contain topology that must not automatically be interpreted as belonging to a particular product part.
+
+The mapping is persisted in NIF 1.3 as `MESH_PART_MAP (0x001C)` using `FSMM` binary data. The browser decoder exposes vertex/face labels and confidence without promoting them to mechanics.
+
+Level 12 changes the interaction architecture to:
+
+`OBSERVED GAUSSIANS → VERIFIED PART MOTION → MASTER SOLID OWNERSHIP → SYNCHRONIZED STRUCTURAL + PHOTOREALISTIC PREVIEW`
+
+A part is not finally interactive merely because its Gaussian motion simulation passes. Its structural mesh ownership must also be mapped. Until then, the master solid remains immutable and authoritative.
