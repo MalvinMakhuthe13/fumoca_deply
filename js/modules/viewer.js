@@ -2034,10 +2034,11 @@ async function boot() {
       const nifResp   = await fetch(fileUrl);
       const nifBuffer = await nifResp.arrayBuffer();
       if (fileUrl.startsWith('blob:')) URL.revokeObjectURL(fileUrl);
-      const { meta, gaussians, appearance, semantic, partGraph, calibration, verification, mesh } = await decodeNif(nifBuffer);
+      const { meta, gaussians, appearance, semantic, partGraph, calibration, verification, mesh, meshPartMap } = await decodeNif(nifBuffer);
       window._fumocaCalibration  = calibration;
       window._fumocaVerification = verification;
       window._fumocaDecodedMesh  = mesh;
+      window._fumocaMeshPartMap  = meshPartMap;
       window._fumocaAppearanceSH = appearance;
       window._fumocaSemanticParts = semantic;
       window._fumocaProductPartGraph = partGraph;
@@ -2062,6 +2063,11 @@ async function boot() {
         const motion = partGraph.motion_verification || {};
         console.log('[Viewer] Level 10 verified interactive parts:', verified, '/', authored, '; unverified authoring remains locked.');
         console.log('[Viewer] Level 11 motion simulation:', motion.status || 'not_available', '; motion-verified interactive parts:', motionVerified, '/', verified, '; master solid sync:', motion.master_solid_sync || 'not_mapped', '; Gaussian preview:', motion.gaussian_preview_sync || 'not_ready');
+        console.log('[Viewer] Level 12 master-solid part map:', meshPartMap?.status || 'not_available',
+          '; mapped faces:', meshPartMap?.faceLabels ? Array.from(meshPartMap.faceLabels).filter(x => x < 254).length : 0,
+          '/', meshPartMap?.faceCount || 0,
+          '; unknown:', meshPartMap?.unknownLabel ?? 255,
+          '; mixed:', meshPartMap?.mixedLabel ?? 254);
       }
       window._fumocaDecodedGaussians = gaussians;
       renderTrustBadges(calibration, verification);
