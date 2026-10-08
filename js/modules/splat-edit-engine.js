@@ -940,6 +940,7 @@ function initMeshPanel() {
     me._commitGeometry(me._vArr,me._nArr,me._cArr,me._iArr);me._report(100,'Non-manifold removed.');
   });
   g('meshUndoBtn').addEventListener('click',()=>getMeshEngine().undo());
+   g('meshRedoBtn').addEventListener('click',()=>getMeshEngine().redo());
   g('meshToggleVisBtn').addEventListener('click',()=>{if(_meshEngine){_meshVisible=!_meshVisible;_meshVisible?_meshEngine.show():_meshEngine.hide();}});
   g('meshCalibrateBtn').addEventListener('click',()=>{
     const axis=g('meshCalAxis').value;const mm=Number(g('meshCalMM').value);
@@ -1020,6 +1021,7 @@ el.meshToggleBtn.addEventListener('click',()=>{
 // ── KEYBOARD ─────────────────────────────────────────────────────────────────
 window.addEventListener('keydown',e=>{
   if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();undo();return;}
+   if((e.ctrlKey||e.metaKey)&&e.shiftKey&&e.key.toLowerCase()==='z'){e.preventDefault();getMeshEngine()?.redo();return;}
   if(e.key==='Delete'||e.key==='Backspace'){if(document.activeElement.tagName!=='INPUT'){e.preventDefault();deleteSelected();return;}}
   if(e.key==='Escape'){e.preventDefault();clearSelection();state.lassoPoints=[];renderLasso();return;}
   if(e.key.toLowerCase()==='b')setMode('orbit');
@@ -1053,5 +1055,14 @@ document.querySelectorAll('.section-head').forEach(h=>{
     const name=decodeURIComponent((fileUrl.split('/').pop()||'scene').split('?')[0]);
     const file=new File([blob],name,{type:blob.type||'application/octet-stream'});
     await loadFile(file,fileUrl);
+    // Viewer/Studio handoff can request the mesh workflow directly.
+    // Do this only after the splat is loaded so the mesh engine receives
+    // the real Gaussian state rather than an empty editor.
+    if (params.get('mesh') === '1') {
+      setTimeout(() => {
+        initMeshPanel();
+        if (el.meshToggleBtn) el.meshToggleBtn.click();
+      }, 0);
+    }
   } catch(err) { setStatus(`Handoff failed: ${err.message}`); }
 })();

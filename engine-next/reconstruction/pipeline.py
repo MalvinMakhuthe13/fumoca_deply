@@ -1,4 +1,6 @@
 """
+
+# FUMOCA quality pass: depth-supervised Gaussian training + detail-preserving Poisson solid reconstruction.
 NIF Reconstruction Pipeline — Complete
 fumoca.co.za · © Fumoca Technologies
 
@@ -13,8 +15,8 @@ What this produces per .nif file:
                                  CALIBRATION before assuming units.
   CHUNK 0x0008  ALPHA_MASK     — per-pixel foreground alpha (uint8 HxW, 0=bg, 255=fg)
   CHUNK 0x0009  LAYER_GEO      — layered depth field: foreground + background split
-  CHUNK 0x0016  SEMANTIC_MAP   — per-point semantic label (uint8, from SAM segments) — defined,
-                                 not yet written by this pipeline
+  CHUNK 0x0016  SEMANTIC_MAP   — per-Gaussian observed semantic region evidence (SAM/SAM2)
+  CHUNK 0x001B  PART_GRAPH      — product-part graph linking observed regions to geometry evidence
   CHUNK 0x0017  CALIBRATION    — real-world scale record: method/scale_factor/confidence.
                                  See estimate_scale(). Always written (even when uncalibrated,
                                  so absence never has to be guessed at).
@@ -31,13 +33,11 @@ Pipeline stages:
   6. Segment Anything (SAM 2) — per-object segmentation for interactive layers
   7. Camera pose estimation — COLMAP sparse SfM
   8. 3D depth field training — gsplat v1.x
-  9. Mesh extraction — real triangulation from the trained Gaussians. Each
-     Gaussian's shortest axis (after training) aligns with the true surface
-     normal, so we treat the splats as an oriented point cloud, splat them into
-     a signed-distance volume, and run marching cubes to get an actual
-     watertight triangle mesh — not a renamed point cloud. This is the same
-     family of technique as SuGaR / Gaussian-to-mesh literature, implemented
-     here with only numpy/scipy/scikit-image (no GPU, no extra service).
+  9. Mesh extraction — production screened-Poisson reconstruction from the
+     trained Gaussians. The learned Gaussian orientation and shortest axis are
+     preserved as surface normals, then Poisson reconstructs a detailed solid
+     surface. The previous oriented-TSDF/Marching-Cubes implementation remains
+     as a dependency-light fallback. Neither path is a renamed point cloud.
   10. Layer splitting — divide points into foreground/background by depth + mask
   11. Proxy video encoding — ffmpeg H.264
   12. Pack all chunks → .nif binary
@@ -46,7 +46,7 @@ Pipeline stages:
 
 Requirements:
   pip install gsplat torch torchvision rembg segment-anything-2 depth-anything boto3 \
-              supabase trimesh scikit-image scipy manifold3d fast_simplification \
+              supabase trimesh scikit-image scipy open3d manifold3d fast_simplification \
               imageio[ffmpeg] Pillow requests
 """
 
@@ -121,6 +121,7 @@ CHUNK_PROXY  = 0x0002
 CHUNK_DEPTH  = 0x0007
 CHUNK_ALPHA  = 0x0008
 CHUNK_LAYER  = 0x0009
+CHUNK_MESH_PART_MAP = 0x001C  # Level 12 structural mesh vertex/face ownership evidence
 CHUNK_CERT   = 0x0020  # Encoder certificate — fumoca INTERNAL tier
 CHUNK_META   = 0x0001  # UTF-8 JSON: title/description/vertical/hotspots — same wire format
                         # NIFSpec.js's encodeMetaChunk()/decodeMetaChunk() use. Until this was
@@ -207,7 +208,12 @@ CHUNK_CALIB  = 0x0017  # Real-world scale calibration record — see estimate_sc
                         # that cares about real units (print pipeline, product
                         # verification) reads scale_factor + confidence from here
                         # instead of assuming raw positions are already in metres.
-CHUNK_VERIFY = 0x0018  # Product-verification report — see verify.py. Only present
+CHUNK_VERIFY = 0x0018
+CHUNK_ENCAPSULATION = 0x0019  # Evidence/policy record for whole-product encapsulation
+CHUNK_APPEARANCE = 0x001A  # Full view-dependent Gaussian SH appearance master
+CHUNK_PART_GRAPH = 0x001B  # Evidence-backed product part graph; names/animation are not guessed
+                        # Legacy GEO keeps an RGB fallback; this chunk is the
+                        # authoritative photorealistic appearance representation. — see verify.py. Only present
                         # when a reference mesh was supplied for this job; absence of
                         # this chunk means "not verified", not "passed verification".
 
@@ -365,7 +371,7 @@ def pack_nif(chunks: list, vertical: str, fps: int = 30) -> bytes:
     """Pack a list of (chunk_type, data_bytes) into a complete .nif binary."""
     hdr = bytearray(256)
     struct.pack_into('>I', hdr, 0,  NIF_MAGIC)
-    hdr[4], hdr[5] = 1, 1          # version 1.1 — added CALIBRATION/VERIFICATION chunks
+    hdr[4], hdr[5] = 1, 3          # NIF 1.3 — Level 12 master-solid part mapping evidence
     struct.pack_into('>q', hdr, 8,  int(time.time() * 1000))
     hdr[16] = 0                     # CRS: LOCAL
     struct.pack_into('>H', hdr, 18, 1)   # frameCount
@@ -886,6 +892,1036 @@ def track_primary_object(frames: list, alpha_masks: list) -> list:
         return alpha_masks
 
 
+def _encapsulation_report(mesh_info: dict | None, poses: list | None,
+                          surface_geo: np.ndarray | None,
+                          object_masks: list | None, alpha_masks: list | None) -> dict:
+    """Build a compact evidence map showing which reconstructed surface regions
+    are supported by actual capture viewpoints.
+
+    This is intentionally an evidence map, not a visibility solver. A camera
+    being on the "front" side of a product does not prove every front-facing
+    polygon was visible. Later FUMOCA layers can add depth/ray visibility,
+    confidence and semantic-part evidence.
+
+    Most importantly, this function never converts a closed mesh into a claim
+    that hidden/interior/underside geometry was recovered.
+    """
+    mesh_ok = bool(mesh_info and mesh_info.get('is_watertight')
+                   and mesh_info.get('is_winding_consistent')
+                   and mesh_info.get('is_volume'))
+
+    foreground_frames = 0
+    if alpha_masks:
+        for m in alpha_masks:
+            try:
+                if float(np.mean(np.asarray(m) > 0.15)) > 0.005:
+                    foreground_frames += 1
+            except Exception:
+                pass
+
+    pose_count = len(poses or [])
+    declared_complete = bool(
+        os.environ.get('FUMOCA_CAPTURE_COMPLETE', '').lower() in ('1', 'true', 'yes')
+    )
+
+    # Recover camera centres from COLMAP/synthetic world->camera matrices:
+    # C = -R^T t. Keep this tolerant because older pose records may be tuples
+    # carrying a frame name alongside the matrix.
+    camera_centres = []
+    for pose in (poses or []):
+        try:
+            vm = pose[1] if isinstance(pose, tuple) else pose
+            vm = vm.detach().cpu().numpy() if hasattr(vm, 'detach') else np.asarray(vm)
+            R = np.asarray(vm[:3, :3], dtype=np.float64)
+            t = np.asarray(vm[:3, 3], dtype=np.float64)
+            C = -R.T @ t
+            if np.all(np.isfinite(C)):
+                camera_centres.append(C)
+        except Exception:
+            continue
+
+    # Use the reconstructed product centre as the directional origin.
+    # COLMAP's world origin is arbitrary, so using the raw camera coordinates
+    # directly would make "front/rear/left/right" depend on SfM translation.
+    surface_center = None
+    if surface_geo is not None:
+        try:
+            p = np.asarray(surface_geo[:, :3], dtype=np.float64)
+            p = p[np.all(np.isfinite(p), axis=1)]
+            if len(p):
+                surface_center = np.median(p, axis=0)
+        except Exception:
+            surface_center = None
+    if surface_center is None:
+        surface_center = np.zeros(3, dtype=np.float64)
+
+    # Coarse directional cells are the first practical layer of the
+    # Encapsulation Map. They are deliberately semantic-neutral: later stages
+    # can replace/augment them with true per-surface visibility.
+    region_defs = [
+        ('front',        np.array([0., 0., 1.])),
+        ('rear',         np.array([0., 0., -1.])),
+        ('right',        np.array([1., 0., 0.])),
+        ('left',         np.array([-1., 0., 0.])),
+        ('top',          np.array([0., 1., 0.])),
+        ('bottom',       np.array([0., -1., 0.])),
+        ('front_right',  np.array([1., 0., 1.])),
+        ('front_left',   np.array([-1., 0., 1.])),
+        ('rear_right',   np.array([1., 0., -1.])),
+        ('rear_left',    np.array([-1., 0., -1.])),
+        ('top_front',    np.array([0., 1., 1.])),
+        ('top_rear',     np.array([0., 1., -1.])),
+        ('bottom_front', np.array([0., -1., 1.])),
+        ('bottom_rear',  np.array([0., -1., -1.])),
+    ]
+
+    cells = []
+    for name, direction in region_defs:
+        direction = direction / max(np.linalg.norm(direction), 1e-8)
+        support = []
+        for i, C in enumerate(camera_centres):
+            v = C - surface_center
+            norm = np.linalg.norm(v)
+            if norm > 1e-8:
+                score = float(np.dot(v / norm, direction))
+                if score >= 0.35:
+                    support.append(i)
+        cells.append({
+            'region': name,
+            'supporting_views': len(support),
+            'support_view_indices': support[:32],
+            'confidence': (
+                'confident' if len(support) >= 3 else
+                'weak' if len(support) >= 1 else
+                'unsupported'
+            ),
+            'reconstructed_surface_samples': 0,
+        })
+
+    # Attach reconstructed-surface evidence to cells. We sample deterministically
+    # so a huge Gaussian cloud does not explode NIF metadata size.
+    if surface_geo is not None:
+        try:
+            pts = np.asarray(surface_geo[:, :3], dtype=np.float64)
+            pts = pts[np.all(np.isfinite(pts), axis=1)]
+            if len(pts):
+                center = np.median(pts, axis=0)
+                rel = pts - center
+                radius = np.linalg.norm(rel, axis=1)
+                valid = radius > 1e-8
+                rel = rel[valid]
+                if len(rel) > 50_000:
+                    idx = np.linspace(0, len(rel) - 1, 50_000, dtype=np.int64)
+                    rel = rel[idx]
+
+                # Each sample contributes to its strongest coarse direction.
+                dirs = np.stack([d / max(np.linalg.norm(d), 1e-8) for _, d in region_defs])
+                unit = rel / np.maximum(np.linalg.norm(rel, axis=1, keepdims=True), 1e-8)
+                best = np.argmax(unit @ dirs.T, axis=1)
+                for i, (_, d) in enumerate(region_defs):
+                    cells[i]['reconstructed_surface_samples'] = int(np.count_nonzero(best == i))
+        except Exception as e:
+            print(f'[NIF] Encapsulation surface sampling skipped: {e}')
+
+    for cell in cells:
+        if cell['reconstructed_surface_samples'] > 0 and cell['supporting_views'] == 0:
+            cell['confidence'] = 'unsupported_surface'
+        elif cell['reconstructed_surface_samples'] == 0:
+            cell['confidence'] = 'no_reconstructed_surface'
+
+    confident_regions = sum(c['confidence'] == 'confident' for c in cells)
+    weak_regions = sum(c['confidence'] == 'weak' for c in cells)
+    unsupported_regions = sum(c['confidence'] == 'unsupported_surface' for c in cells)
+    empty_regions = sum(c['confidence'] == 'no_reconstructed_surface' for c in cells)
+
+    if not mesh_ok:
+        status = 'not_reconstructed'
+    elif declared_complete:
+        status = 'encapsulated_declared'
+    elif confident_regions >= 8 and unsupported_regions == 0:
+        status = 'surface_encapsulated_unverified'
+    elif confident_regions >= 4 or weak_regions >= 6:
+        status = 'partial_surface_evidence'
+    else:
+        status = 'surface_evidence_insufficient'
+
+    return {
+        'status': status,
+        'solid_closed': mesh_ok,
+        'foreground_frames': foreground_frames,
+        'pose_count': pose_count,
+        'camera_centres_recovered': len(camera_centres),
+        'coverage_cells': cells,
+        'coverage_summary': {
+            'confident_regions': confident_regions,
+            'weak_regions': weak_regions,
+            'unsupported_surface_regions': unsupported_regions,
+            'regions_without_reconstructed_surface': empty_regions,
+        },
+        'complete_coverage_declared': declared_complete,
+        'unseen_geometry_claimed': False,
+        'evidence_policy': 'directional_surface_coverage_only',
+        'policy': (
+            'Camera-direction support indicates useful capture viewpoints but '
+            'is not proof that every surface point was visible. Hidden, interior, '
+            'underside and occluded geometry require direct capture evidence or '
+            'explicit authored geometry. A closed mesh alone never upgrades that claim.'
+        ),
+    }
+
+def _surface_camera_evidence(surface_geo: np.ndarray | None, poses: list | None,
+                             alpha_masks: list | None, image_shape=None) -> dict:
+    """Estimate per-surface support from projected camera observations.
+
+    Level 2 of the Encapsulation Map: unlike the coarse directional layer,
+    this tests individual reconstructed samples against real camera geometry.
+    A sample is supported when it projects inside a foreground mask and its
+    estimated surface normal faces the camera.
+
+    This is deliberately called *projection evidence*, not visibility proof:
+    without a depth buffer/ray cast we cannot know whether another surface
+    occludes the sample. That stronger visibility test is the next layer.
+    """
+    if surface_geo is None or poses is None or not len(poses):
+        return {
+            'status': 'unavailable',
+            'surface_samples': 0,
+            'supported_samples': 0,
+            'support_ratio': 0.0,
+            'occlusion_tested': False,
+        }
+
+    try:
+        pts = np.asarray(surface_geo[:, :3], dtype=np.float64)
+        finite = np.all(np.isfinite(pts), axis=1)
+        pts = pts[finite]
+        if not len(pts):
+            raise ValueError('no finite surface points')
+
+        # Deterministic sample cap keeps metadata bounded.
+        if len(pts) > 25_000:
+            pts = pts[np.linspace(0, len(pts) - 1, 25_000, dtype=np.int64)]
+
+        # Gaussian shortest-axis orientation is our surface-normal proxy.
+        log_scales = np.asarray(surface_geo[:, 3:6], dtype=np.float64)[finite]
+        quats = np.asarray(surface_geo[:, 6:10], dtype=np.float64)[finite]
+        axis_idx = np.argmin(log_scales, axis=1)
+        qn = quats / np.maximum(np.linalg.norm(quats, axis=1, keepdims=True), 1e-8)
+        qw, qx, qy, qz = qn[:,0], qn[:,1], qn[:,2], qn[:,3]
+        R = np.empty((len(qn), 3, 3), dtype=np.float64)
+        R[:,0,0]=1-2*(qy*qy+qz*qz); R[:,0,1]=2*(qx*qy-qz*qw); R[:,0,2]=2*(qx*qz+qy*qw)
+        R[:,1,0]=2*(qx*qy+qz*qw); R[:,1,1]=1-2*(qx*qx+qz*qz); R[:,1,2]=2*(qy*qz-qx*qw)
+        R[:,2,0]=2*(qx*qz-qy*qw); R[:,2,1]=2*(qy*qz+qx*qw); R[:,2,2]=1-2*(qx*qx+qy*qy)
+        normals = R[np.arange(len(R)), :, axis_idx]
+        normals /= np.maximum(np.linalg.norm(normals, axis=1, keepdims=True), 1e-8)
+
+        # Match the deterministic sample selection used above.
+        if len(finite.nonzero()[0]) > 25_000:
+            source_idx = np.linspace(0, len(finite.nonzero()[0]) - 1, 25_000, dtype=np.int64)
+            normals = normals[source_idx]
+
+        H, W = image_shape or ((alpha_masks[0].shape if alpha_masks else (0,0)))
+        if H <= 0 or W <= 0:
+            raise ValueError('image dimensions unavailable')
+        fx = fy = max(H, W) * 0.8
+        cx, cy = W / 2.0, H / 2.0
+
+        support_counts = np.zeros(len(pts), dtype=np.uint16)
+        facing_counts = np.zeros(len(pts), dtype=np.uint16)
+        foreground_counts = np.zeros(len(pts), dtype=np.uint16)
+
+        for i, pose in enumerate(poses):
+            vm = pose[1] if isinstance(pose, tuple) else pose
+            vm = vm.detach().cpu().numpy() if hasattr(vm, 'detach') else np.asarray(vm)
+            Rw = vm[:3,:3].astype(np.float64)
+            tw = vm[:3,3].astype(np.float64)
+            cam = (Rw @ pts.T).T + tw
+            z = cam[:,2]
+            valid = z > 1e-6
+            u = fx * cam[:,0] / np.maximum(z, 1e-8) + cx
+            v = fy * cam[:,1] / np.maximum(z, 1e-8) + cy
+            inside = valid & (u >= 0) & (u < W) & (v >= 0) & (v < H)
+
+            # Camera-facing test. Normal sign is ambiguous, so use the absolute
+            # dot product: the sample can be oriented either way by a Gaussian.
+            C = -Rw.T @ tw
+            to_camera = C[None,:] - pts
+            to_camera /= np.maximum(np.linalg.norm(to_camera, axis=1, keepdims=True), 1e-8)
+            facing = np.abs(np.einsum('ij,ij->i', normals, to_camera)) >= 0.35
+            facing_counts += (inside & facing).astype(np.uint16)
+
+            if alpha_masks and i < len(alpha_masks):
+                mask = np.asarray(alpha_masks[i])
+                if mask.ndim > 2:
+                    mask = mask.squeeze()
+                uu = np.clip(np.rint(u).astype(np.int64), 0, W-1)
+                vv = np.clip(np.rint(v).astype(np.int64), 0, H-1)
+                fg = np.zeros(len(pts), dtype=bool)
+                valid_idx = np.where(inside)[0]
+                fg[valid_idx] = mask[vv[valid_idx], uu[valid_idx]] > 32
+                foreground_counts += (inside & fg).astype(np.uint16)
+
+            support_counts += (inside & facing).astype(np.uint16)
+
+        supported = support_counts > 0
+        strong = support_counts >= 2
+        foreground_supported = foreground_counts > 0
+
+        return {
+            'status': 'available',
+            'surface_samples': int(len(pts)),
+            'supported_samples': int(np.count_nonzero(supported)),
+            'strongly_supported_samples': int(np.count_nonzero(strong)),
+            'foreground_supported_samples': int(np.count_nonzero(foreground_supported)),
+            'support_ratio': float(np.mean(supported)),
+            'strong_support_ratio': float(np.mean(strong)),
+            'foreground_support_ratio': float(np.mean(foreground_supported)),
+            'mean_support_views': float(np.mean(support_counts)),
+            'occlusion_tested': False,
+            'depth_consistency_tested': False,
+            'policy': (
+                'Projected surface support combines camera projection, foreground '
+                'mask evidence and Gaussian surface orientation. It is not a true '
+                'visibility test because occlusion/depth-buffer testing is not yet applied.'
+            ),
+        }
+    except Exception as e:
+        return {
+            'status': 'error',
+            'surface_samples': 0,
+            'supported_samples': 0,
+            'support_ratio': 0.0,
+            'occlusion_tested': False,
+            'error': str(e),
+        }
+
+
+
+
+def _semantic_part_evidence(surface_geo: np.ndarray | None, segments: dict | None,
+                             pose, image_shape=None, geometry_confidence: dict | None = None) -> dict:
+    """Level 5 evidence from observed SAM/SAM2 regions; never guesses product names."""
+    base = {
+        'status': 'unavailable', 'level': 5, 'encoding': 'uint8_per_gaussian',
+        'unknown_label': 255, 'gaussian_count': 0, 'assigned_count': 0,
+        'assignment_ratio': 0.0, 'parts': [],
+        'policy': 'SAM/SAM2 region IDs are evidence regions, not guessed product names.'
+    }
+    if surface_geo is None or not segments or pose is None or not image_shape:
+        return base
+    try:
+        raw = np.asarray(surface_geo, dtype=np.float32)
+        n = len(raw)
+        labels = np.full(n, 255, dtype=np.uint8)
+        confidence = np.zeros(n, dtype=np.float32)
+        H, W = int(image_shape[0]), int(image_shape[1])
+        fx = fy = max(H, W) * 0.8
+        cx, cy = W * 0.5, H * 0.5
+        vm = pose[1] if isinstance(pose, tuple) else pose
+        vm = vm.detach().cpu().numpy() if hasattr(vm, 'detach') else np.asarray(vm)
+        cam = (vm[:3, :3] @ raw[:, :3].T + vm[:3, 3:4]).T
+        z = cam[:, 2]
+        u = fx * cam[:, 0] / np.maximum(z, 1e-8) + cx
+        v = fy * cam[:, 1] / np.maximum(z, 1e-8) + cy
+        valid = np.all(np.isfinite(raw[:, :3]), axis=1) & (z > 1e-6) & (u >= 0) & (u < W) & (v >= 0) & (v < H)
+        items = []
+        for sid, seg in sorted(segments.items(), key=lambda kv: int(kv[0])):
+            mask = np.asarray(seg.get('mask'))
+            if mask.ndim >= 2 and mask.shape[:2] == (H, W):
+                items.append((int(sid), mask > 32, float(seg.get('score', 0.0)),
+                              int(seg.get('area', np.count_nonzero(mask)))))
+        if not items:
+            return base
+        votes = {sid: 0 for sid, *_ in items}
+        sums = {sid: 0.0 for sid, *_ in items}
+        score_by_sid = {sid: score for sid, _, score, _ in items}
+        for j in np.flatnonzero(valid):
+            x = int(np.clip(round(float(u[j])), 0, W - 1))
+            y = int(np.clip(round(float(v[j])), 0, H - 1))
+            candidates = [(score, -sid, sid) for sid, mask, score, _ in items if mask[y, x]]
+            if not candidates:
+                continue
+            _, _, sid = max(candidates)
+            labels[j] = np.uint8(sid if sid < 255 else 254)
+            gc = 0.5
+            if geometry_confidence:
+                try:
+                    # Level 4 samples are sparse; index them once rather than scanning
+                    # the confidence sample list for every Gaussian (O(N*8192) worst case).
+                    confidence_by_index = geometry_confidence.get('_confidence_by_index')
+                    if confidence_by_index is None:
+                        confidence_by_index = {
+                            int(rec.get('index', -1)): float(rec.get('confidence', 0.5))
+                            for rec in geometry_confidence.get('samples', [])
+                            if int(rec.get('index', -1)) >= 0
+                        }
+                        geometry_confidence['_confidence_by_index'] = confidence_by_index
+                    gc = float(confidence_by_index.get(int(j), 0.5))
+                except Exception:
+                    pass
+            sem_score = float(np.clip(0.70 * score_by_sid[sid] + 0.30 * gc, 0.0, 1.0))
+            confidence[j] = sem_score
+            votes[sid] += 1
+            sums[sid] += sem_score
+        parts = []
+        for sid, mask, sam_score, area in items:
+            count = votes[sid]
+            parts.append({
+                'part_id': sid, 'source': 'sam2_reference_frame',
+                'name': None, 'name_status': 'unassigned',
+                'sam_score': sam_score, 'image_area_px': area,
+                'assigned_gaussians': count,
+                'mean_confidence': sums[sid] / max(count, 1),
+                'interactive_ready': False
+            })
+        base.update({
+            'status': 'available', 'gaussian_count': n,
+            'assigned_count': int(np.count_nonzero(labels != 255)),
+            'assignment_ratio': float(np.mean(labels != 255)),
+            'labels': labels.tolist(), 'confidence': confidence.tolist(),
+            'parts': parts
+        })
+        return base
+    except Exception as e:
+        base['status'] = 'error'
+        base['error'] = str(e)
+        return base
+
+def _surface_geometry_confidence(surface_geo: np.ndarray | None,
+                                  encapsulation: dict | None,
+                                  mesh_info: dict | None,
+                                  poses: list | None,
+                                  object_masks: list | None,
+                                  depth_maps: list | None,
+                                  image_shape=None) -> dict:
+    """Build Level 4 geometry-confidence evidence for reconstructed surface samples.
+
+    Confidence is about *observed reconstruction reliability*, never about whether
+    unseen geometry exists. Each sampled Gaussian gets a deterministic score from:
+      1. camera/foreground support,
+      2. depth consistency / occlusion evidence,
+      3. Gaussian opacity,
+      4. Gaussian shape stability,
+      5. global mesh validity.
+
+    The returned sample records are intentionally bounded so the ENCAPSULATION
+    JSON chunk remains usable. The canonical GEO/mesh remain authoritative.
+    """
+    base = {
+        'status': 'unavailable',
+        'level': 4,
+        'surface_samples': 0,
+        'confident_samples': 0,
+        'supported_samples': 0,
+        'uncertain_samples': 0,
+        'unsupported_samples': 0,
+        'occluded_samples': 0,
+        'mean_confidence': 0.0,
+        'confidence_percentiles': [0.0, 0.0, 0.0, 0.0, 0.0],
+        'mesh_quality_factor': 0.0,
+        'evidence_weights': {
+            'camera_support': 0.35,
+            'depth_consistency': 0.30,
+            'gaussian_stability': 0.20,
+            'mesh_validity': 0.15,
+        },
+        'samples': [],
+        'policy': (
+            'Geometry confidence estimates reliability of observed/reconstructed '
+            'surface samples. It is not semantic identity, proof of hidden geometry, '
+            'or permission to fabricate unseen product surfaces.'
+        ),
+    }
+    if surface_geo is None:
+        return base
+
+    try:
+        raw = np.asarray(surface_geo, dtype=np.float32)
+        finite = np.all(np.isfinite(raw[:, :14]), axis=1)
+        idx_all = np.flatnonzero(finite)
+        if not len(idx_all):
+            return base
+
+        # Deterministic sampling, biased toward the complete reconstructed surface
+        # rather than whichever points happened to occur first.
+        cap = max(256, min(int(os.environ.get('FUMOCA_CONFIDENCE_SAMPLES', '8192')), 16384))
+        if len(idx_all) > cap:
+            sample_idx = np.linspace(0, len(idx_all) - 1, cap, dtype=np.int64)
+            idx = idx_all[sample_idx]
+        else:
+            idx = idx_all
+        pts = raw[idx]
+        n = len(pts)
+
+        # Gaussian-native stability evidence.
+        opacity = 1.0 / (1.0 + np.exp(-np.clip(pts[:, 10], -20, 20)))
+        scales = np.exp(np.clip(pts[:, 3:6], -8, 2))
+        max_scale = np.max(scales, axis=1)
+        min_scale = np.min(scales, axis=1)
+        anisotropy = np.clip(1.0 - (min_scale / np.maximum(max_scale, 1e-8)), 0.0, 1.0)
+        opacity_score = np.clip((opacity - 0.08) / 0.72, 0.0, 1.0)
+        # Very large, nearly isotropic splats are less surface-specific. Small
+        # anisotropic splats are generally better localized surface evidence.
+        scale_score = np.clip(1.0 - max_scale / (np.median(max_scale) * 4.0 + 1e-8), 0.0, 1.0)
+        gaussian_stability = np.clip(0.65 * opacity_score + 0.20 * anisotropy + 0.15 * scale_score, 0, 1)
+
+        # Mesh validity is a global prerequisite, not a substitute for observation.
+        if mesh_info:
+            mesh_quality_factor = 1.0
+            if not mesh_info.get('is_watertight'): mesh_quality_factor *= 0.70
+            if not mesh_info.get('is_winding_consistent'): mesh_quality_factor *= 0.75
+            if not mesh_info.get('is_volume'): mesh_quality_factor *= 0.75
+            if mesh_info.get('nonmanifold_edges', 0): mesh_quality_factor *= 0.75
+            if mesh_info.get('boundary_edges', 0): mesh_quality_factor *= 0.80
+            if mesh_info.get('n_degenerate_faces') not in (None, 0): mesh_quality_factor *= 0.90
+        else:
+            mesh_quality_factor = 0.0
+
+        # Camera support per sample.
+        support_counts = np.zeros(n, dtype=np.float32)
+        foreground_counts = np.zeros(n, dtype=np.float32)
+        depth_consistent = np.zeros(n, dtype=np.float32)
+        depth_occluded = np.zeros(n, dtype=np.float32)
+        depth_tested = np.zeros(n, dtype=np.float32)
+
+        if poses and image_shape:
+            H, W = int(image_shape[0]), int(image_shape[1])
+            fx = fy = max(H, W) * 0.8
+            cx, cy = W * 0.5, H * 0.5
+            # Per-frame depth mappings are derived from the full sampled surface,
+            # then applied to these confidence samples. This avoids treating
+            # monocular depth as metric.
+            for fi, pose in enumerate(poses):
+                if fi >= len(depth_maps or []):
+                    break
+                try:
+                    vm = pose[1] if isinstance(pose, tuple) else pose
+                    vm = vm.detach().cpu().numpy() if hasattr(vm, 'detach') else np.asarray(vm)
+                    cam = (vm[:3, :3] @ pts[:, :3].T + vm[:3, 3:4]).T
+                    z = cam[:, 2]
+                    valid = z > 1e-6
+                    u = fx * cam[:, 0] / np.maximum(z, 1e-8) + cx
+                    v = fy * cam[:, 1] / np.maximum(z, 1e-8) + cy
+                    inside = valid & (u >= 0) & (u < W) & (v >= 0) & (v < H)
+                    if not np.any(inside):
+                        continue
+                    support_counts[inside] += 1
+
+                    mask = object_masks[fi] if object_masks and fi < len(object_masks) else None
+                    if mask is not None:
+                        mm = np.asarray(mask)
+                        if mm.ndim >= 2:
+                            yy = np.clip(np.rint(v[inside]).astype(np.int64), 0, H - 1)
+                            xx = np.clip(np.rint(u[inside]).astype(np.int64), 0, W - 1)
+                            fg = mm[yy, xx] > 32
+                            inside_idx = np.flatnonzero(inside)
+                            foreground_counts[inside_idx[fg]] += 1
+
+                    dm = depth_maps[fi]
+                    if dm is None:
+                        continue
+                    dd = np.asarray(dm, dtype=np.float32)
+                    if dd.ndim < 2:
+                        continue
+                    yy = np.clip(np.rint(v[inside]).astype(np.int64), 0, H - 1)
+                    xx = np.clip(np.rint(u[inside]).astype(np.int64), 0, W - 1)
+                    observed = dd[yy, xx]
+                    inside_idx = np.flatnonzero(inside)
+                    finite_d = np.isfinite(observed) & (observed > 0)
+                    if not np.any(finite_d):
+                        continue
+
+                    pred = z[inside_idx][finite_d]
+                    obs = observed[finite_d]
+                    # Use the projected sample population itself to fit the
+                    # relative-depth relationship, matching Level 3's policy.
+                    p10, p50, p90 = np.percentile(pred, [10, 50, 90])
+                    o10, o50, o90 = np.percentile(obs, [10, 50, 90])
+                    pspan = max(float(p90 - p10), 1e-6)
+                    slope = float(o90 - o10) / pspan
+                    intercept = float(o50 - slope * p50)
+                    mapped = slope * pred + intercept
+                    tolerance = max(float(o90 - o10) * 0.20, 1e-6)
+                    residual = obs - mapped
+                    tested_idx = inside_idx[finite_d]
+                    consistent = np.abs(residual) <= tolerance
+                    occluded = residual < -tolerance
+                    depth_tested[tested_idx] += 1
+                    depth_consistent[tested_idx[consistent]] += 1
+                    depth_occluded[tested_idx[occluded]] += 1
+                except Exception:
+                    continue
+
+        support_score = np.clip(support_counts / 3.0, 0.0, 1.0)
+        foreground_score = np.clip(foreground_counts / np.maximum(support_counts, 1.0), 0.0, 1.0)
+        camera_support = np.clip(0.70 * support_score + 0.30 * foreground_score, 0.0, 1.0)
+
+        tested = depth_tested > 0
+        depth_score = np.zeros(n, dtype=np.float32)
+        depth_score[tested] = np.clip(
+            depth_consistent[tested] / np.maximum(depth_tested[tested], 1.0), 0.0, 1.0
+        )
+        depth_score[~tested] = 0.0
+
+        confidence = (
+            0.35 * camera_support +
+            0.30 * depth_score +
+            0.20 * gaussian_stability +
+            0.15 * mesh_quality_factor
+        )
+        # No observation support means the sample cannot become "confident"
+        # merely because its Gaussian/mesh looks mathematically clean.
+        confidence = np.where(support_counts > 0, confidence, confidence * 0.35)
+        confidence = np.clip(confidence, 0.0, 1.0)
+
+        occluded = (depth_occluded > 0) & (depth_consistent == 0)
+        unsupported = support_counts == 0
+        supported = (support_counts > 0) & (confidence >= 0.55) & ~occluded
+        uncertain = ~(supported | unsupported | occluded)
+
+        def pct(q):
+            return [float(x) for x in np.percentile(confidence, q)]
+
+        records = []
+        for j in range(n):
+            records.append({
+                'index': int(idx[j]),
+                'position': [float(x) for x in pts[j, :3]],
+                'confidence': round(float(confidence[j]), 4),
+                'camera_support_views': int(support_counts[j]),
+                'foreground_support_views': int(foreground_counts[j]),
+                'depth_tested_views': int(depth_tested[j]),
+                'depth_consistent_views': int(depth_consistent[j]),
+                'depth_occluded_views': int(depth_occluded[j]),
+                'class': (
+                    'occluded' if occluded[j] else
+                    'unsupported' if unsupported[j] else
+                    'confident' if supported[j] else
+                    'uncertain'
+                ),
+            })
+
+        base.update({
+            'status': 'available',
+            'surface_samples': n,
+            'confident_samples': int(np.sum(supported)),
+            'supported_samples': int(np.sum(support_counts > 0)),
+            'uncertain_samples': int(np.sum(uncertain)),
+            'unsupported_samples': int(np.sum(unsupported)),
+            'occluded_samples': int(np.sum(occluded)),
+            'mean_confidence': float(np.mean(confidence)),
+            'confidence_percentiles': pct([0, 25, 50, 75, 100]),
+            'mesh_quality_factor': float(mesh_quality_factor),
+            'samples': records,
+            'depth_evidence_available': bool(np.any(depth_tested > 0)),
+            'policy': (
+                'Level 4 combines observed camera support, foreground/depth evidence, '
+                'Gaussian stability and mesh validity. A high score means the sampled '
+                'surface is well supported by the capture; it does not mean unseen '
+                'geometry has been recovered.'
+            ),
+        })
+        return base
+    except Exception as e:
+        base['status'] = 'error'
+        base['error'] = str(e)
+        return base
+
+def _surface_depth_visibility_evidence(surface_geo: np.ndarray | None,
+                                    poses: list | None,
+                                    alpha_masks: list | None,
+                                    depth_maps: list | None,
+                                    image_shape=None) -> dict:
+    """Estimate whether reconstructed surface points are depth-consistent.
+
+    Level 3 of the Encapsulation Map. Projection alone cannot distinguish a
+    visible surface from one hidden behind another part of the product. This
+    stage samples the reconstructed surface, projects it into each capture
+    camera, and compares its camera-space depth with the observed foreground
+    depth.
+
+    DepthAnything may be relative rather than metric, so raw depth values are
+    never compared directly to reconstruction metres. For each frame, a
+    robust affine mapping is estimated from the foreground/projected sample
+    population using percentile anchors. The resulting residual is evidence
+    of visibility consistency, not a claim of metric depth.
+
+    A point is:
+      - depth_consistent when observed and reconstructed depth agree within
+        the robust tolerance;
+      - depth_occluded when the observed foreground surface is materially
+        closer than the reconstructed point;
+      - depth_inconsistent when the relationship cannot explain the point.
+
+    This deliberately does not fabricate geometry for unsupported regions.
+    """
+    base = {
+        'status': 'unavailable',
+        'surface_samples': 0,
+        'foreground_projected_samples': 0,
+        'depth_consistent_samples': 0,
+        'depth_occluded_samples': 0,
+        'depth_inconsistent_samples': 0,
+        'visibility_ratio': 0.0,
+        'occlusion_ratio': 0.0,
+        'depth_consistency_tested': False,
+        'occlusion_tested': False,
+    }
+    if surface_geo is None or poses is None or not len(poses) or not depth_maps:
+        return base
+
+    try:
+        raw = np.asarray(surface_geo, dtype=np.float64)
+        finite = np.all(np.isfinite(raw[:, :10]), axis=1)
+        pts_all = raw[finite, :3]
+        if not len(pts_all):
+            return base
+
+        # Deterministic cap. Keep the same source rows for points, scale and
+        # quaternion so later evidence always refers to the same surface.
+        source_rows = np.flatnonzero(finite)
+        if len(source_rows) > 25_000:
+            source_rows = source_rows[np.linspace(0, len(source_rows) - 1, 25_000, dtype=np.int64)]
+        pts = raw[source_rows, :3]
+
+        H, W = image_shape or ((depth_maps[0].shape if depth_maps and depth_maps[0] is not None else (0, 0)))
+        if H <= 0 or W <= 0:
+            raise ValueError('image dimensions unavailable')
+
+        fx = fy = max(H, W) * 0.8
+        cx, cy = W / 2.0, H / 2.0
+
+        consistent = np.zeros(len(pts), dtype=bool)
+        occluded = np.zeros(len(pts), dtype=bool)
+        inconsistent = np.zeros(len(pts), dtype=bool)
+        foreground_any = np.zeros(len(pts), dtype=bool)
+        tested_any = np.zeros(len(pts), dtype=bool)
+        support_counts = np.zeros(len(pts), dtype=np.uint16)
+
+        frame_reports = []
+
+        for i, pose in enumerate(poses):
+            if i >= len(depth_maps) or depth_maps[i] is None:
+                continue
+
+            vm = pose[1] if isinstance(pose, tuple) else pose
+            vm = vm.detach().cpu().numpy() if hasattr(vm, 'detach') else np.asarray(vm)
+            Rw = vm[:3, :3].astype(np.float64)
+            tw = vm[:3, 3].astype(np.float64)
+
+            cam = (Rw @ pts.T).T + tw
+            z = cam[:, 2]
+            valid = np.isfinite(z) & (z > 1e-6)
+
+            u = fx * cam[:, 0] / np.maximum(z, 1e-8) + cx
+            v = fy * cam[:, 1] / np.maximum(z, 1e-8) + cy
+            inside = valid & (u >= 0) & (u < W) & (v >= 0) & (v < H)
+            if not np.any(inside):
+                continue
+
+            depth = np.asarray(depth_maps[i], dtype=np.float64)
+            if depth.ndim > 2:
+                depth = np.squeeze(depth)
+            if depth.shape != (H, W):
+                continue
+
+            uu = np.clip(np.rint(u).astype(np.int64), 0, W - 1)
+            vv = np.clip(np.rint(v).astype(np.int64), 0, H - 1)
+            observed = depth[vv, uu]
+
+            fg = inside & np.isfinite(observed) & (observed > 0)
+            if alpha_masks and i < len(alpha_masks):
+                mask = np.asarray(alpha_masks[i])
+                if mask.ndim > 2:
+                    mask = np.squeeze(mask)
+                if mask.shape == (H, W):
+                    fg &= mask[vv, uu] > 32
+
+            foreground_any |= fg
+            idx = np.where(fg)[0]
+            if len(idx) < 64:
+                continue
+
+            # Robust per-frame relationship between reconstruction camera
+            # depth and observed monocular depth. Percentile anchors avoid
+            # pretending the two coordinate systems share units.
+            pred = z[idx]
+            obs = observed[idx]
+            p10, p50, p90 = np.percentile(pred, [10, 50, 90])
+            o10, o50, o90 = np.percentile(obs, [10, 50, 90])
+            p_span = max(float(p90 - p10), 1e-8)
+            o_span = max(float(o90 - o10), 1e-8)
+
+            # Map predicted depth into observed-depth coordinates. The mapping
+            # is intentionally only used to test consistency; it is not stored
+            # as a metric calibration.
+            slope = o_span / p_span
+            intercept = o50 - slope * p50
+            expected = slope * pred + intercept
+            residual = obs - expected
+
+            # Scale the residual by the observed robust spread. A 20% spread
+            # tolerates monocular-depth noise while still exposing surfaces
+            # that are materially behind the observed foreground surface.
+            tolerance = max(o_span * 0.20, 1e-6)
+            abs_ok = np.abs(residual) <= tolerance
+
+            # Negative residual means the observed foreground is closer than
+            # the reconstructed point after mapping: that is the signature of
+            # likely occlusion.
+            likely_occluded = residual < -tolerance
+            likely_inconsistent = (~abs_ok) & (~likely_occluded)
+
+            tested_any[idx] = True
+            support_counts[idx] += abs_ok.astype(np.uint16)
+            consistent[idx] |= abs_ok
+            occluded[idx] |= likely_occluded
+            inconsistent[idx] |= likely_inconsistent
+
+            frame_reports.append({
+                'frame': int(i),
+                'projected_foreground_samples': int(len(idx)),
+                'depth_consistent_samples': int(np.count_nonzero(abs_ok)),
+                'depth_occluded_samples': int(np.count_nonzero(likely_occluded)),
+                'depth_inconsistent_samples': int(np.count_nonzero(likely_inconsistent)),
+                'observed_depth_metric': False,
+                'mapping': 'robust_percentile_affine',
+                'tolerance_fraction_of_observed_p10_p90_span': 0.20,
+            })
+
+        tested = tested_any
+        if not np.any(tested):
+            return {
+                **base,
+                'status': 'insufficient_depth_evidence',
+                'surface_samples': int(len(pts)),
+                'foreground_projected_samples': int(np.count_nonzero(foreground_any)),
+                'depth_consistency_tested': False,
+                'occlusion_tested': False,
+            }
+
+        # Any point with at least one consistent view is supported. A point
+        # repeatedly classified as occluded/inconsistent but never consistent
+        # remains uncertain rather than being silently deleted.
+        depth_consistent = consistent & tested
+        depth_occluded = occluded & ~depth_consistent
+        depth_inconsistent = inconsistent & ~depth_consistent & ~depth_occluded
+
+        return {
+            'status': 'available',
+            'surface_samples': int(len(pts)),
+            'foreground_projected_samples': int(np.count_nonzero(foreground_any)),
+            'tested_samples': int(np.count_nonzero(tested)),
+            'depth_consistent_samples': int(np.count_nonzero(depth_consistent)),
+            'depth_occluded_samples': int(np.count_nonzero(depth_occluded)),
+            'depth_inconsistent_samples': int(np.count_nonzero(depth_inconsistent)),
+            'visibility_ratio': float(np.mean(depth_consistent[foreground_any])) if np.any(foreground_any) else 0.0,
+            'occlusion_ratio': float(np.mean(depth_occluded[tested])) if np.any(tested) else 0.0,
+            'depth_consistency_tested': True,
+            'occlusion_tested': True,
+            'frame_reports': frame_reports[:64],
+            'policy': (
+                'Depth visibility is evidence, not hidden-geometry recovery. '
+                'Per-frame observed depth is robustly related to reconstruction '
+                'depth because monocular depth may be relative. A surface that '
+                'is consistently deeper than the observed foreground is marked '
+                'likely occluded/uncertain; no unseen geometry is invented.'
+            ),
+        }
+    except Exception as e:
+        return {
+            **base,
+            'status': 'error',
+            'error': str(e),
+        }
+
+
+
+def _attach_mesh_part_mapping(mesh, gaussian_positions: np.ndarray | None,
+                              semantic_labels: np.ndarray | None,
+                              semantic_confidence: np.ndarray | None) -> dict:
+    """Level 12: map the structural mesh back to observed Gaussian part evidence.
+
+    Mesh vertices are assigned only when a nearby canonical Gaussian has a known
+    semantic label. Faces require a two-of-three vertex majority. Unknown/mixed
+    faces stay explicitly unassigned; FUMOCA never forces the whole solid into
+    a product part merely to make animation possible.
+    """
+    base = {
+        'status': 'unavailable',
+        'level': 12,
+        'unknown_label': 255,
+        'mixed_label': 254,
+        'vertex_count': int(len(getattr(mesh, 'vertices', []))),
+        'face_count': int(len(getattr(mesh, 'faces', []))),
+        'mapped_vertex_ratio': 0.0,
+        'mapped_face_ratio': 0.0,
+        'parts': [],
+        'policy': (
+            'Mesh ownership is inferred only from proximity to observed semantic '
+            'Gaussian evidence. Unknown and mixed faces remain unassigned. This '
+            'mapping is evidence-backed ownership, not proof of hidden topology.'
+        ),
+        'unseen_geometry_claimed': False,
+    }
+    if gaussian_positions is None or semantic_labels is None:
+        return base
+    try:
+        pts = np.asarray(gaussian_positions, dtype=np.float64)
+        labels = np.asarray(semantic_labels, dtype=np.uint8)
+        conf = np.asarray(semantic_confidence if semantic_confidence is not None else np.ones(len(labels)), dtype=np.float32)
+        if pts.ndim != 2 or pts.shape[1] < 3 or len(pts) != len(labels) or len(conf) != len(labels):
+            return base
+        valid = np.all(np.isfinite(pts[:, :3]), axis=1) & (labels != 255)
+        valid_idx = np.flatnonzero(valid)
+        if len(valid_idx) < 8 or len(mesh.vertices) == 0:
+            return base
+
+        from scipy.spatial import cKDTree
+        source = pts[valid_idx, :3]
+        tree = cKDTree(source)
+        if len(source) > 1:
+            nn = tree.query(source, k=2, workers=1)[0][:, 1]
+            spacing = float(np.median(nn[np.isfinite(nn) & (nn > 0)])) if np.any(np.isfinite(nn) & (nn > 0)) else 0.0
+        else:
+            spacing = 0.0
+        bounds = np.asarray(mesh.bounds, dtype=np.float64)
+        diagonal = float(np.linalg.norm(bounds[1] - bounds[0])) if bounds.shape == (2, 3) else 0.0
+        distance_limit = max(spacing * 6.0, diagonal * 0.005, 1e-5)
+
+        distances, nearest = tree.query(np.asarray(mesh.vertices, dtype=np.float64), k=1, workers=1)
+        nearest_source = valid_idx[nearest]
+        vertex_labels = labels[nearest_source].astype(np.uint8)
+        vertex_conf = conf[nearest_source].astype(np.float32)
+        vertex_conf *= np.exp(-distances / max(distance_limit * 0.5, 1e-8))
+        vertex_labels = np.where(distances <= distance_limit, vertex_labels, 255).astype(np.uint8)
+
+        faces = np.asarray(mesh.faces, dtype=np.int64)
+        face_labels = np.full(len(faces), 255, dtype=np.uint8)
+        face_conf = np.zeros(len(faces), dtype=np.float32)
+        if len(faces):
+            for i, face in enumerate(faces):
+                labs = vertex_labels[face]
+                known = labs[labs != 255]
+                if len(known) == 0:
+                    continue
+                values, counts = np.unique(known, return_counts=True)
+                winner = int(values[np.argmax(counts)])
+                if int(np.max(counts)) >= 2:
+                    face_labels[i] = np.uint8(winner)
+                    face_conf[i] = float(np.mean(vertex_conf[face][labs == winner]))
+                elif len(np.unique(known)) == 1:
+                    face_labels[i] = np.uint8(winner)
+                    face_conf[i] = float(np.mean(vertex_conf[face][labs == winner]))
+                else:
+                    face_labels[i] = 254
+                    face_conf[i] = float(np.mean(vertex_conf[face]))
+
+        parts = []
+        for pid in sorted(int(x) for x in np.unique(labels[valid_idx])):
+            vm = vertex_labels == pid
+            fm = face_labels == pid
+            if not np.any(vm) and not np.any(fm):
+                continue
+            parts.append({
+                'part_id': pid,
+                'mapped_vertices': int(np.count_nonzero(vm)),
+                'mapped_faces': int(np.count_nonzero(fm)),
+                'vertex_coverage': float(np.mean(vm)) if len(vertex_labels) else 0.0,
+                'face_coverage': float(np.mean(fm)) if len(face_labels) else 0.0,
+                'mean_vertex_confidence': float(np.mean(vertex_conf[vm])) if np.any(vm) else 0.0,
+                'mean_face_confidence': float(np.mean(face_conf[fm])) if np.any(fm) else 0.0,
+                'ownership_status': 'mapped' if np.count_nonzero(fm) else 'vertex_only',
+            })
+
+        header = struct.pack('>4sBII', b'FSMM', 1, len(vertex_labels), len(face_labels))
+        packed = (
+            header +
+            vertex_labels.astype(np.uint8).tobytes() +
+            vertex_conf.astype('>f2').tobytes() +
+            face_labels.astype(np.uint8).tobytes() +
+            face_conf.astype('>f2').tobytes()
+        )
+        base.update({
+            'status': 'available',
+            'vertex_count': int(len(vertex_labels)),
+            'face_count': int(len(face_labels)),
+            'mapped_vertex_count': int(np.count_nonzero(vertex_labels != 255)),
+            'mapped_face_count': int(np.count_nonzero(face_labels < 254)),
+            'mixed_face_count': int(np.count_nonzero(face_labels == 254)),
+            'mapped_vertex_ratio': float(np.mean(vertex_labels != 255)),
+            'mapped_face_ratio': float(np.mean(face_labels < 254)) if len(face_labels) else 0.0,
+            'distance_limit': float(distance_limit),
+            'gaussian_spacing': float(spacing),
+            'parts': parts,
+            '_binary': packed,
+        })
+        return base
+    except Exception as e:
+        base['status'] = 'error'
+        base['error'] = str(e)
+        return base
+
+def _mesh_quality_report(mesh, method: str, detail_tier: str) -> dict:
+    """Return explicit geometry/printability diagnostics for every mesh output.
+
+    A client-facing FUMOCA asset needs more than a single watertight boolean.
+    Boundary and non-manifold edge counts, winding consistency and volume
+    validity distinguish a real printable solid from a visually plausible
+    surface. Edge counting is vectorized so it remains practical on
+    production meshes.
+    """
+    faces = np.asarray(mesh.faces)
+    edges = np.sort(np.concatenate(
+        [faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]],
+        axis=0
+    ), axis=1) if len(faces) else np.empty((0, 2), dtype=np.int64)
+
+    if len(edges):
+        _unique_edges, edge_counts = np.unique(edges, axis=0, return_counts=True)
+        boundary_edges = int(np.count_nonzero(edge_counts == 1))
+        nonmanifold_edges = int(np.count_nonzero(edge_counts > 2))
+    else:
+        boundary_edges = 0
+        nonmanifold_edges = 0
+
+    try:
+        nondegenerate = mesh.nondegenerate_faces()
+        degenerate_faces = int(len(faces) - int(np.sum(nondegenerate)))
+    except Exception:
+        degenerate_faces = None
+
+    watertight = bool(mesh.is_watertight)
+    winding = bool(mesh.is_winding_consistent)
+    is_volume = bool(mesh.is_volume)
+    printable = bool(
+        watertight and winding and is_volume and
+        boundary_edges == 0 and nonmanifold_edges == 0 and
+        (degenerate_faces in (None, 0))
+    )
+
+    bounds = np.asarray(mesh.bounds, dtype=np.float64) if len(mesh.vertices) else np.zeros((2, 3))
+    extents = (bounds[1] - bounds[0]).tolist() if len(mesh.vertices) else [0.0, 0.0, 0.0]
+
+    return {
+        'method': method,
+        'detail_tier': detail_tier,
+        'n_verts': int(len(mesh.vertices)),
+        'n_faces': int(len(mesh.faces)),
+        'n_degenerate_faces': degenerate_faces,
+        'is_watertight': watertight,
+        'is_winding_consistent': winding,
+        'is_volume': is_volume,
+        'printable': printable,
+        'boundary_edges': boundary_edges,
+        'nonmanifold_edges': nonmanifold_edges,
+        'surface_area_m2': float(mesh.area),
+        'volume_m3': float(mesh.volume) if is_volume else None,
+        'bounds_extent': extents,
+        'euler_number': int(mesh.euler_number) if len(mesh.faces) else None,
+    }
+
+
 # ─── Stage 5: Gaussian Splatting ─────────────────────────────────────────────
 def _dequantize_geometry(geo_bytes: bytes) -> tuple[int, np.ndarray]:
     """
@@ -1049,7 +2085,14 @@ class GaussianSplatTrainer:
             )
         self.quats       = nn.Parameter(F.normalize(torch.randn(n, 4, device=self.device), dim=-1))
         self.log_opacity = nn.Parameter(torch.zeros(n, device=self.device))
-        self.sh0         = nn.Parameter(torch.zeros(n, 3, device=self.device))
+        # View-dependent appearance is essential for photorealism: real paint,
+        # glass, chrome, varnish and metallic packaging change appearance as the
+        # camera moves. Keep higher-order spherical-harmonic bands in the MASTER.
+        self.sh_degree = max(0, min(3, int(os.environ.get('FUMOCA_SH_DEGREE', '3'))))
+        self.sh0         = nn.Parameter(torch.zeros(n, 1, 3, device=self.device))
+        self.sh_rest     = nn.Parameter(torch.zeros(
+            n, (self.sh_degree + 1) ** 2 - 1, 3, device=self.device
+        ))
         self._opt = self._make_optimizer()
         self._step = 0
 
@@ -1060,11 +2103,25 @@ class GaussianSplatTrainer:
             {'params': [self.quats],       'lr': 5e-4},
             {'params': [self.log_opacity], 'lr': 5e-3},
             {'params': [self.sh0],         'lr': 1e-3},
+            {'params': [self.sh_rest],     'lr': 1e-3},
         ], eps=1e-15)
+
+    def _reset_optimizer_after_topology_change(self):
+        """Rebuild Adam after prune/densify changes the per-Gaussian tensor size.
+        
+        The older custom densifier mutated Parameter.data in place but left
+        Adam's exp_avg/exp_avg_sq buffers at the old shape. The next optimizer
+        step could therefore fail with a tensor-size mismatch. The official
+        gsplat strategy manages these buffers explicitly; until we migrate the
+        trainer fully to that strategy, rebuilding here is the safe invariant.
+        """
+        self._opt = self._make_optimizer()
 
     def train_step(self, gt: torch.Tensor, viewmat: torch.Tensor,
                    K: torch.Tensor,
-                   alpha_mask: torch.Tensor | None = None) -> float:
+                   alpha_mask: torch.Tensor | None = None,
+                   depth_target: torch.Tensor | None = None,
+                   depth_loss_weight: float = 0.0) -> float:
         H, W = gt.shape[:2]
         quats_n = F.normalize(self.quats, dim=-1)
         scales  = torch.exp(self.log_scales).clamp(min=1e-6)
@@ -1080,21 +2137,31 @@ class GaussianSplatTrainer:
         # sigmoid(0)=0.5 (neutral grey) instead of the old sigmoid(0)+0.5=1.0
         # (pure white) — grey is the more standard splat-init choice, and
         # unlike the old value it can actually converge toward black.
-        colours   = torch.sigmoid(self.sh0)
+        # gsplat evaluates these coefficients against the actual camera
+        # direction. This captures view-dependent appearance instead of freezing
+        # one RGB value per Gaussian.
+        sh_coeffs = torch.cat([self.sh0, self.sh_rest], dim=1)
 
         rendered, alpha, _info = gsplat.rasterization(
             means=self.means.unsqueeze(0),
             quats=quats_n.unsqueeze(0),
             scales=scales.unsqueeze(0),
             opacities=opacities.unsqueeze(0),
-            colors=colours.unsqueeze(0),
+            colors=sh_coeffs.unsqueeze(0),
             viewmats=viewmat.unsqueeze(0).unsqueeze(1),
             Ks=K.unsqueeze(0).unsqueeze(1),
             width=W, height=H,
             near_plane=0.01, far_plane=100.0,
-            render_mode='RGB',
+            sh_degree=self.sh_degree,
+            # ED gives expected Gaussian projection depth, which is the
+            # useful differentiable depth signal for shape supervision.
+            render_mode='RGB+ED' if depth_target is not None and depth_loss_weight > 0 else 'RGB',
         )
-        rendered = rendered.squeeze(0).squeeze(0)  # H,W,3
+        rendered = rendered.squeeze(0).squeeze(0)
+        rendered_depth = None
+        if depth_target is not None and depth_loss_weight > 0:
+            rendered_depth = rendered[..., 3]
+            rendered = rendered[..., :3]  # H,W,3
         gt_rgb   = gt.to(DEVICE)
 
         if alpha_mask is not None:
@@ -1149,8 +2216,39 @@ class GaussianSplatTrainer:
                 + 0.2 * (1.0 - self._ssim(rendered, gt_rgb))
             )
 
+        if rendered_depth is not None and depth_target is not None and depth_loss_weight > 0:
+            target_depth = depth_target.to(DEVICE)
+            finite = torch.isfinite(target_depth) & (target_depth > 0)
+            if alpha_mask is not None:
+                finite = finite & (alpha_mask > 0.15)
+            valid_render = torch.isfinite(rendered_depth) & (rendered_depth > 0)
+            depth_alpha = alpha
+            while depth_alpha.ndim > 2:
+                depth_alpha = depth_alpha.squeeze(0)
+            if depth_alpha.ndim == 3:
+                depth_alpha = depth_alpha.squeeze(-1)
+            valid = finite & valid_render & (depth_alpha > 0.05)
+
+            if valid.sum() > 256:
+                td = target_depth[valid]
+                rd = rendered_depth[valid]
+                # Relative-depth supervision is used intentionally. Monocular
+                # depth may be metric or only up-to-scale, while COLMAP is also
+                # scale ambiguous until calibration. Robust percentile
+                # normalization constrains shape without inventing metres.
+                t_lo, t_hi = torch.quantile(td.detach(), torch.tensor(0.05, device=DEVICE)), torch.quantile(td.detach(), torch.tensor(0.95, device=DEVICE))
+                r_lo, r_hi = torch.quantile(rd.detach(), torch.tensor(0.05, device=DEVICE)), torch.quantile(rd.detach(), torch.tensor(0.95, device=DEVICE))
+                t_norm = ((td - t_lo) / (t_hi - t_lo).clamp_min(1e-6)).clamp(0, 1)
+                r_norm = ((rd - r_lo) / (r_hi - r_lo).clamp_min(1e-6)).clamp(0, 1)
+                depth_loss = F.smooth_l1_loss(r_norm, t_norm)
+                loss = loss + float(depth_loss_weight) * depth_loss
+
         self._opt.zero_grad()
         loss.backward()
+        if self.means.grad is not None:
+            self._last_mean_grad = self.means.grad.detach().norm(dim=1).clone()
+        else:
+            self._last_mean_grad = None
         self._opt.step()
 
         self._step += 1
@@ -1187,8 +2285,9 @@ class GaussianSplatTrainer:
             keep = torch.sigmoid(self.log_opacity) > thr
             if keep.sum() < 1000: return
             for p in [self.means, self.log_scales, self.quats,
-                      self.log_opacity, self.sh0]:
+                      self.log_opacity, self.sh0, self.sh_rest]:
                 p.data = p.data[keep]
+            self._reset_optimizer_after_topology_change()
 
     def _densify(self, grad_thr=0.0002):
         """
@@ -1203,8 +2302,25 @@ class GaussianSplatTrainer:
 
         Reference: Kerbl et al. 2023 §5 "Adaptive Control of Gaussians"
         """
+        topology_changed = False
         with torch.no_grad():
             n = len(self.means)
+            grad_score = getattr(self, '_last_mean_grad', None)
+            if grad_score is None or len(grad_score) != n:
+                grad_score = torch.zeros(n, device=self.means.device)
+            grad_thr = float(grad_thr)
+            active = torch.sigmoid(self.log_opacity) > 0.01
+            high_grad = grad_score >= grad_thr
+            # If the absolute threshold is too strict for a particular
+            # capture, keep the top 2% visible Gaussians as a fallback. This
+            # makes densification adaptive to exposure/scale instead of
+            # silently doing nothing on a low-gradient sequence.
+            if high_grad.sum() < max(32, int(n * 0.002)):
+                k = max(32, int(n * 0.02))
+                k = min(k, n)
+                top_idx = torch.topk(grad_score, k=k).indices
+                high_grad = torch.zeros_like(active)
+                high_grad[top_idx] = True
             # Estimate scene extent from current point spread
             extent = float(self.means.std(dim=0).max()) * 3 + 1e-6
 
@@ -1213,12 +2329,11 @@ class GaussianSplatTrainer:
             max_scale = scales.max(dim=1).values  # (N,)
             mean_scale = max_scale.mean()
 
-            # Identify candidates by opacity — only well-formed Gaussians
+            # Identify candidates by opacity and actual training gradient.
             opacities = torch.sigmoid(self.log_opacity)  # (N,)
-            active = opacities > 0.01
 
             # ── CLONE small under-represented Gaussians ──────────────────────
-            clone_mask = active & (max_scale < extent * 0.01)
+            clone_mask = active & high_grad & (max_scale < extent * 0.01)
             n_clone    = min(clone_mask.sum().item(), 5000)
             if n_clone > 0:
                 idx = clone_mask.nonzero(as_tuple=True)[0][:n_clone]
@@ -1229,15 +2344,18 @@ class GaussianSplatTrainer:
                 new_quats   = self.quats[idx]
                 new_opacity = self.log_opacity[idx] - 1.0  # start slightly less opaque
                 new_sh0     = self.sh0[idx]
+                new_sh_rest = self.sh_rest[idx]
                 for p, new_p in [(self.means, new_means),
                                  (self.log_scales, new_scales),
                                  (self.quats, new_quats),
                                  (self.log_opacity, new_opacity),
-                                 (self.sh0, new_sh0)]:
+                                 (self.sh0, new_sh0),
+                                 (self.sh_rest, new_sh_rest)]:
                     p.data = torch.cat([p.data, new_p.data], dim=0)
+                topology_changed = True
 
             # ── SPLIT large Gaussians into two smaller ones ──────────────────
-            split_mask = active & (max_scale > extent * 0.05)
+            split_mask = active & high_grad & (max_scale > extent * 0.05)
             n_split    = min(split_mask.sum().item(), 3000)
             if n_split > 0:
                 idx = split_mask.nonzero(as_tuple=True)[0][:n_split]
@@ -1254,17 +2372,26 @@ class GaussianSplatTrainer:
                 new_opacity  = self.log_opacity[idx]
                 new_sh0      = self.sh0[idx]
 
-                # Remove originals, add two replacements each
-                keep = torch.ones(len(self.means), dtype=torch.bool)
+                # Remove the parent and append two children. Every
+                # per-Gaussian attribute must undergo the exact same topology
+                # operation; otherwise positions/quaternions/scales/colors
+                # become misaligned and the exported geometry is corrupted.
+                keep = torch.ones(len(self.means), dtype=torch.bool, device=self.means.device)
                 keep[idx] = False
-                for p, new_a, new_b in [(self.means, new_means_a, new_means_b),]:
+
+                for p, new_a, new_b in [
+                    (self.means, new_means_a, new_means_b),
+                    (self.log_scales, new_scales, new_scales),
+                    (self.quats, new_quats, new_quats),
+                    (self.log_opacity, new_opacity, new_opacity),
+                    (self.sh0, new_sh0, new_sh0),
+                    (self.sh_rest, new_sh_rest, new_sh_rest),
+                ]:
                     p.data = torch.cat([p.data[keep], new_a, new_b], dim=0)
-                # Other params: keep the non-split ones, append copies
-                for p, new_p in [(self.log_scales, new_scales),
-                                 (self.quats, new_quats),
-                                 (self.log_opacity, new_opacity),
-                                 (self.sh0, new_sh0)]:
-                    p.data = torch.cat([p.data[keep], new_p, new_p.clone()], dim=0)
+                topology_changed = True
+
+            if topology_changed:
+                self._reset_optimizer_after_topology_change()
 
             n_after = len(self.means)
             if n_after != n:
@@ -1297,9 +2424,13 @@ class GaussianSplatTrainer:
                 scales  = self.log_scales.detach().cpu().numpy().astype(np.float32)   # (N,3)
                 quats   = self.quats.detach().cpu().numpy().astype(np.float32)        # (N,4)
                 opacity = self.log_opacity.detach().cpu().numpy().astype(np.float32)  # (N,)
-                sh0     = self.sh0.detach().cpu().numpy().astype(np.float32)          # (N,3)
+                sh0     = self.sh0.detach().cpu().numpy().astype(np.float32)
 
             n = len(means)
+            # Legacy geometry keeps an RGB fallback. The full SH master is
+            # trained above; this fallback is deliberately view-independent so
+            # older NIF readers remain compatible.
+            sh0_rgb = np.clip(sh0[:, 0, :] * 0.28209479177387814 + 0.5, 0.0, 1.0)
 
             # Normalise quats to unit length (defensive)
             norms = np.linalg.norm(quats, axis=1, keepdims=True)
@@ -1331,9 +2462,8 @@ class GaussianSplatTrainer:
             opacity_sig = 1.0 / (1.0 + np.exp(-np.clip(opacity, -20, 20)))
             opacity_q = np.clip(opacity_sig * 255, 0, 255).astype(np.uint8)
 
-            # ── Quantise SH0 colour (logit → sigmoid offset → uint8) ─────────
-            sh_sig = 1.0 / (1.0 + np.exp(-np.clip(sh0, -20, 20))) + 0.5
-            sh_q = np.clip((sh_sig - 0.5) * 255, 0, 255).astype(np.uint8)
+            # ── Quantise legacy RGB fallback derived from SH degree-0 ────────
+            sh_q = np.clip(sh0_rgb * 255.0, 0, 255).astype(np.uint8)
 
             # ── Pack ──────────────────────────────────────────────────────────
             # Header: format_flag(1) + count(4) + bounding_box(24) = 29 bytes
@@ -1385,12 +2515,937 @@ class GaussianSplatTrainer:
                 out[:, 3:6]  = self.log_scales.detach().cpu().numpy()
                 out[:, 6:10] = self.quats.detach().cpu().numpy()
                 out[:, 10]   = self.log_opacity.detach().cpu().numpy()
-                out[:, 11:14]= self.sh0.detach().cpu().numpy()
+                out[:, 11:14]= self.sh0.detach().cpu().numpy()[:, 0, :]
             # format_flag: 0x00 = raw float32
             import struct as _s
             header = _s.pack('>BI', 0x00, n)
             return n, header + out.tobytes()
 
+
+
+def _multi_view_part_fusion(semantic: dict | None, poses: list | None,
+                           object_masks: list | None, image_shape=None) -> dict:
+    """Level 6: fuse reference-frame semantic regions into stable 3D part evidence.
+
+    The reference SAM/SAM2 labels are anchors. Each labelled Gaussian is projected
+    through every recovered camera and receives independent foreground support.
+    This does NOT run a semantic classifier per view and does NOT invent part names.
+    It answers the narrower, safer question: "does this observed 3D region continue
+    to be supported by the captured product across multiple views?"
+    """
+    base = {
+        'status': 'unavailable', 'level': 6,
+        'gaussian_count': 0, 'parts': [],
+        'views_tested': 0, 'views_with_foreground_evidence': 0,
+        'fusion_policy': (
+            'Reference SAM/SAM2 regions are fused into 3D evidence using recovered '
+            'camera projections and foreground support. This is not semantic naming, '
+            'true occlusion proof, or hidden-geometry recovery.'
+        ),
+        'unseen_geometry_claimed': False,
+    }
+    if not semantic or semantic.get('status') != 'available' or not poses or not image_shape:
+        return base
+    labels = np.asarray(semantic.get('labels', []), dtype=np.uint8)
+    confidence = np.asarray(semantic.get('confidence', []), dtype=np.float32)
+    if len(labels) == 0 or len(labels) != len(confidence):
+        return base
+    try:
+        H, W = int(image_shape[0]), int(image_shape[1])
+        fx = fy = max(H, W) * 0.8
+        cx, cy = W * 0.5, H * 0.5
+        # The semantic map is aligned to the canonical Gaussian array. Reuse the
+        # same deterministic finite-point policy as the rest of the evidence layers.
+        valid_idx = np.flatnonzero(labels != 255)
+        if not len(valid_idx):
+            return base
+        # surface positions are supplied by the caller through semantic['_positions']
+        # to avoid duplicating a potentially very large Gaussian array in JSON.
+        positions = semantic.get('_positions')
+        if positions is None:
+            return base
+        pts = np.asarray(positions, dtype=np.float32)
+        if len(pts) != len(labels) or pts.ndim != 2 or pts.shape[1] < 3:
+            return base
+        finite = np.all(np.isfinite(pts[:, :3]), axis=1)
+        valid_idx = valid_idx[finite[valid_idx]]
+        if not len(valid_idx):
+            return base
+
+        part_ids = sorted(int(x) for x in np.unique(labels[valid_idx]))
+        stats = {
+            pid: {
+                'gaussian_count': 0,
+                'support_votes': 0,
+                'foreground_support_votes': 0,
+                'strong_views': 0,
+                'view_ids': set(),
+                'confidence_sum': 0.0,
+                'min_xyz': np.full(3, np.inf, dtype=np.float32),
+                'max_xyz': np.full(3, -np.inf, dtype=np.float32),
+            } for pid in part_ids
+        }
+        for pid in part_ids:
+            ii = valid_idx[labels[valid_idx] == pid]
+            s = stats[pid]
+            s['gaussian_count'] = int(len(ii))
+            s['confidence_sum'] = float(np.sum(confidence[ii]))
+            s['min_xyz'] = np.min(pts[ii, :3], axis=0)
+            s['max_xyz'] = np.max(pts[ii, :3], axis=0)
+
+        views_tested = 0
+        views_with_fg = 0
+        for vi, pose in enumerate(poses):
+            vm = pose[1] if isinstance(pose, tuple) else pose
+            vm = vm.detach().cpu().numpy() if hasattr(vm, 'detach') else np.asarray(vm)
+            if vm.shape[0] < 3 or vm.shape[1] < 4:
+                continue
+            cam = (vm[:3, :3] @ pts[valid_idx, :3].T + vm[:3, 3:4]).T
+            z = cam[:, 2]
+            u = fx * cam[:, 0] / np.maximum(z, 1e-8) + cx
+            v = fy * cam[:, 1] / np.maximum(z, 1e-8) + cy
+            inside = np.isfinite(z) & (z > 1e-6) & np.isfinite(u) & np.isfinite(v) & (u >= 0) & (u < W) & (v >= 0) & (v < H)
+            if not np.any(inside):
+                continue
+            views_tested += 1
+            view_fg = object_masks[vi] if object_masks is not None and vi < len(object_masks) else None
+            if view_fg is None:
+                continue
+            mask = np.asarray(view_fg)
+            if mask.ndim < 2 or mask.shape[:2] != (H, W):
+                continue
+            px = np.clip(np.rint(u[inside]).astype(np.int64), 0, W - 1)
+            py = np.clip(np.rint(v[inside]).astype(np.int64), 0, H - 1)
+            fg = mask[py, px] > 32
+            if not np.any(fg):
+                continue
+            views_with_fg += 1
+            selected = valid_idx[inside][fg]
+            selected_labels = labels[selected]
+            for pid in part_ids:
+                hit = selected_labels == pid
+                count = int(np.count_nonzero(hit))
+                if count:
+                    s = stats[pid]
+                    s['support_votes'] += 1
+                    s['foreground_support_votes'] += count
+                    s['view_ids'].add(int(vi))
+                    if count >= max(4, int(s['gaussian_count'] * 0.02)):
+                        s['strong_views'] += 1
+
+        parts = []
+        for pid in part_ids:
+            s = stats[pid]
+            view_count = len(s['view_ids'])
+            denom = max(s['gaussian_count'] * max(views_tested, 1), 1)
+            foreground_ratio = float(s['foreground_support_votes'] / denom)
+            mean_conf = float(s['confidence_sum'] / max(s['gaussian_count'], 1))
+            multi_view_score = float(np.clip(
+                0.45 * min(view_count / 3.0, 1.0) +
+                0.35 * min(s['strong_views'] / 3.0, 1.0) +
+                0.20 * foreground_ratio,
+                0.0, 1.0
+            ))
+            parts.append({
+                'part_id': pid,
+                'views_supported': view_count,
+                'strong_views': int(s['strong_views']),
+                'foreground_support_ratio': foreground_ratio,
+                'multi_view_score': multi_view_score,
+                'mean_semantic_confidence': mean_conf,
+                'gaussian_count': int(s['gaussian_count']),
+                'bounds_min': [float(x) for x in s['min_xyz']],
+                'bounds_max': [float(x) for x in s['max_xyz']],
+                'stable_3d_evidence': bool(view_count >= 2 and multi_view_score >= 0.45),
+                'identity_status': 'unassigned',
+                'mechanical_ready': False,
+            })
+
+        base.update({
+            'status': 'available',
+            'gaussian_count': int(len(labels)),
+            'views_tested': int(views_tested),
+            'views_with_foreground_evidence': int(views_with_fg),
+            'parts': parts,
+        })
+        return base
+    except Exception as e:
+        base['status'] = 'error'
+        base['error'] = str(e)
+        return base
+
+
+def _part_geometry_evidence(semantic: dict | None, multi_view: dict | None = None) -> dict:
+    """Level 7: derive observed 3D part extent and frame candidates.
+
+    This is geometric evidence only. PCA axes are candidates for a local frame;
+    they are not declared hinges, rotations, or mechanical pivots. The canonical
+    Gaussian geometry remains authoritative.
+    """
+    base = {
+        'status': 'unavailable', 'level': 7, 'parts': [],
+        'policy': (
+            'Part centroids, bounds and principal axes are derived from observed '
+            'reconstructed Gaussians. Axes are frame candidates, not mechanical '
+            'hinges or proof of intended motion.'
+        ),
+        'unseen_geometry_claimed': False,
+    }
+    if not semantic or semantic.get('status') != 'available':
+        return base
+    positions = semantic.get('_positions')
+    labels = np.asarray(semantic.get('labels', []), dtype=np.uint8)
+    if positions is None or len(labels) == 0:
+        return base
+    try:
+        pts = np.asarray(positions, dtype=np.float64)
+        if pts.ndim != 2 or pts.shape[1] < 3 or len(pts) != len(labels):
+            return base
+        parts = []
+        for pid in sorted(int(x) for x in np.unique(labels) if int(x) != 255):
+            idx = np.flatnonzero(labels == pid)
+            if len(idx) < 3:
+                continue
+            p = pts[idx, :3]
+            finite = np.all(np.isfinite(p), axis=1)
+            p = p[finite]
+            if len(p) < 3:
+                continue
+            centroid = np.mean(p, axis=0)
+            bounds_min = np.min(p, axis=0)
+            bounds_max = np.max(p, axis=0)
+            centered = p - centroid
+            cov = (centered.T @ centered) / max(len(p) - 1, 1)
+            try:
+                eigvals, eigvecs = np.linalg.eigh(cov)
+                order = np.argsort(eigvals)[::-1]
+                eigvals = np.maximum(eigvals[order], 0.0)
+                eigvecs = eigvecs[:, order]
+                # Deterministic sign convention: make the largest-magnitude
+                # component of each axis positive. This avoids random flips.
+                for k in range(3):
+                    j = int(np.argmax(np.abs(eigvecs[:, k])))
+                    if eigvecs[j, k] < 0:
+                        eigvecs[:, k] *= -1.0
+                # Keep the frame right-handed after deterministic sign fixing.
+                if np.linalg.det(eigvecs) < 0:
+                    eigvecs[:, 2] *= -1.0
+                total = float(np.sum(eigvals))
+                axis_conf = float(np.clip((eigvals[0] - eigvals[1]) / max(eigvals[0], 1e-12), 0.0, 1.0)) if total > 0 else 0.0
+            except Exception:
+                eigvals = np.zeros(3, dtype=np.float64)
+                eigvecs = np.eye(3, dtype=np.float64)
+                axis_conf = 0.0
+            mv = next((x for x in (multi_view or {}).get('parts', []) if int(x.get('part_id', -1)) == pid), None)
+            parts.append({
+                'part_id': pid,
+                'gaussian_count': int(len(p)),
+                'centroid': [float(x) for x in centroid],
+                'bounds_min': [float(x) for x in bounds_min],
+                'bounds_max': [float(x) for x in bounds_max],
+                'dimensions': [float(x) for x in (bounds_max - bounds_min)],
+                'principal_axes': [[float(x) for x in eigvecs[:, k]] for k in range(3)],
+                'principal_variance': [float(x) for x in eigvals],
+                'axis_confidence': axis_conf,
+                'frame_source': 'gaussian_pca_observed_geometry',
+                'pivot_status': 'not_recovered',
+                'mechanical_axis_status': 'not_recovered',
+                'multi_view_stable': bool(mv and mv.get('stable_3d_evidence') is True),
+            })
+        base.update({'status': 'available' if parts else 'insufficient_geometry', 'parts': parts})
+        return base
+    except Exception as e:
+        base['status'] = 'error'
+        base['error'] = str(e)
+        return base
+
+
+def _part_mechanical_candidates(semantic: dict | None, part_geometry: dict | None = None) -> dict:
+    """Level 8: derive conservative part-boundary and axis candidates.
+
+    A candidate is evidence for authoring, never an automatic hinge. Boundary
+    contact is measured in reconstructed 3D space between differently-labelled
+    Gaussian regions. Principal axes are reused as possible motion-frame axes,
+    but no mechanical interpretation is assigned here.
+    """
+    base = {
+        'status': 'unavailable', 'level': 8, 'parts': [],
+        'policy': (
+            'Part boundaries and principal-axis candidates are observed geometry '
+            'evidence only. They do not establish product identity, hinge location, '
+            'or intended motion.'
+        ),
+        'unseen_geometry_claimed': False,
+    }
+    if not semantic or semantic.get('status') != 'available' or not part_geometry:
+        return base
+    positions = semantic.get('_positions')
+    labels = np.asarray(semantic.get('labels', []), dtype=np.uint8)
+    if positions is None or len(labels) == 0:
+        return base
+    try:
+        pts = np.asarray(positions, dtype=np.float64)
+        if pts.ndim != 2 or pts.shape[1] < 3 or len(pts) != len(labels):
+            return base
+        finite = np.all(np.isfinite(pts[:, :3]), axis=1)
+        valid = np.flatnonzero(finite & (labels != 255))
+        if len(valid) < 8:
+            return base
+        # Deterministic cap keeps Level 8 bounded for ultra-quality reconstructions.
+        cap = min(len(valid), int(os.environ.get('FUMOCA_PART_BOUNDARY_SAMPLES', '12000')))
+        valid = valid[np.linspace(0, len(valid) - 1, cap, dtype=np.int64)]
+        p = pts[valid, :3]
+        lab = labels[valid]
+        try:
+            from scipy.spatial import cKDTree
+            tree = cKDTree(p)
+            k = min(8, len(p))
+            _, nn = tree.query(p, k=k, workers=1)
+        except Exception:
+            return base
+        records = []
+        for pg in part_geometry.get('parts', []):
+            pid = int(pg.get('part_id', -1))
+            if pid < 0:
+                continue
+            mask = lab == pid
+            count = int(np.count_nonzero(mask))
+            if count < 3:
+                continue
+            rows = np.flatnonzero(mask)
+            neighbour_labels = lab[nn[rows].reshape(-1)]
+            # The first neighbour is normally the point itself. Exclude same-part
+            # contacts from the boundary ratio and count only observed other parts.
+            cross = neighbour_labels != pid
+            cross_count = int(np.count_nonzero(cross))
+            boundary_point_ratio = float(np.mean(np.any(cross.reshape(len(rows), -1), axis=1)))
+            contact_ratio = float(cross_count / max(len(rows) * max(k - 1, 1), 1))
+            axes = np.asarray(pg.get('principal_axes', []), dtype=np.float64)
+            variances = np.asarray(pg.get('principal_variance', []), dtype=np.float64)
+            axis_candidates = []
+            if axes.shape == (3, 3):
+                for axis_i in range(3):
+                    axis = axes[:, axis_i]
+                    spread = float(variances[axis_i]) if axis_i < len(variances) else 0.0
+                    axis_candidates.append({
+                        'axis': [float(x) for x in axis],
+                        'axis_index': axis_i,
+                        'spread': spread,
+                        'mechanical_candidate': bool(axis_i == 0 and pg.get('axis_confidence', 0.0) >= 0.35),
+                        'status': 'candidate_only',
+                    })
+            boundary_score = float(np.clip(0.55 * boundary_point_ratio + 0.45 * min(contact_ratio * 4.0, 1.0), 0.0, 1.0))
+            records.append({
+                'part_id': pid,
+                'sampled_gaussians': count,
+                'boundary_point_ratio': boundary_point_ratio,
+                'cross_part_contact_ratio': contact_ratio,
+                'boundary_evidence_score': boundary_score,
+                'boundary_status': 'observed_contact' if boundary_score >= 0.20 else 'weak_contact',
+                'axis_candidates': axis_candidates,
+                'pivot': None,
+                'pivot_status': 'not_recovered',
+                'mechanical_axis_status': 'candidate_only' if axis_candidates else 'not_recovered',
+                'identity_status': 'unassigned',
+            })
+        base.update({'status': 'available' if records else 'insufficient_geometry', 'parts': records})
+        return base
+    except Exception as e:
+        base['status'] = 'error'
+        base['error'] = str(e)
+        return base
+
+
+def _validate_part_authoring(authoring: dict | None, graph_parts: list) -> dict:
+    """Validate explicit product-part authoring; never invent identity or mechanics."""
+    result = {
+        'status': 'not_provided',
+        'version': 1,
+        'parts': {},
+        'policy': 'Only explicit authoring may assign identity, pivots, axes or motion.',
+    }
+    if not isinstance(authoring, dict):
+        return result
+    supplied = authoring.get('parts', {})
+    if isinstance(supplied, list):
+        supplied = {str(x.get('id')): x for x in supplied if isinstance(x, dict) and x.get('id') is not None}
+    if not isinstance(supplied, dict):
+        result['status'] = 'invalid'
+        result['error'] = 'parts must be an object or list'
+        return result
+    allowed = {str(p.get('id')) for p in graph_parts}
+    for pid, raw in supplied.items():
+        if str(pid) not in allowed or not isinstance(raw, dict):
+            continue
+        clean = {}
+        name = raw.get('name')
+        if isinstance(name, str) and name.strip():
+            clean['name'] = name.strip()[:120]
+            clean['name_status'] = 'explicit_authoring'
+        pivot = raw.get('pivot')
+        if isinstance(pivot, (list, tuple)) and len(pivot) == 3:
+            vals = [float(x) for x in pivot]
+            if all(np.isfinite(x) for x in vals):
+                clean['pivot'] = vals
+                clean['pivot_status'] = 'explicit_authoring'
+        axis = raw.get('axis')
+        if isinstance(axis, (list, tuple)) and len(axis) == 3:
+            vals = np.asarray([float(x) for x in axis], dtype=np.float64)
+            norm = float(np.linalg.norm(vals))
+            if np.isfinite(norm) and norm > 1e-8:
+                clean['axis'] = [float(x) for x in (vals / norm)]
+                clean['mechanical_axis_status'] = 'explicit_authoring'
+        motion = raw.get('motion')
+        if motion in ('rotate', 'translate', 'static'):
+            clean['motion'] = motion
+        limits = raw.get('limits')
+        if isinstance(limits, dict):
+            clean['limits'] = {}
+            for key in ('min', 'max'):
+                value = limits.get(key)
+                if isinstance(value, (int, float)) and np.isfinite(value):
+                    clean['limits'][key] = float(value)
+        clean['interactive_ready'] = bool(
+            clean.get('name') and (
+                (clean.get('motion') == 'rotate' and clean.get('pivot') and clean.get('axis')) or
+                clean.get('motion') in ('translate', 'static')
+            )
+        )
+        if clean.get('interactive_ready'):
+            clean['authoring_source'] = 'explicit'
+            clean['verified_by_capture'] = False
+        result['parts'][str(pid)] = clean
+    result['status'] = 'available' if result['parts'] else 'empty'
+    return result
+
+
+def _verify_part_behaviour(part_geometry: dict | None, mechanical_candidates: dict | None,
+                            authoring_state: dict | None) -> dict:
+    """Level 10: verify explicit transforms against observed part geometry.
+
+    This verifier is intentionally conservative. It checks only relationships
+    that can be evaluated from captured geometry; it never synthesizes missing
+    geometry or changes an authored pivot/axis.
+    """
+    result = {
+        'status': 'not_verified', 'level': 10, 'parts': [],
+        'policy': (
+            'Verification compares explicit authoring with observed reconstructed '
+            'geometry. It does not prove hidden structure or invent mechanics.'
+        ),
+        'unseen_geometry_claimed': False,
+    }
+    if not isinstance(authoring_state, dict) or authoring_state.get('status') != 'available':
+        return result
+    geometry_parts = {int(p.get('part_id')): p for p in (part_geometry or {}).get('parts', []) if p.get('part_id') is not None}
+    mechanical_parts = {int(p.get('part_id')): p for p in (mechanical_candidates or {}).get('parts', []) if p.get('part_id') is not None}
+    for graph_id, authored in authoring_state.get('parts', {}).items():
+        try:
+            pid = int(str(graph_id).split('-')[-1])
+        except Exception:
+            continue
+        pg = geometry_parts.get(pid)
+        mc = mechanical_parts.get(pid)
+        checks = []
+        if not pg:
+            checks.append({'check': 'observed_geometry', 'status': 'fail', 'reason': 'no observed 3D geometry'})
+        else:
+            checks.append({'check': 'observed_geometry', 'status': 'pass', 'reason': 'part has reconstructed 3D extent'})
+        pivot = authored.get('pivot')
+        if pivot is not None and pg:
+            lo = np.asarray(pg.get('bounds_min', [0, 0, 0]), dtype=np.float64)
+            hi = np.asarray(pg.get('bounds_max', [0, 0, 0]), dtype=np.float64)
+            pv = np.asarray(pivot, dtype=np.float64)
+            diag = float(np.linalg.norm(hi - lo))
+            tol = max(diag * 0.15, 1e-5)
+            distance = float(np.linalg.norm(np.maximum(lo - pv, 0) + np.minimum(hi - pv, 0)))
+            checks.append({'check': 'pivot_near_part_extent', 'status': 'pass' if distance <= tol else 'warn', 'distance': distance, 'tolerance': tol})
+        axis = authored.get('axis')
+        if axis is not None and pg:
+            axes = np.asarray(pg.get('principal_axes', []), dtype=np.float64)
+            best = 0.0
+            if axes.shape == (3, 3):
+                a = np.asarray(axis, dtype=np.float64)
+                for k in range(3):
+                    best = max(best, abs(float(np.dot(a, axes[:, k]))))
+            checks.append({'check': 'axis_agrees_with_observed_frame', 'status': 'pass' if best >= 0.70 else 'warn', 'alignment': best})
+        if mc and mc.get('boundary_status') == 'weak_contact':
+            checks.append({'check': 'boundary_evidence', 'status': 'warn', 'reason': 'only weak observed cross-part contact'})
+        elif mc and mc.get('boundary_status') == 'observed_contact':
+            checks.append({'check': 'boundary_evidence', 'status': 'pass', 'reason': 'observed cross-part contact'})
+        passed = sum(x['status'] == 'pass' for x in checks)
+        failed = sum(x['status'] == 'fail' for x in checks)
+        warned = sum(x['status'] == 'warn' for x in checks)
+        state = 'verified' if failed == 0 and warned == 0 and passed >= 2 else ('warning' if failed == 0 else 'rejected')
+        result['parts'].append({
+            'part_id': pid,
+            'state': state,
+            'checks': checks,
+            'interactive_eligible': bool(state == 'verified' and authored.get('interactive_ready')),
+        })
+    result['status'] = 'available' if result['parts'] else 'not_verified'
+    return result
+
+
+
+def _rotation_matrix(axis: np.ndarray, angle_rad: float) -> np.ndarray:
+    """Return a deterministic Rodrigues rotation matrix."""
+    a = np.asarray(axis, dtype=np.float64)
+    norm = float(np.linalg.norm(a))
+    if not np.isfinite(norm) or norm <= 1e-8:
+        raise ValueError('rotation axis must be finite and non-zero')
+    a = a / norm
+    x, y, z = a
+    c = math.cos(float(angle_rad))
+    s = math.sin(float(angle_rad))
+    C = 1.0 - c
+    return np.array([
+        [c + x*x*C, x*y*C - z*s, x*z*C + y*s],
+        [y*x*C + z*s, c + y*y*C, y*z*C - x*s],
+        [z*x*C - y*s, z*y*C + x*s, c + z*z*C],
+    ], dtype=np.float64)
+
+
+def _simulate_part_motion(semantic: dict | None,
+                          part_geometry: dict | None,
+                          mechanical_candidates: dict | None,
+                          authoring_state: dict | None,
+                          master_solid_mapping: dict | None = None) -> dict:
+    """Level 11: simulate explicitly authored part motion against observed geometry.
+
+    This is a non-destructive point-evidence simulation. It never mutates the
+    canonical Gaussian geometry and never pretends the current master mesh has
+    per-part topology when that mapping has not been captured.
+    """
+    result = {
+        'status': 'not_available',
+        'level': 11,
+        'parts': [],
+        'master_solid_sync': 'available' if (
+            isinstance(master_solid_mapping, dict) and
+            master_solid_mapping.get('status') == 'available' and
+            int(master_solid_mapping.get('mapped_face_count', 0)) > 0
+        ) else 'unavailable_without_mesh_part_labels',
+        'gaussian_preview_sync': 'canonical_transform_plan_available',
+        'policy': (
+            'Motion is simulated from observed Gaussian positions assigned to an '
+            'explicitly authored part. The canonical geometry is never mutated. '
+            'Collision is a proximity proxy, not a physics or hidden-structure proof.'
+        ),
+        'unseen_geometry_claimed': False,
+    }
+    if not isinstance(authoring_state, dict) or authoring_state.get('status') != 'available':
+        return result
+    if not isinstance(semantic, dict):
+        return result
+    positions = semantic.get('_positions')
+    labels = np.asarray(semantic.get('labels', []), dtype=np.uint8)
+    if positions is None or len(labels) == 0:
+        return result
+    try:
+        pts_all = np.asarray(positions, dtype=np.float64)
+        if pts_all.ndim != 2 or pts_all.shape[1] < 3 or len(pts_all) != len(labels):
+            return result
+        finite = np.all(np.isfinite(pts_all[:, :3]), axis=1)
+        valid = finite & (labels != 255)
+        if np.count_nonzero(valid) < 8:
+            return result
+        geometry_parts = {
+            int(p.get('part_id')): p for p in (part_geometry or {}).get('parts', [])
+            if p.get('part_id') is not None
+        }
+        mechanical_parts = {
+            int(p.get('part_id')): p for p in (mechanical_candidates or {}).get('parts', [])
+            if p.get('part_id') is not None
+        }
+
+        for graph_id, authored in authoring_state.get('parts', {}).items():
+            try:
+                pid = int(str(graph_id).split('-')[-1])
+            except Exception:
+                continue
+            if not isinstance(authored, dict) or not authored.get('interactive_ready'):
+                continue
+            part_mask = valid & (labels == pid)
+            part_indices = np.flatnonzero(part_mask)
+            if len(part_indices) < 8:
+                result['parts'].append({
+                    'part_id': pid,
+                    'status': 'rejected',
+                    'reason': 'insufficient observed Gaussian samples for motion simulation',
+                    'interactive_eligible': False,
+                })
+                continue
+
+            pg = geometry_parts.get(pid) or {}
+            mc = mechanical_parts.get(pid) or {}
+            part_points = pts_all[part_indices, :3]
+            sample_cap = min(
+                len(part_points),
+                int(os.environ.get('FUMOCA_MOTION_SAMPLES', '4096'))
+            )
+            if sample_cap < len(part_points):
+                sample_idx = np.linspace(0, len(part_points) - 1, sample_cap, dtype=np.int64)
+                part_points = part_points[sample_idx]
+
+            other_mask = valid & (labels != pid)
+            other_indices = np.flatnonzero(other_mask)
+            if len(other_indices) < 8:
+                other_points = np.empty((0, 3), dtype=np.float64)
+            else:
+                other_points = pts_all[other_indices, :3]
+                other_cap = min(
+                    len(other_points),
+                    int(os.environ.get('FUMOCA_MOTION_STATIONARY_SAMPLES', '12000'))
+                )
+                if other_cap < len(other_points):
+                    other_idx = np.linspace(0, len(other_points) - 1, other_cap, dtype=np.int64)
+                    other_points = other_points[other_idx]
+
+            pivot = authored.get('pivot')
+            axis = authored.get('axis')
+            motion = authored.get('motion')
+            if motion == 'rotate' and (pivot is None or axis is None):
+                result['parts'].append({
+                    'part_id': pid,
+                    'status': 'rejected',
+                    'reason': 'rotate motion requires explicit pivot and axis',
+                    'interactive_eligible': False,
+                })
+                continue
+            if motion == 'translate' and axis is None:
+                result['parts'].append({
+                    'part_id': pid,
+                    'status': 'rejected',
+                    'reason': 'translate motion requires an explicit axis',
+                    'interactive_eligible': False,
+                })
+                continue
+
+            p0 = np.asarray(pivot, dtype=np.float64) if pivot is not None else np.zeros(3, dtype=np.float64)
+            a0 = np.asarray(axis, dtype=np.float64) if axis is not None else None
+            if a0 is not None:
+                a_norm = float(np.linalg.norm(a0))
+                if not np.isfinite(a_norm) or a_norm <= 1e-8:
+                    result['parts'].append({
+                        'part_id': pid,
+                        'status': 'rejected',
+                        'reason': 'explicit motion axis is invalid',
+                        'interactive_eligible': False,
+                    })
+                    continue
+                a0 = a0 / a_norm
+
+            limits = authored.get('limits') if isinstance(authored.get('limits'), dict) else {}
+            if motion == 'rotate':
+                lo = float(limits.get('min', 0.0))
+                hi = float(limits.get('max', 72.0))
+                if hi < lo:
+                    lo, hi = hi, lo
+                if abs(hi - lo) < 1e-8:
+                    samples = [lo]
+                else:
+                    requested = np.array([lo, 15.0, 30.0, 45.0, 60.0, hi], dtype=np.float64)
+                    samples = sorted(set(float(np.clip(x, lo, hi)) for x in requested))
+            elif motion == 'translate':
+                if 'min' not in limits or 'max' not in limits:
+                    result['parts'].append({
+                        'part_id': pid,
+                        'status': 'not_testable',
+                        'reason': 'translate motion needs explicit numeric min/max limits',
+                        'interactive_eligible': False,
+                    })
+                    continue
+                lo = float(limits['min'])
+                hi = float(limits['max'])
+                if hi < lo:
+                    lo, hi = hi, lo
+                samples = sorted(set(float(x) for x in np.linspace(lo, hi, 6)))
+            else:
+                samples = [0.0]
+
+            # Establish the captured closed-state proximity baseline. Natural
+            # product contact at the starting pose is not automatically treated
+            # as a collision introduced by motion.
+            baseline_collision = 0.0
+            baseline_nn = None
+            if len(other_points):
+                try:
+                    from scipy.spatial import cKDTree
+                    stationary_tree = cKDTree(other_points)
+                    baseline_nn = stationary_tree.query(part_points, k=1, workers=1)[0]
+                    baseline_collision = float(np.mean(
+                        baseline_nn <= max(
+                            float(np.linalg.norm(np.asarray(pg.get('bounds_max', [0,0,0])) -
+                                                     np.asarray(pg.get('bounds_min', [0,0,0])))) * 0.01,
+                            1e-5
+                        )
+                    ))
+                except Exception:
+                    baseline_nn = None
+
+            diagonal = float(np.linalg.norm(
+                np.asarray(pg.get('bounds_max', [0,0,0]), dtype=np.float64) -
+                np.asarray(pg.get('bounds_min', [0,0,0]), dtype=np.float64)
+            ))
+            collision_tol = max(diagonal * 0.01, 1e-5)
+            pose_reports = []
+            any_collision = False
+            finite_all = True
+            identity_preserved = True
+
+            for amount in samples:
+                if motion == 'rotate':
+                    R = _rotation_matrix(a0, math.radians(amount))
+                    transformed = ((part_points - p0) @ R.T) + p0
+                elif motion == 'translate':
+                    transformed = part_points + a0 * amount
+                else:
+                    transformed = part_points.copy()
+
+                finite_pose = bool(np.all(np.isfinite(transformed)))
+                finite_all &= finite_pose
+                collision_ratio = 0.0
+                min_distance = None
+                introduced_collision = False
+                if finite_pose and len(other_points):
+                    try:
+                        distances = stationary_tree.query(transformed, k=1, workers=1)[0]
+                        min_distance = float(np.min(distances)) if len(distances) else None
+                        collision_ratio = float(np.mean(distances <= collision_tol)) if len(distances) else 0.0
+                        introduced_collision = bool(
+                            collision_ratio > max(baseline_collision + 0.02, 0.05)
+                        )
+                    except Exception:
+                        pass
+                any_collision |= introduced_collision
+                pose_reports.append({
+                    'amount': float(amount),
+                    'finite': finite_pose,
+                    'sample_count': int(len(transformed)),
+                    'collision_proxy_ratio': collision_ratio,
+                    'min_stationary_distance': min_distance,
+                    'introduced_collision': introduced_collision,
+                })
+
+            boundary_status = mc.get('boundary_status')
+            boundary_ok = boundary_status == 'observed_contact'
+            state = (
+                'verified' if finite_all and identity_preserved and not any_collision and boundary_ok
+                else 'warning' if finite_all and identity_preserved and not any_collision
+                else 'rejected'
+            )
+            result['parts'].append({
+                'part_id': pid,
+                'motion': motion,
+                'tested_samples': [float(x) for x in samples],
+                'pose_reports': pose_reports,
+                'collision_tolerance': collision_tol,
+                'baseline_collision_proxy_ratio': baseline_collision,
+                'boundary_evidence': boundary_status or 'unavailable',
+                'geometry_sample_count': int(len(part_points)),
+                'identity_preserved': identity_preserved,
+                'finite_transforms': finite_all,
+                'collision_free_proxy': not any_collision,
+                'state': state,
+                'interactive_eligible': bool(state == 'verified'),
+                'master_solid_sync': (
+                    'mapped' if any(
+                        int(x.get('part_id', -1)) == pid and int(x.get('mapped_faces', 0)) > 0
+                        for x in (master_solid_mapping or {}).get('parts', [])
+                    ) else 'not_mapped'
+                ),
+                'gaussian_preview_sync': 'transform_available',
+            })
+
+        result['status'] = 'available' if result['parts'] else 'not_available'
+        return result
+    except Exception as e:
+        result['status'] = 'error'
+        result['error'] = str(e)
+        return result
+
+def _build_product_part_graph(semantic: dict | None, geometry_confidence: dict | None = None,
+                              multi_view: dict | None = None,
+                              part_geometry: dict | None = None,
+                              mechanical_candidates: dict | None = None,
+                              authoring: dict | None = None,
+                              motion_verification: dict | None = None) -> dict:
+    """Build the evidence-backed Product Part Graph.
+
+    This is intentionally a graph of observed regions, not an AI guess of product
+    terminology. A region becomes mechanically interactive only after a later
+    authoring/identity stage supplies a semantic name, pivot and transform.
+    """
+    parts = []
+    if semantic and semantic.get('status') == 'available':
+        for part in sorted(semantic.get('parts', []), key=lambda p: int(p.get('part_id', 0))):
+            pid = int(part.get('part_id', 0))
+            mv = next((x for x in (multi_view or {}).get('parts', []) if int(x.get('part_id', -1)) == pid), None)
+            pg = next((x for x in (part_geometry or {}).get('parts', []) if int(x.get('part_id', -1)) == pid), None)
+            mc = next((x for x in (mechanical_candidates or {}).get('parts', []) if int(x.get('part_id', -1)) == pid), None)
+            parts.append({
+                'id': f'part-{pid}',
+                'part_id': pid,
+                'name': None,
+                'name_status': 'unassigned',
+                'parent_id': None,
+                'geometry': {
+                    'semantic_label': pid,
+                    'multi_view': mv or {'stable_3d_evidence': False, 'multi_view_score': 0.0},
+                    'observed_3d': pg or {'frame_source': 'unavailable', 'pivot_status': 'not_recovered'},
+                    'mechanical_candidates': mc or {'boundary_status': 'unavailable', 'mechanical_axis_status': 'not_recovered'},
+                    'assigned_gaussians': int(part.get('assigned_gaussians', 0)),
+                    'source': part.get('source', 'sam2_reference_frame'),
+                    'confidence': float(part.get('mean_confidence', 0.0)),
+                },
+                'transform': {
+                    'pivot': None,
+                    'rotation': [0.0, 0.0, 0.0, 1.0],
+                    'translation': [0.0, 0.0, 0.0],
+                },
+                'capabilities': {
+                    # Multi-view evidence is necessary groundwork, not proof of
+                    # mechanical behavior. Level 7 must explicitly author/recover
+                    # identity, pivot and transform before interaction is enabled.
+                    'interactive_ready': False,
+                    'animatable': False,
+                    'hinge_authored': False,
+                },
+                'identity': {
+                    'source': 'observed_segmentation',
+                    'verified': False,
+                },
+            })
+    authoring_state = _validate_part_authoring(authoring, parts)
+    for p in parts:
+        authored = authoring_state.get('parts', {}).get(p['id'], {})
+        if not authored:
+            continue
+        p['name'] = authored.get('name', p['name'])
+        p['name_status'] = authored.get('name_status', p['name_status'])
+        p['identity']['source'] = 'explicit_authoring'
+        if authored.get('pivot') is not None:
+            p['transform']['pivot'] = authored['pivot']
+            p['transform']['pivot_source'] = 'explicit_authoring'
+        if authored.get('axis') is not None:
+            p['transform']['axis'] = authored['axis']
+            p['transform']['axis_source'] = 'explicit_authoring'
+        if authored.get('motion'):
+            p['transform']['motion'] = authored['motion']
+        if authored.get('limits'):
+            p['transform']['limits'] = authored['limits']
+        p['capabilities']['interactive_ready'] = bool(authored.get('interactive_ready'))
+        p['capabilities']['animatable'] = bool(authored.get('interactive_ready'))
+        p['capabilities']['hinge_authored'] = bool(
+            authored.get('motion') == 'rotate' and authored.get('pivot') is not None and authored.get('axis') is not None
+        )
+    verification = _verify_part_behaviour(part_geometry, mechanical_candidates, authoring_state)
+    for p in parts:
+        check = next((x for x in verification.get('parts', []) if int(x.get('part_id', -1)) == int(p.get('part_id', -1))), None)
+        if check:
+            p['capabilities']['verification_state'] = check['state']
+            p['capabilities']['interactive_ready'] = bool(check.get('interactive_eligible'))
+            p['capabilities']['animatable'] = bool(check.get('interactive_eligible'))
+
+    # Level 11 is a second gate: geometric authoring verification alone does
+    # not prove that the authored transform can move the observed part without
+    # colliding with the rest of the captured product.
+    for p in parts:
+        motion_check = next(
+            (x for x in (motion_verification or {}).get('parts', [])
+             if int(x.get('part_id', -1)) == int(p.get('part_id', -1))),
+            None,
+        )
+        if motion_check:
+            p['capabilities']['motion_verification_state'] = motion_check.get('state', 'not_tested')
+            mapped_solid = motion_check.get('master_solid_sync') == 'mapped'
+            p['capabilities']['master_solid_mapping_state'] = (
+                'mapped' if mapped_solid else 'not_mapped'
+            )
+            p['capabilities']['interactive_ready'] = bool(
+                p['capabilities'].get('interactive_ready') and
+                motion_check.get('interactive_eligible') is True and
+                mapped_solid
+            )
+            p['capabilities']['animatable'] = p['capabilities']['interactive_ready']
+        elif p['capabilities'].get('interactive_ready'):
+            p['capabilities']['motion_verification_state'] = 'not_tested'
+
+    # Keep the fusion-level gate explicit rather than using deeply nested
+    # conditional expressions. Level 12 is only reached when the Level 11
+    # motion verifier has a usable master-solid mapping; lower levels remain
+    # evidence states and never imply hidden geometry or mechanics.
+    solid_mapping_available = bool(
+        motion_verification and
+        motion_verification.get('master_solid_sync') == 'available'
+    )
+    if solid_mapping_available:
+        fusion_level = 12
+    elif motion_verification and motion_verification.get('status') == 'available':
+        fusion_level = 11
+    elif verification.get('status') == 'available':
+        fusion_level = 10
+    elif authoring_state.get('status') == 'available':
+        fusion_level = 9
+    elif mechanical_candidates and mechanical_candidates.get('status') == 'available':
+        fusion_level = 8
+    elif multi_view and multi_view.get('status') == 'available':
+        fusion_level = 6
+    else:
+        fusion_level = 5
+    return {
+        'version': 1,
+        'fusion_level': fusion_level,
+        'status': 'evidence_only' if parts else 'unavailable',
+        'authoring': authoring_state,
+        'verification': verification,
+        'motion_verification': motion_verification or {
+            'status': 'not_available',
+            'level': 11,
+            'unseen_geometry_claimed': False,
+        },
+        'master_solid_mapping': {
+            'status': 'available' if solid_mapping_available else 'not_available',
+            'level': 12,
+            'unseen_geometry_claimed': False,
+        },
+        'root_id': 'product-root',
+        'root': {
+            'id': 'product-root',
+            'name': None,
+            'name_status': 'unassigned',
+            'type': 'whole_product',
+        },
+        'parts': parts,
+        'edges': [{'parent_id': 'product-root', 'child_id': p['id'], 'relation': 'observed_part'} for p in parts],
+        'policy': 'Observed SAM/SAM2 regions are not product names. Mechanical behavior requires explicit identity, pivot and transform authoring.',
+        'unseen_geometry_claimed': False,
+    }
+
+
+def _pack_semantic_map(semantic: dict | None) -> bytes | None:
+    """Pack Level 5 per-Gaussian semantic evidence.
+    v1: FSMP + version + unknown label + part count + Gaussian count +
+    uint8 labels + float16 confidence + JSON part metadata.
+    """
+    if not semantic or semantic.get('status') != 'available':
+        return None
+    labels = np.asarray(semantic.get('labels', []), dtype=np.uint8)
+    confidence = np.asarray(semantic.get('confidence', []), dtype=np.float32)
+    if len(labels) == 0 or len(labels) != len(confidence):
+        return None
+    parts = json.dumps(semantic.get('parts', []), separators=(',', ':')).encode('utf-8')
+    header = struct.pack(
+        '>4sBBHI', b'FSMP', 1, 255, len(semantic.get('parts', [])), len(labels)
+    )
+    return (
+        header +
+        labels.tobytes() +
+        confidence.astype('>f2').tobytes() +
+        struct.pack('>I', len(parts)) +
+        parts
+    )
 
 # ─── Stage 6: Layer splitting ─────────────────────────────────────────────────
 def split_layers(geo_data: np.ndarray, depth_map: np.ndarray,
@@ -1656,12 +3711,13 @@ class ReconstructionWorker:
             # when it isn't, instead of spending the full budget optimizing
             # against poses already known to be a synthetic fallback.
             self._tick('processing', 52)
-            n, geo_bytes, eval_psnr = self._train_gaussians(
+            n, geo_bytes, appearance_bytes, eval_psnr = self._train_gaussians(
                 frames,
                 poses,
                 sparse_points,
                 pose_source,
-                object_masks=object_masks
+                object_masks=object_masks,
+                depth_maps=depth_maps
             )
 
             # Dequantize for internal use (mesh extraction, layer splitting need
@@ -1683,9 +3739,98 @@ class ReconstructionWorker:
             if scale_factor:
                 mesh_geo_data[:, 0:3] *= scale_factor
 
+            # ── Level 12 semantic seed for structural mesh ownership ─────────────
+            # Semantic labels can be established before mesh extraction; Level 4
+            # geometry confidence is added to the final semantic evidence later.
+            mesh_semantic_seed = _semantic_part_evidence(
+                mesh_geo_data,
+                segments,
+                poses[0] if poses else None,
+                image_shape=frames[0].shape[:2] if frames else None,
+                geometry_confidence=None,
+            )
+
             # ── Real mesh extraction — triangulation from the trained Gaussians ─
             self._tick('processing', 65)
-            mesh_bytes, stl_bytes, mesh_info = self._extract_mesh(mesh_geo_data)
+            mesh_bytes, stl_bytes, mesh_info = self._extract_mesh(
+                mesh_geo_data,
+                semantic_labels=np.asarray(mesh_semantic_seed.get('labels', []), dtype=np.uint8),
+                semantic_confidence=np.asarray(mesh_semantic_seed.get('confidence', []), dtype=np.float32),
+            )
+            encapsulation = _encapsulation_report(
+                mesh_info, poses, mesh_geo_data, object_masks, alpha_masks
+            )
+            surface_camera_evidence = _surface_camera_evidence(
+                mesh_geo_data,
+                poses,
+                object_masks,
+                image_shape=frames[0].shape[:2] if frames else None,
+            )
+            depth_visibility_evidence = _surface_depth_visibility_evidence(
+                mesh_geo_data,
+                poses,
+                object_masks,
+                depth_maps,
+                image_shape=frames[0].shape[:2] if frames else None,
+            )
+            encapsulation['surface_camera_evidence'] = surface_camera_evidence
+            encapsulation['depth_visibility_evidence'] = depth_visibility_evidence
+            geometry_confidence = _surface_geometry_confidence(
+                mesh_geo_data,
+                encapsulation,
+                mesh_info,
+                poses,
+                object_masks,
+                depth_maps,
+                image_shape=frames[0].shape[:2] if frames else None,
+            )
+            encapsulation['geometry_confidence'] = geometry_confidence
+            semantic_evidence = _semantic_part_evidence(
+                mesh_geo_data,
+                segments,
+                poses[0] if poses else None,
+                image_shape=frames[0].shape[:2] if frames else None,
+                geometry_confidence=geometry_confidence,
+            )
+            encapsulation['semantic_part_evidence'] = {
+                k: v for k, v in semantic_evidence.items()
+                if k not in ('labels', 'confidence')
+            }
+            # Level 6: carry the canonical Gaussian positions through the fusion
+            # function without serialising them into the evidence chunk.
+            semantic_evidence['_positions'] = mesh_geo_data[:, :3] if mesh_geo_data is not None else None
+            multi_view_part_fusion = _multi_view_part_fusion(
+                semantic_evidence,
+                poses,
+                object_masks,
+                image_shape=frames[0].shape[:2] if frames else None,
+            )
+            part_geometry_evidence = _part_geometry_evidence(semantic_evidence, multi_view_part_fusion)
+            mechanical_candidates = _part_mechanical_candidates(semantic_evidence, part_geometry_evidence)
+            # Level 11: simulate explicitly authored motion against the observed
+            # Gaussian evidence before exposing a part as interactive.
+            authoring_input = meta.get('part_authoring') if isinstance(meta, dict) else None
+            authoring_state = _validate_part_authoring(authoring_input, [
+                {'id': f'part-{int(p.get("part_id", 0))}'}
+                for p in semantic_evidence.get('parts', [])
+            ])
+            motion_verification = _simulate_part_motion(
+                semantic_evidence,
+                part_geometry_evidence,
+                mechanical_candidates,
+                authoring_state,
+                (mesh_info or {}).get('master_solid_part_mapping') if mesh_info else None,
+            )
+            semantic_evidence.pop('_positions', None)
+            encapsulation['multi_view_part_fusion'] = multi_view_part_fusion
+            encapsulation['part_geometry_evidence'] = part_geometry_evidence
+            encapsulation['mechanical_candidates'] = mechanical_candidates
+            encapsulation['motion_verification'] = motion_verification
+            mesh_part_mapping_bytes = None
+            if mesh_info is not None:
+                mesh_part_mapping = mesh_info.pop('_part_mapping_binary', None)
+                mesh_part_mapping_bytes = mesh_part_mapping
+                mesh_info['encapsulation'] = encapsulation
 
             self._tick('processing', 72)
             layer_bytes = split_layers(
@@ -1705,6 +3850,17 @@ class ReconstructionWorker:
 
             # ── Pack .nif ─────────────────────────────────────────────────────
             self._tick('processing', 84)
+            semantic_bytes = _pack_semantic_map(semantic_evidence)
+            part_graph = _build_product_part_graph(
+                semantic_evidence,
+                geometry_confidence,
+                multi_view_part_fusion,
+                part_geometry_evidence,
+                mechanical_candidates,
+                meta.get('part_authoring') if isinstance(meta, dict) else None,
+                motion_verification,
+            )
+            part_graph_bytes = json.dumps(part_graph, separators=(',', ':')).encode('utf-8')
             chunks = [
                 # geo_bytes already contains its own [flag][count][data] header
                 # (built by export_buffer()) — do NOT prepend another count field,
@@ -1721,6 +3877,13 @@ class ReconstructionWorker:
                 (CHUNK_META,    self._pack_meta(vertical, meta)),
                 (CHUNK_PHYSICS, json.dumps(_build_physics_chunk(mesh_info, vertical, calibration, meta)).encode('utf-8')),
                 (CHUNK_CALIB,   json.dumps(calibration).encode('utf-8')),
+                (CHUNK_ENCAPSULATION, json.dumps(
+                    (mesh_info or {}).get('encapsulation', {})
+                ).encode('utf-8')),
+                *([(CHUNK_MESH_PART_MAP, mesh_part_mapping_bytes)] if mesh_part_mapping_bytes else []),
+                *([(CHUNK_SEM, semantic_bytes)] if semantic_bytes else []),
+                *([(CHUNK_APPEARANCE, appearance_bytes)] if appearance_bytes else []),
+                (CHUNK_PART_GRAPH, part_graph_bytes),
             ]
             # ── Product verification — only runs when the job explicitly
             # supplies a reference mesh to compare against (meta
@@ -1814,6 +3977,16 @@ class ReconstructionWorker:
                 quality_warnings.append('holdout_frames_insufficient_for_eval')
             if mesh_info and not mesh_info.get('is_watertight'):
                 quality_warnings.append('mesh_not_watertight')
+            if mesh_info and mesh_info.get('boundary_edges', 0):
+                quality_warnings.append(f"mesh_boundary_edges_{mesh_info['boundary_edges']}")
+            if mesh_info and mesh_info.get('nonmanifold_edges', 0):
+                quality_warnings.append(f"mesh_nonmanifold_edges_{mesh_info['nonmanifold_edges']}")
+            if mesh_info and not mesh_info.get('is_winding_consistent', True):
+                quality_warnings.append('mesh_winding_inconsistent')
+            if mesh_info and not mesh_info.get('is_volume', False):
+                quality_warnings.append('mesh_not_valid_volume')
+            if mesh_info and not mesh_info.get('printable', False):
+                quality_warnings.append('mesh_not_printable')
             if mesh_info and mesh_info.get('n_degenerate_faces'):
                 n_deg = mesh_info['n_degenerate_faces']
                 n_tot = mesh_info.get('n_faces') or 1
@@ -1869,8 +4042,11 @@ class ReconstructionWorker:
                 # This is the actual "will this print" signal; STL bytes
                 # existing only means the export step didn't crash.
                 'mesh_watertight':   bool(mesh_info.get('is_watertight')) if mesh_info else False,
-                'mesh_volume_m3':    mesh_info.get('volume_m3') if mesh_info else None,
-                'has_print_export':  bool(stl_bytes) and bool(mesh_info and mesh_info.get('is_watertight')),
+                'mesh_printable':     bool(mesh_info.get('printable')) if mesh_info else False,
+                'mesh_volume_m3':     mesh_info.get('volume_m3') if mesh_info else None,
+                'mesh_quality':       mesh_info or {},
+                'encapsulation':       (mesh_info or {}).get('encapsulation', {}),
+                'has_print_export':   bool(stl_bytes) and bool(mesh_info and mesh_info.get('printable')),
                 'calibration_method':     calibration['method'],
                 'calibration_confidence': calibration['confidence'],
                 'quality_warnings':       quality_warnings,  # [] means nothing flagged
@@ -2396,7 +4572,7 @@ class ReconstructionWorker:
             '--database_path', str(database_path),
             '--image_path', str(img_dir),
             '--ImageReader.single_camera', '1',
-            '--SiftExtraction.use_gpu', '0',
+            '--FeatureExtraction.use_gpu', '0',
         ], 'feature extraction'):
             return self._synthetic_poses(len(frames)), 'synthetic_colmap_failed', None
 
@@ -2405,7 +4581,7 @@ class ReconstructionWorker:
             'sequential_matcher',
             '--database_path', str(database_path),
             '--SequentialMatching.overlap', '10',
-            '--SiftMatching.use_gpu', '0',
+            '--FeatureMatching.use_gpu', '0',
         ], 'sequential matching'):
             return self._synthetic_poses(len(frames)), 'synthetic_colmap_failed', None
 
@@ -2582,14 +4758,23 @@ class ReconstructionWorker:
     def _train_gaussians(self, frames: list, poses: list,
                           sparse_points: np.ndarray | None = None,
                           pose_source: str = 'colmap',
-                          object_masks: list | None = None) -> tuple:
+                          object_masks: list | None = None,
+                          depth_maps: list | None = None) -> tuple:
         # Configurable so quality can be dialed back up later without a code
         # change — defaults tuned for fast turnaround during testing rather
         # than final quality. n=50k/3000 iters (the old fixed values) is a
         # real, noticeable time cost on top of COLMAP; halving both roughly
         # halves training wall-clock with a real but acceptable quality hit
         # for "does this work at all" testing.
-        n_gaussians = int(os.environ.get('FUMOCA_N_GAUSSIANS', '20000'))
+        quality = os.environ.get('FUMOCA_RECON_QUALITY', 'high').lower()
+        quality_tiers = {
+            'fast': {'gaussians': 20_000, 'iters': 1_200, 'max_gaussians': 120_000},
+            'balanced': {'gaussians': 30_000, 'iters': 1_800, 'max_gaussians': 160_000},
+            'high': {'gaussians': 40_000, 'iters': 2_500, 'max_gaussians': 220_000},
+            'ultra': {'gaussians': 60_000, 'iters': 3_500, 'max_gaussians': 300_000},
+        }
+        qcfg = quality_tiers.get(quality, quality_tiers['high'])
+        n_gaussians = int(os.environ.get('FUMOCA_N_GAUSSIANS', qcfg['gaussians']) )
         # Geometry-derived init: seed from COLMAP's real sparse point cloud
         # when pose estimation actually succeeded (pose_source == 'colmap').
         # Deliberately NOT passed when pose_source is a synthetic fallback —
@@ -2620,7 +4805,7 @@ class ReconstructionWorker:
         # Production 3DGS uses 30k but Kaggle T4 12hr limit means ~3k is practical.
         # Densification: split high-gradient Gaussians and clone small ones.
         # This is the core mechanism that fills in detail — without it you get blobs.
-        ITERS = int(os.environ.get('FUMOCA_GS_ITERS', '1200'))
+        ITERS = int(os.environ.get('FUMOCA_GS_ITERS', qcfg['iters']))
         # Geometry validation gate, applied here rather than only reported
         # after the fact: pose_source is already known before this method is
         # called (it comes from _estimate_poses, run before training). A
@@ -2640,7 +4825,7 @@ class ReconstructionWorker:
         DENSIFY_UNTIL    = 1500  # stop densifying past this point
         DENSIFY_GRAD_THR = 0.0002  # position gradient threshold for splitting
         PRUNE_EVERY      = 100
-        MAX_GAUSSIANS    = 150_000
+        MAX_GAUSSIANS    = int(os.environ.get('FUMOCA_MAX_GAUSSIANS', qcfg['max_gaussians']))
 
         # ── Held-out evaluation split — this is what makes the eventual
         # PSNR check below a real reconstruction-quality signal instead of a
@@ -2673,11 +4858,24 @@ class ReconstructionWorker:
                         mask_np.astype(np.float32) / 255.0
                     ).to(DEVICE)
 
+            depth_target = None
+            if depth_maps is not None and idx < len(depth_maps):
+                try:
+                    depth_target = torch.from_numpy(depth_maps[idx]).float()
+                except Exception:
+                    depth_target = None
+            depth_weight = float(os.environ.get('FUMOCA_DEPTH_LOSS_WEIGHT', '0.08'))
+            depth_every = max(1, int(os.environ.get('FUMOCA_DEPTH_LOSS_EVERY', '8')))
+            if step % depth_every != 0:
+                depth_weight = 0.0
+
             loss = trainer.train_step(
                 gt,
                 vm,
                 K,
-                alpha_mask=alpha_mask
+                alpha_mask=alpha_mask,
+                depth_target=depth_target,
+                depth_loss_weight=depth_weight
             )
 
             if step % 100 == 0:
@@ -2708,13 +4906,13 @@ class ReconstructionWorker:
                     quats_n = F.normalize(trainer.quats, dim=-1)
                     scales  = torch.exp(trainer.log_scales).clamp(min=1e-6)
                     opacities = torch.sigmoid(trainer.log_opacity)
-                    colours   = torch.sigmoid(trainer.sh0)
+                    sh_coeffs = torch.cat([trainer.sh0, trainer.sh_rest], dim=1)
                     rendered, _a, _i = gsplat.rasterization(
                         means=trainer.means.unsqueeze(0), quats=quats_n.unsqueeze(0),
                         scales=scales.unsqueeze(0), opacities=opacities.unsqueeze(0),
-                        colors=colours.unsqueeze(0), viewmats=vm.unsqueeze(0).unsqueeze(1), Ks=K.unsqueeze(0).unsqueeze(1),
+                        colors=sh_coeffs.unsqueeze(0), viewmats=vm.unsqueeze(0).unsqueeze(1), Ks=K.unsqueeze(0).unsqueeze(1),
                         width=gt.shape[1], height=gt.shape[0],
-                        near_plane=0.01, far_plane=100.0, render_mode='RGB',
+                        near_plane=0.01, far_plane=100.0, sh_degree=trainer.sh_degree, render_mode='RGB',
                     )
                     mses.append(float(F.mse_loss(rendered.squeeze(0).squeeze(0), gt)))
                 mean_mse = sum(mses) / len(mses)
@@ -2738,20 +4936,21 @@ class ReconstructionWorker:
                 quats_n = F.normalize(trainer.quats, dim=-1)
                 scales = torch.exp(trainer.log_scales).clamp(min=1e-6)
                 opacities = torch.sigmoid(trainer.log_opacity)
-                colours = torch.sigmoid(trainer.sh0)
+                sh_coeffs = torch.cat([trainer.sh0, trainer.sh_rest], dim=1)
 
                 debug_rendered, _, _ = gsplat.rasterization(
                     means=trainer.means.unsqueeze(0),
                     quats=quats_n.unsqueeze(0),
                     scales=scales.unsqueeze(0),
                     opacities=opacities.unsqueeze(0),
-                    colors=colours.unsqueeze(0),
+                    colors=sh_coeffs.unsqueeze(0),
                     viewmats=debug_vm.unsqueeze(0).unsqueeze(1),
                     Ks=K.unsqueeze(0).unsqueeze(1),
                     width=debug_gt.shape[1],
                     height=debug_gt.shape[0],
                     near_plane=0.01,
                     far_plane=100.0,
+                    sh_degree=trainer.sh_degree,
                     render_mode='RGB',
                 )
 
@@ -2765,8 +4964,8 @@ class ReconstructionWorker:
                     debug_gt.clamp(0, 1).cpu().numpy() * 255
                 ).astype(np.uint8)
 
-            debug_path = '/kaggle/working/gaussian_debug_render.png'
-            gt_path = '/kaggle/working/gaussian_debug_gt.png'
+            debug_path = str(self.tmp / 'gaussian_debug_render.png')
+            gt_path = str(self.tmp / 'gaussian_debug_gt.png')
 
             imageio.imwrite(debug_path, debug_img)
             imageio.imwrite(gt_path, debug_gt_img)
@@ -2778,9 +4977,30 @@ class ReconstructionWorker:
             print(f'[NIF] Gaussian debug render failed (non-fatal): {e}')
 
         n, geo_bytes = trainer.export_buffer()
-        return n, geo_bytes, eval_psnr
+        appearance_bytes = self._pack_sh_appearance(trainer)
+        return n, geo_bytes, appearance_bytes, eval_psnr
+    def _pack_sh_appearance(self, trainer: GaussianSplatTrainer) -> bytes:
+        """Pack the full view-dependent SH appearance master.
+
+        Layout v1: magic 'FSHA', version, SH degree, coefficient count K,
+        Gaussian count N, then N × K × 3 float16 coefficients (big-endian).
+        GEO keeps a compact RGB fallback for legacy readers.
+        """
+        with torch.no_grad():
+            coeffs = torch.cat([trainer.sh0, trainer.sh_rest], dim=1).detach().cpu().numpy()
+        coeffs = np.asarray(coeffs, dtype=np.float32)
+        K = coeffs.shape[1]
+        N = coeffs.shape[0]
+        header = struct.pack('>4sBBHI', b'FSHA', 1, int(trainer.sh_degree), K, N)
+        body = coeffs.astype('>f2').tobytes()
+        print(f'[NIF] SH appearance master: degree={trainer.sh_degree} K={K} '
+              f'gaussians={N:,} size={(len(header)+len(body))/1024/1024:.2f}MB')
+        return header + body
+
     def _extract_mesh(self, geo_data: np.ndarray, grid_res: int = 96,
-                       opacity_thresh: float = 0.25, max_faces: int = 60_000) -> tuple:
+                       opacity_thresh: float = 0.18, max_faces: int | None = None,
+                       semantic_labels: np.ndarray | None = None,
+                       semantic_confidence: np.ndarray | None = None) -> tuple:
         """
         Real triangulation from the trained Gaussians — not a renamed point
         cloud. After training, each Gaussian's *shortest* axis aligns with the
@@ -2823,6 +5043,279 @@ class ReconstructionWorker:
         log_scales = pts[:, 3:6]
         quats = pts[:, 6:10]
         colors = 1.0 / (1.0 + np.exp(-pts[:, 11:14]))  # sigmoid → 0-1 RGB
+
+        # One face budget is shared by the production and fallback paths.
+        # Production detail tiers choose the default; an explicit max_faces
+        # remains an escape hatch for constrained jobs.
+        detail_name = os.environ.get('FUMOCA_MESH_DETAIL', 'high').lower()
+        detail_face_defaults = {
+            'fast': 80_000,
+            'balanced': 160_000,
+            'high': 250_000,
+            'ultra': 350_000,
+        }
+        target_max_faces = (
+            int(max_faces) if max_faces is not None
+            else int(os.environ.get(
+                'FUMOCA_MESH_MAX_FACES',
+                detail_face_defaults.get(detail_name, detail_face_defaults['high'])
+            ))
+        )
+
+        # ── FUMOCA production surface path ─────────────────────────────────
+        # The old path below built a signed-distance volume by projecting
+        # Gaussian normals and then ran Marching Cubes. That is useful as a
+        # dependency-light fallback, but its signed direction is fundamentally
+        # ambiguous on concave products and can create shells/holes.
+        #
+        # Production FUMOCA therefore prefers screened Poisson reconstruction
+        # from an oriented surface point cloud. This is the same class of
+        # Gaussian-to-mesh strategy used by surface-aligned Gaussian methods:
+        # extract/organise surface samples first, then reconstruct a continuous
+        # surface. If Open3D is unavailable or the Poisson result is unusable,
+        # the existing marching-cubes implementation continues below.
+        mesh_method = os.environ.get('FUMOCA_MESH_METHOD', 'poisson').lower()
+        if mesh_method in ('poisson', 'auto'):
+            import trimesh
+            try:
+                import open3d as o3d
+                from scipy.spatial import cKDTree
+
+                # FUMOCA detail tiers. The solid should never be capped at the
+                # same polygon budget as the lightweight web preview: small
+                # handles, seams, bottle threads, badges and door gaps are
+                # geometry, not noise.
+                detail = os.environ.get('FUMOCA_MESH_DETAIL', 'high').lower()
+                tiers = {
+                    'fast':     {'max_points': 100_000, 'depth': 8,  'density_q': 0.03,  'max_faces': 80_000},
+                    'balanced': {'max_points': 160_000, 'depth': 9,  'density_q': 0.015, 'max_faces': 160_000},
+                    'high':     {'max_points': 220_000, 'depth': 10, 'density_q': 0.01,  'max_faces': 250_000},
+                    'ultra':    {'max_points': 300_000, 'depth': 11, 'density_q': 0.005, 'max_faces': 350_000},
+                }
+                tier = tiers.get(detail, tiers['high'])
+                max_points = int(os.environ.get('FUMOCA_POISSON_MAX_POINTS', tier['max_points']))
+                poisson_depth = int(os.environ.get('FUMOCA_POISSON_DEPTH', tier['depth']))
+                poisson_depth = max(7, min(poisson_depth, 11))
+                density_q = float(os.environ.get('FUMOCA_POISSON_DENSITY_Q', tier['density_q']))
+                density_q = min(max(density_q, 0.0), 0.20)
+                target_max_faces = (
+                    int(max_faces) if max_faces is not None
+                    else int(os.environ.get('FUMOCA_MESH_MAX_FACES', tier['max_faces']))
+                )
+
+                work_positions = positions
+                work_colors = colors
+                work_normals = None
+
+                # Derive a surface normal from the Gaussian's shortest axis.
+                # This uses the learned anisotropic Gaussian orientation rather
+                # than throwing that geometry away and re-fitting a generic
+                # plane. Surface-aligned Gaussians are exactly the signal that
+                # makes Poisson extraction preserve fine geometry.
+                axis_idx = np.argmin(log_scales, axis=1)
+                qw, qx, qy, qz = quats[:, 0], quats[:, 1], quats[:, 2], quats[:, 3]
+                qn = np.sqrt(qw*qw + qx*qx + qy*qy + qz*qz) + 1e-8
+                qw, qx, qy, qz = qw/qn, qx/qn, qy/qn, qz/qn
+                G = np.empty((len(pts), 3, 3), dtype=np.float64)
+                G[:,0,0]=1-2*(qy*qy+qz*qz); G[:,0,1]=2*(qx*qy-qz*qw);   G[:,0,2]=2*(qx*qz+qy*qw)
+                G[:,1,0]=2*(qx*qy+qz*qw);   G[:,1,1]=1-2*(qx*qx+qz*qz); G[:,1,2]=2*(qy*qz-qx*qw)
+                G[:,2,0]=2*(qx*qz-qy*qw);   G[:,2,1]=2*(qy*qz+qx*qw);   G[:,2,2]=1-2*(qx*qx+qy*qy)
+                gaussian_normals = G[np.arange(len(pts)), :, axis_idx]
+                gaussian_normals /= np.maximum(
+                    np.linalg.norm(gaussian_normals, axis=1, keepdims=True), 1e-8
+                )
+
+                if len(work_positions) > max_points:
+                    # Deterministic stride keeps runs reproducible while still
+                    # retaining the learned normal/orientation field.
+                    stride = int(math.ceil(len(work_positions) / max_points))
+                    work_positions = work_positions[::stride]
+                    work_colors = work_colors[::stride]
+                    work_normals = gaussian_normals[::stride]
+                else:
+                    work_normals = gaussian_normals
+
+                if len(work_positions) >= 500:
+                    # Estimate local sampling scale. Poisson depth controls the
+                    # reconstruction resolution, while local spacing controls
+                    # normal propagation and only the optional safety downsample.
+                    nn_tree = cKDTree(work_positions)
+                    nn_d, _ = nn_tree.query(work_positions, k=2, workers=-1)
+                    local_spacing = float(np.median(nn_d[:, 1]))
+                    local_spacing = max(local_spacing, 1e-6)
+
+                    pcd = o3d.geometry.PointCloud()
+                    pcd.points = o3d.utility.Vector3dVector(work_positions.astype(np.float64))
+                    pcd.colors = o3d.utility.Vector3dVector(np.clip(work_colors, 0, 1).astype(np.float64))
+                    pcd.normals = o3d.utility.Vector3dVector(work_normals.astype(np.float64))
+
+                    # Only downsample at the extreme end of the point budget.
+                    # A fixed voxel reduction is one of the easiest ways to
+                    # erase small product details before Poisson ever sees them.
+                    if len(work_positions) > 180_000:
+                        pcd = pcd.voxel_down_sample(voxel_size=local_spacing * 0.50)
+                        pcd.normalize_normals()
+
+                    # Re-orient the Gaussian-derived normals as a connected
+                    # field. Open3D documents this as a minimum-spanning-tree
+                    # style propagation, which is substantially safer than
+                    # independently estimating/flipping every normal.
+                    try:
+                        k_orient = min(100, max(20, len(pcd.points) // 2500))
+                        pcd.orient_normals_consistent_tangent_plane(k_orient, 0.5, 0.8)
+                    except Exception as e:
+                        print(f'[NIF] Normal orientation propagation skipped: {e}')
+
+                    # A global outward pass gives a stable convention for
+                    # single-object captures. We deliberately do not rebuild
+                    # normals from planes here; that would throw away the
+                    # Gaussian surface orientation we just preserved.
+                    p_np = np.asarray(pcd.points)
+                    n_np = np.asarray(pcd.normals)
+                    center = p_np.mean(axis=0)
+                    outward = p_np - center
+                    flip = np.einsum('ij,ij->i', n_np, outward) < 0
+                    n_np[flip] *= -1
+                    pcd.normals = o3d.utility.Vector3dVector(n_np)
+
+                    poisson_mesh, densities = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(
+                        pcd,
+                        depth=poisson_depth,
+                        scale=float(os.environ.get('FUMOCA_POISSON_SCALE', '1.03')),
+                        linear_fit=True,
+                    )
+
+                    # Poisson intentionally smooths high-frequency noise, but
+                    # it can also extrapolate into poorly sampled regions.
+                    # Density trimming is therefore adaptive to the selected
+                    # detail tier instead of using one blunt 2% cutoff.
+                    densities = np.asarray(densities)
+                    if len(densities) == len(poisson_mesh.vertices) and len(densities) > 100:
+                        cutoff = float(np.quantile(densities, density_q))
+                        poisson_mesh.remove_vertices_by_mask(densities < cutoff)
+
+                    bb_min = work_positions.min(axis=0)
+                    bb_max = work_positions.max(axis=0)
+                    # Keep the crop tight enough to reject Poisson extrapolation
+                    # but wide enough to preserve edge curvature and small parts.
+                    pad_fraction = float(os.environ.get('FUMOCA_POISSON_PAD', '0.015'))
+                    pad = np.maximum((bb_max - bb_min) * pad_fraction, local_spacing * 2.0)
+                    bbox = o3d.geometry.AxisAlignedBoundingBox(
+                        bb_min - pad,
+                        bb_max + pad,
+                    )
+                    poisson_mesh = poisson_mesh.crop(bbox)
+
+                    mesh = trimesh.Trimesh(
+                        vertices=np.asarray(poisson_mesh.vertices),
+                        faces=np.asarray(poisson_mesh.triangles),
+                        process=True,
+                    )
+                    mesh.update_faces(mesh.nondegenerate_faces())
+                    mesh.remove_duplicate_faces()
+                    mesh.remove_unreferenced_vertices()
+
+                    # Keep the primary product surface and discard Poisson's
+                    # occasional detached islands.
+                    components = mesh.split(only_watertight=False)
+                    if components:
+                        mesh = max(components, key=lambda m: len(m.faces))
+
+                    # Re-transfer colours from the original Gaussian cloud.
+                    colour_tree = cKDTree(positions)
+                    _, colour_idx = colour_tree.query(mesh.vertices, k=1, workers=-1)
+                    mesh.visual.vertex_colors = np.clip(
+                        colors[colour_idx] * 255, 0, 255
+                    ).astype(np.uint8)
+
+                    # Conservative repair sequence. Never silently turn a
+                    # detailed product into a convex hull unless explicitly
+                    # requested — convex-hull repair destroys cavities and
+                    # door/handle/bottle details that FUMOCA needs to preserve.
+                    trimesh.repair.fix_winding(mesh)
+                    trimesh.repair.fix_inversion(mesh)
+                    # Do NOT blindly fill holes: a hole may be a real product
+                    # opening/cavity (bottle neck, wheel arch, door gap, vent).
+                    # Micro-hole repair is opt-in and should only be enabled
+                    # after capture-specific QA.
+                    if os.environ.get('FUMOCA_FILL_MICRO_HOLES', '0').lower() in ('1', 'true', 'yes'):
+                        trimesh.repair.fill_holes(mesh)
+                    mesh.merge_vertices()
+                    mesh.remove_duplicate_faces()
+                    mesh.remove_unreferenced_vertices()
+
+                    if mesh.is_watertight and len(mesh.faces) >= 50:
+                        if len(mesh.faces) > target_max_faces:
+                            try:
+                                mesh = mesh.simplify_quadric_decimation(face_count=target_max_faces)
+                            except Exception as e:
+                                print(f'[NIF] Poisson decimation unavailable ({e}) — keeping full mesh')
+
+                        print(
+                            f'[NIF] Production Poisson mesh: {len(mesh.vertices):,} verts, '
+                            f'{len(mesh.faces):,} faces, watertight=True, depth={poisson_depth}'
+                        )
+
+                        # Continue through the exact same NIF/STL packaging
+                        # contract used by the fallback path below.
+                        n_verts, n_faces = len(mesh.vertices), len(mesh.faces)
+                        colors_out = (
+                            mesh.visual.vertex_colors[:, :3].astype(np.uint8)
+                            if mesh.visual.vertex_colors is not None
+                            else np.zeros((n_verts, 3), dtype=np.uint8)
+                        )
+                        header = struct.pack('>II', n_verts, n_faces)
+                        pos_bytes = mesh.vertices.astype('>f4').tobytes()
+                        col_bytes = colors_out.tobytes()
+                        face_bytes = mesh.faces.astype('>u4').tobytes()
+                        mesh_chunk_bytes = header + pos_bytes + col_bytes + face_bytes
+
+                        if ENABLE_DRACO_MESH:
+                            try:
+                                import DracoPy
+                                draco_bytes = DracoPy.encode(
+                                    mesh.vertices, mesh.faces,
+                                    colors=colors_out,
+                                    quantization_bits=14,
+                                    compression_level=7,
+                                )
+                                mesh_chunk_bytes = struct.pack('>B', 0x01) + draco_bytes
+                            except Exception as e:
+                                print(f'[NIF] Poisson Draco unavailable ({e}) — using raw mesh format')
+                                mesh_chunk_bytes = struct.pack('>B', 0x00) + mesh_chunk_bytes
+                        else:
+                            mesh_chunk_bytes = struct.pack('>B', 0x00) + mesh_chunk_bytes
+
+                        try:
+                            stl_bytes = mesh.export(file_type='stl')
+                        except Exception as e:
+                            print(f'[NIF] Poisson STL export failed: {e}')
+                            stl_bytes = None
+
+                        n_degenerate = 0
+                        try:
+                            keep_mask = mesh.nondegenerate_faces()
+                            n_degenerate = int(n_faces - int(np.sum(keep_mask)))
+                        except Exception:
+                            pass
+
+                        mesh_info = _mesh_quality_report(
+                            mesh, 'screened_poisson', detail
+                        )
+                        mesh_info.update({
+                            'poisson_depth': poisson_depth,
+                            'density_trim_quantile': density_q,
+                        })
+                        mapping = _attach_mesh_part_mapping(mesh, geo_data[:, :3], semantic_labels, semantic_confidence)
+                        mesh_info['master_solid_part_mapping'] = {k:v for k,v in mapping.items() if k != '_binary'}
+                        mesh_info['_part_mapping_binary'] = mapping.get('_binary')
+                        return mesh_chunk_bytes, stl_bytes, mesh_info
+
+                    print('[NIF] Poisson result was not a valid watertight product surface — falling back to marching cubes')
+            except ImportError as e:
+                print(f'[NIF] Open3D unavailable ({e}) — falling back to marching cubes')
+            except Exception as e:
+                print(f'[NIF] Poisson mesh failed ({e}) — falling back to marching cubes')
 
         # Normal = the rotated local axis with the smallest scale
         axis_idx = np.argmin(log_scales, axis=1)
@@ -2903,9 +5396,9 @@ class ReconstructionWorker:
         mesh.update_faces(mesh.nondegenerate_faces())
         mesh.remove_unreferenced_vertices()
 
-        if len(mesh.faces) > max_faces:
+        if len(mesh.faces) > target_max_faces:
             try:
-                mesh = mesh.simplify_quadric_decimation(face_count=max_faces)
+                mesh = mesh.simplify_quadric_decimation(face_count=target_max_faces)
             except Exception as e:
                 print(f'[NIF] Decimation unavailable ({e}) — keeping full-res mesh')
 
@@ -2996,13 +5489,15 @@ class ReconstructionWorker:
             print(f'[NIF] Degenerate-face check failed (non-fatal): {e}')
             n_degenerate = None
 
-        return mesh_chunk_bytes, stl_bytes, {
-            'volume_m3': float(mesh.volume) if mesh.is_watertight else None,
-            'is_watertight': bool(mesh.is_watertight),
-            'n_verts': n_verts,
-            'n_faces': n_faces,
-            'n_degenerate_faces': n_degenerate,
-        }
+        mesh_info = _mesh_quality_report(
+            mesh,
+            'oriented_tsdf_marching_cubes',
+            os.environ.get('FUMOCA_MESH_DETAIL', 'high').lower(),
+        )
+        mapping = _attach_mesh_part_mapping(mesh, geo_data[:, :3], semantic_labels, semantic_confidence)
+        mesh_info['master_solid_part_mapping'] = {k:v for k,v in mapping.items() if k != '_binary'}
+        mesh_info['_part_mapping_binary'] = mapping.get('_binary')
+        return mesh_chunk_bytes, stl_bytes, mesh_info
 
     def run_mesh_only(self, geo_r2_key: str, meta: dict):
         """
@@ -3046,9 +5541,24 @@ class ReconstructionWorker:
             # with no signal that a slicer might reject it. Now the job
             # itself is honest about which one the client is getting.
             watertight = bool(mesh_info.get('is_watertight'))
-            if not watertight:
-                print('[NIF] mesh_only: exported STL is NOT watertight — '
-                      'may fail slicer validation, shipping with a warning flag')
+            printable = bool(mesh_info.get('printable'))
+            if not printable:
+                print('[NIF] mesh_only: mesh is NOT print-ready — '
+                      'STL will not be published as a trusted print export')
+
+            if not printable:
+                SB.table('reconstruction_jobs').update({
+                    'status': 'needs_retry', 'progress': 100,
+                    'meta': {**meta,
+                             'mesh_bytes_included': bool(mesh_bytes),
+                             'mesh_watertight': watertight,
+                             'mesh_printable': printable,
+                             'mesh_quality': mesh_info,
+                             'print_warning': 'The reconstructed mesh is not a trusted printable solid. '
+                                              'Repair or recapture before sending it to a printer.'},
+                }).eq('id', self.job_id).execute()
+                self._tick('needs_retry', 100, error_message='Mesh is not print-ready')
+                return
 
             self._tick('uploading', 85)
             stl_key = f'print/{self.user_id}/{self.job_id}/figurine.stl'
@@ -3064,13 +5574,12 @@ class ReconstructionWorker:
                 'meta': {**meta, 'stl_r2_key': stl_key, 'stl_url': stl_url,
                          'mesh_bytes_included': bool(mesh_bytes),
                          'mesh_watertight': watertight,
+                         'mesh_printable': printable,
+                         'mesh_quality': mesh_info,
                          'mesh_volume_m3': mesh_info.get('volume_m3'),
-                         'print_warning': None if watertight else
-                             'This mesh has holes or non-manifold edges and may fail '
-                             'slicer validation. Run auto-repair in the mesh editor '
-                             'before sending to a printer.'},
+                         'print_warning': None},
             }).eq('id', self.job_id).execute()
-            print(f'[NIF] mesh_only complete: {stl_key} (watertight={watertight})')
+            print(f'[NIF] mesh_only complete: {stl_key} (printable={printable})')
 
         except Exception as e:
             SB.table('reconstruction_jobs').update({

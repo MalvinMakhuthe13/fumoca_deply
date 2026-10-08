@@ -7,6 +7,7 @@ import { supabase } from '../supabaseClient.js';
 import { triggerRevealForViewer } from './reveal-hook.js';
 import FumocDecoder from './fumoc-decoder.js';
 import { decodeNif, geometryToSplatRows } from './nif-format.js';
+import FumocaNativeGaussianRenderer from './nif-native-renderer.js';
 window._fumocaSupabase = window._fumocaSupabase || supabase;
 const stageEl = document.getElementById('stage');
 let stageHost = document.getElementById('stageHost');
@@ -225,11 +226,13 @@ function _applyPublicViewerLock() {
   });
 }
 let viewerInstance = null;
+let nativeGaussianRenderer = null;
 let currentRecord = null;
 let previewMode = 'nif';
 let rendererPreviewUrl = null;
 let rendererPreviewSeq = 0;
 let rendererPreviewPending = false;
+const _fumocaPendingSolidPartTransforms = new Map();
 let stageFreezeHideTimer = null;
 let stageFreezeEl = null;
 let pipelineVisualTimer = null;
@@ -1198,6 +1201,45 @@ async function destroyViewer() {
 function getActivenifUrl() {
   return rendererPreviewUrl || fileUrl || originalnifUrl || '';
 }
+function destroyNativeGaussianRenderer() {
+  if (!nativeGaussianRenderer) return;
+  try { nativeGaussianRenderer.destroy(); } catch (e) { console.warn('[Viewer] native renderer cleanup:', e); }
+  nativeGaussianRenderer = null;
+}
+
+async function mountNativeGaussianViewer(gaussians, appearance, calibration) {
+  destroyNativeGaussianRenderer();
+  rebuildStageHost();
+  setLoading('Starting native FUMOCA renderer…');
+  nativeGaussianRenderer = new FumocaNativeGaussianRenderer(stageHost || stageEl, gaussians, appearance, calibration);
+  nativeGaussianRenderer.attachControls(OrbitControls);
+  const controls = nativeGaussianRenderer.controls;
+  if (controls) {
+    controls.enableRotate = true;
+    controls.enableZoom = true;
+    controls.enablePan = true;
+    controls.minPolarAngle = 0.001;
+    controls.maxPolarAngle = Math.PI - 0.001;
+    controls.minAzimuthAngle = -Infinity;
+    controls.maxAzimuthAngle = Infinity;
+  }
+  viewerInstance = {
+    camera: nativeGaussianRenderer.camera,
+    controls,
+    renderer: nativeGaussianRenderer.renderer,
+    start() {},
+    stop() {},
+    async dispose() { destroyNativeGaussianRenderer(); },
+  };
+  window._fumocaViewerCamera = nativeGaussianRenderer.camera;
+  window._fumocaViewerControls = controls;
+  window.__fumocaNativeGaussianRenderer = nativeGaussianRenderer;
+  hideLoading();
+  applyStageFilters();
+  setTimeout(() => hint?.classList.add('hidden'), 4500);
+  console.log(`[Viewer] Native FUMOCA Gaussian renderer mounted — ${gaussians.count.toLocaleString()} gaussians, SH degree ${appearance.degree}`);
+}
+
 // â”€â”€ Solid mesh overlay â€” renders the KEYFRAME_MESH chunk (when present) as
 // an actual lit triangle surface instead of the point-cloud splat render.
 // This is additive, not a replacement: the Gaussian splat renderer
@@ -1222,25 +1264,86 @@ function destroyMeshViewer() {
 function mountMeshViewer(mesh, calibration) {
   destroyMeshViewer();
   const container = stageHost || stageEl;
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(mesh.positions, 3));
-  // Colors arrive as 0-255 uint8 â€” THREE wants 0-1 floats for vertexColors.
-  const colorsF = new Float32Array(mesh.colors.length);
-  for (let i = 0; i < mesh.colors.length; i++) colorsF[i] = mesh.colors[i] / 255;
-  geo.setAttribute('color', new THREE.BufferAttribute(colorsF, 3));
-  geo.setIndex(new THREE.BufferAttribute(mesh.faces, 1));
-  geo.computeVertexNormals();  // required for lit shading â€” this is what makes it read as solid, not flat/blobby
-  // Lambertian-ish material with vertex colors: matte, physically-plausible
-  // shading (as opposed to the additive/transparent splat material above),
-  // which is precisely the visual cue that reads as "solid object" rather
-  // than "fuzzy point cloud."
+  const mapping = window._fumocaMeshPartMap;
+  const hasOwnership = !!(mapping && mapping.version === 1 &&
+    mapping.faceLabels && mapping.faceLabels.length === mesh.nFaces &&
+    mapping.faceCount === mesh.nFaces);
+  const root = new THREE.Group();
+  const partMeshes = new Map();
+  const unassigned = [];
+  const groups = new Map();
+
+  // Level 12: FSMM face ownership becomes independently transformable solid parts.
+  // 254 (mixed) and 255 (unknown) deliberately stay unassigned.
+  for (let f = 0; f < mesh.nFaces; f++) {
+    const label = hasOwnership ? mapping.faceLabels[f] : 255;
+    if (label < 254) {
+      if (!groups.has(label)) groups.set(label, []);
+      groups.get(label).push(f);
+    } else {
+      unassigned.push(f);
+    }
+  }
+
+  function faceGeometry(faceIndices) {
+    const positions = new Float32Array(faceIndices.length * 9);
+    const colors = new Float32Array(faceIndices.length * 9);
+    let p = 0;
+    for (const fi of faceIndices) {
+      const base = fi * 3;
+      for (let k = 0; k < 3; k++) {
+        const vi = mesh.faces[base + k];
+        positions[p] = mesh.positions[vi * 3];
+        positions[p + 1] = mesh.positions[vi * 3 + 1];
+        positions[p + 2] = mesh.positions[vi * 3 + 2];
+        colors[p] = mesh.colors[vi * 3] / 255;
+        colors[p + 1] = mesh.colors[vi * 3 + 1] / 255;
+        colors[p + 2] = mesh.colors[vi * 3 + 2] / 255;
+        p += 3;
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    g.computeVertexNormals();
+    return g;
+  }
+
   const mat = new THREE.MeshStandardMaterial({
-    vertexColors: true, metalness: 0.05, roughness: 0.75,
-    side: THREE.DoubleSide,  // reconstructed meshes can have thin/open regions â€” avoid black backfaces
+    vertexColors: true, metalness: 0.05, roughness: 0.75, side: THREE.DoubleSide,
   });
-  const meshObj = new THREE.Mesh(geo, mat);
+
+  if (hasOwnership && groups.size) {
+    for (const [partId, faces] of groups) {
+      const partMesh = new THREE.Mesh(faceGeometry(faces), mat);
+      partMesh.name = `fumoca-solid-part-${partId}`;
+      partMesh.userData.fumocaPartId = Number(partId);
+      partMesh.userData.fumocaFaceIndices = faces.slice();
+      partMesh.userData.fumocaOwnership = 'mapped';
+      partMeshes.set(Number(partId), partMesh);
+      root.add(partMesh);
+    }
+    if (unassigned.length) {
+      const unknownMesh = new THREE.Mesh(faceGeometry(unassigned), mat);
+      unknownMesh.name = 'fumoca-solid-unassigned';
+      unknownMesh.userData.fumocaOwnership = 'unknown_or_mixed';
+      root.add(unknownMesh);
+    }
+  } else {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(mesh.positions, 3));
+    const colorsF = new Float32Array(mesh.colors.length);
+    for (let i = 0; i < mesh.colors.length; i++) colorsF[i] = mesh.colors[i] / 255;
+    geo.setAttribute('color', new THREE.BufferAttribute(colorsF, 3));
+    geo.setIndex(new THREE.BufferAttribute(mesh.faces, 1));
+    geo.computeVertexNormals();
+    root.add(new THREE.Mesh(geo, mat));
+  }
+
+  root.userData.fumocaMeshPartMeshes = partMeshes;
+  root.userData.fumocaMeshPartMap = mapping || null;
   _meshScene = new THREE.Scene();
-  _meshScene.add(meshObj);
+  _meshScene.add(root);
   _meshScene.add(new THREE.AmbientLight(0xffffff, 0.55));
   const key = new THREE.DirectionalLight(0xffffff, 1.1);
   key.position.set(1, 1.2, 1.5);
@@ -1248,8 +1351,13 @@ function mountMeshViewer(mesh, calibration) {
   const fill = new THREE.DirectionalLight(0xffffff, 0.4);
   fill.position.set(-1.2, 0.6, -1);
   _meshScene.add(fill);
+
+  const box = new THREE.Box3().setFromObject(root);
+  const sphere = box.getBoundingSphere(new THREE.Sphere());
+  const radius = sphere.radius || 1;
+  const center = sphere.center;
   _meshCamera = new THREE.PerspectiveCamera(55, container.clientWidth / container.clientHeight, 0.001, 2000);
-  _meshCamera.up.set(0, -1, -0.6).normalize();  // match the splat renderer's convention (see mountPlyViewer)
+  _meshCamera.up.set(0, -1, -0.6).normalize();
   _meshRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
   _meshRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   _meshRenderer.setSize(container.clientWidth, container.clientHeight);
@@ -1260,14 +1368,11 @@ function mountMeshViewer(mesh, calibration) {
   _meshControls = new OrbitControls(_meshCamera, _meshRenderer.domElement);
   _meshControls.enableDamping = true; _meshControls.dampingFactor = 0.07;
   _meshControls.rotateSpeed = 0.55; _meshControls.zoomSpeed = 1.1;
-  geo.computeBoundingSphere();
-  const r = geo.boundingSphere.radius || 1;
-  const c = geo.boundingSphere.center;
-  _meshCamera.position.set(c.x, c.y - r * 0.25, c.z + r * 2.4);
-  _meshCamera.lookAt(c.x, c.y, c.z);
-  _meshControls.target.set(c.x, c.y, c.z);
-  _meshControls.minDistance = r * 0.05;
-  _meshControls.maxDistance = r * 14;
+  _meshCamera.position.set(center.x, center.y - radius * 0.25, center.z + radius * 2.4);
+  _meshCamera.lookAt(center.x, center.y, center.z);
+  _meshControls.target.set(center.x, center.y, center.z);
+  _meshControls.minDistance = radius * 0.05;
+  _meshControls.maxDistance = radius * 14;
   _meshControls.update();
   window.addEventListener('resize', () => {
     if (!_meshRenderer) return;
@@ -1281,11 +1386,20 @@ function mountMeshViewer(mesh, calibration) {
     _meshRenderer.render(_meshScene, _meshCamera);
   }
   loop();
-  // â”€â”€ Solid â‡„ Points toggle â€” the splat renderer keeps running underneath
-  // the whole time; this just shows/hides the mesh canvas on top of it.
+
+  // Public bridge for verified animation/interaction code.
+  window._fumocaSolidPartMeshes = partMeshes;
+  window._fumocaGetSolidPart = (partId) => partMeshes.get(Number(partId)) || null;
+  window._fumocaSolidOwnership = {
+    available: hasOwnership && partMeshes.size > 0,
+    partIds: Array.from(partMeshes.keys()),
+    mappedFaces: hasOwnership ? Array.from(mapping.faceLabels).filter(x => x < 254).length : 0,
+    faceCount: mesh.nFaces,
+  };
+
   const btn = document.createElement('button');
   btn.id = 'fumocaMeshToggle';
-  btn.textContent = 'â— Points view';
+  btn.textContent = '● Points view';
   Object.assign(btn.style, {
     position: 'absolute', top: '12px', right: '12px', zIndex: '4',
     padding: '6px 12px', borderRadius: '999px', border: '1px solid rgba(255,255,255,0.25)',
@@ -1296,22 +1410,14 @@ function mountMeshViewer(mesh, calibration) {
   btn.addEventListener('click', () => {
     showingMesh = !showingMesh;
     _meshRenderer.domElement.style.display = showingMesh ? '' : 'none';
-    btn.textContent = showingMesh ? 'â— Points view' : 'â–² Solid view';
+    btn.textContent = showingMesh ? '● Points view' : '▲ Solid view';
   });
   container.appendChild(btn);
-  console.log(`[Viewer] Solid mesh rendered â€” ${mesh.nVerts.toLocaleString()} verts, ` +
-              `${mesh.nFaces.toLocaleString()} faces` +
-              (calibration?.confidence && calibration.confidence !== 'none' ? ` (${calibration.confidence} calibration)` : ' (uncalibrated)'));
+  console.log(`[Viewer] Solid mesh rendered — ${mesh.nVerts.toLocaleString()} verts, ${mesh.nFaces.toLocaleString()} faces` +
+    (hasOwnership ? `; Level 12 mapped parts: ${partMeshes.size}, mapped faces: ${window._fumocaSolidOwnership.mappedFaces}` : '; Level 12 part ownership unavailable') +
+    (calibration?.confidence && calibration.confidence !== 'none' ? ` (${calibration.confidence} calibration)` : ' (uncalibrated)'));
 }
-// â”€â”€ PLY point cloud viewer using Three.js â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// Called when fileUrl is a .ply â€” renders via THREE.js with Gaussian shader
-let _plyRenderer = null, _plyScene = null, _plyCamera = null, _plyControls = null, _plyFrame = null;
-function destroyPlyViewer() {
-  if (_plyFrame) { cancelAnimationFrame(_plyFrame); _plyFrame = null; }
-  if (_plyRenderer) { _plyRenderer.dispose(); _plyRenderer.domElement.remove(); _plyRenderer = null; }
-  _plyScene = _plyCamera = _plyControls = null;
-}
-async function mountPlyViewer(url) {
+function mountPlyViewer(url) {
   destroyPlyViewer();
   const container = stageHost || stageEl;
   _plyScene = new THREE.Scene();
@@ -1993,14 +2099,60 @@ async function boot() {
       const nifResp   = await fetch(fileUrl);
       const nifBuffer = await nifResp.arrayBuffer();
       if (fileUrl.startsWith('blob:')) URL.revokeObjectURL(fileUrl);
-      const { meta, gaussians, calibration, verification, mesh } = await decodeNif(nifBuffer);
+      const { meta, gaussians, appearance, semantic, partGraph, calibration, verification, mesh, meshPartMap } = await decodeNif(nifBuffer);
       window._fumocaCalibration  = calibration;
       window._fumocaVerification = verification;
       window._fumocaDecodedMesh  = mesh;
+      window._fumocaMeshPartMap  = meshPartMap;
+      window._fumocaAppearanceSH = appearance;
+      window._fumocaSemanticParts = semantic;
+      window._fumocaProductPartGraph = partGraph;
+      if (semantic) {
+        console.log('[Viewer] Semantic part evidence loaded:', semantic.partCount, 'regions,', semantic.gaussianCount ? `${semantic.gaussianCount.toLocaleString()} total` : 'mapped', 'Gaussian evidence');
+      }
+      if (partGraph) {
+        console.log('[Viewer] Product Part Graph loaded:', partGraph.parts?.length || 0, 'evidence-backed regions; mechanics remain explicitly authored.');
+      }
+      if (partGraph) {
+        const fused = (partGraph.parts || []).filter(p => p.geometry?.multi_view?.stable_3d_evidence === true).length;
+        console.log('[Viewer] Multi-view fused parts:', fused, '/', partGraph.parts?.length || 0, 'stable 3D evidence; interaction remains authored-only.');
+        const bounded = (partGraph.parts || []).filter(p => Array.isArray(p.geometry?.observed_3d?.centroid)).length;
+        console.log('[Viewer] Level 7 observed 3D part frames:', bounded, '/', partGraph.parts?.length || 0, '; pivots/mechanical axes remain unrecovered.');
+        const boundary = (partGraph.parts || []).filter(p => ['observed_contact', 'weak_contact'].includes(p.geometry?.mechanical_candidates?.boundary_status)).length;
+        const axisCandidates = (partGraph.parts || []).filter(p => p.geometry?.mechanical_candidates?.mechanical_axis_status === 'candidate_only').length;
+        console.log('[Viewer] Level 8 boundary evidence:', boundary, 'parts; axis candidates:', axisCandidates, '; no automatic hinges enabled.');
+        const authored = (partGraph.parts || []).filter(p => p.capabilities?.interactive_ready === true).length;
+        console.log('[Viewer] Level 9 explicit authoring:', authored, 'interactive parts; only explicitly authored transforms are enabled.');
+        const verified = (partGraph.parts || []).filter(p => p.capabilities?.verification_state === 'verified' && p.capabilities?.interactive_ready === true).length;
+        const motionVerified = (partGraph.parts || []).filter(p => p.capabilities?.motion_verification_state === 'verified' && p.capabilities?.interactive_ready === true).length;
+        const motion = partGraph.motion_verification || {};
+        console.log('[Viewer] Level 10 verified interactive parts:', verified, '/', authored, '; unverified authoring remains locked.');
+        console.log('[Viewer] Level 11 motion simulation:', motion.status || 'not_available', '; motion-verified interactive parts:', motionVerified, '/', verified, '; master solid sync:', motion.master_solid_sync || 'not_mapped', '; Gaussian preview:', motion.gaussian_preview_sync || 'not_ready');
+        console.log('[Viewer] Level 12 master-solid part map:', meshPartMap?.status || 'not_available',
+          '; mapped faces:', meshPartMap?.faceLabels ? Array.from(meshPartMap.faceLabels).filter(x => x < 254).length : 0,
+          '/', meshPartMap?.faceCount || 0,
+          '; unknown:', meshPartMap?.unknownLabel ?? 255,
+          '; mixed:', meshPartMap?.mixedLabel ?? 254);
+      }
+      window._fumocaDecodedGaussians = gaussians;
       renderTrustBadges(calibration, verification);
-      const nifBytes = geometryToSplatRows(gaussians);
-      const nifBlob  = new Blob([nifBytes], { type: 'application/octet-stream' });
-      fileUrl = URL.createObjectURL(nifBlob);
+      // The NIF SH appearance is authoritative for photorealistic masters.
+      // Keep the legacy RGB conversion only as a compatibility fallback for
+      // older GaussianSplats3D scenes; do not silently discard APPEARANCE_SH.
+      if (appearance) {
+        console.log(
+          '[Viewer] Native SH appearance loaded:',
+          'degree=' + appearance.degree,
+          'gaussians=' + appearance.gaussianCount.toLocaleString()
+        );
+      }
+      const useNativeMaster = !!appearance && (IS_PUBLIC_VIEWER || params.get('native') === '1');
+      window._fumocaNativeMaster = useNativeMaster;
+      if (!useNativeMaster) {
+        const nifBytes = geometryToSplatRows(gaussians, calibration);
+        const nifBlob = new Blob([nifBytes], { type: 'application/octet-stream' });
+        fileUrl = URL.createObjectURL(nifBlob);
+      }
       // Mirror the same window globals FumocDecoder.loadIntoViewer exposed,
       // so hotspot/tour/title UI code elsewhere in this file keeps working.
       window._fumocaTourStops   = meta.tourStops  || [];
@@ -2031,18 +2183,81 @@ async function boot() {
   }
   if (_isPlyUrl(fileUrl) && _blobType !== 'nif') {
     await mountPlyViewer(fileUrl);
+  } else if (window._fumocaNativeMaster && window._fumocaAppearanceSH) {
+    await mountNativeGaussianViewer(window._fumocaDecodedGaussians, window._fumocaAppearanceSH, window._fumocaCalibration);
+    if (window._fumocaDecodedMesh?.nVerts > 0) mountMeshViewer(window._fumocaDecodedMesh, window._fumocaCalibration);
+    else destroyMeshViewer();
   } else {
     await mountInteractiveViewer();
-    // Mesh overlay goes on top of the splat renderer once it's mounted, not
-    // before â€” mountInteractiveViewer owns stageHost/container setup, and
-    // mounting the mesh canvas first would have it torn down along with it.
-    if (window._fumocaDecodedMesh?.nVerts > 0) {
-      mountMeshViewer(window._fumocaDecodedMesh, window._fumocaCalibration);
-    } else {
-      destroyMeshViewer();  // clears any leftover toggle/canvas from a previously-viewed file
+    if (window._fumocaDecodedMesh?.nVerts > 0) mountMeshViewer(window._fumocaDecodedMesh, window._fumocaCalibration);
+    else destroyMeshViewer();
+  }
+}
+function _fumocaApplySolidPartTransform(detail) {
+  const partId = detail?.partId;
+  if (partId == null) return false;
+
+  const ownership = window._fumocaSolidOwnership;
+  if (ownership && !ownership.available) return false;
+
+  const getPart = window._fumocaGetSolidPart;
+  if (typeof getPart !== 'function') {
+    _fumocaPendingSolidPartTransforms.set(String(partId), detail);
+    return false;
+  }
+
+  const mesh = getPart(partId);
+  if (!mesh || mesh.userData?.fumocaOwnership !== 'mapped') {
+    _fumocaPendingSolidPartTransforms.set(String(partId), detail);
+    return false;
+  }
+
+  const t = detail.translation || {};
+  const r = detail.rotation || {};
+  const s = detail.scale || {};
+
+  mesh.position.set(
+    Number(t.x) || 0,
+    Number(t.y) || 0,
+    Number(t.z) || 0
+  );
+  mesh.rotation.set(
+    Number(r.x) || 0,
+    Number(r.y) || 0,
+    Number(r.z) || 0
+  );
+  mesh.scale.set(
+    Number(s.x) || 1,
+    Number(s.y) || 1,
+    Number(s.z) || 1
+  );
+  mesh.userData.fumocaLastPartTransform = {
+    translation: { x: mesh.position.x, y: mesh.position.y, z: mesh.position.z },
+    rotation: { x: mesh.rotation.x, y: mesh.rotation.y, z: mesh.rotation.z },
+    scale: { x: mesh.scale.x, y: mesh.scale.y, z: mesh.scale.z },
+    operation: detail.operation || 'transform',
+  };
+  return true;
+}
+
+function _fumocaFlushPendingSolidPartTransforms() {
+  if (!_fumocaPendingSolidPartTransforms.size) return;
+  for (const [partId, detail] of _fumocaPendingSolidPartTransforms) {
+    if (_fumocaApplySolidPartTransform(detail)) {
+      _fumocaPendingSolidPartTransforms.delete(partId);
     }
   }
 }
+
+window.addEventListener('fumoca:partTransform', (event) => {
+  if (!event?.detail || event.detail.gaussianAlreadyApplied !== true) return;
+  _fumocaApplySolidPartTransform(event.detail);
+  _fumocaFlushPendingSolidPartTransforms();
+});
+
+window.addEventListener('fumoca:meshViewerReady', _fumocaFlushPendingSolidPartTransforms);
+window.addEventListener('fumoca:viewerReady', _fumocaFlushPendingSolidPartTransforms);
+
 teaserBtn?.addEventListener('click', () => { _fumocaTrack('preview_open', { mode: 'nif' }); openPreview('nif'); });
 closePreviewBtn?.addEventListener('click', closePreview);
 viewInteractiveBtn?.addEventListener('click', closePreview);

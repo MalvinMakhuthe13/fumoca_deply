@@ -4095,46 +4095,30 @@ function _wireButtons() {
 
   // ══════════════════════════════════════════════════════════════════
   // ✨ ONE-CLICK: POINT CLOUD → SOLID OBJECT
-  // Enables Gaussian photoreal mode + plays the cinematic reveal
+  // This action now opens the actual mesh pipeline instead of merely
+  // changing the splat's renderer appearance. The mesh editor performs
+  // extraction, repair/printability checks, calibration and STL/3MF export.
   // ══════════════════════════════════════════════════════════════════
-  document.getElementById('v60SolidifyBtn')?.addEventListener('click', async () => {
-    if (!S.alive) { showToast('No splat loaded', 'Load a file first', 'warn'); return; }
-    const btn = document.getElementById('v60SolidifyBtn');
-    if (btn) { btn.disabled = true; btn.textContent = '⏳ Solidifying…'; }
-    setStatus('✨ Materialising your NIF…', 'busy');
-
-    const gr = window.FumocaGaussianRenderer;
-
-    // Ensure photoreal mode is on
-    if (gr && !gr.isEnabled()) {
-      gr.enable(false);
-      const lbl = document.getElementById('photorealLabel');
-      const tog = document.getElementById('photorealToggle');
-      const revRow = document.getElementById('revealRow');
-      if (lbl) lbl.textContent = '✨ Photoreal: ON  ●';
-      if (tog) { tog.style.background='rgba(200,255,0,.1)'; tog.style.borderColor='rgba(200,255,0,.4)'; }
-      if (revRow) revRow.style.display = 'flex';
+  document.getElementById('v60SolidifyBtn')?.addEventListener('click', () => {
+    if (!S.alive) {
+      showToast('No splat loaded', 'Load a file first', 'warn');
+      return;
     }
 
-    // Dissolve to point cloud first for drama, then rebuild + reveal
-    if (gr?.isEnabled()) gr.playDissolve(400);
-    await new Promise(r => setTimeout(r, 450));
+    const btn = document.getElementById('v60SolidifyBtn');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '⏳ Opening solid pipeline…';
+    }
 
-    rebuildGeometry();
+    const params = new URLSearchParams();
+    const file = S.splatSourceUrl || new URLSearchParams(location.search).get('file') || '';
+    if (file) params.set('file', file);
+    params.set('mesh', '1');
+    params.set('back', location.href);
 
-    await new Promise(resolve => {
-      if (gr?.isEnabled()) {
-        gr.playReveal(2400, resolve);
-      } else {
-        resolve();
-      }
-    });
-
-    // Save state to feed
-    const saved = await window.saveLiveEdit({ type: 'solidify_to_object' });
-    setStatus(saved ? '✅ Solid splat saved to feed' : '✅ Solidified (not saved — no splatId)', 'ok');
-    showToast('✨ Solidified!', saved ? 'Saved to your feed' : 'Done — load from feed to save', saved ? 'ok' : '');
-    if (btn) { btn.disabled = false; btn.textContent = '✨ One-Click: Point Cloud → Solid Object'; }
+    window.location.href =
+      'splat-edit-engine.html' + (params.toString() ? '?' + params.toString() : '');
   });
 
   // ══════════════════════════════════════════════════════════════════

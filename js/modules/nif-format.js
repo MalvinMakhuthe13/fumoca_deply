@@ -29,6 +29,86 @@ import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 
 const FLOATS_PER_POINT = 14;
 
+// ── Full view-dependent SH appearance ────────────────────────────────────────
+// Pipeline-produced NIFs keep legacy RGB in KEYFRAME_GEO for old readers, but
+// the APPEARANCE_SH chunk is the authoritative photorealistic master.
+export async function decodeSHAppearance(reader) {
+  const chunk = reader.getChunk(CHUNK.APPEARANCE_SH);
+  if (!chunk) return null;
+  try {
+    const bytes = await decompressChunk(chunk);
+    const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    if (dv.byteLength < 12) throw new Error('SH appearance header truncated');
+    const magic = String.fromCharCode(dv.getUint8(0), dv.getUint8(1), dv.getUint8(2), dv.getUint8(3));
+    if (magic !== 'FSHA') throw new Error('invalid SH appearance magic');
+    const version = dv.getUint8(4);
+    const degree = dv.getUint8(5);
+    const coefficientCount = dv.getUint16(6, false);
+    const gaussianCount = dv.getUint32(8, false);
+    const expected = gaussianCount * coefficientCount * 3 * 2;
+    if (dv.byteLength - 12 < expected) throw new Error('SH appearance payload truncated');
+    const coefficients = new Float32Array(gaussianCount * coefficientCount * 3);
+    let off = 12;
+    // DataView has no float16 accessor. Decode IEEE-754 binary16 explicitly.
+    const halfToFloat = (h) => {
+      const s = (h & 0x8000) ? -1 : 1;
+      const e = (h >>> 10) & 0x1f;
+      const f = h & 0x3ff;
+      if (e === 0) return s * Math.pow(2, -14) * (f / 1024);
+      if (e === 31) return f ? NaN : s * Infinity;
+      return s * Math.pow(2, e - 15) * (1 + f / 1024);
+    };
+    for (let i = 0; i < coefficients.length; i++, off += 2) {
+      coefficients[i] = halfToFloat(dv.getUint16(off, false));
+    }
+    return { version, degree, coefficientCount, gaussianCount, coefficients };
+  } catch (e) {
+    console.warn('[nif-format] APPEARANCE_SH failed to decode:', e.message);
+    return null;
+  }
+}
+
+
+
+// ── Level 5 semantic part evidence ──────────────────────────────────────────
+export async function decodeSemanticMap(reader) {
+  const chunk = reader.getChunk(CHUNK.SEMANTIC_MAP);
+  if (!chunk) return null;
+  try {
+    const bytes = await decompressChunk(chunk);
+    const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    if (dv.byteLength < 12) throw new Error('semantic map header truncated');
+    const magic = String.fromCharCode(dv.getUint8(0), dv.getUint8(1), dv.getUint8(2), dv.getUint8(3));
+    if (magic !== 'FSMP') throw new Error('invalid semantic map magic');
+    const version = dv.getUint8(4);
+    const unknownLabel = dv.getUint8(5);
+    const partCount = dv.getUint16(6, false);
+    const gaussianCount = dv.getUint32(8, false);
+    const labelsOffset = 12;
+    const labelsEnd = labelsOffset + gaussianCount;
+    const confidenceEnd = labelsEnd + gaussianCount * 2;
+    if (confidenceEnd + 4 > dv.byteLength) throw new Error('semantic map payload truncated');
+    const labels = bytes.slice(labelsOffset, labelsEnd);
+    const confidence = new Float32Array(gaussianCount);
+    for (let i = 0; i < gaussianCount; i++) {
+      const h = dv.getUint16(labelsEnd + i * 2, false);
+      const sign = h & 0x8000 ? -1 : 1;
+      const exp = (h >>> 10) & 0x1f;
+      const frac = h & 0x3ff;
+      confidence[i] = exp === 0 ? sign * Math.pow(2, -14) * frac / 1024
+        : exp === 31 ? (frac ? NaN : sign * Infinity)
+        : sign * Math.pow(2, exp - 15) * (1 + frac / 1024);
+    }
+    const jsonLen = dv.getUint32(confidenceEnd, false);
+    const jsonStart = confidenceEnd + 4;
+    const parts = jsonLen ? JSON.parse(new TextDecoder().decode(bytes.slice(jsonStart, jsonStart + jsonLen))) : [];
+    return { version, unknownLabel, partCount, gaussianCount, labels, confidence, parts };
+  } catch (e) {
+    console.warn('[nif-format] SEMANTIC_MAP failed to decode:', e.message);
+    return null;
+  }
+}
+
 // ── logit / sigmoid helpers (canonical NIF color+opacity space) ──────────────
 function logit(p) {
   const c = Math.min(Math.max(p, 1e-6), 1 - 1e-6);
@@ -273,6 +353,90 @@ export function encodeNif(opts = {}) {
   return writer.build().buffer;
 }
 
+// ── Level 5.5 Product Part Graph ────────────────────────────────────────────
+export async function decodeProductPartGraph(reader) {
+  const chunk = reader.getChunk(CHUNK.PART_GRAPH);
+  if (!chunk) return null;
+  try {
+    const bytes = await decompressChunk(chunk);
+    const graph = JSON.parse(new TextDecoder().decode(bytes));
+    if (!graph || graph.version !== 1 || !Array.isArray(graph.parts)) {
+      throw new Error('invalid Product Part Graph payload');
+    }
+    // Never upgrade evidence into mechanics in the decoder. The graph remains
+    // evidence_only until an explicit authoring step supplies identity/pivots.
+    graph.parts = graph.parts.map((part) => ({
+      ...part,
+      capabilities: {
+        interactive_ready: false,
+        animatable: false,
+        hinge_authored: false,
+        ...(part.capabilities || {}),
+      },
+    }));
+    return graph;
+  } catch (e) {
+    console.warn('[nif-format] PART_GRAPH failed to decode:', e.message);
+    return null;
+  }
+}
+
+
+
+// ── Level 12 master-solid part ownership map ─────────────────────────────────
+export async function decodeMeshPartMap(reader) {
+  const chunk = reader.getChunk(CHUNK.MESH_PART_MAP);
+  if (!chunk) return null;
+  try {
+    const bytes = await decompressChunk(chunk);
+    const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    if (dv.byteLength < 13) throw new Error('mesh part map header truncated');
+    const magic = String.fromCharCode(dv.getUint8(0), dv.getUint8(1), dv.getUint8(2), dv.getUint8(3));
+    if (magic !== 'FSMM') throw new Error('invalid mesh part map magic');
+    const version = dv.getUint8(4);
+    const vertexCount = dv.getUint32(5, false);
+    const faceCount = dv.getUint32(9, false);
+    let off = 13;
+    const vertexLabels = bytes.slice(off, off + vertexCount); off += vertexCount;
+    const vertexConfidence = new Float32Array(vertexCount);
+    for (let i = 0; i < vertexCount; i++, off += 2) {
+      const h = dv.getUint16(off, false);
+      const sign = h & 0x8000 ? -1 : 1;
+      const exp = (h >>> 10) & 0x1f;
+      const frac = h & 0x3ff;
+      vertexConfidence[i] = exp === 0 ? sign * Math.pow(2, -14) * frac / 1024
+        : exp === 31 ? (frac ? NaN : sign * Infinity)
+        : sign * Math.pow(2, exp - 15) * (1 + frac / 1024);
+    }
+    const faceLabels = bytes.slice(off, off + faceCount); off += faceCount;
+    const faceConfidence = new Float32Array(faceCount);
+    for (let i = 0; i < faceCount; i++, off += 2) {
+      const h = dv.getUint16(off, false);
+      const sign = h & 0x8000 ? -1 : 1;
+      const exp = (h >>> 10) & 0x1f;
+      const frac = h & 0x3ff;
+      faceConfidence[i] = exp === 0 ? sign * Math.pow(2, -14) * frac / 1024
+        : exp === 31 ? (frac ? NaN : sign * Infinity)
+        : sign * Math.pow(2, exp - 15) * (1 + frac / 1024);
+    }
+    return {
+      version,
+      vertexCount,
+      faceCount,
+      unknownLabel: 255,
+      mixedLabel: 254,
+      vertexLabels,
+      vertexConfidence,
+      faceLabels,
+      faceConfidence,
+      policy: 'Observed Gaussian proximity ownership only; unknown and mixed faces remain structurally unassigned.',
+    };
+  } catch (e) {
+    console.warn('[nif-format] MESH_PART_MAP failed to decode:', e.message);
+    return null;
+  }
+}
+
 // ── Public: decode a .nif ArrayBuffer back into render-ready data ────────────
 export async function decodeNif(arrayBuffer) {
   const reader = new NIFReader(arrayBuffer);
@@ -294,6 +458,9 @@ export async function decodeNif(arrayBuffer) {
   // see NIFSpec.js.
   const calibration = await decodeCalibrationChunk(reader.getChunk(CHUNK.CALIBRATION));
   const verification = await decodeVerificationChunk(reader.getChunk(CHUNK.VERIFICATION));
+  const appearance = await decodeSHAppearance(reader);
+  const semantic = await decodeSemanticMap(reader);
+  const partGraph = await decodeProductPartGraph(reader);
 
   // KEYFRAME_MESH — decodes both formats now: raw struct (0x00, what every
   // file produced until Draco was wired server-side) and Draco (0x01, once
@@ -301,8 +468,9 @@ export async function decodeNif(arrayBuffer) {
   // through a wasm module — decodeNif already awaits everything else, so
   // this doesn't change the calling convention.
   const mesh = await decodeMeshChunk(reader.getChunk(CHUNK.KEYFRAME_MESH));
+  const meshPartMap = await decodeMeshPartMap(reader);
 
-  return { reader, meta, thumbnailBytes, gaussians: geometry, calibration, verification, mesh };
+  return { reader, meta, thumbnailBytes, gaussians: geometry, appearance, semantic, partGraph, calibration, verification, mesh, meshPartMap };
 }
 
 // ── Draco decoder — lazily created, reused across every mesh this session.
@@ -515,23 +683,33 @@ export function gaussiansToRenderArrays(gaussians) {
 // needing to re-point the renderer itself — the .nif file is still the only
 // thing fetched, stored, and exported; this conversion happens in memory only,
 // purely to hand off to the already-working render path.
-export function geometryToSplatRows(gaussians) {
+export function geometryToSplatRows(gaussians, calibration = null) {
   const { count, data } = gaussians;
   const rowSize = 32;
   const out = new Uint8Array(count * rowSize);
   const dv  = new DataView(out.buffer);
 
+  // NIF stores the canonical Gaussian geometry in reconstruction-space units.
+  // The mesh/STL is calibrated server-side; apply the same calibration here
+  // before creating the web splat so the solid and visual representations share
+  // the same physical scale. If no trustworthy scale exists, keep native units.
+  const rawScale = Number(calibration?.scale_factor);
+  const worldScale = Number.isFinite(rawScale) && rawScale > 0 ? rawScale : 1;
+  const logScale = Math.log(worldScale);
+
   for (let i = 0; i < count; i++) {
     const o = i * FLOATS_PER_POINT;
     const base = i * rowSize;
 
-    dv.setFloat32(base + 0, data[o+0], true);
-    dv.setFloat32(base + 4, data[o+1], true);
-    dv.setFloat32(base + 8, data[o+2], true);
+    dv.setFloat32(base + 0, data[o+0] * worldScale, true);
+    dv.setFloat32(base + 4, data[o+1] * worldScale, true);
+    dv.setFloat32(base + 8, data[o+2] * worldScale, true);
 
-    dv.setFloat32(base + 12, Math.exp(data[o+3]), true);
-    dv.setFloat32(base + 16, Math.exp(data[o+4]), true);
-    dv.setFloat32(base + 20, Math.exp(data[o+5]), true);
+    // Gaussian covariance scale must follow the same physical transform.
+    // log(s * worldScale) = log(s) + log(worldScale).
+    dv.setFloat32(base + 12, Math.exp(data[o+3] + logScale), true);
+    dv.setFloat32(base + 16, Math.exp(data[o+4] + logScale), true);
+    dv.setFloat32(base + 20, Math.exp(data[o+5] + logScale), true);
 
     // Re-quantise quaternion (canonical is already-normalised float wxyz)
     const clamp255 = v => Math.max(0, Math.min(255, Math.round(v)));
