@@ -353,6 +353,34 @@ export function encodeNif(opts = {}) {
   return writer.build().buffer;
 }
 
+// ── Level 5.5 Product Part Graph ────────────────────────────────────────────
+export async function decodeProductPartGraph(reader) {
+  const chunk = reader.getChunk(CHUNK.PART_GRAPH);
+  if (!chunk) return null;
+  try {
+    const bytes = await decompressChunk(chunk);
+    const graph = JSON.parse(new TextDecoder().decode(bytes));
+    if (!graph || graph.version !== 1 || !Array.isArray(graph.parts)) {
+      throw new Error('invalid Product Part Graph payload');
+    }
+    // Never upgrade evidence into mechanics in the decoder. The graph remains
+    // evidence_only until an explicit authoring step supplies identity/pivots.
+    graph.parts = graph.parts.map((part) => ({
+      ...part,
+      capabilities: {
+        interactive_ready: false,
+        animatable: false,
+        hinge_authored: false,
+        ...(part.capabilities || {}),
+      },
+    }));
+    return graph;
+  } catch (e) {
+    console.warn('[nif-format] PART_GRAPH failed to decode:', e.message);
+    return null;
+  }
+}
+
 // ── Public: decode a .nif ArrayBuffer back into render-ready data ────────────
 export async function decodeNif(arrayBuffer) {
   const reader = new NIFReader(arrayBuffer);
@@ -376,6 +404,7 @@ export async function decodeNif(arrayBuffer) {
   const verification = await decodeVerificationChunk(reader.getChunk(CHUNK.VERIFICATION));
   const appearance = await decodeSHAppearance(reader);
   const semantic = await decodeSemanticMap(reader);
+  const partGraph = await decodeProductPartGraph(reader);
 
   // KEYFRAME_MESH — decodes both formats now: raw struct (0x00, what every
   // file produced until Draco was wired server-side) and Draco (0x01, once
@@ -384,7 +413,7 @@ export async function decodeNif(arrayBuffer) {
   // this doesn't change the calling convention.
   const mesh = await decodeMeshChunk(reader.getChunk(CHUNK.KEYFRAME_MESH));
 
-  return { reader, meta, thumbnailBytes, gaussians: geometry, appearance, semantic, calibration, verification, mesh };
+  return { reader, meta, thumbnailBytes, gaussians: geometry, appearance, semantic, partGraph, calibration, verification, mesh };
 }
 
 // ── Draco decoder — lazily created, reused across every mesh this session.
