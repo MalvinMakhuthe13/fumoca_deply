@@ -2396,7 +2396,160 @@ class GaussianSplatTrainer:
 
 
 
-def _build_product_part_graph(semantic: dict | None, geometry_confidence: dict | None = None) -> dict:
+def _multi_view_part_fusion(semantic: dict | None, poses: list | None,
+                           object_masks: list | None, image_shape=None) -> dict:
+    """Level 6: fuse reference-frame semantic regions into stable 3D part evidence.
+
+    The reference SAM/SAM2 labels are anchors. Each labelled Gaussian is projected
+    through every recovered camera and receives independent foreground support.
+    This does NOT run a semantic classifier per view and does NOT invent part names.
+    It answers the narrower, safer question: "does this observed 3D region continue
+    to be supported by the captured product across multiple views?"
+    """
+    base = {
+        'status': 'unavailable', 'level': 6,
+        'gaussian_count': 0, 'parts': [],
+        'views_tested': 0, 'views_with_foreground_evidence': 0,
+        'fusion_policy': (
+            'Reference SAM/SAM2 regions are fused into 3D evidence using recovered '
+            'camera projections and foreground support. This is not semantic naming, '
+            'true occlusion proof, or hidden-geometry recovery.'
+        ),
+        'unseen_geometry_claimed': False,
+    }
+    if not semantic or semantic.get('status') != 'available' or not poses or not image_shape:
+        return base
+    labels = np.asarray(semantic.get('labels', []), dtype=np.uint8)
+    confidence = np.asarray(semantic.get('confidence', []), dtype=np.float32)
+    if len(labels) == 0 or len(labels) != len(confidence):
+        return base
+    try:
+        H, W = int(image_shape[0]), int(image_shape[1])
+        fx = fy = max(H, W) * 0.8
+        cx, cy = W * 0.5, H * 0.5
+        # The semantic map is aligned to the canonical Gaussian array. Reuse the
+        # same deterministic finite-point policy as the rest of the evidence layers.
+        valid_idx = np.flatnonzero(labels != 255)
+        if not len(valid_idx):
+            return base
+        # surface positions are supplied by the caller through semantic['_positions']
+        # to avoid duplicating a potentially very large Gaussian array in JSON.
+        positions = semantic.get('_positions')
+        if positions is None:
+            return base
+        pts = np.asarray(positions, dtype=np.float32)
+        if len(pts) != len(labels) or pts.ndim != 2 or pts.shape[1] < 3:
+            return base
+        finite = np.all(np.isfinite(pts[:, :3]), axis=1)
+        valid_idx = valid_idx[finite[valid_idx]]
+        if not len(valid_idx):
+            return base
+
+        part_ids = sorted(int(x) for x in np.unique(labels[valid_idx]))
+        stats = {
+            pid: {
+                'gaussian_count': 0,
+                'support_votes': 0,
+                'foreground_support_votes': 0,
+                'strong_views': 0,
+                'view_ids': set(),
+                'confidence_sum': 0.0,
+                'min_xyz': np.full(3, np.inf, dtype=np.float32),
+                'max_xyz': np.full(3, -np.inf, dtype=np.float32),
+            } for pid in part_ids
+        }
+        for pid in part_ids:
+            ii = valid_idx[labels[valid_idx] == pid]
+            s = stats[pid]
+            s['gaussian_count'] = int(len(ii))
+            s['confidence_sum'] = float(np.sum(confidence[ii]))
+            s['min_xyz'] = np.min(pts[ii, :3], axis=0)
+            s['max_xyz'] = np.max(pts[ii, :3], axis=0)
+
+        views_tested = 0
+        views_with_fg = 0
+        for vi, pose in enumerate(poses):
+            vm = pose[1] if isinstance(pose, tuple) else pose
+            vm = vm.detach().cpu().numpy() if hasattr(vm, 'detach') else np.asarray(vm)
+            if vm.shape[0] < 3 or vm.shape[1] < 4:
+                continue
+            cam = (vm[:3, :3] @ pts[valid_idx, :3].T + vm[:3, 3:4]).T
+            z = cam[:, 2]
+            u = fx * cam[:, 0] / np.maximum(z, 1e-8) + cx
+            v = fy * cam[:, 1] / np.maximum(z, 1e-8) + cy
+            inside = np.isfinite(z) & (z > 1e-6) & np.isfinite(u) & np.isfinite(v) & (u >= 0) & (u < W) & (v >= 0) & (v < H)
+            if not np.any(inside):
+                continue
+            views_tested += 1
+            view_fg = object_masks[vi] if object_masks is not None and vi < len(object_masks) else None
+            if view_fg is None:
+                continue
+            mask = np.asarray(view_fg)
+            if mask.ndim < 2 or mask.shape[:2] != (H, W):
+                continue
+            px = np.clip(np.rint(u[inside]).astype(np.int64), 0, W - 1)
+            py = np.clip(np.rint(v[inside]).astype(np.int64), 0, H - 1)
+            fg = mask[py, px] > 32
+            if not np.any(fg):
+                continue
+            views_with_fg += 1
+            selected = valid_idx[inside][fg]
+            selected_labels = labels[selected]
+            for pid in part_ids:
+                hit = selected_labels == pid
+                count = int(np.count_nonzero(hit))
+                if count:
+                    s = stats[pid]
+                    s['support_votes'] += 1
+                    s['foreground_support_votes'] += count
+                    s['view_ids'].add(int(vi))
+                    if count >= max(4, int(s['gaussian_count'] * 0.02)):
+                        s['strong_views'] += 1
+
+        parts = []
+        for pid in part_ids:
+            s = stats[pid]
+            view_count = len(s['view_ids'])
+            denom = max(s['gaussian_count'] * max(views_tested, 1), 1)
+            foreground_ratio = float(s['foreground_support_votes'] / denom)
+            mean_conf = float(s['confidence_sum'] / max(s['gaussian_count'], 1))
+            multi_view_score = float(np.clip(
+                0.45 * min(view_count / 3.0, 1.0) +
+                0.35 * min(s['strong_views'] / 3.0, 1.0) +
+                0.20 * foreground_ratio,
+                0.0, 1.0
+            ))
+            parts.append({
+                'part_id': pid,
+                'views_supported': view_count,
+                'strong_views': int(s['strong_views']),
+                'foreground_support_ratio': foreground_ratio,
+                'multi_view_score': multi_view_score,
+                'mean_semantic_confidence': mean_conf,
+                'gaussian_count': int(s['gaussian_count']),
+                'bounds_min': [float(x) for x in s['min_xyz']],
+                'bounds_max': [float(x) for x in s['max_xyz']],
+                'stable_3d_evidence': bool(view_count >= 2 and multi_view_score >= 0.45),
+                'identity_status': 'unassigned',
+                'mechanical_ready': False,
+            })
+
+        base.update({
+            'status': 'available',
+            'gaussian_count': int(len(labels)),
+            'views_tested': int(views_tested),
+            'views_with_foreground_evidence': int(views_with_fg),
+            'parts': parts,
+        })
+        return base
+    except Exception as e:
+        base['status'] = 'error'
+        base['error'] = str(e)
+        return base
+
+
+def _build_product_part_graph(semantic: dict | None, geometry_confidence: dict | None = None,
+                              multi_view: dict | None = None) -> dict:
     """Build the evidence-backed Product Part Graph.
 
     This is intentionally a graph of observed regions, not an AI guess of product
@@ -2407,6 +2560,7 @@ def _build_product_part_graph(semantic: dict | None, geometry_confidence: dict |
     if semantic and semantic.get('status') == 'available':
         for part in sorted(semantic.get('parts', []), key=lambda p: int(p.get('part_id', 0))):
             pid = int(part.get('part_id', 0))
+            mv = next((x for x in (multi_view or {}).get('parts', []) if int(x.get('part_id', -1)) == pid), None)
             parts.append({
                 'id': f'part-{pid}',
                 'part_id': pid,
@@ -2415,6 +2569,7 @@ def _build_product_part_graph(semantic: dict | None, geometry_confidence: dict |
                 'parent_id': None,
                 'geometry': {
                     'semantic_label': pid,
+                    'multi_view': mv or {'stable_3d_evidence': False, 'multi_view_score': 0.0},
                     'assigned_gaussians': int(part.get('assigned_gaussians', 0)),
                     'source': part.get('source', 'sam2_reference_frame'),
                     'confidence': float(part.get('mean_confidence', 0.0)),
@@ -2425,7 +2580,7 @@ def _build_product_part_graph(semantic: dict | None, geometry_confidence: dict |
                     'translation': [0.0, 0.0, 0.0],
                 },
                 'capabilities': {
-                    'interactive_ready': False,
+                    'interactive_ready': bool(mv and mv.get('stable_3d_evidence') is True),
                     'animatable': False,
                     'hinge_authored': False,
                 },
@@ -2808,6 +2963,17 @@ class ReconstructionWorker:
                 k: v for k, v in semantic_evidence.items()
                 if k not in ('labels', 'confidence')
             }
+            # Level 6: carry the canonical Gaussian positions through the fusion
+            # function without serialising them into the evidence chunk.
+            semantic_evidence['_positions'] = mesh_geo_data[:, :3].tolist() if mesh_geo_data is not None else None
+            multi_view_part_fusion = _multi_view_part_fusion(
+                semantic_evidence,
+                poses,
+                object_masks,
+                image_shape=frames[0].shape[:2] if frames else None,
+            )
+            semantic_evidence.pop('_positions', None)
+            encapsulation['multi_view_part_fusion'] = multi_view_part_fusion
             if mesh_info is not None:
                 mesh_info['encapsulation'] = encapsulation
 
@@ -2830,7 +2996,7 @@ class ReconstructionWorker:
             # ── Pack .nif ─────────────────────────────────────────────────────
             self._tick('processing', 84)
             semantic_bytes = _pack_semantic_map(semantic_evidence)
-            part_graph = _build_product_part_graph(semantic_evidence, geometry_confidence)
+            part_graph = _build_product_part_graph(semantic_evidence, geometry_confidence, multi_view_part_fusion)
             part_graph_bytes = json.dumps(part_graph, separators=(',', ':')).encode('utf-8')
             chunks = [
                 # geo_bytes already contains its own [flag][count][data] header
