@@ -137,6 +137,32 @@ The NIF ENCAPSULATION record therefore distinguishes:
 - `depth_consistency_tested` / `occlusion_tested` — whether Level 3 evidence was actually available.
 
 These fields are evidence metadata, not a claim of complete product recovery.
+### Level 4 — Geometry confidence
+
+Level 4 converts the previous evidence layers into a bounded **per-surface confidence map**.
+
+Each deterministic surface sample receives a score from four evidence families:
+
+- **camera support** — how many capture cameras can support the reconstructed sample;
+- **foreground/depth evidence** — whether the sample agrees with observed foreground depth where depth testing is available;
+- **Gaussian stability** — opacity, surface anisotropy and Gaussian size/localisation;
+- **mesh validity** — watertightness, winding, volume validity and edge health.
+
+The confidence map deliberately uses a strict rule: **a mathematically clean Gaussian with no camera support cannot become a confident product surface**. Unsupported samples remain labelled `unsupported`; samples whose observed foreground consistently lies closer are labelled `occluded`; remaining supported-but-weaker samples are `uncertain`.
+
+The score is therefore a reconstruction-quality signal, not a semantic label and not proof of hidden geometry. It must never be used to manufacture an unseen interior, underside or back surface.
+
+The NIF `ENCAPSULATION` record may carry a bounded deterministic sample map containing:
+
+- sample position;
+- confidence score;
+- camera-support view count;
+- foreground-support count;
+- depth-tested/consistent/occluded view counts;
+- class: `confident`, `uncertain`, `unsupported`, or `occluded`.
+
+The canonical Gaussian and mesh chunks remain authoritative geometry. The confidence map describes **how strongly the capture supports those surfaces**.
+
 ### Capture implication
 
 For a car, for example, the production capture should cover:
