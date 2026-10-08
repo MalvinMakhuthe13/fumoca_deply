@@ -5460,6 +5460,9 @@ class ReconstructionWorker:
             'oriented_tsdf_marching_cubes',
             os.environ.get('FUMOCA_MESH_DETAIL', 'high').lower(),
         )
+        mapping = _attach_mesh_part_mapping(mesh, geo_data[:, :3], semantic_labels, semantic_confidence)
+        mesh_info['master_solid_part_mapping'] = {k:v for k,v in mapping.items() if k != '_binary'}
+        mesh_info['_part_mapping_binary'] = mapping.get('_binary')
         return mesh_chunk_bytes, stl_bytes, mesh_info
 
     def run_mesh_only(self, geo_r2_key: str, meta: dict):
