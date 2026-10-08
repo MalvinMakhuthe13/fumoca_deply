@@ -232,6 +232,7 @@ let previewMode = 'nif';
 let rendererPreviewUrl = null;
 let rendererPreviewSeq = 0;
 let rendererPreviewPending = false;
+const _fumocaPendingSolidPartTransforms = new Map();
 let stageFreezeHideTimer = null;
 let stageFreezeEl = null;
 let pipelineVisualTimer = null;
@@ -2192,6 +2193,71 @@ async function boot() {
     else destroyMeshViewer();
   }
 }
+function _fumocaApplySolidPartTransform(detail) {
+  const partId = detail?.partId;
+  if (partId == null) return false;
+
+  const ownership = window._fumocaSolidOwnership;
+  if (ownership && !ownership.available) return false;
+
+  const getPart = window._fumocaGetSolidPart;
+  if (typeof getPart !== 'function') {
+    _fumocaPendingSolidPartTransforms.set(String(partId), detail);
+    return false;
+  }
+
+  const mesh = getPart(partId);
+  if (!mesh || mesh.userData?.fumocaOwnership !== 'mapped') {
+    _fumocaPendingSolidPartTransforms.set(String(partId), detail);
+    return false;
+  }
+
+  const t = detail.translation || {};
+  const r = detail.rotation || {};
+  const s = detail.scale || {};
+
+  mesh.position.set(
+    Number(t.x) || 0,
+    Number(t.y) || 0,
+    Number(t.z) || 0
+  );
+  mesh.rotation.set(
+    Number(r.x) || 0,
+    Number(r.y) || 0,
+    Number(r.z) || 0
+  );
+  mesh.scale.set(
+    Number(s.x) || 1,
+    Number(s.y) || 1,
+    Number(s.z) || 1
+  );
+  mesh.userData.fumocaLastPartTransform = {
+    translation: { x: mesh.position.x, y: mesh.position.y, z: mesh.position.z },
+    rotation: { x: mesh.rotation.x, y: mesh.rotation.y, z: mesh.rotation.z },
+    scale: { x: mesh.scale.x, y: mesh.scale.y, z: mesh.scale.z },
+    operation: detail.operation || 'transform',
+  };
+  return true;
+}
+
+function _fumocaFlushPendingSolidPartTransforms() {
+  if (!_fumocaPendingSolidPartTransforms.size) return;
+  for (const [partId, detail] of _fumocaPendingSolidPartTransforms) {
+    if (_fumocaApplySolidPartTransform(detail)) {
+      _fumocaPendingSolidPartTransforms.delete(partId);
+    }
+  }
+}
+
+window.addEventListener('fumoca:partTransform', (event) => {
+  if (!event?.detail || event.detail.gaussianAlreadyApplied !== true) return;
+  _fumocaApplySolidPartTransform(event.detail);
+  _fumocaFlushPendingSolidPartTransforms();
+});
+
+window.addEventListener('fumoca:meshViewerReady', _fumocaFlushPendingSolidPartTransforms);
+window.addEventListener('fumoca:viewerReady', _fumocaFlushPendingSolidPartTransforms);
+
 teaserBtn?.addEventListener('click', () => { _fumocaTrack('preview_open', { mode: 'nif' }); openPreview('nif'); });
 closePreviewBtn?.addEventListener('click', closePreview);
 viewInteractiveBtn?.addEventListener('click', closePreview);
