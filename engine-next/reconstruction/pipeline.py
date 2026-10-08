@@ -2934,7 +2934,7 @@ class ReconstructionWorker:
                         faces=np.asarray(poisson_mesh.triangles),
                         process=True,
                     )
-                    mesh.remove_degenerate_faces()
+                    mesh.update_faces(mesh.nondegenerate_faces())
                     mesh.remove_duplicate_faces()
                     mesh.remove_unreferenced_vertices()
 
