@@ -2147,7 +2147,7 @@ class GaussianSplatTrainer:
             quats=quats_n.unsqueeze(0),
             scales=scales.unsqueeze(0),
             opacities=opacities.unsqueeze(0),
-            colors=sh_coeffs,
+            colors=sh_coeffs.unsqueeze(0),
             viewmats=viewmat.unsqueeze(0).unsqueeze(1),
             Ks=K.unsqueeze(0).unsqueeze(1),
             width=W, height=H,
