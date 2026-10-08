@@ -15,8 +15,8 @@ What this produces per .nif file:
                                  CALIBRATION before assuming units.
   CHUNK 0x0008  ALPHA_MASK     — per-pixel foreground alpha (uint8 HxW, 0=bg, 255=fg)
   CHUNK 0x0009  LAYER_GEO      — layered depth field: foreground + background split
-  CHUNK 0x0016  SEMANTIC_MAP   — per-point semantic label (uint8, from SAM segments) — defined,
-                                 not yet written by this pipeline
+  CHUNK 0x0016  SEMANTIC_MAP   — per-Gaussian observed semantic region evidence (SAM/SAM2)
+  CHUNK 0x001B  PART_GRAPH      — product-part graph linking observed regions to geometry evidence
   CHUNK 0x0017  CALIBRATION    — real-world scale record: method/scale_factor/confidence.
                                  See estimate_scale(). Always written (even when uncalibrated,
                                  so absence never has to be guessed at).
@@ -210,6 +210,7 @@ CHUNK_CALIB  = 0x0017  # Real-world scale calibration record — see estimate_sc
 CHUNK_VERIFY = 0x0018
 CHUNK_ENCAPSULATION = 0x0019  # Evidence/policy record for whole-product encapsulation
 CHUNK_APPEARANCE = 0x001A  # Full view-dependent Gaussian SH appearance master
+CHUNK_PART_GRAPH = 0x001B  # Evidence-backed product part graph; names/animation are not guessed
                         # Legacy GEO keeps an RGB fallback; this chunk is the
                         # authoritative photorealistic appearance representation. — see verify.py. Only present
                         # when a reference mesh was supplied for this job; absence of
@@ -369,7 +370,7 @@ def pack_nif(chunks: list, vertical: str, fps: int = 30) -> bytes:
     """Pack a list of (chunk_type, data_bytes) into a complete .nif binary."""
     hdr = bytearray(256)
     struct.pack_into('>I', hdr, 0,  NIF_MAGIC)
-    hdr[4], hdr[5] = 1, 1          # version 1.1 — added CALIBRATION/VERIFICATION chunks
+    hdr[4], hdr[5] = 1, 2          # NIF 1.2 — calibration, verification, SH appearance and semantic evidence
     struct.pack_into('>q', hdr, 8,  int(time.time() * 1000))
     hdr[16] = 0                     # CRS: LOCAL
     struct.pack_into('>H', hdr, 18, 1)   # frameCount
@@ -1244,10 +1245,17 @@ def _semantic_part_evidence(surface_geo: np.ndarray | None, segments: dict | Non
             gc = 0.5
             if geometry_confidence:
                 try:
-                    for rec in geometry_confidence.get('samples', []):
-                        if int(rec.get('index', -1)) == int(j):
-                            gc = float(rec.get('confidence', 0.5))
-                            break
+                    # Level 4 samples are sparse; index them once rather than scanning
+                    # the confidence sample list for every Gaussian (O(N*8192) worst case).
+                    confidence_by_index = geometry_confidence.get('_confidence_by_index')
+                    if confidence_by_index is None:
+                        confidence_by_index = {
+                            int(rec.get('index', -1)): float(rec.get('confidence', 0.5))
+                            for rec in geometry_confidence.get('samples', [])
+                            if int(rec.get('index', -1)) >= 0
+                        }
+                        geometry_confidence['_confidence_by_index'] = confidence_by_index
+                    gc = float(confidence_by_index.get(int(j), 0.5))
                 except Exception:
                     pass
             sem_score = float(np.clip(0.70 * score_by_sid[sid] + 0.30 * gc, 0.0, 1.0))
@@ -2388,6 +2396,61 @@ class GaussianSplatTrainer:
 
 
 
+def _build_product_part_graph(semantic: dict | None, geometry_confidence: dict | None = None) -> dict:
+    """Build the evidence-backed Product Part Graph.
+
+    This is intentionally a graph of observed regions, not an AI guess of product
+    terminology. A region becomes mechanically interactive only after a later
+    authoring/identity stage supplies a semantic name, pivot and transform.
+    """
+    parts = []
+    if semantic and semantic.get('status') == 'available':
+        for part in sorted(semantic.get('parts', []), key=lambda p: int(p.get('part_id', 0))):
+            pid = int(part.get('part_id', 0))
+            parts.append({
+                'id': f'part-{pid}',
+                'part_id': pid,
+                'name': None,
+                'name_status': 'unassigned',
+                'parent_id': None,
+                'geometry': {
+                    'semantic_label': pid,
+                    'assigned_gaussians': int(part.get('assigned_gaussians', 0)),
+                    'source': part.get('source', 'sam2_reference_frame'),
+                    'confidence': float(part.get('mean_confidence', 0.0)),
+                },
+                'transform': {
+                    'pivot': None,
+                    'rotation': [0.0, 0.0, 0.0, 1.0],
+                    'translation': [0.0, 0.0, 0.0],
+                },
+                'capabilities': {
+                    'interactive_ready': False,
+                    'animatable': False,
+                    'hinge_authored': False,
+                },
+                'identity': {
+                    'source': 'observed_segmentation',
+                    'verified': False,
+                },
+            })
+    return {
+        'version': 1,
+        'status': 'evidence_only' if parts else 'unavailable',
+        'root_id': 'product-root',
+        'root': {
+            'id': 'product-root',
+            'name': None,
+            'name_status': 'unassigned',
+            'type': 'whole_product',
+        },
+        'parts': parts,
+        'edges': [{'parent_id': 'product-root', 'child_id': p['id'], 'relation': 'observed_part'} for p in parts],
+        'policy': 'Observed SAM/SAM2 regions are not product names. Mechanical behavior requires explicit identity, pivot and transform authoring.',
+        'unseen_geometry_claimed': False,
+    }
+
+
 def _pack_semantic_map(semantic: dict | None) -> bytes | None:
     """Pack Level 5 per-Gaussian semantic evidence.
     v1: FSMP + version + unknown label + part count + Gaussian count +
@@ -2766,6 +2829,9 @@ class ReconstructionWorker:
 
             # ── Pack .nif ─────────────────────────────────────────────────────
             self._tick('processing', 84)
+            semantic_bytes = _pack_semantic_map(semantic_evidence)
+            part_graph = _build_product_part_graph(semantic_evidence, geometry_confidence)
+            part_graph_bytes = json.dumps(part_graph, separators=(',', ':')).encode('utf-8')
             chunks = [
                 # geo_bytes already contains its own [flag][count][data] header
                 # (built by export_buffer()) — do NOT prepend another count field,
@@ -2785,8 +2851,9 @@ class ReconstructionWorker:
                 (CHUNK_ENCAPSULATION, json.dumps(
                     (mesh_info or {}).get('encapsulation', {})
                 ).encode('utf-8')),
-                *([(CHUNK_SEM, _pack_semantic_map(semantic_evidence))] if _pack_semantic_map(semantic_evidence) else []),
+                (CHUNK_SEM, semantic_bytes)] if semantic_bytes else []),
                 *([(CHUNK_APPEARANCE, appearance_bytes)] if appearance_bytes else []),
+                (CHUNK_PART_GRAPH, part_graph_bytes),
             ]
             # ── Product verification — only runs when the job explicitly
             # supplies a reference mesh to compare against (meta
