@@ -1,4 +1,4 @@
-/**
+/** 
  * FUMOCA Asset Parts Engine v61
  * ═══════════════════════════════════════════════════════════════════
  * Structured interactive assets — primarily cars but designed for
@@ -26,7 +26,26 @@ const FumocaAssetParts = (() => {
   let _parts    = [];   // loaded from asset_parts table
   let _record   = null;
   let _exploded = false;
-  let _originalPositions = new Map(); // partId → {x,y,z}
+  let _originalPositions = new Map(); // partId → applied translation
+
+  function _dispatchPartTransform(part, translation, operation) {
+    window.dispatchEvent(new CustomEvent('fumoca:partTransform', {
+      detail: {
+        partId: part.id,
+        partName: part.part_name,
+        translation: {
+          x: Number(translation.x) || 0,
+          y: Number(translation.y) || 0,
+          z: Number(translation.z) || 0,
+        },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 1, y: 1, z: 1 },
+        operation,
+        source: 'asset-parts',
+        gaussianAlreadyApplied: true,
+      },
+    }));
+  }
 
   // ── Load parts from DB ────────────────────────────────────────────
   async function loadParts(splatRecord) {
@@ -104,11 +123,13 @@ const FumocaAssetParts = (() => {
       const dir    = partCentre.clone().sub(centre).normalize();
       const offset = dir.multiplyScalar(factor * 0.8);
 
-      _originalPositions.set(part.id, { x: 0, y: 0, z: 0 });
+      _originalPositions.set(part.id, { x: offset.x, y: offset.y, z: offset.z });
 
       if (typeof renderer.translateRegion === 'function') {
         renderer.translateRegion(part.bounds, offset.x, offset.y, offset.z);
       }
+
+      _dispatchPartTransform(part, offset, 'explode');
     });
 
     window.dispatchEvent(new CustomEvent('fumoca:exploded', { detail: { factor } }));
@@ -125,6 +146,8 @@ const FumocaAssetParts = (() => {
       if (typeof renderer.translateRegion === 'function') {
         renderer.translateRegion(part.bounds, -orig.x, -orig.y, -orig.z);
       }
+
+      _dispatchPartTransform(part, { x: 0, y: 0, z: 0 }, 'unexplode');
     });
 
     _originalPositions.clear();
