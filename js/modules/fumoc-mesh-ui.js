@@ -116,9 +116,11 @@ function _build() {
       <div id="fmpDisclaimer">
         <div id="fmpDisclaimer-title">Heads up — about mesh extraction</div>
         <div id="fmpDisclaimer-body">
-          The mesh is an approximation of the splat. Sharp edges become rounded.
-          Thin features (hair, wires, fabric) may disappear. Print at 50–150mm scale
-          for best results. For production prints, clean the mesh in Blender first.
+          This local extractor is a fast browser preview/export path.
+          For production FUMOCA captures, the server pipeline uses calibrated
+          multi-view geometry and screened-Poisson surface reconstruction, then
+          validates the resulting solid before exposing the print export.
+          Sharp or very thin features still require sufficient capture coverage.
         </div>
       </div>
 
