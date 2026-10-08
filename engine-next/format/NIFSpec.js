@@ -16,7 +16,9 @@
 
 export const NIF_MAGIC         = 0x4E494600; // 'NIF\0'
 export const NIF_VERSION_MAJOR = 1;
-export const NIF_VERSION_MINOR = 1;  // 1.1: added CALIBRATION (0x0017) and
+export const NIF_VERSION_MINOR = 2;  // 1.2: added CALIBRATION/VERIFICATION and
+                                      // APPEARANCE_SH (0x001A), preserving full
+                                      // view-dependent Gaussian appearance.
                                       // VERIFICATION (0x0018) chunk types.
                                       // Per §12 of NIF_SPEC_v1.0.md, this is
                                       // a minor bump — old readers that
