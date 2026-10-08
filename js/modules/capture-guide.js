@@ -1,5 +1,5 @@
 /**
- * FUMOCA Capture Guide v1
+ * FUMOCA Capture Guide v2 — whole-product encapsulation aware
  * ══════════════════════════════════════════════════════════════════════════
  * A mobile-first guided capture. Turns "hold your phone and film a car"
  * into a staged, timed, coached walk-around that produces reliably-good
@@ -68,18 +68,24 @@ export const CAPTURE_SCRIPTS = Object.freeze({
     ]),
   }),
   exterior_car: Object.freeze({
-    label: 'Exterior walk-around (car)',
-    targetDuration: 90,
-    hint: 'Stand arm\'s-length from the car. Walk slowly in a full circle, keeping the car centered in frame.',
+    label: 'Exterior + structural coverage (car)',
+    targetDuration: 110,
+    hint: 'This is a whole-product capture, not only a pretty orbit. Keep the same distance and deliberately expose openings, arches, roof, lower body and every side.',
+    encapsulationLevel: 'whole_product_surface',
+    coverageTargets: Object.freeze(['front','front_corners','driver_side','rear','passenger_side','roof','lower_body','wheel_arches','lights_trim','openings']),
     stages: Object.freeze([
-      { t: 0,  prompt: 'Start at the front bumper. Phone level, car centered.', sub: 'Hold steady for 2 seconds.' },
-      { t: 3,  prompt: 'Walk slowly to the driver side.', sub: 'Keep the car centered. Don\'t rush.' },
-      { t: 18, prompt: 'You\'re now at the driver door.', sub: 'Phone slightly lower, capture the door handles.' },
-      { t: 28, prompt: 'Continue walking to the rear.', sub: 'Smooth pace. Keep it in frame.' },
-      { t: 45, prompt: 'You\'re at the rear. Pan across the boot.', sub: 'Phone at tail-light height.' },
-      { t: 55, prompt: 'Continue to the passenger side.', sub: 'Same smooth pace as before.' },
-      { t: 72, prompt: 'Passenger side — walk back to the front.', sub: 'You\'re almost done.' },
-      { t: 85, prompt: 'Back at the front. Hold 3 seconds to finish.', sub: 'Nice.' },
+      { t: 0, prompt: 'Start at the front bumper. Hold steady.', sub: 'Capture grille, lights, badge and front openings.' },
+      { t: 5, prompt: 'Move around the front-left corner.', sub: 'Keep the corner and wheel arch fully visible.' },
+      { t: 16, prompt: 'Driver side — stay level with the body.', sub: 'Capture handles, mirror, windows and lower sill.' },
+      { t: 29, prompt: 'Driver-side wheels and arches.', sub: 'Lower the phone briefly. Capture the full arch and wheel face.' },
+      { t: 40, prompt: 'Continue toward the rear.', sub: 'Keep the rear quarter and lower body visible.' },
+      { t: 52, prompt: 'Rear of the car — slow down.', sub: 'Capture boot, tail lights, badge, bumper and openings.' },
+      { t: 64, prompt: 'Passenger side.', sub: 'Repeat the same coverage: mirror, handles, glass and lower sill.' },
+      { t: 78, prompt: 'Passenger-side wheels and arches.', sub: 'Capture both wheel faces and the arch contours.' },
+      { t: 89, prompt: 'Return toward the front.', sub: 'Do not skip the front-right corner.' },
+      { t: 96, prompt: 'Roof pass — raise the phone and angle down.', sub: 'Expose roof, bonnet contours and upper surfaces.' },
+      { t: 101, prompt: 'Lower-body pass — lower the phone and angle slightly up.', sub: 'Capture underside-facing edges and lower openings that are visible.' },
+      { t: 106, prompt: 'Final front hold.', sub: 'If doors, bonnet or boot will be interactive, open them now and capture their exposed surfaces before finishing.' },
     ]),
   }),
   interior_front: Object.freeze({
@@ -133,6 +139,7 @@ export class CaptureGuide {
     this.recorder = null;
     this.chunks = [];
     this.script = CAPTURE_SCRIPTS.exterior_car;
+    this.captureManifest = { script: 'exterior_car', startedAt: null, completed: false, coverageTargets: [...(this.script.coverageTargets || [])], declaredOpenParts: [] };
     this.startTime = 0;
     this.rafId = 0;
     this.state = 'idle'; // 'idle' | 'preview' | 'recording' | 'done'
@@ -198,6 +205,7 @@ export class CaptureGuide {
     const s = CAPTURE_SCRIPTS[scriptKey];
     if (!s) return;
     this.script = s;
+    this.captureManifest = { script: scriptKey, startedAt: null, completed: false, coverageTargets: [...(s.coverageTargets || [])], declaredOpenParts: [] };
     this._setHint(s.hint);
   }
 
@@ -380,6 +388,8 @@ export class CaptureGuide {
 
     this.recorder.start(1000); // 1-second chunks → resilient to abort
     this.startTime = performance.now();
+    this.captureManifest.startedAt = new Date().toISOString();
+    this.captureManifest.completed = false;
     this.state = 'recording';
     this.el.capStartBtn.textContent = 'Stop';
     this.el.capStartBtn.classList.add('recording');
@@ -389,7 +399,20 @@ export class CaptureGuide {
   }
 
   /**
-   * Coaching tick loop — updates the prompt/sub/timer each frame.
+   * Return the capture manifest. This is operator guidance evidence only;
+   * it never claims that unseen geometry was reconstructed.
+   */
+  getCaptureManifest() {
+    return {
+      ...this.captureManifest,
+      coverageTargets: [...(this.captureManifest.coverageTargets || [])],
+      declaredOpenParts: [...(this.captureManifest.declaredOpenParts || [])],
+      evidencePolicy: 'operator_guidance_only',
+      unseenGeometryClaimed: false,
+    };
+  }
+
+  /** Coaching tick loop — updates the prompt/sub/timer each frame.
    * Uses requestAnimationFrame rather than setInterval for smooth bar
    * animation and automatic pause when the tab is backgrounded.
    */
