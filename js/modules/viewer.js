@@ -2052,6 +2052,9 @@ async function boot() {
         console.log('[Viewer] Multi-view fused parts:', fused, '/', partGraph.parts?.length || 0, 'stable 3D evidence; interaction remains authored-only.');
         const bounded = (partGraph.parts || []).filter(p => Array.isArray(p.geometry?.observed_3d?.centroid)).length;
         console.log('[Viewer] Level 7 observed 3D part frames:', bounded, '/', partGraph.parts?.length || 0, '; pivots/mechanical axes remain unrecovered.');
+        const boundary = (partGraph.parts || []).filter(p => ['observed_contact', 'weak_contact'].includes(p.geometry?.mechanical_candidates?.boundary_status)).length;
+        const axisCandidates = (partGraph.parts || []).filter(p => p.geometry?.mechanical_candidates?.mechanical_axis_status === 'candidate_only').length;
+        console.log('[Viewer] Level 8 boundary evidence:', boundary, 'parts; axis candidates:', axisCandidates, '; no automatic hinges enabled.');
       }
       window._fumocaDecodedGaussians = gaussians;
       renderTrustBadges(calibration, verification);
