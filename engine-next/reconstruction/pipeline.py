@@ -2765,8 +2765,8 @@ class ReconstructionWorker:
                     debug_gt.clamp(0, 1).cpu().numpy() * 255
                 ).astype(np.uint8)
 
-            debug_path = '/kaggle/working/gaussian_debug_render.png'
-            gt_path = '/kaggle/working/gaussian_debug_gt.png'
+            debug_path = str(self.tmp / 'gaussian_debug_render.png')
+            gt_path = str(self.tmp / 'gaussian_debug_gt.png')
 
             imageio.imwrite(debug_path, debug_img)
             imageio.imwrite(gt_path, debug_gt_img)
