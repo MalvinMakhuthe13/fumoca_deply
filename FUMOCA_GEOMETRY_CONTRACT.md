@@ -308,3 +308,20 @@ A rotational part becomes `interactive_ready` only when explicit authoring suppl
 Therefore the complete progression is:
 
 `observed surface → semantic region → multi-view 3D evidence → geometry/boundary evidence → identity candidate → explicit identity/pivot/axis authoring → verification → interactive behavior`
+
+
+### Level 10 — Capture-to-Behaviour Verification
+
+Level 10 is the verification gate between explicit product-part authoring and live interaction. It compares authored identity/transform data with reconstructed evidence without changing the authored values and without inventing hidden geometry.
+
+Checks include:
+
+- whether the authored part has observed reconstructed 3D extent;
+- whether an authored pivot lies near the observed part extent;
+- whether an authored axis agrees with an observed principal-frame axis;
+- whether observed cross-part boundary evidence exists;
+- whether the complete set of checks is strong enough for verification.
+
+Each authored part receives `verified`, `warning`, or `rejected` state. Only a part that is explicitly authored **and** fully verified can become `interactive_eligible`. A warning does not silently become interactive, and a rejected transform remains evidence-only.
+
+This verification is intentionally conservative. It does not prove hidden hinges, internal mechanisms, or unseen surfaces. Future Level 11 work can add actual motion simulation against the master solid and Gaussian preview, but the verification gate remains required.
