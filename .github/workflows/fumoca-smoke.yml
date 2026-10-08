@@ -1,0 +1,23 @@
+name: FUMOCA smoke checks
+
+on:
+  push:
+    branches: ["main", "fumoca-cleanup-*"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python syntax
+        run: python3 -m py_compile engine-next/reconstruction/pipeline.py
+
+      - name: JavaScript syntax
+        run: |
+          node --check js/modules/nif-format.js
+          node --check js/modules/viewer.js
+          node --check js/modules/splat-edit-engine.js
+          node --check js/modules/fumoc-mesh-ui.js
