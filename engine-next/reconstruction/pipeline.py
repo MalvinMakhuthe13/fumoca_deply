@@ -1,4 +1,6 @@
 """
+
+# FUMOCA quality pass: depth-supervised Gaussian training + detail-preserving Poisson solid reconstruction.
 NIF Reconstruction Pipeline — Complete
 fumoca.co.za · © Fumoca Technologies
 
