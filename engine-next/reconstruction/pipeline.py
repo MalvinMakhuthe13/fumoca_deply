@@ -207,7 +207,8 @@ CHUNK_CALIB  = 0x0017  # Real-world scale calibration record — see estimate_sc
                         # that cares about real units (print pipeline, product
                         # verification) reads scale_factor + confidence from here
                         # instead of assuming raw positions are already in metres.
-CHUNK_VERIFY = 0x0018  # Product-verification report — see verify.py. Only present
+CHUNK_VERIFY = 0x0018
+CHUNK_ENCAPSULATION = 0x0019  # Evidence/policy record for whole-product encapsulation  # Product-verification report — see verify.py. Only present
                         # when a reference mesh was supplied for this job; absence of
                         # this chunk means "not verified", not "passed verification".
 
@@ -884,6 +885,65 @@ def track_primary_object(frames: list, alpha_masks: list) -> list:
         print(f'[NIF] SAM 2 video tracking not available ({e}) — using per-frame '
               f'background-removal masks instead (no cross-frame object identity)')
         return alpha_masks
+
+
+def _encapsulation_report(mesh_info: dict | None, poses: list | None,
+                          object_masks: list | None, alpha_masks: list | None) -> dict:
+    """Describe whether FUMOCA has enough evidence to call an object encapsulated.
+
+    Encapsulation is deliberately NOT synonymous with "Poisson returned a
+    closed mesh". A closed surface can still be wrong: Poisson may bridge a
+    bottle opening, fill a wheel arch, cap a car interior, or invent unseen
+    underside geometry.
+
+    FUMOCA therefore reports an evidence-based status:
+      - solid_closed: the reconstructed surface is closed/manifold;
+      - surface_captured: the capture supplied foreground observations;
+      - full_product_encapsulation: reserved for captures that explicitly
+        declare complete coverage (including interior/underside where required).
+
+    The pipeline never claims unseen geometry was recovered. This distinction
+    is central to making a digital product representation trustworthy.
+    """
+    mesh_ok = bool(mesh_info and mesh_info.get('is_watertight')
+                   and mesh_info.get('is_winding_consistent')
+                   and mesh_info.get('is_volume'))
+    foreground_frames = 0
+    if alpha_masks:
+        for m in alpha_masks:
+            try:
+                if float(np.mean(np.asarray(m) > 0.15)) > 0.005:
+                    foreground_frames += 1
+            except Exception:
+                pass
+
+    pose_count = len(poses or [])
+    declared_complete = bool(
+        os.environ.get('FUMOCA_CAPTURE_COMPLETE', '').lower() in ('1', 'true', 'yes')
+    )
+
+    if not mesh_ok:
+        status = 'not_encapsulated'
+    elif declared_complete:
+        status = 'encapsulated_declared'
+    elif pose_count >= 12 and foreground_frames >= 8:
+        status = 'surface_encapsulated_unverified'
+    else:
+        status = 'partial_surface_evidence'
+
+    return {
+        'status': status,
+        'solid_closed': mesh_ok,
+        'foreground_frames': foreground_frames,
+        'pose_count': pose_count,
+        'complete_coverage_declared': declared_complete,
+        'unseen_geometry_claimed': False,
+        'policy': (
+            'A closed mesh is not proof that hidden/interior/underside geometry '
+            'was captured. Full encapsulation requires explicit complete-coverage '
+            'capture evidence.'
+        ),
+    }
 
 
 def _mesh_quality_report(mesh, method: str, detail_tier: str) -> dict:
@@ -1823,6 +1883,11 @@ class ReconstructionWorker:
             # ── Real mesh extraction — triangulation from the trained Gaussians ─
             self._tick('processing', 65)
             mesh_bytes, stl_bytes, mesh_info = self._extract_mesh(mesh_geo_data)
+            encapsulation = _encapsulation_report(
+                mesh_info, poses, object_masks, alpha_masks
+            )
+            if mesh_info is not None:
+                mesh_info['encapsulation'] = encapsulation
 
             self._tick('processing', 72)
             layer_bytes = split_layers(
@@ -1858,6 +1923,9 @@ class ReconstructionWorker:
                 (CHUNK_META,    self._pack_meta(vertical, meta)),
                 (CHUNK_PHYSICS, json.dumps(_build_physics_chunk(mesh_info, vertical, calibration, meta)).encode('utf-8')),
                 (CHUNK_CALIB,   json.dumps(calibration).encode('utf-8')),
+                (CHUNK_ENCAPSULATION, json.dumps(
+                    (mesh_info or {}).get('encapsulation', {})
+                ).encode('utf-8')),
             ]
             # ── Product verification — only runs when the job explicitly
             # supplies a reference mesh to compare against (meta
@@ -2019,6 +2087,7 @@ class ReconstructionWorker:
                 'mesh_printable':     bool(mesh_info.get('printable')) if mesh_info else False,
                 'mesh_volume_m3':     mesh_info.get('volume_m3') if mesh_info else None,
                 'mesh_quality':       mesh_info or {},
+                'encapsulation':       (mesh_info or {}).get('encapsulation', {}),
                 'has_print_export':   bool(stl_bytes) and bool(mesh_info and mesh_info.get('printable')),
                 'calibration_method':     calibration['method'],
                 'calibration_confidence': calibration['confidence'],
@@ -3185,7 +3254,12 @@ class ReconstructionWorker:
                     # door/handle/bottle details that FUMOCA needs to preserve.
                     trimesh.repair.fix_winding(mesh)
                     trimesh.repair.fix_inversion(mesh)
-                    trimesh.repair.fill_holes(mesh)
+                    # Do NOT blindly fill holes: a hole may be a real product
+                    # opening/cavity (bottle neck, wheel arch, door gap, vent).
+                    # Micro-hole repair is opt-in and should only be enabled
+                    # after capture-specific QA.
+                    if os.environ.get('FUMOCA_FILL_MICRO_HOLES', '0').lower() in ('1', 'true', 'yes'):
+                        trimesh.repair.fill_holes(mesh)
                     mesh.merge_vertices()
                     mesh.remove_duplicate_faces()
                     mesh.remove_unreferenced_vertices()
