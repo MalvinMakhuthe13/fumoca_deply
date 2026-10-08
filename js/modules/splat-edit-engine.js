@@ -1053,5 +1053,14 @@ document.querySelectorAll('.section-head').forEach(h=>{
     const name=decodeURIComponent((fileUrl.split('/').pop()||'scene').split('?')[0]);
     const file=new File([blob],name,{type:blob.type||'application/octet-stream'});
     await loadFile(file,fileUrl);
+    // Viewer/Studio handoff can request the mesh workflow directly.
+    // Do this only after the splat is loaded so the mesh engine receives
+    // the real Gaussian state rather than an empty editor.
+    if (params.get('mesh') === '1') {
+      setTimeout(() => {
+        initMeshPanel();
+        if (el.meshToggleBtn) el.meshToggleBtn.click();
+      }, 0);
+    }
   } catch(err) { setStatus(`Handoff failed: ${err.message}`); }
 })();
