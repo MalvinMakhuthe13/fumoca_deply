@@ -2611,6 +2611,7 @@ def _part_geometry_evidence(semantic: dict | None, multi_view: dict | None = Non
                 axis_conf = 0.0
             mv = next((x for x in (multi_view or {}).get('parts', []) if int(x.get('part_id', -1)) == pid), None)
             pg = next((x for x in (part_geometry or {}).get('parts', []) if int(x.get('part_id', -1)) == pid), None)
+            mc = next((x for x in (mechanical_candidates or {}).get('parts', []) if int(x.get('part_id', -1)) == pid), None)
             parts.append({
                 'part_id': pid,
                 'gaussian_count': int(len(p)),
@@ -2634,9 +2635,106 @@ def _part_geometry_evidence(semantic: dict | None, multi_view: dict | None = Non
         return base
 
 
+def _part_mechanical_candidates(semantic: dict | None, part_geometry: dict | None = None) -> dict:
+    """Level 8: derive conservative part-boundary and axis candidates.
+
+    A candidate is evidence for authoring, never an automatic hinge. Boundary
+    contact is measured in reconstructed 3D space between differently-labelled
+    Gaussian regions. Principal axes are reused as possible motion-frame axes,
+    but no mechanical interpretation is assigned here.
+    """
+    base = {
+        'status': 'unavailable', 'level': 8, 'parts': [],
+        'policy': (
+            'Part boundaries and principal-axis candidates are observed geometry '
+            'evidence only. They do not establish product identity, hinge location, '
+            'or intended motion.'
+        ),
+        'unseen_geometry_claimed': False,
+    }
+    if not semantic or semantic.get('status') != 'available' or not part_geometry:
+        return base
+    positions = semantic.get('_positions')
+    labels = np.asarray(semantic.get('labels', []), dtype=np.uint8)
+    if positions is None or len(labels) == 0:
+        return base
+    try:
+        pts = np.asarray(positions, dtype=np.float64)
+        if pts.ndim != 2 or pts.shape[1] < 3 or len(pts) != len(labels):
+            return base
+        finite = np.all(np.isfinite(pts[:, :3]), axis=1)
+        valid = np.flatnonzero(finite & (labels != 255))
+        if len(valid) < 8:
+            return base
+        # Deterministic cap keeps Level 8 bounded for ultra-quality reconstructions.
+        cap = min(len(valid), int(os.environ.get('FUMOCA_PART_BOUNDARY_SAMPLES', '12000')))
+        valid = valid[np.linspace(0, len(valid) - 1, cap, dtype=np.int64)]
+        p = pts[valid, :3]
+        lab = labels[valid]
+        try:
+            from scipy.spatial import cKDTree
+            tree = cKDTree(p)
+            k = min(8, len(p))
+            _, nn = tree.query(p, k=k, workers=1)
+        except Exception:
+            return base
+        records = []
+        for pg in part_geometry.get('parts', []):
+            pid = int(pg.get('part_id', -1))
+            if pid < 0:
+                continue
+            mask = lab == pid
+            count = int(np.count_nonzero(mask))
+            if count < 3:
+                continue
+            rows = np.flatnonzero(mask)
+            neighbour_labels = lab[nn[rows].reshape(-1)]
+            # The first neighbour is normally the point itself. Exclude same-part
+            # contacts from the boundary ratio and count only observed other parts.
+            cross = neighbour_labels != pid
+            cross_count = int(np.count_nonzero(cross))
+            boundary_point_ratio = float(np.mean(np.any(cross.reshape(len(rows), -1), axis=1)))
+            contact_ratio = float(cross_count / max(len(rows) * max(k - 1, 1), 1))
+            axes = np.asarray(pg.get('principal_axes', []), dtype=np.float64)
+            variances = np.asarray(pg.get('principal_variance', []), dtype=np.float64)
+            axis_candidates = []
+            if axes.shape == (3, 3):
+                for axis_i in range(3):
+                    axis = axes[:, axis_i]
+                    spread = float(variances[axis_i]) if axis_i < len(variances) else 0.0
+                    axis_candidates.append({
+                        'axis': [float(x) for x in axis],
+                        'axis_index': axis_i,
+                        'spread': spread,
+                        'mechanical_candidate': bool(axis_i == 0 and pg.get('axis_confidence', 0.0) >= 0.35),
+                        'status': 'candidate_only',
+                    })
+            boundary_score = float(np.clip(0.55 * boundary_point_ratio + 0.45 * min(contact_ratio * 4.0, 1.0), 0.0, 1.0))
+            records.append({
+                'part_id': pid,
+                'sampled_gaussians': count,
+                'boundary_point_ratio': boundary_point_ratio,
+                'cross_part_contact_ratio': contact_ratio,
+                'boundary_evidence_score': boundary_score,
+                'boundary_status': 'observed_contact' if boundary_score >= 0.20 else 'weak_contact',
+                'axis_candidates': axis_candidates,
+                'pivot': None,
+                'pivot_status': 'not_recovered',
+                'mechanical_axis_status': 'candidate_only' if axis_candidates else 'not_recovered',
+                'identity_status': 'unassigned',
+            })
+        base.update({'status': 'available' if records else 'insufficient_geometry', 'parts': records})
+        return base
+    except Exception as e:
+        base['status'] = 'error'
+        base['error'] = str(e)
+        return base
+
+
 def _build_product_part_graph(semantic: dict | None, geometry_confidence: dict | None = None,
                               multi_view: dict | None = None,
-                              part_geometry: dict | None = None) -> dict:
+                              part_geometry: dict | None = None,
+                              mechanical_candidates: dict | None = None) -> dict:
     """Build the evidence-backed Product Part Graph.
 
     This is intentionally a graph of observed regions, not an AI guess of product
@@ -2659,6 +2757,7 @@ def _build_product_part_graph(semantic: dict | None, geometry_confidence: dict |
                     'semantic_label': pid,
                     'multi_view': mv or {'stable_3d_evidence': False, 'multi_view_score': 0.0},
                     'observed_3d': pg or {'frame_source': 'unavailable', 'pivot_status': 'not_recovered'},
+                    'mechanical_candidates': mc or {'boundary_status': 'unavailable', 'mechanical_axis_status': 'not_recovered'},
                     'assigned_gaussians': int(part.get('assigned_gaussians', 0)),
                     'source': part.get('source', 'sam2_reference_frame'),
                     'confidence': float(part.get('mean_confidence', 0.0)),
@@ -3066,9 +3165,11 @@ class ReconstructionWorker:
                 image_shape=frames[0].shape[:2] if frames else None,
             )
             part_geometry_evidence = _part_geometry_evidence(semantic_evidence, multi_view_part_fusion)
+            mechanical_candidates = _part_mechanical_candidates(semantic_evidence, part_geometry_evidence)
             semantic_evidence.pop('_positions', None)
             encapsulation['multi_view_part_fusion'] = multi_view_part_fusion
             encapsulation['part_geometry_evidence'] = part_geometry_evidence
+            encapsulation['mechanical_candidates'] = mechanical_candidates
             if mesh_info is not None:
                 mesh_info['encapsulation'] = encapsulation
 
@@ -3091,7 +3192,7 @@ class ReconstructionWorker:
             # ── Pack .nif ─────────────────────────────────────────────────────
             self._tick('processing', 84)
             semantic_bytes = _pack_semantic_map(semantic_evidence)
-            part_graph = _build_product_part_graph(semantic_evidence, geometry_confidence, multi_view_part_fusion, part_geometry_evidence)
+            part_graph = _build_product_part_graph(semantic_evidence, geometry_confidence, multi_view_part_fusion, part_geometry_evidence, mechanical_candidates)
             part_graph_bytes = json.dumps(part_graph, separators=(',', ':')).encode('utf-8')
             chunks = [
                 # geo_bytes already contains its own [flag][count][data] header
