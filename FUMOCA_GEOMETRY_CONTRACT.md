@@ -52,3 +52,42 @@ The web viewer should prefer the Gaussian representation for appearance, while t
 ## Browser versus production
 
 The browser mesh extractor is intentionally a quick local preview/export tool. The production reconstruction worker is the authoritative path for client-quality solid geometry.
+
+
+## Detail and depth policy
+
+FUMOCA treats **appearance detail** and **geometric depth** as separate but coupled signals.
+
+### Depth
+
+DepthAnything output is now used in two places:
+
+- real-world scale estimation/calibration;
+- low-weight depth supervision during Gaussian training.
+
+The training loss uses robust per-frame relative-depth normalization. This is deliberate: monocular depth may be metric or relative, and COLMAP reconstruction has its own scale ambiguity until calibration. The depth term therefore teaches the Gaussians the **shape/depth ordering** without pretending the raw depth map is already in metres.
+
+### Detail
+
+Production reconstruction exposes four quality tiers:
+
+- **fast** — quick previews;
+- **balanced** — normal production;
+- **high** — default client-quality reconstruction;
+- **ultra** — maximum detail for demanding products/print masters.
+
+The high/ultra mesh path retains more surface samples, uses deeper Poisson octrees and trims less low-density surface. The solid face budget is deliberately much higher than the web preview budget.
+
+Small geometry must be treated as real product information: handles, seams, badges, bottle threads, caps, door gaps, mirrors, trim and other thin features must not be erased merely to make a mesh smaller.
+
+### Gaussian densification
+
+The reconstruction worker's densification is gradient-driven rather than merely duplicating arbitrary Gaussians. This concentrates additional Gaussians where the rendered image is actually sensitive to geometry/appearance error.
+
+Topology changes rebuild the optimizer so Adam state cannot become shape-incompatible after pruning or splitting.
+
+### Surface normals
+
+The production Poisson path derives normals from the learned Gaussian orientation and shortest Gaussian axis, then uses consistent tangent-plane propagation before reconstruction. This preserves the surface orientation information that a generic point-cloud normal estimation would otherwise discard.
+
+Open3D's Poisson implementation requires oriented normals and its depth parameter controls the octree resolution; higher depth permits more reconstruction detail. FUMOCA therefore treats Poisson depth as a quality control rather than a fixed one-size-fits-all constant.
