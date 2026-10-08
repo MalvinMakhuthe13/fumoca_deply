@@ -3021,7 +3021,11 @@ def _simulate_part_motion(semantic: dict | None,
         'status': 'not_available',
         'level': 11,
         'parts': [],
-        'master_solid_sync': 'available' if isinstance(master_solid_mapping, dict) and master_solid_mapping.get('status') == 'available' else 'unavailable_without_mesh_part_labels',
+        'master_solid_sync': 'available' if (
+            isinstance(master_solid_mapping, dict) and
+            master_solid_mapping.get('status') == 'available' and
+            int(master_solid_mapping.get('mapped_face_count', 0)) > 0
+        ) else 'unavailable_without_mesh_part_labels',
         'gaussian_preview_sync': 'canonical_transform_plan_available',
         'policy': (
             'Motion is simulated from observed Gaussian positions assigned to an '
