@@ -515,23 +515,33 @@ export function gaussiansToRenderArrays(gaussians) {
 // needing to re-point the renderer itself — the .nif file is still the only
 // thing fetched, stored, and exported; this conversion happens in memory only,
 // purely to hand off to the already-working render path.
-export function geometryToSplatRows(gaussians) {
+export function geometryToSplatRows(gaussians, calibration = null) {
   const { count, data } = gaussians;
   const rowSize = 32;
   const out = new Uint8Array(count * rowSize);
   const dv  = new DataView(out.buffer);
 
+  // NIF stores the canonical Gaussian geometry in reconstruction-space units.
+  // The mesh/STL is calibrated server-side; apply the same calibration here
+  // before creating the web splat so the solid and visual representations share
+  // the same physical scale. If no trustworthy scale exists, keep native units.
+  const rawScale = Number(calibration?.scale_factor);
+  const worldScale = Number.isFinite(rawScale) && rawScale > 0 ? rawScale : 1;
+  const logScale = Math.log(worldScale);
+
   for (let i = 0; i < count; i++) {
     const o = i * FLOATS_PER_POINT;
     const base = i * rowSize;
 
-    dv.setFloat32(base + 0, data[o+0], true);
-    dv.setFloat32(base + 4, data[o+1], true);
-    dv.setFloat32(base + 8, data[o+2], true);
+    dv.setFloat32(base + 0, data[o+0] * worldScale, true);
+    dv.setFloat32(base + 4, data[o+1] * worldScale, true);
+    dv.setFloat32(base + 8, data[o+2] * worldScale, true);
 
-    dv.setFloat32(base + 12, Math.exp(data[o+3]), true);
-    dv.setFloat32(base + 16, Math.exp(data[o+4]), true);
-    dv.setFloat32(base + 20, Math.exp(data[o+5]), true);
+    // Gaussian covariance scale must follow the same physical transform.
+    // log(s * worldScale) = log(s) + log(worldScale).
+    dv.setFloat32(base + 12, Math.exp(data[o+3] + logScale), true);
+    dv.setFloat32(base + 16, Math.exp(data[o+4] + logScale), true);
+    dv.setFloat32(base + 20, Math.exp(data[o+5] + logScale), true);
 
     // Re-quantise quaternion (canonical is already-normalised float wxyz)
     const clamp255 = v => Math.max(0, Math.min(255, Math.round(v)));
