@@ -349,6 +349,7 @@ export class FumocaNativeGaussianRenderer {
   _updateCameraUniformsAndSort() {
     if (!this.material || !this.camera) return;
     this.material.uniforms.uCameraPosition.value.copy(this.camera.position);
+    this.camera.updateMatrixWorld(true);
 
     if (this._cameraNeedsResort()) {
       this._sortBackToFront();
