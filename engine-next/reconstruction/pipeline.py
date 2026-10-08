@@ -3134,7 +3134,8 @@ def _build_product_part_graph(semantic: dict | None, geometry_confidence: dict |
                               multi_view: dict | None = None,
                               part_geometry: dict | None = None,
                               mechanical_candidates: dict | None = None,
-                              authoring: dict | None = None) -> dict:
+                              authoring: dict | None = None,
+                              motion_verification: dict | None = None) -> dict:
     """Build the evidence-backed Product Part Graph.
 
     This is intentionally a graph of observed regions, not an AI guess of product
@@ -3211,12 +3212,46 @@ def _build_product_part_graph(semantic: dict | None, geometry_confidence: dict |
             p['capabilities']['verification_state'] = check['state']
             p['capabilities']['interactive_ready'] = bool(check.get('interactive_eligible'))
             p['capabilities']['animatable'] = bool(check.get('interactive_eligible'))
+
+    # Level 11 is a second gate: geometric authoring verification alone does
+    # not prove that the authored transform can move the observed part without
+    # colliding with the rest of the captured product.
+    for p in parts:
+        motion_check = next(
+            (x for x in (motion_verification or {}).get('parts', [])
+             if int(x.get('part_id', -1)) == int(p.get('part_id', -1))),
+            None,
+        )
+        if motion_check:
+            p['capabilities']['motion_verification_state'] = motion_check.get('state', 'not_tested')
+            p['capabilities']['interactive_ready'] = bool(
+                p['capabilities'].get('interactive_ready') and
+                motion_check.get('interactive_eligible') is True
+            )
+            p['capabilities']['animatable'] = p['capabilities']['interactive_ready']
+        elif p['capabilities'].get('interactive_ready'):
+            p['capabilities']['motion_verification_state'] = 'not_tested'
+
+    fusion_level = 11 if motion_verification and motion_verification.get('status') == 'available' else (
+        10 if verification.get('status') == 'available' else (
+            9 if authoring_state.get('status') == 'available' else (
+                8 if mechanical_candidates and mechanical_candidates.get('status') == 'available' else (
+                    6 if multi_view and multi_view.get('status') == 'available' else 5
+                )
+            )
+        )
+    )
     return {
         'version': 1,
-        'fusion_level': 10 if verification.get('status') == 'available' else (9 if authoring_state.get('status') == 'available' else (8 if mechanical_candidates and mechanical_candidates.get('status') == 'available' else (6 if multi_view and multi_view.get('status') == 'available' else 5))),
+        'fusion_level': fusion_level,
         'status': 'evidence_only' if parts else 'unavailable',
         'authoring': authoring_state,
         'verification': verification,
+        'motion_verification': motion_verification or {
+            'status': 'not_available',
+            'level': 11,
+            'unseen_geometry_claimed': False,
+        },
         'root_id': 'product-root',
         'root': {
             'id': 'product-root',
@@ -3599,10 +3634,24 @@ class ReconstructionWorker:
             )
             part_geometry_evidence = _part_geometry_evidence(semantic_evidence, multi_view_part_fusion)
             mechanical_candidates = _part_mechanical_candidates(semantic_evidence, part_geometry_evidence)
+            # Level 11: simulate explicitly authored motion against the observed
+            # Gaussian evidence before exposing a part as interactive.
+            authoring_input = meta.get('part_authoring') if isinstance(meta, dict) else None
+            authoring_state = _validate_part_authoring(authoring_input, [
+                {'id': f'part-{int(p.get("part_id", 0))}'}
+                for p in semantic_evidence.get('parts', [])
+            ])
+            motion_verification = _simulate_part_motion(
+                semantic_evidence,
+                part_geometry_evidence,
+                mechanical_candidates,
+                authoring_state,
+            )
             semantic_evidence.pop('_positions', None)
             encapsulation['multi_view_part_fusion'] = multi_view_part_fusion
             encapsulation['part_geometry_evidence'] = part_geometry_evidence
             encapsulation['mechanical_candidates'] = mechanical_candidates
+            encapsulation['motion_verification'] = motion_verification
             if mesh_info is not None:
                 mesh_info['encapsulation'] = encapsulation
 
@@ -3625,7 +3674,15 @@ class ReconstructionWorker:
             # ── Pack .nif ─────────────────────────────────────────────────────
             self._tick('processing', 84)
             semantic_bytes = _pack_semantic_map(semantic_evidence)
-            part_graph = _build_product_part_graph(semantic_evidence, geometry_confidence, multi_view_part_fusion, part_geometry_evidence, mechanical_candidates, meta.get('part_authoring') if isinstance(meta, dict) else None)
+            part_graph = _build_product_part_graph(
+                semantic_evidence,
+                geometry_confidence,
+                multi_view_part_fusion,
+                part_geometry_evidence,
+                mechanical_candidates,
+                meta.get('part_authoring') if isinstance(meta, dict) else None,
+                motion_verification,
+            )
             part_graph_bytes = json.dumps(part_graph, separators=(',', ':')).encode('utf-8')
             chunks = [
                 # geo_bytes already contains its own [flag][count][data] header
