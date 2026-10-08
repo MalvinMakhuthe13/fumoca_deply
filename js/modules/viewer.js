@@ -2034,14 +2034,18 @@ async function boot() {
       const nifResp   = await fetch(fileUrl);
       const nifBuffer = await nifResp.arrayBuffer();
       if (fileUrl.startsWith('blob:')) URL.revokeObjectURL(fileUrl);
-      const { meta, gaussians, appearance, semantic, calibration, verification, mesh } = await decodeNif(nifBuffer);
+      const { meta, gaussians, appearance, semantic, partGraph, calibration, verification, mesh } = await decodeNif(nifBuffer);
       window._fumocaCalibration  = calibration;
       window._fumocaVerification = verification;
       window._fumocaDecodedMesh  = mesh;
       window._fumocaAppearanceSH = appearance;
       window._fumocaSemanticParts = semantic;
+      window._fumocaProductPartGraph = partGraph;
       if (semantic) {
-        console.log('[Viewer] Semantic part evidence loaded:', semantic.partCount, 'regions,', semantic.assignedCount ?? 'mapped', 'mapped Gaussians');
+        console.log('[Viewer] Semantic part evidence loaded:', semantic.partCount, 'regions,', semantic.gaussianCount ? `${semantic.gaussianCount.toLocaleString()} total` : 'mapped', 'Gaussian evidence');
+      }
+      if (partGraph) {
+        console.log('[Viewer] Product Part Graph loaded:', partGraph.parts?.length || 0, 'evidence-backed regions; mechanics remain explicitly authored.');
       }
       window._fumocaDecodedGaussians = gaussians;
       renderTrustBadges(calibration, verification);
