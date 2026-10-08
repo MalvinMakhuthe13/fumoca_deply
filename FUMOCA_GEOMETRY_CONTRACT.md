@@ -205,3 +205,23 @@ For a car, for example, the production capture should cover:
 A bottle, shoe, phone, appliance or skincare product follows the same principle: if a surface or moving part matters to the final experience, the capture must provide visual evidence for it.
 
 The goal is **not** to make every object a generic watertight blob. The goal is to make the digital asset contain the real product's observed geometry, including the negative spaces that define the product.
+
+
+### Level 5.5 — Product Part Graph
+
+The Product Part Graph is the bridge between observed segmentation and future interaction. It is deliberately **evidence-first**:
+
+- each graph part references an observed semantic region and its reconstructed Gaussian evidence;
+- part names remain unassigned until explicit product identity is established;
+- parent/child relationships are structural metadata, not guesses about mechanics;
+- pivots and transforms are empty until explicitly authored or recovered from sufficient evidence;
+- `interactive_ready`, `animatable` and `hinge_authored` remain false by default;
+- `unseen_geometry_claimed` remains false.
+
+This prevents a segmentation model from silently turning “region 4” into “car door” and then inventing a hinge or opening motion. The graph is the stable contract that later authoring can upgrade into a real interactive part.
+
+The intended progression is:
+
+`observed region → geometry evidence → product identity → pivot/transform → authored behavior → interactive part`
+
+This is also where FUMOCA preserves the distinction between the **MASTER SOLID** and the **WEB PREVIEW**: a part can reference both the structural mesh representation and the photorealistic Gaussian representation without forcing either representation to become the other.
