@@ -117,6 +117,26 @@ Therefore FUMOCA must never use "watertight" as proof that hidden geometry was r
 
 The NIF file therefore carries an encapsulation record describing the evidence level. `unseen_geometry_claimed` must remain false unless a future explicitly authored/referenced geometry stage supplies that evidence.
 
+### Encapsulation evidence levels
+
+The Encapsulation Map is deliberately evidence-driven:
+
+1. **Directional camera coverage** — proves that capture viewpoints existed around a region, but does not prove individual surface visibility.
+2. **Surface-to-camera projection** — tests reconstructed samples against camera projection, foreground masks and surface orientation.
+3. **Depth consistency + occlusion evidence** — compares projected reconstructed depth with the observed foreground depth in each frame. Because monocular depth may be relative, FUMOCA uses a robust per-frame relationship rather than treating raw depth values as metric.
+4. **Geometry confidence** — combines the evidence above with mesh/surface quality and reconstruction diagnostics.
+5. **Semantic part confidence** — future part-level evidence can identify specific product components and their capture support.
+
+Level 3 can identify a surface that is likely hidden behind an observed foreground surface. It still does **not** recover the hidden surface and does not authorize fabricated interior geometry. A point that lacks consistent visibility evidence remains uncertain.
+
+The NIF ENCAPSULATION record therefore distinguishes:
+
+- `depth_consistent_samples` — reconstructed samples with at least one depth-consistent foreground observation;
+- `depth_occluded_samples` — samples whose observed foreground depth is materially closer than the reconstructed sample;
+- `depth_inconsistent_samples` — samples that do not fit the observed depth relationship;
+- `depth_consistency_tested` / `occlusion_tested` — whether Level 3 evidence was actually available.
+
+These fields are evidence metadata, not a claim of complete product recovery.
 ### Capture implication
 
 For a car, for example, the production capture should cover:
