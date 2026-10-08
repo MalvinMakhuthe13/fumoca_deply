@@ -2797,7 +2797,8 @@ def _validate_part_authoring(authoring: dict | None, graph_parts: list) -> dict:
 def _build_product_part_graph(semantic: dict | None, geometry_confidence: dict | None = None,
                               multi_view: dict | None = None,
                               part_geometry: dict | None = None,
-                              mechanical_candidates: dict | None = None) -> dict:
+                              mechanical_candidates: dict | None = None,
+                              authoring: dict | None = None) -> dict:
     """Build the evidence-backed Product Part Graph.
 
     This is intentionally a graph of observed regions, not an AI guess of product
@@ -2844,10 +2845,34 @@ def _build_product_part_graph(semantic: dict | None, geometry_confidence: dict |
                     'verified': False,
                 },
             })
+    authoring_state = _validate_part_authoring(authoring, parts)
+    for p in parts:
+        authored = authoring_state.get('parts', {}).get(p['id'], {})
+        if not authored:
+            continue
+        p['name'] = authored.get('name', p['name'])
+        p['name_status'] = authored.get('name_status', p['name_status'])
+        p['identity']['source'] = 'explicit_authoring'
+        if authored.get('pivot') is not None:
+            p['transform']['pivot'] = authored['pivot']
+            p['transform']['pivot_source'] = 'explicit_authoring'
+        if authored.get('axis') is not None:
+            p['transform']['axis'] = authored['axis']
+            p['transform']['axis_source'] = 'explicit_authoring'
+        if authored.get('motion'):
+            p['transform']['motion'] = authored['motion']
+        if authored.get('limits'):
+            p['transform']['limits'] = authored['limits']
+        p['capabilities']['interactive_ready'] = bool(authored.get('interactive_ready'))
+        p['capabilities']['animatable'] = bool(authored.get('interactive_ready'))
+        p['capabilities']['hinge_authored'] = bool(
+            authored.get('motion') == 'rotate' and authored.get('pivot') is not None and authored.get('axis') is not None
+        )
     return {
         'version': 1,
-        'fusion_level': 6 if multi_view and multi_view.get('status') == 'available' else 5,
+        'fusion_level': 9 if authoring_state.get('status') == 'available' else (8 if mechanical_candidates and mechanical_candidates.get('status') == 'available' else (6 if multi_view and multi_view.get('status') == 'available' else 5)),
         'status': 'evidence_only' if parts else 'unavailable',
+        'authoring': authoring_state,
         'root_id': 'product-root',
         'root': {
             'id': 'product-root',
@@ -3256,7 +3281,7 @@ class ReconstructionWorker:
             # ── Pack .nif ─────────────────────────────────────────────────────
             self._tick('processing', 84)
             semantic_bytes = _pack_semantic_map(semantic_evidence)
-            part_graph = _build_product_part_graph(semantic_evidence, geometry_confidence, multi_view_part_fusion, part_geometry_evidence, mechanical_candidates)
+            part_graph = _build_product_part_graph(semantic_evidence, geometry_confidence, multi_view_part_fusion, part_geometry_evidence, mechanical_candidates, meta.get('part_authoring') if isinstance(meta, dict) else None)
             part_graph_bytes = json.dumps(part_graph, separators=(',', ':')).encode('utf-8')
             chunks = [
                 # geo_bytes already contains its own [flag][count][data] header
