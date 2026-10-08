@@ -1194,6 +1194,215 @@ def _surface_camera_evidence(surface_geo: np.ndarray | None, poses: list | None,
         }
 
 
+def _surface_depth_visibility_evidence(surface_geo: np.ndarray | None,
+                                    poses: list | None,
+                                    alpha_masks: list | None,
+                                    depth_maps: list | None,
+                                    image_shape=None) -> dict:
+    """Estimate whether reconstructed surface points are depth-consistent.
+
+    Level 3 of the Encapsulation Map. Projection alone cannot distinguish a
+    visible surface from one hidden behind another part of the product. This
+    stage samples the reconstructed surface, projects it into each capture
+    camera, and compares its camera-space depth with the observed foreground
+    depth.
+
+    DepthAnything may be relative rather than metric, so raw depth values are
+    never compared directly to reconstruction metres. For each frame, a
+    robust affine mapping is estimated from the foreground/projected sample
+    population using percentile anchors. The resulting residual is evidence
+    of visibility consistency, not a claim of metric depth.
+
+    A point is:
+      - depth_consistent when observed and reconstructed depth agree within
+        the robust tolerance;
+      - depth_occluded when the observed foreground surface is materially
+        closer than the reconstructed point;
+      - depth_inconsistent when the relationship cannot explain the point.
+
+    This deliberately does not fabricate geometry for unsupported regions.
+    """
+    base = {
+        'status': 'unavailable',
+        'surface_samples': 0,
+        'foreground_projected_samples': 0,
+        'depth_consistent_samples': 0,
+        'depth_occluded_samples': 0,
+        'depth_inconsistent_samples': 0,
+        'visibility_ratio': 0.0,
+        'occlusion_ratio': 0.0,
+        'depth_consistency_tested': False,
+        'occlusion_tested': False,
+    }
+    if surface_geo is None or poses is None or not len(poses) or not depth_maps:
+        return base
+
+    try:
+        raw = np.asarray(surface_geo, dtype=np.float64)
+        finite = np.all(np.isfinite(raw[:, :10]), axis=1)
+        pts_all = raw[finite, :3]
+        if not len(pts_all):
+            return base
+
+        # Deterministic cap. Keep the same source rows for points, scale and
+        # quaternion so later evidence always refers to the same surface.
+        source_rows = np.flatnonzero(finite)
+        if len(source_rows) > 25_000:
+            source_rows = source_rows[np.linspace(0, len(source_rows) - 1, 25_000, dtype=np.int64)]
+        pts = raw[source_rows, :3]
+
+        H, W = image_shape or ((depth_maps[0].shape if depth_maps and depth_maps[0] is not None else (0, 0)))
+        if H <= 0 or W <= 0:
+            raise ValueError('image dimensions unavailable')
+
+        fx = fy = max(H, W) * 0.8
+        cx, cy = W / 2.0, H / 2.0
+
+        consistent = np.zeros(len(pts), dtype=bool)
+        occluded = np.zeros(len(pts), dtype=bool)
+        inconsistent = np.zeros(len(pts), dtype=bool)
+        foreground_any = np.zeros(len(pts), dtype=bool)
+        tested_any = np.zeros(len(pts), dtype=bool)
+        support_counts = np.zeros(len(pts), dtype=np.uint16)
+
+        frame_reports = []
+
+        for i, pose in enumerate(poses):
+            if i >= len(depth_maps) or depth_maps[i] is None:
+                continue
+
+            vm = pose[1] if isinstance(pose, tuple) else pose
+            vm = vm.detach().cpu().numpy() if hasattr(vm, 'detach') else np.asarray(vm)
+            Rw = vm[:3, :3].astype(np.float64)
+            tw = vm[:3, 3].astype(np.float64)
+
+            cam = (Rw @ pts.T).T + tw
+            z = cam[:, 2]
+            valid = np.isfinite(z) & (z > 1e-6)
+
+            u = fx * cam[:, 0] / np.maximum(z, 1e-8) + cx
+            v = fy * cam[:, 1] / np.maximum(z, 1e-8) + cy
+            inside = valid & (u >= 0) & (u < W) & (v >= 0) & (v < H)
+            if not np.any(inside):
+                continue
+
+            depth = np.asarray(depth_maps[i], dtype=np.float64)
+            if depth.ndim > 2:
+                depth = np.squeeze(depth)
+            if depth.shape != (H, W):
+                continue
+
+            uu = np.clip(np.rint(u).astype(np.int64), 0, W - 1)
+            vv = np.clip(np.rint(v).astype(np.int64), 0, H - 1)
+            observed = depth[vv, uu]
+
+            fg = inside & np.isfinite(observed) & (observed > 0)
+            if alpha_masks and i < len(alpha_masks):
+                mask = np.asarray(alpha_masks[i])
+                if mask.ndim > 2:
+                    mask = np.squeeze(mask)
+                if mask.shape == (H, W):
+                    fg &= mask[vv, uu] > 32
+
+            foreground_any |= fg
+            idx = np.where(fg)[0]
+            if len(idx) < 64:
+                continue
+
+            # Robust per-frame relationship between reconstruction camera
+            # depth and observed monocular depth. Percentile anchors avoid
+            # pretending the two coordinate systems share units.
+            pred = z[idx]
+            obs = observed[idx]
+            p10, p50, p90 = np.percentile(pred, [10, 50, 90])
+            o10, o50, o90 = np.percentile(obs, [10, 50, 90])
+            p_span = max(float(p90 - p10), 1e-8)
+            o_span = max(float(o90 - o10), 1e-8)
+
+            # Map predicted depth into observed-depth coordinates. The mapping
+            # is intentionally only used to test consistency; it is not stored
+            # as a metric calibration.
+            slope = o_span / p_span
+            intercept = o50 - slope * p50
+            expected = slope * pred + intercept
+            residual = obs - expected
+
+            # Scale the residual by the observed robust spread. A 20% spread
+            # tolerates monocular-depth noise while still exposing surfaces
+            # that are materially behind the observed foreground surface.
+            tolerance = max(o_span * 0.20, 1e-6)
+            abs_ok = np.abs(residual) <= tolerance
+
+            # Negative residual means the observed foreground is closer than
+            # the reconstructed point after mapping: that is the signature of
+            # likely occlusion.
+            likely_occluded = residual < -tolerance
+            likely_inconsistent = (~abs_ok) & (~likely_occluded)
+
+            tested_any[idx] = True
+            support_counts[idx] += abs_ok.astype(np.uint16)
+            consistent[idx] |= abs_ok
+            occluded[idx] |= likely_occluded
+            inconsistent[idx] |= likely_inconsistent
+
+            frame_reports.append({
+                'frame': int(i),
+                'projected_foreground_samples': int(len(idx)),
+                'depth_consistent_samples': int(np.count_nonzero(abs_ok)),
+                'depth_occluded_samples': int(np.count_nonzero(likely_occluded)),
+                'depth_inconsistent_samples': int(np.count_nonzero(likely_inconsistent)),
+                'observed_depth_metric': False,
+                'mapping': 'robust_percentile_affine',
+                'tolerance_fraction_of_observed_p10_p90_span': 0.20,
+            })
+
+        tested = tested_any
+        if not np.any(tested):
+            return {
+                **base,
+                'status': 'insufficient_depth_evidence',
+                'surface_samples': int(len(pts)),
+                'foreground_projected_samples': int(np.count_nonzero(foreground_any)),
+                'depth_consistency_tested': False,
+                'occlusion_tested': False,
+            }
+
+        # Any point with at least one consistent view is supported. A point
+        # repeatedly classified as occluded/inconsistent but never consistent
+        # remains uncertain rather than being silently deleted.
+        depth_consistent = consistent & tested
+        depth_occluded = occluded & ~depth_consistent
+        depth_inconsistent = inconsistent & ~depth_consistent & ~depth_occluded
+
+        return {
+            'status': 'available',
+            'surface_samples': int(len(pts)),
+            'foreground_projected_samples': int(np.count_nonzero(foreground_any)),
+            'tested_samples': int(np.count_nonzero(tested)),
+            'depth_consistent_samples': int(np.count_nonzero(depth_consistent)),
+            'depth_occluded_samples': int(np.count_nonzero(depth_occluded)),
+            'depth_inconsistent_samples': int(np.count_nonzero(depth_inconsistent)),
+            'visibility_ratio': float(np.mean(depth_consistent[foreground_any])) if np.any(foreground_any) else 0.0,
+            'occlusion_ratio': float(np.mean(depth_occluded[tested])) if np.any(tested) else 0.0,
+            'depth_consistency_tested': True,
+            'occlusion_tested': True,
+            'frame_reports': frame_reports[:64],
+            'policy': (
+                'Depth visibility is evidence, not hidden-geometry recovery. '
+                'Per-frame observed depth is robustly related to reconstruction '
+                'depth because monocular depth may be relative. A surface that '
+                'is consistently deeper than the observed foreground is marked '
+                'likely occluded/uncertain; no unseen geometry is invented.'
+            ),
+        }
+    except Exception as e:
+        return {
+            **base,
+            'status': 'error',
+            'error': str(e),
+        }
+
+
 def _mesh_quality_report(mesh, method: str, detail_tier: str) -> dict:
     """Return explicit geometry/printability diagnostics for every mesh output.
 
@@ -2158,7 +2367,15 @@ class ReconstructionWorker:
                 object_masks,
                 image_shape=frames[0].shape[:2] if frames else None,
             )
+            depth_visibility_evidence = _surface_depth_visibility_evidence(
+                mesh_geo_data,
+                poses,
+                object_masks,
+                depth_maps,
+                image_shape=frames[0].shape[:2] if frames else None,
+            )
             encapsulation['surface_camera_evidence'] = surface_camera_evidence
+            encapsulation['depth_visibility_evidence'] = depth_visibility_evidence
             if mesh_info is not None:
                 mesh_info['encapsulation'] = encapsulation
 
