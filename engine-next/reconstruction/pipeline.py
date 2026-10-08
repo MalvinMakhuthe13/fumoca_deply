@@ -2648,6 +2648,7 @@ def _build_product_part_graph(semantic: dict | None, geometry_confidence: dict |
         for part in sorted(semantic.get('parts', []), key=lambda p: int(p.get('part_id', 0))):
             pid = int(part.get('part_id', 0))
             mv = next((x for x in (multi_view or {}).get('parts', []) if int(x.get('part_id', -1)) == pid), None)
+            pg = next((x for x in (part_geometry or {}).get('parts', []) if int(x.get('part_id', -1)) == pid), None)
             parts.append({
                 'id': f'part-{pid}',
                 'part_id': pid,
