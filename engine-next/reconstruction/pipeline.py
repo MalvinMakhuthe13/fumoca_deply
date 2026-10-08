@@ -2824,6 +2824,213 @@ class ReconstructionWorker:
         quats = pts[:, 6:10]
         colors = 1.0 / (1.0 + np.exp(-pts[:, 11:14]))  # sigmoid → 0-1 RGB
 
+        # ── FUMOCA production surface path ─────────────────────────────────
+        # The old path below built a signed-distance volume by projecting
+        # Gaussian normals and then ran Marching Cubes. That is useful as a
+        # dependency-light fallback, but its signed direction is fundamentally
+        # ambiguous on concave products and can create shells/holes.
+        #
+        # Production FUMOCA therefore prefers screened Poisson reconstruction
+        # from an oriented surface point cloud. This is the same class of
+        # Gaussian-to-mesh strategy used by surface-aligned Gaussian methods:
+        # extract/organise surface samples first, then reconstruct a continuous
+        # surface. If Open3D is unavailable or the Poisson result is unusable,
+        # the existing marching-cubes implementation continues below.
+        mesh_method = os.environ.get('FUMOCA_MESH_METHOD', 'poisson').lower()
+        if mesh_method in ('poisson', 'auto'):
+            try:
+                import open3d as o3d
+                from scipy.spatial import cKDTree
+
+                # Keep the production job bounded. Poisson reconstruction is
+                # driven by surface coverage, not by every redundant Gaussian.
+                max_points = int(os.environ.get('FUMOCA_POISSON_MAX_POINTS', '220000'))
+                work_positions = positions
+                work_colors = colors
+
+                if len(work_positions) > max_points:
+                    # Deterministic stride keeps runs reproducible and avoids
+                    # random quality changes between otherwise identical jobs.
+                    stride = int(math.ceil(len(work_positions) / max_points))
+                    work_positions = work_positions[::stride]
+                    work_colors = work_colors[::stride]
+
+                if len(work_positions) >= 500:
+                    # Estimate local sampling scale once; it controls both
+                    # normal estimation and the optional voxel downsample.
+                    nn_tree = cKDTree(work_positions)
+                    nn_d, _ = nn_tree.query(work_positions, k=2, workers=-1)
+                    local_spacing = float(np.median(nn_d[:, 1]))
+                    local_spacing = max(local_spacing, 1e-6)
+
+                    pcd = o3d.geometry.PointCloud()
+                    pcd.points = o3d.utility.Vector3dVector(work_positions.astype(np.float64))
+                    pcd.colors = o3d.utility.Vector3dVector(np.clip(work_colors, 0, 1).astype(np.float64))
+
+                    # Remove redundant samples only when the cloud is extremely
+                    # dense. This preserves thin product details better than a
+                    # fixed global voxel size.
+                    if len(work_positions) > 120000:
+                        pcd = pcd.voxel_down_sample(voxel_size=local_spacing * 0.65)
+
+                    pcd.estimate_normals(
+                        search_param=o3d.geometry.KDTreeSearchParamHybrid(
+                            radius=local_spacing * 5.0,
+                            max_nn=48,
+                        )
+                    )
+                    try:
+                        pcd.orient_normals_consistent_tangent_plane(
+                            min(50, max(10, len(pcd.points) // 100))
+                        )
+                    except Exception:
+                        # Fall back to a stable outward orientation for product
+                        # captures. Consistent tangent orientation can fail on
+                        # disconnected or very sparse scans.
+                        pass
+
+                    # Gaussian quaternions do not guarantee an outward normal.
+                    # Orient the reconstructed point cloud consistently around
+                    # the subject centroid before Poisson reconstruction.
+                    p_np = np.asarray(pcd.points)
+                    n_np = np.asarray(pcd.normals)
+                    center = p_np.mean(axis=0)
+                    outward = p_np - center
+                    flip = np.einsum('ij,ij->i', n_np, outward) < 0
+                    n_np[flip] *= -1
+                    pcd.normals = o3d.utility.Vector3dVector(n_np)
+
+                    poisson_depth = int(os.environ.get('FUMOCA_POISSON_DEPTH', '9'))
+                    poisson_depth = max(7, min(poisson_depth, 11))
+                    poisson_mesh, densities = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(
+                        pcd,
+                        depth=poisson_depth,
+                        scale=float(os.environ.get('FUMOCA_POISSON_SCALE', '1.05')),
+                        linear_fit=True,
+                    )
+
+                    # Poisson can extrapolate beyond sparsely supported areas.
+                    # Use its density output to remove the lowest-support tail,
+                    # then crop to a small expansion around the observed cloud.
+                    densities = np.asarray(densities)
+                    if len(densities) == len(poisson_mesh.vertices) and len(densities) > 100:
+                        q = float(os.environ.get('FUMOCA_POISSON_DENSITY_Q', '0.02'))
+                        q = min(max(q, 0.0), 0.20)
+                        cutoff = float(np.quantile(densities, q))
+                        poisson_mesh.remove_vertices_by_mask(densities < cutoff)
+
+                    bb_min = work_positions.min(axis=0)
+                    bb_max = work_positions.max(axis=0)
+                    pad = np.maximum((bb_max - bb_min) * 0.03, local_spacing * 3.0)
+                    bbox = o3d.geometry.AxisAlignedBoundingBox(
+                        bb_min - pad,
+                        bb_max + pad,
+                    )
+                    poisson_mesh = poisson_mesh.crop(bbox)
+
+                    mesh = trimesh.Trimesh(
+                        vertices=np.asarray(poisson_mesh.vertices),
+                        faces=np.asarray(poisson_mesh.triangles),
+                        process=True,
+                    )
+                    mesh.remove_degenerate_faces()
+                    mesh.remove_duplicate_faces()
+                    mesh.remove_unreferenced_vertices()
+
+                    # Keep the primary product surface and discard Poisson's
+                    # occasional detached islands.
+                    components = mesh.split(only_watertight=False)
+                    if components:
+                        mesh = max(components, key=lambda m: len(m.faces))
+
+                    # Re-transfer colours from the original Gaussian cloud.
+                    colour_tree = cKDTree(positions)
+                    _, colour_idx = colour_tree.query(mesh.vertices, k=1, workers=-1)
+                    mesh.visual.vertex_colors = np.clip(
+                        colors[colour_idx] * 255, 0, 255
+                    ).astype(np.uint8)
+
+                    # Conservative repair sequence. Never silently turn a
+                    # detailed product into a convex hull unless explicitly
+                    # requested — convex-hull repair destroys cavities and
+                    # door/handle/bottle details that FUMOCA needs to preserve.
+                    trimesh.repair.fix_winding(mesh)
+                    trimesh.repair.fix_inversion(mesh)
+                    trimesh.repair.fill_holes(mesh)
+                    mesh.merge_vertices()
+                    mesh.remove_duplicate_faces()
+                    mesh.remove_unreferenced_vertices()
+
+                    if mesh.is_watertight and len(mesh.faces) >= 50:
+                        if len(mesh.faces) > max_faces:
+                            try:
+                                mesh = mesh.simplify_quadric_decimation(face_count=max_faces)
+                            except Exception as e:
+                                print(f'[NIF] Poisson decimation unavailable ({e}) — keeping full mesh')
+
+                        print(
+                            f'[NIF] Production Poisson mesh: {len(mesh.vertices):,} verts, '
+                            f'{len(mesh.faces):,} faces, watertight=True, depth={poisson_depth}'
+                        )
+
+                        # Continue through the exact same NIF/STL packaging
+                        # contract used by the fallback path below.
+                        n_verts, n_faces = len(mesh.vertices), len(mesh.faces)
+                        colors_out = (
+                            mesh.visual.vertex_colors[:, :3].astype(np.uint8)
+                            if mesh.visual.vertex_colors is not None
+                            else np.zeros((n_verts, 3), dtype=np.uint8)
+                        )
+                        header = struct.pack('>II', n_verts, n_faces)
+                        pos_bytes = mesh.vertices.astype('>f4').tobytes()
+                        col_bytes = colors_out.tobytes()
+                        face_bytes = mesh.faces.astype('>u4').tobytes()
+                        mesh_chunk_bytes = header + pos_bytes + col_bytes + face_bytes
+
+                        if ENABLE_DRACO_MESH:
+                            try:
+                                import DracoPy
+                                draco_bytes = DracoPy.encode(
+                                    mesh.vertices, mesh.faces,
+                                    colors=colors_out,
+                                    quantization_bits=14,
+                                    compression_level=7,
+                                )
+                                mesh_chunk_bytes = struct.pack('>B', 0x01) + draco_bytes
+                            except Exception as e:
+                                print(f'[NIF] Poisson Draco unavailable ({e}) — using raw mesh format')
+                                mesh_chunk_bytes = struct.pack('>B', 0x00) + mesh_chunk_bytes
+                        else:
+                            mesh_chunk_bytes = struct.pack('>B', 0x00) + mesh_chunk_bytes
+
+                        try:
+                            stl_bytes = mesh.export(file_type='stl')
+                        except Exception as e:
+                            print(f'[NIF] Poisson STL export failed: {e}')
+                            stl_bytes = None
+
+                        n_degenerate = 0
+                        try:
+                            keep_mask = mesh.nondegenerate_faces()
+                            n_degenerate = int(n_faces - int(np.sum(keep_mask)))
+                        except Exception:
+                            pass
+
+                        return mesh_chunk_bytes, stl_bytes, {
+                            'volume_m3': float(mesh.volume) if mesh.is_watertight else None,
+                            'is_watertight': bool(mesh.is_watertight),
+                            'n_verts': n_verts,
+                            'n_faces': n_faces,
+                            'n_degenerate_faces': n_degenerate,
+                            'method': 'screened_poisson',
+                        }
+
+                    print('[NIF] Poisson result was not a valid watertight product surface — falling back to marching cubes')
+            except ImportError as e:
+                print(f'[NIF] Open3D unavailable ({e}) — falling back to marching cubes')
+            except Exception as e:
+                print(f'[NIF] Poisson mesh failed ({e}) — falling back to marching cubes')
+
         # Normal = the rotated local axis with the smallest scale
         axis_idx = np.argmin(log_scales, axis=1)
         qw, qx, qy, qz = quats[:, 0], quats[:, 1], quats[:, 2], quats[:, 3]
