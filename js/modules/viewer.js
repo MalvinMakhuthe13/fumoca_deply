@@ -2058,7 +2058,10 @@ async function boot() {
         const authored = (partGraph.parts || []).filter(p => p.capabilities?.interactive_ready === true).length;
         console.log('[Viewer] Level 9 explicit authoring:', authored, 'interactive parts; only explicitly authored transforms are enabled.');
         const verified = (partGraph.parts || []).filter(p => p.capabilities?.verification_state === 'verified' && p.capabilities?.interactive_ready === true).length;
+        const motionVerified = (partGraph.parts || []).filter(p => p.capabilities?.motion_verification_state === 'verified' && p.capabilities?.interactive_ready === true).length;
+        const motion = partGraph.motion_verification || {};
         console.log('[Viewer] Level 10 verified interactive parts:', verified, '/', authored, '; unverified authoring remains locked.');
+        console.log('[Viewer] Level 11 motion simulation:', motion.status || 'not_available', '; motion-verified interactive parts:', motionVerified, '/', verified, '; master solid sync:', motion.master_solid_sync || 'not_mapped', '; Gaussian preview:', motion.gaussian_preview_sync || 'not_ready');
       }
       window._fumocaDecodedGaussians = gaussians;
       renderTrustBadges(calibration, verification);
