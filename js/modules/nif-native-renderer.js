@@ -19,23 +19,6 @@ import * as THREE from 'three';
 
 const C0 = 0.28209479177387814;
 const C1 = 0.4886025119029199;
-const C2 = [
-  1.0925484305920792,
-  1.0925484305920792,
-  0.31539156525252005,
-  1.0925484305920792,
-  0.5462742152960396,
-];
-const C3 = [
-  0.5900435899266435,
-  2.890611442640554,
-  0.4570457994644658,
-  0.3731763325901154,
-  0.4570457994644658,
-  1.445305721320277,
-  0.5900435899266435,
-];
-
 function quatFromData(data, o) {
   return [data[o + 6], data[o + 7], data[o + 8], data[o + 9]];
 }
@@ -92,20 +75,20 @@ vec3 evalSH(vec3 d) {
   c += -C1 * d.x * sh3;
   if (shDegree < 2) return c + 0.5;
 
-  c += C2[0] * d.x * d.y * sh4;
-  c += C2[1] * d.y * d.z * sh5;
-  c += C2[2] * (3.0 * d.z * d.z - 1.0) * sh6;
-  c += C2[3] * d.x * d.z * sh7;
-  c += C2[4] * (d.x * d.x - d.y * d.y) * sh8;
+  c += 1.0925484305920792 * d.x * d.y * sh4;
+  c += 1.0925484305920792 * d.y * d.z * sh5;
+  c += 0.31539156525252005 * (3.0 * d.z * d.z - 1.0) * sh6;
+  c += 1.0925484305920792 * d.x * d.z * sh7;
+  c += 0.5462742152960396 * (d.x * d.x - d.y * d.y) * sh8;
   if (shDegree < 3) return c + 0.5;
 
-  c += C3[0] * d.y * (3.0*d.x*d.x - d.y*d.y) * sh9;
-  c += C3[1] * d.x*d.y*d.z * sh10;
-  c += C3[2] * d.y * (4.0*d.z*d.z - d.x*d.x - d.y*d.y) * sh11;
-  c += C3[3] * d.z * (2.0*d.z*d.z - 3.0*d.x*d.x - 3.0*d.y*d.y) * sh12;
-  c += C3[4] * d.x * (4.0*d.z*d.z - d.x*d.x - d.y*d.y) * sh13;
-  c += C3[5] * d.z * (d.x*d.x - d.y*d.y) * sh14;
-  c += C3[6] * d.x * (d.x*d.x - 3.0*d.y*d.y) * sh15;
+  c += 0.5900435899266435 * d.y * (3.0*d.x*d.x - d.y*d.y) * sh9;
+  c += 2.890611442640554 * d.x*d.y*d.z * sh10;
+  c += 0.4570457994644658 * d.y * (4.0*d.z*d.z - d.x*d.x - d.y*d.y) * sh11;
+  c += 0.3731763325901154 * d.z * (2.0*d.z*d.z - 3.0*d.x*d.x - 3.0*d.y*d.y) * sh12;
+  c += 0.4570457994644658 * d.x * (4.0*d.z*d.z - d.x*d.x - d.y*d.y) * sh13;
+  c += 1.445305721320277 * d.z * (d.x*d.x - d.y*d.y) * sh14;
+  c += 0.5900435899266435 * d.x * (d.x*d.x - 3.0*d.y*d.y) * sh15;
   return c + 0.5;
 }
 
@@ -194,7 +177,7 @@ export class FumocaNativeGaussianRenderer {
     this._buildGeometry();
     this._fitCamera();
 
-    this.controls = new (THREE.OrbitControls || (() => null))();
+    this.controls = null;
     this._resize = () => this.resize();
     window.addEventListener('resize', this._resize);
     this.resize();
