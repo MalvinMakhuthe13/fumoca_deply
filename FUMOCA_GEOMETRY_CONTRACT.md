@@ -267,3 +267,23 @@ The intended progression is:
 `multi-view region → 3D bounds/centroid → principal-frame candidate → product identity → pivot/axis evidence → authored transform → animation`
 
 This preserves the real-product encapsulation rule: no hidden geometry, mechanical behavior, or unseen structure is invented merely because a mathematical axis can be calculated.
+
+
+### Level 8 — Part Boundary and Mechanical-Axis Candidates
+
+Level 8 measures observed 3D contact between differently labelled reconstructed regions. A part receives boundary evidence from local cross-part neighbourhoods in the reconstructed Gaussian field, together with conservative candidates based on its observed principal axes.
+
+These outputs are explicitly candidates:
+
+- `boundary_evidence_score` describes observed contact with another segmented region;
+- `boundary_status` distinguishes observed contact from weak contact;
+- `axis_candidates` contains mathematical local-frame axes;
+- `mechanical_axis_status: candidate_only` does **not** mean a hinge has been found;
+- `pivot_status: not_recovered` remains until an actual pivot is authored or recovered from stronger evidence;
+- `identity_status: unassigned` remains until product identity is established.
+
+A mathematically convenient axis is never promoted to a mechanical axis automatically. This is essential for real-product encapsulation: a car door, bottle cap, pump, wheel, lid, or button must be supported by actual geometry and product evidence before FUMOCA gives it behavior.
+
+The Level 8 progression is therefore:
+
+`3D part → observed boundary → axis candidate → identity evidence → mechanical evidence → explicit pivot/axis → interaction`
