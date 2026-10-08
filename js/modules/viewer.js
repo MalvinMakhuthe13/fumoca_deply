@@ -2034,11 +2034,15 @@ async function boot() {
       const nifResp   = await fetch(fileUrl);
       const nifBuffer = await nifResp.arrayBuffer();
       if (fileUrl.startsWith('blob:')) URL.revokeObjectURL(fileUrl);
-      const { meta, gaussians, appearance, calibration, verification, mesh } = await decodeNif(nifBuffer);
+      const { meta, gaussians, appearance, semantic, calibration, verification, mesh } = await decodeNif(nifBuffer);
       window._fumocaCalibration  = calibration;
       window._fumocaVerification = verification;
       window._fumocaDecodedMesh  = mesh;
       window._fumocaAppearanceSH = appearance;
+      window._fumocaSemanticParts = semantic;
+      if (semantic) {
+        console.log('[Viewer] Semantic part evidence loaded:', semantic.partCount, 'regions,', semantic.assignedCount ?? 'mapped', 'mapped Gaussians');
+      }
       window._fumocaDecodedGaussians = gaussians;
       renderTrustBadges(calibration, verification);
       // The NIF SH appearance is authoritative for photorealistic masters.
