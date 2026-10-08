@@ -16,7 +16,7 @@
 
 export const NIF_MAGIC         = 0x4E494600; // 'NIF\0'
 export const NIF_VERSION_MAJOR = 1;
-export const NIF_VERSION_MINOR = 2;  // 1.2: added CALIBRATION/VERIFICATION and
+export const NIF_VERSION_MINOR = 3;  // 1.2: added CALIBRATION/VERIFICATION and
                                       // APPEARANCE_SH (0x001A), preserving full
                                       // view-dependent Gaussian appearance.
                                       // VERIFICATION (0x0018), SEMANTIC_MAP (0x0016), and
@@ -106,6 +106,7 @@ export const CHUNK = Object.freeze({
                            // 'high' or 'medium' — otherwise "correctly shaped, unknown size".
   SEMANTIC_MAP:  0x0016,  // Per-Gaussian observed semantic region evidence (SAM/SAM2).
   PART_GRAPH:    0x001B,  // Evidence-backed product-part graph; names/pivots/animation are explicit authoring.
+  MESH_PART_MAP: 0x001C,  // Level 12 mesh vertex/face ownership evidence derived from observed Gaussian parts.
   THUMBNAIL:     0x0015,  // Raw JPEG bytes — poster image shown before the NIF loads
   CERT:          0x0020,  // Encoder certificate — license tier, encoder ID, HMAC signature
   WATERMARK:     0x00FF,  // RESERVED — steganographic ownership mark
