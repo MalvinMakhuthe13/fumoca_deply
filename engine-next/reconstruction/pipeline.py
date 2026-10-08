@@ -2945,7 +2945,7 @@ def _build_product_part_graph(semantic: dict | None, geometry_confidence: dict |
             p['capabilities']['animatable'] = bool(check.get('interactive_eligible'))
     return {
         'version': 1,
-        'fusion_level': 10 if verification.get('status') == 'available' else (9 if authoring_state.get('status') == 'available' else (8 if mechanical_candidates and mechanical_candidates.get('status') == 'available' else (6 if multi_view and multi_view.get('status') == 'available' else 5)),
+        'fusion_level': 10 if verification.get('status') == 'available' else (9 if authoring_state.get('status') == 'available' else (8 if mechanical_candidates and mechanical_candidates.get('status') == 'available' else (6 if multi_view and multi_view.get('status') == 'available' else 5))),
         'status': 'evidence_only' if parts else 'unavailable',
         'authoring': authoring_state,
         'verification': verification,
