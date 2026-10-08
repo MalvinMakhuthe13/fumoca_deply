@@ -1735,6 +1735,132 @@ def _surface_depth_visibility_evidence(surface_geo: np.ndarray | None,
         }
 
 
+
+def _attach_mesh_part_mapping(mesh, gaussian_positions: np.ndarray | None,
+                              semantic_labels: np.ndarray | None,
+                              semantic_confidence: np.ndarray | None) -> dict:
+    """Level 12: map the structural mesh back to observed Gaussian part evidence.
+
+    Mesh vertices are assigned only when a nearby canonical Gaussian has a known
+    semantic label. Faces require a two-of-three vertex majority. Unknown/mixed
+    faces stay explicitly unassigned; FUMOCA never forces the whole solid into
+    a product part merely to make animation possible.
+    """
+    base = {
+        'status': 'unavailable',
+        'level': 12,
+        'unknown_label': 255,
+        'mixed_label': 254,
+        'vertex_count': int(len(getattr(mesh, 'vertices', []))),
+        'face_count': int(len(getattr(mesh, 'faces', []))),
+        'mapped_vertex_ratio': 0.0,
+        'mapped_face_ratio': 0.0,
+        'parts': [],
+        'policy': (
+            'Mesh ownership is inferred only from proximity to observed semantic '
+            'Gaussian evidence. Unknown and mixed faces remain unassigned. This '
+            'mapping is evidence-backed ownership, not proof of hidden topology.'
+        ),
+        'unseen_geometry_claimed': False,
+    }
+    if gaussian_positions is None or semantic_labels is None:
+        return base
+    try:
+        pts = np.asarray(gaussian_positions, dtype=np.float64)
+        labels = np.asarray(semantic_labels, dtype=np.uint8)
+        conf = np.asarray(semantic_confidence if semantic_confidence is not None else np.ones(len(labels)), dtype=np.float32)
+        if pts.ndim != 2 or pts.shape[1] < 3 or len(pts) != len(labels) or len(conf) != len(labels):
+            return base
+        valid = np.all(np.isfinite(pts[:, :3]), axis=1) & (labels != 255)
+        valid_idx = np.flatnonzero(valid)
+        if len(valid_idx) < 8 or len(mesh.vertices) == 0:
+            return base
+
+        from scipy.spatial import cKDTree
+        source = pts[valid_idx, :3]
+        tree = cKDTree(source)
+        if len(source) > 1:
+            nn = tree.query(source, k=2, workers=1)[0][:, 1]
+            spacing = float(np.median(nn[np.isfinite(nn) & (nn > 0)])) if np.any(np.isfinite(nn) & (nn > 0)) else 0.0
+        else:
+            spacing = 0.0
+        bounds = np.asarray(mesh.bounds, dtype=np.float64)
+        diagonal = float(np.linalg.norm(bounds[1] - bounds[0])) if bounds.shape == (2, 3) else 0.0
+        distance_limit = max(spacing * 6.0, diagonal * 0.005, 1e-5)
+
+        distances, nearest = tree.query(np.asarray(mesh.vertices, dtype=np.float64), k=1, workers=1)
+        nearest_source = valid_idx[nearest]
+        vertex_labels = labels[nearest_source].astype(np.uint8)
+        vertex_conf = conf[nearest_source].astype(np.float32)
+        vertex_conf *= np.exp(-distances / max(distance_limit * 0.5, 1e-8))
+        vertex_labels = np.where(distances <= distance_limit, vertex_labels, 255).astype(np.uint8)
+
+        faces = np.asarray(mesh.faces, dtype=np.int64)
+        face_labels = np.full(len(faces), 255, dtype=np.uint8)
+        face_conf = np.zeros(len(faces), dtype=np.float32)
+        if len(faces):
+            for i, face in enumerate(faces):
+                labs = vertex_labels[face]
+                known = labs[labs != 255]
+                if len(known) == 0:
+                    continue
+                values, counts = np.unique(known, return_counts=True)
+                winner = int(values[np.argmax(counts)])
+                if int(np.max(counts)) >= 2:
+                    face_labels[i] = np.uint8(winner)
+                    face_conf[i] = float(np.mean(vertex_conf[face][labs == winner]))
+                elif len(np.unique(known)) == 1:
+                    face_labels[i] = np.uint8(winner)
+                    face_conf[i] = float(np.mean(vertex_conf[face][labs == winner]))
+                else:
+                    face_labels[i] = 254
+                    face_conf[i] = float(np.mean(vertex_conf[face]))
+
+        parts = []
+        for pid in sorted(int(x) for x in np.unique(labels[valid_idx])):
+            vm = vertex_labels == pid
+            fm = face_labels == pid
+            if not np.any(vm) and not np.any(fm):
+                continue
+            parts.append({
+                'part_id': pid,
+                'mapped_vertices': int(np.count_nonzero(vm)),
+                'mapped_faces': int(np.count_nonzero(fm)),
+                'vertex_coverage': float(np.mean(vm)) if len(vertex_labels) else 0.0,
+                'face_coverage': float(np.mean(fm)) if len(face_labels) else 0.0,
+                'mean_vertex_confidence': float(np.mean(vertex_conf[vm])) if np.any(vm) else 0.0,
+                'mean_face_confidence': float(np.mean(face_conf[fm])) if np.any(fm) else 0.0,
+                'ownership_status': 'mapped' if np.count_nonzero(fm) else 'vertex_only',
+            })
+
+        header = struct.pack('>4sBII', b'FSMM', 1, len(vertex_labels), len(face_labels))
+        packed = (
+            header +
+            vertex_labels.astype(np.uint8).tobytes() +
+            vertex_conf.astype('>f2').tobytes() +
+            face_labels.astype(np.uint8).tobytes() +
+            face_conf.astype('>f2').tobytes()
+        )
+        base.update({
+            'status': 'available',
+            'vertex_count': int(len(vertex_labels)),
+            'face_count': int(len(face_labels)),
+            'mapped_vertex_count': int(np.count_nonzero(vertex_labels != 255)),
+            'mapped_face_count': int(np.count_nonzero(face_labels < 254)),
+            'mixed_face_count': int(np.count_nonzero(face_labels == 254)),
+            'mapped_vertex_ratio': float(np.mean(vertex_labels != 255)),
+            'mapped_face_ratio': float(np.mean(face_labels < 254)) if len(face_labels) else 0.0,
+            'distance_limit': float(distance_limit),
+            'gaussian_spacing': float(spacing),
+            'parts': parts,
+            '_binary': packed,
+        })
+        return base
+    except Exception as e:
+        base['status'] = 'error'
+        base['error'] = str(e)
+        return base
+
 def _mesh_quality_report(mesh, method: str, detail_tier: str) -> dict:
     """Return explicit geometry/printability diagnostics for every mesh output.
 
@@ -4820,7 +4946,9 @@ class ReconstructionWorker:
         return header + body
 
     def _extract_mesh(self, geo_data: np.ndarray, grid_res: int = 96,
-                       opacity_thresh: float = 0.18, max_faces: int | None = None) -> tuple:
+                       opacity_thresh: float = 0.18, max_faces: int | None = None,
+                       semantic_labels: np.ndarray | None = None,
+                       semantic_confidence: np.ndarray | None = None) -> tuple:
         """
         Real triangulation from the trained Gaussians — not a renamed point
         cloud. After training, each Gaussian's *shortest* axis aligns with the
@@ -5126,6 +5254,9 @@ class ReconstructionWorker:
                             'poisson_depth': poisson_depth,
                             'density_trim_quantile': density_q,
                         })
+                        mapping = _attach_mesh_part_mapping(mesh, geo_data[:, :3], semantic_labels, semantic_confidence)
+                        mesh_info['master_solid_part_mapping'] = {k:v for k,v in mapping.items() if k != '_binary'}
+                        mesh_info['_part_mapping_binary'] = mapping.get('_binary')
                         return mesh_chunk_bytes, stl_bytes, mesh_info
 
                     print('[NIF] Poisson result was not a valid watertight product surface — falling back to marching cubes')
