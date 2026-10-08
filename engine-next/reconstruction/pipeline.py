@@ -3368,19 +3368,28 @@ def _build_product_part_graph(semantic: dict | None, geometry_confidence: dict |
         elif p['capabilities'].get('interactive_ready'):
             p['capabilities']['motion_verification_state'] = 'not_tested'
 
+    # Keep the fusion-level gate explicit rather than using deeply nested
+    # conditional expressions. Level 12 is only reached when the Level 11
+    # motion verifier has a usable master-solid mapping; lower levels remain
+    # evidence states and never imply hidden geometry or mechanics.
     solid_mapping_available = bool(
         motion_verification and
         motion_verification.get('master_solid_sync') == 'available'
     )
-    fusion_level = 12 if solid_mapping_available else (11 if motion_verification and motion_verification.get('status') == 'available' else (
-        10 if verification.get('status') == 'available' else (
-            9 if authoring_state.get('status') == 'available' else (
-                8 if mechanical_candidates and mechanical_candidates.get('status') == 'available' else (
-                    6 if multi_view and multi_view.get('status') == 'available' else 5
-                )
-            )
-        )
-    )
+    if solid_mapping_available:
+        fusion_level = 12
+    elif motion_verification and motion_verification.get('status') == 'available':
+        fusion_level = 11
+    elif verification.get('status') == 'available':
+        fusion_level = 10
+    elif authoring_state.get('status') == 'available':
+        fusion_level = 9
+    elif mechanical_candidates and mechanical_candidates.get('status') == 'available':
+        fusion_level = 8
+    elif multi_view and multi_view.get('status') == 'available':
+        fusion_level = 6
+    else:
+        fusion_level = 5
     return {
         'version': 1,
         'fusion_level': fusion_level,
