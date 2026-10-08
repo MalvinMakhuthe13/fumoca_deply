@@ -1993,11 +1993,22 @@ async function boot() {
       const nifResp   = await fetch(fileUrl);
       const nifBuffer = await nifResp.arrayBuffer();
       if (fileUrl.startsWith('blob:')) URL.revokeObjectURL(fileUrl);
-      const { meta, gaussians, calibration, verification, mesh } = await decodeNif(nifBuffer);
+      const { meta, gaussians, appearance, calibration, verification, mesh } = await decodeNif(nifBuffer);
       window._fumocaCalibration  = calibration;
       window._fumocaVerification = verification;
       window._fumocaDecodedMesh  = mesh;
+      window._fumocaAppearanceSH = appearance;
       renderTrustBadges(calibration, verification);
+      // The NIF SH appearance is authoritative for photorealistic masters.
+      // Keep the legacy RGB conversion only as a compatibility fallback for
+      // older GaussianSplats3D scenes; do not silently discard APPEARANCE_SH.
+      if (appearance) {
+        console.log(
+          '[Viewer] Native SH appearance loaded:',
+          'degree=' + appearance.degree,
+          'gaussians=' + appearance.gaussianCount.toLocaleString()
+        );
+      }
       const nifBytes = geometryToSplatRows(gaussians, calibration);
       const nifBlob  = new Blob([nifBytes], { type: 'application/octet-stream' });
       fileUrl = URL.createObjectURL(nifBlob);
