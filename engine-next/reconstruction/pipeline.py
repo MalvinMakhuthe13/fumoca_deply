@@ -2387,6 +2387,30 @@ class GaussianSplatTrainer:
             return n, header + out.tobytes()
 
 
+
+def _pack_semantic_map(semantic: dict | None) -> bytes | None:
+    """Pack Level 5 per-Gaussian semantic evidence.
+    v1: FSMP + version + unknown label + part count + Gaussian count +
+    uint8 labels + float16 confidence + JSON part metadata.
+    """
+    if not semantic or semantic.get('status') != 'available':
+        return None
+    labels = np.asarray(semantic.get('labels', []), dtype=np.uint8)
+    confidence = np.asarray(semantic.get('confidence', []), dtype=np.float32)
+    if len(labels) == 0 or len(labels) != len(confidence):
+        return None
+    parts = json.dumps(semantic.get('parts', []), separators=(',', ':')).encode('utf-8')
+    header = struct.pack(
+        '>4sBBHI', b'FSMP', 1, 255, len(semantic.get('parts', [])), len(labels)
+    )
+    return (
+        header +
+        labels.tobytes() +
+        confidence.astype('>f2').tobytes() +
+        struct.pack('>I', len(parts)) +
+        parts
+    )
+
 # ─── Stage 6: Layer splitting ─────────────────────────────────────────────────
 def split_layers(geo_data: np.ndarray, depth_map: np.ndarray,
                  alpha_mask: np.ndarray, segments: dict) -> bytes:
@@ -2710,6 +2734,17 @@ class ReconstructionWorker:
                 image_shape=frames[0].shape[:2] if frames else None,
             )
             encapsulation['geometry_confidence'] = geometry_confidence
+            semantic_evidence = _semantic_part_evidence(
+                mesh_geo_data,
+                segments,
+                poses[0] if poses else None,
+                image_shape=frames[0].shape[:2] if frames else None,
+                geometry_confidence=geometry_confidence,
+            )
+            encapsulation['semantic_part_evidence'] = {
+                k: v for k, v in semantic_evidence.items()
+                if k not in ('labels', 'confidence')
+            }
             if mesh_info is not None:
                 mesh_info['encapsulation'] = encapsulation
 
@@ -2750,6 +2785,7 @@ class ReconstructionWorker:
                 (CHUNK_ENCAPSULATION, json.dumps(
                     (mesh_info or {}).get('encapsulation', {})
                 ).encode('utf-8')),
+                *([(CHUNK_SEM, _pack_semantic_map(semantic_evidence))] if _pack_semantic_map(semantic_evidence) else []),
                 *([(CHUNK_APPEARANCE, appearance_bytes)] if appearance_bytes else []),
             ]
             # ── Product verification — only runs when the job explicitly
