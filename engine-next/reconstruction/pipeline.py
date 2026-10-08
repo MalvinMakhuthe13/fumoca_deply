@@ -3009,7 +3009,8 @@ def _rotation_matrix(axis: np.ndarray, angle_rad: float) -> np.ndarray:
 def _simulate_part_motion(semantic: dict | None,
                           part_geometry: dict | None,
                           mechanical_candidates: dict | None,
-                          authoring_state: dict | None) -> dict:
+                          authoring_state: dict | None,
+                          master_solid_mapping: dict | None = None) -> dict:
     """Level 11: simulate explicitly authored part motion against observed geometry.
 
     This is a non-destructive point-evidence simulation. It never mutates the
@@ -3020,7 +3021,7 @@ def _simulate_part_motion(semantic: dict | None,
         'status': 'not_available',
         'level': 11,
         'parts': [],
-        'master_solid_sync': 'unavailable_without_mesh_part_labels',
+        'master_solid_sync': 'available' if isinstance(master_solid_mapping, dict) and master_solid_mapping.get('status') == 'available' else 'unavailable_without_mesh_part_labels',
         'gaussian_preview_sync': 'canonical_transform_plan_available',
         'policy': (
             'Motion is simulated from observed Gaussian positions assigned to an '
@@ -3244,7 +3245,12 @@ def _simulate_part_motion(semantic: dict | None,
                 'collision_free_proxy': not any_collision,
                 'state': state,
                 'interactive_eligible': bool(state == 'verified'),
-                'master_solid_sync': 'not_mapped',
+                'master_solid_sync': (
+                    'mapped' if any(
+                        int(x.get('part_id', -1)) == pid and int(x.get('mapped_faces', 0)) > 0
+                        for x in (master_solid_mapping or {}).get('parts', [])
+                    ) else 'not_mapped'
+                ),
                 'gaussian_preview_sync': 'transform_available',
             })
 
@@ -3349,15 +3355,24 @@ def _build_product_part_graph(semantic: dict | None, geometry_confidence: dict |
         )
         if motion_check:
             p['capabilities']['motion_verification_state'] = motion_check.get('state', 'not_tested')
+            mapped_solid = motion_check.get('master_solid_sync') == 'mapped'
+            p['capabilities']['master_solid_mapping_state'] = (
+                'mapped' if mapped_solid else 'not_mapped'
+            )
             p['capabilities']['interactive_ready'] = bool(
                 p['capabilities'].get('interactive_ready') and
-                motion_check.get('interactive_eligible') is True
+                motion_check.get('interactive_eligible') is True and
+                mapped_solid
             )
             p['capabilities']['animatable'] = p['capabilities']['interactive_ready']
         elif p['capabilities'].get('interactive_ready'):
             p['capabilities']['motion_verification_state'] = 'not_tested'
 
-    fusion_level = 11 if motion_verification and motion_verification.get('status') == 'available' else (
+    solid_mapping_available = bool(
+        motion_verification and
+        motion_verification.get('master_solid_sync') == 'available'
+    )
+    fusion_level = 12 if solid_mapping_available else (11 if motion_verification and motion_verification.get('status') == 'available' else (
         10 if verification.get('status') == 'available' else (
             9 if authoring_state.get('status') == 'available' else (
                 8 if mechanical_candidates and mechanical_candidates.get('status') == 'available' else (
@@ -3375,6 +3390,11 @@ def _build_product_part_graph(semantic: dict | None, geometry_confidence: dict |
         'motion_verification': motion_verification or {
             'status': 'not_available',
             'level': 11,
+            'unseen_geometry_claimed': False,
+        },
+        'master_solid_mapping': {
+            'status': 'available' if solid_mapping_available else 'not_available',
+            'level': 12,
             'unseen_geometry_claimed': False,
         },
         'root_id': 'product-root',
@@ -3786,6 +3806,7 @@ class ReconstructionWorker:
                 part_geometry_evidence,
                 mechanical_candidates,
                 authoring_state,
+                (mesh_info or {}).get('master_solid_part_mapping') if mesh_info else None,
             )
             semantic_evidence.pop('_positions', None)
             encapsulation['multi_view_part_fusion'] = multi_view_part_fusion
