@@ -121,6 +121,7 @@ CHUNK_PROXY  = 0x0002
 CHUNK_DEPTH  = 0x0007
 CHUNK_ALPHA  = 0x0008
 CHUNK_LAYER  = 0x0009
+CHUNK_MESH_PART_MAP = 0x001C  # Level 12 structural mesh vertex/face ownership evidence
 CHUNK_CERT   = 0x0020  # Encoder certificate — fumoca INTERNAL tier
 CHUNK_META   = 0x0001  # UTF-8 JSON: title/description/vertical/hotspots — same wire format
                         # NIFSpec.js's encodeMetaChunk()/decodeMetaChunk() use. Until this was
@@ -2736,8 +2737,6 @@ def _part_geometry_evidence(semantic: dict | None, multi_view: dict | None = Non
                 eigvecs = np.eye(3, dtype=np.float64)
                 axis_conf = 0.0
             mv = next((x for x in (multi_view or {}).get('parts', []) if int(x.get('part_id', -1)) == pid), None)
-            pg = next((x for x in (part_geometry or {}).get('parts', []) if int(x.get('part_id', -1)) == pid), None)
-            mc = next((x for x in (mechanical_candidates or {}).get('parts', []) if int(x.get('part_id', -1)) == pid), None)
             parts.append({
                 'part_id': pid,
                 'gaussian_count': int(len(p)),
@@ -3707,9 +3706,24 @@ class ReconstructionWorker:
             if scale_factor:
                 mesh_geo_data[:, 0:3] *= scale_factor
 
+            # ── Level 12 semantic seed for structural mesh ownership ─────────────
+            # Semantic labels can be established before mesh extraction; Level 4
+            # geometry confidence is added to the final semantic evidence later.
+            mesh_semantic_seed = _semantic_part_evidence(
+                mesh_geo_data,
+                segments,
+                poses[0] if poses else None,
+                image_shape=frames[0].shape[:2] if frames else None,
+                geometry_confidence=None,
+            )
+
             # ── Real mesh extraction — triangulation from the trained Gaussians ─
             self._tick('processing', 65)
-            mesh_bytes, stl_bytes, mesh_info = self._extract_mesh(mesh_geo_data)
+            mesh_bytes, stl_bytes, mesh_info = self._extract_mesh(
+                mesh_geo_data,
+                semantic_labels=np.asarray(mesh_semantic_seed.get('labels', []), dtype=np.uint8),
+                semantic_confidence=np.asarray(mesh_semantic_seed.get('confidence', []), dtype=np.float32),
+            )
             encapsulation = _encapsulation_report(
                 mesh_info, poses, mesh_geo_data, object_masks, alpha_masks
             )
@@ -3778,7 +3792,10 @@ class ReconstructionWorker:
             encapsulation['part_geometry_evidence'] = part_geometry_evidence
             encapsulation['mechanical_candidates'] = mechanical_candidates
             encapsulation['motion_verification'] = motion_verification
+            mesh_part_mapping_bytes = None
             if mesh_info is not None:
+                mesh_part_mapping = mesh_info.pop('_part_mapping_binary', None)
+                mesh_part_mapping_bytes = mesh_part_mapping
                 mesh_info['encapsulation'] = encapsulation
 
             self._tick('processing', 72)
@@ -3829,6 +3846,7 @@ class ReconstructionWorker:
                 (CHUNK_ENCAPSULATION, json.dumps(
                     (mesh_info or {}).get('encapsulation', {})
                 ).encode('utf-8')),
+                *([(CHUNK_MESH_PART_MAP, mesh_part_mapping_bytes)] if mesh_part_mapping_bytes else []),
                 *([(CHUNK_SEM, semantic_bytes)] if semantic_bytes else []),
                 *([(CHUNK_APPEARANCE, appearance_bytes)] if appearance_bytes else []),
                 (CHUNK_PART_GRAPH, part_graph_bytes),
