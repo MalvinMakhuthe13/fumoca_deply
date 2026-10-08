@@ -225,3 +225,24 @@ The intended progression is:
 `observed region → geometry evidence → product identity → pivot/transform → authored behavior → interactive part`
 
 This is also where FUMOCA preserves the distinction between the **MASTER SOLID** and the **WEB PREVIEW**: a part can reference both the structural mesh representation and the photorealistic Gaussian representation without forcing either representation to become the other.
+
+
+### Level 6 — Multi-view Part Fusion
+
+Level 6 upgrades a reference-frame semantic region into a **multi-view 3D evidence region**. The reference SAM/SAM2 region remains the semantic anchor. FUMOCA projects the associated reconstructed Gaussian positions into recovered camera views and measures foreground support across those views.
+
+For each observed region the fusion record can contain:
+
+- number of supporting views;
+- number of strong supporting views;
+- foreground support ratio;
+- multi-view evidence score;
+- mean semantic confidence;
+- reconstructed 3D bounds;
+- stable_3d_evidence when the region has sufficient multi-view support.
+
+This is deliberately **not** a semantic classifier and is not a visibility proof. It does not invent unseen surfaces, assign product names, infer hinges, or enable interaction. interactive_ready, animatable, and hinge_authored remain false until Level 7 explicitly establishes product identity and mechanical transform information.
+
+The evidence progression is now:
+
+reference region → Gaussian assignment → multi-view support → stable 3D evidence → product identity → pivot/transform → authored behavior
