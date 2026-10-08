@@ -1062,9 +1062,22 @@ class GaussianSplatTrainer:
             {'params': [self.sh0],         'lr': 1e-3},
         ], eps=1e-15)
 
+    def _reset_optimizer_after_topology_change(self):
+        """Rebuild Adam after prune/densify changes the per-Gaussian tensor size.
+        
+        The older custom densifier mutated Parameter.data in place but left
+        Adam's exp_avg/exp_avg_sq buffers at the old shape. The next optimizer
+        step could therefore fail with a tensor-size mismatch. The official
+        gsplat strategy manages these buffers explicitly; until we migrate the
+        trainer fully to that strategy, rebuilding here is the safe invariant.
+        """
+        self._opt = self._make_optimizer()
+
     def train_step(self, gt: torch.Tensor, viewmat: torch.Tensor,
                    K: torch.Tensor,
-                   alpha_mask: torch.Tensor | None = None) -> float:
+                   alpha_mask: torch.Tensor | None = None,
+                   depth_target: torch.Tensor | None = None,
+                   depth_loss_weight: float = 0.0) -> float:
         H, W = gt.shape[:2]
         quats_n = F.normalize(self.quats, dim=-1)
         scales  = torch.exp(self.log_scales).clamp(min=1e-6)
@@ -1092,9 +1105,15 @@ class GaussianSplatTrainer:
             Ks=K.unsqueeze(0).unsqueeze(1),
             width=W, height=H,
             near_plane=0.01, far_plane=100.0,
-            render_mode='RGB',
+            # ED gives expected Gaussian projection depth, which is the
+            # useful differentiable depth signal for shape supervision.
+            render_mode='RGB+ED' if depth_target is not None and depth_loss_weight > 0 else 'RGB',
         )
-        rendered = rendered.squeeze(0).squeeze(0)  # H,W,3
+        rendered = rendered.squeeze(0).squeeze(0)
+        rendered_depth = None
+        if depth_target is not None and depth_loss_weight > 0:
+            rendered_depth = rendered[..., 3]
+            rendered = rendered[..., :3]  # H,W,3
         gt_rgb   = gt.to(DEVICE)
 
         if alpha_mask is not None:
@@ -1149,8 +1168,34 @@ class GaussianSplatTrainer:
                 + 0.2 * (1.0 - self._ssim(rendered, gt_rgb))
             )
 
+        if rendered_depth is not None and depth_target is not None and depth_loss_weight > 0:
+            target_depth = depth_target.to(DEVICE)
+            finite = torch.isfinite(target_depth) & (target_depth > 0)
+            if alpha_mask is not None:
+                finite = finite & (alpha_mask > 0.15)
+            valid_render = torch.isfinite(rendered_depth) & (rendered_depth > 0)
+            valid = finite & valid_render & (alpha.squeeze(-1).squeeze(0) > 0.05 if alpha.ndim == 4 else render_alpha > 0.05)
+
+            if valid.sum() > 256:
+                td = target_depth[valid]
+                rd = rendered_depth[valid]
+                # Relative-depth supervision is used intentionally. Monocular
+                # depth may be metric or only up-to-scale, while COLMAP is also
+                # scale ambiguous until calibration. Robust percentile
+                # normalization constrains shape without inventing metres.
+                t_lo, t_hi = torch.quantile(td.detach(), torch.tensor(0.05, device=DEVICE)), torch.quantile(td.detach(), torch.tensor(0.95, device=DEVICE))
+                r_lo, r_hi = torch.quantile(rd.detach(), torch.tensor(0.05, device=DEVICE)), torch.quantile(rd.detach(), torch.tensor(0.95, device=DEVICE))
+                t_norm = ((td - t_lo) / (t_hi - t_lo).clamp_min(1e-6)).clamp(0, 1)
+                r_norm = ((rd - r_lo) / (r_hi - r_lo).clamp_min(1e-6)).clamp(0, 1)
+                depth_loss = F.smooth_l1_loss(r_norm, t_norm)
+                loss = loss + float(depth_loss_weight) * depth_loss
+
         self._opt.zero_grad()
         loss.backward()
+        if self.means.grad is not None:
+            self._last_mean_grad = self.means.grad.detach().norm(dim=1).clone()
+        else:
+            self._last_mean_grad = None
         self._opt.step()
 
         self._step += 1
@@ -1189,6 +1234,7 @@ class GaussianSplatTrainer:
             for p in [self.means, self.log_scales, self.quats,
                       self.log_opacity, self.sh0]:
                 p.data = p.data[keep]
+            self._reset_optimizer_after_topology_change()
 
     def _densify(self, grad_thr=0.0002):
         """
@@ -1203,8 +1249,25 @@ class GaussianSplatTrainer:
 
         Reference: Kerbl et al. 2023 §5 "Adaptive Control of Gaussians"
         """
+        topology_changed = False
         with torch.no_grad():
             n = len(self.means)
+            grad_score = getattr(self, '_last_mean_grad', None)
+            if grad_score is None or len(grad_score) != n:
+                grad_score = torch.zeros(n, device=self.means.device)
+            grad_thr = float(grad_thr)
+            active = torch.sigmoid(self.log_opacity) > 0.01
+            high_grad = grad_score >= grad_thr
+            # If the absolute threshold is too strict for a particular
+            # capture, keep the top 2% visible Gaussians as a fallback. This
+            # makes densification adaptive to exposure/scale instead of
+            # silently doing nothing on a low-gradient sequence.
+            if high_grad.sum() < max(32, int(n * 0.002)):
+                k = max(32, int(n * 0.02))
+                k = min(k, n)
+                top_idx = torch.topk(grad_score, k=k).indices
+                high_grad = torch.zeros_like(active)
+                high_grad[top_idx] = True
             # Estimate scene extent from current point spread
             extent = float(self.means.std(dim=0).max()) * 3 + 1e-6
 
@@ -1213,12 +1276,11 @@ class GaussianSplatTrainer:
             max_scale = scales.max(dim=1).values  # (N,)
             mean_scale = max_scale.mean()
 
-            # Identify candidates by opacity — only well-formed Gaussians
+            # Identify candidates by opacity and actual training gradient.
             opacities = torch.sigmoid(self.log_opacity)  # (N,)
-            active = opacities > 0.01
 
             # ── CLONE small under-represented Gaussians ──────────────────────
-            clone_mask = active & (max_scale < extent * 0.01)
+            clone_mask = active & high_grad & (max_scale < extent * 0.01)
             n_clone    = min(clone_mask.sum().item(), 5000)
             if n_clone > 0:
                 idx = clone_mask.nonzero(as_tuple=True)[0][:n_clone]
@@ -1235,9 +1297,10 @@ class GaussianSplatTrainer:
                                  (self.log_opacity, new_opacity),
                                  (self.sh0, new_sh0)]:
                     p.data = torch.cat([p.data, new_p.data], dim=0)
+                topology_changed = True
 
             # ── SPLIT large Gaussians into two smaller ones ──────────────────
-            split_mask = active & (max_scale > extent * 0.05)
+            split_mask = active & high_grad & (max_scale > extent * 0.05)
             n_split    = min(split_mask.sum().item(), 3000)
             if n_split > 0:
                 idx = split_mask.nonzero(as_tuple=True)[0][:n_split]
@@ -1257,14 +1320,24 @@ class GaussianSplatTrainer:
                 # Remove originals, add two replacements each
                 keep = torch.ones(len(self.means), dtype=torch.bool)
                 keep[idx] = False
-                for p, new_a, new_b in [(self.means, new_means_a, new_means_b),]:
+                for p, new_a, new_b in [
+                    (self.means, new_means_a, new_means_b),
+                    (self.log_scales, new_scales, new_scales),
+                    (self.quats, new_quats, new_quats),
+                    (self.log_opacity, new_opacity, new_opacity),
+                    (self.sh0, new_sh0, new_sh0),
+                ]:
                     p.data = torch.cat([p.data[keep], new_a, new_b], dim=0)
+                topology_changed = True
                 # Other params: keep the non-split ones, append copies
                 for p, new_p in [(self.log_scales, new_scales),
                                  (self.quats, new_quats),
                                  (self.log_opacity, new_opacity),
                                  (self.sh0, new_sh0)]:
                     p.data = torch.cat([p.data[keep], new_p, new_p.clone()], dim=0)
+
+            if topology_changed:
+                self._reset_optimizer_after_topology_change()
 
             n_after = len(self.means)
             if n_after != n:
@@ -1661,7 +1734,8 @@ class ReconstructionWorker:
                 poses,
                 sparse_points,
                 pose_source,
-                object_masks=object_masks
+                object_masks=object_masks,
+                depth_maps=depth_maps
             )
 
             # Dequantize for internal use (mesh extraction, layer splitting need
@@ -2582,14 +2656,23 @@ class ReconstructionWorker:
     def _train_gaussians(self, frames: list, poses: list,
                           sparse_points: np.ndarray | None = None,
                           pose_source: str = 'colmap',
-                          object_masks: list | None = None) -> tuple:
+                          object_masks: list | None = None,
+                          depth_maps: list | None = None) -> tuple:
         # Configurable so quality can be dialed back up later without a code
         # change — defaults tuned for fast turnaround during testing rather
         # than final quality. n=50k/3000 iters (the old fixed values) is a
         # real, noticeable time cost on top of COLMAP; halving both roughly
         # halves training wall-clock with a real but acceptable quality hit
         # for "does this work at all" testing.
-        n_gaussians = int(os.environ.get('FUMOCA_N_GAUSSIANS', '20000'))
+        quality = os.environ.get('FUMOCA_RECON_QUALITY', 'high').lower()
+        quality_tiers = {
+            'fast': {'gaussians': 20_000, 'iters': 1_200, 'max_gaussians': 120_000},
+            'balanced': {'gaussians': 30_000, 'iters': 1_800, 'max_gaussians': 160_000},
+            'high': {'gaussians': 40_000, 'iters': 2_500, 'max_gaussians': 220_000},
+            'ultra': {'gaussians': 60_000, 'iters': 3_500, 'max_gaussians': 300_000},
+        }
+        qcfg = quality_tiers.get(quality, quality_tiers['high'])
+        n_gaussians = int(os.environ.get('FUMOCA_N_GAUSSIANS', qcfg['gaussians']) )
         # Geometry-derived init: seed from COLMAP's real sparse point cloud
         # when pose estimation actually succeeded (pose_source == 'colmap').
         # Deliberately NOT passed when pose_source is a synthetic fallback —
@@ -2620,7 +2703,7 @@ class ReconstructionWorker:
         # Production 3DGS uses 30k but Kaggle T4 12hr limit means ~3k is practical.
         # Densification: split high-gradient Gaussians and clone small ones.
         # This is the core mechanism that fills in detail — without it you get blobs.
-        ITERS = int(os.environ.get('FUMOCA_GS_ITERS', '1200'))
+        ITERS = int(os.environ.get('FUMOCA_GS_ITERS', qcfg['iters']))
         # Geometry validation gate, applied here rather than only reported
         # after the fact: pose_source is already known before this method is
         # called (it comes from _estimate_poses, run before training). A
@@ -2640,7 +2723,7 @@ class ReconstructionWorker:
         DENSIFY_UNTIL    = 1500  # stop densifying past this point
         DENSIFY_GRAD_THR = 0.0002  # position gradient threshold for splitting
         PRUNE_EVERY      = 100
-        MAX_GAUSSIANS    = 150_000
+        MAX_GAUSSIANS    = int(os.environ.get('FUMOCA_MAX_GAUSSIANS', qcfg['max_gaussians']))
 
         # ── Held-out evaluation split — this is what makes the eventual
         # PSNR check below a real reconstruction-quality signal instead of a
@@ -2673,11 +2756,24 @@ class ReconstructionWorker:
                         mask_np.astype(np.float32) / 255.0
                     ).to(DEVICE)
 
+            depth_target = None
+            if depth_maps is not None and idx < len(depth_maps):
+                try:
+                    depth_target = torch.from_numpy(depth_maps[idx]).float()
+                except Exception:
+                    depth_target = None
+            depth_weight = float(os.environ.get('FUMOCA_DEPTH_LOSS_WEIGHT', '0.08'))
+            depth_every = max(1, int(os.environ.get('FUMOCA_DEPTH_LOSS_EVERY', '8')))
+            if step % depth_every != 0:
+                depth_weight = 0.0
+
             loss = trainer.train_step(
                 gt,
                 vm,
                 K,
-                alpha_mask=alpha_mask
+                alpha_mask=alpha_mask,
+                depth_target=depth_target,
+                depth_loss_weight=depth_weight
             )
 
             if step % 100 == 0:
