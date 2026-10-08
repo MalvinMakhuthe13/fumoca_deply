@@ -91,3 +91,44 @@ Topology changes rebuild the optimizer so Adam state cannot become shape-incompa
 The production Poisson path derives normals from the learned Gaussian orientation and shortest Gaussian axis, then uses consistent tangent-plane propagation before reconstruction. This preserves the surface orientation information that a generic point-cloud normal estimation would otherwise discard.
 
 Open3D's Poisson implementation requires oriented normals and its depth parameter controls the octree resolution; higher depth permits more reconstruction detail. FUMOCA therefore treats Poisson depth as a quality control rather than a fixed one-size-fits-all constant.
+
+
+## Real-product encapsulation
+
+**Encapsulation is a first-class FUMOCA requirement.**
+
+FUMOCA must not merely create a visually convincing outer skin. The target is a digital representation that **encapsulates the real product**: its observed exterior, depth, boundaries, cavities, openings and physically meaningful parts wherever those surfaces are actually captured.
+
+There is an important distinction:
+
+- **Closed mesh** means the reconstructed triangle surface forms a valid solid.
+- **Encapsulated product** means the evidence supports that the digital object represents the whole captured product rather than an invented or incomplete outer shell.
+
+Therefore FUMOCA must never use "watertight" as proof that hidden geometry was recovered. Screened Poisson can bridge gaps or infer surfaces where observations are missing.
+
+### Encapsulation rules
+
+1. Preserve real openings and cavities whenever the capture shows them.
+2. Do not blindly fill holes as a cleanup step. A hole may be a bottle opening, wheel arch, door gap, vent, handle recess, grille, cavity or other real product feature.
+3. Interior surfaces must come from actual observations or explicitly authored geometry; they must not be fabricated merely to make the mesh closed.
+4. Undersides, rear faces and occluded regions require capture coverage. If they were not observed, FUMOCA records that limitation rather than pretending they were recovered.
+5. Exterior appearance and structural geometry must remain linked to the same coordinate system and scale.
+6. A client-ready asset should be able to carry both the photorealistic appearance representation and the structural solid representation without either one being treated as the other.
+
+The NIF file therefore carries an encapsulation record describing the evidence level. `unseen_geometry_claimed` must remain false unless a future explicitly authored/referenced geometry stage supplies that evidence.
+
+### Capture implication
+
+For a car, for example, the production capture should cover:
+
+- front, rear, both sides and all corners;
+- roof and lower body;
+- wheels/arches and visible suspension openings;
+- mirrors, handles, badges and trim;
+- glass and visible interior;
+- boot/bonnet/doors when those are intended to be interactive;
+- underside or underside references when the product experience requires it.
+
+A bottle, shoe, phone, appliance or skincare product follows the same principle: if a surface or moving part matters to the final experience, the capture must provide visual evidence for it.
+
+The goal is **not** to make every object a generic watertight blob. The goal is to make the digital asset contain the real product's observed geometry, including the negative spaces that define the product.
