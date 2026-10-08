@@ -2580,7 +2580,10 @@ def _build_product_part_graph(semantic: dict | None, geometry_confidence: dict |
                     'translation': [0.0, 0.0, 0.0],
                 },
                 'capabilities': {
-                    'interactive_ready': bool(mv and mv.get('stable_3d_evidence') is True),
+                    # Multi-view evidence is necessary groundwork, not proof of
+                    # mechanical behavior. Level 7 must explicitly author/recover
+                    # identity, pivot and transform before interaction is enabled.
+                    'interactive_ready': False,
                     'animatable': False,
                     'hinge_authored': False,
                 },
@@ -2591,6 +2594,7 @@ def _build_product_part_graph(semantic: dict | None, geometry_confidence: dict |
             })
     return {
         'version': 1,
+        'fusion_level': 6 if multi_view and multi_view.get('status') == 'available' else 5,
         'status': 'evidence_only' if parts else 'unavailable',
         'root_id': 'product-root',
         'root': {
@@ -2965,7 +2969,7 @@ class ReconstructionWorker:
             }
             # Level 6: carry the canonical Gaussian positions through the fusion
             # function without serialising them into the evidence chunk.
-            semantic_evidence['_positions'] = mesh_geo_data[:, :3].tolist() if mesh_geo_data is not None else None
+            semantic_evidence['_positions'] = mesh_geo_data[:, :3] if mesh_geo_data is not None else None
             multi_view_part_fusion = _multi_view_part_fusion(
                 semantic_evidence,
                 poses,
