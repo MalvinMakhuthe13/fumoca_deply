@@ -1195,6 +1195,89 @@ def _surface_camera_evidence(surface_geo: np.ndarray | None, poses: list | None,
 
 
 
+
+def _semantic_part_evidence(surface_geo: np.ndarray | None, segments: dict | None,
+                             pose, image_shape=None, geometry_confidence: dict | None = None) -> dict:
+    """Level 5 evidence from observed SAM/SAM2 regions; never guesses product names."""
+    base = {
+        'status': 'unavailable', 'level': 5, 'encoding': 'uint8_per_gaussian',
+        'unknown_label': 255, 'gaussian_count': 0, 'assigned_count': 0,
+        'assignment_ratio': 0.0, 'parts': [],
+        'policy': 'SAM/SAM2 region IDs are evidence regions, not guessed product names.'
+    }
+    if surface_geo is None or not segments or pose is None or not image_shape:
+        return base
+    try:
+        raw = np.asarray(surface_geo, dtype=np.float32)
+        n = len(raw)
+        labels = np.full(n, 255, dtype=np.uint8)
+        confidence = np.zeros(n, dtype=np.float32)
+        H, W = int(image_shape[0]), int(image_shape[1])
+        fx = fy = max(H, W) * 0.8
+        cx, cy = W * 0.5, H * 0.5
+        vm = pose[1] if isinstance(pose, tuple) else pose
+        vm = vm.detach().cpu().numpy() if hasattr(vm, 'detach') else np.asarray(vm)
+        cam = (vm[:3, :3] @ raw[:, :3].T + vm[:3, 3:4]).T
+        z = cam[:, 2]
+        u = fx * cam[:, 0] / np.maximum(z, 1e-8) + cx
+        v = fy * cam[:, 1] / np.maximum(z, 1e-8) + cy
+        valid = np.all(np.isfinite(raw[:, :3]), axis=1) & (z > 1e-6) & (u >= 0) & (u < W) & (v >= 0) & (v < H)
+        items = []
+        for sid, seg in sorted(segments.items(), key=lambda kv: int(kv[0])):
+            mask = np.asarray(seg.get('mask'))
+            if mask.ndim >= 2 and mask.shape[:2] == (H, W):
+                items.append((int(sid), mask > 32, float(seg.get('score', 0.0)),
+                              int(seg.get('area', np.count_nonzero(mask)))))
+        if not items:
+            return base
+        votes = {sid: 0 for sid, *_ in items}
+        sums = {sid: 0.0 for sid, *_ in items}
+        score_by_sid = {sid: score for sid, _, score, _ in items}
+        for j in np.flatnonzero(valid):
+            x = int(np.clip(round(float(u[j])), 0, W - 1))
+            y = int(np.clip(round(float(v[j])), 0, H - 1))
+            candidates = [(score, -sid, sid) for sid, mask, score, _ in items if mask[y, x]]
+            if not candidates:
+                continue
+            _, _, sid = max(candidates)
+            labels[j] = np.uint8(sid if sid < 255 else 254)
+            gc = 0.5
+            if geometry_confidence:
+                try:
+                    for rec in geometry_confidence.get('samples', []):
+                        if int(rec.get('index', -1)) == int(j):
+                            gc = float(rec.get('confidence', 0.5))
+                            break
+                except Exception:
+                    pass
+            sem_score = float(np.clip(0.70 * score_by_sid[sid] + 0.30 * gc, 0.0, 1.0))
+            confidence[j] = sem_score
+            votes[sid] += 1
+            sums[sid] += sem_score
+        parts = []
+        for sid, mask, sam_score, area in items:
+            count = votes[sid]
+            parts.append({
+                'part_id': sid, 'source': 'sam2_reference_frame',
+                'name': None, 'name_status': 'unassigned',
+                'sam_score': sam_score, 'image_area_px': area,
+                'assigned_gaussians': count,
+                'mean_confidence': sums[sid] / max(count, 1),
+                'interactive_ready': False
+            })
+        base.update({
+            'status': 'available', 'gaussian_count': n,
+            'assigned_count': int(np.count_nonzero(labels != 255)),
+            'assignment_ratio': float(np.mean(labels != 255)),
+            'labels': labels.tolist(), 'confidence': confidence.tolist(),
+            'parts': parts
+        })
+        return base
+    except Exception as e:
+        base['status'] = 'error'
+        base['error'] = str(e)
+        return base
+
 def _surface_geometry_confidence(surface_geo: np.ndarray | None,
                                   encapsulation: dict | None,
                                   mesh_info: dict | None,
