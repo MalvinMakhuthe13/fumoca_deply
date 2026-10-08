@@ -4910,7 +4910,7 @@ class ReconstructionWorker:
                     rendered, _a, _i = gsplat.rasterization(
                         means=trainer.means.unsqueeze(0), quats=quats_n.unsqueeze(0),
                         scales=scales.unsqueeze(0), opacities=opacities.unsqueeze(0),
-                        colors=sh_coeffs, viewmats=vm.unsqueeze(0).unsqueeze(1), Ks=K.unsqueeze(0).unsqueeze(1),
+                        colors=sh_coeffs.unsqueeze(0), viewmats=vm.unsqueeze(0).unsqueeze(1), Ks=K.unsqueeze(0).unsqueeze(1),
                         width=gt.shape[1], height=gt.shape[0],
                         near_plane=0.01, far_plane=100.0, sh_degree=trainer.sh_degree, render_mode='RGB',
                     )
@@ -4943,7 +4943,7 @@ class ReconstructionWorker:
                     quats=quats_n.unsqueeze(0),
                     scales=scales.unsqueeze(0),
                     opacities=opacities.unsqueeze(0),
-                    colors=sh_coeffs,
+                    colors=sh_coeffs.unsqueeze(0),
                     viewmats=debug_vm.unsqueeze(0).unsqueeze(1),
                     Ks=K.unsqueeze(0).unsqueeze(1),
                     width=debug_gt.shape[1],
