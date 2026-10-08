@@ -208,7 +208,10 @@ CHUNK_CALIB  = 0x0017  # Real-world scale calibration record — see estimate_sc
                         # verification) reads scale_factor + confidence from here
                         # instead of assuming raw positions are already in metres.
 CHUNK_VERIFY = 0x0018
-CHUNK_ENCAPSULATION = 0x0019  # Evidence/policy record for whole-product encapsulation  # Product-verification report — see verify.py. Only present
+CHUNK_ENCAPSULATION = 0x0019  # Evidence/policy record for whole-product encapsulation
+CHUNK_APPEARANCE = 0x001A  # Full view-dependent Gaussian SH appearance master
+                        # Legacy GEO keeps an RGB fallback; this chunk is the
+                        # authoritative photorealistic appearance representation. — see verify.py. Only present
                         # when a reference mesh was supplied for this job; absence of
                         # this chunk means "not verified", not "passed verification".
 
@@ -2115,7 +2118,7 @@ class ReconstructionWorker:
             # when it isn't, instead of spending the full budget optimizing
             # against poses already known to be a synthetic fallback.
             self._tick('processing', 52)
-            n, geo_bytes, eval_psnr = self._train_gaussians(
+            n, geo_bytes, appearance_bytes, eval_psnr = self._train_gaussians(
                 frames,
                 poses,
                 sparse_points,
@@ -2196,6 +2199,7 @@ class ReconstructionWorker:
                 (CHUNK_ENCAPSULATION, json.dumps(
                     (mesh_info or {}).get('encapsulation', {})
                 ).encode('utf-8')),
+                *([(CHUNK_APPEARANCE, appearance_bytes)] if appearance_bytes else []),
             ]
             # ── Product verification — only runs when the job explicitly
             # supplies a reference mesh to compare against (meta
@@ -3289,7 +3293,26 @@ class ReconstructionWorker:
             print(f'[NIF] Gaussian debug render failed (non-fatal): {e}')
 
         n, geo_bytes = trainer.export_buffer()
-        return n, geo_bytes, eval_psnr
+        appearance_bytes = self._pack_sh_appearance(trainer)
+        return n, geo_bytes, appearance_bytes, eval_psnr
+    def _pack_sh_appearance(self, trainer: GaussianSplatTrainer) -> bytes:
+        """Pack the full view-dependent SH appearance master.
+
+        Layout v1: magic 'FSHA', version, SH degree, coefficient count K,
+        Gaussian count N, then N × K × 3 float16 coefficients (big-endian).
+        GEO keeps a compact RGB fallback for legacy readers.
+        """
+        with torch.no_grad():
+            coeffs = torch.cat([trainer.sh0, trainer.sh_rest], dim=1).detach().cpu().numpy()
+        coeffs = np.asarray(coeffs, dtype=np.float32)
+        K = coeffs.shape[1]
+        N = coeffs.shape[0]
+        header = struct.pack('>4sBBHI', b'FSHA', 1, int(trainer.sh_degree), K, N)
+        body = coeffs.astype('>f2').tobytes()
+        print(f'[NIF] SH appearance master: degree={trainer.sh_degree} K={K} '
+              f'gaussians={N:,} size={(len(header)+len(body))/1024/1024:.2f}MB')
+        return header + body
+
     def _extract_mesh(self, geo_data: np.ndarray, grid_res: int = 96,
                        opacity_thresh: float = 0.18, max_faces: int | None = None) -> tuple:
         """
