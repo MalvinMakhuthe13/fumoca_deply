@@ -2054,10 +2054,10 @@ async function boot() {
       const useNativeMaster = !!appearance && (IS_PUBLIC_VIEWER || params.get('native') === '1');
       window._fumocaNativeMaster = useNativeMaster;
       if (!useNativeMaster) {
-              const nifBytes = geometryToSplatRows(gaussians, calibration);
+        const nifBytes = geometryToSplatRows(gaussians, calibration);
+        const nifBlob = new Blob([nifBytes], { type: 'application/octet-stream' });
+        fileUrl = URL.createObjectURL(nifBlob);
       }
-      const nifBlob  = new Blob([nifBytes], { type: 'application/octet-stream' });
-      fileUrl = URL.createObjectURL(nifBlob);
       // Mirror the same window globals FumocDecoder.loadIntoViewer exposed,
       // so hotspot/tour/title UI code elsewhere in this file keeps working.
       window._fumocaTourStops   = meta.tourStops  || [];
