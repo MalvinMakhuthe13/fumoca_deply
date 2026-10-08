@@ -935,6 +935,21 @@ def _encapsulation_report(mesh_info: dict | None, poses: list | None,
         except Exception:
             continue
 
+    # Use the reconstructed product centre as the directional origin.
+    # COLMAP's world origin is arbitrary, so using the raw camera coordinates
+    # directly would make "front/rear/left/right" depend on SfM translation.
+    surface_center = None
+    if surface_geo is not None:
+        try:
+            p = np.asarray(surface_geo[:, :3], dtype=np.float64)
+            p = p[np.all(np.isfinite(p), axis=1)]
+            if len(p):
+                surface_center = np.median(p, axis=0)
+        except Exception:
+            surface_center = None
+    if surface_center is None:
+        surface_center = np.zeros(3, dtype=np.float64)
+
     # Coarse directional cells are the first practical layer of the
     # Encapsulation Map. They are deliberately semantic-neutral: later stages
     # can replace/augment them with true per-surface visibility.
@@ -960,7 +975,7 @@ def _encapsulation_report(mesh_info: dict | None, poses: list | None,
         direction = direction / max(np.linalg.norm(direction), 1e-8)
         support = []
         for i, C in enumerate(camera_centres):
-            v = C.copy()
+            v = C - surface_center
             norm = np.linalg.norm(v)
             if norm > 1e-8:
                 score = float(np.dot(v / norm, direction))
