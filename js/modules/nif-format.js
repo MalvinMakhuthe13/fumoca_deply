@@ -29,6 +29,46 @@ import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 
 const FLOATS_PER_POINT = 14;
 
+// ── Full view-dependent SH appearance ────────────────────────────────────────
+// Pipeline-produced NIFs keep legacy RGB in KEYFRAME_GEO for old readers, but
+// the APPEARANCE_SH chunk is the authoritative photorealistic master.
+export async function decodeSHAppearance(reader) {
+  const chunk = reader.getChunk(CHUNK.APPEARANCE_SH);
+  if (!chunk) return null;
+  try {
+    const bytes = await decompressChunk(chunk);
+    const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    if (dv.byteLength < 12) throw new Error('SH appearance header truncated');
+    const magic = String.fromCharCode(dv.getUint8(0), dv.getUint8(1), dv.getUint8(2), dv.getUint8(3));
+    if (magic !== 'FSHA') throw new Error('invalid SH appearance magic');
+    const version = dv.getUint8(4);
+    const degree = dv.getUint8(5);
+    const coefficientCount = dv.getUint16(6, false);
+    const gaussianCount = dv.getUint32(8, false);
+    const expected = gaussianCount * coefficientCount * 3 * 2;
+    if (dv.byteLength - 12 < expected) throw new Error('SH appearance payload truncated');
+    const coefficients = new Float32Array(gaussianCount * coefficientCount * 3);
+    let off = 12;
+    // DataView has no float16 accessor. Decode IEEE-754 binary16 explicitly.
+    const halfToFloat = (h) => {
+      const s = (h & 0x8000) ? -1 : 1;
+      const e = (h >>> 10) & 0x1f;
+      const f = h & 0x3ff;
+      if (e === 0) return s * Math.pow(2, -14) * (f / 1024);
+      if (e === 31) return f ? NaN : s * Infinity;
+      return s * Math.pow(2, e - 15) * (1 + f / 1024);
+    };
+    for (let i = 0; i < coefficients.length; i++, off += 2) {
+      coefficients[i] = halfToFloat(dv.getUint16(off, false));
+    }
+    return { version, degree, coefficientCount, gaussianCount, coefficients };
+  } catch (e) {
+    console.warn('[nif-format] APPEARANCE_SH failed to decode:', e.message);
+    return null;
+  }
+}
+
+
 // ── logit / sigmoid helpers (canonical NIF color+opacity space) ──────────────
 function logit(p) {
   const c = Math.min(Math.max(p, 1e-6), 1 - 1e-6);
@@ -294,6 +334,7 @@ export async function decodeNif(arrayBuffer) {
   // see NIFSpec.js.
   const calibration = await decodeCalibrationChunk(reader.getChunk(CHUNK.CALIBRATION));
   const verification = await decodeVerificationChunk(reader.getChunk(CHUNK.VERIFICATION));
+  const appearance = await decodeSHAppearance(reader);
 
   // KEYFRAME_MESH — decodes both formats now: raw struct (0x00, what every
   // file produced until Draco was wired server-side) and Draco (0x01, once
@@ -302,7 +343,7 @@ export async function decodeNif(arrayBuffer) {
   // this doesn't change the calling convention.
   const mesh = await decodeMeshChunk(reader.getChunk(CHUNK.KEYFRAME_MESH));
 
-  return { reader, meta, thumbnailBytes, gaussians: geometry, calibration, verification, mesh };
+  return { reader, meta, thumbnailBytes, gaussians: geometry, appearance, calibration, verification, mesh };
 }
 
 // ── Draco decoder — lazily created, reused across every mesh this session.
