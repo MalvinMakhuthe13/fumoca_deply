@@ -7,7 +7,7 @@ FUMOCA is not a general-purpose Blender replacement. Its job is to turn a real p
 - **Solid geometry** for editing, collision, measurement, animation and printing.
 - **Gaussian splatting** for photorealistic web presentation.
 
-Both representations must share the same reconstruction coordinate system, scale calibration and subject bounds.
+Both representations must share the same reconstruction coordinate system, scale calibration and subject bounds. The server applies calibration to the solid mesh, while the viewer applies the same calibration factor to Gaussian positions and Gaussian scales before rendering.
 
 ## Canonical production flow
 
