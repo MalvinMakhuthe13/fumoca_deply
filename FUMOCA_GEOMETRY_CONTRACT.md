@@ -325,3 +325,42 @@ Checks include:
 Each authored part receives `verified`, `warning`, or `rejected` state. Only a part that is explicitly authored **and** fully verified can become `interactive_eligible`. A warning does not silently become interactive, and a rejected transform remains evidence-only.
 
 This verification is intentionally conservative. It does not prove hidden hinges, internal mechanisms, or unseen surfaces. Future Level 11 work can add actual motion simulation against the master solid and Gaussian preview, but the verification gate remains required.
+
+### Level 11 — Non-destructive Motion Simulation
+
+Level 11 is the first stage that actually **moves the observed part evidence** rather than merely declaring that a transform looks plausible.
+
+For every explicitly authored interactive part, FUMOCA builds a temporary simulation from the canonical Gaussian positions assigned to that part. The canonical product representation is never mutated.
+
+For rotational parts, the simulator evaluates a deterministic sequence through the authored limits (including the default validation sequence `0°, 15°, 30°, 45°, 60°, 72°` when no maximum is authored). For translational parts, explicit numeric limits are required. Static parts remain stationary.
+
+Each simulated pose checks:
+
+- finite transformed coordinates;
+- preservation of the observed Gaussian sample identity/count;
+- proximity to the stationary captured product using a deterministic nearest-neighbour collision proxy;
+- whether the moving part introduces materially more proximity/collision than its captured baseline;
+- observed boundary evidence;
+- whether the authored motion axis and pivot are actually available for the requested transform.
+
+The output deliberately distinguishes:
+
+- `gaussian_preview_sync: transform_available` — the canonical Gaussian assignment can be transformed non-destructively for a web preview;
+- `master_solid_sync: not_mapped` — the current mesh does not yet contain per-face/per-vertex part ownership, so FUMOCA must not pretend the master solid can already be animated part-by-part;
+- `collision_free_proxy` — a geometric proximity signal, not a physics proof.
+
+Only a Level 10 verified part that also passes Level 11 motion simulation can remain `interactive_ready`.
+
+This creates the intended architecture:
+
+`MASTER SOLID = structural truth`
+
+`GAUSSIAN MASTER = photorealistic appearance`
+
+`PRODUCT PART GRAPH = relationship`
+
+`INTERACTION = verified transform`
+
+Most importantly, Level 11 does **not** close holes, create hidden interiors, detach arbitrary mesh regions, or invent mechanics. It moves only geometry that has an observed Gaussian part assignment and an explicitly authored transform.
+
+The next required upgrade after Level 11 is **master-solid part mapping**: derive evidence-backed mesh-face ownership from the canonical Gaussian/semantic assignment so the exact same verified transform can drive a structural mesh preview. Until that mapping exists, the solid remains immutable and authoritative.
