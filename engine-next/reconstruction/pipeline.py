@@ -2862,6 +2862,274 @@ def _verify_part_behaviour(part_geometry: dict | None, mechanical_candidates: di
     return result
 
 
+
+def _rotation_matrix(axis: np.ndarray, angle_rad: float) -> np.ndarray:
+    """Return a deterministic Rodrigues rotation matrix."""
+    a = np.asarray(axis, dtype=np.float64)
+    norm = float(np.linalg.norm(a))
+    if not np.isfinite(norm) or norm <= 1e-8:
+        raise ValueError('rotation axis must be finite and non-zero')
+    a = a / norm
+    x, y, z = a
+    c = math.cos(float(angle_rad))
+    s = math.sin(float(angle_rad))
+    C = 1.0 - c
+    return np.array([
+        [c + x*x*C, x*y*C - z*s, x*z*C + y*s],
+        [y*x*C + z*s, c + y*y*C, y*z*C - x*s],
+        [z*x*C - y*s, z*y*C + x*s, c + z*z*C],
+    ], dtype=np.float64)
+
+
+def _simulate_part_motion(semantic: dict | None,
+                          part_geometry: dict | None,
+                          mechanical_candidates: dict | None,
+                          authoring_state: dict | None) -> dict:
+    """Level 11: simulate explicitly authored part motion against observed geometry.
+
+    This is a non-destructive point-evidence simulation. It never mutates the
+    canonical Gaussian geometry and never pretends the current master mesh has
+    per-part topology when that mapping has not been captured.
+    """
+    result = {
+        'status': 'not_available',
+        'level': 11,
+        'parts': [],
+        'master_solid_sync': 'unavailable_without_mesh_part_labels',
+        'gaussian_preview_sync': 'canonical_transform_plan_available',
+        'policy': (
+            'Motion is simulated from observed Gaussian positions assigned to an '
+            'explicitly authored part. The canonical geometry is never mutated. '
+            'Collision is a proximity proxy, not a physics or hidden-structure proof.'
+        ),
+        'unseen_geometry_claimed': False,
+    }
+    if not isinstance(authoring_state, dict) or authoring_state.get('status') != 'available':
+        return result
+    if not isinstance(semantic, dict):
+        return result
+    positions = semantic.get('_positions')
+    labels = np.asarray(semantic.get('labels', []), dtype=np.uint8)
+    if positions is None or len(labels) == 0:
+        return result
+    try:
+        pts_all = np.asarray(positions, dtype=np.float64)
+        if pts_all.ndim != 2 or pts_all.shape[1] < 3 or len(pts_all) != len(labels):
+            return result
+        finite = np.all(np.isfinite(pts_all[:, :3]), axis=1)
+        valid = finite & (labels != 255)
+        if np.count_nonzero(valid) < 8:
+            return result
+        geometry_parts = {
+            int(p.get('part_id')): p for p in (part_geometry or {}).get('parts', [])
+            if p.get('part_id') is not None
+        }
+        mechanical_parts = {
+            int(p.get('part_id')): p for p in (mechanical_candidates or {}).get('parts', [])
+            if p.get('part_id') is not None
+        }
+
+        for graph_id, authored in authoring_state.get('parts', {}).items():
+            try:
+                pid = int(str(graph_id).split('-')[-1])
+            except Exception:
+                continue
+            if not isinstance(authored, dict) or not authored.get('interactive_ready'):
+                continue
+            part_mask = valid & (labels == pid)
+            part_indices = np.flatnonzero(part_mask)
+            if len(part_indices) < 8:
+                result['parts'].append({
+                    'part_id': pid,
+                    'status': 'rejected',
+                    'reason': 'insufficient observed Gaussian samples for motion simulation',
+                    'interactive_eligible': False,
+                })
+                continue
+
+            pg = geometry_parts.get(pid) or {}
+            mc = mechanical_parts.get(pid) or {}
+            part_points = pts_all[part_indices, :3]
+            sample_cap = min(
+                len(part_points),
+                int(os.environ.get('FUMOCA_MOTION_SAMPLES', '4096'))
+            )
+            if sample_cap < len(part_points):
+                sample_idx = np.linspace(0, len(part_points) - 1, sample_cap, dtype=np.int64)
+                part_points = part_points[sample_idx]
+
+            other_mask = valid & (labels != pid)
+            other_indices = np.flatnonzero(other_mask)
+            if len(other_indices) < 8:
+                other_points = np.empty((0, 3), dtype=np.float64)
+            else:
+                other_points = pts_all[other_indices, :3]
+                other_cap = min(
+                    len(other_points),
+                    int(os.environ.get('FUMOCA_MOTION_STATIONARY_SAMPLES', '12000'))
+                )
+                if other_cap < len(other_points):
+                    other_idx = np.linspace(0, len(other_points) - 1, other_cap, dtype=np.int64)
+                    other_points = other_points[other_idx]
+
+            pivot = authored.get('pivot')
+            axis = authored.get('axis')
+            motion = authored.get('motion')
+            if motion == 'rotate' and (pivot is None or axis is None):
+                result['parts'].append({
+                    'part_id': pid,
+                    'status': 'rejected',
+                    'reason': 'rotate motion requires explicit pivot and axis',
+                    'interactive_eligible': False,
+                })
+                continue
+            if motion == 'translate' and axis is None:
+                result['parts'].append({
+                    'part_id': pid,
+                    'status': 'rejected',
+                    'reason': 'translate motion requires an explicit axis',
+                    'interactive_eligible': False,
+                })
+                continue
+
+            p0 = np.asarray(pivot, dtype=np.float64) if pivot is not None else np.zeros(3, dtype=np.float64)
+            a0 = np.asarray(axis, dtype=np.float64) if axis is not None else None
+            if a0 is not None:
+                a_norm = float(np.linalg.norm(a0))
+                if not np.isfinite(a_norm) or a_norm <= 1e-8:
+                    result['parts'].append({
+                        'part_id': pid,
+                        'status': 'rejected',
+                        'reason': 'explicit motion axis is invalid',
+                        'interactive_eligible': False,
+                    })
+                    continue
+                a0 = a0 / a_norm
+
+            limits = authored.get('limits') if isinstance(authored.get('limits'), dict) else {}
+            if motion == 'rotate':
+                lo = float(limits.get('min', 0.0))
+                hi = float(limits.get('max', 72.0))
+                if hi < lo:
+                    lo, hi = hi, lo
+                if abs(hi - lo) < 1e-8:
+                    samples = [lo]
+                else:
+                    requested = np.array([lo, 15.0, 30.0, 45.0, 60.0, hi], dtype=np.float64)
+                    samples = sorted(set(float(np.clip(x, lo, hi)) for x in requested))
+            elif motion == 'translate':
+                if 'min' not in limits or 'max' not in limits:
+                    result['parts'].append({
+                        'part_id': pid,
+                        'status': 'not_testable',
+                        'reason': 'translate motion needs explicit numeric min/max limits',
+                        'interactive_eligible': False,
+                    })
+                    continue
+                lo = float(limits['min'])
+                hi = float(limits['max'])
+                if hi < lo:
+                    lo, hi = hi, lo
+                samples = sorted(set(float(x) for x in np.linspace(lo, hi, 6)))
+            else:
+                samples = [0.0]
+
+            # Establish the captured closed-state proximity baseline. Natural
+            # product contact at the starting pose is not automatically treated
+            # as a collision introduced by motion.
+            baseline_collision = 0.0
+            baseline_nn = None
+            if len(other_points):
+                try:
+                    from scipy.spatial import cKDTree
+                    stationary_tree = cKDTree(other_points)
+                    baseline_nn = stationary_tree.query(part_points, k=1, workers=1)[0]
+                    baseline_collision = float(np.mean(
+                        baseline_nn <= max(
+                            float(np.linalg.norm(np.asarray(pg.get('bounds_max', [0,0,0])) -
+                                                     np.asarray(pg.get('bounds_min', [0,0,0])))) * 0.01,
+                            1e-5
+                        )
+                    ))
+                except Exception:
+                    baseline_nn = None
+
+            diagonal = float(np.linalg.norm(
+                np.asarray(pg.get('bounds_max', [0,0,0]), dtype=np.float64) -
+                np.asarray(pg.get('bounds_min', [0,0,0]), dtype=np.float64)
+            ))
+            collision_tol = max(diagonal * 0.01, 1e-5)
+            pose_reports = []
+            any_collision = False
+            finite_all = True
+            identity_preserved = True
+
+            for amount in samples:
+                if motion == 'rotate':
+                    R = _rotation_matrix(a0, math.radians(amount))
+                    transformed = ((part_points - p0) @ R.T) + p0
+                elif motion == 'translate':
+                    transformed = part_points + a0 * amount
+                else:
+                    transformed = part_points.copy()
+
+                finite_pose = bool(np.all(np.isfinite(transformed)))
+                finite_all &= finite_pose
+                collision_ratio = 0.0
+                min_distance = None
+                introduced_collision = False
+                if finite_pose and len(other_points):
+                    try:
+                        distances = stationary_tree.query(transformed, k=1, workers=1)[0]
+                        min_distance = float(np.min(distances)) if len(distances) else None
+                        collision_ratio = float(np.mean(distances <= collision_tol)) if len(distances) else 0.0
+                        introduced_collision = bool(
+                            collision_ratio > max(baseline_collision + 0.02, 0.05)
+                        )
+                    except Exception:
+                        pass
+                any_collision |= introduced_collision
+                pose_reports.append({
+                    'amount': float(amount),
+                    'finite': finite_pose,
+                    'sample_count': int(len(transformed)),
+                    'collision_proxy_ratio': collision_ratio,
+                    'min_stationary_distance': min_distance,
+                    'introduced_collision': introduced_collision,
+                })
+
+            boundary_status = mc.get('boundary_status')
+            boundary_ok = boundary_status == 'observed_contact'
+            state = (
+                'verified' if finite_all and identity_preserved and not any_collision and boundary_ok
+                else 'warning' if finite_all and identity_preserved and not any_collision
+                else 'rejected'
+            )
+            result['parts'].append({
+                'part_id': pid,
+                'motion': motion,
+                'tested_samples': [float(x) for x in samples],
+                'pose_reports': pose_reports,
+                'collision_tolerance': collision_tol,
+                'baseline_collision_proxy_ratio': baseline_collision,
+                'boundary_evidence': boundary_status or 'unavailable',
+                'geometry_sample_count': int(len(part_points)),
+                'identity_preserved': identity_preserved,
+                'finite_transforms': finite_all,
+                'collision_free_proxy': not any_collision,
+                'state': state,
+                'interactive_eligible': bool(state == 'verified'),
+                'master_solid_sync': 'not_mapped',
+                'gaussian_preview_sync': 'transform_available',
+            })
+
+        result['status'] = 'available' if result['parts'] else 'not_available'
+        return result
+    except Exception as e:
+        result['status'] = 'error'
+        result['error'] = str(e)
+        return result
+
 def _build_product_part_graph(semantic: dict | None, geometry_confidence: dict | None = None,
                               multi_view: dict | None = None,
                               part_geometry: dict | None = None,
