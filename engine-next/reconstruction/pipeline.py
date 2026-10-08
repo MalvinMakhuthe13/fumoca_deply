@@ -2016,8 +2016,10 @@ class ReconstructionWorker:
                 # This is the actual "will this print" signal; STL bytes
                 # existing only means the export step didn't crash.
                 'mesh_watertight':   bool(mesh_info.get('is_watertight')) if mesh_info else False,
-                'mesh_volume_m3':    mesh_info.get('volume_m3') if mesh_info else None,
-                'has_print_export':  bool(stl_bytes) and bool(mesh_info and mesh_info.get('printable')),
+                'mesh_printable':     bool(mesh_info.get('printable')) if mesh_info else False,
+                'mesh_volume_m3':     mesh_info.get('volume_m3') if mesh_info else None,
+                'mesh_quality':       mesh_info or {},
+                'has_print_export':   bool(stl_bytes) and bool(mesh_info and mesh_info.get('printable')),
                 'calibration_method':     calibration['method'],
                 'calibration_confidence': calibration['confidence'],
                 'quality_warnings':       quality_warnings,  # [] means nothing flagged
