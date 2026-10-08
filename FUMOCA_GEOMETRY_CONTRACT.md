@@ -246,3 +246,24 @@ This is deliberately **not** a semantic classifier and is not a visibility proof
 The evidence progression is now:
 
 reference region → Gaussian assignment → multi-view support → stable 3D evidence → product identity → pivot/transform → authored behavior
+
+
+### Level 7 — Observed Part Geometry and Transform Evidence
+
+Level 7 derives a bounded 3D description for each evidence-backed part from the canonical reconstructed Gaussian positions. The record includes centroid, axis-aligned bounds, dimensions, covariance-derived principal axes, principal variance, and an axis-confidence score. These axes are **local-frame candidates only**.
+
+FUMOCA explicitly records `pivot_status: not_recovered` and `mechanical_axis_status: not_recovered` until a later authoring/recovery stage has enough evidence to establish a real mechanical pivot or axis. A PCA axis must never silently become a hinge.
+
+The Product Part Graph can therefore progress from a 2D/reference semantic region to a stable observed 3D extent while retaining the distinction between:
+
+- observed geometry;
+- a useful mathematical local frame;
+- a real product identity;
+- a real mechanical pivot/axis;
+- an authored interactive behavior.
+
+The intended progression is:
+
+`multi-view region → 3D bounds/centroid → principal-frame candidate → product identity → pivot/axis evidence → authored transform → animation`
+
+This preserves the real-product encapsulation rule: no hidden geometry, mechanical behavior, or unseen structure is invented merely because a mathematical axis can be calculated.
