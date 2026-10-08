@@ -888,26 +888,23 @@ def track_primary_object(frames: list, alpha_masks: list) -> list:
 
 
 def _encapsulation_report(mesh_info: dict | None, poses: list | None,
+                          surface_geo: np.ndarray | None,
                           object_masks: list | None, alpha_masks: list | None) -> dict:
-    """Describe whether FUMOCA has enough evidence to call an object encapsulated.
+    """Build a compact evidence map showing which reconstructed surface regions
+    are supported by actual capture viewpoints.
 
-    Encapsulation is deliberately NOT synonymous with "Poisson returned a
-    closed mesh". A closed surface can still be wrong: Poisson may bridge a
-    bottle opening, fill a wheel arch, cap a car interior, or invent unseen
-    underside geometry.
+    This is intentionally an evidence map, not a visibility solver. A camera
+    being on the "front" side of a product does not prove every front-facing
+    polygon was visible. Later FUMOCA layers can add depth/ray visibility,
+    confidence and semantic-part evidence.
 
-    FUMOCA therefore reports an evidence-based status:
-      - solid_closed: the reconstructed surface is closed/manifold;
-      - surface_captured: the capture supplied foreground observations;
-      - full_product_encapsulation: reserved for captures that explicitly
-        declare complete coverage (including interior/underside where required).
-
-    The pipeline never claims unseen geometry was recovered. This distinction
-    is central to making a digital product representation trustworthy.
+    Most importantly, this function never converts a closed mesh into a claim
+    that hidden/interior/underside geometry was recovered.
     """
     mesh_ok = bool(mesh_info and mesh_info.get('is_watertight')
                    and mesh_info.get('is_winding_consistent')
                    and mesh_info.get('is_volume'))
+
     foreground_frames = 0
     if alpha_masks:
         for m in alpha_masks:
@@ -922,29 +919,135 @@ def _encapsulation_report(mesh_info: dict | None, poses: list | None,
         os.environ.get('FUMOCA_CAPTURE_COMPLETE', '').lower() in ('1', 'true', 'yes')
     )
 
+    # Recover camera centres from COLMAP/synthetic world->camera matrices:
+    # C = -R^T t. Keep this tolerant because older pose records may be tuples
+    # carrying a frame name alongside the matrix.
+    camera_centres = []
+    for pose in (poses or []):
+        try:
+            vm = pose[1] if isinstance(pose, tuple) else pose
+            vm = vm.detach().cpu().numpy() if hasattr(vm, 'detach') else np.asarray(vm)
+            R = np.asarray(vm[:3, :3], dtype=np.float64)
+            t = np.asarray(vm[:3, 3], dtype=np.float64)
+            C = -R.T @ t
+            if np.all(np.isfinite(C)):
+                camera_centres.append(C)
+        except Exception:
+            continue
+
+    # Coarse directional cells are the first practical layer of the
+    # Encapsulation Map. They are deliberately semantic-neutral: later stages
+    # can replace/augment them with true per-surface visibility.
+    region_defs = [
+        ('front',        np.array([0., 0., 1.])),
+        ('rear',         np.array([0., 0., -1.])),
+        ('right',        np.array([1., 0., 0.])),
+        ('left',         np.array([-1., 0., 0.])),
+        ('top',          np.array([0., 1., 0.])),
+        ('bottom',       np.array([0., -1., 0.])),
+        ('front_right',  np.array([1., 0., 1.])),
+        ('front_left',   np.array([-1., 0., 1.])),
+        ('rear_right',   np.array([1., 0., -1.])),
+        ('rear_left',    np.array([-1., 0., -1.])),
+        ('top_front',    np.array([0., 1., 1.])),
+        ('top_rear',     np.array([0., 1., -1.])),
+        ('bottom_front', np.array([0., -1., 1.])),
+        ('bottom_rear',  np.array([0., -1., -1.])),
+    ]
+
+    cells = []
+    for name, direction in region_defs:
+        direction = direction / max(np.linalg.norm(direction), 1e-8)
+        support = []
+        for i, C in enumerate(camera_centres):
+            v = C.copy()
+            norm = np.linalg.norm(v)
+            if norm > 1e-8:
+                score = float(np.dot(v / norm, direction))
+                if score >= 0.35:
+                    support.append(i)
+        cells.append({
+            'region': name,
+            'supporting_views': len(support),
+            'support_view_indices': support[:32],
+            'confidence': (
+                'confident' if len(support) >= 3 else
+                'weak' if len(support) >= 1 else
+                'unsupported'
+            ),
+            'reconstructed_surface_samples': 0,
+        })
+
+    # Attach reconstructed-surface evidence to cells. We sample deterministically
+    # so a huge Gaussian cloud does not explode NIF metadata size.
+    if surface_geo is not None:
+        try:
+            pts = np.asarray(surface_geo[:, :3], dtype=np.float64)
+            pts = pts[np.all(np.isfinite(pts), axis=1)]
+            if len(pts):
+                center = np.median(pts, axis=0)
+                rel = pts - center
+                radius = np.linalg.norm(rel, axis=1)
+                valid = radius > 1e-8
+                rel = rel[valid]
+                if len(rel) > 50_000:
+                    idx = np.linspace(0, len(rel) - 1, 50_000, dtype=np.int64)
+                    rel = rel[idx]
+
+                # Each sample contributes to its strongest coarse direction.
+                dirs = np.stack([d / max(np.linalg.norm(d), 1e-8) for _, d in region_defs])
+                unit = rel / np.maximum(np.linalg.norm(rel, axis=1, keepdims=True), 1e-8)
+                best = np.argmax(unit @ dirs.T, axis=1)
+                for i, (_, d) in enumerate(region_defs):
+                    cells[i]['reconstructed_surface_samples'] = int(np.count_nonzero(best == i))
+        except Exception as e:
+            print(f'[NIF] Encapsulation surface sampling skipped: {e}')
+
+    for cell in cells:
+        if cell['reconstructed_surface_samples'] > 0 and cell['supporting_views'] == 0:
+            cell['confidence'] = 'unsupported_surface'
+        elif cell['reconstructed_surface_samples'] == 0:
+            cell['confidence'] = 'no_reconstructed_surface'
+
+    confident_regions = sum(c['confidence'] == 'confident' for c in cells)
+    weak_regions = sum(c['confidence'] == 'weak' for c in cells)
+    unsupported_regions = sum(c['confidence'] == 'unsupported_surface' for c in cells)
+    empty_regions = sum(c['confidence'] == 'no_reconstructed_surface' for c in cells)
+
     if not mesh_ok:
-        status = 'not_encapsulated'
+        status = 'not_reconstructed'
     elif declared_complete:
         status = 'encapsulated_declared'
-    elif pose_count >= 12 and foreground_frames >= 8:
+    elif confident_regions >= 8 and unsupported_regions == 0:
         status = 'surface_encapsulated_unverified'
-    else:
+    elif confident_regions >= 4 or weak_regions >= 6:
         status = 'partial_surface_evidence'
+    else:
+        status = 'surface_evidence_insufficient'
 
     return {
         'status': status,
         'solid_closed': mesh_ok,
         'foreground_frames': foreground_frames,
         'pose_count': pose_count,
+        'camera_centres_recovered': len(camera_centres),
+        'coverage_cells': cells,
+        'coverage_summary': {
+            'confident_regions': confident_regions,
+            'weak_regions': weak_regions,
+            'unsupported_surface_regions': unsupported_regions,
+            'regions_without_reconstructed_surface': empty_regions,
+        },
         'complete_coverage_declared': declared_complete,
         'unseen_geometry_claimed': False,
+        'evidence_policy': 'directional_surface_coverage_only',
         'policy': (
-            'A closed mesh is not proof that hidden/interior/underside geometry '
-            'was captured. Full encapsulation requires explicit complete-coverage '
-            'capture evidence.'
+            'Camera-direction support indicates useful capture viewpoints but '
+            'is not proof that every surface point was visible. Hidden, interior, '
+            'underside and occluded geometry require direct capture evidence or '
+            'explicit authored geometry. A closed mesh alone never upgrades that claim.'
         ),
     }
-
 
 def _mesh_quality_report(mesh, method: str, detail_tier: str) -> dict:
     """Return explicit geometry/printability diagnostics for every mesh output.
@@ -1884,7 +1987,7 @@ class ReconstructionWorker:
             self._tick('processing', 65)
             mesh_bytes, stl_bytes, mesh_info = self._extract_mesh(mesh_geo_data)
             encapsulation = _encapsulation_report(
-                mesh_info, poses, object_masks, alpha_masks
+                mesh_info, poses, mesh_geo_data, object_masks, alpha_masks
             )
             if mesh_info is not None:
                 mesh_info['encapsulation'] = encapsulation
