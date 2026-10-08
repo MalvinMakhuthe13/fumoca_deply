@@ -2780,7 +2780,7 @@ class ReconstructionWorker:
         n, geo_bytes = trainer.export_buffer()
         return n, geo_bytes, eval_psnr
     def _extract_mesh(self, geo_data: np.ndarray, grid_res: int = 96,
-                       opacity_thresh: float = 0.25, max_faces: int = 60_000) -> tuple:
+                       opacity_thresh: float = 0.18, max_faces: int | None = None) -> tuple:
         """
         Real triangulation from the trained Gaussians — not a renamed point
         cloud. After training, each Gaussian's *shortest* axis aligns with the
@@ -2843,22 +2843,64 @@ class ReconstructionWorker:
                 import open3d as o3d
                 from scipy.spatial import cKDTree
 
-                # Keep the production job bounded. Poisson reconstruction is
-                # driven by surface coverage, not by every redundant Gaussian.
-                max_points = int(os.environ.get('FUMOCA_POISSON_MAX_POINTS', '220000'))
+                # FUMOCA detail tiers. The solid should never be capped at the
+                # same polygon budget as the lightweight web preview: small
+                # handles, seams, bottle threads, badges and door gaps are
+                # geometry, not noise.
+                detail = os.environ.get('FUMOCA_MESH_DETAIL', 'high').lower()
+                tiers = {
+                    'fast':     {'max_points': 100_000, 'depth': 8,  'density_q': 0.03,  'max_faces': 80_000},
+                    'balanced': {'max_points': 160_000, 'depth': 9,  'density_q': 0.015, 'max_faces': 160_000},
+                    'high':     {'max_points': 220_000, 'depth': 10, 'density_q': 0.01,  'max_faces': 250_000},
+                    'ultra':    {'max_points': 300_000, 'depth': 11, 'density_q': 0.005, 'max_faces': 350_000},
+                }
+                tier = tiers.get(detail, tiers['high'])
+                max_points = int(os.environ.get('FUMOCA_POISSON_MAX_POINTS', tier['max_points']))
+                poisson_depth = int(os.environ.get('FUMOCA_POISSON_DEPTH', tier['depth']))
+                poisson_depth = max(7, min(poisson_depth, 11))
+                density_q = float(os.environ.get('FUMOCA_POISSON_DENSITY_Q', tier['density_q']))
+                density_q = min(max(density_q, 0.0), 0.20)
+                target_max_faces = (
+                    int(max_faces) if max_faces is not None
+                    else int(os.environ.get('FUMOCA_MESH_MAX_FACES', tier['max_faces']))
+                )
+
                 work_positions = positions
                 work_colors = colors
+                work_normals = None
+
+                # Derive a surface normal from the Gaussian's shortest axis.
+                # This uses the learned anisotropic Gaussian orientation rather
+                # than throwing that geometry away and re-fitting a generic
+                # plane. Surface-aligned Gaussians are exactly the signal that
+                # makes Poisson extraction preserve fine geometry.
+                axis_idx = np.argmin(log_scales, axis=1)
+                qw, qx, qy, qz = quats[:, 0], quats[:, 1], quats[:, 2], quats[:, 3]
+                qn = np.sqrt(qw*qw + qx*qx + qy*qy + qz*qz) + 1e-8
+                qw, qx, qy, qz = qw/qn, qx/qn, qy/qn, qz/qn
+                G = np.empty((len(pts), 3, 3), dtype=np.float64)
+                G[:,0,0]=1-2*(qy*qy+qz*qz); G[:,0,1]=2*(qx*qy-qz*qw);   G[:,0,2]=2*(qx*qz+qy*qw)
+                G[:,1,0]=2*(qx*qy+qz*qw);   G[:,1,1]=1-2*(qx*qx+qz*qz); G[:,1,2]=2*(qy*qz-qx*qw)
+                G[:,2,0]=2*(qx*qz-qy*qw);   G[:,2,1]=2*(qy*qz+qx*qw);   G[:,2,2]=1-2*(qx*qx+qy*qy)
+                gaussian_normals = G[np.arange(len(pts)), :, axis_idx]
+                gaussian_normals /= np.maximum(
+                    np.linalg.norm(gaussian_normals, axis=1, keepdims=True), 1e-8
+                )
 
                 if len(work_positions) > max_points:
-                    # Deterministic stride keeps runs reproducible and avoids
-                    # random quality changes between otherwise identical jobs.
+                    # Deterministic stride keeps runs reproducible while still
+                    # retaining the learned normal/orientation field.
                     stride = int(math.ceil(len(work_positions) / max_points))
                     work_positions = work_positions[::stride]
                     work_colors = work_colors[::stride]
+                    work_normals = gaussian_normals[::stride]
+                else:
+                    work_normals = gaussian_normals
 
                 if len(work_positions) >= 500:
-                    # Estimate local sampling scale once; it controls both
-                    # normal estimation and the optional voxel downsample.
+                    # Estimate local sampling scale. Poisson depth controls the
+                    # reconstruction resolution, while local spacing controls
+                    # normal propagation and only the optional safety downsample.
                     nn_tree = cKDTree(work_positions)
                     nn_d, _ = nn_tree.query(work_positions, k=2, workers=-1)
                     local_spacing = float(np.median(nn_d[:, 1]))
@@ -2867,32 +2909,29 @@ class ReconstructionWorker:
                     pcd = o3d.geometry.PointCloud()
                     pcd.points = o3d.utility.Vector3dVector(work_positions.astype(np.float64))
                     pcd.colors = o3d.utility.Vector3dVector(np.clip(work_colors, 0, 1).astype(np.float64))
+                    pcd.normals = o3d.utility.Vector3dVector(work_normals.astype(np.float64))
 
-                    # Remove redundant samples only when the cloud is extremely
-                    # dense. This preserves thin product details better than a
-                    # fixed global voxel size.
-                    if len(work_positions) > 120000:
-                        pcd = pcd.voxel_down_sample(voxel_size=local_spacing * 0.65)
+                    # Only downsample at the extreme end of the point budget.
+                    # A fixed voxel reduction is one of the easiest ways to
+                    # erase small product details before Poisson ever sees them.
+                    if len(work_positions) > 180_000:
+                        pcd = pcd.voxel_down_sample(voxel_size=local_spacing * 0.50)
+                        pcd.normalize_normals()
 
-                    pcd.estimate_normals(
-                        search_param=o3d.geometry.KDTreeSearchParamHybrid(
-                            radius=local_spacing * 5.0,
-                            max_nn=48,
-                        )
-                    )
+                    # Re-orient the Gaussian-derived normals as a connected
+                    # field. Open3D documents this as a minimum-spanning-tree
+                    # style propagation, which is substantially safer than
+                    # independently estimating/flipping every normal.
                     try:
-                        pcd.orient_normals_consistent_tangent_plane(
-                            min(50, max(10, len(pcd.points) // 100))
-                        )
-                    except Exception:
-                        # Fall back to a stable outward orientation for product
-                        # captures. Consistent tangent orientation can fail on
-                        # disconnected or very sparse scans.
-                        pass
+                        k_orient = min(100, max(20, len(pcd.points) // 2500))
+                        pcd.orient_normals_consistent_tangent_plane(k_orient, 0.5, 0.8)
+                    except Exception as e:
+                        print(f'[NIF] Normal orientation propagation skipped: {e}')
 
-                    # Gaussian quaternions do not guarantee an outward normal.
-                    # Orient the reconstructed point cloud consistently around
-                    # the subject centroid before Poisson reconstruction.
+                    # A global outward pass gives a stable convention for
+                    # single-object captures. We deliberately do not rebuild
+                    # normals from planes here; that would throw away the
+                    # Gaussian surface orientation we just preserved.
                     p_np = np.asarray(pcd.points)
                     n_np = np.asarray(pcd.normals)
                     center = p_np.mean(axis=0)
@@ -2901,28 +2940,28 @@ class ReconstructionWorker:
                     n_np[flip] *= -1
                     pcd.normals = o3d.utility.Vector3dVector(n_np)
 
-                    poisson_depth = int(os.environ.get('FUMOCA_POISSON_DEPTH', '9'))
-                    poisson_depth = max(7, min(poisson_depth, 11))
                     poisson_mesh, densities = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(
                         pcd,
                         depth=poisson_depth,
-                        scale=float(os.environ.get('FUMOCA_POISSON_SCALE', '1.05')),
+                        scale=float(os.environ.get('FUMOCA_POISSON_SCALE', '1.03')),
                         linear_fit=True,
                     )
 
-                    # Poisson can extrapolate beyond sparsely supported areas.
-                    # Use its density output to remove the lowest-support tail,
-                    # then crop to a small expansion around the observed cloud.
+                    # Poisson intentionally smooths high-frequency noise, but
+                    # it can also extrapolate into poorly sampled regions.
+                    # Density trimming is therefore adaptive to the selected
+                    # detail tier instead of using one blunt 2% cutoff.
                     densities = np.asarray(densities)
                     if len(densities) == len(poisson_mesh.vertices) and len(densities) > 100:
-                        q = float(os.environ.get('FUMOCA_POISSON_DENSITY_Q', '0.02'))
-                        q = min(max(q, 0.0), 0.20)
-                        cutoff = float(np.quantile(densities, q))
+                        cutoff = float(np.quantile(densities, density_q))
                         poisson_mesh.remove_vertices_by_mask(densities < cutoff)
 
                     bb_min = work_positions.min(axis=0)
                     bb_max = work_positions.max(axis=0)
-                    pad = np.maximum((bb_max - bb_min) * 0.03, local_spacing * 3.0)
+                    # Keep the crop tight enough to reject Poisson extrapolation
+                    # but wide enough to preserve edge curvature and small parts.
+                    pad_fraction = float(os.environ.get('FUMOCA_POISSON_PAD', '0.015'))
+                    pad = np.maximum((bb_max - bb_min) * pad_fraction, local_spacing * 2.0)
                     bbox = o3d.geometry.AxisAlignedBoundingBox(
                         bb_min - pad,
                         bb_max + pad,
@@ -2963,9 +3002,9 @@ class ReconstructionWorker:
                     mesh.remove_unreferenced_vertices()
 
                     if mesh.is_watertight and len(mesh.faces) >= 50:
-                        if len(mesh.faces) > max_faces:
+                        if len(mesh.faces) > target_max_faces:
                             try:
-                                mesh = mesh.simplify_quadric_decimation(face_count=max_faces)
+                                mesh = mesh.simplify_quadric_decimation(face_count=target_max_faces)
                             except Exception as e:
                                 print(f'[NIF] Poisson decimation unavailable ({e}) — keeping full mesh')
 
@@ -3024,6 +3063,9 @@ class ReconstructionWorker:
                             'n_faces': n_faces,
                             'n_degenerate_faces': n_degenerate,
                             'method': 'screened_poisson',
+                            'detail_tier': detail,
+                            'poisson_depth': poisson_depth,
+                            'density_trim_quantile': density_q,
                         }
 
                     print('[NIF] Poisson result was not a valid watertight product surface — falling back to marching cubes')
@@ -3113,7 +3155,7 @@ class ReconstructionWorker:
 
         if len(mesh.faces) > max_faces:
             try:
-                mesh = mesh.simplify_quadric_decimation(face_count=max_faces)
+                mesh = mesh.simplify_quadric_decimation(face_count=target_max_faces)
             except Exception as e:
                 print(f'[NIF] Decimation unavailable ({e}) — keeping full-res mesh')
 
@@ -3210,6 +3252,8 @@ class ReconstructionWorker:
             'n_verts': n_verts,
             'n_faces': n_faces,
             'n_degenerate_faces': n_degenerate,
+            'method': 'oriented_tsdf_marching_cubes',
+            'detail_tier': os.environ.get('FUMOCA_MESH_DETAIL', 'high').lower(),
         }
 
     def run_mesh_only(self, geo_r2_key: str, meta: dict):
