@@ -49,37 +49,42 @@ attribute vec3 sh13;
 attribute vec3 sh14;
 attribute vec3 sh15;
 
-uniform mat4 modelViewMatrix;
 uniform mat4 projectionMatrix;
-uniform mat4 modelMatrix;
 uniform mat4 viewMatrix;
+uniform mat4 modelMatrix;
 uniform int shDegree;
 uniform float uScale;
-uniform float uFootprint;
+uniform float uSplatBlur;
 uniform vec3 uCameraPosition;
 
 varying vec2 vCorner;
 varying vec3 vColor;
 varying float vOpacity;
 
-vec3 rotateQuat(vec4 q, vec3 v) {
-  return v + 2.0 * cross(q.xyz, cross(q.xyz, v) + q.w * v);
+mat3 quatMatrix(vec4 q) {
+  q = q / max(length(q), 1e-6);
+  float x = q.x, y = q.y, z = q.z, w = q.w;
+  return mat3(
+    1.0 - 2.0*(y*y + z*z), 2.0*(x*y - w*z),     2.0*(x*z + w*y),
+    2.0*(x*y + w*z),       1.0 - 2.0*(x*x + z*z), 2.0*(y*z - w*x),
+    2.0*(x*z - w*y),       2.0*(y*z + w*x),     1.0 - 2.0*(x*x + y*y)
+  );
 }
 
 vec3 evalSH(vec3 d) {
   vec3 c = 0.28209479177387814 * sh0;
   if (shDegree < 1) return c + 0.5;
 
-  c += -C1 * d.y * sh1;
-  c +=  C1 * d.z * sh2;
-  c += -C1 * d.x * sh3;
+  c += -0.4886025119029199 * d.y * sh1;
+  c +=  0.4886025119029199 * d.z * sh2;
+  c += -0.4886025119029199 * d.x * sh3;
   if (shDegree < 2) return c + 0.5;
 
   c += 1.0925484305920792 * d.x * d.y * sh4;
   c += 1.0925484305920792 * d.y * d.z * sh5;
-  c += 0.31539156525252005 * (3.0 * d.z * d.z - 1.0) * sh6;
+  c += 0.31539156525252005 * (3.0*d.z*d.z - 1.0) * sh6;
   c += 1.0925484305920792 * d.x * d.z * sh7;
-  c += 0.5462742152960396 * (d.x * d.x - d.y * d.y) * sh8;
+  c += 0.5462742152960396 * (d.x*d.x - d.y*d.y) * sh8;
   if (shDegree < 3) return c + 0.5;
 
   c += 0.5900435899266435 * d.y * (3.0*d.x*d.x - d.y*d.y) * sh9;
@@ -94,24 +99,80 @@ vec3 evalSH(vec3 d) {
 
 void main() {
   vec3 worldCenter = (modelMatrix * vec4(aPosition * uScale, 1.0)).xyz;
+  vec4 cameraCenter4 = viewMatrix * vec4(worldCenter, 1.0);
+  vec3 cameraCenter = cameraCenter4.xyz;
+
+  // Three.js looks down -Z. Work in positive forward depth to keep the
+  // perspective Jacobian numerically intuitive.
+  float depth = max(-cameraCenter.z, 1e-4);
+  if (depth <= 1e-4 || !all(lessThan(abs(cameraCenter.xy), vec2(depth * 20.0)))) {
+    gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+    vCorner = corner;
+    vColor = vec3(0.0);
+    vOpacity = 0.0;
+    return;
+  }
+
+  // Build the actual 3D Gaussian covariance:
+  // Sigma = R * diag(scale^2) * R^T.
+  mat3 R = quatMatrix(aQuat);
+  vec3 s = max(aScale * uScale, vec3(1e-7));
+  mat3 S2 = mat3(
+    s.x*s.x, 0.0,     0.0,
+    0.0,     s.y*s.y, 0.0,
+    0.0,     0.0,     s.z*s.z
+  );
+  mat3 covWorld = R * S2 * transpose(R);
+
+  // Rotate covariance into camera space.
+  mat3 W = mat3(viewMatrix);
+  mat3 covCamera = W * covWorld * transpose(W);
+
+  // Perspective Jacobian for x/depth and y/depth.
+  float fx = projectionMatrix[0][0];
+  float fy = projectionMatrix[1][1];
+  float z2 = depth * depth;
+  mat3 J = mat3(
+    fx / depth, 0.0, -fx * cameraCenter.x / z2,
+    0.0, fy / depth, -fy * cameraCenter.y / z2,
+    0.0, 0.0, 0.0
+  );
+
+  mat3 T = J * covCamera;
+  mat3 cov2 = T * transpose(J);
+
+  // Add a very small screen-space floor so tiny Gaussians remain stable.
+  cov2[0][0] += 0.000001;
+  cov2[1][1] += 0.000001;
+
+  float aa = cov2[0][0];
+  float bb = cov2[0][1];
+  float dd = cov2[1][1];
+  float mid = 0.5 * (aa + dd);
+  float radius = sqrt(max(0.0, 0.25*(aa-dd)*(aa-dd) + bb*bb));
+  float lambda1 = max(mid + radius, 1e-10);
+  float lambda2 = max(mid - radius, 1e-10);
+
+  vec2 e1 = abs(bb) > 1e-7
+    ? normalize(vec2(bb, lambda1 - aa))
+    : (aa >= dd ? vec2(1.0, 0.0) : vec2(0.0, 1.0));
+  vec2 e2 = vec2(-e1.y, e1.x);
+
+  // sqrt(8) gives a conservative raster footprint while the fragment shader
+  // evaluates the Gaussian falloff inside that footprint.
+  vec2 axis1 = e1 * sqrt(8.0 * lambda1) * uSplatBlur;
+  vec2 axis2 = e2 * sqrt(8.0 * lambda2) * uSplatBlur;
+
+  vec4 clipCenter = projectionMatrix * cameraCenter4;
+  vec2 ndcCenter = clipCenter.xy / max(clipCenter.w, 1e-6);
+  vec2 ndcOffset = corner.x * axis1 + corner.y * axis2;
+  gl_Position = vec4(ndcCenter + ndcOffset, clipCenter.z / clipCenter.w, 1.0);
+
   vec3 viewDir = normalize(uCameraPosition - worldCenter);
-
-  vec3 axisX = rotateQuat(aQuat, vec3(1.0, 0.0, 0.0));
-  vec3 axisY = rotateQuat(aQuat, vec3(0.0, 1.0, 0.0));
-
-  float sx = max(aScale.x * uScale, 1e-6);
-  float sy = max(aScale.y * uScale, 1e-6);
-  vec3 offset = (corner.x * axisX * sx + corner.y * axisY * sy) * uFootprint;
-
-  vec4 mvCenter = viewMatrix * vec4(worldCenter, 1.0);
-  vec4 mvPos = viewMatrix * vec4(worldCenter + offset, 1.0);
-
-  gl_Position = projectionMatrix * mvPos;
   vCorner = corner;
-  vColor = max(evalSH(normalize(viewDir)), vec3(0.0));
+  vColor = max(evalSH(viewDir), vec3(0.0));
   vOpacity = aOpacity;
-}
-`;
+}`;
 
 const FRAG = `
 precision highp float;
@@ -246,7 +307,7 @@ export class FumocaNativeGaussianRenderer {
       uniforms: {
         shDegree: { value: this.degree },
         uScale: { value: this.worldScale },
-        uFootprint: { value: 3.0 },
+        uSplatBlur: { value: 1.0 },
         uCameraPosition: { value: new THREE.Vector3() },
       },
     });
