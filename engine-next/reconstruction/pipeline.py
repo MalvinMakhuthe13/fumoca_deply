@@ -4572,7 +4572,7 @@ class ReconstructionWorker:
             '--database_path', str(database_path),
             '--image_path', str(img_dir),
             '--ImageReader.single_camera', '1',
-            '--SiftExtraction.use_gpu', '0',
+            '--FeatureExtraction.use_gpu', '0',
         ], 'feature extraction'):
             return self._synthetic_poses(len(frames)), 'synthetic_colmap_failed', None
 
@@ -4581,7 +4581,7 @@ class ReconstructionWorker:
             'sequential_matcher',
             '--database_path', str(database_path),
             '--SequentialMatching.overlap', '10',
-            '--SiftMatching.use_gpu', '0',
+            '--FeatureMatching.use_gpu', '0',
         ], 'sequential matching'):
             return self._synthetic_poses(len(frames)), 'synthetic_colmap_failed', None
 
