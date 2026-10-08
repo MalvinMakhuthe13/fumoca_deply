@@ -2838,6 +2838,7 @@ class ReconstructionWorker:
         # the existing marching-cubes implementation continues below.
         mesh_method = os.environ.get('FUMOCA_MESH_METHOD', 'poisson').lower()
         if mesh_method in ('poisson', 'auto'):
+            import trimesh
             try:
                 import open3d as o3d
                 from scipy.spatial import cKDTree
