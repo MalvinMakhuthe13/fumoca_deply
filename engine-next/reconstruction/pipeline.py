@@ -2851,7 +2851,7 @@ class ReconstructionWorker:
                 (CHUNK_ENCAPSULATION, json.dumps(
                     (mesh_info or {}).get('encapsulation', {})
                 ).encode('utf-8')),
-                (CHUNK_SEM, semantic_bytes)] if semantic_bytes else []),
+                *([(CHUNK_SEM, semantic_bytes)] if semantic_bytes else []),
                 *([(CHUNK_APPEARANCE, appearance_bytes)] if appearance_bytes else []),
                 (CHUNK_PART_GRAPH, part_graph_bytes),
             ]
