@@ -2731,6 +2731,69 @@ def _part_mechanical_candidates(semantic: dict | None, part_geometry: dict | Non
         return base
 
 
+def _validate_part_authoring(authoring: dict | None, graph_parts: list) -> dict:
+    """Validate explicit product-part authoring; never invent identity or mechanics."""
+    result = {
+        'status': 'not_provided',
+        'version': 1,
+        'parts': {},
+        'policy': 'Only explicit authoring may assign identity, pivots, axes or motion.',
+    }
+    if not isinstance(authoring, dict):
+        return result
+    supplied = authoring.get('parts', {})
+    if isinstance(supplied, list):
+        supplied = {str(x.get('id')): x for x in supplied if isinstance(x, dict) and x.get('id') is not None}
+    if not isinstance(supplied, dict):
+        result['status'] = 'invalid'
+        result['error'] = 'parts must be an object or list'
+        return result
+    allowed = {str(p.get('id')) for p in graph_parts}
+    for pid, raw in supplied.items():
+        if str(pid) not in allowed or not isinstance(raw, dict):
+            continue
+        clean = {}
+        name = raw.get('name')
+        if isinstance(name, str) and name.strip():
+            clean['name'] = name.strip()[:120]
+            clean['name_status'] = 'explicit_authoring'
+        pivot = raw.get('pivot')
+        if isinstance(pivot, (list, tuple)) and len(pivot) == 3:
+            vals = [float(x) for x in pivot]
+            if all(np.isfinite(x) for x in vals):
+                clean['pivot'] = vals
+                clean['pivot_status'] = 'explicit_authoring'
+        axis = raw.get('axis')
+        if isinstance(axis, (list, tuple)) and len(axis) == 3:
+            vals = np.asarray([float(x) for x in axis], dtype=np.float64)
+            norm = float(np.linalg.norm(vals))
+            if np.isfinite(norm) and norm > 1e-8:
+                clean['axis'] = [float(x) for x in (vals / norm)]
+                clean['mechanical_axis_status'] = 'explicit_authoring'
+        motion = raw.get('motion')
+        if motion in ('rotate', 'translate', 'static'):
+            clean['motion'] = motion
+        limits = raw.get('limits')
+        if isinstance(limits, dict):
+            clean['limits'] = {}
+            for key in ('min', 'max'):
+                value = limits.get(key)
+                if isinstance(value, (int, float)) and np.isfinite(value):
+                    clean['limits'][key] = float(value)
+        clean['interactive_ready'] = bool(
+            clean.get('name') and (
+                (clean.get('motion') == 'rotate' and clean.get('pivot') and clean.get('axis')) or
+                clean.get('motion') in ('translate', 'static')
+            )
+        )
+        if clean.get('interactive_ready'):
+            clean['authoring_source'] = 'explicit'
+            clean['verified_by_capture'] = False
+        result['parts'][str(pid)] = clean
+    result['status'] = 'available' if result['parts'] else 'empty'
+    return result
+
+
 def _build_product_part_graph(semantic: dict | None, geometry_confidence: dict | None = None,
                               multi_view: dict | None = None,
                               part_geometry: dict | None = None,
