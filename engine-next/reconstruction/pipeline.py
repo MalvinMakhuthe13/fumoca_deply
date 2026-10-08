@@ -1174,7 +1174,12 @@ class GaussianSplatTrainer:
             if alpha_mask is not None:
                 finite = finite & (alpha_mask > 0.15)
             valid_render = torch.isfinite(rendered_depth) & (rendered_depth > 0)
-            valid = finite & valid_render & (alpha.squeeze(-1).squeeze(0) > 0.05 if alpha.ndim == 4 else render_alpha > 0.05)
+            depth_alpha = alpha
+            while depth_alpha.ndim > 2:
+                depth_alpha = depth_alpha.squeeze(0)
+            if depth_alpha.ndim == 3:
+                depth_alpha = depth_alpha.squeeze(-1)
+            valid = finite & valid_render & (depth_alpha > 0.05)
 
             if valid.sum() > 256:
                 td = target_depth[valid]
@@ -1317,9 +1322,13 @@ class GaussianSplatTrainer:
                 new_opacity  = self.log_opacity[idx]
                 new_sh0      = self.sh0[idx]
 
-                # Remove originals, add two replacements each
-                keep = torch.ones(len(self.means), dtype=torch.bool)
+                # Remove the parent and append two children. Every
+                # per-Gaussian attribute must undergo the exact same topology
+                # operation; otherwise positions/quaternions/scales/colors
+                # become misaligned and the exported geometry is corrupted.
+                keep = torch.ones(len(self.means), dtype=torch.bool, device=self.means.device)
                 keep[idx] = False
+
                 for p, new_a, new_b in [
                     (self.means, new_means_a, new_means_b),
                     (self.log_scales, new_scales, new_scales),
@@ -1329,12 +1338,6 @@ class GaussianSplatTrainer:
                 ]:
                     p.data = torch.cat([p.data[keep], new_a, new_b], dim=0)
                 topology_changed = True
-                # Other params: keep the non-split ones, append copies
-                for p, new_p in [(self.log_scales, new_scales),
-                                 (self.quats, new_quats),
-                                 (self.log_opacity, new_opacity),
-                                 (self.sh0, new_sh0)]:
-                    p.data = torch.cat([p.data[keep], new_p, new_p.clone()], dim=0)
 
             if topology_changed:
                 self._reset_optimizer_after_topology_change()
