@@ -1064,6 +1064,133 @@ def _encapsulation_report(mesh_info: dict | None, poses: list | None,
         ),
     }
 
+def _surface_camera_evidence(surface_geo: np.ndarray | None, poses: list | None,
+                             alpha_masks: list | None, image_shape=None) -> dict:
+    """Estimate per-surface support from projected camera observations.
+
+    Level 2 of the Encapsulation Map: unlike the coarse directional layer,
+    this tests individual reconstructed samples against real camera geometry.
+    A sample is supported when it projects inside a foreground mask and its
+    estimated surface normal faces the camera.
+
+    This is deliberately called *projection evidence*, not visibility proof:
+    without a depth buffer/ray cast we cannot know whether another surface
+    occludes the sample. That stronger visibility test is the next layer.
+    """
+    if surface_geo is None or poses is None or not len(poses):
+        return {
+            'status': 'unavailable',
+            'surface_samples': 0,
+            'supported_samples': 0,
+            'support_ratio': 0.0,
+            'occlusion_tested': False,
+        }
+
+    try:
+        pts = np.asarray(surface_geo[:, :3], dtype=np.float64)
+        finite = np.all(np.isfinite(pts), axis=1)
+        pts = pts[finite]
+        if not len(pts):
+            raise ValueError('no finite surface points')
+
+        # Deterministic sample cap keeps metadata bounded.
+        if len(pts) > 25_000:
+            pts = pts[np.linspace(0, len(pts) - 1, 25_000, dtype=np.int64)]
+
+        # Gaussian shortest-axis orientation is our surface-normal proxy.
+        log_scales = np.asarray(surface_geo[:, 3:6], dtype=np.float64)[finite]
+        quats = np.asarray(surface_geo[:, 6:10], dtype=np.float64)[finite]
+        axis_idx = np.argmin(log_scales, axis=1)
+        qn = quats / np.maximum(np.linalg.norm(quats, axis=1, keepdims=True), 1e-8)
+        qw, qx, qy, qz = qn[:,0], qn[:,1], qn[:,2], qn[:,3]
+        R = np.empty((len(qn), 3, 3), dtype=np.float64)
+        R[:,0,0]=1-2*(qy*qy+qz*qz); R[:,0,1]=2*(qx*qy-qz*qw); R[:,0,2]=2*(qx*qz+qy*qw)
+        R[:,1,0]=2*(qx*qy+qz*qw); R[:,1,1]=1-2*(qx*qx+qz*qz); R[:,1,2]=2*(qy*qz-qx*qw)
+        R[:,2,0]=2*(qx*qz-qy*qw); R[:,2,1]=2*(qy*qz+qx*qw); R[:,2,2]=1-2*(qx*qx+qy*qy)
+        normals = R[np.arange(len(R)), :, axis_idx]
+        normals /= np.maximum(np.linalg.norm(normals, axis=1, keepdims=True), 1e-8)
+
+        # Match the deterministic sample selection used above.
+        if len(finite.nonzero()[0]) > 25_000:
+            source_idx = np.linspace(0, len(finite.nonzero()[0]) - 1, 25_000, dtype=np.int64)
+            normals = normals[source_idx]
+
+        H, W = image_shape or ((alpha_masks[0].shape if alpha_masks else (0,0)))
+        if H <= 0 or W <= 0:
+            raise ValueError('image dimensions unavailable')
+        fx = fy = max(H, W) * 0.8
+        cx, cy = W / 2.0, H / 2.0
+
+        support_counts = np.zeros(len(pts), dtype=np.uint16)
+        facing_counts = np.zeros(len(pts), dtype=np.uint16)
+        foreground_counts = np.zeros(len(pts), dtype=np.uint16)
+
+        for i, pose in enumerate(poses):
+            vm = pose[1] if isinstance(pose, tuple) else pose
+            vm = vm.detach().cpu().numpy() if hasattr(vm, 'detach') else np.asarray(vm)
+            Rw = vm[:3,:3].astype(np.float64)
+            tw = vm[:3,3].astype(np.float64)
+            cam = (Rw @ pts.T).T + tw
+            z = cam[:,2]
+            valid = z > 1e-6
+            u = fx * cam[:,0] / np.maximum(z, 1e-8) + cx
+            v = fy * cam[:,1] / np.maximum(z, 1e-8) + cy
+            inside = valid & (u >= 0) & (u < W) & (v >= 0) & (v < H)
+
+            # Camera-facing test. Normal sign is ambiguous, so use the absolute
+            # dot product: the sample can be oriented either way by a Gaussian.
+            C = -Rw.T @ tw
+            to_camera = C[None,:] - pts
+            to_camera /= np.maximum(np.linalg.norm(to_camera, axis=1, keepdims=True), 1e-8)
+            facing = np.abs(np.einsum('ij,ij->i', normals, to_camera)) >= 0.35
+            facing_counts += (inside & facing).astype(np.uint16)
+
+            if alpha_masks and i < len(alpha_masks):
+                mask = np.asarray(alpha_masks[i])
+                if mask.ndim > 2:
+                    mask = mask.squeeze()
+                uu = np.clip(np.rint(u).astype(np.int64), 0, W-1)
+                vv = np.clip(np.rint(v).astype(np.int64), 0, H-1)
+                fg = np.zeros(len(pts), dtype=bool)
+                valid_idx = np.where(inside)[0]
+                fg[valid_idx] = mask[vv[valid_idx], uu[valid_idx]] > 32
+                foreground_counts += (inside & fg).astype(np.uint16)
+
+            support_counts += (inside & facing).astype(np.uint16)
+
+        supported = support_counts > 0
+        strong = support_counts >= 2
+        foreground_supported = foreground_counts > 0
+
+        return {
+            'status': 'available',
+            'surface_samples': int(len(pts)),
+            'supported_samples': int(np.count_nonzero(supported)),
+            'strongly_supported_samples': int(np.count_nonzero(strong)),
+            'foreground_supported_samples': int(np.count_nonzero(foreground_supported)),
+            'support_ratio': float(np.mean(supported)),
+            'strong_support_ratio': float(np.mean(strong)),
+            'foreground_support_ratio': float(np.mean(foreground_supported)),
+            'mean_support_views': float(np.mean(support_counts)),
+            'occlusion_tested': False,
+            'depth_consistency_tested': False,
+            'policy': (
+                'Projected surface support combines camera projection, foreground '
+                'mask evidence and Gaussian surface orientation. It is not a true '
+                'visibility test because occlusion/depth-buffer testing is not yet applied.'
+            ),
+        }
+    except Exception as e:
+        return {
+            'status': 'error',
+            'surface_samples': 0,
+            'supported_samples': 0,
+            'support_ratio': 0.0,
+            'occlusion_tested': False,
+            'error': str(e),
+        }
+
+
 def _mesh_quality_report(mesh, method: str, detail_tier: str) -> dict:
     """Return explicit geometry/printability diagnostics for every mesh output.
 
@@ -2004,6 +2131,13 @@ class ReconstructionWorker:
             encapsulation = _encapsulation_report(
                 mesh_info, poses, mesh_geo_data, object_masks, alpha_masks
             )
+            surface_camera_evidence = _surface_camera_evidence(
+                mesh_geo_data,
+                poses,
+                object_masks,
+                image_shape=frames[0].shape[:2] if frames else None,
+            )
+            encapsulation['surface_camera_evidence'] = surface_camera_evidence
             if mesh_info is not None:
                 mesh_info['encapsulation'] = encapsulation
 
