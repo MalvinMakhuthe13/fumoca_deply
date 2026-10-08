@@ -69,6 +69,46 @@ export async function decodeSHAppearance(reader) {
 }
 
 
+
+// ── Level 5 semantic part evidence ──────────────────────────────────────────
+export async function decodeSemanticMap(reader) {
+  const chunk = reader.getChunk(CHUNK.SEMANTIC_MAP);
+  if (!chunk) return null;
+  try {
+    const bytes = await decompressChunk(chunk);
+    const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    if (dv.byteLength < 12) throw new Error('semantic map header truncated');
+    const magic = String.fromCharCode(dv.getUint8(0), dv.getUint8(1), dv.getUint8(2), dv.getUint8(3));
+    if (magic !== 'FSMP') throw new Error('invalid semantic map magic');
+    const version = dv.getUint8(4);
+    const unknownLabel = dv.getUint8(5);
+    const partCount = dv.getUint16(6, false);
+    const gaussianCount = dv.getUint32(8, false);
+    const labelsOffset = 12;
+    const labelsEnd = labelsOffset + gaussianCount;
+    const confidenceEnd = labelsEnd + gaussianCount * 2;
+    if (confidenceEnd + 4 > dv.byteLength) throw new Error('semantic map payload truncated');
+    const labels = bytes.slice(labelsOffset, labelsEnd);
+    const confidence = new Float32Array(gaussianCount);
+    for (let i = 0; i < gaussianCount; i++) {
+      const h = dv.getUint16(labelsEnd + i * 2, false);
+      const sign = h & 0x8000 ? -1 : 1;
+      const exp = (h >>> 10) & 0x1f;
+      const frac = h & 0x3ff;
+      confidence[i] = exp === 0 ? sign * Math.pow(2, -14) * frac / 1024
+        : exp === 31 ? (frac ? NaN : sign * Infinity)
+        : sign * Math.pow(2, exp - 15) * (1 + frac / 1024);
+    }
+    const jsonLen = dv.getUint32(confidenceEnd, false);
+    const jsonStart = confidenceEnd + 4;
+    const parts = jsonLen ? JSON.parse(new TextDecoder().decode(bytes.slice(jsonStart, jsonStart + jsonLen))) : [];
+    return { version, unknownLabel, partCount, gaussianCount, labels, confidence, parts };
+  } catch (e) {
+    console.warn('[nif-format] SEMANTIC_MAP failed to decode:', e.message);
+    return null;
+  }
+}
+
 // ── logit / sigmoid helpers (canonical NIF color+opacity space) ──────────────
 function logit(p) {
   const c = Math.min(Math.max(p, 1e-6), 1 - 1e-6);
@@ -335,6 +375,7 @@ export async function decodeNif(arrayBuffer) {
   const calibration = await decodeCalibrationChunk(reader.getChunk(CHUNK.CALIBRATION));
   const verification = await decodeVerificationChunk(reader.getChunk(CHUNK.VERIFICATION));
   const appearance = await decodeSHAppearance(reader);
+  const semantic = await decodeSemanticMap(reader);
 
   // KEYFRAME_MESH — decodes both formats now: raw struct (0x00, what every
   // file produced until Draco was wired server-side) and Draco (0x01, once
@@ -343,7 +384,7 @@ export async function decodeNif(arrayBuffer) {
   // this doesn't change the calling convention.
   const mesh = await decodeMeshChunk(reader.getChunk(CHUNK.KEYFRAME_MESH));
 
-  return { reader, meta, thumbnailBytes, gaussians: geometry, appearance, calibration, verification, mesh };
+  return { reader, meta, thumbnailBytes, gaussians: geometry, appearance, semantic, calibration, verification, mesh };
 }
 
 // ── Draco decoder — lazily created, reused across every mesh this session.
