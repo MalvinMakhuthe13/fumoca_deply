@@ -11,6 +11,7 @@
  *   - view-dependent spherical harmonics through degree 3
  *   - calibration scale
  *   - transparent Gaussian compositing
+ *   - adaptive bucketed back-to-front depth ordering
  *
  * The renderer keeps the canonical Product Master data intact. It does not
  * claim that the Gaussian layer is the solid/encapsulation layer.
@@ -235,6 +236,22 @@ export class FumocaNativeGaussianRenderer {
     });
     container.appendChild(this.renderer.domElement);
 
+    this._sortBins = Math.max(64, Math.min(2048, Number.parseInt(
+      window?.FUMOCA_GAUSSIAN_SORT_BINS || '512', 10
+    ) || 512));
+    this._sortEveryFrame = false;
+    this._sortPositionThreshold = 0.001;
+    this._sortAngleThreshold = 0.0035;
+    this._lastSortPosition = new THREE.Vector3(Infinity, Infinity, Infinity);
+    this._lastSortQuaternion = new THREE.Quaternion(0, 0, 0, 0);
+    this._sortOrder = new Uint32Array(this.count);
+    this._sortCounts = new Uint32Array(this._sortBins);
+    this._sortOffsets = new Uint32Array(this._sortBins);
+    this._sortCursor = new Uint32Array(this._sortBins);
+    this._sortDepths = new Float32Array(this.count);
+    this._sortVisited = new Uint8Array(this.count);
+    this._sortScratch = new Float32Array(4);
+
     this._buildGeometry();
     this._fitCamera();
 
@@ -246,6 +263,7 @@ export class FumocaNativeGaussianRenderer {
     this._loop = () => {
       if (!this.renderer) return;
       this.controls?.update?.();
+      this._updateCameraUniformsAndSort();
       this.renderer.render(this.scene, this.camera);
       this.frame = requestAnimationFrame(this._loop);
     };
@@ -317,6 +335,147 @@ export class FumocaNativeGaussianRenderer {
     this.scene.add(this.mesh);
   }
 
+  _cameraNeedsResort() {
+    if (this._sortEveryFrame || this._lastSortQuaternion.w === 0) return true;
+
+    const positionMoved = this.camera.position.distanceTo(this._lastSortPosition);
+    const radius = Math.max(this._cameraRadius || 1, 0.001);
+    if (positionMoved > radius * this._sortPositionThreshold) return true;
+
+    const qDot = Math.abs(this.camera.quaternion.dot(this._lastSortQuaternion));
+    return (1 - qDot) > this._sortAngleThreshold;
+  }
+
+  _updateCameraUniformsAndSort() {
+    if (!this.material || !this.camera) return;
+    this.material.uniforms.uCameraPosition.value.copy(this.camera.position);
+
+    if (this._cameraNeedsResort()) {
+      this._sortBackToFront();
+      this._lastSortPosition.copy(this.camera.position);
+      this._lastSortQuaternion.copy(this.camera.quaternion);
+    }
+  }
+
+  _sortBackToFront() {
+    const position = this.geometry.getAttribute('aPosition');
+    if (!position || this.count < 2) return;
+
+    const e = this.camera.matrixWorldInverse.elements;
+    const N = this.count;
+    const bins = this._sortBins;
+    const depths = this._sortDepths;
+    const counts = this._sortCounts;
+    const offsets = this._sortOffsets;
+    const cursor = this._sortCursor;
+    const order = this._sortOrder;
+
+    counts.fill(0);
+
+    let minDepth = Infinity;
+    let maxDepth = -Infinity;
+
+    for (let i = 0; i < N; i++) {
+      const o = i * 3;
+      const x = position.array[o] * this.worldScale;
+      const y = position.array[o + 1] * this.worldScale;
+      const z = position.array[o + 2] * this.worldScale;
+      const depth = -(e[2] * x + e[6] * y + e[10] * z + e[14]);
+      depths[i] = depth;
+      if (depth < minDepth) minDepth = depth;
+      if (depth > maxDepth) maxDepth = depth;
+    }
+
+    const span = Math.max(maxDepth - minDepth, 1e-6);
+    for (let i = 0; i < N; i++) {
+      let b = Math.floor(((depths[i] - minDepth) / span) * (bins - 1));
+      if (b < 0) b = 0;
+      else if (b >= bins) b = bins - 1;
+      counts[b]++;
+    }
+
+    // Build far-to-near bucket offsets. Higher positive camera-space depth
+    // is farther from the viewer, so those buckets are emitted first.
+    let running = 0;
+    for (let b = bins - 1; b >= 0; b--) {
+      offsets[b] = running;
+      running += counts[b];
+    }
+    cursor.set(offsets);
+
+    for (let i = 0; i < N; i++) {
+      let b = Math.floor(((depths[i] - minDepth) / span) * (bins - 1));
+      if (b < 0) b = 0;
+      else if (b >= bins) b = bins - 1;
+      order[cursor[b]++] = i;
+    }
+
+    // Reorder the dynamic instance attributes in-place. This avoids a second
+    // full copy of the SH master while making rasterization order far-to-near.
+    this._sortVisited.fill(0);
+    this._permuteAttribute(this.geometry.getAttribute('aPosition'), order, 3);
+    this._sortVisited.fill(0);
+    this._permuteAttribute(this.geometry.getAttribute('aScale'), order, 3);
+    this._sortVisited.fill(0);
+    this._permuteAttribute(this.geometry.getAttribute('aQuat'), order, 4);
+    this._sortVisited.fill(0);
+    this._permuteAttribute(this.geometry.getAttribute('aOpacity'), order, 1);
+    for (let k = 0; k < 16; k++) {
+      this._sortVisited.fill(0);
+      this._permuteAttribute(this.geometry.getAttribute('sh' + k), order, 3);
+    }
+
+    this.geometry.getAttribute('aPosition').needsUpdate = true;
+    this.geometry.getAttribute('aScale').needsUpdate = true;
+    this.geometry.getAttribute('aQuat').needsUpdate = true;
+    this.geometry.getAttribute('aOpacity').needsUpdate = true;
+    for (let k = 0; k < 16; k++) {
+      this.geometry.getAttribute('sh' + k).needsUpdate = true;
+    }
+  }
+
+  _permuteAttribute(attribute, order, itemSize) {
+    const array = attribute.array;
+    const visited = this._sortVisited;
+    const scratch = this._sortScratch;
+
+    for (let start = 0; start < this.count; start++) {
+      if (visited[start]) continue;
+
+      let next = order[start];
+      if (next === start) {
+        visited[start] = 1;
+        continue;
+      }
+
+      const base = start * itemSize;
+      for (let c = 0; c < itemSize; c++) scratch[c] = array[base + c];
+
+      let current = start;
+      while (true) {
+        visited[current] = 1;
+        next = order[current];
+
+        if (next === start) {
+          const dst = current * itemSize;
+          for (let c = 0; c < itemSize; c++) array[dst + c] = scratch[c];
+          break;
+        }
+
+        const src = next * itemSize;
+        const dst = current * itemSize;
+
+        for (let c = 0; c < itemSize; c++) {
+          const tmp = array[src + c];
+          array[dst + c] = scratch[c];
+          scratch[c] = tmp;
+        }
+
+        current = next;
+      }
+    }
+  }
+
   _fitCamera() {
     const pos = this.geometry.getAttribute('aPosition');
     const box = new THREE.Box3();
@@ -333,11 +492,15 @@ export class FumocaNativeGaussianRenderer {
     this.target = center.clone();
     this.camera.near = Math.max(radius * 0.001, 0.0001);
     this.camera.far = radius * 20;
+    this._cameraRadius = radius;
     this.camera.updateProjectionMatrix();
 
     // Use the same OrbitControls implementation already imported by viewer.js.
     // viewer.js replaces this with its OrbitControls instance after construction.
     this.material.uniforms.uCameraPosition.value.copy(this.camera.position);
+    this._sortBackToFront();
+    this._lastSortPosition.copy(this.camera.position);
+    this._lastSortQuaternion.copy(this.camera.quaternion);
   }
 
   attachControls(OrbitControlsClass) {
@@ -351,6 +514,9 @@ export class FumocaNativeGaussianRenderer {
     this.controls.minDistance = this.camera.near * 20;
     this.controls.maxDistance = this.camera.far * 0.8;
     this.controls.update();
+    this._sortBackToFront();
+    this._lastSortPosition.copy(this.camera.position);
+    this._lastSortQuaternion.copy(this.camera.quaternion);
   }
 
   resize() {
