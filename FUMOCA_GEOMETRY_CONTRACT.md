@@ -287,3 +287,24 @@ A mathematically convenient axis is never promoted to a mechanical axis automati
 The Level 8 progression is therefore:
 
 `3D part → observed boundary → axis candidate → identity evidence → mechanical evidence → explicit pivot/axis → interaction`
+
+
+### Level 9 — Product Identity and Explicit Authoring
+
+Level 9 is the promotion boundary between reconstruction evidence and interactive product behavior. FUMOCA may expose observed regions, multi-view stability, geometry, boundaries and axis candidates automatically. It must not automatically assign product identity or mechanical behavior from those signals alone.
+
+An explicit authoring record may assign:
+
+- a product-part name;
+- a pivot position;
+- a normalized motion axis;
+- a motion type (`rotate`, `translate`, or `static`);
+- optional motion limits.
+
+The validator normalizes and bounds these values but does not claim that they were recovered from capture. Explicitly authored records are marked `authoring_source: explicit` and `verified_by_capture: false` until a future verification stage proves the transform against captured evidence.
+
+A rotational part becomes `interactive_ready` only when explicit authoring supplies a name, pivot and axis. This is the deliberate safety boundary between **what FUMOCA observed** and **what a product specialist told FUMOCA the part means and how it should move**.
+
+Therefore the complete progression is:
+
+`observed surface → semantic region → multi-view 3D evidence → geometry/boundary evidence → identity candidate → explicit identity/pivot/axis authoring → verification → interactive behavior`
