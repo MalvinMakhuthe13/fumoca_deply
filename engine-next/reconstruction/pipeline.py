@@ -33,13 +33,11 @@ Pipeline stages:
   6. Segment Anything (SAM 2) — per-object segmentation for interactive layers
   7. Camera pose estimation — COLMAP sparse SfM
   8. 3D depth field training — gsplat v1.x
-  9. Mesh extraction — real triangulation from the trained Gaussians. Each
-     Gaussian's shortest axis (after training) aligns with the true surface
-     normal, so we treat the splats as an oriented point cloud, splat them into
-     a signed-distance volume, and run marching cubes to get an actual
-     watertight triangle mesh — not a renamed point cloud. This is the same
-     family of technique as SuGaR / Gaussian-to-mesh literature, implemented
-     here with only numpy/scipy/scikit-image (no GPU, no extra service).
+  9. Mesh extraction — production screened-Poisson reconstruction from the
+     trained Gaussians. The learned Gaussian orientation and shortest axis are
+     preserved as surface normals, then Poisson reconstructs a detailed solid
+     surface. The previous oriented-TSDF/Marching-Cubes implementation remains
+     as a dependency-light fallback. Neither path is a renamed point cloud.
   10. Layer splitting — divide points into foreground/background by depth + mask
   11. Proxy video encoding — ffmpeg H.264
   12. Pack all chunks → .nif binary
@@ -48,7 +46,7 @@ Pipeline stages:
 
 Requirements:
   pip install gsplat torch torchvision rembg segment-anything-2 depth-anything boto3 \
-              supabase trimesh scikit-image scipy manifold3d fast_simplification \
+              supabase trimesh scikit-image scipy open3d manifold3d fast_simplification \
               imageio[ffmpeg] Pillow requests
 """
 
