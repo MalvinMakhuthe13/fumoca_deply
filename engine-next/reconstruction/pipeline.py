@@ -2824,6 +2824,24 @@ class ReconstructionWorker:
         quats = pts[:, 6:10]
         colors = 1.0 / (1.0 + np.exp(-pts[:, 11:14]))  # sigmoid → 0-1 RGB
 
+        # One face budget is shared by the production and fallback paths.
+        # Production detail tiers choose the default; an explicit max_faces
+        # remains an escape hatch for constrained jobs.
+        detail_name = os.environ.get('FUMOCA_MESH_DETAIL', 'high').lower()
+        detail_face_defaults = {
+            'fast': 80_000,
+            'balanced': 160_000,
+            'high': 250_000,
+            'ultra': 350_000,
+        }
+        target_max_faces = (
+            int(max_faces) if max_faces is not None
+            else int(os.environ.get(
+                'FUMOCA_MESH_MAX_FACES',
+                detail_face_defaults.get(detail_name, detail_face_defaults['high'])
+            ))
+        )
+
         # ── FUMOCA production surface path ─────────────────────────────────
         # The old path below built a signed-distance volume by projecting
         # Gaussian normals and then ran Marching Cubes. That is useful as a
@@ -3153,7 +3171,7 @@ class ReconstructionWorker:
         mesh.update_faces(mesh.nondegenerate_faces())
         mesh.remove_unreferenced_vertices()
 
-        if len(mesh.faces) > max_faces:
+        if len(mesh.faces) > target_max_faces:
             try:
                 mesh = mesh.simplify_quadric_decimation(face_count=target_max_faces)
             except Exception as e:
