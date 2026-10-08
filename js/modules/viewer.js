@@ -1998,7 +1998,7 @@ async function boot() {
       window._fumocaVerification = verification;
       window._fumocaDecodedMesh  = mesh;
       renderTrustBadges(calibration, verification);
-      const nifBytes = geometryToSplatRows(gaussians);
+      const nifBytes = geometryToSplatRows(gaussians, calibration);
       const nifBlob  = new Blob([nifBytes], { type: 'application/octet-stream' });
       fileUrl = URL.createObjectURL(nifBlob);
       // Mirror the same window globals FumocDecoder.loadIntoViewer exposed,
