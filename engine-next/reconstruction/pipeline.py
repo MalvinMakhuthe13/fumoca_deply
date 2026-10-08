@@ -1414,7 +1414,14 @@ class GaussianSplatTrainer:
             )
         self.quats       = nn.Parameter(F.normalize(torch.randn(n, 4, device=self.device), dim=-1))
         self.log_opacity = nn.Parameter(torch.zeros(n, device=self.device))
-        self.sh0         = nn.Parameter(torch.zeros(n, 3, device=self.device))
+        # View-dependent appearance is essential for photorealism: real paint,
+        # glass, chrome, varnish and metallic packaging change appearance as the
+        # camera moves. Keep higher-order spherical-harmonic bands in the MASTER.
+        self.sh_degree = max(0, min(3, int(os.environ.get('FUMOCA_SH_DEGREE', '3'))))
+        self.sh0         = nn.Parameter(torch.zeros(n, 1, 3, device=self.device))
+        self.sh_rest     = nn.Parameter(torch.zeros(
+            n, (self.sh_degree + 1) ** 2 - 1, 3, device=self.device
+        ))
         self._opt = self._make_optimizer()
         self._step = 0
 
@@ -1425,6 +1432,7 @@ class GaussianSplatTrainer:
             {'params': [self.quats],       'lr': 5e-4},
             {'params': [self.log_opacity], 'lr': 5e-3},
             {'params': [self.sh0],         'lr': 1e-3},
+            {'params': [self.sh_rest],     'lr': 1e-3},
         ], eps=1e-15)
 
     def _reset_optimizer_after_topology_change(self):
@@ -1458,18 +1466,22 @@ class GaussianSplatTrainer:
         # sigmoid(0)=0.5 (neutral grey) instead of the old sigmoid(0)+0.5=1.0
         # (pure white) — grey is the more standard splat-init choice, and
         # unlike the old value it can actually converge toward black.
-        colours   = torch.sigmoid(self.sh0)
+        # gsplat evaluates these coefficients against the actual camera
+        # direction. This captures view-dependent appearance instead of freezing
+        # one RGB value per Gaussian.
+        sh_coeffs = torch.cat([self.sh0, self.sh_rest], dim=1)
 
         rendered, alpha, _info = gsplat.rasterization(
             means=self.means.unsqueeze(0),
             quats=quats_n.unsqueeze(0),
             scales=scales.unsqueeze(0),
             opacities=opacities.unsqueeze(0),
-            colors=colours.unsqueeze(0),
+            colors=sh_coeffs,
             viewmats=viewmat.unsqueeze(0).unsqueeze(1),
             Ks=K.unsqueeze(0).unsqueeze(1),
             width=W, height=H,
             near_plane=0.01, far_plane=100.0,
+            sh_degree=self.sh_degree,
             # ED gives expected Gaussian projection depth, which is the
             # useful differentiable depth signal for shape supervision.
             render_mode='RGB+ED' if depth_target is not None and depth_loss_weight > 0 else 'RGB',
@@ -1602,7 +1614,7 @@ class GaussianSplatTrainer:
             keep = torch.sigmoid(self.log_opacity) > thr
             if keep.sum() < 1000: return
             for p in [self.means, self.log_scales, self.quats,
-                      self.log_opacity, self.sh0]:
+                      self.log_opacity, self.sh0, self.sh_rest]:
                 p.data = p.data[keep]
             self._reset_optimizer_after_topology_change()
 
@@ -1661,11 +1673,13 @@ class GaussianSplatTrainer:
                 new_quats   = self.quats[idx]
                 new_opacity = self.log_opacity[idx] - 1.0  # start slightly less opaque
                 new_sh0     = self.sh0[idx]
+                new_sh_rest = self.sh_rest[idx]
                 for p, new_p in [(self.means, new_means),
                                  (self.log_scales, new_scales),
                                  (self.quats, new_quats),
                                  (self.log_opacity, new_opacity),
-                                 (self.sh0, new_sh0)]:
+                                 (self.sh0, new_sh0),
+                                 (self.sh_rest, new_sh_rest)]:
                     p.data = torch.cat([p.data, new_p.data], dim=0)
                 topology_changed = True
 
@@ -1700,6 +1714,7 @@ class GaussianSplatTrainer:
                     (self.quats, new_quats, new_quats),
                     (self.log_opacity, new_opacity, new_opacity),
                     (self.sh0, new_sh0, new_sh0),
+                    (self.sh_rest, new_sh_rest, new_sh_rest),
                 ]:
                     p.data = torch.cat([p.data[keep], new_a, new_b], dim=0)
                 topology_changed = True
@@ -1738,9 +1753,13 @@ class GaussianSplatTrainer:
                 scales  = self.log_scales.detach().cpu().numpy().astype(np.float32)   # (N,3)
                 quats   = self.quats.detach().cpu().numpy().astype(np.float32)        # (N,4)
                 opacity = self.log_opacity.detach().cpu().numpy().astype(np.float32)  # (N,)
-                sh0     = self.sh0.detach().cpu().numpy().astype(np.float32)          # (N,3)
+                sh0     = self.sh0.detach().cpu().numpy().astype(np.float32)
 
             n = len(means)
+            # Legacy geometry keeps an RGB fallback. The full SH master is
+            # trained above; this fallback is deliberately view-independent so
+            # older NIF readers remain compatible.
+            sh0_rgb = np.clip(sh0[:, 0, :] * 0.28209479177387814 + 0.5, 0.0, 1.0)
 
             # Normalise quats to unit length (defensive)
             norms = np.linalg.norm(quats, axis=1, keepdims=True)
@@ -1772,9 +1791,8 @@ class GaussianSplatTrainer:
             opacity_sig = 1.0 / (1.0 + np.exp(-np.clip(opacity, -20, 20)))
             opacity_q = np.clip(opacity_sig * 255, 0, 255).astype(np.uint8)
 
-            # ── Quantise SH0 colour (logit → sigmoid offset → uint8) ─────────
-            sh_sig = 1.0 / (1.0 + np.exp(-np.clip(sh0, -20, 20))) + 0.5
-            sh_q = np.clip((sh_sig - 0.5) * 255, 0, 255).astype(np.uint8)
+            # ── Quantise legacy RGB fallback derived from SH degree-0 ────────
+            sh_q = np.clip(sh0_rgb * 255.0, 0, 255).astype(np.uint8)
 
             # ── Pack ──────────────────────────────────────────────────────────
             # Header: format_flag(1) + count(4) + bounding_box(24) = 29 bytes
@@ -1826,7 +1844,7 @@ class GaussianSplatTrainer:
                 out[:, 3:6]  = self.log_scales.detach().cpu().numpy()
                 out[:, 6:10] = self.quats.detach().cpu().numpy()
                 out[:, 10]   = self.log_opacity.detach().cpu().numpy()
-                out[:, 11:14]= self.sh0.detach().cpu().numpy()
+                out[:, 11:14]= self.sh0.detach().cpu().numpy()[:, 0, :]
             # format_flag: 0x00 = raw float32
             import struct as _s
             header = _s.pack('>BI', 0x00, n)
