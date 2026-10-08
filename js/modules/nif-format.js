@@ -381,6 +381,62 @@ export async function decodeProductPartGraph(reader) {
   }
 }
 
+
+
+// ── Level 12 master-solid part ownership map ─────────────────────────────────
+export async function decodeMeshPartMap(reader) {
+  const chunk = reader.getChunk(CHUNK.MESH_PART_MAP);
+  if (!chunk) return null;
+  try {
+    const bytes = await decompressChunk(chunk);
+    const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    if (dv.byteLength < 13) throw new Error('mesh part map header truncated');
+    const magic = String.fromCharCode(dv.getUint8(0), dv.getUint8(1), dv.getUint8(2), dv.getUint8(3));
+    if (magic !== 'FSMM') throw new Error('invalid mesh part map magic');
+    const version = dv.getUint8(4);
+    const vertexCount = dv.getUint32(5, false);
+    const faceCount = dv.getUint32(9, false);
+    let off = 13;
+    const vertexLabels = bytes.slice(off, off + vertexCount); off += vertexCount;
+    const vertexConfidence = new Float32Array(vertexCount);
+    for (let i = 0; i < vertexCount; i++, off += 2) {
+      const h = dv.getUint16(off, false);
+      const sign = h & 0x8000 ? -1 : 1;
+      const exp = (h >>> 10) & 0x1f;
+      const frac = h & 0x3ff;
+      vertexConfidence[i] = exp === 0 ? sign * Math.pow(2, -14) * frac / 1024
+        : exp === 31 ? (frac ? NaN : sign * Infinity)
+        : sign * Math.pow(2, exp - 15) * (1 + frac / 1024);
+    }
+    const faceLabels = bytes.slice(off, off + faceCount); off += faceCount;
+    const faceConfidence = new Float32Array(faceCount);
+    for (let i = 0; i < faceCount; i++, off += 2) {
+      const h = dv.getUint16(off, false);
+      const sign = h & 0x8000 ? -1 : 1;
+      const exp = (h >>> 10) & 0x1f;
+      const frac = h & 0x3ff;
+      faceConfidence[i] = exp === 0 ? sign * Math.pow(2, -14) * frac / 1024
+        : exp === 31 ? (frac ? NaN : sign * Infinity)
+        : sign * Math.pow(2, exp - 15) * (1 + frac / 1024);
+    }
+    return {
+      version,
+      vertexCount,
+      faceCount,
+      unknownLabel: 255,
+      mixedLabel: 254,
+      vertexLabels,
+      vertexConfidence,
+      faceLabels,
+      faceConfidence,
+      policy: 'Observed Gaussian proximity ownership only; unknown and mixed faces remain structurally unassigned.',
+    };
+  } catch (e) {
+    console.warn('[nif-format] MESH_PART_MAP failed to decode:', e.message);
+    return null;
+  }
+}
+
 // ── Public: decode a .nif ArrayBuffer back into render-ready data ────────────
 export async function decodeNif(arrayBuffer) {
   const reader = new NIFReader(arrayBuffer);
@@ -412,8 +468,9 @@ export async function decodeNif(arrayBuffer) {
   // through a wasm module — decodeNif already awaits everything else, so
   // this doesn't change the calling convention.
   const mesh = await decodeMeshChunk(reader.getChunk(CHUNK.KEYFRAME_MESH));
+  const meshPartMap = await decodeMeshPartMap(reader);
 
-  return { reader, meta, thumbnailBytes, gaussians: geometry, appearance, semantic, partGraph, calibration, verification, mesh };
+  return { reader, meta, thumbnailBytes, gaussians: geometry, appearance, semantic, partGraph, calibration, verification, mesh, meshPartMap };
 }
 
 // ── Draco decoder — lazily created, reused across every mesh this session.
