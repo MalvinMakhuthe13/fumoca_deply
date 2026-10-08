@@ -133,8 +133,8 @@ void main() {
   float fy = projectionMatrix[1][1];
   float z2 = depth * depth;
   mat3 J = mat3(
-    fx / depth, 0.0, -fx * cameraCenter.x / z2,
-    0.0, fy / depth, -fy * cameraCenter.y / z2,
+    fx / depth, 0.0, fx * cameraCenter.x / z2,
+    0.0, fy / depth, fy * cameraCenter.y / z2,
     0.0, 0.0, 0.0
   );
 
