@@ -3218,13 +3218,13 @@ class ReconstructionWorker:
                     quats_n = F.normalize(trainer.quats, dim=-1)
                     scales  = torch.exp(trainer.log_scales).clamp(min=1e-6)
                     opacities = torch.sigmoid(trainer.log_opacity)
-                    colours   = torch.sigmoid(trainer.sh0)
+                    sh_coeffs = torch.cat([trainer.sh0, trainer.sh_rest], dim=1)
                     rendered, _a, _i = gsplat.rasterization(
                         means=trainer.means.unsqueeze(0), quats=quats_n.unsqueeze(0),
                         scales=scales.unsqueeze(0), opacities=opacities.unsqueeze(0),
-                        colors=colours.unsqueeze(0), viewmats=vm.unsqueeze(0).unsqueeze(1), Ks=K.unsqueeze(0).unsqueeze(1),
+                        colors=sh_coeffs, viewmats=vm.unsqueeze(0).unsqueeze(1), Ks=K.unsqueeze(0).unsqueeze(1),
                         width=gt.shape[1], height=gt.shape[0],
-                        near_plane=0.01, far_plane=100.0, render_mode='RGB',
+                        near_plane=0.01, far_plane=100.0, sh_degree=trainer.sh_degree, render_mode='RGB',
                     )
                     mses.append(float(F.mse_loss(rendered.squeeze(0).squeeze(0), gt)))
                 mean_mse = sum(mses) / len(mses)
@@ -3248,20 +3248,21 @@ class ReconstructionWorker:
                 quats_n = F.normalize(trainer.quats, dim=-1)
                 scales = torch.exp(trainer.log_scales).clamp(min=1e-6)
                 opacities = torch.sigmoid(trainer.log_opacity)
-                colours = torch.sigmoid(trainer.sh0)
+                sh_coeffs = torch.cat([trainer.sh0, trainer.sh_rest], dim=1)
 
                 debug_rendered, _, _ = gsplat.rasterization(
                     means=trainer.means.unsqueeze(0),
                     quats=quats_n.unsqueeze(0),
                     scales=scales.unsqueeze(0),
                     opacities=opacities.unsqueeze(0),
-                    colors=colours.unsqueeze(0),
+                    colors=sh_coeffs,
                     viewmats=debug_vm.unsqueeze(0).unsqueeze(1),
                     Ks=K.unsqueeze(0).unsqueeze(1),
                     width=debug_gt.shape[1],
                     height=debug_gt.shape[0],
                     near_plane=0.01,
                     far_plane=100.0,
+                    sh_degree=trainer.sh_degree,
                     render_mode='RGB',
                 )
 
