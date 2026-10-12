@@ -1407,7 +1407,7 @@ async function mountPlyViewer(url) {
     }
     // Debug: log what attributes are present so we can confirm colour source
     console.log('%c[FUMOCA PLY attrs]', 'color:#c8ff00;font-weight:800',
-      [...geo.attributes].map ? 'n/a' :
+      /*[...geo.attributes].map ? 'n/a' :*/
       Object.keys(geo.attributes).join(', '));
     geo.setAttribute('color',    new THREE.BufferAttribute(colors, 3));
     geo.setAttribute('aOpacity', new THREE.BufferAttribute(opacities, 1));
