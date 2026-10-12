@@ -48,7 +48,7 @@ const DEFAULT_MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
 const ALLOWED_MIME_TYPES = {
   'nif-videos': ['video/mp4', 'video/webm', 'video/quicktime', 'application/zip'],
   'preview-videos': ['video/mp4', 'video/webm'],
-  'nif-files': ['application/octet-stream', 'application/x-ply', 'model/gltf-binary', 'application/zip'],
+  'nif-files': ['application/octet-stream','application/x-ply','model/x-ply','application/ply','model/ply','model/gltf-binary','application/zip'],
   'thumbnails': ['image/jpeg', 'image/png', 'image/webp'],
   'avatars': ['image/jpeg', 'image/png', 'image/webp'],
 };
@@ -132,8 +132,17 @@ function sanitiseKey(rawPath) {
 
 function isAllowedMimeType(bucketName, contentType) {
   const allowed = ALLOWED_MIME_TYPES[bucketName];
-  if (!allowed) return true; // unknown bucket name is caught elsewhere
-  return allowed.includes(contentType);
+
+  if (!allowed) return true;
+
+  const normalised = String(contentType || '')
+    .split(';', 1)[0]
+    .trim()
+    .toLowerCase();
+
+  return allowed.some(
+    (type) => type.toLowerCase() === normalised
+  );
 }
 
 // ── Bucket resolver ──────────────────────────────────────────────────────────
