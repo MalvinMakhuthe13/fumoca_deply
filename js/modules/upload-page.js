@@ -474,17 +474,24 @@ window.handleSubmit = async function() {
       const { data: nif, error: dbErr } = await supabase.from('nif_files').insert([{
         user_id: user.id,
         title: title || selectedFile.name,
-        description: desc || '',
-        category: category || 'general',
-        nif_url: publicUrl,
-        output_url: publicUrl,
-        status: 'done',
-        processing_stage: 'published',
-        processing_progress: 100,
-        source_type: 'direct_ply',
-        must_edit_before_publish: false,
-        edit_completed: true,
+        description: desc || null,
+        vertical: category || 'general',
+        r2_key: filePath,
+        file_size: selectedFile.size,
         created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        meta: {
+          source_type: 'direct_ply',
+          nif_url: publicUrl,
+          output_url: publicUrl,
+          status: 'done',
+          processing_stage: 'published',
+          processing_progress: 100,
+          must_edit_before_publish: false,
+          edit_completed: true,
+          tags,
+          visibility
+        }
       }]).select().single();
 
       if (dbErr) throw dbErr;
