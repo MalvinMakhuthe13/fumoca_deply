@@ -666,6 +666,9 @@ input[type=range].amber::-webkit-slider-thumb{background:var(--amber);box-shadow
       <div class="ptab active" data-tab="tools">Tools</div>
       <div class="ptab" data-tab="select">Select</div>
       <div class="ptab" data-tab="clean">Clean</div>
+      <div class="ptab" data-tab="mesh">Mesh</div>
+      <div class="ptab" data-tab="present">Present</div>
+      <div class="ptab" data-tab="import">Import</div>
       <div class="ptab" data-tab="layers">Layers</div>
     </div>
 
@@ -893,6 +896,10 @@ input[type=range].amber::-webkit-slider-thumb{background:var(--amber);box-shadow
         <div class="sec-body">
           <button class="ac-btn lime full" id="autoCleanBtn">⚡ Auto Clean Subject</button>
           <div class="hint">Detects core subject, removes outer floaters and noise automatically.</div>
+
+          <button class="ac-btn cyan full" id="sparseBoostBtn" style="margin-top:8px">◈ Sparse / limited-view boost</button>
+          <div class="hint">Removes floaters and marks gaps when you only have a few angles — better depth before mesh/NIF.</div>
+
           <div class="ctrl-row" style="margin-top:6px">
             <span class="ctrl-label">Aggressiveness</span>
             <span class="ctrl-val" id="cleanAggrVal">50%</span>
@@ -975,7 +982,41 @@ input[type=range].amber::-webkit-slider-thumb{background:var(--amber);box-shadow
     </div>
 
     <!-- TAB: LAYERS -->
-    <div class="panel-body" id="tab-layers" style="display:none">
+    
+    <!-- TAB: MESH & PRINT -->
+    <div class="panel-body" id="tab-mesh" style="display:none">
+      <div id="studioMeshPrintRoot"></div>
+    </div>
+
+    <!-- TAB: PRESENT (camera paths + break the frame) -->
+    <div class="panel-body" id="tab-present" style="display:none">
+      <div id="studioCameraPathsRoot"></div>
+      <div id="studioBreakFrameRoot" style="margin-top:12px"></div>
+      <div id="studioInteractRoot" style="margin-top:12px"></div>
+      <div id="studioAudioRoot" style="margin-top:12px"></div>
+    </div>
+
+    <!-- TAB: IMPORT (LiDAR + formats) -->
+    <div class="panel-body" id="tab-import" style="display:none">
+      <div class="section">
+        <div class="sec-head"><span class="sec-label">LiDAR / dense points</span><span class="sec-badge">PLY · XYZ</span></div>
+        <div class="sec-body">
+          <div class="hint">Merge real depth from scanners into sparse captures. LAS/LAZ queues to the GPU worker.</div>
+          <button type="button" class="ac-btn lime full" id="lidarPickBtn">Import PLY / XYZ / LAS</button>
+          <div id="lidarStatus" class="hint" style="margin-top:8px"></div>
+        </div>
+      </div>
+      <div class="section">
+        <div class="sec-head"><span class="sec-label">Drop zone</span></div>
+        <div class="sec-body">
+          <div id="lidarDrop" style="padding:20px;border:1px dashed rgba(212,255,0,.35);border-radius:12px;text-align:center;color:rgba(255,255,255,.55);font-size:12px">
+            Drop LiDAR or dense PLY here
+          </div>
+        </div>
+      </div>
+    </div>
+
+<div class="panel-body" id="tab-layers" style="display:none">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <span style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">Layers</span>
         <div style="display:flex;gap:4px">
@@ -4525,5 +4566,304 @@ if (!window._fumocaBooted) {
     });
   }
 </script>
+
+<script type="module">
+  import { StudioModes } from './js/modules/studio-modes.js';
+  import { mountLidarImport } from './js/modules/lidar-import.js';
+  import { mountCameraPathUI } from './js/modules/camera-paths.js';
+  import { mountMeshPrintPanel } from './js/modules/studio-mesh-print.js';
+  import { boostSparseCapture } from './js/modules/sparse-quality.js';
+  import { mountBreakFrameUI } from './js/modules/break-frame.js';
+
+  function status(msg) {
+    const el = document.getElementById('statusMsg') || document.getElementById('statusText');
+    if (el) el.textContent = msg;
+    console.log('[studio]', msg);
+  }
+
+  // Modes bar
+  try { StudioModes.init(); } catch (e) { console.warn(e); }
+
+  // Mesh / print
+  const meshRoot = document.getElementById('studioMeshPrintRoot');
+  if (meshRoot) mountMeshPrintPanel(meshRoot, { onStatus: status });
+
+  // Camera paths
+  const camRoot = document.getElementById('studioCameraPathsRoot');
+  if (camRoot) {
+    const assetKey = new URLSearchParams(location.search).get('splatId') || 'default';
+    mountCameraPathUI(camRoot, { assetKey, onStatus: status });
+  }
+
+  const bfRoot = document.getElementById('studioBreakFrameRoot');
+  if (bfRoot) mountBreakFrameUI(bfRoot, { onStatus: status });
+
+  // Interactions + scene audio (product demos, doors, lights, music)
+  const interactRoot = document.getElementById('studioInteractRoot');
+  if (interactRoot) {
+    interactRoot.innerHTML = `
+      <div class="section">
+        <div class="sec-head"><span class="sec-label">Interactivity</span><span class="sec-badge">LIVE</span></div>
+        <div class="sec-body">
+          <div class="hint">Real product actions: doors, lights, sound. Uses hotspot actions + scene state.</div>
+          <button type="button" class="ac-btn lime full" id="ixSeedCar">Add car demo hotspots</button>
+          <div class="hint" style="margin-top:8px">Seed pins for driver door + lights. Attach sound URLs in metadata later. Viewers listen for <code>fumoca:state</code>.</div>
+          <div id="ixState" class="hint" style="margin-top:8px"></div>
+        </div>
+      </div>`;
+    document.getElementById('ixSeedCar')?.addEventListener('click', async () => {
+      try {
+        const mod = await import('./js/modules/scene-interactions.js');
+        const hs = mod.vehicleDemoHotspots({});
+        window._fumocaHotspots = [...(window._fumocaHotspots || []), ...hs];
+        document.getElementById('ixState').textContent = `Added ${hs.length} hotspots (door, lights). Publish metadata to keep them.`;
+        status('Demo hotspots added');
+        document.dispatchEvent(new CustomEvent('fumoca:hotspots', { detail: { hotspots: window._fumocaHotspots } }));
+      } catch (e) {
+        status(e.message || String(e));
+      }
+    });
+  }
+  const audioRoot = document.getElementById('studioAudioRoot');
+  if (audioRoot) {
+    audioRoot.innerHTML = `
+      <div class="section">
+        <div class="sec-head"><span class="sec-label">Scene music</span></div>
+        <div class="sec-body">
+          <div class="hint">Attach a loop for showroom / ad mood. Stored on metadata.sceneAudio when you publish.</div>
+          <input type="url" id="audioBedUrl" placeholder="https://…/music.mp3"
+            style="width:100%;padding:8px;border-radius:8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#fff;margin-bottom:8px">
+          <button type="button" class="ac-btn full" id="audioSaveBtn">Set scene bed URL</button>
+        </div>
+      </div>`;
+    document.getElementById('audioSaveBtn')?.addEventListener('click', () => {
+      const url = document.getElementById('audioBedUrl')?.value?.trim();
+      if (!url) { status('Paste an audio URL'); return; }
+      window._fumocaSceneAudio = { bed: { url, volume: 0.35, loop: true }, mutedDefault: true };
+      status('Scene music set — include in publish metadata');
+    });
+  }
+
+  // Walkthrough (Matterport-style outside → inside)
+  if (interactRoot) {
+    const wtDiv = document.createElement('div');
+    wtDiv.className = 'section';
+    wtDiv.innerHTML = `
+      <div class="sec-head"><span class="sec-label">Walkthrough</span><span class="sec-badge">SPACES</span></div>
+      <div class="sec-body">
+        <div class="hint">Link exterior → interior captures (home rooms or car cabin). Beats single-space tours.</div>
+        <button type="button" class="ac-btn full" id="wtSeedProperty">Property template</button>
+        <button type="button" class="ac-btn full" id="wtSeedVehicle" style="margin-top:6px">Vehicle template</button>
+        <div class="hint" style="margin-top:8px">Fill splatIds after each room/cabin is processed. Saved on metadata.walkthrough at publish.</div>
+      </div>`;
+    interactRoot.appendChild(wtDiv);
+    document.getElementById('wtSeedProperty')?.addEventListener('click', async () => {
+      const mod = await import('./js/modules/walkthrough.js');
+      const g = mod.propertyWalkthroughTemplate({
+        exteriorSplatId: new URLSearchParams(location.search).get('splatId') || 'EXTERIOR_ID',
+        rooms: [
+          { id: 'living', label: 'Living room', splatId: 'LIVING_ID', x: 48, y: 52 },
+          { id: 'kitchen', label: 'Kitchen', splatId: 'KITCHEN_ID', x: 62, y: 50 },
+        ],
+      });
+      window._fumocaWalkthrough = g;
+      status('Property walkthrough graph seeded — replace room splat IDs');
+    });
+    document.getElementById('wtSeedVehicle')?.addEventListener('click', async () => {
+      const mod = await import('./js/modules/walkthrough.js');
+      const sid = new URLSearchParams(location.search).get('splatId') || 'EXTERIOR_ID';
+      const g = mod.vehicleWalkthroughTemplate({
+        exteriorSplatId: sid,
+        cabinSplatId: 'CABIN_ID',
+        bootSplatId: 'BOOT_ID',
+      });
+      window._fumocaWalkthrough = g;
+      status('Vehicle walkthrough seeded — set cabin/boot splat IDs');
+    });
+  }
+
+  // Publish interactions metadata to Supabase
+  if (interactRoot) {
+    const pub = document.createElement('div');
+    pub.className = 'section';
+    pub.innerHTML = `
+      <div class="sec-head"><span class="sec-label">Publish interactions</span></div>
+      <div class="sec-body">
+        <div class="hint">Saves hotspots, walkthrough, music, and state regions onto this listing’s metadata.</div>
+        <button type="button" class="ac-btn lime full" id="publishInteractionsBtn">Save to listing</button>
+        <div id="pubIxStatus" class="hint" style="margin-top:8px"></div>
+      </div>`;
+    interactRoot.appendChild(pub);
+    document.getElementById('publishInteractionsBtn')?.addEventListener('click', async () => {
+      const st = document.getElementById('pubIxStatus');
+      try {
+        const splatId = new URLSearchParams(location.search).get('splatId');
+        if (!splatId) { st.textContent = 'Open Studio with ?splatId=… to publish'; return; }
+        const { buildInteractionMetadata, saveInteractionsToSupabase } = await import('./js/modules/hotspot-persist.js');
+        const { vehicleDemoHotspots } = await import('./js/modules/scene-interactions.js');
+        if (!window._fumocaHotspots?.length) {
+          window._fumocaHotspots = vehicleDemoHotspots({});
+        }
+        const patch = buildInteractionMetadata({});
+        const { supabase } = await import('./js/supabaseClient.js');
+        await saveInteractionsToSupabase(supabase, splatId, patch);
+        st.textContent = 'Saved hotspots + walkthrough + audio metadata';
+        status('Interactions published');
+      } catch (e) {
+        st.textContent = e.message || String(e);
+        status(st.textContent);
+      }
+    });
+  }
+
+
+
+
+  // LiDAR
+  const lidarApi = mountLidarImport({
+    dropEl: document.getElementById('lidarDrop'),
+    onStatus: (m) => {
+      const s = document.getElementById('lidarStatus');
+      if (s) s.textContent = m;
+      status(m);
+    },
+    onCloud: (cloud) => {
+      window._fumocaLidarCloud = cloud;
+      // Hook: if studio exposes merge API, call it
+      if (typeof window.mergePointCloudIntoStudio === 'function' && !cloud.deferred) {
+        window.mergePointCloudIntoStudio(cloud);
+      } else if (!cloud.deferred) {
+        status(`LiDAR ready (${cloud.count?.toLocaleString?.() || '?'} pts) — merge hook pending`);
+      }
+    },
+  });
+  document.getElementById('lidarPickBtn')?.addEventListener('click', () => lidarApi.openPicker());
+
+  // Sparse boost
+  document.getElementById('sparseBoostBtn')?.addEventListener('click', () => {
+    const state = window.S || window._fumocaState;
+    try {
+      const result = boostSparseCapture(state, {
+        onProgress: status,
+      });
+      status(result.message);
+      // request redraw if available
+      window._fumocaRenderer?.needsUpdate && (window._fumocaRenderer.needsUpdate = true);
+    } catch (err) {
+      status(err.message || String(err));
+    }
+  });
+
+
+  if (interactRoot && !document.getElementById('tagRegionBtn')) {
+    const tag = document.createElement('div');
+    tag.className = 'section';
+    tag.innerHTML = `
+      <div class="sec-head"><span class="sec-label">Tag selection → part</span></div>
+      <div class="sec-body">
+        <div class="hint">Select points, tag as door/lights. Saved regions respond in the viewer when state changes.</div>
+        <select id="tagRegionKey" style="width:100%;padding:8px;border-radius:8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#fff;margin-bottom:8px">
+          <option value="door_fl">Driver door (FL)</option>
+          <option value="door_fr">Passenger door (FR)</option>
+          <option value="door_rl">Rear left door</option>
+          <option value="door_rr">Rear right door</option>
+          <option value="lights">Headlights / lights</option>
+          <option value="boot">Boot / trunk</option>
+        </select>
+        <button type="button" class="ac-btn lime full" id="tagRegionBtn">Tag selected points</button>
+        <div id="tagRegionStatus" class="hint" style="margin-top:8px"></div>
+      </div>`;
+    interactRoot.appendChild(tag);
+    document.getElementById('tagRegionBtn').addEventListener('click', () => {
+      const S = window.S || window._fumocaState;
+      const key = document.getElementById('tagRegionKey').value;
+      const stEl = document.getElementById('tagRegionStatus');
+      const sel = S?.selected || S?.selectedMask;
+      if (!sel || !sel.length) {
+        stEl.textContent = 'Select points first (box / lasso / brush)';
+        return;
+      }
+      const indices = [];
+      for (let i = 0; i < sel.length; i++) if (sel[i]) indices.push(i);
+      if (!indices.length) {
+        stEl.textContent = 'No points in selection';
+        return;
+      }
+      window._fumocaStateRegions = window._fumocaStateRegions || {};
+      window._fumocaStateRegions[key] = { indices };
+      // also default sound pack for publish
+      window._fumocaStateSounds = window._fumocaStateSounds || {
+        click: 'sounds/click.wav',
+        door: 'sounds/door.wav',
+        engineStart: 'sounds/engine-start.wav',
+        engineLoop: 'sounds/engine-idle.wav',
+      };
+      stEl.textContent = 'Tagged ' + indices.length.toLocaleString() + ' pts → ' + key + '. Save to listing.';
+      status(stEl.textContent);
+    });
+  }
+
+
+  if (interactRoot && !document.getElementById('uploadStateSound')) {
+    const aud = document.createElement('div');
+    aud.className = 'section';
+    aud.innerHTML = `
+      <div class="sec-head"><span class="sec-label">Custom SFX</span></div>
+      <div class="sec-body">
+        <div class="hint">Replace demo WAVs with your recorded engine / door / click audio.</div>
+        <select id="sfxKey" style="width:100%;padding:8px;border-radius:8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#fff;margin-bottom:8px">
+          <option value="engineStart">Engine start</option>
+          <option value="engineLoop">Engine idle loop</option>
+          <option value="door">Door</option>
+          <option value="click">Click / lights</option>
+        </select>
+        <input type="file" id="uploadStateSound" accept="audio/*" style="width:100%;margin-bottom:8px;color:#fff;font-size:12px">
+        <div id="sfxStatus" class="hint"></div>
+      </div>`;
+    interactRoot.appendChild(aud);
+    document.getElementById('uploadStateSound').addEventListener('change', async (e) => {
+      const file = e.target.files?.[0];
+      const key = document.getElementById('sfxKey').value;
+      const st = document.getElementById('sfxStatus');
+      if (!file) return;
+      try {
+        let url = null;
+        try {
+          const r2mod = await import('./js/r2Client.js');
+          const r2 = r2mod.default || r2mod;
+          if (r2?.uploadBlob || r2?.upload) {
+            const path = `sfx/${key}_${Date.now()}_${file.name}`;
+            if (r2.uploadBlob) url = await r2.uploadBlob(file, path);
+            else url = await r2.upload(file, path);
+          }
+        } catch (_) {}
+        if (!url) {
+          url = URL.createObjectURL(file);
+          st.textContent = 'Local session URL — Save listing after R2 upload for permanence';
+        } else {
+          st.textContent = 'Uploaded: ' + key;
+        }
+        window._fumocaStateSounds = window._fumocaStateSounds || {};
+        window._fumocaStateSounds[key] = url;
+        status('SFX set: ' + key);
+      } catch (err) {
+        st.textContent = err.message || String(err);
+      }
+    });
+  }
+
+  // Left tab switching for new tabs (if page only handled original tabs)
+  document.querySelectorAll('#leftTabs .ptab').forEach((tab) => {
+    tab.addEventListener('click', () => {
+      const id = tab.getAttribute('data-tab');
+      document.querySelectorAll('#leftTabs .ptab').forEach((t) => t.classList.remove('active'));
+      tab.classList.add('active');
+      document.querySelectorAll('#panelLeft .panel-body').forEach((b) => {
+        b.style.display = b.id === 'tab-' + id ? 'block' : 'none';
+      });
+    });
+  });
+</script>
+
 </body>
 </html>

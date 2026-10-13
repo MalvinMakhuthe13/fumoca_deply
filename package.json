@@ -1,0 +1,14 @@
+{
+  "name": "fumoca",
+  "version": "0.2.0",
+  "private": true,
+  "description": "FUMOCA — 3D Gaussian splat platform for vehicles, property, and events",
+  "scripts": {
+    "start": "bash scripts/serve-local.sh",
+    "serve": "bash scripts/serve-local.sh",
+    "serve:8080": "bash scripts/serve-local.sh 8080"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

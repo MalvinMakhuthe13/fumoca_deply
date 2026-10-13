@@ -1,77 +1,137 @@
-# FUMOCA Restart Build — Kaggle testing edition
+# FUMOCA
 
-## ⚠️ Testing locally? Read this first.
-**Don't open the `.html` files by double-clicking them.** This app uses ES modules for
-most of its interactive JS, and browsers refuse to load ES modules over the `file://`
-protocol — that's a real Chrome/Edge/Firefox security restriction, not a bug here.
-Opening files directly will show correct styling but silently fail to run anything
-interactive (uploads, the feed, nav user info) — which looks like "everything is
-broken" when it's really just "wrong way to open it."
+**3D Gaussian splat platform** for vehicles, property, and events.  
+Capture → process → view → share immersive spatial media.
 
-**Instead, run one command:**
+Supabase powers auth, database, storage, and job queue.  
+Kaggle (or any GPU worker) processes the heavy reconstruction.  
+Static frontend + Cloudflare Workers for R2 storage and OG meta.
+
+---
+
+## Quick start (local)
+
 ```bash
-./scripts/serve-local.sh        # Mac/Linux
-scripts\serve-local.bat         # Windows (double-click it, or run from a terminal)
+# 1. Configure
+cp config.example.js config.js
+# Edit config.js with your Supabase URL + anon key
+
+# 2. Serve (required — do NOT open .html files via file://)
+./scripts/serve-local.sh          # Mac / Linux
+# or double-click scripts\serve-local.bat on Windows
+
+# 3. Open
+http://localhost:8000/feed.html
 ```
-Then open **http://localhost:8000/feed.html** in your browser — not a `file://` link.
-If you ever do open a page via `file://` by mistake, the app now shows a banner
-explaining exactly this, instead of failing silently.
 
-This rebuild keeps the premium UI direction, keeps Supabase as the main database/auth/storage layer, and removes the old extra backend dependency so testing is cleaner.
+Browsers block ES modules on `file://`. Always use the local server.
 
-## What is now properly wired
-- static frontend stays intact
-- Supabase handles auth, database, storage, queue state, and viewer analytics
-- source videos upload into a private `splat-videos` bucket
-- uploads create `splats` + `processing_jobs` records directly in Supabase
-- Kaggle notebook can poll queued jobs and update progress back into Supabase
-- viewer interactions are written straight into `viewer_events`
+---
 
-## Important fixes in this build
-- removed the old extra runtime config and backend API calls from the frontend
-- removed the bundled unused backend from the project
-- added a Kaggle-first worker folder and setup guide
-- kept the queue shape simple so local, Kaggle, or later GPU workers can reuse it
-- kept `video_bucket` + `video_path` so workers can fetch source files correctly
+## Setup (full)
 
-## Setup order
-1. Copy `config.example.js` to `config.js` and fill in real values.
-2. Run `supabase_schema.sql` in Supabase SQL editor.
-3. Run `supabase_storage_policies.sql` in Supabase SQL editor.
-4. Create the storage buckets named in the SQL comments.
-5. Deploy the static frontend.
-6. Open the Kaggle notebook and run the worker against your Supabase project for testing.
+1. **Config** — copy `config.example.js` → `config.js` and fill in values.
+2. **Database** — run in Supabase SQL editor (in order):
+   - `supabase_schema.sql`
+   - `supabase_storage_policies.sql`
+   - optional: `supabase_migration_commerce.sql`, `supabase_migration_embeds.sql`
+3. **Storage buckets** (created by the storage policies script):
+   - `splat-videos` · `splat-files` · `thumbnails` · `avatars`
+4. **Deploy frontend** — any static host (Cloudflare Pages, Netlify, S3, etc.).
+5. **Worker** — open the Kaggle notebook (see `docs/KAGGLE_SETUP.md`) and point it at your Supabase project.
+
+More detail: [docs/DEPLOY.md](docs/DEPLOY.md) · [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
+
+---
+
+## Project layout
+
+```
+├── *.html              # App pages (feed, viewer, upload, edit, …)
+├── css/                # Design tokens + shared UI
+├── js/
+│   ├── auth.js
+│   ├── supabaseClient.js
+│   ├── runtime-config.js
+│   ├── r2Client.js
+│   └── modules/        # Feature modules (nav, feed, viewer, codecs, …)
+├── scripts/            # Local serve helpers
+├── cloudflare/         # Workers (R2, OG meta)
+├── engine-next/        # Next-gen NIF format, editor, reconstruction (in progress)
+├── embed/              # Embeddable viewer / ad player
+├── docs/               # Specs, deploy guides, vision
+├── supabase_*.sql      # Schema & policies
+└── config.example.js   # Template — never commit real config.js
+```
+
+---
 
 ## Viewer modes
-Examples:
-- `viewer.html?mode=car&title=BMW%20M4`
-- `viewer.html?mode=property&title=Modern%20Sandton%20Penthouse`
-- `viewer.html?mode=event&title=Wedding%20Reception`
 
-## What this testing version is designed for
-- seamless upload → queue → process testing
-- clean Supabase-first flow without an extra backend in the middle
-- fast iteration while you prove the full splat pipeline
+```
+viewer.html?mode=car&title=BMW%20M4
+viewer.html?mode=property&title=Modern%20Sandton%20Penthouse
+viewer.html?mode=event&title=Wedding%20Reception
+```
 
-## What still is not magically solved
-- Kaggle sessions are not always-on production infrastructure
-- long jobs can still be interrupted by notebook/runtime limits
-- heavy production COLMAP/GPU workloads will still need a more permanent worker later
-- advanced queue requests (event_fast_clean, fourd_reconstruction, motion tracking metadata) now persist their full payload into splats.metadata.processing_requests so a dispatcher/worker can consume the real request details later
+Finished jobs load the real `.ply` from `splats.splat_url` when a `splatId` is present.
+
+---
 
 
-## Real splat viewer and storage setup
 
-This bundle now resolves real splat records from `splats.splat_url` in `viewer.html` and opens viewer links with `splatId`, so finished Kaggle jobs load the real `.ply` asset instead of staying in the premium shell.
+## Presentations (PowerPoint-style)
 
-Before testing uploads, run `supabase_storage_policies.sql`. That file now creates the required buckets automatically:
-- `splat-videos`
-- `splat-files`
-- `thumbnails`
-- `avatars`
+Interactive decks over a live 3D scene — for meetings, sales, property tours:
 
-Then rerun the Kaggle worker with `USE_REAL_ENGINE=1` when you are ready for true splat generation instead of the fallback placeholder.
+```
+present.html?splatId=YOUR_ID
+```
 
+- Arrow keys / Space — next slide  
+- Camera angles saved in Studio → Present become slides  
+- Fullscreen for projectors; embed the same URL in PowerPoint or Google Slides as a live web object  
 
-## Storage setup is mandatory before first upload
-Run `supabase_storage_policies.sql` in the Supabase SQL editor, then run `STORAGE_SETUP_CHECK.sql` to confirm the four buckets exist before testing uploads.
+## Embed (social player)
+
+Professional, Instagram-style chrome for sites and ads:
+
+```html
+<iframe
+  src="https://your-domain.com/embed/player.html?splatId=YOUR_SPLAT_ID"
+  style="width:100%;max-width:420px;aspect-ratio:9/16;border:0;border-radius:16px;overflow:hidden"
+  allow="autoplay; fullscreen; web-share"
+  allowfullscreen
+  loading="lazy"
+></iframe>
+```
+
+- `embed/player.html` — social UI (author, like, share, caption)
+- `embed/viewer.html` — redirects to the player (legacy URLs keep working)
+- NIF format: see [docs/NIF.md](docs/NIF.md)
+
+## Status & known limits
+
+- Core consumer flow (upload → queue → Kaggle process → view) is the focus.
+- Kaggle sessions are not production-grade always-on workers; long jobs can be interrupted.
+- `engine-next/` holds the future NIF/SPAX format work — not yet the default path.
+- See `docs/VISION.md` for longer-term product thinking (currently parked).
+
+---
+
+## Docs
+
+| Doc | Purpose |
+|-----|---------|
+| [docs/KAGGLE_SETUP.md](docs/KAGGLE_SETUP.md) | Worker / notebook setup |
+| [docs/DEPLOY.md](docs/DEPLOY.md) | Deploy notes |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Extended deployment |
+| [docs/FUMOCA_BIBLE.md](docs/FUMOCA_BIBLE.md) | Full product / technical bible |
+| [docs/FUMOC_V2_SPEC.md](docs/FUMOC_V2_SPEC.md) | Format / V2 notes |
+| [docs/VISION.md](docs/VISION.md) | Long-term platform vision (parked) |
+
+---
+
+## License / contribution
+
+Personal / project repo. Fork and adapt as needed.

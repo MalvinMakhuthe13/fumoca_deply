@@ -1,0 +1,34 @@
+FUMOCA feature pack — install on your PC
+========================================
+
+1. Close any running server.
+
+2. Copy EVERYTHING inside this folder into:
+   D:\FUMOCA\fumoca_merged\
+
+   Overwrite when Windows asks (edit.html, viewer.html, etc.).
+
+   Easy way in File Explorer:
+   - Open this delivery folder
+   - Select all (Ctrl+A)
+   - Copy (Ctrl+C)
+   - Open D:\FUMOCA\fumoca_merged
+   - Paste (Ctrl+V)
+   - Choose "Replace the files in the destination"
+
+3. In Command Prompt:
+   cd /d D:\FUMOCA\fumoca_merged
+   git add .
+   git status
+   git commit -m "FUMOCA studio, embed, present, live interactions"
+   git push origin main
+
+4. Test:
+   copy config.example.js config.js
+   python -m http.server 8000
+
+   Open:
+   http://localhost:8000/viewer.html?mode=car&demo=vehicle
+   http://localhost:8000/present.html
+   http://localhost:8000/embed/player.html
+   http://localhost:8000/edit.html

@@ -33,6 +33,12 @@
   }
 }
 </script>
+
+<script type="module">
+  import * as THREE from 'three';
+  window.THREE = THREE;
+</script>
+
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
@@ -2387,6 +2393,54 @@ window.addEventListener('fumoca:recordLoaded', e => {
   }, true);
 })();
 </script>
+
+<script type="module">
+  // Live product interactions: doors, lights, engine start, infotainment
+  import { initViewerStateBridge } from './js/modules/viewer-state-bridge.js';
+  import './js/modules/scene-interactions.js';
+  import './js/modules/scene-audio.js';
+
+  function bootBridge() {
+    try {
+      initViewerStateBridge({ seedVehicle: true });
+    } catch (e) {
+      console.warn('[state-bridge]', e);
+    }
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bootBridge);
+  } else {
+    bootBridge();
+  }
+</script>
+
+
+<script type="module">
+  import { loadInteractionsFromRecord } from './js/modules/hotspot-persist.js';
+  import { vehicleDemoHotspots } from './js/modules/scene-interactions.js';
+  import { renderHotspotsToLayer } from './js/modules/hotspot-persist.js';
+
+  window.addEventListener('fumoca:recordLoaded', async (e) => {
+    try {
+      const rec = e.detail;
+      const result = await loadInteractionsFromRecord(rec);
+      const params = new URLSearchParams(location.search);
+      const wantDemo =
+        params.get('demo') === 'vehicle' ||
+        params.get('mode') === 'car' ||
+        params.get('seedHotspots') === '1';
+      if ((!result?.hotspots || !result.hotspots.length) && wantDemo) {
+        const hs = vehicleDemoHotspots({});
+        window._fumocaHotspots = hs;
+        renderHotspotsToLayer(hs);
+        console.info('[FUMOCA] Seeded vehicle demo hotspots (not yet published)');
+      }
+    } catch (err) {
+      console.warn('[interactions load]', err);
+    }
+  });
+</script>
+
 </body>
 </html>
 

@@ -258,6 +258,24 @@ export async function runAction(action, context = {}) {
         cta: action.cta,
       });
 
+    case 'walkthrough': {
+      // Outside ↔ inside space graph (property / vehicle)
+      const wt = window.FUMOCA_Walkthrough;
+      if (wt?.handleWalkthroughAction) {
+        await wt.handleWalkthroughAction(action, context);
+      } else {
+        // Fallback: treat as nested splat if splatId provided
+        if (action.splatId || action.toSplatId) {
+          const id = action.splatId || action.toSplatId;
+          const url = new URL(location.href);
+          url.searchParams.set('splatId', id);
+          location.href = url.toString();
+        } else {
+          console.warn('[hotspot] walkthrough action but Walkthrough module not loaded');
+        }
+      }
+      break;
+    }
     case 'state': {
       // Dispatch a CustomEvent that the host page / embed can listen for.
       // Configurators use this to change colours, toggle doors, etc.

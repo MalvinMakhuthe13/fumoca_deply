@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#05070b">
+<title>FUMOCA Present</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Bebas+Neue&display=swap" rel="stylesheet">
+<script src="config.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#05070b;--surface:rgba(14,16,22,.94);--border:rgba(255,255,255,.1);
+  --text:#fff;--muted:rgba(255,255,255,.55);--dim:rgba(255,255,255,.35);
+  --neon:#c8ff00;--font:'DM Sans',system-ui,sans-serif;--display:'Bebas Neue',sans-serif;
+}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:var(--font)}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+
+#app{position:relative;width:100%;height:100%;display:flex;flex-direction:column}
+
+/* Stage = interactive 3D */
+#stage{flex:1;position:relative;min-height:0;background:#000}
+#stage iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
+
+/* Presenter chrome — minimal, PowerPoint-like */
+#chrome{
+  position:absolute;left:0;right:0;bottom:0;z-index:30;
+  padding:12px 16px calc(12px + env(safe-area-inset-bottom));
+  background:linear-gradient(to top,rgba(5,7,11,.95) 30%,transparent);
+  display:flex;flex-direction:column;gap:10px;
+  opacity:1;transition:opacity .3s;
+}
+#app.cinema #chrome{opacity:0;pointer-events:none}
+#app.cinema:hover #chrome{opacity:1;pointer-events:auto}
+
+.slide-rail{
+  display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;
+  scrollbar-width:thin;
+}
+.slide-thumb{
+  flex:0 0 auto;width:88px;height:56px;border-radius:8px;
+  border:2px solid transparent;background:rgba(255,255,255,.06);
+  position:relative;overflow:hidden;cursor:pointer;
+  transition:border-color .15s,transform .15s;
+}
+.slide-thumb:hover{border-color:rgba(255,255,255,.25)}
+.slide-thumb.active{border-color:var(--neon);transform:scale(1.04)}
+.slide-thumb span{
+  position:absolute;inset:0;display:grid;place-items:center;
+  font-size:11px;font-weight:700;color:var(--muted);text-align:center;padding:4px;
+}
+.slide-thumb.active span{color:var(--neon)}
+
+.controls{
+  display:flex;align-items:center;gap:8px;
+}
+.ctrl{
+  width:40px;height:40px;border-radius:10px;
+  display:grid;place-items:center;
+  background:rgba(255,255,255,.08);border:1px solid var(--border);
+  font-size:16px;transition:background .15s;
+}
+.ctrl:hover{background:rgba(255,255,255,.14)}
+.ctrl.primary{background:var(--neon);color:#05070b;border-color:transparent;font-weight:800}
+.slide-label{flex:1;min-width:0;padding:0 8px}
+.slide-label .title{font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.slide-label .idx{font-size:12px;color:var(--muted)}
+.brand{font-family:var(--display);letter-spacing:.06em;font-size:14px;color:var(--dim);padding:0 4px}
+.brand b{color:var(--neon);font-weight:400}
+
+/* Top title strip */
+#topbar{
+  position:absolute;top:0;left:0;right:0;z-index:25;
+  padding:12px 16px;padding-top:max(12px,env(safe-area-inset-top));
+  display:flex;align-items:center;gap:12px;
+  background:linear-gradient(to bottom,rgba(5,7,11,.8),transparent);
+  pointer-events:none;
+}
+#topbar a,#topbar button{pointer-events:auto}
+#deckTitle{font-size:15px;font-weight:700;flex:1}
+#topbar .pill{
+  font-size:11px;font-weight:700;padding:6px 10px;border-radius:99px;
+  background:rgba(200,255,0,.12);color:var(--neon);border:1px solid rgba(200,255,0,.25);
+}
+
+/* Notes panel (presenter view) */
+#notes{
+  display:none;position:absolute;right:16px;top:64px;z-index:28;
+  width:min(320px,90vw);max-height:40vh;overflow:auto;
+  padding:14px;border-radius:12px;
+  background:var(--surface);border:1px solid var(--border);
+  font-size:13px;line-height:1.5;color:var(--muted);
+}
+#notes.show{display:block}
+#notes h3{color:var(--text);font-size:12px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px}
+
+/* Empty / setup */
+#empty{
+  display:none;position:absolute;inset:0;z-index:40;
+  flex-direction:column;align-items:center;justify-content:center;gap:16px;
+  background:var(--bg);padding:32px;text-align:center;
+}
+#empty.show{display:flex}
+#empty h1{font-family:var(--display);font-size:36px;letter-spacing:.04em}
+#empty h1 span{color:var(--neon)}
+#empty p{color:var(--muted);max-width:360px;font-size:14px;line-height:1.5}
+#empty code{background:rgba(255,255,255,.08);padding:2px 6px;border-radius:4px;font-size:12px}
+
+/* Help overlay */
+#help{
+  display:none;position:absolute;inset:0;z-index:50;
+  background:rgba(5,7,11,.88);backdrop-filter:blur(8px);
+  align-items:center;justify-content:center;padding:24px;
+}
+#help.show{display:flex}
+#help .card{
+  background:var(--surface);border:1px solid var(--border);border-radius:16px;
+  padding:24px;max-width:400px;width:100%;
+}
+#help h2{font-size:18px;margin-bottom:12px}
+#help ul{list-style:none;font-size:14px;color:var(--muted);line-height:2}
+#help kbd{
+  display:inline-block;min-width:28px;text-align:center;
+  padding:2px 8px;border-radius:6px;background:rgba(255,255,255,.1);
+  color:var(--text);font-size:12px;font-weight:700;
+}
+
+@media (max-width:600px){
+  .slide-thumb{width:72px;height:48px}
+  .brand{display:none}
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="topbar">
+    <div id="deckTitle">Presentation</div>
+    <span class="pill" id="modePill">PRESENT</span>
+  </div>
+
+  <div id="stage">
+    <iframe id="viewerFrame" title="FUMOCA scene" allow="autoplay; fullscreen; xr-spatial-tracking" allowfullscreen></iframe>
+  </div>
+
+  <aside id="notes">
+    <h3>Presenter notes</h3>
+    <div id="notesBody">No notes for this slide.</div>
+  </aside>
+
+  <div id="chrome">
+    <div class="slide-rail" id="slideRail" role="tablist" aria-label="Slides"></div>
+    <div class="controls">
+      <button type="button" class="ctrl" id="btnPrev" title="Previous (←)">‹</button>
+      <button type="button" class="ctrl primary" id="btnPlay" title="Play path (Space)">▶</button>
+      <button type="button" class="ctrl" id="btnNext" title="Next (→)">›</button>
+      <div class="slide-label">
+        <div class="title" id="slideTitle">Slide 1</div>
+        <div class="idx" id="slideIdx">1 / 1</div>
+      </div>
+      <button type="button" class="ctrl" id="btnNotes" title="Notes (N)">📝</button>
+      <button type="button" class="ctrl" id="btnFs" title="Fullscreen (F)">⛶</button>
+      <button type="button" class="ctrl" id="btnHelp" title="Help (?)">?</button>
+      <span class="brand">FUMO<b>C</b>A</span>
+    </div>
+  </div>
+
+  <div id="empty">
+    <h1>FUMO<span>C</span>A Present</h1>
+    <p>
+      Interactive presentations for deals, property, and events.
+      Open with a scene id, or build camera angles in Studio → Present.
+    </p>
+    <p><code>present.html?splatId=…</code></p>
+  </div>
+
+  <div id="help">
+    <div class="card">
+      <h2>Presenter controls</h2>
+      <ul>
+        <li><kbd>→</kbd> <kbd>Space</kbd> Next slide / advance</li>
+        <li><kbd>←</kbd> Previous slide</li>
+        <li><kbd>Home</kbd> First · <kbd>End</kbd> Last</li>
+        <li><kbd>F</kbd> Fullscreen</li>
+        <li><kbd>N</kbd> Presenter notes</li>
+        <li><kbd>C</kbd> Cinema mode (hide chrome)</li>
+        <li><kbd>?</kbd> This help</li>
+      </ul>
+      <p style="margin-top:14px;font-size:13px;color:var(--muted)">
+        Use in meetings full-screen, or embed this URL in PowerPoint / Google Slides as a live Web object.
+      </p>
+      <button type="button" class="ctrl primary" style="width:100%;margin-top:16px;height:44px" id="helpClose">Got it</button>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+/**
+ * FUMOCA Present — PowerPoint-style interactive deck over a live 3D scene.
+ *
+ * Slides = camera bookmarks / path from Studio (localStorage or splat metadata).
+ * Embed in PPT/Google: Insert → Web / iframe → this page URL.
+ */
+import {
+  listPaths,
+  applyPose,
+  exportPathJSON,
+} from './js/modules/camera-paths.js';
+
+const params = new URLSearchParams(location.search);
+const cfg = window.FUMOCA_CONFIG || {};
+const SITE = (cfg.siteBaseUrl || location.origin).replace(/\/$/, '');
+const splatId = params.get('splatId') || params.get('id') || '';
+const assetKey = splatId || 'default';
+
+const $ = (id) => document.getElementById(id);
+const app = $('app');
+const rail = $('slideRail');
+const frame = $('viewerFrame');
+
+/** @type {{ id:string, name:string, position:number[], target:number[], fov?:number, notes?:string }[]} */
+let slides = [];
+let index = 0;
+let playing = false;
+
+function loadSlidesFromStorage() {
+  const data = listPaths(assetKey);
+  const ordered = data.path?.length
+    ? data.path.map((id) => data.bookmarks.find((b) => b.id === id)).filter(Boolean)
+    : data.bookmarks || [];
+  return ordered.map((b, i) => ({
+    id: b.id,
+    name: b.name || `Slide ${i + 1}`,
+    position: b.position,
+    target: b.target,
+    fov: b.fov,
+    notes: b.notes || '',
+  }));
+}
+
+/** Optional: ?slides= URL-encoded JSON array of poses */
+function loadSlidesFromQuery() {
+  const raw = params.get('slides');
+  if (!raw) return null;
+  try {
+    const arr = JSON.parse(decodeURIComponent(raw));
+    if (!Array.isArray(arr) || !arr.length) return null;
+    return arr.map((b, i) => ({
+      id: b.id || `q${i}`,
+      name: b.name || `Slide ${i + 1}`,
+      position: b.position,
+      target: b.target,
+      fov: b.fov,
+      notes: b.notes || '',
+    }));
+  } catch {
+    return null;
+  }
+}
+
+function defaultSlides() {
+  // Single “overview” slide — user orbits freely until they add paths in Studio
+  return [
+    {
+      id: 'overview',
+      name: 'Overview',
+      position: null,
+      target: null,
+      notes: 'Orbit freely. Add camera angles in Studio → Present for multi-slide decks.',
+    },
+  ];
+}
+
+function renderRail() {
+  rail.innerHTML = '';
+  slides.forEach((s, i) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'slide-thumb' + (i === index ? ' active' : '');
+    btn.setAttribute('role', 'tab');
+    btn.setAttribute('aria-selected', i === index ? 'true' : 'false');
+    btn.innerHTML = `<span>${escapeHtml(s.name)}</span>`;
+    btn.addEventListener('click', () => goTo(i));
+    rail.appendChild(btn);
+  });
+}
+
+function escapeHtml(t) {
+  return String(t)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function updateLabels() {
+  const s = slides[index];
+  if (!s) return;
+  $('slideTitle').textContent = s.name;
+  $('slideIdx').textContent = `${index + 1} / ${slides.length}`;
+  $('notesBody').textContent = s.notes || 'No notes for this slide.';
+  renderRail();
+}
+
+function goTo(i) {
+  if (!slides.length) return;
+  index = Math.max(0, Math.min(slides.length - 1, i));
+  const s = slides[index];
+  updateLabels();
+
+  // Apply camera pose inside iframe via postMessage; also try parent applyPose if same origin viewer exposes camera
+  if (s.position && s.target) {
+    try {
+      applyPose(s);
+    } catch (_) {}
+    frame.contentWindow?.postMessage(
+      {
+        type: 'fumoca:present:go',
+        pose: {
+          position: s.position,
+          target: s.target,
+          fov: s.fov,
+        },
+      },
+      '*'
+    );
+  }
+}
+
+function next() {
+  if (index < slides.length - 1) goTo(index + 1);
+  else goTo(0); // loop deck
+}
+
+function prev() {
+  if (index > 0) goTo(index - 1);
+  else goTo(slides.length - 1);
+}
+
+function togglePlay() {
+  playing = !playing;
+  $('btnPlay').textContent = playing ? '⏸' : '▶';
+  frame.contentWindow?.postMessage(
+    { type: playing ? 'fumoca:present:play' : 'fumoca:present:pause' },
+    '*'
+  );
+  if (playing) autoAdvance();
+}
+
+function autoAdvance() {
+  if (!playing) return;
+  // Advance every 5s when playing path-less decks; path playback handled in viewer later
+  setTimeout(() => {
+    if (!playing) return;
+    next();
+    autoAdvance();
+  }, 5000);
+}
+
+function toggleFs() {
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen?.();
+  } else {
+    document.exitFullscreen?.();
+  }
+}
+
+// Wire controls
+$('btnPrev').onclick = prev;
+$('btnNext').onclick = next;
+$('btnPlay').onclick = togglePlay;
+$('btnFs').onclick = toggleFs;
+$('btnNotes').onclick = () => $('notes').classList.toggle('show');
+$('btnHelp').onclick = () => $('help').classList.add('show');
+$('helpClose').onclick = () => $('help').classList.remove('show');
+
+window.addEventListener('keydown', (e) => {
+  if (e.target.matches('input,textarea')) return;
+  switch (e.key) {
+    case 'ArrowRight':
+    case 'PageDown':
+    case ' ':
+      e.preventDefault();
+      if (e.key === ' ' && e.shiftKey) togglePlay();
+      else next();
+      break;
+    case 'ArrowLeft':
+    case 'PageUp':
+      e.preventDefault();
+      prev();
+      break;
+    case 'Home':
+      goTo(0);
+      break;
+    case 'End':
+      goTo(slides.length - 1);
+      break;
+    case 'f':
+    case 'F':
+      toggleFs();
+      break;
+    case 'n':
+    case 'N':
+      $('notes').classList.toggle('show');
+      break;
+    case 'c':
+    case 'C':
+      app.classList.toggle('cinema');
+      break;
+    case '?':
+      $('help').classList.toggle('show');
+      break;
+    case 'Escape':
+      $('help').classList.remove('show');
+      break;
+  }
+});
+
+// Boot
+(function boot() {
+  if (!splatId) {
+    $('empty').classList.add('show');
+    return;
+  }
+
+  $('deckTitle').textContent = params.get('title') || 'Interactive presentation';
+  document.title = `${params.get('title') || 'Present'} · FUMOCA`;
+
+  const q = new URLSearchParams();
+  q.set('splatId', splatId);
+  q.set('embed', '1');
+  q.set('chrome', '0');
+  q.set('present', '1');
+  if (params.get('mode')) q.set('mode', params.get('mode'));
+  if (params.get('nif') === '1') q.set('nif', '1');
+  frame.src = `viewer.html?${q.toString()}`;
+
+  slides = loadSlidesFromQuery() || loadSlidesFromStorage();
+  if (!slides.length) slides = defaultSlides();
+
+  updateLabels();
+  goTo(0);
+
+  // Export helper for PPT authors
+  window.FUMOCA_PresentDeck = {
+    getSlides: () => slides,
+    exportJSON: () => exportPathJSON(assetKey),
+    goTo,
+    next,
+    prev,
+  };
+})();
+</script>
+</body>
+</html>

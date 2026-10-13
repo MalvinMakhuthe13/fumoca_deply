@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="theme-color" content="#05070b">
+<title>FUMOCA</title>
+<meta property="og:site_name" content="FUMOCA">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Bebas+Neue&display=swap" rel="stylesheet">
+<script src="../config.js"></script>
+<style>
+/* ── Social embed chrome (IG / FB feel, FUMOCA brand) ───────── */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#05070b;--surface:rgba(14,16,22,.92);--border:rgba(255,255,255,.1);
+  --text:#fff;--muted:rgba(255,255,255,.55);--dim:rgba(255,255,255,.35);
+  --neon:#c8ff00;--neon-dim:rgba(200,255,0,.15);
+  --font:'DM Sans',system-ui,-apple-system,sans-serif;
+  --display:'Bebas Neue',sans-serif;
+  --safe-b:env(safe-area-inset-bottom,0px);
+  --bar-h:56px;--bottom-h:64px;
+}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:var(--font);-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+a{color:inherit;text-decoration:none}
+
+#app{position:relative;width:100%;height:100%;display:flex;flex-direction:column}
+
+/* Top author bar — Instagram-like */
+#top{
+  position:absolute;top:0;left:0;right:0;z-index:20;
+  display:flex;align-items:center;gap:12px;
+  padding:10px 14px;padding-top:max(10px,env(safe-area-inset-top));
+  background:linear-gradient(to bottom,rgba(5,7,11,.85) 0%,rgba(5,7,11,0) 100%);
+  pointer-events:none;
+}
+#top > *{pointer-events:auto}
+.avatar{
+  width:36px;height:36px;border-radius:50%;
+  background:linear-gradient(135deg,var(--neon),#7b2fff);
+  display:grid;place-items:center;font-weight:700;font-size:14px;color:#05070b;
+  flex-shrink:0;border:2px solid rgba(255,255,255,.2);
+}
+.avatar img{width:100%;height:100%;border-radius:50%;object-fit:cover}
+.meta{flex:1;min-width:0}
+.meta .name{font-weight:700;font-size:14px;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.meta .sub{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.btn-follow{
+  padding:7px 14px;border-radius:8px;font-size:12px;font-weight:700;
+  background:var(--neon);color:#05070b;flex-shrink:0;
+}
+.btn-follow.ghost{background:rgba(255,255,255,.1);color:#fff;border:1px solid var(--border)}
+
+/* Stage */
+#stage{
+  flex:1;position:relative;background:#000;
+  min-height:0;
+}
+#stage iframe,#stage canvas,#glHost{
+  position:absolute;inset:0;width:100%;height:100%;border:0;
+}
+#glHost{display:block}
+
+/* Loading */
+#loader{
+  position:absolute;inset:0;z-index:15;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;
+  background:var(--bg);transition:opacity .45s ease;
+}
+#loader.hide{opacity:0;pointer-events:none}
+.spinner{
+  width:36px;height:36px;border:2px solid rgba(255,255,255,.12);
+  border-top-color:var(--neon);border-radius:50%;animation:spin .7s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+#loader p{font-size:13px;color:var(--muted)}
+#progress{width:140px;height:3px;background:rgba(255,255,255,.08);border-radius:99px;overflow:hidden}
+#progress>i{display:block;height:100%;width:0%;background:var(--neon);transition:width .25s}
+
+/* Hint */
+#hint{
+  position:absolute;bottom:calc(var(--bottom-h) + 16px);left:50%;transform:translateX(-50%);
+  z-index:12;padding:8px 14px;border-radius:99px;
+  background:rgba(0,0,0,.55);backdrop-filter:blur(10px);
+  font-size:12px;color:var(--muted);pointer-events:none;
+  opacity:1;transition:opacity .5s;
+}
+#hint.hide{opacity:0}
+
+/* Bottom social bar — FB/IG action row */
+#bottom{
+  position:absolute;bottom:0;left:0;right:0;z-index:20;
+  padding:8px 12px calc(10px + var(--safe-b));
+  background:linear-gradient(to top,rgba(5,7,11,.92) 40%,rgba(5,7,11,0));
+}
+.actions{display:flex;align-items:center;gap:4px}
+.action{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:10px 12px;border-radius:12px;font-size:13px;font-weight:600;
+  color:var(--text);transition:background .15s;
+}
+.action:hover{background:rgba(255,255,255,.08)}
+.action svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.action.liked{color:var(--neon)}
+.action.liked svg{fill:var(--neon);stroke:var(--neon)}
+.spacer{flex:1}
+.brand{
+  font-family:var(--display);font-size:15px;letter-spacing:.06em;
+  color:var(--dim);padding:8px 4px;
+}
+.brand span{color:var(--neon)}
+.caption{
+  margin-top:4px;padding:0 4px 2px;
+  font-size:13px;line-height:1.4;color:var(--muted);
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+}
+.caption strong{color:var(--text);font-weight:600}
+
+/* Error */
+#error{
+  display:none;position:absolute;inset:0;z-index:30;
+  flex-direction:column;align-items:center;justify-content:center;gap:12px;
+  background:var(--bg);padding:24px;text-align:center;
+}
+#error.show{display:flex}
+#error h1{font-size:18px;font-weight:700}
+#error p{font-size:14px;color:var(--muted);max-width:280px}
+
+/* Compact mode (short iframes) */
+@media (max-height:420px){
+  #bottom .caption{display:none}
+  .brand{display:none}
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <header id="top">
+    <div class="avatar" id="avatar">F</div>
+    <div class="meta">
+      <div class="name" id="authorName">FUMOCA</div>
+      <div class="sub" id="titleLine">Interactive 3D</div>
+    </div>
+    <a class="btn-follow" id="openFull" href="#" target="_blank" rel="noopener">Open</a>
+  </header>
+
+  <div id="stage">
+    <div id="glHost"></div>
+    <div id="loader">
+      <div class="spinner"></div>
+      <p id="loadLabel">Loading experience…</p>
+      <div id="progress"><i id="progressFill"></i></div>
+    </div>
+    <div id="hint">Drag to explore · Pinch to zoom</div>
+  </div>
+
+  <footer id="bottom">
+    <div class="actions">
+      <button type="button" class="action" id="btnLike" aria-label="Like">
+        <svg viewBox="0 0 24 24"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>
+        <span id="likeCount"></span>
+      </button>
+      <button type="button" class="action" id="btnShare" aria-label="Share">
+        <svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg>
+      </button>
+      <button type="button" class="action" id="btnMute" aria-label="Sound" title="Sound">
+        <svg viewBox="0 0 24 24" id="iconVol"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M19.1 5a9 9 0 0 1 0 14M15.5 8.5a5 5 0 0 1 0 7"/></svg>
+      </button>
+      <div class="spacer"></div>
+      <a class="brand" id="brandLink" href="https://fumoca.co.za" target="_blank" rel="noopener">FUMO<span>C</span>A</a>
+    </div>
+    <div class="caption" id="caption"><strong id="capAuthor">fumoca</strong> <span id="capText">Explore in 3D</span></div>
+  </footer>
+
+  <div id="error">
+    <h1>Can’t load this experience</h1>
+    <p id="errorMsg">The link may be invalid or the file is unavailable.</p>
+  </div>
+</div>
+
+<script type="module">
+/**
+ * FUMOCA Embed Player — social chrome + splat / NIF-ready stage
+ * Query params:
+ *   splatId | id | token  — content id or embed token
+ *   title, author, avatar — optional overrides
+ *   nif=1                 — prefer .nif when available
+ *   theme=dark            — reserved
+ */
+const params = new URLSearchParams(location.search);
+const cfg = window.FUMOCA_CONFIG || {};
+const SUPABASE_URL = cfg.supabaseUrl || '';
+const SUPABASE_KEY = cfg.supabaseAnonKey || '';
+const SITE = (cfg.siteBaseUrl || location.origin).replace(/\/$/, '');
+
+const els = {
+  loader: document.getElementById('loader'),
+  progress: document.getElementById('progressFill'),
+  loadLabel: document.getElementById('loadLabel'),
+  hint: document.getElementById('hint'),
+  authorName: document.getElementById('authorName'),
+  titleLine: document.getElementById('titleLine'),
+  avatar: document.getElementById('avatar'),
+  openFull: document.getElementById('openFull'),
+  caption: document.getElementById('caption'),
+  capAuthor: document.getElementById('capAuthor'),
+  capText: document.getElementById('capText'),
+  btnLike: document.getElementById('btnLike'),
+  likeCount: document.getElementById('likeCount'),
+  btnShare: document.getElementById('btnShare'),
+  error: document.getElementById('error'),
+  errorMsg: document.getElementById('errorMsg'),
+  glHost: document.getElementById('glHost'),
+};
+
+function setProgress(p) {
+  els.progress.style.width = Math.round(Math.min(100, Math.max(0, p))) + '%';
+}
+
+function showError(msg) {
+  els.errorMsg.textContent = msg || 'Something went wrong.';
+  els.error.classList.add('show');
+  els.loader.classList.add('hide');
+}
+
+async function sbFetch(path, options = {}) {
+  if (!SUPABASE_URL || !SUPABASE_KEY) throw new Error('Config missing — set config.js');
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    ...options,
+    headers: {
+      apikey: SUPABASE_KEY,
+      Authorization: `Bearer ${SUPABASE_KEY}`,
+      Accept: 'application/json',
+      ...(options.headers || {}),
+    },
+  });
+  if (!r.ok) throw new Error(`API ${r.status}`);
+  const t = await r.text();
+  return t ? JSON.parse(t) : null;
+}
+
+async function resolveContent() {
+  const token = params.get('token');
+  let splatId = params.get('splatId') || params.get('id');
+
+  if (token) {
+    const rows = await sbFetch(`embeds?token=eq.${encodeURIComponent(token)}&select=splat_id,embed_config,label`);
+    if (!rows?.[0]) throw new Error('This embed link is invalid or was revoked.');
+    splatId = rows[0].splat_id;
+    // fire-and-forget view count
+    fetch(`${SUPABASE_URL}/rest/v1/rpc/increment_embed_view`, {
+      method: 'POST',
+      headers: {
+        apikey: SUPABASE_KEY,
+        Authorization: `Bearer ${SUPABASE_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ embed_token: token }),
+    }).catch(() => {});
+  }
+
+  if (!splatId) {
+    // Demo mode: empty stage with message
+    return { demo: true, title: 'FUMOCA Embed', author: 'FUMOCA' };
+  }
+
+  const rows = await sbFetch(
+    `splats?id=eq.${encodeURIComponent(splatId)}&select=id,title,description,splat_url,thumbnail_url,user_id,metadata,status`
+  );
+  if (!rows?.[0]) throw new Error('Experience not found.');
+  const splat = rows[0];
+
+  let author = params.get('author') || 'Creator';
+  let avatarUrl = params.get('avatar') || '';
+  if (splat.user_id) {
+    try {
+      const profiles = await sbFetch(
+        `profiles?id=eq.${encodeURIComponent(splat.user_id)}&select=username,display_name,avatar_url`
+      );
+      if (profiles?.[0]) {
+        author = profiles[0].display_name || profiles[0].username || author;
+        avatarUrl = profiles[0].avatar_url || avatarUrl;
+      }
+    } catch (_) {}
+  }
+
+  return {
+    splat,
+    title: params.get('title') || splat.title || 'Untitled',
+    author,
+    avatarUrl,
+    description: splat.description || '',
+    splatUrl: splat.splat_url,
+    thumb: splat.thumbnail_url,
+    nifUrl: splat.metadata?.nif_url || splat.metadata?.nifUrl || null,
+  };
+}
+
+function applyMeta(data) {
+  const title = data.title || 'FUMOCA';
+  document.title = `${title} · FUMOCA`;
+  els.authorName.textContent = data.author || 'FUMOCA';
+  els.titleLine.textContent = title;
+  els.capAuthor.textContent = (data.author || 'fumoca').toLowerCase().replace(/\s+/g, '');
+  els.capText.textContent = data.description || 'Explore this moment in 3D';
+  if (data.avatarUrl) {
+    els.avatar.innerHTML = `<img src="${data.avatarUrl}" alt="">`;
+  } else {
+    els.avatar.textContent = (data.author || 'F')[0].toUpperCase();
+  }
+  const full = `${SITE}/viewer.html?splatId=${encodeURIComponent(data.splat?.id || '')}`;
+  els.openFull.href = data.splat?.id ? full : (SITE || '/');
+}
+
+/**
+ * Load viewer into host: prefer iframe to main viewer (stable),
+ * with embed chrome on top. Future: direct NIF reader in-page.
+ */
+function mountViewer(data) {
+  setProgress(30);
+  const preferNif = params.get('nif') === '1' && data.nifUrl;
+  const splatId = data.splat?.id;
+
+  if (data.demo) {
+    els.loadLabel.textContent = 'Add ?splatId=… or ?token=…';
+    setProgress(100);
+    setTimeout(() => els.loader.classList.add('hide'), 400);
+    return;
+  }
+
+  if (!splatId && !data.splatUrl) {
+    showError('No media URL on this experience.');
+    return;
+  }
+
+  // Use main viewer in embed mode for full splat/NIF pipeline
+  const q = new URLSearchParams();
+  if (splatId) q.set('splatId', splatId);
+  q.set('embed', '1');
+  q.set('chrome', '0'); // host provides social chrome
+  if (preferNif) q.set('nif', '1');
+  if (params.get('mode')) q.set('mode', params.get('mode'));
+
+  const iframe = document.createElement('iframe');
+  iframe.title = data.title || 'FUMOCA';
+  iframe.allow = 'autoplay; fullscreen; web-share; xr-spatial-tracking';
+  iframe.allowFullscreen = true;
+  iframe.src = `../viewer.html?${q.toString()}`;
+  iframe.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;border:0;background:#000';
+  els.glHost.innerHTML = '';
+  els.glHost.appendChild(iframe);
+
+  iframe.addEventListener('load', () => {
+    setProgress(100);
+    setTimeout(() => {
+      els.loader.classList.add('hide');
+      setTimeout(() => els.hint.classList.add('hide'), 3200);
+    }, 200);
+  });
+}
+
+// Like (local + optional analytics)
+const likeKey = 'fumoca_embed_like_' + (params.get('splatId') || params.get('token') || 'x');
+if (localStorage.getItem(likeKey) === '1') {
+  els.btnLike.classList.add('liked');
+}
+els.btnLike.addEventListener('click', () => {
+  const on = els.btnLike.classList.toggle('liked');
+  localStorage.setItem(likeKey, on ? '1' : '0');
+});
+
+els.btnShare.addEventListener('click', async () => {
+  const url = location.href;
+  const title = document.title;
+  try {
+    if (navigator.share) {
+      await navigator.share({ title, url });
+    } else {
+      await navigator.clipboard.writeText(url);
+      els.btnShare.querySelector('span')?.remove();
+      const t = document.createElement('span');
+      t.textContent = 'Copied';
+      els.btnShare.appendChild(t);
+      setTimeout(() => t.remove(), 1500);
+    }
+  } catch (_) {}
+});
+
+(async function boot() {
+  try {
+    setProgress(10);
+    const data = await resolveContent();
+    applyMeta(data);
+    setProgress(25);
+    mountViewer(data);
+  } catch (err) {
+    console.error('[embed]', err);
+    showError(err.message || String(err));
+  }
+})();
+</script>
+</body>
+</html>
