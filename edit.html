@@ -1001,8 +1001,35 @@ input[type=range].amber::-webkit-slider-thumb{background:var(--amber);box-shadow
       <div class="section">
         <div class="sec-head"><span class="sec-label">LiDAR / dense points</span><span class="sec-badge">PLY · XYZ</span></div>
         <div class="sec-body">
-          <div class="hint">Merge real depth from scanners into sparse captures. LAS/LAZ queues to the GPU worker.</div>
+        <div class="hint">Preview a scanner cloud, fit it over the current scene, then merge it into the editable points. Supports PLY, XYZ/CSV and uncompressed LAS.</div>
+          <div id="lidarSourceCapture" class="hint" style="display:none;margin:0 0 8px;padding:8px;border:1px solid rgba(0,229,255,.2);border-radius:8px"></div>
           <button type="button" class="ac-btn lime full" id="lidarPickBtn">Import PLY / XYZ / LAS</button>
+          <label style="display:block;font-size:11px;margin-top:8px">Point display
+            <select id="lidarColorMode" style="display:block;width:100%;padding:7px;margin-top:4px;background:var(--surface2);color:var(--text);border:1px solid var(--border2);border-radius:7px">
+              <option value="rgb">RGB / source color</option>
+              <option value="intensity">LAS intensity</option>
+              <option value="classification">LAS classification</option>
+              <option value="return">LAS return number</option>
+            </select>
+          </label>
+        <div class="form-grid" style="margin-top:8px;grid-template-columns:repeat(3,1fr);gap:6px">
+          <label style="font-size:11px">Scale<input type="number" id="lidarScale" value="1" min="0.0001" step="0.1"></label>
+          <label style="font-size:11px">X offset<input type="number" id="lidarOffsetX" value="0" step="0.01"></label>
+          <label style="font-size:11px">Y offset<input type="number" id="lidarOffsetY" value="0" step="0.01"></label>
+          <label style="font-size:11px">Z offset<input type="number" id="lidarOffsetZ" value="0" step="0.01"></label>
+        </div>
+        <div class="btn-grid col2" style="margin-top:8px">
+          <button type="button" class="ac-btn" id="lidarFitBtn" disabled>Fit to scene</button>
+          <button type="button" class="ac-btn lime" id="lidarMergeBtn" disabled>Merge into scene</button>
+          <button type="button" class="ac-btn" id="lidarUndoBtn" disabled>Undo merge</button>
+          <button type="button" class="ac-btn rose" id="lidarClearBtn" disabled>Clear preview</button>
+        </div>
+        <div style="margin-top:10px;padding:9px;border:1px solid rgba(255,255,255,.1);border-radius:9px">
+          <div class="ctrl-label" style="margin-bottom:6px">Point cloud cleanup</div>
+          <label style="font-size:11px">Neighbour radius (% of scene size)<input id="lidarCleanRadius" type="number" min="0.1" max="5" step="0.1" value="0.6" style="display:block;width:100%;padding:6px;margin-top:3px;background:var(--surface2);color:var(--text);border:1px solid var(--border2);border-radius:6px"></label>
+          <label style="font-size:11px;margin-top:6px;display:block">Minimum nearby points<input id="lidarCleanNeighbors" type="number" min="2" max="32" step="1" value="4" style="display:block;width:100%;padding:6px;margin-top:3px;background:var(--surface2);color:var(--text);border:1px solid var(--border2);border-radius:6px"></label>
+          <button type="button" class="ac-btn rose full" id="lidarCleanOutliersBtn" style="margin-top:7px">Remove isolated points</button>
+        </div>
           <div id="lidarStatus" class="hint" style="margin-top:8px"></div>
         </div>
       </div>
@@ -1034,13 +1061,6 @@ input[type=range].amber::-webkit-slider-thumb{background:var(--amber);box-shadow
       <div class="section" style="margin-top:10px">
         <div class="sec-head"><span class="sec-label">Layer Settings</span></div>
         <div class="sec-body">
-          <div class="ctrl-row">
-            <span class="ctrl-label">Blend mode</span>
-            <select id="layerBlend" style="flex:1;margin-left:8px;padding:4px 8px;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text);font:inherit;font-size:11px">
-              <option>Normal</option><option>Add</option><option>Multiply</option>
-              <option>Screen</option><option>Overlay</option><option>Difference</option>
-            </select>
-          </div>
           <div class="ctrl-row">
             <span class="ctrl-label">Opacity</span>
             <span class="ctrl-val" id="layerOpacVal">100%</span>
@@ -1472,7 +1492,6 @@ input[type=range].amber::-webkit-slider-thumb{background:var(--amber);box-shadow
     <span class="tl-time" id="tlTime">00:00.000</span>
     <div style="flex:1"></div>
     <button class="tb-btn" style="height:28px;font-size:10px" id="addKeyframeBtn">+ Keyframe</button>
-    <button class="tb-btn" style="height:28px;font-size:10px" id="addTrackBtn">+ Track</button>
   </div>
   <div id="timelineScroll">
     <div class="tl-track">
@@ -1482,14 +1501,7 @@ input[type=range].amber::-webkit-slider-thumb{background:var(--amber);box-shadow
         <div class="tl-playhead" id="tlPlayhead"></div>
       </div>
     </div>
-    <div class="tl-track">
-      <div class="tl-track-label">Background</div>
-      <div class="tl-clip bg-clip" style="width:180px;min-width:120px">🎨 Neon Dark</div>
-    </div>
-    <div class="tl-track">
-      <div class="tl-track-label">FX</div>
-      <div class="tl-clip fx-clip" style="width:140px;min-width:100px">✨ Bloom</div>
-    </div>
+  <div class="tl-track" id="timelineKeyframes"><div class="tl-track-label">Keyframes</div><div class="tl-clip" id="timelineKeyframeClip" style="width:180px;min-width:120px">Add a keyframe to start</div></div>
     <div class="tl-track" id="audioTrack" style="display:none">
       <div class="tl-track-label">Audio</div>
       <div class="tl-clip audio-clip" style="width:220px;min-width:150px">🔊 Ambient Track</div>
@@ -1627,6 +1639,7 @@ const S = {
   fileName: '', fileType: '', sourceBuffer: null, splatRowSize: 32, splatSourceUrl: '',
   positions: null, colors: null, opacity: null, scale: null, alive: null, selected: null,
   paintColors: null,
+  lidarIntensity: null, lidarClassification: null, lidarReturnNumber: null, lidarDisplayColors: null,
   points: null, geometry: null,
   mode: 'orbit',
   displayMode: 'blob',
@@ -1642,9 +1655,307 @@ const S = {
   exposure: 0, contrast: 0, saturation: 0, temperature: 0,
   // FX
   bloomStrength: 0, vignetteStrength: 0, grainStrength: 0,
+  glitchStrength: 0, scanStrength: 0,
 };
 // Expose globally so modules and guard checks can reference it
 window.S = S;
+
+let _lidarPreviewObject = null;
+let _lidarPreviewCloud = null;
+let _lidarPreviewColors = null;
+let _lidarPreviewPositions = null;
+let _lidarMergeUndo = null;
+function _boundsForPositions(positions, alive = null) {
+  const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < positions.length / 3; i++) {
+    if (alive && !alive[i]) continue;
+    for (let c = 0; c < 3; c++) {
+      const v = positions[i * 3 + c];
+      if (!Number.isFinite(v)) continue;
+      min[c] = Math.min(min[c], v); max[c] = Math.max(max[c], v);
+    }
+  }
+  return min.every(Number.isFinite) ? { min, max, center: min.map((v, i) => (v + max[i]) / 2), size: min.map((v, i) => max[i] - v) } : null;
+}
+function _lidarTransformFromControls() {
+  return {
+    scale: Math.max(0.0001, Number(document.getElementById('lidarScale')?.value) || 1),
+    offset: ['X', 'Y', 'Z'].map((axis) => Number(document.getElementById(`lidarOffset${axis}`)?.value) || 0),
+  };
+}
+function _lidarDisplayColors(cloud) {
+  const count = cloud.count || Math.floor(cloud.positions.length / 3);
+  const out = new Float32Array(count * 3);
+  const mode = document.getElementById('lidarColorMode')?.value || 'rgb';
+  const classes = [
+    [0.5,0.5,0.5], [0.75,0.72,0.58], [0.44,0.35,0.2], [0.48,0.72,0.25],
+    [0.28,0.62,0.19], [0.13,0.42,0.12], [0.85,0.28,0.16], [0.66,0.52,0.28],
+    [0.62,0.42,0.25], [0.12,0.42,0.9], [0.8,0.72,0.52], [0.62,0.62,0.62],
+  ];
+  const returns = [[0.1,0.1,0.1],[0.1,0.55,1],[0.1,0.9,0.6],[1,0.7,0.1],[1,0.2,0.15]];
+  let intensityMin = 0, intensityMax = 1;
+  if (mode === 'intensity' && cloud.intensities) {
+    intensityMin = Infinity; intensityMax = -Infinity;
+    for (let i = 0; i < count; i++) { intensityMin = Math.min(intensityMin, cloud.intensities[i]); intensityMax = Math.max(intensityMax, cloud.intensities[i]); }
+    if (intensityMax <= 1) intensityMin = 0;
+    if (intensityMax === intensityMin) intensityMax = intensityMin + 1;
+  }
+  for (let i = 0; i < count; i++) {
+    const p = i * 3;
+    if (mode === 'intensity' && cloud.intensities) {
+      const intensity = Math.max(0, Math.min(1, (Number(cloud.intensities[i]) - intensityMin) / (intensityMax - intensityMin)));
+      // Compact blue-cyan-yellow-red intensity ramp.
+      if (intensity < 0.33) { const t = intensity / 0.33; out[p] = 0.05; out[p+1] = 0.1 + t * 0.75; out[p+2] = 0.35 + t * 0.65; }
+      else if (intensity < 0.66) { const t = (intensity - 0.33) / 0.33; out[p] = t; out[p+1] = 0.85; out[p+2] = 1 - t; }
+      else { const t = (intensity - 0.66) / 0.34; out[p] = 1; out[p+1] = 0.85 * (1 - t); out[p+2] = 0.05; }
+    } else if (mode === 'classification' && cloud.classifications) {
+      const color = classes[cloud.classifications[i] % classes.length];
+      out[p] = color[0]; out[p+1] = color[1]; out[p+2] = color[2];
+    } else if (mode === 'return' && cloud.returnNumbers) {
+      const color = returns[Math.min(returns.length - 1, cloud.returnNumbers[i])];
+      out[p] = color[0]; out[p+1] = color[1]; out[p+2] = color[2];
+    } else if (cloud.colors) {
+      out[p] = cloud.colors[p]; out[p+1] = cloud.colors[p+1]; out[p+2] = cloud.colors[p+2];
+    } else {
+      out[p] = 0.55; out[p+1] = 0.7; out[p+2] = 0.75;
+    }
+  }
+  return out;
+}
+function _renderLidarPreview() {
+  if (!_lidarPreviewCloud) return;
+  if (_lidarPreviewObject) { scene.remove(_lidarPreviewObject); _lidarPreviewObject.geometry.dispose(); _lidarPreviewObject.material.dispose(); }
+  const cloud = _lidarPreviewCloud, transform = _lidarTransformFromControls();
+  const positions = new Float32Array(cloud.positions.length);
+  for (let i = 0; i < positions.length / 3; i++) {
+    positions[i * 3] = cloud.positions[i * 3] * transform.scale + transform.offset[0];
+    positions[i * 3 + 1] = cloud.positions[i * 3 + 1] * transform.scale + transform.offset[1];
+    positions[i * 3 + 2] = cloud.positions[i * 3 + 2] * transform.scale + transform.offset[2];
+  }
+  _lidarPreviewPositions = positions;
+  _lidarPreviewColors = _lidarDisplayColors(cloud);
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute('color', new THREE.BufferAttribute(_lidarPreviewColors, 3));
+  const material = new THREE.PointsMaterial({ color: 0xffffff, size: 0.009, sizeAttenuation: true, vertexColors: true, transparent: true, opacity: 0.78, depthWrite: false });
+  _lidarPreviewObject = new THREE.Points(geometry, material);
+  _lidarPreviewObject.name = 'FUMOCA LiDAR preview';
+  _lidarPreviewObject.renderOrder = 5;
+  scene.add(_lidarPreviewObject);
+  window._fumocaLidarPreviewObject = _lidarPreviewObject;
+}
+window.previewLidarCloud = (cloud) => {
+  _lidarPreviewCloud = cloud;
+  window._fumocaLidarCloud = cloud;
+  const colorMode = document.getElementById('lidarColorMode');
+  if (colorMode) {
+    const has = { intensity: !!cloud.intensities, classification: !!cloud.classifications, return: !!cloud.returnNumbers };
+    for (const option of colorMode.options) if (option.value !== 'rgb') option.disabled = !has[option.value];
+    if (colorMode.value !== 'rgb' && !has[colorMode.value]) colorMode.value = 'rgb';
+  }
+  _applyLidarSceneColorMode();
+  _renderLidarPreview();
+};
+document.getElementById('lidarColorMode')?.addEventListener('change', () => { if (_lidarPreviewCloud) _renderLidarPreview(); });
+function _applyLidarSceneColorMode() {
+  if (!S.positions || !S.lidarIntensity && !S.lidarClassification && !S.lidarReturnNumber) {
+    S.lidarDisplayColors = null;
+  } else {
+    S.lidarDisplayColors = _lidarDisplayColors({
+      positions: S.positions, colors: S.colors, intensities: S.lidarIntensity,
+      classifications: S.lidarClassification, returnNumbers: S.lidarReturnNumber,
+      count: S.alive?.length || 0,
+    });
+  }
+  if (S.points) rebuildGeometry();
+}
+document.getElementById('lidarColorMode')?.addEventListener('change', _applyLidarSceneColorMode);
+function _renderLidarSourceLinks(meta = {}) {
+  const panel = document.getElementById('lidarSourceCapture');
+  if (!panel) return;
+  panel.replaceChildren();
+  const sources = [meta.source_capture, ...(meta.lidar_sources || [])].filter(item => item?.public_url && /^https?:\/\//i.test(item.public_url));
+  if (!sources.length) { panel.style.display = 'none'; return; }
+  panel.append(document.createTextNode('Original scan files are preserved: '));
+  sources.forEach((source, index) => {
+    if (index) panel.append(document.createTextNode(' · '));
+    const link = document.createElement('a');
+    link.href = source.public_url;
+    link.textContent = source.filename || `source ${index + 1}`;
+    link.target = '_blank'; link.rel = 'noopener noreferrer';
+    link.style.cssText = 'color:#0ef;text-decoration:underline';
+    panel.append(link);
+  });
+  panel.style.display = 'block';
+}
+window.preserveImportedLidarSource = async (cloud) => {
+  const file = cloud?.originalFile;
+  if (!file) return null;
+  const sb = window._fumocaSupabase || window.supabase;
+  if (!sb) throw new Error('Cannot preserve the original scan until the account connection is ready.');
+  const { data: { user }, error: authError } = await sb.auth.getUser();
+  if (authError || !user) throw new Error('Sign in before merging so the original scan can be stored with the scene.');
+  const safeName = file.name.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9._-]/g, '') || 'lidar-source';
+  const sourcePath = `${user.id}/${Date.now()}_${safeName}`;
+  const { publicUrl, fileKey, error } = await r2.from('nif-files').upload(sourcePath, file, { contentType: file.type || 'application/octet-stream' });
+  if (error || !publicUrl || !fileKey) throw new Error(error?.message || 'Original scan upload failed.');
+  const capture = {
+    public_url: publicUrl, r2_key: fileKey, filename: file.name,
+    format: file.name.split('.').pop().toLowerCase(), byte_size: file.size,
+    point_count: cloud.sourcePointCount || cloud.count,
+  };
+  const record = window._fumocaCurrentRecord || {};
+  const meta = { ...(record.meta || S.nifMeta || {}) };
+  meta.lidar_sources = [...(meta.lidar_sources || []), capture];
+  S.nifMeta = meta;
+  if (record.id) {
+    const { error: updateError } = await sb.from('nif_files').update({ meta }).eq('id', record.id);
+    if (updateError) throw new Error(`Original scan uploaded but could not be linked to the scene: ${updateError.message}`);
+    record.meta = meta;
+  }
+  _renderLidarSourceLinks(meta);
+  return capture;
+};
+let _solidMeshPreviewObject = null;
+let _solidMeshPreviewData = null;
+window.previewSolidMesh = (mesh, options = {}) => {
+  if (!mesh) return;
+  if (_solidMeshPreviewObject && _solidMeshPreviewData !== mesh) {
+    scene.remove(_solidMeshPreviewObject);
+    _solidMeshPreviewObject.geometry.dispose();
+    _solidMeshPreviewObject.material.dispose();
+    _solidMeshPreviewObject = null;
+  }
+  if (!_solidMeshPreviewObject) {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(mesh.vertices, 3));
+    if (mesh.colours) {
+      const color = new Float32Array(mesh.colours.length);
+      for (let i = 0; i < color.length; i++) color[i] = mesh.colours[i] / 255;
+      geometry.setAttribute('color', new THREE.BufferAttribute(color, 3));
+    }
+    geometry.setIndex(new THREE.BufferAttribute(mesh.triangles, 1));
+    geometry.computeVertexNormals();
+    const material = new THREE.MeshStandardMaterial({ vertexColors: !!mesh.colours, color: mesh.colours ? 0xffffff : 0x9ab3c7, roughness: 0.72, metalness: 0.05, side: THREE.DoubleSide });
+    _solidMeshPreviewObject = new THREE.Mesh(geometry, material);
+    _solidMeshPreviewObject.name = 'FUMOCA extracted solid mesh';
+    _solidMeshPreviewObject.frustumCulled = false;
+    scene.add(_solidMeshPreviewObject);
+    _solidMeshPreviewData = mesh;
+  }
+  _solidMeshPreviewObject.visible = options.visible !== false;
+  _solidMeshPreviewObject.material.emissive.set(0xffffff);
+  _solidMeshPreviewObject.material.emissiveIntensity = Math.max(0, Math.min(2, Number(options.light) || 0));
+  _solidMeshPreviewObject.material.roughness = Math.max(0.05, Math.min(1, Number(options.roughness) || 0.72));
+  _solidMeshPreviewObject.material.metalness = Math.max(0, Math.min(1, Number(options.metalness) || 0));
+  _solidMeshPreviewObject.material.needsUpdate = true;
+};
+window.fitLidarToScene = () => {
+  if (!_lidarPreviewCloud) return false;
+  const cloudBounds = _boundsForPositions(_lidarPreviewCloud.positions);
+  const sceneBounds = S.positions && S.alive ? _boundsForPositions(S.positions, S.alive) : null;
+  if (!cloudBounds) return false;
+  const cloudSize = Math.max(...cloudBounds.size, 1e-6);
+  const sceneSize = sceneBounds ? Math.max(...sceneBounds.size, 1e-6) : cloudSize;
+  const scale = sceneSize * 0.9 / cloudSize;
+  const target = sceneBounds?.center || [0, 0, 0];
+  document.getElementById('lidarScale').value = String(scale);
+  ['X', 'Y', 'Z'].forEach((axis, i) => {
+    document.getElementById(`lidarOffset${axis}`).value = String(target[i] - cloudBounds.center[i] * scale);
+  });
+  _renderLidarPreview();
+  return true;
+};
+window.mergePointCloudIntoStudio = (cloud = _lidarPreviewCloud) => {
+  if (!cloud?.positions?.length) throw new Error('Import a LiDAR/point cloud file first.');
+  _lidarPreviewCloud = cloud;
+  if (!_lidarPreviewPositions) _renderLidarPreview();
+  const added = _lidarPreviewPositions.length / 3;
+  const oldCount = S.alive?.length || 0;
+  _lidarMergeUndo = {
+    positions: S.positions, colors: S.colors, opacity: S.opacity, scale: S.scale, paintColors: S.paintColors,
+    lidarDisplayColors: S.lidarDisplayColors,
+    lidarIntensity: S.lidarIntensity, lidarClassification: S.lidarClassification, lidarReturnNumber: S.lidarReturnNumber,
+    alive: S.alive, selected: S.selected, sourceBuffer: S.sourceBuffer,
+    fileType: S.fileType, fileName: S.fileName, splatRowSize: S.splatRowSize,
+  };
+  const join = (a, b, stride = 1, fill = 0) => {
+    const out = new Float32Array((a?.length || 0) + b.length);
+    if (a) out.set(a);
+    if (fill !== null && stride === 1 && a) out.fill(fill, a.length);
+    out.set(b, a?.length || 0);
+    return out;
+  };
+  const addedColors = new Float32Array(added * 3);
+  const addedOpacity = new Float32Array(added).fill(0.92);
+  const addedScale = new Float32Array(added);
+  const modelBounds = oldCount ? _boundsForPositions(S.positions, S.alive) : null;
+  const pointSize = Math.max(...(modelBounds?.size || [1, 1, 1]), 1e-4) * 0.0015;
+  for (let i = 0; i < added; i++) {
+    for (let c = 0; c < 3; c++) addedColors[i * 3 + c] = _lidarPreviewColors?.[i * 3 + c] ?? cloud.colors?.[i * 3 + c] ?? 0.72;
+    addedScale[i] = pointSize;
+  }
+  S.positions = join(S.positions, _lidarPreviewPositions);
+  S.colors = join(S.colors, addedColors);
+  S.opacity = join(S.opacity, addedOpacity);
+  S.scale = join(S.scale, addedScale);
+  const joinLidarAttribute = (existing, incoming, Type) => {
+    if (!existing && !incoming) return null;
+    const out = new Type(oldCount + added);
+    if (existing) out.set(existing.subarray ? existing.subarray(0, oldCount) : existing);
+    if (incoming) out.set(incoming.subarray ? incoming.subarray(0, added) : incoming, oldCount);
+    return out;
+  };
+  S.lidarIntensity = joinLidarAttribute(S.lidarIntensity, cloud.intensities, Uint16Array);
+  S.lidarClassification = joinLidarAttribute(S.lidarClassification, cloud.classifications, Uint8Array);
+  S.lidarReturnNumber = joinLidarAttribute(S.lidarReturnNumber, cloud.returnNumbers, Uint8Array);
+  S.lidarDisplayColors = null;
+  const liveAdded = new Uint8Array(added).fill(1);
+  const noSelection = new Uint8Array(added);
+  const currentAlive = S.alive?.length ? S.alive : new Uint8Array(oldCount).fill(1);
+  const currentSelected = S.selected?.length ? S.selected : new Uint8Array(oldCount);
+  const alive = new Uint8Array(oldCount + added); alive.set(currentAlive); alive.set(liveAdded, oldCount); S.alive = alive;
+  const selected = new Uint8Array(oldCount + added); selected.set(currentSelected); selected.set(noSelection, oldCount); S.selected = selected;
+  if (S.paintColors) {
+    const paintColors = new Float32Array((oldCount + added) * 3).fill(-1);
+    paintColors.set(S.paintColors);
+    S.paintColors = paintColors;
+  }
+  if (_lidarMergeUndo.sourceBuffer && _lidarMergeUndo.sourceBuffer.byteLength === oldCount * (S.splatRowSize || 32) && (S.splatRowSize || 32) === 32) {
+    const bytes = new Uint8Array(oldCount * 32 + added * 32);
+    bytes.set(new Uint8Array(_lidarMergeUndo.sourceBuffer));
+    const view = new DataView(bytes.buffer);
+    for (let i = 0; i < added; i++) {
+      const at = (oldCount + i) * 32;
+      for (let c = 0; c < 3; c++) view.setFloat32(at + c * 4, _lidarPreviewPositions[i * 3 + c], true);
+      view.setFloat32(at + 12, pointSize, true); view.setFloat32(at + 16, pointSize, true); view.setFloat32(at + 20, pointSize, true);
+      for (let c = 0; c < 3; c++) view.setUint8(at + 24 + c, Math.round(addedColors[i * 3 + c] * 255));
+      view.setUint8(at + 27, Math.round(addedOpacity[i] * 255));
+      view.setUint8(at + 28, 128); view.setUint8(at + 29, 128); view.setUint8(at + 30, 128); view.setUint8(at + 31, 255);
+    }
+    S.sourceBuffer = bytes.buffer;
+  } else if (oldCount && S.fileType !== 'ply') {
+    S.fileType = 'ply'; S.sourceBuffer = null;
+  }
+  if (!oldCount) { S.fileType = 'ply'; S.fileName = cloud.filename || 'lidar-import.ply'; }
+  rebuildGeometry();
+  setStatus(`Merged ${fmt(added)} LiDAR points into the editable scene.`);
+  showToast('LiDAR merged', `${fmt(added)} points added. Undo is available in the Import tab.`);
+  return added;
+};
+window.undoLidarMergeIntoStudio = () => {
+  if (!_lidarMergeUndo) return false;
+  Object.assign(S, _lidarMergeUndo);
+  _lidarMergeUndo = null;
+  rebuildGeometry();
+  setStatus('LiDAR merge undone.');
+  return true;
+};
+window.clearLidarPreview = () => {
+  if (_lidarPreviewObject) { scene.remove(_lidarPreviewObject); _lidarPreviewObject.geometry.dispose(); _lidarPreviewObject.material.dispose(); }
+  _lidarPreviewObject = null; _lidarPreviewCloud = null; _lidarPreviewColors = null; _lidarPreviewPositions = null;
+  window._fumocaLidarCloud = null; window._fumocaLidarPreviewObject = null;
+};
 
 // ─── HELPERS ────────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
@@ -1705,6 +2016,9 @@ function parsePLY(buffer) {
 
   // ── Colours ────────────────────────────────────────────────────────────────
   const colAttr = geo.getAttribute('color');
+  const intensityAttr = geo.getAttribute('intensity');
+  const classAttr = geo.getAttribute('classification');
+  const returnAttr = geo.getAttribute('return_number') || geo.getAttribute('returnNumber');
   const fdc0    = geo.getAttribute('f_dc_0');
   const fdc1    = geo.getAttribute('f_dc_1');
   const fdc2    = geo.getAttribute('f_dc_2');
@@ -1751,13 +2065,22 @@ function parsePLY(buffer) {
   }
 
   console.log(`[PLY] Parsed ${count} Gaussians — colours: ${colAttr ? 'vertex' : fdc0 ? 'SH-DC' : 'none'}`);
-  return { positions, colors, opacity, scale, count };
+  const intensities = intensityAttr ? new Uint16Array(count) : null;
+  if (intensities) {
+    let maxIntensity = 0;
+    for (let i = 0; i < count; i++) maxIntensity = Math.max(maxIntensity, intensityAttr.array[i]);
+    for (let i = 0; i < count; i++) intensities[i] = Math.round(maxIntensity <= 1 ? intensityAttr.array[i] * 65535 : intensityAttr.array[i]);
+  }
+  const classifications = classAttr ? new Uint8Array(classAttr.array) : null;
+  const returnNumbers = returnAttr ? new Uint8Array(returnAttr.array) : null;
+  return { positions, colors, opacity, scale, intensities, classifications, returnNumbers, count };
 }
 // ─── LOAD ────────────────────────────────────────────────────────────────────
 async function loadFile(file, urlOverride) {
   setStatus(`Loading ${file.name}…`, 'busy'); setProgress(10);
   const buf = await file.arrayBuffer(); setProgress(40);
-  const ext = (urlOverride || file.name).split('.').pop().toLowerCase();
+  const extSource = (urlOverride || file.name).split(/[?#]/, 1)[0];
+  const ext = extSource.split('.').pop().toLowerCase();
   let parsed;
   if (ext === 'nif') {
     // Real .nif — decode canonical 14-float/point geometry, then convert to
@@ -1776,10 +2099,23 @@ async function loadFile(file, urlOverride) {
   S.fileName = file.name;
   S.positions = parsed.positions; S.colors = parsed.colors;
   S.opacity = parsed.opacity; S.scale = parsed.scale;
+  S.lidarIntensity = parsed.intensities || null;
+  S.lidarClassification = parsed.classifications || null;
+  S.lidarReturnNumber = parsed.returnNumbers || null;
+  S.lidarDisplayColors = null;
   S.alive = new Uint8Array(parsed.count).fill(1);
   S.selected = new Uint8Array(parsed.count);
   S.paintColors = new Float32Array(parsed.count * 3).fill(-1);
   S.layers = []; S.activeLayerId = null; S.layerHidden = new Uint8Array(parsed.count);
+  const lidarColorMode = document.getElementById('lidarColorMode');
+  if (lidarColorMode) {
+    const has = { intensity: !!S.lidarIntensity, classification: !!S.lidarClassification, return: !!S.lidarReturnNumber };
+    for (const option of lidarColorMode.options) if (option.value !== 'rgb') option.disabled = !has[option.value];
+    lidarColorMode.value = S.lidarIntensity ? 'intensity'
+      : S.lidarClassification ? 'classification'
+      : S.lidarReturnNumber ? 'return' : 'rgb';
+    _applyLidarSceneColorMode();
+  }
   S.history = []; S.historyIndex = -1;
   updateHistoryBtns();
   rebuildGeometry(); setProgress(100);
@@ -1972,12 +2308,17 @@ function rebuildGeometry() {
   let idx = 0;
   for (let i = 0; i < count; i++) {
     if (!S.alive[i] || layerHidden[i]) continue;
-    pos[idx * 3] = S.positions[i * 3]; pos[idx * 3 + 1] = S.positions[i * 3 + 1]; pos[idx * 3 + 2] = S.positions[i * 3 + 2];
+    const glitch = S.glitchStrength / 100;
+    const noise = Math.abs(Math.sin(i * 12.9898) * 43758.5453) % 1 - 0.5;
+    pos[idx * 3] = S.positions[i * 3] + noise * glitch * 0.025;
+    pos[idx * 3 + 1] = S.positions[i * 3 + 1];
+    pos[idx * 3 + 2] = S.positions[i * 3 + 2] - noise * glitch * 0.025;
     const isSelected = S.selected[i];
     const pc = S.paintColors;
-    let r = pc && pc[i * 3] >= 0 ? pc[i * 3] : S.colors[i * 3];
-    let g = pc && pc[i * 3 + 1] >= 0 ? pc[i * 3 + 1] : S.colors[i * 3 + 1];
-    let b = pc && pc[i * 3 + 2] >= 0 ? pc[i * 3 + 2] : S.colors[i * 3 + 2];
+    const viewColors = S.lidarDisplayColors;
+    let r = pc && pc[i * 3] >= 0 ? pc[i * 3] : (viewColors?.[i * 3] ?? S.colors[i * 3]);
+    let g = pc && pc[i * 3 + 1] >= 0 ? pc[i * 3 + 1] : (viewColors?.[i * 3 + 1] ?? S.colors[i * 3 + 1]);
+    let b = pc && pc[i * 3 + 2] >= 0 ? pc[i * 3 + 2] : (viewColors?.[i * 3 + 2] ?? S.colors[i * 3 + 2]);
     // apply color grade
     r = clamp(r * (1 + S.exposure / 100), 0, 1);
     g = clamp(g * (1 + S.exposure / 100), 0, 1);
@@ -2041,12 +2382,26 @@ function rebuildGeometry() {
       let hslAdjust = 0;
       for (const k in HSL_ANCHORS) hslAdjust += (S.hsl[k]/100) * w[k];
       if (hslAdjust !== 0) {
-        const lumH = 0.299*r + 0.587*g + 0.114*b;
-        const fH = clamp(1 + hslAdjust, 0, 2.5);
-        r = clamp(lumH + (r-lumH)*fH, 0, 1);
-        g = clamp(lumH + (g-lumH)*fH, 0, 1);
-        b = clamp(lumH + (b-lumH)*fH, 0, 1);
+        if (S.hslMode === 'hue') {
+          const lum = 0.299*r + 0.587*g + 0.114*b;
+          const sat = Math.max(r,g,b) - Math.min(r,g,b);
+          [r,g,b] = hueToRgb((hue + hslAdjust * 90 + 360) % 360, sat, lum);
+        } else if (S.hslMode === 'lum') {
+          const lift = hslAdjust * 0.35;
+          r = clamp(r + lift, 0, 1); g = clamp(g + lift, 0, 1); b = clamp(b + lift, 0, 1);
+        } else {
+          const lum = 0.299*r + 0.587*g + 0.114*b;
+          const factor = clamp(1 + hslAdjust, 0, 2.5);
+          r = clamp(lum + (r-lum)*factor, 0, 1);
+          g = clamp(lum + (g-lum)*factor, 0, 1);
+          b = clamp(lum + (b-lum)*factor, 0, 1);
+        }
       }
+    }
+    if (S.scanStrength) {
+      const stripe = Math.max(0, Math.sin(S.positions[i * 3 + 1] * 90));
+      const factor = 1 - (S.scanStrength / 100) * (0.08 + stripe * 0.12);
+      r *= factor; g *= factor; b *= factor;
     }
     if (isSelected) { r = clamp(r * 0.5 + 0.4, 0, 1); g = clamp(g * 0.5 + 0.7, 0, 1); b = clamp(b * 0.5 + 1.0, 0, 1); }
     if (envLightingActive) {
@@ -2370,12 +2725,34 @@ function exportFile(type = 'splat') {
     blob = new Blob([out], { type: 'application/octet-stream' });
     name = S.fileName.replace(/\.splat$/i, '') + '.edited.splat';
   } else {
-    const lines = ['ply', 'format ascii 1.0', `element vertex ${idx.length}`, 'property float x', 'property float y', 'property float z', 'property uchar red', 'property uchar green', 'property uchar blue', 'end_header'];
+    const hasIntensity = !!S.lidarIntensity;
+    const hasClassification = !!S.lidarClassification;
+    const hasReturnNumber = !!S.lidarReturnNumber;
+    const lines = [
+      'ply', 'format ascii 1.0', `element vertex ${idx.length}`,
+      'property float x', 'property float y', 'property float z',
+      'property uchar red', 'property uchar green', 'property uchar blue',
+      ...(hasIntensity ? ['property ushort intensity'] : []),
+      ...(hasClassification ? ['property uchar classification'] : []),
+      ...(hasReturnNumber ? ['property uchar return_number'] : []),
+      'end_header',
+    ];
     for (const i of idx) {
       const r = S.paintColors && S.paintColors[i * 3] >= 0 ? S.paintColors[i * 3] : S.colors[i * 3];
       const g = S.paintColors && S.paintColors[i * 3 + 1] >= 0 ? S.paintColors[i * 3 + 1] : S.colors[i * 3 + 1];
       const b = S.paintColors && S.paintColors[i * 3 + 2] >= 0 ? S.paintColors[i * 3 + 2] : S.colors[i * 3 + 2];
-      lines.push(`${S.positions[i * 3]} ${S.positions[i * 3 + 1]} ${S.positions[i * 3 + 2]} ${Math.round(clamp(r, 0, 1) * 255)} ${Math.round(clamp(g, 0, 1) * 255)} ${Math.round(clamp(b, 0, 1) * 255)}`);
+      const displayColors = S.lidarDisplayColors;
+      const outR = S.paintColors?.[i * 3] >= 0 ? r : (displayColors?.[i * 3] ?? r);
+      const outG = S.paintColors?.[i * 3 + 1] >= 0 ? g : (displayColors?.[i * 3 + 1] ?? g);
+      const outB = S.paintColors?.[i * 3 + 2] >= 0 ? b : (displayColors?.[i * 3 + 2] ?? b);
+      const attrs = [
+        S.positions[i * 3], S.positions[i * 3 + 1], S.positions[i * 3 + 2],
+        Math.round(clamp(outR, 0, 1) * 255), Math.round(clamp(outG, 0, 1) * 255), Math.round(clamp(outB, 0, 1) * 255),
+        ...(hasIntensity ? [S.lidarIntensity[i]] : []),
+        ...(hasClassification ? [S.lidarClassification[i]] : []),
+        ...(hasReturnNumber ? [S.lidarReturnNumber[i]] : []),
+      ];
+      lines.push(attrs.join(' '));
     }
     blob = new Blob([lines.join('\n')], { type: 'text/plain' });
     name = S.fileName.replace(/\.[^.]+$/, '') + '.edited.ply';
@@ -2576,8 +2953,9 @@ async function startCapture() {
     const tick = () => {
       const elapsed = Date.now() - startTime;
       $('capProgressFill').style.width = Math.min(100, (elapsed / dur) * 100) + '%';
+      if (mediaRecorder?.state !== 'recording') return;
       if (elapsed < dur) requestAnimationFrame(tick);
-      else { mediaRecorder.stop(); }
+      else mediaRecorder.stop();
     };
     requestAnimationFrame(tick);
   } catch (err) {
@@ -2855,6 +3233,17 @@ function rgbToHue(r,g,b){
   h *= 60; if (h<0) h += 360;
   return h;
 }
+function hueToRgb(h,s,l){
+  const c=(1-Math.abs(2*l-1))*s, x=c*(1-Math.abs((h/60)%2-1)), m=l-c/2;
+  const rgb=h<60?[c,x,0]:h<120?[x,c,0]:h<180?[0,c,x]:h<240?[0,x,c]:h<300?[x,0,c]:[c,0,x];
+  return rgb.map(v=>clamp(v+m,0,1));
+}
+S.hslMode = 'sat';
+document.querySelectorAll('[data-hsl]').forEach(button => button.addEventListener('click', () => {
+  S.hslMode = button.dataset.hsl;
+  document.querySelectorAll('[data-hsl]').forEach(item => item.classList.toggle('active', item === button));
+  rebuildGeometry();
+}));
 bindRange('blobSoft', 'blobSoftVal', v => { S.blobSoftness = v / 100; Object.keys(_blobTexCache).forEach(k => delete _blobTexCache[k]); rebuildGeometry(); }, v => v + '%');
 bindRange('dofRange', 'dofVal', null, v => v === 0 ? 'Off' : v + '%');
 bindRange('selOpac', 'selOpacVal', null, v => v.toFixed(2));
@@ -2905,6 +3294,8 @@ colorAdjIds.forEach((id, i) => {
     const vEl = $(valMap[id]); if (!vEl) return;
     const v = Number(el.value);
     vEl.textContent = id === 'mbDir' ? v + '°' : id === 'lensDist' ? v + '%' : v + '%';
+    if (id === 'glitchStr') { S.glitchStrength = v; rebuildGeometry(); }
+    if (id === 'scanStr') { S.scanStrength = v; rebuildGeometry(); }
   });
 });
 ['envAmbient', 'envKey', 'envFill', 'envRim'].forEach(id => {
@@ -3044,9 +3435,10 @@ window.saveLiveEdit = async function saveLiveEdit(extra = {}) {
           const sc = S.scale?.[gi] || 0.01;
           view.setFloat32(off+12, sc, true);
           const pc = S.paintColors;
-          const r = pc && pc[gi*3]>=0   ? pc[gi*3]   : (S.colors[gi*3]   || 0);
-          const g = pc && pc[gi*3+1]>=0 ? pc[gi*3+1] : (S.colors[gi*3+1] || 0);
-          const b = pc && pc[gi*3+2]>=0 ? pc[gi*3+2] : (S.colors[gi*3+2] || 0);
+          const viewColors = S.lidarDisplayColors;
+          const r = pc && pc[gi*3]>=0   ? pc[gi*3]   : (viewColors?.[gi*3]   ?? S.colors[gi*3]   ?? 0);
+          const g = pc && pc[gi*3+1]>=0 ? pc[gi*3+1] : (viewColors?.[gi*3+1] ?? S.colors[gi*3+1] ?? 0);
+          const b = pc && pc[gi*3+2]>=0 ? pc[gi*3+2] : (viewColors?.[gi*3+2] ?? S.colors[gi*3+2] ?? 0);
           rowBytes[off+16] = Math.round(r * 255);
           rowBytes[off+17] = Math.round(g * 255);
           rowBytes[off+18] = Math.round(b * 255);
@@ -3355,6 +3747,50 @@ $('densityPruneBtn')?.addEventListener('click', () => {
   for (let i = 0; i < S.alive.length; i++) if (S.alive[i] && Math.random() < pct * 0.3) { S.alive[i] = 0; removed++; }
   rebuildGeometry(); setStatus(`Pruned ${fmt(removed)} low-density points`, 'ok');
 });
+$('lidarCleanOutliersBtn')?.addEventListener('click', () => {
+  if (!S.positions || !S.alive?.length) { setStatus('Load or merge a point cloud before cleaning it.'); return; }
+  const liveIds = [];
+  const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < S.alive.length; i++) {
+    if (!S.alive[i]) continue;
+    const x = S.positions[i * 3], y = S.positions[i * 3 + 1], z = S.positions[i * 3 + 2];
+    if (![x, y, z].every(Number.isFinite)) continue;
+    liveIds.push(i);
+    min[0] = Math.min(min[0], x); min[1] = Math.min(min[1], y); min[2] = Math.min(min[2], z);
+    max[0] = Math.max(max[0], x); max[1] = Math.max(max[1], y); max[2] = Math.max(max[2], z);
+  }
+  if (liveIds.length < 8) { setStatus('At least 8 live points are needed for isolated-point cleanup.'); return; }
+  const diag = Math.hypot(max[0] - min[0], max[1] - min[1], max[2] - min[2]);
+  const cellSize = Math.max(1e-9, diag * Number($('lidarCleanRadius').value || 0.6) / 100);
+  const minNeighbors = Math.max(2, Math.min(32, Math.floor(Number($('lidarCleanNeighbors').value || 4))));
+  const coords = new Int32Array(S.alive.length * 3);
+  const key = (x, y, z) => `${x},${y},${z}`;
+  const bins = new Map();
+  for (const i of liveIds) {
+    const x = Math.floor((S.positions[i * 3] - min[0]) / cellSize);
+    const y = Math.floor((S.positions[i * 3 + 1] - min[1]) / cellSize);
+    const z = Math.floor((S.positions[i * 3 + 2] - min[2]) / cellSize);
+    coords[i * 3] = x; coords[i * 3 + 1] = y; coords[i * 3 + 2] = z;
+    const k = key(x, y, z); bins.set(k, (bins.get(k) || 0) + 1);
+  }
+  const keep = new Uint8Array(S.alive.length);
+  let removed = 0;
+  for (const i of liveIds) {
+    const x = coords[i * 3], y = coords[i * 3 + 1], z = coords[i * 3 + 2];
+    let neighbors = 0;
+    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
+      neighbors += bins.get(key(x + dx, y + dy, z + dz)) || 0;
+    }
+    if (neighbors >= minNeighbors) keep[i] = 1;
+    else removed++;
+  }
+  if (!removed) { setStatus('No isolated points found at this radius.'); return; }
+  pushHistory('LiDAR isolated point cleanup');
+  for (const i of liveIds) if (!keep[i]) S.alive[i] = 0;
+  rebuildGeometry();
+  setStatus(`Removed ${fmt(removed)} isolated points; ${fmt(liveIds.length - removed)} remain.`, 'ok');
+  showToast('Point cloud cleaned', `${fmt(removed)} isolated points removed. Undo is available.`);
+});
 $('removeBgBtn')?.addEventListener('click', () => {
   const core = estimateCore(); if (!core) return;
   pushHistory('remove bg');
@@ -3513,9 +3949,6 @@ $('layerOpac')?.addEventListener('input', (e) => {
   const L = S.layers.find(l => l.id === S.activeLayerId);
   if (L) { L.opacity = v/100; rebuildGeometry(); }
 });
-$('layerBlend')?.addEventListener('change', () => {
-  showToast('Blend modes', 'Not yet implemented for point-splat rendering — on the roadmap', 'warn');
-});
   S.exposure = S.contrast = S.saturation = S.temperature = 0;
   S.highlights = S.shadows = S.whites = S.blacks = S.vibrance = S.tint = S.hueShift = 0;
   S.hsl = { red:0, orange:0, yellow:0, green:0, blue:0, purple:0 };
@@ -3542,10 +3975,24 @@ $('applyTrnBtn')?.addEventListener('click', () => {
   }
   rebuildGeometry(); setStatus('Transform applied', 'ok');
 });
-['fxHologram', 'fxMatrix', 'fxGlitch', 'fxRetro'].forEach(id => {
-  const el = $(id); if (!el) return;
-  el.addEventListener('click', () => showToast('FX Preset', `${id.replace('fx', '')} applied — render to see full effect`));
-});
+const fxPresets = {
+  fxHologram: { hue: 175, saturation: 18, temperature: -8, scan: 42, glitch: 0 },
+  fxMatrix: { hue: 115, saturation: 5, temperature: -12, scan: 24, glitch: 0 },
+  fxGlitch: { hue: 28, saturation: 24, temperature: 0, scan: 65, glitch: 72 },
+  fxRetro: { hue: 0, saturation: -24, temperature: 28, scan: 0, glitch: 0 },
+};
+Object.entries(fxPresets).forEach(([id, preset]) => $(id)?.addEventListener('click', () => {
+  S.hueShift = preset.hue;
+  S.saturation = preset.saturation;
+  S.temperature = preset.temperature;
+  $('adjHue').value = preset.hue; $('adjHueVal').textContent = `${preset.hue}°`;
+  $('adjSat').value = preset.saturation; $('adjSatVal').textContent = preset.saturation;
+  $('adjTemp').value = preset.temperature; $('adjTempVal').textContent = preset.temperature;
+  $('scanStr').value = preset.scan; $('scanVal').textContent = `${preset.scan}%`;
+  $('glitchStr').value = preset.glitch; $('glitchVal').textContent = `${preset.glitch}%`;
+  rebuildGeometry();
+  showToast('FX Preset', `${id.replace('fx', '')} color treatment applied to the current scene.`);
+}));
 $('renderImageBtn')?.addEventListener('click', () => {
   if (!S.positions) { showToast('No File', 'Load a splat first', 'warn'); return; }
   startBlobEffect();
@@ -3554,10 +4001,24 @@ $('renderImageBtn')?.addEventListener('click', () => {
   const a = document.createElement('a'); a.href = url; a.download = 'fumoca_render.png'; a.click();
   showToast('Rendered', 'Image saved to disk');
 });
-$('addKeyframeBtn')?.addEventListener('click', () => showToast('Not yet implemented', 'Keyframe animation timeline is on the roadmap — camera paths currently come from the real Auto Orbit recorder (Capture Video panel)', 'warn'));
-$('addTrackBtn')?.addEventListener('click', () => showToast('Not yet implemented', 'Custom timeline tracks are on the roadmap', 'warn'));
+$('addKeyframeBtn')?.addEventListener('click', async () => {
+  if (!window.FumocaStudio?.addKeyframeFromCurrentView) {
+    showToast('Keyframe unavailable', 'The 4D timeline is still initializing. Try again in a moment.', 'warn');
+    return;
+  }
+  await window.FumocaStudio.addKeyframeFromCurrentView();
+  const states = window.Fumoca4D?.getStates?.() || [];
+  const clip = $('timelineKeyframeClip');
+  if (clip && states.length) clip.textContent = `${states.length} camera keyframe${states.length === 1 ? '' : 's'}`;
+});
 $('tlPlay')?.addEventListener('click', () => {
-  showToast('Playback', 'Timeline playback — record a video to capture');
+  if (!S.alive) return showToast('Load a scene', 'Import a point cloud before recording a timeline preview.', 'warn');
+  $('capturePanel')?.classList.add('open');
+  $('capRecordBtn')?.click();
+});
+$('tlStop')?.addEventListener('click', () => {
+  if (mediaRecorder?.state === 'recording') mediaRecorder.stop();
+  else showToast('Timeline', 'There is no recording in progress to stop.', 'warn');
 });
 
 // ─── KEYBOARD SHORTCUTS ──────────────────────────────────────────────────────
@@ -3605,7 +4066,7 @@ $('mobilePanelBackdrop')?.addEventListener('click', closeMobilePanels);
 (async function bootstrap() {
   const params  = new URLSearchParams(location.search);
   let fileUrl   = params.get('file');
-  const splatId = params.get('splatId');
+  const splatId = params.get('splatId') || params.get('nifId');
 
   // Wait up to 3s for Supabase client to initialise (loaded via dynamic import)
   await new Promise(resolve => {
@@ -3616,6 +4077,23 @@ $('mobilePanelBackdrop')?.addEventListener('click', closeMobilePanels);
       if (window._fumocaSupabase || waited >= 3000) { clearInterval(check); resolve(); }
     }, 50);
   });
+
+  // Load the live NIF record even when the editor was opened with a direct
+  // file URL, so source-capture links and metadata survive later edits.
+  if (params.get('nifId')) {
+    try {
+      const sb = window._fumocaSupabase || window.supabase;
+      if (sb) {
+        const { data } = await sb.from('nif_files').select('*').eq('id', params.get('nifId')).maybeSingle();
+        if (data) {
+          window._fumocaCurrentRecord = { ...data, ...(window._fumocaCurrentRecord || {}) };
+          window._fumocaCurrentRecord.meta = data.meta || window._fumocaCurrentRecord.meta || {};
+          if (!fileUrl) fileUrl = data.output_url || data.nif_url || data.splat_url || null;
+          _renderLidarSourceLinks(data.meta || {});
+        }
+      }
+    } catch (e) { console.warn('[Bootstrap] NIF record lookup failed:', e); }
+  }
 
   // If we have a splatId but no file URL, look it up from Supabase
   if (!fileUrl && splatId) {
@@ -4729,15 +5207,46 @@ if (!window._fumocaBooted) {
     },
     onCloud: (cloud) => {
       window._fumocaLidarCloud = cloud;
-      // Hook: if studio exposes merge API, call it
-      if (typeof window.mergePointCloudIntoStudio === 'function' && !cloud.deferred) {
-        window.mergePointCloudIntoStudio(cloud);
-      } else if (!cloud.deferred) {
-        status(`LiDAR ready (${cloud.count?.toLocaleString?.() || '?'} pts) — merge hook pending`);
-      }
+      if (cloud.deferred) return;
+      window.previewLidarCloud(cloud);
+      if (!S.alive?.some(Boolean)) window.fitLidarToScene();
+      ['lidarFitBtn', 'lidarMergeBtn', 'lidarClearBtn'].forEach(id => { const b = document.getElementById(id); if (b) b.disabled = false; });
+      status(`LiDAR preview ready (${cloud.count.toLocaleString()} points). Adjust alignment, then merge when ready.`);
     },
   });
   document.getElementById('lidarPickBtn')?.addEventListener('click', () => lidarApi.openPicker());
+  ['lidarScale', 'lidarOffsetX', 'lidarOffsetY', 'lidarOffsetZ'].forEach(id => {
+    document.getElementById(id)?.addEventListener('input', () => window.previewLidarCloud(window._fumocaLidarCloud));
+  });
+  document.getElementById('lidarFitBtn')?.addEventListener('click', () => {
+    if (window.fitLidarToScene()) status('LiDAR fitted to the current scene bounds. Refine offsets if needed.');
+  });
+  document.getElementById('lidarMergeBtn')?.addEventListener('click', async () => {
+    try {
+      const cloud = window._fumocaLidarCloud;
+      if (cloud?.originalFile) {
+        status('Saving the original scan before merging...');
+        await window.preserveImportedLidarSource(cloud);
+      }
+      const added = window.mergePointCloudIntoStudio();
+      document.getElementById('lidarUndoBtn').disabled = false;
+      document.getElementById('lidarMergeBtn').disabled = true;
+      window.clearLidarPreview();
+      document.getElementById('lidarClearBtn').disabled = true;
+      status(`Merged ${added.toLocaleString()} LiDAR points. Use Undo merge if the alignment needs changing.`);
+    } catch (err) { status(err.message || String(err)); }
+  });
+  document.getElementById('lidarUndoBtn')?.addEventListener('click', () => {
+    if (window.undoLidarMergeIntoStudio()) {
+      document.getElementById('lidarUndoBtn').disabled = true;
+      status('LiDAR merge undone.');
+    }
+  });
+  document.getElementById('lidarClearBtn')?.addEventListener('click', () => {
+    window.clearLidarPreview();
+    ['lidarFitBtn', 'lidarMergeBtn', 'lidarClearBtn'].forEach(id => { const b = document.getElementById(id); if (b) b.disabled = true; });
+    status('LiDAR preview cleared.');
+  });
 
   // Sparse boost
   document.getElementById('sparseBoostBtn')?.addEventListener('click', () => {

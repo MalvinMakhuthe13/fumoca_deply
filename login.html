@@ -83,7 +83,7 @@
       <div class="form-group">
         <label class="form-label">Password</label>
         <input type="password" class="form-input" id="password" placeholder="Your password" required>
-        <div class="forgot"><a href="#">Forgot password?</a></div>
+        <div class="forgot"><a href="#" id="forgotPasswordLink">Forgot password?</a></div>
       </div>
       <button type="submit" class="submit-btn" id="loginBtn">Log in →</button>
     </form>
@@ -102,6 +102,7 @@
 
 <script type="module">
 import { supabase } from './js/supabaseClient.js';
+let passwordRecovery = false;
 
 function showMsg(t,type){
   const el=document.getElementById('msg');
@@ -119,23 +120,63 @@ window.handleLogin = async function(e){
   const email=document.getElementById('email').value;
   const password=document.getElementById('password').value;
 
-  const { error } = await supabase.auth.signInWithPassword({
-    email,
-    password
-  });
+  const result = passwordRecovery
+    ? await supabase.auth.updateUser({ password })
+    : await supabase.auth.signInWithPassword({ email, password });
+  const { error } = result;
 
   if(error){
     showMsg(error.message,'error');
     btn.disabled=false;
     btn.textContent='Log in →';
   } else {
+    if (passwordRecovery) {
+      passwordRecovery = false;
+      showMsg('Password updated. You can now sign in.', 'success');
+      btn.disabled = false;
+      btn.textContent = 'Log in →';
+      document.getElementById('password').value = '';
+      document.getElementById('password').previousElementSibling.textContent = 'Password';
+      return;
+    }
     showMsg('Welcome back!','success');
     setTimeout(()=>{window.location.href='feed.html';},800);
   }
 };
 
+document.getElementById('forgotPasswordLink').addEventListener('click', async (e) => {
+  e.preventDefault();
+  const email = document.getElementById('email').value.trim();
+  if (!email) {
+    document.getElementById('email').focus();
+    showMsg('Enter your email address first, then choose Forgot password.', 'error');
+    return;
+  }
+  const link = e.currentTarget;
+  link.style.pointerEvents = 'none';
+  try {
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${location.origin}/login.html?reset=1`,
+    });
+    if (error) throw error;
+    showMsg('Password reset instructions sent. Check your email.', 'success');
+  } catch (error) {
+    showMsg(error.message || 'Could not send a password reset email.', 'error');
+  } finally {
+    link.style.pointerEvents = '';
+  }
+});
+
+supabase.auth.onAuthStateChange((event) => {
+  if (event !== 'PASSWORD_RECOVERY') return;
+  passwordRecovery = true;
+  document.getElementById('password').previousElementSibling.textContent = 'New password';
+  document.getElementById('loginBtn').textContent = 'Update password';
+  showMsg('Choose a new password and submit to finish resetting it.', 'success');
+});
+
 supabase.auth.getSession().then(({data:{session}})=>{
-  if(session) window.location.href='feed.html';
+  if(session && new URLSearchParams(location.search).get('reset') !== '1') window.location.href='feed.html';
 });
 </script>
 

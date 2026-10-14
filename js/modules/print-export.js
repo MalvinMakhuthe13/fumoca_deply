@@ -18,7 +18,7 @@ import r2 from '../r2Client.js';
  *   onStatus function  optional (message: string) => void, for UI feedback
  * @returns {Promise<string>} the reconstruction_jobs id — poll it for status
  */
-export async function exportSelectionAsFigurine({ title, onStatus } = {}) {
+export async function exportSelectionAsFigurine({ title, preset = 'product', heightMm = 120, onStatus } = {}) {
   const sb = window._fumocaSupabase;
   if (!sb) throw new Error('Supabase client not available');
 
@@ -77,10 +77,10 @@ export async function exportSelectionAsFigurine({ title, onStatus } = {}) {
     user_id: user?.id || null,
     status: 'queued',
     progress: 0,
-    vertical: 'figurine',
+    vertical: preset,
     capture_mode: 'mesh_only',
     raw_r2_key: fileKey,
-    meta: { title: title || 'Figurine export', point_count: aliveIndices.length },
+    meta: { title: title || 'Print export', point_count: aliveIndices.length, print_preset: preset, height_mm: Number(heightMm) || 120 },
   }).select().single();
   if (jobErr) throw jobErr;
 

@@ -1,3 +1,5 @@
+import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
+
 /**
  * FUMOCA LiDAR / dense point import
  *
@@ -17,6 +19,7 @@ export function parseXYZ(text) {
   const pts = [];
   const cols = [];
   let hasColor = false;
+  let maxColor = 0;
 
   for (const line of lines) {
     const t = line.trim();
@@ -26,18 +29,17 @@ export function parseXYZ(text) {
     pts.push(parts[0], parts[1], parts[2]);
     if (parts.length >= 6) {
       hasColor = true;
-      cols.push(
-        Math.min(255, Math.max(0, parts[3])) / 255,
-        Math.min(255, Math.max(0, parts[4])) / 255,
-        Math.min(255, Math.max(0, parts[5])) / 255
-      );
+      const rgb = parts.slice(3, 6);
+      if (rgb.some(Number.isNaN)) { cols.push(0.72, 0.72, 0.72); continue; }
+      maxColor = Math.max(maxColor, ...rgb);
+      cols.push(...rgb);
     }
   }
 
   const count = pts.length / 3;
   return {
     positions: new Float32Array(pts),
-    colors: hasColor ? new Float32Array(cols) : null,
+    colors: hasColor ? new Float32Array(cols.map(value => Math.min(1, Math.max(0, value / (maxColor > 1.5 ? 255 : 1))))) : null,
     count,
     source: 'xyz',
   };
@@ -107,22 +109,45 @@ export function parseAsciiPLY(text) {
 export async function importPointCloud(file) {
   const name = (file.name || '').toLowerCase();
   const buf = await file.arrayBuffer();
-  const head = new TextDecoder().decode(buf.slice(0, 80));
-
-  if (name.endsWith('.las') || name.endsWith('.laz')) {
+  if (name.endsWith('.laz')) {
+    throw new Error('Compressed LAZ files need to be converted to LAS or PLY before import. Uncompressed LAS is supported here.');
+  }
+  if (name.endsWith('.las')) {
+    return parseLAS(buf);
+  }
+  if (name.endsWith('.ply')) {
+    const geometry = new PLYLoader().parse(buf);
+    const position = geometry.getAttribute('position');
+    if (!position) throw new Error('PLY file has no vertex positions.');
+    const color = geometry.getAttribute('color');
+    const intensityAttr = geometry.getAttribute('intensity');
+    const classificationAttr = geometry.getAttribute('classification');
+    const returnAttr = geometry.getAttribute('return_number') || geometry.getAttribute('returnNumber');
+    let intensities = null;
+    if (intensityAttr) {
+      intensities = new Uint16Array(position.count);
+      let maxIntensity = 0;
+      for (let i = 0; i < position.count; i++) maxIntensity = Math.max(maxIntensity, Number(intensityAttr.array[i]) || 0);
+      for (let i = 0; i < position.count; i++) {
+        const value = Number(intensityAttr.array[i]) || 0;
+        intensities[i] = Math.round(maxIntensity <= 1 ? value * 65535 : value);
+      }
+    }
+    const colors = color ? new Float32Array(position.count * 3) : null;
+    if (color) {
+      for (let i = 0; i < position.count; i++) {
+        for (let c = 0; c < 3; c++) colors[i * 3 + c] = color.array[i * color.itemSize + c];
+      }
+    }
     return {
-      deferred: true,
-      message:
-        'LAS/LAZ will be processed on the GPU worker (same queue as video). Upload queued when worker is configured.',
-      filename: file.name,
-      size: file.size,
+      positions: new Float32Array(position.array), colors,
+      intensities,
+      classifications: classificationAttr ? new Uint8Array(classificationAttr.array) : null,
+      returnNumbers: returnAttr ? new Uint8Array(returnAttr.array) : null,
+      count: position.count, source: 'ply',
     };
   }
-
   const text = new TextDecoder().decode(buf);
-  if (name.endsWith('.ply') || head.startsWith('ply')) {
-    return parseAsciiPLY(text);
-  }
   if (name.endsWith('.xyz') || name.endsWith('.txt') || name.endsWith('.csv')) {
     return parseXYZ(text);
   }
@@ -135,15 +160,65 @@ export async function importPointCloud(file) {
   }
 }
 
+/** Parse uncompressed LAS 1.2–1.4 records, with a memory-safe point cap. */
+export function parseLAS(buffer, maxPoints = 1_000_000) {
+  const view = new DataView(buffer);
+  if (buffer.byteLength < 227 || String.fromCharCode(...new Uint8Array(buffer, 0, 4)) !== 'LASF') {
+    throw new Error('This does not look like a valid LAS file.');
+  }
+  const pointOffset = view.getUint32(96, true);
+  const rawFormat = view.getUint8(104);
+  if (rawFormat & 0x80) throw new Error('This LAS file uses LAZ compression. Convert it to uncompressed LAS or PLY first.');
+  const format = rawFormat & 0x3f;
+  const recordLength = view.getUint16(105, true);
+  let total = view.getUint32(107, true);
+  if (view.getUint8(24) === 1 && view.getUint8(25) >= 4 && buffer.byteLength >= 255) {
+    const extended = Number(view.getBigUint64(247, true));
+    if (extended > 0) total = extended;
+  }
+  if (!total || pointOffset >= buffer.byteLength || recordLength < 16) throw new Error('LAS header has no readable point records.');
+  const recordCount = Math.min(total, Math.floor((buffer.byteLength - pointOffset) / recordLength));
+  if (!recordCount) throw new Error('LAS file contains no point records.');
+  const stride = Math.max(1, Math.ceil(recordCount / maxPoints));
+  const count = Math.ceil(recordCount / stride);
+  const positions = new Float32Array(count * 3);
+  const intensities = new Uint16Array(count);
+  const classifications = new Uint8Array(count);
+  const returnNumbers = new Uint8Array(count);
+  const colorOffset = ({2:20, 3:28, 5:28, 7:30, 8:30, 10:30})[format];
+  const colors = colorOffset != null && recordLength >= colorOffset + 6 ? new Float32Array(count * 3) : null;
+  const sx = view.getFloat64(131, true), sy = view.getFloat64(139, true), sz = view.getFloat64(147, true);
+  const ox = view.getFloat64(155, true), oy = view.getFloat64(163, true), oz = view.getFloat64(171, true);
+  let out = 0;
+  for (let i = 0; i < recordCount; i += stride) {
+    const at = pointOffset + i * recordLength;
+    positions[out * 3] = view.getInt32(at, true) * sx + ox;
+    positions[out * 3 + 1] = view.getInt32(at + 4, true) * sy + oy;
+    positions[out * 3 + 2] = view.getInt32(at + 8, true) * sz + oz;
+    intensities[out] = view.getUint16(at + 12, true);
+    classifications[out] = view.getUint8(at + 15);
+    const returnBits = view.getUint8(at + 14);
+    returnNumbers[out] = format >= 6 ? returnBits & 0x0f : returnBits & 0x07;
+    if (colors) {
+      for (let c = 0; c < 3; c++) colors[out * 3 + c] = view.getUint16(at + colorOffset + c * 2, true) / 65535;
+    }
+    out++;
+  }
+  return { positions, colors, intensities, classifications, returnNumbers, count: out, source: `las-format-${format}`, sourcePointCount: total };
+}
+
 /**
  * Downsample for browser safety (max points).
  */
 export function downsample(cloud, maxPoints = 800_000) {
   if (cloud.count <= maxPoints) return cloud;
   const step = Math.ceil(cloud.count / maxPoints);
-  const n = Math.floor(cloud.count / step);
+  const n = Math.ceil(cloud.count / step);
   const positions = new Float32Array(n * 3);
   const colors = cloud.colors ? new Float32Array(n * 3) : null;
+  const intensities = cloud.intensities ? new cloud.intensities.constructor(n) : null;
+  const classifications = cloud.classifications ? new Uint8Array(n) : null;
+  const returnNumbers = cloud.returnNumbers ? new Uint8Array(n) : null;
   let j = 0;
   for (let i = 0; i < cloud.count; i += step) {
     positions[j * 3] = cloud.positions[i * 3];
@@ -154,9 +229,61 @@ export function downsample(cloud, maxPoints = 800_000) {
       colors[j * 3 + 1] = cloud.colors[i * 3 + 1];
       colors[j * 3 + 2] = cloud.colors[i * 3 + 2];
     }
+    if (intensities) intensities[j] = cloud.intensities[i];
+    if (classifications) classifications[j] = cloud.classifications[i];
+    if (returnNumbers) returnNumbers[j] = cloud.returnNumbers[i];
     j++;
   }
-  return { positions, colors, count: j, source: cloud.source + '+downsampled' };
+  return {
+    positions, colors, intensities, classifications, returnNumbers, count: j,
+    source: cloud.source + '+downsampled',
+    sourcePointCount: cloud.sourcePointCount || cloud.count,
+  };
+}
+
+/** Encode an imported point cloud as binary PLY for direct Studio loading. */
+export function encodePointCloudPLY(cloud) {
+  const count = Math.min(cloud?.count || 0, Math.floor((cloud?.positions?.length || 0) / 3));
+  if (count < 3) throw new Error('The LiDAR file must contain at least 3 valid points.');
+  const hasIntensity = !!cloud.intensities;
+  const hasClassification = !!cloud.classifications;
+  const hasReturnNumber = !!cloud.returnNumbers;
+  const properties = [
+    'property float x', 'property float y', 'property float z',
+    'property uchar red', 'property uchar green', 'property uchar blue',
+    ...(hasIntensity ? ['property ushort intensity'] : []),
+    ...(hasClassification ? ['property uchar classification'] : []),
+    ...(hasReturnNumber ? ['property uchar return_number'] : []),
+  ];
+  const header = [
+    'ply', 'format binary_little_endian 1.0', `element vertex ${count}`,
+    ...properties,
+    'end_header', '',
+  ].join('\n');
+  const headerBytes = new TextEncoder().encode(header);
+  const recordSize = 15 + (hasIntensity ? 2 : 0) + (hasClassification ? 1 : 0) + (hasReturnNumber ? 1 : 0);
+  const output = new Uint8Array(headerBytes.length + count * recordSize);
+  output.set(headerBytes);
+  const view = new DataView(output.buffer, headerBytes.length);
+  for (let i = 0; i < count; i++) {
+    const at = i * recordSize, p = i * 3;
+    view.setFloat32(at, cloud.positions[p], true);
+    view.setFloat32(at + 4, cloud.positions[p + 1], true);
+    view.setFloat32(at + 8, cloud.positions[p + 2], true);
+    for (let c = 0; c < 3; c++) {
+      const color = cloud.colors?.[p + c] ?? 0.72;
+      view.setUint8(at + 12 + c, Math.round(Math.min(1, Math.max(0, color)) * 255));
+    }
+    let extraAt = at + 15;
+    if (hasIntensity) {
+      const rawIntensity = Number(cloud.intensities[i]) || 0;
+      view.setUint16(extraAt, Math.round(Math.max(0, Math.min(65535, rawIntensity <= 1 ? rawIntensity * 65535 : rawIntensity))), true);
+      extraAt += 2;
+    }
+    if (hasClassification) { view.setUint8(extraAt, cloud.classifications[i]); extraAt++; }
+    if (hasReturnNumber) view.setUint8(extraAt, cloud.returnNumbers[i]);
+  }
+  return output;
 }
 
 /**
@@ -179,7 +306,9 @@ export function mountLidarImport({ dropEl, onCloud, onStatus } = {}) {
         return;
       }
       cloud = downsample(cloud);
-      onStatus?.(`Loaded ${cloud.count.toLocaleString()} points (${cloud.source})`);
+      cloud.filename = file.name;
+      cloud.originalFile = file;
+      onStatus?.(`Loaded ${cloud.count.toLocaleString()} points (${cloud.source}${cloud.sourcePointCount ? `, sampled from ${cloud.sourcePointCount.toLocaleString()}` : ''})`);
       onCloud?.(cloud);
     } catch (err) {
       onStatus?.(err.message || String(err));
@@ -215,5 +344,5 @@ export function mountLidarImport({ dropEl, onCloud, onStatus } = {}) {
 }
 
 if (typeof window !== 'undefined') {
-  window.FUMOCA_LidarImport = { importPointCloud, parseXYZ, parseAsciiPLY, downsample, mountLidarImport };
+  window.FUMOCA_LidarImport = { importPointCloud, parseLAS, parseXYZ, parseAsciiPLY, downsample, encodePointCloudPLY, mountLidarImport };
 }

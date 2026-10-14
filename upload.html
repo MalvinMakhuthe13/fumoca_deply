@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <link rel="manifest" href="/manifest.json">
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160/examples/jsm/"}}</script>
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>FUMOCA — Create Capture</title>
@@ -23,12 +24,12 @@
   <div class="page-body">
     <div class="page-header">
       <div class="page-kicker">Create</div>
-      <div class="page-title">UPLOAD SOURCE VIDEO</div>
+      <div class="page-title">UPLOAD A CAPTURE</div>
     </div>
     
 <div class="grid-2">
   <section class="panel">
-    <p class="page-sub" style="margin-top:0;margin-bottom:18px">Upload a source video or register a finished nif from another provider. Feed cards, thumbnails, teaser videos and interactive viewer links now share the same publishing flow.</p>
+    <p class="page-sub" style="margin-top:0;margin-bottom:18px">Reconstruct from a video or multi-angle photos, upload a PLY/NIF directly, or publish a finished scene from another provider. Choose the thumbnail shown on every upload.</p>
 
     <div class="panel" style="margin-bottom:18px;">
       <label style="margin-bottom:10px;display:block;">Creation mode</label>
@@ -36,6 +37,7 @@
         <button type="button" id="modePipelineBtn" class="mode-btn" onclick="setUploadMode('pipeline')" style="padding:14px 16px;border-radius:14px;border:1px solid rgba(200,255,0,.3);background:rgba(200,255,0,.08);color:#C8FF00;font-weight:700;cursor:pointer;">🎬 Process from video</button>
         <button type="button" id="modePhotosBtn" class="mode-btn" onclick="setUploadMode('photos')" style="padding:14px 16px;border-radius:14px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);color:#FAFAFA;font-weight:700;cursor:pointer;">📸 Process from photos</button>
         <button type="button" id="modePlyBtn" class="mode-btn" onclick="setUploadMode('ply')" style="padding:14px 16px;border-radius:14px;border:1px solid rgba(0,229,255,.3);background:rgba(0,229,255,.06);color:#0ef;font-weight:700;cursor:pointer;">📂 Upload .ply directly</button>
+        <button type="button" id="modeLidarBtn" class="mode-btn" onclick="setUploadMode('lidar')" style="padding:14px 16px;border-radius:14px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);color:#FAFAFA;font-weight:700;cursor:pointer;">📡 Upload LiDAR (LAS / XYZ)</button>
         <button type="button" id="modeExternalBtn" class="mode-btn" onclick="setUploadMode('external')" style="padding:14px 16px;border-radius:14px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.04);color:#FAFAFA;font-weight:700;cursor:pointer;">🧊 Publish finished nif</button>
       </div>
     </div>
@@ -46,7 +48,7 @@
          style="border:2px dashed rgba(255,255,255,0.15); background:rgba(255,255,255,.02); cursor:pointer; text-align:center; padding:44px 28px; margin-bottom:20px;">
       <div id="uploadIcon" style="font-size:38px; margin-bottom:10px;">🎬</div>
       <div id="uploadTitle" style="font-size:22px; font-weight:800; margin-bottom:8px;">Drop your video here</div>
-      <div id="uploadSub" class="muted">MP4, MOV, AVI up to 2GB<br>Walk slowly around your subject. 30–90 seconds works best.</div>
+      <div id="uploadSub" class="muted">MP4, MOV, AVI up to 1GB<br>Walk slowly around your subject. 30–90 seconds works best.</div>
       <input type="file" id="fileInput" accept="video/*" onchange="handleFileSelect(this)" style="display:none">
     </div>
 
@@ -80,6 +82,13 @@
       <div style="margin-top:16px">
         <label>Description</label>
         <textarea id="nifDesc" rows="4" placeholder="What are viewers seeing, buying, or exploring?"></textarea>
+      </div>
+
+      <div style="margin-top:16px">
+        <label for="thumbnailFile">Thumbnail image <span style="color:#ff9d9d">(required for every upload)</span></label>
+        <input type="file" id="thumbnailFile" accept="image/*" style="width:100%;margin-top:8px;">
+        <div class="muted" style="font-size:12px;margin-top:5px">Choose the image shown on your capture. FUMOCA will not select a video frame for you.</div>
+        <img id="thumbnailPreview" alt="Selected thumbnail preview" hidden style="display:none;max-width:220px;max-height:150px;object-fit:contain;margin-top:10px;border-radius:10px;border:1px solid rgba(255,255,255,.15);">
       </div>
 
       <div style="margin-top:16px">
@@ -175,7 +184,7 @@
         <div style="display:flex;justify-content:space-between;margin-bottom:8px;"><span id="progressLabel">Uploading...</span><span id="progressPct">0%</span></div>
         <div style="height:10px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden;"><div id="progressFill" style="height:100%;width:0;background:var(--neon)"></div></div>
       </div>
-      <div class="mini-item" id="step-upload"><div class="mini-item-title">📤 Upload video</div><div class="mini-item-sub">Store source video in Supabase Storage.</div></div>
+      <div class="mini-item" id="step-upload"><div class="mini-item-title">📤 Upload source</div><div class="mini-item-sub">Store the selected capture media or scene file.</div></div>
       <div class="mini-item" id="step-frames"><div class="mini-item-title">🎞️ Extract frames</div><div class="mini-item-sub">Queued for downstream processing.</div></div>
       <div class="mini-item" id="step-colmap"><div class="mini-item-title">📍 Pose estimation</div><div class="mini-item-sub">Worker will reconstruct camera positions.</div></div>
       <div class="mini-item" id="step-train"><div class="mini-item-title">🧠 Train nif</div><div class="mini-item-sub">Gaussian nif generation runs in the worker.</div></div>

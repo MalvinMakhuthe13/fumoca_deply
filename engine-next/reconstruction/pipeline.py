@@ -1700,8 +1700,14 @@ class ReconstructionWorker:
             frames_dir  = self.tmp / 'frames'
             proxy_bytes = encode_proxy_video(frames_dir, fps)
 
-            # ── Thumbnail bytes (built once, used two ways below) ──────────────
-            thumb_bytes = self._make_thumbnail_bytes(frames)
+            # ── Thumbnail bytes from the user's selected upload ────────────────
+            # Use only the image explicitly chosen during upload.
+            thumb_key = meta.get('thumbnail_r2_key')
+            thumb_bytes = None
+            if thumb_key:
+                thumb_path = self.tmp / 'user-thumbnail'
+                R2.download_file(OUTPUT_BUCKET, thumb_key, str(thumb_path))
+                thumb_bytes = thumb_path.read_bytes()
 
             # ── Pack .nif ─────────────────────────────────────────────────────
             self._tick('processing', 84)
@@ -1768,7 +1774,7 @@ class ReconstructionWorker:
             proxy_r2_key  = None
             if proxy_bytes:
                 proxy_r2_key = self._upload_proxy_video(proxy_bytes, fps)
-            thumbnail_r2 = self._upload_thumbnail_bytes(thumb_bytes)
+            thumbnail_r2 = thumb_key if thumb_bytes else None
 
             # ── Compute captured dimensions from the (possibly calibrated)
             # mesh-space positions — labeled honestly depending on whether a
@@ -3020,7 +3026,8 @@ class ReconstructionWorker:
         """
         try:
             self._tick('downloading', 5)
-            local = self._download(geo_r2_key)
+            local = self.tmp / 'print-source.bin'
+            R2.download_file(OUTPUT_BUCKET, geo_r2_key, str(local))
             geo_bytes = local.read_bytes()
 
             self._tick('processing', 20)
@@ -3037,6 +3044,27 @@ class ReconstructionWorker:
                     'opacity filtering. Try a less aggressive erase, or a '
                     'capture with more coverage of the subject.'
                 )
+
+            # The Studio print controls select a physical height. Scale the
+            # generated mesh before upload so downloaded STL coordinates are mm.
+            try:
+                import io
+                import trimesh
+                print_mesh = trimesh.load(io.BytesIO(stl_bytes), file_type='stl', force='mesh')
+                desired_height_mm = float(meta.get('height_mm') or {
+                    'product': 120, 'figurine': 120, 'bust': 150, 'large': 200,
+                }.get(meta.get('print_preset'), 120))
+                y_height = float(print_mesh.bounds[1][1] - print_mesh.bounds[0][1])
+                dimension = y_height if y_height > 1e-9 else float(max(print_mesh.extents))
+                if not math.isfinite(desired_height_mm) or desired_height_mm <= 0:
+                    raise ValueError('Print height must be greater than zero.')
+                print_mesh.apply_scale(desired_height_mm / max(dimension, 1e-9))
+                stl_bytes = print_mesh.export(file_type='stl')
+                mesh_info['is_watertight'] = bool(print_mesh.is_watertight)
+                mesh_info['volume_m3'] = float(print_mesh.volume) / 1_000_000_000 if print_mesh.is_watertight else None
+                print(f'[NIF] mesh_only: scaled to {desired_height_mm:.1f} mm ({meta.get("print_preset", "product")})')
+            except Exception as scale_error:
+                raise RuntimeError(f'Could not scale print mesh: {scale_error}') from scale_error
 
             # Same gap as the main run() path, same fix: STL bytes existing
             # only means the export call didn't crash, not that the mesh is

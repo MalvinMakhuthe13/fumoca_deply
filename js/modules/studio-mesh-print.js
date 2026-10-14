@@ -1,3 +1,8 @@
+import FumocMeshExtractor from './fumoc-mesh-extractor.js';
+import { exportSelectionAsFigurine, pollPrintJob } from './print-export.js';
+import r2 from '../r2Client.js';
+import { supabase } from '../supabaseClient.js';
+
 /**
  * Studio Mesh & Print panel
  *
@@ -10,14 +15,32 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
 
   container.innerHTML = `
     <div class="section">
-      <div class="sec-head"><span class="sec-label">Mesh from splat</span><span class="sec-badge">GPU / LOCAL</span></div>
+      <div class="sec-head"><span class="sec-label">Mesh from points</span><span class="sec-badge">LOCAL</span></div>
       <div class="sec-body">
-        <div class="hint">Extract a solid mesh for inspection or 3D print. Best after Clean + Sparse boost.</div>
+        <div class="hint">Build a surface from the current live NIF, PLY, or LiDAR points. PLY and OBJ keep transferred vertex color; STL is for printing.</div>
         <div class="ctrl-row">
           <span class="ctrl-label">Resolution</span>
-          <span class="ctrl-val" id="meshResVal">Med</span>
+        <span class="ctrl-val" id="meshResVal">32³</span>
         </div>
-        <input type="range" id="meshRes" min="0" max="2" step="1" value="1">
+        <input type="range" id="meshRes" min="32" max="64" step="16" value="32">
+        <label style="display:block;font-size:11px;margin-top:8px">Surface threshold (0 = automatic)
+          <input id="meshThreshold" type="number" min="0" max="10" step="0.01" value="0" style="display:block;width:100%;padding:7px;border-radius:7px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#fff;margin-top:4px">
+        </label>
+        <label style="display:block;font-size:11px">Smoothing passes
+          <input id="meshSmooth" type="range" min="0" max="4" step="1" value="1" style="width:100%">
+        </label>
+        <div class="hint">Local preview is capped at 64³ for browser responsiveness. Use the GPU queue for full detail.</div>
+        <label style="display:block;font-size:11px;margin:8px 0 6px">Mesh format
+          <select id="meshFormat" style="display:block;width:100%;padding:8px;border-radius:8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#fff;margin-top:4px">
+            <option value="ply">Colored PLY - keep scene scale</option>
+            <option value="obj">Colored OBJ - keep scene scale</option>
+            <option value="stl">STL - scale to print height</option>
+          </select>
+        </label>
+        <label style="display:flex;align-items:center;gap:7px;font-size:11px;margin:6px 0"><input id="meshPreviewToggle" type="checkbox" disabled> Preview extracted solid mesh in scene</label>
+        <label style="display:block;font-size:11px">Preview light <input id="meshPreviewLight" type="range" min="0" max="2" step="0.05" value="0.25" style="width:100%"></label>
+        <label style="display:block;font-size:11px">Surface roughness <input id="meshPreviewRoughness" type="range" min="0.05" max="1" step="0.05" value="0.72" style="width:100%"></label>
+        <label style="display:block;font-size:11px">Metalness <input id="meshPreviewMetalness" type="range" min="0" max="1" step="0.05" value="0.05" style="width:100%"></label>
         <div class="btn-grid col2" style="margin-top:8px">
           <button type="button" class="ac-btn lime full" id="meshExtractBtn">Extract mesh</button>
           <button type="button" class="ac-btn full" id="meshFillHolesBtn">Fill holes</button>
@@ -42,96 +65,222 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
           <span class="ctrl-val" id="printHVal">120</span>
         </div>
         <input type="range" id="printH" min="30" max="400" value="120">
-        <label style="display:flex;align-items:center;gap:8px;margin:8px 0;font-size:12px;color:rgba(255,255,255,.7)">
-          <input type="checkbox" id="printHollow" checked> Hollow with escape holes
-        </label>
+        <div class="hint">Exports a solid surface STL. The worker reports whether the mesh is watertight.</div>
         <div class="btn-grid col2">
-          <button type="button" class="ac-btn cyan full" id="printStlBtn">Download STL</button>
+          <button type="button" class="ac-btn cyan full" id="printStlBtn" disabled>Download STL</button>
           <button type="button" class="ac-btn full" id="printQueueBtn">Queue GPU print</button>
         </div>
-        <div class="hint" style="margin-top:8px">GPU print uses the NIF print pipeline (Marching Cubes → repair → hollow). Local STL uses current mesh if available.</div>
+        <button type="button" class="ac-btn lime full" id="saveMeshBtn" disabled style="margin-top:7px">Save colored PLY to Library</button>
+        <div class="hint" id="meshPrintStatus" style="margin-top:8px">Load a splat or PLY to begin.</div>
       </div>
     </div>
   `;
 
-  const resLabel = ['Low', 'Med', 'High'];
   container.querySelector('#meshRes')?.addEventListener('input', (e) => {
     const el = container.querySelector('#meshResVal');
-    if (el) el.textContent = resLabel[Number(e.target.value)] || 'Med';
+    if (el) el.textContent = `${e.target.value}³`;
   });
-  container.querySelector('#printH')?.addEventListener('input', (e) => {
+  const presetHeights = { product: 120, figurine: 120, bust: 150, large: 200 };
+  const height = container.querySelector('#printH');
+  const heightLabel = container.querySelector('#printHVal');
+  container.querySelector('#printPreset')?.addEventListener('change', (e) => {
+    height.value = presetHeights[e.target.value] || 120;
+    if (heightLabel) heightLabel.textContent = height.value;
+  });
+  height?.addEventListener('input', (e) => {
     const el = container.querySelector('#printHVal');
     if (el) el.textContent = e.target.value;
   });
 
+  let lastMesh = null;
+  let lastMeshFormat = 'ply';
+  let lastMeshData = null;
+  let lastMeshStats = null;
+  const updateMeshPreview = () => window.previewSolidMesh?.(lastMeshData, {
+    visible: !!container.querySelector('#meshPreviewToggle')?.checked,
+    light: Number(container.querySelector('#meshPreviewLight')?.value || 0.25),
+    roughness: Number(container.querySelector('#meshPreviewRoughness')?.value || 0.72),
+    metalness: Number(container.querySelector('#meshPreviewMetalness')?.value || 0.05),
+  });
+  container.querySelector('#meshPreviewToggle')?.addEventListener('change', updateMeshPreview);
+  ['#meshPreviewLight', '#meshPreviewRoughness', '#meshPreviewMetalness'].forEach(selector => container.querySelector(selector)?.addEventListener('input', updateMeshPreview));
+  const meshStatus = (message) => {
+    const el = container.querySelector('#meshPrintStatus');
+    if (el) el.textContent = message;
+    onStatus?.(message);
+  };
+
   container.querySelector('#meshExtractBtn')?.addEventListener('click', async () => {
-    onStatus?.('Extracting mesh…');
+    const state = window.S;
+    if (!state?.positions || !state?.alive) return meshStatus('Load a splat or PLY before extracting a mesh.');
+    if (lastMeshData) window.previewSolidMesh?.(lastMeshData, { visible: false });
+    lastMesh = null;
+    lastMeshData = null;
+    lastMeshStats = null;
+    container.querySelector('#saveMeshBtn').disabled = true;
+    container.querySelector('#printStlBtn').disabled = true;
+    container.querySelector('#meshPreviewToggle').checked = false;
+    container.querySelector('#meshPreviewToggle').disabled = true;
+    meshStatus('Preparing current live points…');
     try {
-      if (typeof window.FUMOCA_MeshExtractor?.extract === 'function') {
-        await window.FUMOCA_MeshExtractor.extract({
-          resolution: Number(container.querySelector('#meshRes')?.value ?? 1),
-        });
-        onStatus?.('Mesh extracted');
-      } else if (typeof window.extractMeshFromStudio === 'function') {
-        await window.extractMeshFromStudio();
-        onStatus?.('Mesh extracted');
-      } else {
-        onStatus?.('Mesh extractor module not loaded yet — use Clean first, then retry');
+      const maxPoints = 120_000;
+      const stride = Math.max(1, Math.ceil(state.alive.length / maxPoints));
+      const ids = [];
+      for (let i = 0; i < state.alive.length; i += stride) if (state.alive[i]) ids.push(i);
+      if (ids.length < 50) throw new Error('At least 50 live points are needed for mesh extraction.');
+      const g = { N: ids.length };
+      for (const key of ['posX','posY','posZ','sclX','sclY','sclZ','colR','colG','colB','colA']) g[key] = new Float32Array(ids.length);
+      ids.forEach((i, row) => {
+        const s = Math.max(0.0001, Number(state.scale?.[i]) || 0.01);
+        g.posX[row] = state.positions[i * 3]; g.posY[row] = state.positions[i * 3 + 1]; g.posZ[row] = state.positions[i * 3 + 2];
+        g.sclX[row] = g.sclY[row] = g.sclZ[row] = Math.log(s);
+        const meshColors = state.lidarDisplayColors || state.colors;
+        g.colR[row] = (meshColors?.[i * 3] ?? 0.7) * 255;
+        g.colG[row] = (meshColors?.[i * 3 + 1] ?? 0.7) * 255;
+        g.colB[row] = (meshColors?.[i * 3 + 2] ?? 0.7) * 255;
+        g.colA[row] = (state.opacity?.[i] ?? 1) * 255;
+      });
+      const resolution = Number(container.querySelector('#meshRes')?.value || 32);
+      const format = container.querySelector('#meshFormat')?.value || 'ply';
+      const thresholdValue = Number(container.querySelector('#meshThreshold')?.value || 0);
+      const smooth = Number(container.querySelector('#meshSmooth')?.value || 0);
+      const result = await FumocMeshExtractor.extractMesh(g, {
+        resolution, threshold: thresholdValue > 0 ? thresholdValue : null,
+        format: format === 'stl' ? 'ply' : format, name: 'fumoca-mesh', smooth,
+        onProgress: (_pct, label) => meshStatus(label),
+      });
+      const vertices = result.mesh.vertices;
+      lastMeshData = { ...result.mesh, vertices: result.mesh.vertices.slice() };
+      if (format === 'stl') {
+        let minY = Infinity, maxY = -Infinity;
+        for (let i = 1; i < vertices.length; i += 3) { minY = Math.min(minY, vertices[i]); maxY = Math.max(maxY, vertices[i]); }
+        const factor = Number(height?.value || 120) / Math.max(maxY - minY, 1e-6);
+        for (let i = 0; i < vertices.length; i += 3) {
+          vertices[i] *= factor;
+          vertices[i + 1] = (vertices[i + 1] - minY) * factor;
+          vertices[i + 2] *= factor;
+        }
       }
+      lastMeshFormat = format;
+      lastMeshStats = result.stats;
+      lastMesh = format === 'obj' ? FumocMeshExtractor.exportOBJ(result.mesh, 'fumoca-mesh')
+        : format === 'ply' ? FumocMeshExtractor.exportPLY(result.mesh, 'fumoca-mesh')
+        : FumocMeshExtractor.exportSTL(result.mesh, 'fumoca-mesh');
+      meshStatus(`Mesh ready: ${result.stats.triangles.toLocaleString()} triangles, ${(lastMesh.size / 1048576).toFixed(2)} MB, ${result.stats.watertight ? 'watertight' : `${result.stats.openEdges} open edges`}${format === 'stl' ? '' : ', vertex color transferred'}.`);
+      const downloadButton = container.querySelector('#printStlBtn');
+      downloadButton.disabled = false;
+      downloadButton.textContent = `Download ${format.toUpperCase()}`;
+      const previewToggle = container.querySelector('#meshPreviewToggle');
+      previewToggle.disabled = false;
+      previewToggle.checked = true;
+      updateMeshPreview();
+      container.querySelector('#saveMeshBtn').disabled = !result.mesh.colours;
     } catch (err) {
-      onStatus?.(err.message || String(err));
+      meshStatus(err.message || String(err));
     }
   });
 
-  container.querySelector('#meshFillHolesBtn')?.addEventListener('click', async () => {
-    onStatus?.('Filling holes…');
+  container.querySelector('#saveMeshBtn')?.addEventListener('click', async (event) => {
+    const button = event.currentTarget;
+    if (!lastMeshData?.colours) return meshStatus('Extract a colored mesh first.');
+    button.disabled = true;
     try {
-      if (typeof window.FUMOCA_GapFiller?.fillHoles === 'function') {
-        await window.FUMOCA_GapFiller.fillHoles();
-        onStatus?.('Holes filled');
-      } else if (typeof window.fillMeshHoles === 'function') {
-        await window.fillMeshHoles();
-        onStatus?.('Holes filled');
-      } else {
-        onStatus?.('Gap filler not loaded — run AI Clean, then try again');
-      }
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) throw new Error('Sign in before saving a mesh to your library.');
+      const parent = window._fumocaCurrentRecord || {};
+      const blob = FumocMeshExtractor.exportPLY(lastMeshData, 'fumoca-mesh');
+      const filePath = `${user.id}/${Date.now()}_solid_mesh.ply`;
+      meshStatus('Uploading colored mesh to your library...');
+      const { publicUrl, fileKey, error: uploadError } = await r2.from('nif-files').upload(filePath, blob, { contentType: 'model/x-ply' });
+      if (uploadError || !fileKey || !publicUrl) throw new Error(uploadError?.message || 'Mesh upload did not return a file URL.');
+      const { data: record, error: dbError } = await supabase.from('nif_files').insert([{
+        user_id: user.id,
+        title: `${parent.title || 'Scene'} - Solid mesh`,
+        description: 'Colored solid mesh extracted in FUMOCA Studio.',
+        vertical: parent.vertical || 'other',
+        r2_key: fileKey,
+        file_size: blob.size,
+        thumbnail_url: parent.thumbnail_url || null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        meta: {
+          source_type: 'direct_mesh',
+          source_scene_id: parent.id || null,
+          source_capture: parent.meta?.source_capture || null,
+          nif_url: publicUrl,
+          output_url: publicUrl,
+          status: 'done',
+          processing_stage: 'published',
+          processing_progress: 100,
+          mesh_stats: { vertices: lastMeshData.vertices.length / 3, triangles: lastMeshData.triangles.length / 3, watertight: lastMeshStats?.watertight ?? null },
+        },
+      }]).select().single();
+      if (dbError) throw dbError;
+      meshStatus('Colored mesh saved to your library.');
+      const status = container.querySelector('#meshPrintStatus');
+      const link = document.createElement('a');
+      link.href = `viewer.html?nifId=${encodeURIComponent(record.id)}`;
+      link.textContent = ' Open saved mesh in viewer';
+      link.style.cssText = 'display:inline-block;margin-left:6px;color:#58e8ff;text-decoration:underline';
+      status?.append(link);
     } catch (err) {
-      onStatus?.(err.message || String(err));
+      meshStatus(err.message || String(err));
+      button.disabled = false;
     }
   });
 
-  container.querySelector('#printStlBtn')?.addEventListener('click', async () => {
-    onStatus?.('Building STL…');
-    try {
-      const preset = container.querySelector('#printPreset')?.value;
-      const heightMm = Number(container.querySelector('#printH')?.value || 120);
-      const hollow = container.querySelector('#printHollow')?.checked;
-      if (typeof window.FUMOCA_PrintExport?.downloadSTL === 'function') {
-        await window.FUMOCA_PrintExport.downloadSTL({ preset, heightMm, hollow });
-        onStatus?.('STL download started');
-      } else {
-        onStatus?.('Print export module not wired — export PLY and use the GPU print pipeline');
-      }
-    } catch (err) {
-      onStatus?.(err.message || String(err));
-    }
+  container.querySelector('#meshFillHolesBtn')?.addEventListener('click', () => {
+    const state = window.S;
+    if (!state?.alive) return meshStatus('Load a splat or PLY before repairing sparse areas.');
+    const fillButton = document.getElementById('fillHolesBtn');
+    if (!fillButton) return meshStatus('Open the Clean tab to use its sparse-area repair tool.');
+    fillButton.click();
+    meshStatus('Sparse-area repair applied. Extract the mesh again to include the changes.');
+  });
+
+  container.querySelector('#printStlBtn')?.addEventListener('click', () => {
+    if (!lastMesh) return meshStatus('Extract a local mesh first.');
+    const url = URL.createObjectURL(lastMesh);
+    const a = document.createElement('a');
+    a.href = url; a.download = `fumoca-mesh.${lastMeshFormat}`; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    meshStatus(`${lastMeshFormat.toUpperCase()} download started.`);
   });
 
   container.querySelector('#printQueueBtn')?.addEventListener('click', async () => {
-    onStatus?.('Queueing print job…');
+    const btn = container.querySelector('#printQueueBtn');
+    btn.disabled = true;
     try {
-      const preset = container.querySelector('#printPreset')?.value;
-      const heightMm = Number(container.querySelector('#printH')?.value || 120);
-      if (typeof window.FUMOCA_PrintExport?.queuePrintJob === 'function') {
-        await window.FUMOCA_PrintExport.queuePrintJob({ preset, heightMm });
-        onStatus?.('Print job queued');
-      } else {
-        onStatus?.('Queue helper not available — ensure Supabase + worker are configured');
-      }
+      const jobId = await exportSelectionAsFigurine({
+        title: window._fumocaCurrentRecord?.title || 'FUMOCA print export',
+        preset: container.querySelector('#printPreset')?.value || 'product',
+        heightMm: Number(height?.value || 120),
+        onStatus: meshStatus,
+      });
+      meshStatus(`Print job ${jobId.slice(0, 8)} queued. Watching worker progress…`);
+      pollPrintJob(jobId, (job) => {
+        const terminal = ['complete','failed','needs_retry'].includes(job.status);
+        meshStatus(`Print job ${String(job.status || 'queued')}: ${Number(job.progress || 0)}%${job.error_message ? ` — ${job.error_message}` : ''}`);
+        if (terminal) {
+          btn.disabled = false;
+          if (job.status === 'complete' && job.meta?.stl_url) {
+            const status = container.querySelector('#meshPrintStatus');
+            const link = document.createElement('a');
+            link.href = job.meta.stl_url;
+            link.download = 'fumoca-print.stl';
+            link.textContent = ' Download STL';
+            link.style.cssText = 'display:inline-block;margin-left:6px;color:#58e8ff;text-decoration:underline';
+            status?.append(link);
+            if (job.meta.print_warning) status?.append(document.createTextNode(` ${job.meta.print_warning}`));
+          }
+        }
+      });
     } catch (err) {
-      onStatus?.(err.message || String(err));
+      meshStatus(err.message || String(err));
+      btn.disabled = false;
     }
   });
+
 }
 
 if (typeof window !== 'undefined') {

@@ -382,7 +382,7 @@ input[type=range].lime::-webkit-slider-thumb{background:var(--lime);box-shadow:0
           </div>
           <div class="ctrl-row" style="margin-top:4px">
             <span class="ctrl-label">Reverse</span>
-            <button class="ac-btn rose" style="padding:5px 12px;font-size:11px" id="reverseBtn">⟲ Reverse</button>
+            <button class="ac-btn rose" style="padding:5px 12px;font-size:11px;opacity:.5;cursor:not-allowed" id="reverseBtn" disabled title="Reverse export needs the server-side video encoder, which is not configured.">⟲ Reverse unavailable</button>
           </div>
         </div>
       </div>
@@ -486,8 +486,8 @@ input[type=range].lime::-webkit-slider-thumb{background:var(--lime);box-shadow:0
       <div class="section">
         <div class="sec-head"><span class="sec-label">Captions (Auto)</span><span class="sec-arrow">▾</span></div>
         <div class="sec-body">
-          <button class="ac-btn violet full" id="autoCaptionBtn">✦ Auto-Generate Captions</button>
-          <div class="hint">AI will transcribe your video audio and add synced captions.</div>
+          <button class="ac-btn violet full" id="autoCaptionBtn" disabled title="No speech-to-text service is configured.">✦ Auto-Generate Captions unavailable</button>
+          <div class="hint">Speech-to-text is not configured yet. You can add and time captions with the Text tools.</div>
         </div>
       </div>
     </div>
@@ -1114,7 +1114,6 @@ S.textAlign='center';
 $('textBgNone').addEventListener('click',()=>{S.textBg='none';});
 $('textBgDark').addEventListener('click',()=>{S.textBg='dark';});
 $('textBgNeon').addEventListener('click',()=>{S.textBg='neon';});
-$('autoCaptionBtn').addEventListener('click',()=>showToast('Auto Captions','Connect an AI transcription service to enable this'));
 
 // ── CANVAS FILTER RENDERING ──────────────────────────────────────────────────
 function applyFiltersToCanvas(){
@@ -1260,7 +1259,6 @@ bindRange('rotRange','rotVal',v=>{S.rotation=v;applyVideoFilters();},v=>v+'°');
 $('flipH').addEventListener('click',()=>{S.flipH=!S.flipH;applyVideoFilters();showToast(S.flipH?'Flipped H':'Unflipped H');});
 $('flipV').addEventListener('click',()=>{S.flipV=!S.flipV;applyVideoFilters();showToast(S.flipV?'Flipped V':'Unflipped V');});
 $('muteBtn').addEventListener('click',()=>{S.muted=!S.muted;$('videoEl').muted=S.muted;$('muteBtn').textContent=S.muted?'🔊 Unmute':'🔇 Mute';});
-$('reverseBtn').addEventListener('click',()=>showToast('Reverse','Requires server-side FFmpeg processing'));
 
 // ── ASPECT RATIO ─────────────────────────────────────────────────────────────
 document.querySelectorAll('.ar-tile').forEach(tile=>{

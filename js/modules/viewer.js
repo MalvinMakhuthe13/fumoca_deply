@@ -1305,10 +1305,11 @@ function mountMeshViewer(mesh, calibration) {
 }
 // â”€â”€ PLY point cloud viewer using Three.js â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Called when fileUrl is a .ply â€” renders via THREE.js with Gaussian shader
-let _plyRenderer = null, _plyScene = null, _plyCamera = null, _plyControls = null, _plyFrame = null;
+let _plyRenderer = null, _plyScene = null, _plyCamera = null, _plyControls = null, _plyFrame = null, _plyAttributeControl = null;
 function destroyPlyViewer() {
   if (_plyFrame) { cancelAnimationFrame(_plyFrame); _plyFrame = null; }
   if (_plyRenderer) { _plyRenderer.dispose(); _plyRenderer.domElement.remove(); _plyRenderer = null; }
+  _plyAttributeControl?.remove(); _plyAttributeControl = null;
   _plyScene = _plyCamera = _plyControls = null;
 }
 async function mountPlyViewer(url) {
@@ -1339,6 +1340,9 @@ async function mountPlyViewer(url) {
     if (!posAttr) throw new Error('PLY has no position attribute');
     const count = posAttr.count;
     const colors = new Float32Array(count * 3);
+    const intensityAttr = geo.getAttribute('intensity');
+    const classificationAttr = geo.getAttribute('classification');
+    const returnAttr = geo.getAttribute('return_number') || geo.getAttribute('returnNumber');
     // Try colour sources in priority order
     const fdc0 = geo.getAttribute('f_dc_0');
     const fdc1 = geo.getAttribute('f_dc_1');
@@ -1375,6 +1379,7 @@ async function mountPlyViewer(url) {
       // No colour data â€” warm grey (not white)
       for (let i = 0; i < count; i++) { colors[i*3]=0.65; colors[i*3+1]=0.60; colors[i*3+2]=0.55; }
     }
+    const sourceColors = colors.slice();
     // â”€â”€ Per-point opacity (sigmoid-decoded from log-odds if present) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const opacities = new Float32Array(count);
     const opAttr = geo.getAttribute('opacity');
@@ -1410,6 +1415,53 @@ async function mountPlyViewer(url) {
       /*[...geo.attributes].map ? 'n/a' :*/
       Object.keys(geo.attributes).join(', '));
     geo.setAttribute('color',    new THREE.BufferAttribute(colors, 3));
+    if (intensityAttr || classificationAttr || returnAttr) {
+      const control = document.createElement('select');
+      control.setAttribute('aria-label', 'LiDAR point color display');
+      Object.assign(control.style, {
+        position: 'absolute', top: '54px', right: '12px', zIndex: '4',
+        padding: '7px 10px', borderRadius: '9px', border: '1px solid rgba(255,255,255,.24)',
+        background: 'rgba(0,0,0,.68)', color: '#fff', font: '600 12px system-ui,sans-serif',
+      });
+      const modes = [['rgb', 'Source color'], ['intensity', 'Intensity'], ['classification', 'Classification'], ['return', 'Return number']];
+      for (const [mode, label] of modes) {
+        if (mode === 'intensity' && !intensityAttr || mode === 'classification' && !classificationAttr || mode === 'return' && !returnAttr) continue;
+        const option = document.createElement('option'); option.value = mode; option.textContent = label; control.append(option);
+      }
+      if (!colAttr && !rAttr && intensityAttr) control.value = 'intensity';
+      const classPalette = [[.5,.5,.5],[.75,.72,.58],[.44,.35,.2],[.48,.72,.25],[.28,.62,.19],[.13,.42,.12],[.85,.28,.16],[.66,.52,.28],[.62,.42,.25],[.12,.42,.9],[.8,.72,.52],[.62,.62,.62]];
+      const returnPalette = [[.1,.1,.1],[.1,.55,1],[.1,.9,.6],[1,.7,.1],[1,.2,.15]];
+      control.addEventListener('change', () => {
+        const mode = control.value;
+        let intensityMin = 0, intensityMax = 1;
+        if (mode === 'intensity' && intensityAttr) {
+          intensityMin = Infinity; intensityMax = -Infinity;
+          for (let i = 0; i < count; i++) { intensityMin = Math.min(intensityMin, intensityAttr.array[i]); intensityMax = Math.max(intensityMax, intensityAttr.array[i]); }
+          if (intensityMax <= 1) intensityMin = 0;
+          if (intensityMax === intensityMin) intensityMax = intensityMin + 1;
+        }
+        for (let i = 0; i < count; i++) {
+          const p = i * 3;
+          if (mode === 'intensity' && intensityAttr) {
+            const raw = Number(intensityAttr.array[i]) || 0;
+            const t = Math.max(0, Math.min(1, (raw - intensityMin) / (intensityMax - intensityMin)));
+            colors[p] = t; colors[p+1] = Math.min(1, t * 1.8); colors[p+2] = Math.max(0, 1 - t * 1.7);
+          } else if (mode === 'classification' && classificationAttr) {
+            const c = classPalette[classificationAttr.array[i] % classPalette.length];
+            colors[p] = c[0]; colors[p+1] = c[1]; colors[p+2] = c[2];
+          } else if (mode === 'return' && returnAttr) {
+            const c = returnPalette[Math.min(returnPalette.length - 1, returnAttr.array[i])];
+            colors[p] = c[0]; colors[p+1] = c[1]; colors[p+2] = c[2];
+          } else {
+            colors[p] = sourceColors[p]; colors[p+1] = sourceColors[p+1]; colors[p+2] = sourceColors[p+2];
+          }
+        }
+        geo.getAttribute('color').needsUpdate = true;
+      });
+      _plyAttributeControl = control;
+      container.appendChild(control);
+      if (control.value !== 'rgb') control.dispatchEvent(new Event('change'));
+    }
     geo.setAttribute('aOpacity', new THREE.BufferAttribute(opacities, 1));
     geo.setAttribute('aSize',    new THREE.BufferAttribute(sizes, 1));
     // â”€â”€ Photoreal Gaussian nif shader â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

@@ -554,6 +554,7 @@ async function init() {
 
   document.getElementById('bulkDeleteFailedBtn')?.addEventListener('click', deleteFailedUploadsForCurrentUser);
   document.getElementById('deleteAllMyBtn')?.addEventListener('click', deleteAllNifsForCurrentUser);
+  document.getElementById('refreshFeedBtn')?.addEventListener('click', loadFeed);
 
   // Close all manage dropdowns when clicking outside them
   document.addEventListener('click', () => {
@@ -561,7 +562,6 @@ async function init() {
   });
 
   await loadFeed();
-  setInterval(loadFeed, 30000);
 }
 
 init();

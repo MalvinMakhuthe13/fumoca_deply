@@ -584,6 +584,7 @@
     transition: color 0.2s;
   }
   .footer-links a:hover { color: var(--white); }
+  .footer-links .unavailable { color: rgba(255,255,255,0.22); font-size: 13px; cursor: default; }
 
   .footer-copy {
     font-size: 13px;
@@ -870,10 +871,10 @@
 <footer>
   <a href="#" class="footer-logo">FUMO<span>C</span>A</a>
   <ul class="footer-links">
-    <li><a href="#">Privacy</a></li>
-    <li><a href="#">Terms</a></li>
-    <li><a href="#">Investors</a></li>
-    <li><a href="#">Contact</a></li>
+    <li><span class="unavailable" aria-disabled="true" title="Privacy page is not published yet">Privacy</span></li>
+    <li><span class="unavailable" aria-disabled="true" title="Terms page is not published yet">Terms</span></li>
+    <li><span class="unavailable" aria-disabled="true" title="Investor page is not published yet">Investors</span></li>
+    <li><a href="mailto:?subject=FUMOCA%20inquiry">Contact</a></li>
   </ul>
   <div class="footer-copy">© 2025 FUMOCA. All rights reserved.</div>
 </footer>

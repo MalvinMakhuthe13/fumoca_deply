@@ -5,6 +5,9 @@ import r2 from '../r2Client.js';
 const VIDEO_BUCKET = 'nif-videos';
 let selectedFile = null;
 let selectedFiles = []; // used only in 'photos' mode
+let selectedThumbnail = null;
+let thumbnailPreviewUrl = null;
+let uploadedThumbnail = null;
 let tags = [];
 let visibility = 'public';
 let saleEnabled = false;
@@ -17,6 +20,30 @@ window.handleFileSelect = function(input) {
     if (input.files.length) setFiles(input.files);
   } else if (input.files[0]) setFile(input.files[0]);
 };
+
+document.getElementById('thumbnailFile')?.addEventListener('change', e => {
+  const file = e.target.files?.[0] || null;
+  if (thumbnailPreviewUrl) URL.revokeObjectURL(thumbnailPreviewUrl);
+  thumbnailPreviewUrl = null;
+  selectedThumbnail = file;
+  const preview = document.getElementById('thumbnailPreview');
+  if (!file) { preview.hidden = true; preview.style.display = 'none'; return; }
+  if (!file.type.startsWith('image/')) {
+    selectedThumbnail = null;
+    e.target.value = '';
+    return showMsg('Choose an image file for the thumbnail.', true);
+  }
+  if (file.size > 20 * 1024 * 1024) {
+    selectedThumbnail = null;
+    e.target.value = '';
+    return showMsg('Thumbnail images must be 20 MB or smaller.', true);
+  }
+  thumbnailPreviewUrl = URL.createObjectURL(file);
+  preview.src = thumbnailPreviewUrl;
+  preview.hidden = false;
+  preview.style.display = 'block';
+  showMsg('Your chosen thumbnail is ready.', false);
+});
 window.handleDragOver = function(e) {
   if (currentUploadMode === 'external') return;
   e.preventDefault();
@@ -32,12 +59,20 @@ window.handleDrop = function(e) {
 };
 
 window.setUploadMode = function(mode) {
-  currentUploadMode = mode === 'external' ? 'external' : mode === 'ply' ? 'ply' : mode === 'photos' ? 'photos' : 'pipeline';
+  const nextMode = mode === 'external' ? 'external' : mode === 'ply' ? 'ply' : mode === 'lidar' ? 'lidar' : mode === 'photos' ? 'photos' : 'pipeline';
+  if (nextMode !== currentUploadMode) {
+    selectedFile = null;
+    selectedFiles = [];
+    const sourceInput = document.getElementById('fileInput');
+    if (sourceInput) sourceInput.value = '';
+  }
+  currentUploadMode = nextMode;
   window.currentUploadMode = currentUploadMode;
 
   const pipelineBtn = document.getElementById('modePipelineBtn');
   const photosBtn = document.getElementById('modePhotosBtn');
   const plyBtn = document.getElementById('modePlyBtn');
+  const lidarBtn = document.getElementById('modeLidarBtn');
   const externalBtn = document.getElementById('modeExternalBtn');
   const externalFields = document.getElementById('externalFields');
   const uploadZone = document.getElementById('uploadZone');
@@ -46,7 +81,7 @@ window.setUploadMode = function(mode) {
   const fileInput = document.getElementById('fileInput');
 
   // Reset all buttons
-  [pipelineBtn, photosBtn, plyBtn, externalBtn].filter(Boolean).forEach(btn => {
+  [pipelineBtn, photosBtn, plyBtn, lidarBtn, externalBtn].filter(Boolean).forEach(btn => {
     btn.style.borderColor = 'rgba(255,255,255,.12)';
     btn.style.background = 'rgba(255,255,255,.04)';
     btn.style.color = '#FAFAFA';
@@ -65,6 +100,10 @@ window.setUploadMode = function(mode) {
     plyBtn.style.borderColor = 'rgba(0,229,255,.4)';
     plyBtn.style.background = 'rgba(0,229,255,.1)';
     plyBtn.style.color = '#0ef';
+  } else if (currentUploadMode === 'lidar' && lidarBtn) {
+    lidarBtn.style.borderColor = 'rgba(0,229,255,.4)';
+    lidarBtn.style.background = 'rgba(0,229,255,.1)';
+    lidarBtn.style.color = '#0ef';
   } else if (externalBtn) {
     externalBtn.style.borderColor = 'rgba(200,255,0,.3)';
     externalBtn.style.background = 'rgba(200,255,0,.08)';
@@ -77,7 +116,7 @@ window.setUploadMode = function(mode) {
   if (currentUploadMode === 'photos') {
     // Multiple, image-only selection — real multi-view capture (needs 3+
     // images from different angles for COLMAP to triangulate real geometry).
-    if (fileInput) { fileInput.accept = 'image/*'; fileInput.multiple = true; }
+    if (fileInput) { fileInput.accept = '.jpg,.jpeg,.png,image/jpeg,image/png'; fileInput.multiple = true; }
     uploadZone.querySelector('#uploadIcon').textContent = selectedFiles.length ? '✅' : '📸';
     uploadZone.querySelector('#uploadTitle').textContent = selectedFiles.length
       ? `${selectedFiles.length} photos selected` : 'Drop 3+ photos here';
@@ -97,6 +136,15 @@ window.setUploadMode = function(mode) {
     submitBtn.disabled = !selectedFile;
     submitLabel.textContent = selectedFile ? 'Upload & open in Studio' : 'Select a .ply file to start';
     showMsg('PLY mode — drop a .ply capture file to upload directly and open in the editor.', false);
+  } else if (currentUploadMode === 'lidar') {
+    if (fileInput) { fileInput.accept = '.las,.xyz,.csv,.txt'; fileInput.multiple = false; }
+    uploadZone.querySelector('#uploadIcon').textContent = '📡';
+    uploadZone.querySelector('#uploadTitle').textContent = selectedFile ? selectedFile.name : 'Drop a LAS / XYZ point cloud here';
+    uploadZone.querySelector('#uploadSub').innerHTML = selectedFile
+      ? `<strong>${(selectedFile.size / 1024 / 1024).toFixed(1)} MB</strong> · LiDAR ready to convert and open`
+      : 'Supports uncompressed LAS, XYZ, CSV and TXT point clouds · LAZ compression is not supported.';
+    submitBtn.disabled = !selectedFile;
+    submitLabel.textContent = selectedFile ? 'Upload LiDAR & open in Studio' : 'Select a LiDAR point cloud';
   } else if (currentUploadMode === 'external') {
     if (fileInput) { fileInput.accept = 'video/*'; fileInput.multiple = false; }
     uploadZone.querySelector('#uploadIcon').textContent = '🧊';
@@ -111,37 +159,60 @@ window.setUploadMode = function(mode) {
     uploadZone.querySelector('#uploadTitle').textContent = selectedFile ? selectedFile.name : 'Drop your video here';
     uploadZone.querySelector('#uploadSub').innerHTML = selectedFile
       ? `<strong>${(selectedFile.size / 1024 / 1024).toFixed(1)} MB</strong> · Ready to queue`
-      : 'MP4, MOV, AVI up to 2GB<br>Walk slowly around your subject. 30–90 seconds works best.';
+      : 'MP4, MOV, AVI up to 1GB<br>Walk slowly around your subject. 30–90 seconds works best.';
     submitBtn.disabled = !selectedFile;
     submitLabel.textContent = selectedFile ? 'Upload and queue' : 'Select a video to start';
   }
 };
 
 function setFile(file) {
+  selectedFile = null;
+  document.getElementById('submitBtn').disabled = true;
+  const sourceInput = document.getElementById('fileInput');
+  if (sourceInput) sourceInput.value = '';
+  const reject = message => {
+    window.setUploadMode(currentUploadMode);
+    return showMsg(message, true);
+  };
   const isPly = file.name.match(/\.(ply|nif)$/i);
+  const isLidar = file.name.match(/\.(las|xyz|csv|txt)$/i);
   if (currentUploadMode === 'ply') {
-    if (!isPly) return showMsg('Please select a .ply or .nif file in PLY mode.', true);
-    if (file.size > 500 * 1024 * 1024) return showMsg('PLY file is very large (>500MB) — upload may be slow.', false);
+    if (!isPly) return reject('Please select a .ply or .nif file in PLY mode.');
+    if (file.size > 500 * 1024 * 1024) return reject('PLY file is very large (>500MB). Choose a smaller file for this upload flow.');
+  } else if (currentUploadMode === 'lidar') {
+    if (!isLidar) return reject('Choose an uncompressed .las, .xyz, .csv, or .txt point cloud.');
+    if (file.size > 100 * 1024 * 1024) return reject('LiDAR uploads are limited to 100MB for browser conversion.');
   } else {
-    if (!file.type.startsWith('video/') && !isPly) return showMsg('Please select a video file.', true);
-    if (file.size > 1024 * 1024 * 1024) return showMsg('Keep uploads under 1GB for the current flow.', true);
+    if (isPly || isLidar || !file.type.startsWith('video/')) {
+      return reject(isPly ? 'Switch to Upload .ply directly to import this file.' : 'Please select a video file.');
+    }
+    if (file.size > 1024 * 1024 * 1024) {
+      return reject('Keep uploads under 1GB for the current flow.');
+    }
   }
   selectedFile = file;
   document.getElementById('uploadIcon').textContent = '✅';
   document.getElementById('uploadTitle').textContent = file.name;
-  document.getElementById('uploadSub').innerHTML = `<strong>${(file.size / 1024 / 1024).toFixed(1)} MB</strong> · Ready to queue`;
+  document.getElementById('uploadSub').innerHTML = `<strong>${(file.size / 1024 / 1024).toFixed(1)} MB</strong> · ${currentUploadMode === 'lidar' ? 'LiDAR ready to convert and open' : currentUploadMode === 'ply' ? 'PLY ready to open' : 'Ready to queue'}`;
   document.getElementById('submitBtn').disabled = false;
-  document.getElementById('submitLabel').textContent = 'Upload and queue';
+  document.getElementById('submitLabel').textContent = currentUploadMode === 'lidar' ? 'Upload LiDAR & open in Studio' : currentUploadMode === 'ply' ? 'Upload & open in Studio' : 'Upload and queue';
   showMsg('File selected. Ready to upload.', false);
 }
 
 function setFiles(fileList) {
-  const files = Array.from(fileList).filter(f => f.type.startsWith('image/'));
-  if (!files.length) return showMsg('Please select image files (JPG/PNG).', true);
-  if (files.length < 3) return showMsg('Select at least 3 photos, taken from different angles around the subject, for real 3D reconstruction.', true);
-  if (files.length > 300) return showMsg('300 photos max per capture — trim your selection.', true);
+  const files = Array.from(fileList).filter(f =>
+    ['image/jpeg', 'image/png'].includes(f.type) || /\.(jpe?g|png)$/i.test(f.name)
+  );
+  const sourceInput = document.getElementById('fileInput');
+  if (sourceInput) sourceInput.value = '';
+  selectedFiles = [];
+  selectedFile = null;
+  document.getElementById('submitBtn').disabled = true;
+  if (!files.length) { window.setUploadMode('photos'); return showMsg('Please select image files (JPG/PNG).', true); }
+  if (files.length < 3) { window.setUploadMode('photos'); return showMsg('Select at least 3 photos, taken from different angles around the subject, for real 3D reconstruction.', true); }
+  if (files.length > 300) { window.setUploadMode('photos'); return showMsg('300 photos max per capture — trim your selection.', true); }
   const totalMb = files.reduce((sum, f) => sum + f.size, 0) / 1024 / 1024;
-  if (totalMb > 800) return showMsg('Total size is very large (>800MB) — upload may be slow.', false);
+  if (totalMb > 800) { window.setUploadMode('photos'); return showMsg('Total size is too large (>800MB). Choose fewer or smaller photos.', true); }
 
   selectedFiles = files;
   selectedFile = null;
@@ -341,12 +412,15 @@ function baseNifPayload(user, title, desc, category, price) {
 }
 
 async function createExternalNif(user, title, desc, category, price) {
-  const externalNifUrl = document.getElementById('externalnifUrl').value.trim();
-  const thumbnailUrl = document.getElementById('thumbnailUrl').value.trim();
+  const externalNifUrl = document.getElementById('externalNifUrl').value.trim();
+  const thumbnailUrl = document.getElementById('thumbnailUrl').value.trim() || uploadedThumbnail?.publicUrl;
   const previewVideoUrl = document.getElementById('previewVideoUrl').value.trim();
   const providerName = document.getElementById('providerName').value.trim();
 
   if (!externalNifUrl) throw new Error('Add the interactive nif URL for the external provider.');
+  let parsedNifUrl;
+  try { parsedNifUrl = new URL(externalNifUrl); } catch { throw new Error('Enter a valid interactive scene URL.'); }
+  if (!['http:', 'https:'].includes(parsedNifUrl.protocol)) throw new Error('The interactive scene URL must use HTTP or HTTPS.');
 
   setProgress(35, 'Publishing finished nif...');
   setStep('step-upload', 'done');
@@ -358,8 +432,8 @@ async function createExternalNif(user, title, desc, category, price) {
     processing_stage: 'published',
     processing_progress: 100,
     processing_completed_at: new Date().toISOString(),
-    nif_url: externalnifUrl,
-    external_nif_url: externalnifUrl,
+    nif_url: externalNifUrl,
+    external_nif_url: externalNifUrl,
     thumbnail_url: thumbnailUrl || null,
     preview_video_url: previewVideoUrl || null,
     provider_name: providerName || 'External provider',
@@ -374,14 +448,29 @@ async function createExternalNif(user, title, desc, category, price) {
   document.getElementById('submitLabel').textContent = 'Published';
 }
 
+function captureMetadata(title, desc, calibration = {}) {
+  return {
+    title, description: desc, tags, visibility,
+    monetize_sale: saleEnabled,
+    price_zar: saleEnabled ? (parseFloat(document.getElementById('nifPrice').value) || 0) : null,
+    monetize_print: printEnabled,
+    ...calibration,
+  };
+}
+
 window.handleSubmit = async function() {
   const title = document.getElementById('nifTitle').value.trim();
   const desc = document.getElementById('nifDesc').value.trim();
   const category = document.getElementById('nifCategory').value || 'other';
   const price = saleEnabled ? (parseFloat(document.getElementById('nifPrice').value) || 0) : null;
   if (!title) return showMsg('Please add a title.', true);
+  if (!selectedThumbnail && !(currentUploadMode === 'external' && document.getElementById('thumbnailUrl').value.trim())) {
+    return showMsg('Choose a thumbnail image for this upload.', true);
+  }
   if (currentUploadMode === 'pipeline' && !selectedFile) return showMsg('Please select a video file first.', true);
   if (currentUploadMode === 'photos' && selectedFiles.length < 3) return showMsg('Select at least 3 photos first.', true);
+  if (currentUploadMode === 'ply' && !selectedFile) return showMsg('Please select a PLY or NIF file first.', true);
+  if (currentUploadMode === 'lidar' && !selectedFile) return showMsg('Please select a LiDAR point cloud first.', true);
 
   const btn = document.getElementById('submitBtn');
   btn.disabled = true;
@@ -391,14 +480,101 @@ window.handleSubmit = async function() {
   showMsg(currentUploadMode === 'external' ? 'Saving finished nif...' : 'Uploading...', false);
 
   try {
+    uploadedThumbnail = null;
     const { data: { user }, error: userError } = await supabase.auth.getUser();
     if (userError || !user) {
       window.location.href = 'login.html';
       return;
     }
 
+    if (selectedThumbnail) {
+      const ext = selectedThumbnail.name.match(/\.[a-z0-9]+$/i)?.[0]?.toLowerCase() || '.jpg';
+      const thumbPath = `thumbnails/${user.id}/${Date.now()}${ext}`;
+      const { publicUrl, fileKey, error: thumbError } = await r2.from('nif-files').upload(thumbPath, selectedThumbnail, {
+        contentType: selectedThumbnail.type || 'image/jpeg'
+      });
+      if (thumbError || !fileKey) throw new Error('Thumbnail upload failed: ' + (thumbError?.message || 'no file key returned'));
+      uploadedThumbnail = { fileKey, publicUrl };
+    }
+
     if (currentUploadMode === 'external') {
       await createExternalNif(user, title, desc, category, price);
+      return;
+    }
+
+    // ── LiDAR point clouds become a portable PLY and open directly in Studio ──
+    if (currentUploadMode === 'lidar') {
+      setProgress(18, 'Reading LiDAR points...');
+      const { importPointCloud, downsample, encodePointCloudPLY } = await import('./lidar-import.js');
+      const cloud = downsample(await importPointCloud(selectedFile), 500_000);
+      const plyBytes = encodePointCloudPLY(cloud);
+      const plyBlob = new Blob([plyBytes], { type: 'model/x-ply' });
+      const sourceBase = selectedFile.name.replace(/\.[^.]+$/, '').replace(/\s+/g, '_').replace(/[^a-zA-Z0-9._-]/g, '') || 'lidar';
+      const sourceExtension = (selectedFile.name.match(/\.[a-z0-9]+$/i)?.[0] || '.bin').toLowerCase();
+      const sourcePath = `${user.id}/${Date.now()}_${sourceBase}_source${sourceExtension}`;
+      setProgress(28, 'Preserving original LiDAR capture...');
+      const { publicUrl: sourceUrl, fileKey: sourceFileKey, error: sourceUploadError } = await r2.from('nif-files').upload(sourcePath, selectedFile, {
+        contentType: selectedFile.type || 'application/octet-stream',
+        onProgress: pct => setProgress(28 + Math.round(pct * 0.06), `Preserving original capture... ${pct}%`),
+      });
+      if (sourceUploadError || !sourceFileKey || !sourceUrl) throw new Error('Original LiDAR capture could not be preserved: ' + (sourceUploadError?.message || 'storage did not return a file URL'));
+      const fileKeyPath = `${user.id}/${Date.now()}_${sourceBase}.ply`;
+      setProgress(35, `Uploading converted PLY (${(plyBlob.size / 1048576).toFixed(1)} MB)...`);
+      const { publicUrl, fileKey, error: uploadError } = await r2.from('nif-files').upload(fileKeyPath, plyBlob, {
+        contentType: 'model/x-ply',
+        onProgress: pct => setProgress(35 + Math.round(pct * 0.35), `Uploading LiDAR point cloud... ${pct}%`),
+      });
+      if (uploadError || !fileKey || !publicUrl) throw new Error('LiDAR upload failed: ' + (uploadError?.message || 'storage did not return a file URL'));
+
+      setProgress(75, 'Saving LiDAR scene...');
+      const sceneUrl = `edit.html?file=${encodeURIComponent(publicUrl)}&nifId=NEW_RECORD&live=true`;
+      const { data: nif, error: dbErr } = await supabase.from('nif_files').insert([{
+        user_id: user.id,
+        title,
+        description: desc || null,
+        vertical: category || 'other',
+        r2_key: fileKey,
+        file_size: plyBlob.size,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        thumbnail_url: uploadedThumbnail.publicUrl,
+        meta: {
+          source_type: 'direct_lidar',
+          source_filename: selectedFile.name,
+          source_format: cloud.source,
+          source_capture: {
+            public_url: sourceUrl,
+            r2_key: sourceFileKey,
+            filename: selectedFile.name,
+            format: cloud.source,
+            byte_size: selectedFile.size,
+            point_count: cloud.sourcePointCount || cloud.count,
+          },
+          point_count: cloud.count,
+          source_point_count: cloud.sourcePointCount || cloud.count,
+          nif_url: publicUrl,
+          output_url: publicUrl,
+          status: 'done',
+          processing_stage: 'published',
+          processing_progress: 100,
+          tags,
+          visibility,
+          monetize_sale: saleEnabled,
+          price_zar: saleEnabled ? price : null,
+          monetize_print: printEnabled,
+          thumbnail_r2_key: uploadedThumbnail.fileKey,
+        },
+      }]).select().single();
+      if (dbErr) throw dbErr;
+
+      const studioUrl = sceneUrl.replace('NEW_RECORD', encodeURIComponent(nif.id));
+      setProgress(100, 'LiDAR scene ready in Studio.');
+      setStep('step-upload', 'done'); setStep('step-live', 'done');
+      showMsg(`LiDAR cloud converted to PLY and saved. <a href="${studioUrl}" style="color:#0ef;text-decoration:underline">Open in Studio →</a>`, false);
+      const submitBtn = document.getElementById('submitBtn');
+      submitBtn.textContent = 'Open in Studio';
+      submitBtn.disabled = false;
+      submitBtn.onclick = () => { window.location.href = studioUrl; };
       return;
     }
 
@@ -439,7 +615,7 @@ window.handleSubmit = async function() {
         vertical: category || 'generic',
         capture_mode: 'burst',
         raw_r2_key: fileKey,
-        meta: { title, description: desc, tags, photo_count: selectedFiles.length, ...calibVerifyMeta },
+        meta: { ...captureMetadata(title, desc, calibVerifyMeta), photo_count: selectedFiles.length, thumbnail_r2_key: uploadedThumbnail.fileKey },
       }).select().single();
       if (jobError) throw jobError;
 
@@ -460,7 +636,7 @@ window.handleSubmit = async function() {
       const filePath = `${user.id}/${Date.now()}_${safeName}`;
 
       // Upload to R2 (replaces supabase.storage bucket fallback loop)
-      const { publicUrl, error: r2Err } = await r2
+      const { publicUrl, fileKey, error: r2Err } = await r2
         .from('nif-files')
         .upload(filePath, selectedFile, {
           contentType: 'model/x-ply',
@@ -482,6 +658,14 @@ window.handleSubmit = async function() {
         updated_at: new Date().toISOString(),
         meta: {
           source_type: 'direct_ply',
+          source_filename: selectedFile.name,
+          source_capture: {
+            public_url: publicUrl,
+            r2_key: fileKey || filePath,
+            filename: selectedFile.name,
+            format: selectedFile.name.split('.').pop().toLowerCase(),
+            byte_size: selectedFile.size,
+          },
           nif_url: publicUrl,
           output_url: publicUrl,
           status: 'done',
@@ -490,8 +674,10 @@ window.handleSubmit = async function() {
           must_edit_before_publish: false,
           edit_completed: true,
           tags,
-          visibility
-        }
+          visibility,
+          thumbnail_r2_key: uploadedThumbnail.fileKey
+        },
+        thumbnail_url: uploadedThumbnail.publicUrl
       }]).select().single();
 
       if (dbErr) throw dbErr;
@@ -536,7 +722,7 @@ window.handleSubmit = async function() {
       vertical: category || 'generic',
       capture_mode: 'video',
       raw_r2_key: filePath,
-      meta: { title, description: desc, tags, video_filename: selectedFile.name, ...calibVerifyMeta },
+      meta: { ...captureMetadata(title, desc, calibVerifyMeta), video_filename: selectedFile.name, thumbnail_r2_key: uploadedThumbnail.fileKey },
     }).select().single();
     if (jobError) throw jobError;
 
