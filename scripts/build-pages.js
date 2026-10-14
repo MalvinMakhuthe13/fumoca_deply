@@ -88,4 +88,25 @@ for (const required of [
   }
 }
 
+
+const requiredEngineFiles = [
+  ["engine-next/format/NIFSpec.js", "engine-next/format/NIFSpec.js"],
+  ["engine-next/math/NIFMath.js", "engine-next/math/NIFMath.js"]
+];
+
+for (const [source, relativeDestination] of requiredEngineFiles) {
+  const sourcePath = path.join(root, source);
+  const destinationPath = path.join(output, relativeDestination);
+
+  if (!fs.existsSync(sourcePath)) {
+    throw new Error(`Required engine module missing: ${source}`);
+  }
+
+  fs.mkdirSync(path.dirname(destinationPath), { recursive: true });
+  fs.copyFileSync(sourcePath, destinationPath);
+
+  console.log(`Included engine module: ${relativeDestination}`);
+}
+
 console.log(`Pages output prepared: ${output}`);
+
