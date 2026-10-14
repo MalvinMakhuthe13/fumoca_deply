@@ -1602,6 +1602,7 @@ input[type=range].amber::-webkit-slider-thumb{background:var(--amber);box-shadow
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
 import { decodeNif, encodeNif, geometryToSplatRows, downloadNif } from './js/modules/nif-format.js';
 import r2 from './js/r2Client.js';
@@ -1635,6 +1636,14 @@ viewport.appendChild(renderer.domElement);
 // so that wheel/scroll events are captured over the whole viewport area.
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true; controls.dampingFactor = 0.07;
+const transformControls = new TransformControls(camera, renderer.domElement);
+const transformGizmo = transformControls.getHelper();
+scene.add(transformGizmo);
+transformControls.enabled = false;
+transformControls.setSpace('world');
+transformControls.setSize(0.85);
+const transformTarget = new THREE.Object3D();
+scene.add(transformTarget);
 let _shViewColorTimer = null;
 controls.addEventListener('change', () => {
   if (!window.FumocaGaussianRenderer?.isEnabled()) return;
@@ -1698,6 +1707,89 @@ const S = {
 };
 // Expose globally so modules and guard checks can reference it
 window.S = S;
+let _sourceToRender = null;
+let _gizmoGesture = false;
+let _previousGizmoTransform = null;
+
+function selectedPointCount() {
+  if (!S.selected) return 0;
+  let n=0; for(let i=0;i<S.selected.length;i++) if(S.alive?.[i] && S.selected[i]) n++;
+  return n;
+}
+function syncTransformGizmo() {
+  const count = S.alive?.length || 0;
+  if (!count || !S.positions) { transformControls.detach(); transformControls.enabled=false; return; }
+  const hasSelection = selectedPointCount() > 0;
+  let x=0,y=0,z=0,n=0;
+  if (hasSelection) {
+    for(let i=0;i<count;i++) if(S.alive[i] && S.selected[i]) { x+=S.positions[i*3];y+=S.positions[i*3+1];z+=S.positions[i*3+2];n++; }
+  } else { x=controls.target.x;y=controls.target.y;z=controls.target.z;n=1; }
+  transformTarget.position.set(x/n,y/n,z/n);
+  transformTarget.rotation.set(0,0,0); transformTarget.scale.set(1,1,1);
+  transformControls.attach(transformTarget);
+  const mode = S.mode==='move'?'translate':S.mode==='rotate'?'rotate':'scale';
+  transformControls.setMode(mode);
+  transformControls.enabled = ['move','scale-tool','rotate'].includes(S.mode);
+  transformGizmo.visible = transformControls.enabled;
+}
+function refreshTransformSourceMap() {
+  const indices = S.points?.geometry?.getAttribute('sourceIndex');
+  if (!indices || !S.alive) { _sourceToRender=null; return; }
+  const map = new Int32Array(S.alive.length); map.fill(-1);
+  for(let out=0;out<indices.count;out++) map[indices.array[out]]=out;
+  _sourceToRender=map;
+}
+function captureGizmoTransform() {
+  _previousGizmoTransform = { position:transformTarget.position.clone(), quaternion:transformTarget.quaternion.clone(), scale:transformTarget.scale.clone() };
+}
+function applyGizmoDelta() {
+  if (!_previousGizmoTransform || !S.positions || !S.alive) return;
+  const previous=_previousGizmoTransform, nextQ=transformTarget.quaternion.clone();
+  const qDelta=nextQ.clone().multiply(previous.quaternion.clone().invert());
+  const rx=transformTarget.scale.x/Math.max(1e-6,previous.scale.x), ry=transformTarget.scale.y/Math.max(1e-6,previous.scale.y), rz=transformTarget.scale.z/Math.max(1e-6,previous.scale.z);
+  const pq=previous.quaternion, nq=nextQ, px=previous.position.x, py=previous.position.y, pz=previous.position.z;
+  const tx=transformTarget.position.x, ty=transformTarget.position.y, tz=transformTarget.position.z;
+  const rotate=(x,y,z,q,out)=>{const ax=2*(q.y*z-q.z*y),ay=2*(q.z*x-q.x*z),az=2*(q.x*y-q.y*x);out[0]=x+q.w*ax+(q.y*az-q.z*ay);out[1]=y+q.w*ay+(q.z*ax-q.x*az);out[2]=z+q.w*az+(q.x*ay-q.y*ax);};
+  const v=new Float64Array(3), invPrev={x:-pq.x,y:-pq.y,z:-pq.z,w:pq.w};
+  const uniformScale=Math.cbrt(Math.abs(rx*ry*rz));
+  const selected=selectedPointCount()>0, posAttr=S.points?.geometry?.getAttribute('position');
+  const scaleAttr=S.points?.geometry?.getAttribute('aScaleXYZ'), rotationAttr=S.points?.geometry?.getAttribute('aRotation'), sizeAttr=S.points?.geometry?.getAttribute('size');
+  for(let i=0;i<S.alive.length;i++) if(S.alive[i] && (!selected || S.selected[i])) {
+    let x=S.positions[i*3]-px,y=S.positions[i*3+1]-py,z=S.positions[i*3+2]-pz;
+    rotate(x,y,z,invPrev,v); x=v[0]*rx;y=v[1]*ry;z=v[2]*rz;
+    rotate(x,y,z,nq,v); x=v[0]+tx;y=v[1]+ty;z=v[2]+tz;
+    S.positions[i*3]=x;S.positions[i*3+1]=y;S.positions[i*3+2]=z;
+    if(S.scaleXYZ) { S.scaleXYZ[i*3]*=rx;S.scaleXYZ[i*3+1]*=ry;S.scaleXYZ[i*3+2]*=rz; }
+    if(S.scale) S.scale[i]*=uniformScale;
+    if(S.rotation) {
+      const aw=qDelta.w,ax=qDelta.x,ay=qDelta.y,az=qDelta.z,bw=S.rotation[i*4],bx=S.rotation[i*4+1],by=S.rotation[i*4+2],bz=S.rotation[i*4+3];
+      let qw=aw*bw-ax*bx-ay*by-az*bz,qx=aw*bx+ax*bw+ay*bz-az*by,qy=aw*by-ax*bz+ay*bw+az*bx,qz=aw*bz+ax*by-ay*bx+az*bw;
+      const ql=Math.hypot(qw,qx,qy,qz)||1; qw/=ql;qx/=ql;qy/=ql;qz/=ql;
+      S.rotation[i*4]=qw;S.rotation[i*4+1]=qx;S.rotation[i*4+2]=qy;S.rotation[i*4+3]=qz;
+    }
+    const out=_sourceToRender?.[i];
+    if(out!==undefined && out>=0) {
+      if(posAttr) { posAttr.array[out*3]=x;posAttr.array[out*3+1]=y;posAttr.array[out*3+2]=z; }
+      if(scaleAttr) { scaleAttr.array[out*3]*=rx;scaleAttr.array[out*3+1]*=ry;scaleAttr.array[out*3+2]*=rz; }
+      if(sizeAttr) sizeAttr.array[out]*=uniformScale;
+      if(rotationAttr && S.rotation) for(let a=0;a<4;a++) rotationAttr.array[out*4+a]=S.rotation[i*4+a];
+    }
+  }
+  if(posAttr) posAttr.needsUpdate=true;
+  if(scaleAttr) scaleAttr.needsUpdate=true;
+  if(sizeAttr) sizeAttr.needsUpdate=true;
+  if(rotationAttr) rotationAttr.needsUpdate=true;
+  S.points.geometry.boundingSphere=null;
+  captureGizmoTransform();
+}
+transformControls.addEventListener('mouseDown',()=>{_gizmoGesture=true;pushHistory('transform gizmo');captureGizmoTransform();});
+transformControls.addEventListener('objectChange',applyGizmoDelta);
+transformControls.addEventListener('mouseUp',()=>{
+  window.FumocaGaussianRenderer?.invalidateSort();
+  rebuildGeometry();refreshTransformSourceMap();syncTransformGizmo();
+  _gizmoGesture=false;_previousGizmoTransform=null;
+});
+transformControls.addEventListener('dragging-changed',event=>{controls.enabled=!event.value && S.mode==='orbit';});
 
 let _lidarPreviewObject = null;
 let _lidarPreviewCloud = null;
@@ -2399,6 +2491,7 @@ function rebuildGeometry() {
   const pos = new Float32Array(alive * 3);
   const col = new Float32Array(alive * 3);
   const sizes = new Float32Array(alive);
+  const sourceIndices = new Uint32Array(alive);
   // Per-point layer opacity — precomputed once, not per-point in the hot loop
   const pointLayerOpacity = (S.layers && S.layers.length)
     ? (() => { const o = new Float32Array(count).fill(1); S.layers.forEach(L => { if (L.opacity===undefined) return; for (let i=0;i<count;i++) if (L.mask[i]) o[i]=L.opacity; }); return o; })()
@@ -2522,6 +2615,7 @@ function rebuildGeometry() {
     const layerOp = pointLayerOpacity ? pointLayerOpacity[i] : 1;
     col[idx * 3] = r * S.brightness * layerOp; col[idx * 3 + 1] = g * S.brightness * layerOp; col[idx * 3 + 2] = b * S.brightness * layerOp;
     sizes[idx] = (S.scale[i] || 0.01) * S.ptScale * 80;
+    sourceIndices[idx] = i;
     idx++;
   }
   if (S.geometry) S.geometry.dispose();
@@ -2539,12 +2633,14 @@ function rebuildGeometry() {
       geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
       geo.setAttribute('color',    new THREE.BufferAttribute(col, 3));
       geo.setAttribute('size',     new THREE.BufferAttribute(sizes, 1));
+      geo.setAttribute('sourceIndex', new THREE.BufferAttribute(sourceIndices,1));
     }
   } else {
     geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     geo.setAttribute('color',    new THREE.BufferAttribute(col, 3));
     geo.setAttribute('size',     new THREE.BufferAttribute(sizes, 1));
+    geo.setAttribute('sourceIndex', new THREE.BufferAttribute(sourceIndices,1));
   }
 
   S.geometry = geo;
@@ -2552,6 +2648,7 @@ function rebuildGeometry() {
   const mat = buildMaterial();
   S.points = new THREE.Points(geo, mat);
   scene.add(S.points);
+  refreshTransformSourceMap();
   if (window.FumocaGaussianRenderer?.isEnabled()) _requestGaussianDepthSort();
   updateStats();
 }
@@ -2568,6 +2665,7 @@ function _requestGaussianDepthSort() {
     const previous = S.points.geometry;
     S.points.geometry = sorted; S.geometry = sorted;
     previous?.dispose();
+    refreshTransformSourceMap();
     if (S.shCoefficients) gr.updateViewColors(S, camera);
   }, 5, direction);
 }
@@ -2691,8 +2789,8 @@ function updateHistoryBtns() {
 }
 
 // ─── SELECTION ──────────────────────────────────────────────────────────────
-function clearSelection() { if (S.selected) S.selected.fill(0); rebuildGeometry(); }
-function invertSelection() { if (!S.alive) return; for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) S.selected[i] ^= 1; rebuildGeometry(); }
+function clearSelection() { if (S.selected) S.selected.fill(0); rebuildGeometry(); syncTransformGizmo(); }
+function invertSelection() { if (!S.alive) return; for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) S.selected[i] ^= 1; rebuildGeometry(); syncTransformGizmo(); }
 function deleteSelected() {
   if (!S.alive) return;
   pushHistory('delete');
@@ -2716,7 +2814,7 @@ function selectByBox(x0, y0, x1, y1) {
     proj.set(S.positions[i * 3], S.positions[i * 3 + 1], S.positions[i * 3 + 2]).project(camera);
     if (proj.x >= ndcX0 && proj.x <= ndcX1 && proj.y >= Math.min(ndcY0, ndcY1) && proj.y <= Math.max(ndcY0, ndcY1)) { S.selected[i] = 1; hits++; }
   }
-  rebuildGeometry(); setStatus(`Selected ${fmt(hits)} points`);
+  rebuildGeometry(); syncTransformGizmo(); setStatus(`Selected ${fmt(hits)} points`);
 }
 
 function selectByLasso(pts) {
@@ -2739,7 +2837,7 @@ function selectByLasso(pts) {
     const sx = (proj.x * 0.5 + 0.5) * W, sy = (-proj.y * 0.5 + 0.5) * H;
     if (inPoly(sx, sy)) { S.selected[i] = 1; hits++; }
   }
-  rebuildGeometry(); setStatus(`Selected ${fmt(hits)} points`);
+  rebuildGeometry(); syncTransformGizmo(); setStatus(`Selected ${fmt(hits)} points`);
 }
 
 function applyBrush(cx, cy) {
@@ -3227,6 +3325,7 @@ function setMode(mode) {
     ring.className = mode === 'brush-erase' ? 'erase' : '';
   } else { ring.style.display = 'none'; }
   setStatus(`Mode: ${mode.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}`);
+  syncTransformGizmo();
 }
 
 // ─── DISPLAY MODE ────────────────────────────────────────────────────────────
@@ -3296,6 +3395,7 @@ function _vpCoords(e) {
 let _brushActive = false, _brushTimer;
 renderer.domElement.addEventListener('pointerdown', e => {
   if (S.mode === 'orbit') return;
+  if (_gizmoGesture || transformControls.enabled && ['move','scale-tool','rotate'].includes(S.mode)) return;
   e.stopPropagation();
   _brushActive = true;
   const {x, y} = _vpCoords(e);
@@ -3328,6 +3428,7 @@ window.addEventListener('pointermove', e => {
     ring.style.width = d + 'px'; ring.style.height = d + 'px';
     ring.style.display = 'block';
   } else { ring.style.display = 'none'; }
+  if (_gizmoGesture) return;
   if (!S.dragging) return;
   const {x, y} = _vpCoords(e);
   S.dragCurrent = { x, y };
@@ -3389,6 +3490,7 @@ window.addEventListener('pointerup', e => {
     S.selected.fill(0); rebuildGeometry(); setStatus('Scene cropped to box selection','ok');
   }
   if (S.mode === 'lasso' && S.lassoPoints.length >= 3) selectByLasso(S.lassoPoints);
+  if (['box','sphere','lasso'].includes(S.mode)) syncTransformGizmo();
   if (['move','scale-tool','rotate'].includes(S.mode)) { window.FumocaGaussianRenderer?.invalidateSort(); rebuildGeometry(); }
   S.dragging = false; S.dragStart = null; S.dragCurrent = null; S.lassoPoints = [];
   renderLasso();
@@ -4011,7 +4113,7 @@ $('shrinkSelBtn').addEventListener('click', () => {
   }
   S.selected = newSel; rebuildGeometry(); setStatus(`Shrunk selection by ${fmt(removed)}`);
 });
-$('selAllBtn')?.addEventListener('click', () => { if (!S.alive) return; for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) S.selected[i] = 1; rebuildGeometry(); setStatus('All selected'); });
+$('selAllBtn')?.addEventListener('click', () => { if (!S.alive) return; for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) S.selected[i] = 1; rebuildGeometry(); syncTransformGizmo(); setStatus('All selected'); });
 $('expandSelBtn')?.addEventListener('click', () => {
   if (!S.alive) return;
   // Stronger, multi-pass version of Grow — 3 iterations of the same real
@@ -4340,7 +4442,7 @@ $('applyTrnBtn')?.addEventListener('click', () => {
     if (S.opacity) S.opacity[i] = clamp(S.opacity[i] + opDelta, 0, 1);
   }
   window.FumocaGaussianRenderer?.invalidateSort();
-  rebuildGeometry(); setStatus('Transform applied', 'ok');
+  rebuildGeometry(); syncTransformGizmo(); setStatus('Transform applied', 'ok');
 });
 function rotateEntireScene(axis, degrees) {
   if (!S.alive) return;
@@ -4352,7 +4454,7 @@ function rotateEntireScene(axis, degrees) {
   $('trnRotZ').value = axis==='z' ? degrees : 0;
   $('trnScale').value = '100'; $('trnMoveX').value='0'; $('trnMoveY').value='0'; $('trnMoveZ').value='0'; $('trnOpac').value='0';
   $('applyTrnBtn').click();
-  S.selected.set(previous); rebuildGeometry();
+  S.selected.set(previous); rebuildGeometry(); syncTransformGizmo();
 }
 $('orientXPosBtn')?.addEventListener('click',()=>rotateEntireScene('x',90));
 $('orientXNegBtn')?.addEventListener('click',()=>rotateEntireScene('x',-90));

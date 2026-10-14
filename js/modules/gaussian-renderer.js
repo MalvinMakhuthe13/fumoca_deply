@@ -225,6 +225,7 @@ const FumocaGaussianRenderer = (() => {
     for (let i = 0; i < count; i++) if (S.alive[i] && !S.layerHidden?.[i]) alive++;
     const pos      = new Float32Array(alive * 3);
     const col      = new Float32Array(alive * 3);
+    const sourceIndex = new Uint32Array(alive);
     const scaleXYZ = new Float32Array(alive * 3);
     const rotation = new Float32Array(alive * 4);
     const sizes    = new Float32Array(alive);
@@ -236,6 +237,7 @@ const FumocaGaussianRenderer = (() => {
       pos[idx*3]   = S.positions[i*3];
       pos[idx*3+1] = S.positions[i*3+1];
       pos[idx*3+2] = S.positions[i*3+2];
+      sourceIndex[idx] = i;
       const pc = S.paintColors;
       let r = pc && pc[i*3]   >= 0 ? pc[i*3]   : S.colors[i*3];
       let g = pc && pc[i*3+1] >= 0 ? pc[i*3+1] : S.colors[i*3+1];
@@ -269,6 +271,7 @@ const FumocaGaussianRenderer = (() => {
     }
     geo.setAttribute('position',   new T.BufferAttribute(pos,       3));
     geo.setAttribute('aColor',     new T.BufferAttribute(col,       3));
+    geo.setAttribute('sourceIndex',new T.BufferAttribute(sourceIndex,1));
     geo.setAttribute('aSize',      new T.BufferAttribute(sizes,     1));
     geo.setAttribute('aScaleXYZ',  new T.BufferAttribute(scaleXYZ,  3));
     geo.setAttribute('aRotation',  new T.BufferAttribute(rotation,  4));
@@ -397,7 +400,7 @@ const FumocaGaussianRenderer = (() => {
     }
     const alive = ordered.length;
 
-    const pos=new Float32Array(alive*3), col=new Float32Array(alive*3);
+    const pos=new Float32Array(alive*3), col=new Float32Array(alive*3), sourceIndex=new Uint32Array(alive);
     const scaleXYZ=new Float32Array(alive*3), rotation=new Float32Array(alive*4);
     const sizes=new Float32Array(alive), opacities=new Float32Array(alive);
     const selected=new Float32Array(alive), sharpness=new Float32Array(alive);
@@ -405,6 +408,7 @@ const FumocaGaussianRenderer = (() => {
     // Apply sort order — sortIndices maps output slot → source Gaussian
     for(let out=0;out<alive;out++){
       const i = ordered[out];
+      sourceIndex[out]=i;
       pos[out*3]=S.positions[i*3]; pos[out*3+1]=S.positions[i*3+1]; pos[out*3+2]=S.positions[i*3+2];
       const pc=S.paintColors;
       let r=pc&&pc[i*3]>=0?pc[i*3]:S.colors[i*3];
@@ -423,6 +427,7 @@ const FumocaGaussianRenderer = (() => {
     const geo=new T.BufferGeometry();
     geo.setAttribute('position',   new T.BufferAttribute(pos,      3));
     geo.setAttribute('aColor',     new T.BufferAttribute(col,      3));
+    geo.setAttribute('sourceIndex',new T.BufferAttribute(sourceIndex,1));
     geo.setAttribute('aSize',      new T.BufferAttribute(sizes,    1));
     geo.setAttribute('aScaleXYZ',  new T.BufferAttribute(scaleXYZ, 3));
     geo.setAttribute('aRotation',  new T.BufferAttribute(rotation, 4));
