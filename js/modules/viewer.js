@@ -225,6 +225,7 @@ function _applyPublicViewerLock() {
   });
 }
 let viewerInstance = null;
+let activeGaussianPositions = null;
 let currentRecord = null;
 let previewMode = 'nif';
 let rendererPreviewUrl = null;
@@ -1338,6 +1339,7 @@ async function mountPlyViewer(url) {
     const geo = new PLYLoader().parse(buffer);
     const posAttr = geo.getAttribute('position');
     if (!posAttr) throw new Error('PLY has no position attribute');
+    activeGaussianPositions = posAttr.array;
     const count = posAttr.count;
     const colors = new Float32Array(count * 3);
     const intensityAttr = geo.getAttribute('intensity');
@@ -1627,12 +1629,15 @@ async function mountInteractiveViewer(forceReload = false) {
         // Build _fumocaCurrentGaussians from positions so AutoFix and shim work
         if (positions && positions.length >= 3) {
           const N = Math.floor(positions.length / 3);
-          window._fumocaCurrentGaussians = {
-            N,
-            posX: positions.filter((_, i) => i % 3 === 0),
-            posY: positions.filter((_, i) => i % 3 === 1),
-            posZ: positions.filter((_, i) => i % 3 === 2),
-          };
+          activeGaussianPositions = positions;
+          if (!window._fumocaCurrentGaussians?.sclX || window._fumocaCurrentGaussians.N !== N) {
+            window._fumocaCurrentGaussians = {
+              N,
+              posX: positions.filter((_, i) => i % 3 === 0),
+              posY: positions.filter((_, i) => i % 3 === 1),
+              posZ: positions.filter((_, i) => i % 3 === 2),
+            };
+          }
           console.log(`%c[Viewer] _fumocaCurrentGaussians populated: ${N.toLocaleString()} Gaussians`, 'color:#c8ff00;font-weight:700');
         }
         // Expose camera and controls for AutoFix camera fit and shim population
@@ -1898,7 +1903,7 @@ if (window._fumocaViewerCamera && window._fumocaViewerControls) {
 }
 
 window._fumocaRenderer = {
-  getPositions: () => positions,
+  getPositions: () => activeGaussianPositions,
   camera: cam,
   controls: controls,
 };
@@ -2046,6 +2051,36 @@ async function boot() {
       const nifBuffer = await nifResp.arrayBuffer();
       if (fileUrl.startsWith('blob:')) URL.revokeObjectURL(fileUrl);
       const { meta, gaussians, calibration, verification, mesh } = await decodeNif(nifBuffer);
+      // Keep decoded NIF positions available for camera fitting and integrations.
+      // The Gaussian renderer does not expose its internal buffer consistently.
+      const gaussianData = gaussians.data;
+      activeGaussianPositions = new Float32Array(gaussians.count * 3);
+      const currentGaussians = {
+        N: gaussians.count,
+        posX: new Float32Array(gaussians.count), posY: new Float32Array(gaussians.count), posZ: new Float32Array(gaussians.count),
+        sclX: new Float32Array(gaussians.count), sclY: new Float32Array(gaussians.count), sclZ: new Float32Array(gaussians.count),
+        colR: new Uint8Array(gaussians.count), colG: new Uint8Array(gaussians.count), colB: new Uint8Array(gaussians.count), colA: new Uint8Array(gaussians.count),
+        rotQ0: new Uint8Array(gaussians.count), rotQ1: new Uint8Array(gaussians.count), rotQ2: new Uint8Array(gaussians.count), rotQ3: new Uint8Array(gaussians.count),
+      };
+      for (let i = 0; i < gaussians.count; i++) {
+        const src = i * 14, dst = i * 3;
+        const x = gaussianData[src], y = gaussianData[src + 1], z = gaussianData[src + 2];
+        activeGaussianPositions[dst] = currentGaussians.posX[i] = x;
+        activeGaussianPositions[dst + 1] = currentGaussians.posY[i] = y;
+        activeGaussianPositions[dst + 2] = currentGaussians.posZ[i] = z;
+        currentGaussians.sclX[i] = Math.exp(gaussianData[src + 3]);
+        currentGaussians.sclY[i] = Math.exp(gaussianData[src + 4]);
+        currentGaussians.sclZ[i] = Math.exp(gaussianData[src + 5]);
+        currentGaussians.rotQ0[i] = Math.max(0, Math.min(255, Math.round(gaussianData[src + 6] * 128 + 128)));
+        currentGaussians.rotQ1[i] = Math.max(0, Math.min(255, Math.round(gaussianData[src + 7] * 128 + 128)));
+        currentGaussians.rotQ2[i] = Math.max(0, Math.min(255, Math.round(gaussianData[src + 8] * 128 + 128)));
+        currentGaussians.rotQ3[i] = Math.max(0, Math.min(255, Math.round(gaussianData[src + 9] * 128 + 128)));
+        currentGaussians.colA[i] = Math.round((1 / (1 + Math.exp(-gaussianData[src + 10]))) * 255);
+        currentGaussians.colR[i] = Math.round((1 / (1 + Math.exp(-gaussianData[src + 11]))) * 255);
+        currentGaussians.colG[i] = Math.round((1 / (1 + Math.exp(-gaussianData[src + 12]))) * 255);
+        currentGaussians.colB[i] = Math.round((1 / (1 + Math.exp(-gaussianData[src + 13]))) * 255);
+      }
+      window._fumocaCurrentGaussians = currentGaussians;
       window._fumocaCalibration  = calibration;
       window._fumocaVerification = verification;
       window._fumocaDecodedMesh  = mesh;

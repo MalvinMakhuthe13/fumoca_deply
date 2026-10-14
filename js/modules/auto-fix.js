@@ -128,10 +128,11 @@ const FumocaAutoFix = (() => {
       // No geometry info at all — apply a safe default camera reset
       console.warn('[AutoFix] No geometry data — applying safe default camera');
       fixCamera({ center: new THREE.Vector3(0,0,0), radius: 1.5 });
-      return;
+      return false;
     }
 
     const fixed = fixCamera(bounds);
+    if (!fixed) return false;
 
     // Persist bounding_box to DB so future loads skip recompute
     if (fixed && splatRecord.id && !splatRecord.meta?.bounding_box?.center) {
@@ -152,6 +153,7 @@ const FumocaAutoFix = (() => {
     }
 
     window.dispatchEvent(new CustomEvent('fumoca:autoFixComplete', { detail: { bounds } }));
+    return true;
   }
 
   // ── Camera mode switcher ───────────────────────────────────────────
@@ -209,18 +211,25 @@ const FumocaAutoFix = (() => {
   // ── Auto-hook into viewer load events ─────────────────────────────
   function attach() {
     let _hasRun = false;
-    const _try = () => {
+    let _running = false;
+    const _try = async () => {
+      if (_hasRun || _running) return;
       // Don't override if edit.html already fitted camera from real position data
       if (window._fumocaCameraFitted) {
         console.log('%c[AutoFix] Camera already fitted by editor — skipping', 'color:#888');
+        _hasRun = true;
         return;
       }
-      // Only run once per page load to avoid camera fighting
-      if (_hasRun) return;
-      _hasRun = true;
+      // recordLoaded fires before the NIF finishes decoding. Keep listening
+      // until real positions and the viewer camera are available.
       const rec      = window._fumocaCurrentRecord;
       const renderer = window._fumocaRenderer || window._fumocaViewer;
-      run(rec || {}, renderer);
+      _running = true;
+      try {
+        _hasRun = await run(rec || {}, renderer) === true;
+      } finally {
+        _running = false;
+      }
     };
 
     window.addEventListener('fumoca:viewerReady',  _try);
