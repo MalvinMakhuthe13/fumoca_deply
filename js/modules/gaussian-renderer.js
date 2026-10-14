@@ -149,16 +149,11 @@ const FumocaGaussianRenderer = (() => {
     const layout = _getSHLayout(names);
     if (!layout) return null;
     const x0 = S.positions[pointIndex * 3], y0 = S.positions[pointIndex * 3 + 1], z0 = S.positions[pointIndex * 3 + 2];
-    let x = cameraPosition.x - x0, y = cameraPosition.y - y0, z = cameraPosition.z - z0;
+    // Graphdeco's SH convention evaluates the ray from camera to Gaussian
+    // (position - camera). Reversing it flips odd SH bands and changes the
+    // trained view-dependent colors, especially on degree 1 and 3 captures.
+    let x = x0 - cameraPosition.x, y = y0 - cameraPosition.y, z = z0 - cameraPosition.z;
     const len = Math.hypot(x, y, z) || 1; x /= len; y /= len; z /= len;
-    if (S.rotation) {
-      const qw = S.rotation[pointIndex*4], qx = S.rotation[pointIndex*4+1], qy = S.rotation[pointIndex*4+2], qz = S.rotation[pointIndex*4+3];
-      const tx = -2 * (qy*z - qz*y), ty = -2 * (qz*x - qx*z), tz = -2 * (qx*y - qy*x);
-      const rx = x + qw*tx - (qy*tz - qz*ty);
-      const ry = y + qw*ty - (qz*tx - qx*tz);
-      const rz = z + qw*tz - (qx*ty - qy*tx);
-      x = rx; y = ry; z = rz;
-    }
     _shBasis[0]=0.28209479177387814;
     _shBasis[1]=-0.4886025119029199*y; _shBasis[2]=0.4886025119029199*z; _shBasis[3]=-0.4886025119029199*x;
     _shBasis[4]=1.0925484305920792*x*y; _shBasis[5]=-1.0925484305920792*y*z;

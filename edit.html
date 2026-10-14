@@ -165,9 +165,9 @@ input[type=file]{display:none}
 #timelineScroll::-webkit-scrollbar{height:3px}
 
 /* ─── PANEL INTERNALS ─── */
-.panel-tabs{display:flex;border-bottom:1px solid var(--border);flex-shrink:0}
+.panel-tabs{display:flex;overflow-x:auto;scrollbar-width:thin;border-bottom:1px solid var(--border);flex-shrink:0}
 .ptab{
-  flex:1;padding:10px 8px;text-align:center;font:600 11px var(--font-body);
+  flex:0 0 auto;padding:10px 8px;text-align:center;font:600 11px var(--font-body);
   color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;transition:var(--transition);
   letter-spacing:.03em;white-space:nowrap}
 .ptab:hover{color:var(--text);background:rgba(255,255,255,.02)}
@@ -667,6 +667,7 @@ input[type=range].amber::-webkit-slider-thumb{background:var(--amber);box-shadow
     <div class="panel-tabs" id="leftTabs">
       <div class="ptab active" data-tab="tools">Tools</div>
       <div class="ptab" data-tab="select">Select</div>
+      <div class="ptab" data-tab="transform">Transform</div>
       <div class="ptab" data-tab="clean">Clean</div>
       <div class="ptab" data-tab="mesh">Mesh</div>
       <div class="ptab" data-tab="present">Present</div>
@@ -868,13 +869,15 @@ input[type=range].amber::-webkit-slider-thumb{background:var(--amber);box-shadow
       </div>
 
       <!-- TRANSFORM SELECTED -->
+    </div>
+
+    <!-- TAB: TRANSFORM -->
+    <div class="panel-body" id="tab-transform" style="display:none">
+      <div class="hint" style="margin-bottom:8px">Select points with the box or lasso tools, then set rotation, position, or scale and apply.</div>
       <div class="section">
         <div class="sec-head"><span class="sec-label">Transform Selection</span><span class="sec-arrow">▾</span></div>
         <div class="sec-body">
-          <div class="ctrl-row">
-            <span class="ctrl-label">Scale</span>
-            <span class="ctrl-val cyan" id="trnScaleVal">1.0×</span>
-          </div>
+          <div class="ctrl-row"><span class="ctrl-label">Scale</span><span class="ctrl-val cyan" id="trnScaleVal">1.0×</span></div>
           <input type="range" class="cyan" id="trnScale" min="10" max="300" value="100">
           <div class="ctrl-row"><span class="ctrl-label">Rotate X / Y / Z (degrees)</span></div>
           <div style="display:flex;gap:5px;margin-bottom:8px">
@@ -888,15 +891,9 @@ input[type=range].amber::-webkit-slider-thumb{background:var(--amber);box-shadow
             <input id="trnMoveY" type="number" value="0" step="0.1" title="Move on Y axis" style="width:33%;padding:5px;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text)">
             <input id="trnMoveZ" type="number" value="0" step="0.1" title="Move on Z axis" style="width:33%;padding:5px;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text)">
           </div>
-          <div class="ctrl-row">
-            <span class="ctrl-label">Opacity boost</span>
-            <span class="ctrl-val cyan" id="trnOpacVal">0%</span>
-          </div>
+          <div class="ctrl-row"><span class="ctrl-label">Opacity boost</span><span class="ctrl-val cyan" id="trnOpacVal">0%</span></div>
           <input type="range" class="cyan" id="trnOpac" min="-100" max="100" value="0">
-          <div class="ctrl-row">
-            <span class="ctrl-label">Color temp</span>
-            <span class="ctrl-val cyan" id="trnTempVal">0</span>
-          </div>
+          <div class="ctrl-row"><span class="ctrl-label">Color temp</span><span class="ctrl-val cyan" id="trnTempVal">0</span></div>
           <input type="range" class="cyan" id="trnTemp" min="-100" max="100" value="0">
           <button class="ac-btn cyan full" id="applyTrnBtn">Apply Transform</button>
         </div>
@@ -2031,7 +2028,27 @@ function parseSplat(buffer) {
 function parsePLY(buffer) {
   let geo;
   try {
-    const loader = new PLYLoader();
+  const loader = new PLYLoader();
+  // Three's PLYLoader ignores unknown vertex fields unless they are mapped.
+  // Gaussian splats keep their real color in f_dc_* and f_rest_* fields, so
+  // capture those coefficients (plus scale/rotation/opacity) during parsing.
+  const headerBytes = new Uint8Array(buffer, 0, Math.min(buffer.byteLength, 256 * 1024));
+  const headerText = new TextDecoder().decode(headerBytes);
+  const headerEnd = headerText.indexOf('end_header');
+  const customProperties = {};
+  if (headerEnd >= 0) {
+    let inVertex = false;
+    for (const line of headerText.slice(0, headerEnd).split(/\r?\n/)) {
+      const parts = line.trim().split(/\s+/);
+      if (parts[0] === 'element') { inVertex = parts[1] === 'vertex'; continue; }
+      if (!inVertex || parts[0] !== 'property' || parts[1] === 'list') continue;
+      const name = parts[2];
+      if (/^f_(?:dc|rest)_\d+$/.test(name) || /^(?:opacity|scale_[0-2]|rot_[0-3])$/.test(name)) {
+        customProperties[name] = [name];
+      }
+    }
+  }
+  if (Object.keys(customProperties).length) loader.setCustomPropertyNameMapping(customProperties);
     geo = loader.parse(buffer);
   } catch(e) {
     console.error('[parsePLY] PLYLoader failed:', e);
@@ -2212,8 +2229,8 @@ async function loadFile(file, urlOverride) {
       camera.position.set(cx + dist*0.6, cy + dist*0.35, cz + dist*0.8);
       camera.lookAt(cx, cy, cz);
       controls.target.set(cx, cy, cz);
-      controls.minDistance = radius * 0.3;
-      controls.maxDistance = radius * 15;
+      controls.minDistance = Math.max(0.002, radius * 0.005);
+      controls.maxDistance = Math.max(100, radius * 100);
       controls.update();
       console.log(`[Edit] Camera fitted — radius:${radius.toFixed(2)} center:(${cx.toFixed(2)},${cy.toFixed(2)},${cz.toFixed(2)})`);
     }
@@ -3283,9 +3300,9 @@ $('leftTabs').querySelectorAll('.ptab').forEach(tab => {
   tab.addEventListener('click', () => {
     $('leftTabs').querySelectorAll('.ptab').forEach(t => t.classList.remove('active'));
     tab.classList.add('active');
-    ['tools', 'select', 'clean', 'layers'].forEach(t => {
-      const el = $(`tab-${t}`); if (el) el.style.display = t === tab.dataset.tab ? 'block' : 'none';
-    });
+    document.querySelectorAll('#panelLeft .panel-body').forEach(el => { el.style.display = 'none'; });
+    const panel = $(`tab-${tab.dataset.tab}`);
+    if (panel) panel.style.display = 'block';
   });
 });
 
