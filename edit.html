@@ -2158,11 +2158,9 @@ function parsePLY(buffer) {
   });
   let shCoefficients = null;
   if (shAttributes.length) {
-    shCoefficients = new Float32Array(count * shAttributes.length);
-    shAttributes.forEach((name, attrIndex) => {
-      const attr = geo.getAttribute(name);
-      for (let i = 0; i < count; i++) shCoefficients[i * shAttributes.length + attrIndex] = attr.array[i];
-    });
+    // Keep PLYLoader's attribute buffers directly; copying every SH coefficient
+    // into another interleaved array doubles hundreds of MB on large captures.
+    shCoefficients = Object.fromEntries(shAttributes.map(name => [name, geo.getAttribute(name).array]));
   }
   return { positions, colors, opacity, scale, scaleXYZ, rotation, shAttributes, shCoefficients, intensities, classifications, returnNumbers, count };
 }
@@ -2570,6 +2568,7 @@ function _requestGaussianDepthSort() {
     const previous = S.points.geometry;
     S.points.geometry = sorted; S.geometry = sorted;
     previous?.dispose();
+    if (S.shCoefficients) gr.updateViewColors(S, camera);
   }, 5, direction);
 }
 
@@ -2644,7 +2643,7 @@ function updateStats() {
 function pushHistory(label) {
   const snap = { alive: S.alive.slice(), selected: S.selected.slice(), paintColors: S.paintColors?.slice() };
   if (/transform|move|rotate|scale-tool/i.test(label)) {
-    snap.positions = S.positions?.slice(); snap.scale = S.scale?.slice(); snap.scaleXYZ = S.scaleXYZ?.slice(); snap.rotation = S.rotation?.slice(); snap.opacity = S.opacity?.slice();
+    snap.positions = S.positions?.slice(); snap.scale = S.scale?.slice(); snap.scaleXYZ = S.scaleXYZ?.slice(); snap.rotation = S.rotation?.slice(); snap.opacity = S.opacity?.slice(); snap.shCoefficients = S.shCoefficients;
   }
   if (S.historyIndex < S.history.length - 1) S.history = S.history.slice(0, S.historyIndex + 1);
   S.history.push({ label, snap });
@@ -2657,7 +2656,7 @@ function undo() {
   const entry = S.history[S.historyIndex];
   const { snap } = entry;
   entry.redoSnap = { alive:S.alive.slice(), selected:S.selected.slice(), paintColors:S.paintColors?.slice() };
-  if (snap.positions) { entry.redoSnap.positions=S.positions?.slice(); entry.redoSnap.scale=S.scale?.slice(); entry.redoSnap.scaleXYZ=S.scaleXYZ?.slice(); entry.redoSnap.rotation=S.rotation?.slice(); entry.redoSnap.opacity=S.opacity?.slice(); }
+  if (snap.positions) { entry.redoSnap.positions=S.positions?.slice(); entry.redoSnap.scale=S.scale?.slice(); entry.redoSnap.scaleXYZ=S.scaleXYZ?.slice(); entry.redoSnap.rotation=S.rotation?.slice(); entry.redoSnap.opacity=S.opacity?.slice(); entry.redoSnap.shCoefficients=S.shCoefficients; }
   S.alive = snap.alive.slice(); S.selected = snap.selected.slice();
   if (snap.paintColors) S.paintColors = snap.paintColors.slice();
   if (snap.positions) S.positions=snap.positions.slice();
@@ -2665,6 +2664,7 @@ function undo() {
   if (snap.scaleXYZ) S.scaleXYZ=snap.scaleXYZ.slice();
   if (snap.rotation) S.rotation=snap.rotation.slice();
   if (snap.opacity) S.opacity=snap.opacity.slice();
+  if (snap.shCoefficients) S.shCoefficients=snap.shCoefficients;
   S.historyIndex--;
   rebuildGeometry(); updateHistoryBtns();
   setStatus('Undone', 'ok');
@@ -2681,6 +2681,7 @@ function redo() {
   if (snap.scaleXYZ) S.scaleXYZ=snap.scaleXYZ.slice();
   if (snap.rotation) S.rotation=snap.rotation.slice();
   if (snap.opacity) S.opacity=snap.opacity.slice();
+  if (snap.shCoefficients) S.shCoefficients=snap.shCoefficients;
   rebuildGeometry(); updateHistoryBtns();
   setStatus('Redone', 'ok');
 }
@@ -2949,7 +2950,7 @@ function _encodeGaussianPly(indices) {
     const coeff = attributes.map(attr => {
       if (painted && attr.startsWith('f_rest_')) return 0;
       const j = shIndex.get(attr);
-      if (!painted && j !== undefined && S.shCoefficients) return S.shCoefficients[i * S.shAttributes.length + j];
+      if (!painted && j !== undefined && S.shCoefficients) return S.shCoefficients[attr]?.[i] ?? S.shCoefficients[i * S.shAttributes.length + j] ?? 0;
       const c = attr === 'f_dc_0' ? 0 : attr === 'f_dc_1' ? 1 : attr === 'f_dc_2' ? 2 : -1;
       return c >= 0 ? (color[c] - 0.5) / shC0 : 0;
     });
@@ -3406,8 +3407,12 @@ function onResize() {
 }
 
 // ─── ANIMATE ────────────────────────────────────────────────────────────────
-function animate() {
+let _lastViewportRender = 0;
+function animate(now = performance.now()) {
   requestAnimationFrame(animate);
+  const frameInterval = S.alive?.length > 300000 ? 33 : 16;
+  if (now - _lastViewportRender < frameInterval) return;
+  _lastViewportRender = now;
   controls.update();
   renderer.render(scene, camera);
 }
@@ -3888,23 +3893,22 @@ $('addSplatInput')?.addEventListener('change', async e => {
         return ga - gb || Number(a.split('_').pop()) - Number(b.split('_').pop());
       });
       if (shNames.length) {
-        const sh = new Float32Array((oldN + addN) * shNames.length);
+        const sh = Object.fromEntries(shNames.map(name => [name,new Float32Array(oldN+addN)]));
         const copySh = (src, srcNames, srcOffset, dstOffset, length) => {
           if (!src || !srcNames?.length) return;
-          const srcMap = new Map(srcNames.map((name, index) => [name, index]));
-          shNames.forEach((name, outIndex) => {
-            const inIndex = srcMap.get(name); if (inIndex === undefined) return;
-            for (let i = 0; i < length; i++) sh[(dstOffset + i) * shNames.length + outIndex] = src[(srcOffset + i) * srcNames.length + inIndex];
+          srcNames.forEach((name, inIndex) => {
+            if (!sh[name]) return;
+            for (let i = 0; i < length; i++) sh[name][dstOffset+i] = src[name]?.[srcOffset+i] ?? src[(srcOffset+i)*srcNames.length+inIndex] ?? 0;
           });
         };
         copySh(S.shCoefficients, S.shAttributes, 0, 0, oldN);
         copySh(parsed.shCoefficients, parsed.shAttributes, 0, oldN, addN);
         const shC0 = 0.28209479177387814;
         for (let c = 0; c < 3; c++) {
-          const name = `f_dc_${c}`, outIndex = shNames.indexOf(name);
-          if (outIndex < 0) continue;
-          if (!(S.shAttributes || []).includes(name)) for (let i = 0; i < oldN; i++) sh[i * shNames.length + outIndex] = ((S.colors[i * 3 + c] ?? 0.7) - 0.5) / shC0;
-          if (!(parsed.shAttributes || []).includes(name)) for (let i = 0; i < addN; i++) sh[(oldN + i) * shNames.length + outIndex] = ((S.colors[(oldN + i) * 3 + c] ?? 0.7) - 0.5) / shC0;
+          const name = `f_dc_${c}`;
+          if (!sh[name]) continue;
+          if (!(S.shAttributes || []).includes(name)) for (let i = 0; i < oldN; i++) sh[name][i] = ((S.colors[i * 3 + c] ?? 0.7) - 0.5) / shC0;
+          if (!(parsed.shAttributes || []).includes(name)) for (let i = 0; i < addN; i++) sh[name][oldN+i] = ((S.colors[(oldN + i) * 3 + c] ?? 0.7) - 0.5) / shC0;
         }
         S.shAttributes = shNames; S.shCoefficients = sh;
       }

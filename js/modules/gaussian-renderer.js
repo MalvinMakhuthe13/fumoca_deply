@@ -145,7 +145,7 @@ const FumocaGaussianRenderer = (() => {
     const names = S.shAttributes;
     const values = S.shCoefficients;
     if (!names?.length || !values) return null;
-    if ((pointIndex + 1) * names.length > values.length) return null;
+    if (ArrayBuffer.isView(values) && (pointIndex + 1) * names.length > values.length) return null;
     const layout = _getSHLayout(names);
     if (!layout) return null;
     const x0 = S.positions[pointIndex * 3], y0 = S.positions[pointIndex * 3 + 1], z0 = S.positions[pointIndex * 3 + 2];
@@ -170,7 +170,10 @@ const FumocaGaussianRenderer = (() => {
       const channelLayout = layout.channels[channel];
       for (let k = 0; k < layout.perChannel && k < _shBasis.length; k++) {
         const attr = channelLayout[k];
-        if (attr >= 0) sum += values[pointIndex * names.length + attr] * _shBasis[k];
+        if (attr >= 0) {
+          const name = names[attr];
+          sum += (ArrayBuffer.isView(values) ? values[pointIndex * names.length + attr] : values[name]?.[pointIndex] || 0) * _shBasis[k];
+        }
       }
       _shOut[channel] = Math.max(0, Math.min(1, 0.5 + sum));
     }
@@ -237,8 +240,8 @@ const FumocaGaussianRenderer = (() => {
       let r = pc && pc[i*3]   >= 0 ? pc[i*3]   : S.colors[i*3];
       let g = pc && pc[i*3+1] >= 0 ? pc[i*3+1] : S.colors[i*3+1];
       let b = pc && pc[i*3+2] >= 0 ? pc[i*3+2] : S.colors[i*3+2];
-      const sh = !(pc && pc[i*3] >= 0) && camera ? _shColor(S, i, camera.position) : null;
-      if (sh) [r, g, b] = sh;
+      // Start with the already parsed DC color so large captures render immediately.
+      // View-dependent SH color is refined asynchronously after the first frame.
       // Exposure and saturation are now GPU uniforms (realtime, no rebuild needed)
       // CPU-side: apply only white balance and hue shift if present
       if (S.whiteBalance && S.whiteBalance !== 0) {
@@ -275,6 +278,7 @@ const FumocaGaussianRenderer = (() => {
     return geo;
   }
 
+  let _shUpdateToken = 0;
   function updateViewColors(S, camera) {
     const attr = S?.points?.geometry?.getAttribute('aColor');
     if (!attr || !S.shCoefficients || !camera) return;
@@ -286,14 +290,22 @@ const FumocaGaussianRenderer = (() => {
       const seen = new Uint8Array(mask.length); for (const i of active) seen[i] = 1;
       for (let i = 0; i < mask.length; i++) if (mask[i] && !seen[i]) active.push(i);
     }
-    for (let out = 0; out < active.length; out++) {
-      const i = active[out];
-      const pc = S.paintColors;
-      if (pc && pc[i*3] >= 0) continue;
-      const color = _shColor(S, i, camera.position);
-      if (color) attr.array.set(color, out * 3);
-    }
-    attr.needsUpdate = true;
+    const token = ++_shUpdateToken;
+    const cameraPosition = camera.position.clone();
+    let out = 0;
+    const updateChunk = () => {
+      if (token !== _shUpdateToken || S.points?.geometry?.getAttribute('aColor') !== attr) return;
+      const end = Math.min(active.length, out + 5000);
+      for (; out < end; out++) {
+        const i = active[out], pc = S.paintColors;
+        if (pc && pc[i*3] >= 0) continue;
+        const color = _shColor(S, i, cameraPosition);
+        if (color) attr.array.set(color, out * 3);
+      }
+      attr.needsUpdate = true;
+      if (out < active.length) requestAnimationFrame(updateChunk);
+    };
+    requestAnimationFrame(updateChunk);
   }
 
   // ── Depth sort worker ────────────────────────────────────────────────────
@@ -398,8 +410,6 @@ const FumocaGaussianRenderer = (() => {
       let r=pc&&pc[i*3]>=0?pc[i*3]:S.colors[i*3];
       let g=pc&&pc[i*3+1]>=0?pc[i*3+1]:S.colors[i*3+1];
       let b=pc&&pc[i*3+2]>=0?pc[i*3+2]:S.colors[i*3+2];
-      const sh = !(pc && pc[i*3] >= 0) && camera ? _shColor(S, i, camera.position) : null;
-      if (sh) [r, g, b] = sh;
       if(S.whiteBalance){const wb=S.whiteBalance/100;r=Math.max(0,Math.min(1,r+wb*0.06));b=Math.max(0,Math.min(1,b-wb*0.06));}
       col[out*3]=r; col[out*3+1]=g; col[out*3+2]=b;
       sizes[out]=( S.scale?.[i]||0.015)*(S.ptScale||1.0);
