@@ -36,16 +36,24 @@ function resolveUrl(row) {
   // failing to load. Construct the real URL from the key instead.
   return row.r2_key ? r2.publicUrl('nif-files', row.r2_key) : '';
 }
+
 function resolveThumbnail(row) {
-  // Prefer a URL built from the stored key (permanent) over thumbnail_url
-  // (a presigned URL pipeline.py generates with a 24h expiry — it works
-  // today but silently breaks a day later). meta.thumbnail_r2_key is set
-  // because pipeline.py merges its `capabilities` dict (which includes
-  // thumbnail_r2_key) into the meta column on every insert.
   const thumbKey = row.meta?.thumbnail_r2_key;
-  if (thumbKey) return r2.publicUrl('nif-files', thumbKey);
-  return firstNonEmpty(row.thumbnail_url, row.poster_url, row.preview_image_url);
+
+  if (thumbKey) {
+    // Use FUMOCA's public CDN route for stored R2 object keys.
+    const key = String(thumbKey).replace(/^\/+/, "");
+    const parts = key.split("/").map(encodeURIComponent);
+    return `https://cdn.fumoca.co.za/file/${parts.join("/")}`;
+  }
+
+  return firstNonEmpty(
+    row.thumbnail_url,
+    row.poster_url,
+    row.preview_image_url
+  );
 }
+
 function resolvePreviewVideo(row) {
   return firstNonEmpty(row.preview_video_url, row.teaser_video_url, row.video_url);
 }
