@@ -22,7 +22,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
           <span class="ctrl-label">Resolution</span>
         <span class="ctrl-val" id="meshResVal">32³</span>
         </div>
-        <input type="range" id="meshRes" min="32" max="64" step="16" value="32">
+        <input type="range" id="meshRes" min="32" max="64" step="16" value="48">
         <label style="display:block;font-size:11px;margin-top:8px">Surface threshold (0 = automatic)
           <input id="meshThreshold" type="number" min="0" max="10" step="0.01" value="0" style="display:block;width:100%;padding:7px;border-radius:7px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#fff;margin-top:4px">
         </label>
@@ -80,6 +80,8 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     const el = container.querySelector('#meshResVal');
     if (el) el.textContent = `${e.target.value}³`;
   });
+  const initialResolutionLabel = container.querySelector('#meshResVal');
+  if (initialResolutionLabel) initialResolutionLabel.textContent = `${container.querySelector('#meshRes')?.value || 48}${String.fromCharCode(179)}`;
   const presetHeights = { product: 120, figurine: 120, bust: 150, large: 200 };
   const height = container.querySelector('#printH');
   const heightLabel = container.querySelector('#printHVal');
@@ -129,15 +131,21 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       for (let i = 0; i < state.alive.length; i += stride) if (state.alive[i]) ids.push(i);
       if (ids.length < 50) throw new Error('At least 50 live points are needed for mesh extraction.');
       const g = { N: ids.length };
-      for (const key of ['posX','posY','posZ','sclX','sclY','sclZ','colR','colG','colB','colA']) g[key] = new Float32Array(ids.length);
+      for (const key of ['posX','posY','posZ','sclX','sclY','sclZ','rotW','rotX','rotY','rotZ','colR','colG','colB','colA']) g[key] = new Float32Array(ids.length);
       ids.forEach((i, row) => {
-        const s = Math.max(0.0001, Number(state.scale?.[i]) || 0.01);
+        const sx = Math.max(0.0001, Number(state.scaleXYZ?.[i * 3]) || Number(state.scale?.[i]) || 0.01);
+        const sy = Math.max(0.0001, Number(state.scaleXYZ?.[i * 3 + 1]) || Number(state.scale?.[i]) || 0.01);
+        const sz = Math.max(0.0001, Number(state.scaleXYZ?.[i * 3 + 2]) || Number(state.scale?.[i]) || 0.01);
         g.posX[row] = state.positions[i * 3]; g.posY[row] = state.positions[i * 3 + 1]; g.posZ[row] = state.positions[i * 3 + 2];
-        g.sclX[row] = g.sclY[row] = g.sclZ[row] = Math.log(s);
+        g.sclX[row] = Math.log(sx); g.sclY[row] = Math.log(sy); g.sclZ[row] = Math.log(sz);
+        const q = state.rotation;
+        g.rotW[row] = q?.[i * 4] ?? 1; g.rotX[row] = q?.[i * 4 + 1] ?? 0;
+        g.rotY[row] = q?.[i * 4 + 2] ?? 0; g.rotZ[row] = q?.[i * 4 + 3] ?? 0;
         const meshColors = state.lidarDisplayColors || state.colors;
-        g.colR[row] = (meshColors?.[i * 3] ?? 0.7) * 255;
-        g.colG[row] = (meshColors?.[i * 3 + 1] ?? 0.7) * 255;
-        g.colB[row] = (meshColors?.[i * 3 + 2] ?? 0.7) * 255;
+        const paint = state.paintColors;
+        g.colR[row] = (paint?.[i * 3] >= 0 ? paint[i * 3] : (meshColors?.[i * 3] ?? 0.7)) * 255;
+        g.colG[row] = (paint?.[i * 3 + 1] >= 0 ? paint[i * 3 + 1] : (meshColors?.[i * 3 + 1] ?? 0.7)) * 255;
+        g.colB[row] = (paint?.[i * 3 + 2] >= 0 ? paint[i * 3 + 2] : (meshColors?.[i * 3 + 2] ?? 0.7)) * 255;
         g.colA[row] = (state.opacity?.[i] ?? 1) * 255;
       });
       const resolution = Number(container.querySelector('#meshRes')?.value || 32);

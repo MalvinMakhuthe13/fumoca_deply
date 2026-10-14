@@ -13,6 +13,8 @@
 const VERT = `
   precision highp float;
   attribute float aSize;
+  attribute vec3  aScaleXYZ;
+  attribute vec4  aRotation;
   attribute vec3  aColor;
   attribute float aOpacity;
   attribute float aSelected;
@@ -22,12 +24,15 @@ const VERT = `
   varying float vSelected;
   varying float vDepth;
   varying float vSharpness;
+  varying vec3  vCov2D;
+  varying float vSpriteSize;
   uniform float uScale;
   uniform float uBrightness;
   uniform float uTransition;
   uniform float uTime;
   uniform float uContrast;
   uniform float uSaturation;
+  uniform vec2  uViewport;
   void main() {
     // Per-splat colour grading
     float lum      = dot(aColor, vec3(0.2126, 0.7152, 0.0722));
@@ -39,11 +44,28 @@ const VERT = `
     vSharpness = aSharpness;
     vec4 mvPos = modelViewMatrix * vec4(position, 1.0);
     vDepth = -mvPos.z;
-    // Sharpness-aware depth scaling — sharper splats render crisper and smaller
-    float baseSize    = aSize * uScale * (700.0 / max(0.1, -mvPos.z));
-    float sharpBoost  = mix(1.0, 0.72, aSharpness);
-    float transitSize = mix(1.5, baseSize * sharpBoost, uTransition);
-    gl_PointSize = clamp(transitSize, 1.0, 160.0);
+    float qw=aRotation.x, qx=aRotation.y, qy=aRotation.z, qz=aRotation.w;
+    mat3 R = mat3(
+      1.0-2.0*(qy*qy+qz*qz), 2.0*(qx*qy+qw*qz), 2.0*(qx*qz-qw*qy),
+      2.0*(qx*qy-qw*qz), 1.0-2.0*(qx*qx+qz*qz), 2.0*(qy*qz+qw*qx),
+      2.0*(qx*qz+qw*qy), 2.0*(qy*qz-qw*qx), 1.0-2.0*(qx*qx+qy*qy)
+    );
+    mat3 RV = mat3(viewMatrix * modelMatrix) * R;
+    vec3 s = max(aScaleXYZ * uScale, vec3(0.0001));
+    mat3 covariance = RV * mat3(s.x*s.x,0.0,0.0, 0.0,s.y*s.y,0.0, 0.0,0.0,s.z*s.z) * transpose(RV);
+    float z = max(0.001, -mvPos.z);
+    float fx = projectionMatrix[0][0] * uViewport.x * 0.5;
+    float fy = projectionMatrix[1][1] * uViewport.y * 0.5;
+    vec3 jx = vec3(fx/z, 0.0, fx*mvPos.x/(z*z));
+    vec3 jy = vec3(0.0, -fy/z, -fy*mvPos.y/(z*z));
+    float cxx = max(dot(jx, covariance * jx), 0.25);
+    float cyy = max(dot(jy, covariance * jy), 0.25);
+    float cxy = dot(jx, covariance * jy);
+    float lambdaMax = 0.5*(cxx+cyy) + sqrt(max(0.0, 0.25*(cxx-cyy)*(cxx-cyy)+cxy*cxy));
+    vCov2D = vec3(cxx, cxy, cyy);
+    float baseSize = clamp(6.0 * sqrt(lambdaMax), 1.0, 256.0);
+    vSpriteSize = baseSize;
+    gl_PointSize = mix(2.0, baseSize, uTransition);
     gl_Position  = projectionMatrix * mvPos;
   }
 `;
@@ -55,25 +77,19 @@ const FRAG = `
   varying float vSelected;
   varying float vDepth;
   varying float vSharpness;
+  varying vec3  vCov2D;
+  varying float vSpriteSize;
   uniform float uTransition;
   uniform float uTime;
   uniform float uSharpness;
-  uniform float uBloom;
-
-  // ACES filmic tonemapping — same curve used in film/game industry
-  vec3 aces(vec3 x) {
-    const float a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
-    return clamp((x*(a*x+b))/(x*(c*x+d)+e), 0.0, 1.0);
-  }
 
   void main() {
-    vec2  uv   = gl_PointCoord - 0.5;
-    float r2   = dot(uv, uv);
-
-    // Anisotropic gaussian falloff — true 2D Gaussian, not a circle approximation
-    // Higher sharpness = tighter sigma = crisper splat edges
-    float sigma = mix(0.18, 0.085, vSharpness * uSharpness);
-    float gaussFall = exp(-r2 / (2.0 * sigma * sigma));
+    vec2 pixelOffset = (gl_PointCoord - 0.5) * vSpriteSize;
+    float cxx = vCov2D.x, cxy = vCov2D.y, cyy = vCov2D.z;
+    float determinant = max(cxx*cyy-cxy*cxy, 1e-5);
+    float mahalanobis = max(0.0, (cyy*pixelOffset.x*pixelOffset.x - 2.0*cxy*pixelOffset.x*pixelOffset.y + cxx*pixelOffset.y*pixelOffset.y) / determinant);
+    float gaussFall = exp(-0.5 * mahalanobis);
+    float r2 = dot(gl_PointCoord - 0.5, gl_PointCoord - 0.5);
 
     // Hard dot for point-cloud phase
     float hardDot = step(r2, 0.08);
@@ -95,18 +111,8 @@ const FRAG = `
       col *= 1.0 + shimmer * (1.0 - abs(uTransition - 0.5) * 2.0) * 0.16;
     }
 
-    // Bloom: bright pixels spill light — adds depth and photorealism
-    float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
-    float bloomGlow = max(0.0, lum - 0.72) * uBloom * (1.0 - r2 * 4.0);
-    col += col * bloomGlow;
-
-    // ACES filmic tonemap — prevents harsh clipping on bright splats
-    col = aces(col * 1.05);
-
-    // Subtle gamma correction (sRGB-like)
-    col = pow(max(col, 0.0), vec3(1.0 / 2.2));
-
-    gl_FragColor = vec4(col, alpha);
+    gl_FragColor = vec4(clamp(col, 0.0, 1.0), alpha);
+    #include <colorspace_fragment>
   }
 `;
 
@@ -116,6 +122,65 @@ const FumocaGaussianRenderer = (() => {
   let _animFrame  = null;
   let _startTime  = performance.now();
   let _material   = null;
+  let _shNamesRef = null;
+  let _shLayout = null;
+  const _shBasis = new Float32Array(16);
+  const _shOut = new Float32Array(3);
+
+  function _getSHLayout(names) {
+    if (_shNamesRef === names && _shLayout) return _shLayout;
+    _shNamesRef = names;
+    const perChannel = names.length / 3;
+    if (!Number.isInteger(perChannel) || perChannel < 1) return null;
+    const lookup = new Map(names.map((name, i) => [name, i]));
+    const channels = [0,1,2].map(channel => Array.from({ length: perChannel }, (_, k) => {
+      const name = k === 0 ? `f_dc_${channel}` : `f_rest_${channel * (perChannel - 1) + k - 1}`;
+      return lookup.get(name) ?? -1;
+    }));
+    _shLayout = { perChannel, channels };
+    return _shLayout;
+  }
+
+  function _shColor(S, pointIndex, cameraPosition) {
+    const names = S.shAttributes;
+    const values = S.shCoefficients;
+    if (!names?.length || !values) return null;
+    if ((pointIndex + 1) * names.length > values.length) return null;
+    const layout = _getSHLayout(names);
+    if (!layout) return null;
+    const x0 = S.positions[pointIndex * 3], y0 = S.positions[pointIndex * 3 + 1], z0 = S.positions[pointIndex * 3 + 2];
+    let x = cameraPosition.x - x0, y = cameraPosition.y - y0, z = cameraPosition.z - z0;
+    const len = Math.hypot(x, y, z) || 1; x /= len; y /= len; z /= len;
+    if (S.rotation) {
+      const qw = S.rotation[pointIndex*4], qx = S.rotation[pointIndex*4+1], qy = S.rotation[pointIndex*4+2], qz = S.rotation[pointIndex*4+3];
+      const tx = -2 * (qy*z - qz*y), ty = -2 * (qz*x - qx*z), tz = -2 * (qx*y - qy*x);
+      const rx = x + qw*tx - (qy*tz - qz*ty);
+      const ry = y + qw*ty - (qz*tx - qx*tz);
+      const rz = z + qw*tz - (qx*ty - qy*tx);
+      x = rx; y = ry; z = rz;
+    }
+    _shBasis[0]=0.28209479177387814;
+    _shBasis[1]=-0.4886025119029199*y; _shBasis[2]=0.4886025119029199*z; _shBasis[3]=-0.4886025119029199*x;
+    _shBasis[4]=1.0925484305920792*x*y; _shBasis[5]=-1.0925484305920792*y*z;
+    _shBasis[6]=0.31539156525252005*(2*z*z-x*x-y*y); _shBasis[7]=-1.0925484305920792*x*z;
+    _shBasis[8]=0.5462742152960396*(x*x-y*y);
+    _shBasis[9]=-0.5900435899266435*y*(3*x*x-y*y); _shBasis[10]=2.890611442640554*x*y*z;
+    _shBasis[11]=-0.4570457994644658*y*(4*z*z-x*x-y*y);
+    _shBasis[12]=0.3731763325901154*z*(2*z*z-3*x*x-3*y*y);
+    _shBasis[13]=-0.4570457994644658*x*(4*z*z-x*x-y*y);
+    _shBasis[14]=1.445305721320277*z*(x*x-y*y);
+    _shBasis[15]=-0.5900435899266435*x*(x*x-3*y*y);
+    for (let channel = 0; channel < 3; channel++) {
+      let sum = 0;
+      const channelLayout = layout.channels[channel];
+      for (let k = 0; k < layout.perChannel && k < _shBasis.length; k++) {
+        const attr = channelLayout[k];
+        if (attr >= 0) sum += values[pointIndex * names.length + attr] * _shBasis[k];
+      }
+      _shOut[channel] = Math.max(0, Math.min(1, 0.5 + sum));
+    }
+    return _shOut;
+  }
 
   function buildMaterial(ptScale = 1.0, brightness = 1.0) {
     const T = window.THREE;
@@ -126,17 +191,17 @@ const FumocaGaussianRenderer = (() => {
         uBrightness: { value: brightness },
         uTransition: { value: _transition },
         uTime:       { value: 0 },
-        uContrast:   { value: 1.08 },   // slight contrast lift
-        uSaturation: { value: 1.12 },   // vivid but not oversaturated
+        uContrast:   { value: 1.0 },
+        uSaturation: { value: 1.0 },
         uSharpness:  { value: 0.72 },   // tighter gaussian sigma
-        uBloom:      { value: 0.55 },   // filmic bloom on bright splats
+        uViewport:   { value: new T.Vector2(document.getElementById('viewport')?.clientWidth || window.innerWidth, document.getElementById('viewport')?.clientHeight || window.innerHeight) },
       },
       vertexShader:   VERT,
       fragmentShader: FRAG,
       transparent:    true,
       depthWrite:     false,
       depthTest:      true,
-      blending:       T.AdditiveBlending,  // additive = richer depth, more photoreal
+      blending:       T.NormalBlending,
       vertexColors:   false,
     });
     _tickTime();
@@ -154,20 +219,22 @@ const FumocaGaussianRenderer = (() => {
     requestAnimationFrame(_tickTime);
   }
 
-  function buildGeometry(S) {
+  function buildGeometry(S, camera = null) {
     const T = window.THREE;
     if (!T || !S?.positions || !S.alive) return null;
     const count = S.alive.length;
     let alive = 0;
-    for (let i = 0; i < count; i++) if (S.alive[i]) alive++;
+    for (let i = 0; i < count; i++) if (S.alive[i] && !S.layerHidden?.[i]) alive++;
     const pos      = new Float32Array(alive * 3);
     const col      = new Float32Array(alive * 3);
+    const scaleXYZ = new Float32Array(alive * 3);
+    const rotation = new Float32Array(alive * 4);
     const sizes    = new Float32Array(alive);
     const opacities= new Float32Array(alive);
     const selected = new Float32Array(alive);
     let idx = 0;
     for (let i = 0; i < count; i++) {
-      if (!S.alive[i]) continue;
+      if (!S.alive[i] || S.layerHidden?.[i]) continue;
       pos[idx*3]   = S.positions[i*3];
       pos[idx*3+1] = S.positions[i*3+1];
       pos[idx*3+2] = S.positions[i*3+2];
@@ -175,6 +242,8 @@ const FumocaGaussianRenderer = (() => {
       let r = pc && pc[i*3]   >= 0 ? pc[i*3]   : S.colors[i*3];
       let g = pc && pc[i*3+1] >= 0 ? pc[i*3+1] : S.colors[i*3+1];
       let b = pc && pc[i*3+2] >= 0 ? pc[i*3+2] : S.colors[i*3+2];
+      const sh = !(pc && pc[i*3] >= 0) && camera ? _shColor(S, i, camera.position) : null;
+      if (sh) [r, g, b] = sh;
       // Exposure and saturation are now GPU uniforms (realtime, no rebuild needed)
       // CPU-side: apply only white balance and hue shift if present
       if (S.whiteBalance && S.whiteBalance !== 0) {
@@ -184,6 +253,8 @@ const FumocaGaussianRenderer = (() => {
       }
       col[idx*3]   = r;  col[idx*3+1] = g;  col[idx*3+2] = b;
       sizes[idx]    = (S.scale?.[i] || 0.015) * (S.ptScale || 1.0);
+      for (let c = 0; c < 3; c++) scaleXYZ[idx*3+c] = S.scaleXYZ?.[i*3+c] || S.scale?.[i] || 0.015;
+      for (let c = 0; c < 4; c++) rotation[idx*4+c] = S.rotation?.[i*4+c] ?? (c === 0 ? 1 : 0);
       opacities[idx]= S.opacity?.[i] ?? 1.0;
       selected[idx] = S.selected?.[i] ? 1.0 : 0.0;
       idx++;
@@ -193,7 +264,7 @@ const FumocaGaussianRenderer = (() => {
     const sharpness = new Float32Array(alive);
     let idx2 = 0;
     for (let i = 0; i < count; i++) {
-      if (!S.alive[i]) continue;
+      if (!S.alive[i] || S.layerHidden?.[i]) continue;
       const sc = S.scale?.[i] || 0.015;
       sharpness[idx2] = Math.max(0, Math.min(1, 1.0 - Math.min(sc / 0.08, 1.0)));
       idx2++;
@@ -201,22 +272,45 @@ const FumocaGaussianRenderer = (() => {
     geo.setAttribute('position',   new T.BufferAttribute(pos,       3));
     geo.setAttribute('aColor',     new T.BufferAttribute(col,       3));
     geo.setAttribute('aSize',      new T.BufferAttribute(sizes,     1));
+    geo.setAttribute('aScaleXYZ',  new T.BufferAttribute(scaleXYZ,  3));
+    geo.setAttribute('aRotation',  new T.BufferAttribute(rotation,  4));
     geo.setAttribute('aOpacity',   new T.BufferAttribute(opacities, 1));
     geo.setAttribute('aSelected',  new T.BufferAttribute(selected,  1));
     geo.setAttribute('aSharpness', new T.BufferAttribute(sharpness, 1));
     return geo;
   }
 
+  function updateViewColors(S, camera) {
+    const attr = S?.points?.geometry?.getAttribute('aColor');
+    if (!attr || !S.shCoefficients || !camera) return;
+    const active = [];
+    const mask = new Uint8Array(S.alive.length);
+    for (let i = 0; i < S.alive.length; i++) if (S.alive[i] && !S.layerHidden?.[i]) mask[i] = 1;
+    if (_currentIndices) for (const i of _currentIndices) if (i < mask.length && mask[i]) active.push(i);
+    if (active.length !== attr.count) {
+      const seen = new Uint8Array(mask.length); for (const i of active) seen[i] = 1;
+      for (let i = 0; i < mask.length; i++) if (mask[i] && !seen[i]) active.push(i);
+    }
+    for (let out = 0; out < active.length; out++) {
+      const i = active[out];
+      const pc = S.paintColors;
+      if (pc && pc[i*3] >= 0) continue;
+      const color = _shColor(S, i, camera.position);
+      if (color) attr.array.set(color, out * 3);
+    }
+    attr.needsUpdate = true;
+  }
+
   // ── Depth sort worker ────────────────────────────────────────────────────
   // Runs off main thread. Accepts positions + eye, returns back-to-front indices.
   const _SORT_SRC = `
     self.onmessage = function(e) {
-      const { pos, eye, N } = e.data;
+      const { pos, eye, direction, N } = e.data;
       const ex=eye[0],ey=eye[1],ez=eye[2];
       const depths = new Float32Array(N);
       for(let i=0;i<N;i++){
         const b=i*3, dx=pos[b]-ex, dy=pos[b+1]-ey, dz=pos[b+2]-ez;
-        depths[i]=dx*dx+dy*dy+dz*dz;
+        depths[i]=dx*direction[0]+dy*direction[1]+dz*direction[2];
       }
       // Radix sort descending (farthest first)
       const idx=new Uint32Array(N); for(let i=0;i<N;i++) idx[i]=i;
@@ -237,6 +331,7 @@ const FumocaGaussianRenderer = (() => {
   let _sortWorker    = null;
   let _sortPending   = false;
   let _lastSortEye   = [Infinity,Infinity,Infinity];
+  let _lastSortDirection = [0,0,-1];
   let _currentIndices= null;
   const SORT_MOVE_THRESHOLD = 0.03;
 
@@ -255,55 +350,66 @@ const FumocaGaussianRenderer = (() => {
    * @param onSorted  callback(Uint32Array indices) — update geometry on main thread
    * @param sceneSize used for threshold
    */
-  function requestDepthSort(positions, N, eye, onSorted, sceneSize=5) {
+  function requestDepthSort(positions, N, eye, onSorted, sceneSize=5, direction=[0,0,-1]) {
     if (!positions || N < 2) return;
     const dx=eye[0]-_lastSortEye[0], dy=eye[1]-_lastSortEye[1], dz=eye[2]-_lastSortEye[2];
     const moved = Math.sqrt(dx*dx+dy*dy+dz*dz);
-    if (moved < sceneSize * SORT_MOVE_THRESHOLD && _currentIndices) return; // not moved enough
+    const facing = direction[0]*_lastSortDirection[0] + direction[1]*_lastSortDirection[1] + direction[2]*_lastSortDirection[2];
+    if (moved < sceneSize * SORT_MOVE_THRESHOLD && facing > 0.999 && _currentIndices?.length === N) return; // not moved enough
     if (_sortPending) return;
     _sortPending   = true;
     _lastSortEye   = [...eye];
-    const w = _getSortWorker();
+    _lastSortDirection = [...direction];
+    let w;
+    try { w = _getSortWorker(); }
+    catch (error) { _sortPending = false; console.warn('[GaussianRenderer] Depth sorting unavailable:', error); return; }
     const posCopy = new Float32Array(positions);
     w.onmessage = (e) => {
       _sortPending    = false;
       _currentIndices = e.data.indices;
       onSorted(_currentIndices);
     };
-    w.postMessage({ pos: posCopy, eye, N }, [posCopy.buffer]);
+    w.postMessage({ pos: posCopy, eye, direction, N }, [posCopy.buffer]);
   }
 
   /**
    * buildSortedGeometry — like buildGeometry but uses a sort index for vertex order
    */
-  function buildSortedGeometry(S, sortIndices) {
+  function buildSortedGeometry(S, sortIndices, camera = null) {
     const T = window.THREE;
     if (!T || !S?.positions || !S.alive) return buildGeometry(S);
     const count = S.alive.length;
-    let alive = 0;
-    for(let i=0;i<count;i++) if(S.alive[i]) alive++;
-
-    // Build alive index map first
-    const aliveMap = new Int32Array(count).fill(-1);
-    let ai = 0;
-    for(let i=0;i<count;i++) if(S.alive[i]) aliveMap[i]=ai++;
+    const active = [];
+    const activeMask = new Uint8Array(count);
+    for (let i = 0; i < count; i++) if (S.alive[i] && !S.layerHidden?.[i]) { active.push(i); activeMask[i] = 1; }
+    const ordered = [];
+    if (sortIndices) for (const i of sortIndices) if (i < count && activeMask[i]) ordered.push(i);
+    if (ordered.length !== active.length) {
+      const used = new Uint8Array(count); for (const i of ordered) used[i] = 1;
+      for (const i of active) if (!used[i]) ordered.push(i);
+    }
+    const alive = ordered.length;
 
     const pos=new Float32Array(alive*3), col=new Float32Array(alive*3);
+    const scaleXYZ=new Float32Array(alive*3), rotation=new Float32Array(alive*4);
     const sizes=new Float32Array(alive), opacities=new Float32Array(alive);
     const selected=new Float32Array(alive), sharpness=new Float32Array(alive);
 
     // Apply sort order — sortIndices maps output slot → source Gaussian
-    const useSort = sortIndices && sortIndices.length === alive;
     for(let out=0;out<alive;out++){
-      const i = useSort ? sortIndices[out] : out;
+      const i = ordered[out];
       pos[out*3]=S.positions[i*3]; pos[out*3+1]=S.positions[i*3+1]; pos[out*3+2]=S.positions[i*3+2];
       const pc=S.paintColors;
       let r=pc&&pc[i*3]>=0?pc[i*3]:S.colors[i*3];
       let g=pc&&pc[i*3+1]>=0?pc[i*3+1]:S.colors[i*3+1];
       let b=pc&&pc[i*3+2]>=0?pc[i*3+2]:S.colors[i*3+2];
+      const sh = !(pc && pc[i*3] >= 0) && camera ? _shColor(S, i, camera.position) : null;
+      if (sh) [r, g, b] = sh;
       if(S.whiteBalance){const wb=S.whiteBalance/100;r=Math.max(0,Math.min(1,r+wb*0.06));b=Math.max(0,Math.min(1,b-wb*0.06));}
       col[out*3]=r; col[out*3+1]=g; col[out*3+2]=b;
       sizes[out]=( S.scale?.[i]||0.015)*(S.ptScale||1.0);
+      for (let c=0;c<3;c++) scaleXYZ[out*3+c]=S.scaleXYZ?.[i*3+c]||S.scale?.[i]||0.015;
+      for (let c=0;c<4;c++) rotation[out*4+c]=S.rotation?.[i*4+c]??(c===0?1:0);
       opacities[out]=S.opacity?.[i]??1.0;
       selected[out]=S.selected?.[i]?1.0:0.0;
       const sc=S.scale?.[i]||0.015;
@@ -313,6 +419,8 @@ const FumocaGaussianRenderer = (() => {
     geo.setAttribute('position',   new T.BufferAttribute(pos,      3));
     geo.setAttribute('aColor',     new T.BufferAttribute(col,      3));
     geo.setAttribute('aSize',      new T.BufferAttribute(sizes,    1));
+    geo.setAttribute('aScaleXYZ',  new T.BufferAttribute(scaleXYZ, 3));
+    geo.setAttribute('aRotation',  new T.BufferAttribute(rotation, 4));
     geo.setAttribute('aOpacity',   new T.BufferAttribute(opacities,1));
     geo.setAttribute('aSelected',  new T.BufferAttribute(selected, 1));
     geo.setAttribute('aSharpness', new T.BufferAttribute(sharpness,1));
@@ -423,7 +531,13 @@ const FumocaGaussianRenderer = (() => {
     };
   }
 
-  return { buildMaterial, buildGeometry, buildSortedGeometry, requestDepthSort, enable, disable, isEnabled, getTransition, playReveal, playDissolve, socialReveal, setQuality, getQuality };
+  function getSortIndices() { return _currentIndices; }
+  function invalidateSort() { _lastSortEye = [Infinity, Infinity, Infinity]; }
+  function setViewport(width, height) {
+    if (_material?.uniforms?.uViewport) _material.uniforms.uViewport.value.set(Math.max(1, width), Math.max(1, height));
+  }
+
+  return { buildMaterial, buildGeometry, buildSortedGeometry, requestDepthSort, getSortIndices, invalidateSort, updateViewColors, setViewport, enable, disable, isEnabled, getTransition, playReveal, playDissolve, socialReveal, setQuality, getQuality };
 })();
 
 window.FumocaGaussianRenderer = FumocaGaussianRenderer;

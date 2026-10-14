@@ -314,20 +314,22 @@ async function buildDensityField(gaussians, opts = {}) {
       const sx = Math.exp(sclX?.[i] ?? -3);
       const sy = Math.exp(sclY?.[i] ?? -3);
       const sz = Math.exp(sclZ?.[i] ?? -3);
-      const sigmaMean = Math.cbrt(sx * sy * sz) * sigmaScale;  // geometric mean
       const sigmaMax  = Math.max(sx, sy, sz) * sigmaScale;
       const radius    = sigmaMax * 3; // 3σ search radius (worst-case axis)
       // Per-axis inverse variances for accurate Gaussian falloff
       const invVx = 1 / (2 * sx * sx * sigmaScale * sigmaScale);
       const invVy = 1 / (2 * sy * sy * sigmaScale * sigmaScale);
       const invVz = 1 / (2 * sz * sz * sigmaScale * sigmaScale);
+      const qw = gaussians.rotW?.[i] ?? 1;
+      const qx = gaussians.rotX?.[i] ?? 0;
+      const qy = gaussians.rotY?.[i] ?? 0;
+      const qz = gaussians.rotZ?.[i] ?? 0;
 
       // Voxel-space centre
       const vcx = (cx - minX) / voxelSize;
       const vcy = (cy - minY) / voxelSize;
       const vcz = (cz - minZ) / voxelSize;
       const vradius = radius / voxelSize;
-      const vradius2 = vradius * vradius;
 
       // Bounding voxels for this Gaussian
       const vMinX = Math.max(0, Math.floor(vcx - vradius));
@@ -338,20 +340,23 @@ async function buildDensityField(gaussians, opts = {}) {
       const vMaxZ = Math.min(R - 1, Math.ceil(vcz + vradius));
 
       // World-space inverse variances scaled to voxel space
-      const vsq        = voxelSize * voxelSize;
-      const invVxV     = invVx * vsq;
-      const invVyV     = invVy * vsq;
-      const invVzV     = invVz * vsq;
 
       for (let vz = vMinZ; vz <= vMaxZ; vz++) {
         const dz = vz - vcz;
-        const dz2_term = dz * dz * invVzV;
         for (let vy = vMinY; vy <= vMaxY; vy++) {
           const dy = vy - vcy;
-          const dyz_term = dz2_term + dy * dy * invVyV;
           for (let vx = vMinX; vx <= vMaxX; vx++) {
             const dx = vx - vcx;
-            const exponent = dyz_term + dx * dx * invVxV;
+            let gx = dx * voxelSize, gy = dy * voxelSize, gz = dz * voxelSize;
+            if (qx || qy || qz) {
+              const tx = 2 * (qy * gz - qz * gy);
+              const ty = 2 * (qz * gx - qx * gz);
+              const tz = 2 * (qx * gy - qy * gx);
+              gx = gx - qw * tx + (qy * tz - qz * ty);
+              gy = gy - qw * ty + (qz * tx - qx * tz);
+              gz = gz - qw * tz + (qx * ty - qy * tx);
+            }
+            const exponent = gx * gx * invVx + gy * gy * invVy + gz * gz * invVz;
             if (exponent > 9) continue; // > 3σ on weighted distance — skip
             const contrib = opacity * Math.exp(-exponent);
             density[vz * R * R + vy * R + vx] += contrib;
@@ -935,8 +940,24 @@ async function extractMesh(gaussians, opts = {}) {
   // Stage 2: marching cubes
   let mesh = await marchingCubes(field, { threshold: useThreshold, onProgress });
 
+  // Density ranges vary substantially between splats. Auto thresholds can
+  // land above the useful surface on sparse captures, so retry a few lower
+  // levels before reporting failure. Explicit user thresholds stay respected
+  // when they already produce a surface.
   if (mesh.triangles.length === 0) {
-    throw new Error('[MeshExtractor] No surface extracted. Try a lower threshold or higher resolution.');
+    let maxDensity = 0;
+    for (let i = 0; i < field.density.length; i++) maxDensity = Math.max(maxDensity, field.density[i]);
+    const retryLevels = [0.5, 0.3, 0.18, 0.1, 0.05].map(f => maxDensity * f);
+    for (const retryThreshold of retryLevels) {
+      if (!(retryThreshold > 0) || retryThreshold === useThreshold) continue;
+      onProgress?.(50, `Retrying surface at density ${retryThreshold.toFixed(3)}…`);
+      await _yield();
+      mesh = await marchingCubes(field, { threshold: retryThreshold, onProgress });
+      if (mesh.triangles.length) { useThreshold = retryThreshold; break; }
+    }
+  }
+  if (mesh.triangles.length === 0) {
+    throw new Error('[MeshExtractor] No surface formed from this point cloud. Increase splat scale or use a denser capture.');
   }
 
   // Stage 2b: Laplacian smoothing — removes MC stair-stepping

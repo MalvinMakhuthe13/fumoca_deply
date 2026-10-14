@@ -584,6 +584,8 @@ input[type=range].amber::-webkit-slider-thumb{background:var(--amber);box-shadow
   </div>
   <div class="tb-sep"></div>
   <div class="tb-actions">
+    <input id="addSplatInput" type="file" accept=".ply,.splat,.nif" multiple style="display:none"/>
+    <button class="tb-btn" id="addSplatBtn" title="Add another splat to this scene">＋ Add splat</button>
     <input id="fileInput" type="file" accept=".ply,.splat,.nif"/>
     <button class="tb-btn" id="openBtn">📂 Open</button>
     <button class="tb-btn" id="undoBtn" disabled>↩ Undo</button>
@@ -791,7 +793,7 @@ input[type=range].amber::-webkit-slider-thumb{background:var(--amber);box-shadow
             <span class="ctrl-label">Point brightness</span>
             <span class="ctrl-val" id="brightnessVal">1.4×</span>
           </div>
-          <input type="range" id="brightness" min="20" max="400" value="140">
+          <input type="range" id="brightness" min="20" max="400" value="100">
           <div class="ctrl-row">
             <span class="ctrl-label">Point scale</span>
             <span class="ctrl-val" id="ptScaleVal">1.8×</span>
@@ -874,6 +876,18 @@ input[type=range].amber::-webkit-slider-thumb{background:var(--amber);box-shadow
             <span class="ctrl-val cyan" id="trnScaleVal">1.0×</span>
           </div>
           <input type="range" class="cyan" id="trnScale" min="10" max="300" value="100">
+          <div class="ctrl-row"><span class="ctrl-label">Rotate X / Y / Z (degrees)</span></div>
+          <div style="display:flex;gap:5px;margin-bottom:8px">
+            <input id="trnRotX" type="number" value="0" step="15" title="Rotate around X axis" style="width:33%;padding:5px;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text)">
+            <input id="trnRotY" type="number" value="0" step="15" title="Rotate around Y axis" style="width:33%;padding:5px;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text)">
+            <input id="trnRotZ" type="number" value="0" step="15" title="Rotate around Z axis" style="width:33%;padding:5px;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text)">
+          </div>
+          <div class="ctrl-row"><span class="ctrl-label">Move X / Y / Z</span></div>
+          <div style="display:flex;gap:5px;margin-bottom:8px">
+            <input id="trnMoveX" type="number" value="0" step="0.1" title="Move on X axis" style="width:33%;padding:5px;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text)">
+            <input id="trnMoveY" type="number" value="0" step="0.1" title="Move on Y axis" style="width:33%;padding:5px;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text)">
+            <input id="trnMoveZ" type="number" value="0" step="0.1" title="Move on Z axis" style="width:33%;padding:5px;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text)">
+          </div>
           <div class="ctrl-row">
             <span class="ctrl-label">Opacity boost</span>
             <span class="ctrl-val cyan" id="trnOpacVal">0%</span>
@@ -1168,6 +1182,10 @@ input[type=range].amber::-webkit-slider-thumb{background:var(--amber);box-shadow
         <div class="sec-head"><span class="sec-label">Background Image</span><span class="sec-arrow">▾</span></div>
         <div class="sec-body">
           <input type="file" id="bgImageInput" accept="image/*" style="display:none">
+          <div class="ctrl-row" style="margin-top:8px"><span class="ctrl-label">Image sizing</span></div>
+          <select id="bgImageFit" style="width:100%;padding:6px;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text);font:inherit;font-size:11px">
+            <option value="contain">Fit fully (contain)</option><option value="cover">Fill background (cover)</option><option value="native">Original size</option>
+          </select>
           <button class="ac-btn full" id="loadBgImageBtn">📎 Load Image</button>
           <div id="bgImagePreview" style="display:none;margin-top:6px;border-radius:9px;overflow:hidden;border:1px solid var(--border)">
             <img id="bgImageThumb" style="width:100%;max-height:100px;object-fit:cover;display:block"/>
@@ -1614,6 +1632,16 @@ viewport.appendChild(renderer.domElement);
 // so that wheel/scroll events are captured over the whole viewport area.
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true; controls.dampingFactor = 0.07;
+let _shViewColorTimer = null;
+controls.addEventListener('change', () => {
+  if (!window.FumocaGaussianRenderer?.isEnabled()) return;
+  clearTimeout(_shViewColorTimer);
+  _shViewColorTimer = setTimeout(() => {
+    const gr = window.FumocaGaussianRenderer;
+    if (S?.shCoefficients) gr?.updateViewColors(S, camera);
+    _requestGaussianDepthSort();
+  }, 180);
+});
 
 // ─── EXPOSE CAMERA/CONTROLS/RENDERER GLOBALS (must be after declarations) ───
 // These were previously assigned before camera/controls/renderer were declared,
@@ -1637,14 +1665,14 @@ dirLight.position.set(3, 5, 4); scene.add(dirLight);
 // ─── STATE ──────────────────────────────────────────────────────────────────
 const S = {
   fileName: '', fileType: '', sourceBuffer: null, splatRowSize: 32, splatSourceUrl: '',
-  positions: null, colors: null, opacity: null, scale: null, alive: null, selected: null,
+  positions: null, colors: null, opacity: null, scale: null, scaleXYZ: null, rotation: null, shAttributes: [], shCoefficients: null, alive: null, selected: null,
   paintColors: null,
   lidarIntensity: null, lidarClassification: null, lidarReturnNumber: null, lidarDisplayColors: null,
   points: null, geometry: null,
   mode: 'orbit',
   displayMode: 'blob',
   brushSize: 28, brushStrength: 1.0, brushHardness: 0.8,
-  brightness: 1.4, ptScale: 1.8, blobSoftness: 0.6,
+  brightness: 1.0, ptScale: 1.8, blobSoftness: 0.6,
   history: [], historyIndex: -1,
   lassoPoints: [], dragging: false, dragStart: null, dragCurrent: null,
   bgType: 'transparent',
@@ -1984,16 +2012,21 @@ function parseSplat(buffer) {
   const rowSize = 32, count = Math.floor(buffer.byteLength / rowSize), dv = new DataView(buffer);
   const positions = new Float32Array(count * 3), colors = new Float32Array(count * 3);
   const opacity = new Float32Array(count), scale = new Float32Array(count);
+  const scaleXYZ = new Float32Array(count * 3), rotation = new Float32Array(count * 4);
   for (let i = 0; i < count; i++) {
     const o = i * rowSize;
     positions[i * 3] = dv.getFloat32(o, true); positions[i * 3 + 1] = dv.getFloat32(o + 4, true); positions[i * 3 + 2] = dv.getFloat32(o + 8, true);
     const sx = Math.abs(dv.getFloat32(o + 12, true)), sy = Math.abs(dv.getFloat32(o + 16, true)), sz = Math.abs(dv.getFloat32(o + 20, true));
+    scaleXYZ.set([sx || 0.01, sy || 0.01, sz || 0.01], i * 3);
     scale[i] = (sx + sy + sz) / 3 || 0.01;
     colors[i * 3] = dv.getUint8(o + 24) / 255; colors[i * 3 + 1] = dv.getUint8(o + 25) / 255; colors[i * 3 + 2] = dv.getUint8(o + 26) / 255;
     opacity[i] = dv.getUint8(o + 27) / 255;
+    const q = [dv.getUint8(o + 28), dv.getUint8(o + 29), dv.getUint8(o + 30), dv.getUint8(o + 31)].map(v => (v - 128) / 128);
+    const qLen = Math.hypot(...q) || 1;
+    rotation.set(q.map(v => v / qLen), i * 4);
   }
   S.splatRowSize = rowSize;
-  return { positions, colors, opacity, scale, count };
+  return { positions, colors, opacity, scale, scaleXYZ, rotation, count };
 }
 function parsePLY(buffer) {
   let geo;
@@ -2013,6 +2046,9 @@ function parsePLY(buffer) {
   const colors    = new Float32Array(count * 3);
   const opacity   = new Float32Array(count).fill(1);
   const scale     = new Float32Array(count).fill(0.012);
+  const scaleXYZ  = new Float32Array(count * 3).fill(0.012);
+  const rotation  = new Float32Array(count * 4);
+  for (let i = 0; i < count; i++) rotation[i * 4] = 1;
 
   // ── Colours ────────────────────────────────────────────────────────────────
   const colAttr = geo.getAttribute('color');
@@ -2050,8 +2086,20 @@ function parsePLY(buffer) {
   if (sc0 && sc1 && sc2) {
     for (let i = 0; i < count; i++) {
       // nerfstudio stores log-scale; clamp to reasonable range
-      const s = (Math.exp(sc0.array[i]) + Math.exp(sc1.array[i]) + Math.exp(sc2.array[i])) / 3;
+      const sx = Math.max(0.001, Math.min(0.4, Math.exp(sc0.array[i])));
+      const sy = Math.max(0.001, Math.min(0.4, Math.exp(sc1.array[i])));
+      const sz = Math.max(0.001, Math.min(0.4, Math.exp(sc2.array[i])));
+      scaleXYZ.set([sx, sy, sz], i * 3);
+      const s = (sx + sy + sz) / 3;
       scale[i] = Math.max(0.001, Math.min(0.4, s));
+    }
+  }
+  const rotAttrs = [0,1,2,3].map(i => geo.getAttribute(`rot_${i}`));
+  if (rotAttrs.every(Boolean)) {
+    for (let i = 0; i < count; i++) {
+      const q = rotAttrs.map(a => a.array[i]);
+      const qLen = Math.hypot(...q) || 1;
+      rotation.set(q.map(v => v / qLen), i * 4);
     }
   }
 
@@ -2073,7 +2121,19 @@ function parsePLY(buffer) {
   }
   const classifications = classAttr ? new Uint8Array(classAttr.array) : null;
   const returnNumbers = returnAttr ? new Uint8Array(returnAttr.array) : null;
-  return { positions, colors, opacity, scale, intensities, classifications, returnNumbers, count };
+  const shAttributes = Object.keys(geo.attributes).filter(name => /^f_(?:dc|rest)_\d+$/.test(name)).sort((a, b) => {
+    const groupA = a.startsWith('f_dc_') ? 0 : 1, groupB = b.startsWith('f_dc_') ? 0 : 1;
+    return groupA - groupB || Number(a.split('_').pop()) - Number(b.split('_').pop());
+  });
+  let shCoefficients = null;
+  if (shAttributes.length) {
+    shCoefficients = new Float32Array(count * shAttributes.length);
+    shAttributes.forEach((name, attrIndex) => {
+      const attr = geo.getAttribute(name);
+      for (let i = 0; i < count; i++) shCoefficients[i * shAttributes.length + attrIndex] = attr.array[i];
+    });
+  }
+  return { positions, colors, opacity, scale, scaleXYZ, rotation, shAttributes, shCoefficients, intensities, classifications, returnNumbers, count };
 }
 // ─── LOAD ────────────────────────────────────────────────────────────────────
 async function loadFile(file, urlOverride) {
@@ -2099,6 +2159,11 @@ async function loadFile(file, urlOverride) {
   S.fileName = file.name;
   S.positions = parsed.positions; S.colors = parsed.colors;
   S.opacity = parsed.opacity; S.scale = parsed.scale;
+  S.scaleXYZ = parsed.scaleXYZ || new Float32Array(parsed.count * 3).fill(0.01);
+  S.rotation = parsed.rotation || new Float32Array(parsed.count * 4);
+  if (!parsed.rotation) for (let i = 0; i < parsed.count; i++) S.rotation[i * 4] = 1;
+  S.shAttributes = parsed.shAttributes || [];
+  S.shCoefficients = parsed.shCoefficients || null;
   S.lidarIntensity = parsed.intensities || null;
   S.lidarClassification = parsed.classifications || null;
   S.lidarReturnNumber = parsed.returnNumbers || null;
@@ -2431,7 +2496,10 @@ function rebuildGeometry() {
   let geo;
   // Use Gaussian renderer geometry (with per-point opacity + selected attrs) when enabled
   if (window.FumocaGaussianRenderer?.isEnabled()) {
-    geo = window.FumocaGaussianRenderer.buildGeometry(S);
+    const gr = window.FumocaGaussianRenderer;
+    geo = gr.getSortIndices()
+      ? gr.buildSortedGeometry(S, gr.getSortIndices(), camera)
+      : gr.buildGeometry(S, camera);
     if (!geo) {
       // Fallback to standard geometry
       geo = new THREE.BufferGeometry();
@@ -2451,7 +2519,23 @@ function rebuildGeometry() {
   const mat = buildMaterial();
   S.points = new THREE.Points(geo, mat);
   scene.add(S.points);
+  if (window.FumocaGaussianRenderer?.isEnabled()) _requestGaussianDepthSort();
   updateStats();
+}
+
+function _requestGaussianDepthSort() {
+  const gr = window.FumocaGaussianRenderer;
+  if (!gr?.isEnabled() || !S?.positions || !S.alive || S.alive.length < 2) return;
+  const eye = [camera.position.x, camera.position.y, camera.position.z];
+  const directionVector = camera.getWorldDirection(new THREE.Vector3());
+  const direction = [directionVector.x, directionVector.y, directionVector.z];
+  gr.requestDepthSort(S.positions, S.alive.length, eye, indices => {
+    if (!S.points || !gr.isEnabled()) return;
+    const sorted = gr.buildSortedGeometry(S, indices, camera);
+    const previous = S.points.geometry;
+    S.points.geometry = sorted; S.geometry = sorted;
+    previous?.dispose();
+  }, 5, direction);
 }
 
 function buildMaterial() {
@@ -2698,18 +2782,79 @@ function selectLargeScale() {
 }
 
 // ─── EXPORT ──────────────────────────────────────────────────────────────────
+function _splatColorAt(i) {
+  const p = S.paintColors, view = S.lidarDisplayColors;
+  return [0,1,2].map(c => clamp(p?.[i*3+c] >= 0 ? p[i*3+c] : (view?.[i*3+c] ?? S.colors?.[i*3+c] ?? 0.7), 0, 1));
+}
+
+function _rotationAt(i) {
+  if (!S.rotation || i * 4 + 3 >= S.rotation.length) return [1,0,0,0];
+  const q = S.rotation.subarray(i * 4, i * 4 + 4);
+  const len = Math.hypot(q[0], q[1], q[2], q[3]);
+  return len > 1e-8 ? [q[0]/len, q[1]/len, q[2]/len, q[3]/len] : [1,0,0,0];
+}
+
+function _encodeSplatRows(indices) {
+  const rows = new Uint8Array(indices.length * 32);
+  const view = new DataView(rows.buffer);
+  indices.forEach((i, row) => {
+    const o = row * 32;
+    for (let c = 0; c < 3; c++) view.setFloat32(o + c * 4, S.positions[i * 3 + c], true);
+    for (let c = 0; c < 3; c++) view.setFloat32(o + 12 + c * 4, Math.max(1e-6, S.scaleXYZ?.[i * 3 + c] || S.scale?.[i] || 0.01), true);
+    const color = _splatColorAt(i);
+    for (let c = 0; c < 3; c++) rows[o + 24 + c] = Math.round(color[c] * 255);
+    rows[o + 27] = Math.round(clamp(S.opacity?.[i] ?? 1, 0, 1) * 255);
+    const q = _rotationAt(i);
+    for (let c = 0; c < 4; c++) rows[o + 28 + c] = Math.max(0, Math.min(255, Math.round(q[c] * 128 + 128)));
+  });
+  return rows;
+}
+
+function _encodeGaussianPly(indices) {
+  const attributes = [...new Set([...(S.shAttributes || []), 'f_dc_0', 'f_dc_1', 'f_dc_2'])].sort((a, b) => {
+    const ga = a.startsWith('f_dc_') ? 0 : 1, gb = b.startsWith('f_dc_') ? 0 : 1;
+    return ga - gb || Number(a.split('_').pop()) - Number(b.split('_').pop());
+  });
+  const lines = [
+    'ply', 'format ascii 1.0', `element vertex ${indices.length}`,
+    'property float x', 'property float y', 'property float z',
+    ...attributes.map(attr => `property float ${attr}`), 'property float opacity',
+    'property float scale_0', 'property float scale_1', 'property float scale_2',
+    'property float rot_0', 'property float rot_1', 'property float rot_2', 'property float rot_3', 'end_header',
+  ];
+  const shIndex = new Map((S.shAttributes || []).map((attr, j) => [attr, j]));
+  const shC0 = 0.28209479177387814;
+  for (const i of indices) {
+    const color = _splatColorAt(i);
+    const painted = [0,1,2].some(c => S.paintColors?.[i * 3 + c] >= 0);
+    const coeff = attributes.map(attr => {
+      if (painted && attr.startsWith('f_rest_')) return 0;
+      const j = shIndex.get(attr);
+      if (!painted && j !== undefined && S.shCoefficients) return S.shCoefficients[i * S.shAttributes.length + j];
+      const c = attr === 'f_dc_0' ? 0 : attr === 'f_dc_1' ? 1 : attr === 'f_dc_2' ? 2 : -1;
+      return c >= 0 ? (color[c] - 0.5) / shC0 : 0;
+    });
+    const alpha = clamp(S.opacity?.[i] ?? 1, 0.0001, 0.9999);
+    const scale = [0,1,2].map(c => Math.log(Math.max(1e-6, S.scaleXYZ?.[i * 3 + c] || S.scale?.[i] || 0.01)));
+    lines.push([S.positions[i*3], S.positions[i*3+1], S.positions[i*3+2], ...coeff,
+      Math.log(alpha / (1 - alpha)), ...scale, ..._rotationAt(i)].join(' '));
+  }
+  return new Blob([lines.join('\n')], { type: 'text/plain' });
+}
+
 function exportFile(type = 'splat') {
   if (!S.alive) return;
   const idx = []; for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) idx.push(i);
   let blob, name;
-  if (type === 'nif' && (S.fileType === 'splat' || S.fileType === 'nif')) {
+  const currentRows = _encodeSplatRows(idx);
+  if (type === 'nif') {
     // Real .nif export — canonical 14-float/point chunked binary, not a
     // renamed .splat. Carries forward the source file's meta/thumbnail when
     // this file was itself loaded from a .nif (S.nifMeta/S.nifThumbnailBytes).
     const buf = encodeNif({
-      sourceBuffer: new Uint8Array(S.sourceBuffer),
-      aliveIndices: idx,
-      rowSize: S.splatRowSize,
+      sourceBuffer: currentRows,
+      aliveIndices: Array.from({ length: idx.length }, (_, i) => i),
+      rowSize: 32,
       meta: S.nifMeta || {},
       thumbnailBytes: S.nifThumbnailBytes || undefined,
       vertical: (S.nifMeta && S.nifMeta.vertical) || 'generic',
@@ -2719,42 +2864,11 @@ function exportFile(type = 'splat') {
     showToast('Exported', `${name} · ${fmt(idx.length)} points · real .nif`);
     return;
   }
-  if (type === 'splat' && (S.fileType === 'splat' || S.fileType === 'nif')) {
-    const src = new Uint8Array(S.sourceBuffer), out = new Uint8Array(idx.length * S.splatRowSize);
-    idx.forEach((i, row) => out.set(src.subarray(i * S.splatRowSize, (i + 1) * S.splatRowSize), row * S.splatRowSize));
-    blob = new Blob([out], { type: 'application/octet-stream' });
-    name = S.fileName.replace(/\.splat$/i, '') + '.edited.splat';
+  if (type === 'splat') {
+    blob = new Blob([currentRows], { type: 'application/octet-stream' });
+    name = S.fileName.replace(/\.[^.]+$/, '') + '.edited.splat';
   } else {
-    const hasIntensity = !!S.lidarIntensity;
-    const hasClassification = !!S.lidarClassification;
-    const hasReturnNumber = !!S.lidarReturnNumber;
-    const lines = [
-      'ply', 'format ascii 1.0', `element vertex ${idx.length}`,
-      'property float x', 'property float y', 'property float z',
-      'property uchar red', 'property uchar green', 'property uchar blue',
-      ...(hasIntensity ? ['property ushort intensity'] : []),
-      ...(hasClassification ? ['property uchar classification'] : []),
-      ...(hasReturnNumber ? ['property uchar return_number'] : []),
-      'end_header',
-    ];
-    for (const i of idx) {
-      const r = S.paintColors && S.paintColors[i * 3] >= 0 ? S.paintColors[i * 3] : S.colors[i * 3];
-      const g = S.paintColors && S.paintColors[i * 3 + 1] >= 0 ? S.paintColors[i * 3 + 1] : S.colors[i * 3 + 1];
-      const b = S.paintColors && S.paintColors[i * 3 + 2] >= 0 ? S.paintColors[i * 3 + 2] : S.colors[i * 3 + 2];
-      const displayColors = S.lidarDisplayColors;
-      const outR = S.paintColors?.[i * 3] >= 0 ? r : (displayColors?.[i * 3] ?? r);
-      const outG = S.paintColors?.[i * 3 + 1] >= 0 ? g : (displayColors?.[i * 3 + 1] ?? g);
-      const outB = S.paintColors?.[i * 3 + 2] >= 0 ? b : (displayColors?.[i * 3 + 2] ?? b);
-      const attrs = [
-        S.positions[i * 3], S.positions[i * 3 + 1], S.positions[i * 3 + 2],
-        Math.round(clamp(outR, 0, 1) * 255), Math.round(clamp(outG, 0, 1) * 255), Math.round(clamp(outB, 0, 1) * 255),
-        ...(hasIntensity ? [S.lidarIntensity[i]] : []),
-        ...(hasClassification ? [S.lidarClassification[i]] : []),
-        ...(hasReturnNumber ? [S.lidarReturnNumber[i]] : []),
-      ];
-      lines.push(attrs.join(' '));
-    }
-    blob = new Blob([lines.join('\n')], { type: 'text/plain' });
+    blob = _encodeGaussianPly(idx);
     name = S.fileName.replace(/\.[^.]+$/, '') + '.edited.ply';
   }
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); URL.revokeObjectURL(a.href);
@@ -2777,17 +2891,9 @@ function drawBackground() {
   const W = bgCanvas.width, H = bgCanvas.height;
   bgCtx.clearRect(0, 0, W, H);
   const bt = S.bgType;
-  if (bt === 'transparent') return;
+  if (bt === 'transparent' && !bgImageEl) return;
   const op = S.bgOpacity;
   bgCtx.save(); bgCtx.globalAlpha = op;
-
-  if (bgImageEl && S.bgImageUrl) {
-    bgCtx.filter = `blur(${S.bgBlur}px)`;
-    const scale = S.bgScale;
-    const iw = bgImageEl.naturalWidth * scale, ih = bgImageEl.naturalHeight * scale;
-    bgCtx.drawImage(bgImageEl, (W - iw) / 2, (H - ih) / 2, iw, ih);
-    bgCtx.filter = 'none';
-  }
 
   const BGTYPES = {
     'solid': () => { bgCtx.fillStyle = S.bgColorA; bgCtx.fillRect(0, 0, W, H); },
@@ -2844,7 +2950,17 @@ function drawBackground() {
       bgCtx.fillStyle = grd; bgCtx.fillRect(0, 0, W, H);
     },
   };
-  (BGTYPES[bt] || BGTYPES['solid'])();
+  if (bt !== 'transparent') (BGTYPES[bt] || BGTYPES['solid'])();
+  if (bgImageEl && S.bgImageUrl) {
+    const fit = $('bgImageFit')?.value || 'contain';
+    const iw = bgImageEl.naturalWidth, ih = bgImageEl.naturalHeight;
+    const fitScale = fit === 'cover' ? Math.max(W / iw, H / ih) : fit === 'contain' ? Math.min(W / iw, H / ih) : 1;
+    const scale = fitScale * S.bgScale;
+    const dw = iw * scale, dh = ih * scale;
+    bgCtx.filter = `blur(${S.bgBlur}px)`;
+    bgCtx.drawImage(bgImageEl, (W - dw) / 2, (H - dh) / 2, dw, dh);
+    bgCtx.filter = 'none';
+  }
   bgCtx.restore();
 }
 
@@ -3134,6 +3250,7 @@ function onResize() {
   const W = vp.clientWidth, H = vp.clientHeight;
   camera.aspect = W / H; camera.updateProjectionMatrix();
   renderer.setSize(W, H, false); // false = don't set canvas CSS size (already 100%)
+  window.FumocaGaussianRenderer?.setViewport(W, H);
   resizeBgCanvas(); resizeBlobCanvas();
   drawToneCurve();
 }
@@ -3351,6 +3468,7 @@ $('bgImageInput').addEventListener('change', e => {
   $('bgImageThumb').src = url; $('bgImagePreview').style.display = 'block';
   showToast('Background Set', f.name);
 });
+$('bgImageFit')?.addEventListener('change', drawBackground);
 $('removeBgImageBtn')?.addEventListener('click', () => {
   S.bgImageUrl = null; bgImageEl = null;
   $('bgImagePreview').style.display = 'none';
@@ -3448,6 +3566,7 @@ window.saveLiveEdit = async function saveLiveEdit(extra = {}) {
           rowBytes[off+28]=0;rowBytes[off+29]=0;rowBytes[off+30]=0;rowBytes[off+31]=0;
         });
       }
+      rowBytes = _encodeSplatRows(aliveIdx);
     } catch(e) { console.warn('[saveLiveEdit] Row encode failed:', e); }
   }
 
@@ -3459,17 +3578,15 @@ window.saveLiveEdit = async function saveLiveEdit(extra = {}) {
   let savedToNifFiles = false;
   if (rowBytes) {
     try {
-      const nifBuf = encodeNif({
-        sourceBuffer: rowBytes,
-        aliveIndices: Array.from({ length: rowBytes.byteLength / 32 }, (_, i) => i),
-        rowSize: 32,
-        meta: (window._fumocaCurrentRecord?.meta) || S.nifMeta || {},
-        thumbnailBytes: S.nifThumbnailBytes || undefined,
-        vertical: (window._fumocaCurrentRecord?.meta?.vertical) || (S.nifMeta && S.nifMeta.vertical) || 'generic',
-      });
-      const path = `${splatId}/edited_${Date.now()}.nif`;
+      const aliveIdx = [];
+      for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) aliveIdx.push(i);
+      const hasSh = (S.shAttributes || []).length > 0;
+      const savedBlob = hasSh ? _encodeGaussianPly(aliveIdx) : new Blob([rowBytes], { type: 'application/octet-stream' });
+      const savedExt = hasSh ? 'ply' : 'nif';
+      const savedContentType = hasSh ? 'text/plain' : 'application/octet-stream';
+      const path = `${splatId}/edited_${Date.now()}.${savedExt}`;
       const { fileKey, error: upErr } = await r2.from('nif-files')
-        .upload(path, new Blob([nifBuf], { type: 'application/octet-stream' }), { contentType: 'application/octet-stream' });
+        .upload(path, savedBlob, { contentType: savedContentType });
 
       if (!upErr && fileKey) {
         const currentMeta = window._fumocaCurrentRecord?.meta || {};
@@ -3512,9 +3629,12 @@ window.saveLiveEdit = async function saveLiveEdit(extra = {}) {
   let outputUrl = null;
   if (rowBytes) {
     try {
-      const blob = new Blob([rowBytes], { type: 'application/octet-stream' });
-      const path = `${splatId}/edited_${Date.now()}.splat`;
-      const { error: upErr } = await sb.storage.from('splat-files').upload(path, await blob.arrayBuffer(), { upsert: true, contentType: 'application/octet-stream' });
+      const hasSh = (S.shAttributes || []).length > 0;
+      const blob = hasSh ? _encodeGaussianPly(Array.from({ length: S.alive.length }, (_, i) => i).filter(i => S.alive[i])) : new Blob([rowBytes], { type: 'application/octet-stream' });
+      const extension = hasSh ? 'ply' : 'splat';
+      const contentType = hasSh ? 'text/plain' : 'application/octet-stream';
+      const path = `${splatId}/edited_${Date.now()}.${extension}`;
+      const { error: upErr } = await sb.storage.from('splat-files').upload(path, await blob.arrayBuffer(), { upsert: true, contentType });
       if (!upErr) {
         const { data: pub } = sb.storage.from('splat-files').getPublicUrl(path);
         outputUrl = pub.publicUrl;
@@ -3581,6 +3701,77 @@ function _showTeaserModal(blobUrl, uploadedUrl) {
 // ─── TOPBAR BUTTONS ──────────────────────────────────────────────────────────
 $('openBtn').addEventListener('click', () => $('fileInput').click());
 $('fileInput').addEventListener('change', async e => { const f = e.target.files?.[0]; if (f) await loadFile(f).catch(err => setStatus(err.message, 'warn')); });
+$('addSplatBtn')?.addEventListener('click', () => $('addSplatInput')?.click());
+$('addSplatInput')?.addEventListener('change', async e => {
+  const files = Array.from(e.target.files || []); e.target.value = '';
+  if (!S.alive || !S.positions) { showToast('Load a base splat first', 'Then add more files to the same scene', 'warn'); return; }
+  for (const file of files) {
+    try {
+      const ext = file.name.split('.').pop().toLowerCase();
+      const buffer = await file.arrayBuffer();
+      let parsed;
+      if (ext === 'nif') {
+        const decoded = await decodeNif(buffer);
+        parsed = parseSplat(geometryToSplatRows(decoded.gaussians).buffer);
+      } else if (ext === 'splat') parsed = parseSplat(buffer);
+      else if (ext === 'ply') parsed = parsePLY(buffer);
+      else throw new Error(`Unsupported splat format: .${ext}`);
+      if (!parsed.count) throw new Error(`${file.name} has no readable points`);
+      const oldN = S.alive.length, addN = parsed.count;
+      const append = (a, b, stride = 1, fallback = 0) => {
+        const out = new Float32Array((oldN + addN) * stride);
+        if (a) out.set(a);
+        for (let i = 0; i < addN * stride; i++) out[oldN * stride + i] = b?.[i] ?? fallback;
+        return out;
+      };
+      S.positions = append(S.positions, parsed.positions, 3);
+      S.colors = append(S.colors, parsed.colors, 3, 0.7);
+      S.scale = append(S.scale, parsed.scale, 1, 0.01);
+      S.scaleXYZ = append(S.scaleXYZ, parsed.scaleXYZ || new Float32Array(addN * 3).fill(0.01), 3, 0.01);
+      const addRotation = parsed.rotation || new Float32Array(addN * 4);
+      if (!parsed.rotation) for (let i = 0; i < addN; i++) addRotation[i * 4] = 1;
+      S.rotation = append(S.rotation, addRotation, 4);
+      S.opacity = append(S.opacity, parsed.opacity, 1, 1);
+      S.paintColors = append(S.paintColors, new Float32Array(addN * 3).fill(-1), 3, -1);
+      const shNames = [...new Set([...(S.shAttributes || []), ...(parsed.shAttributes || [])])].sort((a, b) => {
+        const ga = a.startsWith('f_dc_') ? 0 : 1, gb = b.startsWith('f_dc_') ? 0 : 1;
+        return ga - gb || Number(a.split('_').pop()) - Number(b.split('_').pop());
+      });
+      if (shNames.length) {
+        const sh = new Float32Array((oldN + addN) * shNames.length);
+        const copySh = (src, srcNames, srcOffset, dstOffset, length) => {
+          if (!src || !srcNames?.length) return;
+          const srcMap = new Map(srcNames.map((name, index) => [name, index]));
+          shNames.forEach((name, outIndex) => {
+            const inIndex = srcMap.get(name); if (inIndex === undefined) return;
+            for (let i = 0; i < length; i++) sh[(dstOffset + i) * shNames.length + outIndex] = src[(srcOffset + i) * srcNames.length + inIndex];
+          });
+        };
+        copySh(S.shCoefficients, S.shAttributes, 0, 0, oldN);
+        copySh(parsed.shCoefficients, parsed.shAttributes, 0, oldN, addN);
+        const shC0 = 0.28209479177387814;
+        for (let c = 0; c < 3; c++) {
+          const name = `f_dc_${c}`, outIndex = shNames.indexOf(name);
+          if (outIndex < 0) continue;
+          if (!(S.shAttributes || []).includes(name)) for (let i = 0; i < oldN; i++) sh[i * shNames.length + outIndex] = ((S.colors[i * 3 + c] ?? 0.7) - 0.5) / shC0;
+          if (!(parsed.shAttributes || []).includes(name)) for (let i = 0; i < addN; i++) sh[(oldN + i) * shNames.length + outIndex] = ((S.colors[(oldN + i) * 3 + c] ?? 0.7) - 0.5) / shC0;
+        }
+        S.shAttributes = shNames; S.shCoefficients = sh;
+      }
+      const alive = new Uint8Array(oldN + addN); alive.set(S.alive); alive.fill(1, oldN); S.alive = alive;
+      const selected = new Uint8Array(oldN + addN); selected.fill(1, oldN); S.selected = selected;
+      S.layerHidden = new Uint8Array(oldN + addN);
+      S.layers = []; S.activeLayerId = null;
+      S.lidarIntensity = S.lidarClassification = S.lidarReturnNumber = S.lidarDisplayColors = null;
+      S.sourceBuffer = null; S.fileType = 'scene';
+      S.fileName = `${S.fileName.replace(/\.[^.]+$/, '')} + ${file.name}`;
+      setStatus(`Added ${file.name} (${fmt(addN)} points)`, 'ok');
+    } catch (err) { showToast('Could not add splat', err.message || String(err), 'warn'); }
+  }
+  rebuildGeometry(); renderLayers(); updateStats();
+  $('fileName').textContent = S.fileName;
+  $('fileMeta').textContent = `${fmt(S.positions.length / 3)} points · multi-splat scene`;
+});
 $('undoBtn').addEventListener('click', undo);
 $('redoBtn').addEventListener('click', redo);
 $('exportBtn').addEventListener('click', () => exportFile('splat'));
@@ -3966,14 +4157,35 @@ $('resetCurveBtn')?.addEventListener('click', () => {
 });
 $('applyTrnBtn')?.addEventListener('click', () => {
   if (!S.alive) return;
-  pushHistory('transform');
   const scl = Number($('trnScale').value) / 100;
   const opDelta = Number($('trnOpac').value) / 100;
+  const rx = THREE.MathUtils.degToRad(Number($('trnRotX')?.value) || 0);
+  const ry = THREE.MathUtils.degToRad(Number($('trnRotY')?.value) || 0);
+  const rz = THREE.MathUtils.degToRad(Number($('trnRotZ')?.value) || 0);
+  let cx = 0, cy = 0, cz = 0, n = 0;
+  for (let i = 0; i < S.alive.length; i++) if (S.alive[i] && S.selected[i]) { cx += S.positions[i*3]; cy += S.positions[i*3+1]; cz += S.positions[i*3+2]; n++; }
+  if (!n) { showToast('Select points first', 'Use box, lasso, or brush select', 'warn'); return; }
+  pushHistory('transform');
+  cx /= n; cy /= n; cz /= n;
+  const rotation = new THREE.Euler(rx, ry, rz, 'XYZ');
+  const rotationQ = new THREE.Quaternion().setFromEuler(rotation);
+  const pivot = new THREE.Vector3(cx, cy, cz);
+  const move = new THREE.Vector3(Number($('trnMoveX')?.value) || 0, Number($('trnMoveY')?.value) || 0, Number($('trnMoveZ')?.value) || 0);
   for (let i = 0; i < S.alive.length; i++) {
     if (!S.alive[i] || !S.selected[i]) continue;
+    const p = new THREE.Vector3(S.positions[i*3], S.positions[i*3+1], S.positions[i*3+2]);
+    p.sub(pivot).multiplyScalar(scl).applyEuler(rotation).add(pivot).add(move);
+    S.positions[i*3] = p.x; S.positions[i*3+1] = p.y; S.positions[i*3+2] = p.z;
     if (S.scale) S.scale[i] *= scl;
+    if (S.scaleXYZ) for (let axis = 0; axis < 3; axis++) S.scaleXYZ[i*3+axis] *= scl;
+    if (S.rotation) {
+      const oldQ = new THREE.Quaternion(S.rotation[i*4+1], S.rotation[i*4+2], S.rotation[i*4+3], S.rotation[i*4]);
+      oldQ.premultiply(rotationQ).normalize();
+      S.rotation.set([oldQ.w, oldQ.x, oldQ.y, oldQ.z], i * 4);
+    }
     if (S.opacity) S.opacity[i] = clamp(S.opacity[i] + opDelta, 0, 1);
   }
+  window.FumocaGaussianRenderer?.invalidateSort();
   rebuildGeometry(); setStatus('Transform applied', 'ok');
 });
 const fxPresets = {
