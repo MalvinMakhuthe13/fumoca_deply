@@ -3949,6 +3949,7 @@ $('layerOpac')?.addEventListener('input', (e) => {
   const L = S.layers.find(l => l.id === S.activeLayerId);
   if (L) { L.opacity = v/100; rebuildGeometry(); }
 });
+$('resetColorBtn')?.addEventListener('click', () => {
   S.exposure = S.contrast = S.saturation = S.temperature = 0;
   S.highlights = S.shadows = S.whites = S.blacks = S.vibrance = S.tint = S.hueShift = 0;
   S.hsl = { red:0, orange:0, yellow:0, green:0, blue:0, purple:0 };

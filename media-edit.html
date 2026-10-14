@@ -807,7 +807,13 @@ input[type=range].lime::-webkit-slider-thumb{background:var(--lime);box-shadow:0
 </div>
 
 <script type="module">
-import { supabase } from './js/supabaseClient.js';
+// Keep local editing usable if the optional remote Supabase client (or its
+// CDN dependency) is unavailable. Publishing will report the connection error
+// when the user tries that action, while the editor controls still initialize.
+let supabase = null;
+import('./js/supabaseClient.js')
+  .then(mod => { supabase = mod.supabase; })
+  .catch(err => console.warn('[Media Studio] Supabase unavailable; local editing remains enabled.', err));
 
 const $ = id => document.getElementById(id);
 
