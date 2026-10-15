@@ -888,7 +888,7 @@ input[type=range].amber::-webkit-slider-thumb{background:var(--amber);box-shadow
           <div class="section">
             <div class="sec-head"><span class="sec-label">Measure</span><span class="sec-arrow">▾</span></div>
             <div class="sec-body">
-              <div class="hint">Choose Measure, then click two points on the subject. Distances use source coordinates; set the multiplier and unit if you know the scan scale.</div>
+              <div class="hint">Choose Measure and click two points. PLY source units are not automatically meters. Measure a known distance, choose its unit, enter its real length below, then calibrate.</div>
               <div style="display:flex;gap:6px;align-items:center;margin:7px 0">
                 <label class="ctrl-label" for="measureMultiplier">Display units / source unit</label>
                 <input id="measureMultiplier" type="number" min="0.000001" step="any" value="1" style="width:84px;padding:5px;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text)">
@@ -896,6 +896,11 @@ input[type=range].amber::-webkit-slider-thumb{background:var(--amber);box-shadow
                   <option value="units">units</option><option value="mm">mm</option><option value="cm">cm</option><option value="m">m</option><option value="in">in</option><option value="ft">ft</option>
                 </select>
               </div>
+              <div style="display:flex;gap:6px;align-items:center;margin:7px 0">
+                <input id="measureKnownLength" type="number" min="0.000001" step="any" placeholder="Known length" aria-label="Known real-world length" style="min-width:0;flex:1;padding:6px;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text)">
+                <button type="button" class="ac-btn" id="calibrateMeasureBtn">Calibrate</button>
+              </div>
+              <div class="hint" id="measureCalibrationStatus">Uncalibrated — distances display in source units.</div>
               <div id="measurementsList" class="hint">No measurements yet.</div>
               <button type="button" class="ac-btn full" id="clearMeasurementsBtn" style="margin-top:6px">Clear measurements</button>
             </div>
@@ -1148,11 +1153,13 @@ input[type=range].amber::-webkit-slider-thumb{background:var(--amber);box-shadow
         <button type="button" data-hud-mode="scale-tool" title="Scale selected points">Scale</button>
         <button type="button" data-hud-mode="measure" title="Measure between two points">Measure</button>
       </div>
-      <div class="hud-axis" aria-label="Orient the entire scene">
-        <button type="button" data-hud-orient="x:-90" title="Tilt X minus 90 degrees">X −90°</button>
-        <button type="button" data-hud-orient="x:90" title="Tilt X plus 90 degrees">X +90°</button>
-        <button type="button" data-hud-orient="x:180" title="Flip upside down">Flip</button>
+      <div class="hud-axis" aria-label="Camera views">
+        <button type="button" data-hud-view="front" title="View from the front">Front</button>
+        <button type="button" data-hud-view="side" title="View from the side">Side</button>
+        <button type="button" data-hud-view="top" title="View from above">Top</button>
       </div>
+      <button type="button" class="hud-more" id="levelSubjectBtn">Auto level subject (Y up)</button>
+      <button type="button" class="hud-more" id="centerSubjectBtn">Center subject at origin</button>
       <button type="button" class="hud-more" data-hud-tab="transform">More transform controls…</button>
       <div class="hud-hint" id="viewportHudHint">Choose a tool, then drag its gizmo on the model.</div>
     </div>
@@ -1690,6 +1697,8 @@ const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true; controls.dampingFactor = 0.07;
 controls.enableZoom = true;
 controls.zoomSpeed = 1.45;
+controls.minPolarAngle = THREE.MathUtils.degToRad(1);
+controls.maxPolarAngle = THREE.MathUtils.degToRad(89.5);
 const transformControls = new TransformControls(camera, renderer.domElement);
 // Three r160: TransformControls IS the helper (getHelper only exists in newer Three)
 const transformGizmo = typeof transformControls.getHelper === 'function'
@@ -1748,6 +1757,7 @@ scene.add(new THREE.AxesHelper(1.5));
 const S = {
   fileName: '', fileType: '', sourceBuffer: null, splatRowSize: 32, splatSourceUrl: '',
   positions: null, colors: null, opacity: null, scale: null, scaleXYZ: null, rotation: null, shAttributes: [], shCoefficients: null, alive: null, selected: null,
+  pivot: null,
   measurements: [], measurementStart: null,
   paintColors: null,
   lidarIntensity: null, lidarClassification: null, lidarReturnNumber: null, lidarDisplayColors: null,
@@ -1829,6 +1839,32 @@ function selectedPointCount() {
   let n=0; for(let i=0;i<S.selected.length;i++) if(S.alive?.[i] && S.selected[i]) n++;
   return n;
 }
+function _updateGroundGrid(recenter = false) {
+  if (!S.positions || !S.alive) return;
+  const pointCount=S.alive.length,stride=Math.max(1,Math.floor(pointCount/12000)),xs=[],ys=[],zs=[];
+  for(let i=0;i<pointCount;i+=stride){
+    if(!S.alive[i])continue;
+    const x=S.positions[i*3],y=S.positions[i*3+1],z=S.positions[i*3+2];
+    if(Number.isFinite(x)&&Number.isFinite(y)&&Number.isFinite(z)){xs.push(x);ys.push(y);zs.push(z);}
+  }
+  if(!xs.length)return;
+  const q=(a,p)=>{a.sort((x,y)=>x-y);return a[Math.min(a.length-1,Math.floor((a.length-1)*p))];};
+  const x0=q(xs,.002),x1=q(xs,.998),y0=q(ys,.002),y1=q(ys,.998),z0=q(zs,.002),z1=q(zs,.998);
+  const center=new THREE.Vector3((x0+x1)/2,(y0+y1)/2,(z0+z1)/2);
+  orientationGrid.position.set(center.x,y0,center.z);
+  orientationGrid.scale.setScalar(Math.max(.1,Math.max(x1-x0,z1-z0)*.15));
+  const axes=scene.children.find(obj=>obj.isAxesHelper);
+  if(axes){axes.position.copy(center);axes.scale.setScalar(Math.max(.1,Math.max(x1-x0,y1-y0,z1-z0)*.1));}
+  if(recenter)S.pivot=center;
+}
+function _refreshSceneReference(recenter = false) {
+  const oldTarget=controls.target.clone();
+  _updateGroundGrid(recenter);
+  if(recenter&&S.pivot){
+    const delta=S.pivot.clone().sub(oldTarget);
+    controls.target.copy(S.pivot);camera.position.add(delta);camera.lookAt(controls.target);controls.update();
+  }
+}
 function _syncViewportHud() {
   const ready = !!(S.positions && S.alive?.length);
   const selected = selectedPointCount();
@@ -1838,7 +1874,7 @@ function _syncViewportHud() {
     button.disabled = !ready;
     button.classList.toggle('active', button.dataset.hudMode === S.mode);
   });
-  document.querySelectorAll('[data-hud-orient]').forEach(button => { button.disabled = !ready; });
+  document.querySelectorAll('[data-hud-view]').forEach(button => { button.disabled = !ready; });
   const hint = $('viewportHudHint');
   if (hint) hint.textContent = !ready ? 'Open a splat to enable viewport tools.' :
     S.mode === 'measure' ? 'Click two points on the model to measure.' :
@@ -1851,7 +1887,7 @@ function syncTransformGizmo() {
   let x=0,y=0,z=0,n=0;
   if (hasSelection) {
     for(let i=0;i<count;i++) if(S.alive[i] && S.selected[i]) { x+=S.positions[i*3];y+=S.positions[i*3+1];z+=S.positions[i*3+2];n++; }
-  } else { x=controls.target.x;y=controls.target.y;z=controls.target.z;n=1; }
+  } else { const pivot=S.pivot||controls.target;x=pivot.x;y=pivot.y;z=pivot.z;n=1; }
   transformTarget.position.set(x/n,y/n,z/n);
   transformTarget.rotation.set(0,0,0); transformTarget.scale.set(1,1,1);
   transformControls.attach(transformTarget);
@@ -1908,13 +1944,19 @@ function applyGizmoDelta() {
   if(sizeAttr) sizeAttr.needsUpdate=true;
   if(rotationAttr) rotationAttr.needsUpdate=true;
   S.points.geometry.boundingSphere=null;
+  if(!selected){
+    const oldPivot=S.pivot?.clone()||previous.position.clone();
+    S.pivot=transformTarget.position.clone();
+    const delta=S.pivot.clone().sub(oldPivot);controls.target.add(delta);camera.position.add(delta);
+  }
   captureGizmoTransform();
 }
 transformControls.addEventListener('mouseDown',()=>{_gizmoGesture=true;pushHistory('transform gizmo');captureGizmoTransform();});
 transformControls.addEventListener('objectChange',applyGizmoDelta);
 transformControls.addEventListener('mouseUp',()=>{
   window.FumocaGaussianRenderer?.invalidateSort();
-  rebuildGeometry();refreshTransformSourceMap();syncTransformGizmo();
+  const allLiveSelected=S.selected?.every((value,i)=>!S.alive[i]||value);
+  rebuildGeometry();_refreshSceneReference(allLiveSelected);refreshTransformSourceMap();syncTransformGizmo();renderMeasurementList();renderMeasurementOverlay();
   _gizmoGesture=false;_previousGizmoTransform=null;
 });
 transformControls.addEventListener('dragging-changed',event=>{controls.enabled=!event.value && S.mode==='orbit';});
@@ -2421,6 +2463,8 @@ function parsePLY(buffer) {
 // ─── LOAD ────────────────────────────────────────────────────────────────────
 async function loadFile(file, urlOverride) {
   clearTimeout(_compareCaptureTimer);
+  controls.autoRotate=false;
+  S.pivot=null;
   compareActive = false;
   $('compareBeforeImage').style.display = 'none';
   $('compareSlider').classList.remove('active');
@@ -2449,6 +2493,8 @@ async function loadFile(file, urlOverride) {
   S.positions = parsed.positions; S.colors = parsed.colors;
   S.sourceColorAvailable = parsed.hasSourceColor !== false;
   S.measurements = []; S.measurementStart = null; renderMeasurementList();
+  $('measureMultiplier').value='1';$('measureUnit').value='units';$('measureKnownLength').value='';
+  $('measureCalibrationStatus').textContent='Uncalibrated — distances display in source units.';
   S.opacity = parsed.opacity; S.scale = parsed.scale;
   S.scaleXYZ = parsed.scaleXYZ || new Float32Array(parsed.count * 3).fill(0.01);
   S.rotation = parsed.rotation || new Float32Array(parsed.count * 4);
@@ -2506,7 +2552,7 @@ async function loadFile(file, urlOverride) {
       orientationGrid.position.set(cx,yFloor,cz);
       orientationGrid.scale.setScalar(Math.max(0.1,Math.max(sizeX,sizeZ)*0.15));
       const axes = scene.children.find(obj => obj.isAxesHelper);
-      if (axes) { axes.position.set(cx,yMin,cz); axes.scale.setScalar(Math.max(0.1,radius * 0.2)); }
+      if (axes) { axes.position.set(cx,cy,cz); axes.scale.setScalar(Math.max(0.1,radius * 0.2)); }
       const viewDirection=new THREE.Vector3(0.6,0.35,0.8).normalize();
       const initialDistance=Math.max(1.5,radius*2);
       camera.position.set(cx+viewDirection.x*initialDistance,cy+viewDirection.y*initialDistance,cz+viewDirection.z*initialDistance);
@@ -2527,6 +2573,7 @@ async function loadFile(file, urlOverride) {
       camera.position.set(cx+viewDirection.x*dist,cy+viewDirection.y*dist,cz+viewDirection.z*dist);
       camera.lookAt(cx,cy,cz);
       controls.target.set(cx, cy, cz);
+      S.pivot=new THREE.Vector3(cx,cy,cz);
       controls.minDistance = Math.max(0.000001, radius * 0.0001);
       controls.maxDistance = Math.max(1000, radius * 1000);
       camera.near = Math.max(0.000001, radius * 0.000001);
@@ -2945,7 +2992,7 @@ function updateStats() {
 
 // ─── HISTORY ────────────────────────────────────────────────────────────────
 function pushHistory(label) {
-  const snap = { alive: S.alive.slice(), selected: S.selected.slice(), paintColors: S.paintColors?.slice() };
+  const snap = { alive: S.alive.slice(), selected: S.selected.slice(), paintColors: S.paintColors?.slice(), pivot: S.pivot?.clone() };
   if (/transform|move|rotate|scale-tool/i.test(label)) {
     snap.positions = S.positions?.slice(); snap.scale = S.scale?.slice(); snap.scaleXYZ = S.scaleXYZ?.slice(); snap.rotation = S.rotation?.slice(); snap.opacity = S.opacity?.slice(); snap.shCoefficients = S.shCoefficients;
   }
@@ -2959,7 +3006,7 @@ function undo() {
   if (S.historyIndex < 0) return;
   const entry = S.history[S.historyIndex];
   const { snap } = entry;
-  entry.redoSnap = { alive:S.alive.slice(), selected:S.selected.slice(), paintColors:S.paintColors?.slice() };
+  entry.redoSnap = { alive:S.alive.slice(), selected:S.selected.slice(), paintColors:S.paintColors?.slice(), pivot:S.pivot?.clone() };
   if (snap.positions) { entry.redoSnap.positions=S.positions?.slice(); entry.redoSnap.scale=S.scale?.slice(); entry.redoSnap.scaleXYZ=S.scaleXYZ?.slice(); entry.redoSnap.rotation=S.rotation?.slice(); entry.redoSnap.opacity=S.opacity?.slice(); entry.redoSnap.shCoefficients=S.shCoefficients; }
   S.alive = snap.alive.slice(); S.selected = snap.selected.slice();
   if (snap.paintColors) S.paintColors = snap.paintColors.slice();
@@ -2969,8 +3016,9 @@ function undo() {
   if (snap.rotation) S.rotation=snap.rotation.slice();
   if (snap.opacity) S.opacity=snap.opacity.slice();
   if (snap.shCoefficients) S.shCoefficients=snap.shCoefficients;
+  if (snap.pivot) S.pivot=snap.pivot.clone();
   S.historyIndex--;
-  rebuildGeometry(); updateHistoryBtns();
+  rebuildGeometry(); _refreshSceneReference(true); syncTransformGizmo(); renderMeasurementList(); renderMeasurementOverlay(); updateHistoryBtns();
   setStatus('Undone', 'ok');
 }
 function redo() {
@@ -2986,7 +3034,8 @@ function redo() {
   if (snap.rotation) S.rotation=snap.rotation.slice();
   if (snap.opacity) S.opacity=snap.opacity.slice();
   if (snap.shCoefficients) S.shCoefficients=snap.shCoefficients;
-  rebuildGeometry(); updateHistoryBtns();
+  if (snap.pivot) S.pivot=snap.pivot.clone();
+  rebuildGeometry(); _refreshSceneReference(true); syncTransformGizmo(); renderMeasurementList(); renderMeasurementOverlay(); updateHistoryBtns();
   setStatus('Redone', 'ok');
 }
 function updateHistoryBtns() {
@@ -3002,7 +3051,7 @@ function deleteSelected() {
   pushHistory('delete');
   let del = 0;
   for (let i = 0; i < S.alive.length; i++) if (S.selected[i] && S.alive[i]) { S.alive[i] = 0; S.selected[i] = 0; del++; }
-  rebuildGeometry(); setStatus(`Deleted ${fmt(del)} points`, 'ok');
+  rebuildGeometry(); _refreshSceneReference(true); setStatus(`Deleted ${fmt(del)} points`, 'ok');
   showToast('Deleted', `${fmt(del)} points removed`);
 }
 
@@ -3688,6 +3737,17 @@ function renderMeasurementList() {
 controls.addEventListener('change',renderMeasurementOverlay);
 $('measureMultiplier')?.addEventListener('input',()=>{renderMeasurementList();renderMeasurementOverlay();});
 $('measureUnit')?.addEventListener('change',()=>{renderMeasurementList();renderMeasurementOverlay();});
+$('calibrateMeasureBtn')?.addEventListener('click',()=>{
+  const item=S.measurements[S.measurements.length-1],known=Number($('measureKnownLength')?.value);
+  if(!item)return showToast('Measure a known distance first','Create a measurement on the subject, then enter its real length.','warn');
+  if(!(known>0&&Number.isFinite(known)))return showToast('Enter a known length','Use a real measurement in the selected unit.','warn');
+  const a=_measurementPosition(item.a),b=_measurementPosition(item.b),sourceDistance=a&&b?a.distanceTo(b):0;
+  if(!(sourceDistance>0))return showToast('Invalid measurement','Select two distinct points on the subject.','warn');
+  const unit=$('measureUnit').value||'units';
+  $('measureMultiplier').value=String(known/sourceDistance);
+  $('measureCalibrationStatus').textContent=`Calibrated from the latest measurement: ${sourceDistance.toPrecision(4)} source units = ${known} ${unit}.`;
+  renderMeasurementList();renderMeasurementOverlay();showToast('Scale calibrated',`Measurements now use ${unit}.`,'ok');
+});
 $('clearMeasurementsBtn')?.addEventListener('click',()=>{S.measurements=[];S.measurementStart=null;renderMeasurementList();renderMeasurementOverlay();showToast('Measurements cleared');});
 
 // ─── POINTER EVENTS ──────────────────────────────────────────────────────────
@@ -4056,11 +4116,58 @@ Object.entries(toolMap).forEach(([id, mode]) => {
 document.querySelectorAll('[data-hud-mode]').forEach(button => {
   button.addEventListener('click', () => setMode(button.dataset.hudMode));
 });
-document.querySelectorAll('[data-hud-orient]').forEach(button => {
+document.querySelectorAll('[data-hud-view]').forEach(button => {
   button.addEventListener('click', () => {
-    const [axis, degrees] = button.dataset.hudOrient.split(':');
-    rotateEntireScene(axis, Number(degrees));
+    if(!S.positions)return;
+    const target=S.pivot||controls.target, distance=camera.position.distanceTo(controls.target);
+    const directions={front:new THREE.Vector3(0,0,1),side:new THREE.Vector3(1,0,0),top:new THREE.Vector3(0,1,0)};
+    camera.up.copy(button.dataset.hudView==='top'?new THREE.Vector3(0,0,-1):new THREE.Vector3(0,1,0));
+    camera.position.copy(target).addScaledVector(directions[button.dataset.hudView],distance);
+    controls.target.copy(target);camera.lookAt(target);controls.update();
+    renderMeasurementOverlay();
   });
+});
+$('levelSubjectBtn')?.addEventListener('click',()=>{
+  if(!S.positions||!S.alive)return;
+  const stride=Math.max(1,Math.floor(S.alive.length/12000));let samples=[];
+  for(let i=0;i<S.alive.length;i+=stride)if(S.alive[i])samples.push([S.positions[i*3],S.positions[i*3+1],S.positions[i*3+2]]);
+  if(samples.length<3)return showToast('Not enough points','Load a denser subject before auto leveling.','warn');
+  const limits=[0,1,2].map(axis=>{const values=samples.map(point=>point[axis]).sort((a,b)=>a-b);return [values[Math.floor(values.length*.005)],values[Math.floor(values.length*.995)]];});
+  samples=samples.filter(point=>point.every((value,axis)=>value>=limits[axis][0]&&value<=limits[axis][1]));
+  const mean=[0,0,0];for(const p of samples)for(let a=0;a<3;a++)mean[a]+=p[a]/samples.length;
+  const A=[[0,0,0],[0,0,0],[0,0,0]],V=[[1,0,0],[0,1,0],[0,0,1]];
+  for(const p of samples)for(let r=0;r<3;r++)for(let c=0;c<3;c++)A[r][c]+=(p[r]-mean[r])*(p[c]-mean[c])/samples.length;
+  for(let iter=0;iter<18;iter++){
+    let p=0,q=1;if(Math.abs(A[0][2])>Math.abs(A[p][q])){p=0;q=2;}if(Math.abs(A[1][2])>Math.abs(A[p][q])){p=1;q=2;}
+    if(Math.abs(A[p][q])<1e-12)break;
+    const theta=.5*Math.atan2(2*A[p][q],A[q][q]-A[p][p]),c=Math.cos(theta),s=Math.sin(theta),app=A[p][p],aqq=A[q][q],apq=A[p][q];
+    A[p][p]=c*c*app-2*s*c*apq+s*s*aqq;A[q][q]=s*s*app+2*s*c*apq+c*c*aqq;A[p][q]=A[q][p]=0;
+    for(let k=0;k<3;k++)if(k!==p&&k!==q){const akp=A[k][p],akq=A[k][q];A[k][p]=A[p][k]=c*akp-s*akq;A[k][q]=A[q][k]=s*akp+c*akq;}
+    for(let k=0;k<3;k++){const vkp=V[k][p],vkq=V[k][q];V[k][p]=c*vkp-s*vkq;V[k][q]=s*vkp+c*vkq;}
+  }
+  let axisIndex=0;if(A[1][1]<A[axisIndex][axisIndex])axisIndex=1;if(A[2][2]<A[axisIndex][axisIndex])axisIndex=2;
+  const up=new THREE.Vector3(V[0][axisIndex],V[1][axisIndex],V[2][axisIndex]).normalize();if(up.y<0)up.negate();
+  const angle=Math.acos(THREE.MathUtils.clamp(up.y,-1,1));
+  if(angle<THREE.MathUtils.degToRad(.5))return showToast('Already level','The thinnest point-cloud axis is already aligned with Y-up.','ok');
+  const rotation=new THREE.Quaternion().setFromUnitVectors(up,new THREE.Vector3(0,1,0)),pivot=S.pivot||controls.target;
+  pushHistory('transform level');
+  const point=new THREE.Vector3();
+  for(let i=0;i<S.alive.length;i++)if(S.alive[i]){
+    point.set(S.positions[i*3],S.positions[i*3+1],S.positions[i*3+2]).sub(pivot).applyQuaternion(rotation).add(pivot);
+    S.positions[i*3]=point.x;S.positions[i*3+1]=point.y;S.positions[i*3+2]=point.z;
+    if(S.rotation){const q=new THREE.Quaternion(S.rotation[i*4+1],S.rotation[i*4+2],S.rotation[i*4+3],S.rotation[i*4]).premultiply(rotation).normalize();S.rotation.set([q.w,q.x,q.y,q.z],i*4);}
+  }
+  window.FumocaGaussianRenderer?.invalidateSort();rebuildGeometry();_refreshSceneReference(true);syncTransformGizmo();renderMeasurementList();renderMeasurementOverlay();
+  showToast('Subject leveled',`Aligned its thinnest principal axis to Y-up (${THREE.MathUtils.radToDeg(angle).toFixed(1)}° correction). Undo restores the prior orientation.`,'ok');
+});
+$('centerSubjectBtn')?.addEventListener('click',()=>{
+  if(!S.positions||!S.alive)return;
+  const pivot=S.pivot||controls.target,delta=pivot.clone().negate();
+  pushHistory('transform center');
+  for(let i=0;i<S.alive.length;i++)if(S.alive[i]){S.positions[i*3]+=delta.x;S.positions[i*3+1]+=delta.y;S.positions[i*3+2]+=delta.z;}
+  S.pivot=new THREE.Vector3(0,0,0);controls.target.set(0,0,0);camera.position.add(delta);camera.lookAt(controls.target);
+  window.FumocaGaussianRenderer?.invalidateSort();rebuildGeometry();_updateGroundGrid();syncTransformGizmo();
+  renderMeasurementList();renderMeasurementOverlay();setStatus('Subject centered at origin','ok');
 });
 $('[data-hud-tab="transform"]')?.addEventListener('click', () => {
   document.querySelector('#leftTabs .ptab[data-tab="transform"]')?.click();
@@ -4810,6 +4917,8 @@ $('applyTrnBtn')?.addEventListener('click', () => {
   let cx = 0, cy = 0, cz = 0, n = 0;
   for (let i = 0; i < S.alive.length; i++) if (S.alive[i] && S.selected[i]) { cx += S.positions[i*3]; cy += S.positions[i*3+1]; cz += S.positions[i*3+2]; n++; }
   if (!n) { showToast('Select points first', 'Use box, lasso, or brush select', 'warn'); return; }
+  let liveCount=0;for(let i=0;i<S.alive.length;i++)if(S.alive[i])liveCount++;
+  const allSelected=n===liveCount;
   pushHistory('transform');
   cx /= n; cy /= n; cz /= n;
   const rotation = new THREE.Euler(rx, ry, rz, 'XYZ');
@@ -4839,7 +4948,7 @@ $('applyTrnBtn')?.addEventListener('click', () => {
     }
   }
   window.FumocaGaussianRenderer?.invalidateSort();
-  rebuildGeometry(); syncTransformGizmo(); renderMeasurementList(); renderMeasurementOverlay(); setStatus('Transform applied', 'ok');
+  rebuildGeometry(); _refreshSceneReference(allSelected); syncTransformGizmo(); renderMeasurementList(); renderMeasurementOverlay(); setStatus('Transform applied', 'ok');
 });
 function rotateEntireScene(axis, degrees) {
   if (!S.alive) return;

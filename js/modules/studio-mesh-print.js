@@ -22,7 +22,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
           <span class="ctrl-label">Resolution</span>
         <span class="ctrl-val" id="meshResVal">32³</span>
         </div>
-        <input type="range" id="meshRes" min="32" max="64" step="16" value="48">
+        <input type="range" id="meshRes" min="32" max="64" step="16" value="64">
         <label style="display:block;font-size:11px;margin-top:8px">Surface threshold (0 = automatic)
           <input id="meshThreshold" type="number" min="0" max="10" step="0.01" value="0" style="display:block;width:100%;padding:7px;border-radius:7px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#fff;margin-top:4px">
         </label>
@@ -126,9 +126,16 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     meshStatus('Preparing current live points…');
     try {
       const maxPoints = 120_000;
-      const stride = Math.max(1, Math.ceil(state.alive.length / maxPoints));
       const ids = [];
-      for (let i = 0; i < state.alive.length; i += stride) if (state.alive[i]) ids.push(i);
+      let skippedSeen=0,randomState=((state.alive.length^0x6d2b79f5)>>>0)||1;
+      for(let i=0;i<state.alive.length;i++)if(state.alive[i]){
+        if(ids.length<maxPoints){ids.push(i);continue;}
+        skippedSeen++;
+        randomState^=randomState<<13;randomState^=randomState>>>17;randomState^=randomState<<5;
+        const pick=(randomState>>>0)%(ids.length+skippedSeen);
+        if(pick<ids.length)ids[pick]=i;
+      }
+      ids.sort((a,b)=>a-b);
       if (ids.length < 50) throw new Error('At least 50 live points are needed for mesh extraction.');
       const g = { N: ids.length };
       for (const key of ['posX','posY','posZ','sclX','sclY','sclZ','rotW','rotX','rotY','rotZ','colR','colG','colB','colA']) g[key] = new Float32Array(ids.length);
@@ -176,10 +183,10 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       lastMesh = format === 'obj' ? FumocMeshExtractor.exportOBJ(result.mesh, 'fumoca-mesh')
         : format === 'ply' ? FumocMeshExtractor.exportPLY(result.mesh, 'fumoca-mesh')
         : FumocMeshExtractor.exportSTL(result.mesh, 'fumoca-mesh');
-      meshStatus(`Mesh ready: ${result.stats.triangles.toLocaleString()} triangles, ${(lastMesh.size / 1048576).toFixed(2)} MB, ${result.stats.watertight ? 'watertight' : `${result.stats.openEdges} open edges`}${format === 'stl' ? '' : ', vertex color transferred'}.`);
+      meshStatus(`Mesh ready: ${result.stats.triangles.toLocaleString()} triangles, ${(lastMesh.size / 1048576).toFixed(2)} MB, ${result.stats.watertight ? 'watertight solid' : `NOT a closed solid — ${result.stats.openEdges} open edges`}${format === 'stl' ? '' : ', vertex color transferred'}.`);
       const downloadButton = container.querySelector('#printStlBtn');
-      downloadButton.disabled = false;
-      downloadButton.textContent = `Download ${format.toUpperCase()}`;
+      downloadButton.disabled = format === 'stl' && !result.stats.watertight;
+      downloadButton.textContent = downloadButton.disabled ? 'STL needs a closed mesh' : `Download ${format.toUpperCase()}`;
       const previewToggle = container.querySelector('#meshPreviewToggle');
       previewToggle.disabled = false;
       previewToggle.checked = true;
