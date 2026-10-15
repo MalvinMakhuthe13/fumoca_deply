@@ -607,6 +607,23 @@ function validateWatertight(mesh) {
   const { triangles } = mesh;
   const edgeMap = new Map();
   const Nt = triangles.length / 3;
+  const parent = new Uint32Array(Nt);
+  const rank = new Uint8Array(Nt);
+  for (let i = 0; i < Nt; i++) parent[i] = i;
+  const find = (x) => {
+    let root = x;
+    while (parent[root] !== root) root = parent[root];
+    while (parent[x] !== x) { const next = parent[x]; parent[x] = root; x = next; }
+    return root;
+  };
+  const join = (a, b) => {
+    let ra = find(a), rb = find(b);
+    if (ra === rb) return;
+    if (rank[ra] < rank[rb]) [ra, rb] = [rb, ra];
+    parent[rb] = ra;
+    if (rank[ra] === rank[rb]) rank[ra]++;
+  };
+  const edgeOwner = new Map();
 
   function _edgeKey(a, b) {
     return a < b ? `${a},${b}` : `${b},${a}`;
@@ -615,9 +632,12 @@ function validateWatertight(mesh) {
   for (let t = 0; t < Nt; t++) {
     const a = triangles[t*3], b = triangles[t*3+1], c = triangles[t*3+2];
     const e1 = _edgeKey(a,b), e2 = _edgeKey(b,c), e3 = _edgeKey(c,a);
-    edgeMap.set(e1, (edgeMap.get(e1) || 0) + 1);
-    edgeMap.set(e2, (edgeMap.get(e2) || 0) + 1);
-    edgeMap.set(e3, (edgeMap.get(e3) || 0) + 1);
+    for (const edge of [e1, e2, e3]) {
+      edgeMap.set(edge, (edgeMap.get(edge) || 0) + 1);
+      const owner = edgeOwner.get(edge);
+      if (owner === undefined) edgeOwner.set(edge, t);
+      else join(t, owner);
+    }
   }
 
   let openEdges = 0, nonManifold = 0;
@@ -626,13 +646,24 @@ function validateWatertight(mesh) {
     else if (count > 2) nonManifold++;
   }
 
+  const componentFaces = new Map();
+  for (let t = 0; t < Nt; t++) {
+    const root = find(t);
+    componentFaces.set(root, (componentFaces.get(root) || 0) + 1);
+  }
+  const components = componentFaces.size;
+  let largestComponentTriangles = 0;
+  for (const count of componentFaces.values()) largestComponentTriangles = Math.max(largestComponentTriangles, count);
+
   return {
     watertight:    openEdges === 0 && nonManifold === 0,
     openEdges,
     nonManifoldEdges: nonManifold,
+    components,
+    largestComponentTriangles,
     totalEdges:    edgeMap.size,
     triangles:     Nt,
-    printable:     openEdges === 0 && nonManifold === 0,
+    printable:     openEdges === 0 && nonManifold === 0 && components === 1,
   };
 }
 
@@ -995,6 +1026,8 @@ async function extractMesh(gaussians, opts = {}) {
     printable:   validation.printable,
     openEdges:   validation.openEdges,
     nonManifoldEdges: validation.nonManifoldEdges,
+    components: validation.components,
+    largestComponentTriangles: validation.largestComponentTriangles,
     elapsedMs:   Math.round(performance.now() - t0),
     resolution,
     threshold,

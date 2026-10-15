@@ -65,7 +65,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
           <span class="ctrl-val" id="printHVal">120</span>
         </div>
         <input type="range" id="printH" min="30" max="400" value="120">
-        <div class="hint">Exports a solid surface STL. The worker reports whether the mesh is watertight.</div>
+        <div class="hint">STL is enabled only for one connected, watertight shell. The worker reports mesh repairs and limitations.</div>
         <div class="btn-grid col2">
           <button type="button" class="ac-btn cyan full" id="printStlBtn" disabled>Download STL</button>
           <button type="button" class="ac-btn full" id="printQueueBtn">Queue GPU print</button>
@@ -183,10 +183,13 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       lastMesh = format === 'obj' ? FumocMeshExtractor.exportOBJ(result.mesh, 'fumoca-mesh')
         : format === 'ply' ? FumocMeshExtractor.exportPLY(result.mesh, 'fumoca-mesh')
         : FumocMeshExtractor.exportSTL(result.mesh, 'fumoca-mesh');
-      meshStatus(`Mesh ready: ${result.stats.triangles.toLocaleString()} triangles, ${(lastMesh.size / 1048576).toFixed(2)} MB, ${result.stats.watertight ? 'watertight solid' : `NOT a closed solid — ${result.stats.openEdges} open edges`}${format === 'stl' ? '' : ', vertex color transferred'}.`);
+      const shellStatus = result.stats.watertight
+        ? (result.stats.components === 1 ? 'one connected watertight shell' : `${result.stats.components} disconnected watertight shells`)
+        : `open surface — ${result.stats.openEdges} open edges${result.stats.components > 1 ? ` across ${result.stats.components} shells` : ''}`;
+      meshStatus(`Mesh ready: ${result.stats.triangles.toLocaleString()} triangles, ${(lastMesh.size / 1048576).toFixed(2)} MB, ${shellStatus}${format === 'stl' ? '' : ', vertex color transferred'}.`);
       const downloadButton = container.querySelector('#printStlBtn');
-      downloadButton.disabled = format === 'stl' && !result.stats.watertight;
-      downloadButton.textContent = downloadButton.disabled ? 'STL needs a closed mesh' : `Download ${format.toUpperCase()}`;
+      downloadButton.disabled = format === 'stl' && !result.stats.printable;
+      downloadButton.textContent = downloadButton.disabled ? 'STL needs one closed shell' : `Download ${format.toUpperCase()}`;
       const previewToggle = container.querySelector('#meshPreviewToggle');
       previewToggle.disabled = false;
       previewToggle.checked = true;
