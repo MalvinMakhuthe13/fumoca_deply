@@ -136,6 +136,19 @@ input[type=file]{display:none}
 
 /* ─── VIEWPORT ─── */
 #viewport{flex:1;position:relative;overflow:hidden;background:radial-gradient(ellipse at 50% 50%, rgba(212,255,0,.03) 0%, transparent 65%)}
+#viewportTransformHud{position:absolute;left:14px;top:14px;z-index:12;width:218px;padding:8px;border:1px solid rgba(255,255,255,.12);border-radius:12px;background:rgba(10,12,16,.88);backdrop-filter:blur(18px);box-shadow:0 10px 32px rgba(0,0,0,.28);font:600 10px var(--font-body)}
+#viewportTransformHud .hud-title{display:flex;align-items:center;justify-content:space-between;margin:0 2px 7px;color:rgba(255,255,255,.58);font:700 9px var(--font-mono);letter-spacing:.1em;text-transform:uppercase}
+#viewportTransformHud .hud-tools{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
+#viewportTransformHud button{min-width:0;padding:7px 4px;border:1px solid rgba(255,255,255,.1);border-radius:7px;background:rgba(255,255,255,.045);color:rgba(255,255,255,.78);font:600 10px var(--font-body);cursor:pointer;transition:var(--transition)}
+#viewportTransformHud button:hover{border-color:rgba(212,255,0,.42);background:rgba(212,255,0,.08);color:#eaff9c}
+#viewportTransformHud button.active{border-color:rgba(212,255,0,.62);background:rgba(212,255,0,.14);color:var(--lime)}
+#viewportTransformHud button:disabled{opacity:.35;cursor:not-allowed}
+#viewportTransformHud .hud-axis{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin-top:7px;padding-top:7px;border-top:1px solid rgba(255,255,255,.08)}
+#viewportTransformHud .hud-more{width:100%;margin-top:5px;color:rgba(255,255,255,.58);font-size:9px}
+#viewportTransformHud .hud-axis button{padding:6px 2px;font:600 9px var(--font-mono)}
+#viewportTransformHud .hud-hint{margin:7px 2px 0;color:rgba(255,255,255,.4);font-size:9px;line-height:1.4}
+#compareBeforeImage{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;z-index:5;pointer-events:none;clip-path:inset(0 50% 0 0);display:none}
+@media(max-width:760px){#viewportTransformHud{left:8px;top:8px;width:198px}#viewportTransformHud .hud-hint{display:none}}
 #viewportCanvas{position:absolute;inset:0}
 
 /* ─── RIGHT PANEL ─── */
@@ -383,7 +396,7 @@ input[type=range].amber::-webkit-slider-thumb{background:var(--amber);box-shadow
 
 /* ─── COMPARE SLIDER ─── */
 #compareSlider{
-  position:fixed;inset:0;z-index:7;pointer-events:none;display:none}
+  position:absolute;inset:0;z-index:11;pointer-events:none;display:none}
 #compareSlider.active{display:block}
 .cmp-divider{position:absolute;top:0;bottom:0;width:2px;background:rgba(255,255,255,.8);
   left:50%;cursor:ew-resize;pointer-events:auto}
@@ -562,17 +575,6 @@ input[type=range].amber::-webkit-slider-thumb{background:var(--amber);box-shadow
     </div>
   </div>
 </div>
-<div id="viewportGrid">
-  <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
-    <defs>
-      <pattern id="gridPat" width="40" height="40" patternUnits="userSpaceOnUse">
-        <path d="M40 0L0 0 0 40" fill="none" stroke="rgba(212,255,0,.4)" stroke-width=".5"/>
-      </pattern>
-    </defs>
-    <rect width="100%" height="100%" fill="url(#gridPat)"/>
-  </svg>
-</div>
-
 <!-- TOPBAR -->
 <div id="topbar">
   <button class="mobile-panel-toggle" id="mobileToolsToggle" title="Tools">☰</button>
@@ -591,7 +593,7 @@ input[type=range].amber::-webkit-slider-thumb{background:var(--amber);box-shadow
     <button class="tb-btn" id="undoBtn" disabled>↩ Undo</button>
     <button class="tb-btn" id="redoBtn" disabled>↪ Redo</button>
     <div class="tb-sep"></div>
-    <button class="tb-btn" id="compareBtn" title="Before/After compare">◧ Compare</button>
+    <button class="tb-btn" id="compareBtn" title="Compare loaded scene with current edits" disabled>◧ Compare</button>
     <button class="tb-btn" id="screenshotBtn" title="Screenshot viewport">📷 Capture</button>
     <button class="tb-btn" id="hotspotBtn" title="Hotspots — place, edit, tour" style="background:rgba(200,255,0,.1);border-color:rgba(200,255,0,.4);color:#c8ff00;">📍 Hotspots</button>
     <button class="tb-btn" id="extractObjectBtn" title="Extract an object (e.g. a car) as its own 3D listing" style="background:rgba(0,200,255,.08);border-color:rgba(0,200,255,.35);color:#7ee2ff;">🎯 Extract</button>
@@ -655,8 +657,8 @@ input[type=range].amber::-webkit-slider-thumb{background:var(--amber);box-shadow
   <div class="tool-group">
     <span class="tool-group-label">View</span>
     <button class="tool-btn" id="viewGrid" title="Toggle Grid">⊞</button>
-    <button class="tool-btn" id="viewWire" title="Toggle Wireframe">⬡</button>
-    <button class="tool-btn" id="viewSplit" title="Split View">⧉</button>
+    <button class="tool-btn" id="viewWire" title="Toggle scene bounds">⬡</button>
+    <button class="tool-btn" id="viewSplit" title="Before/after split view" disabled>⧉</button>
     <button class="tool-btn" id="viewFull" title="Fullscreen">⤢</button>
   </div>
 </div>
@@ -1130,7 +1132,36 @@ input[type=range].amber::-webkit-slider-thumb{background:var(--amber);box-shadow
   <div id="viewport">
     <canvas id="viewportCanvas"></canvas>
     <div id="lassoSvgLayer"><svg id="lassoSvg"></svg></div>
-    <div id="viewportGrid"></div>
+    <div id="viewportGrid">
+      <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
+        <defs><pattern id="gridPat" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0L0 0 0 40" fill="none" stroke="rgba(212,255,0,.4)" stroke-width=".5"/></pattern></defs>
+        <rect width="100%" height="100%" fill="url(#gridPat)"/>
+      </svg>
+    </div>
+    <div id="viewportTransformHud" aria-label="Viewport transform controls">
+      <div class="hud-title"><span>Viewport tools</span><span id="hudSelectionCount">Scene</span></div>
+      <div class="hud-tools">
+        <button type="button" data-hud-mode="orbit" title="Orbit the view (B)">Orbit</button>
+        <button type="button" data-hud-mode="pan" title="Pan the view (H)">Pan</button>
+        <button type="button" data-hud-mode="move" title="Move selected points (V)">Move</button>
+        <button type="button" data-hud-mode="rotate" title="Rotate selected points (R)">Rotate</button>
+        <button type="button" data-hud-mode="scale-tool" title="Scale selected points">Scale</button>
+        <button type="button" data-hud-mode="measure" title="Measure between two points">Measure</button>
+      </div>
+      <div class="hud-axis" aria-label="Orient the entire scene">
+        <button type="button" data-hud-orient="x:-90" title="Tilt X minus 90 degrees">X −90°</button>
+        <button type="button" data-hud-orient="x:90" title="Tilt X plus 90 degrees">X +90°</button>
+        <button type="button" data-hud-orient="x:180" title="Flip upside down">Flip</button>
+      </div>
+      <button type="button" class="hud-more" data-hud-tab="transform">More transform controls…</button>
+      <div class="hud-hint" id="viewportHudHint">Choose a tool, then drag its gizmo on the model.</div>
+    </div>
+    <img id="compareBeforeImage" alt="Loaded scene before edits">
+    <div id="compareSlider">
+      <div class="cmp-label-before">BEFORE</div>
+      <div class="cmp-label-after">AFTER</div>
+      <div class="cmp-divider" id="cmpDivider"><div class="cmp-handle">↔</div></div>
+    </div>
     <div id="cropOverlay">
       <div id="cropBox">
         <div class="crop-handle ch-nw"></div>
@@ -1274,6 +1305,7 @@ input[type=range].amber::-webkit-slider-thumb{background:var(--amber);box-shadow
             <button class="ac-btn" id="curveMaster">RGB</button>
             <button class="ac-btn" id="curveR" style="color:#ff8888">R</button>
             <button class="ac-btn" id="curveG" style="color:#88ff88">G</button>
+            <button class="ac-btn" id="curveB" style="color:#88aaff">B</button>
           </div>
           <button class="ac-btn full" id="resetCurveBtn" style="margin-top:4px">Reset Curve</button>
         </div>
@@ -1453,7 +1485,7 @@ input[type=range].amber::-webkit-slider-thumb{background:var(--amber);box-shadow
             </select>
           </div>
           <button class="ac-btn lime full" id="renderImageBtn" disabled style="margin-top:6px">🖼 Render Image</button>
-          <button class="ac-btn cyan full" id="renderSequenceBtn" disabled style="margin-top:4px">🎞 Render Sequence (PNG)</button>
+          <button class="ac-btn cyan full" id="renderSequenceBtn" disabled style="margin-top:4px">🎞 Render 12 Views (PNG ZIP)</button>
         </div>
       </div>
 
@@ -1602,15 +1634,6 @@ input[type=range].amber::-webkit-slider-thumb{background:var(--amber);box-shadow
   </div>
 </div>
 
-<!-- COMPARE SLIDER -->
-<div id="compareSlider">
-  <div class="cmp-label-before">BEFORE</div>
-  <div class="cmp-label-after">AFTER</div>
-  <div class="cmp-divider" id="cmpDivider">
-    <div class="cmp-handle">↔</div>
-  </div>
-</div>
-
 <!-- TOAST -->
 <div id="toast">
   <div class="toast-title" id="toastTitle">Done</div>
@@ -1741,6 +1764,7 @@ const S = {
   activePaintColor: [0.83, 1.0, 0.0],
   // color grade state
   exposure: 0, contrast: 0, saturation: 0, temperature: 0,
+  curveChannel: 'master', curvePoints: null,
   // FX
   bloomStrength: 0, vignetteStrength: 0, grainStrength: 0,
   glitchStrength: 0, scanStrength: 0,
@@ -1750,11 +1774,75 @@ window.S = S;
 let _sourceToRender = null;
 let _gizmoGesture = false;
 let _previousGizmoTransform = null;
+let _compareBaselineUrl = null;
+let _compareCaptureTimer = null;
+let _viewportBoundsHelper = null;
+let _viewportBoundsVisible = false;
+
+function _captureCompareBaseline() {
+  const image = $('compareBeforeImage');
+  if (!image || !S.positions) return;
+  image.style.display = 'none';
+  $('compareBtn').disabled = true;
+  $('viewSplit').disabled = true;
+  requestAnimationFrame(() => {
+    renderer.render(scene, camera);
+    $('cmpDivider').style.left = '50%';
+    image.style.clipPath = 'inset(0 50% 0 0)';
+    try {
+      renderer.domElement.toBlob(blob => {
+        if (!blob) return;
+        if (_compareBaselineUrl) URL.revokeObjectURL(_compareBaselineUrl);
+        _compareBaselineUrl = URL.createObjectURL(blob);
+        image.src = _compareBaselineUrl;
+        $('compareBtn').disabled = false;
+        $('viewSplit').disabled = false;
+      }, 'image/png');
+    } catch (error) { console.warn('[Compare] Could not capture source view:', error); }
+  });
+}
+
+function _updateViewportBounds() {
+  if (!_viewportBoundsVisible || !S.positions || !S.alive) return;
+  let minX=Infinity,minY=Infinity,minZ=Infinity,maxX=-Infinity,maxY=-Infinity,maxZ=-Infinity;
+  for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) {
+    const x=S.positions[i*3],y=S.positions[i*3+1],z=S.positions[i*3+2];
+    if(x<minX)minX=x;if(x>maxX)maxX=x;
+    if(y<minY)minY=y;if(y>maxY)maxY=y;
+    if(z<minZ)minZ=z;if(z>maxZ)maxZ=z;
+  }
+  if (!Number.isFinite(minX)) return;
+  const box = new THREE.Box3(new THREE.Vector3(minX,minY,minZ),new THREE.Vector3(maxX,maxY,maxZ));
+  if (!_viewportBoundsHelper) {
+    _viewportBoundsHelper = new THREE.Box3Helper(box, 0xc8ff00);
+    _viewportBoundsHelper.material.transparent = true;
+    _viewportBoundsHelper.material.opacity = 0.8;
+    _viewportBoundsHelper.renderOrder = 4;
+    scene.add(_viewportBoundsHelper);
+  } else _viewportBoundsHelper.box.copy(box);
+  _viewportBoundsHelper.visible = true;
+  _viewportBoundsHelper.updateMatrixWorld(true);
+}
 
 function selectedPointCount() {
   if (!S.selected) return 0;
   let n=0; for(let i=0;i<S.selected.length;i++) if(S.alive?.[i] && S.selected[i]) n++;
   return n;
+}
+function _syncViewportHud() {
+  const ready = !!(S.positions && S.alive?.length);
+  const selected = selectedPointCount();
+  const count = $('hudSelectionCount');
+  if (count) count.textContent = ready ? (selected ? `${fmt(selected)} selected` : 'Whole scene') : 'No scene';
+  document.querySelectorAll('[data-hud-mode]').forEach(button => {
+    button.disabled = !ready;
+    button.classList.toggle('active', button.dataset.hudMode === S.mode);
+  });
+  document.querySelectorAll('[data-hud-orient]').forEach(button => { button.disabled = !ready; });
+  const hint = $('viewportHudHint');
+  if (hint) hint.textContent = !ready ? 'Open a splat to enable viewport tools.' :
+    S.mode === 'measure' ? 'Click two points on the model to measure.' :
+    selected ? `Gizmo edits ${fmt(selected)} selected points.` : 'Gizmo edits the whole scene. Select points to edit part.';
 }
 function syncTransformGizmo() {
   const count = S.alive?.length || 0;
@@ -2332,6 +2420,12 @@ function parsePLY(buffer) {
 }
 // ─── LOAD ────────────────────────────────────────────────────────────────────
 async function loadFile(file, urlOverride) {
+  clearTimeout(_compareCaptureTimer);
+  compareActive = false;
+  $('compareBeforeImage').style.display = 'none';
+  $('compareSlider').classList.remove('active');
+  $('compareBtn').textContent = '◧ Compare'; $('viewSplit').classList.remove('active');
+  $('compareBtn').disabled = true; $('viewSplit').disabled = true;
   setStatus(`Loading ${file.name}…`, 'busy'); setProgress(10);
   const buf = await file.arrayBuffer(); setProgress(40);
   const extSource = (urlOverride || file.name).split(/[?#]/, 1)[0];
@@ -2533,6 +2627,9 @@ async function loadFile(file, urlOverride) {
       if (revRow) revRow.style.display = 'flex';
     }
   }, 300);
+  // The initial Gaussian reveal runs for 2.4s. Capture the comparison source
+  // after it completes so the saved baseline contains the full scene.
+  _compareCaptureTimer = setTimeout(_captureCompareBaseline, 2900);
 }
 
 // ─── GEOMETRY REBUILD ────────────────────────────────────────────────────────
@@ -2599,6 +2696,11 @@ function rebuildGeometry() {
       r = clamp(0.5 + (r - 0.5) * cf, 0, 1);
       g = clamp(0.5 + (g - 0.5) * cf, 0, 1);
       b = clamp(0.5 + (b - 0.5) * cf, 0, 1);
+    }
+    if (S.curvePoints) {
+      const master=S.curvePoints.master;
+      r=applyToneCurveValue(r,master);g=applyToneCurveValue(g,master);b=applyToneCurveValue(b,master);
+      r=applyToneCurveValue(r,S.curvePoints.red);g=applyToneCurveValue(g,S.curvePoints.green);b=applyToneCurveValue(b,S.curvePoints.blue);
     }
     // highlights / shadows — tonal-range-selective brightness, weighted by
     // how far this pixel's luminance sits into the highlight/shadow range
@@ -2730,6 +2832,8 @@ function rebuildGeometry() {
   refreshTransformSourceMap();
   if (window.FumocaGaussianRenderer?.isEnabled()) _requestGaussianDepthSort();
   updateStats();
+  _updateViewportBounds();
+  _syncViewportHud();
   renderMeasurementOverlay();
 }
 
@@ -2815,6 +2919,7 @@ function updateStats() {
   $('statDeleted').textContent = fmt(total - alive);
   $('statSel').textContent = fmt(sel);
   $('selCount').textContent = fmt(sel);
+  _syncViewportHud();
 }
 
 // ─── HISTORY ────────────────────────────────────────────────────────────────
@@ -3408,6 +3513,7 @@ function setMode(mode) {
   } else { ring.style.display = 'none'; }
   setStatus(`Mode: ${mode.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}`);
   syncTransformGizmo();
+  _syncViewportHud();
 }
 
 // ─── DISPLAY MODE ────────────────────────────────────────────────────────────
@@ -3421,33 +3527,59 @@ function setDisplayMode(mode) {
 }
 
 // ─── TONE CURVE ──────────────────────────────────────────────────────────────
+function _defaultToneCurves() {
+  const points = () => [{x:1/3,y:1/3},{x:2/3,y:2/3}];
+  return { master:points(), red:points(), green:points(), blue:points() };
+}
+S.curvePoints = _defaultToneCurves();
+function applyToneCurveValue(value, points) {
+  const x=clamp(value,0,1),[a,b]=points;
+  if(x<=a.x)return a.x>0?x*a.y/a.x:0;
+  if(x<=b.x)return a.y+(x-a.x)*(b.y-a.y)/Math.max(1e-5,b.x-a.x);
+  return b.x<1?b.y+(x-b.x)*(1-b.y)/(1-b.x):1;
+}
 function drawToneCurve() {
   const canvas = $('toneCurveCanvas'); if (!canvas) return;
   const ctx = canvas.getContext('2d'), W = canvas.width, H = canvas.height;
   ctx.clearRect(0, 0, W, H);
-  // grid
   ctx.strokeStyle = 'rgba(255,255,255,.08)'; ctx.lineWidth = 0.5;
   for (let i = 1; i < 4; i++) {
     ctx.beginPath(); ctx.moveTo(W / 4 * i, 0); ctx.lineTo(W / 4 * i, H); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(0, H / 4 * i); ctx.lineTo(W, H / 4 * i); ctx.stroke();
   }
-  // diagonal baseline
-  ctx.strokeStyle = 'rgba(255,255,255,.12)'; ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(0, H); ctx.lineTo(W, 0); ctx.stroke();
-  // curve
-  ctx.strokeStyle = 'rgba(212,255,0,.8)'; ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  const exp = S.exposure / 100, con = S.contrast / 100;
-  for (let x = 0; x <= W; x++) {
-    const t = x / W;
-    let y = t + exp;
-    if (con !== 0) y = 0.5 + (y - 0.5) * (1 + con * 1.5);
-    y = clamp(y, 0, 1);
-    const ry = H - y * H;
-    x === 0 ? ctx.moveTo(x, ry) : ctx.lineTo(x, ry);
+  const channels=[['master','#c8ff00'],['red','#ff6b77'],['green','#55e896'],['blue','#68a9ff']];
+  for(const [key,color] of channels){
+    if(key!=='master'&&S.curveChannel!=='master'&&S.curveChannel!==key)continue;
+    const points=S.curvePoints[key];ctx.strokeStyle=color;ctx.globalAlpha=key===S.curveChannel?1:.32;ctx.lineWidth=key===S.curveChannel?2:1;
+    ctx.beginPath();ctx.moveTo(0,H);for(const point of points)ctx.lineTo(point.x*W,(1-point.y)*H);ctx.lineTo(W,0);ctx.stroke();
+    if(key===S.curveChannel)for(const point of points){ctx.beginPath();ctx.arc(point.x*W,(1-point.y)*H,4,0,Math.PI*2);ctx.fillStyle='#101216';ctx.fill();ctx.strokeStyle=color;ctx.lineWidth=1.5;ctx.stroke();}
   }
-  ctx.stroke();
+  ctx.globalAlpha=1;
 }
+const curveChannelButtons={curveMaster:'master',curveR:'red',curveG:'green',curveB:'blue'};
+$("curveMaster")?.classList.add('active');
+for(const [id,channel] of Object.entries(curveChannelButtons))$(id)?.addEventListener('click',()=>{
+  S.curveChannel=channel;
+  for(const [buttonId,key] of Object.entries(curveChannelButtons))$(buttonId)?.classList.toggle('active',key===channel);
+  drawToneCurve();
+});
+let _curveDragIndex=-1;
+const _curveCanvas=$('toneCurveCanvas');
+_curveCanvas?.addEventListener('pointerdown',event=>{
+  const rect=_curveCanvas.getBoundingClientRect(),points=S.curvePoints[S.curveChannel],x=(event.clientX-rect.left)/rect.width,y=1-(event.clientY-rect.top)/rect.height;
+  const nearest=points.map((point,index)=>({index,distance:Math.hypot((point.x-x)*rect.width,(point.y-y)*rect.height)})).sort((a,b)=>a.distance-b.distance)[0];
+  if(!nearest||nearest.distance>24)return;
+  _curveDragIndex=nearest.index;_curveCanvas.setPointerCapture(event.pointerId);event.preventDefault();
+});
+_curveCanvas?.addEventListener('pointermove',event=>{
+  if(_curveDragIndex<0)return;
+  const rect=_curveCanvas.getBoundingClientRect(),points=S.curvePoints[S.curveChannel],point=points[_curveDragIndex];
+  point.x=clamp((event.clientX-rect.left)/rect.width,_curveDragIndex===0?0.02:points[0].x+0.04,_curveDragIndex===0?points[1].x-0.04:0.98);
+  point.y=clamp(1-(event.clientY-rect.top)/rect.height,0,1);
+  drawToneCurve();rebuildGeometry();
+});
+const finishCurveDrag=()=>{_curveDragIndex=-1;};
+_curveCanvas?.addEventListener('pointerup',finishCurveDrag);_curveCanvas?.addEventListener('pointercancel',finishCurveDrag);
 
 // ─── LASSO RENDER ────────────────────────────────────────────────────────────
 const lassoSvg = $('lassoSvg');
@@ -3898,15 +4030,40 @@ $('removeBgImageBtn')?.addEventListener('click', () => {
 Object.entries(toolMap).forEach(([id, mode]) => {
   const el = $(id); if (el) el.addEventListener('click', () => setMode(mode));
 });
+document.querySelectorAll('[data-hud-mode]').forEach(button => {
+  button.addEventListener('click', () => setMode(button.dataset.hudMode));
+});
+document.querySelectorAll('[data-hud-orient]').forEach(button => {
+  button.addEventListener('click', () => {
+    const [axis, degrees] = button.dataset.hudOrient.split(':');
+    rotateEntireScene(axis, Number(degrees));
+  });
+});
+$('[data-hud-tab="transform"]')?.addEventListener('click', () => {
+  document.querySelector('#leftTabs .ptab[data-tab="transform"]')?.click();
+});
 Object.entries(dispMap).forEach(([id, mode]) => {
   const el = $(id); if (el) el.addEventListener('click', () => setDisplayMode(mode));
 });
 
 $('viewGrid').addEventListener('click', () => {
   const grid = $('viewportGrid');
-  grid.classList.toggle('show');
-  $('viewGrid').classList.toggle('active');
+  const visible = !orientationGrid.visible;
+  grid.classList.toggle('show', visible);
+  orientationGrid.visible = visible;
+  $('viewGrid').classList.toggle('active', visible);
 });
+
+$('viewWire').addEventListener('click', () => {
+  if (!S.positions || !S.alive) { showToast('No scene loaded', 'Load a splat before showing its bounds.', 'warn'); return; }
+  _viewportBoundsVisible = !_viewportBoundsVisible;
+  $('viewWire').classList.toggle('active', _viewportBoundsVisible);
+  $('viewWire').title = _viewportBoundsVisible ? 'Hide scene bounds' : 'Show scene bounds';
+  if (_viewportBoundsVisible) _updateViewportBounds();
+  else if (_viewportBoundsHelper) _viewportBoundsHelper.visible = false;
+});
+
+$('viewSplit').addEventListener('click', () => $('compareBtn').click());
 
 $('viewFull').addEventListener('click', () => {
   if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => { });
@@ -3916,16 +4073,29 @@ $('viewFull').addEventListener('click', () => {
 // ─── COMPARE SLIDER ──────────────────────────────────────────────────────────
 let compareActive = false;
 $('compareBtn').addEventListener('click', () => {
+  if (!_compareBaselineUrl) { showToast('Compare not ready', 'Load a scene and wait for its original view to be captured.', 'warn'); return; }
   compareActive = !compareActive;
-  const cs = $('compareSlider'); cs.classList.toggle('active', compareActive);
+  const cs = $('compareSlider'), img = $('compareBeforeImage');
+  cs.classList.toggle('active', compareActive);
+  img.style.display = compareActive ? 'block' : 'none';
   $('compareBtn').textContent = compareActive ? '◧ Exit Compare' : '◧ Compare';
-  if (compareActive) showToast('Compare Mode', 'Drag the divider to compare before/after', '');
+  $('viewSplit').classList.toggle('active', compareActive);
+  if (compareActive) showToast('Compare Mode', 'Loaded scene is on the left; current edits are on the right.', '');
 });
 const cmpDiv = $('cmpDivider');
 if (cmpDiv) {
   let draggingCmp = false;
-  cmpDiv.addEventListener('pointerdown', e => { draggingCmp = true; e.stopPropagation(); });
-  window.addEventListener('pointermove', e => { if (!draggingCmp) return; const x = (e.clientX / window.innerWidth * 100).toFixed(1); cmpDiv.style.left = x + '%'; });
+  const placeDivider = clientX => {
+    const rect = viewport.getBoundingClientRect();
+    const pct = Math.max(0, Math.min(100, (clientX - rect.left) / Math.max(1, rect.width) * 100));
+    cmpDiv.style.left = `${pct}%`;
+    $('compareBeforeImage').style.clipPath = `inset(0 ${100-pct}% 0 0)`;
+  };
+  cmpDiv.addEventListener('pointerdown', e => { draggingCmp = true; cmpDiv.setPointerCapture?.(e.pointerId); e.stopPropagation(); });
+  cmpDiv.addEventListener('pointermove', e => { if (draggingCmp) placeDivider(e.clientX); });
+  cmpDiv.addEventListener('pointerup', () => draggingCmp = false);
+  cmpDiv.addEventListener('pointercancel', () => draggingCmp = false);
+  window.addEventListener('pointermove', e => { if (draggingCmp) placeDivider(e.clientX); });
   window.addEventListener('pointerup', () => draggingCmp = false);
 }
 
@@ -4457,9 +4627,38 @@ $('fillHolesBtn')?.addEventListener('click', () => {
   showToast('Fill Holes', filled ? `Adjusted ${fmt(filled)} points in sparse regions` : 'No significant gaps detected');
 });
 $('isolateSubjectBtn')?.addEventListener('click', () => { autoClean(); });
+function _gradeRgbForCommit(red,green,blue,out) {
+  let r=red,g=green,b=blue;
+  const exposure=1+S.exposure/100;r=clamp(r*exposure,0,1);g=clamp(g*exposure,0,1);b=clamp(b*exposure,0,1);
+  if(S.contrast){const cf=1+(S.contrast/100)*1.5;r=clamp(.5+(r-.5)*cf,0,1);g=clamp(.5+(g-.5)*cf,0,1);b=clamp(.5+(b-.5)*cf,0,1);}
+  if(S.curvePoints){const m=S.curvePoints.master;r=applyToneCurveValue(r,m);g=applyToneCurveValue(g,m);b=applyToneCurveValue(b,m);r=applyToneCurveValue(r,S.curvePoints.red);g=applyToneCurveValue(g,S.curvePoints.green);b=applyToneCurveValue(b,S.curvePoints.blue);}
+  if(S.highlights||S.shadows||S.whites||S.blacks){const lum=.299*r+.587*g+.114*b;let adj=0;if(S.highlights)adj+=(S.highlights/100)*Math.max(0,(lum-.5)*2)*.4;if(S.shadows)adj+=(S.shadows/100)*Math.max(0,(.5-lum)*2)*.4;if(S.whites)adj+=(S.whites/100)*Math.max(0,(lum-.75)*4)*.5;if(S.blacks)adj+=(S.blacks/100)*Math.max(0,(.25-lum)*4)*.5;r=clamp(r+adj,0,1);g=clamp(g+adj,0,1);b=clamp(b+adj,0,1);}
+  if(S.saturation){const lum=.299*r+.587*g+.114*b,f=1+S.saturation/100;r=clamp(lum+(r-lum)*f,0,1);g=clamp(lum+(g-lum)*f,0,1);b=clamp(lum+(b-lum)*f,0,1);}
+  if(S.vibrance){const sat=Math.max(r,g,b)-Math.min(r,g,b),f=1+(S.vibrance/100)*(1-sat),lum=.299*r+.587*g+.114*b;r=clamp(lum+(r-lum)*f,0,1);g=clamp(lum+(g-lum)*f,0,1);b=clamp(lum+(b-lum)*f,0,1);}
+  if(S.temperature>0){r=clamp(r+S.temperature/400,0,1);b=clamp(b-S.temperature/400,0,1);}else if(S.temperature<0){b=clamp(b-S.temperature/400,0,1);r=clamp(r+S.temperature/400,0,1);}
+  if(S.tint){g=clamp(g-S.tint/400,0,1);r=clamp(r+S.tint/800,0,1);b=clamp(b+S.tint/800,0,1);}
+  if(S.hueShift){const hue=(rgbToHue(r,g,b)+S.hueShift+360)%360,lum=.299*r+.587*g+.114*b,max=Math.max(r,g,b),min=Math.min(r,g,b),sat=max===0?0:(max-min)/max,c=(1-Math.abs(2*lum-1))*sat,x=c*(1-Math.abs((hue/60)%2-1)),m=lum-c/2;let rr,gg,bb;if(hue<60){rr=c;gg=x;bb=0;}else if(hue<120){rr=x;gg=c;bb=0;}else if(hue<180){rr=0;gg=c;bb=x;}else if(hue<240){rr=0;gg=x;bb=c;}else if(hue<300){rr=x;gg=0;bb=c;}else{rr=c;gg=0;bb=x;}r=clamp(rr+m,0,1);g=clamp(gg+m,0,1);b=clamp(bb+m,0,1);}
+  if(S.hsl&&(S.hsl.red||S.hsl.orange||S.hsl.yellow||S.hsl.green||S.hsl.blue||S.hsl.purple)){const weights=hueWeights(rgbToHue(r,g,b));let adjustment=0;for(const key in HSL_ANCHORS)adjustment+=(S.hsl[key]/100)*weights[key];if(adjustment){if(S.hslMode==='hue'){const hue=rgbToHue(r,g,b),lum=.299*r+.587*g+.114*b,sat=Math.max(r,g,b)-Math.min(r,g,b);[r,g,b]=hueToRgb((hue+adjustment*90+360)%360,sat,lum);}else if(S.hslMode==='lum'){const lift=adjustment*.35;r=clamp(r+lift,0,1);g=clamp(g+lift,0,1);b=clamp(b+lift,0,1);}else{const lum=.299*r+.587*g+.114*b,f=clamp(1+adjustment,0,2.5);r=clamp(lum+(r-lum)*f,0,1);g=clamp(lum+(g-lum)*f,0,1);b=clamp(lum+(b-lum)*f,0,1);}}}
+  out[0]=r;out[1]=g;out[2]=b;
+}
 $('applyColorBtn')?.addEventListener('click', () => {
-  pushHistory('color grade'); rebuildGeometry();
-  showToast('Color Applied', 'Grade applied to all visible points');
+  if(!S.alive||!S.colors){showToast('No scene loaded','Load a splat before applying a color grade.','warn');return;}
+  pushHistory('color grade');
+  if(!S.paintColors)S.paintColors=new Float32Array(S.colors.length).fill(-1);
+  const rgb=new Float32Array(3),hidden=S.layerHidden;
+  for(let i=0;i<S.alive.length;i++){
+    if(!S.alive[i]||hidden?.[i])continue;
+    const o=i*3;_gradeRgbForCommit(S.paintColors[o]>=0?S.paintColors[o]:S.colors[o],S.paintColors[o+1]>=0?S.paintColors[o+1]:S.colors[o+1],S.paintColors[o+2]>=0?S.paintColors[o+2]:S.colors[o+2],rgb);
+    S.paintColors[o]=rgb[0];S.paintColors[o+1]=rgb[1];S.paintColors[o+2]=rgb[2];
+  }
+  S.exposure=S.contrast=S.highlights=S.shadows=S.whites=S.blacks=0;S.saturation=S.vibrance=S.temperature=S.tint=S.hueShift=0;
+  S.hsl={red:0,orange:0,yellow:0,green:0,blue:0,purple:0};S.curvePoints=_defaultToneCurves();S.curveChannel='master';
+  colorAdjIds.forEach(id=>{const el=$(id);if(el)el.value=0;});colorAdjVals.forEach(id=>{const el=$(id);if(el)el.textContent='0';});
+  ['hslRed','hslOrange','hslYellow','hslGreen','hslBlue','hslPurple'].forEach(id=>{const el=$(id);if(el)el.value=0;});
+  ['hslR','hslO','hslY','hslG','hslB2','hslP'].forEach(id=>{const el=$(id);if(el)el.textContent='0';});
+  for(const[id,channel]of Object.entries(curveChannelButtons))$(id)?.classList.toggle('active',channel==='master');
+  rebuildGeometry();drawToneCurve();
+  showToast('Color grade applied','The visible points now keep this grade in exports. Undo restores their previous colors.','ok');
 });
 function renderLayers() {
   const list = $('layerList'); if (!list) return;
@@ -4560,6 +4759,8 @@ $('layerOpac')?.addEventListener('input', (e) => {
 });
 $('resetColorBtn')?.addEventListener('click', () => {
   S.exposure = S.contrast = S.saturation = S.temperature = 0;
+  S.curvePoints = _defaultToneCurves(); S.curveChannel = 'master';
+  for(const [id,channel] of Object.entries(curveChannelButtons))$(id)?.classList.toggle('active',channel==='master');
   S.highlights = S.shadows = S.whites = S.blacks = S.vibrance = S.tint = S.hueShift = 0;
   S.hsl = { red:0, orange:0, yellow:0, green:0, blue:0, purple:0 };
   colorAdjIds.forEach(id => { const el = $(id); if (el) el.value = 0; });
@@ -4571,7 +4772,9 @@ $('resetColorBtn')?.addEventListener('click', () => {
 });
 $('resetCurveBtn')?.addEventListener('click', () => {
   S.exposure = S.contrast = 0;
-  drawToneCurve();
+  S.curvePoints = _defaultToneCurves();
+  $('adjExp').value='0';$('adjCon').value='0';$('adjExpVal').textContent='0';$('adjConVal').textContent='0';
+  rebuildGeometry();drawToneCurve();showToast('Tone curve reset','RGB and channel curves returned to neutral.');
 });
 $('applyTrnBtn')?.addEventListener('click', () => {
   if (!S.alive) return;
@@ -4663,6 +4866,53 @@ $('renderImageBtn')?.addEventListener('click', () => {
   const url = renderer.domElement.toDataURL('image/png');
   const a = document.createElement('a'); a.href = url; a.download = 'fumoca_render.png'; a.click();
   showToast('Rendered', 'Image saved to disk');
+});
+$('renderSequenceBtn')?.addEventListener('click', async event => {
+  if (!S.positions) { showToast('No File', 'Load a splat first', 'warn'); return; }
+  const button = event.currentTarget, originalText = button.textContent;
+  button.disabled = true; button.textContent = 'Rendering views…';
+  const cameraPosition = camera.position.clone(), cameraQuaternion = camera.quaternion.clone();
+  const target = controls.target.clone(), previousEnabled = controls.enabled, previousAutoRotate = controls.autoRotate;
+  const files = [];
+  try {
+    controls.enabled = false; controls.autoRotate = false;
+    const dx = cameraPosition.x - target.x, dz = cameraPosition.z - target.z;
+    for (let i = 0; i < 12; i++) {
+      const angle = (Math.PI * 2 * i) / 12, c = Math.cos(angle), s = Math.sin(angle);
+      camera.position.set(target.x + dx*c - dz*s, cameraPosition.y, target.z + dx*s + dz*c);
+      camera.lookAt(target); camera.updateMatrixWorld(true);
+      renderer.render(scene, camera);
+      const blob = await new Promise(resolve => renderer.domElement.toBlob(resolve, 'image/png'));
+      if (!blob) throw new Error(`Could not render view ${i + 1}.`);
+      files.push({ name: `view-${String(i + 1).padStart(2,'0')}.png`, bytes: new Uint8Array(await blob.arrayBuffer()) });
+      button.textContent = `Rendering ${i + 1}/12…`;
+    }
+    const crcTable = new Uint32Array(256);
+    for (let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=(c&1)?(0xedb88320^(c>>>1)):(c>>>1);crcTable[n]=c>>>0;}
+    const crc32 = bytes => { let c=0xffffffff;for(const byte of bytes)c=crcTable[(c^byte)&255]^(c>>>8);return (c^0xffffffff)>>>0; };
+    const encoder = new TextEncoder(), localParts=[], centralParts=[];
+    let offset=0;
+    for (const file of files) {
+      const name=encoder.encode(file.name), crc=crc32(file.bytes), local=new Uint8Array(30+name.length), lv=new DataView(local.buffer);
+      lv.setUint32(0,0x04034b50,true);lv.setUint16(4,20,true);lv.setUint16(6,0x0800,true);lv.setUint16(8,0,true);
+      lv.setUint32(14,crc,true);lv.setUint32(18,file.bytes.length,true);lv.setUint32(22,file.bytes.length,true);lv.setUint16(26,name.length,true);local.set(name,30);
+      localParts.push(local,file.bytes);
+      const central=new Uint8Array(46+name.length),cv=new DataView(central.buffer);
+      cv.setUint32(0,0x02014b50,true);cv.setUint16(4,20,true);cv.setUint16(6,20,true);cv.setUint16(8,0x0800,true);cv.setUint16(10,0,true);
+      cv.setUint32(16,crc,true);cv.setUint32(20,file.bytes.length,true);cv.setUint32(24,file.bytes.length,true);cv.setUint16(28,name.length,true);cv.setUint32(42,offset,true);central.set(name,46);
+      centralParts.push(central);offset+=local.length+file.bytes.length;
+    }
+    const centralSize=centralParts.reduce((sum,part)=>sum+part.length,0), end=new Uint8Array(22), ev=new DataView(end.buffer);
+    ev.setUint32(0,0x06054b50,true);ev.setUint16(8,files.length,true);ev.setUint16(10,files.length,true);ev.setUint32(12,centralSize,true);ev.setUint32(16,offset,true);
+    const zip=new Blob([...localParts,...centralParts,end],{type:'application/zip'}),url=URL.createObjectURL(zip),a=document.createElement('a');
+    a.href=url;a.download='fumoca-12-views.zip';a.click();setTimeout(()=>URL.revokeObjectURL(url),10000);
+    showToast('Views exported', '12 orbit PNGs were saved in fumoca-12-views.zip.', 'ok');
+  } catch(error) { showToast('Sequence render failed', error.message || String(error), 'warn'); }
+  finally {
+    camera.position.copy(cameraPosition);camera.quaternion.copy(cameraQuaternion);controls.target.copy(target);
+    controls.enabled=previousEnabled;controls.autoRotate=previousAutoRotate;controls.update();renderer.render(scene,camera);
+    button.disabled=false;button.textContent=originalText;
+  }
 });
 $('addKeyframeBtn')?.addEventListener('click', async () => {
   if (!window.FumocaStudio?.addKeyframeFromCurrentView) {
