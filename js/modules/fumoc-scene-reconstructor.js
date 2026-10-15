@@ -265,13 +265,16 @@ async function estimateDepthMidas(imgData, onProgress) {
 
     // Resize depth map back to original image size and normalise to [0,1]
     const depthResized = _resizeDepth(depthRaw, modelW, modelH, imgData.width, imgData.height);
+    estimateDepthMidas.lastMethod = 'midas_small';
     return _normaliseDepth(depthResized);
 
   } catch (err) {
-    console.warn('[SceneReconstructor] MiDaS failed, using heuristic:', err.message);
+    console.warn('[SceneReconstructor] Depth model failed, using heuristic:', err.message);
+    estimateDepthMidas.lastMethod = 'heuristic';
     return estimateDepthHeuristic(imgData);
   }
 }
+estimateDepthMidas.lastMethod = null;
 
 function _imageDataToTensor(imgData, w, h) {
   const floats = new Float32Array(3 * w * h);
@@ -360,6 +363,7 @@ function depthMapToSplat(imgData, depthMap, opts = {}) {
 
   const out  = new Uint8Array(N * 32);
   const view = new DataView(out.buffer);
+  let written = 0;
 
   for (let py = 0; py < H; py++) {
     for (let px = 0; px < W; px++) {
@@ -401,7 +405,7 @@ function depthMapToSplat(imgData, depthMap, opts = {}) {
       // (w=1, x=0, y=0, z=0 mapped to [0,255])
       const q0 = 128, q1 = 128, q2 = 128, q3 = 128;
 
-      const b0 = idx * 32;
+      const b0 = written * 32;
       view.setFloat32(b0,      x,        true);
       view.setFloat32(b0 + 4,  y,        true);
       view.setFloat32(b0 + 8,  z,        true);
@@ -416,10 +420,11 @@ function depthMapToSplat(imgData, depthMap, opts = {}) {
       view.setUint8  (b0 + 29, q1);
       view.setUint8  (b0 + 30, q2);
       view.setUint8  (b0 + 31, q3);
+      written++;
     }
   }
 
-  return out;
+  return written === N ? out : out.slice(0, written * 32);
 }
 
 // ── Scene metadata (SCNE section) ─────────────────────────────────────────────
@@ -505,8 +510,10 @@ async function reconstruct(imageSource, options = {}) {
 
   // Resample to working resolution
   onProgress?.(8, 'Resampling image…');
-  const targetH = resolution;
-  const targetW = Math.round(resolution * aspectRatio);
+  const maxDimension = Math.max(imgData.width, imgData.height);
+  const resizeScale = Math.min(1, resolution / maxDimension);
+  const targetW = Math.max(1, Math.round(imgData.width * resizeScale));
+  const targetH = Math.max(1, Math.round(imgData.height * resizeScale));
   if (imgData.width > targetW || imgData.height > targetH) {
     imgData = _resampleImageData(imgData, targetW, targetH);
   }
@@ -523,13 +530,13 @@ async function reconstruct(imageSource, options = {}) {
 
   } else if (depthMethod === 'midas_small') {
     depthMap   = await estimateDepthMidas(imgData, onProgress);
-    methodUsed = 'midas_small';
+    methodUsed = estimateDepthMidas.lastMethod || 'heuristic';
 
   } else { // 'auto'
     try {
       onProgress?.(12, 'Loading depth model…');
       depthMap   = await estimateDepthMidas(imgData, onProgress);
-      methodUsed = 'midas_small';
+      methodUsed = estimateDepthMidas.lastMethod || 'heuristic';
     } catch {
       onProgress?.(15, 'Using heuristic depth…');
       depthMap   = estimateDepthHeuristic(imgData);

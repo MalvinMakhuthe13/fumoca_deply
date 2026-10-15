@@ -1040,6 +1040,7 @@ input[type=range].amber::-webkit-slider-thumb{background:var(--amber);box-shadow
 
     <!-- TAB: IMPORT (LiDAR + formats) -->
     <div class="panel-body" id="tab-import" style="display:none">
+      <div id="imageAngleImportRoot"></div>
       <div class="section">
         <div class="sec-head"><span class="sec-label">LiDAR / dense points</span><span class="sec-badge">PLY · XYZ</span></div>
         <div class="sec-body">
@@ -4456,6 +4457,15 @@ function _showTeaserModal(blobUrl, uploadedUrl) {
 // ─── TOPBAR BUTTONS ──────────────────────────────────────────────────────────
 $('openBtn').addEventListener('click', () => $('fileInput').click());
 $('fileInput').addEventListener('change', async e => { const f = e.target.files?.[0]; if (f) await loadFile(f).catch(err => setStatus(err.message, 'warn')); });
+window.addEventListener('fumoca:openReconstructedSplat', async (event) => {
+  const { bytes, filename } = event.detail || {};
+  if (!bytes?.byteLength) return setStatus('Image reconstruction returned no splat data.', 'warn');
+  try {
+    await loadFile(new File([bytes], filename || 'image-popout.splat', { type: 'application/octet-stream' }));
+    S.reconstructionMeta = { kind: 'inferred-2.5d', source: filename || 'image' };
+    showToast('Inferred 2.5D scene loaded', 'This depth-based result is not a measured multi-view scan.');
+  } catch (err) { setStatus(err.message || String(err), 'warn'); }
+});
 $('addSplatBtn')?.addEventListener('click', () => $('addSplatInput')?.click());
 $('addSplatInput')?.addEventListener('change', async e => {
   const files = Array.from(e.target.files || []); e.target.value = '';
@@ -6124,6 +6134,7 @@ if (!window._fumocaBooted) {
   import { mountMeshPrintPanel } from './js/modules/studio-mesh-print.js';
   import { boostSparseCapture } from './js/modules/sparse-quality.js';
   import { mountBreakFrameUI } from './js/modules/break-frame.js';
+  import { mountImageAngleImport } from './js/modules/image-angle-import.js';
 
   function status(msg) {
     const el = document.getElementById('statusMsg') || document.getElementById('statusText');
@@ -6137,6 +6148,10 @@ if (!window._fumocaBooted) {
   // Mesh / print
   const meshRoot = document.getElementById('studioMeshPrintRoot');
   if (meshRoot) mountMeshPrintPanel(meshRoot, { onStatus: status });
+
+  // Single-photo depth estimate → explicitly inferred 2.5D splat.
+  const imageAngleRoot = document.getElementById('imageAngleImportRoot');
+  if (imageAngleRoot) mountImageAngleImport(imageAngleRoot, { onStatus: status });
 
   // Camera paths
   const camRoot = document.getElementById('studioCameraPathsRoot');
