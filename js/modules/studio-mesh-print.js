@@ -141,7 +141,9 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         const q = state.rotation;
         g.rotW[row] = q?.[i * 4] ?? 1; g.rotX[row] = q?.[i * 4 + 1] ?? 0;
         g.rotY[row] = q?.[i * 4 + 2] ?? 0; g.rotZ[row] = q?.[i * 4 + 3] ?? 0;
-        const meshColors = state.lidarDisplayColors || state.colors;
+        // LiDAR attribute palettes are only a viewport visualization. Keep
+        // mesh vertex color tied to the source RGB, unless the user painted it.
+        const meshColors = state.colors;
         const paint = state.paintColors;
         g.colR[row] = (paint?.[i * 3] >= 0 ? paint[i * 3] : (meshColors?.[i * 3] ?? 0.7)) * 255;
         g.colG[row] = (paint?.[i * 3 + 1] >= 0 ? paint[i * 3 + 1] : (meshColors?.[i * 3 + 1] ?? 0.7)) * 255;

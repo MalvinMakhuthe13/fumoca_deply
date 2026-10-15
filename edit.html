@@ -641,6 +641,7 @@ input[type=range].amber::-webkit-slider-thumb{background:var(--amber);box-shadow
     <button class="tool-btn" id="toolScale" title="Scale Selection">⤢</button>
     <button class="tool-btn" id="toolRotate" title="Rotate Selection (R)">↻</button>
     <button class="tool-btn" id="toolCrop" title="Crop / Trim">✂</button>
+    <button class="tool-btn" id="toolMeasure" title="Measure distance between two splat points">↔</button>
   </div>
   <div class="tool-group">
     <span class="tool-group-label">Display</span>
@@ -878,7 +879,24 @@ input[type=range].amber::-webkit-slider-thumb{background:var(--amber);box-shadow
           <div class="ctrl-row"><span class="ctrl-label">Quick scene orientation (Y is up)</span></div>
           <div class="btn-grid col2" style="margin-bottom:8px">
             <button class="ac-btn" id="orientXPosBtn">Tilt X +90°</button><button class="ac-btn" id="orientXNegBtn">Tilt X −90°</button>
-            <button class="ac-btn" id="orientFlipBtn">Flip upside down</button><button class="ac-btn" id="orientZPosBtn">Turn Z +90°</button>
+            <button class="ac-btn" id="orientYPosBtn">Turn Y +90°</button><button class="ac-btn" id="orientYNegBtn">Turn Y −90°</button>
+            <button class="ac-btn" id="orientZPosBtn">Roll Z +90°</button><button class="ac-btn" id="orientZNegBtn">Roll Z −90°</button>
+            <button class="ac-btn" id="orientFlipBtn">Flip upside down</button>
+          </div>
+          <div class="section">
+            <div class="sec-head"><span class="sec-label">Measure</span><span class="sec-arrow">▾</span></div>
+            <div class="sec-body">
+              <div class="hint">Choose Measure, then click two points on the subject. Distances use source coordinates; set the multiplier and unit if you know the scan scale.</div>
+              <div style="display:flex;gap:6px;align-items:center;margin:7px 0">
+                <label class="ctrl-label" for="measureMultiplier">Display units / source unit</label>
+                <input id="measureMultiplier" type="number" min="0.000001" step="any" value="1" style="width:84px;padding:5px;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text)">
+                <select id="measureUnit" style="padding:5px;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text)">
+                  <option value="units">units</option><option value="mm">mm</option><option value="cm">cm</option><option value="m">m</option><option value="in">in</option><option value="ft">ft</option>
+                </select>
+              </div>
+              <div id="measurementsList" class="hint">No measurements yet.</div>
+              <button type="button" class="ac-btn full" id="clearMeasurementsBtn" style="margin-top:6px">Clear measurements</button>
+            </div>
           </div>
       <div class="section">
         <div class="sec-head"><span class="sec-label">Transform Selection</span><span class="sec-arrow">▾</span></div>
@@ -1707,6 +1725,7 @@ scene.add(new THREE.AxesHelper(1.5));
 const S = {
   fileName: '', fileType: '', sourceBuffer: null, splatRowSize: 32, splatSourceUrl: '',
   positions: null, colors: null, opacity: null, scale: null, scaleXYZ: null, rotation: null, shAttributes: [], shCoefficients: null, alive: null, selected: null,
+  measurements: [], measurementStart: null,
   paintColors: null,
   lidarIntensity: null, lidarClassification: null, lidarReturnNumber: null, lidarDisplayColors: null,
   points: null, geometry: null,
@@ -2045,7 +2064,8 @@ window.mergePointCloudIntoStudio = (cloud = _lidarPreviewCloud) => {
   const modelBounds = oldCount ? _boundsForPositions(S.positions, S.alive) : null;
   const pointSize = Math.max(...(modelBounds?.size || [1, 1, 1]), 1e-4) * 0.0015;
   for (let i = 0; i < added; i++) {
-    for (let c = 0; c < 3; c++) addedColors[i * 3 + c] = _lidarPreviewColors?.[i * 3 + c] ?? cloud.colors?.[i * 3 + c] ?? 0.72;
+    // The selected LiDAR palette is a viewport analysis mode, not source data.
+    for (let c = 0; c < 3; c++) addedColors[i * 3 + c] = cloud.colors?.[i * 3 + c] ?? 0.72;
     addedScale[i] = pointSize;
   }
   S.positions = join(S.positions, _lidarPreviewPositions);
@@ -2151,7 +2171,7 @@ function parseSplat(buffer) {
     rotation.set(q.map(v => v / qLen), i * 4);
   }
   S.splatRowSize = rowSize;
-  return { positions, colors, opacity, scale, scaleXYZ, rotation, count };
+  return { positions, colors, opacity, scale, scaleXYZ, rotation, hasSourceColor: true, count };
 }
 function parsePLY(buffer) {
   let geo;
@@ -2164,27 +2184,40 @@ function parsePLY(buffer) {
   const headerText = new TextDecoder().decode(headerBytes);
   const headerEnd = headerText.indexOf('end_header');
   const customProperties = {};
+  let sourceRgbTypes = null;
   if (headerEnd >= 0) {
     let inVertex = false;
+    const vertexProperties = new Map();
     for (const line of headerText.slice(0, headerEnd).split(/\r?\n/)) {
       const parts = line.trim().split(/\s+/);
       if (parts[0] === 'element') { inVertex = parts[1] === 'vertex'; continue; }
       if (!inVertex || parts[0] !== 'property' || parts[1] === 'list') continue;
-      const name = parts[2];
+      const name = parts[2], type = parts[1];
+      vertexProperties.set(name.toLowerCase(), { name, type: type.toLowerCase() });
       if (/^f_(?:dc|rest)_\d+$/.test(name) || /^(?:opacity|scale_[0-2]|rot_[0-3])$/.test(name)) {
         customProperties[name] = [name];
       }
+    }
+    const aliases = [
+      ['red', 'diffuse_red', 'r', 'diffuse_r'],
+      ['green', 'diffuse_green', 'g', 'diffuse_g'],
+      ['blue', 'diffuse_blue', 'b', 'diffuse_b']
+    ];
+    const rgb = aliases.map(names => names.map(n => vertexProperties.get(n)).find(Boolean));
+    if (rgb.every(Boolean)) {
+      customProperties.sourceRgb = rgb.map(prop => prop.name);
+      sourceRgbTypes = rgb.map(prop => prop.type);
     }
   }
   if (Object.keys(customProperties).length) loader.setCustomPropertyNameMapping(customProperties);
     geo = loader.parse(buffer);
   } catch(e) {
     console.error('[parsePLY] PLYLoader failed:', e);
-    return { positions: new Float32Array(0), colors: new Float32Array(0), opacity: new Float32Array(0), scale: new Float32Array(0), count: 0 };
+    return { positions: new Float32Array(0), colors: new Float32Array(0), opacity: new Float32Array(0), scale: new Float32Array(0), hasSourceColor: false, count: 0 };
   }
 
   const posAttr = geo.getAttribute('position');
-  if (!posAttr) return { positions: new Float32Array(0), colors: new Float32Array(0), opacity: new Float32Array(0), scale: new Float32Array(0), count: 0 };
+  if (!posAttr) return { positions: new Float32Array(0), colors: new Float32Array(0), opacity: new Float32Array(0), scale: new Float32Array(0), hasSourceColor: false, count: 0 };
 
   const count     = posAttr.count;
   const positions = new Float32Array(posAttr.array);
@@ -2203,14 +2236,33 @@ function parsePLY(buffer) {
   const fdc0    = geo.getAttribute('f_dc_0');
   const fdc1    = geo.getAttribute('f_dc_1');
   const fdc2    = geo.getAttribute('f_dc_2');
+  const rawRgbAttr = geo.getAttribute('sourceRgb');
 
-  if (colAttr) {
-    const arr = colAttr.array;
-    // Detect 0-255 vs 0-1 by sampling first 300 values
+  const hasSourceColor = !!(rawRgbAttr || colAttr || (fdc0 && fdc1 && fdc2));
+  let rawFloatRgbNormalized = false;
+  if (rawRgbAttr && sourceRgbTypes?.every(type => /^(?:float|float32|double|float64)$/.test(type))) {
+    // PLYLoader assumes every standard color component is an 8-bit value and
+    // divides by 255. Preserve normalized float RGB before that conversion.
+    const arr = rawRgbAttr.array;
     let maxVal = 0;
-    for (let i = 0; i < Math.min(arr.length, 300); i++) maxVal = Math.max(maxVal, arr[i]);
-    const scale255 = maxVal > 1.5;
-    for (let i = 0; i < count * 3; i++) colors[i] = scale255 ? arr[i] / 255 : arr[i];
+    for (let i = 0; i < arr.length; i++) maxVal = Math.max(maxVal, arr[i]);
+    if (maxVal <= 1.5) {
+      rawFloatRgbNormalized = true;
+      const color = new THREE.Color();
+      for (let i = 0; i < count; i++) {
+        color.setRGB(arr[i * 3], arr[i * 3 + 1], arr[i * 3 + 2], THREE.SRGBColorSpace);
+        colors[i * 3] = color.r; colors[i * 3 + 1] = color.g; colors[i * 3 + 2] = color.b;
+      }
+    } else if (colAttr) {
+      for (let i = 0; i < count * 3; i++) colors[i] = colAttr.array[i];
+    }
+  }
+  if (rawFloatRgbNormalized) {
+    // Already converted from normalized sRGB above.
+  } else if (colAttr) {
+    const arr = colAttr.array;
+    // PLYLoader has already normalized byte RGB and converted sRGB to linear.
+    for (let i = 0; i < count * 3; i++) colors[i] = arr[i];
   } else if (fdc0 && fdc1 && fdc2) {
     // nerfstudio/gsplat: spherical harmonics DC band → colour via sigmoid
     const SH_C0 = 0.28209479177387814;
@@ -2276,7 +2328,7 @@ function parsePLY(buffer) {
     // into another interleaved array doubles hundreds of MB on large captures.
     shCoefficients = Object.fromEntries(shAttributes.map(name => [name, geo.getAttribute(name).array]));
   }
-  return { positions, colors, opacity, scale, scaleXYZ, rotation, shAttributes, shCoefficients, intensities, classifications, returnNumbers, count };
+  return { positions, colors, opacity, scale, scaleXYZ, rotation, shAttributes, shCoefficients, intensities, classifications, returnNumbers, hasSourceColor, count };
 }
 // ─── LOAD ────────────────────────────────────────────────────────────────────
 async function loadFile(file, urlOverride) {
@@ -2301,6 +2353,8 @@ async function loadFile(file, urlOverride) {
   setProgress(70);
   S.fileName = file.name;
   S.positions = parsed.positions; S.colors = parsed.colors;
+  S.sourceColorAvailable = parsed.hasSourceColor !== false;
+  S.measurements = []; S.measurementStart = null; renderMeasurementList();
   S.opacity = parsed.opacity; S.scale = parsed.scale;
   S.scaleXYZ = parsed.scaleXYZ || new Float32Array(parsed.count * 3).fill(0.01);
   S.rotation = parsed.rotation || new Float32Array(parsed.count * 4);
@@ -2319,9 +2373,8 @@ async function loadFile(file, urlOverride) {
   if (lidarColorMode) {
     const has = { intensity: !!S.lidarIntensity, classification: !!S.lidarClassification, return: !!S.lidarReturnNumber };
     for (const option of lidarColorMode.options) if (option.value !== 'rgb') option.disabled = !has[option.value];
-    lidarColorMode.value = S.lidarIntensity ? 'intensity'
-      : S.lidarClassification ? 'classification'
-      : S.lidarReturnNumber ? 'return' : 'rgb';
+    // Source RGB is the faithful default; LiDAR attribute palettes are opt-in.
+    lidarColorMode.value = 'rgb';
     _applyLidarSceneColorMode();
   }
   S.history = []; S.historyIndex = -1;
@@ -2329,7 +2382,7 @@ async function loadFile(file, urlOverride) {
   rebuildGeometry(); setProgress(100);
   renderLayers();
   $('fileName').textContent = file.name;
-  $('fileMeta').textContent = `${fmt(parsed.count)} points · ${(file.size / 1024 / 1024).toFixed(1)} MB · ${ext.toUpperCase()}`;
+  $('fileMeta').textContent = `${fmt(parsed.count)} points · ${(file.size / 1024 / 1024).toFixed(1)} MB · ${ext.toUpperCase()} · ${S.sourceColorAvailable ? 'source color' : 'no RGB color (neutral preview)'}`;
   ['exportBtn', 'saveCloudBtn', 'exportSplatBtn', 'exportNifBtn', 'exportPlyBtn', 'saveSupabaseBtn', 'renderImageBtn', 'renderSequenceBtn', 'captureVideoBtn2', 'deleteBtn', 'publishTopBtn'].forEach(id => { const el = $(id); if (el) el.disabled = false; });
   updateStats();
   setStatus(`Loaded ${fmt(parsed.count)} points`, 'ok');
@@ -2414,6 +2467,7 @@ async function loadFile(file, urlOverride) {
       const lines = [];
       if (r.isGaussianSplat) lines.push('✅ Full NIF data — all tools available');
       else if (r.isPointCloud) lines.push('📍 Point cloud — colour editing available');
+      if (!S.sourceColorAvailable) lines.push('⚠ No RGB source colors found — preview uses neutral gray; color cannot be recovered from this file.');
       if (r.hasCameras) lines.push(`📷 ${r.info?.cameraCount || 0} camera positions embedded`);
       r.warnings.forEach(w => lines.push(`⚠️ ${w}`));
       if (lines.length) {
@@ -2676,6 +2730,7 @@ function rebuildGeometry() {
   refreshTransformSourceMap();
   if (window.FumocaGaussianRenderer?.isEnabled()) _requestGaussianDepthSort();
   updateStats();
+  renderMeasurementOverlay();
 }
 
 function _requestGaussianDepthSort() {
@@ -3026,8 +3081,10 @@ function selectLargeScale() {
 
 // ─── EXPORT ──────────────────────────────────────────────────────────────────
 function _splatColorAt(i) {
-  const p = S.paintColors, view = S.lidarDisplayColors;
-  return [0,1,2].map(c => clamp(p?.[i*3+c] >= 0 ? p[i*3+c] : (view?.[i*3+c] ?? S.colors?.[i*3+c] ?? 0.7), 0, 1));
+  // LiDAR intensity/classification palettes are view-only. Never bake them
+  // into exports; only explicit paint overrides replace the source RGB.
+  const p = S.paintColors;
+  return [0,1,2].map(c => clamp(p?.[i*3+c] >= 0 ? p[i*3+c] : (S.colors?.[i*3+c] ?? 0.7), 0, 1));
 }
 
 function _rotationAt(i) {
@@ -3331,7 +3388,7 @@ const toolMap = {
   toolBox: 'box', toolSphere: 'sphere', toolLasso: 'lasso', toolMagic: 'magic',
   toolBrushErase: 'brush-erase', toolBrushSelect: 'brush-select',
   toolPaint: 'paint', toolSmear: 'smear',
-  toolMove: 'move', toolScale: 'scale-tool', toolRotate: 'rotate', toolCrop: 'crop'
+  toolMove: 'move', toolScale: 'scale-tool', toolRotate: 'rotate', toolCrop: 'crop', toolMeasure: 'measure'
 };
 
 function setMode(mode) {
@@ -3407,7 +3464,78 @@ function renderLasso() {
     poly.setAttribute('points', S.lassoPoints.map(p => `${p.x},${p.y}`).join(' '));
     poly.setAttribute('class', 'lasso-ghost'); lassoSvg.appendChild(poly);
   }
+  renderMeasurementOverlay();
 }
+
+const _measureRaycaster = new THREE.Raycaster();
+function _measurementPointAt(clientX, clientY) {
+  if (!S.points || !S.positions) return null;
+  const rect = viewport.getBoundingClientRect();
+  const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+  const distance = camera.position.distanceTo(controls.target);
+  _measureRaycaster.params.Points.threshold = Math.max(1e-6, 2 * distance * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * 10 / Math.max(1, rect.height));
+  _measureRaycaster.setFromCamera(ndc, camera);
+  const hit = _measureRaycaster.intersectObject(S.points, false)[0];
+  if (!hit) return null;
+  const indices = S.points.geometry.getAttribute('sourceIndex');
+  const sourceIndex = indices ? Math.round(indices.array[hit.index]) : hit.index;
+  if (!Number.isFinite(sourceIndex) || sourceIndex < 0 || sourceIndex * 3 + 2 >= S.positions.length) return { point: hit.point.clone(), index: null };
+  return { point: new THREE.Vector3(S.positions[sourceIndex * 3], S.positions[sourceIndex * 3 + 1], S.positions[sourceIndex * 3 + 2]), index: sourceIndex };
+}
+function _measurementPosition(endpoint) {
+  if (endpoint?.index != null && S.positions && endpoint.index * 3 + 2 < S.positions.length) {
+    return new THREE.Vector3(S.positions[endpoint.index * 3], S.positions[endpoint.index * 3 + 1], S.positions[endpoint.index * 3 + 2]);
+  }
+  return endpoint?.point?.clone?.() || null;
+}
+function _measureLabel(distance) {
+  const multiplier = Math.max(0.000001, Number($('measureMultiplier')?.value) || 1);
+  const unit = $('measureUnit')?.value || 'units';
+  return `${(distance * multiplier).toPrecision(4)} ${unit}`;
+}
+function renderMeasurementOverlay() {
+  const svg = $('lassoSvg');
+  if (!svg) return;
+  svg.querySelectorAll('.measurement-mark').forEach(node => node.remove());
+  const rect = viewport.getBoundingClientRect(), w = rect.width, h = rect.height;
+  if (!w || !h) return;
+  const project = point => {
+    const p = point.clone().project(camera);
+    if (p.z < -1 || p.z > 1) return null;
+    return { x: (p.x * .5 + .5) * w, y: (-p.y * .5 + .5) * h };
+  };
+  const marker = p => {
+    const el = document.createElementNS('http://www.w3.org/2000/svg','circle');
+    el.setAttribute('cx',p.x);el.setAttribute('cy',p.y);el.setAttribute('r','5');el.setAttribute('fill','#c8ff00');el.setAttribute('stroke','#101208');el.setAttribute('stroke-width','2');el.setAttribute('class','measurement-mark');svg.appendChild(el);
+  };
+  const addLabel = (p,text) => {
+    const el = document.createElementNS('http://www.w3.org/2000/svg','text');
+    el.setAttribute('x',p.x);el.setAttribute('y',p.y-8);el.setAttribute('text-anchor','middle');el.setAttribute('fill','#dfff72');el.setAttribute('font-size','12');el.setAttribute('font-weight','700');el.setAttribute('paint-order','stroke');el.setAttribute('stroke','#090b07');el.setAttribute('stroke-width','4');el.setAttribute('class','measurement-mark');el.textContent=text;svg.appendChild(el);
+  };
+  for (const item of S.measurements) {
+    const pa=_measurementPosition(item.a), pb=_measurementPosition(item.b); if(!pa||!pb) continue;
+    const a=project(pa), b=project(pb); if(!a||!b) continue;
+    const el=document.createElementNS('http://www.w3.org/2000/svg','line');
+    el.setAttribute('x1',a.x);el.setAttribute('y1',a.y);el.setAttribute('x2',b.x);el.setAttribute('y2',b.y);el.setAttribute('stroke','#c8ff00');el.setAttribute('stroke-width','2');el.setAttribute('stroke-dasharray','5 3');el.setAttribute('class','measurement-mark');svg.appendChild(el);
+    marker(a);marker(b);addLabel({x:(a.x+b.x)/2,y:(a.y+b.y)/2},_measureLabel(pa.distanceTo(pb)));
+  }
+  if (S.measurementStart) { const point=_measurementPosition(S.measurementStart); const p=point&&project(point); if(p) marker(p); }
+}
+function renderMeasurementList() {
+  const list=$('measurementsList'); if(!list) return;
+  list.replaceChildren();
+  if(!S.measurements.length){list.textContent='No measurements yet.';return;}
+  S.measurements.forEach((item,index)=>{
+    const row=document.createElement('div');row.style.cssText='display:flex;align-items:center;justify-content:space-between;gap:8px;margin:4px 0';
+    const text=document.createElement('span');text.textContent=`${index+1}. ${_measureLabel(_measurementPosition(item.a).distanceTo(_measurementPosition(item.b)))}`;
+    const remove=document.createElement('button');remove.type='button';remove.className='ac-btn';remove.textContent='Remove';remove.addEventListener('click',()=>{S.measurements.splice(index,1);renderMeasurementList();renderMeasurementOverlay();});
+    row.append(text,remove);list.appendChild(row);
+  });
+}
+controls.addEventListener('change',renderMeasurementOverlay);
+$('measureMultiplier')?.addEventListener('input',()=>{renderMeasurementList();renderMeasurementOverlay();});
+$('measureUnit')?.addEventListener('change',()=>{renderMeasurementList();renderMeasurementOverlay();});
+$('clearMeasurementsBtn')?.addEventListener('click',()=>{S.measurements=[];S.measurementStart=null;renderMeasurementList();renderMeasurementOverlay();showToast('Measurements cleared');});
 
 // ─── POINTER EVENTS ──────────────────────────────────────────────────────────
 // Helper: get viewport-relative coordinates from a pointer event
@@ -3420,6 +3548,14 @@ function _vpCoords(e) {
 let _brushActive = false, _brushTimer;
 renderer.domElement.addEventListener('pointerdown', e => {
   if (S.mode === 'orbit') return;
+  if (S.mode === 'measure') {
+    e.preventDefault();e.stopPropagation();
+    const endpoint=_measurementPointAt(e.clientX,e.clientY);
+    if(!endpoint){showToast('No splat point hit','Zoom closer and click directly on the subject.','warn');return;}
+    if(!S.measurementStart){S.measurementStart=endpoint;setStatus('First endpoint set — click the second point','ok');}
+    else {const start=S.measurementStart;S.measurements.push({a:start,b:endpoint});S.measurementStart=null;renderMeasurementList();setStatus(`Measured ${_measureLabel(_measurementPosition(start).distanceTo(_measurementPosition(endpoint)))}`,'ok');}
+    renderMeasurementOverlay();return;
+  }
   if (_gizmoGesture || transformControls.enabled && ['move','scale-tool','rotate'].includes(S.mode)) return;
   e.stopPropagation();
   _brushActive = true;
@@ -3531,6 +3667,7 @@ function onResize() {
   window.FumocaGaussianRenderer?.setViewport(W, H);
   resizeBgCanvas(); resizeBlobCanvas();
   drawToneCurve();
+  renderMeasurementOverlay();
 }
 
 // ─── ANIMATE ────────────────────────────────────────────────────────────────
@@ -3835,10 +3972,9 @@ window.saveLiveEdit = async function saveLiveEdit(extra = {}) {
           const sc = S.scale?.[gi] || 0.01;
           view.setFloat32(off+12, sc, true);
           const pc = S.paintColors;
-          const viewColors = S.lidarDisplayColors;
-          const r = pc && pc[gi*3]>=0   ? pc[gi*3]   : (viewColors?.[gi*3]   ?? S.colors[gi*3]   ?? 0);
-          const g = pc && pc[gi*3+1]>=0 ? pc[gi*3+1] : (viewColors?.[gi*3+1] ?? S.colors[gi*3+1] ?? 0);
-          const b = pc && pc[gi*3+2]>=0 ? pc[gi*3+2] : (viewColors?.[gi*3+2] ?? S.colors[gi*3+2] ?? 0);
+          const r = pc && pc[gi*3]>=0   ? pc[gi*3]   : (S.colors[gi*3]   ?? 0);
+          const g = pc && pc[gi*3+1]>=0 ? pc[gi*3+1] : (S.colors[gi*3+1] ?? 0);
+          const b = pc && pc[gi*3+2]>=0 ? pc[gi*3+2] : (S.colors[gi*3+2] ?? 0);
           rowBytes[off+16] = Math.round(r * 255);
           rowBytes[off+17] = Math.round(g * 255);
           rowBytes[off+18] = Math.round(b * 255);
@@ -4441,6 +4577,7 @@ $('applyTrnBtn')?.addEventListener('click', () => {
   if (!S.alive) return;
   const scl = Number($('trnScale').value) / 100;
   const opDelta = Number($('trnOpac').value) / 100;
+  const tempDelta = Number($('trnTemp')?.value) / 400;
   const rx = THREE.MathUtils.degToRad(Number($('trnRotX')?.value) || 0);
   const ry = THREE.MathUtils.degToRad(Number($('trnRotY')?.value) || 0);
   const rz = THREE.MathUtils.degToRad(Number($('trnRotZ')?.value) || 0);
@@ -4466,26 +4603,41 @@ $('applyTrnBtn')?.addEventListener('click', () => {
       S.rotation.set([oldQ.w, oldQ.x, oldQ.y, oldQ.z], i * 4);
     }
     if (S.opacity) S.opacity[i] = clamp(S.opacity[i] + opDelta, 0, 1);
+    if (tempDelta && S.paintColors && S.colors) {
+      const r = S.paintColors[i*3] >= 0 ? S.paintColors[i*3] : S.colors[i*3];
+      const g = S.paintColors[i*3+1] >= 0 ? S.paintColors[i*3+1] : S.colors[i*3+1];
+      const b = S.paintColors[i*3+2] >= 0 ? S.paintColors[i*3+2] : S.colors[i*3+2];
+      S.paintColors[i*3] = clamp(r + tempDelta, 0, 1);
+      S.paintColors[i*3+1] = clamp(g, 0, 1);
+      S.paintColors[i*3+2] = clamp(b - tempDelta, 0, 1);
+    }
   }
   window.FumocaGaussianRenderer?.invalidateSort();
-  rebuildGeometry(); syncTransformGizmo(); setStatus('Transform applied', 'ok');
+  rebuildGeometry(); syncTransformGizmo(); renderMeasurementList(); renderMeasurementOverlay(); setStatus('Transform applied', 'ok');
 });
 function rotateEntireScene(axis, degrees) {
   if (!S.alive) return;
   const previous = S.selected.slice();
+  const previousTemp = $('trnTemp').value;
   S.selected.fill(0);
   for(let i=0;i<S.alive.length;i++) if(S.alive[i]) S.selected[i]=1;
   $('trnRotX').value = axis==='x' ? degrees : 0;
   $('trnRotY').value = axis==='y' ? degrees : 0;
   $('trnRotZ').value = axis==='z' ? degrees : 0;
-  $('trnScale').value = '100'; $('trnMoveX').value='0'; $('trnMoveY').value='0'; $('trnMoveZ').value='0'; $('trnOpac').value='0';
+  $('trnScale').value = '100'; $('trnMoveX').value='0'; $('trnMoveY').value='0'; $('trnMoveZ').value='0'; $('trnOpac').value='0'; $('trnTemp').value='0';
   $('applyTrnBtn').click();
+  $('trnTemp').value = previousTemp;
+  const historyEntry = S.history[S.history.length - 1];
+  if (historyEntry?.label === 'transform') historyEntry.snap.selected = previous.slice();
   S.selected.set(previous); rebuildGeometry(); syncTransformGizmo();
 }
 $('orientXPosBtn')?.addEventListener('click',()=>rotateEntireScene('x',90));
 $('orientXNegBtn')?.addEventListener('click',()=>rotateEntireScene('x',-90));
+$('orientYPosBtn')?.addEventListener('click',()=>rotateEntireScene('y',90));
+$('orientYNegBtn')?.addEventListener('click',()=>rotateEntireScene('y',-90));
 $('orientFlipBtn')?.addEventListener('click',()=>rotateEntireScene('x',180));
 $('orientZPosBtn')?.addEventListener('click',()=>rotateEntireScene('z',90));
+$('orientZNegBtn')?.addEventListener('click',()=>rotateEntireScene('z',-90));
 const fxPresets = {
   fxHologram: { hue: 175, saturation: 18, temperature: -8, scan: 42, glitch: 0 },
   fxMatrix: { hue: 115, saturation: 5, temperature: -12, scan: 24, glitch: 0 },
@@ -4762,12 +4914,12 @@ function _injectV60Panels() {
         </div>
       </div>
       <div class="section">
-        <div class="sec-head"><span class="sec-label">Solidify</span></div>
+        <div class="sec-head"><span class="sec-label">Gaussian splat preview</span></div>
         <div class="sec-body">
           <button class="ac-btn lime full" id="v60SolidifyBtn">
-            ✨ One-Click: Point Cloud → Solid Object
+            ✨ Preview solid Gaussian splats
           </button>
-          <div class="hint" style="margin-top:6px;">Triangulates the point cloud into a clean mesh. Ideal for 3D printing and crisp edges.</div>
+          <div class="hint" style="margin-top:6px;">Shows the scene with Gaussian shape and opacity. For a real colored polygon mesh, use Mesh &amp; Print → Extract mesh.</div>
         </div>
       </div>
       <div class="section">
@@ -5124,47 +5276,38 @@ function _wireButtons() {
   });
 
   // ══════════════════════════════════════════════════════════════════
-  // ✨ ONE-CLICK: POINT CLOUD → SOLID OBJECT
-  // Enables Gaussian photoreal mode + plays the cinematic reveal
+  // Preview solid Gaussian splats. Actual polygon mesh extraction lives in
+  // Mesh & Print and must not be represented as a visual reveal.
   // ══════════════════════════════════════════════════════════════════
   document.getElementById('v60SolidifyBtn')?.addEventListener('click', async () => {
     if (!S.alive) { showToast('No splat loaded', 'Load a file first', 'warn'); return; }
     const btn = document.getElementById('v60SolidifyBtn');
-    if (btn) { btn.disabled = true; btn.textContent = '⏳ Solidifying…'; }
-    setStatus('✨ Materialising your NIF…', 'busy');
-
-    const gr = window.FumocaGaussianRenderer;
-
-    // Ensure photoreal mode is on
-    if (gr && !gr.isEnabled()) {
-      gr.enable(false);
-      const lbl = document.getElementById('photorealLabel');
-      const tog = document.getElementById('photorealToggle');
-      const revRow = document.getElementById('revealRow');
-      if (lbl) lbl.textContent = '✨ Photoreal: ON  ●';
-      if (tog) { tog.style.background='rgba(200,255,0,.1)'; tog.style.borderColor='rgba(200,255,0,.4)'; }
-      if (revRow) revRow.style.display = 'flex';
-    }
-
-    // Dissolve to point cloud first for drama, then rebuild + reveal
-    if (gr?.isEnabled()) gr.playDissolve(400);
-    await new Promise(r => setTimeout(r, 450));
-
-    rebuildGeometry();
-
-    await new Promise(resolve => {
-      if (gr?.isEnabled()) {
-        gr.playReveal(2400, resolve);
-      } else {
-        resolve();
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Preparing preview…'; }
+    setStatus('Preparing Gaussian splat preview…', 'busy');
+    try {
+      const gr = window.FumocaGaussianRenderer;
+      if (gr && !gr.isEnabled()) {
+        gr.enable(false);
+        const lbl = document.getElementById('photorealLabel');
+        const tog = document.getElementById('photorealToggle');
+        const revRow = document.getElementById('revealRow');
+        if (lbl) lbl.textContent = '✨ Photoreal: ON  ●';
+        if (tog) { tog.style.background='rgba(200,255,0,.1)'; tog.style.borderColor='rgba(200,255,0,.4)'; }
+        if (revRow) revRow.style.display = 'flex';
       }
-    });
-
-    // Save state to feed
-    const saved = await window.saveLiveEdit({ type: 'solidify_to_object' });
-    setStatus(saved ? '✅ Solid splat saved to feed' : '✅ Solidified (not saved — no splatId)', 'ok');
-    showToast('✨ Solidified!', saved ? 'Saved to your feed' : 'Done — load from feed to save', saved ? 'ok' : '');
-    if (btn) { btn.disabled = false; btn.textContent = '✨ One-Click: Point Cloud → Solid Object'; }
+      if (gr?.isEnabled()) gr.playDissolve(400);
+      await new Promise(resolve => setTimeout(resolve, 450));
+      rebuildGeometry();
+      if (gr?.isEnabled()) await new Promise(resolve => gr.playReveal(2400, resolve));
+      const saved = await window.saveLiveEdit();
+      setStatus(saved ? 'Gaussian splat preview saved' : 'Gaussian splat preview ready', 'ok');
+      showToast('Preview ready', saved ? 'Splat saved to your feed' : 'Use Mesh & Print to extract a colored mesh');
+    } catch (err) {
+      setStatus(`Preview failed: ${err.message || err}`, 'warn');
+      showToast('Preview failed', err.message || String(err), 'warn');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = '✨ Preview solid Gaussian splats'; }
+    }
   });
 
   // ══════════════════════════════════════════════════════════════════
