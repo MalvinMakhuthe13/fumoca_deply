@@ -1746,10 +1746,12 @@ const gridMats = Array.isArray(orientationGrid.material)
   : [orientationGrid.material];
 gridMats.forEach((m) => {
   m.transparent = true;
-  m.opacity = 0.32;
+  m.opacity = 0.16;
   m.depthWrite = false;
+  m.depthTest = true;
 });
-orientationGrid.renderOrder = 1;
+// Draw the ground before translucent splats so it cannot sit on top of the subject.
+orientationGrid.renderOrder = -10;
 scene.add(orientationGrid);
 scene.add(new THREE.AxesHelper(1.5));
 
@@ -1851,7 +1853,9 @@ function _updateGroundGrid(recenter = false) {
   const q=(a,p)=>{a.sort((x,y)=>x-y);return a[Math.min(a.length-1,Math.floor((a.length-1)*p))];};
   const x0=q(xs,.002),x1=q(xs,.998),y0=q(ys,.002),y1=q(ys,.998),z0=q(zs,.002),z1=q(zs,.998);
   const center=new THREE.Vector3((x0+x1)/2,(y0+y1)/2,(z0+z1)/2);
-  orientationGrid.position.set(center.x,y0,center.z);
+  // Keep the floor below the Gaussian tails and wheel/body silhouette.
+  const groundMargin = Math.max((y1-y0)*0.08, 1e-4);
+  orientationGrid.position.set(center.x,y0-groundMargin,center.z);
   orientationGrid.scale.setScalar(Math.max(.1,Math.max(x1-x0,z1-z0)*.15));
   const axes=scene.children.find(obj=>obj.isAxesHelper);
   if(axes){axes.position.copy(center);axes.scale.setScalar(Math.max(.1,Math.max(x1-x0,y1-y0,z1-z0)*.1));}
@@ -2120,6 +2124,7 @@ window.preserveImportedLidarSource = async (cloud) => {
 };
 let _solidMeshPreviewObject = null;
 let _solidMeshPreviewData = null;
+let _solidMeshPreviousPointsVisible = null;
 window.previewSolidMesh = (mesh, options = {}) => {
   if (!mesh) return;
   if (_solidMeshPreviewObject && _solidMeshPreviewData !== mesh) {
@@ -2145,7 +2150,15 @@ window.previewSolidMesh = (mesh, options = {}) => {
     scene.add(_solidMeshPreviewObject);
     _solidMeshPreviewData = mesh;
   }
-  _solidMeshPreviewObject.visible = options.visible !== false;
+  const previewVisible = options.visible !== false;
+  _solidMeshPreviewObject.visible = previewVisible;
+  // Compare the extracted surface on its own. Rendering it over the translucent
+  // source splats makes the mesh look doubled, fragmented, and less solid.
+  if (S.points) {
+    if (previewVisible && _solidMeshPreviousPointsVisible === null) _solidMeshPreviousPointsVisible = S.points.visible;
+    S.points.visible = previewVisible ? false : (_solidMeshPreviousPointsVisible ?? true);
+    if (!previewVisible) _solidMeshPreviousPointsVisible = null;
+  }
   _solidMeshPreviewObject.material.emissive.set(0xffffff);
   _solidMeshPreviewObject.material.emissiveIntensity = Math.max(0, Math.min(2, Number(options.light) || 0));
   _solidMeshPreviewObject.material.roughness = Math.max(0.05, Math.min(1, Number(options.roughness) || 0.72));
@@ -2549,7 +2562,7 @@ async function loadFile(file, urlOverride) {
       const cx=(xMin+xMax)/2, cy=(yMin+yMax)/2, cz=(zMin+zMax)/2;
       const sizeX=xMax-xMin,sizeY=yMax-yMin,sizeZ=zMax-zMin;
       const radius=Math.max(sizeX,sizeY,sizeZ)/2||1;
-      orientationGrid.position.set(cx,yFloor,cz);
+      orientationGrid.position.set(cx,yFloor-Math.max(sizeY*0.08,1e-4),cz);
       orientationGrid.scale.setScalar(Math.max(0.1,Math.max(sizeX,sizeZ)*0.15));
       const axes = scene.children.find(obj => obj.isAxesHelper);
       if (axes) { axes.position.set(cx,cy,cz); axes.scale.setScalar(Math.max(0.1,radius * 0.2)); }
@@ -3116,7 +3129,28 @@ function applyBrush(cx, cy) {
     }}
     rebuildGeometry(); return;
   }
+  // Screen-space brushes otherwise hit every point along the camera ray,
+  // painting the far side of thin shells and making color bleed through.
+  let paintFrontDepth = Infinity;
+  let paintDepthTolerance = 0;
+  if (S.mode === 'paint') {
+    const viewPoint = new THREE.Vector3();
+    for (let i = 0; i < S.alive.length; i++) {
+      if (!S.alive[i]) continue;
+      viewPoint.set(S.positions[i*3], S.positions[i*3+1], S.positions[i*3+2]);
+      const depth = -viewPoint.applyMatrix4(camera.matrixWorldInverse).z;
+      viewPoint.set(S.positions[i*3], S.positions[i*3+1], S.positions[i*3+2]).project(camera);
+      const sx = (viewPoint.x * 0.5 + 0.5) * W, sy = (-viewPoint.y * 0.5 + 0.5) * H;
+      const dx = sx - cx, dy = sy - cy;
+      if (dx*dx + dy*dy <= r2 && depth > 0 && depth < paintFrontDepth) paintFrontDepth = depth;
+    }
+    if (Number.isFinite(paintFrontDepth)) {
+      const worldPerPixel = 2 * paintFrontDepth * Math.tan(THREE.MathUtils.degToRad(camera.fov/2)) / Math.max(1,H);
+      paintDepthTolerance = Math.max(worldPerPixel * S.brushSize * 0.28, 1e-4);
+    }
+  }
   const proj = new THREE.Vector3();
+  const viewDepthPoint = new THREE.Vector3();
   for (let i = 0; i < S.alive.length; i++) {
     if (!S.alive[i]) continue;
     proj.set(S.positions[i * 3], S.positions[i * 3 + 1], S.positions[i * 3 + 2]).project(camera);
@@ -3126,6 +3160,8 @@ function applyBrush(cx, cy) {
       if (S.mode === 'brush-erase') { S.alive[i] = 0; S.selected[i] = 0; }
       else if (S.mode === 'brush-select' || S.mode === 'sphere') { S.selected[i] = 1; }
       else if (S.mode === 'paint') {
+        const depth = -viewDepthPoint.set(S.positions[i*3], S.positions[i*3+1], S.positions[i*3+2]).applyMatrix4(camera.matrixWorldInverse).z;
+        if (depth > paintFrontDepth + paintDepthTolerance) continue;
         const pc = S.activePaintColor;
         S.paintColors[i * 3] = pc[0]; S.paintColors[i * 3 + 1] = pc[1]; S.paintColors[i * 3 + 2] = pc[2];
       }

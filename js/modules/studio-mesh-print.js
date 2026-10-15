@@ -22,14 +22,14 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
           <span class="ctrl-label">Resolution</span>
         <span class="ctrl-val" id="meshResVal">32³</span>
         </div>
-        <input type="range" id="meshRes" min="32" max="64" step="16" value="64">
+        <input type="range" id="meshRes" min="64" max="128" step="32" value="128">
         <label style="display:block;font-size:11px;margin-top:8px">Surface threshold (0 = automatic)
           <input id="meshThreshold" type="number" min="0" max="10" step="0.01" value="0" style="display:block;width:100%;padding:7px;border-radius:7px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#fff;margin-top:4px">
         </label>
         <label style="display:block;font-size:11px">Smoothing passes
           <input id="meshSmooth" type="range" min="0" max="4" step="1" value="1" style="width:100%">
         </label>
-        <div class="hint">Local preview is capped at 64³ for browser responsiveness. Use the GPU queue for full detail.</div>
+        <div class="hint">Higher resolution preserves finer surfaces but takes longer and uses more memory. Closed results still depend on capture coverage.</div>
         <label style="display:block;font-size:11px;margin:8px 0 6px">Mesh format
           <select id="meshFormat" style="display:block;width:100%;padding:8px;border-radius:8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#fff;margin-top:4px">
             <option value="ply">Colored PLY - keep scene scale</option>
@@ -125,7 +125,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     container.querySelector('#meshPreviewToggle').disabled = true;
     meshStatus('Preparing current live points…');
     try {
-      const maxPoints = 120_000;
+      const maxPoints = 250_000;
       const ids = [];
       let skippedSeen=0,randomState=((state.alive.length^0x6d2b79f5)>>>0)||1;
       for(let i=0;i<state.alive.length;i++)if(state.alive[i]){
