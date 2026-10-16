@@ -27,6 +27,9 @@ export function parseLAS(buffer, maxPoints = 1_000_000) {
   if (rawFormat & 0x80) throw new Error('This LAS file uses LAZ compression. Convert it to uncompressed LAS or PLY first.');
   if (rawFormat & 0xc0) throw new Error('This LAS file uses point-record compression or reserved format bits. Convert it to uncompressed LAS or PLY first.');
   const format = rawFormat & 0x3f;
+  if (format >= 6 && versionMinor < 4) {
+    throw new Error(`LAS point format ${format} requires LAS 1.4 or newer.`);
+  }
   const minimumRecordLength = ({0:20, 1:28, 2:26, 3:34, 4:57, 5:63, 6:30, 7:36, 8:38, 9:59, 10:67})[format];
   if (minimumRecordLength == null) throw new Error(`Unsupported LAS point format: ${format}`);
   const recordLength = view.getUint16(105, true);
