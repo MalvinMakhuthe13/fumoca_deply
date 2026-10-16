@@ -62,7 +62,7 @@
             <label class="its-control"><span>Elevation <output id="itsElevationOut">5°</output></span><input id="itsElevation" type="range" min="-20" max="45" step="5" value="5"></label>
             <label class="its-control"><span>Field of view <output id="itsFovOut">35°</output></span><input id="itsFov" type="range" min="20" max="75" step="1" value="35"></label>
           </div>
-          <div class="its-actions"><button id="itsExportPlan" type="button" class="its-primary">Export camera plan (.json)</button><button id="itsResetPlan" type="button" class="its-secondary">Reset defaults</button></div>
+          <div class="its-actions"><button id="itsExportPlan" type="button" class="its-primary">Export project bundle (.zip)</button><button id="itsExportJson" type="button" class="its-secondary">Export camera plan (.json)</button><button id="itsResetPlan" type="button" class="its-secondary">Reset defaults</button></div><p class="its-note">The ZIP includes your selected source images and camera-plan manifest. It prepares a handoff package; it does not run GPU reconstruction or create a splat.</p>
         </section>
       </div>
 
@@ -77,8 +77,8 @@
       </section>
 
       <section class="its-card its-export-card">
-        <div class="its-export-copy"><div class="its-card-head"><span class="its-step">04</span><div><h2>Prepare for FUMOCA</h2><p>Export the camera plan and source manifest for the next processing stage.</p></div></div><p>Planned integration target: Image2Splat depth lift → authored orbit → optional video synthesis → dataset with camera poses → Gaussian splat → FUMOCA viewer / NIF conversion where supported.</p></div>
-        <div class="its-export-targets"><span>Camera metadata</span><span>Source manifest</span><span>Coverage / provenance</span><span>Future NIF handoff</span></div>
+        <div class="its-export-copy"><div class="its-card-head"><span class="its-step">04</span><div><h2>Prepare for FUMOCA</h2><p>Export the selected original photos together with camera settings and provenance metadata.</p></div></div><p>Planned integration target: Image2Splat depth lift → authored orbit → optional video synthesis → dataset with camera poses → Gaussian splat → FUMOCA viewer / NIF conversion where supported.</p></div>
+        <div class="its-export-targets"><span>Source image bundle</span><span>Camera metadata</span><span>Coverage / provenance</span><span>Future NIF handoff</span></div>
       </section>
       <footer class="its-footer">FUMOCA · Image-to-Splat Studio · Integration scaffold · <a href="https://github.com/romanpillai/Image2Splat" target="_blank" rel="noopener noreferrer">Image2Splat is a separate project</a></footer>
     </div>
