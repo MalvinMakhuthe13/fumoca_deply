@@ -82,7 +82,7 @@ test('rejects invalid signature, unsupported formats, short records and bad scal
   assert.throws(() => parseLAS(makeLas({format:0,recordLength:19,points:[{xyz:[0,0,0]}]})), /requires records/);
   const truncated = makeLas({points:[{xyz:[0,0,0]},{xyz:[1,1,1]}]});
   assert.throws(() => parseLAS(truncated.slice(0, truncated.byteLength - 5)), /truncated/);
-  assert.throws(() => parseLAS(makeLas({points:[{xyz:[0,0,0]}],scale:[0,0.01,0.01})), /scale\/offset/);
+  assert.throws(() => parseLAS(makeLas({points:[{xyz:[0,0,0]}],scale:[0,0.01,0.01]})), /scale\/offset/);
 });
 
 test('rejects compressed flags and invalid max point cap', () => {
