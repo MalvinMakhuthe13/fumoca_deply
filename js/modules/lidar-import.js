@@ -86,7 +86,7 @@ export async function importPointCloud(file) {
   }
   if (name.endsWith('.ply')) {
     const headerProbe = new TextDecoder().decode(buf.slice(0, Math.min(buf.byteLength, 65536)));
-    const plyHeader = headerProbe.split(/\\r?\\nend_header\\r?\\n/, 1)[0];
+    const plyHeader = headerProbe.split(/\r?\nend_header\r?\n/, 1)[0];
     const coordinateMetadata = parsePlyCoordinateMetadata(plyHeader);
     const geometry = new PLYLoader().parse(buf);
     const position = geometry.getAttribute('position');
@@ -187,6 +187,7 @@ export function encodePointCloudPLY(cloud) {
   const header = [
     'ply', 'format binary_little_endian 1.0', `element vertex ${count}`,
     ...properties,
+    ...(cloud.coordinateMetadata ? [serializePlyCoordinateMetadata(cloud.coordinateMetadata)].filter(Boolean) : []),
     'end_header', '',
   ].join('\n');
   const headerBytes = new TextEncoder().encode(header);
