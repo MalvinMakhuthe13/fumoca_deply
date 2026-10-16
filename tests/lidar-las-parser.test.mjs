@@ -53,7 +53,8 @@ test('large projected coordinates retain centimetre-scale differences after Floa
     {xyz:[1000000,2000000,3000000]},
     {xyz:[1000001,2000001,3000001]},
   ],scale:[0.01,0.01,0.01],offset:[500000,6000000,100]}));
-  assert.deepEqual([...cloud.positions], [0,0,0,0.01,0.01,0.01]);
+  const expected = [0,0,0,0.01,0.01,0.01];
+  cloud.positions.forEach((value,index) => assert.ok(Math.abs(value - expected[index]) < 1e-7, `local coordinate ${index}: ${value}`));
   assert.deepEqual(cloud.coordinateMetadata.renderOrigin, {x:510000,y:6020000,z:30100});
 });
 
