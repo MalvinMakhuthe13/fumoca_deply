@@ -7,7 +7,7 @@ import { supabase } from '../supabaseClient.js';
 import { triggerRevealForViewer } from './reveal-hook.js';
 import FumocDecoder from './fumoc-decoder.js';
 import { decodeNif, geometryToSplatRows } from './nif-format.js';
-import { normalizeIntensityForDisplay } from './lidar-intensity.js';
+import { normalizeIntensityForDisplay } from './lidar-intensity.mjs';
 window._fumocaSupabase = window._fumocaSupabase || supabase;
 const stageEl = document.getElementById('stage');
 let stageHost = document.getElementById('stageHost');
