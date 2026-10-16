@@ -1,6 +1,7 @@
 import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
 import { parseXYZ } from './lidar-text-parser.mjs';
 import { parseLAS } from './lidar-las-parser.mjs';
+import { parsePlyCoordinateMetadata, serializePlyCoordinateMetadata } from './lidar-coordinate-metadata.mjs';
 
 /**
  * FUMOCA LiDAR / dense point import
@@ -84,6 +85,9 @@ export async function importPointCloud(file) {
     return parseLAS(buf);
   }
   if (name.endsWith('.ply')) {
+    const headerProbe = new TextDecoder().decode(buf.slice(0, Math.min(buf.byteLength, 65536)));
+    const plyHeader = headerProbe.split(/\\r?\\nend_header\\r?\\n/, 1)[0];
+    const coordinateMetadata = parsePlyCoordinateMetadata(plyHeader);
     const geometry = new PLYLoader().parse(buf);
     const position = geometry.getAttribute('position');
     if (!position) throw new Error('PLY file has no vertex positions.');
@@ -113,6 +117,7 @@ export async function importPointCloud(file) {
       classifications: classificationAttr ? new Uint8Array(classificationAttr.array) : null,
       returnNumbers: returnAttr ? new Uint8Array(returnAttr.array) : null,
       count: position.count, source: 'ply',
+      coordinateMetadata,
     };
   }
   const text = new TextDecoder().decode(buf);
