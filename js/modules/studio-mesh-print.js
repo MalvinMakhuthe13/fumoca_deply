@@ -19,17 +19,21 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       <div class="sec-body">
         <div class="hint">Build a surface from the current live NIF, PLY, or LiDAR points. PLY and OBJ keep transferred vertex color; STL is for printing.</div>
         <div class="ctrl-row">
-          <span class="ctrl-label">Resolution</span>
+          <span class="ctrl-label">Surface detail</span>
         <span class="ctrl-val" id="meshResVal">32³</span>
         </div>
-        <input type="range" id="meshRes" min="64" max="128" step="32" value="128">
+        <input type="range" id="meshRes" min="64" max="160" step="32" value="128">
+        <label style="display:block;font-size:11px;margin-top:8px">Surface continuity <span id="meshContinuityVal" style="float:right;color:var(--neon)">1.50x</span>
+          <input id="meshContinuity" type="range" min="0.75" max="2.5" step="0.05" value="1.5" style="display:block;width:100%">
+        </label>
+        <div class="hint">Lower keeps sharper gaps and panel edges. Higher blends sparse areas and may soften detail. It cannot recover surfaces the capture never saw.</div>
         <label style="display:block;font-size:11px;margin-top:8px">Surface threshold (0 = automatic)
           <input id="meshThreshold" type="number" min="0" max="10" step="0.01" value="0" style="display:block;width:100%;padding:7px;border-radius:7px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#fff;margin-top:4px">
         </label>
         <label style="display:block;font-size:11px">Smoothing passes
           <input id="meshSmooth" type="range" min="0" max="4" step="1" value="1" style="width:100%">
         </label>
-        <div class="hint">Higher resolution preserves finer surfaces but takes longer and uses more memory. Closed results still depend on capture coverage.</div>
+        <div class="hint">Higher detail preserves finer surfaces but takes longer and uses more memory. 160³ is the high-detail browser setting. Smoothing uses a size-preserving pass. Closed results still depend on capture coverage.</div>
         <label style="display:block;font-size:11px;margin:8px 0 6px">Mesh format
           <select id="meshFormat" style="display:block;width:100%;padding:8px;border-radius:8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#fff;margin-top:4px">
             <option value="ply">Colored PLY - keep scene scale</option>
@@ -82,6 +86,10 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
   });
   const initialResolutionLabel = container.querySelector('#meshResVal');
   if (initialResolutionLabel) initialResolutionLabel.textContent = `${container.querySelector('#meshRes')?.value || 48}${String.fromCharCode(179)}`;
+  container.querySelector('#meshContinuity')?.addEventListener('input', (e) => {
+    const label = container.querySelector('#meshContinuityVal');
+    if (label) label.textContent = `${Number(e.target.value).toFixed(2)}x`;
+  });
   const presetHeights = { product: 120, figurine: 120, bust: 150, large: 200 };
   const height = container.querySelector('#printH');
   const heightLabel = container.querySelector('#printHVal');
@@ -160,10 +168,11 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       const resolution = Number(container.querySelector('#meshRes')?.value || 32);
       const format = container.querySelector('#meshFormat')?.value || 'ply';
       const thresholdValue = Number(container.querySelector('#meshThreshold')?.value || 0);
+      const sigmaScale = Number(container.querySelector('#meshContinuity')?.value || 1.5);
       const smooth = Number(container.querySelector('#meshSmooth')?.value || 0);
       const result = await FumocMeshExtractor.extractMesh(g, {
-        resolution, threshold: thresholdValue > 0 ? thresholdValue : null,
-        format: format === 'stl' ? 'ply' : format, name: 'fumoca-mesh', smooth,
+        resolution, threshold: thresholdValue > 0 ? thresholdValue : null, sigmaScale,
+        format, previewColours: true, name: 'fumoca-mesh', smooth,
         onProgress: (_pct, label) => meshStatus(label),
       });
       const vertices = result.mesh.vertices;
@@ -186,7 +195,8 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       const shellStatus = result.stats.watertight
         ? (result.stats.components === 1 ? 'one connected watertight shell' : `${result.stats.components} disconnected watertight shells`)
         : `open surface — ${result.stats.openEdges} open edges${result.stats.components > 1 ? ` across ${result.stats.components} shells` : ''}`;
-      meshStatus(`Mesh ready: ${result.stats.triangles.toLocaleString()} triangles, ${(lastMesh.size / 1048576).toFixed(2)} MB, ${shellStatus}${format === 'stl' ? '' : ', vertex color transferred'}.`);
+      const colorNote = format === 'stl' ? ', color kept in preview (STL stores geometry only)' : ', vertex color transferred';
+      meshStatus(`Mesh ready: ${result.stats.triangles.toLocaleString()} triangles, ${(lastMesh.size / 1048576).toFixed(2)} MB, ${shellStatus}${colorNote}.`);
       const downloadButton = container.querySelector('#printStlBtn');
       downloadButton.disabled = format === 'stl' && !result.stats.printable;
       downloadButton.textContent = downloadButton.disabled ? 'STL needs one closed shell' : `Download ${format.toUpperCase()}`;
@@ -232,7 +242,16 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
           status: 'done',
           processing_stage: 'published',
           processing_progress: 100,
-          mesh_stats: { vertices: lastMeshData.vertices.length / 3, triangles: lastMeshData.triangles.length / 3, watertight: lastMeshStats?.watertight ?? null },
+          mesh_stats: {
+            vertices: lastMeshData.vertices.length / 3,
+            triangles: lastMeshData.triangles.length / 3,
+            watertight: lastMeshStats?.watertight ?? null,
+            components: lastMeshStats?.components ?? null,
+            resolution: lastMeshStats?.resolution ?? null,
+            threshold: lastMeshStats?.threshold ?? null,
+            sigma_scale: lastMeshStats?.sigmaScale ?? null,
+            smoothing: lastMeshStats?.smoothing ?? null,
+          },
         },
       }]).select().single();
       if (dbError) throw dbError;

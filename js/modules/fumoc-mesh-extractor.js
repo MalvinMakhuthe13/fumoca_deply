@@ -938,11 +938,62 @@ function laplacianSmooth(mesh, iterations = 2, lambda = 0.5) {
   return { ...mesh, vertices: current };
 }
 
+/**
+ * Taubin smoothing alternates a shrinking pass with a compensating expansion
+ * pass. It softens voxel stair-steps while preserving the overall size better
+ * than repeated Laplacian averaging.
+ */
+function taubinSmooth(mesh, iterations = 2, lambda = 0.5) {
+  const { vertices, triangles } = mesh;
+  const Nv = vertices.length / 3;
+  const adj = Array.from({ length: Nv }, () => new Set());
+  for (let t = 0; t < triangles.length; t += 3) {
+    const a = triangles[t], b = triangles[t + 1], c = triangles[t + 2];
+    adj[a].add(b); adj[a].add(c);
+    adj[b].add(a); adj[b].add(c);
+    adj[c].add(a); adj[c].add(b);
+  }
+
+  let current = vertices.slice();
+  let next = new Float32Array(vertices.length);
+  const pass = (factor) => {
+    for (let v = 0; v < Nv; v++) {
+      const neighbours = adj[v];
+      const base = v * 3;
+      if (!neighbours.size) {
+        next[base] = current[base];
+        next[base + 1] = current[base + 1];
+        next[base + 2] = current[base + 2];
+        continue;
+      }
+      let x = 0, y = 0, z = 0;
+      for (const n of neighbours) {
+        x += current[n * 3]; y += current[n * 3 + 1]; z += current[n * 3 + 2];
+      }
+      const invCount = 1 / neighbours.size;
+      next[base] = current[base] + factor * (x * invCount - current[base]);
+      next[base + 1] = current[base + 1] + factor * (y * invCount - current[base + 1]);
+      next[base + 2] = current[base + 2] + factor * (z * invCount - current[base + 2]);
+    }
+    [current, next] = [next, current];
+  };
+
+  const shrink = Math.max(0.05, Math.min(0.6, lambda));
+  const expand = -1.06 * shrink;
+  for (let i = 0; i < iterations; i++) {
+    pass(shrink);
+    pass(expand);
+  }
+  return { ...mesh, vertices: current };
+}
+
 async function extractMesh(gaussians, opts = {}) {
   const {
     resolution      = 128,
     threshold       = null,  // v91.1: null = auto-tune
+    sigmaScale      = 1.5,
     transferColours: doColour = true,
+    previewColours  = false,
     format          = 'stl',
     name            = 'fumoca_mesh',
     onProgress      = null,
@@ -957,7 +1008,7 @@ async function extractMesh(gaussians, opts = {}) {
   } = opts;
 
   // Stage 1: density field
-  const field = await buildDensityField(gaussians, { resolution, onProgress });
+  const field = await buildDensityField(gaussians, { resolution, sigmaScale, onProgress });
 
   // Stage 1b: auto-tune threshold if not specified
   let useThreshold = threshold;
@@ -991,15 +1042,15 @@ async function extractMesh(gaussians, opts = {}) {
     throw new Error('[MeshExtractor] No surface formed from this point cloud. Increase splat scale or use a denser capture.');
   }
 
-  // Stage 2b: Laplacian smoothing — removes MC stair-stepping
+  // Stage 2b: Taubin smoothing softens MC stair-stepping with less shrinkage.
   if (smooth > 0) {
     onProgress?.(72, `Smoothing mesh (${smooth} iterations)…`);
     await _yield();
-    mesh = laplacianSmooth(mesh, smooth, smoothLambda);
+    mesh = taubinSmooth(mesh, smooth, smoothLambda);
   }
 
   // Stage 3: colour transfer
-  if (doColour && format !== 'stl') {
+  if (doColour && (format !== 'stl' || previewColours)) {
     mesh = await transferColours(mesh, gaussians, { onProgress });
   }
 
@@ -1030,7 +1081,9 @@ async function extractMesh(gaussians, opts = {}) {
     largestComponentTriangles: validation.largestComponentTriangles,
     elapsedMs:   Math.round(performance.now() - t0),
     resolution,
-    threshold,
+    threshold: useThreshold,
+    sigmaScale,
+    smoothing: { method: 'taubin', iterations: smooth, lambda: smoothLambda },
     format,
   };
 
@@ -1048,6 +1101,7 @@ const FumocMeshExtractor = {
   buildDensityField,
   marchingCubes,
   laplacianSmooth,
+  taubinSmooth,
   autoTuneThreshold,
   transferColours,
   validateWatertight,
