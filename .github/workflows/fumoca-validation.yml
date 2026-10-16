@@ -25,6 +25,10 @@ jobs:
         run: node --check js/modules/image-to-splat-studio.js
       - name: Check viewer ES module syntax
         run: node --input-type=module --check < js/modules/viewer.js
+      - name: Check LiDAR importer ES module syntax
+        run: node --input-type=module --check < js/modules/lidar-import.js
+      - name: Check upload page ES module syntax
+        run: node --input-type=module --check < js/modules/upload-page.js
       - name: Compile Kaggle preflight script
         run: python -m py_compile kaggle/mesh2splat_preflight.py
       - name: Install preflight dependencies
