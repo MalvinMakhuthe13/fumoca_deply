@@ -6501,23 +6501,23 @@ if (!window._fumocaBooted) {
   });
 </script>
 
-<!-- LiDAR-first empty-state: expose import controls and attribute selectors before a scene is loaded. -->
+<!-- LiDAR-first empty-state: select Import after Studio's own mode/tab initialization. -->
 <script>
 (function () {
   function exposeImportControls() {
     const fileName = document.querySelector('.tb-file-name');
-    const hasLoadedScene = !!(window.S && (window.S.points || window.S.position) && Number(window.S.count || window.S.pointCount || 0) > 0);
-    const noFileLabel = !fileName || /no file loaded|drop \.splat|no scene/i.test(fileName.textContent || '');
-    if (!hasLoadedScene && noFileLabel) {
-      const importTab = document.querySelector('#leftTabs .ptab[data-tab="import"]');
-      if (importTab && !importTab.classList.contains('active')) importTab.click();
-    }
+    const header = (fileName?.textContent || '') + ' ' + (document.body.innerText || '').slice(0, 500);
+    const explicitlyEmpty = /no file loaded|drop \.splat or \.ply to begin/i.test(header);
+    if (!explicitlyEmpty) return;
+    const importTab = document.querySelector('#leftTabs .ptab[data-tab="import"]');
+    if (importTab && !importTab.classList.contains('active')) importTab.click();
   }
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => requestAnimationFrame(exposeImportControls), { once: true });
-  } else {
-    requestAnimationFrame(exposeImportControls);
+  function scheduleExpose() {
+    // StudioModes initializes its default Navigate tab asynchronously; run after it.
+    window.setTimeout(exposeImportControls, 400);
   }
+  if (document.readyState === 'complete') scheduleExpose();
+  else window.addEventListener('load', scheduleExpose, { once: true });
 })();
 </script>
 
