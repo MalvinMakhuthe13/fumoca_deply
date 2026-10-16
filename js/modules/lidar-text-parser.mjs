@@ -47,8 +47,7 @@ export function parseXYZ(text) {
   const delimiter = first.includes(',') ? ',' : first.includes(';') ? ';' : 'whitespace';
   const tokens = delimiter === 'whitespace' ? first.split(/\s+/) : first.split(delimiter).map(v => v.trim());
   const headerCandidate = tokens.map(normalizeName);
-  const hasHeader = ['x','y','z'].every(key => headerCandidate.includes(key)) &&
-    tokens.some(token => !Number.isFinite(Number(token)));
+  const hasHeader = tokens.some(token => token.trim() !== '' && !Number.isFinite(Number(token)));
   const columns = hasHeader ? resolveColumns(tokens) : null;
   if (hasHeader && (columns.x < 0 || columns.y < 0 || columns.z < 0)) {
     throw new Error('Point-cloud header must identify x, y, and z columns.');
