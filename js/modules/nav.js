@@ -31,6 +31,7 @@
 
   const STUDIO_ITEMS = [
     { href: 'upload.html', icon: '🧊', label: 'New Capture', match: [] },
+    { href: 'image-to-splat.html', icon: '🧭', label: 'Image → Splat', match: ['image-to-splat.html'] },
     { href: 'media-edit.html', icon: '🎬', label: 'Video / Photo', match: ['media-edit.html'] },
     { href: 'edit.html', icon: '✏️', label: 'Editor', match: ['edit.html'] }
   ];
