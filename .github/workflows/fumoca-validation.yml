@@ -2,7 +2,7 @@ name: FUMOCA validation
 
 on:
   push:
-    branches: [main, "feat/**"]
+    branches: [main, "feat/**", "lidar-splat-integrity-cleanup"]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -25,6 +25,20 @@ jobs:
         run: node --check js/modules/image-to-splat-studio.js
       - name: Check viewer ES module syntax
         run: node --input-type=module --check < js/modules/viewer.js
+      - name: Check LiDAR importer ES module syntax
+        run: node --input-type=module --check < js/modules/lidar-import.js
+      - name: Check upload page ES module syntax
+        run: node --input-type=module --check < js/modules/upload-page.js
+      - name: Test LiDAR intensity normalization
+        run: node --test tests/lidar-intensity.test.mjs
+      - name: Test header-aware LiDAR text import
+        run: node --test tests/lidar-text-parser.test.mjs
+      - name: Test uncompressed LAS parser fixtures
+        run: node --test tests/lidar-las-parser.test.mjs
+      - name: Test portable PLY coordinate metadata
+        run: node --test tests/lidar-coordinate-metadata.test.mjs
+      - name: Test point-cloud downsampling alignment
+        run: node --test tests/lidar-cloud-utils.test.mjs
       - name: Compile Kaggle preflight script
         run: python -m py_compile kaggle/mesh2splat_preflight.py
       - name: Install preflight dependencies

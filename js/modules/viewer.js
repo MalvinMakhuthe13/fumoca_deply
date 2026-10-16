@@ -7,6 +7,7 @@ import { supabase } from '../supabaseClient.js';
 import { triggerRevealForViewer } from './reveal-hook.js';
 import FumocDecoder from './fumoc-decoder.js';
 import { decodeNif, geometryToSplatRows } from './nif-format.js';
+import { normalizeIntensityForDisplay } from './lidar-intensity.mjs';
 window._fumocaSupabase = window._fumocaSupabase || supabase;
 const stageEl = document.getElementById('stage');
 let stageHost = document.getElementById('stageHost');
@@ -1478,18 +1479,14 @@ async function mountPlyViewer(url) {
       const returnPalette = [[.1,.1,.1],[.1,.55,1],[.1,.9,.6],[1,.7,.1],[1,.2,.15]];
       control.addEventListener('change', () => {
         const mode = control.value;
-        let intensityMin = 0, intensityMax = 1;
-        if (mode === 'intensity' && intensityAttr) {
-          intensityMin = Infinity; intensityMax = -Infinity;
-          for (let i = 0; i < count; i++) { intensityMin = Math.min(intensityMin, intensityAttr.array[i]); intensityMax = Math.max(intensityMax, intensityAttr.array[i]); }
-          if (intensityMax <= 1) intensityMin = 0;
-          if (intensityMax === intensityMin) intensityMax = intensityMin + 1;
-        }
+        const intensityDisplay = mode === 'intensity' && intensityAttr
+          ? normalizeIntensityForDisplay(intensityAttr.array)
+          : null;
         for (let i = 0; i < count; i++) {
           const p = i * 3;
-          if (mode === 'intensity' && intensityAttr) {
-            const raw = Number(intensityAttr.array[i]) || 0;
-            const t = Math.max(0, Math.min(1, (raw - intensityMin) / (intensityMax - intensityMin)));
+          if (mode === 'intensity' && intensityDisplay) {
+            // Display-only percentile stretch; the PLY intensity attribute is never modified.
+            const t = intensityDisplay.values[i];
             colors[p] = t; colors[p+1] = Math.min(1, t * 1.8); colors[p+2] = Math.max(0, 1 - t * 1.7);
           } else if (mode === 'classification' && classificationAttr) {
             const c = classPalette[classificationAttr.array[i] % classPalette.length];
