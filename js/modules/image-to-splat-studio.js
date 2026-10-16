@@ -256,17 +256,6 @@
     }
   });
 
-  /* Legacy JSON-only export is available separately. */
-  /* const blob = new Blob([JSON.stringify(cameraPlan(), null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'fumoca-image-to-splat-camera-plan.json';
-    document.body.append(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }); */
 
   window.addEventListener('beforeunload', cleanupUrls);
   updateOutputs();
