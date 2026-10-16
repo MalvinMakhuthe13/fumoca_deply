@@ -2129,7 +2129,6 @@ window.preserveImportedLidarSource = async (cloud) => {
 };
 let _solidMeshPreviewObject = null;
 let _solidMeshPreviewData = null;
-let _solidMeshPreviousPointsVisible = null;
 window.previewSolidMesh = (mesh, options = {}) => {
   if (!mesh) {
     if (_solidMeshPreviewObject) {
@@ -2139,8 +2138,6 @@ window.previewSolidMesh = (mesh, options = {}) => {
       _solidMeshPreviewObject = null;
       _solidMeshPreviewData = null;
     }
-    if (S.points && _solidMeshPreviousPointsVisible !== null) S.points.visible = _solidMeshPreviousPointsVisible;
-    _solidMeshPreviousPointsVisible = null;
     return;
   }
   if (_solidMeshPreviewObject && _solidMeshPreviewData !== mesh) {
@@ -2168,13 +2165,8 @@ window.previewSolidMesh = (mesh, options = {}) => {
   }
   const previewVisible = options.visible !== false;
   _solidMeshPreviewObject.visible = previewVisible;
-  // Compare the extracted surface on its own. Rendering it over the translucent
-  // source splats makes the mesh look doubled, fragmented, and less solid.
-  if (S.points) {
-    if (previewVisible && _solidMeshPreviousPointsVisible === null) _solidMeshPreviousPointsVisible = S.points.visible;
-    S.points.visible = previewVisible ? false : (_solidMeshPreviousPointsVisible ?? true);
-    if (!previewVisible) _solidMeshPreviousPointsVisible = null;
-  }
+  // Mesh and splats are independent scene objects. Their layer controls live
+  // in Mesh & Print so users can inspect either object or intentionally overlay.
   _solidMeshPreviewObject.material.emissive.set(0xffffff);
   _solidMeshPreviewObject.material.emissiveIntensity = Math.max(0, Math.min(2, Number(options.light) || 0));
   _solidMeshPreviewObject.material.roughness = Math.max(0.05, Math.min(1, Number(options.roughness) || 0.72));
@@ -3415,7 +3407,8 @@ function exportFile(type = 'splat') {
     });
     name = S.fileName.replace(/\.[^.]+$/, '') + '.edited.nif';
     downloadNif(buf, name);
-    showToast('Exported', `${name} · ${fmt(idx.length)} points · real .nif`);
+    const meshNote = S.nifMesh?.triangles?.length ? ` · ${fmt(S.nifMesh.triangles.length / 3)} mesh faces` : '';
+    showToast('Exported', `${name} · ${fmt(idx.length)} points${meshNote} · real .nif`);
     return;
   }
   if (type === 'splat') {
@@ -5394,12 +5387,12 @@ function _injectV60Panels() {
         </div>
       </div>
       <div class="section">
-        <div class="sec-head"><span class="sec-label">Gaussian splat preview</span></div>
+        <div class="sec-head"><span class="sec-label">Solid mesh export</span></div>
         <div class="sec-body">
           <button class="ac-btn lime full" id="v60SolidifyBtn">
-            ✨ Preview solid Gaussian splats
+            ✨ Solidify &amp; Export NIF
           </button>
-          <div class="hint" style="margin-top:6px;">Shows the scene with Gaussian shape and opacity. For a real colored polygon mesh, use Mesh &amp; Print → Extract mesh.</div>
+          <div class="hint" style="margin-top:6px;">Builds a colored surface from the live splats, stores it beside them, then exports both in one NIF. Captured gaps can remain if the scan did not see those surfaces.</div>
         </div>
       </div>
       <div class="section">
@@ -5757,37 +5750,31 @@ function _wireButtons() {
   });
 
   // ══════════════════════════════════════════════════════════════════
-  // Preview solid Gaussian splats. Actual polygon mesh extraction lives in
-  // Mesh & Print and must not be represented as a visual reveal.
+  // Extract a real surface mesh, retain it alongside the source splats, and
+  // export both together as NIF. The Gaussian preview is not solid geometry.
   // ══════════════════════════════════════════════════════════════════
   document.getElementById('v60SolidifyBtn')?.addEventListener('click', async () => {
     if (!S.alive) { showToast('No splat loaded', 'Load a file first', 'warn'); return; }
     const btn = document.getElementById('v60SolidifyBtn');
-    if (btn) { btn.disabled = true; btn.textContent = '⏳ Preparing preview…'; }
-    setStatus('Preparing Gaussian splat preview…', 'busy');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Extracting solid mesh…'; }
+    setStatus('Extracting a solid surface from the live splats…', 'busy');
     try {
-      const gr = window.FumocaGaussianRenderer;
-      if (gr && !gr.isEnabled()) {
-        gr.enable(false);
-        const lbl = document.getElementById('photorealLabel');
-        const tog = document.getElementById('photorealToggle');
-        const revRow = document.getElementById('revealRow');
-        if (lbl) lbl.textContent = '✨ Photoreal: ON  ●';
-        if (tog) { tog.style.background='rgba(200,255,0,.1)'; tog.style.borderColor='rgba(200,255,0,.4)'; }
-        if (revRow) revRow.style.display = 'flex';
-      }
-      if (gr?.isEnabled()) gr.playDissolve(400);
-      await new Promise(resolve => setTimeout(resolve, 450));
-      rebuildGeometry();
-      if (gr?.isEnabled()) await new Promise(resolve => gr.playReveal(2400, resolve));
-      const saved = await window.saveLiveEdit();
-      setStatus(saved ? 'Gaussian splat preview saved' : 'Gaussian splat preview ready', 'ok');
-      showToast('Preview ready', saved ? 'Splat saved to your feed' : 'Use Mesh & Print to extract a colored mesh');
+      const meshPrint = window.FUMOCA_StudioMeshPrint;
+      if (typeof meshPrint?.extractMesh !== 'function') throw new Error('Mesh & Print is not ready. Reload the editor and try again.');
+      const mesh = await meshPrint.extractMesh();
+      if (!mesh) throw new Error('Mesh extraction did not produce a surface. Check the Mesh & Print status for details.');
+      const exportButton = document.getElementById('exportNifBtn');
+      if (!exportButton || exportButton.disabled) throw new Error('NIF export is unavailable until a scene is loaded.');
+      exportButton.click();
+      const quality = window.FUMOCA_StudioMeshPrint.lastStats;
+      const surfaceNote = quality?.watertight ? 'closed mesh' : 'mesh surface has open edges; scan coverage may leave gaps';
+      setStatus(`NIF exported with ${surfaceNote} and the splat layer.`, quality?.watertight ? 'ok' : 'warn');
+      showToast('NIF exported', `Contains ${surfaceNote} plus the editable splat layer`);
     } catch (err) {
-      setStatus(`Preview failed: ${err.message || err}`, 'warn');
-      showToast('Preview failed', err.message || String(err), 'warn');
+      setStatus(`Solidify failed: ${err.message || err}`, 'warn');
+      showToast('Solidify failed', err.message || String(err), 'warn');
     } finally {
-      if (btn) { btn.disabled = false; btn.textContent = '✨ Preview solid Gaussian splats'; }
+      if (btn) { btn.disabled = false; btn.textContent = '✨ Solidify & Export NIF'; }
     }
   });
 

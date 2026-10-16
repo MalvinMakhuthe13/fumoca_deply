@@ -18,7 +18,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       <div class="sec-head"><span class="sec-label">Mesh from points</span><span class="sec-badge">LOCAL</span></div>
       <div class="sec-body">
         <div class="hint">Build a surface from the current live NIF, PLY, or LiDAR points. PLY and OBJ keep transferred vertex color; STL is for printing.</div>
-        <div class="hint" style="margin-top:5px">After extraction, the colored mesh is retained as a separate component and included alongside the splats when you export or save NIF.</div>
+        <div class="hint" style="margin-top:5px">The colored mesh is stored in NIF beside the original splats. Use the layer switches to inspect either representation or overlay them.</div>
         <div class="ctrl-row">
           <span class="ctrl-label">Surface detail</span>
         <span class="ctrl-val" id="meshResVal">32³</span>
@@ -42,7 +42,8 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
             <option value="stl">STL - scale to print height</option>
           </select>
         </label>
-        <label style="display:flex;align-items:center;gap:7px;font-size:11px;margin:6px 0"><input id="meshPreviewToggle" type="checkbox" disabled> Preview extracted solid mesh in scene</label>
+        <label style="display:flex;align-items:center;gap:7px;font-size:11px;margin:6px 0"><input id="meshPreviewToggle" type="checkbox" disabled> Show mesh object</label>
+        <label style="display:flex;align-items:center;gap:7px;font-size:11px;margin:6px 0"><input id="meshSplatLayerToggle" type="checkbox" checked> Show splat object</label>
         <label style="display:block;font-size:11px">Preview light <input id="meshPreviewLight" type="range" min="0" max="2" step="0.05" value="0.25" style="width:100%"></label>
         <label style="display:block;font-size:11px">Surface roughness <input id="meshPreviewRoughness" type="range" min="0.05" max="1" step="0.05" value="0.72" style="width:100%"></label>
         <label style="display:block;font-size:11px">Metalness <input id="meshPreviewMetalness" type="range" min="0" max="1" step="0.05" value="0.05" style="width:100%"></label>
@@ -116,6 +117,9 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     }
     if (lastMeshData) {
       window.previewSolidMesh?.(lastMeshData, { visible: true });
+      const splatToggle = container.querySelector('#meshSplatLayerToggle');
+      if (splatToggle) splatToggle.checked = false;
+      if (window.S?.points) window.S.points.visible = false;
       meshStatus('Loaded NIF mesh component. Toggle its preview here; it remains separate from the splats.');
     }
   };
@@ -127,6 +131,9 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     metalness: Number(container.querySelector('#meshPreviewMetalness')?.value || 0.05),
   });
   container.querySelector('#meshPreviewToggle')?.addEventListener('change', updateMeshPreview);
+  container.querySelector('#meshSplatLayerToggle')?.addEventListener('change', (event) => {
+    if (window.S?.points) window.S.points.visible = event.target.checked;
+  });
   ['#meshPreviewLight', '#meshPreviewRoughness', '#meshPreviewMetalness'].forEach(selector => container.querySelector(selector)?.addEventListener('input', updateMeshPreview));
   const meshStatus = (message) => {
     const el = container.querySelector('#meshPrintStatus');
@@ -135,9 +142,9 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
   };
   if (window.S?.nifMesh) syncNifMesh(window.S.nifMesh);
 
-  container.querySelector('#meshExtractBtn')?.addEventListener('click', async () => {
+  const extractMesh = async () => {
     const state = window.S;
-    if (!state?.positions || !state?.alive) return meshStatus('Load a splat or PLY before extracting a mesh.');
+    if (!state?.positions || !state?.alive) { meshStatus('Load a splat or PLY before extracting a mesh.'); return false; }
     if (lastMeshData) window.previewSolidMesh?.(lastMeshData, { visible: false });
     lastMesh = null;
     lastMeshData = null;
@@ -190,25 +197,27 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         format, previewColours: true, name: 'fumoca-mesh', smooth,
         onProgress: (_pct, label) => meshStatus(label),
       });
-      const vertices = result.mesh.vertices;
-      lastMeshData = { ...result.mesh, vertices: result.mesh.vertices.slice() };
+      lastMeshData = { ...result.mesh, vertices: result.mesh.vertices.slice(), triangles: result.mesh.triangles.slice(), colours: result.mesh.colours?.slice() };
       // Preserve the extracted surface as a separate NIF mesh component.
       if (window.S) window.S.nifMesh = lastMeshData;
       if (format === 'stl') {
+        // Print scaling belongs only to the STL download, not the scene mesh
+        // retained for NIF export or preview.
+        const exportMesh = { ...result.mesh, vertices: result.mesh.vertices.slice() };
         let minY = Infinity, maxY = -Infinity;
-        for (let i = 1; i < vertices.length; i += 3) { minY = Math.min(minY, vertices[i]); maxY = Math.max(maxY, vertices[i]); }
+        for (let i = 1; i < exportMesh.vertices.length; i += 3) { minY = Math.min(minY, exportMesh.vertices[i]); maxY = Math.max(maxY, exportMesh.vertices[i]); }
         const factor = Number(height?.value || 120) / Math.max(maxY - minY, 1e-6);
-        for (let i = 0; i < vertices.length; i += 3) {
-          vertices[i] *= factor;
-          vertices[i + 1] = (vertices[i + 1] - minY) * factor;
-          vertices[i + 2] *= factor;
+        for (let i = 0; i < exportMesh.vertices.length; i += 3) {
+          exportMesh.vertices[i] *= factor;
+          exportMesh.vertices[i + 1] = (exportMesh.vertices[i + 1] - minY) * factor;
+          exportMesh.vertices[i + 2] *= factor;
         }
+        lastMesh = FumocMeshExtractor.exportSTL(exportMesh, 'fumoca-mesh');
       }
       lastMeshFormat = format;
       lastMeshStats = result.stats;
-      lastMesh = format === 'obj' ? FumocMeshExtractor.exportOBJ(result.mesh, 'fumoca-mesh')
-        : format === 'ply' ? FumocMeshExtractor.exportPLY(result.mesh, 'fumoca-mesh')
-        : FumocMeshExtractor.exportSTL(result.mesh, 'fumoca-mesh');
+      if (format !== 'stl') lastMesh = format === 'obj' ? FumocMeshExtractor.exportOBJ(result.mesh, 'fumoca-mesh')
+        : FumocMeshExtractor.exportPLY(result.mesh, 'fumoca-mesh');
       const shellStatus = result.stats.watertight
         ? (result.stats.components === 1 ? 'one connected watertight shell' : `${result.stats.components} disconnected watertight shells`)
         : `open surface — ${result.stats.openEdges} open edges${result.stats.components > 1 ? ` across ${result.stats.components} shells` : ''}`;
@@ -220,12 +229,20 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       const previewToggle = container.querySelector('#meshPreviewToggle');
       previewToggle.disabled = false;
       previewToggle.checked = true;
+      const splatToggle = container.querySelector('#meshSplatLayerToggle');
+      if (splatToggle) splatToggle.checked = false;
+      if (state.points) state.points.visible = false;
       updateMeshPreview();
+      window.dispatchEvent(new CustomEvent('fumoca:solidMeshReady', { detail: { mesh: lastMeshData, stats: lastMeshStats } }));
       container.querySelector('#saveMeshBtn').disabled = !result.mesh.colours;
+      return lastMeshData;
     } catch (err) {
       meshStatus(err.message || String(err));
+      return false;
     }
-  });
+  };
+  window.FUMOCA_StudioMeshPrint = { mountMeshPrintPanel, extractMesh, get lastStats() { return lastMeshStats; } };
+  container.querySelector('#meshExtractBtn')?.addEventListener('click', extractMesh);
 
   container.querySelector('#saveMeshBtn')?.addEventListener('click', async (event) => {
     const button = event.currentTarget;

@@ -946,16 +946,20 @@ function renderPanel() {
   hotspotPanel.querySelector('#hsAdd')?.addEventListener('click', async () => {
     const created = promptHotspot({ x: 50, y: 50 });
     if (!created) return;
-    state.hotspots.push(normalizeHotspot(created, state.hotspots.length));
+    const hotspot = normalizeHotspot(created, state.hotspots.length);
+    state.hotspots.push(hotspot);
     renderHotspots(); renderPanel();
-    saveRemote();
+    await saveRemote();
+    activateHotspot(hotspot);
   });
   hotspotPanel.querySelector('#hsCaptureCurrent')?.addEventListener('click', () => {
     const created = promptHotspot(getCurrentViewerAnchor());
     if (!created) return;
-    state.hotspots.push(normalizeHotspot(created, state.hotspots.length));
+    const hotspot = normalizeHotspot(created, state.hotspots.length);
+    state.hotspots.push(hotspot);
     renderHotspots(); renderPanel();
-    saveRemote();
+    await saveRemote();
+    activateHotspot(hotspot);
   });
   hotspotPanel.querySelector('#hsSave')?.addEventListener('click', async () => { await saveRemote(); renderPanel(); });
   hotspotPanel.querySelectorAll('[data-action="fly"]').forEach(btn => btn.addEventListener('click', () => {
