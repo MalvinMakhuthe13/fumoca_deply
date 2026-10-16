@@ -34,5 +34,5 @@ test('malformed rows are skipped; no valid points is an explicit error', () => {
 });
 
 test('missing xyz headers fail instead of silently swapping columns', () => {
-  assert.throws(() => parseXYZ('latitude,longitude,height\n1,2,3'), /no valid x\/y\/z/);
+  assert.throws(() => parseXYZ('latitude,longitude,height\n1,2,3'), /must identify x, y, and z/);
 });
