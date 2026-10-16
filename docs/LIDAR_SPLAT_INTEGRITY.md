@@ -32,13 +32,14 @@ This path is a **point-cloud import**, not LiDAR-to-Gaussian registration or fus
 - LAS 1.4 point formats 6–10 use the correct classification byte offset (16, rather than legacy offset 15).
 - Unsupported/reserved/compressed point-record flags are rejected instead of being interpreted as ordinary LAS records.
 - Non-finite or zero coordinate scales and non-finite offsets are rejected.
-- LAS scale/offset values are exposed as metadata. CRS VLR/WKT and units are not decoded here, so they remain explicitly unknown.
-- Coordinate metadata survives point-cloud downsampling.
+- LAS scale/offset values and a reversible `renderOrigin` are exposed as metadata. The stored point positions are local to that origin. CRS VLR/WKT and units are not decoded here, so they remain explicitly unknown.
+- Local-origin regression fixtures verify that centimetre-scale differences survive Float32 conversion even when world coordinates are large.
+- Coordinate metadata, including the local render origin, survives point-cloud downsampling.
 - CI checks the syntax of the LiDAR importer and upload page and runs intensity, text-parser, and LAS parser regression tests.
 
 ## Important limitations
 
-- LAS coordinates are converted to JavaScript `Float32Array` positions for browser rendering. Large projected coordinates can lose precision at this step; a reversible local-origin rendering transform is still needed before survey-grade use.
+- LAS coordinates are converted to world-coordinate JavaScript Numbers, then shifted by the first source point before conversion to `Float32Array`. The PLY contains local coordinates to preserve small spatial differences; `coordinate_metadata.renderOrigin` records the world-coordinate origin needed to reconstruct source-coordinate values. Consumers must apply this origin when interpreting/exporting world coordinates.
 - LAS CRS VLR/WKT is not parsed here. Do not assume the point coordinates are metres or in a particular CRS.
 - LAZ is not supported in this browser path.
 - This change does not implement registration, point-to-splat constraints, geometry fusion, or accuracy metrics.
