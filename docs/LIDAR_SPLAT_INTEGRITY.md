@@ -15,6 +15,8 @@ This path is a **point-cloud import**, not LiDAR-to-Gaussian registration or fus
 ## Intensity and point attributes
 
 - Uncompressed LAS intensity is read as its original unsigned 16-bit sample and written to the PLY as `ushort intensity`; it is **not** silently substituted for RGB.
+- Low raw LAS intensity values (including `1`) remain their original integer values on PLY export; they are not mistaken for normalized 0–1 display values.
+- The viewer uses a separate percentile-stretched display buffer for contrast. This only changes rendered colours, not the stored intensity attribute.
 - PLY intensity attributes are imported when present. LAS classification, return number, and RGB (where supported by the LAS point format) are carried as separate attributes.
 - Downsampling must apply the same selected point indices to positions, intensity, RGB, classification, and return number so attributes never drift onto the wrong point.
 - The viewer already has a LiDAR point-colour selector for intensity/classification/return data. Intensity display is a visualization, not calibrated reflectance: values can vary with sensor, range, angle, material, gain, and acquisition settings.
