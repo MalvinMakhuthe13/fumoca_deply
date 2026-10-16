@@ -27,16 +27,18 @@ This path is a **point-cloud import**, not LiDAR-to-Gaussian registration or fus
 ## Integrity fixes in this change
 
 - LAS point-format minimum record lengths are checked before reading point records.
+- LAS parsing is isolated in a pure module and exercised by generated LAS 1.2 and LAS 1.4 binary fixtures.
+- LAS version/header-size/point-offset combinations are checked; files declaring more points than complete records available are rejected instead of silently truncated.
 - LAS 1.4 point formats 6–10 use the correct classification byte offset (16, rather than legacy offset 15).
 - Unsupported/reserved/compressed point-record flags are rejected instead of being interpreted as ordinary LAS records.
 - Non-finite or zero coordinate scales and non-finite offsets are rejected.
 - LAS scale/offset values are exposed as metadata. CRS VLR/WKT and units are not decoded here, so they remain explicitly unknown.
 - Coordinate metadata survives point-cloud downsampling.
-- CI checks the syntax of the LiDAR importer and upload page.
+- CI checks the syntax of the LiDAR importer and upload page and runs intensity, text-parser, and LAS parser regression tests.
 
 ## Important limitations
 
-- LAS coordinates are converted to JavaScript `Float32Array` positions for browser rendering. Large projected coordinates can lose precision at this step; survey-grade workflows need local-origin handling with a preserved reversible transform or a higher-precision processing path.
+- LAS coordinates are converted to JavaScript `Float32Array` positions for browser rendering. Large projected coordinates can lose precision at this step; a reversible local-origin rendering transform is still needed before survey-grade use.
 - LAS CRS VLR/WKT is not parsed here. Do not assume the point coordinates are metres or in a particular CRS.
 - LAZ is not supported in this browser path.
 - This change does not implement registration, point-to-splat constraints, geometry fusion, or accuracy metrics.
