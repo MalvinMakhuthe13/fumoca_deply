@@ -80,6 +80,24 @@
         <div class="its-export-copy"><div class="its-card-head"><span class="its-step">04</span><div><h2>Prepare for FUMOCA</h2><p>Export the selected original photos together with camera settings and provenance metadata.</p></div></div><p>Planned integration target: Image2Splat depth lift → authored orbit → optional video synthesis → dataset with camera poses → Gaussian splat → FUMOCA viewer / NIF conversion where supported.</p></div>
         <div class="its-export-targets"><span>Source image bundle</span><span>Camera metadata</span><span>Coverage / provenance</span><span>Future NIF handoff</span></div>
       </section>
+
+      <section class="its-card its-mesh-card">
+        <div class="its-card-head"><span class="its-step">05</span><div><h2>Mesh → Splat conversion</h2><p>Optional post-reconstruction path for textured GLB assets.</p></div></div>
+        <div class="its-mesh-grid">
+          <div class="its-mesh-stage"><span class="its-stage-no">A</span><strong>Reconstruct &amp; clean</strong><p>FUMOCA produces a mesh, then validates geometry, UVs, normals, textures and scale provenance.</p></div>
+          <div class="its-mesh-arrow" aria-hidden="true">→</div>
+          <div class="its-mesh-stage"><span class="its-stage-no">B</span><strong>Convert GLB</strong><p>Mesh2Splat is a candidate converter for compatible textured GLB input. Kaggle/headless support remains to be proven.</p></div>
+          <div class="its-mesh-arrow" aria-hidden="true">→</div>
+          <div class="its-mesh-stage"><span class="its-stage-no">C</span><strong>Validate the splat</strong><p>Compare silhouette, materials, bounds and render quality before a converted asset can be published.</p></div>
+        </div>
+        <div class="its-status its-status-inline" role="note"><span class="its-status-dot"></span><div><strong>Research integration · not active yet</strong><p>The current FUMOCA Kaggle reconstruction worker is unchanged. Mesh2Splat documents a desktop OpenGL/C++ renderer, not a verified headless Kaggle API. Conversion will remain a separate optional stage until tested.</p></div><a href="https://github.com/electronicarts/mesh2splat" target="_blank" rel="noopener noreferrer">Mesh2Splat ↗</a></div>
+        <div class="its-lighting-panel">
+          <div><strong>Relighting direction</strong><p>Preserve albedo and PBR maps where available. Use ambient/environment strength, key-light direction, optional point light, exposure and shadows only where the eventual viewer supports them.</p></div>
+          <div class="its-lighting-chips"><span>Albedo</span><span>Normal map</span><span>Roughness / metallic</span><span>Ambient + key light</span><span>Shadow support varies</span></div>
+        </div>
+        <p class="its-note">These are planned pipeline capabilities, not controls pretending to light a static preview. Mesh2Splat's license and third-party terms must be reviewed before commercial bundling.</p>
+      </section>
+
       <footer class="its-footer">FUMOCA · Image-to-Splat Studio · Integration scaffold · <a href="https://github.com/romanpillai/Image2Splat" target="_blank" rel="noopener noreferrer">Image2Splat is a separate project</a></footer>
     </div>
   </main>
