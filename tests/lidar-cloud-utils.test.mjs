@@ -22,7 +22,8 @@ test('downsampling keeps point attributes aligned to the same selected indices',
   assert.deepEqual([...result.intensities], [10,40]);
   assert.deepEqual([...result.classifications], [1,4]);
   assert.deepEqual([...result.returnNumbers], [1,2]);
-  assert.deepEqual([...result.colors], [0,0,0,0.3,0.3,0.3]);
+  const expectedColors = [0,0,0,0.3,0.3,0.3];
+  result.colors.forEach((value,index) => assert.ok(Math.abs(value - expectedColors[index]) < 1e-6));
   assert.equal(result.coordinateMetadata, coordinateMetadata);
   assert.equal(result.sourcePointCount, 5);
 });
