@@ -59,12 +59,26 @@ export function parseLAS(buffer, maxPoints = 1_000_000) {
   }
   const classificationOffset = format >= 6 ? 16 : 15;
   const returnMask = format >= 6 ? 0x0f : 0x07;
+
+  // Use the first source point as a reversible local render origin. Compute
+  // world coordinates in JS Number precision, subtract the origin BEFORE
+  // converting to Float32, and persist the origin alongside coordinate metadata.
+  // This avoids losing centimetre-scale differences in large projected coordinates.
+  const firstAt = pointOffset;
+  const renderOrigin = {
+    x: view.getInt32(firstAt, true) * sx + ox,
+    y: view.getInt32(firstAt + 4, true) * sy + oy,
+    z: view.getInt32(firstAt + 8, true) * sz + oz,
+  };
   let out = 0;
   for (let i = 0; i < recordCount; i += stride) {
     const at = pointOffset + i * recordLength;
-    positions[out * 3] = view.getInt32(at, true) * sx + ox;
-    positions[out * 3 + 1] = view.getInt32(at + 4, true) * sy + oy;
-    positions[out * 3 + 2] = view.getInt32(at + 8, true) * sz + oz;
+    const worldX = view.getInt32(at, true) * sx + ox;
+    const worldY = view.getInt32(at + 4, true) * sy + oy;
+    const worldZ = view.getInt32(at + 8, true) * sz + oz;
+    positions[out * 3] = worldX - renderOrigin.x;
+    positions[out * 3 + 1] = worldY - renderOrigin.y;
+    positions[out * 3 + 2] = worldZ - renderOrigin.z;
     intensities[out] = view.getUint16(at + 12, true);
     classifications[out] = view.getUint8(at + classificationOffset);
     const returnBits = view.getUint8(at + 14);
@@ -84,6 +98,10 @@ export function parseLAS(buffer, maxPoints = 1_000_000) {
       pointFormat: format,
       scale: { x: sx, y: sy, z: sz },
       offset: { x: ox, y: oy, z: oz },
+      // Positions are stored relative to this origin for rendering/export.
+      // Add this origin to local positions to recover source-coordinate values.
+      renderOrigin,
+      positionCoordinates: 'local_relative_to_render_origin',
       crs: 'unknown_not_parsed',
       units: 'unknown',
       metricScaleVerified: false,
