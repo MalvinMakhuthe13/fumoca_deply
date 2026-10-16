@@ -6501,5 +6501,25 @@ if (!window._fumocaBooted) {
   });
 </script>
 
+<!-- LiDAR-first empty-state: expose import controls and attribute selectors before a scene is loaded. -->
+<script>
+(function () {
+  function exposeImportControls() {
+    const fileName = document.querySelector('.tb-file-name');
+    const hasLoadedScene = !!(window.S && (window.S.points || window.S.position) && Number(window.S.count || window.S.pointCount || 0) > 0);
+    const noFileLabel = !fileName || /no file loaded|drop \.splat|no scene/i.test(fileName.textContent || '');
+    if (!hasLoadedScene && noFileLabel) {
+      const importTab = document.querySelector('#leftTabs .ptab[data-tab="import"]');
+      if (importTab && !importTab.classList.contains('active')) importTab.click();
+    }
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => requestAnimationFrame(exposeImportControls), { once: true });
+  } else {
+    requestAnimationFrame(exposeImportControls);
+  }
+})();
+</script>
+
 </body>
 </html>
