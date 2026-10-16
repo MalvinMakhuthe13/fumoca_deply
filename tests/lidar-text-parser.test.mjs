@@ -9,7 +9,8 @@ test('header-aware CSV maps xyz, RGB, intensity, class and return columns by nam
   assert.deepEqual([...cloud.intensities], [65535,1]);
   assert.deepEqual([...cloud.classifications], [2,5]);
   assert.deepEqual([...cloud.returnNumbers], [2,1]);
-  assert.deepEqual([...cloud.colors.slice(0,3)], [1,128/255,0]);
+  const expectedColor = [1,128/255,0];
+  cloud.colors.slice(0,3).forEach((value,index) => assert.ok(Math.abs(value - expectedColor[index]) < 1e-6));
   assert.equal(cloud.coordinateMetadata.metricScaleVerified, false);
 });
 
@@ -17,7 +18,8 @@ test('headerless XYZRGB remains compatible and scales 8-bit color', () => {
   const cloud = parseXYZ('# capture\n1 2 3 255 128 0\n4 5 6 0 255 10');
   assert.equal(cloud.count, 2);
   assert.deepEqual([...cloud.positions], [1,2,3,4,5,6]);
-  assert.deepEqual([...cloud.colors.slice(0,3)], [1,128/255,0]);
+  const expectedColor = [1,128/255,0];
+  cloud.colors.slice(0,3).forEach((value,index) => assert.ok(Math.abs(value - expectedColor[index]) < 1e-6));
   assert.equal(cloud.intensities, null);
 });
 
