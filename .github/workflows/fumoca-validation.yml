@@ -33,6 +33,8 @@ jobs:
         run: node --test tests/lidar-intensity.test.mjs
       - name: Test header-aware LiDAR text import
         run: node --test tests/lidar-text-parser.test.mjs
+      - name: Test uncompressed LAS parser fixtures
+        run: node --test tests/lidar-las-parser.test.mjs
       - name: Compile Kaggle preflight script
         run: python -m py_compile kaggle/mesh2splat_preflight.py
       - name: Install preflight dependencies
