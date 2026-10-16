@@ -540,8 +540,21 @@ window.handleSubmit = async function() {
         thumbnail_url: uploadedThumbnail.publicUrl,
         meta: {
           source_type: 'direct_lidar',
+          scene_representation: 'point_cloud',
           source_filename: selectedFile.name,
           source_format: cloud.source,
+          // Import is not reconstruction or LiDAR-to-Gaussian fusion. Keep this
+          // explicit so downstream UI/API code cannot infer a fusion result.
+          fusion_status: 'not_performed',
+          gaussian_reconstruction_status: 'not_performed',
+          measurement_grade: false,
+          metric_scale_verified: cloud.coordinateMetadata?.metricScaleVerified === true,
+          coordinate_metadata: cloud.coordinateMetadata || {
+            source: cloud.source || 'unknown',
+            crs: 'unknown_not_parsed',
+            units: 'unknown',
+            metricScaleVerified: false,
+          },
           source_capture: {
             public_url: sourceUrl,
             r2_key: sourceFileKey,
