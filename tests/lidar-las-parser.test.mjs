@@ -37,13 +37,24 @@ test('LAS format 0 applies scale and offset and preserves intensity/class/return
     {xyz:[-10,20,30], intensity:65535, classification:2, returnByte:2},
   ], scale:[0.01,0.02,0.03], offset:[500000,6000000,100]}));
   assert.equal(cloud.count,2);
-  const expected = [500001,6000004,109,499999.9,6000000.4,100.9];
-  cloud.positions.forEach((value, index) => assert.ok(Math.abs(value - expected[index]) < 0.5, `coordinate ${index}: ${value}`));
+  const expectedLocal = [0,0,0,-1.1,-3.6,-8.1];
+  cloud.positions.forEach((value, index) => assert.ok(Math.abs(value - expectedLocal[index]) < 1e-5, `local coordinate ${index}: ${value}`));
+  assert.deepEqual(cloud.coordinateMetadata.renderOrigin, {x:500001,y:6000004,z:109});
+  assert.equal(cloud.coordinateMetadata.positionCoordinates, 'local_relative_to_render_origin');
   assert.deepEqual([...cloud.intensities], [1,65535]);
   assert.deepEqual([...cloud.classifications], [6,2]);
   assert.deepEqual([...cloud.returnNumbers], [3,2]);
   assert.equal(cloud.coordinateMetadata.metricScaleVerified,false);
   assert.equal(cloud.coordinateMetadata.units,'unknown');
+});
+
+test('large projected coordinates retain centimetre-scale differences after Float32 conversion', () => {
+  const cloud = parseLAS(makeLas({points:[
+    {xyz:[1000000,2000000,3000000]},
+    {xyz:[1000001,2000001,3000001]},
+  ],scale:[0.01,0.01,0.01],offset:[500000,6000000,100]}));
+  assert.deepEqual([...cloud.positions], [0,0,0,0.01,0.01,0.01]);
+  assert.deepEqual(cloud.coordinateMetadata.renderOrigin, {x:510000,y:6020000,z:30100});
 });
 
 test('LAS 1.4 format 6 reads modern classification offset and 4-bit return number', () => {
