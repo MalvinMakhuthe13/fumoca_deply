@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeIntensityForDisplay } from '../js/modules/lidar-intensity.js';
+import { normalizeIntensityForDisplay } from '../js/modules/lidar-intensity.mjs';
 
 test('normalizes intensity for display without mutating raw samples', () => {
   const raw = new Uint16Array([0, 100, 200, 300, 65535]);
