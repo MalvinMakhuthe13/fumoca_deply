@@ -1,7 +1,7 @@
 import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
 import { parseXYZ } from './lidar-text-parser.mjs';
 import { parseLAS } from './lidar-las-parser.mjs';
-import { parsePlyCoordinateMetadata, serializePlyCoordinateMetadata } from './lidar-coordinate-metadata.mjs';
+import { parsePlyCoordinateMetadata } from './lidar-coordinate-metadata.mjs';
 import { downsample, encodePointCloudPLY } from './lidar-cloud-utils.mjs';
 
 /**
