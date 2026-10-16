@@ -11,6 +11,7 @@ function makeLas({ format = 0, versionMinor = 2, recordLength, points, scale = [
   const v = new DataView(buffer);
   for (let i=0;i<4;i++) v.setUint8(i, 'LASF'.charCodeAt(i));
   v.setUint8(24, 1); v.setUint8(25, versionMinor);
+  v.setUint16(94, versionMinor >= 4 ? 375 : 227, true);
   v.setUint32(96, pointOffset, true);
   v.setUint8(104, format);
   v.setUint16(105, recordLength, true);
@@ -65,10 +66,15 @@ test('rejects invalid signature, unsupported formats, short records and bad scal
   assert.throws(() => parseLAS(new ArrayBuffer(227)), /valid LAS/);
   assert.throws(() => parseLAS(makeLas({format:11,points:[{xyz:[0,0,0]}]})), /Unsupported LAS point format/);
   assert.throws(() => parseLAS(makeLas({format:0,recordLength:19,points:[{xyz:[0,0,0]}]})), /requires records/);
+  const truncated = makeLas({points:[{xyz:[0,0,0]},{xyz:[1,1,1]}]});
+  assert.throws(() => parseLAS(truncated.slice(0, truncated.byteLength - 5)), /truncated/);
   assert.throws(() => parseLAS(makeLas({points:[{xyz:[0,0,0]}],scale:[0,0.01,0.01})), /scale\/offset/);
 });
 
 test('rejects compressed flags and invalid max point cap', () => {
+  const oldHeader = makeLas({points:[{xyz:[0,0,0]}]});
+  new DataView(oldHeader).setUint16(94, 100, true);
+  assert.throws(() => parseLAS(oldHeader), /header size is invalid/);
   const compressed = makeLas({points:[{xyz:[0,0,0]}]});
   new DataView(compressed).setUint8(104,0x80);
   assert.throws(() => parseLAS(compressed), /LAZ compression/);
