@@ -263,6 +263,8 @@ export function downsample(cloud, maxPoints = 800_000) {
     positions, colors, intensities, classifications, returnNumbers, count: j,
     source: cloud.source + '+downsampled',
     sourcePointCount: cloud.sourcePointCount || cloud.count,
+    // Preserve source coordinate/calibration claims across downsampling.
+    coordinateMetadata: cloud.coordinateMetadata || null,
   };
 }
 
