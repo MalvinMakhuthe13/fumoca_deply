@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import sys
 from pathlib import Path
 
@@ -105,8 +104,11 @@ def inspect_glb(path: Path) -> dict:
     if not total_faces:
         raise ValueError("GLB contains zero triangle faces.")
 
-    bounds = np.vstack(all_bounds)
-    overall_bounds = [bounds[:, 0, :].min(axis=0).tolist(), bounds[:, 1, :].max(axis=0).tolist()]
+    stacked_bounds = np.stack(all_bounds, axis=0)  # (mesh_count, min/max, xyz)
+    overall_bounds = [
+        stacked_bounds[:, 0, :].min(axis=0).tolist(),
+        stacked_bounds[:, 1, :].max(axis=0).tolist(),
+    ]
     return {
         "schema": "fumoca.mesh2splat.preflight.v1",
         "status": "preflight_passed_conversion_not_run",
@@ -121,7 +123,7 @@ def inspect_glb(path: Path) -> dict:
             "vertices": total_vertices,
             "triangles": total_faces,
             "bounds": overall_bounds,
-            "extents_scene_units": (bounds[1] - bounds[0]).tolist(),
+            "extents_scene_units": (np.asarray(overall_bounds[1]) - np.asarray(overall_bounds[0])).tolist(),
             "meshes": mesh_rows,
         },
         "materials": {
