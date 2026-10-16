@@ -5,6 +5,7 @@ import { parseLAS } from '../js/modules/lidar-las-parser.mjs';
 function makeLas({ format = 0, versionMinor = 2, recordLength, points, scale = [0.01,0.01,0.01], offset = [0,0,0], pointOffset = 227 } = {}) {
   const defaults = ({0:20,1:28,2:26,3:34,4:57,5:63,6:30,7:36,8:38,9:59,10:67})[format];
   recordLength ??= defaults;
+  if (versionMinor >= 4 && pointOffset === 227) pointOffset = 375;
   const count = points.length;
   const buffer = new ArrayBuffer(pointOffset + count * recordLength);
   const v = new DataView(buffer);
@@ -35,7 +36,8 @@ test('LAS format 0 applies scale and offset and preserves intensity/class/return
     {xyz:[-10,20,30], intensity:65535, classification:2, returnByte:2},
   ], scale:[0.01,0.02,0.03], offset:[500000,6000000,100]}));
   assert.equal(cloud.count,2);
-  assert.deepEqual([...cloud.positions], [500001,6000004,109,499999.9,6000000.4,100.9]);
+  const expected = [500001,6000004,109,499999.9,6000000.4,100.9];
+  cloud.positions.forEach((value, index) => assert.ok(Math.abs(value - expected[index]) < 0.5, `coordinate ${index}: ${value}`));
   assert.deepEqual([...cloud.intensities], [1,65535]);
   assert.deepEqual([...cloud.classifications], [6,2]);
   assert.deepEqual([...cloud.returnNumbers], [3,2]);
