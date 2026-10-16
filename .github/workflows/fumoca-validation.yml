@@ -2,7 +2,7 @@ name: FUMOCA validation
 
 on:
   push:
-    branches: [main, "feat/**"]
+    branches: [main, "feat/**", "lidar-splat-integrity-cleanup"]
   pull_request:
     branches: [main]
   workflow_dispatch:
