@@ -304,7 +304,7 @@ export function encodePointCloudPLY(cloud) {
     let extraAt = at + 15;
     if (hasIntensity) {
       const rawIntensity = Number(cloud.intensities[i]) || 0;
-      view.setUint16(extraAt, Math.round(Math.max(0, Math.min(65535, rawIntensity <= 1 ? rawIntensity * 65535 : rawIntensity))), true);
+      view.setUint16(extraAt, Math.round(Math.max(0, Math.min(65535, rawIntensity))), true);
       extraAt += 2;
     }
     if (hasClassification) { view.setUint8(extraAt, cloud.classifications[i]); extraAt++; }
