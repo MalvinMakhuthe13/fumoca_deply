@@ -1,4 +1,11 @@
 export function downsample(cloud, maxPoints = 800_000) {
+  if (!Number.isSafeInteger(maxPoints) || maxPoints < 1) {
+    throw new RangeError('maxPoints must be a positive safe integer.');
+  }
+  if (!cloud || !Number.isSafeInteger(cloud.count) || cloud.count < 0 ||
+      !cloud.positions || cloud.positions.length < cloud.count * 3) {
+    throw new TypeError('Point cloud has an invalid count or position buffer.');
+  }
   if (cloud.count <= maxPoints) return cloud;
   const step = Math.ceil(cloud.count / maxPoints);
   const n = Math.ceil(cloud.count / step);
