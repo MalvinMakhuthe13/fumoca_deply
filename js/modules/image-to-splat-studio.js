@@ -11,6 +11,7 @@
   const countLabel = $('itsFileCount');
   const clearButton = $('itsClearFiles');
   const exportButton = $('itsExportPlan');
+  const exportJsonButton = $('itsExportJson');
   if (!fileInput || !dropzone || !grid || !exportButton) return;
 
   let files = [];
@@ -55,6 +56,7 @@
     countLabel.textContent = files.length + (files.length === 1 ? ' image selected' : ' images selected');
     clearButton.disabled = files.length === 0;
     exportButton.disabled = files.length === 0;
+    if (exportJsonButton) exportJsonButton.disabled = files.length === 0;
 
     if (!files.length) {
       const empty = document.createElement('div');
@@ -208,9 +210,54 @@
     };
   }
 
-  exportButton.addEventListener('click', () => {
+  function downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+  }
+
+  if (exportJsonButton) exportJsonButton.addEventListener('click', () => {
     if (!files.length) return;
     const blob = new Blob([JSON.stringify(cameraPlan(), null, 2)], { type: 'application/json' });
+    downloadBlob(blob, 'fumoca-image-to-splat-camera-plan.json');
+  });
+
+  exportButton.addEventListener('click', async () => {
+    if (!files.length || exportButton.disabled) return;
+    const originalLabel = exportButton.textContent;
+    exportButton.disabled = true;
+    exportButton.textContent = 'Packaging source images…';
+    try {
+      // Load ZIP code only after an explicit user action; no image is sent to a server.
+      const { default: JSZip } = await import('https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm');
+      const zip = new JSZip();
+      zip.file('fumoca-project.json', JSON.stringify(cameraPlan(), null, 2));
+      const sourceFolder = zip.folder('source-images');
+      for (let i = 0; i < files.length; i += 1) {
+        const file = files[i];
+        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120) || `image-${i + 1}`;
+        sourceFolder.file(`${String(i + 1).padStart(3, '0')}-${safeName}`, file);
+      }
+      zip.file('README.txt', 'FUMOCA Image-to-Splat project package\n\nContains the original user-selected source images and a camera-plan manifest. This is an input package only; it is not a reconstructed scene, trained Gaussian splat, or verified measurement. Synthetic camera poses are planning metadata.\n');
+      const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 3 } });
+      downloadBlob(blob, 'fumoca-image-to-splat-project.zip');
+      setText('itsFileCount', `${files.length} images packaged · ${(blob.size / (1024 * 1024)).toFixed(1)} MB ZIP`);
+    } catch (error) {
+      console.error('[FUMOCA Image-to-Splat] Package export failed', error);
+      window.alert('Could not package the images. Check your connection and try again. Your files have not been uploaded.');
+    } finally {
+      exportButton.disabled = files.length === 0;
+      exportButton.textContent = originalLabel;
+    }
+  });
+
+  /* Legacy JSON-only export is available separately. */
+  /* const blob = new Blob([JSON.stringify(cameraPlan(), null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
@@ -219,7 +266,7 @@
     link.click();
     link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-  });
+  }); */
 
   window.addEventListener('beforeunload', cleanupUrls);
   updateOutputs();
