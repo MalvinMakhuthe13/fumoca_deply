@@ -29,6 +29,8 @@ jobs:
         run: node --input-type=module --check < js/modules/lidar-import.js
       - name: Check upload page ES module syntax
         run: node --input-type=module --check < js/modules/upload-page.js
+      - name: Test LiDAR intensity normalization
+        run: node --test tests/lidar-intensity.test.mjs
       - name: Compile Kaggle preflight script
         run: python -m py_compile kaggle/mesh2splat_preflight.py
       - name: Install preflight dependencies
