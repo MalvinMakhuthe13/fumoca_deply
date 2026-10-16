@@ -57,7 +57,7 @@ test('binary PLY export preserves local coordinates, attributes, and provenance 
   };
   const bytes = encodePointCloudPLY(cloud);
   const textHeader = new TextDecoder().decode(bytes.slice(0, 8192));
-  const marker = 'end_header\\n';
+  const marker = 'end_header\n';
   const headerEnd = textHeader.indexOf(marker);
   assert.ok(headerEnd >= 0, 'PLY header terminator exists');
   const header = textHeader.slice(0, headerEnd + marker.length);
