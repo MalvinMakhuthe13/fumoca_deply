@@ -1,6 +1,6 @@
 # Image-to-Splat integration plan
 
-Status: **Phase 1 UI scaffold only**. This page does not run Image2Splat or claim to generate a splat. It previews user-selected local images and exports a camera-plan JSON manifest.
+Status: **Phase 1 project-preparation workflow**. This page does not run Image2Splat or claim to generate a splat. It previews user-selected local images and exports a ZIP containing the originals plus camera-plan JSON.
 
 ## Why integrate instead of rebuilding
 
@@ -21,11 +21,13 @@ Implemented on this branch:
 - A dedicated `image-to-splat.html` Studio page linked from the shared navigation.
 - Multi-image selection and local previews; images are not uploaded by this page.
 - User-controlled camera count, sweep, relative radius, elevation and field of view.
-- Export of `fumoca.image-to-splat.project.v1` JSON.
+- Export of a ZIP project package containing selected original images, `fumoca-project.json`, and a README, with camera-plan metadata and provenance.
+- A separate JSON-only camera-plan export.
 - Explicit accuracy/provenance fields: planned poses are synthetic; radius is not metric scale; generated views are not independent observations; AI inference is opt-in.
+- ZIP generation is initiated by the user and runs in the browser; this page does not upload source images to a server.
 - Responsive layout using a dedicated stylesheet so existing capture/viewer paths are not changed.
 
-The exported JSON is currently a **planning manifest**, not a dataset accepted by Image2Splat. It contains source filenames and metadata, not the image bytes.
+The ZIP is a **handoff package**, not a dataset accepted by Image2Splat. No processing job is queued, no AI provider is called, and no splat is produced yet.
 
 ## Phase 2 — connect an isolated engine adapter
 
