@@ -97,7 +97,7 @@ const FumocaStudio = (() => {
 
   // ── Add keyframe from current camera view ────────────────────────
   async function addKeyframeFromCurrentView() {
-    const label = prompt('Keyframe label (e.g. "Living Room", "Hero Shot")', `Keyframe ${(window.Fumoca4D?.getStates?.()?.length || 0) + 1}`);
+    const label = prompt('Camera view label (e.g. "Living Room", "Hero Shot")', `Camera view ${(window.Fumoca4D?.getStates?.()?.length || 0) + 1}`);
     if (label === null) return;
 
     const kf = await window.Fumoca4D?.captureKeyframe(label);

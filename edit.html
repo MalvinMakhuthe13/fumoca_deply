@@ -1032,6 +1032,10 @@ input[type=range].amber::-webkit-slider-thumb{background:var(--amber);box-shadow
 
     <!-- TAB: PRESENT (camera paths + break the frame) -->
     <div class="panel-body" id="tab-present" style="display:none">
+      <div class="section" style="margin-bottom:10px;border-color:rgba(212,255,0,.28)">
+        <div class="sec-head"><span class="sec-label">Media Studio</span><span class="sec-badge">IMAGE · VIDEO</span></div>
+        <div class="hint" style="padding:8px 10px">Create the “subject leaving the screen” image, iPhone-style depth text, or a short escape-loop video here. Adjust the effect in <b>Break the frame</b> below.</div>
+      </div>
       <div id="studioCameraPathsRoot"></div>
       <div id="studioBreakFrameRoot" style="margin-top:12px"></div>
       <div id="studioInteractRoot" style="margin-top:12px"></div>
@@ -2127,7 +2131,18 @@ let _solidMeshPreviewObject = null;
 let _solidMeshPreviewData = null;
 let _solidMeshPreviousPointsVisible = null;
 window.previewSolidMesh = (mesh, options = {}) => {
-  if (!mesh) return;
+  if (!mesh) {
+    if (_solidMeshPreviewObject) {
+      scene.remove(_solidMeshPreviewObject);
+      _solidMeshPreviewObject.geometry.dispose();
+      _solidMeshPreviewObject.material.dispose();
+      _solidMeshPreviewObject = null;
+      _solidMeshPreviewData = null;
+    }
+    if (S.points && _solidMeshPreviousPointsVisible !== null) S.points.visible = _solidMeshPreviousPointsVisible;
+    _solidMeshPreviousPointsVisible = null;
+    return;
+  }
   if (_solidMeshPreviewObject && _solidMeshPreviewData !== mesh) {
     scene.remove(_solidMeshPreviewObject);
     _solidMeshPreviewObject.geometry.dispose();
@@ -2488,6 +2503,10 @@ async function loadFile(file, urlOverride) {
   const buf = await file.arrayBuffer(); setProgress(40);
   const extSource = (urlOverride || file.name).split(/[?#]/, 1)[0];
   const ext = extSource.split('.').pop().toLowerCase();
+  S.nifMesh = null;
+  S.nifPassthroughChunks = [];
+  S.lidarIntensity = S.lidarClassification = S.lidarReturnNumber = null;
+  window.previewSolidMesh?.(null, { visible: false });
   let parsed;
   if (ext === 'nif') {
     // Real .nif — decode canonical 14-float/point geometry, then convert to
@@ -2499,6 +2518,14 @@ async function loadFile(file, urlOverride) {
     S.sourceBuffer = rows.buffer;
     S.nifMeta = decoded.meta || {};
     S.nifThumbnailBytes = decoded.thumbnailBytes || null;
+    S.nifPassthroughChunks = decoded.reader.chunks.filter(chunk => ![0x0001, 0x0003, 0x0004, 0x0015, 0x0019].includes(chunk.type));
+    S.nifMesh = decoded.mesh ? {
+      vertices: decoded.mesh.positions, colours: decoded.mesh.colors,
+      triangles: decoded.mesh.faces,
+    } : null;
+    S.lidarIntensity = decoded.lidarAttributes?.intensity || null;
+    S.lidarClassification = decoded.lidarAttributes?.classification || null;
+    S.lidarReturnNumber = decoded.lidarAttributes?.returnNumber || null;
     parsed = parseSplat(rows.buffer);
   } else if (ext === 'splat') { S.fileType = 'splat'; S.sourceBuffer = buf; parsed = parseSplat(buf); }
   else { S.fileType = 'ply'; parsed = parsePLY(buf); }
@@ -2515,9 +2542,9 @@ async function loadFile(file, urlOverride) {
   if (!parsed.rotation) for (let i = 0; i < parsed.count; i++) S.rotation[i * 4] = 1;
   S.shAttributes = parsed.shAttributes || [];
   S.shCoefficients = parsed.shCoefficients || null;
-  S.lidarIntensity = parsed.intensities || null;
-  S.lidarClassification = parsed.classifications || null;
-  S.lidarReturnNumber = parsed.returnNumbers || null;
+  S.lidarIntensity = parsed.intensities || S.lidarIntensity || null;
+  S.lidarClassification = parsed.classifications || S.lidarClassification || null;
+  S.lidarReturnNumber = parsed.returnNumbers || S.lidarReturnNumber || null;
   S.lidarDisplayColors = null;
   S.alive = new Uint8Array(parsed.count).fill(1);
   S.selected = new Uint8Array(parsed.count);
@@ -2534,6 +2561,10 @@ async function loadFile(file, urlOverride) {
   S.history = []; S.historyIndex = -1;
   updateHistoryBtns();
   rebuildGeometry(); setProgress(100);
+  if (S.nifMesh) {
+    window.previewSolidMesh?.(S.nifMesh, { visible: true });
+  }
+  window.dispatchEvent(new CustomEvent('fumoca:nifMeshLoaded', { detail: { mesh: S.nifMesh } }));
   renderLayers();
   $('fileName').textContent = file.name;
   $('fileMeta').textContent = `${fmt(parsed.count)} points · ${(file.size / 1024 / 1024).toFixed(1)} MB · ${ext.toUpperCase()} · ${S.sourceColorAvailable ? 'source color' : 'no RGB color (neutral preview)'}`;
@@ -3354,6 +3385,14 @@ function _encodeGaussianPly(indices) {
   return new Blob([lines.join('\n')], { type: 'text/plain' });
 }
 
+function _compactLidarAttributes(indices) {
+  const compact = (source) => source ? indices.map(i => source[i] ?? 0) : null;
+  const intensity = S.lidarIntensity ? Uint16Array.from(compact(S.lidarIntensity)) : null;
+  const classification = S.lidarClassification ? Uint8Array.from(compact(S.lidarClassification)) : null;
+  const returnNumber = S.lidarReturnNumber ? Uint8Array.from(compact(S.lidarReturnNumber)) : null;
+  return intensity || classification || returnNumber ? { intensity, classification, returnNumber } : null;
+}
+
 function exportFile(type = 'splat') {
   if (!S.alive) return;
   const idx = []; for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) idx.push(i);
@@ -3369,6 +3408,9 @@ function exportFile(type = 'splat') {
       rowSize: 32,
       meta: S.nifMeta || {},
       thumbnailBytes: S.nifThumbnailBytes || undefined,
+      mesh: S.nifMesh || undefined,
+      lidarAttributes: _compactLidarAttributes(idx),
+      passthroughChunks: S.nifPassthroughChunks || [],
       vertical: (S.nifMeta && S.nifMeta.vertical) || 'generic',
     });
     name = S.fileName.replace(/\.[^.]+$/, '') + '.edited.nif';
@@ -4336,7 +4378,17 @@ window.saveLiveEdit = async function saveLiveEdit(extra = {}) {
       const aliveIdx = [];
       for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) aliveIdx.push(i);
       const hasSh = (S.shAttributes || []).length > 0;
-      const savedBlob = hasSh ? _encodeGaussianPly(aliveIdx) : new Blob([rowBytes], { type: 'application/octet-stream' });
+      const savedBlob = hasSh ? _encodeGaussianPly(aliveIdx) : new Blob([encodeNif({
+        sourceBuffer: rowBytes,
+        aliveIndices: Array.from({ length: aliveIdx.length }, (_, i) => i),
+        rowSize: 32,
+        meta: S.nifMeta || {},
+        thumbnailBytes: S.nifThumbnailBytes || undefined,
+        mesh: S.nifMesh || undefined,
+        lidarAttributes: _compactLidarAttributes(aliveIdx),
+        passthroughChunks: S.nifPassthroughChunks || [],
+        vertical: S.nifMeta?.vertical || 'generic',
+      })], { type: 'application/octet-stream' });
       const savedExt = hasSh ? 'ply' : 'nif';
       const savedContentType = hasSh ? 'text/plain' : 'application/octet-stream';
       const path = `${splatId}/edited_${Date.now()}.${savedExt}`;
@@ -5371,13 +5423,14 @@ function _injectV60Panels() {
     div.innerHTML = `
       <div class="section">
         <div class="sec-head">
-          <span class="sec-label">⏳ 4D Motion Timeline</span>
+          <span class="sec-label">⏳ Camera &amp; Motion Moments</span>
           <span class="sec-badge">v60</span>
         </div>
         <div class="sec-body">
           <canvas id="motionCanvas" width="280" height="140"
             style="width:100%;border-radius:10px;background:#0a0a0a;display:block;margin-bottom:10px;"></canvas>
           <div id="motionStepsList" style="max-height:200px;overflow-y:auto;margin-bottom:10px;"></div>
+          <div class="hint" style="margin-bottom:8px">Playback moves the camera between saved views. Video analysis finds movement moments; it does not yet create animated splat poses or recover articulated actions.</div>
           <button class="ac-btn lime full" id="v60AddKeyframeBtn">
             + Add Keyframe at Current View
           </button>

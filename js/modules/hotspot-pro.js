@@ -924,7 +924,7 @@ function renderPanel() {
           <input type="checkbox" id="hsTourLoop" ${state.tourLoop ? 'checked' : ''}> Loop
         </label>
         ${state.canManage ? '<button class="e-btn e-btn-acid" id="hsAdd">Add hotspot</button><button class="e-btn e-btn-ghost" id="hsCaptureCurrent">Capture current view</button><button class="e-btn e-btn-ghost" id="hsSave">Save hotspots</button>' : ''}
-        <div class="e-note">Every hotspot can become a universal scene action. Use type splat_overlay for nested interactive splats, audio for sound triggers, product/sponsor for commerce-ready moments, and reveal or tour_jump for guided journeys. Shift + double-click the stage to capture a hotspot from the real viewer focus.</div>
+        <div class="e-note">To edit a hotspot, use Edit on its row here. Go flies the camera to it; it does not move the subject. Shift + double-click the stage to place a hotspot at the clicked subject point. “Capture current view” uses the camera target. Zoom is edited in the hotspot form. Use reveal or tour_jump for guided journeys, and splat_overlay for a nested splat.</div>
       </div>
       ${rows || '<div class="e-control"><div class="e-note">No hotspots yet.</div></div>'}
     </div>`;

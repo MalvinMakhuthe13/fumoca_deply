@@ -18,6 +18,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       <div class="sec-head"><span class="sec-label">Mesh from points</span><span class="sec-badge">LOCAL</span></div>
       <div class="sec-body">
         <div class="hint">Build a surface from the current live NIF, PLY, or LiDAR points. PLY and OBJ keep transferred vertex color; STL is for printing.</div>
+        <div class="hint" style="margin-top:5px">After extraction, the colored mesh is retained as a separate component and included alongside the splats when you export or save NIF.</div>
         <div class="ctrl-row">
           <span class="ctrl-label">Surface detail</span>
         <span class="ctrl-val" id="meshResVal">32³</span>
@@ -106,6 +107,19 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
   let lastMeshFormat = 'ply';
   let lastMeshData = null;
   let lastMeshStats = null;
+  const syncNifMesh = (mesh) => {
+    lastMeshData = mesh || null;
+    const previewToggle = container.querySelector('#meshPreviewToggle');
+    if (previewToggle) {
+      previewToggle.disabled = !lastMeshData;
+      previewToggle.checked = !!lastMeshData;
+    }
+    if (lastMeshData) {
+      window.previewSolidMesh?.(lastMeshData, { visible: true });
+      meshStatus('Loaded NIF mesh component. Toggle its preview here; it remains separate from the splats.');
+    }
+  };
+  window.addEventListener('fumoca:nifMeshLoaded', (event) => syncNifMesh(event.detail?.mesh));
   const updateMeshPreview = () => window.previewSolidMesh?.(lastMeshData, {
     visible: !!container.querySelector('#meshPreviewToggle')?.checked,
     light: Number(container.querySelector('#meshPreviewLight')?.value || 0.25),
@@ -119,6 +133,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     if (el) el.textContent = message;
     onStatus?.(message);
   };
+  if (window.S?.nifMesh) syncNifMesh(window.S.nifMesh);
 
   container.querySelector('#meshExtractBtn')?.addEventListener('click', async () => {
     const state = window.S;
@@ -177,6 +192,8 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       });
       const vertices = result.mesh.vertices;
       lastMeshData = { ...result.mesh, vertices: result.mesh.vertices.slice() };
+      // Preserve the extracted surface as a separate NIF mesh component.
+      if (window.S) window.S.nifMesh = lastMeshData;
       if (format === 'stl') {
         let minY = Infinity, maxY = -Infinity;
         for (let i = 1; i < vertices.length; i += 3) { minY = Math.min(minY, vertices[i]); maxY = Math.max(maxY, vertices[i]); }

@@ -25,7 +25,6 @@ import {
   decompressChunk, decodePhysicsChunk,
   decodeCalibrationChunk, decodeVerificationChunk,
 } from '../../engine-next/format/NIFSpec.js';
-import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 
 const FLOATS_PER_POINT = 14;
 
@@ -253,6 +252,53 @@ export function encodeNif(opts = {}) {
     : packGeometryQuantized(geoData, count);
   writer.add(CHUNK.KEYFRAME_GEO, geoBytes, CODEC.RAW);
 
+  // Keep the extracted solid as its own colored NIF component. Gaussian
+  // geometry remains independent so editors/viewers can toggle the two.
+  if (opts.mesh?.vertices?.length && opts.mesh?.triangles?.length) {
+    const vertices = opts.mesh.vertices;
+    const faces = opts.mesh.triangles;
+    const colors = opts.mesh.colours || new Uint8Array(vertices.length).fill(200);
+    const nVerts = Math.floor(vertices.length / 3);
+    const nFaces = Math.floor(faces.length / 3);
+    if (vertices.length % 3 || faces.length % 3 || colors.length !== nVerts * 3 ||
+        vertices.some(value => !Number.isFinite(value)) ||
+        faces.some(i => !Number.isInteger(i) || i < 0 || i >= nVerts)) {
+      throw new Error('[nif-format] encodeNif: invalid mesh color or face indices');
+    }
+    const meshBytes = new Uint8Array(9 + nVerts * 15 + nFaces * 12);
+    const meshView = new DataView(meshBytes.buffer);
+    meshView.setUint8(0, 0x00);
+    meshView.setUint32(1, nVerts, false);
+    meshView.setUint32(5, nFaces, false);
+    let at = 9;
+    for (const value of vertices) { meshView.setFloat32(at, value, false); at += 4; }
+    meshBytes.set(colors, at); at += colors.length;
+    for (const index of faces) { meshView.setUint32(at, index, false); at += 4; }
+    writer.add(CHUNK.KEYFRAME_MESH, meshBytes, CODEC.RAW);
+  }
+
+  // LiDAR measurements are per-point attributes. Store them in a separate
+  // optional NIF chunk so RGB rendering palettes never overwrite source data.
+  const lidar = opts.lidarAttributes;
+  if (lidar && (lidar.intensity || lidar.classification || lidar.returnNumber)) {
+    const n = count;
+    const flags = (lidar.intensity ? 1 : 0) | (lidar.classification ? 2 : 0) | (lidar.returnNumber ? 4 : 0);
+    const bytesPerPoint = ((flags & 1) ? 2 : 0) + ((flags & 2) ? 1 : 0) + ((flags & 4) ? 1 : 0);
+    for (const [name, array] of Object.entries({ intensity: lidar.intensity, classification: lidar.classification, returnNumber: lidar.returnNumber })) {
+      if (array && array.length !== n) throw new Error(`[nif-format] ${name} array must match NIF point count`);
+    }
+    const attrBytes = new Uint8Array(6 + n * bytesPerPoint);
+    const attrView = new DataView(attrBytes.buffer);
+    attrView.setUint8(0, 1); attrView.setUint8(1, flags); attrView.setUint32(2, n, false);
+    let at = 6;
+    for (let i = 0; i < n; i++) {
+      if (lidar.intensity) { attrView.setUint16(at, lidar.intensity[i], false); at += 2; }
+      if (lidar.classification) attrBytes[at++] = lidar.classification[i];
+      if (lidar.returnNumber) attrBytes[at++] = lidar.returnNumber[i];
+    }
+    writer.add(CHUNK.LIDAR_ATTR, attrBytes, CODEC.RAW);
+  }
+
   writer.add(CHUNK.META, encodeMetaChunk(opts.meta ?? {}).data, CODEC.RAW);
 
   if (opts.thumbnailBytes) {
@@ -302,7 +348,27 @@ export async function decodeNif(arrayBuffer) {
   // this doesn't change the calling convention.
   const mesh = await decodeMeshChunk(reader.getChunk(CHUNK.KEYFRAME_MESH));
 
-  return { reader, meta, thumbnailBytes, gaussians: geometry, calibration, verification, mesh };
+  let lidarAttributes = null;
+  const lidarChunk = reader.getChunk(CHUNK.LIDAR_ATTR);
+  if (lidarChunk) {
+    try {
+      const view = new DataView(lidarChunk.data.buffer, lidarChunk.data.byteOffset, lidarChunk.data.byteLength);
+      if (view.getUint8(0) !== 1) throw new Error('unsupported LiDAR attribute chunk version');
+      const flags = view.getUint8(1), n = view.getUint32(2, false);
+      if (n !== geometry.count) throw new Error('LiDAR attribute count does not match geometry');
+      const attrs = { intensity: null, classification: null, returnNumber: null };
+      for (const key of ['intensity', 'classification', 'returnNumber']) if (flags & ({ intensity: 1, classification: 2, returnNumber: 4 }[key])) attrs[key] = key === 'intensity' ? new Uint16Array(n) : new Uint8Array(n);
+      let at = 6;
+      for (let i = 0; i < n; i++) {
+        if (attrs.intensity) { attrs.intensity[i] = view.getUint16(at, false); at += 2; }
+        if (attrs.classification) attrs.classification[i] = view.getUint8(at++);
+        if (attrs.returnNumber) attrs.returnNumber[i] = view.getUint8(at++);
+      }
+      lidarAttributes = attrs;
+    } catch (err) { console.warn('[nif-format] LiDAR attributes ignored:', err.message); }
+  }
+
+  return { reader, meta, thumbnailBytes, gaussians: geometry, calibration, verification, mesh, lidarAttributes };
 }
 
 // ── Draco decoder — lazily created, reused across every mesh this session.
@@ -313,7 +379,7 @@ export async function decodeNif(arrayBuffer) {
 // that instead — DRACOLoader doesn't care where they come from.
 const DRACO_DECODER_PATH = 'https://www.gstatic.com/draco/versioned/decoders/1.5.7/';
 let _dracoLoader = null;
-function _getDracoLoader() {
+function _getDracoLoader(DRACOLoader) {
   if (!_dracoLoader) {
     _dracoLoader = new DRACOLoader();
     _dracoLoader.setDecoderPath(DRACO_DECODER_PATH);
@@ -337,9 +403,10 @@ function _getDracoLoader() {
 // wrong scale) on the first real Draco-flagged file, that mismatch — not the
 // vertex/index decode, which is the well-trodden path — is the first place
 // to look.
-function _decodeDracoMesh(dracoBytes) {
+async function _decodeDracoMesh(dracoBytes) {
+  const { DRACOLoader } = await import('three/addons/loaders/DRACOLoader.js');
   return new Promise((resolve, reject) => {
-    const loader = _getDracoLoader();
+    const loader = _getDracoLoader(DRACOLoader);
     const arrayBuffer = dracoBytes.buffer.slice(
       dracoBytes.byteOffset, dracoBytes.byteOffset + dracoBytes.byteLength);
     loader.decodeDracoFile(
