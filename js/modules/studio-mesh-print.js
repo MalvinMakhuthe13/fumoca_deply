@@ -47,9 +47,12 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         <label style="display:block;font-size:11px">Preview light <input id="meshPreviewLight" type="range" min="0" max="2" step="0.05" value="0.25" style="width:100%"></label>
         <label style="display:block;font-size:11px">Surface roughness <input id="meshPreviewRoughness" type="range" min="0.05" max="1" step="0.05" value="0.72" style="width:100%"></label>
         <label style="display:block;font-size:11px">Metalness <input id="meshPreviewMetalness" type="range" min="0" max="1" step="0.05" value="0.05" style="width:100%"></label>
+        <label style="display:block;font-size:11px;margin:8px 0">Cap boundary loops up to <input id="meshHoleSize" type="number" min="3" max="128" step="1" value="48" style="width:64px;padding:4px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#fff"> edges</label>
+        <label style="display:block;font-size:11px;margin:8px 0">Remove islands smaller than <input id="meshFloaterSize" type="number" min="1" max="10000" step="1" value="32" style="width:72px;padding:4px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#fff"> faces</label>
         <div class="btn-grid col2" style="margin-top:8px">
           <button type="button" class="ac-btn lime full" id="meshExtractBtn">Extract mesh</button>
-          <button type="button" class="ac-btn full" id="meshFillHolesBtn">Fill holes</button>
+          <button type="button" class="ac-btn full" id="meshFillHolesBtn" disabled>Fill small mesh holes</button>
+          <button type="button" class="ac-btn full" id="meshRemoveFloatersBtn" disabled>Remove small islands</button>
         </div>
       </div>
     </div>
@@ -117,9 +120,15 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     }
     if (lastMeshData) {
       window.previewSolidMesh?.(lastMeshData, { visible: true });
+      lastMeshStats = FumocMeshExtractor.validateWatertight(lastMeshData);
+      lastMesh = makeMeshBlob();
       const splatToggle = container.querySelector('#meshSplatLayerToggle');
       if (splatToggle) splatToggle.checked = false;
       if (window.S?.points) window.S.points.visible = false;
+      container.querySelector('#meshFillHolesBtn').disabled = false;
+      container.querySelector('#meshRemoveFloatersBtn').disabled = false;
+      container.querySelector('#saveMeshBtn').disabled = !lastMeshData.colours;
+      container.querySelector('#printStlBtn').disabled = lastMeshFormat === 'stl' && !lastMeshStats.printable;
       meshStatus('Loaded NIF mesh component. Toggle its preview here; it remains separate from the splats.');
     }
   };
@@ -140,6 +149,34 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     if (el) el.textContent = message;
     onStatus?.(message);
   };
+  const makeMeshBlob = () => {
+    if (!lastMeshData) return null;
+    if (lastMeshFormat === 'obj') return FumocMeshExtractor.exportOBJ(lastMeshData, 'fumoca-mesh');
+    if (lastMeshFormat === 'ply') return FumocMeshExtractor.exportPLY(lastMeshData, 'fumoca-mesh');
+    const printMesh = { ...lastMeshData, vertices: lastMeshData.vertices.slice() };
+    let minY = Infinity, maxY = -Infinity;
+    for (let i = 1; i < printMesh.vertices.length; i += 3) { minY = Math.min(minY, printMesh.vertices[i]); maxY = Math.max(maxY, printMesh.vertices[i]); }
+    const factor = Number(height?.value || 120) / Math.max(maxY - minY, 1e-6);
+    for (let i = 0; i < printMesh.vertices.length; i += 3) {
+      printMesh.vertices[i] *= factor;
+      printMesh.vertices[i + 1] = (printMesh.vertices[i + 1] - minY) * factor;
+      printMesh.vertices[i + 2] *= factor;
+    }
+    return FumocMeshExtractor.exportSTL(printMesh, 'fumoca-mesh');
+  };
+  const refreshMeshAfterRepair = (message) => {
+    if (!lastMeshData) return;
+    window.S.nifMesh = lastMeshData;
+    lastMeshStats = { ...lastMeshStats, ...FumocMeshExtractor.validateWatertight(lastMeshData),
+      vertices: lastMeshData.vertices.length / 3, triangles: lastMeshData.triangles.length / 3 };
+    lastMesh = makeMeshBlob();
+    window.previewSolidMesh?.(lastMeshData, { visible: true,
+      light: Number(container.querySelector('#meshPreviewLight')?.value || 0.25),
+      roughness: Number(container.querySelector('#meshPreviewRoughness')?.value || 0.72),
+      metalness: Number(container.querySelector('#meshPreviewMetalness')?.value || 0.05) });
+    window.dispatchEvent(new CustomEvent('fumoca:solidMeshReady', { detail: { mesh: lastMeshData, stats: lastMeshStats } }));
+    meshStatus(`${message} Mesh now has ${lastMeshStats.triangles.toLocaleString()} faces; ${lastMeshStats.watertight ? 'watertight' : `${lastMeshStats.openEdges} open edges remain`}.`);
+  };
   if (window.S?.nifMesh) syncNifMesh(window.S.nifMesh);
 
   const extractMesh = async () => {
@@ -151,6 +188,8 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     lastMeshStats = null;
     container.querySelector('#saveMeshBtn').disabled = true;
     container.querySelector('#printStlBtn').disabled = true;
+    container.querySelector('#meshFillHolesBtn').disabled = true;
+    container.querySelector('#meshRemoveFloatersBtn').disabled = true;
     container.querySelector('#meshPreviewToggle').checked = false;
     container.querySelector('#meshPreviewToggle').disabled = true;
     meshStatus('Preparing current live points…');
@@ -229,6 +268,8 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       const previewToggle = container.querySelector('#meshPreviewToggle');
       previewToggle.disabled = false;
       previewToggle.checked = true;
+      container.querySelector('#meshFillHolesBtn').disabled = false;
+      container.querySelector('#meshRemoveFloatersBtn').disabled = false;
       const splatToggle = container.querySelector('#meshSplatLayerToggle');
       if (splatToggle) splatToggle.checked = false;
       if (state.points) state.points.visible = false;
@@ -243,6 +284,22 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
   };
   window.FUMOCA_StudioMeshPrint = { mountMeshPrintPanel, extractMesh, get lastStats() { return lastMeshStats; } };
   container.querySelector('#meshExtractBtn')?.addEventListener('click', extractMesh);
+
+  container.querySelector('#meshFillHolesBtn')?.addEventListener('click', () => {
+    if (!lastMeshData) return meshStatus('Extract a mesh before repairing mesh holes.');
+    const result = FumocMeshExtractor.fillSmallHoles(lastMeshData, Number(container.querySelector('#meshHoleSize')?.value || 48));
+    if (!result.filledLoops) return meshStatus('No small, unbranched boundary loops were found. Larger or complex gaps need a reconstruction pass.');
+    lastMeshData = result.mesh;
+    refreshMeshAfterRepair(`Capped ${result.filledLoops} small boundary loop${result.filledLoops === 1 ? '' : 's'} (${result.filledTriangles} faces).`);
+  });
+
+  container.querySelector('#meshRemoveFloatersBtn')?.addEventListener('click', () => {
+    if (!lastMeshData) return meshStatus('Extract a mesh before removing mesh islands.');
+    const result = FumocMeshExtractor.removeSmallComponents(lastMeshData, Number(container.querySelector('#meshFloaterSize')?.value || 32));
+    if (!result.removedTriangles) return meshStatus('No disconnected mesh islands are below that face threshold.');
+    lastMeshData = result.mesh;
+    refreshMeshAfterRepair(`Removed ${result.removedComponents} small island${result.removedComponents === 1 ? '' : 's'} (${result.removedTriangles} faces).`);
+  });
 
   container.querySelector('#saveMeshBtn')?.addEventListener('click', async (event) => {
     const button = event.currentTarget;
@@ -300,15 +357,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       meshStatus(err.message || String(err));
       button.disabled = false;
     }
-  });
-
-  container.querySelector('#meshFillHolesBtn')?.addEventListener('click', () => {
-    const state = window.S;
-    if (!state?.alive) return meshStatus('Load a splat or PLY before repairing sparse areas.');
-    const fillButton = document.getElementById('fillHolesBtn');
-    if (!fillButton) return meshStatus('Open the Clean tab to use its sparse-area repair tool.');
-    fillButton.click();
-    meshStatus('Sparse-area repair applied. Extract the mesh again to include the changes.');
   });
 
   container.querySelector('#printStlBtn')?.addEventListener('click', () => {

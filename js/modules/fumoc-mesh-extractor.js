@@ -667,6 +667,114 @@ function validateWatertight(mesh) {
   };
 }
 
+/**
+ * Cap small, unbranched boundary loops with a colored triangle fan. This is
+ * intended for tiny scan/extraction gaps; it does not infer a missing surface.
+ */
+function fillSmallHoles(mesh, maxLoopVertices = 48) {
+  const vertices = Array.from(mesh.vertices);
+  const colours = mesh.colours ? Array.from(mesh.colours) : null;
+  const triangles = Array.from(mesh.triangles);
+  const edgeUse = new Map();
+  const key = (a, b) => a < b ? `${a},${b}` : `${b},${a}`;
+  for (let i = 0; i < triangles.length; i += 3) {
+    const a = triangles[i], b = triangles[i + 1], c = triangles[i + 2];
+    for (const [u, v] of [[a,b],[b,c],[c,a]]) {
+      const k = key(u, v);
+      const entry = edgeUse.get(k);
+      if (entry) entry.count++;
+      else edgeUse.set(k, { count: 1, a: u, b: v });
+    }
+  }
+  const boundary = [...edgeUse.values()].filter(e => e.count === 1);
+  const adjacency = new Map();
+  for (const edge of boundary) {
+    if (!adjacency.has(edge.a)) adjacency.set(edge.a, []);
+    if (!adjacency.has(edge.b)) adjacency.set(edge.b, []);
+    adjacency.get(edge.a).push(edge.b);
+    adjacency.get(edge.b).push(edge.a);
+  }
+  const usedEdges = new Set();
+  const edgeId = (a, b) => key(a, b);
+  const added = [];
+  let filledLoops = 0, filledTriangles = 0;
+  for (const start of adjacency.keys()) {
+    const neighbors = adjacency.get(start);
+    if (neighbors.length !== 2) continue;
+    const first = neighbors[0];
+    if (usedEdges.has(edgeId(start, first))) continue;
+    const loop = [start];
+    let prev = start, current = first;
+    usedEdges.add(edgeId(prev, current));
+    while (current !== start && loop.length <= maxLoopVertices) {
+      loop.push(current);
+      const nexts = adjacency.get(current);
+      if (!nexts || nexts.length !== 2) break;
+      const next = nexts[0] === prev ? nexts[1] : nexts[0];
+      prev = current; current = next;
+      usedEdges.add(edgeId(prev, current));
+    }
+    if (current !== start || loop.length < 3 || loop.length > maxLoopVertices) continue;
+    let cx = 0, cy = 0, cz = 0, cr = 0, cg = 0, cb = 0;
+    for (const v of loop) {
+      cx += vertices[v * 3]; cy += vertices[v * 3 + 1]; cz += vertices[v * 3 + 2];
+      if (colours) { cr += colours[v * 3]; cg += colours[v * 3 + 1]; cb += colours[v * 3 + 2]; }
+    }
+    const center = vertices.length / 3, inv = 1 / loop.length;
+    vertices.push(cx * inv, cy * inv, cz * inv);
+    if (colours) colours.push(cr * inv, cg * inv, cb * inv);
+    // Find the source winding for each boundary edge and add its reverse.
+    for (let i = 0; i < loop.length; i++) {
+      const u = loop[i], v = loop[(i + 1) % loop.length];
+      const source = edgeUse.get(key(u, v));
+      if (source?.a === u && source?.b === v) triangles.push(v, u, center);
+      else triangles.push(u, v, center);
+      filledTriangles++;
+    }
+    filledLoops++;
+  }
+  return {
+    mesh: filledTriangles ? { ...mesh, vertices: Float32Array.from(vertices), triangles: Uint32Array.from(triangles), colours: colours ? Uint8Array.from(colours) : null } : mesh,
+    filledLoops,
+    filledTriangles,
+  };
+}
+
+/** Remove tiny disconnected triangle islands while preserving the main shells. */
+function removeSmallComponents(mesh, minTriangles = 32) {
+  const triangles = mesh.triangles;
+  const faceCount = Math.floor(triangles.length / 3);
+  if (!faceCount) return { mesh, removedComponents: 0, removedTriangles: 0 };
+  const parent = new Uint32Array(faceCount);
+  for (let i = 0; i < faceCount; i++) parent[i] = i;
+  const find = x => { while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; };
+  const join = (a, b) => { const ra = find(a), rb = find(b); if (ra !== rb) parent[rb] = ra; };
+  const firstFace = new Map();
+  const edgeKey = (a, b) => a < b ? `${a},${b}` : `${b},${a}`;
+  for (let f = 0; f < faceCount; f++) {
+    const a = triangles[f * 3], b = triangles[f * 3 + 1], c = triangles[f * 3 + 2];
+    for (const [u, v] of [[a,b],[b,c],[c,a]]) {
+      const k = edgeKey(u, v), other = firstFace.get(k);
+      if (other === undefined) firstFace.set(k, f); else join(f, other);
+    }
+  }
+  const sizes = new Map();
+  for (let f = 0; f < faceCount; f++) { const root = find(f); sizes.set(root, (sizes.get(root) || 0) + 1); }
+  const threshold = Math.max(1, Math.floor(Number(minTriangles) || 1));
+  let largestRoot = null, largestSize = -1;
+  for (const [root, size] of sizes) if (size > largestSize) { largestRoot = root; largestSize = size; }
+  const keep = [];
+  let removedTriangles = 0;
+  const removedComponents = sizes.size > 1 ? [...sizes].filter(([root, size]) => root !== largestRoot && size < threshold).length : 0;
+  for (let f = 0; f < faceCount; f++) {
+    const root = find(f), size = sizes.get(root);
+    if (root !== largestRoot && size < threshold && sizes.size > 1) removedTriangles++;
+    else keep.push(triangles[f * 3], triangles[f * 3 + 1], triangles[f * 3 + 2]);
+  }
+  if (!removedTriangles) return { mesh, removedComponents: 0, removedTriangles: 0 };
+  return { mesh: { ...mesh, triangles: Uint32Array.from(keep) }, removedComponents, removedTriangles };
+}
+
 // ═══ STAGE 5: MESH EXPORT FORMATS ════════════════════════════════════════════
 
 /**
@@ -1105,6 +1213,8 @@ const FumocMeshExtractor = {
   autoTuneThreshold,
   transferColours,
   validateWatertight,
+  fillSmallHoles,
+  removeSmallComponents,
   exportSTL,
   exportOBJ,
   exportPLY,
