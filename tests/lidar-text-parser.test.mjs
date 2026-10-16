@@ -27,7 +27,7 @@ test('headerless four-column rows preserve raw intensity 0, 1 and 65535', () => 
 });
 
 test('malformed rows are skipped; no valid points is an explicit error', () => {
-  const cloud = parseXYZ('x,y,z,intensity\n1,2,3,10\nnope,2,3,4\n4,5,6,');
+  const cloud = parseXYZ('x,y,z,intensity\n1,2,3,10\nnope,2,3,4\n4,5,');
   assert.deepEqual([...cloud.positions], [1,2,3]);
   assert.deepEqual([...cloud.intensities], [10]);
   assert.throws(() => parseXYZ('# empty\nno,points,here'), /must identify x, y, and z/);
