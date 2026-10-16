@@ -56,3 +56,20 @@
 .its-footer{text-align:center;color:#71869e;font-size:11px;padding:24px 0 0}.its-footer a{font-size:11px}
 @media(max-width:1050px){.its-layout{grid-template-columns:1fr}.its-export-card{align-items:flex-start;flex-direction:column}.its-export-targets{justify-content:flex-start;max-width:none}}
 @media(max-width:650px){.its-page{padding:16px 12px 34px}.its-hero{padding:22px 18px}.its-hero-mark{display:none}.its-status{align-items:flex-start;flex-wrap:wrap}.its-status a{margin-left:22px}.its-card{padding:17px}.its-controls{grid-template-columns:1fr}.its-mode-grid{grid-template-columns:1fr}.its-mode{min-height:0}.its-image-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.its-actions>*{width:100%}.its-warning{flex-direction:column;gap:4px}}
+
+
+/* Mesh-to-splat / relighting roadmap — explicit status, no fake controls */
+.its-mesh-card{margin-top:18px}
+.its-mesh-grid{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr) auto minmax(0,1fr);gap:12px;align-items:stretch}
+.its-mesh-stage{position:relative;padding:18px 16px 15px;border:1px solid rgba(77,166,255,.2);border-radius:14px;background:linear-gradient(145deg,rgba(22,57,94,.22),rgba(7,15,26,.55));min-width:0}
+.its-mesh-stage strong{display:block;font-size:13px;margin:5px 0 8px;color:#eaf5ff}
+.its-mesh-stage p,.its-lighting-panel p{font-size:11px;line-height:1.6;color:#95aac2;margin:0}
+.its-stage-no{display:inline-grid;place-items:center;width:25px;height:25px;border-radius:8px;background:rgba(42,151,255,.15);color:#75c4ff;font-size:11px;font-weight:900}
+.its-mesh-arrow{display:grid;place-items:center;font-size:21px;color:#5daeff}
+.its-status-inline{margin:15px 0 0;padding:12px 14px}
+.its-lighting-panel{display:flex;align-items:flex-start;justify-content:space-between;gap:22px;margin-top:15px;padding:16px;border-radius:13px;border:1px solid rgba(139,165,195,.13);background:rgba(255,255,255,.018)}
+.its-lighting-panel>div:first-child{max-width:580px}
+.its-lighting-panel strong{display:block;color:#e2edf9;font-size:12px;margin:0 0 6px}
+.its-lighting-chips{display:flex;flex-wrap:wrap;justify-content:flex-end;align-content:flex-start;gap:7px;max-width:430px}
+.its-lighting-chips span{font-size:10px;border:1px solid rgba(100,176,255,.19);background:rgba(25,117,210,.07);padding:6px 8px;border-radius:7px;color:#afc7e1}
+@media(max-width:850px){.its-mesh-grid{grid-template-columns:1fr}.its-mesh-arrow{transform:rotate(90deg);height:14px}.its-lighting-panel{flex-direction:column}.its-lighting-chips{justify-content:flex-start;max-width:none}}
