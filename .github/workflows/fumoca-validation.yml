@@ -37,6 +37,8 @@ jobs:
         run: node --test tests/lidar-las-parser.test.mjs
       - name: Test portable PLY coordinate metadata
         run: node --test tests/lidar-coordinate-metadata.test.mjs
+      - name: Test point-cloud downsampling alignment
+        run: node --test tests/lidar-cloud-utils.test.mjs
       - name: Compile Kaggle preflight script
         run: python -m py_compile kaggle/mesh2splat_preflight.py
       - name: Install preflight dependencies
