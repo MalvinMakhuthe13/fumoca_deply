@@ -1,4 +1,5 @@
 import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
+import { parseXYZ } from './lidar-text-parser.mjs';
 
 /**
  * FUMOCA LiDAR / dense point import
@@ -10,41 +11,6 @@ import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
  * It does NOT register LiDAR to cameras/Gaussians or fuse it into training.
  * Coordinate units/CRS must remain explicitly unknown unless verified.
  */
-
-/**
- * Parse a simple XYZ / CSV point cloud (x y z [r g b]).
- * @returns {{ positions: Float32Array, colors: Float32Array|null, count: number }}
- */
-export function parseXYZ(text) {
-  const lines = text.split(/\r?\n/);
-  const pts = [];
-  const cols = [];
-  let hasColor = false;
-  let maxColor = 0;
-
-  for (const line of lines) {
-    const t = line.trim();
-    if (!t || t.startsWith('#') || t.startsWith('//')) continue;
-    const parts = t.split(/[\s,;]+/).map(Number);
-    if (parts.length < 3 || parts.slice(0, 3).some((n) => Number.isNaN(n))) continue;
-    pts.push(parts[0], parts[1], parts[2]);
-    if (parts.length >= 6) {
-      hasColor = true;
-      const rgb = parts.slice(3, 6);
-      if (rgb.some(Number.isNaN)) { cols.push(0.72, 0.72, 0.72); continue; }
-      maxColor = Math.max(maxColor, ...rgb);
-      cols.push(...rgb);
-    }
-  }
-
-  const count = pts.length / 3;
-  return {
-    positions: new Float32Array(pts),
-    colors: hasColor ? new Float32Array(cols.map(value => Math.min(1, Math.max(0, value / (maxColor > 1.5 ? 255 : 1))))) : null,
-    count,
-    source: 'xyz',
-  };
-}
 
 /**
  * Minimal ASCII PLY reader (x y z [red green blue] [nx ny nz]).
