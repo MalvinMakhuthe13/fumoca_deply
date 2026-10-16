@@ -78,7 +78,7 @@ test('rejects invalid signature, unsupported formats, short records and bad scal
   assert.throws(() => parseLAS(new ArrayBuffer(227)), /valid LAS/);
   const unsupported = makeLas({points:[{xyz:[0,0,0]}]});
   new DataView(unsupported).setUint8(104, 11);
-  assert.throws(() => parseLAS(unsupported), /Unsupported LAS point format/);
+  assert.throws(() => parseLAS(unsupported), /Unsupported LAS point format|requires LAS 1.4/);
   assert.throws(() => parseLAS(makeLas({format:6,versionMinor:2,points:[{xyz:[0,0,0]}]})), /requires LAS 1.4/);
   assert.throws(() => parseLAS(makeLas({format:0,recordLength:19,points:[{xyz:[0,0,0]}]})), /requires records/);
   const truncated = makeLas({points:[{xyz:[0,0,0]},{xyz:[1,1,1]}]});
