@@ -34,7 +34,9 @@ This path is a **point-cloud import**, not LiDAR-to-Gaussian registration or fus
 - Non-finite or zero coordinate scales and non-finite offsets are rejected.
 - LAS scale/offset values and a reversible `renderOrigin` are exposed as metadata. The stored point positions are local to that origin. CRS VLR/WKT and units are not decoded here, so they remain explicitly unknown.
 - Local-origin regression fixtures verify that centimetre-scale differences survive Float32 conversion even when world coordinates are large.
-- Coordinate metadata, including the local render origin, survives point-cloud downsampling.
+- PLY coordinate provenance is round-trip tested, including safe handling of absent or malformed metadata comments.
+- Coordinate metadata, including the local render origin, survives point-cloud downsampling and is embedded as a PLY comment so it can be recovered when that PLY is imported again. Standard PLY viewers ignore the comment; FUMOCA's importer reads it back.
+- Downsampling has a standalone regression test that verifies positions, RGB, raw intensity, classification, return number, source point count, and coordinate metadata remain aligned/preserved.
 - CI checks the syntax of the LiDAR importer and upload page and runs intensity, text-parser, and LAS parser regression tests.
 
 ## Important limitations
