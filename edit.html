@@ -6501,5 +6501,25 @@ if (!window._fumocaBooted) {
   });
 </script>
 
+<!-- LiDAR-first empty-state: select Import after Studio's own mode/tab initialization. -->
+<script>
+(function () {
+  function exposeImportControls() {
+    const fileName = document.querySelector('.tb-file-name');
+    const header = (fileName?.textContent || '') + ' ' + (document.body.innerText || '').slice(0, 500);
+    const explicitlyEmpty = /no file loaded|drop \.splat or \.ply to begin/i.test(header);
+    if (!explicitlyEmpty) return;
+    const importTab = document.querySelector('#leftTabs .ptab[data-tab="import"]');
+    if (importTab && !importTab.classList.contains('active')) importTab.click();
+  }
+  function scheduleExpose() {
+    // StudioModes initializes its default Navigate tab asynchronously; run after it.
+    window.setTimeout(exposeImportControls, 400);
+  }
+  if (document.readyState === 'complete') scheduleExpose();
+  else window.addEventListener('load', scheduleExpose, { once: true });
+})();
+</script>
+
 </body>
 </html>
