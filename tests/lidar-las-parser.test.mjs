@@ -64,7 +64,9 @@ test('LAS RGB formats preserve 16-bit channel scaling', () => {
 
 test('rejects invalid signature, unsupported formats, short records and bad scales', () => {
   assert.throws(() => parseLAS(new ArrayBuffer(227)), /valid LAS/);
-  assert.throws(() => parseLAS(makeLas({format:11,points:[{xyz:[0,0,0]}]})), /Unsupported LAS point format/);
+  const unsupported = makeLas({points:[{xyz:[0,0,0]}]});
+  new DataView(unsupported).setUint8(104, 11);
+  assert.throws(() => parseLAS(unsupported), /Unsupported LAS point format/);
   assert.throws(() => parseLAS(makeLas({format:0,recordLength:19,points:[{xyz:[0,0,0]}]})), /requires records/);
   const truncated = makeLas({points:[{xyz:[0,0,0]},{xyz:[1,1,1]}]});
   assert.throws(() => parseLAS(truncated.slice(0, truncated.byteLength - 5)), /truncated/);
