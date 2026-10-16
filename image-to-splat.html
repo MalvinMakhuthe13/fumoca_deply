@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#080b12">
+  <title>FUMOCA — Image to Splat Studio</title>
+  <link rel="stylesheet" href="css/dashboard.css">
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/nav.css">
+  <link rel="stylesheet" href="css/image-to-splat.css">
+  <script src="config.js"></script>
+  <script src="js/modules/nav.js" defer></script>
+  <script src="js/modules/image-to-splat-studio.js" defer></script>
+</head>
+<body>
+<div class="app-shell">
+  <main class="main-content">
+    <div class="page-body its-page">
+      <header class="its-hero">
+        <div>
+          <div class="page-kicker">FUMOCA Studio · Experimental</div>
+          <h1>IMAGE <span>→</span> SPLAT</h1>
+          <p>Turn existing listing photographs into a planned virtual-camera sequence. Start with the images you already have; choose the angles; decide later whether to infer missing areas.</p>
+          <div class="its-pills"><span>Existing photos first</span><span>Camera plan you control</span><span>AI fill off by default</span></div>
+        </div>
+        <div class="its-hero-mark" aria-hidden="true"><div class="its-orbit its-orbit-one"></div><div class="its-orbit its-orbit-two"></div><div class="its-orbit-dot"></div><span>3D</span></div>
+      </header>
+
+      <div class="its-status" role="status">
+        <span class="its-status-dot"></span>
+        <div><strong>Studio preparation is available</strong><p>The Image2Splat engine runs separately. This page prepares and exports your camera plan; it does not claim to run reconstruction until a backend adapter is connected.</p></div>
+        <a href="https://github.com/romanpillai/Image2Splat" target="_blank" rel="noopener noreferrer">Engine repository ↗</a>
+      </div>
+
+      <div class="its-layout">
+        <section class="its-card its-source-card">
+          <div class="its-card-head"><span class="its-step">01</span><div><h2>Source images</h2><p>Choose one photograph or a listing gallery.</p></div></div>
+          <label class="its-dropzone" id="itsDropzone" for="itsFiles">
+            <input id="itsFiles" type="file" accept="image/*" multiple>
+            <span class="its-upload-icon">＋</span>
+            <strong>Drop images here or browse</strong>
+            <span>JPG, PNG, WebP · multiple images supported</span>
+          </label>
+          <div class="its-source-summary"><span id="itsFileCount">0 images selected</span><button type="button" id="itsClearFiles" class="its-quiet-button" disabled>Clear</button></div>
+          <div id="itsImageGrid" class="its-image-grid"><div class="its-empty"><span>▧</span><strong>Your source gallery will appear here</strong><p>Use authorised images from a listing or your phone.</p></div></div>
+          <p class="its-note">Original files stay in this browser until you choose to upload them to a configured processing service. Nothing is uploaded by this page.</p>
+        </section>
+
+        <section class="its-card its-camera-card">
+          <div class="its-card-head"><span class="its-step">02</span><div><h2>Virtual camera plan</h2><p>Choose the orbit before generating any views.</p></div></div>
+          <div class="its-orbit-preview" aria-label="Illustration of a camera orbit around a subject">
+            <div class="its-orbit-track"></div><div class="its-orbit-track its-track-inner"></div>
+            <div class="its-subject-placeholder"><span>SUBJECT</span><i></i></div>
+            <span class="its-cam its-cam-a">▣</span><span class="its-cam its-cam-b">▣</span><span class="its-cam its-cam-c">▣</span><span class="its-cam its-cam-d">▣</span><span class="its-cam its-cam-e">▣</span>
+            <div class="its-orbit-caption">CAMERA ORBIT · PREVIEW</div>
+          </div>
+          <div class="its-controls">
+            <label class="its-control"><span>Camera positions <output id="itsCountOut">12</output></span><input id="itsCount" type="range" min="4" max="36" step="2" value="12"><small>More positions mean more frames to process.</small></label>
+            <label class="its-control"><span>Horizontal sweep <output id="itsSweepOut">360°</output></span><input id="itsSweep" type="range" min="45" max="360" step="15" value="360"></label>
+            <label class="its-control"><span>Camera radius <output id="itsRadiusOut">3.0</output></span><input id="itsRadius" type="range" min="1" max="8" step="0.25" value="3"><small>Relative scene units, not a verified real-world distance.</small></label>
+            <label class="its-control"><span>Elevation <output id="itsElevationOut">5°</output></span><input id="itsElevation" type="range" min="-20" max="45" step="5" value="5"></label>
+            <label class="its-control"><span>Field of view <output id="itsFovOut">35°</output></span><input id="itsFov" type="range" min="20" max="75" step="1" value="35"></label>
+          </div>
+          <div class="its-actions"><button id="itsExportPlan" type="button" class="its-primary">Export camera plan (.json)</button><button id="itsResetPlan" type="button" class="its-secondary">Reset defaults</button></div>
+        </section>
+      </div>
+
+      <section class="its-card its-next-card">
+        <div class="its-card-head"><span class="its-step">03</span><div><h2>Choose what happens next</h2><p>Keep the source evidence separate from AI-generated content.</p></div></div>
+        <div class="its-mode-grid">
+          <label class="its-mode selected"><input type="radio" name="itsMode" value="reproject" checked><span class="its-mode-icon">▧</span><strong>Depth / reprojection first</strong><small>Use the source image and depth representation where available. Unseen areas remain gaps.</small><em>Recommended starting point</em></label>
+          <label class="its-mode"><input type="radio" name="itsMode" value="video"><span class="its-mode-icon">◉</span><strong>AI video orbit</strong><small>Use a video model to synthesize additional views. May change unseen details; compare results before splat training.</small><em>Optional · external processing cost</em></label>
+          <label class="its-mode"><input type="radio" name="itsMode" value="multi"><span class="its-mode-icon">▦</span><strong>Multi-photo reconstruction</strong><small>Use several genuine views to constrain camera poses and surfaces where overlap supports alignment.</small><em>Best when source angles exist</em></label>
+        </div>
+        <div class="its-warning"><strong>Accuracy note</strong><span>Generated viewpoints are not new real observations. A camera radius is a scene parameter unless calibrated measurements establish its physical scale. Do not treat a synthetic orbit as measurement-grade geometry.</span></div>
+      </section>
+
+      <section class="its-card its-export-card">
+        <div class="its-export-copy"><div class="its-card-head"><span class="its-step">04</span><div><h2>Prepare for FUMOCA</h2><p>Export the camera plan and source manifest for the next processing stage.</p></div></div><p>Planned integration target: Image2Splat depth lift → authored orbit → optional video synthesis → dataset with camera poses → Gaussian splat → FUMOCA viewer / NIF conversion where supported.</p></div>
+        <div class="its-export-targets"><span>Camera metadata</span><span>Source manifest</span><span>Coverage / provenance</span><span>Future NIF handoff</span></div>
+      </section>
+      <footer class="its-footer">FUMOCA · Image-to-Splat Studio · Integration scaffold · <a href="https://github.com/romanpillai/Image2Splat" target="_blank" rel="noopener noreferrer">Image2Splat is a separate project</a></footer>
+    </div>
+  </main>
+</div>
+</body>
+</html>
