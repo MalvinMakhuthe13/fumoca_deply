@@ -32,7 +32,9 @@ The upstream README describes an OpenGL/C++ desktop program that converts **text
 6. **Viewer/format adapter** converts or packages only with a tested output contract. Do not assume Mesh2Splat output is already accepted by FUMOCA's viewer or NIF format.
 7. **Publish** only the verified output. If conversion fails, keep the original mesh and existing reconstruction result available.
 
-## Lighting goals
+## Lighting implementation and limits
+
+The FUMOCA viewer now has real controls for the reconstructed triangle-mesh overlay: ambient, key, fill and point-light intensity plus material roughness and metalness. These controls modify the Three.js mesh material/lights at runtime. They do **not** relight the Gaussian splat underneath, do not implement environment maps or shadows, and do not change the PLY/NIF data. The mesh and splat remain separate render paths.
 
 Separate **relighting the asset** from **lighting the viewer**:
 - For textured meshes/GLB: maintain albedo and supported PBR texture maps/material parameters.
@@ -43,6 +45,7 @@ Separate **relighting the asset** from **lighting the viewer**:
 - Mesh2Splat documents relightability and PBR shading in its own renderer. **FUMOCA still needs a tested viewer implementation** and may need to adapt the splat material data to the viewer's supported representation.
 
 ## Kaggle rollout gates
+- Run `python kaggle/mesh2splat_preflight.py <input.glb> --report <report.json>` in a Kaggle session with `numpy` and `trimesh` installed. This validates the GLB container and basic mesh/material properties only; it intentionally does not run Mesh2Splat.
 - Do not add the converter to the current production worker until its headless runtime is proven.
 - Build/test in a separate Kaggle notebook or optional worker image so current jobs cannot be destabilized.
 - Start with one known, textured GLB fixture. Run conversion and compare the output in the upstream renderer and FUMOCA's target viewer.
@@ -52,10 +55,10 @@ Separate **relighting the asset** from **lighting the viewer**:
 - If conversion fails, mark only the optional conversion stage as failed and retain the previous working asset.
 
 ## Next work
-1. Validate that Studio ZIP and JSON exports work in real browsers (including CDN failure fallback).
-2. Create a format contract and isolated Kaggle converter experiment for textured GLB → Mesh2Splat output.
-3. Prove compatible output and inspect the actual shader/material data before writing a FUMOCA viewer lighting adapter.
-4. Add lighting UI only when it is bound to real renderer features, not cosmetic controls.
+1. Validate Studio ZIP and JSON exports in real browsers, including CDN failure fallback.
+2. Build and test an isolated headless converter adapter or establish a desktop-assisted conversion handoff; upstream main.cpp currently starts a GLFW window and exposes no documented CLI.
+3. Inspect the actual output format and implement an explicit PLY/NIF/viewer adapter before publishing converted assets.
+4. Extend lighting to Gaussian splats only after choosing a renderer/material representation that supports real relighting; the new controls currently affect the mesh overlay only.
 5. Review third-party licenses and dependency/model terms for commercial deployment.
 
 ## Provenance rule

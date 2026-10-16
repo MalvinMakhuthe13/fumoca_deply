@@ -92,8 +92,8 @@
         </div>
         <div class="its-status its-status-inline" role="note"><span class="its-status-dot"></span><div><strong>Research integration · not active yet</strong><p>The current FUMOCA Kaggle reconstruction worker is unchanged. Mesh2Splat documents a desktop OpenGL/C++ renderer, not a verified headless Kaggle API. Conversion will remain a separate optional stage until tested.</p></div><a href="https://github.com/electronicarts/mesh2splat" target="_blank" rel="noopener noreferrer">Mesh2Splat ↗</a></div>
         <div class="its-lighting-panel">
-          <div><strong>Relighting direction</strong><p>Preserve albedo and PBR maps where available. Use ambient/environment strength, key-light direction, optional point light, exposure and shadows only where the eventual viewer supports them.</p></div>
-          <div class="its-lighting-chips"><span>Albedo</span><span>Normal map</span><span>Roughness / metallic</span><span>Ambient + key light</span><span>Shadow support varies</span></div>
+          <div><strong>Mesh viewer lighting controls</strong><p>The reconstructed triangle-mesh overlay now supports ambient, key, fill and point-light intensity plus roughness and metalness. These controls do not relight the Gaussian splat layer; PBR textures, environment lighting and shadows need separate renderer work.</p></div>
+          <div class="its-lighting-chips"><span>Albedo</span><span>Normal map</span><span>Roughness / metallic</span><span>Ambient / key / fill</span><span>Point light</span><span>Roughness / metalness</span><span>No splat relighting yet</span></div>
         </div>
         <p class="its-note">These are planned pipeline capabilities, not controls pretending to light a static preview. Mesh2Splat's license and third-party terms must be reviewed before commercial bundling.</p>
       </section>
