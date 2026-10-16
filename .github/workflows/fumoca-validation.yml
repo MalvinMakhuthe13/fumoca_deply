@@ -1,0 +1,50 @@
+name: FUMOCA validation
+
+on:
+  push:
+    branches: [main, "feat/**"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  static-and-glb-preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Check Studio JavaScript syntax
+        run: node --check js/modules/image-to-splat-studio.js
+      - name: Check viewer ES module syntax
+        run: node --input-type=module --check < js/modules/viewer.js
+      - name: Compile Kaggle preflight script
+        run: python -m py_compile kaggle/mesh2splat_preflight.py
+      - name: Install preflight dependencies
+        run: python -m pip install --disable-pip-version-check numpy trimesh
+      - name: Build a tiny GLB fixture and test preflight
+        shell: bash
+        run: |
+          python - <<'PY'
+          import trimesh
+          mesh = trimesh.creation.box(extents=(1.0, 2.0, 3.0))
+          scene = trimesh.Scene(mesh)
+          scene.export("validation-fixture.glb")
+          PY
+          python kaggle/mesh2splat_preflight.py validation-fixture.glb --report preflight-report.json
+          python - <<'PY'
+          import json
+          with open("preflight-report.json", encoding="utf-8") as f:
+              report = json.load(f)
+          assert report["status"] == "preflight_passed_conversion_not_run", report
+          assert report["geometry"]["triangles"] > 0, report
+          assert report["gates"]["mesh2splat_conversion_run"] is False, report
+          print("GLB preflight fixture passed; conversion is intentionally not run.")
+          PY
