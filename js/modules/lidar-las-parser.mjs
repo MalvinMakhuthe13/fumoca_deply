@@ -10,7 +10,19 @@ export function parseLAS(buffer, maxPoints = 1_000_000) {
   if (buffer.byteLength < 227 || String.fromCharCode(...new Uint8Array(buffer, 0, 4)) !== 'LASF') {
     throw new Error('This does not look like a valid LAS file.');
   }
+  const versionMajor = view.getUint8(24), versionMinor = view.getUint8(25);
+  if (versionMajor !== 1 || versionMinor < 2 || versionMinor > 4) {
+    throw new Error(`Unsupported LAS version: ${versionMajor}.${versionMinor}`);
+  }
+  const headerSize = view.getUint16(94, true);
+  const minimumHeaderSize = versionMinor >= 4 ? 375 : 227;
+  if (headerSize < minimumHeaderSize || headerSize > buffer.byteLength) {
+    throw new Error(`LAS ${versionMajor}.${versionMinor} header size is invalid or truncated.`);
+  }
   const pointOffset = view.getUint32(96, true);
+  if (pointOffset < headerSize || pointOffset > buffer.byteLength) {
+    throw new Error('LAS point data offset is outside the valid file range.');
+  }
   const rawFormat = view.getUint8(104);
   if (rawFormat & 0x80) throw new Error('This LAS file uses LAZ compression. Convert it to uncompressed LAS or PLY first.');
   if (rawFormat & 0xc0) throw new Error('This LAS file uses point-record compression or reserved format bits. Convert it to uncompressed LAS or PLY first.');
@@ -20,12 +32,16 @@ export function parseLAS(buffer, maxPoints = 1_000_000) {
   const recordLength = view.getUint16(105, true);
   if (recordLength < minimumRecordLength) throw new Error(`LAS point format ${format} requires records of at least ${minimumRecordLength} bytes; file declares ${recordLength}.`);
   let total = view.getUint32(107, true);
-  if (view.getUint8(24) === 1 && view.getUint8(25) >= 4 && buffer.byteLength >= 255) {
+  if (versionMinor >= 4 && buffer.byteLength >= 255) {
     const extended = Number(view.getBigUint64(247, true));
     if (extended > 0) total = extended;
   }
-  if (!total || pointOffset < 227 || pointOffset >= buffer.byteLength) throw new Error('LAS header has no readable point records.');
-  const recordCount = Math.min(total, Math.floor((buffer.byteLength - pointOffset) / recordLength));
+  if (!total || pointOffset >= buffer.byteLength) throw new Error('LAS header has no readable point records.');
+  const availableRecords = Math.floor((buffer.byteLength - pointOffset) / recordLength);
+  if (total > availableRecords) {
+    throw new Error(`LAS declares ${total} point records but only ${availableRecords} complete records are available; file may be truncated.`);
+  }
+  const recordCount = total;
   if (!recordCount) throw new Error('LAS file contains no point records.');
   const stride = Math.max(1, Math.ceil(recordCount / maxPoints));
   const count = Math.ceil(recordCount / stride);
