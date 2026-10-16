@@ -50,12 +50,16 @@ function resolveThumbnail(row) {
   return firstNonEmpty(
     row.thumbnail_url,
     row.poster_url,
-    row.preview_image_url
+    row.preview_image_url,
+    row.meta?.thumbnail_url,
+    String(row.meta?.media_type||'').toLowerCase()==='image' ? row.meta?.media_url : ''
   );
 }
 
 function resolvePreviewVideo(row) {
-  return firstNonEmpty(row.preview_video_url, row.teaser_video_url, row.video_url);
+  return firstNonEmpty(row.preview_video_url, row.teaser_video_url, row.video_url,
+    row.meta?.preview_video_url,
+    String(row.meta?.media_type||'').toLowerCase()==='video' ? row.meta?.media_url : '');
 }
 
 function normalizeStatus(status, url) {
@@ -333,7 +337,7 @@ function renderPost(post) {
     // Use nif_url for viewer — output_url may be .ply which viewer cannot render
   const editUrl = post.nif_url || (post.output_url && !post.output_url.toLowerCase().endsWith('.ply') ? post.output_url : null) || fileUrl;
   p.set("file", editUrl); p.set("nifId", post.id); p.set("back", window.location.href);
-    const mediaType = String(post.media_type || post.source_type || "").toLowerCase();
+    const mediaType = String(post.media_type || post.meta?.media_type || post.source_type || "").toLowerCase();
     const isMedia = ["video","photo","image","mp4","mov","jpg","png"].some(t => mediaType.includes(t));
     window.location.href = isMedia ? `media-edit.html?${p.toString()}` : `edit.html?${p.toString()}`;
   });
@@ -378,7 +382,7 @@ function renderPost(post) {
     const p = new URLSearchParams();
     p.set('file', fileUrl); p.set('nifId', post.id); p.set('back', window.location.href);
     // Route media posts to media-edit, nifs to edit studio
-    const mediaType = String(post.media_type || post.source_type || '').toLowerCase();
+    const mediaType = String(post.media_type || post.meta?.media_type || post.source_type || '').toLowerCase();
     const isMedia = ['video','photo','image','mp4','mov','jpg','png'].some(t => mediaType.includes(t));
     window.location.href = isMedia ? `media-edit.html?${p.toString()}` : `edit.html?${p.toString()}`;
   });
@@ -396,12 +400,14 @@ function openViewer(post, openTeaser = false) {
   } catch (_) {}
   const p = new URLSearchParams();
   const url = resolveUrl(post); const thumb = resolveThumbnail(post); const previewVideo = resolvePreviewVideo(post);
+  const mediaType=String(post?.media_type||post?.meta?.media_type||'').toLowerCase();
   if (post?.id) p.set('nifId', post.id);
   if (url) p.set('file', url);
   if (thumb) p.set('thumbnail', thumb);
   if (previewVideo) p.set('previewVideo', previewVideo);
   if (openTeaser) p.set('autoplayPreview', '1');
-  window.location.href = `viewer.html?${p.toString()}`;
+  window.location.href = ['video','image','photo','mp4','mov','png','jpg'].some(t=>mediaType.includes(t))
+    ? `media-edit.html?${p.toString()}` : `viewer.html?${p.toString()}`;
 }
 
 async function toggleLike(nifId, btn) {
@@ -461,6 +467,7 @@ async function fetchFeedNifs() {
   await supabase
   .from('nif_files')
   .select('*')
+  .eq('is_public', true)
   .order('created_at', { ascending: false })
   .limit(60);
   if (publicError) throw publicError;
