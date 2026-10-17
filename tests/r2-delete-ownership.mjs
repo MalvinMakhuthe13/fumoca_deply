@@ -56,6 +56,7 @@ const mockFetch = async (url, options) => {
 const check = new Function('fetch', `${helperSource}; return userOwnsFileKey;`)(mockFetch);
 
 assert.equal(await check(request, env, user, 'nif-files', 'user-123/source.ply'), true, 'own user-prefix upload');
+assert.equal(await check(request, env, user, 'nif-videos', 'raw/user-123/old_burst.zip'), true, 'legacy photo-burst keys remain deletable by their owner');
 assert.equal(fetchCalls, 0, 'prefix ownership needs no database lookup');
 assert.equal(await check(request, env, user, 'nif-files', 'record-456/edited_123.ply'), true, 'owned Studio derivative');
 assert.equal(fetchCalls, 1, 'Studio derivative must check the record owner');
@@ -72,6 +73,7 @@ console.log('R2 delete ownership tests passed: user prefixes, owned derivatives,
 
 const mayWrite = new Function('fetch', `${writeHelperSource}; return userMayWriteFileKey;`)(mockFetch);
 assert.equal(await mayWrite(request, env, user, 'nif-files', 'user-123/new-upload.ply'), true, 'user may write under own prefix');
+assert.equal(await mayWrite(request, env, user, 'nif-videos', 'raw/user-123/legacy_burst.zip'), true, 'legacy photo-burst keys remain owner-scoped during migration');
 assert.equal(await mayWrite(request, env, user, 'nif-files', 'record-456/edited_999.ply'), true, 'owner may create a new Studio derivative before r2_key updates');
 assert.equal(await mayWrite(request, env, user, 'nif-files', 'record-999/edited_999.ply'), false, 'cross-user Studio derivative write is denied');
 assert.equal(await mayWrite(request, env, user, 'nif-files', 'record-456/original.ply'), false, 'non-derivative record paths are denied');
