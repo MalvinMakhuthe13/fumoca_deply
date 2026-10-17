@@ -276,3 +276,25 @@ These are repository changes and mocked/static tests only. The Worker is not dep
 `cloudflare/DEPLOY.md` previously contained stale instructions that described the old one-bucket Worker, legacy `splats` schema, and `cd cloudflare && wrangler deploy`. It has been replaced with staging-safe instructions that identify root `wrangler.jsonc` as the canonical config, explicitly prohibit deploying this QA branch to production, require separate staging buckets/Worker/Supabase, and call for direct R2/custom-domain tests. A deployment-document contract test is now wired into CI.
 
 Latest full repository validation for this branch passed: https://github.com/MalvinMakhuthe13/fumoca_deply/actions/runs/39054649151 (commit `80e79d7b82e9be525639a48e3bb1cdaf91230ca8`). This remains static/mocked repository validation, not live integration sign-off.
+
+## Continued full sweep — Studio SH and publish pipeline (2026-10-17)
+
+This follow-up found defects beyond the prior static contracts and addressed them on the isolated QA branch:
+
+- **Studio NIF SH round-trip:** opening or adding a NIF with a GAUSSIAN_SH sidecar now restores the coefficient attributes into the editor/renderer state. NIF export compacts SH values in the exact same alive-point order as geometry, validates canonical property layouts, updates DC coefficients for painted points, clears their higher-order bands, and fails closed when SH metadata exists but coefficients are missing.
+- **Duplicate chunk prevention:** the Studio's passthrough filter previously excluded LiDAR chunk 0x0019 but not Gaussian SH chunk 0x001A; after adding explicit SH re-encoding, that could duplicate the sidecar. The filter now excludes both geometry-indexed chunks and re-encodes them from current editor state.
+- **Publish fidelity:** the publish builder now serializes current edited positions, anisotropic scales, rotations, colors and opacity for both Gaussian PLY and SPLAT/NIF sources, compacts SH and LiDAR sidecars against the alive-point list, and carries forward metadata, layer manifests, thumbnails, mesh and vertical. It no longer copies stale point-indexed SH/LiDAR chunks through unchanged.
+- **Canonical URL and local-file isolation:** publishing now recognizes the lowercase window._fumocanifUrl set by the viewer, preserves the original vertical for local NIF files, and does not use stale ?file= URLs after a local file is opened. Local imports are detached from the previous saved record so a Publish action creates a new record instead of overwriting a different asset. Upload responses missing a key or URL fail visibly, and rollback inspects returned R2 deletion errors.
+- **New regression coverage:** added unit tests for Studio row encoding and SH sidecar compaction/round-trip, plus publish contracts for sidecar alignment, metadata, local-import isolation and chunk duplication.
+
+The newly added tests are wired into GitHub Actions. **Do not record this batch as passing until a completed run on the latest branch head confirms it.** Earlier runs exposed an incorrect assertion scope in the new publish contract; that assertion was corrected before the latest test run.
+
+### Still requiring external evidence
+
+- Real browser E2E for authentication, file opening, selection/transforms, undo/redo, save/reopen and responsive controls.
+- Authenticated staging probes against the deployed Worker, R2 buckets/custom domains, Supabase RLS/PostgREST and cache/range semantics.
+- A calibrated GPU reconstruction compared with a physical reference, including dimensional error and artifact inspection.
+- A reviewed schema and durable output path for media-edit publishing; do not treat a disabled button as a completed feature.
+- Verify that legacy convert.html Supabase Storage policies have been applied to staging and that direct public share reads coexist with denied cross-user writes.
+
+The QA branch remains unmerged and undeployed. Repository CI, even when green, does not close these live integration or measurement gates.
