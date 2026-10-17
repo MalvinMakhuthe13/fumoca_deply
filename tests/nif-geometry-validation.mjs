@@ -34,12 +34,12 @@ rejects(
 );
 
 rejects(
-  () => encodeNif({ geometry: new Float32Array(0), compressed: false }),
+  () => encodeNif({ geometry: new Float32Array(0), compress: false }),
   /at least one point/,
   'raw NIF encoding must reject empty geometry too',
 );
 rejects(
-  () => encodeNif({ geometry: new Float32Array(15), compressed: false }),
+  () => encodeNif({ geometry: new Float32Array(15), compress: false }),
   /length must equal point count/,
   'raw NIF encoding must reject malformed geometry records',
 );
