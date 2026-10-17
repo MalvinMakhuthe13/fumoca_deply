@@ -130,4 +130,8 @@ assert.match(ticketRoute, /expiresAt: Date\.now\(\) \+ 5 \* 60 \* 1000/);
 
 
 
+const cleanedSplatLookups = source.match(/meta->cleaned_splat->>r2_key\.eq\.\$\{encodedKey\}/g) || [];
+assert.equal(cleanedSplatLookups.length, 2,
+  'cleaned splat keys must be included in both read and delete ownership lookups');
+
 console.log('R2 read authorization regression tests passed.');
