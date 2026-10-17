@@ -247,10 +247,16 @@ async function resolveContent() {
   let splatId = params.get('splatId') || params.get('id');
 
   if (token) {
-    const rows = await sbFetch(`embeds?token=eq.${encodeURIComponent(token)}&select=splat_id,embed_config,label`);
+    // Resolve only the supplied token through a narrowly scoped RPC. Direct
+    // anonymous SELECT on public.embeds would disclose every embed token.
+    const rows = await sbFetch('rpc/resolve_embed_token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ p_token: token }),
+    });
     if (!rows?.[0]) throw new Error('This embed link is invalid or was revoked.');
     splatId = rows[0].splat_id;
-    // fire-and-forget view count
+    // Fire-and-forget view count; the RPC parameter is p_token.
     fetch(`${SUPABASE_URL}/rest/v1/rpc/increment_embed_view`, {
       method: 'POST',
       headers: {
@@ -258,7 +264,7 @@ async function resolveContent() {
         Authorization: `Bearer ${SUPABASE_KEY}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ embed_token: token }),
+      body: JSON.stringify({ p_token: token }),
     }).catch(() => {});
   }
 
@@ -267,11 +273,20 @@ async function resolveContent() {
     return { demo: true, title: 'FUMOCA Embed', author: 'FUMOCA' };
   }
 
+  // The deployed schema is nif_files, not the retired splats table. Embeds
+  // are public share surfaces, so enforce publication here as well as in R2.
   const rows = await sbFetch(
-    `splats?id=eq.${encodeURIComponent(splatId)}&select=id,title,description,splat_url,thumbnail_url,user_id,metadata,status`
+    `nif_files?id=eq.${encodeURIComponent(splatId)}&is_public=eq.true&select=id,title,description,r2_key,thumbnail_url,user_id,meta,is_public`
   );
-  if (!rows?.[0]) throw new Error('Experience not found.');
+  if (!rows?.[0]) throw new Error('Experience not found or is not published.');
   const splat = rows[0];
+  const workerUrl = String(cfg.r2WorkerUrl || '').replace(/\/$/, '');
+  const nifKeyUrl = key => workerUrl && key
+    ? `${workerUrl}/file/${encodeURIComponent(key)}?bucket=nif-files`
+    : '';
+  const thumbKeyUrl = key => workerUrl && key
+    ? `${workerUrl}/file/${encodeURIComponent(key)}?bucket=thumbnails`
+    : '';
 
   let author = params.get('author') || 'Creator';
   let avatarUrl = params.get('avatar') || '';
@@ -293,9 +308,9 @@ async function resolveContent() {
     author,
     avatarUrl,
     description: splat.description || '',
-    splatUrl: splat.splat_url,
-    thumb: splat.thumbnail_url,
-    nifUrl: splat.metadata?.nif_url || splat.metadata?.nifUrl || null,
+    splatUrl: nifKeyUrl(splat.r2_key) || splat.meta?.external_nif_url || splat.meta?.nif_url || '',
+    thumb: thumbKeyUrl(splat.meta?.thumbnail_r2_key || splat.meta?.capture_thumbnail_r2_key) || splat.thumbnail_url || '',
+    nifUrl: nifKeyUrl(splat.r2_key) || splat.meta?.external_nif_url || splat.meta?.nif_url || null,
   };
 }
 
