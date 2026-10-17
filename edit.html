@@ -2565,6 +2565,9 @@ async function loadFile(file, urlOverride) {
   S.selected = new Uint8Array(parsed.count);
   S.paintColors = new Float32Array(parsed.count * 3).fill(-1);
   S.layers = []; S.activeLayerId = null; S.layerHidden = new Uint8Array(parsed.count);
+  // Restore saved object membership only when a versioned NIF scene manifest exists.
+  // Legacy files remain valid and simply open as one ungrouped point set.
+  restoreEditorSceneMetadata(S.nifMeta, parsed.count);
   const lidarColorMode = document.getElementById('lidarColorMode');
   if (lidarColorMode) {
     const has = { intensity: !!S.lidarIntensity, classification: !!S.lidarClassification, return: !!S.lidarReturnNumber };
@@ -3447,6 +3450,69 @@ function _compactLidarAttributes(indices) {
   return intensity || classification || returnNumber ? { intensity, classification, returnNumber } : null;
 }
 
+// Persist editor object-layer membership in compact exported-point coordinates.
+// This metadata is descriptive only; it never claims to reconstruct missing geometry.
+function serializeEditorSceneMetadata(aliveIndices) {
+  const compactIndex = new Map(aliveIndices.map((sourceIndex, compact) => [sourceIndex, compact]));
+  const layers = (S.layers || []).map(layer => ({
+    id: String(layer.id || ''),
+    name: String(layer.name || 'Untitled layer'),
+    icon: String(layer.icon || '📦'),
+    visible: layer.visible !== false,
+    opacity: Math.max(0, Math.min(1, Number(layer.opacity ?? 1))),
+    point_indices: Array.from(compactIndex.entries())
+      .filter(([sourceIndex]) => Boolean(layer.mask?.[sourceIndex]))
+      .map(([, compact]) => compact)
+  })).filter(layer => layer.point_indices.length > 0);
+  const grouped = new Uint8Array(S.alive?.length || 0);
+  for (const layer of S.layers || []) {
+    for (let i = 0; i < grouped.length; i++) if (layer.mask?.[i]) grouped[i] = 1;
+  }
+  const ungrouped = aliveIndices.map((sourceIndex, compact) => ({ sourceIndex, compact }))
+    .filter(({sourceIndex}) => !grouped[sourceIndex] && !S.layerHidden?.[sourceIndex])
+    .map(({compact}) => compact);
+  return {
+    version: 1,
+    point_count: aliveIndices.length,
+    active_layer_id: S.activeLayerId || null,
+    layers,
+    ungrouped_point_indices: ungrouped
+  };
+}
+
+function restoreEditorSceneMetadata(meta, pointCount) {
+  const sceneMeta = meta?.editor_scene;
+  if (!sceneMeta || sceneMeta.version !== 1 || !Array.isArray(sceneMeta.layers)) return false;
+  const safeCount = Math.max(0, Number(pointCount) || 0);
+  const restored = [];
+  for (const item of sceneMeta.layers) {
+    if (!item || !Array.isArray(item.point_indices)) continue;
+    const mask = new Uint8Array(safeCount);
+    for (const raw of item.point_indices) {
+      const index = Number(raw);
+      if (Number.isInteger(index) && index >= 0 && index < safeCount) mask[index] = 1;
+    }
+    if (!mask.some(Boolean)) continue;
+    restored.push({
+      id: String(item.id || `layer_restored_${restored.length}`),
+      name: String(item.name || 'Restored layer'),
+      icon: String(item.icon || '📦'),
+      mask,
+      visible: item.visible !== false,
+      opacity: Math.max(0, Math.min(1, Number(item.opacity ?? 1)))
+    });
+  }
+  S.layers = restored;
+  S.activeLayerId = restored.some(layer => layer.id === sceneMeta.active_layer_id)
+    ? sceneMeta.active_layer_id : null;
+  S.layerHidden = new Uint8Array(safeCount);
+  for (const layer of restored) {
+    if (!layer.visible) for (let i = 0; i < safeCount; i++) if (layer.mask[i]) S.layerHidden[i] = 1;
+  }
+  S.selected = new Uint8Array(safeCount);
+  return restored.length > 0;
+}
+
 function exportFile(type = 'splat') {
   if (!S.alive) return;
   const idx = []; for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) idx.push(i);
@@ -3460,7 +3526,7 @@ function exportFile(type = 'splat') {
       sourceBuffer: currentRows,
       aliveIndices: Array.from({ length: idx.length }, (_, i) => i),
       rowSize: 32,
-      meta: S.nifMeta || {},
+      meta: { ...(S.nifMeta || {}), editor_scene: serializeEditorSceneMetadata(idx) },
       thumbnailBytes: S.nifThumbnailBytes || undefined,
       mesh: S.nifMesh || undefined,
       lidarAttributes: _compactLidarAttributes(idx),
@@ -4444,7 +4510,7 @@ window.saveLiveEdit = async function saveLiveEdit(extra = {}) {
         sourceBuffer: rowBytes,
         aliveIndices: Array.from({ length: aliveIdx.length }, (_, i) => i),
         rowSize: 32,
-        meta: S.nifMeta || {},
+        meta: { ...(S.nifMeta || {}), editor_scene: serializeEditorSceneMetadata(aliveIdx) },
         thumbnailBytes: S.nifThumbnailBytes || undefined,
         mesh: S.nifMesh || undefined,
         lidarAttributes: _compactLidarAttributes(aliveIdx),
