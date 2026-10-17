@@ -297,12 +297,14 @@ async function authorizeFileRead(request, env, principal, bucketName, fileKey) {
 // Also enforces a sane max length so absurdly long paths can't be used to
 // abuse R2 key limits or your CDN/cache layer.
 function sanitiseKey(rawPath) {
-  const cleaned = rawPath
-    .replace(/\.\./g, '')
-    .replace(/\\/g, '/')
-    .replace(/\/+/g, '/')
-    .replace(/^\/+/, '');
-  return cleaned.slice(0, MAX_KEY_LENGTH);
+  if (typeof rawPath !== 'string' || rawPath.length === 0 || rawPath.length > MAX_KEY_LENGTH || rawPath.includes('\0')) {
+    return '';
+  }
+  const slashNormalised = rawPath.replace(/\\/g, '/');
+  const segments = slashNormalised.split('/');
+  // Reject traversal segments instead of silently rewriting them to a different key.
+  if (segments.some(segment => segment === '.' || segment === '..')) return '';
+  return slashNormalised.replace(/\/+/g, '/').replace(/^\/+/, '');
 }
 
 function isAllowedMimeType(bucketName, contentType) {
