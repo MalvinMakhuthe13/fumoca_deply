@@ -166,9 +166,9 @@ Create frozen test sets for calibrated vehicle, object and scene captures. NaviG
 - Expanded the CPU conversion smoke test to assert decoded positions, scale, opacity, RGB, NIF → legacy 32-byte SPLAT renderer conversion, and PLY point-cloud → NIF attributes. These assertions are committed but require the next GitHub Actions run to confirm; do not treat them as passed until that run is green.
 - Fixed the optional calibration/reference-mesh upload key from `verify-refs/<user>/...` to `<user>/verify-refs/...`, so the R2 Worker’s owner-prefix write authorization can accept it. Added a schema-contract assertion.
 - Fixed the cleaned-splat derivative key to `<nif-record-id>/edited_cleaned_<timestamp>.splat`, which matches the Worker’s record-owned edited-derivative contract. Extended the Studio save contract test to guard this key shape.
-- Follow-up found the matching read-side gap: the Worker’s owner lookup did not associate `meta.cleaned_splat.r2_key` with its parent NIF. Added that exact association to read authorization and regression cases for owner allow / other-user deny. The test is committed but awaits a fresh CI run.
+- Follow-up found the matching read-side gap: the Worker’s owner lookup did not associate `meta.cleaned_splat.r2_key` with its parent NIF. Added that exact association to read authorization and regression cases for owner allow / other-user deny. The owner allow/other-user deny regression is included in the latest passing CI run.
 
-- Fixed the mobile-widget upload path in code: generated HTML now uses an authenticated owner-prefixed key, persists the exact R2 key in parent NIF metadata, checks both database writes, and attempts compensating cleanup on failure. R2 read authorization now exposes the widget anonymously only when its parent NIF is published; private owners retain private access. The Worker permits `text/html` in the NIF bucket only with a restrictive sandbox CSP, and a new regression test covers HTML injection and unsafe URL schemes. CI and staging must still verify this contract before release.
+- Fixed the mobile-widget upload path in code: generated HTML now uses an authenticated owner-prefixed key, persists the exact R2 key in parent NIF metadata, checks both database writes, and attempts compensating cleanup on failure. R2 read authorization now exposes the widget anonymously only when its parent NIF is published; private owners retain private access. The Worker permits `text/html` in the NIF bucket only with a restrictive sandbox CSP, and a new regression test covers HTML injection and unsafe URL schemes. The new HTML injection and storage-policy regression tests pass in CI; staging must still verify the deployed Worker and direct-bucket exposure before release.
 - Security note: the Worker route's sandbox CSP does not prove that the underlying R2 bucket has no public custom-domain bypass. Direct bucket/custom-domain exposure remains a staging release gate.
 
 - Extended invalid-geometry validation to the uncompressed NIF encoding path as well as the quantized path; added tests for empty, malformed and non-finite geometry in both modes.
@@ -179,8 +179,8 @@ Create frozen test sets for calibrated vehicle, object and scene captures. NaviG
 
 ### Newly confirmed storage integration blockers
 
-- The open-state variant storage contract has now been implemented in code: variants use owner-prefixed keys, exact keys are registered in `meta.open_variant_r2_keys`, public reads require a published parent NIF, private reads remain owner-only, and cancelled previews unregister/delete their objects. New read-authorization and storage-contract tests are committed but still require a green CI run and staging validation. The live toggle remains release-blocked until that evidence exists.
-- The mobile-widget storage contract is now implemented in code as noted above, but remains release-blocked pending CI and staging verification. Confirm that the deployed Worker returns the sandbox CSP on HTML responses, that a published parent exposes its widget, that private parents do not, and that the underlying R2 bucket has no direct public bypass.
+- The open-state variant storage contract has now been implemented in code: variants use owner-prefixed keys, exact keys are registered in `meta.open_variant_r2_keys`, public reads require a published parent NIF, private reads remain owner-only, and cancelled previews unregister/delete their objects. New read-authorization and storage-contract tests pass in the latest CI run; staging validation remains outstanding. The live toggle remains release-blocked until that evidence exists.
+- The mobile-widget storage contract is implemented and its CI tests pass, but it remains release-blocked pending staging verification. Confirm that the deployed Worker returns the sandbox CSP on HTML responses, that a published parent exposes its widget, that private parents do not, and that the underlying R2 bucket has no direct public bypass.
 - Added `supabase_migration_mobile_assets.sql` to create the `mobile_assets` registry and owner/public-parent RLS policies, plus a CI schema contract. This migration has not been applied anywhere; stage it and verify the existing `nif_files` RLS/schema before any deployment.
 - These paths were discovered by tracing the stricter Worker write/read contract against their actual upload keys. No production Worker deployment, bucket change, migration, or public-access bypass was attempted.
 
@@ -190,6 +190,10 @@ Create frozen test sets for calibrated vehicle, object and scene captures. NaviG
 - Do not describe FUMOCA as “best” or “at the pinnacle” until it is measured against a fixed benchmark.
 - Do not switch the engine stack or run migrations against production before schema, licensing and rollback review.
 - This audit branch documents the integration plan; production code and deployed services remain unchanged.
+
+## Latest CI evidence
+
+- GitHub Actions run [39056528849](https://github.com/MalvinMakhuthe13/fumoca_deply/actions/runs/39056528849) passed all 60 validation steps at QA head `1e0e1cc64313fa1a5a348b8938dc1ee5459c1653`, including the mobile-widget HTML security, mobile storage/RLS, open-variant ownership/component preservation, CPU conversion, geometry validation, and GLB preflight tests. This is repository CI, not live staging or browser E2E evidence.
 
 ## R2 read authorization contract (implemented on QA branch; staging and deployment not verified)
 
