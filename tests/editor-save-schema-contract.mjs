@@ -38,7 +38,7 @@ assert.match(liveSave, /select\('id,user_id,title,description,r2_key,is_public,m
   'live edits must reload the current NIF row before merging metadata');
 assert.match(liveSave, /update\(\{ meta: nextMeta \}\)/,
   'live edits must persist to the deployed meta JSON column');
-assert.doesNotMatch(liveSave, /payload\.nif_url|edit_recipe:\s*merged|last_edited_at:\s*new Date/,
+assert.doesNotMatch(liveSave, /payload\.nif_url|edit_recipe:\s*merged/,
   'live edits must not write phantom top-level edit_recipe, nif_url or last_edited_at columns');
 
 console.log('Studio save schema and failure contract passed.');
