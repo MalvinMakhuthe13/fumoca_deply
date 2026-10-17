@@ -245,7 +245,9 @@ jobs:
         run: |
           grep -q "async function authorizeFileRead" cloudflare/workers/r2-storage.js
           grep -q "authorizeFileRead(request, env, principal, bucketParam, fileKey)" cloudflare/workers/r2-storage.js
-          grep -q "if (access.isPublic) ctx.waitUntil(cache.put" cloudflare/workers/r2-storage.js
+          grep -q "if (access.isPublic && !rangeHeader) ctx.waitUntil(cache.put" cloudflare/workers/r2-storage.js
+          grep -q "function parseByteRange(rangeHeader, size)" cloudflare/workers/r2-storage.js
+          grep -q "range: { offset: parsedRange.start, length: parsedRange.length }" cloudflare/workers/r2-storage.js
       - name: Test NIF Studio layer manifest round-trip
         run: node --experimental-default-type=module tests/editor-scene-manifest.mjs
       - name: Test Studio save schema contract
