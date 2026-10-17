@@ -333,6 +333,8 @@ jobs:
         run: node --experimental-default-type=module tests/splat-to-nif-smoke.mjs
       - name: Test Gaussian SH sidecar round-trip
         run: node --experimental-default-type=module tests/nif-gaussian-sh-sidecar.mjs
+      - name: Test Studio Gaussian SH sidecar preservation
+        run: node --experimental-default-type=module tests/nif-sh-sidecar-studio.mjs
       - name: Test Gaussian PLY import fidelity
         run: node --experimental-default-type=module tests/ply-import-fidelity-contract.mjs
       - name: Test NIF reader geometry bounds
