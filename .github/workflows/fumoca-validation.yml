@@ -40,6 +40,8 @@ jobs:
         run: node --input-type=module --check < js/r2Client.js
       - name: Check R2 Worker module syntax
         run: node --input-type=module --check < cloudflare/workers/r2-storage.js
+      - name: Check publish module syntax
+        run: node --input-type=module --check < js/modules/publish-to-fumoca.js
       - name: Check persistence-sensitive editor modules
         run: |
           node --input-type=module --check < js/modules/edit-engine.js
@@ -148,6 +150,8 @@ jobs:
         run: node --experimental-default-type=module tests/vehicle-capture-contract.mjs
       - name: Test upload NIF schema contract
         run: node --experimental-default-type=module tests/upload-nif-schema-contract.mjs
+      - name: Test NIF publish contract
+        run: node --experimental-default-type=module tests/publish-contract.mjs
       - name: Test R2 client delete error handling
         run: node --experimental-default-type=module tests/r2-client-delete-errors.mjs
       - name: Test R2 read authorization
