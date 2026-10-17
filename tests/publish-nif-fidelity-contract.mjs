@@ -18,6 +18,12 @@ assert.match(publish, /authenticatedUrl\(currentRecord\.r2_key\)/,
   'private saved NIF passthrough reads must use a fresh authenticated ticket');
 assert.match(publish, /CHUNK\.KEYFRAME_MESH, CHUNK\.GAUSSIAN_SH, CHUNK\.LIDAR_ATTR/,
   'mesh and point-indexed sidecars must be rebuilt rather than duplicated as passthrough');
+assert.match(publish, /CHUNK\.KEYFRAME_MESH, CHUNK\.LAYER_GEO, CHUNK\.GAUSSIAN_SH, CHUNK\.LIDAR_ATTR/,
+  'LAYER_GEO indices must be compacted with current alive-point indices rather than passed through stale');
+assert.match(builder, /compactNifLayers\(/,
+  'publish must rebuild LAYER_GEO indices against compacted geometry');
+assert.match(builder, /layers: layerData\.layers/,
+  'publish must encode rebuilt LAYER_GEO chunks');
 assert.match(builder, /encodeEditorSplatRows\(S, aliveIndices\)/,
   'publish must serialize current edited geometry for every source format');
 assert.match(publish, /import \{ encodeEditorSplatRows \} from '\.\/editor-splat-rows\.js';/,
