@@ -36,6 +36,32 @@ rejects(
 rejects(
   () => encodeNif({ geometry: new Float32Array(0), compressed: false }),
   /at least one point/,
+  'raw NIF encoding must reject empty geometry too',
+);
+rejects(
+  () => encodeNif({ geometry: new Float32Array(15), compressed: false }),
+  /length must equal point count/,
+  'raw NIF encoding must reject malformed geometry records',
+);
+const rawNan = new Float32Array(14);
+rawNan[2] = Number.NaN;
+rejects(
+  () => encodeNif({ geometry: rawNan, compressed: false }),
+  /non-finite value/,
+  'raw NIF encoding must reject non-finite positions',
+);
+const rawValid = new Float32Array(14);
+rawValid[0] = 1; rawValid[1] = 2; rawValid[2] = 3;
+rawValid[3] = rawValid[4] = rawValid[5] = Math.log(0.01);
+rawValid[6] = 1; rawValid[10] = 0; rawValid[11] = rawValid[12] = rawValid[13] = 0;
+const rawNif = encodeNif({ geometry: rawValid, compressed: false });
+const rawDecoded = await decodeNif(rawNif);
+assert.equal(rawDecoded.gaussians.count, 1, 'raw NIF must round-trip one valid point');
+assert.equal(rawDecoded.gaussians.data[0], 1, 'raw NIF position must survive round-trip');
+
+rejects(
+  () => encodeNif({ geometry: new Float32Array(0), compressed: false }),
+  /at least one point/,
   'uncompressed encoding must reject empty scenes too',
 );
 rejects(
