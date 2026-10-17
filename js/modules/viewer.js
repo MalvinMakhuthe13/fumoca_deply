@@ -300,19 +300,25 @@ async function deleteCurrentUpload() {
   const original = btn?.textContent || 'Delete upload';
   if (btn) { btn.disabled = true; btn.textContent = 'Deletingâ€¦'; }
   try {
-    const candidates = [
-      currentRecord?.nif_url, currentRecord?.file_url, currentRecord?.file, currentRecord?.thumbnail_url,
-      currentRecord?.thumbnail, currentRecord?.preview_video_url, currentRecord?.previewVideo,
-      currentRecord?.source_video_url, currentRecord?.video_url,
-    ].filter(Boolean);
-    for (const raw of candidates) {
-      const hit = extractStoragePath(raw);
-      if (!hit) continue;
-      try { await r2.from(hit.bucket).remove([hit.path]); } catch (_) {}
-    }
-    try { await supabase.from('reconstruction_jobs').delete().eq('nif_id', currentRecord.id); } catch (_) {}
-    const { error } = await supabase.from('nif_files').delete().eq('id', currentRecord.id);
+    // nif_files stores canonical R2 keys; CDN URLs cannot be parsed as
+    // Supabase Storage URLs. Delete the owned record first, then clean its
+    // known NIF/source/thumbnail objects from the correct R2 bucket.
+    const { error } = await supabase.from('nif_files')
+      .delete().eq('id', currentRecord.id).eq('user_id', currentRecord.user_id);
     if (error) throw error;
+
+    const keys = [
+      currentRecord.r2_key,
+      currentRecord.meta?.source_r2_key,
+      currentRecord.meta?.source_capture?.r2_key,
+      currentRecord.meta?.thumbnail_r2_key,
+    ].filter((key, index, all) => typeof key === 'string' && key.trim() && all.indexOf(key) === index);
+    const cleanup = await Promise.allSettled(
+      keys.map(key => r2.from('nif-files').remove([key]))
+    );
+    if (cleanup.some(result => result.status === 'rejected' || result.value?.error)) {
+      console.warn('[FUMOCA viewer] NIF row deleted; some R2 objects may need cleanup', currentRecord.id);
+    }
     window.location.href = 'feed.html';
   } catch (err) {
     console.error('[FUMOCA delete upload]', err);
