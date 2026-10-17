@@ -177,7 +177,7 @@ Use the deployed `nif_files` schema as the source of truth (`is_public` is the v
 
 - `nif-files`: public only when the key resolves to a `nif_files` row whose `is_public = true`. The authenticated owner may read their own private file. A known key alone is never authorization.
 - `nif-videos`: private by default. Permit only the authenticated owner or a trusted server principal; do not expose raw capture media simply because the derived NIF is public.
-- `preview-videos`: private by default unless an explicit, validated public association to a published NIF is implemented. A caller-supplied query parameter is not proof of publication.
+- `preview-videos`: private by default. A teaser is public only when its exact key is recorded as `meta.teaser_video_r2_key` on a `nif_files` row with `is_public = true`. A caller-supplied query parameter is not proof of publication.
 - `thumbnails`: public only when associated with a published NIF; otherwise owner-only. This prevents a public thumbnail bucket from bypassing private model visibility.
 - `avatars`: may remain public for profile compatibility, but must not be treated as a general-purpose private-file bucket.
 - For authenticated/private responses, use `Cache-Control: private, no-store` (or another explicitly justified private cache policy) and bypass `caches.default`. Public cache entries must not be reused for private responses. Cache identity and invalidation must be tested when a NIF changes from public to private.
@@ -195,6 +195,8 @@ Use the deployed `nif_files` schema as the source of truth (`is_public` is the v
 | Owner GET of their raw source video | Allow |
 | Anonymous GET of thumbnail attached to a published NIF | Allow |
 | Anonymous GET of thumbnail attached to a private NIF | Deny |
+| Anonymous GET of teaser video attached to a published NIF | Allow only for exact `meta.teaser_video_r2_key` association |
+| Anonymous GET of teaser video attached to a private NIF | Deny |
 | Anonymous GET of an avatar | Allow, if public-avatar policy retained |
 | Request for unknown bucket/key or malformed key | Reject safely; never broaden access |
 | Private request after a public cache hit | Deny; no shared-cache leak |
@@ -231,3 +233,4 @@ The latest green GitHub Actions run is repository-level evidence only. It does n
 - **Byte-range reads:** the R2 Worker previously advertised `Accept-Ranges` without implementing HTTP range responses. It now parses single byte ranges, uses R2 `head` + bounded `get` for 206 responses, returns 416 for invalid ranges, and bypasses shared caching for all range responses. This prevents preflight's one-byte probe from accidentally downloading an entire large NIF and avoids serving a full cached body to range requests. Mocked parser and route-contract tests are wired into CI.
 
 These are repository changes and mocked/static tests only. The Worker is not deployed, so R2's actual range semantics, direct bucket/custom-domain exposure, Supabase RLS/PostgREST policy behaviour and real browser round-trips remain staging gates.
+- **Teaser video flow:** the old upload path `teasers/<nif-id>/...` failed the Worker’s ownership guard, and the Worker had no published-NIF association rule for `preview-videos`. Teaser uploads now use the authenticated owner prefix, persist `meta.teaser_video_r2_key`, scope metadata updates to the owner, clean up the object if metadata persistence fails, resolve metadata-backed teaser URLs in the feed, and delete teaser objects from feed/profile/viewer cleanup. CI includes public/private teaser authorization and upload/cleanup contract tests.
