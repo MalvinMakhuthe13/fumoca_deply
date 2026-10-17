@@ -487,20 +487,30 @@ async function fetchFeedNifs() {
   // reconstruction fails the quality bar. The artifact row exists for
   // inspection, but the job status—not the presence of r2_key—decides if it
   // should be presented as ready to publish.
-  const ids = rows.map(row => row.id).filter(Boolean);
-  if (ids.length) {
+  const jobIds = [...new Set(rows.map(row => row.job_id || row.id).filter(Boolean))];
+  if (jobIds.length) {
     const { data: jobs, error: jobsError } = await supabase
       .from('reconstruction_jobs')
       .select('id,status,progress,error_message')
-      .in('id', ids);
+      .in('id', jobIds);
     if (jobsError) throw jobsError;
     const byId = new Map((jobs || []).map(job => [job.id, job]));
     for (const row of rows) {
-      const job = byId.get(row.id);
-      if (!job) continue; // direct imports do not have a reconstruction job
-      row.status = job.status;
-      row.processing_progress = job.progress;
-      row.error_message = job.error_message;
+      const jobId = row.job_id || row.id;
+      const job = byId.get(jobId);
+      if (job) {
+        row.status = job.status;
+        row.processing_progress = job.progress;
+        row.error_message = job.error_message || '';
+      } else if (row.job_id) {
+        // A pipeline artifact with a job_id but no visible job record is not
+        // proven ready. Do not let the presence of r2_key turn it into a
+        // publishable result; surface a recoverable failure instead.
+        row.status = 'needs_retry';
+        row.processing_progress = 0;
+        row.error_message = 'Processing status could not be found. Refresh or retry this job.';
+      }
+      // No job_id means a direct import; it can be ready without a worker job.
     }
   }
   return rows.sort((a,b) => new Date(b.created_at||0) - new Date(a.created_at||0));
