@@ -17,6 +17,7 @@
 export const NIF_MAGIC         = 0x4E494600; // 'NIF\0'
 export const NIF_VERSION_MAJOR = 1;
 const MAX_NIF_GAUSSIANS = 5_000_000; // Guard browser allocations when opening untrusted files.
+const MAX_DECOMPRESSED_CHUNK_BYTES = 512 * 1024 * 1024; // Refuse gzip bombs / oversized browser allocations.
 
 export const NIF_VERSION_MINOR = 1;  // 1.1: added CALIBRATION (0x0017) and
                                       // VERIFICATION (0x0018) chunk types.
@@ -219,6 +220,10 @@ export async function gzipDecompress(bytes) {
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
+    if (total + value.length > MAX_DECOMPRESSED_CHUNK_BYTES) {
+      await reader.cancel('NIF decompressed chunk exceeds the 512 MiB safety limit').catch(() => {});
+      throw new Error('[NIFSpec] Decompressed chunk exceeds the 512 MiB safety limit');
+    }
     parts.push(value); total += value.length;
   }
   const out = new Uint8Array(total); let off = 0;
