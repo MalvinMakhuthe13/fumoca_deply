@@ -10,5 +10,6 @@ assert.match(source, /requiresRawScalePreservation = true/, 'out-of-range log-sc
 assert.match(source, /compress: !requiresRawScalePreservation/, 'NIF import must not silently clamp out-of-range Gaussian scales');
 assert.match(source, /gaussianSH: \{[\s\S]*?values: gaussianSHValues/, 'exact DC and higher-order SH values must be stored in the sidecar');
 assert.match(source, /discarded_attributes: \[\]/, 'Gaussian PLY import must not report preserved SH coefficients as discarded');
+assert.match(source, /quantized_geometry_lossy/, 'lossy quantized geometry must be disclosed in conversion provenance');
 assert.match(source, /if \(shMetadata\.hasUnsupportedShLayout\)[\s\S]*?refuses to discard them/, 'unsupported SH layouts must fail closed instead of silently losing data');
 console.log('Gaussian PLY fidelity and raw-scale fallback contracts passed.');
