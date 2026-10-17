@@ -58,6 +58,9 @@ jobs:
           grep -q "from('reconstruction_jobs')" js/modules/feed.js
           grep -q "needs_retry" js/modules/feed.js
           grep -q "jobsById.get" js/modules/profile.js
+          grep -q "viewer.html?nifId=" js/modules/profile.js
+          grep -q "currentRecord.meta?.source_capture?.r2_key" js/modules/viewer.js
+          ! grep -n "eq('nif_id'" js/modules/viewer.js
       - name: Test CPU-only splat to NIF conversion
         run: node --experimental-default-type=module tests/splat-to-nif-smoke.mjs
       - name: Compile Kaggle preflight script
