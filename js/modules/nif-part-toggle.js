@@ -36,6 +36,7 @@
  */
 
 import { decodeNif, decodeLayers, decodePhysics, encodeNif } from './nif-format.js';
+import { CHUNK } from '../../engine-next/format/NIFSpec.js';
 import { GaussianEdit, Quat, v3 } from '../../engine-next/math/NIFMath.js';
 import r2 from '../r2Client.js';
 
@@ -103,7 +104,7 @@ export async function authorPartToggle(nifUrl, labelOrParts, opts = {}) {
   if (!res.ok) throw new Error(`Could not fetch ${nifUrl}: HTTP ${res.status}`);
   const buf = await res.arrayBuffer();
 
-  const { reader, meta, gaussians } = await decodeNif(buf);
+  const { reader, meta, gaussians, thumbnailBytes } = await decodeNif(buf);
   const layers = await decodeLayers(reader);
   const physics = await decodePhysics(reader);
 
@@ -148,9 +149,14 @@ export async function authorPartToggle(nifUrl, labelOrParts, opts = {}) {
 
   const safeLabels = appliedLabels.join('_').replace(/[^a-z0-9_-]/gi, '_');
   const key = `${ownerId}/open-variants/${recordId}_${safeLabels}_${Date.now()}.nif`;
+  const passthroughChunks = reader.chunks.filter(chunk =>
+    ![CHUNK.KEYFRAME_GEO, CHUNK.META, CHUNK.THUMBNAIL].includes(chunk.type)
+  );
   const openBuf = encodeNif({
     geometry: workingGaussians.data,
-    meta: { title: meta.title, description: meta.description, open_variant_of: recordId, open_variant_layers: appliedLabels },
+    meta: { ...meta, open_variant_of: recordId, open_variant_layers: appliedLabels },
+    thumbnailBytes,
+    passthroughChunks,
     vertical: meta.vertical || 'generic',
   });
 
