@@ -89,3 +89,26 @@ test('profile deletion removes canonical output/source/thumbnail keys from corre
   assert.match(source, /rawVideoKey/);
   assert.match(source, /bucket: 'nif-videos', path: rawVideoKey/);
 });
+
+test('Ad Studio queries NIF and legacy assets without falsely baking unsupported formats', async () => {
+  const source = await read('ad-studio.html');
+  assert.match(source, /from\('nif_files'\)/);
+  assert.match(source, /from\('splats'\)/);
+  assert.match(source, /_rawSplatUrl/);
+  assert.match(source, /current encoder accepts raw \\.splat rows/);
+  assert.match(source, /e\.source !== iframe\.contentWindow/);
+  assert.match(source, /e\.origin !== location\.origin/);
+  assert.doesNotMatch(source, /postMessage\([^;]*,\s*['"]\*['"]\s*\)/);
+});
+
+test('viewer provides a same-origin Ad Studio bridge for load, camera and bake commands', async () => {
+  const source = await read('viewer.html');
+  assert.match(source, /Ad Studio bridge: explicit same-origin protocol/);
+  assert.match(source, /params\.get\('embed'\) !== 'ad-studio'/);
+  assert.match(source, /event\.source !== window\.parent/);
+  assert.match(source, /event\.origin !== trustedOrigin/);
+  assert.match(source, /fumoca:recordLoaded/);
+  assert.match(source, /type === 'loadSplat'/);
+  assert.match(source, /type === 'adBakeFrame'/);
+  assert.match(source, /cameraState/);
+});
