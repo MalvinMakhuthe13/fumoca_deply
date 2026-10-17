@@ -432,6 +432,7 @@ export async function decodeNif(arrayBuffer) {
   }
   const geometry = await reader.getGeometry(); // { count, data: Float32Array(14/point) } | null
   if (!geometry) throw new Error('[nif-format] .nif file has no KEYFRAME_GEO chunk');
+  const meta = decodeMetaChunk(reader.getChunk(CHUNK.META));
   const gaussianSH = await reader.getGaussianSH();
   if (gaussianSH && gaussianSH.pointCount !== geometry.count) {
     throw new Error('[nif-format] Gaussian SH sidecar point count does not match geometry');
@@ -448,7 +449,6 @@ export async function decodeNif(arrayBuffer) {
     }
   }
 
-  const meta = decodeMetaChunk(reader.getChunk(CHUNK.META));
   const thumbChunk = reader.getChunk(CHUNK.THUMBNAIL);
   const thumbnailBytes = thumbChunk ? thumbChunk.data : null;
 
