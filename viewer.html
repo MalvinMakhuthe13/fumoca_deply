@@ -2402,7 +2402,9 @@ window.addEventListener('fumoca:recordLoaded', e => {
 
   function bootBridge() {
     try {
-      initViewerStateBridge({ seedVehicle: true });
+      const p = new URLSearchParams(location.search);
+      const seed = p.get('demo') === 'vehicle' || p.get('mode') === 'car' || p.get('seedHotspots') === '1';
+      initViewerStateBridge({ seedVehicle: seed });
     } catch (e) {
       console.warn('[state-bridge]', e);
     }

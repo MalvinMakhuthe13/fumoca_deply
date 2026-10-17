@@ -1,13 +1,33 @@
-# Cloudflare Pages _redirects
+# Cloudflare Pages _redirects — deep QA 2026-10-17
 
-# Short share URL — /s/<id> → viewer-core (public, no auth)
 /s/:id   /viewer-core.html?id=:id   200
-
-
-
-# Canonical view route → lean viewer
 /view/*  /viewer-core.html   200
 
+/edit              /edit.html              200
+/viewer            /viewer.html            200
+/present           /present.html           200
+/feed              /feed.html              200
+/upload            /upload.html            200
+/capture           /capture.html           200
+/convert           /convert.html           200
+/image-to-splat    /image-to-splat.html    200
+/magazine-cover    /magazine-cover.html    200
+/media-edit        /media-edit.html        200
+/showroom          /showroom.html          200
+/ad-studio         /ad-studio.html         200
+/ad-preview        /ad-preview.html        200
+/embed             /embed/player.html      200
+/open              /open.html              200
+/login             /login.html             200
+/signup            /signup.html            200
+/profile           /profile.html           200
+/settings          /settings.html          200
+/notifications     /notifications.html     200
+/splat-edit-engine /splat-edit-engine.html 200
+/capture-vehicle   /capture-vehicle.html   200
+/preflight         /preflight.html         200
+/scene             /scene.html             200
+/public-preview    /public-preview.html    200
+/viewer-core       /viewer-core.html       200
 
-# Spec doc
-/spec   /FUMOC_V2_SPEC.md   302
+/spec   /docs/FUMOC_V2_SPEC.md   302

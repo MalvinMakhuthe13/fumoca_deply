@@ -211,7 +211,7 @@ import {
 const params = new URLSearchParams(location.search);
 const cfg = window.FUMOCA_CONFIG || {};
 const SITE = (cfg.siteBaseUrl || location.origin).replace(/\/$/, '');
-const splatId = params.get('splatId') || params.get('id') || '';
+const splatId = params.get('splatId') || params.get('nifId') || params.get('id') || '';
 const assetKey = splatId || 'default';
 
 const $ = (id) => document.getElementById(id);

@@ -588,7 +588,7 @@ input[type=range].amber::-webkit-slider-thumb{background:var(--amber);box-shadow
   <div class="tb-actions">
     <input id="addSplatInput" type="file" accept=".ply,.splat,.nif" multiple style="display:none"/>
     <button class="tb-btn" id="addSplatBtn" title="Add another splat to this scene">＋ Add splat</button>
-    <input id="fileInput" type="file" accept=".ply,.splat,.nif"/>
+    <input id="fileInput" type="file" accept=".ply,.splat,.nif" style="display:none"/>
     <button class="tb-btn" id="openBtn">📂 Open</button>
     <button class="tb-btn" id="undoBtn" disabled>↩ Undo</button>
     <button class="tb-btn" id="redoBtn" disabled>↪ Redo</button>
@@ -1702,8 +1702,8 @@ const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true; controls.dampingFactor = 0.07;
 controls.enableZoom = true;
 controls.zoomSpeed = 1.45;
-controls.minPolarAngle = THREE.MathUtils.degToRad(1);
-controls.maxPolarAngle = THREE.MathUtils.degToRad(89.5);
+controls.minPolarAngle = 0.01;
+controls.maxPolarAngle = Math.PI - 0.01;
 const transformControls = new TransformControls(camera, renderer.domElement);
 // Three r160: TransformControls IS the helper (getHelper only exists in newer Three)
 const transformGizmo = typeof transformControls.getHelper === 'function'
@@ -1891,12 +1891,28 @@ function _syncViewportHud() {
 }
 function syncTransformGizmo() {
   const count = S.alive?.length || 0;
-  if (!count || !S.positions) { transformControls.detach(); transformControls.enabled=false; return; }
-  const hasSelection = selectedPointCount() > 0;
+  const selectedCount = selectedPointCount();
+  // Never expose a scene-wide transform gizmo when no points/object are selected.
+  // The old fallback attached it to the camera target, so dragging in Move mode
+  // could appear to move the grid/camera instead of the model.
+  if (!count || !S.positions || !selectedCount) {
+    transformControls.detach();
+    transformControls.enabled = false;
+    transformGizmo.visible = false;
+    _syncViewportHud();
+    return;
+  }
   let x=0,y=0,z=0,n=0;
-  if (hasSelection) {
-    for(let i=0;i<count;i++) if(S.alive[i] && S.selected[i]) { x+=S.positions[i*3];y+=S.positions[i*3+1];z+=S.positions[i*3+2];n++; }
-  } else { const pivot=S.pivot||controls.target;x=pivot.x;y=pivot.y;z=pivot.z;n=1; }
+  for(let i=0;i<count;i++) if(S.alive[i] && S.selected[i]) {
+    x+=S.positions[i*3]; y+=S.positions[i*3+1]; z+=S.positions[i*3+2]; n++;
+  }
+  if (!n) {
+    transformControls.detach();
+    transformControls.enabled = false;
+    transformGizmo.visible = false;
+    _syncViewportHud();
+    return;
+  }
   transformTarget.position.set(x/n,y/n,z/n);
   transformTarget.rotation.set(0,0,0); transformTarget.scale.set(1,1,1);
   transformControls.attach(transformTarget);
@@ -1904,6 +1920,7 @@ function syncTransformGizmo() {
   transformControls.setMode(mode);
   transformControls.enabled = ['move','scale-tool','rotate'].includes(S.mode);
   transformGizmo.visible = transformControls.enabled;
+  _syncViewportHud();
 }
 function refreshTransformSourceMap() {
   const indices = S.points?.geometry?.getAttribute('sourceIndex');
@@ -1926,8 +1943,14 @@ function applyGizmoDelta() {
   const v=new Float64Array(3), invPrev={x:-pq.x,y:-pq.y,z:-pq.z,w:pq.w};
   const uniformScale=Math.cbrt(Math.abs(rx*ry*rz));
   const selected=selectedPointCount()>0, posAttr=S.points?.geometry?.getAttribute('position');
+  if (!selected) {
+    // Defensive guard: gizmos may only edit an explicit point/object selection.
+    // Never translate the camera target or whole scene as a fallback.
+    captureGizmoTransform();
+    return;
+  }
   const scaleAttr=S.points?.geometry?.getAttribute('aScaleXYZ'), rotationAttr=S.points?.geometry?.getAttribute('aRotation'), sizeAttr=S.points?.geometry?.getAttribute('size');
-  for(let i=0;i<S.alive.length;i++) if(S.alive[i] && (!selected || S.selected[i])) {
+  for(let i=0;i<S.alive.length;i++) if(S.alive[i] && S.selected[i]) {
     let x=S.positions[i*3]-px,y=S.positions[i*3+1]-py,z=S.positions[i*3+2]-pz;
     rotate(x,y,z,invPrev,v); x=v[0]*rx;y=v[1]*ry;z=v[2]*rz;
     rotate(x,y,z,nq,v); x=v[0]+tx;y=v[1]+ty;z=v[2]+tz;
@@ -2769,6 +2792,9 @@ function rebuildGeometry() {
 
   const layerHidden = S.layerHidden || new Uint8Array(count);
   let alive = 0; for (let i = 0; i < count; i++) if (S.alive[i] && !layerHidden[i]) alive++;
+  // Adaptive display stride (full point data kept for export/mesh; viewport draws subset)
+  S._renderStride = alive > 280000 ? Math.ceil(alive / 220000) : 1;
+  if (S._renderStride > 1) alive = Math.ceil(alive / S._renderStride);
   const pos = new Float32Array(alive * 3);
   const col = new Float32Array(alive * 3);
   const sizes = new Float32Array(alive);
@@ -2778,8 +2804,10 @@ function rebuildGeometry() {
     ? (() => { const o = new Float32Array(count).fill(1); S.layers.forEach(L => { if (L.opacity===undefined) return; for (let i=0;i<count;i++) if (L.mask[i]) o[i]=L.opacity; }); return o; })()
     : null;
   let idx = 0;
+  let _strideCounter = 0;
   for (let i = 0; i < count; i++) {
     if (!S.alive[i] || layerHidden[i]) continue;
+    if (S._renderStride > 1 && ((_strideCounter++) % S._renderStride) !== 0) continue;
     const glitch = S.glitchStrength / 100;
     const noise = Math.abs(Math.sin(i * 12.9898) * 43758.5453) % 1 - 0.5;
     pos[idx * 3] = S.positions[i * 3] + noise * glitch * 0.025;
@@ -3090,6 +3118,45 @@ function deleteSelected() {
   for (let i = 0; i < S.alive.length; i++) if (S.selected[i] && S.alive[i]) { S.alive[i] = 0; S.selected[i] = 0; del++; }
   rebuildGeometry(); _refreshSceneReference(true); setStatus(`Deleted ${fmt(del)} points`, 'ok');
   showToast('Deleted', `${fmt(del)} points removed`);
+}
+
+function selectSubjectAtScreen(x, y, radius = 16) {
+  if (!S.positions || !S.alive?.length) return false;
+  const vp = document.getElementById('viewport');
+  const W = vp.clientWidth, H = vp.clientHeight;
+  const ndc = new THREE.Vector3();
+  let best = -1, bestDist = radius * radius, bestDepth = Infinity;
+  for (let i = 0; i < S.alive.length; i++) {
+    if (!S.alive[i] || S.layerHidden?.[i]) continue;
+    ndc.set(S.positions[i*3], S.positions[i*3+1], S.positions[i*3+2]).project(camera);
+    if (ndc.z < -1 || ndc.z > 1) continue;
+    const sx = (ndc.x * 0.5 + 0.5) * W;
+    const sy = (-ndc.y * 0.5 + 0.5) * H;
+    const dx = sx - x, dy = sy - y, dist = dx*dx + dy*dy;
+    if (dist < bestDist || (dist === bestDist && ndc.z < bestDepth)) {
+      best = i; bestDist = dist; bestDepth = ndc.z;
+    }
+  }
+  if (best < 0) return false;
+
+  // A hit inside an imported layer selects the entire subject, not a single point.
+  const layer = (S.layers || []).find(L => L.visible !== false && L.mask?.[best]);
+  S.selected.fill(0);
+  if (layer) {
+    S.activeLayerId = layer.id;
+    for (let i = 0; i < S.selected.length; i++) {
+      if (S.alive[i] && layer.mask[i] && !S.layerHidden?.[i]) S.selected[i] = 1;
+    }
+  } else {
+    S.activeLayerId = null;
+    S.selected[best] = 1;
+  }
+  renderLayers();
+  rebuildGeometry();
+  refreshTransformSourceMap();
+  syncTransformGizmo();
+  setStatus(layer ? `Selected subject: ${layer.name} (${fmt(selectedPointCount())} points)` : 'Selected point; group points into a layer to transform the full subject', 'ok');
+  return true;
 }
 
 function selectByBox(x0, y0, x1, y1) {
@@ -3928,7 +3995,14 @@ window.addEventListener('pointerup', e => {
   _brushActive = false;
   if (!S.dragging) return;
   const {x, y} = _vpCoords(e);
-  if (S.mode === 'box' && S.dragStart && S.dragCurrent) selectByBox(S.dragStart.x, S.dragStart.y, S.dragCurrent.x, S.dragCurrent.y);
+  if (S.mode === 'box' && S.dragStart && S.dragCurrent) {
+    const dx = Math.abs(S.dragCurrent.x - S.dragStart.x), dy = Math.abs(S.dragCurrent.y - S.dragStart.y);
+    if (dx <= 7 && dy <= 7) {
+      // A click in Select mode picks the nearest visible subject/layer. Dragging
+      // still performs normal box selection.
+      if (!selectSubjectAtScreen(x, y)) selectByBox(S.dragStart.x, S.dragStart.y, S.dragCurrent.x, S.dragCurrent.y);
+    } else selectByBox(S.dragStart.x, S.dragStart.y, S.dragCurrent.x, S.dragCurrent.y);
+  }
   if (S.mode === 'crop' && S.dragStart && S.dragCurrent) {
     selectByBox(S.dragStart.x,S.dragStart.y,S.dragCurrent.x,S.dragCurrent.y);
     pushHistory('crop to box');
@@ -3959,7 +4033,8 @@ function onResize() {
 let _lastViewportRender = 0;
 function animate(now = performance.now()) {
   requestAnimationFrame(animate);
-  const frameInterval = S.alive?.length > 300000 ? 22 : 16;
+  const nPts = S.alive?.length || 0;
+  const frameInterval = nPts > 600000 ? 48 : nPts > 350000 ? 33 : nPts > 150000 ? 22 : 16;
   if (now - _lastViewportRender < frameInterval) return;
   _lastViewportRender = now;
   controls.update();
@@ -4567,17 +4642,74 @@ $('addSplatInput')?.addEventListener('change', async e => {
         }
         S.shAttributes = shNames; S.shCoefficients = sh;
       }
-      const alive = new Uint8Array(oldN + addN); alive.set(S.alive); alive.fill(1, oldN); S.alive = alive;
-      const selected = new Uint8Array(oldN + addN); selected.fill(1, oldN); S.selected = selected;
-      S.layerHidden = new Uint8Array(oldN + addN);
-      S.layers = []; S.activeLayerId = null;
+      const alive = new Uint8Array(oldN + addN);
+      alive.set(S.alive);
+      alive.fill(1, oldN);
+      S.alive = alive;
+
+      // Preserve existing object masks and register the appended file as its own
+      // layer. Previously this block erased every layer and left the new points
+      // selected but ungrouped, which made object selection and gizmo transforms
+      // ambiguous in multi-file scenes.
+      const extendMask = mask => {
+        const next = new Uint8Array(oldN + addN);
+        if (mask) next.set(mask.subarray ? mask.subarray(0, oldN) : mask);
+        return next;
+      };
+      if (!Array.isArray(S.layers)) S.layers = [];
+      if (S.layers.length === 0) {
+        const baseMask = new Uint8Array(oldN);
+        for (let i = 0; i < oldN; i++) if (S.alive[i]) baseMask[i] = 1;
+        if (baseMask.some(Boolean)) {
+          S.layers.push({
+            id: `layer_base_${Date.now()}`,
+            name: S.fileName || 'Original model',
+            icon: '🧊',
+            mask: extendMask(baseMask),
+            visible: true,
+            opacity: 1
+          });
+        }
+      } else {
+        S.layers = S.layers.map(layer => ({ ...layer, mask: extendMask(layer.mask) }));
+      }
+
+      const newMask = new Uint8Array(oldN + addN);
+      newMask.fill(1, oldN);
+      const layerId = `layer_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      S.layers.push({
+        id: layerId,
+        name: file.name,
+        icon: ext === 'ply' ? '🔷' : ext === 'nif' ? '🧊' : '✨',
+        mask: newMask,
+        visible: true,
+        opacity: 1
+      });
+      S.activeLayerId = layerId;
+      S.selected = new Uint8Array(oldN + addN);
+      S.selected.fill(1, oldN);
+
+      const hidden = new Uint8Array(oldN + addN);
+      if (S.layerHidden) hidden.set(S.layerHidden.subarray(0, oldN));
+      S.layerHidden = hidden;
+      S.layers.forEach(layer => {
+        if (!layer.visible) for (let i = 0; i < layer.mask.length; i++) if (layer.mask[i]) S.layerHidden[i] = 1;
+      });
+
       S.lidarIntensity = S.lidarClassification = S.lidarReturnNumber = S.lidarDisplayColors = null;
       S.sourceBuffer = null; S.fileType = 'scene';
-      S.fileName = `${S.fileName.replace(/\.[^.]+$/, '')} + ${file.name}`;
-      setStatus(`Added ${file.name} (${fmt(addN)} points)`, 'ok');
+      S.fileName = `${S.fileName.replace(/\\.[^.]+$/, '')} + ${file.name}`;
+      setStatus(`Added ${file.name} as a separate layer (${fmt(addN)} points)`, 'ok');
     } catch (err) { showToast('Could not add splat', err.message || String(err), 'warn'); }
   }
-  rebuildGeometry(); renderLayers(); updateStats();
+  rebuildGeometry();
+  renderLayers();
+  updateStats();
+  // Rebuild the source-index map and attach the gizmo after the appended layer
+  // is selected, so transforms immediately target the newly added subject.
+  refreshTransformSourceMap();
+  syncTransformGizmo();
+  _syncViewportHud();
   $('fileName').textContent = S.fileName;
   $('fileMeta').textContent = `${fmt(S.positions.length / 3)} points · multi-splat scene`;
 });
@@ -4894,8 +5026,12 @@ function renderLayers() {
     if (!S.alive) return;
     const grouped = new Uint8Array(S.alive.length);
     S.layers.forEach(L => { for (let i=0;i<L.mask.length;i++) if (L.mask[i]) grouped[i]=1; });
-    for (let i=0;i<S.alive.length;i++) S.selected[i] = (S.alive[i] && !grouped[i]) ? 1 : 0;
-    rebuildGeometry(); renderLayers();
+    for (let i=0;i<S.alive.length;i++) S.selected[i] = (S.alive[i] && !grouped[i] && !S.layerHidden?.[i]) ? 1 : 0;
+    rebuildGeometry();
+    renderLayers();
+    refreshTransformSourceMap();
+    syncTransformGizmo();
+    _syncViewportHud();
   });
   list.appendChild(mainRow);
 
@@ -4909,14 +5045,33 @@ function renderLayers() {
         L.visible = !L.visible;
         S.layerHidden = new Uint8Array(S.alive.length);
         S.layers.forEach(LL => { if (!LL.visible) for (let i=0;i<LL.mask.length;i++) if (LL.mask[i]) S.layerHidden[i]=1; });
-        rebuildGeometry(); renderLayers();
+        if (!L.visible && S.activeLayerId === L.id) {
+          S.selected.fill(0);
+          S.activeLayerId = null;
+        } else {
+          for (let i=0;i<S.selected.length;i++) if (L.mask[i] && !L.visible) S.selected[i] = 0;
+        }
+        rebuildGeometry();
+        renderLayers();
+        syncTransformGizmo();
+        _syncViewportHud();
         return;
       }
       S.activeLayerId = L.id;
-      for (let i=0;i<S.selected.length;i++) S.selected[i] = L.mask[i] ? 1 : 0;
+      // Selecting a layer must select only its live, visible points and attach
+      // the transform gizmo immediately; otherwise Move/Rotate can remain
+      // detached or continue targeting a previous point selection.
+      for (let i=0;i<S.selected.length;i++) {
+        S.selected[i] = (S.alive[i] && L.mask[i] && !S.layerHidden?.[i]) ? 1 : 0;
+      }
       $('layerOpac').value = Math.round((L.opacity??1)*100);
       $('layerOpacVal').textContent = Math.round((L.opacity??1)*100)+'%';
-      rebuildGeometry(); renderLayers();
+      rebuildGeometry();
+      renderLayers();
+      refreshTransformSourceMap();
+      syncTransformGizmo();
+      _syncViewportHud();
+      setStatus(`Selected subject: ${L.name} (${fmt(selectedPointCount())} points)`, 'ok');
     });
     list.appendChild(row);
   });

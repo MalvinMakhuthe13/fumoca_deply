@@ -1,25 +1,46 @@
-﻿# Node dependencies
+# Node
 node_modules/
+vendor/
 
-# Python caches
+# Python
 __pycache__/
 *.py[cod]
 .pytest_cache/
-
-# Virtual environments
 .venv/
 venv/
 env/
 
-# Build / generated artifacts
+# Build
 dist/
+dist-site/
 build/
+test-artifacts/
 
-# OS/editor files
+# OS / editor
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
-test-artifacts/scene.nif
 
-dist-site/
+# Secrets — never commit
+config.js
+.env
+.env.*
+*.pem
+
+# Junk / backups that break deploys or bloat history
+*.before*
+*.backup*
+sw.js.backup*
+*.log
+viewer-*-dom.txt
+viewer-*.log
+fumoca_feature_pack.zip
+INSTALL.txt
+*.zip
+!docs/**/*.zip
+
+# Nested third_party noise
+third_party/**/node_modules/
+third_party/**/.git/
+**/*.nif.bak

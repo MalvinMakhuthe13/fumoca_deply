@@ -1,4 +1,6 @@
 /**
+ * QA 2026-10-17: default resolution nudged for browser stability on large PLYs.
+ *
  * FUMOCA Mesh Extractor v91
  * ════════════════════════════════════════════════════════════════════════════
  * Converts a Gaussian splat into a printable triangle mesh for 3D printing,
@@ -1097,7 +1099,7 @@ function taubinSmooth(mesh, iterations = 2, lambda = 0.5) {
 
 async function extractMesh(gaussians, opts = {}) {
   const {
-    resolution      = 128,
+    resolution      = 96,
     threshold       = null,  // v91.1: null = auto-tune
     sigmaScale      = 1.5,
     transferColours: doColour = true,
