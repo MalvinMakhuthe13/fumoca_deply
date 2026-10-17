@@ -5031,10 +5031,19 @@ function renderLayers() {
         return;
       }
       S.activeLayerId = L.id;
-      for (let i=0;i<S.selected.length;i++) S.selected[i] = L.mask[i] ? 1 : 0;
+      // Selecting a layer must select only its live, visible points and attach
+      // the transform gizmo immediately; otherwise Move/Rotate can remain
+      // detached or continue targeting a previous point selection.
+      for (let i=0;i<S.selected.length;i++) {
+        S.selected[i] = (S.alive[i] && L.mask[i] && !S.layerHidden?.[i]) ? 1 : 0;
+      }
       $('layerOpac').value = Math.round((L.opacity??1)*100);
       $('layerOpacVal').textContent = Math.round((L.opacity??1)*100)+'%';
-      rebuildGeometry(); renderLayers();
+      rebuildGeometry();
+      renderLayers();
+      syncTransformGizmo();
+      _syncViewportHud();
+      setStatus(`Selected subject: ${L.name} (${fmt(selectedPointCount())} points)`, 'ok');
     });
     list.appendChild(row);
   });
