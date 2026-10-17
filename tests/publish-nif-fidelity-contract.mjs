@@ -18,8 +18,12 @@ assert.match(publish, /authenticatedUrl\(currentRecord\.r2_key\)/,
   'private saved NIF passthrough reads must use a fresh authenticated ticket');
 assert.match(publish, /CHUNK\.KEYFRAME_MESH, CHUNK\.GAUSSIAN_SH, CHUNK\.LIDAR_ATTR/,
   'mesh and point-indexed sidecars must be rebuilt rather than duplicated as passthrough');
-assert.match(publish, /CHUNK\.KEYFRAME_MESH, CHUNK\.LAYER_GEO, CHUNK\.GAUSSIAN_SH, CHUNK\.LIDAR_ATTR/,
-  'LAYER_GEO indices must be compacted with current alive-point indices rather than passed through stale');
+assert.match(publish, /CHUNK\.LAYER_GEO, CHUNK\.GAUSSIAN_SH, CHUNK\.LIDAR_ATTR/,
+  'point-indexed sidecars must be compacted with current alive-point indices rather than passed through stale');
+assert.match(publish, /chunk\.type === CHUNK\.KEYFRAME_MESH && window\.S\?\.nifMesh/,
+  'raw mesh chunks must remain passthrough when the editor cannot decode them');
+assert.match(publish, /\.\.\.\(S\.nifMesh \? \{ mesh: S\.nifMesh \} : \{\}\)/,
+  'only a decoded current mesh may replace the raw mesh chunk');
 assert.match(builder, /compactNifLayers\(/,
   'publish must rebuild LAYER_GEO indices against compacted geometry');
 assert.match(builder, /layers: layerData\.layers/,
