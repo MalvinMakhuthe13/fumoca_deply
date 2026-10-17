@@ -16,6 +16,8 @@
 
 export const NIF_MAGIC         = 0x4E494600; // 'NIF\0'
 export const NIF_VERSION_MAJOR = 1;
+const MAX_NIF_GAUSSIANS = 5_000_000; // Guard browser allocations when opening untrusted files.
+
 export const NIF_VERSION_MINOR = 1;  // 1.1: added CALIBRATION (0x0017) and
                                       // VERIFICATION (0x0018) chunk types.
                                       // Per §12 of NIF_SPEC_v1.0.md, this is
@@ -811,10 +813,16 @@ export class NIFReader {
     const chunk = this.getChunk(CHUNK.KEYFRAME_GEO);
     if (!chunk) return null;
     const decompressed = await decompressChunk(chunk);
+    if (!(decompressed instanceof Uint8Array) || decompressed.byteLength < 5) {
+      throw new Error('[NIFSpec] Geometry chunk is shorter than its 5-byte header');
+    }
     const dv = new DataView(decompressed.buffer, decompressed.byteOffset, decompressed.byteLength);
 
     const flag  = dv.getUint8(0);
     const count = dv.getUint32(1, false);   // big-endian
+    if (!Number.isInteger(count) || count < 1 || count > MAX_NIF_GAUSSIANS) {
+      throw new Error(`[NIFSpec] Geometry point count ${count} is outside the supported range 1–${MAX_NIF_GAUSSIANS}`);
+    }
 
     if (flag === 0x00) {
       // ── Raw float32 (fallback format) ──────────────────────────────────────
@@ -822,15 +830,25 @@ export class NIFReader {
       // is not guaranteed to be a multiple of 4, and Float32Array construction
       // throws if the view isn't aligned.
       const byteLen = count * 14 * 4;
+      if (!Number.isSafeInteger(byteLen) || byteLen > decompressed.byteLength - 5) {
+        throw new Error('[NIFSpec] Raw geometry payload is truncated for its declared point count');
+      }
       const raw  = new Uint8Array(decompressed.buffer, decompressed.byteOffset + 5, byteLen);
       const copy = new ArrayBuffer(byteLen);
       new Uint8Array(copy).set(raw);
-      return { count, data: new Float32Array(copy) };
+      const data = new Float32Array(copy);
+      for (let i = 0; i < data.length; i++) {
+        if (!Number.isFinite(data[i])) throw new Error(`[NIFSpec] Raw geometry contains a non-finite value at float index ${i}`);
+      }
+      return { count, data };
     }
 
     if (flag === 0x01) {
       // ── Quantised format ───────────────────────────────────────────────────
       // Header: flag(1) + count(4) + bb_min(12) + bb_max(12) = 29 bytes
+      if (decompressed.byteLength < 29 || count * 17 > decompressed.byteLength - 29) {
+        throw new Error('[NIFSpec] Quantised geometry payload is truncated for its declared point count');
+      }
       const bbMinX = dv.getFloat32(5,  false);
       const bbMinY = dv.getFloat32(9,  false);
       const bbMinZ = dv.getFloat32(13, false);
@@ -838,6 +856,10 @@ export class NIFReader {
       const bbMaxY = dv.getFloat32(21, false);
       const bbMaxZ = dv.getFloat32(25, false);
 
+      if (![bbMinX, bbMinY, bbMinZ, bbMaxX, bbMaxY, bbMaxZ].every(Number.isFinite) ||
+          bbMaxX < bbMinX || bbMaxY < bbMinY || bbMaxZ < bbMinZ) {
+        throw new Error('[NIFSpec] Quantised geometry has invalid or inverted bounds');
+      }
       const rangeX = bbMaxX - bbMinX;
       const rangeY = bbMaxY - bbMinY;
       const rangeZ = bbMaxZ - bbMinZ;
