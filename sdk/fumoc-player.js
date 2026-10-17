@@ -959,7 +959,22 @@
 
     _setStatus(msg,pct){
       this._overlay.style.opacity='1';
-      this._overlay.innerHTML=`<div style="font-size:13px;color:rgba(255,255,255,.45);text-align:center;padding:24px;max-width:260px;line-height:1.5">${msg}</div>${pct!=null?`<div style="width:160px;height:3px;background:rgba(255,255,255,.07);border-radius:99px;margin-top:14px;overflow:hidden"><div style="height:100%;width:${pct}%;background:#c8ff00;transition:width .3s ease;border-radius:99px"></div></div>`:''}`;
+      const message=document.createElement('div');
+      message.style.cssText='font-size:13px;color:rgba(255,255,255,.45);text-align:center;padding:24px;max-width:260px;line-height:1.5';
+      message.textContent=String(msg ?? '');
+      const nodes=[message];
+      if(pct!=null){
+        const numeric=Number(pct);
+        const safePct=Number.isFinite(numeric)?Math.max(0,Math.min(100,numeric)):0;
+        const track=document.createElement('div');
+        track.style.cssText='width:160px;height:3px;background:rgba(255,255,255,.07);border-radius:99px;margin-top:14px;overflow:hidden';
+        const fill=document.createElement('div');
+        fill.style.cssText='height:100%;background:#c8ff00;transition:width .3s ease;border-radius:99px';
+        fill.style.width=`${safePct}%`;
+        track.appendChild(fill);
+        nodes.push(track);
+      }
+      this._overlay.replaceChildren(...nodes);
     }
 
     _hideOverlay(){this._overlay.style.opacity='0';this._overlay.style.pointerEvents='none';}
