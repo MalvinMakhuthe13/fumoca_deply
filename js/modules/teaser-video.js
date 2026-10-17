@@ -45,7 +45,13 @@ const FumocaTeaserVideo = (() => {
       font-family:'Outfit',sans-serif;
     `;
 
-    const shareUrl = uploadedUrl || '';
+    const escapeHtml = value => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    const safeBlobUrl = typeof blobUrl === 'string' && blobUrl.startsWith('blob:') ? blobUrl : '';
+    let shareUrl = '';
+    try {
+      const parsed = new URL(String(uploadedUrl || ''), location.href);
+      if (['http:', 'https:'].includes(parsed.protocol)) shareUrl = parsed.href;
+    } catch (_) {}
     modal.innerHTML = `
       <div style="position:relative;width:min(480px,92vw);background:#0d0d10;border-radius:18px;overflow:hidden;border:1px solid rgba(200,255,0,.25);box-shadow:0 0 60px rgba(200,255,0,.12);">
         <div style="padding:16px 20px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(255,255,255,.07);">
@@ -54,14 +60,14 @@ const FumocaTeaserVideo = (() => {
         </div>
         <video id="teaser-preview-video" autoplay loop muted playsinline controls
           style="width:100%;max-height:60vh;object-fit:contain;background:#000;display:block;"
-          src="${blobUrl}"></video>
+          src="${escapeHtml(safeBlobUrl)}"></video>
         <div style="padding:14px 16px;display:flex;flex-direction:column;gap:10px;">
           ${shareUrl ? `
           <div style="background:rgba(200,255,0,.07);border:1px solid rgba(200,255,0,.2);border-radius:10px;padding:10px 12px;">
             <div style="font-size:10px;color:rgba(255,255,255,.4);margin-bottom:4px;">SHAREABLE LINK</div>
             <div style="display:flex;gap:8px;align-items:center;">
-              <span id="teaser-share-url" style="font-size:11px;color:#c8ff00;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${shareUrl}</span>
-              <button onclick="navigator.clipboard.writeText('${shareUrl}').then(()=>{this.textContent='✅ Copied';setTimeout(()=>this.textContent='Copy',2000)})"
+              <span id="teaser-share-url" style="font-size:11px;color:#c8ff00;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(shareUrl)}</span>
+              <button id="teaser-copy-btn" type="button"
                 style="flex-shrink:0;padding:5px 10px;border-radius:7px;background:rgba(200,255,0,.15);border:1px solid rgba(200,255,0,.3);color:#c8ff00;font-size:11px;font-weight:700;cursor:pointer;">
                 Copy
               </button>
@@ -71,12 +77,12 @@ const FumocaTeaserVideo = (() => {
             ⚠️ Upload to Supabase failed — video saved locally only. Check that config.js is loaded and the preview-videos bucket exists.
           </div>`}
           <div style="display:flex;gap:8px;">
-            <a id="teaser-download-btn" href="${blobUrl}" download="fumoca_teaser.webm"
+            <a id="teaser-download-btn" href="${escapeHtml(safeBlobUrl)}" download="fumoca_teaser.webm"
               style="flex:1;padding:10px;border-radius:10px;background:rgba(200,255,0,.12);border:1px solid rgba(200,255,0,.3);color:#c8ff00;font-size:12px;font-weight:800;text-align:center;text-decoration:none;cursor:pointer;">
               ⬇ Download .webm
             </a>
             ${shareUrl ? `
-            <button onclick="navigator.share?.({title:'My 3D Capture',url:'${shareUrl}'}) || navigator.clipboard.writeText('${shareUrl}')"
+            <button id="teaser-share-btn" type="button"
               style="flex:1;padding:10px;border-radius:10px;background:rgba(255,45,120,.12);border:1px solid rgba(255,45,120,.3);color:#ff2d78;font-size:12px;font-weight:800;cursor:pointer;">
               ↗ Share
             </button>` : ''}
@@ -90,6 +96,27 @@ const FumocaTeaserVideo = (() => {
 
     document.body.appendChild(modal);
     document.getElementById('teaser-modal-close').onclick = () => modal.remove();
+    const copyButton = document.getElementById('teaser-copy-btn');
+    copyButton?.addEventListener('click', async () => {
+      try {
+        if (!navigator.clipboard?.writeText) throw new Error('Clipboard access is unavailable.');
+        await navigator.clipboard.writeText(shareUrl);
+        copyButton.textContent = '✓ Copied';
+      } catch (error) {
+        copyButton.textContent = 'Copy unavailable';
+        console.warn('[Teaser] Clipboard copy failed:', error?.message || error);
+      }
+    });
+    const shareButton = document.getElementById('teaser-share-btn');
+    shareButton?.addEventListener('click', async () => {
+      try {
+        if (navigator.share) await navigator.share({ title: 'My 3D Capture', url: shareUrl });
+        else if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(shareUrl);
+        else throw new Error('Share and clipboard APIs are unavailable.');
+      } catch (error) {
+        if (error?.name !== 'AbortError') console.warn('[Teaser] Share failed:', error?.message || error);
+      }
+    });
     modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
   }
 
