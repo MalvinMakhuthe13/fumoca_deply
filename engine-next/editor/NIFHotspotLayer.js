@@ -184,12 +184,14 @@ export class NIFHotspotLayer {
   // ── Public API ─────────────────────────────────────────────────────────────
 
   setEditable(editable) {
-    this._editable = editable;
-    if (editable) {
-      this._overlayCanvas.style.pointerEvents = 'auto';
-      this._startLoop();
-    } else {
-      this._overlayCanvas.style.pointerEvents = 'none';
+    this._editable = !!editable;
+    // The canvas is a visual overlay, not a general input surface. Leave
+    // pointer events to the 3D viewer except while explicitly placing a label.
+    this._overlayCanvas.style.pointerEvents = this._editable && this._addMode ? 'auto' : 'none';
+    if (this._editable) this._startLoop();
+    else {
+      this._addMode = false;
+      this._addCallback = null;
       this._stopLoop();
     }
   }
@@ -204,9 +206,14 @@ export class NIFHotspotLayer {
 
   /** Enter click-to-place mode. Callback fires with the new hotspot. */
   beginAddMode(callback) {
+    if (!this._editable) {
+      throw new Error('Enable hotspot editing before entering click-to-place mode.');
+    }
     this._addMode     = true;
-    this._addCallback = callback;
+    this._addCallback = typeof callback === 'function' ? callback : null;
+    this._overlayCanvas.style.pointerEvents = 'auto';
     this._overlayCanvas.style.cursor = 'crosshair';
+    this._draw();
   }
 
   clearAll() {
@@ -239,7 +246,11 @@ export class NIFHotspotLayer {
 
   destroy() {
     this._stopLoop();
+    this._resizeObserver?.disconnect();
+    this._resizeObserver = null;
     this._overlayCanvas?.remove();
+    this._overlayCanvas = null;
+    this._overlayCtx = null;
   }
 
   /**
@@ -282,8 +293,8 @@ export class NIFHotspotLayer {
     this._overlayCtx    = c.getContext('2d');
 
     // Resize
-    const ro = new ResizeObserver(() => this._resize());
-    ro.observe(this.container);
+    this._resizeObserver = new ResizeObserver(() => this._resize());
+    this._resizeObserver.observe(this.container);
     this._resize();
 
     // Click handler for placing hotspots
@@ -387,9 +398,11 @@ export class NIFHotspotLayer {
     this._promptLabel(h, screenX, screenY);
 
     this._addMode     = false;
-    this._addCallback?.(h);
+    const callback = this._addCallback;
     this._addCallback = null;
     this._overlayCanvas.style.cursor = '';
+    this._overlayCanvas.style.pointerEvents = 'none';
+    callback?.(h);
     this._draw();
     this._onChange();
   }
@@ -412,7 +425,10 @@ export class NIFHotspotLayer {
     inp.focus();
     inp.select();
 
+    let committed = false;
     const commit = () => {
+      if (committed) return;
+      committed = true;
       h.label = inp.value.trim() || 'Label';
       inp.remove();
       this._draw();
