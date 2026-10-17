@@ -1,6 +1,7 @@
 import { supabase } from '../supabaseClient.js';
 import { runtimeConfig } from '../runtime-config.js';
 import r2 from '../r2Client.js';
+import { encodeNif } from './nif-format.js';
 
 const VIDEO_BUCKET = 'nif-videos';
 let selectedFile = null;
@@ -127,14 +128,14 @@ window.setUploadMode = function(mode) {
     submitLabel.textContent = selectedFiles.length ? 'Upload and queue' : 'Select 3+ photos to start';
   } else if (currentUploadMode === 'ply') {
     // Switch file input to accept .ply and .nif
-    if (fileInput) { fileInput.accept = '.ply,.nif'; fileInput.multiple = false; }
+    if (fileInput) { fileInput.accept = '.splat,.ply,.nif'; fileInput.multiple = false; }
     uploadZone.querySelector('#uploadIcon').textContent = '📂';
-    uploadZone.querySelector('#uploadTitle').textContent = selectedFile ? selectedFile.name : 'Drop your .ply file here';
+    uploadZone.querySelector('#uploadTitle').textContent = selectedFile ? selectedFile.name : 'Drop a .splat, .ply or .nif file here';
     uploadZone.querySelector('#uploadSub').innerHTML = selectedFile
       ? `<strong>${(selectedFile.size / 1024 / 1024).toFixed(1)} MB</strong> · PLY ready`
-      : '.ply or .nif files · Full capture data preserved<br>Camera positions, colours, and Gaussian structure imported directly.';
+      : '.splat, .ply or .nif · Existing .splat files can be converted to NIF in-browser without a GPU.';
     submitBtn.disabled = !selectedFile;
-    submitLabel.textContent = selectedFile ? 'Upload & open in Studio' : 'Select a .ply file to start';
+    submitLabel.textContent = selectedFile ? 'Upload & open in Studio' : 'Select a splat, PLY or NIF file';
     showMsg('PLY mode — drop a .ply capture file to upload directly and open in the editor.', false);
   } else if (currentUploadMode === 'lidar') {
     if (fileInput) { fileInput.accept = '.las,.xyz,.csv,.txt'; fileInput.multiple = false; }
@@ -174,11 +175,12 @@ function setFile(file) {
     window.setUploadMode(currentUploadMode);
     return showMsg(message, true);
   };
-  const isPly = file.name.match(/\.(ply|nif)$/i);
+  const isPly = file.name.match(/\.(ply|nif|splat)$/i);
   const isLidar = file.name.match(/\.(las|xyz|csv|txt)$/i);
   if (currentUploadMode === 'ply') {
-    if (!isPly) return reject('Please select a .ply or .nif file in PLY mode.');
-    if (file.size > 500 * 1024 * 1024) return reject('PLY file is very large (>500MB). Choose a smaller file for this upload flow.');
+    if (!isPly) return reject('Please select a .splat, .ply or .nif file in direct-import mode.');
+    if (/\.splat$/i.test(file.name) && file.size > 200 * 1024 * 1024) return reject('Browser .splat → NIF conversion is limited to 200MB to protect device memory.');
+    if (file.size > 500 * 1024 * 1024) return reject('This file is larger than the 500MB direct-import limit.');
   } else if (currentUploadMode === 'lidar') {
     if (!isLidar) return reject('Choose an uncompressed .las, .xyz, .csv, or .txt point cloud.');
     if (file.size > 100 * 1024 * 1024) return reject('LiDAR uploads are limited to 100MB for browser conversion.');
@@ -469,7 +471,7 @@ window.handleSubmit = async function() {
   }
   if (currentUploadMode === 'pipeline' && !selectedFile) return showMsg('Please select a video file first.', true);
   if (currentUploadMode === 'photos' && selectedFiles.length < 3) return showMsg('Select at least 3 photos first.', true);
-  if (currentUploadMode === 'ply' && !selectedFile) return showMsg('Please select a PLY or NIF file first.', true);
+  if (currentUploadMode === 'ply' && !selectedFile) return showMsg('Please select a .splat, .ply or .nif file first.', true);
   if (currentUploadMode === 'lidar' && !selectedFile) return showMsg('Please select a LiDAR point cloud first.', true);
 
   const btn = document.getElementById('submitBtn');
@@ -627,88 +629,118 @@ window.handleSubmit = async function() {
       return;
     }
 
-    // ── PLY direct upload ──────────────────────────────
+    // ── Direct Gaussian / point-cloud import ───────────────────────────────
     if (currentUploadMode === 'ply') {
-      if (!selectedFile) throw new Error('No .ply file selected');
-      setProgress(20, 'Uploading .ply file...');
-
+      if (!selectedFile) throw new Error('Select a .splat, .ply or .nif file.');
+      const ext = selectedFile.name.split('.').pop().toLowerCase();
+      const isSplat = ext === 'splat';
+      const isNif = ext === 'nif';
+      const stamp = Date.now();
       const safeName = selectedFile.name.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9._-]/g, '');
-      const filePath = `${user.id}/${Date.now()}_${safeName}`;
+      const sourcePath = `${user.id}/sources/${stamp}_${safeName}`;
+      let outputBuffer = null;
+      let outputName = selectedFile.name;
+      let outputKey = sourcePath;
+      let outputUrl = '';
+      let sourceKey = sourcePath;
+      let sourceUrl = '';
 
-      // Upload to R2 (replaces supabase.storage bucket fallback loop)
-      const { publicUrl, fileKey, error: r2Err } = await r2
-        .from('nif-files')
-        .upload(filePath, selectedFile, {
-          contentType: 'model/x-ply',
-          onProgress: (pct) => {
-            setProgress(20 + Math.round((pct / 100) * 35), `Uploading .ply file... ${pct}%`);
+      if (isSplat) {
+        setProgress(15, 'Reading existing Gaussian splat (no GPU required)…');
+        const sourceBuffer = await selectedFile.arrayBuffer();
+        if (!sourceBuffer.byteLength || sourceBuffer.byteLength % 32 !== 0) {
+          throw new Error('Invalid .splat file: expected complete 32-byte Gaussian rows.');
+        }
+        const gaussianCount = sourceBuffer.byteLength / 32;
+        if (!gaussianCount) throw new Error('The .splat file contains no Gaussian rows.');
+        setProgress(25, 'Packing Gaussian rows into FUMOCA NIF…');
+        const aliveIndices = new Uint32Array(gaussianCount);
+        for (let i = 0; i < gaussianCount; i++) aliveIndices[i] = i;
+        outputBuffer = encodeNif({
+          sourceBuffer: new Uint8Array(sourceBuffer),
+          aliveIndices,
+          rowSize: 32,
+          vertical: category || 'generic',
+          meta: {
+            title: title || selectedFile.name.replace(/\.splat$/i, ''),
+            description: desc || '',
+            source_format: 'splat',
+            conversion: { engine: 'fumoca-nif-format', mode: 'quantized-geometry', gpu_required: false, created_at: new Date().toISOString() },
           },
         });
-      if (r2Err) throw new Error('R2 upload failed — ' + r2Err.message);
+        outputName = selectedFile.name.replace(/\.splat$/i, '') + '.nif';
+      }
 
-      setProgress(60, 'Creating record...');
+      setProgress(35, 'Preserving original source in R2…');
+      const { publicUrl: uploadedSourceUrl, fileKey: uploadedSourceKey, error: sourceErr } = await r2
+        .from('nif-files')
+        .upload(sourcePath, selectedFile, {
+          contentType: isSplat ? 'application/octet-stream' : ext === 'ply' ? 'model/x-ply' : 'application/octet-stream',
+          onProgress: (pct) => setProgress(35 + Math.round(pct * 0.2), `Uploading original source… ${pct}%`),
+        });
+      if (sourceErr) throw new Error('Source upload failed: ' + sourceErr.message);
+      sourceUrl = uploadedSourceUrl || '';
+      sourceKey = uploadedSourceKey || sourcePath;
+
+      if (isSplat) {
+        const outputPath = `${user.id}/converted/${stamp}_${outputName}`;
+        setProgress(60, 'Uploading converted NIF…');
+        const { publicUrl, fileKey, error: outputErr } = await r2
+          .from('nif-files')
+          .upload(outputPath, new Blob([outputBuffer], { type: 'application/octet-stream' }), {
+            contentType: 'application/octet-stream',
+            onProgress: (pct) => setProgress(60 + Math.round(pct * 0.2), `Uploading NIF… ${pct}%`),
+          });
+        if (outputErr) throw new Error('NIF upload failed: ' + outputErr.message);
+        outputUrl = publicUrl || '';
+        outputKey = fileKey || outputPath;
+      } else {
+        outputUrl = sourceUrl;
+        outputKey = sourceKey;
+      }
+
+      setProgress(85, 'Registering asset and provenance…');
       const { data: nif, error: dbErr } = await supabase.from('nif_files').insert([{
         user_id: user.id,
-        title: title || selectedFile.name,
+        title: title || selectedFile.name.replace(/\.(splat|ply|nif)$/i, ''),
         description: desc || null,
-        vertical: category || 'general',
-        r2_key: filePath,
-        file_size: selectedFile.size,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        vertical: category || 'generic',
+        r2_key: outputKey,
+        file_size: isSplat ? outputBuffer.byteLength : selectedFile.size,
+        gaussian_count: isSplat ? selectedFile.size / 32 : null,
+        is_public: false,
         meta: {
-          source_type: 'direct_ply',
+          source_type: isSplat ? 'splat_to_nif' : isNif ? 'direct_nif' : 'direct_ply_source',
           source_filename: selectedFile.name,
-          source_capture: {
-            public_url: publicUrl,
-            r2_key: fileKey || filePath,
-            filename: selectedFile.name,
-            format: selectedFile.name.split('.').pop().toLowerCase(),
-            byte_size: selectedFile.size,
-          },
-          nif_url: publicUrl,
-          output_url: publicUrl,
+          source_capture: { r2_key: sourceKey, public_url: sourceUrl, filename: selectedFile.name, format: ext, byte_size: selectedFile.size },
+          source_r2_key: sourceKey,
+          source_public_url: sourceUrl,
+          output_format: isSplat ? 'nif' : ext,
+          output_r2_key: outputKey,
+          output_public_url: outputUrl,
+          conversion: isSplat ? { engine: 'fumoca-nif-format', gpu_required: false, input_bytes: selectedFile.size, output_bytes: outputBuffer.byteLength, gaussian_count: selectedFile.size / 32 } : null,
           status: 'done',
-          processing_stage: 'published',
+          processing_stage: isSplat ? 'converted' : 'imported',
           processing_progress: 100,
-          must_edit_before_publish: false,
-          edit_completed: true,
           tags,
           visibility,
-          thumbnail_r2_key: uploadedThumbnail.fileKey
+          thumbnail_r2_key: uploadedThumbnail.fileKey,
         },
-        thumbnail_url: uploadedThumbnail.publicUrl
+        thumbnail_url: uploadedThumbnail.publicUrl,
       }]).select().single();
-
       if (dbErr) throw dbErr;
 
-      setProgress(100, 'Ready!');
+      setProgress(100, isSplat ? 'NIF conversion complete.' : isNif ? 'NIF imported.' : 'PLY source preserved; conversion not run.');
       setStep('step-upload', 'done');
       setStep('step-live', 'done');
-      showMsg(`PLY uploaded. <a href="edit.html?file=${encodeURIComponent(publicUrl)}&nifId=${nif.id}&live=true" style="color:#0ef;text-decoration:underline;">Open in Studio →</a>`, false);
-      document.getElementById('submitLabel').textContent = 'Open in Studio';
-      document.getElementById('submitBtn').textContent = 'Open in Studio';
-      document.getElementById('submitBtn').disabled = false;
-      document.getElementById('submitBtn').onclick = () => {
-        window.location.href = `edit.html?file=${encodeURIComponent(publicUrl)}&nifId=${nif.id}&live=true`;
-      };
+      const message = isSplat
+        ? `Converted ${selectedFile.size / 32} Gaussian rows into a NIF derivative. Original .splat preserved. `
+        : isNif ? 'NIF imported. ' : 'PLY source preserved, but not converted to NIF yet. ';
+      showMsg(message + `Asset id: ${nif.id}. Open it from your library.`, false);
+      document.getElementById('submitLabel').textContent = 'Imported';
+      document.getElementById('submitBtn').textContent = 'Imported';
       return;
     }
-
-    const { data: { session } } = await supabase.auth.getSession();
-    const accessToken = session?.access_token;
-    if (!accessToken) throw new Error('Missing signed-in session token for resumable upload. Sign in again and retry.');
-
-    const safeName = selectedFile.name.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9._-]/g, '');
-    const filePath = `${user.id}/${Date.now()}_${safeName}`;
-    await uploadSingleBucket(filePath, selectedFile, accessToken);
-
-    setStep('step-upload', 'done');
-    setStep('step-frames', 'active');
-    setProgress(35, 'Queueing reconstruction job...');
-
-    const calibVerifyMeta = await buildCalibVerifyMeta(user.id);
-
     // reconstruction_jobs is the real, live table — confirmed against the
     // actual production Supabase project in an earlier session (there was a
     // stale doubt about whether nif_files/reconstruction_jobs existed there;
