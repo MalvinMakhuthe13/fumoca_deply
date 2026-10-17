@@ -98,5 +98,6 @@ assert.ok(getStart >= 0 && getEnd > getStart, 'GET file route must exist');
 assert.ok(getRoute.indexOf('authorizeFileRead(') < getRoute.indexOf('cache.match('), 'authorization must happen before shared cache lookup');
 assert.match(getRoute, /Cache-Control': access\.isPublic \? `public, max-age=\$\{ttl\}` : 'private, no-store'/);
 assert.match(getRoute, /if \(access\.isPublic\) ctx\.waitUntil\(cache\.put/);
+assert.match(getRoute, /'X-Content-Type-Options': 'nosniff'/);
 
 console.log('R2 read authorization regression tests passed.');
