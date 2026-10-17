@@ -448,7 +448,8 @@ function ansDecode(compressed, freqTableBytes, outputLength) {
     state = f * Math.floor(state / ANS_M) + slot - c;
 
     // Renormalise: read bytes until state >= ANS_L
-    while (state < ANS_L && bytePos < compressed.length) {
+    while (state < ANS_L) {
+      if (bytePos >= compressed.length) throw new Error('[FumocCodec] ANS stream ended before renormalization completed');
       state = (state << 8) | compressed[bytePos++];
     }
   }
@@ -669,7 +670,7 @@ function ansDecodeOrder1(compressed, tableBytes, outputLength) {
     const base=ctx*256,cumBase=ctx*257;
     const f=freqFlat[base+sym],cum=cumFlat[cumBase+sym];
     state=f*Math.floor(state/ANS_M)+slot-cum; ctx=sym;
-    while (state<ANS_L&&bytePos<compressed.length) state=(state<<8)|compressed[bytePos++];
+    while (state < ANS_L) { if (bytePos >= compressed.length) throw new Error('[FumocCodec] Order-1 ANS stream ended before renormalization completed'); state = (state << 8) | compressed[bytePos++]; }
   }
   return new Uint8Array(out);
 }
