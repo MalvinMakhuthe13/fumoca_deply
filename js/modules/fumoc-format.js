@@ -504,5 +504,5 @@ const FumocFormat = {
 
 // v82: loadIntoViewer now routes through FumocDecoder for v2 files
 // FumocDecoder is imported separately and handles both v1 and v2
-window.FumocFormat = FumocFormat;
+if (typeof window !== 'undefined') window.FumocFormat = FumocFormat;
 export default FumocFormat;
