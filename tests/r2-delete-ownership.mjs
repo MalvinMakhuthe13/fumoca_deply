@@ -42,6 +42,8 @@ const mockFetch = async (url, options) => {
   let rows = [];
   if (requestedId === 'record-456') {
     rows = [{ id: 'record-456', user_id: 'user-123', r2_key: 'record-456/edited_123.ply', meta: {} }];
+  } else if (requestedOr.includes('edited_123.ply')) {
+    rows = [{ id: 'record-456', user_id: 'user-123', r2_key: 'record-456/edited_123.ply', meta: {} }];
   } else if (requestedOr.includes('source.mp4')) {
     rows = [{ id: 'record-456', user_id: 'user-123', r2_key: 'record-456/edited_123.ply', meta: { source_r2_key: 'record-456/source.mp4' } }];
   } else if (requestedOr.includes('thumb.webp')) {
