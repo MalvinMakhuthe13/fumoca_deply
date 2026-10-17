@@ -27,6 +27,8 @@ jobs:
         run: node --input-type=module --check < js/modules/viewer.js
       - name: Check feed module syntax
         run: node --input-type=module --check < js/modules/feed.js
+      - name: Check profile module syntax
+        run: node --input-type=module --check < js/modules/profile.js
       - name: Check notifications module syntax
         run: node --input-type=module --check < js/modules/notifications.js
       - name: Check motion-state module syntax
