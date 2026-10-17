@@ -176,9 +176,9 @@ function decodeChannel(compressed, freqBytes, meta) {
 }
 
 // ── SPLT decoder ──────────────────────────────────────────────────────────────
-function decodeSplt(spltData) {
-  if (!(spltData instanceof Uint8Array) || spltData.byteLength < 8) throw new Error('[FUMOC Worker] SPLT header is truncated');
-  const view = new DataView(spltData.buffer, spltData.byteOffset, spltData.byteLength);
+function decodeSplt(splatData) {
+  if (!(splatData instanceof Uint8Array) || splatData.byteLength < 8) throw new Error('[FUMOC Worker] SPLT header is truncated');
+  const view = new DataView(splatData.buffer, splatData.byteOffset, splatData.byteLength);
   const N = view.getUint32(0, true);
   const nChan = view.getUint32(4, true);
   if (!Number.isInteger(N) || N < 1 || N > MAX_GAUSSIANS) throw new Error('[FUMOC Worker] SPLT point count is invalid');
@@ -192,24 +192,24 @@ function decodeSplt(spltData) {
     11:'ROT_Q0',12:'ROT_Q1',13:'ROT_Q2',14:'ROT_Q3',15:'SORT'
   };
   const u32 = (offset, label) => {
-    if (offset < 0 || offset + 4 > spltData.byteLength) throw new Error(`[FUMOC Worker] Truncated ${label}`);
+    if (offset < 0 || offset + 4 > splatData.byteLength) throw new Error(`[FUMOC Worker] Truncated ${label}`);
     return view.getUint32(offset, true);
   };
   for (let c = 0; c < nChan; c++) {
-    if (off >= spltData.byteLength) throw new Error('[FUMOC Worker] Channel ID is missing');
-    const chanId = spltData[off++];
+    if (off >= splatData.byteLength) throw new Error('[FUMOC Worker] Channel ID is missing');
+    const chanId = splatData[off++];
     const chanName = CHANNEL[chanId];
     if (!chanName) throw new Error(`[FUMOC Worker] Unsupported channel ID ${chanId}`);
     if (channels[chanName] !== undefined) throw new Error(`[FUMOC Worker] Duplicate channel ${chanName}`);
     let selected = null;
     for (const freqLen of [512, 131072]) {
       const metaLenOffset = off + freqLen;
-      if (metaLenOffset + 4 > spltData.byteLength) continue;
+      if (metaLenOffset + 4 > splatData.byteLength) continue;
       const candidateMetaLen = u32(metaLenOffset, 'channel metadata length');
       if (candidateMetaLen < 2 || candidateMetaLen > MAX_HEADER_BYTES ||
-          metaLenOffset + 4 + candidateMetaLen + 4 > spltData.byteLength) continue;
+          metaLenOffset + 4 + candidateMetaLen + 4 > splatData.byteLength) continue;
       let candidateMeta;
-      try { candidateMeta = JSON.parse(dec.decode(spltData.subarray(metaLenOffset + 4, metaLenOffset + 4 + candidateMetaLen))); }
+      try { candidateMeta = JSON.parse(dec.decode(splatData.subarray(metaLenOffset + 4, metaLenOffset + 4 + candidateMetaLen))); }
       catch { continue; }
       if (!candidateMeta || typeof candidateMeta !== 'object' || Array.isArray(candidateMeta)) continue;
       if (freqLen === 131072 && candidateMeta.order !== 1) continue;
@@ -222,13 +222,13 @@ function decodeSplt(spltData) {
     if ((meta.order === 1 && freqLen !== 131072) || (meta.order !== 1 && freqLen !== 512)) {
       throw new Error('[FUMOC Worker] Frequency table size does not match channel order');
     }
-    const freqBytes = spltData.subarray(off, off + freqLen);
+    const freqBytes = splatData.subarray(off, off + freqLen);
     off += freqLen + 4 + metaLen;
     const compLen = u32(off, 'compressed channel length'); off += 4;
-    if (compLen < 4 || compLen > MAX_SECTION_BYTES || off + compLen > spltData.byteLength) {
+    if (compLen < 4 || compLen > MAX_SECTION_BYTES || off + compLen > splatData.byteLength) {
       throw new Error('[FUMOC Worker] Compressed channel is truncated or oversized');
     }
-    const compData = spltData.subarray(off, off + compLen); off += compLen;
+    const compData = splatData.subarray(off, off + compLen); off += compLen;
     if (!Number.isInteger(meta.length) || meta.length !== N) throw new Error('[FUMOC Worker] Channel length must match point count');
     const decodeAns = meta.order === 1 ? ansDecodeOrder1 : ansDecode;
     if (chanName === 'SORT') {
@@ -246,7 +246,7 @@ function decodeSplt(spltData) {
     }
     if (channels[chanName]?.length !== N) throw new Error(`[FUMOC Worker] Channel ${chanName} decoded length mismatch`);
   }
-  if (off !== spltData.byteLength) throw new Error('[FUMOC Worker] SPLT has trailing or unparsed bytes');
+  if (off !== splatData.byteLength) throw new Error('[FUMOC Worker] SPLT has trailing or unparsed bytes');
   return { N, channels };
 }
 
@@ -323,28 +323,28 @@ async function decodeFumoc(buffer) {
   const spltSec = sections.SPLT;
   if (!spltSec) throw new Error('[FUMOC Worker] Required SPLT section is missing');
   self.postMessage({ type: 'progress', pct: 25, label: 'Decompressing splat data...' });
-  const spltData = (spltSec.flags & 0x01) ? await inflate(spltSec.data) : spltSec.data;
-  if (spltData.byteLength !== spltSec.rawLen) throw new Error('[FUMOC Worker] SPLT length does not match its section header');
-  if (header.splat_byte_length != null && Number(header.splat_byte_length) !== spltData.byteLength) {
+  const splatData = (spltSec.flags & 0x01) ? await inflate(spltSec.data) : spltSec.data;
+  if (splatData.byteLength !== spltSec.rawLen) throw new Error('[FUMOC Worker] SPLT length does not match its section header');
+  if (header.splat_byte_length != null && Number(header.splat_byte_length) !== splatData.byteLength) {
     throw new Error('[FUMOC Worker] Header SPLT length does not match the decoded payload');
   }
   self.postMessage({ type: 'progress', pct: 40, label: 'Decoding Gaussian channels...' });
 
   let N, channels;
-  if (spltData.byteLength >= 8) {
-    const probe = new DataView(spltData.buffer, spltData.byteOffset, spltData.byteLength);
+  if (splatData.byteLength >= 8) {
+    const probe = new DataView(splatData.buffer, splatData.byteOffset, splatData.byteLength);
     const peekN = probe.getUint32(0, true);
     const peekChan = probe.getUint32(4, true);
     const isV2 = peekN > 0 && peekN <= MAX_GAUSSIANS && peekChan >= 1 && peekChan <= 15;
     if (isV2) {
-      ({ N, channels } = decodeSplt(spltData));
+      ({ N, channels } = decodeSplt(splatData));
     } else {
-      if (spltData.byteLength === 0 || spltData.byteLength % SPLAT_ROW !== 0) {
+      if (splatData.byteLength === 0 || splatData.byteLength % SPLAT_ROW !== 0) {
         throw new Error('[FUMOC Worker] Raw SPLT payload must contain complete 32-byte rows');
       }
-      N = spltData.byteLength / SPLAT_ROW;
+      N = splatData.byteLength / SPLAT_ROW;
       if (N < 1 || N > MAX_GAUSSIANS) throw new Error('[FUMOC Worker] Raw SPLT point count is invalid');
-      const rawDv = new DataView(spltData.buffer, spltData.byteOffset, spltData.byteLength);
+      const rawDv = new DataView(splatData.buffer, splatData.byteOffset, splatData.byteLength);
       channels = {
         POS_X: new Float32Array(N), POS_Y: new Float32Array(N), POS_Z: new Float32Array(N),
         SCL_X: new Float32Array(N), SCL_Y: new Float32Array(N), SCL_Z: new Float32Array(N),
