@@ -345,12 +345,15 @@ export function encodeNif(opts = {}) {
       throw new Error('[nif-format] Gaussian SH sidecar point count must match geometry before encoding');
     }
     const declaredSH = opts.meta?.gaussian_sh;
+    const shCoefficientCount = opts.gaussianSH.coefficientCount ?? 3 * (opts.gaussianSH.degree + 1) ** 2;
+    const expectedSHProperties = ['f_dc_0', 'f_dc_1', 'f_dc_2',
+      ...Array.from({ length: Math.max(0, shCoefficientCount - 3) }, (_, i) => `f_rest_${i}`)];
     if (declaredSH && (declaredSH.degree !== opts.gaussianSH.degree ||
-        declaredSH.coefficient_count !== (opts.gaussianSH.coefficientCount ?? 3 * (opts.gaussianSH.degree + 1) ** 2) ||
+        declaredSH.coefficient_count !== shCoefficientCount ||
         (declaredSH.properties != null &&
           (!Array.isArray(declaredSH.properties) ||
-           declaredSH.properties.length !== (opts.gaussianSH.coefficientCount ?? 3 * (opts.gaussianSH.degree + 1) ** 2) ||
-           declaredSH.properties.some(name => typeof name !== 'string'))))) {
+           declaredSH.properties.length !== shCoefficientCount ||
+           declaredSH.properties.some((name, i) => name !== expectedSHProperties[i]))))) {
       throw new Error('[nif-format] Gaussian SH metadata does not match the sidecar before encoding');
     }
     writer.add(CHUNK.GAUSSIAN_SH, encodeGaussianSHChunk(opts.gaussianSH), CODEC.RAW);
@@ -439,12 +442,14 @@ export async function decodeNif(arrayBuffer) {
   }
   if (gaussianSH && meta?.gaussian_sh) {
     const declared = meta.gaussian_sh;
+    const expectedSHProperties = ['f_dc_0', 'f_dc_1', 'f_dc_2',
+      ...Array.from({ length: Math.max(0, gaussianSH.coefficientCount - 3) }, (_, i) => `f_rest_${i}`)];
     if (declared.degree !== gaussianSH.degree ||
         declared.coefficient_count !== gaussianSH.coefficientCount ||
         (declared.properties != null &&
           (!Array.isArray(declared.properties) ||
            declared.properties.length !== gaussianSH.coefficientCount ||
-           declared.properties.some(name => typeof name !== 'string')))) {
+           declared.properties.some((name, i) => name !== expectedSHProperties[i])))) {
       throw new Error('[nif-format] Gaussian SH sidecar metadata does not match the binary chunk');
     }
   }
