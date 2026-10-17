@@ -13,6 +13,7 @@ for (const legacyColumn of ['category', 'visibility', 'status', 'processing_stag
   assert.doesNotMatch(base, new RegExp('\\b' + legacyColumn + '\\s*:'), `legacy field ${legacyColumn} belongs in meta, not as a nif_files column`);
 }
 assert.match(base, /is_public: visibility === 'public'/, 'publication must persist to is_public');
+assert.match(source, /const refPath = `\$\{userId\}\/verify-refs\//, 'verification references must use an owner-prefixed key accepted by the R2 ownership guard');
 const extStart = source.indexOf('async function createExternalNif');
 const extEnd = source.indexOf('\nfunction captureMetadata', extStart);
 const external = source.slice(extStart, extEnd);
