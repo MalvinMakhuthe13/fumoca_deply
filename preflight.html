@@ -286,10 +286,10 @@
 
     // 2. Status complete
     setCheck('status', 'running');
-    if (row.status === 'complete') {
-      setCheck('status', 'pass', "status='complete'");
+    if (['complete', 'done', 'ready', 'published', 'completed'].includes(String(row.status || '').toLowerCase())) {
+      setCheck('status', 'pass', `status='${row.status}'`);
       pass++;
-    } else if (row.status === 'failed_reconstruction' || row.status === 'failed') {
+    } else if (['failed_reconstruction', 'failed', 'needs_retry', 'error'].includes(String(row.status || '').toLowerCase())) {
       setCheck('status', 'fail', `status='${row.status}' — ${row.processing_error || 'no error message'}`);
       fail++;
     } else {
