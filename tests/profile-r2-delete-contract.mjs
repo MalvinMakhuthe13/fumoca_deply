@@ -8,13 +8,16 @@ assert.ok(start >= 0 && end > start, 'profile delete function must exist');
 const block = source.slice(start, end);
 for (const [bucket, key] of [
   ['nif-files', 'item.r2_key'],
-  ['nif-videos', 'item.meta?.source_r2_key'],
   ['thumbnails', 'item.meta?.thumbnail_r2_key'],
   ['thumbnails', 'item.meta?.capture_thumbnail_r2_key'],
 ]) {
   assert.ok(block.includes(`bucket: '${bucket}', key: ${key}`), `must clean ${key} from ${bucket}`);
 }
 assert.ok(block.indexOf('Promise.allSettled(') < block.indexOf(".from('nif_files')"), 'R2 cleanup must run before deleting the ownership row');
+assert.match(block, /bucket: item\.meta\?\.source_r2_bucket \|\| 'nif-files', key: item\.meta\?\.source_r2_key/,
+  'source_r2_key cleanup must honor the recorded bucket');
+assert.match(block, /!item\.meta\?\.source_r2_bucket && item\.meta\?\.source_r2_key \? \[\{ bucket: 'nif-videos', key: item\.meta\.source_r2_key \}\]/,
+  'legacy source keys without a bucket marker must be checked in the old video bucket too');
 assert.match(block, /bucket: sourceCapture\?\.r2_bucket \|\| sourceCapture\?\.bucket \|\| 'nif-files', key: sourceCapture\?\.r2_key/,
   'source capture cleanup must use its recorded bucket, defaulting to nif-files');
 assert.match(block, /bucket: 'nif-videos', key: sourceCapture\.r2_key/,
