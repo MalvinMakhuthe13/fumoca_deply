@@ -414,15 +414,22 @@ function showResult(stats) {
 
 // ── Upload for share link ─────────────────────────────────────────────────────
 async function uploadForShare(buffer, filename) {
-  const cfg  = window.FUMOCA_CONFIG || {};
-  if (!cfg.supabaseUrl) throw new Error('Supabase not configured');
-  const {createClient} = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm');
-  const sb   = createClient(cfg.supabaseUrl, cfg.supabaseAnonKey);
-  const ts   = Date.now();
-  const path = `public-convert/${ts}/${filename}`;
-  const { error } = await sb.storage.from('splat-files').upload(path, buffer, {contentType:'application/fumoc',upsert:false});
+  const cfg = window.FUMOCA_CONFIG || {};
+  if (!cfg.supabaseUrl || !cfg.supabaseAnonKey) throw new Error('Supabase not configured');
+  const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm');
+  const sb = createClient(cfg.supabaseUrl, cfg.supabaseAnonKey);
+  const { data: { user }, error: authError } = await sb.auth.getUser();
+  if (authError || !user?.id) throw new Error('Sign in to FUMOCA before uploading a shareable .fumoc file.');
+  const safeName = String(filename || 'converted.fumoc').split(/[\\/]/).pop()
+    .replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 180) || 'converted.fumoc';
+  const ts = Date.now();
+  const path = `${user.id}/public-convert/${ts}_${safeName}`;
+  const { error } = await sb.storage.from('splat-files').upload(path, buffer, {
+    contentType: 'application/fumoc',
+    upsert: false,
+  });
   if (error) throw new Error(error.message);
-  const {data:{publicUrl}} = sb.storage.from('splat-files').getPublicUrl(path);
+  const { data: { publicUrl } } = sb.storage.from('splat-files').getPublicUrl(path);
   return `${location.origin}/open?url=${encodeURIComponent(publicUrl)}`;
 }
 </script>
