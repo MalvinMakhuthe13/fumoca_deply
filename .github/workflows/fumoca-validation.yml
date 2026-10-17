@@ -34,6 +34,8 @@ jobs:
         run: node --input-type=module --check < js/modules/viewer.js
       - name: Check profile ES module syntax
         run: node --input-type=module --check < js/modules/profile.js
+      - name: Check feed ES module syntax
+        run: node --input-type=module --check < js/modules/feed.js
       - name: Check persistence-sensitive editor modules
         run: |
           node --input-type=module --check < js/modules/edit-engine.js
@@ -122,6 +124,8 @@ jobs:
         run: node --experimental-default-type=module tests/viewer-r2-bucket-routing.mjs
       - name: Test profile NIF R2 delete contract
         run: node --experimental-default-type=module tests/profile-r2-delete-contract.mjs
+      - name: Test feed visibility contract
+        run: node --experimental-default-type=module tests/feed-visibility-contract.mjs
       - name: Test R2 client delete error handling
         run: node --experimental-default-type=module tests/r2-client-delete-errors.mjs
       - name: Test R2 read authorization
