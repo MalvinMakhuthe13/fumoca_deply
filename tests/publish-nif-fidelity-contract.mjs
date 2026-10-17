@@ -16,8 +16,8 @@ assert.match(publish, /window\._fumocaLoadedFromRecord === false\s*\? ''/,
   'local file imports must not reuse the stale file query parameter for passthrough');
 assert.match(publish, /authenticatedUrl\(currentRecord\.r2_key\)/,
   'private saved NIF passthrough reads must use a fresh authenticated ticket');
-assert.match(publish, /CHUNK\.KEYFRAME_MESH, CHUNK\.GAUSSIAN_SH, CHUNK\.LIDAR_ATTR/,
-  'mesh and point-indexed sidecars must be rebuilt rather than duplicated as passthrough');
+assert.match(publish, /CHUNK\.GAUSSIAN_SH, CHUNK\.LIDAR_ATTR/,
+  'point-indexed SH and LiDAR chunks must not be passed through after point filtering');
 assert.match(publish, /CHUNK\.LAYER_GEO, CHUNK\.GAUSSIAN_SH, CHUNK\.LIDAR_ATTR/,
   'point-indexed sidecars must be compacted with current alive-point indices rather than passed through stale');
 assert.match(publish, /chunk\.type === CHUNK\.KEYFRAME_MESH && window\.S\?\.nifMesh/,
@@ -40,8 +40,8 @@ assert.match(builder, /_compactLidarAttributes\(S, aliveIndices\)/,
   'publish must compact point-indexed LiDAR attributes');
 assert.match(builder, /thumbnailBytes: S\.nifThumbnailBytes \|\| undefined/,
   'publish must preserve the current NIF thumbnail');
-assert.match(builder, /mesh: S\.nifMesh \|\| undefined/,
-  'publish must re-encode the current mesh without duplicating its chunk');
+assert.match(builder, /\.\.\.\(S\.nifMesh \? \{ mesh: S\.nifMesh \} : \{\}\)/,
+  'publish must re-encode decoded mesh data and preserve raw mesh chunks otherwise');
 assert.match(builder, /window\._fumocaSerializeEditorSceneMetadata\?\.\(aliveIndices\)/,
   'publish must write fresh point-indexed Studio layer metadata');
 assert.match(builder, /sourceMeta\.gaussian_sh && !gaussianSH/,
