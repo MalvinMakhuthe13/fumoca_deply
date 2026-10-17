@@ -1,6 +1,6 @@
 # NIF — Neural Interactive Format
 
-**Status:** Established specification · v1.1  
+**Status:** Established specification · v1.2  
 **Extension:** `.nif`  
 **MIME:** `model/x-nif`  
 **Magic:** `NIF\0` (`0x4E 0x49 0x46 0x00`)
