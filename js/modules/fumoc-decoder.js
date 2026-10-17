@@ -220,15 +220,21 @@ function decodeSpltV2(spltData) {
       }
     }
 
+    const decodeAns = meta.order === 1 ? FumocCodec.ansDecodeOrder1 : FumocCodec.ansDecode;
+    if (meta.order === 1 && !FumocCodec.ansDecodeOrder1) {
+      throw new Error('[FUMOC] Order-1 ANS decoder is unavailable in this build');
+    }
     if (chanName === 'SORT') {
-      const sortBytes = FumocCodec.ansDecode(compData, freqBytes, N * 4);
+      const sortBytes = decodeAns(compData, freqBytes, N * 4);
       const sort = new Uint32Array(sortBytes.buffer, sortBytes.byteOffset, N);
       for (let i = 0; i < N; i++) if (sort[i] >= N) throw new Error('[FUMOC] SORT index is outside the point range');
       channels.SORT = sort;
     } else if (chanName.startsWith('COL_') || chanName.startsWith('ROT_')) {
-      channels[chanName] = FumocCodec.ansDecode(compData, freqBytes, N);
+      channels[chanName] = decodeAns(compData, freqBytes, N);
     } else {
-      channels[chanName] = FumocCodec.decodeChannel(compData, freqBytes, meta);
+      channels[chanName] = meta.order === 1
+        ? FumocCodec.decodeChannelOrder1(compData, freqBytes, meta)
+        : FumocCodec.decodeChannel(compData, freqBytes, meta);
       for (let i = 0; i < N; i++) {
         if (!Number.isFinite(channels[chanName][i])) throw new Error(`[FUMOC] Channel ${chanName} contains a non-finite value`);
       }
