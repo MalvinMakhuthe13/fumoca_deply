@@ -29,7 +29,7 @@ rejects(
 );
 rejects(
   () => encodeNif({ sourceBuffer: new Uint8Array(0), aliveIndices: [] }),
-  /at least one point/,
+  /point count must be between 1/,
   'a fully erased scene must fail clearly instead of creating an invalid NIF',
 );
 
