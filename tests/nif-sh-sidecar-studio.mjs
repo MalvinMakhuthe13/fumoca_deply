@@ -43,6 +43,9 @@ assert.throws(() => compactGaussianSHSidecar({
   coefficients: source, pointCount: 3,
 }), /unsupported or non-contiguous/);
 assert.throws(() => compactGaussianSHSidecar({
+  indices: [0], attributes: names, coefficients: null, pointCount: 3,
+}), /coefficient values are unavailable/);
+assert.throws(() => compactGaussianSHSidecar({
   indices: [], attributes: names, coefficients: source, pointCount: 3,
 }), /invalid source point count or compact index/);
 assert.throws(() => compactGaussianSHSidecar({
