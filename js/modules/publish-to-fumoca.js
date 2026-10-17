@@ -147,7 +147,7 @@ const FumocaPublish = (() => {
     let existingMeta = rec?.meta && typeof rec.meta === 'object' ? rec.meta : {};
     if (splatId) {
       const { data: latestRecord, error: latestError } = await sb.from('nif_files')
-        .select('id,user_id,r2_key,is_public,meta').eq('id', splatId).eq('user_id', user.id).maybeSingle();
+        .select('id,user_id,r2_key,is_public,title,description,meta').eq('id', splatId).eq('user_id', user.id).maybeSingle();
       if (latestError || !latestRecord) {
         throw new Error(latestError?.message || 'The NIF record could not be reloaded or is not owned by the current user.');
       }
