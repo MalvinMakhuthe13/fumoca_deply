@@ -476,11 +476,11 @@ function _parsePriceToCents(priceStr) {
 }
 
 async function saveRemote() {
-  if (state.saving) return;
+  if (state.saving) return false;
   const sb = window._fumocaSupabase;
   const rec = window._fumocaCurrentRecord || {};
   if (!sb || !rec?.id) {
-    persistLocal();
+    try { persistLocal(); } catch (error) { console.warn('[hotspot-pro] local backup failed:', error); }
     return false;
   }
   state.saving = true;
@@ -490,12 +490,16 @@ async function saveRemote() {
     const { error } = await sb.from('nif_files').update({ meta: metadata }).eq('id', rec.id);
     if (error) throw error;
     window._fumocaCurrentRecord = { ...rec, meta: metadata };
-    persistLocal();
-    track('hotspot_save', { recordId: rec.id, count: state.hotspots.length });
+    // Local backup and analytics must not turn a successful remote commit into
+    // a false failure; callers use this boolean to decide whether to discard
+    // newly uploaded assets.
+    try { persistLocal(); } catch (backupError) { console.warn('[hotspot-pro] local backup failed after remote save:', backupError); }
+    try { track('hotspot_save', { recordId: rec.id, count: state.hotspots.length }); }
+    catch (trackError) { console.warn('[hotspot-pro] analytics failed after remote save:', trackError); }
     return true;
   } catch (err) {
     console.warn('[hotspot-pro] remote save failed, using local backup', err);
-    persistLocal();
+    try { persistLocal(); } catch (backupError) { console.warn('[hotspot-pro] local backup failed:', backupError); }
     return false;
   } finally {
     state.saving = false;
