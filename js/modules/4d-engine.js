@@ -14,6 +14,15 @@
  */
 
 const Fumoca4D = (() => {
+  function safeMediaUrl(value) {
+    try {
+      const url = new URL(String(value || ''), window.location.href);
+      if (['http:', 'https:'].includes(url.protocol)) return url.href;
+      if (url.protocol === 'blob:' && url.origin === window.location.origin) return url.href;
+    } catch (_) {}
+    return '';
+  }
+
 
   // ── State ────────────────────────────────────────────────────────
   const S = {
@@ -124,9 +133,11 @@ const Fumoca4D = (() => {
 
   // ── Spatial audio ─────────────────────────────────────────────────
   function _initSpatialAudio(record) {
+    const audioUrl = safeMediaUrl(record?.ambient_audio_url);
+    if (!audioUrl) return;
     try {
       S.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      S.audioEl  = new Audio(record.ambient_audio_url);
+      S.audioEl  = new Audio(audioUrl);
       S.audioEl.loop   = record.ambient_audio_loop !== false;
       S.audioEl.volume = record.ambient_audio_volume || 0.35;
       const src = S.audioCtx.createMediaElementSource(S.audioEl);
