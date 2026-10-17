@@ -1934,53 +1934,91 @@ function captureGizmoTransform() {
 }
 function applyGizmoDelta() {
   if (!_previousGizmoTransform || !S.positions || !S.alive) return;
-  const previous=_previousGizmoTransform, nextQ=transformTarget.quaternion.clone();
-  const qDelta=nextQ.clone().multiply(previous.quaternion.clone().invert());
-  const rx=transformTarget.scale.x/Math.max(1e-6,previous.scale.x), ry=transformTarget.scale.y/Math.max(1e-6,previous.scale.y), rz=transformTarget.scale.z/Math.max(1e-6,previous.scale.z);
-  const pq=previous.quaternion, nq=nextQ, px=previous.position.x, py=previous.position.y, pz=previous.position.z;
-  const tx=transformTarget.position.x, ty=transformTarget.position.y, tz=transformTarget.position.z;
-  const rotate=(x,y,z,q,out)=>{const ax=2*(q.y*z-q.z*y),ay=2*(q.z*x-q.x*z),az=2*(q.x*y-q.y*x);out[0]=x+q.w*ax+(q.y*az-q.z*ay);out[1]=y+q.w*ay+(q.z*ax-q.x*az);out[2]=z+q.w*az+(q.x*ay-q.y*ax);};
-  const v=new Float64Array(3), invPrev={x:-pq.x,y:-pq.y,z:-pq.z,w:pq.w};
-  const uniformScale=Math.cbrt(Math.abs(rx*ry*rz));
-  const selected=selectedPointCount()>0, posAttr=S.points?.geometry?.getAttribute('position');
+  const previous = _previousGizmoTransform;
+  const nextQ = transformTarget.quaternion.clone();
+  const qDelta = nextQ.clone().multiply(previous.quaternion.clone().invert());
+  // Mode-aware deltas: rotate/move must stay RIGID (no scale drift = deformation).
+  // TransformControls can report tiny non-uniform scale changes while rotating; ignore those.
+  const tool = S.mode;
+  const allowScale = tool === 'scale-tool';
+  const allowRotate = tool === 'rotate' || tool === 'scale-tool';
+  const allowMove = tool === 'move' || tool === 'rotate' || tool === 'scale-tool';
+  let rx = 1, ry = 1, rz = 1;
+  if (allowScale) {
+    rx = transformTarget.scale.x / Math.max(1e-6, previous.scale.x);
+    ry = transformTarget.scale.y / Math.max(1e-6, previous.scale.y);
+    rz = transformTarget.scale.z / Math.max(1e-6, previous.scale.z);
+    // Snap near-uniform to exact uniform to avoid ellipsoid stretch from float noise
+    if (Math.abs(rx - ry) < 1e-5 && Math.abs(ry - rz) < 1e-5) { ry = rx; rz = rx; }
+  }
+  const px = previous.position.x, py = previous.position.y, pz = previous.position.z;
+  const tx = allowMove ? transformTarget.position.x : px;
+  const ty = allowMove ? transformTarget.position.y : py;
+  const tz = allowMove ? transformTarget.position.z : pz;
+  const rotate = (x, y, z, q, out) => {
+    const ax = 2 * (q.y * z - q.z * y), ay = 2 * (q.z * x - q.x * z), az = 2 * (q.x * y - q.y * x);
+    out[0] = x + q.w * ax + (q.y * az - q.z * ay);
+    out[1] = y + q.w * ay + (q.z * ax - q.x * az);
+    out[2] = z + q.w * az + (q.x * ay - q.y * ax);
+  };
+  const v = new Float64Array(3);
+  const uniformScale = Math.cbrt(Math.abs(rx * ry * rz));
+  const selected = selectedPointCount() > 0;
+  const posAttr = S.points?.geometry?.getAttribute('position');
   if (!selected) {
-    // Defensive guard: gizmos may only edit an explicit point/object selection.
-    // Never translate the camera target or whole scene as a fallback.
     captureGizmoTransform();
     return;
   }
-  const scaleAttr=S.points?.geometry?.getAttribute('aScaleXYZ'), rotationAttr=S.points?.geometry?.getAttribute('aRotation'), sizeAttr=S.points?.geometry?.getAttribute('size');
-  for(let i=0;i<S.alive.length;i++) if(S.alive[i] && S.selected[i]) {
-    let x=S.positions[i*3]-px,y=S.positions[i*3+1]-py,z=S.positions[i*3+2]-pz;
-    rotate(x,y,z,invPrev,v); x=v[0]*rx;y=v[1]*ry;z=v[2]*rz;
-    rotate(x,y,z,nq,v); x=v[0]+tx;y=v[1]+ty;z=v[2]+tz;
-    S.positions[i*3]=x;S.positions[i*3+1]=y;S.positions[i*3+2]=z;
-    if(S.scaleXYZ) { S.scaleXYZ[i*3]*=rx;S.scaleXYZ[i*3+1]*=ry;S.scaleXYZ[i*3+2]*=rz; }
-    if(S.scale) S.scale[i]*=uniformScale;
-    if(S.rotation) {
-      const aw=qDelta.w,ax=qDelta.x,ay=qDelta.y,az=qDelta.z,bw=S.rotation[i*4],bx=S.rotation[i*4+1],by=S.rotation[i*4+2],bz=S.rotation[i*4+3];
-      let qw=aw*bw-ax*bx-ay*by-az*bz,qx=aw*bx+ax*bw+ay*bz-az*by,qy=aw*by-ax*bz+ay*bw+az*bx,qz=aw*bz+ax*by-ay*bx+az*bw;
-      const ql=Math.hypot(qw,qx,qy,qz)||1; qw/=ql;qx/=ql;qy/=ql;qz/=ql;
-      S.rotation[i*4]=qw;S.rotation[i*4+1]=qx;S.rotation[i*4+2]=qy;S.rotation[i*4+3]=qz;
+  const scaleAttr = S.points?.geometry?.getAttribute('aScaleXYZ');
+  const rotationAttr = S.points?.geometry?.getAttribute('aRotation');
+  const sizeAttr = S.points?.geometry?.getAttribute('size');
+  // Identity-ish delta? skip work
+  const noRot = !allowRotate || (Math.abs(qDelta.x) < 1e-10 && Math.abs(qDelta.y) < 1e-10 && Math.abs(qDelta.z) < 1e-10 && Math.abs(qDelta.w - 1) < 1e-6);
+  const noScale = Math.abs(rx - 1) < 1e-8 && Math.abs(ry - 1) < 1e-8 && Math.abs(rz - 1) < 1e-8;
+  const noMove = Math.abs(tx - px) < 1e-10 && Math.abs(ty - py) < 1e-10 && Math.abs(tz - pz) < 1e-10;
+  if (noRot && noScale && noMove) { captureGizmoTransform(); return; }
+
+  for (let i = 0; i < S.alive.length; i++) if (S.alive[i] && S.selected[i]) {
+    // Rigid path: (p - pivot) → optional scale → optional qDelta → + new pivot
+    let x = S.positions[i * 3] - px;
+    let y = S.positions[i * 3 + 1] - py;
+    let z = S.positions[i * 3 + 2] - pz;
+    if (!noScale) { x *= rx; y *= ry; z *= rz; }
+    if (!noRot) { rotate(x, y, z, qDelta, v); x = v[0]; y = v[1]; z = v[2]; }
+    x += tx; y += ty; z += tz;
+    S.positions[i * 3] = x; S.positions[i * 3 + 1] = y; S.positions[i * 3 + 2] = z;
+    if (allowScale && S.scaleXYZ && !noScale) {
+      S.scaleXYZ[i * 3] *= rx; S.scaleXYZ[i * 3 + 1] *= ry; S.scaleXYZ[i * 3 + 2] *= rz;
     }
-    const out=_sourceToRender?.[i];
-    if(out!==undefined && out>=0) {
-      if(posAttr) { posAttr.array[out*3]=x;posAttr.array[out*3+1]=y;posAttr.array[out*3+2]=z; }
-      if(scaleAttr) { scaleAttr.array[out*3]*=rx;scaleAttr.array[out*3+1]*=ry;scaleAttr.array[out*3+2]*=rz; }
-      if(sizeAttr) sizeAttr.array[out]*=uniformScale;
-      if(rotationAttr && S.rotation) for(let a=0;a<4;a++) rotationAttr.array[out*4+a]=S.rotation[i*4+a];
+    if (allowScale && S.scale && !noScale) S.scale[i] *= uniformScale;
+    if (allowRotate && S.rotation && !noRot) {
+      const aw = qDelta.w, ax = qDelta.x, ay = qDelta.y, az = qDelta.z;
+      const bw = S.rotation[i * 4], bx = S.rotation[i * 4 + 1], by = S.rotation[i * 4 + 2], bz = S.rotation[i * 4 + 3];
+      let qw = aw * bw - ax * bx - ay * by - az * bz;
+      let qx = aw * bx + ax * bw + ay * bz - az * by;
+      let qy = aw * by - ax * bz + ay * bw + az * bx;
+      let qz = aw * bz + ax * by - ay * bx + az * bw;
+      const ql = Math.hypot(qw, qx, qy, qz) || 1;
+      S.rotation[i * 4] = qw / ql; S.rotation[i * 4 + 1] = qx / ql;
+      S.rotation[i * 4 + 2] = qy / ql; S.rotation[i * 4 + 3] = qz / ql;
+    }
+    const out = _sourceToRender?.[i];
+    if (out !== undefined && out >= 0) {
+      if (posAttr) { posAttr.array[out * 3] = x; posAttr.array[out * 3 + 1] = y; posAttr.array[out * 3 + 2] = z; }
+      if (allowScale && scaleAttr && !noScale) {
+        scaleAttr.array[out * 3] *= rx; scaleAttr.array[out * 3 + 1] *= ry; scaleAttr.array[out * 3 + 2] *= rz;
+      }
+      if (allowScale && sizeAttr && !noScale) sizeAttr.array[out] *= uniformScale;
+      if (allowRotate && rotationAttr && S.rotation && !noRot) {
+        for (let a = 0; a < 4; a++) rotationAttr.array[out * 4 + a] = S.rotation[i * 4 + a];
+      }
     }
   }
-  if(posAttr) posAttr.needsUpdate=true;
-  if(scaleAttr) scaleAttr.needsUpdate=true;
-  if(sizeAttr) sizeAttr.needsUpdate=true;
-  if(rotationAttr) rotationAttr.needsUpdate=true;
-  S.points.geometry.boundingSphere=null;
-  if(!selected){
-    const oldPivot=S.pivot?.clone()||previous.position.clone();
-    S.pivot=transformTarget.position.clone();
-    const delta=S.pivot.clone().sub(oldPivot);controls.target.add(delta);camera.position.add(delta);
-  }
+  if (posAttr) posAttr.needsUpdate = true;
+  if (scaleAttr) scaleAttr.needsUpdate = true;
+  if (sizeAttr) sizeAttr.needsUpdate = true;
+  if (rotationAttr) rotationAttr.needsUpdate = true;
+  if (S.points?.geometry) S.points.geometry.boundingSphere = null;
   captureGizmoTransform();
 }
 transformControls.addEventListener('mouseDown',()=>{_gizmoGesture=true;pushHistory('transform gizmo');captureGizmoTransform();});
@@ -3120,7 +3158,7 @@ function deleteSelected() {
   showToast('Deleted', `${fmt(del)} points removed`);
 }
 
-function selectSubjectAtScreen(x, y, radius = 16) {
+function selectSubjectAtScreen(x, y, radius = 28) {
   if (!S.positions || !S.alive?.length) return false;
   const vp = document.getElementById('viewport');
   const W = vp.clientWidth, H = vp.clientHeight;
@@ -3139,7 +3177,7 @@ function selectSubjectAtScreen(x, y, radius = 16) {
   }
   if (best < 0) return false;
 
-  // A hit inside an imported layer selects the entire subject, not a single point.
+  // Hit in a layer → that subject. Else whole live cloud (single PLY has no layers).
   const layer = (S.layers || []).find(L => L.visible !== false && L.mask?.[best]);
   S.selected.fill(0);
   if (layer) {
@@ -3149,13 +3187,15 @@ function selectSubjectAtScreen(x, y, radius = 16) {
     }
   } else {
     S.activeLayerId = null;
-    S.selected[best] = 1;
+    for (let i = 0; i < S.selected.length; i++) {
+      if (S.alive[i] && !S.layerHidden?.[i]) S.selected[i] = 1;
+    }
   }
   renderLayers();
   rebuildGeometry();
   refreshTransformSourceMap();
   syncTransformGizmo();
-  setStatus(layer ? `Selected subject: ${layer.name} (${fmt(selectedPointCount())} points)` : 'Selected point; group points into a layer to transform the full subject', 'ok');
+  setStatus(`Selected subject (${fmt(selectedPointCount())} points)`, 'ok');
   return true;
 }
 
@@ -3707,6 +3747,14 @@ const toolMap = {
 
 function setMode(mode) {
   S.mode = mode;
+  if (['move','scale-tool','rotate'].includes(mode) && S.alive?.length && S.selected && !S.selected.some(Boolean)) {
+    for (let i = 0; i < S.alive.length; i++) {
+      if (S.alive[i] && !S.layerHidden?.[i]) S.selected[i] = 1;
+    }
+    rebuildGeometry();
+    if (typeof refreshTransformSourceMap === 'function') refreshTransformSourceMap();
+    setStatus(`Auto-selected subject (${fmt(selectedPointCount())} points) for ${mode}`, 'ok');
+  }
   const orbiting = mode === 'orbit' || mode === 'pan' || mode === 'zoom-tool';
   controls.enabled = mode === 'orbit';
   // In orbit mode: renderer canvas captures pointer events (OrbitControls needs them)
@@ -3898,6 +3946,26 @@ function _vpCoords(e) {
 }
 
 let _brushActive = false, _brushTimer;
+renderer.domElement.addEventListener('dblclick', e => {
+  if (!S.positions || !S.alive?.length) return;
+  if (S.mode === 'measure' || S.mode === 'paint' || S.mode === 'brush-erase') return;
+  e.preventDefault();
+  e.stopPropagation();
+  const { x, y } = _vpCoords(e);
+  if (!selectSubjectAtScreen(x, y, 48)) {
+    S.selected.fill(0);
+    for (let i = 0; i < S.alive.length; i++) {
+      if (S.alive[i] && !S.layerHidden?.[i]) S.selected[i] = 1;
+    }
+    rebuildGeometry();
+    if (typeof refreshTransformSourceMap === 'function') refreshTransformSourceMap();
+    syncTransformGizmo();
+    setStatus(`Double-click: selected whole subject (${fmt(selectedPointCount())} points)`, 'ok');
+  } else {
+    setStatus(`Double-click: selected subject (${fmt(selectedPointCount())} points)`, 'ok');
+  }
+});
+
 renderer.domElement.addEventListener('pointerdown', e => {
   if (S.mode === 'orbit') return;
   if (S.mode === 'measure') {
