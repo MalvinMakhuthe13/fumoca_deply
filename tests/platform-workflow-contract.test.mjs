@@ -112,3 +112,22 @@ test('viewer provides a same-origin Ad Studio bridge for load, camera and bake c
   assert.match(source, /type === 'adBakeFrame'/);
   assert.match(source, /cameraState/);
 });
+
+test('vehicle multi-camera captures use the NIF video bucket and are not queued to unsupported processing', async () => {
+  const source = await read('capture-vehicle.html');
+  assert.match(source, /r2\.from\('nif-videos'\)\.upload/);
+  assert.match(source, /from\('reconstruction_jobs'\)\.insert/);
+  assert.match(source, /status: 'staged'/);
+  assert.match(source, /staged_only: true/);
+  assert.match(source, /worker_compatible: false/);
+  assert.match(source, /capture_asset_keys: uploadedKeys/);
+  assert.doesNotMatch(source, /from\('processing_jobs'\)/);
+  assert.doesNotMatch(source, /r2\.upload\(/);
+  assert.doesNotMatch(source, /Processing will begin shortly/);
+});
+
+test('staged capture status and its explanation are visible in notifications', async () => {
+  const source = await read('js/modules/notifications.js');
+  assert.match(source, /raw === 'staged'/);
+  assert.match(source, /job\.meta\?\.status_message/);
+});
