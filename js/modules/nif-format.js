@@ -477,7 +477,19 @@ export function encodeNif(opts = {}) {
   // discarded everything except geometry — cameras, depth maps, meshes,
   // print-ready STL, and the poster thumbnail all vanished on first save.
   if (Array.isArray(opts.passthroughChunks)) {
-    for (const chunk of opts.passthroughChunks) writer.chunks.push(chunk);
+    // Never append stale duplicates of chunks that this encode operation has
+    // explicitly rebuilt (or intentionally omitted). This is especially
+    // important for point-indexed SH, LiDAR and LAYER_GEO sidecars.
+    const replacedTypes = new Set([CHUNK.KEYFRAME_GEO, CHUNK.META]);
+    if (Object.prototype.hasOwnProperty.call(opts, 'thumbnailBytes')) replacedTypes.add(CHUNK.THUMBNAIL);
+    if (Object.prototype.hasOwnProperty.call(opts, 'mesh')) replacedTypes.add(CHUNK.KEYFRAME_MESH);
+    if (Object.prototype.hasOwnProperty.call(opts, 'gaussianSH')) replacedTypes.add(CHUNK.GAUSSIAN_SH);
+    if (Object.prototype.hasOwnProperty.call(opts, 'lidarAttributes')) replacedTypes.add(CHUNK.LIDAR_ATTR);
+    if (Object.prototype.hasOwnProperty.call(opts, 'layers')) replacedTypes.add(CHUNK.LAYER_GEO);
+    for (const chunk of opts.passthroughChunks) {
+      if (!chunk || replacedTypes.has(chunk.type)) continue;
+      writer.chunks.push(chunk);
+    }
   }
 
   return writer.build().buffer;
