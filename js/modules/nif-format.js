@@ -263,7 +263,7 @@ export function encodeGeometryOnly(opts = {}) {
 // ── Public: build a real .nif ArrayBuffer ─────────────────────────────────────
 function encodeLayerGeoChunk(layers, geoData, pointCount) {
   const valid = (Array.isArray(layers) ? layers : []).filter(layer =>
-    (Array.isArray(layer?.indices) || ArrayBuffer.isView(layer?.indices)) && layer.indices.length > 0);
+    (Array.isArray(layer?.indices) || (ArrayBuffer.isView(layer?.indices) && !(layer.indices instanceof DataView))) && layer.indices.length > 0);
   if (!valid.length) return null;
   if (valid.length > 0xffffffff) throw new Error('[nif-format] too many LAYER_GEO layers');
 
