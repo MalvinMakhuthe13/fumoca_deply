@@ -1077,6 +1077,7 @@ input[type=range].amber::-webkit-slider-thumb{background:var(--amber);box-shadow
           <label style="font-size:11px;margin-top:6px;display:block">Minimum nearby points<input id="lidarCleanNeighbors" type="number" min="2" max="32" step="1" value="4" style="display:block;width:100%;padding:6px;margin-top:3px;background:var(--surface2);color:var(--text);border:1px solid var(--border2);border-radius:6px"></label>
           <button type="button" class="ac-btn rose full" id="lidarCleanOutliersBtn" style="margin-top:7px">Remove isolated points</button>
         </div>
+          <div id="lidarQualityReport" role="status" aria-live="polite" style="display:none;margin-top:8px;padding:9px;border:1px solid rgba(0,229,255,.25);border-radius:8px;background:rgba(0,229,255,.04);font-size:11px;line-height:1.5;white-space:normal"></div>
           <div id="lidarStatus" class="hint" style="margin-top:8px"></div>
         </div>
       </div>
@@ -6170,6 +6171,7 @@ if (!window._fumocaBooted) {
 <script type="module">
   import { StudioModes } from './js/modules/studio-modes.js';
   import { mountLidarImport } from './js/modules/lidar-import.js';
+  import { buildLidarQualityReport, formatLidarQualitySummary } from './js/modules/lidar-quality-report.mjs';
   import { mountCameraPathUI } from './js/modules/camera-paths.js';
   import { mountMeshPrintPanel } from './js/modules/studio-mesh-print.js';
   import { boostSparseCapture } from './js/modules/sparse-quality.js';
@@ -6182,8 +6184,19 @@ if (!window._fumocaBooted) {
     console.log('[studio]', msg);
   }
 
-  // Modes bar
-  try { StudioModes.init(); } catch (e) { console.warn(e); }
+  // Modes bar: expose the import/attribute controls on an empty Studio canvas.
+  try {
+    StudioModes.init();
+    const fileLabel = document.querySelector('.tb-file-name');
+    if (fileLabel && /no file loaded|drop \.splat or \.ply to begin/i.test(fileLabel.textContent || '')) {
+      window.setTimeout(() => {
+        const label = document.querySelector('.tb-file-name');
+        if (label && /no file loaded|drop \.splat or \.ply to begin/i.test(label.textContent || '')) {
+          StudioModes.set('import');
+        }
+      }, 300);
+    }
+  } catch (e) { console.warn(e); }
 
   // Mesh / print
   const meshRoot = document.getElementById('studioMeshPrintRoot');
@@ -6334,11 +6347,56 @@ if (!window._fumocaBooted) {
     },
     onCloud: (cloud) => {
       window._fumocaLidarCloud = cloud;
+      const qualityEl = document.getElementById('lidarQualityReport');
+      if (qualityEl) {
+        if (cloud.deferred) {
+          qualityEl.style.display = 'block';
+          qualityEl.textContent = cloud.message || 'This source needs conversion before it can be previewed.';
+        } else {
+          try {
+            const report = buildLidarQualityReport(cloud);
+            qualityEl.style.display = 'block';
+            qualityEl.replaceChildren();
+            const summary = document.createElement('div');
+            summary.style.fontWeight = '700';
+            summary.style.marginBottom = '4px';
+            summary.textContent = report.status === 'blocked' ? 'Scan preflight: blocked' : 'Scan preflight: preview ready with cautions';
+            const details = document.createElement('div');
+            details.textContent = formatLidarQualitySummary(report);
+            qualityEl.append(summary, details);
+            for (const warning of report.warnings) {
+              const row = document.createElement('div');
+              row.textContent = warning.severity.toUpperCase() + ': ' + warning.message;
+              row.style.marginTop = '3px';
+              row.style.color = warning.severity === 'error' ? '#ff8097' : warning.severity === 'warning' ? '#ffd166' : 'rgba(255,255,255,.62)';
+              qualityEl.appendChild(row);
+            }
+            for (const id of ['lidarFitBtn', 'lidarMergeBtn']) {
+              const button = document.getElementById(id);
+              if (button) button.disabled = !report.gates.preview || (id === 'lidarMergeBtn' && !report.gates.merge);
+            }
+          } catch (error) {
+            qualityEl.style.display = 'block';
+            qualityEl.textContent = 'Scan preflight failed: ' + (error.message || error);
+            ['lidarFitBtn', 'lidarMergeBtn'].forEach(id => { const button = document.getElementById(id); if (button) button.disabled = true; });
+          }
+        }
+      }
       if (cloud.deferred) return;
       window.previewLidarCloud(cloud);
       if (!S.alive?.some(Boolean)) window.fitLidarToScene();
-      ['lidarFitBtn', 'lidarMergeBtn', 'lidarClearBtn'].forEach(id => { const b = document.getElementById(id); if (b) b.disabled = false; });
-      status(`LiDAR preview ready (${cloud.count.toLocaleString()} points). Adjust alignment, then merge when ready.`);
+      const canProceed = (() => {
+        try { return buildLidarQualityReport(cloud).gates.preview; } catch { return false; }
+      })();
+      const clearButton = document.getElementById('lidarClearBtn');
+      if (clearButton) clearButton.disabled = false;
+      const fitButton = document.getElementById('lidarFitBtn');
+      const mergeButton = document.getElementById('lidarMergeBtn');
+      if (fitButton) fitButton.disabled = !canProceed;
+      if (mergeButton) mergeButton.disabled = !canProceed;
+      status(canProceed
+        ? `LiDAR preview ready (${cloud.count.toLocaleString()} points). Review scan cautions, adjust alignment, then merge.`
+        : 'LiDAR preview is blocked by scan validation. Review the preflight report before continuing.');
     },
   });
   document.getElementById('lidarPickBtn')?.addEventListener('click', () => lidarApi.openPicker());
