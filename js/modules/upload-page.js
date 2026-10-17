@@ -641,6 +641,9 @@ window.handleSubmit = async function() {
       const sourcePath = `${user.id}/sources/${stamp}_${safeName}`;
       let outputBuffer = null;
       let gaussianCount = null;
+      // Mirror conversion provenance into both the NIF META chunk and the
+      // database record so Studio/library consumers can disclose lossy imports.
+      let conversionDetails = null;
       let outputName = selectedFile.name;
       let outputKey = sourcePath;
       let outputUrl = '';
@@ -658,6 +661,15 @@ window.handleSubmit = async function() {
         setProgress(25, 'Packing Gaussian rows into FUMOCA NIF…');
         const aliveIndices = new Uint32Array(gaussianCount);
         for (let i = 0; i < gaussianCount; i++) aliveIndices[i] = i;
+        conversionDetails = {
+          engine: 'fumoca-nif-format',
+          mode: 'quantized-geometry',
+          gpu_required: false,
+          preserved_attributes: ['position', 'scale', 'rotation', 'RGBA/opacity'],
+          discarded_attributes: [],
+          quality_flags: [],
+          created_at: new Date().toISOString(),
+        };
         outputBuffer = encodeNif({
           sourceBuffer: new Uint8Array(sourceBuffer),
           aliveIndices,
@@ -667,7 +679,7 @@ window.handleSubmit = async function() {
             title: title || selectedFile.name.replace(/\.splat$/i, ''),
             description: desc || '',
             source_format: 'splat',
-            conversion: { engine: 'fumoca-nif-format', mode: 'quantized-geometry', gpu_required: false, created_at: new Date().toISOString() },
+            conversion: conversionDetails,
           },
         });
         outputName = selectedFile.name.replace(/\.splat$/i, '') + '.nif';
@@ -684,6 +696,16 @@ window.handleSubmit = async function() {
         const rot0 = attr('rot_0'), rot1 = attr('rot_1'), rot2 = attr('rot_2'), rot3 = attr('rot_3');
         const colorAttr = parsedGeometry.getAttribute('color');
         const isGaussianPly = !!(sx && sy && sz && opacityAttr && dc0 && dc1 && dc2 && rot0 && rot1 && rot2 && rot3);
+        const plyAttributeNames = Object.keys(parsedGeometry.attributes || {});
+        const higherOrderShAttributes = plyAttributeNames.filter(name => /^f_rest_\d+$/.test(name));
+        const higherOrderShCount = higherOrderShAttributes.length;
+        const shOrderCandidate = higherOrderShCount % 3 === 0
+          ? Math.round(Math.sqrt(higherOrderShCount / 3 + 1) - 1)
+          : -1;
+        const detectedShDegree = shOrderCandidate >= 1 &&
+          3 * ((shOrderCandidate + 1) ** 2 - 1) === higherOrderShCount
+          ? shOrderCandidate
+          : 0;
         setProgress(25, isGaussianPly ? 'Converting Gaussian PLY attributes…' : 'Converting point-cloud PLY to NIF…');
 
         if (isGaussianPly) {
@@ -710,9 +732,23 @@ window.handleSubmit = async function() {
           }
           const aliveIndices = new Uint32Array(count);
           for (let i = 0; i < count; i++) aliveIndices[i] = i;
+          conversionDetails = {
+            engine: 'fumoca-nif-format',
+            gpu_required: false,
+            attribute_mapping: 'xyz/scale/f_dc/opacity/rotation',
+            preserved_attributes: ['position', 'scale', 'rotation', 'opacity', 'DC colour'],
+            sh_degree_detected: detectedShDegree,
+            discarded_attributes: higherOrderShCount
+              ? ['higher-order spherical-harmonic colour coefficients (f_rest_*)']
+              : [],
+            quality_flags: higherOrderShCount
+              ? ['higher_order_sh_discarded_colour_approximation']
+              : [],
+            created_at: new Date().toISOString(),
+          };
           outputBuffer = encodeNif({
             sourceBuffer: rows, aliveIndices, rowSize: 32, vertical: category || 'generic',
-            meta: { title: title || selectedFile.name.replace(/\.ply$/i, ''), description: desc || '', source_format: 'gaussian_ply', conversion: { engine: 'fumoca-nif-format', gpu_required: false, attribute_mapping: 'xyz/scale/f_dc/opacity/rotation', created_at: new Date().toISOString() } },
+            meta: { title: title || selectedFile.name.replace(/\.ply$/i, ''), description: desc || '', source_format: 'gaussian_ply', conversion: conversionDetails },
           });
         } else {
           const positions = new Float32Array(count * 3);
@@ -730,9 +766,18 @@ window.handleSubmit = async function() {
             const rawOpacity = opacity ? opacity.getX(i) : 1;
             opacities01[i] = rawOpacity < 0 || rawOpacity > 1 ? 1 / (1 + Math.exp(-rawOpacity)) : rawOpacity;
           }
+          conversionDetails = {
+            engine: 'fumoca-nif-format',
+            gpu_required: false,
+            geometry_quality: 'isotropic-points; mesh reconstruction not run',
+            preserved_attributes: ['position', ...(colorAttr ? ['RGB colour'] : []), ...(opacity ? ['opacity'] : [])],
+            discarded_attributes: [],
+            quality_flags: ['point_cloud_not_gaussian', 'mesh_reconstruction_not_run'],
+            created_at: new Date().toISOString(),
+          };
           outputBuffer = encodeNif({
             positions, colors01, opacities01, vertical: category || 'generic',
-            meta: { title: title || selectedFile.name.replace(/\.ply$/i, ''), description: desc || '', source_format: 'point_cloud_ply', conversion: { engine: 'fumoca-nif-format', gpu_required: false, geometry_quality: 'isotropic-points; mesh reconstruction not run', created_at: new Date().toISOString() } },
+            meta: { title: title || selectedFile.name.replace(/\.ply$/i, ''), description: desc || '', source_format: 'point_cloud_ply', conversion: conversionDetails },
           });
         }
         gaussianCount = count;
@@ -786,7 +831,13 @@ window.handleSubmit = async function() {
           output_format: (isSplat || ext === 'ply') ? 'nif' : ext,
           output_r2_key: outputKey,
           output_public_url: outputUrl,
-          conversion: outputBuffer ? { engine: 'fumoca-nif-format', gpu_required: false, input_bytes: selectedFile.size, output_bytes: outputBuffer.byteLength, gaussian_count: gaussianCount, source_format: ext } : null,
+          conversion: outputBuffer ? {
+            ...(conversionDetails || {}),
+            input_bytes: selectedFile.size,
+            output_bytes: outputBuffer.byteLength,
+            gaussian_count: gaussianCount,
+            source_format: ext,
+          } : null,
           status: 'done',
           processing_stage: (isSplat || ext === 'ply') ? 'converted' : 'imported',
           processing_progress: 100,
