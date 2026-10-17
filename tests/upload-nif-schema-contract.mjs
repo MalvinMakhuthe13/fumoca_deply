@@ -24,6 +24,8 @@ assert.match(source, /source_capture: \{ r2_key: fileKey, r2_bucket: 'nif-videos
   'photo-burst source metadata must record the actual R2 bucket');
 assert.match(source, /source_capture: \{ r2_key: sourceKey, r2_bucket: 'nif-files'/,
   'direct PLY/SPLAT/NIF source metadata must record the actual R2 bucket');
+assert.match(source, /source_capture: \{ r2_key: filePath, r2_bucket: 'nif-videos'/,
+  'video capture metadata must record the video bucket for cleanup and source links');
 assert.match(source, /const refPath = `\$\{userId\}\/verify-refs\//, 'verification references must use an owner-prefixed key accepted by the R2 ownership guard');
 const extStart = source.indexOf('async function createExternalNif');
 const extEnd = source.indexOf('\nfunction captureMetadata', extStart);
