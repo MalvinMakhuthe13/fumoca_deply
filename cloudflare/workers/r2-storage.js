@@ -205,6 +205,93 @@ async function userMayWriteFileKey(request, env, principal, bucketName, fileKey)
   }
 }
 
+// Read access is deliberately stricter than URL visibility flags in the browser.
+// Public NIF output is public only when its owning nif_files row says is_public=true.
+// Raw capture videos and previews are private unless an explicit association policy
+// is added; a known object key or ?public=1 flag is not an authorization grant.
+async function authorizeFileRead(request, env, principal, bucketName, fileKey) {
+  if (!['nif-files', 'nif-videos', 'preview-videos', 'thumbnails', 'avatars'].includes(bucketName)) {
+    return { allowed: false, isPublic: false, reason: 'unknown-bucket' };
+  }
+
+  // Profile avatars are intentionally public for existing profile/feed compatibility.
+  if (bucketName === 'avatars') return { allowed: true, isPublic: true, reason: 'public-avatar' };
+
+  // User-scoped object keys remain readable by their owner, never by another user.
+  if (principal?.kind === 'user' && principal.id && fileKey.startsWith(`${principal.id}/`)) {
+    return { allowed: true, isPublic: false, reason: 'owner-key' };
+  }
+  if (principal?.kind === 'server-to-server') {
+    return { allowed: true, isPublic: false, reason: 'trusted-server' };
+  }
+  if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) {
+    return { allowed: false, isPublic: false, reason: 'lookup-not-configured' };
+  }
+
+  const authHeader = request.headers.get('Authorization') || '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  const headers = { apikey: env.SUPABASE_ANON_KEY };
+  if (token && principal?.kind === 'user') headers.Authorization = `Bearer ${token}`;
+  const encodedKey = fileKey.replace(/,/g, '\\,');
+  const query = new URLSearchParams({
+    select: 'id,user_id,r2_key,is_public,meta',
+    limit: '20',
+    or: `(r2_key.eq.${encodedKey},meta->>source_r2_key.eq.${encodedKey},meta->source_capture->>r2_key.eq.${encodedKey},meta->>thumbnail_r2_key.eq.${encodedKey},meta->>capture_thumbnail_r2_key.eq.${encodedKey})`,
+  });
+  try {
+    const response = await fetch(`${env.SUPABASE_URL}/rest/v1/nif_files?${query}`, { headers });
+    if (!response.ok) {
+      console.error('[R2 read] NIF access lookup failed', response.status);
+      return { allowed: false, isPublic: false, reason: 'lookup-failed' };
+    }
+    const rows = await response.json();
+    if (!Array.isArray(rows)) return { allowed: false, isPublic: false, reason: 'invalid-lookup' };
+
+    for (const row of rows) {
+      const meta = row?.meta || {};
+      const isNifOutput = bucketName === 'nif-files' && row?.r2_key === fileKey;
+      const isThumbnail = bucketName === 'thumbnails' &&
+        [meta.thumbnail_r2_key, meta.capture_thumbnail_r2_key].includes(fileKey);
+      const isSource = bucketName === 'nif-videos' &&
+        [meta.source_r2_key, meta.source_capture?.r2_key].includes(fileKey);
+      const owner = !!(principal?.kind === 'user' && principal.id && row?.user_id === principal.id);
+      if (isNifOutput && row.is_public === true) {
+        return { allowed: true, isPublic: true, reason: 'published-nif' };
+      }
+      if (owner && (isNifOutput || isThumbnail || isSource)) {
+        return { allowed: true, isPublic: false, reason: 'owner-associated-file' };
+      }
+      if (isThumbnail && row.is_public === true) {
+        return { allowed: true, isPublic: true, reason: 'published-nif-thumbnail' };
+      }
+    }
+
+    // Raw source keys may live on reconstruction_jobs rather than nif_files metadata.
+    if (bucketName === 'nif-videos' && principal?.kind === 'user' && principal.id) {
+      const jobsQuery = new URLSearchParams({
+        select: 'id,user_id,raw_r2_key',
+        user_id: `eq.${principal.id}`,
+        raw_r2_key: `eq.${fileKey}`,
+        limit: '1',
+      });
+      const jobsResponse = await fetch(`${env.SUPABASE_URL}/rest/v1/reconstruction_jobs?${jobsQuery}`, { headers });
+      if (jobsResponse.ok) {
+        const jobs = await jobsResponse.json();
+        if (Array.isArray(jobs) && jobs.some(job => job?.user_id === principal.id && job?.raw_r2_key === fileKey)) {
+          return { allowed: true, isPublic: false, reason: 'owner-source-job' };
+        }
+      } else {
+        console.error('[R2 read] source job lookup failed', jobsResponse.status);
+      }
+    }
+
+    return { allowed: false, isPublic: false, reason: 'not-published-or-not-owner' };
+  } catch (error) {
+    console.error('[R2 read] access lookup errored', error?.message || String(error));
+    return { allowed: false, isPublic: false, reason: 'lookup-error' };
+  }
+}
+
 // ── Key sanitisation ────────────────────────────────────────────────────────
 // Strips traversal attempts, backslashes, and collapses duplicate slashes.
 // Also enforces a sane max length so absurdly long paths can't be used to
