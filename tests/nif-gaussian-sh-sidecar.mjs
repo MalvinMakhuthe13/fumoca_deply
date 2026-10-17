@@ -39,6 +39,15 @@ assert.throws(
 assert.throws(
   () => encodeNif({
     sourceBuffer: rows, aliveIndices,
+    gaussianSH: { degree: 1, pointCount: 1, coefficientCount: 12, values },
+    meta: { gaussian_sh: { degree: 1, coefficient_count: 12, properties: ['f_dc_0', 'f_dc_1', 'f_dc_2', 'f_rest_1', ...properties.slice(4)] } },
+  }),
+  /metadata does not match the sidecar/,
+  'SH property names must match canonical contiguous coefficient order',
+);
+assert.throws(
+  () => encodeNif({
+    sourceBuffer: rows, aliveIndices,
     gaussianSH: { degree: 0, pointCount: 1, coefficientCount: 3, values: new Float32Array([0, Number.NaN, 0]) },
   }),
   /not finite/,
