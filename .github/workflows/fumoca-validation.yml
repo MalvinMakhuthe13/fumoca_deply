@@ -243,6 +243,8 @@ jobs:
         run: node --experimental-default-type=module tests/teaser-video-contract.mjs
       - name: Test deployment documentation contract
         run: node --experimental-default-type=module tests/deployment-doc-contract.mjs
+      - name: Test legacy FUMOC share contract
+        run: node --experimental-default-type=module tests/legacy-fumoc-share-contract.mjs
       - name: Guard R2 read authorization and cache ordering
         run: |
           grep -q "async function authorizeFileRead" cloudflare/workers/r2-storage.js
