@@ -1045,7 +1045,7 @@ async function animatePartFlow(h) {
 
   try {
     const currentRecord = window._fumocaCurrentRecord || {};
-    const { openNifUrl, fileKey, layers } = await authorPartToggle(nifUrl, layer, {
+    const { openNifUrl, previewNifUrl, fileKey, layers } = await authorPartToggle(nifUrl, layer, {
       axis, angleDeg, recordId: currentRecord.id, ownerId: currentRecord.user_id,
     });
 
@@ -1054,7 +1054,7 @@ async function animatePartFlow(h) {
     // and only finding out it looks wrong after publishing to visitors.
     if (window._fumocaApplyRendererPreview) {
       if (statusBtn) statusBtn.textContent = 'Previewing…';
-      window._fumocaApplyRendererPreview(openNifUrl);
+      window._fumocaApplyRendererPreview(previewNifUrl || openNifUrl);
       const looksRight = confirm(
         `Showing "${layer}" rotated ${angleDeg}° around axis [${axis.join(',')}]. ` +
         `Does this look correct?\n\nOK = save this as the hotspot's toggle action.\n` +
