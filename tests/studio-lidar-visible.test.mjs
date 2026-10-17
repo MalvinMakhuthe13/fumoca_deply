@@ -7,7 +7,7 @@ test('empty Studio exposes the Import mode and LiDAR panel controls', async () =
   assert.match(html, /id="fileName"[^>]*>No file loaded/i);
   assert.match(html, /StudioModes\.set\('import'\)/);
   const modes = await readFile(new URL('../js/modules/studio-modes.js', import.meta.url), 'utf8');
-  assert.match(modes, /id: 'import'[\\s\\S]*?leftTabs: \\[\\s*'import'\\s*\\]/);
+  assert.ok(modes.includes("id: 'import'") && modes.includes("leftTabs: ['import']"));
   for (const id of [
     'lidarPickBtn', 'lidarColorMode', 'lidarScale', 'lidarOffsetX',
     'lidarOffsetY', 'lidarOffsetZ', 'lidarFitBtn', 'lidarMergeBtn',
