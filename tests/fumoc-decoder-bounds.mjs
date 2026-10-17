@@ -3,6 +3,7 @@ import FumocFormat from '../js/modules/fumoc-format.js';
 import FumocDecoder from '../js/modules/fumoc-decoder.js';
 import FumocCodec from '../js/modules/fumoc-codec.js';
 import { readFile } from 'node:fs/promises';
+import vm from 'node:vm';
 
 const splat = new Uint8Array(32);
 const view = new DataView(splat.buffer);
@@ -62,6 +63,39 @@ const order1File = await FumocFormat.encode({ splatBuffer: order1Splt, meta: { t
 const order1Decoded = await FumocDecoder.decode(order1File);
 assert.equal(order1Decoded.gaussians.N, 1, 'order-1 channel should decode one Gaussian');
 assert.ok(Number.isFinite(order1Decoded.gaussians.posX[0]), 'order-1 position channel should decode to a finite value');
+
+const workerSource = await readFile(new URL('../js/modules/fumoc-decoder-worker-module.js', import.meta.url), 'utf8');
+async function runWorkerDecode(fileBuffer) {
+  const events = [];
+  const sandbox = {
+    self: { postMessage: message => events.push(message) },
+    DecompressionStream,
+    TextDecoder,
+    Uint8Array,
+    DataView,
+    ArrayBuffer,
+    Math,
+    Number,
+    JSON,
+    Object,
+    Array,
+    Set,
+    Error,
+    Promise,
+    console,
+  };
+  vm.runInNewContext(workerSource, sandbox, { filename: 'fumoc-decoder-worker-module.js' });
+  await sandbox.self.onmessage({ data: { buffer: fileBuffer.slice(0) } });
+  const error = events.find(event => event.type === 'error');
+  if (error) throw new Error(error.message);
+  return events.find(event => event.type === 'result');
+}
+const workerRawResult = await runWorkerDecode(valid);
+assert.equal(workerRawResult.N, 1, 'worker must decode raw SPLAT containers');
+assert.equal(workerRawResult.splatBinary.byteLength, 32);
+const workerOrder1Result = await runWorkerDecode(order1File);
+assert.equal(workerOrder1Result.N, 1, 'worker must decode order-1 ANS containers');
+assert.equal(workerOrder1Result.splatBinary.byteLength, 32);
 
 await assert.rejects(() => FumocDecoder.decode(new Uint8Array(10)), /14-byte header/,
   'short FUMOC files must fail before reading header fields');
