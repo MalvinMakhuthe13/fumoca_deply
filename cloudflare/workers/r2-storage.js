@@ -824,6 +824,48 @@ export default {
       return json({ ok: true, fileKey, publicUrl }, 200, cors);
     }
 
+    // ── POST /file/ticket — issue a short-lived URL for an authorized private read
+    if (request.method === 'POST' && path === '/file/ticket') {
+      const principal = await authorize(request, env);
+      if (!principal) return json({ error: 'Unauthorized — sign in and try again' }, 401, cors);
+
+      let body;
+      try { body = await request.json(); } catch {
+        return json({ error: 'Invalid JSON body' }, 400, cors);
+      }
+      const bucket = body?.bucket || 'nif-files';
+      const fileKey = sanitiseKey(body?.key);
+      if (!fileKey) return json({ error: 'Invalid file key' }, 400, cors);
+      if (!getBucket(bucket, env)) return json({ error: `Unknown bucket: ${bucket}` }, 400, cors);
+
+      const access = await authorizeFileRead(request, env, principal, bucket, fileKey);
+      if (!access.allowed) return json({ error: 'Not found' }, 404, { ...cors, 'Cache-Control': 'no-store' });
+
+      const base = env.PUBLIC_BASE_URL || url.origin;
+      if (access.isPublic) {
+        return json({
+          url: `${base}/file/${encodeURIComponent(fileKey)}?bucket=${encodeURIComponent(bucket)}`,
+          expiresAt: null,
+          isPublic: true,
+        }, 200, cors);
+      }
+      if (!env.FUMOCA_API_SECRET) {
+        return json({ error: 'Private read tickets are not configured' }, 503, { ...cors, 'Cache-Control': 'no-store' });
+      }
+
+      try {
+        const ticket = await createReadTicket(bucket, fileKey, env.FUMOCA_API_SECRET);
+        return json({
+          url: `${base}/file/${encodeURIComponent(fileKey)}?bucket=${encodeURIComponent(bucket)}&ticket=${encodeURIComponent(ticket)}`,
+          expiresAt: Date.now() + 5 * 60 * 1000,
+          isPublic: false,
+        }, 200, { ...cors, 'Cache-Control': 'no-store' });
+      } catch (error) {
+        console.error('[R2 read ticket] signing failed', error?.message || String(error));
+        return json({ error: 'Could not issue private read ticket' }, 503, { ...cors, 'Cache-Control': 'no-store' });
+      }
+    }
+
     // ── GET /file/:key — Serve file with caching ───────────────────────────
     if (request.method === 'GET' && path.startsWith('/file/')) {
       let rawKey;
