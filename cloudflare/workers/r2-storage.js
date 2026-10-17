@@ -117,6 +117,51 @@ async function authorize(request, env) {
   }
 }
 
+// A valid session alone does not grant ownership of arbitrary R2 keys.
+// Most user uploads live under <auth-user-id>/; Studio edits use
+// <nif_files-record-id>/edited_<timestamp>.<ext>, so those require a row-owner
+// lookup. Fail closed if the database cannot confirm ownership.
+async function userOwnsFileKey(request, env, principal, bucketName, fileKey) {
+  if (principal?.kind === 'server-to-server') return true;
+  if (!principal?.id || principal.kind !== 'user') return false;
+  if (fileKey.startsWith(`${principal.id}/`)) return true;
+  if (bucketName !== 'nif-files') return false;
+
+  const slash = fileKey.indexOf('/');
+  if (slash <= 0) return false;
+  const recordId = fileKey.slice(0, slash);
+  const remainder = fileKey.slice(slash + 1);
+  if (!/^edited_[A-Za-z0-9_-]+\\.(?:nif|ply|splat|glb)$/i.test(remainder)) return false;
+
+  const token = (request.headers.get('Authorization') || '').replace(/^Bearer\\s+/, '');
+  if (!token || !env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) return false;
+  const query = new URLSearchParams({
+    select: 'id,r2_key',
+    id: `eq.${recordId}`,
+    user_id: `eq.${principal.id}`,
+    limit: '1',
+  });
+  try {
+    const response = await fetch(`${env.SUPABASE_URL}/rest/v1/nif_files?${query}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        apikey: env.SUPABASE_ANON_KEY,
+      },
+    });
+    if (!response.ok) {
+      console.error('[R2 delete] owner lookup failed', response.status);
+      return false;
+    }
+    const rows = await response.json();
+    return Array.isArray(rows) && rows.some(row =>
+      row?.id === recordId && row?.r2_key === fileKey
+    );
+  } catch (error) {
+    console.error('[R2 delete] owner lookup errored', error?.message || String(error));
+    return false;
+  }
+}
+
 // ── Key sanitisation ────────────────────────────────────────────────────────
 // Strips traversal attempts, backslashes, and collapses duplicate slashes.
 // Also enforces a sane max length so absurdly long paths can't be used to
@@ -620,14 +665,13 @@ export default {
       if (!principal) {
         return json({ error: 'Unauthorized — sign in and try again' }, 401, cors);
       }
-      // NOTE — remaining gap, not fixed here: this only confirms the caller is SOME
-      // authenticated user, not that they own this specific file. Any signed-in user
-      // can currently delete any file if they know/guess its key. Closing that fully
-      // needs a lookup against your DB (matching this fileKey to a row's user_id)
-      // before this is trusted with real user data at scale.
-
       const fileKey = sanitiseKey(decodeURIComponent(path.slice('/file/'.length)));
       if (!fileKey) return json({ error: 'Missing key' }, 400, cors);
+
+      const ownsKey = await userOwnsFileKey(request, env, principal, bucketParam, fileKey);
+      if (!ownsKey) {
+        return json({ error: 'Forbidden — you do not own this file key' }, 403, cors);
+      }
 
       const r2Bucket = getBucket(bucketParam, env);
       if (!r2Bucket) {
