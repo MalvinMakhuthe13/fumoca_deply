@@ -100,8 +100,24 @@ export function suggestHingePivot(layer, axis = [0, 1, 0]) {
  * @returns {{openNifUrl: string, fileKey: string, layers: Array}}
  */
 export async function authorPartToggle(nifUrl, labelOrParts, opts = {}) {
-  const res = await fetch(nifUrl);
-  if (!res.ok) throw new Error(`Could not fetch ${nifUrl}: HTTP ${res.status}`);
+  const recordId = opts.recordId;
+  const ownerId = opts.ownerId;
+  const sb = window._fumocaSupabase;
+  if (!recordId || !ownerId || !sb) {
+    throw new Error('Cannot create an open-state variant without the current NIF record, owner, and Supabase session.');
+  }
+  // Studio holds the canonical URL, which may intentionally be private. Resolve
+  // the owner-scoped key to a fresh read ticket instead of fetching that URL or
+  // reusing an expiring ticket left over from page load.
+  const { data: parentRecord, error: parentError } = await sb.from('nif_files')
+    .select('id,user_id,r2_key,is_public,meta')
+    .eq('id', recordId).eq('user_id', ownerId).single();
+  if (parentError || !parentRecord?.r2_key) {
+    throw new Error(parentError?.message || 'The current NIF record has no authorized R2 output key.');
+  }
+  const sourceUrl = await r2.from('nif-files').authenticatedUrl(parentRecord.r2_key);
+  const res = await fetch(sourceUrl);
+  if (!res.ok) throw new Error(`Could not fetch authorized NIF source: HTTP ${res.status}`);
   const buf = await res.arrayBuffer();
 
   const { reader, meta, gaussians, thumbnailBytes } = await decodeNif(buf);
@@ -150,13 +166,6 @@ export async function authorPartToggle(nifUrl, labelOrParts, opts = {}) {
   // splat fidelity. Round-tripping through positions/colors01/opacities01
   // (the PLY-style path) would have discarded scale and orientation entirely,
   // flattening every splat to an isotropic sphere for no reason.
-  const recordId = opts.recordId;
-  const ownerId = opts.ownerId;
-  const sb = window._fumocaSupabase;
-  if (!recordId || !ownerId || !sb) {
-    throw new Error('Cannot publish an open-state variant without the current NIF record, owner, and Supabase session.');
-  }
-
   const safeLabels = appliedLabels.join('_').replace(/[^a-z0-9_-]/gi, '_');
   const key = `${ownerId}/open-variants/${recordId}_${safeLabels}_${Date.now()}.nif`;
   const passthroughChunks = reader.chunks.filter(chunk =>
