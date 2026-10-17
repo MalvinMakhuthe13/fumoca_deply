@@ -705,6 +705,24 @@ window.handleSubmit = async function() {
         const isGaussianPly = !!(sx && sy && sz && opacityAttr && dc0 && dc1 && dc2 && rot0 && rot1 && rot2 && rot3);
         const plyAttributeNames = Object.keys(parsedGeometry.attributes || {});
         const shMetadata = inspectPlyAttributes(plyAttributeNames, isGaussianPly);
+        if (isGaussianPly && shMetadata.hasUnsupportedShLayout) {
+          throw new Error('This Gaussian PLY has an unsupported f_rest_* coefficient layout. FUMOCA refuses to discard those attributes; export a standard SH-degree PLY and retry.');
+        }
+        const shRestNames = plyAttributeNames.filter(name => /^f_rest_\d+$/.test(name))
+          .sort((a, b) => Number(a.slice(7)) - Number(b.slice(7)));
+        const shPropertyNames = isGaussianPly ? ['f_dc_0', 'f_dc_1', 'f_dc_2', ...shRestNames] : [];
+        const gaussianSHValues = isGaussianPly ? new Float32Array(count * shPropertyNames.length) : null;
+        if (isGaussianPly) {
+          const shAttrs = shPropertyNames.map(name => attr(name));
+          if (shAttrs.some(attribute => !attribute)) throw new Error('Gaussian PLY is missing one or more SH coefficient attributes.');
+          for (let i = 0; i < count; i++) {
+            for (let j = 0; j < shAttrs.length; j++) {
+              const value = shAttrs[j].getX(i);
+              if (!Number.isFinite(value)) throw new Error(`Gaussian PLY SH coefficient ${shPropertyNames[j]} is not finite at point ${i}.`);
+              gaussianSHValues[i * shAttrs.length + j] = value;
+            }
+          }
+        }
         setProgress(25, isGaussianPly ? 'Converting Gaussian PLY attributes…' : 'Converting point-cloud PLY to NIF…');
 
         if (isGaussianPly) {
@@ -735,16 +753,32 @@ window.handleSubmit = async function() {
             engine: 'fumoca-nif-format',
             gpu_required: false,
             attribute_mapping: 'xyz/scale/f_dc/opacity/rotation',
-            preserved_attributes: ['position', 'scale', 'rotation', 'opacity', 'DC colour'],
+            preserved_attributes: [
+              'position', 'scale', 'rotation', 'opacity', 'render-ready DC colour',
+              'exact f_dc_* coefficients in GAUSSIAN_SH sidecar',
+              ...(shMetadata.higherOrderShCount ? ['exact f_rest_* coefficients in GAUSSIAN_SH sidecar'] : []),
+            ],
             sh_degree_detected: shMetadata.detectedShDegree,
             higher_order_sh_attribute_count: shMetadata.higherOrderShCount,
-            discarded_attributes: shMetadata.discardedAttributes,
+            discarded_attributes: [],
             quality_flags: shMetadata.qualityFlags,
             created_at: new Date().toISOString(),
           };
           outputBuffer = encodeNif({
             sourceBuffer: rows, aliveIndices, rowSize: 32, vertical: category || 'generic',
-            meta: { title: title || selectedFile.name.replace(/\.ply$/i, ''), description: desc || '', source_format: 'gaussian_ply', conversion: conversionDetails },
+            gaussianSH: {
+              degree: shMetadata.detectedShDegree,
+              pointCount: count,
+              coefficientCount: shPropertyNames.length,
+              values: gaussianSHValues,
+            },
+            meta: {
+              title: title || selectedFile.name.replace(/\.ply$/i, ''),
+              description: desc || '',
+              source_format: 'gaussian_ply',
+              gaussian_sh: { degree: shMetadata.detectedShDegree, properties: shPropertyNames, coefficient_count: shPropertyNames.length },
+              conversion: conversionDetails,
+            },
           });
         } else {
           const positions = new Float32Array(count * 3);
