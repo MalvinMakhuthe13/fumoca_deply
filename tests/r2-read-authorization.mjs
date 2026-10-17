@@ -37,7 +37,7 @@ const publicNif = { id: 'nif-public', user_id: 'user-a', r2_key: 'user-a/model.n
 const privateNif = { id: 'nif-private', user_id: 'user-a', r2_key: 'user-a/private/model.nif', is_public: false, meta: {} };
 const thumbPublic = { id: 'nif-thumb-public', user_id: 'user-a', r2_key: 'user-a/model.nif', is_public: true, meta: { thumbnail_r2_key: 'user-a/thumb.webp' } };
 const thumbPrivate = { id: 'nif-thumb-private', user_id: 'user-a', r2_key: 'user-a/private/model.nif', is_public: false, meta: { thumbnail_r2_key: 'user-a/private-thumb.webp' } };
-const sourceRow = { id: 'nif-source', user_id: 'user-a', r2_key: 'user-a/model.nif', is_public: true, meta: { source_r2_key: 'user-a/raw.mp4' } };
+const sourceRow = { id: 'record-source', user_id: 'user-a', r2_key: 'user-a/model.nif', is_public: true, meta: { source_r2_key: 'record-source/raw.mp4' } };
 const teaserPublic = { id: 'nif-teaser-public', user_id: 'user-a', r2_key: 'user-a/model.nif', is_public: true, meta: { teaser_video_r2_key: 'user-a/teasers/nif-teaser-public/teaser.webm' } };
 const teaserPrivate = { id: 'nif-teaser-private', user_id: 'user-a', r2_key: 'user-a/private/model.nif', is_public: false, meta: { teaser_video_r2_key: 'user-a/teasers/nif-teaser-private/teaser.webm' } };
 const run = (rows, jobs = [], responseStatus = 200) => helper(async (url, options) => {
@@ -101,11 +101,9 @@ access = await run([openVariantPrivate])(req('token-a'), env, userA, 'nif-files'
 assert.deepEqual(access, { allowed: true, isPublic: false, reason: 'owner-key' },
   'owner can read their private open-state variant through its owner-prefixed key');
 
-access = await run([sourceRow])(req('token-a'), env, userA, 'nif-videos', 'user-a/raw.mp4');
-assert.deepEqual(access, { allowed: true, isPublic: false, reason: 'owner-key' });
-
-access = await run([sourceRow])(req('token-a'), env, userA, 'nif-videos', 'user-a/raw.mp4');
-assert.deepEqual(access, { allowed: true, isPublic: false, reason: 'owner-associated-file' }, 'owner can read source media linked through NIF metadata');
+access = await run([sourceRow])(req('token-a'), env, userA, 'nif-videos', 'record-source/raw.mp4');
+assert.deepEqual(access, { allowed: true, isPublic: false, reason: 'owner-associated-file' },
+  'owner can read a record-scoped source file linked through NIF metadata');
 access = await run([])(req('token-a'), env, userA, 'nif-videos', 'raw/user-a/old_burst.zip');
 assert.deepEqual(access, { allowed: true, isPublic: false, reason: 'legacy-owner-key' },
   'owner can read legacy photo-burst files while old keys are migrated');
@@ -124,7 +122,8 @@ access = await run([cleanedSplatRow])(req('token-b'), env, userB, 'nif-files', '
 assert.equal(access.allowed, false, 'another user cannot read a cleaned splat derivative');
 
 access = await run([], [{ id: 'job-1', user_id: 'user-a', raw_r2_key: 'user-a/raw.mp4' }])(req('token-a'), env, userA, 'nif-videos', 'user-a/raw.mp4');
-assert.deepEqual(access, { allowed: true, isPublic: false, reason: 'owner-source-job' }, 'owner can read raw source keys stored on reconstruction_jobs');
+assert.deepEqual(access, { allowed: true, isPublic: false, reason: 'owner-key' },
+  'owner-prefixed reconstruction source files are readable without a cross-record metadata grant');
 
 access = await run([sourceRow])(req(), env, null, 'nif-videos', 'private/raw.mp4');
 assert.equal(access.allowed, false, 'raw source media must be private by default');
