@@ -77,6 +77,27 @@ rejects(
   'uncompressed encoding must reject NaN geometry too',
 );
 
+rejects(
+  () => encodeNif({ positions: new Float32Array([0, 1]), colors01: new Float32Array([1, 0, 0]), opacities01: new Float32Array([1]) }),
+  /exactly 3 values per point/,
+  'PLY positions must match the point count exactly',
+);
+rejects(
+  () => encodeNif({ positions: new Float32Array([0, 1, 2]), colors01: new Float32Array([1, 0, 0, 0]), opacities01: new Float32Array([1]) }),
+  /exactly 3 values per point/,
+  'PLY colors must match the point count exactly',
+);
+rejects(
+  () => encodeNif({ positions: new Float32Array([0, 1, 2]), colors01: new Float32Array([1.1, 0, 0]), opacities01: new Float32Array([1]) }),
+  /normalized to \[0,1\]/,
+  'PLY colors outside the normalized range must be rejected instead of silently clipped',
+);
+rejects(
+  () => encodeNif({ positions: new Float32Array([0, 1, 2]), colors01: new Float32Array([1, 0, 0]), opacities01: new Float32Array([Number.NaN]) }),
+  /opacity must be finite/,
+  'non-finite PLY opacity must be rejected',
+);
+
 const zeroQuaternion = new Float32Array(14);
 rejects(
   () => encodeNif({ geometry: zeroQuaternion }),
