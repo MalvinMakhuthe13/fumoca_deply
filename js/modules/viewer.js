@@ -2421,16 +2421,23 @@ async function _fumocaFlushPipelineQueue() {
       continue;
     }
     try {
-      const currentMeta = { ...((currentRecord || {}).meta || {}) };
+      if (!supabase || !currentRecord?.id || !currentRecord?.user_id) {
+        throw new Error('Owner-scoped NIF record is unavailable for pipeline retry persistence.');
+      }
+      const { data: latest, error: readError } = await supabase.from('nif_files')
+        .select('id,user_id,title,description,r2_key,is_public,meta')
+        .eq('id', currentRecord.id).eq('user_id', currentRecord.user_id).single();
+      if (readError || !latest) throw new Error(readError?.message || 'NIF could not be reloaded before queue retry.');
+      const currentMeta = latest.meta && typeof latest.meta === 'object' ? latest.meta : {};
       const queue = Array.isArray(currentMeta.processing_requests) ? currentMeta.processing_requests.slice() : [];
       const existing = queue.find((q) => q && q.id === item.payload?.id);
-      if (!existing && supabase && currentRecord?.id) {
+      if (!existing) {
         queue.unshift(item.payload);
-        currentMeta.processing_requests = queue.slice(0, 50);
-        currentMeta.last_processing_request = item.payload;
-        const { error } = await supabase.from('nif_files').update({ meta: currentMeta }).eq('id', currentRecord.id);
-        if (error) throw error;
-        currentRecord = { ...(currentRecord || {}), meta: currentMeta };
+        const nextMeta = { ...currentMeta, processing_requests: queue.slice(0, 50), last_processing_request: item.payload };
+        const { data: updated, error } = await supabase.from('nif_files').update({ meta: nextMeta })
+          .eq('id', currentRecord.id).eq('user_id', currentRecord.user_id).select('id').maybeSingle();
+        if (error || !updated) throw new Error(error?.message || 'Pipeline retry request was not saved.');
+        currentRecord = { ...(currentRecord || {}), ...latest, meta: nextMeta };
         window._fumocaCurrentRecord = currentRecord;
       }
       _fumocaShowPipelineIllusion('Finishing background prepâ€¦', 1400);
