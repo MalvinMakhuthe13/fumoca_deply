@@ -17,5 +17,7 @@ assert.match(publish, /window\._fumocaCurrentRecord = \{[\s\S]*?meta: payload\.m
   'publish must synchronize the in-memory record after a successful database update');
 assert.match(publish, /if \(error \|\| !updated\?\.id\)/, 'DB update failures must not be reported as successful publish');
 assert.match(publish, /if \(error \|\| !newRec\?\.id\)/, 'new record insert failures must not be reported as successful publish');
+assert.match(publish, /const \{ error: cleanupError \} = await r2\.from\('nif-files'\)\.remove\(\[fileKey\]\)/,
+  'publish rollback must inspect returned R2 cleanup errors, not only thrown exceptions');
 assert.match(publish, /viewer\.html\?nifId=/, 'viewer redirect must use the parameter the viewer actually reads');
 console.log('NIF publish ownership and persistence contract passed.');
