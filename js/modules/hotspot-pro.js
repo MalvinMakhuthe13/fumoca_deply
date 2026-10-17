@@ -102,27 +102,34 @@ function _parsePlyPositions(buf) {
   return { positions: new Float32Array(out), count: out.length / 3, stride, center, radius };
 }
 
-async function ensurePointCloudCache() {
+async function ensurePointCloudCache({ force = false } = {}) {
   // In edit.html, read positions directly from window.S (already loaded, no fetch needed)
-  if (window.S?.positions?.length && !pointCloudCache.loaded) {
+  if (window.S?.positions?.length && (force || !pointCloudCache.loaded || pointCloudCache.url === 'editor_live')) {
     const pos = window.S.positions;
     const alive = window.S.alive;
     const out = [];
     let x0=Infinity,y0=Infinity,z0=Infinity,x1=-Infinity,y1=-Infinity,z1=-Infinity;
-    for (let i=0; i<(alive?.length||pos.length/3); i++) {
+    // Stride sample for speed on large clouds; keep denser near surface picks
+    const n = alive?.length || (pos.length / 3);
+    const stride = n > 120000 ? 4 : n > 60000 ? 2 : 1;
+    for (let i = 0; i < n; i += stride) {
       if (alive && !alive[i]) continue;
-      const x=pos[i*3],y=pos[i*3+1],z=pos[i*3+2];
-      if (!isFinite(x)||!isFinite(y)||!isFinite(z)) continue;
-      out.push(x,y,z);
-      if(x<x0)x0=x;if(x>x1)x1=x;if(y<y0)y0=y;if(y>y1)y1=y;if(z<z0)z0=z;if(z>z1)z1=z;
+      const x = pos[i * 3], y = pos[i * 3 + 1], z = pos[i * 3 + 2];
+      if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) continue;
+      out.push(x, y, z);
+      if (x < x0) x0 = x; if (x > x1) x1 = x;
+      if (y < y0) y0 = y; if (y > y1) y1 = y;
+      if (z < z0) z0 = z; if (z > z1) z1 = z;
     }
-    pointCloudCache.positions = new Float32Array(out);
-    pointCloudCache.count = out.length/3;
-    pointCloudCache.boundsCenter = new THREE.Vector3((x0+x1)/2,(y0+y1)/2,(z0+z1)/2);
-    pointCloudCache.boundsRadius = Math.max(0.5, Math.sqrt(((x1-x0)**2+(y1-y0)**2+(z1-z0)**2)/4));
-    pointCloudCache.loaded = true;
-    pointCloudCache.url = 'editor_live';
-    return pointCloudCache;
+    if (out.length >= 9) {
+      pointCloudCache.positions = new Float32Array(out);
+      pointCloudCache.count = out.length / 3;
+      pointCloudCache.boundsCenter = new THREE.Vector3((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+      pointCloudCache.boundsRadius = Math.max(0.5, Math.sqrt(((x1 - x0) ** 2 + (y1 - y0) ** 2 + (z1 - z0) ** 2) / 4));
+      pointCloudCache.loaded = true;
+      pointCloudCache.url = 'editor_live';
+      return pointCloudCache;
+    }
   }
 
   const url = window._fumocaViewer?.fileUrl || window._fumocaSplatUrl || '';
@@ -173,7 +180,8 @@ function pickPrecisePointOnSplat(ray, fallbackTarget) {
   const nearest = new THREE.Vector3();
   let bestScore = Infinity;
   let bestDepth = Infinity;
-  const maxRadius = Math.max(0.12, (cache.boundsRadius || 1) * 0.06);
+  // Wider search so door/boot clicks still latch onto the body surface
+  const maxRadius = Math.max(0.25, (cache.boundsRadius || 1) * 0.12);
   for (let i = 0; i < pos.length; i += 3) {
     nearest.set(pos[i], pos[i + 1], pos[i + 2]);
     const depth = ray.direction.dot(nearest.clone().sub(ray.origin));
@@ -286,17 +294,33 @@ function getCurrentViewerAnchor() {
   return out;
 }
 
+function _getViewRect() {
+  // Studio renders into #viewport; viewer uses #stage / #stageHost.
+  // Always prefer the live WebGL canvas when present.
+  const canvas =
+    document.querySelector('#viewport canvas') ||
+    document.querySelector('#stageHost canvas') ||
+    document.querySelector('#stage canvas') ||
+    document.querySelector('canvas');
+  if (canvas) return canvas.getBoundingClientRect();
+  const host =
+    document.getElementById('viewport') ||
+    document.getElementById('stageHost') ||
+    document.getElementById('stage');
+  return host?.getBoundingClientRect?.() || null;
+}
+
 function getViewerRayFromEvent(event) {
-  const stage = document.getElementById('stageHost') || document.getElementById('stage');
-  const cam = window._fumocaViewerCamera || window._fumocaViewer?.camera;
-  const rect = stage?.getBoundingClientRect?.();
-  if (!rect || !cam) return null;
+  const cam = window._fumocaViewerCamera || window._fumocaViewer?.camera || window._fumocaCamera;
+  const rect = _getViewRect();
+  if (!rect || !cam || rect.width < 2 || rect.height < 2) return null;
+  cam.updateMatrixWorld?.(true);
   const nx = ((event.clientX - rect.left) / rect.width) * 2 - 1;
   const ny = -((event.clientY - rect.top) / rect.height) * 2 + 1;
   const origin = new THREE.Vector3().setFromMatrixPosition(cam.matrixWorld);
   const probe = new THREE.Vector3(nx, ny, 0.5).unproject(cam);
   const direction = probe.sub(origin).normalize();
-  return { origin, direction };
+  return { origin, direction, rect };
 }
 
 async function pickWorldAnchorFromEvent(event) {
@@ -306,7 +330,7 @@ async function pickWorldAnchorFromEvent(event) {
   if (!ray || !cam) return null;
   const fallbackTarget = controls?.target?.clone?.() || new THREE.Vector3(0, 0, 0);
   try {
-    await ensurePointCloudCache();
+    await ensurePointCloudCache({ force: true });
     const exact = pickPrecisePointOnSplat(ray, fallbackTarget);
     if (exact) return exact;
   } catch (_) {}
@@ -347,9 +371,8 @@ async function pickWorldAnchorFromEvent(event) {
 }
 
 function getStagePercentFromEvent(event) {
-  const stage = document.getElementById('stageHost') || document.getElementById('stage');
-  const rect = stage?.getBoundingClientRect?.();
-  if (!rect) return { x: 50, y: 50 };
+  const rect = _getViewRect();
+  if (!rect || rect.width < 2) return { x: 50, y: 50 };
   const x = ((event.clientX - rect.left) / rect.width) * 100;
   const y = ((event.clientY - rect.top) / rect.height) * 100;
   return { x: Math.max(0, Math.min(100, x)), y: Math.max(0, Math.min(100, y)) };
@@ -444,7 +467,38 @@ async function loadHotspots(externalList = null) {
   window._fumocaHotspots = state.hotspots.slice();
   renderPanel();
   renderHotspots();
+  // Upgrade screen-only anchors to 3D when the live point cloud is available
+  _upgradeScreenAnchorsToWorld().catch(() => {});
   window.dispatchEvent(new CustomEvent('fumoca:hotspotsLoaded', { detail: { count: state.hotspots.length } }));
+}
+
+async function _upgradeScreenAnchorsToWorld() {
+  const need = state.hotspots.filter((h) => !Number.isFinite(h.wx) || !Number.isFinite(h.wy) || !Number.isFinite(h.wz));
+  if (!need.length) return;
+  await ensurePointCloudCache({ force: true });
+  if (!pointCloudCache.positions?.length) return;
+  const cam = window._fumocaViewerCamera || window._fumocaViewer?.camera || window._fumocaCamera;
+  const view = _getViewRect();
+  if (!cam || !view) return;
+  cam.updateMatrixWorld?.(true);
+  let upgraded = 0;
+  for (const h of need) {
+    const nx = ((h.x / 100) * 2) - 1;
+    const ny = -(((h.y / 100) * 2) - 1);
+    const origin = new THREE.Vector3().setFromMatrixPosition(cam.matrixWorld);
+    const probe = new THREE.Vector3(nx, ny, 0.5).unproject(cam);
+    const direction = probe.sub(origin).normalize();
+    const hit = pickPrecisePointOnSplat({ origin, direction }, window._fumocaViewerControls?.target);
+    if (hit && Number.isFinite(hit.x)) {
+      h.wx = hit.x; h.wy = hit.y; h.wz = hit.z;
+      upgraded++;
+    }
+  }
+  if (upgraded) {
+    window._fumocaHotspots = state.hotspots.slice();
+    renderHotspots();
+    console.info('[hotspot-pro] upgraded', upgraded, 'screen anchors to 3D');
+  }
 }
 
 function persistLocal() {
@@ -533,15 +587,30 @@ async function saveRemote() {
 }
 
 function projectWorldToScreen(wx, wy, wz) {
-  const cam = window._fumocaViewerCamera || window._fumocaViewer?.camera;
-  if (!cam || [wx, wy, wz].some(v => !Number.isFinite(v))) return null;
+  const cam = window._fumocaViewerCamera || window._fumocaViewer?.camera || window._fumocaCamera;
+  if (!cam || [wx, wy, wz].some(v => !Number.isFinite(+v))) return null;
   try {
-    const v = new THREE.Vector3(wx, wy, wz).project(cam);
-    if (!Number.isFinite(v.x) || !Number.isFinite(v.y) || v.z > 1.2) return null;
+    cam.updateMatrixWorld?.(true);
+    const v = new THREE.Vector3(+wx, +wy, +wz).project(cam);
+    if (!Number.isFinite(v.x) || !Number.isFinite(v.y)) return null;
+    // Map NDC → pixels on the actual WebGL canvas, then → % of hotspotLayer
+    // (critical in Studio where the canvas is only the center panel).
+    const view = _getViewRect();
+    const layer = hotspotLayer?.getBoundingClientRect?.();
+    if (!view || !layer || layer.width < 2 || layer.height < 2) {
+      return {
+        x: ((v.x + 1) / 2) * 100,
+        y: ((1 - v.y) / 2) * 100,
+        behind: v.z < -1 || v.z > 1,
+      };
+    }
+    const px = view.left + ((v.x + 1) / 2) * view.width;
+    const py = view.top + ((1 - v.y) / 2) * view.height;
     return {
-      x: ((v.x + 1) / 2) * 100,
-      y: ((1 - v.y) / 2) * 100,
+      x: ((px - layer.left) / layer.width) * 100,
+      y: ((py - layer.top) / layer.height) * 100,
       behind: v.z < -1 || v.z > 1,
+      px, py,
     };
   } catch (_) { return null; }
 }
@@ -552,7 +621,19 @@ function getRenderPosition(h) {
     state.worldProjectionEnabled = true;
     return projected;
   }
-  return { x: h.x, y: h.y, behind: false };
+  // Screen-space fallback: interpret x/y as % of the VIEW canvas, not the whole window
+  const view = _getViewRect();
+  const layer = hotspotLayer?.getBoundingClientRect?.();
+  if (view && layer && layer.width > 2 && Number.isFinite(+h.x) && Number.isFinite(+h.y)) {
+    const px = view.left + (+h.x / 100) * view.width;
+    const py = view.top + (+h.y / 100) * view.height;
+    return {
+      x: ((px - layer.left) / layer.width) * 100,
+      y: ((py - layer.top) / layer.height) * 100,
+      behind: false,
+    };
+  }
+  return { x: h.x || 50, y: h.y || 50, behind: false };
 }
 
 function stopAudio() {
@@ -1746,41 +1827,54 @@ function attachUi() {
   window.addEventListener('fumoca:permissionsReady', (e) => { state.canManage = !!e.detail?.canManage; renderPanel(); });
   window.addEventListener('fumoca:permissionsUpdated', (e) => { state.canManage = !!e.detail?.canManage; renderPanel(); });
 
-  const stage = document.getElementById('stageHost') || document.getElementById('stage');
+  // Studio uses #viewport; viewer uses #stage / #stageHost. Listen on both + document for place mode.
+  const stage =
+    document.getElementById('viewport') ||
+    document.getElementById('stageHost') ||
+    document.getElementById('stage') ||
+    document.body;
 
   // Track pointer so a drag-to-orbit does not accidentally place a hotspot
   let _placePtr = null;
-  stage?.addEventListener('pointerdown', (event) => {
+  const onPlaceDown = (event) => {
     if (!state.placeMode) return;
     _placePtr = { x: event.clientX, y: event.clientY, id: event.pointerId };
-  });
-  stage?.addEventListener('pointerup', async (event) => {
+  };
+  const onPlaceUp = async (event) => {
     if (!state.placeMode || !state.canManage || !_placePtr) return;
     const dx = event.clientX - _placePtr.x;
     const dy = event.clientY - _placePtr.y;
     const moved = (dx * dx + dy * dy) > 36; // >6px = drag, not click
     _placePtr = null;
     if (moved) return;
-    if (event.target?.closest?.('#hotspotProPanel, #hotspotInfoCard, .hotspot-marker, button, a, input, textarea, select')) return;
+    if (event.target?.closest?.('#hotspotProPanel, #hotspotInfoCard, .hotspot-marker, button, a, input, textarea, select, .panel-body, .topbar, #leftPanel, #rightPanel')) return;
     event.preventDefault();
     event.stopPropagation();
     const anchor = await captureEventHotspotAnchor(event);
+    // Require a real 3D hit when possible so markers stick to the part
+    if (!Number.isFinite(anchor.wx)) {
+      console.warn('[hotspot-pro] placement had no 3D hit — using screen anchor only');
+    }
     openHotspotEditor({
       ...anchor,
       title: `Hotspot ${state.hotspots.length + 1}`,
       type: 'info',
     }, { isNew: true });
-  });
-  stage?.addEventListener('pointercancel', () => { _placePtr = null; });
-
-  // Ghost cursor follows pointer while placing
-  stage?.addEventListener('pointermove', (event) => {
+  };
+  const onPlaceMove = (event) => {
     if (!state.placeMode) return;
     const cursor = _ensurePlaceCursor();
     cursor.style.display = 'block';
     cursor.style.left = event.clientX + 'px';
     cursor.style.top = event.clientY + 'px';
-  });
+  };
+  stage.addEventListener('pointerdown', onPlaceDown);
+  stage.addEventListener('pointerup', onPlaceUp);
+  stage.addEventListener('pointercancel', () => { _placePtr = null; });
+  stage.addEventListener('pointermove', onPlaceMove);
+  // Also on canvas directly (OrbitControls target)
+  document.querySelector('#viewport canvas')?.addEventListener('pointerdown', onPlaceDown);
+  document.querySelector('#viewport canvas')?.addEventListener('pointerup', onPlaceUp);
 
   // Shift + double-click still places (power-user shortcut)
   stage?.addEventListener('dblclick', async (event) => {
