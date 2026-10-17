@@ -316,6 +316,10 @@ function _wire() {
           meta.quality_flags = [...new Set([...(Array.isArray(meta.quality_flags) ? meta.quality_flags : []), 'legacy_layer_geo_dropped_no_indices'])];
           meta.layer_geo_status = 'legacy_layers_dropped_unindexed';
         }
+        if (layerData.droppedUnindexed) {
+          meta.quality_flags = [...new Set([...(Array.isArray(meta.quality_flags) ? meta.quality_flags : []), 'legacy_layer_geo_dropped_no_indices'])];
+          meta.layer_geo_status = 'legacy_layers_dropped_unindexed';
+        }
         const compactLidar = source => source ? aliveIndices.map(i => source[i] ?? 0) : null;
         const lidarAttributes = S.lidarIntensity || S.lidarClassification || S.lidarReturnNumber ? {
           intensity: S.lidarIntensity ? Uint16Array.from(compactLidar(S.lidarIntensity)) : null,
@@ -404,7 +408,8 @@ function _wire() {
         ? s.reductionPct + '% smaller'
         : s.reductionPct < 0 ? Math.abs(s.reductionPct) + '% larger' : 'same size';
       stats.style.display = 'block';
-      encBtn.textContent = '✓ Ready to download';
+      encBtn.textContent = 'Prepare NIF Export';
+      encBtn.disabled = false;
       dlBtn.disabled = false;
       shBtn.disabled = false;
       onProgress(100, 'NIF export ready.');
