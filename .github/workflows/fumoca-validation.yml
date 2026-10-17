@@ -108,7 +108,7 @@ jobs:
           grep -q "editor_scene: serializeEditorSceneMetadata(aliveIdx)" edit.html
           grep -q "restoreEditorSceneMetadata(S.nifMeta, parsed.count)" edit.html
           grep -q "S.nifMeta = {};" edit.html
-          grep -q "data.r2_key ? r2.publicUrl(\x27nif-files\x27, data.r2_key)" edit.html
+          grep -Fq "data.r2_key ? r2.publicUrl('nif-files', data.r2_key)" edit.html
           grep -q "restoreSavedPlySceneMetadata" edit.html
           grep -Fq "point_indices: Array.from(compactIndex.entries())" edit.html
       - name: Guard immediate transform attachment after Add Splat
