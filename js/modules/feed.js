@@ -41,10 +41,11 @@ function resolveThumbnail(row) {
   const thumbKey = row.meta?.thumbnail_r2_key;
 
   if (thumbKey) {
-    // Use FUMOCA's public CDN route for stored R2 object keys.
-    const key = String(thumbKey).replace(/^\/+/, "");
-    const parts = key.split("/").map(encodeURIComponent);
-    return `https://cdn.fumoca.co.za/file/${parts.join("/")}`;
+    // New uploads live in the dedicated thumbnails bucket. Include the bucket
+    // query parameter so the Worker doesn't look in nif-files by default.
+    const key = String(thumbKey).replace(/^\\/+/, "");
+    const built = r2.publicUrl('thumbnails', key);
+    if (built) return built;
   }
 
   return firstNonEmpty(
