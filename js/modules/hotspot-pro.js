@@ -739,6 +739,22 @@ function openInfo(h) {
   state.activeId = h.id;
   hotspotInfoCard.classList.add('visible');
   hotspotInfoCard.setAttribute('aria-hidden', 'false');
+  // Let the camera flight lead, then bring the detail card in with a short
+  // cinematic settle. Respect reduced-motion preferences and cancel prior
+  // card animations when users move quickly between hotspots.
+  if (typeof hotspotInfoCard.animate === 'function') {
+    hotspotInfoCard.getAnimations?.().forEach(animation => animation.cancel());
+    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+    if (!reducedMotion) {
+      hotspotInfoCard.animate(
+        [
+          { opacity: 0, transform: 'translate3d(0, 18px, 0) scale(.975)', filter: 'blur(5px)' },
+          { opacity: 1, transform: 'translate3d(0, 0, 0) scale(1)', filter: 'blur(0)' },
+        ],
+        { duration: 420, delay: 110, easing: 'cubic-bezier(.16, 1, .3, 1)', fill: 'both' }
+      );
+    }
+  }
   const sponsor = h.sponsorLabel ? `<span class="lasso-badge">Sponsor · ${escapeHtml(h.sponsorLabel)}</span>` : '';
   const product = h.productLabel ? `<span class="lasso-badge">${escapeHtml(h.productLabel)}${h.productPrice ? ` · ${escapeHtml(h.productPrice)}` : ''}</span>` : '';
   const preset = h.scenePreset ? `<span class="lasso-badge">${escapeHtml(h.scenePreset)}</span>` : '';
@@ -794,6 +810,7 @@ function openInfo(h) {
 }
 
 function closeInfo() {
+  hotspotInfoCard.getAnimations?.().forEach(animation => animation.cancel());
   hotspotInfoCard.classList.remove('visible');
   hotspotInfoCard.setAttribute('aria-hidden', 'true');
   state.activeId = null;
