@@ -3303,39 +3303,78 @@ function applyBrush(cx, cy) {
 
 function transformSelection(mode, dx, dy, redraw = true) {
   if (!S.positions || !S.selected) return;
-  const indices = [];
-  let cx = 0, cy = 0, cz = 0;
-  for (let i = 0; i < S.alive.length; i++) if (S.alive[i] && S.selected[i]) {
-    indices.push(i); cx += S.positions[i*3]; cy += S.positions[i*3+1]; cz += S.positions[i*3+2];
+  // Fixed pivot for the whole gesture (recomputing centroid every move causes non-rigid drift)
+  if (!_xformPivot || !_xformIndices?.length) {
+    const indices = [];
+    let cx = 0, cy = 0, cz = 0;
+    for (let i = 0; i < S.alive.length; i++) if (S.alive[i] && S.selected[i]) {
+      indices.push(i);
+      cx += S.positions[i * 3]; cy += S.positions[i * 3 + 1]; cz += S.positions[i * 3 + 2];
+    }
+    if (!indices.length) return;
+    _xformIndices = indices;
+    _xformPivot = new THREE.Vector3(cx / indices.length, cy / indices.length, cz / indices.length);
   }
-  if (!indices.length) return;
-  const pivot = new THREE.Vector3(cx / indices.length, cy / indices.length, cz / indices.length);
+  const indices = _xformIndices;
+  const pivot = _xformPivot;
   if (mode === 'move') {
     const distance = camera.position.distanceTo(controls.target);
     const unitsPerPixel = 2 * distance * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / Math.max(1, viewport.clientHeight);
-    const right = new THREE.Vector3(1,0,0).applyQuaternion(camera.quaternion);
-    const up = new THREE.Vector3(0,1,0).applyQuaternion(camera.quaternion);
+    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+    const up = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
     const delta = right.multiplyScalar(dx * unitsPerPixel).addScaledVector(up, -dy * unitsPerPixel);
-    for (const i of indices) { S.positions[i*3]+=delta.x; S.positions[i*3+1]+=delta.y; S.positions[i*3+2]+=delta.z; }
+    for (const i of indices) {
+      S.positions[i * 3] += delta.x;
+      S.positions[i * 3 + 1] += delta.y;
+      S.positions[i * 3 + 2] += delta.z;
+    }
+    pivot.add(delta);
+  } else if (mode === 'scale-tool') {
+    const factor = Math.exp(-dy * 0.01);
+    for (const i of indices) {
+      let x = S.positions[i * 3] - pivot.x;
+      let y = S.positions[i * 3 + 1] - pivot.y;
+      let z = S.positions[i * 3 + 2] - pivot.z;
+      x *= factor; y *= factor; z *= factor;
+      S.positions[i * 3] = x + pivot.x;
+      S.positions[i * 3 + 1] = y + pivot.y;
+      S.positions[i * 3 + 2] = z + pivot.z;
+      if (S.scale) S.scale[i] *= factor;
+      if (S.scaleXYZ) {
+        S.scaleXYZ[i * 3] *= factor;
+        S.scaleXYZ[i * 3 + 1] *= factor;
+        S.scaleXYZ[i * 3 + 2] *= factor;
+      }
+    }
   } else {
-    const factor = mode === 'scale-tool' ? Math.exp(-dy * 0.01) : 1;
+    // rotate — positions only around fixed pivot (rigid body). Skip per-point scale.
     const axis = camera.getWorldDirection(new THREE.Vector3()).normalize();
     const q = new THREE.Quaternion().setFromAxisAngle(axis, dx * 0.01);
+    const p = new THREE.Vector3();
     for (const i of indices) {
-      const p = new THREE.Vector3(S.positions[i*3],S.positions[i*3+1],S.positions[i*3+2]).sub(pivot);
-      if (mode === 'scale-tool') {
-        p.multiplyScalar(factor);
-        if (S.scale) S.scale[i] *= factor;
-        if (S.scaleXYZ) for (let a=0;a<3;a++) S.scaleXYZ[i*3+a] *= factor;
-      } else {
-        p.applyQuaternion(q);
-        if (S.rotation) { const oldQ=new THREE.Quaternion(S.rotation[i*4+1],S.rotation[i*4+2],S.rotation[i*4+3],S.rotation[i*4]); oldQ.premultiply(q).normalize(); S.rotation.set([oldQ.w,oldQ.x,oldQ.y,oldQ.z],i*4); }
+      p.set(S.positions[i * 3], S.positions[i * 3 + 1], S.positions[i * 3 + 2]).sub(pivot);
+      p.applyQuaternion(q);
+      S.positions[i * 3] = p.x + pivot.x;
+      S.positions[i * 3 + 1] = p.y + pivot.y;
+      S.positions[i * 3 + 2] = p.z + pivot.z;
+      if (S.rotation) {
+        // storage is (w,x,y,z); THREE.Quaternion is (x,y,z,w)
+        const oldQ = new THREE.Quaternion(
+          S.rotation[i * 4 + 1], S.rotation[i * 4 + 2], S.rotation[i * 4 + 3], S.rotation[i * 4]
+        );
+        oldQ.premultiply(q).normalize();
+        S.rotation[i * 4] = oldQ.w;
+        S.rotation[i * 4 + 1] = oldQ.x;
+        S.rotation[i * 4 + 2] = oldQ.y;
+        S.rotation[i * 4 + 3] = oldQ.z;
       }
-      p.add(pivot); S.positions[i*3]=p.x; S.positions[i*3+1]=p.y; S.positions[i*3+2]=p.z;
     }
   }
   if (redraw) { window.FumocaGaussianRenderer?.invalidateSort(); rebuildGeometry(); }
 }
+let _xformPivot = null;
+let _xformIndices = null;
+
 
 function selectSphereAtScreen(sx, sy) {
   if (!S.positions || !S.alive || !window.FumocaSmartSelect) return 0;
@@ -4080,6 +4119,7 @@ window.addEventListener('pointerup', e => {
   if (S.mode === 'lasso' && S.lassoPoints.length >= 3) selectByLasso(S.lassoPoints);
   if (['box','sphere','lasso'].includes(S.mode)) syncTransformGizmo();
   if (['move','scale-tool','rotate'].includes(S.mode)) { window.FumocaGaussianRenderer?.invalidateSort(); rebuildGeometry(); }
+  _xformPivot = null; _xformIndices = null;
   S.dragging = false; S.dragStart = null; S.dragCurrent = null; S.lassoPoints = [];
   renderLasso();
 });
