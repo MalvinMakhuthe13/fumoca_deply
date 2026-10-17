@@ -107,6 +107,7 @@ Create frozen test sets for calibrated vehicle, object and scene captures. NaviG
 ### Follow-up QA/QC — PLY layer persistence
 
 - Added a guarded restore path for SH-preserving edited PLY files: the editor only reapplies the database `editor_scene` manifest when the file is opened from a matching `nifId` record, the URL matches that record's current `r2_key`, and the manifest point count matches the loaded PLY.
+- Found and corrected a separate reopen risk: the editor bootstrap previously preferred legacy URL columns even after Studio updated `nif_files.r2_key`. It now builds the current artifact URL from the latest R2 key first, so a save does not silently reopen an older URL-backed artifact. Static CI guards cover this preference.
 - Added automated tests for compact index remapping, layer visibility/opacity, malformed indices, legacy files, and positive/negative PLY record matching.
 - GitHub Actions caught a test-harness newline-joining error on the first run. The harness was corrected; the subsequent run passed: https://github.com/MalvinMakhuthe13/fumoca_deply/actions/runs/39040672368
 - This is targeted regression evidence, not proof of a live browser/R2/Supabase round-trip. Signed URL formats and the deployed loader path still need an end-to-end staging test.
