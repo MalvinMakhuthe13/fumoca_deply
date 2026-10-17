@@ -123,17 +123,29 @@ function decodeSplt(spltData) {
     const chanName = CHANNEL[chanId];
     if (!chanName) throw new Error(`[FUMOC Worker] Unsupported channel ID ${chanId}`);
     if (channels[chanName] !== undefined) throw new Error(`[FUMOC Worker] Duplicate channel ${chanName}`);
-    const freqBytes = spltData.subarray(off, off + 512);
-    if (freqBytes.byteLength !== 512) throw new Error('[FUMOC Worker] Frequency table is truncated');
-    off += 512;
-    const metaLen = u32(off, 'channel metadata length'); off += 4;
-    if (metaLen < 2 || metaLen > MAX_HEADER_BYTES || off + metaLen + 4 > spltData.byteLength) {
-      throw new Error('[FUMOC Worker] Channel metadata is truncated or oversized');
+    let selected = null;
+    for (const freqLen of [512, 131072]) {
+      const metaLenOffset = off + freqLen;
+      if (metaLenOffset + 4 > spltData.byteLength) continue;
+      const candidateMetaLen = u32(metaLenOffset, 'channel metadata length');
+      if (candidateMetaLen < 2 || candidateMetaLen > MAX_HEADER_BYTES ||
+          metaLenOffset + 4 + candidateMetaLen + 4 > spltData.byteLength) continue;
+      let candidateMeta;
+      try { candidateMeta = JSON.parse(dec.decode(spltData.subarray(metaLenOffset + 4, metaLenOffset + 4 + candidateMetaLen))); }
+      catch { continue; }
+      if (!candidateMeta || typeof candidateMeta !== 'object' || Array.isArray(candidateMeta)) continue;
+      if (freqLen === 131072 && candidateMeta.order !== 1) continue;
+      if (freqLen === 512 && candidateMeta.order === 1) continue;
+      selected = { freqLen, metaLen: candidateMetaLen, meta: candidateMeta };
+      break;
     }
-    let meta;
-    try { meta = JSON.parse(dec.decode(spltData.subarray(off, off + metaLen))); }
-    catch (error) { throw new Error('[FUMOC Worker] Channel metadata JSON is invalid', { cause: error }); }
-    off += metaLen;
+    if (!selected) throw new Error('[FUMOC Worker] Channel metadata is truncated, oversized or invalid');
+    if (selected.freqLen === 131072) {
+      throw new Error('[FUMOC Worker] Order-1 ANS is not supported by this legacy worker; use the canonical FumocDecoder.');
+    }
+    const { freqLen, metaLen, meta } = selected;
+    const freqBytes = spltData.subarray(off, off + freqLen);
+    off += freqLen + 4 + metaLen;
     const compLen = u32(off, 'compressed channel length'); off += 4;
     if (compLen < 4 || compLen > MAX_SECTION_BYTES || off + compLen > spltData.byteLength) {
       throw new Error('[FUMOC Worker] Compressed channel is truncated or oversized');
