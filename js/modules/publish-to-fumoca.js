@@ -141,6 +141,20 @@ const FumocaPublish = (() => {
     const splatId = rec?.id || new URLSearchParams(location.search).get('splatId');
     const aliveCount = Array.from(S.alive).filter(Boolean).length;
 
+    // Reload the latest row before merging META so concurrent Studio actions
+    // (mobile widgets, open-state variants, thumbnails, etc.) are not erased by
+    // a stale in-memory record during publish.
+    let existingMeta = rec?.meta && typeof rec.meta === 'object' ? rec.meta : {};
+    if (splatId) {
+      const { data: latestRecord, error: latestError } = await sb.from('nif_files')
+        .select('id,user_id,r2_key,is_public,meta').eq('id', splatId).eq('user_id', user.id).maybeSingle();
+      if (latestError || !latestRecord) {
+        throw new Error(latestError?.message || 'The NIF record could not be reloaded or is not owned by the current user.');
+      }
+      existingMeta = latestRecord.meta && typeof latestRecord.meta === 'object' ? latestRecord.meta : {};
+      window._fumocaCurrentRecord = { ...(window._fumocaCurrentRecord || {}), ...latestRecord, meta: existingMeta };
+    }
+
     onProgress?.('Preparing splat…', 10);
 
     // 1. Build a genuine .nif blob (no .fumoc, no bare .splat/.ply)
@@ -168,7 +182,6 @@ const FumocaPublish = (() => {
     // table (confirmed against production; `splats` does not exist there).
     // r2_key stores the storage key, not a public URL — the same convention
     // reconstruction_jobs/pipeline.py already uses.
-    const existingMeta = rec?.meta && typeof rec.meta === 'object' ? rec.meta : {};
     const payload = {
       r2_key: fileKey,
       is_public: visibility === 'public',
@@ -210,6 +223,20 @@ const FumocaPublish = (() => {
       }
       finalId = newRec.id;
     }
+
+    // Keep Studio's in-memory record synchronized with the committed database
+    // state so subsequent edits do not overwrite freshly published metadata.
+    window._fumocaCurrentRecord = {
+      ...(window._fumocaCurrentRecord || {}),
+      id: finalId,
+      user_id: user.id,
+      r2_key: fileKey,
+      is_public: visibility === 'public',
+      gaussian_count: aliveCount,
+      title: payload.title || title || rec?.title || S.fileName || 'Untitled Splat',
+      meta: payload.meta,
+    };
+    window._fumocaCanonicalFileUrl = publicUrl;
 
     onProgress?.('Published!', 100);
 
