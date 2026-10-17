@@ -381,17 +381,24 @@ function showResult(stats) {
   };
 
   btnShare.onclick = async () => {
-    // Upload to FUMOCA storage for a shareable link
+    // Upload to FUMOCA storage for a shareable link.
     btnShare.textContent='Uploading…'; btnShare.disabled=true;
+    let shareUrl;
     try {
-      const shareUrl = await uploadForShare(resultBuffer, dlName);
+      shareUrl = await uploadForShare(resultBuffer, dlName);
+    } catch(e) {
+      btnShare.textContent='Upload failed: '+e.message;
+      setTimeout(()=>{btnShare.textContent='🔗 Copy share link';btnShare.disabled=false;},3000);
+      return;
+    }
+    try {
       await navigator.clipboard.writeText(shareUrl);
       btnShare.textContent='✓ Link copied!';
-      setTimeout(()=>{btnShare.textContent='🔗 Copy share link';btnShare.disabled=false;},3000);
-    } catch(e) {
-      btnShare.textContent='Upload failed';
-      setTimeout(()=>{btnShare.textContent='🔗 Copy share link';btnShare.disabled=false;},2000);
+    } catch {
+      window.prompt('Copy your FUMOCA share link:', shareUrl);
+      btnShare.textContent='✓ Link ready';
     }
+    setTimeout(()=>{btnShare.textContent='🔗 Copy share link';btnShare.disabled=false;},3000);
   };
 
   btnUpload.onclick = async () => {
