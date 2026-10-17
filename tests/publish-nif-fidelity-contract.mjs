@@ -14,12 +14,10 @@ assert.match(publish, /window\._fumocanifUrl \|\| window\._fumocaNifUrl/,
   'publish must resolve the same canonical NIF URL exposed by the viewer and hotspot modules');
 assert.match(publish, /CHUNK\.KEYFRAME_MESH, CHUNK\.GAUSSIAN_SH, CHUNK\.LIDAR_ATTR/,
   'mesh and point-indexed sidecars must be rebuilt rather than duplicated as passthrough');
-assert.match(builder, /_encodeCurrentSplatRows\(S, aliveIndices\)/,
+assert.match(builder, /encodeEditorSplatRows\(S, aliveIndices\)/,
   'publish must serialize current edited geometry for every source format');
-assert.match(publish, /S\.scaleXYZ\?\./,
-  'publish row encoder must preserve anisotropic per-axis scale');
-assert.match(publish, /S\.rotation/,
-  'publish row encoder must preserve current Gaussian rotations');
+assert.match(publish, /import \{ encodeEditorSplatRows \} from '\.\/editor-splat-rows\.js';/,
+  'publish must use the separately tested live-geometry encoder');
 assert.match(builder, /compactGaussianSHSidecar\(/,
   'publish must compact SH coefficients using the same alive-point indices as geometry');
 assert.match(builder, /gaussianSH: gaussianSH \|\| undefined/,
