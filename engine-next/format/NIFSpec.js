@@ -845,6 +845,14 @@ export class NIFReader {
       for (let i = 0; i < data.length; i++) {
         if (!Number.isFinite(data[i])) throw new Error(`[NIFSpec] Raw geometry contains a non-finite value at float index ${i}`);
       }
+      for (let i = 0; i < count; i++) {
+        const o = i * 14 + 6;
+        const norm = Math.hypot(data[o], data[o+1], data[o+2], data[o+3]);
+        if (!Number.isFinite(norm) || norm < 1e-8) {
+          throw new Error(`[NIFSpec] Raw geometry point ${i} has an invalid zero-length quaternion`);
+        }
+        for (let j = 0; j < 4; j++) data[o+j] /= norm;
+      }
       return { count, data };
     }
 
@@ -895,6 +903,11 @@ export class NIFReader {
         out[o + 7] = dv.getInt8(base + 10) / 127;
         out[o + 8] = dv.getInt8(base + 11) / 127;
         out[o + 9] = dv.getInt8(base + 12) / 127;
+        const qNorm = Math.hypot(out[o+6], out[o+7], out[o+8], out[o+9]);
+        if (!Number.isFinite(qNorm) || qNorm < 1e-8) {
+          throw new Error(`[NIFSpec] Quantised geometry point ${i} has an invalid zero-length quaternion`);
+        }
+        for (let j = 6; j <= 9; j++) out[o+j] /= qNorm;
 
         // Opacity (uint8 → logit-space)
         const opSig = decompressed[base + 13] / 255;
