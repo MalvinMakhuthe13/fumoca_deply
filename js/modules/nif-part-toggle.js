@@ -181,5 +181,27 @@ export async function authorPartToggle(nifUrl, labelOrParts, opts = {}) {
     throw error;
   }
 
-  return { openNifUrl: publicUrl, layers };
+  return { openNifUrl: publicUrl, fileKey, layers };
+}
+
+export async function discardPartToggleVariant(fileKey, recordId, ownerId) {
+  if (!fileKey || !recordId || !ownerId || !fileKey.startsWith(`${ownerId}/open-variants/`)) {
+    throw new Error('Refusing to discard an open-state variant without matching owner-scoped identifiers.');
+  }
+  const sb = window._fumocaSupabase;
+  if (!sb) throw new Error('Supabase session is unavailable; cannot unregister the open-state variant.');
+  const { data: current, error: readError } = await sb.from('nif_files')
+    .select('meta').eq('id', recordId).eq('user_id', ownerId).single();
+  if (readError || !current) throw new Error(readError?.message || 'Parent NIF was not found.');
+  const previous = current.meta && typeof current.meta === 'object' ? current.meta : {};
+  const keys = Array.isArray(previous.open_variant_r2_keys) ? previous.open_variant_r2_keys : [];
+  const nextMeta = { ...previous, open_variant_r2_keys: keys.filter(key => key !== fileKey) };
+  const { data: updated, error: updateError } = await sb.from('nif_files').update({ meta: nextMeta })
+    .eq('id', recordId).eq('user_id', ownerId).select('id').maybeSingle();
+  if (updateError || !updated) throw new Error(updateError?.message || 'Could not unregister open-state variant.');
+  if (window._fumocaCurrentRecord?.id === recordId) {
+    window._fumocaCurrentRecord = { ...window._fumocaCurrentRecord, meta: nextMeta };
+  }
+  const { error: deleteError } = await r2.from('nif-files').remove([fileKey]);
+  if (deleteError) throw new Error(deleteError.message || 'Variant unregistered but storage cleanup failed.');
 }
