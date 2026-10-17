@@ -377,3 +377,10 @@ handler — say so and I'll do it properly rather than half-covering it here.
 
 Where something says "verified," it was run. Where something says "not verified," it wasn't —
 say so if you find out otherwise either way, and this document should get updated to match.*
+
+
+## External cross-reference update (2026-10-17)
+
+See [docs/PLATFORM_INTEGRATION_AUDIT.md](docs/PLATFORM_INTEGRATION_AUDIT.md) for a repository-wide integration matrix against Image2Splat, NaviGS, KIRI 3DGS Render for Blender, and LichtFeld Studio. The matrix separates reference workflows from reusable implementation code and defines gates for the full product path.
+
+The audit prioritises resolving persistence contracts, tracing every visible button to a live handler/service, retaining capture and artifact provenance, testing worker state transitions, and verifying Studio → save → viewer → embed/export. It does not claim these gaps are fixed; they require incremental implementation and real deployment checks.
