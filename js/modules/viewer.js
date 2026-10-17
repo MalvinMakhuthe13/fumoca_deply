@@ -2060,12 +2060,14 @@ async function boot() {
   // Private NIF outputs are not anonymously readable. Ask the Worker for a
   // short-lived key-bound URL so the renderer can load the object without
   // exposing the user's Supabase access token to the rendering library.
+  let privateReadAuthorizationFailed = false;
   if (currentRecord?.r2_key && currentRecord.is_public !== true) {
     try {
       fileUrl = await r2.from('nif-files').authenticatedUrl(currentRecord.r2_key);
     } catch (error) {
       console.warn('[Viewer] private NIF read authorization failed', error?.message || error);
       fileUrl = '';
+      privateReadAuthorizationFailed = true;
     }
     if (currentRecord.meta?.thumbnail_r2_key) {
       try {
@@ -2103,7 +2105,7 @@ async function boot() {
     try { sessionStorage.removeItem('fumoca:selectedNif'); } catch(_) {}
   }
   applyHeader(currentRecord);
-  if (!fileUrl && currentRecord) fileUrl = resolvenifUrl(currentRecord);
+  if (!fileUrl && currentRecord && !privateReadAuthorizationFailed) fileUrl = resolvenifUrl(currentRecord);
   console.log('[Viewer] Final fileUrl:', fileUrl || '(empty â€” no renderable file found)');
   configurePreview(currentRecord);
   await detectManagePermission();
