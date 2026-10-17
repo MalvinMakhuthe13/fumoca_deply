@@ -92,5 +92,18 @@ closeTo(sigmoid(plyDecoded.gaussians.data[10]), 1, 0.003, 'PLY point 0 opacity')
 closeTo(sigmoid(plyDecoded.gaussians.data[11]), 1, 0.003, 'PLY point 0 red');
 closeTo(sigmoid(plyDecoded.gaussians.data[12]), 0.25, 0.003, 'PLY point 0 green');
 closeTo(sigmoid(plyDecoded.gaussians.data[13]), 0, 0.003, 'PLY point 0 blue');
+closeTo(plyDecoded.gaussians.data[2], 4, 0.0001, 'PLY point 0 z');
+for (let axis = 3; axis < 6; axis++) closeTo(plyDecoded.gaussians.data[axis], Math.log(0.01), 0.025, `PLY point 0 isotropic log-scale ${axis}`);
+closeTo(plyDecoded.gaussians.data[6], 1, 0.0001, 'PLY identity quaternion w');
+closeTo(plyDecoded.gaussians.data[7], 0, 0.0001, 'PLY identity quaternion x');
+closeTo(plyDecoded.gaussians.data[8], 0, 0.0001, 'PLY identity quaternion y');
+closeTo(plyDecoded.gaussians.data[9], 0, 0.0001, 'PLY identity quaternion z');
+closeTo(plyDecoded.gaussians.data[14], -1, 0.0001, 'PLY point 1 x');
+closeTo(plyDecoded.gaussians.data[15], 0.5, 0.0001, 'PLY point 1 y');
+closeTo(plyDecoded.gaussians.data[16], 8, 0.0001, 'PLY point 1 z');
+closeTo(sigmoid(plyDecoded.gaussians.data[24]), 0.6, 0.003, 'PLY point 1 opacity');
+closeTo(sigmoid(plyDecoded.gaussians.data[25]), 0.1, 0.003, 'PLY point 1 red');
+closeTo(sigmoid(plyDecoded.gaussians.data[26]), 0.5, 0.003, 'PLY point 1 green');
+closeTo(sigmoid(plyDecoded.gaussians.data[27]), 0.9, 0.003, 'PLY point 1 blue');
 
 console.log('SPLAT ↔ NIF and PLY → NIF CPU conversion round-trips passed.');
