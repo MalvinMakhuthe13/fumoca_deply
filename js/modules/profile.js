@@ -11,7 +11,7 @@ function normalizeStatus(status, url) {
   const raw = String(status || '').toLowerCase();
   if (['done', 'ready', 'published', 'complete', 'completed'].includes(raw)) return 'done';
   if (['processing', 'running', 'training', 'rendering'].includes(raw)) return 'processing';
-  if (['failed', 'error'].includes(raw)) return 'failed';
+  if (['failed', 'error', 'needs_retry', 'cancelled'].includes(raw)) return 'failed';
   if (raw === 'queued' || raw === 'pending') return 'queued';
   return url ? 'done' : 'queued';
 }
@@ -36,12 +36,27 @@ function extractStoragePath(urlString) {
 
 async function deleteUploadRecord(item) {
   if (item.source === 'nif_files') {
-    if (item.output_url) {
-      const hit = extractStoragePath(item.output_url);
-      if (hit) { try { await r2.from(hit.bucket).remove([hit.path]); } catch (_) {} }
-    }
+    // The NIF row stores R2 object keys, not Supabase Storage URLs. Prefer
+    // those keys directly so CDN URLs do not leave orphaned source/thumbnail
+    // objects behind. Delete the database row first; a storage failure should
+    // never destroy the only database reference to the remaining objects.
     const { error } = await supabase.from('nif_files').delete().eq('id', item.id).eq('user_id', item.user_id);
     if (error) throw error;
+
+    const keys = [
+      item.r2_key,
+      item.meta?.source_r2_key,
+      item.meta?.source_capture?.r2_key,
+      item.meta?.thumbnail_r2_key,
+      item.meta?.capture_thumbnail_r2_key,
+    ].filter((key, index, all) => typeof key === 'string' && key.trim() && all.indexOf(key) === index);
+    const results = await Promise.allSettled(keys.map(key => r2.from('nif-files').remove([key])));
+    const failed = results.filter(result => result.status === 'rejected' || result.value?.error);
+    if (failed.length) {
+      console.warn('[FUMOCA profile] NIF record deleted; some R2 objects may need cleanup', {
+        nifId: item.id, failedCount: failed.length,
+      });
+    }
     return;
   }
   const candidates = [
@@ -102,7 +117,7 @@ function renderManage() {
           <div class="mini-item-sub">${esc(status)} · ${new Date(item.created_at).toLocaleString()}</div>
         </div>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-          ${status === 'done' ? `<a href="viewer.html?id=${encodeURIComponent(item.id)}" class="nav-item active" style="display:inline-flex;padding:10px 12px;">Open</a>` : ''}
+          ${status === 'done' ? `<a href="viewer.html?nifId=${encodeURIComponent(item.id)}" class="nav-item active" style="display:inline-flex;padding:10px 12px;">Open</a>` : ''}
           <button class="upload-btn manage-delete-btn" type="button" data-delete-id="${esc(item.id)}" style="padding:10px 14px;background:rgba(255,72,72,0.12);border-color:rgba(255,72,72,0.28);color:#ffb1b1;">Delete</button>
         </div>
       </div>
@@ -180,19 +195,43 @@ async function init() {
   // expects, rather than touching every consumer.
   const { data: nifRows } = await supabase
     .from('nif_files')
-    .select('id,user_id,title,created_at,r2_key,thumbnail_url,meta')
+    .select('id,user_id,title,created_at,r2_key,thumbnail_url,meta,job_id')
     .eq('user_id', user.id)
     .order('created_at', { ascending: false });
-  const nifs = (Array.isArray(nifRows) ? nifRows : []).map((row) => ({
-    id: row.id,
-    user_id: row.user_id,
-    status: 'done', // a nif_files row only ever exists after a successful pipeline run
-    title: row.title,
-    created_at: row.created_at,
-    output_url: row.r2_key ? r2.publicUrl('nif-files', row.r2_key) : '',
-    thumbnail_url: (row.meta?.thumbnail_r2_key && r2.publicUrl('nif-files', row.meta.thumbnail_r2_key)) || row.thumbnail_url || '',
-    source: 'nif_files', // deleteUploadRecord needs this to know which table/bucket to clean up
-  }));
+  const nifList = Array.isArray(nifRows) ? nifRows : [];
+  const jobIds = nifList.map(row => row.job_id || row.id).filter(Boolean);
+  let jobsById = new Map();
+  if (jobIds.length) {
+    const { data: jobs, error: jobsError } = await supabase
+      .from('reconstruction_jobs')
+      .select('id,status,progress,error_message')
+      .in('id', [...new Set(jobIds)]);
+    if (jobsError) console.warn('[FUMOCA profile] reconstruction status lookup failed', jobsError);
+    else jobsById = new Map((jobs || []).map(job => [job.id, job]));
+  }
+  const nifs = nifList.map((row) => {
+    const job = jobsById.get(row.job_id || row.id);
+    return {
+      id: row.id,
+      user_id: row.user_id,
+      // Direct imports have no matching job and are ready immediately.
+      // If a pipeline artifact names a job but that job is unavailable (or
+      // hidden by permissions), do not infer success from the NIF row alone.
+      status: job?.status || (row.job_id ? 'needs_retry' : 'done'),
+      processing_progress: job?.progress ?? (row.job_id ? 0 : 100),
+      error_message: job?.error_message || (row.job_id && !job
+        ? 'Processing status could not be found. Refresh or retry this job.'
+        : ''),
+      title: row.title,
+      created_at: row.created_at,
+      output_url: row.r2_key ? r2.publicUrl('nif-files', row.r2_key) : '',
+      r2_key: row.r2_key,
+      job_id: row.job_id || null,
+      meta: row.meta || {},
+      thumbnail_url: (row.meta?.thumbnail_r2_key && r2.publicUrl('nif-files', row.meta.thumbnail_r2_key)) || row.thumbnail_url || '',
+      source: 'nif_files', // deleteUploadRecord needs this to know which table/bucket to clean up
+    };
+  });
 
   uploads = [...nifs, ...(Array.isArray(splats) ? splats : [])]
     .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));

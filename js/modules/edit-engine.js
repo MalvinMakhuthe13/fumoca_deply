@@ -1187,24 +1187,32 @@ eSaveToSupabase?.addEventListener('click', async () => {
     const cleanedName = `${nifFileName}_cleaned_${Date.now()}.nif`;
     const path = `nifs/${cleanedName}`;
     setStatus('Uploading to R2 storage…', 'progress');
-    const { publicUrl, error: uploadErr } = await r2
+    const { publicUrl, fileKey, error: uploadErr } = await r2
       .from('nif-files')
       .upload(path, new Blob([buf], { type: 'application/octet-stream' }), { contentType: 'application/octet-stream' });
     if (uploadErr) throw new Error('R2 upload: ' + uploadErr.message);
+    if (!fileKey) throw new Error('R2 upload completed without a storage key; refusing to create an unresolvable record.');
     setStatus('Creating nif record…', 'progress');
     const { user } = (await supabase.auth.getUser()).data;
     const variantRecord = {
       user_id: user?.id,
       title: (currentRecord?.title || nifFileName) + ' (cleaned)',
       description: `Cleaned variant — ${fmt(alive)} Gaussians, ${fmt(numG - alive)} removed`,
-      file_url: publicUrl,
-      status: 'ready',
-      parent_id: currentRecord?.id || null,
-      variant_type: 'edit_engine_clean',
+      vertical: currentRecord?.vertical || 'generic',
+      r2_key: fileKey,
+      file_size: buf.byteLength,
       gaussian_count: alive,
-      edit_recipe: JSON.stringify({ history: editHistory.slice(0, 20) }),
+      is_public: false,
+      forked_from: currentRecord?.id || null,
+      meta: {
+        ...(currentRecord?.meta && typeof currentRecord.meta === 'object' ? currentRecord.meta : {}),
+        variant_type: 'edit_engine_clean',
+        parent_id: currentRecord?.id || null,
+        source_public_url: publicUrl,
+        edit_recipe: { history: editHistory.slice(0, 20) },
+      },
     };
-    const { error: insertErr } = await supabase.from('nifs').insert(variantRecord);
+    const { error: insertErr } = await supabase.from('nif_files').insert(variantRecord);
     if (insertErr) throw new Error('DB insert: ' + insertErr.message);
     setStatus(`✓ Saved — ${fmt(alive)} Gaussians → ${cleanedName}`, 'success');
     addHistory(`☁ Saved to Supabase: ${cleanedName} (${fmt(alive)} Gaussians)`);
@@ -1351,15 +1359,19 @@ window.addEventListener('fumoca:requestEditMask', _fumocaEmitEditMask);
   const sb = window._fumocaSupabase;
   if (!sb) return;
 
-  const { data } = await sb.from('nifs').select('*').eq('id', nifId).single();
-  if (!data) return;
+  const { data, error } = await sb.from('nif_files').select('*').eq('id', nifId).single();
+  if (error || !data) {
+    console.warn('[EditEngine v60] Could not load live NIF record:', error?.message || 'not found');
+    return;
+  }
 
   window._fumocaCurrentRecord = data;
 
-  // Restore previous edit_recipe if present
-  if (data.edit_recipe && typeof data.edit_recipe === 'object' && Object.keys(data.edit_recipe).length) {
-    console.log('[EditEngine v60] Restoring edit recipe from live nif:', data.edit_recipe);
-    window._fumocaEditRecipeRestored = data.edit_recipe;
+  // Edit state belongs in the canonical JSON metadata field, not phantom columns.
+  const editRecipe = data.meta?.edit_recipe;
+  if (editRecipe && typeof editRecipe === 'object' && Object.keys(editRecipe).length) {
+    console.log('[EditEngine v60] Restoring edit recipe from live NIF:', editRecipe);
+    window._fumocaEditRecipeRestored = editRecipe;
   }
 
   // Swap the save button label + behaviour
@@ -1374,11 +1386,12 @@ window.addEventListener('fumoca:requestEditMask', _fumocaEmitEditMask);
     window.saveLiveEdit = async (delta) => {
       const rec = window._fumocaCurrentRecord;
       if (!rec?.id) return false;
-      const merged = { ...(rec.edit_recipe || {}), ...delta, lastSaved: new Date().toISOString() };
-      const payload = { edit_recipe: merged, last_edited_at: new Date().toISOString() };
-      if (window._fumocaEditedNifUrl) payload.nif_url = window._fumocaEditedNifUrl;
-      const { error } = await sb.from('nifs').update(payload).eq('id', rec.id);
-      if (!error) window._fumocaCurrentRecord = { ...rec, edit_recipe: merged };
+      const merged = { ...(rec.meta?.edit_recipe || {}), ...delta, lastSaved: new Date().toISOString() };
+      const meta = { ...(rec.meta && typeof rec.meta === 'object' ? rec.meta : {}), edit_recipe: merged };
+      if (window._fumocaEditedNifUrl) meta.edited_nif_url = window._fumocaEditedNifUrl;
+      const { error } = await sb.from('nif_files').update({ meta }).eq('id', rec.id);
+      if (!error) window._fumocaCurrentRecord = { ...rec, meta };
+      else console.error('[EditEngine v60] Live edit save failed:', error.message);
       return !error;
     };
   }

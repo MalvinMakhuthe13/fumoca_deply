@@ -17,7 +17,10 @@ export function renderHotspotsToLayer(hotspots, layer = document.getElementById(
     m.style.left = (hs.x ?? 50) + '%';
     m.style.top = (hs.y ?? 50) + '%';
     const title = hs.title || hs.label || 'Hotspot';
-    m.innerHTML = `<div class="hotspot-pill">${title}</div>`;
+    const pill = document.createElement('div');
+    pill.className = 'hotspot-pill';
+    pill.textContent = title;
+    m.appendChild(pill);
     m.title = title;
     m.addEventListener('click', async (e) => {
       e.stopPropagation();
@@ -35,7 +38,9 @@ export function renderHotspotsToLayer(hotspots, layer = document.getElementById(
 
 export async function loadInteractionsFromRecord(rec) {
   if (!rec) return null;
-  const meta = rec.metadata || {};
+  // Canonical NIF records store editable scene data in `meta`; `metadata`
+  // remains readable for legacy records while they are migrated.
+  const meta = (rec.meta && typeof rec.meta === 'object' ? rec.meta : rec.metadata) || {};
   const hotspots = meta.hotspots || meta.interactions?.hotspots || [];
   const walkthrough = meta.walkthrough || null;
   const sceneAudio = meta.sceneAudio || meta.audio || null;
@@ -88,18 +93,28 @@ export function buildInteractionMetadata(extra = {}) {
   };
 }
 
-export async function saveInteractionsToSupabase(supabase, splatId, metadataPatch) {
-  if (!supabase || !splatId) throw new Error('supabase + splatId required');
-  const { data: row } = await supabase
-    .from('splats')
-    .select('metadata')
-    .eq('id', splatId)
+export async function saveInteractionsToSupabase(supabase, nifId, metadataPatch) {
+  if (!supabase || !nifId) throw new Error('supabase + nifId required');
+  if (!metadataPatch || typeof metadataPatch !== 'object' || Array.isArray(metadataPatch)) {
+    throw new Error('metadataPatch must be an object');
+  }
+
+  // `nif_files.meta` is the canonical NIF metadata contract. Do not silently
+  // write to the legacy `splats.metadata` table: that can make a save appear
+  // successful while the canonical viewer never sees it.
+  const { data: row, error: readError } = await supabase
+    .from('nif_files')
+    .select('meta')
+    .eq('id', nifId)
     .maybeSingle();
-  const prev = row?.metadata || {};
-  const metadata = { ...prev, ...metadataPatch };
-  const { error } = await supabase.from('splats').update({ metadata }).eq('id', splatId);
-  if (error) throw error;
-  return metadata;
+  if (readError) throw new Error(`Could not read NIF metadata: ${readError.message}`);
+  if (!row) throw new Error(`NIF ${nifId} was not found in nif_files; interaction save was not written.`);
+
+  const previous = row.meta && typeof row.meta === 'object' && !Array.isArray(row.meta) ? row.meta : {};
+  const meta = { ...previous, ...metadataPatch };
+  const { error: writeError } = await supabase.from('nif_files').update({ meta }).eq('id', nifId);
+  if (writeError) throw new Error(`Could not save NIF interactions: ${writeError.message}`);
+  return meta;
 }
 
 if (typeof window !== 'undefined') {

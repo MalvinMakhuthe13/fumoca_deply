@@ -27,7 +27,8 @@ const MS = (() => {
   // ─── Load states from record metadata ─────────────────────────────────────
   function _loadStates(record) {
     try {
-      const raw = record?.metadata?.motion_states;
+      const metadata = (record?.meta && typeof record.meta === 'object' ? record.meta : record?.metadata) || {};
+      const raw = metadata.motion_states;
       if (Array.isArray(raw) && raw.length) return raw;
     } catch {}
     // Single splat = one state
@@ -167,11 +168,24 @@ const MS = (() => {
     try {
       const sb = window._fumocaSupabase;
       if (!sb) return;
-      await sb.from('splats').update({
-        metadata: { ...(_record.metadata || {}), motion_states: _states }
-      }).eq('id', _record.id);
+      const { data: row, error: readError } = await sb
+        .from('nif_files')
+        .select('meta')
+        .eq('id', _record.id)
+        .maybeSingle();
+      if (readError) throw readError;
+      if (!row) throw new Error(`NIF ${_record.id} was not found in nif_files`);
+      const previous = row.meta && typeof row.meta === 'object' && !Array.isArray(row.meta) ? row.meta : {};
+      const { error: writeError } = await sb.from('nif_files')
+        .update({ meta: { ...previous, motion_states: _states } })
+        .eq('id', _record.id);
+      if (writeError) throw writeError;
+      _record = { ..._record, meta: { ...previous, motion_states: _states } };
     } catch (e) {
-      console.warn('[MotionStates] persist failed:', e);
+      console.error('[MotionStates] persist failed:', e);
+      window.dispatchEvent(new CustomEvent('fumoca:motionStateSaveFailed', {
+        detail: { recordId: _record?.id, message: e?.message || String(e) }
+      }));
     }
   }
 

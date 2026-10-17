@@ -721,11 +721,25 @@ async function saveToSupabase() {
     if(!blob){setStatus('Only .splat can be saved back.');return;}
     const path=`splats/${splatId}/cleaned_${Date.now()}.splat`;
     const arr=await blob.arrayBuffer();
-    const { publicUrl: _r2Url, error } = await r2.from('nif-files').upload(path, new Blob([arr], {type:'application/octet-stream'}), {contentType:'application/octet-stream'});
+    const { publicUrl, fileKey, error } = await r2.from('nif-files').upload(path, new Blob([arr], {type:'application/octet-stream'}), {contentType:'application/octet-stream'});
     if(error)throw error;
-    const publicUrl = _r2Url;
-    await supabase.from('splats').update({splat_url:publicUrl,output_url:publicUrl}).eq('id',splatId);
-    setStatus(`Saved! ${fmt(idx.length)} gaussians → splats record updated.`);
+    if(!fileKey)throw new Error('Storage upload returned no file key; refusing to save an unresolvable edit.');
+    const { data: record, error: readError } = await supabase.from('nif_files').select('meta').eq('id',splatId).single();
+    if(readError)throw new Error(`Could not load NIF metadata: ${readError.message}`);
+    if(!record)throw new Error('NIF record was not found; the uploaded derivative was not registered.');
+    const meta = {
+      ...(record.meta && typeof record.meta === 'object' ? record.meta : {}),
+      cleaned_splat: {
+        r2_key: fileKey,
+        public_url: publicUrl || null,
+        gaussian_count: idx.length,
+        created_at: new Date().toISOString(),
+        source_format: 'splat',
+      },
+    };
+    const { error: updateError } = await supabase.from('nif_files').update({meta}).eq('id',splatId);
+    if(updateError)throw new Error(`Could not register cleaned splat: ${updateError.message}`);
+    setStatus(`Saved cleaned splat derivative (${fmt(idx.length)} Gaussians). Original NIF remains unchanged.`);
   } catch(err) { setStatus(`Save failed: ${err.message}`); }
 }
 

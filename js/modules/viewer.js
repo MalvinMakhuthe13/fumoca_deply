@@ -295,24 +295,39 @@ async function deleteCurrentUpload() {
     alert('Only the owner or admin can delete this upload.');
     return;
   }
-  if (!window.confirm('Delete this upload, linked files, and its processing rows?')) return;
+  // fetchRecord() can deliberately return a reconstruction_jobs-only
+  // placeholder while processing is queued/running or before nif_files is
+  // registered. That placeholder is not a stored artifact and must never be
+  // deleted through the nif_files path (especially for admins).
+  if (!currentRecord.r2_key || !currentRecord.user_id) {
+    alert('This item is a processing job, not a saved NIF artifact. Open your profile or feed to manage it after processing finishes.');
+    return;
+  }
+  if (!window.confirm('Delete this saved NIF and its linked source/thumbnail files?')) return;
   const btn = deleteUploadBtn;
   const original = btn?.textContent || 'Delete upload';
   if (btn) { btn.disabled = true; btn.textContent = 'Deletingâ€¦'; }
   try {
-    const candidates = [
-      currentRecord?.nif_url, currentRecord?.file_url, currentRecord?.file, currentRecord?.thumbnail_url,
-      currentRecord?.thumbnail, currentRecord?.preview_video_url, currentRecord?.previewVideo,
-      currentRecord?.source_video_url, currentRecord?.video_url,
-    ].filter(Boolean);
-    for (const raw of candidates) {
-      const hit = extractStoragePath(raw);
-      if (!hit) continue;
-      try { await r2.from(hit.bucket).remove([hit.path]); } catch (_) {}
-    }
-    try { await supabase.from('reconstruction_jobs').delete().eq('nif_id', currentRecord.id); } catch (_) {}
-    const { error } = await supabase.from('nif_files').delete().eq('id', currentRecord.id);
+    // nif_files stores canonical R2 keys; CDN URLs cannot be parsed as
+    // Supabase Storage URLs. Delete the owned record first, then clean its
+    // known NIF/source/thumbnail objects from the correct R2 bucket.
+    const { error } = await supabase.from('nif_files')
+      .delete().eq('id', currentRecord.id).eq('user_id', currentRecord.user_id);
     if (error) throw error;
+
+    const keys = [
+      currentRecord.r2_key,
+      currentRecord.meta?.source_r2_key,
+      currentRecord.meta?.source_capture?.r2_key,
+      currentRecord.meta?.thumbnail_r2_key,
+      currentRecord.meta?.capture_thumbnail_r2_key,
+    ].filter((key, index, all) => typeof key === 'string' && key.trim() && all.indexOf(key) === index);
+    const cleanup = await Promise.allSettled(
+      keys.map(key => r2.from('nif-files').remove([key]))
+    );
+    if (cleanup.some(result => result.status === 'rejected' || result.value?.error)) {
+      console.warn('[FUMOCA viewer] NIF row deleted; some R2 objects may need cleanup', currentRecord.id);
+    }
     window.location.href = 'feed.html';
   } catch (err) {
     console.error('[FUMOCA delete upload]', err);
@@ -1214,10 +1229,13 @@ function getActivenifUrl() {
 // hard reconstruction work" and "generic splat blob," no matter how solid
 // the actual geometry was. This is that missing visual difference.
 let _meshRenderer = null, _meshScene = null, _meshCamera = null, _meshControls = null, _meshFrame = null;
+let _meshLights = null, _meshLightingPanel = null;
 function destroyMeshViewer() {
   if (_meshFrame) { cancelAnimationFrame(_meshFrame); _meshFrame = null; }
   if (_meshRenderer) { _meshRenderer.dispose(); _meshRenderer.domElement.remove(); _meshRenderer = null; }
   _meshScene = _meshCamera = _meshControls = null;
+  _meshLights = null;
+  _meshLightingPanel?.remove(); _meshLightingPanel = null;
   document.getElementById('fumocaMeshToggle')?.remove();
 }
 function mountMeshViewer(mesh, calibration) {
@@ -1242,13 +1260,15 @@ function mountMeshViewer(mesh, calibration) {
   const meshObj = new THREE.Mesh(geo, mat);
   _meshScene = new THREE.Scene();
   _meshScene.add(meshObj);
-  _meshScene.add(new THREE.AmbientLight(0xffffff, 0.55));
+  const ambient = new THREE.AmbientLight(0xffffff, 0.55);
   const key = new THREE.DirectionalLight(0xffffff, 1.1);
   key.position.set(1, 1.2, 1.5);
-  _meshScene.add(key);
   const fill = new THREE.DirectionalLight(0xffffff, 0.4);
   fill.position.set(-1.2, 0.6, -1);
-  _meshScene.add(fill);
+  const point = new THREE.PointLight(0xffffff, 0.0, 0, 2);
+  point.position.set(1.5, 1.0, 1.5);
+  _meshScene.add(ambient, key, fill, point);
+  _meshLights = { ambient, key, fill, point, material: mat };
   _meshCamera = new THREE.PerspectiveCamera(55, container.clientWidth / container.clientHeight, 0.001, 2000);
   _meshCamera.up.set(0, -1, -0.6).normalize();  // match the splat renderer's convention (see mountPlyViewer)
   _meshRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
@@ -1300,6 +1320,44 @@ function mountMeshViewer(mesh, calibration) {
     btn.textContent = showingMesh ? 'â— Points view' : 'â–² Solid view';
   });
   container.appendChild(btn);
+
+  // Real lighting controls for the reconstructed triangle mesh layer only.
+  // Gaussian PLY/NIF splats keep their existing renderer and are not relit by these controls.
+  const panel = document.createElement('section');
+  panel.id = 'fumocaMeshLighting';
+  panel.setAttribute('aria-label', 'Mesh lighting controls');
+  Object.assign(panel.style, {
+    position: 'absolute', top: '52px', right: '12px', zIndex: '5',
+    width: 'min(250px, calc(100vw - 24px))', padding: '12px',
+    border: '1px solid rgba(255,255,255,.18)', borderRadius: '12px',
+    background: 'rgba(5,9,15,.88)', color: '#fff',
+    font: '12px system-ui, sans-serif', backdropFilter: 'blur(10px)',
+    boxShadow: '0 8px 28px rgba(0,0,0,.25)'
+  });
+  const panelTitle = document.createElement('div');
+  panelTitle.textContent = 'MESH LIGHTING';
+  Object.assign(panelTitle.style, {fontWeight:'800', letterSpacing:'.12em', fontSize:'10px', marginBottom:'9px', color:'#c8ff00'});
+  panel.appendChild(panelTitle);
+  const addRange = (label, min, max, step, initial, apply) => {
+    const wrap = document.createElement('label');
+    Object.assign(wrap.style, {display:'grid', gridTemplateColumns:'1fr auto', gap:'4px 8px', margin:'9px 0'});
+    const name = document.createElement('span'); name.textContent = label;
+    const value = document.createElement('output'); value.textContent = Number(initial).toFixed(2);
+    const input = document.createElement('input');
+    input.type = 'range'; input.min = min; input.max = max; input.step = step; input.value = initial;
+    Object.assign(input.style, {gridColumn:'1 / -1', width:'100%', accentColor:'#c8ff00', cursor:'pointer'});
+    input.addEventListener('input', () => { value.textContent = Number(input.value).toFixed(2); apply(Number(input.value)); });
+    wrap.append(name, value, input); panel.appendChild(wrap);
+  };
+  addRange('Ambient', 0, 2, 0.05, 0.55, v => { if (_meshLights) _meshLights.ambient.intensity = v; });
+  addRange('Key light', 0, 3, 0.05, 1.1, v => { if (_meshLights) _meshLights.key.intensity = v; });
+  addRange('Fill light', 0, 2, 0.05, 0.4, v => { if (_meshLights) _meshLights.fill.intensity = v; });
+  addRange('Point light', 0, 3, 0.05, 0, v => { if (_meshLights) _meshLights.point.intensity = v; });
+  addRange('Roughness', 0.05, 1, 0.05, 0.75, v => { if (_meshLights) { _meshLights.material.roughness = v; _meshLights.material.needsUpdate = true; } });
+  addRange('Metalness', 0, 1, 0.05, 0.05, v => { if (_meshLights) { _meshLights.material.metalness = v; _meshLights.material.needsUpdate = true; } });
+  container.appendChild(panel);
+  _meshLightingPanel = panel;
+
   console.log(`[Viewer] Solid mesh rendered â€” ${mesh.nVerts.toLocaleString()} verts, ` +
               `${mesh.nFaces.toLocaleString()} faces` +
               (calibration?.confidence && calibration.confidence !== 'none' ? ` (${calibration.confidence} calibration)` : ' (uncalibrated)'));

@@ -1,0 +1,154 @@
+name: FUMOCA validation
+
+on:
+  push:
+    branches: [main, "feat/**", "platform-integration-audit"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  static-and-glb-preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Check whole-platform integration audit
+        run: test -s docs/PLATFORM_INTEGRATION_AUDIT.md && grep -q "Acceptance gates for a clean release" docs/PLATFORM_INTEGRATION_AUDIT.md
+      - name: Check Studio JavaScript syntax
+        run: node --check js/modules/image-to-splat-studio.js
+      - name: Check viewer ES module syntax
+        run: node --input-type=module --check < js/modules/viewer.js
+      - name: Check persistence-sensitive editor modules
+        run: |
+          node --input-type=module --check < js/modules/edit-engine.js
+          node --input-type=module --check < js/modules/splat-edit-engine.js
+          node --input-type=module --check < js/modules/hotspot-persist.js
+          node --input-type=module --check < js/modules/motion-states.js
+          node --input-type=module --check < js/modules/notifications.js
+          node --input-type=module --check < js/modules/upload-page.js
+          node --input-type=module --check < js/modules/feed.js
+          node --input-type=module --check < js/modules/profile.js
+      - name: Check editor persistence contract
+        run: |
+          ! grep -nE "from\\('(nifs|splats)'\\)" js/modules/edit-engine.js js/modules/splat-edit-engine.js
+          grep -q "from('nif_files')" js/modules/edit-engine.js
+          grep -q "from('nif_files')" js/modules/splat-edit-engine.js
+          ! grep -nE "from\\('(splats)'\\)" js/modules/hotspot-persist.js js/modules/motion-states.js
+          grep -q "from('nif_files')" js/modules/hotspot-persist.js
+          grep -q "from('nif_files')" js/modules/motion-states.js
+          grep -q "fumoca:motionStateSaveFailed" js/modules/motion-states.js
+          ! grep -nE "from\\('(processing_jobs)'\\)" js/modules/notifications.js
+          grep -q "from('reconstruction_jobs')" js/modules/notifications.js
+          grep -q "splat_to_nif" js/modules/upload-page.js
+          grep -q "ply_to_nif" js/modules/upload-page.js
+          grep -q "inspectPlyAttributes" js/modules/upload-page.js
+          grep -q "discarded_attributes" js/modules/upload-page.js
+          grep -q "higher_order_sh_discarded_colour_approximation" js/modules/ply-conversion-metadata.js
+          grep -q "conversion: outputBuffer ? {" js/modules/upload-page.js
+          grep -q "gpu_required: false" js/modules/upload-page.js
+          grep -q "source_r2_key" js/modules/upload-page.js
+          grep -q "Open in Studio" js/modules/upload-page.js
+          grep -q "r2.from('thumbnails').upload(thumbPath" js/modules/upload-page.js
+          ! grep -q "r2.from('nif-files').upload(thumbPath" js/modules/upload-page.js
+          grep -q "storage did not return a file key and URL" js/modules/upload-page.js
+          ! grep -n "nif_file_id" js/modules/feed.js
+          grep -q "post.meta?.source_r2_key" js/modules/feed.js
+          grep -q "item.meta?.source_capture?.r2_key" js/modules/profile.js
+          grep -q "from('reconstruction_jobs')" js/modules/feed.js
+          grep -q "row.job_id || row.id" js/modules/feed.js
+          grep -q "row.status = 'needs_retry'" js/modules/feed.js
+          grep -q "needs_retry" js/modules/feed.js
+          grep -q "jobsById.get" js/modules/profile.js
+          grep -q "row.job_id ? 'needs_retry' : 'done'" js/modules/profile.js
+          grep -q "viewer.html?nifId=" js/modules/profile.js
+          grep -q "source_capture: { r2_key: fileKey" js/modules/upload-page.js
+          grep -q "source_capture: { r2_key: filePath" js/modules/upload-page.js
+          grep -q "capture_thumbnail_r2_key: uploadedThumbnail.fileKey" js/modules/upload-page.js
+          grep -q "post.meta?.capture_thumbnail_r2_key" js/modules/feed.js
+          grep -q "item.meta?.capture_thumbnail_r2_key" js/modules/profile.js
+          grep -q "currentRecord.meta?.capture_thumbnail_r2_key" js/modules/viewer.js
+          grep -q "currentRecord.meta?.source_capture?.r2_key" js/modules/viewer.js
+          grep -q "if (!currentRecord.r2_key || !currentRecord.user_id)" js/modules/viewer.js
+          grep -q "not a saved NIF artifact" js/modules/viewer.js
+          ! grep -n "eq('nif_id'" js/modules/viewer.js
+      - name: Check inline Studio script syntax
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          html = Path("edit.html").read_text(encoding="utf-8")
+          matches = re.findall(r"<script\b([^>]*)>(.*?)</script\s*>", html, re.I | re.S)
+          scripts = [(attrs, source) for attrs, source in matches if not re.search(r"\bsrc\s*=", attrs, re.I) and not re.search(r"\btype\s*=\s*['\"]?(?:importmap|application/json)", attrs, re.I)]
+          if not scripts:
+              raise SystemExit("No inline Studio scripts found")
+          out = Path("/tmp/fumoca-inline-scripts")
+          out.mkdir(exist_ok=True)
+          for i, (attrs, source) in enumerate(scripts):
+              suffix = ".mjs" if re.search(r"type\s*=\s*['\"]?module", attrs, re.I) else ".js"
+              (out / f"script-{i}{suffix}").write_text(source, encoding="utf-8")
+          print(f"Extracted {len(scripts)} inline Studio scripts for syntax validation")
+          PY
+          for script in /tmp/fumoca-inline-scripts/script-*; do node --check "$script"; done
+      - name: Guard immediate transform attachment after Add Splat
+        run: |
+          grep -q "Rebuild the source-index map and attach the gizmo after the appended layer" edit.html
+          grep -q "refreshTransformSourceMap();" edit.html
+          grep -q "syncTransformGizmo();" edit.html
+          grep -q "if (!L.visible && S.activeLayerId === L.id)" edit.html
+      - name: Guard multi-splat object selection and transforms
+        run: |
+          grep -Fq 'Added ${file.name} as a separate layer' edit.html
+          grep -q "S.layers.push({" edit.html
+          grep -q "mask: newMask" edit.html
+          grep -q "const selectedCount = selectedPointCount();" edit.html
+          grep -q "Never expose a scene-wide transform gizmo" edit.html
+          grep -q "Never translate the camera target or whole scene as a fallback" edit.html
+      - name: Guard independent subject transform attachment
+        run: |
+          grep -q "Selecting a layer must select only its live, visible points" edit.html || grep -q "Selecting a layer must select only its live, visible points and attach" edit.html
+          grep -q "syncTransformGizmo();" edit.html
+          grep -q "Selected subject:" edit.html
+      - name: Guard click-to-select subject workflow
+        run: |
+          grep -q "function selectSubjectAtScreen" edit.html
+          grep -q "Selected subject:" edit.html
+          grep -q "if (dx <= 7 && dy <= 7)" edit.html
+          grep -q "function selectSubjectAtScreen" edit.html
+      - name: Test PLY conversion fidelity disclosure
+        run: |
+          node --input-type=module --check < js/modules/ply-conversion-metadata.js
+          node --experimental-default-type=module tests/ply-conversion-metadata.mjs
+      - name: Test CPU-only splat to NIF conversion
+        run: node --experimental-default-type=module tests/splat-to-nif-smoke.mjs
+      - name: Compile Kaggle preflight script
+        run: python -m py_compile kaggle/mesh2splat_preflight.py
+      - name: Install preflight dependencies
+        run: python -m pip install --disable-pip-version-check numpy trimesh
+      - name: Build a tiny GLB fixture and test preflight
+        shell: bash
+        run: |
+          python - <<'PY'
+          import trimesh
+          mesh = trimesh.creation.box(extents=(1.0, 2.0, 3.0))
+          scene = trimesh.Scene(mesh)
+          scene.export("validation-fixture.glb")
+          PY
+          python kaggle/mesh2splat_preflight.py validation-fixture.glb --report preflight-report.json
+          python - <<'PY'
+          import json
+          with open("preflight-report.json", encoding="utf-8") as f:
+              report = json.load(f)
+          assert report["status"] == "preflight_passed_conversion_not_run", report
+          assert report["geometry"]["triangles"] > 0, report
+          assert report["gates"]["mesh2splat_conversion_run"] is False, report
+          print("GLB preflight fixture passed; conversion is intentionally not run.")
+          PY
