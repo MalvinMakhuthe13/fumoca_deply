@@ -133,9 +133,24 @@ const FumocaMobileAsset = (() => {
 
   // ── Generate self-contained widget HTML ──────────────────────────
   function _generateWidgetHTML(config, record) {
-    const thumb   = record.thumbnail_url || '';
-    const title   = record.title || 'Fumoca Experience';
-    const webLink = config.web_link || '#';
+    const escapeHtml = value => String(value ?? '')
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    const safeHttpUrl = (value, fallback = '') => {
+      try {
+        const url = new URL(String(value || ''), location.origin);
+        return ['http:', 'https:'].includes(url.protocol) ? url.href : fallback;
+      } catch {
+        return fallback;
+      }
+    };
+    const thumb = escapeHtml(safeHttpUrl(record.thumbnail_url, ''));
+    const title = escapeHtml(record.title || 'Fumoca Experience');
+    const webLink = escapeHtml(safeHttpUrl(config.web_link, '#'));
+    // Prevent a record-controlled string from closing the inline script if
+    // future widget state fields become user-authored.
+    const statesJson = JSON.stringify(config.states).replace(/</g, '\\u003c')
+      .replace(/\\u2028/g, '\\\\u2028').replace(/\\u2029/g, '\\\\u2029');
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -183,7 +198,7 @@ const FumocaMobileAsset = (() => {
 </div>
 <script>
 const img=document.getElementById('previewImg');
-const states=${JSON.stringify(config.states)};
+const states=${statesJson};
 let stateIdx=0,angle=0,startX=0,isDrag=false;
 const paints=['original','red','blue','black','white','gold','silver'];
 let paintIdx=0;
