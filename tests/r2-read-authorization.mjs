@@ -106,6 +106,9 @@ assert.deepEqual(access, { allowed: true, isPublic: false, reason: 'owner-key' }
 
 access = await run([sourceRow])(req('token-a'), env, userA, 'nif-videos', 'record-source/raw.mp4');
 assert.deepEqual(access, { allowed: true, isPublic: false, reason: 'owner-associated-file' }, 'owner can read source media linked through NIF metadata');
+access = await run([])(req('token-a'), env, userA, 'nif-videos', 'raw/user-a/old_burst.zip');
+assert.deepEqual(access, { allowed: true, isPublic: false, reason: 'legacy-owner-key' },
+  'owner can read legacy photo-burst files while old keys are migrated');
 
 const cleanedSplatRow = {
   id: 'nif-cleaned',
