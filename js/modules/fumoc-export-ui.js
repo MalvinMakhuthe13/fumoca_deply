@@ -229,7 +229,7 @@ function _wire() {
     const record = window._fumocaCurrentRecord;
     const params = new URLSearchParams(location.search);
     const hasEditorState = !!(S?.alive?.length && S?.positions?.length === S.alive.length * 3);
-    const sourceName = record?.r2_key || record?.splat_url || params.get('file') || params.get('url') || '';
+    const sourceName = record?.r2_key || record?.splat_url || params.get('file') || params.get('url') || window._fumocanifUrl || '';
     if (!hasEditorState && !sourceName && !window._fumocanifUrl) {
       alert('No supported NIF or SPLAT source is available to export.');
       return;
@@ -276,6 +276,24 @@ function _wire() {
         if (!response.ok) throw new Error('Source fetch failed with HTTP ' + response.status);
         sourceBytes = new Uint8Array(await response.arrayBuffer());
         inputBytes = sourceBytes.byteLength;
+      }
+
+      let thumbnailBytes = S?.nifThumbnailBytes || null;
+      if (!thumbnailBytes && record?.meta?.thumbnail_r2_key) {
+        try {
+          const thumbnailUrl = record.is_public === true
+            ? r2.publicUrl('thumbnails', record.meta.thumbnail_r2_key)
+            : await r2.from('thumbnails').authenticatedUrl(record.meta.thumbnail_r2_key);
+          const thumbnailResponse = await fetch(thumbnailUrl);
+          if (thumbnailResponse.ok) thumbnailBytes = new Uint8Array(await thumbnailResponse.arrayBuffer());
+        } catch (error) {
+          console.warn('[FumocExportUI] Optional thumbnail could not be fetched:', error?.message || error);
+        }
+      } else if (!thumbnailBytes && record?.thumbnail_url) {
+        try {
+          const thumbnailResponse = await fetch(record.thumbnail_url);
+          if (thumbnailResponse.ok) thumbnailBytes = new Uint8Array(await thumbnailResponse.arrayBuffer());
+        } catch { /* thumbnail is optional */ }
       }
 
       let nifBuffer;
@@ -350,7 +368,7 @@ function _wire() {
           lidarAttributes,
           layers: layerData.layers,
           mesh: S.nifMesh || undefined,
-          thumbnailBytes: S.nifThumbnailBytes || undefined,
+          thumbnailBytes: thumbnailBytes || undefined,
           vertical: S.nifVertical || sourceMeta.vertical || 'generic',
           passthroughChunks,
         });
@@ -392,6 +410,7 @@ function _wire() {
             rowSize: 32,
             meta,
             layers: layerData.layers,
+            thumbnailBytes: thumbnailBytes || undefined,
             vertical: record?.meta?.vertical || record?.vertical || 'generic',
           });
           gaussianCount = count;
