@@ -376,7 +376,7 @@ function ansEncode(data) {
     if (f === 0) continue; // skip zero-freq (shouldn't happen after normalisation)
 
     // Normalise: flush bytes until state is in valid range
-    const maxState = Math.floor(ANS_L / ANS_M) * f; // v3 fix: correct normalisation, no overflow
+    const maxState = Math.floor(ANS_L / ANS_M) * 256 * f; // v3 fix: correct normalisation, no overflow
     while (state >= maxState) {
       out.push(state & 0xFF);
       state = state >>> 8;
@@ -624,7 +624,7 @@ function ansEncodeOrder1(data) {
     const base = c*256, cumBase = c*257;
     const f = freqFlat[base+sym], cum = cumFlat[cumBase+sym];
     if (!f) continue;
-    const maxState = Math.floor(ANS_L / ANS_M) * f;
+    const maxState = Math.floor(ANS_L / ANS_M) * 256 * f;
     while (state >= maxState) { out.push(state & 0xFF); state >>>= 8; }
     state = Math.floor(state/f)*ANS_M + cum + (state - Math.floor(state/f)*f);
   }
