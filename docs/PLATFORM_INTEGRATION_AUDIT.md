@@ -175,6 +175,7 @@ Create frozen test sets for calibrated vehicle, object and scene captures. NaviG
 
 - The open-state variant storage contract has now been implemented in code: variants use owner-prefixed keys, exact keys are registered in `meta.open_variant_r2_keys`, public reads require a published parent NIF, private reads remain owner-only, and cancelled previews unregister/delete their objects. New read-authorization and storage-contract tests are committed but still require a green CI run and staging validation. The live toggle remains release-blocked until that evidence exists.
 - The mobile-widget storage contract is now implemented in code as noted above, but remains release-blocked pending CI and staging verification. Confirm that the deployed Worker returns the sandbox CSP on HTML responses, that a published parent exposes its widget, that private parents do not, and that the underlying R2 bucket has no direct public bypass.
+- Added `supabase_migration_mobile_assets.sql` to create the `mobile_assets` registry and owner/public-parent RLS policies, plus a CI schema contract. This migration has not been applied anywhere; stage it and verify the existing `nif_files` RLS/schema before any deployment.
 - These paths were discovered by tracing the stricter Worker write/read contract against their actual upload keys. No production Worker deployment, bucket change, migration, or public-access bypass was attempted.
 
 ## Licensing and scope boundaries
