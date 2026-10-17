@@ -69,6 +69,18 @@ Full enum and binary layout: `engine-next/format/NIFSpec.js`.
 
 The canonical geometry keeps render-ready position, log-scale, rotation, opacity and DC-derived colour. For Gaussian PLY inputs, the optional `GAUSSIAN_SH` chunk stores the exact `f_dc_*` and `f_rest_*` float coefficients in per-point order. The metadata records the coefficient property names so future exporters can reconstruct the original SH layout. If an input has an unsupported `f_rest_*` count, the importer fails clearly instead of silently discarding those values. A NIF can therefore render using the current 14-float geometry while retaining the source coefficients for a fidelity-preserving export path.
 
+**GAUSSIAN_SH binary payload (chunk 0x001A, sidecar version 1):**
+
+| Offset | Type | Meaning |
+|---:|---|---|
+| 0 | u8 | Sidecar version, currently `1` |
+| 1 | u8 | SH degree, `0–8` |
+| 2 | u16 BE | Coefficient count per point; must equal `3 × (degree + 1)²` |
+| 4 | u32 BE | Point count; must match KEYFRAME_GEO |
+| 8 | float32 BE[] | Point-major coefficient values |
+
+Values are ordered as `f_dc_0`, `f_dc_1`, `f_dc_2`, then `f_rest_0...` in numeric order. `meta.gaussian_sh.properties` stores the exact property names. The reader rejects malformed counts, non-finite values, truncated payloads, degenerate geometry quaternions, and sidecars larger than the 512 MiB safety budget; browser import is capped at 5 million points.
+
 ---
 
 ## How FUMOCA uses NIF
