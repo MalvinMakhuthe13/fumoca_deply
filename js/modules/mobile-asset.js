@@ -99,36 +99,50 @@ const FumocaMobileAsset = (() => {
 
     const config = buildConfig(splatRecord, overrides);
 
-    // Generate the widget HTML and upload it
-    const widgetHtml = _generateWidgetHTML(config, splatRecord);
-    const blob       = new Blob([widgetHtml], { type: 'text/html' });
-    const path       = `${splatRecord.id}/widget.html`;
+    const ownerId = splatRecord.user_id;
+    if (!ownerId) throw new Error('Cannot create a mobile widget without the NIF owner ID.');
 
-    let assetUrl = null;
-    try {
-      const { publicUrl: _assetPub } = await r2.from('nif-files').upload(path, blob, { contentType: 'text/html' });
-      assetUrl = _assetPub;
-    } catch (e) {
-      console.warn('[MobileAsset] Widget upload failed:', e);
+    // The Worker only permits text/html inside the NIF bucket under its
+    // sandboxed response policy. Keep the object under the authenticated
+    // owner prefix and register the exact key against this parent NIF.
+    const widgetHtml = _generateWidgetHTML(config, splatRecord);
+    const blob = new Blob([widgetHtml], { type: 'text/html' });
+    const path = `${ownerId}/mobile-assets/${splatRecord.id}/widget_${Date.now()}.html`;
+    const { publicUrl: assetUrl, fileKey, error: uploadError } = await r2.from('nif-files').upload(path, blob, {
+      contentType: 'text/html',
+    });
+    if (uploadError || !fileKey || !assetUrl) {
+      throw new Error(uploadError?.message || 'Mobile widget upload returned no key or URL.');
     }
 
-    // Save record to mobile_assets table
-    const { data: row } = await sb.from('mobile_assets').upsert({
-      splat_id:          splatRecord.id,
-      asset_url:         assetUrl,
-      format:            'fumoca-widget',
-      interaction_rules: config.interaction_rules,
-      states:            config.states,
-    }, { onConflict: 'splat_id' }).select().single();
+    try {
+      const { data: row, error: rowError } = await sb.from('mobile_assets').upsert({
+        splat_id:          splatRecord.id,
+        asset_url:         assetUrl,
+        format:            'fumoca-widget',
+        interaction_rules: config.interaction_rules,
+        states:            config.states,
+      }, { onConflict: 'splat_id' }).select().single();
+      if (rowError || !row) throw new Error(rowError?.message || 'Mobile asset record was not saved.');
 
-    // Also update the current record's meta
-    await sb.from('nif_files').update({
-      meta: { ...(splatRecord.meta || {}), mobile_asset_url: assetUrl, mobile_asset_meta: config }
-    }).eq('id', splatRecord.id);
+      const { error: metaError } = await sb.from('nif_files').update({
+        meta: {
+          ...(splatRecord.meta || {}),
+          mobile_asset_url: assetUrl,
+          mobile_asset_r2_key: fileKey,
+          mobile_asset_meta: config,
+        },
+      }).eq('id', splatRecord.id).eq('user_id', ownerId);
+      if (metaError) throw new Error(metaError.message || 'Mobile asset key could not be linked to its parent NIF.');
 
-    console.log('%c[MobileAsset] Widget saved →', 'color:#c8ff00', assetUrl);
-    window.dispatchEvent(new CustomEvent('fumoca:mobileAssetReady', { detail: { url: assetUrl, config } }));
-    return { url: assetUrl, config, row };
+      console.log('%c[MobileAsset] Widget saved →', 'color:#c8ff00', assetUrl);
+      window.dispatchEvent(new CustomEvent('fumoca:mobileAssetReady', { detail: { url: assetUrl, config } }));
+      return { url: assetUrl, config, row };
+    } catch (error) {
+      const { error: cleanupError } = await r2.from('nif-files').remove([fileKey]);
+      if (cleanupError) console.error('[MobileAsset] Orphan cleanup failed:', cleanupError.message);
+      throw error;
+    }
   }
 
   // ── Generate self-contained widget HTML ──────────────────────────
