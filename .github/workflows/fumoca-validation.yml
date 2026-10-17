@@ -36,6 +36,10 @@ jobs:
         run: node --input-type=module --check < js/modules/profile.js
       - name: Check feed ES module syntax
         run: node --input-type=module --check < js/modules/feed.js
+      - name: Check R2 browser client syntax
+        run: node --input-type=module --check < js/r2Client.js
+      - name: Check R2 Worker module syntax
+        run: node --input-type=module --check < cloudflare/workers/r2-storage.js
       - name: Check persistence-sensitive editor modules
         run: |
           node --input-type=module --check < js/modules/edit-engine.js
