@@ -230,7 +230,7 @@ async function init() {
         : ''),
       title: row.title,
       created_at: row.created_at,
-      output_url: row.r2_key ? r2.publicUrl('nif-files', row.r2_key) : '',
+      output_url: row.r2_key ? r2.publicUrl('nif-files', row.r2_key) : (row.meta?.external_nif_url || row.meta?.nif_url || ''),
       r2_key: row.r2_key,
       job_id: row.job_id || null,
       meta: row.meta || {},
