@@ -43,7 +43,7 @@ function resolveThumbnail(row) {
   if (thumbKey) {
     // New uploads live in the dedicated thumbnails bucket. Include the bucket
     // query parameter so the Worker doesn't look in nif-files by default.
-    const key = String(thumbKey).replace(/^\\/+/, "");
+    const key = String(thumbKey).replace(/^\/+/, "");
     const built = r2.publicUrl('thumbnails', key);
     if (built) return built;
   }
