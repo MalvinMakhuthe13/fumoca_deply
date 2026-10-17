@@ -626,7 +626,7 @@ await initCamera();
 // If splatId provided, show it
 const urlId = new URLSearchParams(location.search).get('splatId');
 if (urlId) {
-  const { data } = await supabase.from('splats').select('title').eq('id', urlId).single();
+  const { data } = await supabase.from('nif_files').select('title').eq('id', urlId).maybeSingle();
   if (data?.title) document.title = `FUMOCA Capture · ${data.title}`;
 }
 
