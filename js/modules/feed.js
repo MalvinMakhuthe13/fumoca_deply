@@ -138,6 +138,7 @@ async function deletePostRecord(post, opts = {}) {
     post.meta?.source_r2_key,
     post.meta?.source_capture?.r2_key,
     post.meta?.thumbnail_r2_key,
+    post.meta?.capture_thumbnail_r2_key,
   ]) {
     if (typeof key === 'string' && key.trim()) filesToDelete.push({ bucket: 'nif-files', path: key });
   }
