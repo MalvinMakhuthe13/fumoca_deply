@@ -77,6 +77,18 @@ rejects(
   'uncompressed encoding must reject NaN geometry too',
 );
 
+const zeroQuaternion = new Float32Array(14);
+rejects(
+  () => encodeNif({ geometry: zeroQuaternion }),
+  /zero-length quaternion/,
+  'compressed NIF must reject a degenerate quaternion',
+);
+rejects(
+  () => encodeNif({ geometry: zeroQuaternion, compressed: false }),
+  /zero-length quaternion/,
+  'uncompressed NIF must reject a degenerate quaternion',
+);
+
 const oneSplat = new Uint8Array(32);
 rejects(
   () => encodeNif({ sourceBuffer: oneSplat, aliveIndices: [1] }),
