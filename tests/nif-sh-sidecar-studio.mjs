@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { compactGaussianSHSidecar, gaussianSHMetadata } from '../js/modules/nif-sh-sidecar.js';
 import { readFile } from 'node:fs/promises';
+import { encodeNif, decodeNif } from '../js/modules/nif-format.js';
 
 const names = ['f_dc_0', 'f_dc_1', 'f_dc_2', ...Array.from({ length: 9 }, (_, i) => `f_rest_${i}`)];
 const source = new Float32Array(3 * names.length);
@@ -18,6 +19,33 @@ for (let j = 0; j < names.length; j++) {
 assert.deepEqual(gaussianSHMetadata(compact, names), {
   degree: 1, properties: names, coefficient_count: 12,
 });
+
+const roundTripRows = new Uint8Array(2 * 32);
+const roundTripView = new DataView(roundTripRows.buffer);
+for (let i = 0; i < 2; i++) {
+  const o = i * 32;
+  roundTripView.setFloat32(o, i === 0 ? 2 : 0, true);
+  roundTripView.setFloat32(o + 4, 1, true);
+  roundTripView.setFloat32(o + 8, -1, true);
+  roundTripView.setFloat32(o + 12, 0.1, true);
+  roundTripView.setFloat32(o + 16, 0.1, true);
+  roundTripView.setFloat32(o + 20, 0.1, true);
+  roundTripRows[o + 24] = 200; roundTripRows[o + 25] = 120;
+  roundTripRows[o + 26] = 40; roundTripRows[o + 27] = 230;
+  roundTripRows[o + 28] = 255; roundTripRows[o + 29] = 128;
+  roundTripRows[o + 30] = 128; roundTripRows[o + 31] = 128;
+}
+const roundTripNif = encodeNif({
+  sourceBuffer: roundTripRows, aliveIndices: [0, 1], rowSize: 32,
+  gaussianSH: compact,
+  meta: { gaussian_sh: gaussianSHMetadata(compact, names) },
+});
+const decodedRoundTrip = await decodeNif(roundTripNif);
+assert.equal(decodedRoundTrip.gaussianSH.pointCount, 2);
+assert.equal(decodedRoundTrip.gaussianSH.coefficientCount, names.length);
+assert.deepEqual(Array.from(decodedRoundTrip.gaussianSH.values), Array.from(compact.values));
+assert.deepEqual(decodedRoundTrip.meta.gaussian_sh.properties, names);
+
 
 const objectValues = Object.fromEntries(names.map((name, j) => [
   name, Float32Array.from([j + 0.1, j + 1.1, j + 2.1]),
