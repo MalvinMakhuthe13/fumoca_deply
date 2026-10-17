@@ -113,7 +113,26 @@ function splatRowsToGeometry(sourceBuffer, aliveIndices, rowSize = 32) {
  * @param {Float32Array} opacities01 n, 0–1
  */
 function plyPointsToGeometry(positions, colors01, opacities01) {
+  const isArrayLike = value => value != null && typeof value.length === 'number' &&
+    Number.isSafeInteger(value.length) && value.length >= 0;
+  if (!isArrayLike(positions) || !isArrayLike(colors01) || !isArrayLike(opacities01)) {
+    throw new Error('[nif-format] PLY positions, colors and opacities must be array-like');
+  }
   const count = opacities01.length;
+  if (count < 1 || positions.length !== count * 3 || colors01.length !== count * 3) {
+    throw new Error('[nif-format] PLY positions and colors must each contain exactly 3 values per point');
+  }
+  for (let i = 0; i < positions.length; i++) {
+    if (!Number.isFinite(positions[i])) throw new Error(`[nif-format] PLY position contains a non-finite value at index ${i}`);
+    if (!Number.isFinite(colors01[i]) || colors01[i] < 0 || colors01[i] > 1) {
+      throw new Error(`[nif-format] PLY color must be finite and normalized to [0,1] at index ${i}`);
+    }
+  }
+  for (let i = 0; i < count; i++) {
+    if (!Number.isFinite(opacities01[i]) || opacities01[i] < 0 || opacities01[i] > 1) {
+      throw new Error(`[nif-format] PLY opacity must be finite and normalized to [0,1] at index ${i}`);
+    }
+  }
   const out   = new Float32Array(count * FLOATS_PER_POINT);
   // No real scale/rotation data for plain point clouds — encode as small
   // isotropic spheres (identity quaternion) so the same renderer path works.
