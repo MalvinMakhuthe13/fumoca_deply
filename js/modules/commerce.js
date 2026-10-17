@@ -369,7 +369,7 @@ const FumocaCommerce = (() => {
   function _safeAccentColor(value) {
     const color = String(value || '').trim();
     if (/^#[0-9a-f]{3}(?:[0-9a-f]{3})?(?:[0-9a-f]{2})?$/i.test(color)) return color;
-    if (/^var\\(--[a-z0-9-]+\\)$/i.test(color)) return color;
+    if (/^var\(--[a-z0-9-]+\)$/i.test(color)) return color;
     return 'var(--neon)';
   }
   function _isDark(color) {
