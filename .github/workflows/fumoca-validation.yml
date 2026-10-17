@@ -150,6 +150,8 @@ jobs:
         run: node --experimental-default-type=module tests/nif-delete-job-cleanup.mjs
       - name: Test vehicle capture upload contract
         run: node --experimental-default-type=module tests/vehicle-capture-contract.mjs
+      - name: Test upload pipeline schema contract
+        run: node --experimental-default-type=module tests/pipeline-upload-contract.mjs
       - name: Test upload NIF schema contract
         run: node --experimental-default-type=module tests/upload-nif-schema-contract.mjs
       - name: Test NIF publish contract
