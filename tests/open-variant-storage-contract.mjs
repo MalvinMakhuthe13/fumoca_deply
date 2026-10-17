@@ -11,6 +11,12 @@ assert.match(toggle, /open_variant_r2_keys: \[\.\.\.new Set\(\[\.\.\.keys, fileK
   'every baked variant must be registered against its parent NIF');
 assert.match(toggle, /export async function discardPartToggleVariant/,
   'unaccepted previews must have an explicit cleanup path');
+assert.match(toggle, /const passthroughChunks = reader\.chunks\.filter/,
+  'baked variants must preserve mesh, layers, physics, LiDAR and other non-geometry chunks');
+assert.match(toggle, /thumbnailBytes,\s*passthroughChunks,/,
+  'baked variants must preserve the original thumbnail and passthrough chunks');
+assert.match(toggle, /meta: \{ \.\.\.meta, open_variant_of: recordId, open_variant_layers: appliedLabels \}/,
+  'baked variants must preserve existing NIF metadata');
 assert.match(hotspot, /discardPartToggleVariant\(fileKey, currentRecord\.id, currentRecord\.user_id\)/,
   'cancelling preview must unregister and delete the generated variant');
 assert.match(hotspot, /recordId: currentRecord\.id, ownerId: currentRecord\.user_id/,
