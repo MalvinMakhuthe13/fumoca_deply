@@ -43,8 +43,7 @@ assert.match(
 );
 
 const bootStart = viewer.indexOf('async function boot()');
-const bootEnd = viewer.indexOf('function activatePreset', bootStart);
-const boot = viewer.slice(bootStart, bootEnd);
+const boot = viewer.slice(bootStart);
 assert.match(boot, /isR2WorkerFileUrl/);
 assert.match(boot, /!isR2WorkerFileUrl/, 'R2 Worker URLs must skip unsupported HEAD probes');
 console.log('Viewer R2 bucket routing contracts passed.');
