@@ -36,4 +36,23 @@ assert.equal(decoded.gaussians.count, 2);
 assert.equal(decoded.gaussians.data.length, 28);
 assert.equal(decoded.meta.title, 'conversion fixture');
 assert.equal(decoded.meta.source_format, 'splat');
+
+// Check actual decoded attributes, not only that the container opens.
+// Position quantization should remain below 1e-4 scene units for this fixture.
+const closeTo = (actual, expected, tolerance, label) => {
+  assert.ok(Math.abs(actual - expected) <= tolerance,
+    `${label}: expected ${expected} ± ${tolerance}, got ${actual}`);
+};
+const sigmoid = x => 1 / (1 + Math.exp(-x));
+for (let i = 0; i < 2; i++) {
+  const o = i * 14;
+  closeTo(decoded.gaussians.data[o], i * 0.25, 0.0001, `point ${i} x`);
+  closeTo(decoded.gaussians.data[o + 1], 1 + i, 0.0001, `point ${i} y`);
+  closeTo(decoded.gaussians.data[o + 2], -0.5, 0.0001, `point ${i} z`);
+  closeTo(decoded.gaussians.data[o + 3], Math.log(0.1), 0.025, `point ${i} log-scale-x`);
+  closeTo(sigmoid(decoded.gaussians.data[o + 10]), 230 / 255, 0.003, `point ${i} opacity`);
+  closeTo(sigmoid(decoded.gaussians.data[o + 11]), 220 / 255, 0.003, `point ${i} red`);
+  closeTo(sigmoid(decoded.gaussians.data[o + 12]), 120 / 255, 0.003, `point ${i} green`);
+  closeTo(sigmoid(decoded.gaussians.data[o + 13]), 40 / 255, 0.003, `point ${i} blue`);
+}
 console.log('SPLAT → NIF round-trip passed: 2 Gaussians, metadata preserved, no GPU required.');
