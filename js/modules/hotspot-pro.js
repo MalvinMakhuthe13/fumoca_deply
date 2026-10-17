@@ -1835,19 +1835,14 @@ function _showFullscreenPrompt() {
   document.body.appendChild(btn);
 }
 
-init();
-
+// Public API first — so Studio buttons work even if init() is still loading
 window._fumocaTour = { start: startTour, stop: stopTour, next: nextHotspot };
 window._fumocaHotspots = state.hotspots.slice();
 window._fumocaOpenNestedSplat = openNestedSplat;
-// Expose cache so editor can invalidate it after edits
 window._fumocaHotspotPointCloudCache = pointCloudCache;
-
-// Public API so persist / other modules can drive the same experience
 window._fumocaActivateHotspot = function (h) {
   if (!h) return;
   const normalized = normalizeHotspot(h);
-  // Ensure it exists in state so next/prev / tour still work
   if (!state.hotspots.some((x) => x.id === normalized.id)) {
     state.hotspots.push(normalized);
   }
@@ -1866,3 +1861,10 @@ window._fumocaCaptureHotspotAtView = function () {
   openHotspotEditor({ ...seed, title: `Hotspot ${state.hotspots.length + 1}` }, { isNew: true });
 };
 window._fumocaOpenHotspotsPanel = function () { openPanel(true); };
+window._fumocaHotspotProVersion = 'living-hotspots-v2';
+
+// Boot (never block API exposure)
+Promise.resolve()
+  .then(() => init())
+  .catch((err) => console.error('[hotspot-pro] init failed', err));
+

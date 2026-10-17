@@ -6196,21 +6196,38 @@ function _wireButtons() {
   // Hotspot panel toggle button (already in toolbar as #hotspotBtn,
   // hotspot-pro.js wires it automatically via attachUi)
   // We just need to make sure it shows in the right tab context too
-  document.getElementById('v60AddHotspotBtn')?.addEventListener('click', () => {
-    // Open Hotspots Pro and start guided placement (or capture current view)
-    if (typeof window._fumocaEnterPlaceMode === 'function') {
+  document.getElementById('v60AddHotspotBtn')?.addEventListener('click', async () => {
+    // Wait briefly for hotspot-pro module to finish loading
+    const ready = () => typeof window._fumocaEnterPlaceMode === 'function';
+    if (!ready()) {
+      for (let i = 0; i < 20 && !ready(); i++) {
+        await new Promise((r) => setTimeout(r, 100));
+      }
+    }
+    if (ready()) {
       window._fumocaOpenHotspotsPanel?.();
       window._fumocaEnterPlaceMode();
       return;
     }
-    // Fallback if hotspot-pro failed to load
+    // Last resort: try dynamic import
+    try {
+      await import('/js/modules/hotspot-pro.js');
+      await new Promise((r) => setTimeout(r, 50));
+    } catch (err) {
+      console.error('[FUMOCA] hotspot-pro import failed', err);
+    }
+    if (ready()) {
+      window._fumocaOpenHotspotsPanel?.();
+      window._fumocaEnterPlaceMode();
+      return;
+    }
     const hsPanel = document.getElementById('hotspotProPanel');
     if (hsPanel) {
       hsPanel.classList.add('open');
-      hsPanel.setAttribute('aria-hidden','false');
+      hsPanel.setAttribute('aria-hidden', 'false');
     }
-    console.warn('[FUMOCA] hotspot-pro.js not loaded — check console for SyntaxError');
-    alert('Hotspot system failed to load. Open the browser console (F12) and look for an error in hotspot-pro.js, then hard-refresh after fixing.');
+    console.warn('[FUMOCA] hotspot-pro.js not loaded. version=', window._fumocaHotspotProVersion);
+    alert('Hotspot system failed to load.\n\nOpen Console (F12) → look for a red error in hotspot-pro.js.\nThen: Application → Clear site data → hard refresh.');
   });
 }
 
