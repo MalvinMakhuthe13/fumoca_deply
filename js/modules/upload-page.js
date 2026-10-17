@@ -665,6 +665,7 @@ window.handleSubmit = async function() {
         }
         gaussianCount = sourceBuffer.byteLength / 32;
         if (!gaussianCount) throw new Error('The .splat file contains no Gaussian rows.');
+        if (gaussianCount > 5_000_000) throw new Error('This .splat exceeds the 5-million-Gaussian browser conversion safety limit; split the scene and retry.');
         setProgress(25, 'Packing Gaussian rows into FUMOCA NIF…');
         const aliveIndices = new Uint32Array(gaussianCount);
         for (let i = 0; i < gaussianCount; i++) aliveIndices[i] = i;
@@ -696,6 +697,7 @@ window.handleSubmit = async function() {
         const posAttr = parsedGeometry.getAttribute('position');
         if (!posAttr || !posAttr.count) throw new Error('PLY contains no vertex positions.');
         const count = posAttr.count;
+        if (count > 5_000_000) throw new Error('This PLY exceeds the 5-million-point browser conversion safety limit; split the scene and retry.');
         const attr = name => parsedGeometry.getAttribute(name);
         const sx = attr('scale_0'), sy = attr('scale_1'), sz = attr('scale_2');
         const opacityAttr = attr('opacity');
