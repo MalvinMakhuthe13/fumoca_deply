@@ -88,6 +88,12 @@ jobs:
           grep -q "const selectedCount = selectedPointCount();" edit.html
           grep -q "Never expose a scene-wide transform gizmo" edit.html
           grep -q "Never translate the camera target or whole scene as a fallback" edit.html
+      - name: Guard click-to-select subject workflow
+        run: |
+          grep -q "function selectSubjectAtScreen" edit.html
+          grep -q "Selected subject:" edit.html
+          grep -q "if (dx <= 7 && dy <= 7)" edit.html
+          grep -q "Select subject" edit.html || grep -q "click-to-select imported subjects" edit.html
       - name: Test PLY conversion fidelity disclosure
         run: |
           node --input-type=module --check < js/modules/ply-conversion-metadata.js
