@@ -423,6 +423,17 @@ export async function decodeNif(arrayBuffer) {
   if (gaussianSH && gaussianSH.pointCount !== geometry.count) {
     throw new Error('[nif-format] Gaussian SH sidecar point count does not match geometry');
   }
+  if (gaussianSH && meta?.gaussian_sh) {
+    const declared = meta.gaussian_sh;
+    if (declared.degree !== gaussianSH.degree ||
+        declared.coefficient_count !== gaussianSH.coefficientCount ||
+        (declared.properties != null &&
+          (!Array.isArray(declared.properties) ||
+           declared.properties.length !== gaussianSH.coefficientCount ||
+           declared.properties.some(name => typeof name !== 'string')))) {
+      throw new Error('[nif-format] Gaussian SH sidecar metadata does not match the binary chunk');
+    }
+  }
 
   const meta = decodeMetaChunk(reader.getChunk(CHUNK.META));
   const thumbChunk = reader.getChunk(CHUNK.THUMBNAIL);
