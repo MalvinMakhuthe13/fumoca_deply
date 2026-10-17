@@ -11,7 +11,7 @@ test('whole-platform integration audit names each requested reference and its bo
     'Image2Splat', 'NaviGS', 'KIRI 3DGS Render', 'LichtFeld Studio',
     'reconstruction_jobs', 'nif_files', 'Kaggle', 'Studio UI/action wiring',
     'Viewer, embed, feed, presentation, commerce', 'Release gate',
-    'GPL-3.0', 'NOT a claim that every workflow is currently passing',
+    'GPL-3.0', 'not a claim that every workflow is currently passing',
   ]) assert.ok(audit.includes(marker), 'audit is missing: ' + marker);
 });
 
@@ -35,5 +35,5 @@ test('audit records legacy schema references for migration and not blind renamin
   const audit = await read('docs/WHOLE_PLATFORM_INTEGRATION_AUDIT.md');
   assert.match(audit, /contract fragmentation/i);
   assert.match(audit, /validate each actual production path against the deployed schema/i);
-  assert.match(audit, /Do not run destructive SQL automatically/i);
+  assert.match(audit, /Never run destructive SQL automatically/i);
 });
