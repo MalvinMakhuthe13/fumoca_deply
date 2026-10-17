@@ -2056,6 +2056,31 @@ async function boot() {
     previewVideoUrl = previewVideoUrl || sessionRecord.previewVideo || '';
     fileUrl = fileUrl || _validnifUrl(sessionRecord.file) || '';
   }
+
+  // Private NIF outputs are not anonymously readable. Ask the Worker for a
+  // short-lived key-bound URL so the renderer can load the object without
+  // exposing the user's Supabase access token to the rendering library.
+  if (currentRecord?.r2_key && currentRecord.is_public !== true) {
+    try {
+      fileUrl = await r2.from('nif-files').authenticatedUrl(currentRecord.r2_key);
+    } catch (error) {
+      console.warn('[Viewer] private NIF read authorization failed', error?.message || error);
+      fileUrl = '';
+    }
+    if (currentRecord.meta?.thumbnail_r2_key) {
+      try {
+        thumbnailUrl = await r2.from('thumbnails').authenticatedUrl(currentRecord.meta.thumbnail_r2_key);
+      } catch (error) {
+        console.warn('[Viewer] private thumbnail authorization failed', error?.message || error);
+      }
+    } else if (currentRecord.meta?.capture_thumbnail_r2_key) {
+      try {
+        thumbnailUrl = await r2.from('thumbnails').authenticatedUrl(currentRecord.meta.capture_thumbnail_r2_key);
+      } catch (error) {
+        console.warn('[Viewer] private capture thumbnail authorization failed', error?.message || error);
+      }
+    }
+  }
   // Probe external file URLs for stale links, but never HEAD-probe the R2 Worker:
   // its file route intentionally supports GET only. HEAD there always fails and
   // used to discard valid NIF URLs before falling back to the same key.
