@@ -182,9 +182,18 @@
   // start muted because browsers block audible autoplay without a prior
   // user gesture, let the visitor unmute with one tap.
   let bgAudio = null;
+  function safeAudioUrl(value) {
+    try {
+      const url = new URL(String(value || ''), location.href);
+      if (['http:', 'https:'].includes(url.protocol)) return url.href;
+      if (url.protocol === 'blob:' && url.origin === location.origin) return url.href;
+    } catch (_) {}
+    return '';
+  }
   function initBackgroundAudio(musicUrl) {
-    if (!musicUrl || bgAudio) return;
-    bgAudio = new Audio(musicUrl);
+    const safeUrl = safeAudioUrl(musicUrl);
+    if (!safeUrl || bgAudio) return;
+    bgAudio = new Audio(safeUrl);
     bgAudio.loop = true;
 
     // Try unmuted first — this is the actual Reels/Stories behavior, and it
