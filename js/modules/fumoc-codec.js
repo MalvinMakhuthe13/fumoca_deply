@@ -429,11 +429,10 @@ function ansDecode(compressed, freqTableBytes, outputLength) {
   let   pos  = 0;
 
   // Read initial state from first 4 bytes (big-endian)
-  let state =  compressed[0]
-            | (compressed[1] << 8)
-            | (compressed[2] << 16)
-            | (compressed[3] << 24);
-  state = state >>> 0; // to unsigned
+  let state = ((compressed[0] << 24) |
+                (compressed[1] << 16) |
+                (compressed[2] << 8) |
+                compressed[3]) >>> 0; // initial rANS state is big-endian
   let bytePos = 4;
 
   for (let i = 0; i < outputLength; i++) {
@@ -663,7 +662,7 @@ function ansDecodeOrder1(compressed, tableBytes, outputLength) {
     for (let s=0;s<256;s++) for (let sl=cumFlat[cumBase+s];sl<cumFlat[cumBase+s+1];sl++) decodeTable[dtBase+sl]=s;
   }
   const out = new Uint8Array(outputLength);
-  let state=(compressed[0]|(compressed[1]<<8)|(compressed[2]<<16)|(compressed[3]<<24))>>>0;
+  let state=((compressed[0]<<24)|(compressed[1]<<16)|(compressed[2]<<8)|compressed[3])>>>0;
   let bytePos=4, ctx=0;
   for (let i=0;i<outputLength;i++) {
     const slot=state%ANS_M, sym=decodeTable[ctx*ANS_M+slot];
