@@ -168,13 +168,34 @@ export async function authorPartToggle(nifUrl, labelOrParts, opts = {}) {
   // flattening every splat to an isotropic sphere for no reason.
   const safeLabels = appliedLabels.join('_').replace(/[^a-z0-9_-]/gi, '_');
   const key = `${ownerId}/open-variants/${recordId}_${safeLabels}_${Date.now()}.nif`;
+  const layerPayload = layers
+    .filter(layer => layer.indices?.length)
+    .map(layer => ({
+      label: layer.label,
+      depthMin: layer.depthMin,
+      depthMax: layer.depthMax,
+      indices: Array.from(layer.indices),
+    }));
+  const droppedUnindexedLayers = layers.some(layer => !layer.indices?.length);
+  const variantMeta = {
+    ...meta,
+    open_variant_of: recordId,
+    open_variant_layers: appliedLabels,
+    ...(droppedUnindexedLayers ? {
+      quality_flags: [...new Set([...(Array.isArray(meta.quality_flags) ? meta.quality_flags : []), 'legacy_layer_geo_dropped_no_indices'])],
+      layer_geo_status: 'legacy_layers_dropped_unindexed',
+    } : {}),
+  };
   const passthroughChunks = reader.chunks.filter(chunk =>
-    ![CHUNK.KEYFRAME_GEO, CHUNK.META, CHUNK.THUMBNAIL].includes(chunk.type)
+    ![
+      CHUNK.KEYFRAME_GEO, CHUNK.META, CHUNK.THUMBNAIL, CHUNK.LAYER_GEO,
+    ].includes(chunk.type)
   );
   const openBuf = encodeNif({
     geometry: workingGaussians.data,
-    meta: { ...meta, open_variant_of: recordId, open_variant_layers: appliedLabels },
+    meta: variantMeta,
     thumbnailBytes,
+    layers: layerPayload,
     passthroughChunks,
     vertical: reader.header?.vertical || meta.vertical || 'generic',
   });
