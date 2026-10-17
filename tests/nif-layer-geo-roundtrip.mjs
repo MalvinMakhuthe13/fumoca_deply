@@ -19,14 +19,14 @@ for (let i = 0; i < 3; i++) {
 const original = encodeNif({
   sourceBuffer: rows, aliveIndices: [0, 1, 2], rowSize: 32,
   layers: [
-    { label: 'door_left', depthMin: -1, depthMax: 2, indices: [2, 0] },
+    { label: 'door_é', depthMin: -1, depthMax: 2, indices: [2, 0] },
     { label: 'wheel', depthMin: 0, depthMax: 3, indices: [1] },
   ],
 });
 const decoded = await decodeNif(original);
 const layers = await decodeLayers(decoded.reader);
 assert.equal(layers.length, 2);
-assert.equal(layers[0].label, 'door_left');
+assert.equal(layers[0].label, 'door_é');
 assert.deepEqual(Array.from(layers[0].indices), [2, 0]);
 assert.equal(layers[0].depthMin, -1);
 assert.equal(layers[0].depthMax, 2);
@@ -37,7 +37,7 @@ assert.deepEqual(Array.from(layers[1].indices), [1]);
 const compacted = compactNifLayers(layers, [2, 0], 3);
 assert.equal(compacted.droppedUnindexed, 0);
 assert.equal(compacted.layers.length, 1, 'layer with no remaining points should be removed');
-assert.equal(compacted.layers[0].label, 'door_left');
+assert.equal(compacted.layers[0].label, 'door_é');
 assert.deepEqual(compacted.layers[0].indices, [0, 1]);
 
 const compactRows = new Uint8Array(2 * 32);
@@ -56,7 +56,7 @@ const originalLayerChunk = decoded.reader.chunks.filter(chunk => chunk.type === 
 assert.equal(originalLayerChunk.length, 1);
 const noDuplicate = encodeNif({
   sourceBuffer: rows, aliveIndices: [0, 1, 2], rowSize: 32,
-  layers: [{ label: 'door_left', indices: [2, 0] }],
+  layers: [{ label: 'door_é', indices: [2, 0] }],
   passthroughChunks: originalLayerChunk,
 });
 const noDuplicateDecoded = await decodeNif(noDuplicate);
