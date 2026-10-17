@@ -316,6 +316,7 @@ async function deleteCurrentUpload() {
       { bucket: 'nif-videos', key: currentRecord.meta?.source_capture?.r2_key },
       { bucket: 'thumbnails', key: currentRecord.meta?.thumbnail_r2_key },
       { bucket: 'thumbnails', key: currentRecord.meta?.capture_thumbnail_r2_key },
+      { bucket: 'preview-videos', key: currentRecord.meta?.teaser_video_r2_key },
     ].filter((item, index, all) =>
       typeof item.key === 'string' &&
       item.key.trim() &&
