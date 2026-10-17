@@ -40,6 +40,8 @@
  * ══════════════════════════════════════════════════════════════════════════
  */
 
+import r2 from '../r2Client.js';
+
 // Track the currently-playing audio so new triggers can cancel the old one.
 // Scoped to module, not per-hotspot — a configurator should typically only
 // have one audio source playing at a time (engine vs horn, etc).
@@ -344,7 +346,30 @@ export async function runAction(action, context = {}) {
           window._fumocaRestoreRendererPreview?.();
           _liveAnimateOpenState.set(action.layer, false);
         } else {
-          window._fumocaApplyRendererPreview(action.openNifUrl);
+          let openUrl = action.openNifUrl;
+          const record = window._fumocaCurrentRecord;
+          if (record && record.is_public !== true) {
+            let key = action.openNifR2Key || null;
+            if (!key) {
+              try {
+                const parsed = new URL(action.openNifUrl, window.location.href);
+                if (parsed.searchParams.get('bucket') === 'nif-files' && parsed.pathname.includes('/file/')) {
+                  key = decodeURIComponent(parsed.pathname.split('/file/')[1].split('/')[0]);
+                }
+              } catch (_) {}
+            }
+            if (!key) {
+              console.warn('[FumocaHotspotActions] Private open-state variant has no resolvable R2 key.');
+              return;
+            }
+            try {
+              openUrl = await r2.from('nif-files').authenticatedUrl(key);
+            } catch (error) {
+              console.warn('[FumocaHotspotActions] Could not authorize private open-state variant:', error?.message || error);
+              return;
+            }
+          }
+          window._fumocaApplyRendererPreview(openUrl);
           _liveAnimateOpenState.set(action.layer, true);
         }
         return;
