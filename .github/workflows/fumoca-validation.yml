@@ -349,6 +349,12 @@ jobs:
         run: node --experimental-default-type=module tests/fumoc-decoder-bounds.mjs
       - name: Test NIF geometry validation
         run: node --experimental-default-type=module tests/nif-geometry-validation.mjs
+      - name: Install Playwright Chromium for browser runtime QA
+        run: |
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+      - name: Test browser runtime NIF and SH round-trip
+        run: node --experimental-default-type=module tests/browser-runtime-smoke.mjs
       - name: Compile Kaggle preflight script
         run: python -m py_compile kaggle/mesh2splat_preflight.py
       - name: Install preflight dependencies
