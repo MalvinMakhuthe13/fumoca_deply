@@ -29,6 +29,10 @@ assert.match(hotspot, /discardPartToggleVariant\(fileKey, currentRecord\.id, cur
   'cancelling preview must unregister and delete the generated variant');
 assert.match(hotspot, /recordId: currentRecord\.id, ownerId: currentRecord\.user_id/,
   'the authoring flow must pass parent identity into variant creation');
+assert.match(toggle, /select\('id,user_id,r2_key,is_public,meta'\)[\s\S]*?\.eq\('id', recordId\)\.eq\('user_id', ownerId\)\.single\(\)/,
+  'variant creation must reload the parent NIF through an owner-scoped query');
+assert.match(toggle, /authenticatedUrl\(parentRecord\.r2_key\)/,
+  'variant creation must fetch the source NIF with a fresh owner-authorized read ticket');
 assert.match(toggle, /authenticatedUrl\(fileKey\)/,
   'private-parent preview must use a short-lived authorized read ticket');
 assert.match(toggle, /return \{ openNifUrl: publicUrl, previewNifUrl, fileKey, layers \}/,
