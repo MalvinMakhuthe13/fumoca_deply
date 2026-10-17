@@ -58,6 +58,53 @@ jobs:
           Path("/tmp/fumoca-embed-player.mjs").write_text(match.group(1), encoding="utf-8")
           PY
           node --check /tmp/fumoca-embed-player.mjs
+      - name: Sweep first-party JavaScript syntax
+        run: |
+          find . -type f -name '*.js' \
+            -not -path './node_modules/*' \
+            -not -path './vendor/*' \
+            -not -path './dist/*' \
+            -print0 | while IFS= read -r -d '' file; do
+              echo "Checking $file"
+              node --input-type=module --check < "$file"
+            done
+      - name: Sweep inline JavaScript syntax across HTML
+        run: |
+          python - <<'PY'
+          import re
+          from pathlib import Path
+          out = Path('/tmp/fumoca-html-scripts')
+          out.mkdir(parents=True, exist_ok=True)
+          count = 0
+          for html_path in Path('.').rglob('*.html'):
+              if any(part in {'node_modules', 'vendor', 'dist'} for part in html_path.parts):
+                  continue
+              try:
+                  source = html_path.read_text(encoding='utf-8-sig')
+              except UnicodeDecodeError:
+                  continue
+              for match in re.finditer(r'<script\b([^>]*)>([\s\S]*?)</script\s*>', source, re.I):
+                  attrs, script = match.group(1), match.group(2)
+                  if not script.strip() or re.search(r'\bsrc\s*=', attrs, re.I):
+                      continue
+                  count += 1
+                  is_module = re.search(r'\btype\s*=\s*["\']module["\']', attrs, re.I)
+                  suffix = 'mjs' if is_module else 'js'
+                  target = out / f'script-{count:04d}.{suffix}'
+                  target.write_text(script, encoding='utf-8')
+                  print(f'{target}: {html_path}')
+          print(f'Extracted {count} inline scripts')
+          PY
+          for file in /tmp/fumoca-html-scripts/*.js; do
+            [ -e "$file" ] || continue
+            echo "Checking classic script $file"
+            node --check "$file"
+          done
+          for file in /tmp/fumoca-html-scripts/*.mjs; do
+            [ -e "$file" ] || continue
+            echo "Checking module script $file"
+            node --check "$file"
+          done
       - name: Check persistence-sensitive editor modules
         run: |
           node --input-type=module --check < js/modules/edit-engine.js
