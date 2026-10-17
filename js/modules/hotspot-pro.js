@@ -1311,6 +1311,22 @@ function _showFullscreenPrompt() {
 
 init();
 
+// Shared click target for persisted/legacy marker renderers. Normalize legacy
+// metadata and open the same info-card + camera-flight path as native markers.
+window._fumocaActivateHotspot = (candidate) => {
+  if (!candidate || typeof candidate !== 'object') return false;
+  let hotspot = state.hotspots.find(item => item.id && item.id === candidate.id);
+  if (!hotspot) {
+    hotspot = normalizeHotspot(candidate, state.hotspots.length);
+    if (!hotspot.id) hotspot.id = `hs-${Date.now().toString(36)}`;
+    state.hotspots.push(hotspot);
+    renderHotspots();
+    renderPanel();
+  }
+  activateHotspot(hotspot);
+  return true;
+};
+
 window._fumocaTour = { start: startTour, stop: stopTour, next: nextHotspot };
 window._fumocaHotspots = state.hotspots.slice();
 window._fumocaOpenNestedSplat = openNestedSplat;
