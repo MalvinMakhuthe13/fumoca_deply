@@ -33,4 +33,22 @@ rejects(
   'a fully erased scene must fail clearly instead of creating an invalid NIF',
 );
 
-console.log('NIF geometry validation passed: empty, malformed and non-finite scenes are rejected.');
+rejects(
+  () => encodeNif({ geometry: new Float32Array(0), compressed: false }),
+  /at least one point/,
+  'uncompressed encoding must reject empty scenes too',
+);
+rejects(
+  () => encodeNif({ geometry: new Float32Array(15), compressed: false }),
+  /length must equal point count/,
+  'uncompressed encoding must reject malformed geometry lengths',
+);
+const rawNanGeometry = new Float32Array(14);
+rawNanGeometry[2] = Number.NaN;
+rejects(
+  () => encodeNif({ geometry: rawNanGeometry, compressed: false }),
+  /non-finite value/,
+  'uncompressed encoding must reject NaN geometry too',
+);
+
+console.log('NIF geometry validation passed: compressed and uncompressed invalid scenes are rejected.');
