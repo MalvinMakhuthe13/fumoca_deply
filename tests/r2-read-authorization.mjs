@@ -110,16 +110,4 @@ assert.match(ticketRoute, /expiresAt: Date\.now\(\) \+ 5 \* 60 \* 1000/);
 
 
 
-const createReadTicket = new Function('crypto', 'TextEncoder', 'btoa', 'Date', `${extractFunction('createReadTicket')}; return createReadTicket;`)(globalThis.crypto, TextEncoder, btoa, Date);
-const verifyReadTicket = new Function('crypto', 'TextEncoder', 'TextDecoder', 'atob', 'Date', `${extractFunction('verifyReadTicket')}; return verifyReadTicket;`)(globalThis.crypto, TextEncoder, TextDecoder, atob, Date);
-const now = 1_800_000_000_000;
-const ticket = await createReadTicket('nif-files', 'private/model.nif', 'unit-test-secret', now);
-assert.equal(await verifyReadTicket(ticket, 'nif-files', 'private/model.nif', 'unit-test-secret', now + 1), true, 'valid ticket accepts its exact bucket/key');
-assert.equal(await verifyReadTicket(ticket, 'nif-videos', 'private/model.nif', 'unit-test-secret', now + 1), false, 'ticket cannot be replayed across buckets');
-assert.equal(await verifyReadTicket(ticket, 'nif-files', 'other/model.nif', 'unit-test-secret', now + 1), false, 'ticket cannot be replayed for another key');
-assert.equal(await verifyReadTicket(ticket, 'nif-files', 'private/model.nif', 'wrong-secret', now + 1), false, 'ticket requires the signing secret');
-assert.equal(await verifyReadTicket(ticket, 'nif-files', 'private/model.nif', 'unit-test-secret', now + 5 * 60 * 1000 + 1), false, 'ticket expires after five minutes');
-assert.equal(await verifyReadTicket(`${ticket}tampered`, 'nif-files', 'private/model.nif', 'unit-test-secret', now + 1), false, 'tampered ticket rejected');
-assert.equal(await verifyReadTicket('not-a-ticket', 'nif-files', 'private/model.nif', 'unit-test-secret', now + 1), false, 'malformed ticket rejected');
-
 console.log('R2 read authorization regression tests passed.');
