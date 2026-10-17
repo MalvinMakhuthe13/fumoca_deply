@@ -2107,16 +2107,40 @@ function _renderLidarSourceLinks(meta = {}) {
   const panel = document.getElementById('lidarSourceCapture');
   if (!panel) return;
   panel.replaceChildren();
-  const sources = [meta.source_capture, ...(meta.lidar_sources || [])].filter(item => item?.public_url && /^https?:\/\//i.test(item.public_url));
+  const sources = [meta.source_capture, ...(meta.lidar_sources || [])]
+    .filter(item => item && (item.r2_key || (item.public_url && /^https?:\/\//i.test(item.public_url))));
   if (!sources.length) { panel.style.display = 'none'; return; }
   panel.append(document.createTextNode('Original scan files are preserved: '));
   sources.forEach((source, index) => {
     if (index) panel.append(document.createTextNode(' · '));
     const link = document.createElement('a');
-    link.href = source.public_url;
+    link.href = source.public_url || '#';
     link.textContent = source.filename || `source ${index + 1}`;
     link.target = '_blank'; link.rel = 'noopener noreferrer';
     link.style.cssText = 'color:#0ef;text-decoration:underline';
+    if (source.r2_key) {
+      // R2 owner keys are private; a raw publicUrl does not carry the user's
+      // Authorization header. Open a tab in the click gesture, then resolve a
+      // short-lived bucket/key-bound read ticket.
+      link.addEventListener('click', async (event) => {
+        event.preventDefault();
+        const tab = window.open('about:blank', '_blank');
+        try {
+          const r2 = await getR2Client();
+          const bucket = source.r2_bucket || source.bucket || 'nif-files';
+          const authorizedUrl = await r2.from(bucket).authenticatedUrl(source.r2_key);
+          if (tab && !tab.closed) {
+            tab.location.href = authorizedUrl;
+          } else {
+            try { await navigator.clipboard.writeText(authorizedUrl); }
+            catch { window.prompt('Copy the authorized source-file link:', authorizedUrl); }
+          }
+        } catch (error) {
+          if (tab && !tab.closed) tab.close();
+          alert('Could not authorize the original source file: ' + (error?.message || error));
+        }
+      });
+    }
     panel.append(link);
   });
   panel.style.display = 'block';
