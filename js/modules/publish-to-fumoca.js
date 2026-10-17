@@ -189,8 +189,8 @@ const FumocaPublish = (() => {
       updated_at: new Date().toISOString(),
       meta: {
         ...existingMeta,
-        title: title || rec?.title || S.fileName || 'Untitled Splat',
-        description: description ?? rec?.description ?? '',
+        title: title || window._fumocaCurrentRecord?.title || rec?.title || S.fileName || 'Untitled Splat',
+        description: description ?? window._fumocaCurrentRecord?.description ?? rec?.description ?? '',
         publish_visibility: visibility,
         publish_status: 'published',
       },
