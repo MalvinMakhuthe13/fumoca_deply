@@ -235,8 +235,9 @@ async function userMayWriteFileKey(request, env, principal, bucketName, fileKey)
 
 // Read access is deliberately stricter than URL visibility flags in the browser.
 // Public NIF output is public only when its owning nif_files row says is_public=true.
-// Raw capture videos and previews are private unless an explicit association policy
-// is added; a known object key or ?public=1 flag is not an authorization grant.
+// Raw capture videos remain private. Preview videos are public only when their
+// teaser_video_r2_key is associated with a published NIF; a known key or ?public=1
+// flag is never an authorization grant.
 async function authorizeFileRead(request, env, principal, bucketName, fileKey) {
   if (!['nif-files', 'nif-videos', 'preview-videos', 'thumbnails', 'avatars'].includes(bucketName)) {
     return { allowed: false, isPublic: false, reason: 'unknown-bucket' };
