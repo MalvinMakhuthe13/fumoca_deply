@@ -2847,29 +2847,33 @@ async function _fumocaQueuePipeline(kind = 'mesh_cleanup', extraPayload = {}) {
     source_record_id: safeExtra.source_record_id || rec.id || null,
     status: safeExtra.status || 'queued',
   };
-  const metadata = { ...(rec.meta || {}) };
-  const queue = Array.isArray(metadata.processing_requests) ? metadata.processing_requests.slice() : [];
-  queue.unshift(payload);
-  metadata.processing_requests = queue.slice(0, 50);
-  metadata.last_processing_request = payload;
+  let metadata = { ...(rec.meta || {}) };
   let savedRemote = false;
-  if (supabase && rec.id) {
+  if (supabase && rec.id && rec.user_id) {
     try {
-      const { error } = await supabase.from('nif_files').update({ meta: metadata }).eq('id', rec.id);
-      if (error) throw error;
+      const { data: latest, error: readError } = await supabase.from('nif_files')
+        .select('id,user_id,title,description,r2_key,is_public,meta')
+        .eq('id', rec.id).eq('user_id', rec.user_id).single();
+      if (readError || !latest) throw new Error(readError?.message || 'NIF could not be reloaded before queueing pipeline work.');
+      const latestMeta = latest.meta && typeof latest.meta === 'object' ? latest.meta : {};
+      const queue = Array.isArray(latestMeta.processing_requests) ? latestMeta.processing_requests.slice() : [];
+      queue.unshift(payload);
+      metadata = { ...latestMeta, processing_requests: queue.slice(0, 50), last_processing_request: payload };
+      const { data: updated, error: writeError } = await supabase.from('nif_files').update({ meta: metadata })
+        .eq('id', rec.id).eq('user_id', rec.user_id).select('id').maybeSingle();
+      if (writeError || !updated) throw new Error(writeError?.message || 'Pipeline request was not saved to the NIF record.');
       savedRemote = true;
+      currentRecord = { ...(currentRecord || rec), ...latest, meta: metadata };
     } catch (err) {
-      console.warn('[fumoca] queue pipeline remote save failed', err);
-      try {
-        _fumocaEnqueuePipelineRetry(kind, payload);
-      } catch (_) {}
+      console.warn('[fumoca] queue pipeline remote save failed', err?.message || err);
+      try { _fumocaEnqueuePipelineRetry(kind, payload); } catch (_) {}
     }
   } else {
-    try {
-      _fumocaEnqueuePipelineRetry(kind, payload);
-    } catch (_) {}
+    try { _fumocaEnqueuePipelineRetry(kind, payload); } catch (_) {}
   }
-  currentRecord = { ...rec, metadata };
+  // Keep the correct META shape in memory even when the request is queued
+  // locally for retry; never create a phantom top-level "metadata" property.
+  currentRecord = { ...(currentRecord || rec), meta: metadata };
   window._fumocaCurrentRecord = currentRecord;
   const label = String(kind || 'pipeline').replace(/_/g, ' ');
   _fumocaShowPipelineIllusion(savedRemote ? `${label} queued` : `${label} saved locally â€” syncing soon`, 1800);
