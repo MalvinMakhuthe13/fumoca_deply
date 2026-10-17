@@ -33,8 +33,9 @@ export function compactGaussianSHSidecar({
   if (!Array.isArray(indices) || !Array.isArray(attributes) || !attributes.length || !coefficients) {
     return null;
   }
-  if (!Number.isInteger(pointCount) || pointCount < 1 ||
-      indices.some(i => !Number.isInteger(i) || i < 0 || i >= pointCount)) {
+  if (!Number.isInteger(pointCount) || pointCount < 1 || indices.length < 1 ||
+      indices.some(i => !Number.isInteger(i) || i < 0 || i >= pointCount) ||
+      new Set(indices).size !== indices.length) {
     throw new Error('[nif-sh-sidecar] invalid source point count or compact index');
   }
   const descriptor = canonicalProperties(attributes.length);
