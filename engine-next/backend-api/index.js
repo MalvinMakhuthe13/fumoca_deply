@@ -910,7 +910,7 @@ app.post('/api/nif/:id/measurements', requireAuth, async (req, res) => {
 // ── NIF scene editor — save edited depth field ────────────────────────────────
 app.post('/api/nif/:id/edits', requireAuth, async (req, res) => {
   const { data: nif, error } = await supabaseAdmin.from('nif_files')
-    .select('id,user_id,r2_key').eq('id', req.params.id).single();
+    .select('id,user_id,r2_key').eq('id', req.params.id).maybeSingle();
   if (error) return res.status(500).json({ error: 'Could not load NIF record' });
   if (!nif) return res.status(404).json({ error: 'NIF not found' });
   if (nif.user_id !== req.user.id) return res.status(403).json({ error: 'Not your NIF' });
