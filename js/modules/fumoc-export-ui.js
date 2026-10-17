@@ -12,6 +12,13 @@
  * ════════════════════════════════════════════════════════════════════════════
  */
 
+import r2 from './r2Client.js';
+import { encodeNif, decodeNif } from './nif-format.js';
+import { compactGaussianSHSidecar, gaussianSHMetadata } from './nif-sh-sidecar.js';
+import { encodeEditorSplatRows } from './editor-splat-rows.js';
+import { compactNifLayers } from './nif-layer-geo.js';
+import { CHUNK } from '../../engine-next/format/NIFSpec.js';
+
 let _panel    = null;
 let _encoding = false;
 
@@ -142,20 +149,10 @@ function _ensurePanel() {
         <button class="fep-close" id="fepCloseBtn">×</button>
       </div>
 
-      <div class="fep-label">Compression quality</div>
-      <div class="fep-quality-row">
-        <div class="fep-q" data-q="high">
-          High
-          <span class="fep-q-sub">Best quality · ~3× smaller</span>
-        </div>
-        <div class="fep-q active" data-q="medium">
-          Medium
-          <span class="fep-q-sub">Balanced · ~15× smaller</span>
-        </div>
-        <div class="fep-q" data-q="low">
-          Low
-          <span class="fep-q-sub">Max compression · ~40× smaller</span>
-        </div>
+      <div class="fep-label">Export mode</div>
+      <div class="fep-estimate">
+        <span class="fep-est-label">Format</span>
+        <span class="fep-est-val">NIF 1.2 · preserve supported data</span>
       </div>
 
       <div class="fep-estimate">
@@ -163,15 +160,12 @@ function _ensurePanel() {
         <span class="fep-est-val" id="fepEstimate">—</span>
       </div>
 
-      <!-- Draco mesh toggle -->
-      <label class="fep-mesh-row" id="fepMeshRow">
-        <input type="checkbox" id="fepMeshCheck" checked>
+      <div class="fep-mesh-row" id="fepMeshRow" role="note">
         <div class="fep-mesh-text">
-          <div class="fep-mesh-title">Include Draco mesh</div>
-          <div class="fep-mesh-sub">Embeds a Draco-compressed surface mesh — enables solid rendering &amp; 3D printing export. Adds ~50–150 KB.</div>
+          <div class="fep-mesh-title">Mesh and sidecars</div>
+          <div class="fep-mesh-sub">Existing NIF meshes and supported SH, LiDAR, layer and metadata chunks are preserved. This viewer export does not reconstruct a new mesh.</div>
         </div>
-        <span class="fep-mesh-badge">WASM</span>
-      </label>
+      </div>
 
       <div id="fepProgressArea">
         <div id="fepProgressBar"><div id="fepProgressFill"></div></div>
