@@ -49,14 +49,14 @@ async function deleteUploadRecord(item) {
     { bucket: 'nif-files', key: item.r2_key },
     // Current direct NIF/SPLAT/PLY uploads keep source_r2_key in nif-files;
     // try nif-videos too for records created by the older capture pipeline.
-    { bucket: item.meta?.source_r2_bucket || 'nif-files', key: item.meta?.source_r2_key },
-    ...(!item.meta?.source_r2_bucket && item.meta?.source_r2_key ? [{ bucket: 'nif-videos', key: item.meta.source_r2_key }] : []),
-    { bucket: sourceCapture?.r2_bucket || sourceCapture?.bucket || 'nif-files', key: sourceCapture?.r2_key },
-    ...(!sourceCapture?.r2_bucket && !sourceCapture?.bucket && sourceCapture?.r2_key
+    { bucket: item.meta?.source_r2_bucket || (item.meta?.source_r2_key?.startsWith('raw/') ? 'nif-videos' : 'nif-files'), key: item.meta?.source_r2_key },
+    ...(!item.meta?.source_r2_bucket && item.meta?.source_r2_key && !item.meta.source_r2_key.startsWith('raw/') ? [{ bucket: 'nif-videos', key: item.meta.source_r2_key }] : []),
+    { bucket: sourceCapture?.r2_bucket || sourceCapture?.bucket || (sourceCapture?.r2_key?.startsWith('raw/') ? 'nif-videos' : 'nif-files'), key: sourceCapture?.r2_key },
+    ...(!sourceCapture?.r2_bucket && !sourceCapture?.bucket && sourceCapture?.r2_key && !sourceCapture.r2_key.startsWith('raw/')
       ? [{ bucket: 'nif-videos', key: sourceCapture.r2_key }] : []),
     ...(Array.isArray(item.meta?.lidar_sources) ? item.meta.lidar_sources.flatMap(source => [
-      { bucket: source?.r2_bucket || source?.bucket || 'nif-files', key: source?.r2_key },
-      ...(!source?.r2_bucket && !source?.bucket && source?.r2_key ? [{ bucket: 'nif-videos', key: source.r2_key }] : []),
+      { bucket: source?.r2_bucket || source?.bucket || (source?.r2_key?.startsWith('raw/') ? 'nif-videos' : 'nif-files'), key: source?.r2_key },
+      ...(!source?.r2_bucket && !source?.bucket && source?.r2_key && !source.r2_key.startsWith('raw/') ? [{ bucket: 'nif-videos', key: source.r2_key }] : []),
     ]) : []),
     { bucket: 'nif-files', key: item.meta?.mobile_asset_r2_key },
     { bucket: 'nif-files', key: item.meta?.cleaned_splat?.r2_key },
