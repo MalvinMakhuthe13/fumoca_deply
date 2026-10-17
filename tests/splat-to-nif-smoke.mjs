@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { encodeNif, decodeNif } from '../js/modules/nif-format.js';
+import { encodeNif, decodeNif, geometryToSplatRows } from '../js/modules/nif-format.js';
 
 // Tiny valid 32-byte-row .splat fixture: two Gaussians, no GPU/runtime services.
 const source = new Uint8Array(64);
@@ -55,4 +55,33 @@ for (let i = 0; i < 2; i++) {
   closeTo(sigmoid(decoded.gaussians.data[o + 12]), 120 / 255, 0.003, `point ${i} green`);
   closeTo(sigmoid(decoded.gaussians.data[o + 13]), 40 / 255, 0.003, `point ${i} blue`);
 }
-console.log('SPLAT → NIF round-trip passed: 2 Gaussians, metadata preserved, no GPU required.');
+// A NIF opened in the app must also be convertible back to the legacy
+// 32-byte renderer input in memory, without a GPU or another reconstruction.
+const legacyRows = geometryToSplatRows(decoded.gaussians);
+assert.equal(legacyRows.byteLength, 2 * 32);
+const legacyView = new DataView(legacyRows.buffer);
+closeTo(legacyView.getFloat32(0, true), 0, 0.0001, 'legacy row 0 x');
+closeTo(legacyView.getFloat32(4, true), 1, 0.0001, 'legacy row 0 y');
+closeTo(legacyView.getFloat32(8, true), -0.5, 0.0001, 'legacy row 0 z');
+assert.ok(legacyRows[24] >= 219 && legacyRows[24] <= 221, 'red channel survives NIF → SPLAT');
+assert.ok(legacyRows[27] >= 229 && legacyRows[27] <= 231, 'opacity survives NIF → SPLAT');
+
+// Plain PLY point clouds have a distinct CPU-only route: encode positions,
+// RGB and opacity as isotropic points, and do not claim Gaussian source fidelity.
+const plyNif = encodeNif({
+  positions: new Float32Array([2, 3, 4, -1, 0.5, 8]),
+  colors01: new Float32Array([1, 0.25, 0, 0.1, 0.5, 0.9]),
+  opacities01: new Float32Array([1, 0.6]),
+  meta: { title: 'point cloud fixture', source_format: 'ply' },
+});
+const plyDecoded = await decodeNif(plyNif);
+assert.equal(plyDecoded.gaussians.count, 2);
+assert.equal(plyDecoded.meta.source_format, 'ply');
+closeTo(plyDecoded.gaussians.data[0], 2, 0.0001, 'PLY point 0 x');
+closeTo(plyDecoded.gaussians.data[1], 3, 0.0001, 'PLY point 0 y');
+closeTo(sigmoid(plyDecoded.gaussians.data[10]), 1, 0.003, 'PLY point 0 opacity');
+closeTo(sigmoid(plyDecoded.gaussians.data[11]), 1, 0.003, 'PLY point 0 red');
+closeTo(sigmoid(plyDecoded.gaussians.data[12]), 0.25, 0.003, 'PLY point 0 green');
+closeTo(sigmoid(plyDecoded.gaussians.data[13]), 0, 0.003, 'PLY point 0 blue');
+
+console.log('SPLAT ↔ NIF and PLY → NIF CPU conversion round-trips passed.');
