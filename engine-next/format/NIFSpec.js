@@ -752,9 +752,8 @@ export class NIFReader {
     // Compatibility contract, decided now while only v1.x files exist:
     //   - Same major version: always readable, regardless of minor. Minor
     //     version bumps only ever ADD new chunk types (see NIF_SPEC_v1.0.md
-    //     §12) — a v1.0 reader given a v1.1 file just won't see the new
-    //     chunks, which is exactly what the per-chunk defensive parsing
-    //     above already handles gracefully.
+    //     §12) — older v1.x readers skip newer optional chunks, which is the
+    //     intended forward/backward compatibility behavior.
     //   - Different major version: NOT assumed readable. A major bump is
     //     reserved for changes that break this assumption (e.g. a changed
     //     chunk header layout), so an unknown major version chunk-parses
