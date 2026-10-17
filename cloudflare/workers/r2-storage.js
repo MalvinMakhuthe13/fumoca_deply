@@ -165,7 +165,7 @@ async function userOwnsFileKey(request, env, principal, bucketName, fileKey) {
     select: 'id,r2_key,meta',
     user_id: `eq.${principal.id}`,
     limit: '1',
-    or: `(r2_key.eq.${encodedKey},meta->>source_r2_key.eq.${encodedKey},meta->source_capture->>r2_key.eq.${encodedKey},meta->>thumbnail_r2_key.eq.${encodedKey},meta->>capture_thumbnail_r2_key.eq.${encodedKey},meta->>teaser_video_r2_key.eq.${encodedKey})`,
+    or: `(r2_key.eq.${encodedKey},meta->>source_r2_key.eq.${encodedKey},meta->source_capture->>r2_key.eq.${encodedKey},meta->>thumbnail_r2_key.eq.${encodedKey},meta->>capture_thumbnail_r2_key.eq.${encodedKey},meta->>teaser_video_r2_key.eq.${encodedKey},meta->cleaned_splat->>r2_key.eq.${encodedKey})`,
   });
   try {
     const response = await fetch(`${env.SUPABASE_URL}/rest/v1/nif_files?${query}`, {
@@ -284,11 +284,12 @@ async function authorizeFileRead(request, env, principal, bucketName, fileKey) {
       const isSource = bucketName === 'nif-videos' &&
         [meta.source_r2_key, meta.source_capture?.r2_key].includes(fileKey);
       const isPreviewVideo = bucketName === 'preview-videos' && meta.teaser_video_r2_key === fileKey;
+      const isCleanedSplat = bucketName === 'nif-files' && meta.cleaned_splat?.r2_key === fileKey;
       const owner = !!(principal?.kind === 'user' && principal.id && row?.user_id === principal.id);
       if (isNifOutput && row.is_public === true) {
         return { allowed: true, isPublic: true, reason: 'published-nif' };
       }
-      if (owner && (isNifOutput || isThumbnail || isSource || isPreviewVideo)) {
+      if (owner && (isNifOutput || isThumbnail || isSource || isPreviewVideo || isCleanedSplat)) {
         return { allowed: true, isPublic: false, reason: 'owner-associated-file' };
       }
       if (isThumbnail && row.is_public === true) {
