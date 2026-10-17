@@ -36,25 +36,37 @@ function extractStoragePath(urlString) {
 
 async function deleteUploadRecord(item) {
   if (item.source === 'nif_files') {
-    // The NIF row stores R2 object keys, not Supabase Storage URLs. Prefer
-    // those keys directly so CDN URLs do not leave orphaned source/thumbnail
-    // objects behind. Delete the database row first; a storage failure should
-    // never destroy the only database reference to the remaining objects.
-    const { error } = await supabase.from('nif_files').delete().eq('id', item.id).eq('user_id', item.user_id);
+    // Keep the ownership row available until the Worker has authorized cleanup.
+    // Each object must be deleted from its real bucket; never remove raw captures
+    // or thumbnails from nif-files just because they belong to one NIF record.
+    const candidates = [
+      { bucket: 'nif-files', key: item.r2_key },
+      { bucket: 'nif-videos', key: item.meta?.source_r2_key },
+      { bucket: 'nif-videos', key: item.meta?.source_capture?.r2_key },
+      { bucket: 'thumbnails', key: item.meta?.thumbnail_r2_key },
+      { bucket: 'thumbnails', key: item.meta?.capture_thumbnail_r2_key },
+    ].filter(entry => typeof entry.key === 'string' && entry.key.trim());
+    const unique = new Map();
+    for (const entry of candidates) unique.set(`${entry.bucket}:${entry.key}`, entry);
+
+    const cleanup = await Promise.allSettled(
+      [...unique.values()].map(entry => r2.from(entry.bucket).remove([entry.key]))
+    );
+    const failed = cleanup.some(result => result.status === 'rejected' || result.value?.error);
+    if (failed) {
+      throw new Error('Some storage objects could not be deleted. The NIF record was kept so cleanup can be retried.');
+    }
+
+    const { error } = await supabase.from('nif_files')
+      .delete().eq('id', item.id).eq('user_id', item.user_id);
     if (error) throw error;
 
-    const keys = [
-      item.r2_key,
-      item.meta?.source_r2_key,
-      item.meta?.source_capture?.r2_key,
-      item.meta?.thumbnail_r2_key,
-      item.meta?.capture_thumbnail_r2_key,
-    ].filter((key, index, all) => typeof key === 'string' && key.trim() && all.indexOf(key) === index);
-    const results = await Promise.allSettled(keys.map(key => r2.from('nif-files').remove([key])));
-    const failed = results.filter(result => result.status === 'rejected' || result.value?.error);
-    if (failed.length) {
-      console.warn('[FUMOCA profile] NIF record deleted; some R2 objects may need cleanup', {
-        nifId: item.id, failedCount: failed.length,
+    // Jobs are independent records; remove only the jobs attached to this NIF.
+    const { error: jobsError } = await supabase.from('reconstruction_jobs')
+      .delete().eq('id', item.job_id).eq('user_id', item.user_id);
+    if (jobsError && item.job_id) {
+      console.warn('[FUMOCA profile] NIF deleted but its reconstruction job needs cleanup', {
+        nifId: item.id, jobId: item.job_id, error: jobsError.message,
       });
     }
     return;
