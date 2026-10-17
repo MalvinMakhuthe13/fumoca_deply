@@ -952,7 +952,7 @@ function renderPanel() {
     await saveRemote();
     activateHotspot(hotspot);
   });
-  hotspotPanel.querySelector('#hsCaptureCurrent')?.addEventListener('click', () => {
+  hotspotPanel.querySelector('#hsCaptureCurrent')?.addEventListener('click', async () => {
     const created = promptHotspot(getCurrentViewerAnchor());
     if (!created) return;
     const hotspot = normalizeHotspot(created, state.hotspots.length);
