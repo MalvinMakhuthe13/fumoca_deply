@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
       - name: Check diff whitespace
         run: |
-          git fetch --no-tags --depth=1 origin main
+          git fetch --no-tags --unshallow origin main || git fetch --no-tags origin main
           git diff --check origin/main...HEAD
       - name: Set up Node
         uses: actions/setup-node@v4
