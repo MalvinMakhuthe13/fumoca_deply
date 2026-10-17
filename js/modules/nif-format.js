@@ -648,7 +648,16 @@ export function gaussiansToRenderArrays(gaussians) {
 // thing fetched, stored, and exported; this conversion happens in memory only,
 // purely to hand off to the already-working render path.
 export function geometryToSplatRows(gaussians) {
-  const { count, data } = gaussians;
+  const { count, data } = gaussians || {};
+  if (!Number.isInteger(count) || count < 1 || count > 5_000_000 ||
+      !(data instanceof Float32Array) || data.length !== count * FLOATS_PER_POINT) {
+    throw new Error('[nif-format] decoded geometry has an invalid point count or data length');
+  }
+  for (let i = 0; i < data.length; i++) {
+    if (!Number.isFinite(data[i])) {
+      throw new Error(`[nif-format] decoded geometry contains a non-finite value at float index ${i}`);
+    }
+  }
   const rowSize = 32;
   const out = new Uint8Array(count * rowSize);
   const dv  = new DataView(out.buffer);
@@ -656,21 +665,28 @@ export function geometryToSplatRows(gaussians) {
   for (let i = 0; i < count; i++) {
     const o = i * FLOATS_PER_POINT;
     const base = i * rowSize;
+    const scales = [data[o+3], data[o+4], data[o+5]].map(Math.exp);
+    if (scales.some(scale => !Number.isFinite(scale) || scale <= 0)) {
+      throw new Error(`[nif-format] point ${i} has an invalid log-scale for SPLAT output`);
+    }
+    const qNorm = Math.hypot(data[o+6], data[o+7], data[o+8], data[o+9]);
+    if (!Number.isFinite(qNorm) || qNorm < 1e-8) {
+      throw new Error(`[nif-format] point ${i} has an invalid zero-length quaternion`);
+    }
 
     dv.setFloat32(base + 0, data[o+0], true);
     dv.setFloat32(base + 4, data[o+1], true);
     dv.setFloat32(base + 8, data[o+2], true);
+    dv.setFloat32(base + 12, scales[0], true);
+    dv.setFloat32(base + 16, scales[1], true);
+    dv.setFloat32(base + 20, scales[2], true);
 
-    dv.setFloat32(base + 12, Math.exp(data[o+3]), true);
-    dv.setFloat32(base + 16, Math.exp(data[o+4]), true);
-    dv.setFloat32(base + 20, Math.exp(data[o+5]), true);
-
-    // Re-quantise quaternion (canonical is already-normalised float wxyz)
+    // Re-quantise a normalized quaternion (canonical float order is wxyz).
     const clamp255 = v => Math.max(0, Math.min(255, Math.round(v)));
-    out[base + 28] = clamp255(data[o+6] * 128 + 128);
-    out[base + 29] = clamp255(data[o+7] * 128 + 128);
-    out[base + 30] = clamp255(data[o+8] * 128 + 128);
-    out[base + 31] = clamp255(data[o+9] * 128 + 128);
+    out[base + 28] = clamp255((data[o+6] / qNorm) * 128 + 128);
+    out[base + 29] = clamp255((data[o+7] / qNorm) * 128 + 128);
+    out[base + 30] = clamp255((data[o+8] / qNorm) * 128 + 128);
+    out[base + 31] = clamp255((data[o+9] / qNorm) * 128 + 128);
 
     const opacity01 = sigmoid(data[o+10]);
     out[base + 27] = clamp255(opacity01 * 255);
