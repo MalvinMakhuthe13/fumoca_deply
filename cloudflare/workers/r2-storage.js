@@ -436,7 +436,7 @@ function parseByteRange(rangeHeader, size) {
 // abuse R2 key limits or your CDN/cache layer.
 function sanitiseKey(rawPath) {
   if (typeof rawPath !== 'string' || rawPath.length === 0 || rawPath.length > MAX_KEY_LENGTH ||
-      /[\u0000-\u001F\u007F]/.test(rawPath) || /[(),{}"']/u.test(rawPath)) {
+      /[\u0000-\u001F\u007F]/.test(rawPath) || /[(),{}\x22\x27]/u.test(rawPath)) {
     return '';
   }
   // These characters are reserved by the PostgREST filter grammar used by
