@@ -125,20 +125,25 @@ const FumocaMobileAsset = (() => {
       }, { onConflict: 'splat_id' }).select().single();
       if (rowError || !row) throw new Error(rowError?.message || 'Mobile asset record was not saved.');
 
-      const { error: metaError } = await sb.from('nif_files').update({
+      const { data: updatedNif, error: metaError } = await sb.from('nif_files').update({
         meta: {
           ...(splatRecord.meta || {}),
           mobile_asset_url: assetUrl,
           mobile_asset_r2_key: fileKey,
           mobile_asset_meta: config,
         },
-      }).eq('id', splatRecord.id).eq('user_id', ownerId);
-      if (metaError) throw new Error(metaError.message || 'Mobile asset key could not be linked to its parent NIF.');
+      }).eq('id', splatRecord.id).eq('user_id', ownerId).select('id').maybeSingle();
+      if (metaError || !updatedNif) {
+        throw new Error(metaError?.message || 'Mobile asset key could not be linked to its parent NIF.');
+      }
 
       console.log('%c[MobileAsset] Widget saved →', 'color:#c8ff00', assetUrl);
       window.dispatchEvent(new CustomEvent('fumoca:mobileAssetReady', { detail: { url: assetUrl, config } }));
       return { url: assetUrl, config, row };
     } catch (error) {
+      const { error: rowCleanupError } = await sb.from('mobile_assets').delete()
+        .eq('splat_id', splatRecord.id).eq('asset_url', assetUrl);
+      if (rowCleanupError) console.error('[MobileAsset] Metadata cleanup failed:', rowCleanupError.message);
       const { error: cleanupError } = await r2.from('nif-files').remove([fileKey]);
       if (cleanupError) console.error('[MobileAsset] Orphan cleanup failed:', cleanupError.message);
       throw error;
