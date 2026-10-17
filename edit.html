@@ -5019,8 +5019,11 @@ function renderLayers() {
     if (!S.alive) return;
     const grouped = new Uint8Array(S.alive.length);
     S.layers.forEach(L => { for (let i=0;i<L.mask.length;i++) if (L.mask[i]) grouped[i]=1; });
-    for (let i=0;i<S.alive.length;i++) S.selected[i] = (S.alive[i] && !grouped[i]) ? 1 : 0;
-    rebuildGeometry(); renderLayers();
+    for (let i=0;i<S.alive.length;i++) S.selected[i] = (S.alive[i] && !grouped[i] && !S.layerHidden?.[i]) ? 1 : 0;
+    rebuildGeometry();
+    renderLayers();
+    syncTransformGizmo();
+    _syncViewportHud();
   });
   list.appendChild(mainRow);
 
