@@ -19,6 +19,10 @@ assert.match(upload, /safeName = String\(filename[\s\S]*replace\(\/\[\^A-Za-z0-9
   'uploaded share filename must be sanitized');
 assert.match(policies, /'splat-files',[^\n]*'application\/fumoc'/,
   'splat-files bucket must permit the FUMOC content type');
+assert.match(policies, /\('splat-files', 'splat-files', true,/,
+  'the share bucket must remain explicitly public for generated share URLs');
+assert.match(policies, /create policy "Public read splat files"[\s\S]*?to public[\s\S]*?using \(bucket_id = 'splat-files'\)/,
+  'public share links must have an explicit public-read policy');
 for (const policy of ['Users upload own FUMOC files', 'Users update own FUMOC files', 'Users delete own FUMOC files']) {
   assert.ok(policies.includes(policy), `missing owner-scoped storage policy: ${policy}`);
 }
