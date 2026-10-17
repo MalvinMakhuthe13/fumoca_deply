@@ -36,12 +36,26 @@ function extractStoragePath(urlString) {
 
 async function deleteUploadRecord(item) {
   if (item.source === 'nif_files') {
-    if (item.output_url) {
-      const hit = extractStoragePath(item.output_url);
-      if (hit) { try { await r2.from(hit.bucket).remove([hit.path]); } catch (_) {} }
-    }
+    // The NIF row stores R2 object keys, not Supabase Storage URLs. Prefer
+    // those keys directly so CDN URLs do not leave orphaned source/thumbnail
+    // objects behind. Delete the database row first; a storage failure should
+    // never destroy the only database reference to the remaining objects.
     const { error } = await supabase.from('nif_files').delete().eq('id', item.id).eq('user_id', item.user_id);
     if (error) throw error;
+
+    const keys = [
+      item.r2_key,
+      item.meta?.source_r2_key,
+      item.meta?.source_capture?.r2_key,
+      item.meta?.thumbnail_r2_key,
+    ].filter((key, index, all) => typeof key === 'string' && key.trim() && all.indexOf(key) === index);
+    const results = await Promise.allSettled(keys.map(key => r2.from('nif-files').remove([key])));
+    const failed = results.filter(result => result.status === 'rejected' || result.value?.error);
+    if (failed.length) {
+      console.warn('[FUMOCA profile] NIF record deleted; some R2 objects may need cleanup', {
+        nifId: item.id, failedCount: failed.length,
+      });
+    }
     return;
   }
   const candidates = [
@@ -180,7 +194,7 @@ async function init() {
   // expects, rather than touching every consumer.
   const { data: nifRows } = await supabase
     .from('nif_files')
-    .select('id,user_id,title,created_at,r2_key,thumbnail_url,meta')
+    .select('id,user_id,title,created_at,r2_key,thumbnail_url,meta,job_id')
     .eq('user_id', user.id)
     .order('created_at', { ascending: false });
   const nifs = (Array.isArray(nifRows) ? nifRows : []).map((row) => ({
@@ -190,6 +204,9 @@ async function init() {
     title: row.title,
     created_at: row.created_at,
     output_url: row.r2_key ? r2.publicUrl('nif-files', row.r2_key) : '',
+    r2_key: row.r2_key,
+    job_id: row.job_id || null,
+    meta: row.meta || {},
     thumbnail_url: (row.meta?.thumbnail_r2_key && r2.publicUrl('nif-files', row.meta.thumbnail_r2_key)) || row.thumbnail_url || '',
     source: 'nif_files', // deleteUploadRecord needs this to know which table/bucket to clean up
   }));
