@@ -23,4 +23,7 @@ const feed = await readFile(new URL('../js/modules/feed.js', import.meta.url), '
 assert.match(viewer, /record\.meta\?\.external_nif_url/, 'viewer must resolve external URL from meta');
 assert.match(viewer, /record\.meta\?\.preview_video_url/, 'viewer must resolve preview URL from meta');
 assert.match(feed, /row\.meta\?\.external_nif_url/, 'feed must resolve external URL from meta');
+const editor = await readFile(new URL('../edit.html', import.meta.url), 'utf8');
+assert.match(editor, /r2\.from\('nif-files'\)\.authenticatedUrl\(data\.r2_key\)/, 'Studio must use an authenticated read ticket for private NIFs');
+assert.match(editor, /window\._fumocaCanonicalFileUrl = currentR2Url/, 'Studio must retain the canonical URL rather than persisting a temporary ticket');
 console.log('Upload-page NIF schema contract passed.');
