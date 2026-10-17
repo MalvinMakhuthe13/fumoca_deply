@@ -1,6 +1,7 @@
 import r2 from '../r2Client.js';
 import { encodeNif } from './nif-format.js';
 import { compactGaussianSHSidecar, gaussianSHMetadata } from './nif-sh-sidecar.js';
+import { encodeEditorSplatRows } from './editor-splat-rows.js';
 import { NIFReader, CHUNK } from '../../engine-next/format/NIFSpec.js';
 /**
  * FUMOCA Publish Engine v1
@@ -77,45 +78,6 @@ const FumocaPublish = (() => {
   }
 
   // ── Collect current edit state, encode as a real .nif ─────────────────────
-  function _encodeCurrentSplatRows(S, aliveIndices) {
-    const rows = new Uint8Array(aliveIndices.length * 32);
-    const view = new DataView(rows.buffer);
-    const clamp01 = value => Math.max(0, Math.min(1, value));
-    for (let row = 0; row < aliveIndices.length; row++) {
-      const i = aliveIndices[row], o = row * 32;
-      const xyz = [S.positions?.[i * 3], S.positions?.[i * 3 + 1], S.positions?.[i * 3 + 2]];
-      if (xyz.some(value => !Number.isFinite(value))) {
-        throw new Error(`Cannot publish: point ${i} has non-finite position data.`);
-      }
-      for (let c = 0; c < 3; c++) view.setFloat32(o + c * 4, xyz[c], true);
-      for (let c = 0; c < 3; c++) {
-        const scale = S.scaleXYZ?.[i * 3 + c] ?? S.scale?.[i] ?? 0.01;
-        if (!Number.isFinite(scale) || scale <= 0) throw new Error(`Cannot publish: point ${i} has invalid scale data.`);
-        view.setFloat32(o + 12 + c * 4, Math.max(1e-6, scale), true);
-      }
-      for (let c = 0; c < 3; c++) {
-        const painted = S.paintColors?.[i * 3 + c];
-        const value = painted != null && painted >= 0 ? painted : (S.colors?.[i * 3 + c] ?? 0.7);
-        if (!Number.isFinite(value)) throw new Error(`Cannot publish: point ${i} has invalid colour data.`);
-        rows[o + 24 + c] = Math.round(clamp01(value) * 255);
-      }
-      const opacity = S.opacity?.[i] ?? 1;
-      if (!Number.isFinite(opacity)) throw new Error(`Cannot publish: point ${i} has invalid opacity data.`);
-      rows[o + 27] = Math.round(clamp01(opacity) * 255);
-      const q = S.rotation
-        ? Array.from(S.rotation.subarray(i * 4, i * 4 + 4))
-        : [1, 0, 0, 0];
-      const qLength = Math.hypot(...q);
-      if (q.length !== 4 || !Number.isFinite(qLength) || qLength < 1e-8) {
-        throw new Error(`Cannot publish: point ${i} has invalid rotation data.`);
-      }
-      for (let c = 0; c < 4; c++) {
-        const normalized = q[c] / qLength;
-        rows[o + 28 + c] = Math.max(0, Math.min(255, Math.round(normalized * 128 + 128)));
-      }
-    }
-    return rows;
-  }
 
   function _compactLidarAttributes(S, aliveIndices) {
     const compact = source => source ? aliveIndices.map(i => source[i] ?? 0) : null;
@@ -160,7 +122,7 @@ const FumocaPublish = (() => {
     else if (sourceMeta.editor_scene) delete meta.editor_scene; // Never publish stale point-index mappings.
 
     const { vertical, passthroughChunks } = await _loadOriginalForPassthrough();
-    const rows = _encodeCurrentSplatRows(S, aliveIndices);
+    const rows = encodeEditorSplatRows(S, aliveIndices);
     const compactIndices = Array.from({ length: aliveIndices.length }, (_, i) => i);
     const buf = encodeNif({
       sourceBuffer: rows,
