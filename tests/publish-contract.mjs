@@ -11,7 +11,7 @@ assert.match(publish, /sb\.auth\.getUser\(\)/, 'publishing must require a real a
 assert.match(publish, /rec\?\.user_id && rec\.user_id !== user\.id/, 'publishing must reject cross-user edits');
 assert.match(publish, /\$\{user\.id\}\/edited_\$\{timestamp\}\.nif/, 'new assets must use the authenticated user prefix');
 assert.match(publish, /\.eq\('id', splatId\)\.eq\('user_id', user\.id\)/, 'existing records must be updated only for the owner');
-assert.match(publish, /select\('id,user_id,r2_key,is_public,meta'\)\.eq\('id', splatId\)\.eq\('user_id', user\.id\)\.maybeSingle\(\)/,
+assert.match(publish, /select\('id,user_id,r2_key,is_public,title,description,meta'\)\.eq\('id', splatId\)\.eq\('user_id', user\.id\)\.maybeSingle\(\)/,
   'publish must reload current NIF metadata before merging to avoid stale META loss');
 assert.match(publish, /window\._fumocaCurrentRecord = \{[\s\S]*?meta: payload\.meta,/,
   'publish must synchronize the in-memory record after a successful database update');
