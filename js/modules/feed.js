@@ -62,7 +62,7 @@ function normalizeStatus(status, url) {
   const raw = String(status || '').toLowerCase();
   if (['done','ready','published','complete','completed'].includes(raw)) return 'done';
   if (['processing','running','training','rendering'].includes(raw)) return 'processing';
-  if (['failed','error'].includes(raw)) return 'failed';
+  if (['failed','error','needs_retry','cancelled'].includes(raw)) return 'failed';
   if (raw === 'queued' || raw === 'pending') return 'queued';
   return url ? 'done' : 'queued';
 }
@@ -481,7 +481,28 @@ async function fetchFeedNifs() {
   }
   const dedup = new Map();
   batches.forEach(row => { if (row?.id) dedup.set(row.id, row); });
-  return Array.from(dedup.values()).sort((a,b) => new Date(b.created_at||0) - new Date(a.created_at||0));
+  const rows = Array.from(dedup.values());
+  // A registered NIF may still be marked needs_retry by the worker when its
+  // reconstruction fails the quality bar. The artifact row exists for
+  // inspection, but the job status—not the presence of r2_key—decides if it
+  // should be presented as ready to publish.
+  const ids = rows.map(row => row.id).filter(Boolean);
+  if (ids.length) {
+    const { data: jobs, error: jobsError } = await supabase
+      .from('reconstruction_jobs')
+      .select('id,status,progress,error_message')
+      .in('id', ids);
+    if (jobsError) throw jobsError;
+    const byId = new Map((jobs || []).map(job => [job.id, job]));
+    for (const row of rows) {
+      const job = byId.get(row.id);
+      if (!job) continue; // direct imports do not have a reconstruction job
+      row.status = job.status;
+      row.processing_progress = job.progress;
+      row.error_message = job.error_message;
+    }
+  }
+  return rows.sort((a,b) => new Date(b.created_at||0) - new Date(a.created_at||0));
 }
 
 async function fetchProfilesFor(rows) {
