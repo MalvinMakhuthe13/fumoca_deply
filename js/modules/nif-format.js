@@ -458,6 +458,11 @@ export function encodeNif(opts = {}) {
     writer.add(CHUNK.LIDAR_ATTR, attrBytes, CODEC.RAW);
   }
 
+  if (Array.isArray(opts.layers) && opts.layers.length) {
+    const layerBytes = encodeLayerGeoChunk(opts.layers, geoData, count);
+    if (layerBytes) writer.add(CHUNK.LAYER_GEO, layerBytes, CODEC.RAW);
+  }
+
   writer.add(CHUNK.META, encodeMetaChunk(opts.meta ?? {}).data, CODEC.RAW);
 
   if (opts.thumbnailBytes) {
