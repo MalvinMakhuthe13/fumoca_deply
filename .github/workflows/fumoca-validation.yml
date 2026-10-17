@@ -61,6 +61,10 @@ jobs:
           grep -q "viewer.html?nifId=" js/modules/profile.js
           grep -q "source_capture: { r2_key: fileKey" js/modules/upload-page.js
           grep -q "source_capture: { r2_key: filePath" js/modules/upload-page.js
+          grep -q "capture_thumbnail_r2_key: uploadedThumbnail.fileKey" js/modules/upload-page.js
+          grep -q "post.meta?.capture_thumbnail_r2_key" js/modules/feed.js
+          grep -q "item.meta?.capture_thumbnail_r2_key" js/modules/profile.js
+          grep -q "currentRecord.meta?.capture_thumbnail_r2_key" js/modules/viewer.js
           grep -q "currentRecord.meta?.source_capture?.r2_key" js/modules/viewer.js
           grep -q "if (!currentRecord.r2_key || !currentRecord.user_id)" js/modules/viewer.js
           grep -q "not a saved NIF artifact" js/modules/viewer.js
