@@ -131,16 +131,20 @@ const FumocaMobileAsset = (() => {
         throw new Error(currentNifError?.message || 'Parent NIF could not be reloaded before saving mobile asset metadata.');
       }
       const currentMeta = currentNif.meta && typeof currentNif.meta === 'object' ? currentNif.meta : {};
+      const nextMeta = {
+        ...currentMeta,
+        mobile_asset_url: assetUrl,
+        mobile_asset_r2_key: fileKey,
+        mobile_asset_meta: config,
+      };
       const { data: updatedNif, error: metaError } = await sb.from('nif_files').update({
-        meta: {
-          ...currentMeta,
-          mobile_asset_url: assetUrl,
-          mobile_asset_r2_key: fileKey,
-          mobile_asset_meta: config,
-        },
+        meta: nextMeta,
       }).eq('id', splatRecord.id).eq('user_id', ownerId).select('id').maybeSingle();
       if (metaError || !updatedNif) {
         throw new Error(metaError?.message || 'Mobile asset key could not be linked to its parent NIF.');
+      }
+      if (window._fumocaCurrentRecord?.id === splatRecord.id) {
+        window._fumocaCurrentRecord = { ...window._fumocaCurrentRecord, meta: nextMeta };
       }
 
       console.log('%c[MobileAsset] Widget saved →', 'color:#c8ff00', assetUrl);
