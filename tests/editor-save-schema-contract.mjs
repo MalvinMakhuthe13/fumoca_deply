@@ -16,6 +16,8 @@ assert.match(source, /window\._fumocaCurrentRecord = \{ \.\.\.\(window\._fumocaC
   'bootstrap must prefer fresh database fields over stale in-memory NIF state');
 assert.match(source, /if \(source\.r2_key\)[\s\S]*?authenticatedUrl\(source\.r2_key\)/,
   'private original source files must be opened through an authorized R2 read ticket');
+assert.match(source, /source\.r2_key\.startsWith\('raw\/'\) \? 'nif-videos' : 'nif-files'/,
+  'legacy photo-burst source links must use the correct R2 bucket');
 const preserveStart = source.indexOf('window.preserveImportedLidarSource = async');
 const preserveEnd = source.indexOf('let _solidMeshPreviewObject', preserveStart);
 assert.ok(preserveStart >= 0 && preserveEnd > preserveStart, 'original source preservation function must exist');
