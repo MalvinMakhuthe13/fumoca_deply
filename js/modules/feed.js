@@ -464,12 +464,12 @@ function applyFilters() {
 }
 
 async function fetchFeedNifs() {
-  const visibilityFilter = ['public', 'followers'];
   const batches = [];
   const { data: publicRows, error: publicError } =
   await supabase
   .from('nif_files')
   .select('*')
+  .eq('is_public', true)
   .order('created_at', { ascending: false })
   .limit(60);
   if (publicError) throw publicError;
@@ -487,7 +487,7 @@ async function fetchFeedNifs() {
   // reconstruction fails the quality bar. The artifact row exists for
   // inspection, but the job status—not the presence of r2_key—decides if it
   // should be presented as ready to publish.
-  const jobIds = [...new Set(rows.map(row => row.job_id || row.id).filter(Boolean))];
+  const jobIds = [...new Set(rows.map(row => row.job_id).filter(Boolean))];
   if (jobIds.length) {
     const { data: jobs, error: jobsError } = await supabase
       .from('reconstruction_jobs')
@@ -496,7 +496,7 @@ async function fetchFeedNifs() {
     if (jobsError) throw jobsError;
     const byId = new Map((jobs || []).map(job => [job.id, job]));
     for (const row of rows) {
-      const jobId = row.job_id || row.id;
+      const jobId = row.job_id;
       const job = byId.get(jobId);
       if (job) {
         row.status = job.status;
