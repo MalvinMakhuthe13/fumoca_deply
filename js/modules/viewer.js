@@ -2772,27 +2772,45 @@ async function _fumocaSaveVariant(name = null) {
   const variantName = (name || window.prompt('Variant name', 'Clean Variant') || '').trim();
   if (!variantName) return null;
   const rec = currentRecord || {};
-  const metadata = { ...(rec.meta || {}) };
-  const variants = Array.isArray(metadata.variants) ? metadata.variants.slice() : [];
+  let metadata = { ...(rec.meta || {}) };
   const recipe = _fumocaBuildRecipe(variantName);
-  variants.unshift(recipe);
-  metadata.variants = variants.slice(0, 25);
   let savedRemote = false;
-  if (supabase && rec.id) {
+  if (supabase && rec.id && rec.user_id) {
     try {
-      const { error } = await supabase.from('nif_files').update({ meta: metadata }).eq('id', rec.id);
-      if (error) throw error;
+      const { data: latest, error: readError } = await supabase.from('nif_files')
+        .select('id,user_id,title,description,r2_key,is_public,meta')
+        .eq('id', rec.id).eq('user_id', rec.user_id).single();
+      if (readError || !latest) throw new Error(readError?.message || 'NIF could not be reloaded before saving the variant.');
+      const latestMeta = latest.meta && typeof latest.meta === 'object' ? latest.meta : {};
+      const variants = Array.isArray(latestMeta.variants) ? latestMeta.variants.slice() : [];
+      variants.unshift(recipe);
+      metadata = { ...latestMeta, variants: variants.slice(0, 25) };
+      const { data: updated, error: writeError } = await supabase.from('nif_files').update({ meta: metadata })
+        .eq('id', rec.id).eq('user_id', rec.user_id).select('id').maybeSingle();
+      if (writeError || !updated) throw new Error(writeError?.message || 'Variant was not saved.');
       savedRemote = true;
+      currentRecord = { ...(currentRecord || {}), ...latest, meta: metadata };
     } catch (err) {
-      console.warn('[fumoca] variant remote save failed', err);
+      console.warn('[fumoca] variant remote save failed', err?.message || err);
+      // Keep a local copy for the current session, but the event below clearly
+      // reports that the remote NIF record was not updated.
+      if (!metadata.variants) {
+        const variants = Array.isArray(metadata.variants) ? metadata.variants.slice() : [];
+        variants.unshift(recipe);
+        metadata = { ...metadata, variants: variants.slice(0, 25) };
+      }
     }
+  } else {
+    const variants = Array.isArray(metadata.variants) ? metadata.variants.slice() : [];
+    variants.unshift(recipe);
+    metadata = { ...metadata, variants: variants.slice(0, 25) };
   }
-  currentRecord = { ...rec, meta: metadata };
+  currentRecord = { ...(currentRecord || rec), meta: metadata };
   window._fumocaCurrentRecord = currentRecord;
   try {
-    localStorage.setItem(`fumoca_variants_${rec.id || location.pathname}`, JSON.stringify(metadata.variants));
+    localStorage.setItem(`fumoca_variants_${rec.id || location.pathname}`, JSON.stringify(metadata.variants || []));
   } catch (_) {}
-  window.dispatchEvent(new CustomEvent('fumoca:variantsUpdated', { detail: metadata.variants }));
+  window.dispatchEvent(new CustomEvent('fumoca:variantsUpdated', { detail: metadata.variants || [] }));
   window.dispatchEvent(new CustomEvent('fumoca:variantSaved', { detail: { savedRemote, recipe } }));
   return { savedRemote, recipe };
 }
