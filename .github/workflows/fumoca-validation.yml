@@ -239,6 +239,8 @@ jobs:
         run: node --experimental-default-type=module tests/r2-range-requests.mjs
       - name: Test embed token privacy and deployed schema
         run: node --experimental-default-type=module tests/embed-token-privacy-contract.mjs
+      - name: Test teaser upload and read visibility
+        run: node --experimental-default-type=module tests/teaser-video-contract.mjs
       - name: Guard R2 read authorization and cache ordering
         run: |
           grep -q "async function authorizeFileRead" cloudflare/workers/r2-storage.js
