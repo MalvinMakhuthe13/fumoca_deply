@@ -1658,6 +1658,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
 import { decodeNif, encodeNif, geometryToSplatRows, downloadNif } from './js/modules/nif-format.js';
+import { compactGaussianSHSidecar, gaussianSHMetadata } from './js/modules/nif-sh-sidecar.js';
 
 // Cloud storage is only needed for save/upload actions. Keep it out of the
 // editor's startup dependency graph so a temporary storage CDN failure cannot
@@ -2589,6 +2590,12 @@ async function loadFile(file, urlOverride) {
     S.lidarClassification = decoded.lidarAttributes?.classification || null;
     S.lidarReturnNumber = decoded.lidarAttributes?.returnNumber || null;
     parsed = parseSplat(rows.buffer);
+    if (decoded.gaussianSH) {
+      const coefficientCount = decoded.gaussianSH.coefficientCount;
+      parsed.shAttributes = decoded.meta?.gaussian_sh?.properties ||
+        ['f_dc_0', 'f_dc_1', 'f_dc_2', ...Array.from({ length: coefficientCount - 3 }, (_, i) => `f_rest_${i}`)];
+      parsed.shCoefficients = decoded.gaussianSH.values;
+    }
   } else if (ext === 'splat') { S.fileType = 'splat'; S.sourceBuffer = buf; parsed = parseSplat(buf); }
   else { S.fileType = 'ply'; parsed = parsePLY(buf); }
   setProgress(70);
@@ -3584,13 +3591,38 @@ function exportFile(type = 'splat') {
   const currentRows = _encodeSplatRows(idx);
   if (type === 'nif') {
     // Real .nif export — canonical 14-float/point chunked binary, not a
-    // renamed .splat. Carries forward the source file's meta/thumbnail when
-    // this file was itself loaded from a .nif (S.nifMeta/S.nifThumbnailBytes).
+    // renamed .splat. Preserve Gaussian SH coefficients as a validated sidecar
+    // and compact them using the same alive-point index list as geometry.
+    let gaussianSH, gaussianShMeta;
+    try {
+      gaussianSH = compactGaussianSHSidecar({
+        indices: idx,
+        attributes: S.shAttributes || [],
+        coefficients: S.shCoefficients,
+        pointCount: S.alive.length,
+        paintColors: S.paintColors,
+        colors: S.colors,
+      });
+      if (S.nifMeta?.gaussian_sh && !gaussianSH) {
+        throw new Error('This scene declares Gaussian SH metadata but its coefficient sidecar is unavailable. Reopen the source before exporting.');
+      }
+      gaussianShMeta = gaussianSH ? gaussianSHMetadata(gaussianSH, S.shAttributes) : null;
+    } catch (error) {
+      showToast('NIF export blocked', error.message || String(error), 'warn');
+      return;
+    }
+    const sourceMeta = S.nifMeta || {};
+    const meta = {
+      ...sourceMeta,
+      ...(gaussianShMeta ? { gaussian_sh: gaussianShMeta } : {}),
+      editor_scene: serializeEditorSceneMetadata(idx),
+    };
     const buf = encodeNif({
       sourceBuffer: currentRows,
       aliveIndices: Array.from({ length: idx.length }, (_, i) => i),
       rowSize: 32,
-      meta: { ...(S.nifMeta || {}), editor_scene: serializeEditorSceneMetadata(idx) },
+      meta,
+      gaussianSH: gaussianSH || undefined,
       thumbnailBytes: S.nifThumbnailBytes || undefined,
       mesh: S.nifMesh || undefined,
       lidarAttributes: _compactLidarAttributes(idx),
@@ -4694,6 +4726,12 @@ $('addSplatInput')?.addEventListener('change', async e => {
       if (ext === 'nif') {
         const decoded = await decodeNif(buffer);
         parsed = parseSplat(geometryToSplatRows(decoded.gaussians).buffer);
+        if (decoded.gaussianSH) {
+          const coefficientCount = decoded.gaussianSH.coefficientCount;
+          parsed.shAttributes = decoded.meta?.gaussian_sh?.properties ||
+            ['f_dc_0', 'f_dc_1', 'f_dc_2', ...Array.from({ length: coefficientCount - 3 }, (_, i) => `f_rest_${i}`)];
+          parsed.shCoefficients = decoded.gaussianSH.values;
+        }
       } else if (ext === 'splat') parsed = parseSplat(buffer);
       else if (ext === 'ply') parsed = parsePLY(buffer);
       else throw new Error(`Unsupported splat format: .${ext}`);
