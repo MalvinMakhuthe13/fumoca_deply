@@ -2574,7 +2574,7 @@ async function loadFile(file, urlOverride) {
   const restoredNifScene = restoreEditorSceneMetadata(S.nifMeta, parsed.count);
   if (!restoredNifScene && S.fileType === 'ply' && urlOverride) {
     restoreSavedPlySceneMetadata(
-      S, window._fumocaCurrentRecord,
+      window._fumocaCurrentRecord,
       new URLSearchParams(location.search).get('nifId'),
       urlOverride, parsed.count
     );
@@ -3491,7 +3491,7 @@ function serializeEditorSceneMetadata(aliveIndices) {
   };
 }
 
-function restoreSavedPlySceneMetadata(state, record, recordId, urlOverride, pointCount) {
+function restoreSavedPlySceneMetadata(record, recordId, urlOverride, pointCount) {
   if (!recordId || record?.id !== recordId || !record?.r2_key || !urlOverride) return false;
   const sourceUrl = decodeURIComponent(String(urlOverride));
   const recordKey = String(record.r2_key);
