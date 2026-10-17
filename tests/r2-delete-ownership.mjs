@@ -40,7 +40,9 @@ const mockFetch = async (url, options) => {
   const requestedId = parsed.searchParams.get('id')?.slice(3);
   const requestedOr = parsed.searchParams.get('or') || '';
   let rows = [];
-  if (requestedId === 'record-456') {
+  if (requestedOr.includes('user-b/private.nif')) {
+    rows = [{ id: 'record-456', user_id: 'user-123', r2_key: 'user-b/private.nif', meta: {} }];
+  } else if (requestedId === 'record-456') {
     rows = [{ id: 'record-456', user_id: 'user-123', r2_key: 'record-456/edited_123.ply', meta: {} }];
   } else if (requestedOr.includes('edited_123.ply')) {
     rows = [{ id: 'record-456', user_id: 'user-123', r2_key: 'record-456/edited_123.ply', meta: {} }];
@@ -64,6 +66,7 @@ assert.equal(await check(request, env, user, 'nif-files', 'record-456/edited_123
 assert.equal(fetchCalls, 1, 'Studio derivative must check the record owner');
 assert.equal(await check(request, env, user, 'nif-files', 'record-999/edited_123.ply'), false, 'unowned Studio derivative is denied');
 assert.equal(await check(request, env, user, 'nif-files', 'other-user/private.ply'), false, 'other user prefix is denied');
+assert.equal(await check(request, env, user, 'nif-files', 'user-b/private.nif'), false, 'a row metadata reference cannot grant deletion rights to another owner’s NIF');
 assert.equal(await check(request, env, user, 'nif-videos', 'record-456/source.mp4'), true, 'owned source capture can be deleted from nif-videos');
 assert.equal(await check(request, env, user, 'thumbnails', 'record-456/thumb.webp'), true, 'owned thumbnail can be deleted from thumbnails');
 assert.equal(await check(request, env, user, 'thumbnails', 'user-b/thumb.webp'), false, 'a metadata reference cannot grant delete rights to another user’s thumbnail');
