@@ -326,10 +326,13 @@ function _wire() {
           classification: S.lidarClassification ? Uint8Array.from(compactLidar(S.lidarClassification)) : null,
           returnNumber: S.lidarReturnNumber ? Uint8Array.from(compactLidar(S.lidarReturnNumber)) : null,
         } : null;
-        const passthroughChunks = (S.nifPassthroughChunks || []).filter(chunk => ![
-          CHUNK.KEYFRAME_GEO, CHUNK.META, CHUNK.THUMBNAIL, CHUNK.KEYFRAME_MESH,
-          CHUNK.LAYER_GEO, CHUNK.GAUSSIAN_SH, CHUNK.LIDAR_ATTR,
-        ].includes(chunk.type));
+        const passthroughChunks = (S.nifPassthroughChunks || []).filter(chunk =>
+          ![
+            CHUNK.KEYFRAME_GEO, CHUNK.META, CHUNK.THUMBNAIL,
+            CHUNK.LAYER_GEO, CHUNK.GAUSSIAN_SH, CHUNK.LIDAR_ATTR,
+          ].includes(chunk.type) &&
+          !(chunk.type === CHUNK.KEYFRAME_MESH && S.nifMesh)
+        );
         nifBuffer = encodeNif({
           sourceBuffer: rows,
           aliveIndices: Array.from({ length: aliveIndices.length }, (_, i) => i),
@@ -338,7 +341,7 @@ function _wire() {
           gaussianSH: gaussianSH || undefined,
           lidarAttributes,
           layers: layerData.layers,
-          mesh: S.nifMesh || undefined,
+          ...(S.nifMesh ? { mesh: S.nifMesh } : {}),
           thumbnailBytes: thumbnailBytes || undefined,
           vertical: S.nifVertical || sourceMeta.vertical || 'generic',
           passthroughChunks,
