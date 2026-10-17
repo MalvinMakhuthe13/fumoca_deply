@@ -343,7 +343,9 @@ function deserialiseFreqTable(bytes) {
   if (!(bytes instanceof Uint8Array) || bytes.byteLength !== 512) {
     throw new Error('[FumocCodec] ANS frequency table must be exactly 512 bytes');
   }
-  const freq = new Uint32Array(new Uint16Array(bytes.buffer, bytes.byteOffset, 256));
+  const freq = new Uint32Array(256);
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  for (let s = 0; s < 256; s++) freq[s] = view.getUint16(s * 2, true);
   const cumFreq = new Uint32Array(257);
   for (let s = 0; s < 256; s++) cumFreq[s+1] = cumFreq[s] + freq[s];
   if (cumFreq[256] !== ANS_M) throw new Error('[FumocCodec] ANS frequency table sum is invalid');
@@ -640,11 +642,19 @@ function ansDecodeOrder1(compressed, tableBytes, outputLength) {
   if (!(tableBytes instanceof Uint8Array) || tableBytes.byteLength !== 131072) {
     throw new Error('[FumocCodec] Order-1 frequency table must be exactly 131072 bytes');
   }
-  const freqFlat = new Uint16Array(tableBytes.buffer, tableBytes.byteOffset, 256*256);
-  const cumFlat  = new Uint32Array(256*257);
+  const tableView = new DataView(tableBytes.buffer, tableBytes.byteOffset, tableBytes.byteLength);
+  const freqFlat = new Uint16Array(256 * 256);
+  for (let i = 0; i < freqFlat.length; i++) freqFlat[i] = tableView.getUint16(i * 2, true);
+  const cumFlat = new Uint32Array(256 * 257);
   for (let c = 0; c < 256; c++) {
-    const base=c*256, cumBase=c*257; cumFlat[cumBase]=0;
-    for (let s=0;s<256;s++) cumFlat[cumBase+s+1]=cumFlat[cumBase+s]+freqFlat[base+s];
+    const base = c * 256, cumBase = c * 257;
+    cumFlat[cumBase] = 0;
+    let sum = 0;
+    for (let s = 0; s < 256; s++) {
+      sum += freqFlat[base + s];
+      cumFlat[cumBase + s + 1] = sum;
+    }
+    if (sum !== ANS_M) throw new Error(`[FumocCodec] Order-1 frequency context ${c} has an invalid sum`);
   }
   const decodeTable = new Uint8Array(256*ANS_M);
   for (let c=0;c<256;c++) {
