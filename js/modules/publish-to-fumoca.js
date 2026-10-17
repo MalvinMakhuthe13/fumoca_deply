@@ -27,9 +27,20 @@ const FumocaPublish = (() => {
   // to {vertical:'generic', passthroughChunks:[]} if there's no original
   // .nif to read from (e.g. brand-new upload, not an edit of an existing one).
   async function _loadOriginalForPassthrough() {
-    const url = window._fumocaLoadedFromRecord === false
+    let url = window._fumocaLoadedFromRecord === false
       ? ''
       : (window._fumocanifUrl || window._fumocaNifUrl || new URLSearchParams(location.search).get('file'));
+    // A saved private NIF's canonical URL is intentionally not anonymously
+    // readable. Prefer a fresh ticket for the exact owner-associated R2 key.
+    const currentRecord = window._fumocaCurrentRecord;
+    if (window._fumocaLoadedFromRecord !== false && currentRecord?.r2_key &&
+        /\.nif$/i.test(currentRecord.r2_key)) {
+      try {
+        url = await r2.from('nif-files').authenticatedUrl(currentRecord.r2_key);
+      } catch (error) {
+        console.warn('[Publish] Could not authorize original NIF read; using in-memory chunks:', error?.message || error);
+      }
+    }
     let vertical = window.S?.nifVertical || window.S?.nifMeta?.vertical || 'generic';
     const shouldPassThrough = chunk => ![
       CHUNK.KEYFRAME_GEO, CHUNK.META, CHUNK.THUMBNAIL,
