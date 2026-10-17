@@ -225,6 +225,22 @@ function escapeHtml(s = '') {
     .replace(/'/g, '&#39;');
 }
 
+function safeHttpUrl(value) {
+  try {
+    const url = new URL(String(value || ''), location.href);
+    return ['http:', 'https:'].includes(url.protocol) ? url.href : '';
+  } catch (_) { return ''; }
+}
+
+function safeMediaUrl(value) {
+  const url = safeHttpUrl(value);
+  if (url) return url;
+  try {
+    const parsed = new URL(String(value || ''), location.href);
+    return parsed.protocol === 'blob:' && parsed.origin === location.origin ? parsed.href : '';
+  } catch (_) { return ''; }
+}
+
 function localKey() {
   const rec = window._fumocaCurrentRecord || {};
   return `fumoca_hotspots_${rec.id || location.pathname}`;
@@ -545,10 +561,11 @@ function stopAudio() {
 }
 
 function playHotspotAudio(h) {
-  if (!h.audioUrl) return;
+  const audioUrl = safeMediaUrl(h.audioUrl);
+  if (!audioUrl) return;
   try {
     stopAudio();
-    const audio = new Audio(h.audioUrl);
+    const audio = new Audio(audioUrl);
     audio.preload = 'auto';
     audio.play().catch(() => {});
     state.activeAudio = audio;
@@ -558,12 +575,15 @@ function playHotspotAudio(h) {
 
 function buildNestedSplatUrl(h) {
   if (h.overlayUrl) {
-    if (/viewer\.html/i.test(h.overlayUrl)) return h.overlayUrl;
-    return `embed/viewer.html?file=${encodeURIComponent(h.overlayUrl)}`;
+    const overlayUrl = safeHttpUrl(h.overlayUrl);
+    if (!overlayUrl) return '';
+    if (/viewer\.html(?:[?#]|$)/i.test(overlayUrl)) return overlayUrl;
+    return `embed/viewer.html?file=${encodeURIComponent(overlayUrl)}`;
   }
   if (h.overlaySplatId) return `embed/viewer.html?splatId=${encodeURIComponent(h.overlaySplatId)}`;
-  if (h.link && /\.(splat|ply|ksplat)(\?|$)/i.test(h.link)) {
-    return `embed/viewer.html?file=${encodeURIComponent(h.link)}`;
+  const linkedAsset = safeHttpUrl(h.link);
+  if (linkedAsset && /\.(splat|ply|ksplat|nif)(?:\?|$)/i.test(new URL(linkedAsset).pathname + new URL(linkedAsset).search)) {
+    return `embed/viewer.html?file=${encodeURIComponent(linkedAsset)}`;
   }
   return '';
 }
@@ -673,11 +693,14 @@ function activateHotspot(h) {
 
 function actionButtons(h) {
   const buttons = [];
-  if (h.audioUrl) buttons.push(`<button class="e-btn e-btn-acid" data-hs-audio="${h.id}">${state.activeAudio ? 'Restart audio' : 'Play audio'}</button>`);
-  if (buildNestedSplatUrl(h)) buttons.push(`<button class="e-btn e-btn-primary" data-hs-overlay="${h.id}">Open nested splat</button>`);
-  if (h.ctaLink) buttons.push(`<a href="${escapeHtml(h.ctaLink)}" target="_blank" rel="noopener" class="e-btn e-btn-warn" style="text-decoration:none;display:inline-block;">${escapeHtml(h.ctaLabel || 'Open')}</a>`);
-  else if (h.link) buttons.push(`<a href="${escapeHtml(h.link)}" target="_blank" rel="noopener" class="e-btn e-btn-warn" style="text-decoration:none;display:inline-block;">Open link</a>`);
-  if (state.canManage) buttons.push(`<button class="e-btn e-btn-ghost" data-hs-edit="${h.id}">Edit hotspot</button><button class="e-btn e-btn-danger" data-hs-delete="${h.id}">Delete hotspot</button>`);
+  const id = escapeHtml(h.id);
+  const ctaUrl = safeHttpUrl(h.ctaLink);
+  const fallbackUrl = safeHttpUrl(h.link);
+  if (safeMediaUrl(h.audioUrl)) buttons.push(`<button class="e-btn e-btn-acid" data-hs-audio="${id}">${state.activeAudio ? 'Restart audio' : 'Play audio'}</button>`);
+  if (buildNestedSplatUrl(h)) buttons.push(`<button class="e-btn e-btn-primary" data-hs-overlay="${id}">Open nested splat</button>`);
+  if (ctaUrl) buttons.push(`<a href="${escapeHtml(ctaUrl)}" target="_blank" rel="noopener noreferrer" class="e-btn e-btn-warn" style="text-decoration:none;display:inline-block;">${escapeHtml(h.ctaLabel || 'Open')}</a>`);
+  else if (fallbackUrl) buttons.push(`<a href="${escapeHtml(fallbackUrl)}" target="_blank" rel="noopener noreferrer" class="e-btn e-btn-warn" style="text-decoration:none;display:inline-block;">Open link</a>`);
+  if (state.canManage) buttons.push(`<button class="e-btn e-btn-ghost" data-hs-edit="${id}">Edit hotspot</button><button class="e-btn e-btn-danger" data-hs-delete="${id}">Delete hotspot</button>`);
   if (state.hotspots.length > 1) buttons.push(`<button class="e-btn e-btn-acid" id="hsPrevBtn">← Prev</button>`);
   buttons.push(`<button class="e-btn e-btn-acid" id="hsNextBtn">Next →</button>`);
   return buttons.join('');
@@ -685,12 +708,15 @@ function actionButtons(h) {
 
 function renderGallery(h) {
   if (!Array.isArray(h.gallery) || !h.gallery.length) return '';
-  return `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(92px,1fr));gap:8px;">${h.gallery.slice(0,6).map(src => `<a href="${escapeHtml(src)}" target="_blank" rel="noopener" style="display:block;border-radius:12px;overflow:hidden;border:1px solid rgba(255,255,255,.08);"><img src="${escapeHtml(src)}" alt="gallery item" style="width:100%;height:84px;object-fit:cover;display:block;background:#0b0e14;"></a>`).join('')}</div>`;
+  const images = h.gallery.slice(0, 6).map(safeHttpUrl).filter(Boolean);
+  return `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(92px,1fr));gap:8px;">${images.map(src => `<a href="${escapeHtml(src)}" target="_blank" rel="noopener noreferrer" style="display:block;border-radius:12px;overflow:hidden;border:1px solid rgba(255,255,255,.08);"><img src="${escapeHtml(src)}" alt="gallery item" loading="lazy" referrerpolicy="no-referrer" style="width:100%;height:84px;object-fit:cover;display:block;background:#0b0e14;"></a>`).join('')}</div>`;
 }
 
 function renderMedia(h) {
-  if (h.mediaVideo) return `<video src="${escapeHtml(h.mediaVideo)}" controls playsinline style="width:100%;border-radius:14px;background:#05070b;"></video>`;
-  if (h.mediaImage) return `<img src="${escapeHtml(h.mediaImage)}" alt="${escapeHtml(h.title)}" style="width:100%;border-radius:14px;display:block;background:#05070b;max-height:220px;object-fit:cover;">`;
+  const videoUrl = safeMediaUrl(h.mediaVideo);
+  if (videoUrl) return `<video src="${escapeHtml(videoUrl)}" controls playsinline preload="metadata" style="width:100%;border-radius:14px;background:#05070b;"></video>`;
+  const imageUrl = safeHttpUrl(h.mediaImage);
+  if (imageUrl) return `<img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(h.title)}" loading="lazy" referrerpolicy="no-referrer" style="width:100%;border-radius:14px;display:block;background:#05070b;max-height:220px;object-fit:cover;">`;
   return '';
 }
 
