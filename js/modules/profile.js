@@ -242,7 +242,7 @@ async function init() {
       r2_key: row.r2_key,
       job_id: row.job_id || null,
       meta: row.meta || {},
-      thumbnail_url: (row.meta?.thumbnail_r2_key && r2.publicUrl('nif-files', row.meta.thumbnail_r2_key)) || row.thumbnail_url || '',
+      thumbnail_url: (row.meta?.thumbnail_r2_key && r2.publicUrl('thumbnails', row.meta.thumbnail_r2_key)) || row.thumbnail_url || '',
       source: 'nif_files', // deleteUploadRecord needs this to know which table/bucket to clean up
     };
   });
