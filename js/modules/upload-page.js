@@ -439,6 +439,8 @@ async function createExternalNif(user, title, desc, category, price) {
       preview_video_url: previewVideoUrl || null,
       provider_name: providerName || 'External provider',
       source_type: 'external',
+      thumbnail_r2_key: uploadedThumbnail?.fileKey || null,
+      capture_thumbnail_r2_key: uploadedThumbnail?.fileKey || null,
     }),
     thumbnail_url: thumbnailUrl || null,
   };
