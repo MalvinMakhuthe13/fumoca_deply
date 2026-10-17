@@ -493,8 +493,11 @@ window.handleSubmit = async function() {
 
     if (selectedThumbnail) {
       const ext = selectedThumbnail.name.match(/\.[a-z0-9]+$/i)?.[0]?.toLowerCase() || '.jpg';
-      const thumbPath = `thumbnails/${user.id}/${Date.now()}${ext}`;
-      const { publicUrl, fileKey, error: thumbError } = await r2.from('nif-files').upload(thumbPath, selectedThumbnail, {
+      // Thumbnails have their own R2 bucket. Uploading them to nif-files
+      // fails the worker MIME whitelist for image/jpeg and blocks the entire
+      // capture before the source upload can start.
+      const thumbPath = `${user.id}/${Date.now()}${ext}`;
+      const { publicUrl, fileKey, error: thumbError } = await r2.from('thumbnails').upload(thumbPath, selectedThumbnail, {
         contentType: selectedThumbnail.type || 'image/jpeg'
       });
       if (thumbError || !fileKey) throw new Error('Thumbnail upload failed: ' + (thumbError?.message || 'no file key returned'));
