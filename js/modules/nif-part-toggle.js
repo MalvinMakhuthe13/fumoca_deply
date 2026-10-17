@@ -167,7 +167,7 @@ export async function authorPartToggle(nifUrl, labelOrParts, opts = {}) {
     meta: { ...meta, open_variant_of: recordId, open_variant_layers: appliedLabels },
     thumbnailBytes,
     passthroughChunks,
-    vertical: meta.vertical || 'generic',
+    vertical: reader.header?.vertical || meta.vertical || 'generic',
   });
 
   const blob = new Blob([openBuf], { type: 'application/octet-stream' });
