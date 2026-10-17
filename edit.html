@@ -3536,6 +3536,30 @@ function _compactLidarAttributes(indices) {
   return intensity || classification || returnNumber ? { intensity, classification, returnNumber } : null;
 }
 
+function _compactNifLayers(aliveIndices) {
+  let sourceLayers = Array.isArray(S.nifLayers) ? S.nifLayers : [];
+  if (!sourceLayers.length && Array.isArray(S.layers)) {
+    sourceLayers = S.layers.map(layer => ({
+      label: String(layer.name || layer.label || '').trim(),
+      depthMin: 0,
+      depthMax: 0,
+      indices: Array.from({ length: S.alive?.length || 0 }, (_, i) => i)
+        .filter(i => Boolean(layer.mask?.[i])),
+    })).filter(layer => layer.label && layer.indices.length);
+  }
+  return compactNifLayers(sourceLayers, aliveIndices, S.alive?.length || 0);
+}
+
+function _withLayerGeoQuality(meta, droppedUnindexed) {
+  if (!droppedUnindexed) return meta;
+  const flags = Array.isArray(meta.quality_flags) ? meta.quality_flags : [];
+  return {
+    ...meta,
+    quality_flags: [...new Set([...flags, 'legacy_layer_geo_dropped_no_indices'])],
+    layer_geo_status: 'legacy_layers_dropped_unindexed',
+  };
+}
+
 // Persist editor object-layer membership in compact exported-point coordinates.
 // This metadata is descriptive only; it never claims to reconstruct missing geometry.
 function serializeEditorSceneMetadata(aliveIndices) {
