@@ -7,7 +7,7 @@ begin;
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values
   ('splat-videos', 'splat-videos', true, 2147483648, array['video/mp4','video/quicktime','video/x-msvideo','video/webm','video/mpeg']),
-  ('splat-files', 'splat-files', true, 2147483648, array['application/octet-stream','application/ply','text/plain']),
+  ('splat-files', 'splat-files', true, 2147483648, array['application/octet-stream','application/ply','text/plain','application/fumoc']),
   ('thumbnails', 'thumbnails', true, 104857600, array['image/jpeg','image/png','image/webp']),
   ('avatars', 'avatars', true, 10485760, array['image/jpeg','image/png','image/webp']),
   ('preview-videos', 'preview-videos', true, 2147483648, array['video/webm','video/mp4','video/quicktime'])
@@ -75,6 +75,37 @@ set
  on storage.objects for select
  to public
  using (bucket_id = 'splat-files');
+
+ drop policy if exists "Users upload own FUMOC files" on storage.objects;
+ create policy "Users upload own FUMOC files"
+ on storage.objects for insert
+ to authenticated
+ with check (
+   bucket_id = 'splat-files'
+   and (storage.foldername(name))[1] = auth.uid()::text
+ );
+
+ drop policy if exists "Users update own FUMOC files" on storage.objects;
+ create policy "Users update own FUMOC files"
+ on storage.objects for update
+ to authenticated
+ using (
+   bucket_id = 'splat-files'
+   and (storage.foldername(name))[1] = auth.uid()::text
+ )
+ with check (
+   bucket_id = 'splat-files'
+   and (storage.foldername(name))[1] = auth.uid()::text
+ );
+
+ drop policy if exists "Users delete own FUMOC files" on storage.objects;
+ create policy "Users delete own FUMOC files"
+ on storage.objects for delete
+ to authenticated
+ using (
+   bucket_id = 'splat-files'
+   and (storage.foldername(name))[1] = auth.uid()::text
+ );
 
  drop policy if exists "Service role manages splat files" on storage.objects;
  create policy "Service role manages splat files"
