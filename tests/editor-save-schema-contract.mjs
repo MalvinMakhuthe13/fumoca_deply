@@ -12,6 +12,8 @@ assert.match(save, /gaussianSH: gaussianSH \|\| undefined/,
   'Studio save must preserve higher-order Gaussian SH coefficients in NIF instead of falling back to lossy PLY');
 assert.match(save, /layers: layerData\.layers/,
   'Studio save must re-encode compacted LAYER_GEO membership');
+assert.match(save, /_assertNifSidecarsAvailable\('Save'\)/,
+  'Studio save must refuse to drop SH or LiDAR chunks that failed decoding');
 assert.match(source, /0x0009, 0x0015, 0x0019, 0x001A/,
   'Studio passthrough must exclude LAYER_GEO, LiDAR and SH chunks that are rebuilt against current points');
 assert.ok(save.includes("r2.from('nif-files').remove([fileKey])"), 'failed registration should attempt derivative cleanup');
