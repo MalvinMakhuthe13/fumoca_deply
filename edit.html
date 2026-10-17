@@ -5430,7 +5430,7 @@ $('mobilePanelBackdrop')?.addEventListener('click', closeMobilePanels);
       if (sb) {
         const { data } = await sb.from('nif_files').select('*').eq('id', params.get('nifId')).maybeSingle();
         if (data) {
-          window._fumocaCurrentRecord = { ...data, ...(window._fumocaCurrentRecord || {}) };
+          window._fumocaCurrentRecord = { ...(window._fumocaCurrentRecord || {}), ...data };
           window._fumocaCurrentRecord.meta = data.meta || window._fumocaCurrentRecord.meta || {};
           // r2_key is updated on every Studio save; prefer it over legacy URL
           // columns so reopening never silently loads an older derivative.
