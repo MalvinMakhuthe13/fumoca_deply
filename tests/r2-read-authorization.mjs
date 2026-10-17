@@ -72,6 +72,19 @@ assert.deepEqual(access, { allowed: true, isPublic: false, reason: 'owner-key' }
 access = await run([sourceRow])(req('token-a'), env, userA, 'nif-videos', 'record-source/raw.mp4');
 assert.deepEqual(access, { allowed: true, isPublic: false, reason: 'owner-associated-file' }, 'owner can read source media linked through NIF metadata');
 
+const cleanedSplatRow = {
+  id: 'nif-cleaned',
+  user_id: 'user-a',
+  r2_key: 'user-a/original.nif',
+  is_public: false,
+  meta: { cleaned_splat: { r2_key: 'nif-cleaned/edited_cleaned_1.splat' } },
+};
+access = await run([cleanedSplatRow])(req('token-a'), env, userA, 'nif-files', 'nif-cleaned/edited_cleaned_1.splat');
+assert.deepEqual(access, { allowed: true, isPublic: false, reason: 'owner-associated-file' },
+  'owner can read a cleaned splat derivative registered in their NIF metadata');
+access = await run([cleanedSplatRow])(req('token-b'), env, userB, 'nif-files', 'nif-cleaned/edited_cleaned_1.splat');
+assert.equal(access.allowed, false, 'another user cannot read a cleaned splat derivative');
+
 access = await run([], [{ id: 'job-1', user_id: 'user-a', raw_r2_key: 'record-source/raw.mp4' }])(req('token-a'), env, userA, 'nif-videos', 'record-source/raw.mp4');
 assert.deepEqual(access, { allowed: true, isPublic: false, reason: 'owner-source-job' }, 'owner can read raw source keys stored on reconstruction_jobs');
 
