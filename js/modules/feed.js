@@ -127,6 +127,19 @@ async function deletePostRecord(post, opts = {}) {
 
   // 1. Collect storage paths
   const filesToDelete = [];
+  let relatedJob = null;
+  try {
+    const jobId = post.job_id || post.id; // NIF worker currently uses job ID as asset ID.
+    const { data, error: lookupError } = await supabase.from('reconstruction_jobs')
+      .select('id,raw_r2_key').eq('id', jobId).eq('user_id', post.user_id).maybeSingle();
+    if (lookupError) console.warn('[FUMOCA delete] Could not resolve related job:', lookupError.message);
+    else {
+      relatedJob = data || null;
+      if (relatedJob?.raw_r2_key) filesToDelete.push({ bucket: 'nif-videos', path: relatedJob.raw_r2_key });
+    }
+  } catch (jobLookupError) {
+    console.warn('[FUMOCA delete] Related job lookup failed:', jobLookupError);
+  }
   if (post.video_path && post.video_bucket) {
     filesToDelete.push({ bucket: post.video_bucket, path: post.video_path });
   } else if (post.video_url) {
@@ -169,21 +182,15 @@ async function deletePostRecord(post, opts = {}) {
     }
   });
 
-  // 3. Worker output rows use the job ID as the NIF ID; direct file uploads
-  // may have no reconstruction job. Check existence/ownership instead of
-  // filtering on the nonexistent nif_file_id column.
-  try {
-    const jobId = post.job_id || post.id;
-    const { data: job, error: lookupError } = await supabase.from('reconstruction_jobs')
-      .select('id').eq('id', jobId).eq('user_id', post.user_id).maybeSingle();
-    if (lookupError) console.warn('[FUMOCA delete] Could not resolve related job:', lookupError.message);
-    else if (job?.id) {
+  // 3. Remove the worker job after its raw input has been included in cleanup.
+  if (relatedJob?.id) {
+    try {
       const { error: jobDeleteError } = await supabase.from('reconstruction_jobs')
-        .delete().eq('id', job.id).eq('user_id', post.user_id);
+        .delete().eq('id', relatedJob.id).eq('user_id', post.user_id);
       if (jobDeleteError) console.warn('[FUMOCA delete] Could not delete related job:', jobDeleteError.message);
+    } catch (jobCleanupError) {
+      console.warn('[FUMOCA delete] Related job cleanup failed:', jobCleanupError);
     }
-  } catch (jobCleanupError) {
-    console.warn('[FUMOCA delete] Related job cleanup failed:', jobCleanupError);
   }
 
   // 4. Delete nif file row
