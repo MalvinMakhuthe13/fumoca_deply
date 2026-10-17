@@ -36,8 +36,6 @@ jobs:
         run: node --input-type=module --check < js/modules/profile.js
       - name: Check feed ES module syntax
         run: node --input-type=module --check < js/modules/feed.js
-      - name: Check feed ES module syntax
-        run: node --input-type=module --check < js/modules/feed.js
       - name: Check persistence-sensitive editor modules
         run: |
           node --input-type=module --check < js/modules/edit-engine.js
