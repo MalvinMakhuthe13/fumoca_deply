@@ -370,9 +370,23 @@ function readHeader(buffer) {
  * Caller must revoke it when done.
  */
 async function thumbnailURL(buffer) {
-  const { sections } = await decode(buffer);
-  if (!sections[SECTION_THUM]) return null;
-  return URL.createObjectURL(new Blob([sections[SECTION_THUM]], { type: 'image/jpeg' }));
+  const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+  if (bytes.byteLength > MAX_FUMOC_FILE_BYTES) throw new Error('[FUMOC] File exceeds the 2 GiB safety limit');
+  const { dataOffset } = parseFileHeader(bytes);
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let offset = dataOffset;
+  while (offset < bytes.byteLength) {
+    if (bytes.byteLength - offset < 13) throw new Error('[FUMOC] Truncated section while reading thumbnail');
+    const section = await readSection(view, offset, false);
+    if (section.id === SECTION_THUM) {
+      let imageBytes = section.data;
+      if (section.isCompressed) imageBytes = await decompress(imageBytes);
+      if (imageBytes.byteLength !== section.rawLen) throw new Error('[FUMOC] Thumbnail length does not match its section header');
+      return URL.createObjectURL(new Blob([imageBytes], { type: 'image/jpeg' }));
+    }
+    offset += section.totalBytes;
+  }
+  return null;
 }
 
 /**
