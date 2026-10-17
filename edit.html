@@ -3541,6 +3541,9 @@ function serializeEditorSceneMetadata(aliveIndices) {
   };
 }
 
+// Shared with the publish module so saved NIF manifests use the same compact point indices.
+window._fumocaSerializeEditorSceneMetadata = serializeEditorSceneMetadata;
+
 function restoreSavedPlySceneMetadata(record, recordId, urlOverride, pointCount) {
   if (!recordId || record?.id !== recordId || !record?.r2_key || !urlOverride) return false;
   const sourceUrl = decodeURIComponent(String(urlOverride));
