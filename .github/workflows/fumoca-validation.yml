@@ -87,8 +87,12 @@ jobs:
                   attrs, script = match.group(1), match.group(2)
                   if not script.strip() or re.search(r'\bsrc\s*=', attrs, re.I):
                       continue
+                  type_match = re.search(r'\btype\s*=\s*["\']([^"\']+)["\']', attrs, re.I)
+                  script_type = type_match.group(1).lower() if type_match else ''
+                  if script_type and script_type not in {'module', 'text/javascript', 'application/javascript'}:
+                      continue  # JSON/import maps/templates are data, not executable JS.
                   count += 1
-                  is_module = re.search(r'\btype\s*=\s*["\']module["\']', attrs, re.I)
+                  is_module = script_type == 'module'
                   suffix = 'mjs' if is_module else 'js'
                   target = out / f'script-{count:04d}.{suffix}'
                   target.write_text(script, encoding='utf-8')
