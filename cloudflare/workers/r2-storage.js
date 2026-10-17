@@ -125,37 +125,42 @@ async function userOwnsFileKey(request, env, principal, bucketName, fileKey) {
   if (principal?.kind === 'server-to-server') return true;
   if (!principal?.id || principal.kind !== 'user') return false;
   if (fileKey.startsWith(`${principal.id}/`)) return true;
-  if (bucketName !== 'nif-files') return false;
+  if (!['nif-files', 'nif-videos', 'thumbnails'].includes(bucketName)) return false;
 
-  const slash = fileKey.indexOf('/');
-  if (slash <= 0) return false;
-  const recordId = fileKey.slice(0, slash);
-  const remainder = fileKey.slice(slash + 1);
-  if (!/^edited_[A-Za-z0-9_-]+\.(?:nif|ply|splat|glb)$/i.test(remainder)) return false;
-
-  const token = (request.headers.get('Authorization') || '').replace(/^Bearer\s+/, '');
+  const token = (request.headers.get('Authorization') || '').replace(/^Bearer\\s+/, '');
   if (!token || !env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) return false;
+
+  // Match the exact object key against the caller's own NIF row or its known
+  // source/thumbnail metadata. This supports cleanup without granting access
+  // to arbitrary keys merely because a caller knows a record ID.
+  const encodedKey = fileKey.replace(/,/g, '\\,');
   const query = new URLSearchParams({
-    select: 'id,r2_key',
-    id: `eq.${recordId}`,
+    select: 'id,r2_key,meta',
     user_id: `eq.${principal.id}`,
     limit: '1',
+    or: `(r2_key.eq.${encodedKey},meta->>source_r2_key.eq.${encodedKey},meta->source_capture->>r2_key.eq.${encodedKey},meta->>thumbnail_r2_key.eq.${encodedKey},meta->>capture_thumbnail_r2_key.eq.${encodedKey})`,
   });
   try {
     const response = await fetch(`${env.SUPABASE_URL}/rest/v1/nif_files?${query}`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        apikey: env.SUPABASE_ANON_KEY,
-      },
+      headers: { Authorization: `Bearer ${token}`, apikey: env.SUPABASE_ANON_KEY },
     });
     if (!response.ok) {
       console.error('[R2 delete] owner lookup failed', response.status);
       return false;
     }
     const rows = await response.json();
-    return Array.isArray(rows) && rows.some(row =>
-      row?.id === recordId && row?.r2_key === fileKey
-    );
+    return Array.isArray(rows) && rows.some(row => {
+      if (row?.user_id && row.user_id !== principal.id) return false;
+      const meta = row?.meta || {};
+      const knownKeys = [
+        row?.r2_key,
+        meta.source_r2_key,
+        meta.source_capture?.r2_key,
+        meta.thumbnail_r2_key,
+        meta.capture_thumbnail_r2_key,
+      ];
+      return knownKeys.includes(fileKey);
+    });
   } catch (error) {
     console.error('[R2 delete] owner lookup errored', error?.message || String(error));
     return false;
