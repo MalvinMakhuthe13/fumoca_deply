@@ -45,7 +45,7 @@ Classify jobs by operation, not just by file extension:
 | Operation | Preferred execution | GPU required? | Output/quality rule |
 |---|---|---|---|
 | Existing binary `.splat` → NIF | Browser/CPU encoder in `js/modules/nif-format.js` | No | Preserve source bytes as a separate R2 object; register NIF derivative with source key, output key, conversion metadata and Gaussian count; round-trip through `decodeNif` |
-| Gaussian PLY → NIF | Browser/CPU attribute adapter | No | Preserve anisotropic scales, quaternion, opacity and DC colour where supported; disclose discarded higher-order SH fields if present |
+| Gaussian PLY → NIF | Browser/CPU attribute adapter | No | Preserve exact f_dc/f_rest in GAUSSIAN_SH sidecar; use raw geometry if quantization would clamp log-scales; fail closed for unsupported SH layouts |
 | Ordinary point-cloud PLY → NIF | Browser/CPU encoder | No | Encode as isotropic points; explicitly do not claim Gaussian fidelity or mesh topology |
 | Existing NIF import, metadata edits, thumbnails, publish/share and format checks | Browser/CPU + storage/API | No | No reconstruction job should be queued just to repackage or publish an existing artifact |
 | Mesh extraction from an existing splat | CPU when size/algorithm permits; GPU optional only if a selected method requires it | Not inherently | Record mesh method, runtime, topology checks and calibration; never label watertight without testing |
@@ -151,7 +151,7 @@ Create frozen test sets for calibrated vehicle, object and scene captures. NaviG
 | Gate | Current status | Evidence needed |
 |---|---|---|
 | Object-layer save/reopen | Code change in QA branch; pending branch CI and runtime test | Browser test with two subjects, distinct colours, transforms, export, reload and membership comparison |
-| Gaussian PLY higher-order SH preservation | Known loss in 32-byte SPLAT/NIF adapter; disclosure exists | Decide on a native SH-preserving NIF representation or keep an explicit lossy-conversion warning |
+| Gaussian PLY higher-order SH preservation | Implemented on QA branch: optional NIF v1.2 GAUSSIAN_SH chunk preserves exact f_dc/f_rest float coefficients and property names; point-count and payload guards added | Confirm CI round-trip tests pass; later add an explicit NIF→Gaussian-PLY export UI if required |
 | PLY save with object-layer manifest | Not proven round-trip | Store/read scene manifest alongside PLY and verify viewer/editor consumes it, or disable the claim of persistence for that path |
 | Real R2/Supabase write and read | Not verified by CI | Authenticated, non-destructive staging probe with actual storage key and record lookup |
 | Worker job lifecycle | Static contract checks only | Queue a known test capture and verify queued → processing → terminal state plus artifact resolution |
