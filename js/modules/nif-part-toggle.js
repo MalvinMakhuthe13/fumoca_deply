@@ -165,10 +165,16 @@ export async function authorPartToggle(nifUrl, labelOrParts, opts = {}) {
     if (readError || !current) throw new Error(readError?.message || 'Parent NIF was not found or is not owned by the current user.');
     const previous = current.meta && typeof current.meta === 'object' ? current.meta : {};
     const keys = Array.isArray(previous.open_variant_r2_keys) ? previous.open_variant_r2_keys : [];
+    const nextMeta = { ...previous, open_variant_r2_keys: [...new Set([...keys, fileKey])] };
     const { data: updated, error: updateError } = await sb.from('nif_files').update({
-      meta: { ...previous, open_variant_r2_keys: [...new Set([...keys, fileKey])] },
+      meta: nextMeta,
     }).eq('id', recordId).eq('user_id', ownerId).select('id').maybeSingle();
     if (updateError || !updated) throw new Error(updateError?.message || 'Open-state variant could not be linked to its parent NIF.');
+    // Keep the in-memory record in sync so the subsequent hotspot save does
+    // not overwrite the newly registered variant key with stale metadata.
+    if (window._fumocaCurrentRecord?.id === recordId) {
+      window._fumocaCurrentRecord = { ...window._fumocaCurrentRecord, meta: nextMeta };
+    }
   } catch (error) {
     const { error: cleanupError } = await r2.from('nif-files').remove([fileKey]);
     if (cleanupError) console.error('[nif-part-toggle] Orphan cleanup failed:', cleanupError.message);
