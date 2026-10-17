@@ -13,16 +13,18 @@ assert.match(toggle, /export async function discardPartToggleVariant/,
   'unaccepted previews must have an explicit cleanup path');
 assert.match(toggle, /const passthroughChunks = reader\.chunks\.filter/,
   'baked variants must preserve mesh, layers, physics, LiDAR and other non-geometry chunks');
-assert.match(toggle, /thumbnailBytes,\s*passthroughChunks,/,
-  'baked variants must preserve the original thumbnail and passthrough chunks');
+assert.match(toggle, /thumbnailBytes,\s*layers: layerPayload,\s*passthroughChunks,/,
+  'baked variants must preserve the original thumbnail and rebuild layer geometry data');
+assert.match(toggle, /CHUNK\.LAYER_GEO/,
+  'old point-indexed layer chunks must be excluded from passthrough after rebuilding');
 assert.match(toggle, /axis\.some\(value => !Number\.isFinite\(value\)\)/,
   'invalid rotation axes must be rejected before modifying geometry');
 assert.match(toggle, /pivot\.some\(value => !Number\.isFinite\(value\)\)/,
   'invalid rotation pivots must be rejected before modifying geometry');
 assert.match(toggle, /Math\.abs\(angleDeg\) > 360/,
   'rotation angles must be bounded to avoid invalid variant geometry');
-assert.match(toggle, /meta: \{ \.\.\.meta, open_variant_of: recordId, open_variant_layers: appliedLabels \}/,
-  'baked variants must preserve existing NIF metadata');
+assert.match(toggle, /const variantMeta = \{[\s\S]*?\.\.\.meta,[\s\S]*?open_variant_of: recordId,\s*open_variant_layers: appliedLabels/,
+  'baked variants must preserve existing NIF metadata and mark legacy layer loss');
 assert.match(toggle, /vertical: reader\.header\?\.vertical \|\| meta\.vertical \|\| 'generic'/,
   'baked variants must preserve the NIF header vertical instead of defaulting local files to generic');
 assert.match(hotspot, /discardPartToggleVariant\(fileKey, currentRecord\.id, currentRecord\.user_id\)/,
