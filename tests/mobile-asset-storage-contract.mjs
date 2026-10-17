@@ -10,7 +10,7 @@ assert.match(worker, /Content-Security-Policy[^\n]*sandbox allow-scripts allow-t
   'HTML assets must be sandboxed and prevented from sharing the app origin');
 assert.match(worker, /meta->>mobile_asset_r2_key\.eq\.\$\{encodedKey\}/,
   'R2 ownership and read lookups must find the registered mobile widget key');
-assert.match(worker, /const isMobileAsset = bucketName === 'nif-files' && meta\.mobile_asset_r2_key === fileKey/,
+assert.match(worker, /const isMobileAsset = bucketName === 'nif-files' && userPrefixKey &&[\s\S]*?meta\.mobile_asset_r2_key === fileKey;/,
   'read policy must associate the widget with its parent NIF');
 assert.match(worker, /if \(isMobileAsset && row\.is_public === true\)/,
   'anonymous widget reads must require a published parent NIF');
