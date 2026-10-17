@@ -371,6 +371,84 @@ async function verifyReadTicket(ticket, bucketName, fileKey, secret, now = Date.
   }
 }
 
+// Read access is independent from write/delete access. Public URLs and viewer flags
+// are not authorization. The database record is the source of truth for publication.
+async function readAccess(request, env, principal, bucketName, fileKey) {
+  if (!['nif-files', 'nif-videos', 'preview-videos', 'thumbnails', 'avatars'].includes(bucketName)) {
+    return { allowed: false, isPublic: false };
+  }
+
+  // Avatars are intentionally public for profile compatibility; never use this
+  // bucket for arbitrary user documents.
+  if (bucketName === 'avatars') return { allowed: true, isPublic: true };
+
+  const token = (request.headers.get('Authorization') || '').replace(/^Bearer\s+/, '');
+  const serverPrincipal = principal?.kind === 'server-to-server';
+  const userId = principal?.kind === 'user' ? principal.id : null;
+  const headers = { apikey: env.SUPABASE_ANON_KEY };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) {
+    // No database means no way to prove publication or ownership.
+    return { allowed: false, isPublic: false };
+  }
+
+  const queryRows = async (table, params) => {
+    const query = new URLSearchParams({ select: '*', limit: '5', ...params });
+    const response = await fetch(`${env.SUPABASE_URL}/rest/v1/${table}?${query}`, { headers });
+    if (!response.ok) {
+      console.error('[R2 read] visibility lookup failed', table, response.status);
+      return null;
+    }
+    const rows = await response.json();
+    return Array.isArray(rows) ? rows : null;
+  };
+
+  if (serverPrincipal) return { allowed: true, isPublic: false };
+
+  if (bucketName === 'nif-files') {
+    const published = await queryRows('nif_files', { r2_key: `eq.${fileKey}`, is_public: 'eq.true' });
+    if (published === null) return { allowed: false, isPublic: false };
+    if (published.some(row => row?.r2_key === fileKey && row?.is_public === true)) {
+      return { allowed: true, isPublic: true };
+    }
+    if (!userId) return { allowed: false, isPublic: false };
+    const owned = await queryRows('nif_files', { user_id: `eq.${userId}`, r2_key: `eq.${fileKey}` });
+    return { allowed: Array.isArray(owned) && owned.some(row => row?.user_id === userId && row?.r2_key === fileKey), isPublic: false };
+  }
+
+  if (!userId) return { allowed: false, isPublic: false };
+
+  if (bucketName === 'nif-videos') {
+    const jobs = await queryRows('reconstruction_jobs', { user_id: `eq.${userId}`, raw_r2_key: `eq.${fileKey}` });
+    if (jobs === null) return { allowed: false, isPublic: false };
+    if (jobs.some(row => row?.user_id === userId && row?.raw_r2_key === fileKey)) return { allowed: true, isPublic: false };
+  }
+
+  if (bucketName === 'preview-videos') {
+    // Preview videos remain private until the schema contains an explicit,
+    // validated published-preview association.
+    return { allowed: false, isPublic: false };
+  }
+
+  if (bucketName === 'thumbnails' || bucketName === 'nif-videos') {
+    const owned = await queryRows('nif_files', { user_id: `eq.${userId}` });
+    if (owned === null) return { allowed: false, isPublic: false };
+    const matches = owned.some(row => {
+      if (row?.user_id !== userId) return false;
+      const meta = row?.meta || {};
+      return [
+        meta.thumbnail_r2_key,
+        meta.capture_thumbnail_r2_key,
+        meta.source_r2_key,
+        meta.source_capture?.r2_key,
+      ].includes(fileKey);
+    });
+    if (matches) return { allowed: true, isPublic: false };
+  }
+
+  return { allowed: false, isPublic: false };
+}
+
 // ── Key sanitisation ────────────────────────────────────────────────────────
 // Strips traversal attempts, backslashes, and collapses duplicate slashes.
 // Also enforces a sane max length so absurdly long paths can't be used to
@@ -895,43 +973,26 @@ export default {
       }
     }
 
-    // ── GET /file/:key — Serve file with caching ───────────────────────────
+    // ── GET /file/:key — visibility-checked file serving ───────────────────
     if (request.method === 'GET' && path.startsWith('/file/')) {
-      let rawKey;
-      try {
-        rawKey = decodeURIComponent(path.slice('/file/'.length));
-      } catch {
-        return json({ error: 'Malformed file key' }, 400, cors);
-      }
-      const fileKey = sanitiseKey(rawKey);
+      const fileKey = sanitiseKey(decodeURIComponent(path.slice('/file/'.length)));
       if (!fileKey) return json({ error: 'Missing key' }, 400, cors);
 
       const r2Bucket = getBucket(bucketParam, env);
-      if (!r2Bucket) {
-        return json({ error: `Unknown bucket: ${bucketParam}` }, 400, cors);
-      }
+      if (!r2Bucket) return json({ error: `Unknown bucket: ${bucketParam}` }, 400, cors);
 
-      // Authorize before touching the shared cache. Private/owner responses must
-      // never be read from or written to caches.default.
-      const ticket = url.searchParams.get('ticket');
-      let access;
-      if (ticket) {
-        const validTicket = await verifyReadTicket(ticket, bucketParam, fileKey, env.FUMOCA_API_SECRET);
-        if (!validTicket) {
-          return json({ error: 'Not found' }, 404, { ...cors, 'Cache-Control': 'no-store' });
-        }
-        access = { allowed: true, isPublic: false, reason: 'signed-read-ticket' };
-      } else {
-        const principal = await authorize(request, env);
-        access = await authorizeFileRead(request, env, principal, bucketParam, fileKey);
-      }
-      if (!access.allowed) {
-        return json({ error: 'Not found' }, 404, {
-          ...cors,
-          'Cache-Control': 'no-store',
-        });
-      }
+      // Authenticate only when a bearer token is supplied. A failed token must
+      // not grant owner access, but a genuinely public published NIF can remain public.
+      let principal = null;
+      if (request.headers.get('Authorization')) principal = await authorize(request, env);
+      const access = await readAccess(request, env, principal, bucketParam, fileKey);
+      if (!access.allowed) return json({ error: 'Not found' }, 404, {
+        ...cors,
+        'Cache-Control': 'private, no-store',
+      });
 
+      // Shared edge cache is for public objects only, after publication was
+      // checked. Private content never enters or reads from the shared cache.
       const cache = caches.default;
       const cacheKey = new Request(request.url, { method: 'GET' });
       if (access.isPublic) {
@@ -939,25 +1000,28 @@ export default {
         if (cached) return new Response(cached.body, {
           status: cached.status,
           statusText: cached.statusText,
-          headers: { ...Object.fromEntries(cached.headers), ...cors, 'Cache-Control': cached.headers.get('Cache-Control') || 'public, max-age=60' },
+          headers: { ...Object.fromEntries(cached.headers), ...cors },
         });
       }
 
       const obj = await r2Bucket.get(fileKey);
-      if (!obj) return json({ error: 'Not found' }, 404, { ...cors, 'Cache-Control': 'no-store' });
+      if (!obj) return json({ error: 'Not found' }, 404, {
+        ...cors,
+        'Cache-Control': access.isPublic ? 'public, max-age=60' : 'private, no-store',
+      });
 
-      const isThumb = bucketParam === 'thumbnails' || bucketParam === 'avatars';
+      const isThumb = fileKey.startsWith('thumbs/') || fileKey.startsWith('avatars/') || bucketParam === 'thumbnails' || bucketParam === 'avatars';
       const ttl = isThumb ? THUMB_TTL : CACHE_TTL;
       const contentType = obj.httpMetadata?.contentType || 'application/octet-stream';
-      const responseHeaders = {
-        'Content-Type': contentType,
-        'ETag': obj.etag,
-        'Accept-Ranges': 'bytes',
-        'X-Content-Type-Options': 'nosniff',
-        ...cors,
-        'Cache-Control': access.isPublic ? `public, max-age=${ttl}` : 'private, no-store',
-      };
-      const response = new Response(obj.body, { headers: responseHeaders });
+      const response = new Response(obj.body, {
+        headers: {
+          'Content-Type': contentType,
+          'Cache-Control': access.isPublic ? `public, max-age=${ttl}` : 'private, no-store',
+          'ETag': obj.etag,
+          'Accept-Ranges': 'bytes',
+          ...cors,
+        },
+      });
 
       if (access.isPublic) ctx.waitUntil(cache.put(cacheKey, response.clone()));
       return response;
