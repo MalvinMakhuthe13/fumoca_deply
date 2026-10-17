@@ -712,7 +712,8 @@ function resolvenifUrl(record) {
   if (!record) return '';
   const candidates = [
     record.output_url, record.nif_url, record.public_url,
-    record.file_url, record.external_nif_url, record.provider_nif_url
+    record.file_url, record.external_nif_url, record.provider_nif_url,
+    record.meta?.nif_url, record.meta?.external_nif_url, record.meta?.provider_nif_url
   ];
   for (const url of candidates) {
     const v = _validnifUrl(url);
