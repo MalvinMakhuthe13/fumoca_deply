@@ -52,7 +52,7 @@ jobs:
           import re
           from pathlib import Path
           html = Path("embed/player.html").read_text(encoding="utf-8")
-          match = re.search(r'<script type="module">([\\s\\S]*?)</script>', html)
+          match = re.search(r'<script type="module">([\s\S]*?)</script>', html)
           if not match:
               raise SystemExit("embed player module script not found")
           Path("/tmp/fumoca-embed-player.mjs").write_text(match.group(1), encoding="utf-8")
