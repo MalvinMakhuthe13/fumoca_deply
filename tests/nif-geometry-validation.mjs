@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { encodeNif } from '../js/modules/nif-format.js';
+import { encodeNif, geometryToSplatRows } from '../js/modules/nif-format.js';
 
 const rejects = (fn, pattern) => assert.throws(fn, pattern);
 
@@ -87,6 +87,17 @@ rejects(
   () => encodeNif({ geometry: zeroQuaternion, compressed: false }),
   /zero-length quaternion/,
   'uncompressed NIF must reject a degenerate quaternion',
+);
+
+rejects(
+  () => geometryToSplatRows({ count: 1, data: zeroQuaternion }),
+  /zero-length quaternion/,
+  'NIF-to-SPLAT conversion must reject degenerate rotations',
+);
+rejects(
+  () => geometryToSplatRows({ count: 0, data: new Float32Array(0) }),
+  /invalid point count or data length/,
+  'NIF-to-SPLAT conversion must reject empty scenes',
 );
 
 const oneSplat = new Uint8Array(32);
