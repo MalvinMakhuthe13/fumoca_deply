@@ -11,7 +11,7 @@ const generate = new Function('location', `${declaration}; return _generateWidge
 });
 
 const html = generate(
-  { web_link: 'javascript:alert(1)', states: [{ id: 'x', label: '</script><script>alert(1)</script>' + String.fromCharCode(0x2028, 0x2029) }] },
+  { web_link: 'javascript:alert(1)', interaction_rules: { variants: [], sounds: [], auto_rotate: false }, states: [{ id: 'x', label: '</script><script>alert(1)</script>' + String.fromCharCode(0x2028, 0x2029) }] },
   {
     id: 'asset-1',
     title: '</title><script>alert(2)</script>',
