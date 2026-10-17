@@ -820,6 +820,7 @@ export default {
         'Content-Type': contentType,
         'ETag': obj.etag,
         'Accept-Ranges': 'bytes',
+        'X-Content-Type-Options': 'nosniff',
         ...cors,
         'Cache-Control': access.isPublic ? `public, max-age=${ttl}` : 'private, no-store',
       };
