@@ -1,15 +1,9 @@
 /**
- * FUMOCA Compression UI v82 + Draco MESH
- * ════════════════════════════════════════════════════════════════════════════
- * Export panel wired into viewer.html.
- * Shows quality selector, live compression progress, ratio stats,
- * and download/share buttons once encoding is complete.
- *
- * v82+: Optional Draco WASM mesh encoding — when "Include mesh" is checked
- * the UI calls fumoc-draco-encoder.js to extract + Draco-compress the current
- * renderer's triangle mesh and passes it as the MESH section to FumocEncoder.
- * Falls back silently to no mesh if Draco or the renderer mesh are unavailable.
- * ════════════════════════════════════════════════════════════════════════════
+ * FUMOCA NIF Export UI
+ * Export the current supported NIF/SPLAT asset with accurate size reporting.
+ * Existing NIF files are preserved byte-for-byte in viewer-only context;
+ * live editor state is re-encoded with its supported point-indexed sidecars.
+ * This panel does not claim to reconstruct a new solid mesh.
  */
 
 import r2 from './r2Client.js';
@@ -55,24 +49,6 @@ function _ensurePanel() {
         font-size: 11px; font-weight: 700; color: rgba(255,255,255,.4);
         text-transform: uppercase; letter-spacing: .08em; margin-bottom: 8px;
       }
-      .fep-quality-row {
-        display: flex; gap: 8px; margin-bottom: 20px;
-      }
-      .fep-q {
-        flex: 1; padding: 12px 8px; border-radius: 14px; cursor: pointer;
-        background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.1);
-        color: rgba(255,255,255,.7); text-align: center; font-size: 13px;
-        font-weight: 700; transition: all .15s;
-      }
-      .fep-q.active {
-        background: rgba(200,255,0,.15); border-color: rgba(200,255,0,.4);
-        color: #c8ff00;
-      }
-      .fep-q .fep-q-sub {
-        display: block; font-size: 10px; font-weight: 400;
-        color: rgba(255,255,255,.4); margin-top: 3px;
-      }
-      .fep-q.active .fep-q-sub { color: rgba(200,255,0,.7); }
       .fep-estimate {
         background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.07);
         border-radius: 12px; padding: 12px 14px; margin-bottom: 14px;
@@ -80,25 +56,16 @@ function _ensurePanel() {
       }
       .fep-est-label { font-size: 12px; color: rgba(255,255,255,.45); }
       .fep-est-val   { font-size: 16px; font-weight: 800; color: #c8ff00; }
-      /* ── Draco mesh toggle ── */
+      /* Existing mesh/sidecar preservation note */
       .fep-mesh-row {
         display: flex; align-items: center; gap: 10px;
         background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.07);
         border-radius: 12px; padding: 11px 14px; margin-bottom: 20px;
-        cursor: pointer; user-select: none;
-      }
-      .fep-mesh-row input[type=checkbox] {
-        width: 16px; height: 16px; accent-color: #c8ff00; cursor: pointer;
-        flex-shrink: 0;
+        cursor: default; user-select: text;
       }
       .fep-mesh-text { flex: 1; }
       .fep-mesh-title { font-size: 13px; font-weight: 700; color: #fff; }
       .fep-mesh-sub   { font-size: 11px; color: rgba(255,255,255,.4); margin-top: 2px; }
-      .fep-mesh-badge {
-        font-size: 10px; font-weight: 700; color: #c8ff00;
-        background: rgba(200,255,0,.14); border: 1px solid rgba(200,255,0,.3);
-        border-radius: 6px; padding: 2px 6px; flex-shrink: 0;
-      }
       #fepProgressArea { display: none; margin-bottom: 16px; }
       #fepProgressBar  {
         height: 6px; background: rgba(255,255,255,.08); border-radius: 999px;
@@ -178,11 +145,11 @@ function _ensurePanel() {
           <span class="fep-stat-val" id="fepStatIn">—</span>
         </div>
         <div class="fep-stat-row">
-          <span class="fep-stat-key">Compressed size</span>
+          <span class="fep-stat-key">Output size</span>
           <span class="fep-stat-val lime" id="fepStatOut">—</span>
         </div>
         <div class="fep-stat-row">
-          <span class="fep-stat-key">Compression ratio</span>
+          <span class="fep-stat-key">Input/output ratio</span>
           <span class="fep-stat-val lime" id="fepStatRatio">—</span>
         </div>
         <div class="fep-stat-row">
@@ -199,7 +166,7 @@ function _ensurePanel() {
         </div>
       </div>
 
-      <button class="fep-btn primary" id="fepEncodeBtn">⚡ Compress &amp; Export</button>
+      <button class="fep-btn primary" id="fepEncodeBtn">Prepare NIF Export</button>
       <button class="fep-btn ghost"   id="fepDownloadBtn" disabled>⬇ Download .nif</button>
       <button class="fep-btn ghost"   id="fepShareBtn"    disabled>🌐 Share</button>
 
