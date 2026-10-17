@@ -10,6 +10,10 @@ assert.match(publish, /CHUNK\.GAUSSIAN_SH, CHUNK\.LIDAR_ATTR/,
   'source SH and LiDAR chunks must not be blindly passed through after point filtering');
 assert.match(publish, /window\.S\?\.nifPassthroughChunks/,
   'local NIF imports must retain safe passthrough chunks when no fetchable URL exists');
+assert.match(publish, /window\._fumocanifUrl \|\| window\._fumocaNifUrl/,
+  'publish must resolve the same canonical NIF URL exposed by the viewer and hotspot modules');
+assert.match(publish, /CHUNK\.KEYFRAME_MESH, CHUNK\.GAUSSIAN_SH, CHUNK\.LIDAR_ATTR/,
+  'mesh and point-indexed sidecars must be rebuilt rather than duplicated as passthrough');
 assert.match(builder, /_encodeCurrentSplatRows\(S, aliveIndices\)/,
   'publish must serialize current edited geometry for every source format');
 assert.match(builder, /S\.scaleXYZ\?\./,
@@ -22,6 +26,10 @@ assert.match(builder, /gaussianSH: gaussianSH \|\| undefined/,
   'publish must write the compacted SH sidecar');
 assert.match(builder, /_compactLidarAttributes\(S, aliveIndices\)/,
   'publish must compact point-indexed LiDAR attributes');
+assert.match(builder, /thumbnailBytes: S\.nifThumbnailBytes \|\| undefined/,
+  'publish must preserve the current NIF thumbnail');
+assert.match(builder, /mesh: S\.nifMesh \|\| undefined/,
+  'publish must re-encode the current mesh without duplicating its chunk');
 assert.match(builder, /window\._fumocaSerializeEditorSceneMetadata\?\.\(aliveIndices\)/,
   'publish must write fresh point-indexed Studio layer metadata');
 assert.match(builder, /sourceMeta\.gaussian_sh && !gaussianSH/,
@@ -32,4 +40,6 @@ assert.match(publish, /_buildNifBlob\(\{ title, description, parentMeta: existin
 const editor = await readFile(new URL('../edit.html', import.meta.url), 'utf8');
 assert.match(editor, /window\._fumocaSerializeEditorSceneMetadata = serializeEditorSceneMetadata/,
   'Studio must expose the canonical scene manifest serializer to publishing');
+assert.match(editor, /S\.nifVertical = decoded\.reader\.header\?\.vertical \|\| 'generic'/,
+  'Studio must retain the NIF header vertical when a local file is opened');
 console.log('NIF publish geometry, SH/LiDAR alignment, metadata and local passthrough contracts passed.');
