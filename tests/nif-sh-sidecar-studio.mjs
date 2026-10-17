@@ -42,6 +42,12 @@ assert.throws(() => compactGaussianSHSidecar({
   indices: [0], attributes: names.filter(name => name !== 'f_rest_2'),
   coefficients: source, pointCount: 3,
 }), /unsupported or non-contiguous/);
+assert.throws(() => compactGaussianSHSidecar({
+  indices: [], attributes: names, coefficients: source, pointCount: 3,
+}), /invalid source point count or compact index/);
+assert.throws(() => compactGaussianSHSidecar({
+  indices: [1, 1], attributes: names, coefficients: source, pointCount: 3,
+}), /invalid source point count or compact index/);
 const bad = source.slice();
 bad[0] = Number.NaN;
 assert.throws(() => compactGaussianSHSidecar({
@@ -53,13 +59,11 @@ assert.throws(() => gaussianSHMetadata(compact, ['f_dc_0', 'f_dc_1', 'f_dc_2']),
 const editor = await readFile(new URL('../edit.html', import.meta.url), 'utf8');
 assert.match(editor, /import \{ compactGaussianSHSidecar, gaussianSHMetadata \} from '\.\/js\/modules\/nif-sh-sidecar\.js';/,
   'Studio must use the tested SH compaction helper');
-assert.match(editor, /if \(decoded\.gaussianSH\) \{[\s\S]*?parsed\.shCoefficients = decoded\.gaussianSH\.values;/,
-  'opening NIF must restore the SH sidecar into the live renderer/editor state');
+assert.equal((editor.match(/parsed\.shCoefficients = decoded\.gaussianSH\.values;/g) || []).length, 2,
+  'both opening NIF and Add Splat must restore SH coefficients into live editor state');
 assert.match(editor, /gaussianSH: gaussianSH \|\| undefined/,
   'NIF export must write a compacted SH sidecar instead of silently dropping it');
 assert.match(editor, /if \(S\.nifMeta\?\.gaussian_sh && !gaussianSH\)/,
   'export must fail closed if metadata claims SH but coefficient data is unavailable');
-assert.match(editor, /if \(decoded\.gaussianSH\) \{[\s\S]*?parsed\.shCoefficients = decoded\.gaussianSH\.values;/,
-  'Add Splat must retain SH coefficients when the added asset is NIF');
 
 console.log('Studio Gaussian SH compaction, filtering, paint invalidation, metadata and editor wiring tests passed.');
