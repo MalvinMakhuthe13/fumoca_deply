@@ -22,15 +22,31 @@ export function renderHotspotsToLayer(hotspots, layer = document.getElementById(
     pill.textContent = title;
     m.appendChild(pill);
     m.title = title;
-    m.addEventListener('click', async (e) => {
+    m.setAttribute('role', 'button');
+    m.setAttribute('tabindex', '0');
+    m.setAttribute('aria-label', `Open hotspot: ${title}`);
+    const activate = async (e) => {
+      e.preventDefault?.();
       e.stopPropagation();
+      // Hotspots Pro is the source of truth for the viewer's click-to-open
+      // experience. Route persisted markers there even when legacy metadata
+      // has no explicit action object (the previous handler silently no-op'd).
+      if (typeof window._fumocaActivateHotspot === 'function') {
+        const opened = window._fumocaActivateHotspot(hs);
+        if (opened) return;
+      }
       const action =
         hs.actions?.[0]?.action ||
         hs.action ||
         (hs.type ? { type: hs.type, ...hs } : null);
-      if (!action) return;
-      const { triggerAction } = await import('./scene-interactions.js');
-      await triggerAction(action, { hotspot: hs });
+      if (action) {
+        const { triggerAction } = await import('./scene-interactions.js');
+        await triggerAction(action, { hotspot: hs });
+      }
+    };
+    m.addEventListener('click', activate);
+    m.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') activate(e);
     });
     layer.appendChild(m);
   });
