@@ -130,6 +130,33 @@ async function userOwnsFileKey(request, env, principal, bucketName, fileKey) {
   const token = (request.headers.get('Authorization') || '').replace(/^Bearer\s+/, '');
   if (!token || !env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) return false;
 
+  // Publishing uploads a new edited derivative before nif_files.r2_key is
+  // switched to it. Allow the record owner to clean up such a derivative if
+  // the DB update fails; do not allow arbitrary sibling keys or other owners.
+  if (bucketName === 'nif-files') {
+    const slash = fileKey.indexOf('/');
+    if (slash > 0 && /^edited_[A-Za-z0-9_-]+\.(?:nif|ply|splat|glb)$/i.test(fileKey.slice(slash + 1))) {
+      const recordId = fileKey.slice(0, slash);
+      const derivativeQuery = new URLSearchParams({
+        select: 'id,user_id',
+        id: `eq.${recordId}`,
+        user_id: `eq.${principal.id}`,
+        limit: '1',
+      });
+      try {
+        const derivativeResponse = await fetch(`${env.SUPABASE_URL}/rest/v1/nif_files?${derivativeQuery}`, {
+          headers: { Authorization: `Bearer ${token}`, apikey: env.SUPABASE_ANON_KEY },
+        });
+        if (!derivativeResponse.ok) return false;
+        const derivativeRows = await derivativeResponse.json();
+        return Array.isArray(derivativeRows) && derivativeRows.some(row => row?.id === recordId && row?.user_id === principal.id);
+      } catch (error) {
+        console.error('[R2 delete] derivative owner lookup errored', error?.message || String(error));
+        return false;
+      }
+    }
+  }
+
   // Match the exact object key against the caller's own NIF row or its known
   // source/thumbnail metadata. This supports cleanup without granting access
   // to arbitrary keys merely because a caller knows a record ID.
