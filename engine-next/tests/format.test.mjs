@@ -154,10 +154,10 @@ check('unsupported major version: surfaces via isCorrupted (existing callers alr
   badVersionReader.isCorrupted === true);
 
 // --- TEST 13: matching major version, different minor — must NOT be flagged ---
-// (Minor bumps only add chunk types per spec §12; a v1.0 reader given a v1.1
-// file, or vice versa, is a supported, ordinary case.)
+// (Minor bumps only add chunk types per spec §12; older v1.x readers skip
+// unknown optional chunks, which is a supported, ordinary case.)
 const okMinorBuf = goodBuf.slice(0);
-new DataView(okMinorBuf).setUint8(5, 0); // set versionMinor to 0 (this file was built as 1.1)
+new DataView(okMinorBuf).setUint8(5, 0); // set versionMinor to 0 (this file is built as 1.2)
 const okMinorReader = new NIFReader(okMinorBuf);
 check('same major, different minor version: isVersionSupported=true', okMinorReader.isVersionSupported === true);
 
