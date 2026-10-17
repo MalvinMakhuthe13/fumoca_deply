@@ -37,9 +37,9 @@ const publicNif = { id: 'nif-public', user_id: 'user-a', r2_key: 'user-a/model.n
 const privateNif = { id: 'nif-private', user_id: 'user-a', r2_key: 'user-a/private/model.nif', is_public: false, meta: {} };
 const thumbPublic = { id: 'nif-thumb-public', user_id: 'user-a', r2_key: 'user-a/model.nif', is_public: true, meta: { thumbnail_r2_key: 'user-a/thumb.webp' } };
 const thumbPrivate = { id: 'nif-thumb-private', user_id: 'user-a', r2_key: 'user-a/private/model.nif', is_public: false, meta: { thumbnail_r2_key: 'user-a/private-thumb.webp' } };
-const sourceRow = { id: 'nif-source', user_id: 'user-a', r2_key: 'published/model.nif', is_public: true, meta: { source_r2_key: 'user-a/raw.mp4' } };
-const teaserPublic = { id: 'nif-teaser-public', user_id: 'user-a', r2_key: 'published/model.nif', is_public: true, meta: { teaser_video_r2_key: 'user-a/teasers/nif-teaser-public/teaser.webm' } };
-const teaserPrivate = { id: 'nif-teaser-private', user_id: 'user-a', r2_key: 'private/model.nif', is_public: false, meta: { teaser_video_r2_key: 'user-a/teasers/nif-teaser-private/teaser.webm' } };
+const sourceRow = { id: 'nif-source', user_id: 'user-a', r2_key: 'user-a/model.nif', is_public: true, meta: { source_r2_key: 'user-a/raw.mp4' } };
+const teaserPublic = { id: 'nif-teaser-public', user_id: 'user-a', r2_key: 'user-a/model.nif', is_public: true, meta: { teaser_video_r2_key: 'user-a/teasers/nif-teaser-public/teaser.webm' } };
+const teaserPrivate = { id: 'nif-teaser-private', user_id: 'user-a', r2_key: 'user-a/private/model.nif', is_public: false, meta: { teaser_video_r2_key: 'user-a/teasers/nif-teaser-private/teaser.webm' } };
 const run = (rows, jobs = [], responseStatus = 200) => helper(async (url, options) => {
   const parsed = new URL(url);
   assert.equal(options.headers.apikey, 'anon-test');
@@ -47,17 +47,17 @@ const run = (rows, jobs = [], responseStatus = 200) => helper(async (url, option
   return new Response(JSON.stringify(rows), { status: responseStatus });
 }, { error: () => {} });
 
-let access = await run([publicNif])(req(), env, null, 'nif-files', 'published/model.nif');
+let access = await run([publicNif])(req(), env, null, 'nif-files', 'user-a/model.nif');
 assert.deepEqual(access, { allowed: true, isPublic: true, reason: 'published-nif' });
 
-access = await run([privateNif])(req(), env, null, 'nif-files', 'private/model.nif');
+access = await run([privateNif])(req(), env, null, 'nif-files', 'user-a/private/model.nif');
 assert.equal(access.allowed, false, 'anonymous users must not read private NIFs');
 
-access = await run([privateNif])(req('token-a'), env, userA, 'nif-files', 'private/model.nif');
+access = await run([privateNif])(req('token-a'), env, userA, 'nif-files', 'user-a/private/model.nif');
 assert.equal(access.allowed, true, 'owner can read their private NIF');
 assert.equal(access.isPublic, false, 'owner read must not be marked public/cacheable');
 
-access = await run([privateNif])(req('token-b'), env, userB, 'nif-files', 'private/model.nif');
+access = await run([privateNif])(req('token-b'), env, userB, 'nif-files', 'user-a/private/model.nif');
 assert.equal(access.allowed, false, 'different users must not read private NIFs');
 
 access = await run([thumbPublic])(req(), env, null, 'thumbnails', 'user-a/thumb.webp');
@@ -123,7 +123,7 @@ assert.deepEqual(access, { allowed: true, isPublic: false, reason: 'owner-associ
 access = await run([cleanedSplatRow])(req('token-b'), env, userB, 'nif-files', 'nif-cleaned/edited_cleaned_1.splat');
 assert.equal(access.allowed, false, 'another user cannot read a cleaned splat derivative');
 
-access = await run([], [{ id: 'job-1', user_id: 'user-a', raw_r2_key: 'record-source/raw.mp4' }])(req('token-a'), env, userA, 'nif-videos', 'record-source/raw.mp4');
+access = await run([], [{ id: 'job-1', user_id: 'user-a', raw_r2_key: 'user-a/raw.mp4' }])(req('token-a'), env, userA, 'nif-videos', 'user-a/raw.mp4');
 assert.deepEqual(access, { allowed: true, isPublic: false, reason: 'owner-source-job' }, 'owner can read raw source keys stored on reconstruction_jobs');
 
 access = await run([sourceRow])(req(), env, null, 'nif-videos', 'private/raw.mp4');
@@ -147,7 +147,7 @@ assert.deepEqual(access, { allowed: true, isPublic: true, reason: 'public-avatar
 access = await run([])(req(), env, null, 'unexpected-bucket', 'anything');
 assert.equal(access.allowed, false, 'unknown buckets must fail closed');
 
-access = await run([], [], 503)(req(), env, null, 'nif-files', 'published/model.nif');
+access = await run([], [], 503)(req(), env, null, 'nif-files', 'user-a/model.nif');
 assert.equal(access.allowed, false, 'database lookup failures must fail closed');
 
 const getStart = source.indexOf("if (request.method === 'GET' && path.startsWith('/file/'))");
