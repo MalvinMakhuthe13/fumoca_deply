@@ -730,7 +730,7 @@ function resolvenifUrl(record) {
   }
   return '';
 }
-function resolvePreviewVideo(record) { return record ? firstNonEmpty(record.preview_video_url, record.teaser_video_url, record.video_url) : ''; }
+function resolvePreviewVideo(record) { return record ? firstNonEmpty(record.preview_video_url, record.teaser_video_url, record.video_url, record.meta?.preview_video_url, record.meta?.teaser_video_url) : ''; }
 function resolveThumbnail(record) {
   if (!record) return '';
   const thumbKey = record.meta?.thumbnail_r2_key;
@@ -924,7 +924,8 @@ function applyHeader(record) {
 
   const provider = firstNonEmpty(
     record?.provider_name,
-    record?.source_type === 'external' ? 'External provider' : 'FUMOCA'
+    record?.meta?.provider_name,
+    (record?.source_type === 'external' || record?.meta?.source_type === 'external') ? 'External provider' : 'FUMOCA'
   );
 
   const status = normalizeStatus(
