@@ -161,92 +161,122 @@ function decodeSplt(spltData) {
 
 // ── Inflate ───────────────────────────────────────────────────────────────────
 async function inflate(data) {
-  const ds = new DecompressionStream('deflate');
-  const writer = ds.writable.getWriter();
-  writer.write(data); writer.close();
-  const chunks = [];
-  const reader = ds.readable.getReader();
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    chunks.push(value);
+  let reader = null;
+  try {
+    const ds = new DecompressionStream('deflate');
+    const writer = ds.writable.getWriter();
+    const writePromise = writer.write(data);
+    const closePromise = writer.close();
+    writePromise.catch(() => {});
+    closePromise.catch(() => {});
+    const chunks = [];
+    let total = 0;
+    reader = ds.readable.getReader();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (total + value.byteLength > MAX_SECTION_BYTES) {
+        await reader.cancel('FUMOC Worker section exceeds 512 MiB').catch(() => {});
+        throw new Error('[FUMOC Worker] Decompressed section exceeds the 512 MiB safety limit');
+      }
+      chunks.push(value); total += value.byteLength;
+    }
+    await Promise.all([writePromise, closePromise]);
+    const out = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) { out.set(chunk, offset); offset += chunk.byteLength; }
+    return out;
+  } catch (error) {
+    await reader?.cancel().catch(() => {});
+    if (error instanceof Error && error.message.includes('512 MiB safety limit')) throw error;
+    throw new Error('[FUMOC Worker] Invalid or truncated compressed section', { cause: error });
   }
-  const total = chunks.reduce((n,c) => n+c.length, 0);
-  const out = new Uint8Array(total);
-  let o = 0;
-  for (const c of chunks) { out.set(c, o); o += c.length; }
-  return out;
 }
 
 // ── Full .fumoc decode ────────────────────────────────────────────────────────
 async function decodeFumoc(buffer) {
-  const bytes = new Uint8Array(buffer);
-  const magic = String.fromCharCode(bytes[0],bytes[1],bytes[2],bytes[3],bytes[4],bytes[5]);
-  if (!magic.startsWith('FUMOC')) throw new Error('Not a .fumoc file — magic: ' + magic);
-
-  const view = new DataView(buffer);
+  const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+  if (bytes.byteLength < 14) throw new Error('[FUMOC Worker] File header is truncated');
+  if (bytes.byteLength > MAX_FILE_BYTES) throw new Error('[FUMOC Worker] File exceeds the 2 GiB safety limit');
+  const magic = String.fromCharCode(...bytes.subarray(0, 6));
+  if (magic !== 'FUMOC1' && magic !== 'FUMOC2') throw new Error('[FUMOC Worker] Unsupported file magic');
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const version = view.getUint16(8, true);
+  if (version < 1 || version > 2) throw new Error('[FUMOC Worker] Unsupported file version');
   const headerLen = view.getUint32(10, true);
-  let header = {};
-  try { header = JSON.parse(new TextDecoder().decode(bytes.slice(14, 14+headerLen))); } catch(e) {}
+  if (headerLen > MAX_HEADER_BYTES || 14 + headerLen > bytes.byteLength) {
+    throw new Error('[FUMOC Worker] Header length is invalid or truncated');
+  }
+  let header;
+  try { header = JSON.parse(new TextDecoder().decode(bytes.subarray(14, 14 + headerLen))); }
+  catch (error) { throw new Error('[FUMOC Worker] Header JSON is invalid', { cause: error }); }
+  if (!header || typeof header !== 'object' || Array.isArray(header)) throw new Error('[FUMOC Worker] Header must be a JSON object');
 
-  // Parse sections
   let off = 14 + headerLen;
   const sections = {};
-  while (off + 13 <= bytes.length) {
-    const id      = String.fromCharCode(bytes[off],bytes[off+1],bytes[off+2],bytes[off+3]);
-    const flags   = bytes[off+4];
+  while (off < bytes.byteLength) {
+    if (bytes.byteLength - off < 13) throw new Error('[FUMOC Worker] Truncated section header');
+    const id = String.fromCharCode(bytes[off],bytes[off+1],bytes[off+2],bytes[off+3]);
+    const flags = bytes[off+4];
     const compLen = view.getUint32(off+5, true);
-    const rawLen  = view.getUint32(off+9, true);
-    const data    = bytes.slice(off+13, off+13+compLen);
-    sections[id]  = { flags, data, compLen, rawLen };
+    const rawLen = view.getUint32(off+9, true);
+    if (flags & ~0x03) throw new Error(`[FUMOC Worker] Section ${id} has unsupported flag bits`);
+    if (compLen > MAX_SECTION_BYTES || rawLen > MAX_SECTION_BYTES) throw new Error(`[FUMOC Worker] Section ${id} exceeds the safety limit`);
+    if (off + 13 + compLen > bytes.byteLength) throw new Error(`[FUMOC Worker] Section ${id} is truncated`);
+    if (!(flags & 0x01) && rawLen !== compLen) throw new Error(`[FUMOC Worker] Section ${id} has mismatched lengths`);
+    if (sections[id]) throw new Error(`[FUMOC Worker] Duplicate section ${id}`);
+    sections[id] = { flags, data: bytes.slice(off+13, off+13+compLen), compLen, rawLen };
     off += 13 + compLen;
   }
 
-  // Decompress SPLT
-  const spltSec = sections['SPLT'];
-  if (!spltSec) throw new Error('No SPLT section found');
+  const spltSec = sections.SPLT;
+  if (!spltSec) throw new Error('[FUMOC Worker] Required SPLT section is missing');
   self.postMessage({ type: 'progress', pct: 25, label: 'Decompressing splat data...' });
-
-  // Always decompress first — fumoc-format.js sets flag 0x01 even for v2 codec data
-  let spltData = spltSec.data;
-  if (spltSec.flags & 0x01) spltData = await inflate(spltData);
-
+  const spltData = (spltSec.flags & 0x01) ? await inflate(spltSec.data) : spltSec.data;
+  if (spltData.byteLength !== spltSec.rawLen) throw new Error('[FUMOC Worker] SPLT length does not match its section header');
   self.postMessage({ type: 'progress', pct: 40, label: 'Decoding Gaussian channels...' });
 
-  // Detect v2 codec SPLT by structural probe: bytes 0-3 = N (u32), bytes 4-7 = nChan (u32, must be 1-15)
-  // Raw .splat binary starts with an XYZ float32 — interpreted as u32, never cleanly 1-15
   let N, channels;
-  const probe = new DataView(spltData.buffer, spltData.byteOffset, Math.min(8, spltData.length));
-  const peekN    = probe.getUint32(0, true);
-  const peekChan = probe.getUint32(4, true);
-  const isV2     = peekN > 0 && peekChan >= 1 && peekChan <= 15 && spltData.length > peekN * 32;
-
-  if (isV2) {
-    // v2 codec — channel-structured SPLT
-    ({ N, channels } = decodeSplt(spltData));
-  } else {
-    // v1 — raw .splat binary (already decompressed above)
-    N = Math.floor(spltData.length / SPLAT_ROW);
-    const rawDv = new DataView(spltData.buffer, spltData.byteOffset);
-    channels = {
-      POS_X:  new Float32Array(N), POS_Y: new Float32Array(N), POS_Z: new Float32Array(N),
-      SCL_X:  new Float32Array(N), SCL_Y: new Float32Array(N), SCL_Z: new Float32Array(N),
-      COL_R:  new Uint8Array(N),   COL_G: new Uint8Array(N),   COL_B: new Uint8Array(N),   COL_A: new Uint8Array(N),
-      ROT_Q0: new Uint8Array(N),   ROT_Q1: new Uint8Array(N),  ROT_Q2: new Uint8Array(N),  ROT_Q3: new Uint8Array(N),
-    };
-    for (let i = 0; i < N; i++) {
-      const b = i * SPLAT_ROW;
-      channels.POS_X[i]  = rawDv.getFloat32(b,    true);
-      channels.POS_Y[i]  = rawDv.getFloat32(b+4,  true);
-      channels.POS_Z[i]  = rawDv.getFloat32(b+8,  true);
-      channels.SCL_X[i]  = rawDv.getFloat32(b+12, true);
-      channels.SCL_Y[i]  = rawDv.getFloat32(b+16, true);
-      channels.SCL_Z[i]  = rawDv.getFloat32(b+20, true);
-      channels.COL_R[i]  = spltData[b+24]; channels.COL_G[i] = spltData[b+25];
-      channels.COL_B[i]  = spltData[b+26]; channels.COL_A[i] = spltData[b+27];
-      channels.ROT_Q0[i] = spltData[b+28]; channels.ROT_Q1[i] = spltData[b+29];
-      channels.ROT_Q2[i] = spltData[b+30]; channels.ROT_Q3[i] = spltData[b+31];
+  if (spltData.byteLength >= 8) {
+    const probe = new DataView(spltData.buffer, spltData.byteOffset, spltData.byteLength);
+    const peekN = probe.getUint32(0, true);
+    const peekChan = probe.getUint32(4, true);
+    const isV2 = peekN > 0 && peekN <= MAX_GAUSSIANS && peekChan >= 1 && peekChan <= 15;
+    if (isV2) {
+      ({ N, channels } = decodeSplt(spltData));
+    } else {
+      if (spltData.byteLength === 0 || spltData.byteLength % SPLAT_ROW !== 0) {
+        throw new Error('[FUMOC Worker] Raw SPLT payload must contain complete 32-byte rows');
+      }
+      N = spltData.byteLength / SPLAT_ROW;
+      if (N < 1 || N > MAX_GAUSSIANS) throw new Error('[FUMOC Worker] Raw SPLT point count is invalid');
+      const rawDv = new DataView(spltData.buffer, spltData.byteOffset, spltData.byteLength);
+      channels = {
+        POS_X: new Float32Array(N), POS_Y: new Float32Array(N), POS_Z: new Float32Array(N),
+        SCL_X: new Float32Array(N), SCL_Y: new Float32Array(N), SCL_Z: new Float32Array(N),
+        COL_R: new Uint8Array(N), COL_G: new Uint8Array(N), COL_B: new Uint8Array(N), COL_A: new Uint8Array(N),
+        ROT_Q0: new Uint8Array(N), ROT_Q1: new Uint8Array(N), ROT_Q2: new Uint8Array(N), ROT_Q3: new Uint8Array(N),
+      };
+      for (let i = 0; i < N; i++) {
+        const b = i * SPLAT_ROW;
+        channels.POS_X[i] = rawDv.getFloat32(b, true);
+        channels.POS_Y[i] = rawDv.getFloat32(b+4, true);
+        channels.POS_Z[i] = rawDv.getFloat32(b+8, true);
+        channels.SCL_X[i] = rawDv.getFloat32(b+12, true);
+        channels.SCL_Y[i] = rawDv.getFloat32(b+16, true);
+        channels.SCL_Z[i] = rawDv.getFloat32(b+20, true);
+        if (![channels.POS_X[i], channels.POS_Y[i], channels.POS_Z[i], channels.SCL_X[i], channels.SCL_Y[i], channels.SCL_Z[i]].every(Number.isFinite) ||
+            channels.SCL_X[i] <= 0 || channels.SCL_Y[i] <= 0 || channels.SCL_Z[i] <= 0) {
+          throw new Error(`[FUMOC Worker] Raw SPLT point ${i} has invalid position or scale values`);
+        }
+        channels.COL_R[i] = splatData[b+24]; channels.COL_G[i] = splatData[b+25];
+        channels.COL_B[i] = splatData[b+26]; channels.COL_A[i] = splatData[b+27];
+        channels.ROT_Q0[i] = splatData[b+28]; channels.ROT_Q1[i] = splatData[b+29];
+        channels.ROT_Q2[i] = splatData[b+30]; channels.ROT_Q3[i] = splatData[b+31];
+      }
     }
+  } else {
+    throw new Error('[FUMOC Worker] SPLT payload is too short');
   }
 
   self.postMessage({ type: 'progress', pct: 80, label: `Assembling ${N.toLocaleString()} Gaussians...` });
