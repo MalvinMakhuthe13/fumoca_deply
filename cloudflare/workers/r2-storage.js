@@ -635,7 +635,12 @@ export default {
         return json({ error: 'Invalid partNumber' }, 400, cors);
       }
 
-      const safeFileKey = sanitiseKey(decodeURIComponent(fileKeyParam));
+      let safeFileKey;
+      try {
+        safeFileKey = sanitiseKey(decodeURIComponent(fileKeyParam));
+      } catch {
+        return json({ error: 'Malformed file key' }, 400, cors);
+      }
       if (!safeFileKey) {
         return json({ error: 'Invalid key' }, 400, cors);
       }
@@ -897,8 +902,13 @@ export default {
 
     // ── GET /file/:key — authorize before cache or object access ───────────
     if (request.method === 'GET' && path.startsWith('/file/')) {
-      const fileKey = sanitiseKey(decodeURIComponent(path.slice('/file/'.length)));
-      if (!fileKey) return json({ error: 'Missing key' }, 400, cors);
+      let fileKey;
+      try {
+        fileKey = sanitiseKey(decodeURIComponent(path.slice('/file/'.length)));
+      } catch {
+        return json({ error: 'Malformed file key' }, 400, cors);
+      }
+      if (!fileKey) return json({ error: 'Invalid file key' }, 400, cors);
 
       const r2Bucket = getBucket(bucketParam, env);
       if (!r2Bucket) return json({ error: `Unknown bucket: ${bucketParam}` }, 400, cors);
