@@ -16,10 +16,12 @@ for (let i = 0; i < 2; i++) {
   source[o + 25] = 120;
   source[o + 26] = 40;
   source[o + 27] = 230;
-  source[o + 28] = 255; // approximately identity quaternion (wxyz)
-  source[o + 29] = 128;
-  source[o + 30] = 128;
-  source[o + 31] = 128;
+  // Non-identity quaternion on point 0 exercises orientation preservation.
+  const q = i === 0 ? [235, 148, 118, 136] : [255, 128, 128, 128];
+  source[o + 28] = q[0];
+  source[o + 29] = q[1];
+  source[o + 30] = q[2];
+  source[o + 31] = q[3];
 }
 const indices = new Uint32Array([0, 1]);
 const nif = encodeNif({
@@ -50,6 +52,12 @@ for (let i = 0; i < 2; i++) {
   closeTo(decoded.gaussians.data[o + 1], 1 + i, 0.0001, `point ${i} y`);
   closeTo(decoded.gaussians.data[o + 2], -0.5, 0.0001, `point ${i} z`);
   closeTo(decoded.gaussians.data[o + 3], Math.log(0.1), 0.025, `point ${i} log-scale-x`);
+  closeTo(decoded.gaussians.data[o + 4], Math.log(0.2), 0.025, `point ${i} log-scale-y`);
+  closeTo(decoded.gaussians.data[o + 5], Math.log(0.3), 0.025, `point ${i} log-scale-z`);
+  const qBytes = i === 0 ? [235, 148, 118, 136] : [255, 128, 128, 128];
+  const qRaw = qBytes.map(value => (value - 128) / 128);
+  const qLength = Math.hypot(...qRaw) || 1;
+  for (let q = 0; q < 4; q++) closeTo(decoded.gaussians.data[o + 6 + q], qRaw[q] / qLength, 0.0001, `point ${i} quaternion ${q}`);
   closeTo(sigmoid(decoded.gaussians.data[o + 10]), 230 / 255, 0.003, `point ${i} opacity`);
   closeTo(sigmoid(decoded.gaussians.data[o + 11]), 220 / 255, 0.003, `point ${i} red`);
   closeTo(sigmoid(decoded.gaussians.data[o + 12]), 120 / 255, 0.003, `point ${i} green`);
@@ -65,6 +73,7 @@ closeTo(legacyView.getFloat32(4, true), 1, 0.0001, 'legacy row 0 y');
 closeTo(legacyView.getFloat32(8, true), -0.5, 0.0001, 'legacy row 0 z');
 assert.ok(legacyRows[24] >= 219 && legacyRows[24] <= 221, 'red channel survives NIF → SPLAT');
 assert.ok(legacyRows[27] >= 229 && legacyRows[27] <= 231, 'opacity survives NIF → SPLAT');
+for (let q = 0; q < 4; q++) assert.ok(Math.abs(legacyRows[28 + q] - [235, 148, 118, 136][q]) <= 1, `quaternion byte ${q} survives NIF → SPLAT`);
 
 // Plain PLY point clouds have a distinct CPU-only route: encode positions,
 // RGB and opacity as isotropic points, and do not claim Gaussian source fidelity.
