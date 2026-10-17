@@ -121,7 +121,7 @@ assert.deepEqual(access, { allowed: true, isPublic: false, reason: 'owner-associ
 access = await run([cleanedSplatRow])(req('token-b'), env, userB, 'nif-files', 'nif-cleaned/edited_cleaned_1.splat');
 assert.equal(access.allowed, false, 'another user cannot read a cleaned splat derivative');
 
-access = await run([], [{ id: 'job-1', user_id: 'user-a', raw_r2_key: 'user-a/raw.mp4' }])(req('token-a'), env, userA, 'nif-videos', 'user-a/raw.mp4');
+access = await run([])(req('token-a'), env, userA, 'nif-videos', 'user-a/raw.mp4');
 assert.deepEqual(access, { allowed: true, isPublic: false, reason: 'owner-key' },
   'owner-prefixed reconstruction source files are readable without a cross-record metadata grant');
 
