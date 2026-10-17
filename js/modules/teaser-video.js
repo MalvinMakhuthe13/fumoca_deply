@@ -200,16 +200,23 @@ const FumocaTeaserVideo = (() => {
         } else {
           const candidateUrl = _teaserUrl || null;
           if (candidateUrl) {
-            const { error: metadataError } = await sb.from('nif_files')
-              .update({ meta: { ...(splatRecord?.meta || {}), teaser_video_url: candidateUrl, teaser_video_r2_key: fileKey, last_edited_at: new Date().toISOString() } })
-              .eq('id', splatId)
-              .eq('user_id', ownerId);
+            const { data: current, error: readError } = await sb.from('nif_files')
+              .select('meta').eq('id', splatId).eq('user_id', ownerId).single();
+            if (readError || !current) throw new Error(readError?.message || 'Parent NIF could not be reloaded before saving the teaser.');
+            const currentMeta = current.meta && typeof current.meta === 'object' ? current.meta : {};
+            const nextMeta = { ...currentMeta, teaser_video_url: candidateUrl, teaser_video_r2_key: fileKey, last_edited_at: new Date().toISOString() };
+            const { data: updated, error: metadataError } = await sb.from('nif_files')
+              .update({ meta: nextMeta }).eq('id', splatId).eq('user_id', ownerId).select('id').maybeSingle();
 
-            if (metadataError) {
+            if (metadataError || !updated) {
               try { await r2.from('preview-videos').remove([fileKey]); }
               catch (cleanupError) { console.warn('[Teaser] Orphan cleanup failed:', cleanupError); }
-              throw metadataError;
+              throw new Error(metadataError?.message || 'Teaser could not be linked to the parent NIF.');
             }
+            if (window._fumocaCurrentRecord?.id === splatId) {
+              window._fumocaCurrentRecord = { ...window._fumocaCurrentRecord, meta: nextMeta };
+            }
+            if (splatRecord && typeof splatRecord === 'object') splatRecord.meta = nextMeta;
 
             uploadedUrl = candidateUrl;
             if (typeof window.saveLiveEdit === 'function') {
