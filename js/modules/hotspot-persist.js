@@ -53,7 +53,10 @@ export async function loadInteractionsFromRecord(rec) {
   window._fumocaStateRegions = stateRegions;
   window._fumocaHotspots = hotspots;
 
-  if (hotspots.length) {
+  // Hotspots Pro is the interactive renderer on viewer.html. Keep this
+  // module responsible for loading walkthrough/audio/state metadata there,
+  // but do not render a second set of DOM markers over the same hotspots.
+  if (hotspots.length && !window._fumocaUseHotspotPro) {
     renderHotspotsToLayer(hotspots);
   }
 
