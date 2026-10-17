@@ -18,4 +18,6 @@ assert.match(mobile, /\$\{ownerId\}\/mobile-assets\/\$\{splatRecord\.id\}\/widge
   'widget writes must use the authenticated owner prefix');
 assert.match(mobile, /mobile_asset_r2_key: fileKey/,
   'the widget object key must be persisted on the parent NIF for authorization');
+assert.match(mobile, /select\('meta'\)\.eq\('id', splatRecord\.id\)\.eq\('user_id', ownerId\)\.single\(\)/,
+  'mobile asset save must reload current parent metadata before merging, avoiding stale overwrites');
 console.log('Mobile asset storage, sandbox and visibility contract passed.');
