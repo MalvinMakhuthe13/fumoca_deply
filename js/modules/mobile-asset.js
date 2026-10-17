@@ -102,6 +102,14 @@ const FumocaMobileAsset = (() => {
     const ownerId = splatRecord.user_id;
     if (!ownerId) throw new Error('Cannot create a mobile widget without the NIF owner ID.');
 
+    // Read the prior registry row before uploading so replacing a widget can
+    // clean up its old R2 object without deleting a working asset on failure.
+    const { data: previousAsset, error: previousAssetError } = await sb.from('mobile_assets')
+      .select('*').eq('splat_id', splatRecord.id).maybeSingle();
+    if (previousAssetError) {
+      throw new Error(previousAssetError.message || 'Could not read the existing mobile asset record.');
+    }
+
     // The Worker only permits text/html inside the NIF bucket under its
     // sandboxed response policy. Keep the object under the authenticated
     // owner prefix and register the exact key against this parent NIF.
@@ -115,10 +123,12 @@ const FumocaMobileAsset = (() => {
       throw new Error(uploadError?.message || 'Mobile widget upload returned no key or URL.');
     }
 
+    let metadataCommitted = false;
     try {
       const { data: row, error: rowError } = await sb.from('mobile_assets').upsert({
         splat_id:          splatRecord.id,
         asset_url:         assetUrl,
+        r2_key:            fileKey,
         format:            'fumoca-widget',
         interaction_rules: config.interaction_rules,
         states:            config.states,
@@ -143,17 +153,33 @@ const FumocaMobileAsset = (() => {
       if (metaError || !updatedNif) {
         throw new Error(metaError?.message || 'Mobile asset key could not be linked to its parent NIF.');
       }
+      metadataCommitted = true;
       if (window._fumocaCurrentRecord?.id === splatRecord.id) {
         window._fumocaCurrentRecord = { ...window._fumocaCurrentRecord, meta: nextMeta };
+      }
+      if (previousAsset?.r2_key && previousAsset.r2_key !== fileKey) {
+        const { error: oldCleanupError } = await r2.from('nif-files').remove([previousAsset.r2_key]);
+        if (oldCleanupError) console.warn('[MobileAsset] Old widget cleanup failed:', oldCleanupError.message);
       }
 
       console.log('%c[MobileAsset] Widget saved →', 'color:#c8ff00', assetUrl);
       window.dispatchEvent(new CustomEvent('fumoca:mobileAssetReady', { detail: { url: assetUrl, config } }));
       return { url: assetUrl, config, row };
     } catch (error) {
-      const { error: rowCleanupError } = await sb.from('mobile_assets').delete()
-        .eq('splat_id', splatRecord.id).eq('asset_url', assetUrl);
-      if (rowCleanupError) console.error('[MobileAsset] Metadata cleanup failed:', rowCleanupError.message);
+      if (metadataCommitted) {
+        // The parent row now points at the new asset. Do not delete it if a
+        // post-commit side effect (e.g. an event listener) throws.
+        console.warn('[MobileAsset] Post-commit side effect failed:', error?.message || error);
+        return { url: assetUrl, config, row: null };
+      }
+      if (previousAsset) {
+        const { error: restoreError } = await sb.from('mobile_assets').upsert(previousAsset, { onConflict: 'splat_id' });
+        if (restoreError) console.error('[MobileAsset] Previous registry row restore failed:', restoreError.message);
+      } else {
+        const { error: rowCleanupError } = await sb.from('mobile_assets').delete()
+          .eq('splat_id', splatRecord.id).eq('asset_url', assetUrl);
+        if (rowCleanupError) console.error('[MobileAsset] Metadata cleanup failed:', rowCleanupError.message);
+      }
       const { error: cleanupError } = await r2.from('nif-files').remove([fileKey]);
       if (cleanupError) console.error('[MobileAsset] Orphan cleanup failed:', cleanupError.message);
       throw error;
