@@ -3115,6 +3115,44 @@ function deleteSelected() {
   showToast('Deleted', `${fmt(del)} points removed`);
 }
 
+function selectSubjectAtScreen(x, y, radius = 16) {
+  if (!S.positions || !S.alive?.length) return false;
+  const vp = document.getElementById('viewport');
+  const W = vp.clientWidth, H = vp.clientHeight;
+  const ndc = new THREE.Vector3();
+  let best = -1, bestDist = radius * radius, bestDepth = Infinity;
+  for (let i = 0; i < S.alive.length; i++) {
+    if (!S.alive[i] || S.layerHidden?.[i]) continue;
+    ndc.set(S.positions[i*3], S.positions[i*3+1], S.positions[i*3+2]).project(camera);
+    if (ndc.z < -1 || ndc.z > 1) continue;
+    const sx = (ndc.x * 0.5 + 0.5) * W;
+    const sy = (-ndc.y * 0.5 + 0.5) * H;
+    const dx = sx - x, dy = sy - y, dist = dx*dx + dy*dy;
+    if (dist < bestDist || (dist === bestDist && ndc.z < bestDepth)) {
+      best = i; bestDist = dist; bestDepth = ndc.z;
+    }
+  }
+  if (best < 0) return false;
+
+  // A hit inside an imported layer selects the entire subject, not a single point.
+  const layer = (S.layers || []).find(L => L.visible !== false && L.mask?.[best]);
+  S.selected.fill(0);
+  if (layer) {
+    S.activeLayerId = layer.id;
+    for (let i = 0; i < S.selected.length; i++) {
+      if (S.alive[i] && layer.mask[i] && !S.layerHidden?.[i]) S.selected[i] = 1;
+    }
+  } else {
+    S.activeLayerId = null;
+    S.selected[best] = 1;
+  }
+  renderLayers();
+  rebuildGeometry();
+  syncTransformGizmo();
+  setStatus(layer ? `Selected subject: ${layer.name} (${fmt(selectedPointCount())} points)` : 'Selected point; group points into a layer to transform the full subject', 'ok');
+  return true;
+}
+
 function selectByBox(x0, y0, x1, y1) {
   if (!S.positions) return;
   const vp = document.getElementById('viewport');
@@ -3951,7 +3989,14 @@ window.addEventListener('pointerup', e => {
   _brushActive = false;
   if (!S.dragging) return;
   const {x, y} = _vpCoords(e);
-  if (S.mode === 'box' && S.dragStart && S.dragCurrent) selectByBox(S.dragStart.x, S.dragStart.y, S.dragCurrent.x, S.dragCurrent.y);
+  if (S.mode === 'box' && S.dragStart && S.dragCurrent) {
+    const dx = Math.abs(S.dragCurrent.x - S.dragStart.x), dy = Math.abs(S.dragCurrent.y - S.dragStart.y);
+    if (dx <= 7 && dy <= 7) {
+      // A click in Select mode picks the nearest visible subject/layer. Dragging
+      // still performs normal box selection.
+      if (!selectSubjectAtScreen(x, y)) selectByBox(S.dragStart.x, S.dragStart.y, S.dragCurrent.x, S.dragCurrent.y);
+    } else selectByBox(S.dragStart.x, S.dragStart.y, S.dragCurrent.x, S.dragCurrent.y);
+  }
   if (S.mode === 'crop' && S.dragStart && S.dragCurrent) {
     selectByBox(S.dragStart.x,S.dragStart.y,S.dragCurrent.x,S.dragCurrent.y);
     pushHistory('crop to box');
