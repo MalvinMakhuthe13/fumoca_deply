@@ -380,41 +380,46 @@
 
     // 6. Service worker + pre-cache
     setCheck('sw', 'running');
-    try {
-      const reg = await ensureServiceWorker();
-      if (!reg) {
-        setCheck('sw', 'warn', 'Service workers not supported in this browser');
-        warn++;
-      } else {
-        const urls = row.is_public === true ? [splatUrl, thumbnailUrl].filter(Boolean) : [];
-        const done = new Promise(resolve => {
-          const unsub = onPrefetchResult(r => { unsub(); resolve(r); });
-          setTimeout(() => { unsub(); resolve(null); }, 15000);
-        });
-        const r = await prefetchSplat({ extraUrls: urls });
-        if (!r.supported) {
-          setCheck('sw', 'warn', 'SW registered but not controlling this page yet — reload and retry');
+    if (row.is_public !== true) {
+      setCheck('sw', 'warn', 'Private NIFs are not added to the shared offline cache');
+      warn++;
+    } else {
+      try {
+        const reg = await ensureServiceWorker();
+        if (!reg) {
+          setCheck('sw', 'warn', 'Service workers not supported in this browser');
           warn++;
         } else {
-          const res = await done;
-          if (!res) {
-            setCheck('sw', 'warn', 'Pre-cache queued but no completion event — reload and retry if unsure');
+          const urls = [splatUrl, thumbnailUrl].filter(Boolean);
+          const done = new Promise(resolve => {
+            const unsub = onPrefetchResult(r => { unsub(); resolve(r); });
+            setTimeout(() => { unsub(); resolve(null); }, 15000);
+          });
+          const r = await prefetchSplat({ extraUrls: urls });
+          if (!r.supported) {
+            setCheck('sw', 'warn', 'SW registered but not controlling this page yet — reload and retry');
             warn++;
           } else {
-            const okCount = res.filter(x => x.ok).length;
-            if (okCount === res.length) {
-              setCheck('sw', 'pass', `Pre-cached ${okCount} file${okCount === 1 ? '' : 's'}`);
-              pass++;
-            } else {
-              setCheck('sw', 'warn', `Pre-cached ${okCount} of ${res.length} files`);
+            const res = await done;
+            if (!res) {
+              setCheck('sw', 'warn', 'Pre-cache queued but no completion event — reload and retry if unsure');
               warn++;
+            } else {
+              const okCount = res.filter(x => x.ok).length;
+              if (okCount === res.length) {
+                setCheck('sw', 'pass', `Pre-cached ${okCount} file${okCount === 1 ? '' : 's'}`);
+                pass++;
+              } else {
+                setCheck('sw', 'warn', `Pre-cached ${okCount} of ${res.length} files`);
+                warn++;
+              }
             }
           }
         }
+      } catch (err) {
+        setCheck('sw', 'warn', err.message);
+        warn++;
       }
-    } catch (err) {
-      setCheck('sw', 'warn', err.message);
-      warn++;
     }
 
     // 7. Network sanity
