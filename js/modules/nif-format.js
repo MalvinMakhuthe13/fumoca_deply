@@ -126,6 +126,19 @@ function plyPointsToGeometry(positions, colors01, opacities01) {
 // existing decoder with imperceptible error (position error ~0.00003 units,
 // color/opacity error <0.2%, both well below visual threshold).
 function packGeometryQuantized(geoData, count) {
+  // Reject invalid scenes before calculating bounds. Empty/NaN geometry would
+  // otherwise produce Infinity bounds and a syntactically valid but unusable NIF.
+  if (!Number.isInteger(count) || count < 1) {
+    throw new Error('[nif-format] geometry must contain at least one point');
+  }
+  if (!(geoData instanceof Float32Array) || geoData.length !== count * FLOATS_PER_POINT) {
+    throw new Error('[nif-format] geometry length must equal point count × 14 floats');
+  }
+  for (let i = 0; i < geoData.length; i++) {
+    if (!Number.isFinite(geoData[i])) {
+      throw new Error(`[nif-format] geometry contains a non-finite value at float index ${i}`);
+    }
+  }
   let minX=Infinity,minY=Infinity,minZ=Infinity,maxX=-Infinity,maxY=-Infinity,maxZ=-Infinity;
   for (let i = 0; i < count; i++) {
     const o = i * FLOATS_PER_POINT;
