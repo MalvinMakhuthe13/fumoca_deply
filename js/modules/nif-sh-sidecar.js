@@ -30,8 +30,12 @@ export function compactGaussianSHSidecar({
   paintColors = null,
   colors = null,
 }) {
-  if (!Array.isArray(indices) || !Array.isArray(attributes) || !attributes.length || !coefficients) {
-    return null;
+  if (!Array.isArray(attributes) || !attributes.length) return null;
+  if (!Array.isArray(indices)) {
+    throw new Error('[nif-sh-sidecar] compact indices must be an array');
+  }
+  if (!coefficients) {
+    throw new Error('[nif-sh-sidecar] SH attributes exist but coefficient values are unavailable; refusing lossy NIF export');
   }
   if (!Number.isInteger(pointCount) || pointCount < 1 || indices.length < 1 ||
       indices.some(i => !Number.isInteger(i) || i < 0 || i >= pointCount) ||
