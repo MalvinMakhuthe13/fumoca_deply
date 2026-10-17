@@ -21,6 +21,12 @@ const FumocaEmbedManager = (() => {
   async function getOrCreateEmbed(splatRecord, config = {}) {
     const sb = window._fumocaSupabase;
     if (!sb || !splatRecord?.id) return null;
+    // Embed links are public share surfaces. Never mint a public token for a
+    // private NIF; private assets must use the authenticated viewer instead.
+    if (splatRecord.is_public !== true) {
+      console.warn('[Embed] Public embed is unavailable for a private NIF.');
+      return null;
+    }
 
     // Check if one already exists
     const { data: existing } = await sb.from('embeds')
@@ -103,6 +109,14 @@ const FumocaEmbedManager = (() => {
 
     const sb     = window._fumocaSupabase;
     const embed  = await getOrCreateEmbed(splatRecord);
+    if (!embed) {
+      container.innerHTML = `
+        <div class="embed-section">
+          <div class="sec-label">Public embed unavailable</div>
+          <p style="font-size:13px;color:rgba(255,255,255,.65);">Publish this NIF before creating an iframe or QR link. Private captures stay private.</p>
+        </div>`;
+      return;
+    }
     const snippet = generateIframeSnippet(embed, splatRecord);
     const { qrUrl, targetUrl } = await generateQRDataUrl(embed);
 
