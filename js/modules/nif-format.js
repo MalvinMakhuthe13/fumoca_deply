@@ -346,8 +346,9 @@ export function encodeNif(opts = {}) {
     const nFaces = Math.floor(faces.length / 3);
     if (vertices.length % 3 || faces.length % 3 || colors.length !== nVerts * 3 ||
         vertices.some(value => !Number.isFinite(value)) ||
+        colors.some(value => !Number.isInteger(value) || value < 0 || value > 255) ||
         faces.some(i => !Number.isInteger(i) || i < 0 || i >= nVerts)) {
-      throw new Error('[nif-format] encodeNif: invalid mesh color or face indices');
+      throw new Error('[nif-format] encodeNif: invalid mesh vertices, byte colors or face indices');
     }
     const meshBytes = new Uint8Array(9 + nVerts * 15 + nFaces * 12);
     const meshView = new DataView(meshBytes.buffer);
