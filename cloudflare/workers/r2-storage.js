@@ -127,7 +127,7 @@ async function userOwnsFileKey(request, env, principal, bucketName, fileKey) {
   if (fileKey.startsWith(`${principal.id}/`)) return true;
   if (!['nif-files', 'nif-videos', 'thumbnails'].includes(bucketName)) return false;
 
-  const token = (request.headers.get('Authorization') || '').replace(/^Bearer\\s+/, '');
+  const token = (request.headers.get('Authorization') || '').replace(/^Bearer\s+/, '');
   if (!token || !env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) return false;
 
   // Match the exact object key against the caller's own NIF row or its known
