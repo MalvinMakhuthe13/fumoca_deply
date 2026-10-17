@@ -209,8 +209,11 @@ const FumocaPublish = (() => {
 
     if (uploadError || !fileKey || !publicUrl) {
       if (fileKey) {
-        try { await r2.from('nif-files').remove([fileKey]); } catch (cleanupError) {
-          console.warn('[Publish] Upload returned incomplete data and cleanup failed:', cleanupError?.message || cleanupError);
+        try {
+          const { error: cleanupError } = await r2.from('nif-files').remove([fileKey]);
+          if (cleanupError) console.warn('[Publish] Upload returned incomplete data and cleanup failed:', cleanupError.message);
+        } catch (cleanupError) {
+          console.warn('[Publish] Upload returned incomplete data and cleanup threw:', cleanupError?.message || cleanupError);
         }
       }
       throw new Error('R2 upload failed: ' + (uploadError?.message || 'storage returned no file key or URL'));
@@ -243,8 +246,11 @@ const FumocaPublish = (() => {
       const { data: updated, error } = await sb.from('nif_files').update(payload)
         .eq('id', splatId).eq('user_id', user.id).select('id').maybeSingle();
       if (error || !updated?.id) {
-        try { await r2.from('nif-files').remove([fileKey]); } catch (cleanupError) {
-          console.warn('[Publish] Failed to clean up an unregistered derivative', cleanupError?.message || cleanupError);
+        try {
+          const { error: cleanupError } = await r2.from('nif-files').remove([fileKey]);
+          if (cleanupError) console.warn('[Publish] Failed to clean up an unregistered derivative:', cleanupError.message);
+        } catch (cleanupError) {
+          console.warn('[Publish] Derivative cleanup threw:', cleanupError?.message || cleanupError);
         }
         throw new Error(error?.message || 'Could not update the owned NIF record. The publish was not completed.');
       }
@@ -256,8 +262,11 @@ const FumocaPublish = (() => {
         created_at: new Date().toISOString(),
       }).select('id').single();
       if (error || !newRec?.id) {
-        try { await r2.from('nif-files').remove([fileKey]); } catch (cleanupError) {
-          console.warn('[Publish] Failed to clean up an unregistered NIF', cleanupError?.message || cleanupError);
+        try {
+          const { error: cleanupError } = await r2.from('nif-files').remove([fileKey]);
+          if (cleanupError) console.warn('[Publish] Failed to clean up an unregistered NIF:', cleanupError.message);
+        } catch (cleanupError) {
+          console.warn('[Publish] NIF cleanup threw:', cleanupError?.message || cleanupError);
         }
         throw new Error(error?.message || 'Could not register the new NIF. The publish was not completed.');
       }
