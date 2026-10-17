@@ -24,6 +24,8 @@ assert.match(source, /source_capture: \{ r2_key: fileKey, r2_bucket: 'nif-videos
   'photo-burst source metadata must record the actual R2 bucket');
 assert.match(source, /source_capture: \{ r2_key: sourceKey, r2_bucket: 'nif-files'/,
   'direct PLY/SPLAT/NIF source metadata must record the actual R2 bucket');
+assert.match(source, /source_capture: \{[\s\S]{0,120}r2_key: sourceFileKey,[\s\S]{0,80}r2_bucket: 'nif-files'/,
+  'preserved LiDAR source metadata must record the actual R2 bucket');
 assert.match(source, /source_capture: \{ r2_key: filePath, r2_bucket: 'nif-videos'/,
   'video capture metadata must record the video bucket for cleanup and source links');
 assert.match(source, /source_r2_key: sourceKey,[\s\S]{0,80}source_r2_bucket: 'nif-files'/,
