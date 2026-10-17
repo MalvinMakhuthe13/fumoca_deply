@@ -19,6 +19,23 @@ assert.equal(decoded.header.splat_byte_length, 32);
 const preview = await FumocDecoder.decodePreview(valid);
 assert.equal(preview.meta.title, 'decoder fixture');
 
+const rawAns = Uint8Array.from([1, 2, 3, 4, 5, 5, 5, 255, 0, 127]);
+const encodedAns = FumocCodec.ansEncode(rawAns);
+assert.deepEqual(
+  [...FumocCodec.ansDecode(encodedAns.compressed, encodedAns.freqTable, rawAns.length)],
+  [...rawAns],
+  'order-0 ANS round-trip must preserve every symbol',
+);
+assert.throws(
+  () => FumocCodec.ansDecode(encodedAns.compressed, new Uint8Array(8), rawAns.length),
+  /exactly 512 bytes/,
+  'malformed frequency tables must be rejected',
+);
+await assert.rejects(async () => {
+  FumocCodec.ansDecode(encodedAns.compressed.subarray(0, 4), encodedAns.freqTable, rawAns.length);
+}, /ended before renormalization completed/,
+'truncated ANS streams must not return fabricated output');
+
 // Build a minimal order-1 ANS channel to prove the canonical decoder reads
 // the full 131072-byte table instead of mis-parsing it as an order-0 table.
 const encodedOrder1 = FumocCodec.ansEncodeOrder1(new Uint8Array([128]));
