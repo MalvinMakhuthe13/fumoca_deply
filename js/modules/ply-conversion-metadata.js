@@ -8,6 +8,8 @@ export function inspectPlyAttributes(attributeNames = [], isGaussianPly = false)
   const names = Array.from(attributeNames);
   const higherOrderShAttributes = names.filter(name => /^f_rest_\d+$/.test(name));
   const count = higherOrderShAttributes.length;
+  const restIndices = higherOrderShAttributes.map(name => Number(name.slice(7))).sort((a, b) => a - b);
+  const restIndicesContiguous = restIndices.every((index, position) => index === position);
   const candidate = count > 0 && count % 3 === 0
     ? Math.round(Math.sqrt(count / 3 + 1) - 1)
     : -1;
@@ -29,7 +31,7 @@ export function inspectPlyAttributes(attributeNames = [], isGaussianPly = false)
   return {
     detectedShDegree,
     higherOrderShCount: count,
-    hasUnsupportedShLayout: count > 0 && detectedShDegree === 0,
+    hasUnsupportedShLayout: count > 0 && (detectedShDegree === 0 || !restIndicesContiguous),
     discardedAttributes: [],
     qualityFlags: count
       ? ['higher_order_sh_preserved_in_nif_sidecar']
