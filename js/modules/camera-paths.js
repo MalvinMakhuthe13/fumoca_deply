@@ -10,6 +10,7 @@
  */
 
 const STORAGE_KEY = 'fumoca_camera_paths_v1';
+const escapeHtml = value => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
 function uid() {
   return 'cam_' + Math.random().toString(36).slice(2, 10);
@@ -150,9 +151,9 @@ export function mountCameraPathUI(container, { assetKey = 'default', onStatus } 
         row.style.cssText =
           'display:flex;align-items:center;gap:6px;padding:8px;border-radius:8px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08)';
         row.innerHTML = `
-          <span style="flex:1;font-size:12px;font-weight:600">${b.name || 'Angle ' + (idx + 1)}${b.notes ? ' · 📝' : ''}</span>
-          <button type="button" class="ac-btn" data-go="${b.id}" style="padding:4px 8px">Go</button>
-          <button type="button" class="ac-btn" data-del="${b.id}" style="padding:4px 8px;color:var(--rose)">✕</button>`;
+          <span style="flex:1;font-size:12px;font-weight:600">${escapeHtml(b.name || 'Angle ' + (idx + 1))}${b.notes ? ' · 📝' : ''}</span>
+          <button type="button" class="ac-btn" data-go="${escapeHtml(b.id)}" style="padding:4px 8px">Go</button>
+          <button type="button" class="ac-btn" data-del="${escapeHtml(b.id)}" style="padding:4px 8px;color:var(--rose)">✕</button>`;
         list.appendChild(row);
       });
     }
