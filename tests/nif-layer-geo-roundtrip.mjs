@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { encodeNif, decodeNif, decodeLayers } from '../js/modules/nif-format.js';
 import { compactNifLayers } from '../js/modules/nif-layer-geo.js';
+import { CHUNK } from '../engine-next/format/NIFSpec.js';
 
 const rows = new Uint8Array(3 * 32);
 const view = new DataView(rows.buffer);
@@ -50,6 +51,25 @@ const compactDecoded = await decodeNif(compactNif);
 const compactLayers = await decodeLayers(compactDecoded.reader);
 assert.equal(compactLayers.length, 1);
 assert.deepEqual(Array.from(compactLayers[0].indices), [0, 1]);
+
+const originalLayerChunk = decoded.reader.chunks.filter(chunk => chunk.type === CHUNK.LAYER_GEO);
+assert.equal(originalLayerChunk.length, 1);
+const noDuplicate = encodeNif({
+  sourceBuffer: rows, aliveIndices: [0, 1, 2], rowSize: 32,
+  layers: [{ label: 'door_left', indices: [2, 0] }],
+  passthroughChunks: originalLayerChunk,
+});
+const noDuplicateDecoded = await decodeNif(noDuplicate);
+assert.equal(noDuplicateDecoded.reader.chunks.filter(chunk => chunk.type === CHUNK.LAYER_GEO).length, 1,
+  'rebuilt LAYER_GEO must replace rather than duplicate the passthrough chunk');
+const intentionallyDropped = encodeNif({
+  sourceBuffer: rows, aliveIndices: [0, 1, 2], rowSize: 32,
+  layers: [],
+  passthroughChunks: originalLayerChunk,
+});
+const droppedDecoded = await decodeNif(intentionallyDropped);
+assert.equal(droppedDecoded.reader.chunks.filter(chunk => chunk.type === CHUNK.LAYER_GEO).length, 0,
+  'an explicit empty layer list must not reattach stale point-indexed layer data');
 assert.equal(compactLayers[0].data[0], compactDecoded.gaussians.data[0]);
 assert.equal(compactLayers[0].data[14], compactDecoded.gaussians.data[14]);
 
