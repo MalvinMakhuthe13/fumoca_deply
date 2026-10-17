@@ -618,7 +618,7 @@ window.handleSubmit = async function() {
         vertical: category || 'generic',
         capture_mode: 'burst',
         raw_r2_key: fileKey,
-        meta: { ...captureMetadata(title, desc, calibVerifyMeta), photo_count: selectedFiles.length, thumbnail_r2_key: uploadedThumbnail.fileKey },
+        meta: { ...captureMetadata(title, desc, calibVerifyMeta), photo_count: selectedFiles.length, thumbnail_r2_key: uploadedThumbnail.fileKey, source_r2_key: fileKey, source_capture: { r2_key: fileKey, filename: `${title || 'photo-capture'}.zip`, format: 'photo_zip', photo_count: selectedFiles.length, created_at: new Date().toISOString() } },
       }).select().single();
       if (jobError) throw jobError;
 
@@ -822,7 +822,7 @@ window.handleSubmit = async function() {
       vertical: category || 'generic',
       capture_mode: 'video',
       raw_r2_key: filePath,
-      meta: { ...captureMetadata(title, desc, calibVerifyMeta), video_filename: selectedFile.name, thumbnail_r2_key: uploadedThumbnail.fileKey },
+      meta: { ...captureMetadata(title, desc, calibVerifyMeta), video_filename: selectedFile.name, thumbnail_r2_key: uploadedThumbnail.fileKey, source_r2_key: filePath, source_capture: { r2_key: filePath, filename: selectedFile.name, format: selectedFile.type || 'video', byte_size: selectedFile.size, created_at: new Date().toISOString() } },
     }).select().single();
     if (jobError) throw jobError;
 
