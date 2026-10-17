@@ -2513,7 +2513,7 @@ window.addEventListener('fumoca:recordLoaded', e => {
     bindCameraControls();
   }
 
-  function navigateCamera(stop, durationMs = 0) {
+  function navigateCamera(stop, durationSeconds = 0) {
     const camera = window._fumocaViewerCamera || window._fumocaViewer?.camera;
     const controls = window._fumocaViewerControls || window._fumocaViewer?.controls || cameraControls;
     if (!camera?.position?.set || !Array.isArray(stop?.position) || !Array.isArray(stop?.lookAt)) {
@@ -2530,7 +2530,7 @@ window.addEventListener('fumoca:recordLoaded', e => {
       return;
     }
 
-    const total = Math.max(0, Number(durationMs) || 0);
+    const total = Math.max(0, (Number(durationSeconds) || 0) * 1000);
     if (!total) {
       camera.position.set(...toPos);
       if (target?.set) target.set(...toLook);
