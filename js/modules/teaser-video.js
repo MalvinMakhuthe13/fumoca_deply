@@ -202,7 +202,11 @@ const FumocaTeaserVideo = (() => {
           if (candidateUrl) {
             const { data: current, error: readError } = await sb.from('nif_files')
               .select('meta').eq('id', splatId).eq('user_id', ownerId).single();
-            if (readError || !current) throw new Error(readError?.message || 'Parent NIF could not be reloaded before saving the teaser.');
+            if (readError || !current) {
+              try { await r2.from('preview-videos').remove([fileKey]); }
+              catch (cleanupError) { console.warn('[Teaser] Orphan cleanup failed:', cleanupError); }
+              throw new Error(readError?.message || 'Parent NIF could not be reloaded before saving the teaser.');
+            }
             const currentMeta = current.meta && typeof current.meta === 'object' ? current.meta : {};
             const nextMeta = { ...currentMeta, teaser_video_url: candidateUrl, teaser_video_r2_key: fileKey, last_edited_at: new Date().toISOString() };
             const { data: updated, error: metadataError } = await sb.from('nif_files')
