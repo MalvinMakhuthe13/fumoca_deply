@@ -46,4 +46,6 @@ const bootStart = viewer.indexOf('async function boot()');
 const boot = viewer.slice(bootStart);
 assert.match(boot, /isR2WorkerFileUrl/);
 assert.match(boot, /!isR2WorkerFileUrl/, 'R2 Worker URLs must skip unsupported HEAD probes');
+assert.match(boot, /authenticatedUrl\(currentRecord\.r2_key\)/, 'private NIFs must use an authenticated read ticket');
+assert.match(boot, /!privateReadAuthorizationFailed/, 'failed private authorization must not fall back to an anonymous URL');
 console.log('Viewer R2 bucket routing contracts passed.');
