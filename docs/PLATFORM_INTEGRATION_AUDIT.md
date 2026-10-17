@@ -167,11 +167,11 @@ Create frozen test sets for calibrated vehicle, object and scene captures. NaviG
 - Do not switch the engine stack or run migrations against production before schema, licensing and rollback review.
 - This audit branch documents the integration plan; production code and deployed services remain unchanged.
 
-## Next QA gate: R2 read authorization contract (proposed, not yet implemented)
+## R2 read authorization contract (implemented on QA branch; staging and deployment not verified)
 
-The current Worker `GET /file/:key` route has no authorization/visibility check and returns `Cache-Control: public` for every configured bucket. It also checks the shared cache before any policy decision. An object fetched while public may remain served from cache after a later policy change unless cache keys, TTL and purge behaviour are addressed. Treat this as a release-blocking privacy issue, not merely a missing test.
+The previous Worker `GET /file/:key` route had no authorization/visibility check and returned `Cache-Control: public` for every configured bucket. The QA branch now checks read authorization before shared-cache lookup, only caches responses explicitly classified public, and marks owner/private responses `Cache-Control: private, no-store`. This is a code-level mitigation, not proof that live Supabase RLS, deployed Worker bindings, custom domains, direct R2 domains or CDN caches behave correctly. Treat storage privacy as a release blocker until staging evidence exists.
 
-### Conservative policy to implement and test
+### Implemented policy and remaining validation
 
 Use the deployed `nif_files` schema as the source of truth (`is_public` is the visibility flag; do not invent a `visibility` column):
 
@@ -200,4 +200,4 @@ Use the deployed `nif_files` schema as the source of truth (`is_public` is the v
 | Private request after a public cache hit | Deny; no shared-cache leak |
 | NIF toggled public → private | Subsequent anonymous requests denied; cache invalidation/TTL behaviour evidenced |
 
-Implementation must account for keys stored directly on `nif_files.r2_key` and source/thumbnail keys stored in `meta` or `reconstruction_jobs.raw_r2_key`. Validate actual deployed RLS/PostgREST behaviour with staging credentials before relying on owner lookups. No production Worker deployment or cache purge is authorized by this audit-only step.
+The QA branch implements lookups for keys stored directly on `nif_files.r2_key`, source/thumbnail keys stored in `meta`, and raw keys in `reconstruction_jobs.raw_r2_key`. `tests/r2-read-authorization.mjs` exercises the extracted authorization helper and asserts authorization precedes cache access. This is mocked regression coverage, not live Supabase/R2 evidence. Validate actual deployed RLS/PostgREST behaviour with staging credentials before relying on owner lookups. The code currently deliberately denies public `preview-videos` except owner-prefixed keys or trusted server reads; confirm this does not break any intended public preview product flow before release. No production Worker deployment or cache purge is authorized by this audit-only step.
