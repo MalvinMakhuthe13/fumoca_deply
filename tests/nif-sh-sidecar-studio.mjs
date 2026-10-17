@@ -50,6 +50,27 @@ assert.equal(decodedRoundTrip.gaussianSH.coefficientCount, names.length);
 assert.deepEqual(Array.from(decodedRoundTrip.gaussianSH.values), Array.from(compact.values));
 assert.deepEqual(decodedRoundTrip.meta.gaussian_sh.properties, names);
 
+const shChunks = decodedRoundTrip.reader.chunks.filter(chunk => chunk.type === 0x001A);
+assert.equal(shChunks.length, 1);
+const noDuplicateSH = encodeNif({
+  sourceBuffer: roundTripRows, aliveIndices: [0, 1], rowSize: 32,
+  gaussianSH: compact,
+  meta: { gaussian_sh: gaussianSHMetadata(compact, names) },
+  passthroughChunks: shChunks,
+});
+const noDuplicateSHDecoded = await decodeNif(noDuplicateSH);
+assert.equal(noDuplicateSHDecoded.reader.chunks.filter(chunk => chunk.type === 0x001A).length, 1,
+  'explicit SH encoding must replace, not duplicate, the passthrough sidecar');
+const droppedSH = encodeNif({
+  sourceBuffer: roundTripRows, aliveIndices: [0, 1], rowSize: 32,
+  gaussianSH: undefined,
+  meta: { title: 'sidecar intentionally dropped' },
+  passthroughChunks: shChunks,
+});
+const droppedSHDecoded = await decodeNif(droppedSH);
+assert.equal(droppedSHDecoded.reader.chunks.filter(chunk => chunk.type === 0x001A).length, 0,
+  'explicitly omitted SH data must not reattach a stale passthrough sidecar');
+
 
 const objectValues = Object.fromEntries(names.map((name, j) => [
   name, Float32Array.from([j + 0.1, j + 1.1, j + 2.1]),
