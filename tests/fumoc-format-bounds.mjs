@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import FumocFormat from '../js/modules/fumoc-format.js';
 
 const splat = new Uint8Array(32);
-const valid = await FumocFormat.encode(splat, { title: 'FUMOC validation fixture' });
+const valid = await FumocFormat.encode({ splatBuffer: splat, meta: { title: 'FUMOC validation fixture' } });
 const decoded = await FumocFormat.decode(valid);
 assert.equal(decoded.sections.SPLT.byteLength, 32);
 assert.equal(decoded.header.splat_byte_length, 32);
