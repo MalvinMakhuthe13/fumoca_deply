@@ -748,14 +748,28 @@ window.handleSubmit = async function() {
           const colors01 = new Float32Array(count * 3);
           const opacities01 = new Float32Array(count);
           const opacity = opacityAttr;
+          // PLYLoader normalizes uchar RGB to 0..1 for typical PLY files, but
+          // some exporters expose raw 0..255 values. Decide once for the whole
+          // attribute, not per vertex: per-point scaling can distort dark colors
+          // and create inconsistent results across a single cloud.
+          let colorValueMax = 0;
+          if (colorAttr && colorAttr.itemSize >= 3) {
+            const values = colorAttr.array;
+            for (let i = 0; i < values.length; i++) {
+              if (Number.isFinite(values[i]) && values[i] > colorValueMax) colorValueMax = values[i];
+            }
+          }
+          const colorDivisor = colorValueMax > 1.00001 ? 255 : 1;
+          const hasVertexColors = !!(colorAttr && colorAttr.itemSize >= 3);
           for (let i = 0; i < count; i++) {
             positions[i*3] = posAttr.getX(i); positions[i*3+1] = posAttr.getY(i); positions[i*3+2] = posAttr.getZ(i);
-            if (colorAttr) {
-              const max = Math.max(colorAttr.getX(i), colorAttr.getY(i), colorAttr.getZ(i)) > 1 ? 255 : 1;
-              colors01[i*3] = colorAttr.getX(i) / max;
-              colors01[i*3+1] = colorAttr.getY(i) / max;
-              colors01[i*3+2] = colorAttr.getZ(i) / max;
-            } else { colors01[i*3] = 0.8; colors01[i*3+1] = 0.8; colors01[i*3+2] = 0.8; }
+            if (hasVertexColors) {
+              colors01[i*3] = Math.max(0, Math.min(1, colorAttr.getX(i) / colorDivisor));
+              colors01[i*3+1] = Math.max(0, Math.min(1, colorAttr.getY(i) / colorDivisor));
+              colors01[i*3+2] = Math.max(0, Math.min(1, colorAttr.getZ(i) / colorDivisor));
+            } else {
+              colors01[i*3] = 0.8; colors01[i*3+1] = 0.8; colors01[i*3+2] = 0.8;
+            }
             const rawOpacity = opacity ? opacity.getX(i) : 1;
             opacities01[i] = rawOpacity < 0 || rawOpacity > 1 ? 1 / (1 + Math.exp(-rawOpacity)) : rawOpacity;
           }
@@ -763,9 +777,9 @@ window.handleSubmit = async function() {
             engine: 'fumoca-nif-format',
             gpu_required: false,
             geometry_quality: 'isotropic-points; mesh reconstruction not run',
-            preserved_attributes: ['position', ...(colorAttr ? ['RGB colour'] : []), ...(opacity ? ['opacity'] : [])],
+            preserved_attributes: ['position', ...(hasVertexColors ? ['RGB vertex colour'] : []), ...(opacity ? ['opacity'] : [])],
             discarded_attributes: [],
-            quality_flags: ['point_cloud_not_gaussian', 'mesh_reconstruction_not_run'],
+            quality_flags: ['point_cloud_not_gaussian', 'mesh_reconstruction_not_run', ...(!hasVertexColors ? ['source_vertex_colours_not_found'] : [])],
             created_at: new Date().toISOString(),
           };
           outputBuffer = encodeNif({
