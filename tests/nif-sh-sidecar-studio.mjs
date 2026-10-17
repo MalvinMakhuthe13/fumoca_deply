@@ -6,6 +6,10 @@ import { encodeNif, decodeNif } from '../js/modules/nif-format.js';
 const names = ['f_dc_0', 'f_dc_1', 'f_dc_2', ...Array.from({ length: 9 }, (_, i) => `f_rest_${i}`)];
 const source = new Float32Array(3 * names.length);
 for (let i = 0; i < source.length; i++) source[i] = i / 100;
+const identity = compactGaussianSHSidecar({
+  indices: [0, 1, 2], attributes: names, coefficients: source, pointCount: 3,
+});
+assert.strictEqual(identity.values, source, 'full ordered scenes should reuse the validated interleaved buffer without a second large allocation');
 const compact = compactGaussianSHSidecar({
   indices: [2, 0], attributes: names, coefficients: source, pointCount: 3,
 });
