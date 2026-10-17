@@ -195,18 +195,10 @@ async function init() {
   const displayName = [user.user_metadata?.first_name, user.user_metadata?.last_name].filter(Boolean).join(' ') || username;
 
   const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
-  const { data: splats } = await supabase
-    .from('splats')
-    .select('id,user_id,status,title,created_at,splat_url,output_url,public_url,file_url,external_splat_url,provider_splat_url,thumbnail_url,poster_url,preview_image_url,preview_video_url,teaser_video_url,video_url,source_video_url,video_bucket,video_path,splat_bucket,splat_path,thumb_bucket,thumbnail_path')
-    .eq('user_id', user.id)
-    .order('created_at', { ascending: false });
-
-  // nif_files is the real, live table for anything captured through the
-  // new pipeline — profile.js only ever queried splats, so nothing
-  // processed by engine-next/reconstruction/pipeline.py ever showed up
-  // here. Normalize each row into the same shape the rest of this file
-  // (resolveUrl, deleteUploadRecord, renderRecent, renderManage) already
-  // expects, rather than touching every consumer.
+  // Production uses nif_files/reconstruction_jobs. Do not query the absent
+  // legacy splats table here: that request fails on every profile load and
+  // its old rows cannot be returned by the deployed schema anyway.
+  // Normalize NIF rows into the shape used by the existing profile UI.
   const { data: nifRows } = await supabase
     .from('nif_files')
     .select('id,user_id,title,created_at,r2_key,thumbnail_url,meta,job_id')
@@ -247,8 +239,7 @@ async function init() {
     };
   });
 
-  uploads = [...nifs, ...(Array.isArray(splats) ? splats : [])]
-    .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+  uploads = nifs.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
 
   document.getElementById('profileName').textContent = displayName;
   document.getElementById('profileHandle').textContent = '@' + username;
