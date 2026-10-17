@@ -604,6 +604,8 @@ export default {
       if (!fileKey) {
         return json({ error: 'Invalid key' }, 400, cors);
       }
+      const mayWrite = await userMayWriteFileKey(request, env, principal, bucketParam, fileKey);
+      if (!mayWrite) return json({ error: 'Forbidden — you may not write this file key' }, 403, cors);
 
       const r2Bucket = getBucket(bucketParam, env);
       if (!r2Bucket) {
