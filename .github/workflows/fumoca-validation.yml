@@ -306,6 +306,8 @@ jobs:
         run: node --experimental-default-type=module tests/fourd-capture-xss-contract.mjs
       - name: Test persisted UI and SDK status injection guards
         run: node --experimental-default-type=module tests/persisted-ui-xss-contract.mjs
+      - name: Test commerce and teaser URL security
+        run: node --experimental-default-type=module tests/commerce-teaser-security-contract.mjs
       - name: Test mobile widget HTML security
         run: node --experimental-default-type=module tests/mobile-asset-html-security.mjs
       - name: Test mobile widget storage contract
