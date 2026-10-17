@@ -395,12 +395,27 @@ function showResult(stats) {
   };
 
   btnUpload.onclick = async () => {
+    // Open synchronously from the user gesture; browsers may block a popup
+    // created only after the asynchronous upload has finished.
+    const shareWindow = window.open('about:blank', '_blank');
     btnUpload.textContent='Uploading…'; btnUpload.disabled=true;
     try {
       const shareUrl = await uploadForShare(resultBuffer, dlName);
-      btnUpload.textContent='☁ Uploaded!';
-      window.open(shareUrl, '_blank');
+      if (shareWindow) {
+        shareWindow.location.href = shareUrl;
+        btnUpload.textContent='☁ Uploaded!';
+      } else {
+        try {
+          await navigator.clipboard.writeText(shareUrl);
+          btnUpload.textContent='✓ Link copied!';
+        } catch {
+          window.prompt('Copy your FUMOCA share link:', shareUrl);
+          btnUpload.textContent='✓ Link ready';
+        }
+      }
+      setTimeout(()=>{btnUpload.textContent='☁ Upload to FUMOCA';btnUpload.disabled=false;},3000);
     } catch(e) {
+      if (shareWindow && !shareWindow.closed) shareWindow.close();
       btnUpload.textContent='Failed: '+e.message;
       setTimeout(()=>{btnUpload.textContent='☁ Upload to FUMOCA';btnUpload.disabled=false;},3000);
     }
