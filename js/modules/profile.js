@@ -49,8 +49,8 @@ async function deleteUploadRecord(item) {
     { bucket: 'nif-files', key: item.r2_key },
     // Current direct NIF/SPLAT/PLY uploads keep source_r2_key in nif-files;
     // try nif-videos too for records created by the older capture pipeline.
-    { bucket: 'nif-files', key: item.meta?.source_r2_key },
-    { bucket: 'nif-videos', key: item.meta?.source_r2_key },
+    { bucket: item.meta?.source_r2_bucket || 'nif-files', key: item.meta?.source_r2_key },
+    ...(!item.meta?.source_r2_bucket && item.meta?.source_r2_key ? [{ bucket: 'nif-videos', key: item.meta.source_r2_key }] : []),
     { bucket: sourceCapture?.r2_bucket || sourceCapture?.bucket || 'nif-files', key: sourceCapture?.r2_key },
     ...(!sourceCapture?.r2_bucket && !sourceCapture?.bucket && sourceCapture?.r2_key
       ? [{ bucket: 'nif-videos', key: sourceCapture.r2_key }] : []),
