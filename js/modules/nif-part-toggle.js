@@ -138,16 +138,42 @@ export async function authorPartToggle(nifUrl, labelOrParts, opts = {}) {
   // splat fidelity. Round-tripping through positions/colors01/opacities01
   // (the PLY-style path) would have discarded scale and orientation entirely,
   // flattening every splat to an isotropic sphere for no reason.
+  const recordId = opts.recordId;
+  const ownerId = opts.ownerId;
+  const sb = window._fumocaSupabase;
+  if (!recordId || !ownerId || !sb) {
+    throw new Error('Cannot publish an open-state variant without the current NIF record, owner, and Supabase session.');
+  }
+
+  const safeLabels = appliedLabels.join('_').replace(/[^a-z0-9_-]/gi, '_');
+  const key = `${ownerId}/open-variants/${recordId}_${safeLabels}_${Date.now()}.nif`;
   const openBuf = encodeNif({
     geometry: workingGaussians.data,
-    meta: { title: meta.title, description: meta.description },
+    meta: { title: meta.title, description: meta.description, open_variant_of: recordId, open_variant_layers: appliedLabels },
     vertical: meta.vertical || 'generic',
   });
 
   const blob = new Blob([openBuf], { type: 'application/octet-stream' });
-  const key = `open-variants/${appliedLabels.join('_').replace(/[^a-z0-9_-]/gi, '_')}-${Date.now()}.nif`;
-  const { publicUrl, error } = await r2.from('nif-files').upload(key, blob, { contentType: 'application/octet-stream' });
-  if (error) throw new Error(`Upload failed: ${error}`);
+  const { publicUrl, fileKey, error } = await r2.from('nif-files').upload(key, blob, { contentType: 'application/octet-stream' });
+  if (error || !publicUrl || !fileKey) {
+    throw new Error(`Upload failed: ${error?.message || 'storage returned no key or URL'}`);
+  }
+
+  try {
+    const { data: current, error: readError } = await sb.from('nif_files')
+      .select('meta').eq('id', recordId).eq('user_id', ownerId).single();
+    if (readError || !current) throw new Error(readError?.message || 'Parent NIF was not found or is not owned by the current user.');
+    const previous = current.meta && typeof current.meta === 'object' ? current.meta : {};
+    const keys = Array.isArray(previous.open_variant_r2_keys) ? previous.open_variant_r2_keys : [];
+    const { data: updated, error: updateError } = await sb.from('nif_files').update({
+      meta: { ...previous, open_variant_r2_keys: [...new Set([...keys, fileKey])] },
+    }).eq('id', recordId).eq('user_id', ownerId).select('id').maybeSingle();
+    if (updateError || !updated) throw new Error(updateError?.message || 'Open-state variant could not be linked to its parent NIF.');
+  } catch (error) {
+    const { error: cleanupError } = await r2.from('nif-files').remove([fileKey]);
+    if (cleanupError) console.error('[nif-part-toggle] Orphan cleanup failed:', cleanupError.message);
+    throw error;
+  }
 
   return { openNifUrl: publicUrl, layers };
 }
