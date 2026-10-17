@@ -269,8 +269,9 @@ function encodeLayerGeoChunk(layers, geoData, pointCount) {
 
   const normalized = valid.map(layer => {
     const label = String(layer.label || layer.name || '').trim();
-    if (!label || label.length > 255 || [...label].some(ch => ch.charCodeAt(0) > 127)) {
-      throw new Error('[nif-format] LAYER_GEO labels must be non-empty ASCII strings of at most 255 characters');
+    const labelBytes = new TextEncoder().encode(label);
+    if (!label || labelBytes.length > 255) {
+      throw new Error('[nif-format] LAYER_GEO labels must be non-empty UTF-8 strings of at most 255 bytes');
     }
     const indices = Array.from(layer.indices);
     const seen = new Set();
@@ -283,7 +284,7 @@ function encodeLayerGeoChunk(layers, geoData, pointCount) {
     }
     const depthMin = Number.isFinite(layer.depthMin) ? layer.depthMin : 0;
     const depthMax = Number.isFinite(layer.depthMax) ? layer.depthMax : 0;
-    return { label, labelBytes: Uint8Array.from([...label].map(ch => ch.charCodeAt(0))), indices, depthMin, depthMax };
+    return { label, labelBytes, indices, depthMin, depthMax };
   });
   const byteLength = 4 + normalized.reduce((sum, layer) =>
     sum + 1 + layer.labelBytes.length + 12 + layer.indices.length * (14 * 4 + 4), 0);
@@ -706,8 +707,9 @@ export async function decodeLayers(reader) {
   for (let i = 0; i < nLayers; i++) {
     if (offset + 1 > dv.byteLength) break;
     const labelLen = dv.getUint8(offset); offset += 1;
-    let label = '';
-    for (let j = 0; j < labelLen; j++) label += String.fromCharCode(dv.getUint8(offset++));
+    if (offset + labelLen > dv.byteLength) break;
+    const label = new TextDecoder('utf-8').decode(new Uint8Array(arrayBuffer, offset, labelLen));
+    offset += labelLen;
     if (offset + 12 > dv.byteLength) break;
     const depthMin = dv.getFloat32(offset, false); offset += 4;
     const depthMax = dv.getFloat32(offset, false); offset += 4;
