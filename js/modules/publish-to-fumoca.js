@@ -1,5 +1,8 @@
 import r2 from '../r2Client.js';
 import { encodeNif } from './nif-format.js';
+import { compactGaussianSHSidecar, gaussianSHMetadata } from './nif-sh-sidecar.js';
+import { encodeEditorSplatRows } from './editor-splat-rows.js';
+import { compactNifLayers } from './nif-layer-geo.js';
 import { NIFReader, CHUNK } from '../../engine-next/format/NIFSpec.js';
 /**
  * FUMOCA Publish Engine v1
@@ -25,9 +28,32 @@ const FumocaPublish = (() => {
   // to {vertical:'generic', passthroughChunks:[]} if there's no original
   // .nif to read from (e.g. brand-new upload, not an edit of an existing one).
   async function _loadOriginalForPassthrough() {
-    const url = window._fumocaNifUrl || new URLSearchParams(location.search).get('file');
-    let vertical = 'generic';
-    let passthroughChunks = [];
+    let url = window._fumocaLoadedFromRecord === false
+      ? ''
+      : (window._fumocanifUrl || window._fumocaNifUrl || new URLSearchParams(location.search).get('file'));
+    // A saved private NIF's canonical URL is intentionally not anonymously
+    // readable. Prefer a fresh ticket for the exact owner-associated R2 key.
+    const currentRecord = window._fumocaCurrentRecord;
+    if (window._fumocaLoadedFromRecord !== false && currentRecord?.r2_key &&
+        /\.nif$/i.test(currentRecord.r2_key)) {
+      try {
+        url = await r2.from('nif-files').authenticatedUrl(currentRecord.r2_key);
+      } catch (error) {
+        console.warn('[Publish] Could not authorize original NIF read; using in-memory chunks:', error?.message || error);
+      }
+    }
+    let vertical = window.S?.nifVertical || window.S?.nifMeta?.vertical || 'generic';
+    const shouldPassThrough = chunk =>
+      ![
+        CHUNK.KEYFRAME_GEO, CHUNK.META, CHUNK.THUMBNAIL,
+        CHUNK.LAYER_GEO, CHUNK.GAUSSIAN_SH, CHUNK.LIDAR_ATTR,
+      ].includes(chunk.type) &&
+      !(chunk.type === CHUNK.KEYFRAME_MESH && window.S?.nifMesh);
+    // Local file imports already hold decoded chunks in editor state. Keep
+    // those if there is no fetchable URL or if a private URL fetch fails.
+    let passthroughChunks = Array.isArray(window.S?.nifPassthroughChunks)
+      ? window.S.nifPassthroughChunks.filter(shouldPassThrough)
+      : [];
 
     if (url && /\.nif(\?|$)/i.test(url)) {
       try {
@@ -35,8 +61,10 @@ const FumocaPublish = (() => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const buf = await res.arrayBuffer();
         const reader = new NIFReader(buf);
-        passthroughChunks = reader.chunks.filter(c =>
-          c.type !== CHUNK.KEYFRAME_GEO && c.type !== CHUNK.META && c.type !== CHUNK.THUMBNAIL);
+        // Geometry-indexed sidecars must be rebuilt against the current alive
+        // point list. Passing the source SH/LiDAR chunks through unchanged would
+        // leave stale point counts or misalign attributes after deletion.
+        passthroughChunks = reader.chunks.filter(shouldPassThrough);
         vertical = reader.header?.vertical || 'generic';
       } catch (e) {
         console.warn('[Publish] Could not read original .nif for passthrough — proceeding without it:', e.message);
@@ -66,45 +94,93 @@ const FumocaPublish = (() => {
   }
 
   // ── Collect current edit state, encode as a real .nif ─────────────────────
-  async function _buildNifBlob({ title, description } = {}) {
+
+  function _compactLidarAttributes(S, aliveIndices) {
+    const compact = source => source ? aliveIndices.map(i => source[i] ?? 0) : null;
+    const intensity = S.lidarIntensity ? Uint16Array.from(compact(S.lidarIntensity)) : null;
+    const classification = S.lidarClassification ? Uint8Array.from(compact(S.lidarClassification)) : null;
+    const returnNumber = S.lidarReturnNumber ? Uint8Array.from(compact(S.lidarReturnNumber)) : null;
+    return intensity || classification || returnNumber ? { intensity, classification, returnNumber } : null;
+  }
+
+  async function _buildNifBlob({ title, description, parentMeta } = {}) {
     const S = window.S;
-    if (!S?.alive) throw new Error('No splat loaded');
+    if (!S?.alive || !S.positions) throw new Error('No splat loaded');
+    if (S.nifSHChunkUnavailable) throw new Error('Publishing blocked: the source Gaussian SH chunk could not be decoded; refusing to lose colour detail.');
+    if (S.nifLidarChunkUnavailable) throw new Error('Publishing blocked: the source LiDAR attribute chunk could not be decoded; refusing to lose point attributes.');
 
-    const meta = { title: title || S.fileName || 'Untitled', description: description || '' };
-    const { vertical, passthroughChunks } = await _loadOriginalForPassthrough();
-
-    // PLY source: isotropic point cloud (no per-point scale/rotation)
-    if (S.fileType === 'ply') {
-      const alive = [];
-      for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) alive.push(i);
-      const positions   = new Float32Array(alive.length * 3);
-      const colors01    = new Float32Array(alive.length * 3);
-      const opacities01 = new Float32Array(alive.length);
-      alive.forEach((i, row) => {
-        const pc = S.paintColors;
-        const r = pc && pc[i*3]   >= 0 ? pc[i*3]   : S.colors[i*3];
-        const g = pc && pc[i*3+1] >= 0 ? pc[i*3+1] : S.colors[i*3+1];
-        const b = pc && pc[i*3+2] >= 0 ? pc[i*3+2] : S.colors[i*3+2];
-        positions[row*3]   = S.positions[i*3];
-        positions[row*3+1] = S.positions[i*3+1];
-        positions[row*3+2] = S.positions[i*3+2];
-        colors01[row*3]   = r; colors01[row*3+1] = g; colors01[row*3+2] = b;
-        opacities01[row]  = S.opacity[i];
-      });
-      const buf = encodeNif({ positions, colors01, opacities01, meta, vertical, passthroughChunks });
-      return new Blob([buf], { type: 'application/octet-stream' });
-    }
-
-    // .splat source: filter alive Gaussians, pack straight into NIF KEYFRAME_GEO
-    if (!S.sourceBuffer) throw new Error('No source buffer');
     const aliveIndices = [];
     for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) aliveIndices.push(i);
-    const buf = encodeNif({
-      sourceBuffer: new Uint8Array(S.sourceBuffer),
+    if (!aliveIndices.length) throw new Error('Cannot publish an empty scene: no live points remain.');
+
+    const sourceMeta = {
+      ...(S.nifMeta && typeof S.nifMeta === 'object' ? S.nifMeta : {}),
+      ...(parentMeta && typeof parentMeta === 'object' ? parentMeta : {}),
+    };
+    const gaussianSH = compactGaussianSHSidecar({
+      indices: aliveIndices,
+      attributes: S.shAttributes || [],
+      coefficients: S.shCoefficients,
+      pointCount: S.alive.length,
+      paintColors: S.paintColors,
+      colors: S.colors,
+    });
+    if (sourceMeta.gaussian_sh && !gaussianSH) {
+      throw new Error('Publishing blocked: metadata declares Gaussian SH data but the coefficient sidecar is unavailable.');
+    }
+    const gaussianShMeta = gaussianSH ? gaussianSHMetadata(gaussianSH, S.shAttributes) : null;
+    const editorLayerSources = Array.isArray(S.nifLayers) && S.nifLayers.length
+      ? S.nifLayers
+      : (Array.isArray(S.layers) ? S.layers.map(layer => ({
+          label: String(layer.name || layer.label || '').trim(),
+          depthMin: 0,
+          depthMax: 0,
+          indices: Array.from({ length: S.alive.length }, (_, i) => i).filter(i => Boolean(layer.mask?.[i])),
+        })).filter(layer => layer.label && layer.indices.length) : []);
+    const metadataLayerSources = Array.isArray(sourceMeta.editor_scene?.layers)
+      ? sourceMeta.editor_scene.layers.map(layer => ({
+          label: layer.name,
+          depthMin: 0,
+          depthMax: 0,
+          indices: layer.point_indices,
+        }))
+      : [];
+    const layerData = compactNifLayers(
+      editorLayerSources.length ? editorLayerSources : metadataLayerSources,
       aliveIndices,
-      rowSize: S.splatRowSize,
+      S.alive.length,
+    );
+    if (sourceMeta.gaussian_sh && !gaussianSH) {
+      throw new Error('Publishing blocked: metadata declares Gaussian SH data but the coefficient sidecar is unavailable.');
+    }
+    const meta = {
+      ...sourceMeta,
+      ...(gaussianShMeta ? { gaussian_sh: gaussianShMeta } : {}),
+      ...(layerData.droppedUnindexed ? {
+        quality_flags: [...new Set([...(Array.isArray(sourceMeta.quality_flags) ? sourceMeta.quality_flags : []), 'legacy_layer_geo_dropped_no_indices'])],
+        layer_geo_status: 'legacy_layers_dropped_unindexed',
+      } : {}),
+      title: title || window._fumocaCurrentRecord?.title || S.fileName || 'Untitled',
+      description: description ?? sourceMeta.description ?? window._fumocaCurrentRecord?.description ?? '',
+    };
+    const editorScene = window._fumocaSerializeEditorSceneMetadata?.(aliveIndices);
+    if (editorScene) meta.editor_scene = editorScene;
+    else if (sourceMeta.editor_scene) delete meta.editor_scene; // Never publish stale point-index mappings.
+
+    const { vertical, passthroughChunks } = await _loadOriginalForPassthrough();
+    const rows = encodeEditorSplatRows(S, aliveIndices);
+    const compactIndices = Array.from({ length: aliveIndices.length }, (_, i) => i);
+    const buf = encodeNif({
+      sourceBuffer: rows,
+      aliveIndices: compactIndices,
+      rowSize: 32,
       meta,
       vertical,
+      gaussianSH: gaussianSH || undefined,
+      lidarAttributes: _compactLidarAttributes(S, aliveIndices),
+      layers: layerData.layers,
+      thumbnailBytes: S.nifThumbnailBytes || undefined,
+      ...(S.nifMesh ? { mesh: S.nifMesh } : {}),
       passthroughChunks,
     });
     return new Blob([buf], { type: 'application/octet-stream' });
@@ -130,31 +206,63 @@ const FumocaPublish = (() => {
     );
     if (!S?.alive) throw new Error('No splat loaded in editor');
 
-    const splatId = rec?.id || new URLSearchParams(location.search).get('splatId');
+    if (visibility === 'followers') {
+      throw new Error('Followers-only access is not implemented yet. Choose Public or Private so access is enforced correctly.');
+    }
+
+    const { data: { user }, error: userError } = await sb.auth.getUser();
+    if (userError || !user?.id) throw new Error('Sign in before publishing this NIF.');
+    if (rec?.user_id && rec.user_id !== user.id) throw new Error('You cannot publish an asset owned by another user.');
+
+    const splatId = window._fumocaLoadedFromRecord === false
+      ? null
+      : (rec?.id || new URLSearchParams(location.search).get('splatId'));
     const aliveCount = Array.from(S.alive).filter(Boolean).length;
+
+    // Reload the latest row before merging META so concurrent Studio actions
+    // (mobile widgets, open-state variants, thumbnails, etc.) are not erased by
+    // a stale in-memory record during publish.
+    let existingMeta = rec?.meta && typeof rec.meta === 'object' ? rec.meta : {};
+    if (splatId) {
+      const { data: latestRecord, error: latestError } = await sb.from('nif_files')
+        .select('id,user_id,r2_key,is_public,title,description,meta').eq('id', splatId).eq('user_id', user.id).maybeSingle();
+      if (latestError || !latestRecord) {
+        throw new Error(latestError?.message || 'The NIF record could not be reloaded or is not owned by the current user.');
+      }
+      existingMeta = latestRecord.meta && typeof latestRecord.meta === 'object' ? latestRecord.meta : {};
+      window._fumocaCurrentRecord = { ...(window._fumocaCurrentRecord || {}), ...latestRecord, meta: existingMeta };
+    }
 
     onProgress?.('Preparing splat…', 10);
 
     // 1. Build a genuine .nif blob (no .fumoc, no bare .splat/.ply)
-    const blob = await _buildNifBlob({ title, description });
+    const blob = await _buildNifBlob({ title, description, parentMeta: existingMeta });
     onProgress?.('Uploading…', 20);
 
     // 2. Upload to storage
     const timestamp = Date.now();
-    // Path: {splatId}/edited_{ts}.nif — under the real R2 'nif-files' bucket
-    // (comment previously said "splat-files", a pre-R2-migration bucket name
-    // that doesn't exist — the actual .from('nif-files') call below was
-    // already correct, just the comment was stale).
+    // Existing assets use an owner-checked edited derivative key. New assets
+    // must start under the authenticated user's prefix or the Worker rejects them.
     const path = splatId
       ? `${splatId}/edited_${timestamp}.nif`
-      : `new/upload_${timestamp}.nif`;
+      : `${user.id}/edited_${timestamp}.nif`;
 
     // ── Upload to Cloudflare R2 (replaces supabase.storage) ─────────────────
     const { publicUrl, fileKey, error: uploadError } = await r2
       .from('nif-files')
       .upload(path, blob, { contentType: 'application/octet-stream' });
 
-    if (uploadError) throw new Error('R2 upload failed: ' + uploadError.message);
+    if (uploadError || !fileKey || !publicUrl) {
+      if (fileKey) {
+        try {
+          const { error: cleanupError } = await r2.from('nif-files').remove([fileKey]);
+          if (cleanupError) console.warn('[Publish] Upload returned incomplete data and cleanup failed:', cleanupError.message);
+        } catch (cleanupError) {
+          console.warn('[Publish] Upload returned incomplete data and cleanup threw:', cleanupError?.message || cleanupError);
+        }
+      }
+      throw new Error('R2 upload failed: ' + (uploadError?.message || 'storage returned no file key or URL'));
+    }
 
     onProgress?.('Registering…', 70);
 
@@ -167,25 +275,63 @@ const FumocaPublish = (() => {
       is_public: visibility === 'public',
       gaussian_count: aliveCount,
       updated_at: new Date().toISOString(),
+      meta: {
+        ...existingMeta,
+        title: title || window._fumocaCurrentRecord?.title || rec?.title || S.fileName || 'Untitled Splat',
+        description: description ?? window._fumocaCurrentRecord?.description ?? rec?.description ?? '',
+        publish_visibility: visibility,
+        publish_status: 'published',
+      },
     };
     if (title) payload.title = title;
-    if (description) payload.description = description;
+    if (description !== undefined) payload.description = description;
 
     let finalId = splatId;
     if (splatId) {
-      const { error } = await sb.from('nif_files').update(payload).eq('id', splatId);
-      if (error) console.warn('[Publish] DB update failed:', error.message);
+      const { data: updated, error } = await sb.from('nif_files').update(payload)
+        .eq('id', splatId).eq('user_id', user.id).select('id').maybeSingle();
+      if (error || !updated?.id) {
+        try {
+          const { error: cleanupError } = await r2.from('nif-files').remove([fileKey]);
+          if (cleanupError) console.warn('[Publish] Failed to clean up an unregistered derivative:', cleanupError.message);
+        } catch (cleanupError) {
+          console.warn('[Publish] Derivative cleanup threw:', cleanupError?.message || cleanupError);
+        }
+        throw new Error(error?.message || 'Could not update the owned NIF record. The publish was not completed.');
+      }
     } else {
-      // Create new record
-      const { data: { user } } = await sb.auth.getUser().catch(() => ({ data: {} }));
       const { data: newRec, error } = await sb.from('nif_files').insert({
         ...payload,
-        user_id: user?.id,
+        user_id: user.id,
         title: title || S.fileName || 'Untitled Splat',
         created_at: new Date().toISOString(),
-      }).select().single();
-      if (!error && newRec) finalId = newRec.id;
+      }).select('id').single();
+      if (error || !newRec?.id) {
+        try {
+          const { error: cleanupError } = await r2.from('nif-files').remove([fileKey]);
+          if (cleanupError) console.warn('[Publish] Failed to clean up an unregistered NIF:', cleanupError.message);
+        } catch (cleanupError) {
+          console.warn('[Publish] NIF cleanup threw:', cleanupError?.message || cleanupError);
+        }
+        throw new Error(error?.message || 'Could not register the new NIF. The publish was not completed.');
+      }
+      finalId = newRec.id;
     }
+
+    // Keep Studio's in-memory record synchronized with the committed database
+    // state so subsequent edits do not overwrite freshly published metadata.
+    window._fumocaCurrentRecord = {
+      ...(window._fumocaCurrentRecord || {}),
+      id: finalId,
+      user_id: user.id,
+      r2_key: fileKey,
+      is_public: visibility === 'public',
+      gaussian_count: aliveCount,
+      title: payload.title || title || window._fumocaCurrentRecord?.title || rec?.title || S.fileName || 'Untitled Splat',
+      description: payload.description ?? description ?? window._fumocaCurrentRecord?.description ?? rec?.description ?? '',
+      meta: payload.meta,
+    };
+    window._fumocaCanonicalFileUrl = publicUrl;
 
     onProgress?.('Published!', 100);
 
@@ -195,7 +341,7 @@ const FumocaPublish = (() => {
       publicUrl,
       gaussianCount: aliveCount,
       feedUrl: `feed.html`,
-      viewerUrl: `viewer.html?id=${encodeURIComponent(finalId)}`,
+      viewerUrl: `viewer.html?nifId=${encodeURIComponent(finalId)}`,
     };
   }
 

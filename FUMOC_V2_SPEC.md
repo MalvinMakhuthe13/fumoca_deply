@@ -34,6 +34,8 @@ A single .fumoc file contains:
 [sections...]        One or more sections (see Section structure)
 ```
 
+**Magic compatibility note:** canonical v2 writers use `FUMOC2\0\0`. The legacy `FumocFormat` wrapper can emit the older `FUMOC1\0\0` magic with a version field of 2; the reference decoder accepts both. New writers should emit the canonical v2 magic.
+
 ### Header fields
 
 | Field | Type | Description |

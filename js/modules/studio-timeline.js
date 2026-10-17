@@ -8,6 +8,7 @@
  */
 
 const FumocaStudio = (() => {
+  const escapeHtml = value => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
   let _canvas  = null;
   let _ctx     = null;
@@ -139,8 +140,8 @@ const FumocaStudio = (() => {
     container.innerHTML = states.map((st, i) => `
       <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.06);">
         <div>
-          <span style="color:#c8ff00;font-size:12px;font-weight:700;">${st.step_label || 'Keyframe ' + (i+1)}</span>
-          <span style="color:#555;font-size:11px;margin-left:8px;">t=${(st.time_offset || 0).toFixed(1)}s</span>
+          <span style="color:#c8ff00;font-size:12px;font-weight:700;">${escapeHtml(st.step_label || 'Keyframe ' + (i+1))}</span>
+          <span style="color:#555;font-size:11px;margin-left:8px;">t=${Number(st.time_offset || 0).toFixed(1)}s</span>
         </div>
         <button onclick="window._fumoca4DFlyTo(${i})" style="font-size:11px;padding:4px 8px;">Fly To</button>
       </div>

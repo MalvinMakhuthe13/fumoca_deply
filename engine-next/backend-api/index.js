@@ -885,48 +885,39 @@ app.get('/api/nif/:id/share-card', requireAuth, async (req, res) => {
 // ── Measurement trigger ───────────────────────────────────────────────────────
 // Stores measured distances from NIFFreezeInspect in the NIF meta
 app.post('/api/nif/:id/measurements', requireAuth, async (req, res) => {
-  const { measurements = [] } = req.body;
-  const { data: nif } = await supabaseAdmin.from('nif_files')
-    .select('user_id, meta').eq('id', req.params.id).single();
-  if (!nif || nif.user_id !== req.user.id) return res.status(403).json({ error: 'Forbidden' });
+  const { measurements = [] } = req.body || {};
+  if (!Array.isArray(measurements) || measurements.length > 500 ||
+      measurements.some(item => !item || typeof item !== 'object' || Array.isArray(item))) {
+    return res.status(400).json({ error: 'measurements must be an array of up to 500 objects' });
+  }
+  const { data: nif, error: readError } = await supabaseAdmin.from('nif_files')
+    .select('id,user_id,meta').eq('id', req.params.id).maybeSingle();
+  if (readError) return res.status(500).json({ error: 'Could not load NIF measurements metadata' });
+  if (!nif) return res.status(404).json({ error: 'NIF not found' });
+  if (nif.user_id !== req.user.id) return res.status(403).json({ error: 'Forbidden' });
 
-  const updatedMeta = {
-    ...(nif.meta ?? {}),
-    user_measurements: [
-      ...((nif.meta?.user_measurements ?? [])),
-      ...measurements.map(m => ({ ...m, savedAt: new Date().toISOString() })),
-    ],
-  };
-  await supabaseAdmin.from('nif_files').update({ meta: updatedMeta }).eq('id', req.params.id);
+  const currentMeta = nif.meta && typeof nif.meta === 'object' && !Array.isArray(nif.meta) ? nif.meta : {};
+  const previous = Array.isArray(currentMeta.user_measurements) ? currentMeta.user_measurements : [];
+  const added = measurements.map(m => ({ ...m, savedAt: new Date().toISOString() }));
+  const updatedMeta = { ...currentMeta, user_measurements: [...previous, ...added].slice(-1000) };
+  const { data: updated, error: writeError } = await supabaseAdmin.from('nif_files')
+    .update({ meta: updatedMeta }).eq('id', req.params.id).eq('user_id', req.user.id).select('id').maybeSingle();
+  if (writeError) return res.status(500).json({ error: 'Could not save NIF measurements metadata' });
+  if (!updated) return res.status(404).json({ error: 'NIF not found' });
   res.json({ success: true, count: updatedMeta.user_measurements.length });
 });
 
-// ── NIF scene editor — save edited depth field ───────────────────────────────
+// ── NIF scene editor — save edited depth field ────────────────────────────────
 app.post('/api/nif/:id/edits', requireAuth, async (req, res) => {
-  const { gaussianData, count, editRecord } = req.body;
-  if (!gaussianData || !count) return res.status(400).json({ error: 'gaussianData and count required' });
-
-  const { data: nif } = await supabaseAdmin.from('nif_files')
-    .select('user_id, r2_key').eq('id', req.params.id).single();
+  const { data: nif, error } = await supabaseAdmin.from('nif_files')
+    .select('id,user_id,r2_key').eq('id', req.params.id).maybeSingle();
+  if (error) return res.status(500).json({ error: 'Could not load NIF record' });
   if (!nif) return res.status(404).json({ error: 'NIF not found' });
   if (nif.user_id !== req.user.id) return res.status(403).json({ error: 'Not your NIF' });
-
-  // Store the edited geometry back to R2 alongside the original
-  const editKey = nif.r2_key.replace('scene.nif', 'scene_edited.nif');
-  const buf = Buffer.from(new Float32Array(gaussianData).buffer);
-  await r2.send(new PutObjectCommand({
-    Bucket: process.env.R2_BUCKET,
-    Key:    editKey,
-    Body:   buf,
-    ContentType: 'application/octet-stream',
-  }));
-
-  // Log edit record in DB
-  await supabaseAdmin.from('nif_files').update({
-    meta: { ...editRecord, has_edits: true, edited_r2_key: editKey },
-  }).eq('id', req.params.id);
-
-  res.json({ success: true, editKey });
+  return res.status(501).json({
+    error: 'Binary scene edits are unavailable until this endpoint uses the canonical NIF serializer. The original NIF was not modified.',
+    code: 'CANONICAL_NIF_SERIALIZER_REQUIRED',
+  });
 });
 
 // ── 404 + error ───────────────────────────────────────────────────────────────

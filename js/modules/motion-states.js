@@ -167,20 +167,20 @@ const MS = (() => {
     if (!_record?.id) return;
     try {
       const sb = window._fumocaSupabase;
-      if (!sb) return;
-      const { data: row, error: readError } = await sb
-        .from('nif_files')
-        .select('meta')
-        .eq('id', _record.id)
-        .maybeSingle();
-      if (readError) throw readError;
-      if (!row) throw new Error(`NIF ${_record.id} was not found in nif_files`);
+      const ownerId = _record.user_id || window._fumocaCurrentRecord?.user_id;
+      if (!sb || !ownerId) throw new Error('NIF owner is unavailable for motion-state persistence.');
+      const { data: row, error: readError } = await sb.from('nif_files')
+        .select('id,user_id,meta').eq('id', _record.id).eq('user_id', ownerId).single();
+      if (readError || !row) throw new Error(readError?.message || `NIF ${_record.id} was not found for the current owner`);
       const previous = row.meta && typeof row.meta === 'object' && !Array.isArray(row.meta) ? row.meta : {};
-      const { error: writeError } = await sb.from('nif_files')
-        .update({ meta: { ...previous, motion_states: _states } })
-        .eq('id', _record.id);
-      if (writeError) throw writeError;
-      _record = { ..._record, meta: { ...previous, motion_states: _states } };
+      const nextMeta = { ...previous, motion_states: _states };
+      const { data: updated, error: writeError } = await sb.from('nif_files').update({ meta: nextMeta })
+        .eq('id', _record.id).eq('user_id', ownerId).select('id').maybeSingle();
+      if (writeError || !updated) throw new Error(writeError?.message || 'Motion states were not saved.');
+      _record = { ..._record, ...row, meta: nextMeta };
+      if (window._fumocaCurrentRecord?.id === _record.id) {
+        window._fumocaCurrentRecord = { ...window._fumocaCurrentRecord, meta: nextMeta };
+      }
     } catch (e) {
       console.error('[MotionStates] persist failed:', e);
       window.dispatchEvent(new CustomEvent('fumoca:motionStateSaveFailed', {

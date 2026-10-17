@@ -1,0 +1,58 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+
+const toggle = await readFile(new URL('../js/modules/nif-part-toggle.js', import.meta.url), 'utf8');
+const hotspot = await readFile(new URL('../js/modules/hotspot-pro.js', import.meta.url), 'utf8');
+const worker = await readFile(new URL('../cloudflare/workers/r2-storage.js', import.meta.url), 'utf8');
+
+assert.match(toggle, /\$\{ownerId\}\/open-variants\/\$\{recordId\}_/,
+  'open-state variants must be stored under the authenticated owner prefix');
+assert.match(toggle, /open_variant_r2_keys: \[\.\.\.new Set\(\[\.\.\.keys, fileKey\]\)\]/,
+  'every baked variant must be registered against its parent NIF');
+assert.match(toggle, /export async function discardPartToggleVariant/,
+  'unaccepted previews must have an explicit cleanup path');
+assert.match(toggle, /const passthroughChunks = reader\.chunks\.filter/,
+  'baked variants must preserve mesh, layers, physics, LiDAR and other non-geometry chunks');
+assert.match(toggle, /thumbnailBytes,\s*layers: layerPayload,\s*passthroughChunks,/,
+  'baked variants must preserve the original thumbnail and rebuild layer geometry data');
+assert.match(toggle, /CHUNK\.LAYER_GEO/,
+  'old point-indexed layer chunks must be excluded from passthrough after rebuilding');
+assert.match(toggle, /axis\.some\(value => !Number\.isFinite\(value\)\)/,
+  'invalid rotation axes must be rejected before modifying geometry');
+assert.match(toggle, /pivot\.some\(value => !Number\.isFinite\(value\)\)/,
+  'invalid rotation pivots must be rejected before modifying geometry');
+assert.match(toggle, /Math\.abs\(angleDeg\) > 360/,
+  'rotation angles must be bounded to avoid invalid variant geometry');
+assert.match(toggle, /const variantMeta = \{[\s\S]*?\.\.\.meta,[\s\S]*?open_variant_of: recordId,\s*open_variant_layers: appliedLabels/,
+  'baked variants must preserve existing NIF metadata and mark legacy layer loss');
+assert.match(toggle, /vertical: reader\.header\?\.vertical \|\| meta\.vertical \|\| 'generic'/,
+  'baked variants must preserve the NIF header vertical instead of defaulting local files to generic');
+assert.match(hotspot, /discardPartToggleVariant\(fileKey, currentRecord\.id, currentRecord\.user_id\)/,
+  'cancelling preview must unregister and delete the generated variant');
+assert.match(hotspot, /recordId: currentRecord\.id, ownerId: currentRecord\.user_id/,
+  'the authoring flow must pass parent identity into variant creation');
+assert.match(toggle, /select\('id,user_id,r2_key,is_public,meta'\)[\s\S]*?\.eq\('id', recordId\)\.eq\('user_id', ownerId\)\.single\(\)/,
+  'variant creation must reload the parent NIF through an owner-scoped query');
+assert.match(toggle, /authenticatedUrl\(parentRecord\.r2_key\)/,
+  'variant creation must fetch the source NIF with a fresh owner-authorized read ticket');
+assert.match(toggle, /authenticatedUrl\(fileKey\)/,
+  'private-parent preview must use a short-lived authorized read ticket');
+assert.match(toggle, /return \{ openNifUrl: publicUrl, previewNifUrl, fileKey, layers \}/,
+  'canonical public URL and temporary preview URL must remain separate');
+assert.match(hotspot, /_fumocaApplyRendererPreview\(previewNifUrl \|\| openNifUrl\)/,
+  'preview must use the authorized URL without persisting its temporary ticket');
+assert.match(hotspot, /const saved = await saveRemote\(\);[\s\S]*?if \(!saved\) \{[\s\S]*?h\.actions = originalActions;/,
+  'failed remote persistence must roll back the local hotspot action');
+assert.match(hotspot, /select\('id,user_id,title,description,r2_key,is_public,meta'\)[\s\S]*?\.eq\('id', rec\.id\)\.eq\('user_id', rec\.user_id\)\.single\(\)/,
+  'hotspot save must reload current parent metadata before merging');
+assert.match(hotspot, /await discardPartToggleVariant\(fileKey, currentRecord\.id, currentRecord\.user_id\)/,
+  'failed remote persistence must clean up the unregistered variant');
+assert.match(hotspot, /action: \{ type: 'animate', layer, openNifUrl, openNifR2Key: fileKey \}/,
+  'saved hotspot action must keep the canonical URL and R2 key');
+assert.match((await readFile(new URL('../js/modules/hotspot-actions.js', import.meta.url), 'utf8')), /authenticatedUrl\(key\)/,
+  'private open-state toggles must obtain a fresh read ticket instead of reusing an expired preview URL');
+assert.equal(worker.split('meta->open_variant_r2_keys.cs.{${encodedKey}}').length - 1, 2,
+  'R2 read and delete authorization must query the parent record association');
+assert.match(worker, /meta\.open_variant_r2_keys\.includes\(fileKey\)/,
+  'R2 read policy must verify the exact registered variant key');
+console.log('Open-state variant ownership, visibility and cleanup contract passed.');

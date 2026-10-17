@@ -327,7 +327,7 @@ async function buildCalibVerifyMeta(userId) {
   const refFile = document.getElementById('verifyRefFile')?.files?.[0];
   if (wantsVerify && refFile) {
     const safeName = refFile.name.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9._-]/g, '');
-    const refPath = `verify-refs/${userId}/${Date.now()}_${safeName}`;
+    const refPath = `${userId}/verify-refs/${Date.now()}_${safeName}`;
     const { fileKey, error: refErr } = await r2.from('nif-files').upload(refPath, refFile, {
       contentType: 'application/octet-stream',
     });
@@ -398,20 +398,18 @@ async function uploadSingleBucket(fileName, file, _accessToken) {
   return { path: fileName, publicUrl };
 }
 
-function baseNifPayload(user, title, desc, category, price) {
+function baseNifPayload(user, title, desc, category, price, extraMeta = {}) {
   return {
     user_id: user.id,
     title,
     description: desc || null,
-    category,
+    vertical: category || 'other',
     tags,
-    visibility,
-    monetize_sale: saleEnabled,
-    price_zar: saleEnabled ? price : null,
-    monetize_print: printEnabled,
-    status: 'queued',
-    processing_stage: 'queued',
-    processing_progress: 0
+    is_public: visibility === 'public',
+    meta: {
+      ...captureMetadata(title, desc),
+      ...extraMeta,
+    },
   };
 }
 
@@ -431,17 +429,20 @@ async function createExternalNif(user, title, desc, category, price) {
   setStep('step-live', 'active');
 
   const payload = {
-    ...baseNifPayload(user, title, desc, category, price),
-    status: 'done',
-    processing_stage: 'published',
-    processing_progress: 100,
-    processing_completed_at: new Date().toISOString(),
-    nif_url: externalNifUrl,
-    external_nif_url: externalNifUrl,
+    ...baseNifPayload(user, title, desc, category, price, {
+      status: 'done',
+      processing_stage: 'published',
+      processing_progress: 100,
+      processing_completed_at: new Date().toISOString(),
+      nif_url: externalNifUrl,
+      external_nif_url: externalNifUrl,
+      preview_video_url: previewVideoUrl || null,
+      provider_name: providerName || 'External provider',
+      source_type: 'external',
+      thumbnail_r2_key: uploadedThumbnail?.fileKey || null,
+      capture_thumbnail_r2_key: uploadedThumbnail?.fileKey || null,
+    }),
     thumbnail_url: thumbnailUrl || null,
-    preview_video_url: previewVideoUrl || null,
-    provider_name: providerName || 'External provider',
-    source_type: 'external'
   };
 
   const { data: nif, error } = await supabase.from('nif_files').insert([payload]).select().single();
@@ -540,6 +541,7 @@ window.handleSubmit = async function() {
         title,
         description: desc || null,
         vertical: category || 'other',
+        is_public: visibility === 'public',
         r2_key: fileKey,
         file_size: plyBlob.size,
         created_at: new Date().toISOString(),
@@ -552,6 +554,7 @@ window.handleSubmit = async function() {
           source_capture: {
             public_url: sourceUrl,
             r2_key: sourceFileKey,
+            r2_bucket: 'nif-files',
             filename: selectedFile.name,
             format: cloud.source,
             byte_size: selectedFile.size,
@@ -593,7 +596,7 @@ window.handleSubmit = async function() {
       const zipBlob = new Blob([zipBytes], { type: 'application/zip' });
 
       setProgress(45, `Uploading ${(zipBlob.size / 1024 / 1024).toFixed(1)} MB…`);
-      const zipPath = `raw/${user.id}/${Date.now()}_burst.zip`;
+      const zipPath = `${user.id}/raw/${Date.now()}_burst.zip`;
       const { fileKey, error: r2Err } = await r2
         .from('nif-videos')
         .upload(zipPath, zipBlob, {
@@ -622,7 +625,7 @@ window.handleSubmit = async function() {
         vertical: category || 'generic',
         capture_mode: 'burst',
         raw_r2_key: fileKey,
-        meta: { ...captureMetadata(title, desc, calibVerifyMeta), photo_count: selectedFiles.length, thumbnail_r2_key: uploadedThumbnail.fileKey, capture_thumbnail_r2_key: uploadedThumbnail.fileKey, source_r2_key: fileKey, source_capture: { r2_key: fileKey, filename: `${title || 'photo-capture'}.zip`, format: 'photo_zip', photo_count: selectedFiles.length, created_at: new Date().toISOString() } },
+        meta: { ...captureMetadata(title, desc, calibVerifyMeta), photo_count: selectedFiles.length, thumbnail_r2_key: uploadedThumbnail.fileKey, capture_thumbnail_r2_key: uploadedThumbnail.fileKey, source_r2_key: fileKey, source_r2_bucket: 'nif-videos', source_capture: { r2_key: fileKey, r2_bucket: 'nif-videos', filename: `${title || 'photo-capture'}.zip`, format: 'photo_zip', photo_count: selectedFiles.length, created_at: new Date().toISOString() } },
       }).select().single();
       if (jobError) throw jobError;
 
@@ -662,6 +665,7 @@ window.handleSubmit = async function() {
         }
         gaussianCount = sourceBuffer.byteLength / 32;
         if (!gaussianCount) throw new Error('The .splat file contains no Gaussian rows.');
+        if (gaussianCount > 5_000_000) throw new Error('This .splat exceeds the 5-million-Gaussian browser conversion safety limit; split the scene and retry.');
         setProgress(25, 'Packing Gaussian rows into FUMOCA NIF…');
         const aliveIndices = new Uint32Array(gaussianCount);
         for (let i = 0; i < gaussianCount; i++) aliveIndices[i] = i;
@@ -671,7 +675,7 @@ window.handleSubmit = async function() {
           gpu_required: false,
           preserved_attributes: ['position', 'scale', 'rotation', 'RGBA/opacity'],
           discarded_attributes: [],
-          quality_flags: [],
+          quality_flags: ['quantized_geometry_lossy'],
           created_at: new Date().toISOString(),
         };
         outputBuffer = encodeNif({
@@ -693,6 +697,7 @@ window.handleSubmit = async function() {
         const posAttr = parsedGeometry.getAttribute('position');
         if (!posAttr || !posAttr.count) throw new Error('PLY contains no vertex positions.');
         const count = posAttr.count;
+        if (count > 5_000_000) throw new Error('This PLY exceeds the 5-million-point browser conversion safety limit; split the scene and retry.');
         const attr = name => parsedGeometry.getAttribute(name);
         const sx = attr('scale_0'), sy = attr('scale_1'), sz = attr('scale_2');
         const opacityAttr = attr('opacity');
@@ -702,46 +707,96 @@ window.handleSubmit = async function() {
         const isGaussianPly = !!(sx && sy && sz && opacityAttr && dc0 && dc1 && dc2 && rot0 && rot1 && rot2 && rot3);
         const plyAttributeNames = Object.keys(parsedGeometry.attributes || {});
         const shMetadata = inspectPlyAttributes(plyAttributeNames, isGaussianPly);
+        if (shMetadata.hasUnsupportedShLayout) {
+          throw new Error('This PLY contains f_rest_* coefficients that cannot be mapped safely to a standard Gaussian SH layout. FUMOCA refuses to discard them; export a complete Gaussian PLY with standard f_dc_*/f_rest_* properties and retry.');
+        }
+        const shRestNames = plyAttributeNames.filter(name => /^f_rest_\d+$/.test(name))
+          .sort((a, b) => Number(a.slice(7)) - Number(b.slice(7)));
+        const shPropertyNames = isGaussianPly ? ['f_dc_0', 'f_dc_1', 'f_dc_2', ...shRestNames] : [];
+        const gaussianSHValueCount = count * shPropertyNames.length;
+        if (isGaussianPly && (!Number.isSafeInteger(gaussianSHValueCount) ||
+            8 + gaussianSHValueCount * 4 > 512 * 1024 * 1024)) {
+          throw new Error('Gaussian PLY SH sidecar exceeds the 512 MiB safety limit; split the capture or lower SH degree.');
+        }
+        const gaussianSHValues = isGaussianPly ? new Float32Array(gaussianSHValueCount) : null;
+        if (isGaussianPly) {
+          const shAttrs = shPropertyNames.map(name => attr(name));
+          if (shAttrs.some(attribute => !attribute)) throw new Error('Gaussian PLY is missing one or more SH coefficient attributes.');
+          for (let i = 0; i < count; i++) {
+            for (let j = 0; j < shAttrs.length; j++) {
+              const value = shAttrs[j].getX(i);
+              if (!Number.isFinite(value)) throw new Error(`Gaussian PLY SH coefficient ${shPropertyNames[j]} is not finite at point ${i}.`);
+              gaussianSHValues[i * shAttrs.length + j] = value;
+            }
+          }
+        }
         setProgress(25, isGaussianPly ? 'Converting Gaussian PLY attributes…' : 'Converting point-cloud PLY to NIF…');
 
         if (isGaussianPly) {
-          const rows = new Uint8Array(count * 32);
-          const view = new DataView(rows.buffer);
-          const clampByte = value => Math.max(0, Math.min(255, Math.round(value)));
-          const sigmoid = value => 1 / (1 + Math.exp(-value));
-          const rgb = value => clampByte((value * 0.2820947918 + 0.5) * 255);
+          const gaussianGeometry = new Float32Array(count * 14);
+          const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+          const dcToLogit = value => {
+            const color = clamp(value * 0.2820947918 + 0.5, 1e-6, 1 - 1e-6);
+            return Math.log(color / (1 - color));
+          };
+          let requiresRawScalePreservation = false;
           for (let i = 0; i < count; i++) {
-            const o = i * 32;
-            view.setFloat32(o, posAttr.getX(i), true);
-            view.setFloat32(o + 4, posAttr.getY(i), true);
-            view.setFloat32(o + 8, posAttr.getZ(i), true);
-            view.setFloat32(o + 12, Math.exp(sx.getX(i)), true);
-            view.setFloat32(o + 16, Math.exp(sy.getX(i)), true);
-            view.setFloat32(o + 20, Math.exp(sz.getX(i)), true);
-            rows[o + 24] = rgb(dc0.getX(i));
-            rows[o + 25] = rgb(dc1.getX(i));
-            rows[o + 26] = rgb(dc2.getX(i));
-            rows[o + 27] = clampByte(sigmoid(opacityAttr.getX(i)) * 255);
-            for (const [j, a] of [[28,rot0],[29,rot1],[30,rot2],[31,rot3]]) {
-              rows[o + j] = clampByte((Math.max(-1, Math.min(1, a.getX(i))) + 1) * 127.5);
+            const o = i * 14;
+            const x = posAttr.getX(i), y = posAttr.getY(i), z = posAttr.getZ(i);
+            const logSx = sx.getX(i), logSy = sy.getX(i), logSz = sz.getX(i);
+            if ([logSx, logSy, logSz].some(value => value < -8 || value > 2)) {
+              requiresRawScalePreservation = true;
             }
+            gaussianGeometry[o] = x;
+            gaussianGeometry[o + 1] = y;
+            gaussianGeometry[o + 2] = z;
+            gaussianGeometry[o + 3] = logSx;
+            gaussianGeometry[o + 4] = logSy;
+            gaussianGeometry[o + 5] = logSz;
+            gaussianGeometry[o + 6] = rot0.getX(i);
+            gaussianGeometry[o + 7] = rot1.getX(i);
+            gaussianGeometry[o + 8] = rot2.getX(i);
+            gaussianGeometry[o + 9] = rot3.getX(i);
+            gaussianGeometry[o + 10] = opacityAttr.getX(i);
+            gaussianGeometry[o + 11] = dcToLogit(dc0.getX(i));
+            gaussianGeometry[o + 12] = dcToLogit(dc1.getX(i));
+            gaussianGeometry[o + 13] = dcToLogit(dc2.getX(i));
           }
-          const aliveIndices = new Uint32Array(count);
-          for (let i = 0; i < count; i++) aliveIndices[i] = i;
           conversionDetails = {
             engine: 'fumoca-nif-format',
             gpu_required: false,
-            attribute_mapping: 'xyz/scale/f_dc/opacity/rotation',
-            preserved_attributes: ['position', 'scale', 'rotation', 'opacity', 'DC colour'],
+            geometry_encoding: requiresRawScalePreservation ? 'raw_float32' : 'quantized_17_bytes_per_point',
+            attribute_mapping: 'xyz/log-scale/normalized-rotation/opacity/DC-derived-colour',
+            preserved_attributes: [
+              'position', 'log-scale', 'rotation', 'opacity', 'render-ready DC colour',
+              'exact f_dc_* coefficients in GAUSSIAN_SH sidecar',
+              ...(shMetadata.higherOrderShCount ? ['exact f_rest_* coefficients in GAUSSIAN_SH sidecar'] : []),
+            ],
             sh_degree_detected: shMetadata.detectedShDegree,
             higher_order_sh_attribute_count: shMetadata.higherOrderShCount,
-            discarded_attributes: shMetadata.discardedAttributes,
-            quality_flags: shMetadata.qualityFlags,
+            discarded_attributes: [],
+            quality_flags: [
+              ...shMetadata.qualityFlags,
+              ...(requiresRawScalePreservation ? ['raw_geometry_used_to_preserve_log_scale_range'] : ['quantized_geometry_lossy']),
+            ],
             created_at: new Date().toISOString(),
           };
           outputBuffer = encodeNif({
-            sourceBuffer: rows, aliveIndices, rowSize: 32, vertical: category || 'generic',
-            meta: { title: title || selectedFile.name.replace(/\.ply$/i, ''), description: desc || '', source_format: 'gaussian_ply', conversion: conversionDetails },
+            geometry: gaussianGeometry,
+            compress: !requiresRawScalePreservation,
+            gaussianSH: {
+              degree: shMetadata.detectedShDegree,
+              pointCount: count,
+              coefficientCount: shPropertyNames.length,
+              values: gaussianSHValues,
+            },
+            meta: {
+              title: title || selectedFile.name.replace(/\.ply$/i, ''),
+              description: desc || '',
+              source_format: 'gaussian_ply',
+              gaussian_sh: { degree: shMetadata.detectedShDegree, properties: shPropertyNames, coefficient_count: shPropertyNames.length },
+              conversion: conversionDetails,
+            },
           });
         } else {
           const positions = new Float32Array(count * 3);
@@ -793,7 +848,7 @@ window.handleSubmit = async function() {
             geometry_quality: 'isotropic-points; mesh reconstruction not run',
             preserved_attributes: ['position', ...(hasVertexColors ? ['RGB vertex colour'] : []), ...(opacity ? ['opacity'] : [])],
             discarded_attributes: [],
-            quality_flags: ['point_cloud_not_gaussian', 'mesh_reconstruction_not_run', ...(!hasVertexColors ? ['source_vertex_colours_not_found'] : [])],
+            quality_flags: ['point_cloud_not_gaussian', 'mesh_reconstruction_not_run', 'quantized_geometry_lossy', ...(!hasVertexColors ? ['source_vertex_colours_not_found'] : [])],
             created_at: new Date().toISOString(),
           };
           outputBuffer = encodeNif({
@@ -846,12 +901,13 @@ window.handleSubmit = async function() {
         r2_key: outputKey,
         file_size: outputBuffer ? outputBuffer.byteLength : selectedFile.size,
         gaussian_count: gaussianCount,
-        is_public: false,
+        is_public: visibility === 'public',
         meta: {
           source_type: isSplat ? 'splat_to_nif' : ext === 'ply' ? 'ply_to_nif' : 'direct_nif',
           source_filename: selectedFile.name,
-          source_capture: { r2_key: sourceKey, public_url: sourceUrl, filename: selectedFile.name, format: ext, byte_size: selectedFile.size },
+          source_capture: { r2_key: sourceKey, r2_bucket: 'nif-files', public_url: sourceUrl, filename: selectedFile.name, format: ext, byte_size: selectedFile.size },
           source_r2_key: sourceKey,
+          source_r2_bucket: 'nif-files',
           source_public_url: sourceUrl,
           output_format: (isSplat || ext === 'ply') ? 'nif' : ext,
           output_r2_key: outputKey,
@@ -901,7 +957,7 @@ window.handleSubmit = async function() {
       vertical: category || 'generic',
       capture_mode: 'video',
       raw_r2_key: filePath,
-      meta: { ...captureMetadata(title, desc, calibVerifyMeta), video_filename: selectedFile.name, thumbnail_r2_key: uploadedThumbnail.fileKey, capture_thumbnail_r2_key: uploadedThumbnail.fileKey, source_r2_key: filePath, source_capture: { r2_key: filePath, filename: selectedFile.name, format: selectedFile.type || 'video', byte_size: selectedFile.size, created_at: new Date().toISOString() } },
+      meta: { ...captureMetadata(title, desc, calibVerifyMeta), video_filename: selectedFile.name, thumbnail_r2_key: uploadedThumbnail.fileKey, capture_thumbnail_r2_key: uploadedThumbnail.fileKey, source_r2_key: filePath, source_r2_bucket: 'nif-videos', source_capture: { r2_key: filePath, r2_bucket: 'nif-videos', filename: selectedFile.name, format: selectedFile.type || 'video', byte_size: selectedFile.size, created_at: new Date().toISOString() } },
     }).select().single();
     if (jobError) throw jobError;
 

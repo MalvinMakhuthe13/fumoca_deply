@@ -49,6 +49,9 @@ const SECTION_CAMR  = 'CAMR';
 const SECTION_BRND  = 'BRND';
 
 const FLAG_COMPRESSED = 0x01;
+const MAX_FUMOC_HEADER_BYTES = 1024 * 1024;
+const MAX_FUMOC_SECTION_BYTES = 512 * 1024 * 1024;
+const MAX_FUMOC_FILE_BYTES = 2 * 1024 * 1024 * 1024;
 
 // ── Utility: text encode/decode ──────────────────────────────────────────────
 
@@ -91,25 +94,38 @@ async function compress(data) {
 }
 
 async function decompress(data) {
+  let reader = null;
   try {
     const ds = new DecompressionStream('deflate');
     const writer = ds.writable.getWriter();
-    writer.write(data);
-    writer.close();
+    const writePromise = writer.write(data);
+    const closePromise = writer.close();
+    // Attach handlers immediately so a cancelled oversized stream cannot
+    // leave unhandled writer rejections behind.
+    writePromise.catch(() => {});
+    closePromise.catch(() => {});
     const chunks = [];
-    const reader = ds.readable.getReader();
+    let total = 0;
+    reader = ds.readable.getReader();
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
+      if (total + value.byteLength > MAX_FUMOC_SECTION_BYTES) {
+        await reader.cancel('FUMOC decompressed section exceeds 512 MiB').catch(() => {});
+        throw new Error('[FUMOC] Decompressed section exceeds the 512 MiB safety limit');
+      }
       chunks.push(value);
+      total += value.byteLength;
     }
-    const total = chunks.reduce((n, c) => n + c.length, 0);
+    await Promise.all([writePromise, closePromise]);
     const out = new Uint8Array(total);
     let off = 0;
-    for (const c of chunks) { out.set(c, off); off += c.length; }
+    for (const chunk of chunks) { out.set(chunk, off); off += chunk.byteLength; }
     return out;
-  } catch {
-    return data;
+  } catch (error) {
+    await reader?.cancel().catch(() => {});
+    if (error instanceof Error && error.message.includes('512 MiB safety limit')) throw error;
+    throw new Error('[FUMOC] Invalid or truncated compressed section', { cause: error });
   }
 }
 
@@ -117,6 +133,9 @@ async function decompress(data) {
 
 async function buildSection(id, rawData, shouldCompress = true) {
   const raw = rawData instanceof Uint8Array ? rawData : new Uint8Array(rawData);
+  if (raw.byteLength > MAX_FUMOC_SECTION_BYTES) {
+    throw new Error('[FUMOC] Section exceeds the 512 MiB safety limit');
+  }
   let payload = raw;
   let flags = 0;
 
@@ -143,27 +162,60 @@ async function buildSection(id, rawData, shouldCompress = true) {
   return section;
 }
 
-async function readSection(view, offset) {
-  if (offset + 13 > view.byteLength) return null;
+async function readSection(view, offset, decodePayload = true) {
+  if (!Number.isInteger(offset) || offset < 0 || offset + 13 > view.byteLength) {
+    throw new Error('[FUMOC] Truncated section header');
+  }
   const id = String.fromCharCode(
     view.getUint8(offset),
     view.getUint8(offset + 1),
     view.getUint8(offset + 2),
     view.getUint8(offset + 3)
   );
-  const flags       = view.getUint8(offset + 4);
-  const compLen     = view.getUint32(offset + 5, true);
-  const rawLen      = view.getUint32(offset + 9, true);
+  const flags = view.getUint8(offset + 4);
+  const compLen = view.getUint32(offset + 5, true);
+  const rawLen = view.getUint32(offset + 9, true);
+  if (flags & ~FLAG_COMPRESSED) throw new Error(`[FUMOC] Section ${id} uses unsupported flag bits`);
   const isCompressed = !!(flags & FLAG_COMPRESSED);
-
-  if (offset + 13 + compLen > view.byteLength) return null;
-
-  let data = new Uint8Array(view.buffer, view.byteOffset + offset + 13, compLen);
-  if (isCompressed) {
-    data = await decompress(data);
+  if (compLen > MAX_FUMOC_SECTION_BYTES || rawLen > MAX_FUMOC_SECTION_BYTES) {
+    throw new Error(`[FUMOC] Section ${id} exceeds the 512 MiB safety limit`);
+  }
+  if (offset + 13 + compLen > view.byteLength) throw new Error(`[FUMOC] Section ${id} is truncated`);
+  if (!isCompressed && rawLen !== compLen) {
+    throw new Error(`[FUMOC] Uncompressed section ${id} has mismatched lengths`);
   }
 
-  return { id, rawLen, data, totalBytes: 13 + compLen };
+  let data = new Uint8Array(view.buffer, view.byteOffset + offset + 13, compLen);
+  if (isCompressed && decodePayload) data = await decompress(data);
+  if (decodePayload && data.byteLength !== rawLen) {
+    throw new Error(`[FUMOC] Section ${id} decoded length does not match its header`);
+  }
+  return { id, flags, compLen, rawLen, isCompressed, data, totalBytes: 13 + compLen };
+}
+
+function parseFileHeader(bytes) {
+  if (!(bytes instanceof Uint8Array) || bytes.byteLength < 14) {
+    throw new Error('[FUMOC] File is shorter than its 14-byte header');
+  }
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const magic = bytesToStr(bytes.subarray(0, 8));
+  if (!magic.startsWith('FUMOC')) throw new Error('[FUMOC] Not a .fumoc file');
+  const version = view.getUint16(8, true);
+  if (version < 1 || version > VERSION) throw new Error(`[FUMOC] Unsupported file version ${version}`);
+  const headerLen = view.getUint32(10, true);
+  if (headerLen > MAX_FUMOC_HEADER_BYTES || 14 + headerLen > bytes.byteLength) {
+    throw new Error('[FUMOC] Header length is invalid, truncated or exceeds 1 MiB');
+  }
+  let header;
+  try {
+    header = JSON.parse(bytesToStr(bytes.subarray(14, 14 + headerLen)));
+  } catch (error) {
+    throw new Error('[FUMOC] Header JSON is invalid', { cause: error });
+  }
+  if (!header || typeof header !== 'object' || Array.isArray(header)) {
+    throw new Error('[FUMOC] Header must be a JSON object');
+  }
+  return { version, header, dataOffset: 14 + headerLen };
 }
 
 // ── ENCODER (public) ─────────────────────────────────────────────────────────
@@ -199,6 +251,9 @@ async function encode(payload) {
   const splatBytes = splatBuffer instanceof Uint8Array
     ? splatBuffer
     : new Uint8Array(splatBuffer);
+  if (splatBytes.byteLength < 1 || splatBytes.byteLength > MAX_FUMOC_SECTION_BYTES) {
+    throw new Error('[FUMOC] SPLT section must be non-empty and no larger than 512 MiB');
+  }
 
   // Build full header JSON (before sections, describes everything)
   const fullMeta = {
@@ -214,6 +269,9 @@ async function encode(payload) {
     has_branding: !!branding,
   };
   const headerJson = strToBytes(JSON.stringify(fullMeta));
+  if (headerJson.byteLength > MAX_FUMOC_HEADER_BYTES) {
+    throw new Error('[FUMOC] Header metadata exceeds the 1 MiB safety limit');
+  }
 
   // Build all sections in parallel where possible
   const sections = await Promise.all([
@@ -234,6 +292,9 @@ async function encode(payload) {
   new DataView(headerLen.buffer).setUint32(0, headerJson.length, true);
 
   const totalLen = 8 + 2 + 4 + headerJson.length + sections.reduce((n, s) => n + s.length, 0);
+  if (!Number.isSafeInteger(totalLen) || totalLen > MAX_FUMOC_FILE_BYTES) {
+    throw new Error('[FUMOC] Encoded file exceeds the 2 GiB safety limit');
+  }
   const out = new Uint8Array(totalLen);
   let off = 0;
 
@@ -258,28 +319,20 @@ async function encode(payload) {
  */
 async function decode(buffer) {
   const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
-  const view  = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-
-  // Validate magic
-  const magic = bytesToStr(bytes.slice(0, 8));
-  if (!magic.startsWith('FUMOC')) throw new Error('[FUMOC] Not a .fumoc file');
-
-  const version   = view.getUint16(8, true);
-  const headerLen = view.getUint32(10, true);
-  const headerStr = bytesToStr(bytes.slice(14, 14 + headerLen));
-  const header    = JSON.parse(headerStr);
+  if (bytes.byteLength > MAX_FUMOC_FILE_BYTES) throw new Error('[FUMOC] File exceeds the 2 GiB safety limit');
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const { version, header, dataOffset } = parseFileHeader(bytes);
   header._version = version;
 
-  let offset = 14 + headerLen;
+  let offset = dataOffset;
   const sections = {};
-
   while (offset < bytes.byteLength) {
+    if (bytes.byteLength - offset < 13) throw new Error('[FUMOC] Trailing bytes do not form a complete section header');
     const section = await readSection(view, offset);
-    if (!section) break;
+    if (sections[section.id] !== undefined) throw new Error(`[FUMOC] Duplicate section ${section.id}`);
 
-    // Parse section data to its native type
     if (section.id === SECTION_SPLT || section.id === SECTION_THUM) {
-      sections[section.id] = section.data; // keep as binary
+      sections[section.id] = section.data;
     } else {
       try {
         sections[section.id] = JSON.parse(bytesToStr(section.data));
@@ -287,10 +340,17 @@ async function decode(buffer) {
         sections[section.id] = section.data;
       }
     }
-
     offset += section.totalBytes;
   }
 
+  if (!(sections[SECTION_SPLT] instanceof Uint8Array) || sections[SECTION_SPLT].byteLength === 0) {
+    throw new Error('[FUMOC] Required SPLT section is missing or empty');
+  }
+  if (header.splat_byte_length != null &&
+      (!Number.isSafeInteger(Number(header.splat_byte_length)) ||
+       Number(header.splat_byte_length) !== sections[SECTION_SPLT].byteLength)) {
+    throw new Error('[FUMOC] Header splat_byte_length does not match the decoded SPLT section');
+  }
   return { header, sections, version };
 }
 
@@ -302,11 +362,7 @@ async function decode(buffer) {
  */
 function readHeader(buffer) {
   const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
-  const view  = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const magic = bytesToStr(bytes.slice(0, 8));
-  if (!magic.startsWith('FUMOC')) throw new Error('[FUMOC] Not a .fumoc file');
-  const headerLen = view.getUint32(10, true);
-  return JSON.parse(bytesToStr(bytes.slice(14, 14 + headerLen)));
+  return parseFileHeader(bytes).header;
 }
 
 /**
@@ -314,9 +370,23 @@ function readHeader(buffer) {
  * Caller must revoke it when done.
  */
 async function thumbnailURL(buffer) {
-  const { sections } = await decode(buffer);
-  if (!sections[SECTION_THUM]) return null;
-  return URL.createObjectURL(new Blob([sections[SECTION_THUM]], { type: 'image/jpeg' }));
+  const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+  if (bytes.byteLength > MAX_FUMOC_FILE_BYTES) throw new Error('[FUMOC] File exceeds the 2 GiB safety limit');
+  const { dataOffset } = parseFileHeader(bytes);
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let offset = dataOffset;
+  while (offset < bytes.byteLength) {
+    if (bytes.byteLength - offset < 13) throw new Error('[FUMOC] Truncated section while reading thumbnail');
+    const section = await readSection(view, offset, false);
+    if (section.id === SECTION_THUM) {
+      let imageBytes = section.data;
+      if (section.isCompressed) imageBytes = await decompress(imageBytes);
+      if (imageBytes.byteLength !== section.rawLen) throw new Error('[FUMOC] Thumbnail length does not match its section header');
+      return URL.createObjectURL(new Blob([imageBytes], { type: 'image/jpeg' }));
+    }
+    offset += section.totalBytes;
+  }
+  return null;
 }
 
 /**
@@ -434,5 +504,5 @@ const FumocFormat = {
 
 // v82: loadIntoViewer now routes through FumocDecoder for v2 files
 // FumocDecoder is imported separately and handles both v1 and v2
-window.FumocFormat = FumocFormat;
+if (typeof window !== 'undefined') window.FumocFormat = FumocFormat;
 export default FumocFormat;

@@ -1,92 +1,52 @@
-# FUMOCA R2 Storage — Deploy Guide
+# FUMOCA R2 Worker — deployment and staging safety
 
-## ⚠️ If you're redeploying an existing worker, rotate this secret first
-`config.js` used to ship `r2ApiSecret` to every browser (readable via view-source) —
-that's been removed from the frontend now, and the worker's auth model changed to
-verify real Supabase sessions instead. But if `fumoca-r2-2026-xK9mP3qL` (or whatever
-your `FUMOCA_API_SECRET` was) was ever live in production, it may already be known to
-anyone who inspected the page source. Rotate it as part of this deploy:
-```bash
-wrangler secret put FUMOCA_API_SECRET
-# → enter a fresh strong random string, e.g. `openssl rand -hex 32`
-```
-That secret is now reserved for genuine server-to-server calls only (the Kaggle worker,
-the backend API) — it must never appear in any file that ships to a browser again.
+## Important: do not deploy this QA branch to production yet
 
-## Prerequisites
-- Node.js installed
-- `npm i -g wrangler` (Cloudflare CLI)
-- Logged in: `wrangler login`
+The current QA branch changes read authorization, signed private-read tickets, byte-range responses, upload/delete ownership, and teaser-video access. Repository CI is not proof that the live R2 bindings, Supabase RLS, cache behaviour or existing public links work. Do not run `wrangler deploy`, change production bindings, purge caches or apply the embed migration as part of this QA pass.
 
-## Step 1 — Create R2 bucket
-```bash
-wrangler r2 bucket create fumoca-assets
-```
+## Canonical configuration
 
-## Step 2 — Deploy worker
-```bash
-cd cloudflare
-wrangler deploy
-```
+- Worker source: `cloudflare/workers/r2-storage.js`.
+- Canonical Wrangler configuration in this repository: root `wrangler.jsonc`.
+- `cloudflare/wrangler.toml` and the older instructions in previous revisions are legacy; do not deploy using `cd cloudflare && wrangler deploy`.
+- Frontend `config.js` currently points `r2WorkerUrl` at the `fumoca-r2` workers.dev host, and root `wrangler.jsonc` sets `PUBLIC_BASE_URL` to that same host. Keep these identical for a given environment.
+- R2 bucket bindings expected by the current Worker: `nif-files`, `nif-videos`, `preview-videos`, `thumbnails`, and `avatars`.
 
-## Step 3 — Set secrets and vars
-```bash
-wrangler secret put FUMOCA_API_SECRET
-# → server-to-server only, never sent from a browser — see warning above
+## Required secrets / variables
 
-# The worker now verifies real user sessions by asking Supabase directly.
-# Both of these are the SAME public-safe values already in your frontend config.js —
-# not new secrets, just need to also be available to the worker:
-wrangler secret put SUPABASE_URL
-wrangler secret put SUPABASE_ANON_KEY
+Set these as Worker secrets/vars in the Cloudflare dashboard or the correct Wrangler environment; never commit secret values:
 
-# Only needed if you want presigned PUT URLs (optional — worker proxy works without these):
-wrangler secret put R2_ACCESS_KEY_ID       # from CF dashboard → R2 → Manage API tokens
-wrangler secret put R2_SECRET_ACCESS_KEY
-wrangler secret put ACCOUNT_ID            # your Cloudflare Account ID
-```
+- `SUPABASE_URL` — the project's Supabase URL.
+- `SUPABASE_ANON_KEY` — the public anon/publishable key used to validate user sessions and perform RLS-scoped lookups.
+- `FUMOCA_API_SECRET` — strong random server-to-server secret only; never place it in `config.js`, HTML, or browser requests.
+- `ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` — only if direct presigned R2 PUTs are enabled; use least-privilege credentials.
+- `MAX_UPLOAD_BYTES` — optional direct Worker upload cap; default is 200 MiB.
 
-## Step 4 — Update config.js
-```js
-r2WorkerUrl: 'https://cdn.fumoca.co.za',   // or your worker URL
-// r2ApiSecret is no longer needed here — do NOT add it back. The browser now
-// authenticates with the user's real Supabase session token instead.
-```
+## Before any deployment
 
-## Step 5 — DNS
-In Cloudflare DNS for fumoca.co.za:
-- Add CNAME: `cdn` → `fumoca-r2-storage.<yoursubdomain>.workers.dev`
-- Proxy: ON (orange cloud)
+1. Provision a genuinely separate staging Worker and staging R2 buckets. Do not point staging at the production bucket bindings in the root config.
+2. Use a staging Supabase project with the current `nif_files` and `reconstruction_jobs` schema and RLS policies. Confirm that the authenticated caller can read only their own private rows and anonymous reads expose only intended public rows.
+3. Apply the updated `supabase_migration_embeds.sql` to staging only after reviewing the SQL. It replaces blanket anonymous SELECT on `embeds` with owner-only reads and exact-token resolution via `resolve_embed_token(p_token)`.
+4. Point a staging frontend config at the staging Worker. Keep `PUBLIC_BASE_URL` and `r2WorkerUrl` exactly aligned.
+5. Run non-destructive tests for: published NIF GET; private NIF anonymous denial; owner private read ticket; cross-user denial; source-video privacy; published/private thumbnail and teaser visibility; byte ranges; cache behaviour after public-to-private transition; upload, delete and save/reopen.
+6. Test direct R2 endpoints/custom domains separately from the Worker. A secure Worker does not protect a bucket or alternate domain that independently serves the same objects publicly.
+7. Only after evidence is recorded should a separate release review decide whether to deploy. Production deployment and cache purges require explicit approval.
 
-## Step 6 — Verify
-```bash
-curl https://cdn.fumoca.co.za/health
-# → {"ok":true,"service":"fumoca-r2","ts":...}
+## Safe smoke-test expectations
 
-# Confirm the old exposed secret no longer works (should be 401, not 200):
-curl -X DELETE https://cdn.fumoca.co.za/file/splats/test \
-  -H "X-Fumoca-Secret: fumoca-r2-2026-xK9mP3qL"
-```
+- `GET /health` confirms configured bindings/secrets only; it does not prove authorization or object access is correct.
+- A `Range: bytes=0-0` request for a published object should return HTTP 206 with a one-byte body and a correct `Content-Range` header.
+- A private object requested anonymously should be denied even if a public-cache entry for that URL existed earlier.
+- A private-read ticket is short-lived and scoped to a bucket/key. Do not copy it into public links or logs.
+- A public teaser video is allowed only when its exact R2 key is stored in `nif_files.meta.teaser_video_r2_key` and the NIF row has `is_public = true`.
 
-## Known remaining gap
-Delete currently only checks that *some* authenticated user is calling, not that they
-own the specific file — see the `NOTE` comment in `workers/r2-storage.js` above the
-DELETE route. Closing that needs a query against your `splats` table with your actual
-schema/RLS setup, which wasn't safe to guess at here.
+## Known unresolved release gates
 
-## What changed from v76
-| Module | Change |
-|---|---|
-| pipeline.js | Video upload → R2 splat-videos |
-| publish-to-fumoca.js | Splat binary → R2 splat-files |
-| splat-edit-engine.js | Inline splat save → R2 splat-files |
-| edit-engine.js | Variant save → R2 splat-files |
-| mobile-asset.js | Widget HTML → R2 splat-files |
-| splat-capture.js | Capture preview → R2 preview-videos |
-| teaser-video.js | Teaser video → R2 preview-videos |
-| upload-page.js | PLY + video upload → R2 (TUS removed) |
-| feed.js | File deletes → R2 |
-| viewer.js | File deletes → R2 |
-| profile.js | File deletes → R2 |
+- No live Worker/R2/Supabase staging probe has been run from this QA pass.
+- Direct R2/custom-domain exposure and cache invalidation are not verified.
+- Browser E2E for Studio select/transform/undo/redo/save/reopen remains outstanding.
+- Higher-order Gaussian PLY SH preservation and PLY layer-manifest round-trip need a fidelity decision and evidence.
+- A calibrated GPU reconstruction and reference-measured dimensions have not been validated.
+- `convert.html` still uses the legacy Supabase Storage `splat-files` bucket for `.fumoc` sharing; verify that separate legacy path before claiming it is covered by the R2 Worker policy.
 
-Supabase DB (splats, processing_jobs, profiles etc.) is unchanged.
+Until these gates are closed, keep PR #10 draft and do not call FUMOCA production-ready.

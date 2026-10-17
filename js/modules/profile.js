@@ -35,54 +35,62 @@ function extractStoragePath(urlString) {
 }
 
 async function deleteUploadRecord(item) {
-  if (item.source === 'nif_files') {
-    // The NIF row stores R2 object keys, not Supabase Storage URLs. Prefer
-    // those keys directly so CDN URLs do not leave orphaned source/thumbnail
-    // objects behind. Delete the database row first; a storage failure should
-    // never destroy the only database reference to the remaining objects.
-    const { error } = await supabase.from('nif_files').delete().eq('id', item.id).eq('user_id', item.user_id);
-    if (error) throw error;
+  // The profile now loads only nif_files rows. Refuse stale legacy-shaped
+  // records instead of attempting writes to tables absent from production.
+  if (!item || item.source !== 'nif_files') {
+    throw new Error('This profile item uses an unsupported legacy record shape. Refresh the profile and retry.');
+  }
 
-    const keys = [
-      item.r2_key,
-      item.meta?.source_r2_key,
-      item.meta?.source_capture?.r2_key,
-      item.meta?.thumbnail_r2_key,
-      item.meta?.capture_thumbnail_r2_key,
-    ].filter((key, index, all) => typeof key === 'string' && key.trim() && all.indexOf(key) === index);
-    const results = await Promise.allSettled(keys.map(key => r2.from('nif-files').remove([key])));
-    const failed = results.filter(result => result.status === 'rejected' || result.value?.error);
-    if (failed.length) {
-      console.warn('[FUMOCA profile] NIF record deleted; some R2 objects may need cleanup', {
-        nifId: item.id, failedCount: failed.length,
+  // Keep the ownership row available until the Worker has authorized cleanup.
+  // Each object must be deleted from its real bucket; never remove raw captures
+  // or thumbnails from nif-files just because they belong to one NIF record.
+  const sourceCapture = item.meta?.source_capture;
+  const candidates = [
+    { bucket: 'nif-files', key: item.r2_key },
+    // Current direct NIF/SPLAT/PLY uploads keep source_r2_key in nif-files;
+    // try nif-videos too for records created by the older capture pipeline.
+    { bucket: item.meta?.source_r2_bucket || (item.meta?.source_r2_key?.startsWith('raw/') ? 'nif-videos' : 'nif-files'), key: item.meta?.source_r2_key },
+    ...(!item.meta?.source_r2_bucket && item.meta?.source_r2_key && !item.meta.source_r2_key.startsWith('raw/') ? [{ bucket: 'nif-videos', key: item.meta.source_r2_key }] : []),
+    { bucket: sourceCapture?.r2_bucket || sourceCapture?.bucket || (sourceCapture?.r2_key?.startsWith('raw/') ? 'nif-videos' : 'nif-files'), key: sourceCapture?.r2_key },
+    ...(!sourceCapture?.r2_bucket && !sourceCapture?.bucket && sourceCapture?.r2_key && !sourceCapture.r2_key.startsWith('raw/')
+      ? [{ bucket: 'nif-videos', key: sourceCapture.r2_key }] : []),
+    ...(Array.isArray(item.meta?.lidar_sources) ? item.meta.lidar_sources.flatMap(source => [
+      { bucket: source?.r2_bucket || source?.bucket || (source?.r2_key?.startsWith('raw/') ? 'nif-videos' : 'nif-files'), key: source?.r2_key },
+      ...(!source?.r2_bucket && !source?.bucket && source?.r2_key && !source.r2_key.startsWith('raw/') ? [{ bucket: 'nif-videos', key: source.r2_key }] : []),
+    ]) : []),
+    { bucket: 'nif-files', key: item.meta?.mobile_asset_r2_key },
+    { bucket: 'nif-files', key: item.meta?.cleaned_splat?.r2_key },
+    ...(Array.isArray(item.meta?.open_variant_r2_keys)
+      ? item.meta.open_variant_r2_keys.map(key => ({ bucket: 'nif-files', key })) : []),
+    { bucket: 'thumbnails', key: item.meta?.thumbnail_r2_key },
+    { bucket: 'thumbnails', key: item.meta?.capture_thumbnail_r2_key },
+    { bucket: 'preview-videos', key: item.meta?.teaser_video_r2_key },
+  ].filter(entry => typeof entry.key === 'string' && entry.key.trim());
+  const unique = new Map();
+  for (const entry of candidates) unique.set(`${entry.bucket}:${entry.key}`, entry);
+
+  const cleanup = await Promise.allSettled(
+    [...unique.values()].map(entry => r2.from(entry.bucket).remove([entry.key]))
+  );
+  const failed = cleanup.some(result => result.status === 'rejected' || result.value?.error);
+  if (failed) {
+    throw new Error('Some storage objects could not be deleted. The NIF record was kept so cleanup can be retried.');
+  }
+
+  const { error } = await supabase.from('nif_files')
+    .delete().eq('id', item.id).eq('user_id', item.user_id);
+  if (error) throw error;
+
+  // Jobs are independent records; remove only a known job attached to this NIF.
+  if (item.job_id) {
+    const { error: jobsError } = await supabase.from('reconstruction_jobs')
+      .delete().eq('id', item.job_id).eq('user_id', item.user_id);
+    if (jobsError) {
+      console.warn('[FUMOCA profile] NIF deleted but its reconstruction job needs cleanup', {
+        nifId: item.id, jobId: item.job_id, error: jobsError.message,
       });
     }
-    return;
   }
-  const candidates = [
-    item?.splat_url, item?.output_url, item?.public_url, item?.file_url, item?.external_splat_url, item?.provider_splat_url,
-    item?.thumbnail_url, item?.poster_url, item?.preview_image_url,
-    item?.preview_video_url, item?.teaser_video_url, item?.video_url, item?.source_video_url
-  ].filter(Boolean);
-  const explicitPaths = [
-    item?.video_bucket && item?.video_path ? { bucket: item.video_bucket, path: item.video_path } : null,
-    item?.splat_bucket && item?.splat_path ? { bucket: item.splat_bucket, path: item.splat_path } : null,
-    item?.thumb_bucket && item?.thumbnail_path ? { bucket: item.thumb_bucket, path: item.thumbnail_path } : null,
-  ].filter(Boolean);
-  const removals = [...explicitPaths];
-  for (const raw of candidates) {
-    const hit = extractStoragePath(raw);
-    if (hit) removals.push(hit);
-  }
-  const dedup = new Map();
-  removals.forEach(item => dedup.set(`${item.bucket}:${item.path}`, item));
-  for (const entry of dedup.values()) {
-    try { await r2.from(entry.bucket).remove([entry.path]); } catch (_) {}
-  }
-  try { await supabase.from('processing_jobs').delete().eq('splat_id', item.id); } catch (_) {}
-  try { await supabase.from('processing_jobs').delete().eq('user_id', item.user_id).eq('video_path', item.video_path); } catch (_) {}
-  const { error } = await supabase.from('splats').delete().eq('id', item.id).eq('user_id', item.user_id);
-  if (error) throw error;
 }
 
 let userId = null;
@@ -181,25 +189,17 @@ async function init() {
   const displayName = [user.user_metadata?.first_name, user.user_metadata?.last_name].filter(Boolean).join(' ') || username;
 
   const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
-  const { data: splats } = await supabase
-    .from('splats')
-    .select('id,user_id,status,title,created_at,splat_url,output_url,public_url,file_url,external_splat_url,provider_splat_url,thumbnail_url,poster_url,preview_image_url,preview_video_url,teaser_video_url,video_url,source_video_url,video_bucket,video_path,splat_bucket,splat_path,thumb_bucket,thumbnail_path')
-    .eq('user_id', user.id)
-    .order('created_at', { ascending: false });
-
-  // nif_files is the real, live table for anything captured through the
-  // new pipeline — profile.js only ever queried splats, so nothing
-  // processed by engine-next/reconstruction/pipeline.py ever showed up
-  // here. Normalize each row into the same shape the rest of this file
-  // (resolveUrl, deleteUploadRecord, renderRecent, renderManage) already
-  // expects, rather than touching every consumer.
+  // Production uses nif_files/reconstruction_jobs. Do not query the absent
+  // legacy splats table here: that request fails on every profile load and
+  // its old rows cannot be returned by the deployed schema anyway.
+  // Normalize NIF rows into the shape used by the existing profile UI.
   const { data: nifRows } = await supabase
     .from('nif_files')
     .select('id,user_id,title,created_at,r2_key,thumbnail_url,meta,job_id')
     .eq('user_id', user.id)
     .order('created_at', { ascending: false });
   const nifList = Array.isArray(nifRows) ? nifRows : [];
-  const jobIds = nifList.map(row => row.job_id || row.id).filter(Boolean);
+  const jobIds = nifList.map(row => row.job_id).filter(Boolean);
   let jobsById = new Map();
   if (jobIds.length) {
     const { data: jobs, error: jobsError } = await supabase
@@ -210,7 +210,7 @@ async function init() {
     else jobsById = new Map((jobs || []).map(job => [job.id, job]));
   }
   const nifs = nifList.map((row) => {
-    const job = jobsById.get(row.job_id || row.id);
+    const job = row.job_id ? jobsById.get(row.job_id) : null;
     return {
       id: row.id,
       user_id: row.user_id,
@@ -224,17 +224,16 @@ async function init() {
         : ''),
       title: row.title,
       created_at: row.created_at,
-      output_url: row.r2_key ? r2.publicUrl('nif-files', row.r2_key) : '',
+      output_url: row.r2_key ? r2.publicUrl('nif-files', row.r2_key) : (row.meta?.external_nif_url || row.meta?.nif_url || ''),
       r2_key: row.r2_key,
       job_id: row.job_id || null,
       meta: row.meta || {},
-      thumbnail_url: (row.meta?.thumbnail_r2_key && r2.publicUrl('nif-files', row.meta.thumbnail_r2_key)) || row.thumbnail_url || '',
+      thumbnail_url: (row.meta?.thumbnail_r2_key && r2.publicUrl('thumbnails', row.meta.thumbnail_r2_key)) || row.thumbnail_url || '',
       source: 'nif_files', // deleteUploadRecord needs this to know which table/bucket to clean up
     };
   });
 
-  uploads = [...nifs, ...(Array.isArray(splats) ? splats : [])]
-    .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+  uploads = nifs.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
 
   document.getElementById('profileName').textContent = displayName;
   document.getElementById('profileHandle').textContent = '@' + username;

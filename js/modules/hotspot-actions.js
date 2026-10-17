@@ -40,6 +40,24 @@
  * ══════════════════════════════════════════════════════════════════════════
  */
 
+import r2 from '../r2Client.js';
+
+function safeHttpUrl(value) {
+  try {
+    const url = new URL(String(value || ''), window.location.href);
+    return ['http:', 'https:'].includes(url.protocol) ? url.href : '';
+  } catch (_) { return ''; }
+}
+
+function safeMediaUrl(value) {
+  const httpUrl = safeHttpUrl(value);
+  if (httpUrl) return httpUrl;
+  try {
+    const url = new URL(String(value || ''), window.location.href);
+    return url.protocol === 'blob:' && url.origin === window.location.origin ? url.href : '';
+  } catch (_) { return ''; }
+}
+
 // Track the currently-playing audio so new triggers can cancel the old one.
 // Scoped to module, not per-hotspot — a configurator should typically only
 // have one audio source playing at a time (engine vs horn, etc).
@@ -70,9 +88,10 @@ export function stopAllAudio() {
  * we swallow it silently rather than crashing the hotspot.
  */
 function playAudio(url, { loop = false, volume = 1.0 } = {}) {
-  if (!url) return Promise.resolve();
+  const safeUrl = safeMediaUrl(url);
+  if (!safeUrl) return Promise.resolve();
   stopAllAudio();
-  const audio = new Audio(url);
+  const audio = new Audio(safeUrl);
   audio.preload = 'auto';
   audio.loop = !!loop;
   audio.volume = Math.max(0, Math.min(1, volume));
@@ -123,10 +142,11 @@ function getVideoOverlay() {
 }
 
 function showVideo(url) {
-  if (!url) return;
+  const safeUrl = safeMediaUrl(url);
+  if (!safeUrl) return;
   const overlay = getVideoOverlay();
   const player = overlay.querySelector('#fumocaVideoOverlayPlayer');
-  player.src = url;
+  player.src = safeUrl;
   overlay.style.display = 'flex';
   player.play?.().catch(() => {});
 }
@@ -170,11 +190,12 @@ function showInfo({ title, body, cta }) {
   const actions = card.querySelector('#fumocaInfoCardActions');
   actions.innerHTML = '';
 
-  if (cta?.url && cta?.label) {
+  const ctaUrl = safeHttpUrl(cta?.url);
+  if (ctaUrl && cta?.label) {
     const a = document.createElement('a');
-    a.href = cta.url;
+    a.href = ctaUrl;
     a.target = '_blank';
-    a.rel = 'noopener';
+    a.rel = 'noopener noreferrer';
     a.textContent = cta.label;
     Object.assign(a.style, {
       background: '#c8ff00', color: '#0b0e14', padding: '10px 18px',
@@ -228,13 +249,14 @@ export async function runAction(action, context = {}) {
     case 'video':
       return showVideo(action.url);
 
-    case 'link':
-      if (action.url) {
-        // rel=noopener prevents the opened page from reaching back into ours
-        // via window.opener. Always include it for external links.
-        window.open(action.url, action.target || '_blank', 'noopener,noreferrer');
+    case 'link': {
+      const url = safeHttpUrl(action.url);
+      if (url) {
+        // Never allow javascript:/data: URLs from imported hotspot metadata.
+        window.open(url, '_blank', 'noopener,noreferrer');
       }
       return;
+    }
 
     case 'nested_splat':
       // Delegate to the existing hotspot-pro module if present. If not, do
@@ -344,7 +366,30 @@ export async function runAction(action, context = {}) {
           window._fumocaRestoreRendererPreview?.();
           _liveAnimateOpenState.set(action.layer, false);
         } else {
-          window._fumocaApplyRendererPreview(action.openNifUrl);
+          let openUrl = action.openNifUrl;
+          const record = window._fumocaCurrentRecord;
+          if (record && record.is_public !== true) {
+            let key = action.openNifR2Key || null;
+            if (!key) {
+              try {
+                const parsed = new URL(action.openNifUrl, window.location.href);
+                if (parsed.searchParams.get('bucket') === 'nif-files' && parsed.pathname.includes('/file/')) {
+                  key = decodeURIComponent(parsed.pathname.split('/file/')[1].split('/')[0]);
+                }
+              } catch (_) {}
+            }
+            if (!key) {
+              console.warn('[FumocaHotspotActions] Private open-state variant has no resolvable R2 key.');
+              return;
+            }
+            try {
+              openUrl = await r2.from('nif-files').authenticatedUrl(key);
+            } catch (error) {
+              console.warn('[FumocaHotspotActions] Could not authorize private open-state variant:', error?.message || error);
+              return;
+            }
+          }
+          window._fumocaApplyRendererPreview(openUrl);
           _liveAnimateOpenState.set(action.layer, true);
         }
         return;

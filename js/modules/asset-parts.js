@@ -182,13 +182,31 @@ const FumocaAssetParts = (() => {
     const opt  = opts[swapIndex];
     if (!opt) return;
 
-    // Save the active swap to the splat's scene_parts
+    // Save the active swap by merging into the latest NIF META, not the
+    // possibly stale record object retained by the viewer.
     if (_record?.id && window._fumocaSupabase) {
-      const sceneParts = { ...(_record.meta?.scene_parts || _record.scene_parts || {}) };
-      sceneParts[partName] = { ...(sceneParts[partName] || {}), active_swap: swapIndex };
-      await window._fumocaSupabase.from('nif_files')
-        .update({ meta: { ...(_record.meta || {}), scene_parts: sceneParts } })
-        .eq('id', _record.id);
+      const sb = window._fumocaSupabase;
+      const userId = _record.user_id || window._fumocaCurrentRecord?.user_id;
+      try {
+        if (!userId) throw new Error('NIF owner is unavailable; scene-part state was not persisted.');
+        const { data: latest, error: readError } = await sb.from('nif_files')
+          .select('id,user_id,meta').eq('id', _record.id).eq('user_id', userId).single();
+        if (readError || !latest) throw new Error(readError?.message || 'NIF could not be reloaded before saving scene-part state.');
+        const latestMeta = latest.meta && typeof latest.meta === 'object' ? latest.meta : {};
+        const sceneParts = { ...(latestMeta.scene_parts || {}) };
+        sceneParts[partName] = { ...(sceneParts[partName] || {}), active_swap: swapIndex };
+        const nextMeta = { ...latestMeta, scene_parts: sceneParts };
+        const { data: updated, error: writeError } = await sb.from('nif_files').update({ meta: nextMeta })
+          .eq('id', _record.id).eq('user_id', userId).select('id').maybeSingle();
+        if (writeError || !updated) throw new Error(writeError?.message || 'Scene-part state was not saved.');
+        _record.meta = nextMeta;
+        if (window._fumocaCurrentRecord?.id === _record.id) {
+          window._fumocaCurrentRecord = { ...window._fumocaCurrentRecord, meta: nextMeta };
+        }
+      } catch (error) {
+        console.warn('[AssetParts] Visual swap applied, but persistence failed:', error?.message || error);
+        window.dispatchEvent(new CustomEvent('fumoca:partSwapSaveFailed', { detail: { partName, swapIndex, error: error?.message || String(error) } }));
+      }
     }
 
     window.dispatchEvent(new CustomEvent('fumoca:partSwapped', { detail: { partName, opt, swapIndex } }));

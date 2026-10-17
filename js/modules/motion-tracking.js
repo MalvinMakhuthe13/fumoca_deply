@@ -125,16 +125,24 @@ const MotionTracking = (() => {
   }
 
   async function persistToRecord(tracking = _lastTracking, record = _record) {
-    if (!tracking || !record?.id || !window._fumocaSupabase) return false;
+    const sb = window._fumocaSupabase;
+    if (!tracking || !record?.id || !record?.user_id || !sb) return false;
     try {
-      const metadata = { ...(record.meta || {}), motion_tracking: tracking };
-      await window._fumocaSupabase.from('nif_files').update({ meta: metadata }).eq('id', record.id);
+      const { data: latest, error: readError } = await sb.from('nif_files')
+        .select('id,user_id,meta').eq('id', record.id).eq('user_id', record.user_id).single();
+      if (readError || !latest) throw new Error(readError?.message || 'NIF could not be reloaded before saving motion tracking.');
+      const latestMeta = latest.meta && typeof latest.meta === 'object' ? latest.meta : {};
+      const metadata = { ...latestMeta, motion_tracking: tracking };
+      const { data: updated, error: writeError } = await sb.from('nif_files').update({ meta: metadata })
+        .eq('id', record.id).eq('user_id', record.user_id).select('id').maybeSingle();
+      if (writeError || !updated) throw new Error(writeError?.message || 'Motion tracking was not saved.');
+      record.meta = metadata;
       if (window._fumocaCurrentRecord?.id === record.id) {
-        window._fumocaCurrentRecord.meta = metadata;
+        window._fumocaCurrentRecord = { ...window._fumocaCurrentRecord, meta: metadata };
       }
       return true;
     } catch (err) {
-      console.warn('[MotionTracking] persist failed', err);
+      console.warn('[MotionTracking] persist failed', err?.message || err);
       return false;
     }
   }

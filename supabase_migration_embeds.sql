@@ -63,9 +63,44 @@ $$;
 alter table public.embeds enable row level security;
 
 drop policy if exists "Anyone can read an embed by token" on public.embeds;
-create policy "Anyone can read an embed by token"
+drop policy if exists "NIF owners can read their embeds" on public.embeds;
+create policy "NIF owners can read their embeds"
   on public.embeds for select
-  using (true);
+  using (
+    exists (
+      select 1 from public.nif_files n
+      where n.id = splat_id and n.user_id = auth.uid()
+    )
+  );
+
+-- Public visitors should resolve only the exact token they were given, not
+-- receive SELECT access to every embed token/config row through PostgREST.
+create or replace function public.resolve_embed_token(p_token uuid)
+returns table (
+  id uuid,
+  token uuid,
+  splat_id uuid,
+  label text,
+  allowed_origins text[],
+  embed_config jsonb,
+  view_count integer,
+  created_at timestamptz,
+  updated_at timestamptz
+)
+language sql
+stable
+security definer
+set search_path = public
+as $
+  select e.id, e.token, e.splat_id, e.label, e.allowed_origins,
+         e.embed_config, e.view_count, e.created_at, e.updated_at
+  from public.embeds e
+  where e.token = p_token
+  limit 1;
+$;
+
+revoke all on function public.resolve_embed_token(uuid) from public;
+grant execute on function public.resolve_embed_token(uuid) to anon, authenticated;
 
 drop policy if exists "NIF owners can create embeds" on public.embeds;
 create policy "NIF owners can create embeds"

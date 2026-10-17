@@ -1385,14 +1385,25 @@ window.addEventListener('fumoca:requestEditMask', _fumocaEmitEditMask);
   if (!window.saveLiveEdit) {
     window.saveLiveEdit = async (delta) => {
       const rec = window._fumocaCurrentRecord;
-      if (!rec?.id) return false;
-      const merged = { ...(rec.meta?.edit_recipe || {}), ...delta, lastSaved: new Date().toISOString() };
-      const meta = { ...(rec.meta && typeof rec.meta === 'object' ? rec.meta : {}), edit_recipe: merged };
-      if (window._fumocaEditedNifUrl) meta.edited_nif_url = window._fumocaEditedNifUrl;
-      const { error } = await sb.from('nif_files').update({ meta }).eq('id', rec.id);
-      if (!error) window._fumocaCurrentRecord = { ...rec, meta };
-      else console.error('[EditEngine v60] Live edit save failed:', error.message);
-      return !error;
+      if (!rec?.id || !rec?.user_id) return false;
+      try {
+        const { data: latest, error: readError } = await sb.from('nif_files')
+          .select('id,user_id,title,description,r2_key,is_public,meta')
+          .eq('id', rec.id).eq('user_id', rec.user_id).single();
+        if (readError || !latest) throw new Error(readError?.message || 'NIF could not be reloaded before saving edits.');
+        const currentMeta = latest.meta && typeof latest.meta === 'object' ? latest.meta : {};
+        const merged = { ...(currentMeta.edit_recipe || {}), ...delta, lastSaved: new Date().toISOString() };
+        const meta = { ...currentMeta, edit_recipe: merged };
+        if (window._fumocaEditedNifUrl) meta.edited_nif_url = window._fumocaEditedNifUrl;
+        const { data: updated, error } = await sb.from('nif_files').update({ meta })
+          .eq('id', rec.id).eq('user_id', rec.user_id).select('id').maybeSingle();
+        if (error || !updated) throw new Error(error?.message || 'Live edit metadata was not saved.');
+        window._fumocaCurrentRecord = { ...(window._fumocaCurrentRecord || {}), ...latest, meta };
+        return true;
+      } catch (error) {
+        console.error('[EditEngine v60] Live edit save failed:', error?.message || error);
+        return false;
+      }
     };
   }
 

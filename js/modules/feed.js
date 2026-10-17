@@ -28,7 +28,8 @@ function firstNonEmpty(...values) {
 
 function resolveUrl(row) {
   const stored = firstNonEmpty(row.nif_url, row.output_url, row.public_url,
-    row.file_url, row.external_nif_url, row.provider_nif_url);
+    row.file_url, row.external_nif_url, row.provider_nif_url,
+    row.meta?.nif_url, row.meta?.external_nif_url, row.meta?.provider_nif_url);
   if (stored) return stored;
   // nif_files (the real, live table for pipeline-produced NIFs) has no
   // URL column at all — pipeline.py's _register() only ever writes r2_key.
@@ -56,7 +57,7 @@ function resolveThumbnail(row) {
 }
 
 function resolvePreviewVideo(row) {
-  return firstNonEmpty(row.preview_video_url, row.teaser_video_url, row.video_url);
+  return firstNonEmpty(row.preview_video_url, row.teaser_video_url, row.video_url, row.meta?.preview_video_url, row.meta?.teaser_video_url);
 }
 
 function normalizeStatus(status, url) {
@@ -84,7 +85,7 @@ function placeholderClass(s) { return s === 'processing' ? 'processing' : s === 
 function placeholderIcon(s) { return s === 'done' ? '🧊' : s === 'processing' ? '⚙️' : s === 'failed' ? '❌' : '⏳'; }
 function progressPct(post) { return Math.min(100, Number(post.processing_progress ?? post.progress_percent ?? 0)); }
 function providerChip(post) {
-  const label = firstNonEmpty(post.provider_name, post.source_type === 'external' ? 'External provider' : 'FUMOCA');
+  const label = firstNonEmpty(post.provider_name, post.meta?.provider_name, post.meta?.source_type === 'external' ? 'External provider' : 'FUMOCA');
   return `<span class="post-tag">${esc(label)}</span>`;
 }
 function isAdminRole(role) { return ['admin','super_admin','owner'].includes(String(role||'').toLowerCase()); }
@@ -126,22 +127,31 @@ function showToast(msg, isError = false) {
 async function deletePostRecord(post, opts = {}) {
   const { silent = false } = opts;
 
-  // Delete the database row first so an RLS/schema failure cannot leave a
-  // live feed card pointing at objects that were already removed.
-  const { error } = await supabase.from('nif_files').delete().eq('id', post.id).eq('user_id', post.user_id);
-  if (error) throw error;
-
-  // The canonical table stores R2 keys. CDN URLs are not Supabase Storage
-  // URLs, so URL parsing alone misses the main NIF, original source and poster.
+  // Keep the ownership row available while the Worker verifies each R2 key.
+  // Route canonical keys to their actual buckets; CDN URLs aren't Supabase paths.
   const filesToDelete = [];
-  for (const key of [
-    post.r2_key,
-    post.meta?.source_r2_key,
-    post.meta?.source_capture?.r2_key,
-    post.meta?.thumbnail_r2_key,
-    post.meta?.capture_thumbnail_r2_key,
-  ]) {
-    if (typeof key === 'string' && key.trim()) filesToDelete.push({ bucket: 'nif-files', path: key });
+  const sourceCapture = post.meta?.source_capture;
+  const candidates = [
+    { bucket: 'nif-files', path: post.r2_key },
+    { bucket: post.meta?.source_r2_bucket || (post.meta?.source_r2_key?.startsWith('raw/') ? 'nif-videos' : 'nif-files'), path: post.meta?.source_r2_key },
+    ...(!post.meta?.source_r2_bucket && post.meta?.source_r2_key && !post.meta.source_r2_key.startsWith('raw/') ? [{ bucket: 'nif-videos', path: post.meta.source_r2_key }] : []),
+    { bucket: sourceCapture?.r2_bucket || sourceCapture?.bucket || (sourceCapture?.r2_key?.startsWith('raw/') ? 'nif-videos' : 'nif-files'), path: sourceCapture?.r2_key },
+    ...(!sourceCapture?.r2_bucket && !sourceCapture?.bucket && sourceCapture?.r2_key && !sourceCapture.r2_key.startsWith('raw/')
+      ? [{ bucket: 'nif-videos', path: sourceCapture.r2_key }] : []),
+    ...(Array.isArray(post.meta?.lidar_sources) ? post.meta.lidar_sources.flatMap(source => [
+      { bucket: source?.r2_bucket || source?.bucket || (source?.r2_key?.startsWith('raw/') ? 'nif-videos' : 'nif-files'), path: source?.r2_key },
+      ...(!source?.r2_bucket && !source?.bucket && source?.r2_key && !source.r2_key.startsWith('raw/') ? [{ bucket: 'nif-videos', path: source.r2_key }] : []),
+    ]) : []),
+    { bucket: 'nif-files', path: post.meta?.mobile_asset_r2_key },
+    { bucket: 'nif-files', path: post.meta?.cleaned_splat?.r2_key },
+    ...(Array.isArray(post.meta?.open_variant_r2_keys)
+      ? post.meta.open_variant_r2_keys.map(path => ({ bucket: 'nif-files', path })) : []),
+    { bucket: 'thumbnails', path: post.meta?.thumbnail_r2_key },
+    { bucket: 'thumbnails', path: post.meta?.capture_thumbnail_r2_key },
+    { bucket: 'preview-videos', path: post.meta?.teaser_video_r2_key },
+  ];
+  for (const item of candidates) {
+    if (typeof item.path === 'string' && item.path.trim()) filesToDelete.push(item);
   }
   if (post.video_path && post.video_bucket) {
     filesToDelete.push({ bucket: post.video_bucket, path: post.video_path });
@@ -169,7 +179,22 @@ async function deletePostRecord(post, opts = {}) {
   );
   const failedCleanup = cleanup.some(result => result.status === 'rejected' || result.value?.error);
   if (failedCleanup) {
-    console.warn('[FUMOCA feed] Capture record deleted; some R2 objects may need cleanup', post.id);
+    throw new Error('Some storage objects could not be deleted. The NIF record was kept so cleanup can be retried.');
+  }
+
+  const { error } = await supabase.from('nif_files')
+    .delete().eq('id', post.id).eq('user_id', post.user_id);
+  if (error) throw error;
+
+  // Remove the associated job when this artifact has an explicit job link.
+  if (post.job_id) {
+    const { error: jobDeleteError } = await supabase.from('reconstruction_jobs')
+      .delete().eq('id', post.job_id).eq('user_id', post.user_id);
+    if (jobDeleteError) {
+      console.warn('[FUMOCA feed] NIF deleted but reconstruction job cleanup failed', {
+        nifId: post.id, jobId: post.job_id, error: jobDeleteError.message,
+      });
+    }
   }
 
   // 5. Animate card out
@@ -465,12 +490,12 @@ function applyFilters() {
 }
 
 async function fetchFeedNifs() {
-  const visibilityFilter = ['public', 'followers'];
   const batches = [];
   const { data: publicRows, error: publicError } =
   await supabase
   .from('nif_files')
   .select('*')
+  .eq('is_public', true)
   .order('created_at', { ascending: false })
   .limit(60);
   if (publicError) throw publicError;
@@ -488,7 +513,7 @@ async function fetchFeedNifs() {
   // reconstruction fails the quality bar. The artifact row exists for
   // inspection, but the job status—not the presence of r2_key—decides if it
   // should be presented as ready to publish.
-  const jobIds = [...new Set(rows.map(row => row.job_id || row.id).filter(Boolean))];
+  const jobIds = [...new Set(rows.map(row => row.job_id).filter(Boolean))];
   if (jobIds.length) {
     const { data: jobs, error: jobsError } = await supabase
       .from('reconstruction_jobs')
@@ -497,8 +522,8 @@ async function fetchFeedNifs() {
     if (jobsError) throw jobsError;
     const byId = new Map((jobs || []).map(job => [job.id, job]));
     for (const row of rows) {
-      const jobId = row.job_id || row.id;
-      const job = byId.get(jobId);
+      const jobId = row.job_id;
+      const job = jobId ? byId.get(jobId) : null;
       if (job) {
         row.status = job.status;
         row.processing_progress = job.progress;
@@ -555,6 +580,20 @@ async function loadFeed() {
     let profilesById = new Map();
     try { profilesById = await fetchProfilesFor(rows); }
     catch (e) { console.warn('[FUMOCA feed] profile lookup failed', e); }
+    // Private captures' thumbnails are protected by the R2 Worker too. Resolve
+    // owner-only thumbnail URLs before rendering so the owner's feed doesn't
+    // show broken images while anonymous users remain unable to fetch them.
+    const authorizedPrivateThumbnails = new Map();
+    await Promise.all(rows.map(async row => {
+      if (row?.is_public === true || row?.user_id !== currentUserId) return;
+      const key = row.meta?.thumbnail_r2_key || row.meta?.capture_thumbnail_r2_key;
+      if (!key) return;
+      try {
+        authorizedPrivateThumbnails.set(row.id, await r2.from('thumbnails').authenticatedUrl(key));
+      } catch (error) {
+        console.warn('[FUMOCA feed] private thumbnail authorization failed', row.id, error?.message || error);
+      }
+    }));
     allPosts = rows.map(row => {
       const profile = profilesById.get(row.user_id) || {};
       const url = resolveUrl(row);
@@ -563,10 +602,10 @@ async function loadFeed() {
         ...row, status: ns,
         username: profile.username || profile.first_name || 'fumoca_user',
         avatar_url: profile.avatar_url || '',
-        thumbnail_url: resolveThumbnail(row),
+        thumbnail_url: authorizedPrivateThumbnails.get(row.id) || resolveThumbnail(row),
         preview_video_url: resolvePreviewVideo(row),
         source_type: row.source_type || (row.external_nif_url ? 'external' : 'fumoca'),
-        provider_name: row.provider_name || (row.external_nif_url ? 'External provider' : 'FUMOCA'),
+        provider_name: row.provider_name || row.meta?.provider_name || (row.external_nif_url || row.meta?.external_nif_url ? 'External provider' : 'FUMOCA'),
         isViewable: ns === 'done' && !!url,
       };
     });
@@ -634,19 +673,31 @@ window.editLiveFromFeed = async function(nifId, mediaType) {
 // ─── v60: saveLiveEdit (global helper) ───────────────────────────────────────
 window.saveLiveEdit = async function(recipeDelta) {
   const rec = window._fumocaCurrentRecord;
-  const sb  = window._fumocaSupabase;
-  if (!rec?.id || !sb) return false;
-  const current = typeof rec.edit_recipe === 'object' ? rec.edit_recipe : {};
-  const merged  = { ...current, ...recipeDelta, lastSaved: new Date().toISOString() };
-  const payload = {
-    edit_recipe:    merged,
-    last_edited_at: new Date().toISOString(),
-  };
-  if (window._fumocaEditedNifUrl) payload.nif_url = window._fumocaEditedNifUrl;
-  const { error } = await sb.from('nif_files').update(payload).eq('id', rec.id);
-  if (!error) {
-    window._fumocaCurrentRecord = { ...rec, edit_recipe: merged };
+  const sb = window._fumocaSupabase;
+  if (!rec?.id || !rec?.user_id || !sb) return false;
+  try {
+    const { data: latest, error: readError } = await sb.from('nif_files')
+      .select('id,user_id,title,description,r2_key,is_public,meta')
+      .eq('id', rec.id).eq('user_id', rec.user_id).single();
+    if (readError || !latest) throw new Error(readError?.message || 'NIF could not be reloaded before saving edits.');
+    const currentMeta = latest.meta && typeof latest.meta === 'object' ? latest.meta : {};
+    const currentRecipe = currentMeta.edit_recipe && typeof currentMeta.edit_recipe === 'object'
+      ? currentMeta.edit_recipe : {};
+    const merged = { ...currentRecipe, ...recipeDelta, lastSaved: new Date().toISOString() };
+    const nextMeta = {
+      ...currentMeta,
+      edit_recipe: merged,
+      last_edited_at: new Date().toISOString(),
+    };
+    if (window._fumocaEditedNifUrl) nextMeta.edited_nif_url = window._fumocaEditedNifUrl;
+    const { data: updated, error: writeError } = await sb.from('nif_files')
+      .update({ meta: nextMeta }).eq('id', rec.id).eq('user_id', rec.user_id).select('id').maybeSingle();
+    if (writeError || !updated) throw new Error(writeError?.message || 'NIF edit metadata was not saved.');
+    window._fumocaCurrentRecord = { ...(window._fumocaCurrentRecord || {}), ...latest, meta: nextMeta };
     window.dispatchEvent(new CustomEvent('fumoca:liveEditSaved', { detail: { nifId: rec.id } }));
+    return true;
+  } catch (error) {
+    console.error('[FUMOCA] Live edit save failed:', error?.message || error);
+    return false;
   }
-  return !error;
 };

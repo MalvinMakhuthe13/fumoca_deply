@@ -22,11 +22,12 @@
 import {
   NIFWriter, NIFReader, CHUNK, CODEC,
   encodeMetaChunk, decodeMetaChunk, encodeThumbnailChunk,
-  decompressChunk, decodePhysicsChunk,
+  decompressChunk, decodePhysicsChunk, encodeGaussianSHChunk,
   decodeCalibrationChunk, decodeVerificationChunk,
 } from '../../engine-next/format/NIFSpec.js';
 
 const FLOATS_PER_POINT = 14;
+const MAX_CONVERSION_GAUSSIANS = 5_000_000;
 
 // ── logit / sigmoid helpers (canonical NIF color+opacity space) ──────────────
 function logit(p) {
@@ -42,8 +43,30 @@ function sigmoid(x) { return 1 / (1 + Math.exp(-x)); }
  * @param {number}     rowSize       bytes per point (default 32, antimatter15 layout)
  */
 function splatRowsToGeometry(sourceBuffer, aliveIndices, rowSize = 32) {
+  if (!(sourceBuffer instanceof Uint8Array)) {
+    throw new Error('[nif-format] SPLAT source must be a Uint8Array');
+  }
+  if (!Number.isInteger(rowSize) || rowSize < 32) {
+    throw new Error('[nif-format] SPLAT row size must be an integer of at least 32 bytes');
+  }
+  if (sourceBuffer.byteLength % rowSize !== 0) {
+    throw new Error('[nif-format] SPLAT source length must be divisible by row size');
+  }
+  if (!aliveIndices || typeof aliveIndices.length !== 'number') {
+    throw new Error('[nif-format] aliveIndices must be an array-like collection');
+  }
+  const rowCount = sourceBuffer.byteLength / rowSize;
+  for (let i = 0; i < aliveIndices.length; i++) {
+    const index = aliveIndices[i];
+    if (!Number.isInteger(index) || index < 0 || index >= rowCount) {
+      throw new Error(`[nif-format] SPLAT point index ${index} at position ${i} is out of bounds`);
+    }
+  }
   const dv    = new DataView(sourceBuffer.buffer, sourceBuffer.byteOffset, sourceBuffer.byteLength);
   const count = aliveIndices.length;
+  if (count < 1 || count > MAX_CONVERSION_GAUSSIANS) {
+    throw new Error(`[nif-format] SPLAT conversion point count must be between 1 and ${MAX_CONVERSION_GAUSSIANS}`);
+  }
   const out   = new Float32Array(count * FLOATS_PER_POINT);
 
   aliveIndices.forEach((srcIdx, row) => {
@@ -94,7 +117,26 @@ function splatRowsToGeometry(sourceBuffer, aliveIndices, rowSize = 32) {
  * @param {Float32Array} opacities01 n, 0–1
  */
 function plyPointsToGeometry(positions, colors01, opacities01) {
+  const isArrayLike = value => value != null && typeof value.length === 'number' &&
+    Number.isSafeInteger(value.length) && value.length >= 0;
+  if (!isArrayLike(positions) || !isArrayLike(colors01) || !isArrayLike(opacities01)) {
+    throw new Error('[nif-format] PLY positions, colors and opacities must be array-like');
+  }
   const count = opacities01.length;
+  if (count < 1 || count > MAX_CONVERSION_GAUSSIANS || positions.length !== count * 3 || colors01.length !== count * 3) {
+    throw new Error('[nif-format] PLY positions and colors must each contain exactly 3 values per point');
+  }
+  for (let i = 0; i < positions.length; i++) {
+    if (!Number.isFinite(positions[i])) throw new Error(`[nif-format] PLY position contains a non-finite value at index ${i}`);
+    if (!Number.isFinite(colors01[i]) || colors01[i] < 0 || colors01[i] > 1) {
+      throw new Error(`[nif-format] PLY color must be finite and normalized to [0,1] at index ${i}`);
+    }
+  }
+  for (let i = 0; i < count; i++) {
+    if (!Number.isFinite(opacities01[i]) || opacities01[i] < 0 || opacities01[i] > 1) {
+      throw new Error(`[nif-format] PLY opacity must be finite and normalized to [0,1] at index ${i}`);
+    }
+  }
   const out   = new Float32Array(count * FLOATS_PER_POINT);
   // No real scale/rotation data for plain point clouds — encode as small
   // isotropic spheres (identity quaternion) so the same renderer path works.
@@ -126,6 +168,20 @@ function plyPointsToGeometry(positions, colors01, opacities01) {
 // existing decoder with imperceptible error (position error ~0.00003 units,
 // color/opacity error <0.2%, both well below visual threshold).
 function packGeometryQuantized(geoData, count) {
+  // Reject invalid scenes before calculating bounds. Empty/NaN geometry would
+  // otherwise produce Infinity bounds and a syntactically valid but unusable NIF.
+  if (!(geoData instanceof Float32Array) || geoData.length % FLOATS_PER_POINT !== 0 ||
+      geoData.length !== count * FLOATS_PER_POINT) {
+    throw new Error('[nif-format] geometry length must equal point count × 14 floats');
+  }
+  if (!Number.isInteger(count) || count < 1) {
+    throw new Error('[nif-format] geometry must contain at least one point');
+  }
+  for (let i = 0; i < geoData.length; i++) {
+    if (!Number.isFinite(geoData[i])) {
+      throw new Error(`[nif-format] geometry contains a non-finite value at float index ${i}`);
+    }
+  }
   let minX=Infinity,minY=Infinity,minZ=Infinity,maxX=-Infinity,maxY=-Infinity,maxZ=-Infinity;
   for (let i = 0; i < count; i++) {
     const o = i * FLOATS_PER_POINT;
@@ -165,10 +221,14 @@ function packGeometryQuantized(geoData, count) {
     points[base+7] = clamp(Math.round(((geoData[o+4]-SCALE_MIN)/SCALE_RANGE)*255), 0, 255);
     points[base+8] = clamp(Math.round(((geoData[o+5]-SCALE_MIN)/SCALE_RANGE)*255), 0, 255);
 
-    pdv.setInt8(base+9,  clamp(Math.round(geoData[o+6]*127), -127, 127));
-    pdv.setInt8(base+10, clamp(Math.round(geoData[o+7]*127), -127, 127));
-    pdv.setInt8(base+11, clamp(Math.round(geoData[o+8]*127), -127, 127));
-    pdv.setInt8(base+12, clamp(Math.round(geoData[o+9]*127), -127, 127));
+    const qNorm = Math.hypot(geoData[o+6], geoData[o+7], geoData[o+8], geoData[o+9]);
+    if (!Number.isFinite(qNorm) || qNorm < 1e-8) {
+      throw new Error(`[nif-format] point ${i} has an invalid zero-length quaternion`);
+    }
+    pdv.setInt8(base+9,  clamp(Math.round((geoData[o+6] / qNorm)*127), -127, 127));
+    pdv.setInt8(base+10, clamp(Math.round((geoData[o+7] / qNorm)*127), -127, 127));
+    pdv.setInt8(base+11, clamp(Math.round((geoData[o+8] / qNorm)*127), -127, 127));
+    pdv.setInt8(base+12, clamp(Math.round((geoData[o+9] / qNorm)*127), -127, 127));
 
     points[base+13] = clamp(Math.round(sigmoid(geoData[o+10])*255), 0, 255);
     points[base+14] = clamp(Math.round(sigmoid(geoData[o+11])*255), 0, 255);
@@ -201,6 +261,58 @@ export function encodeGeometryOnly(opts = {}) {
 }
 
 // ── Public: build a real .nif ArrayBuffer ─────────────────────────────────────
+function encodeLayerGeoChunk(layers, geoData, pointCount) {
+  const valid = (Array.isArray(layers) ? layers : []).filter(layer =>
+    (Array.isArray(layer?.indices) || (ArrayBuffer.isView(layer?.indices) && !(layer.indices instanceof DataView))) && layer.indices.length > 0);
+  if (!valid.length) return null;
+  if (valid.length > 0xffffffff) throw new Error('[nif-format] too many LAYER_GEO layers');
+
+  const normalized = valid.map(layer => {
+    const label = String(layer.label || layer.name || '').trim();
+    const labelBytes = new TextEncoder().encode(label);
+    if (!label || labelBytes.length > 255) {
+      throw new Error('[nif-format] LAYER_GEO labels must be non-empty UTF-8 strings of at most 255 bytes');
+    }
+    const indices = Array.from(layer.indices);
+    const seen = new Set();
+    for (const index of indices) {
+      if (!Number.isInteger(index) || index < 0 || index >= pointCount) {
+        throw new Error(`[nif-format] LAYER_GEO layer "${label}" contains an out-of-range point index`);
+      }
+      if (seen.has(index)) throw new Error(`[nif-format] LAYER_GEO layer "${label}" contains duplicate point indices`);
+      seen.add(index);
+    }
+    const depthMin = Number.isFinite(layer.depthMin) ? layer.depthMin : 0;
+    const depthMax = Number.isFinite(layer.depthMax) ? layer.depthMax : 0;
+    return { label, labelBytes, indices, depthMin, depthMax };
+  });
+  const byteLength = 4 + normalized.reduce((sum, layer) =>
+    sum + 1 + layer.labelBytes.length + 12 + layer.indices.length * (14 * 4 + 4), 0);
+  if (!Number.isSafeInteger(byteLength) || byteLength > 512 * 1024 * 1024) {
+    throw new Error('[nif-format] LAYER_GEO chunk exceeds the 512 MiB safety limit');
+  }
+  const bytes = new Uint8Array(byteLength);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(0, normalized.length, false);
+  let offset = 4;
+  for (const layer of normalized) {
+    view.setUint8(offset++, layer.labelBytes.length);
+    bytes.set(layer.labelBytes, offset); offset += layer.labelBytes.length;
+    view.setFloat32(offset, layer.depthMin, false); offset += 4;
+    view.setFloat32(offset, layer.depthMax, false); offset += 4;
+    view.setUint32(offset, layer.indices.length, false); offset += 4;
+    for (const index of layer.indices) {
+      const base = index * FLOATS_PER_POINT;
+      for (let f = 0; f < FLOATS_PER_POINT; f++) {
+        view.setFloat32(offset, geoData[base + f], true);
+        offset += 4;
+      }
+    }
+    for (const index of layer.indices) { view.setUint32(offset, index, false); offset += 4; }
+  }
+  return bytes;
+}
+
 /**
  * @param {object} opts
  *   geometry      Float32Array  already-packed 14-floats/point data (optional —
@@ -216,6 +328,15 @@ export function encodeGeometryOnly(opts = {}) {
  * @returns {ArrayBuffer}
  */
 export function encodeNif(opts = {}) {
+  const hasSHOption = Object.prototype.hasOwnProperty.call(opts, 'gaussianSH');
+  const hasPassthroughSH = Array.isArray(opts.passthroughChunks) &&
+    opts.passthroughChunks.some(chunk => chunk?.type === CHUNK.GAUSSIAN_SH);
+  if (opts.meta?.gaussian_sh && (
+      (hasSHOption && !opts.gaussianSH) ||
+      (!hasSHOption && !hasPassthroughSH)
+    )) {
+    throw new Error('[nif-format] metadata declares Gaussian SH but no coefficient sidecar was supplied');
+  }
   let geoData, count;
 
   if (opts.geometry) {
@@ -229,6 +350,34 @@ export function encodeNif(opts = {}) {
     count   = opts.opacities01.length;
   } else {
     throw new Error('[nif-format] encodeNif: no geometry source provided');
+  }
+
+  // The raw/uncompressed branch bypasses the quantized packer, so apply
+  // the same safety checks here rather than allowing NaN bounds into a NIF.
+  if (opts.compressed === false) {
+    if (!(geoData instanceof Float32Array) || geoData.length % FLOATS_PER_POINT !== 0 ||
+        geoData.length !== count * FLOATS_PER_POINT) {
+      throw new Error('[nif-format] geometry length must equal point count × 14 floats');
+    }
+    if (!Number.isInteger(count) || count < 1) {
+      throw new Error('[nif-format] geometry must contain at least one point');
+    }
+    for (let i = 0; i < geoData.length; i++) {
+      if (!Number.isFinite(geoData[i])) {
+        throw new Error(`[nif-format] geometry contains a non-finite value at float index ${i}`);
+      }
+    }
+    // Canonical NIF quaternions are unit-length. Copy first so encoding never
+    // mutates a caller-owned geometry buffer.
+    geoData = geoData.slice();
+    for (let i = 0; i < count; i++) {
+      const o = i * FLOATS_PER_POINT + 6;
+      const norm = Math.hypot(geoData[o], geoData[o+1], geoData[o+2], geoData[o+3]);
+      if (!Number.isFinite(norm) || norm < 1e-8) {
+        throw new Error(`[nif-format] point ${i} has an invalid zero-length quaternion`);
+      }
+      for (let j = 0; j < 4; j++) geoData[o+j] /= norm;
+    }
   }
 
   const writer = new NIFWriter({
@@ -251,6 +400,25 @@ export function encodeNif(opts = {}) {
       })()
     : packGeometryQuantized(geoData, count);
   writer.add(CHUNK.KEYFRAME_GEO, geoBytes, CODEC.RAW);
+  if (opts.gaussianSH) {
+    const shPointCount = opts.gaussianSH.pointCount ?? opts.gaussianSH.count;
+    if (shPointCount !== count) {
+      throw new Error('[nif-format] Gaussian SH sidecar point count must match geometry before encoding');
+    }
+    const declaredSH = opts.meta?.gaussian_sh;
+    const shCoefficientCount = opts.gaussianSH.coefficientCount ?? 3 * (opts.gaussianSH.degree + 1) ** 2;
+    const expectedSHProperties = ['f_dc_0', 'f_dc_1', 'f_dc_2',
+      ...Array.from({ length: Math.max(0, shCoefficientCount - 3) }, (_, i) => `f_rest_${i}`)];
+    if (declaredSH && (declaredSH.degree !== opts.gaussianSH.degree ||
+        declaredSH.coefficient_count !== shCoefficientCount ||
+        (declaredSH.properties != null &&
+          (!Array.isArray(declaredSH.properties) ||
+           declaredSH.properties.length !== shCoefficientCount ||
+           declaredSH.properties.some((name, i) => name !== expectedSHProperties[i]))))) {
+      throw new Error('[nif-format] Gaussian SH metadata does not match the sidecar before encoding');
+    }
+    writer.add(CHUNK.GAUSSIAN_SH, encodeGaussianSHChunk(opts.gaussianSH), CODEC.RAW);
+  }
 
   // Keep the extracted solid as its own colored NIF component. Gaussian
   // geometry remains independent so editors/viewers can toggle the two.
@@ -262,8 +430,9 @@ export function encodeNif(opts = {}) {
     const nFaces = Math.floor(faces.length / 3);
     if (vertices.length % 3 || faces.length % 3 || colors.length !== nVerts * 3 ||
         vertices.some(value => !Number.isFinite(value)) ||
+        colors.some(value => !Number.isInteger(value) || value < 0 || value > 255) ||
         faces.some(i => !Number.isInteger(i) || i < 0 || i >= nVerts)) {
-      throw new Error('[nif-format] encodeNif: invalid mesh color or face indices');
+      throw new Error('[nif-format] encodeNif: invalid mesh vertices, byte colors or face indices');
     }
     const meshBytes = new Uint8Array(9 + nVerts * 15 + nFaces * 12);
     const meshView = new DataView(meshBytes.buffer);
@@ -299,6 +468,11 @@ export function encodeNif(opts = {}) {
     writer.add(CHUNK.LIDAR_ATTR, attrBytes, CODEC.RAW);
   }
 
+  if (Array.isArray(opts.layers) && opts.layers.length) {
+    const layerBytes = encodeLayerGeoChunk(opts.layers, geoData, count);
+    if (layerBytes) writer.add(CHUNK.LAYER_GEO, layerBytes, CODEC.RAW);
+  }
+
   writer.add(CHUNK.META, encodeMetaChunk(opts.meta ?? {}).data, CODEC.RAW);
 
   if (opts.thumbnailBytes) {
@@ -313,7 +487,19 @@ export function encodeNif(opts = {}) {
   // discarded everything except geometry — cameras, depth maps, meshes,
   // print-ready STL, and the poster thumbnail all vanished on first save.
   if (Array.isArray(opts.passthroughChunks)) {
-    for (const chunk of opts.passthroughChunks) writer.chunks.push(chunk);
+    // Never append stale duplicates of chunks that this encode operation has
+    // explicitly rebuilt (or intentionally omitted). This is especially
+    // important for point-indexed SH, LiDAR and LAYER_GEO sidecars.
+    const replacedTypes = new Set([CHUNK.KEYFRAME_GEO, CHUNK.META]);
+    if (Object.prototype.hasOwnProperty.call(opts, 'thumbnailBytes')) replacedTypes.add(CHUNK.THUMBNAIL);
+    if (Object.prototype.hasOwnProperty.call(opts, 'mesh')) replacedTypes.add(CHUNK.KEYFRAME_MESH);
+    if (Object.prototype.hasOwnProperty.call(opts, 'gaussianSH')) replacedTypes.add(CHUNK.GAUSSIAN_SH);
+    if (Object.prototype.hasOwnProperty.call(opts, 'lidarAttributes')) replacedTypes.add(CHUNK.LIDAR_ATTR);
+    if (Object.prototype.hasOwnProperty.call(opts, 'layers')) replacedTypes.add(CHUNK.LAYER_GEO);
+    for (const chunk of opts.passthroughChunks) {
+      if (!chunk || replacedTypes.has(chunk.type)) continue;
+      writer.chunks.push(chunk);
+    }
   }
 
   return writer.build().buffer;
@@ -327,8 +513,25 @@ export async function decodeNif(arrayBuffer) {
   }
   const geometry = await reader.getGeometry(); // { count, data: Float32Array(14/point) } | null
   if (!geometry) throw new Error('[nif-format] .nif file has no KEYFRAME_GEO chunk');
-
   const meta = decodeMetaChunk(reader.getChunk(CHUNK.META));
+  const gaussianSH = await reader.getGaussianSH();
+  if (gaussianSH && gaussianSH.pointCount !== geometry.count) {
+    throw new Error('[nif-format] Gaussian SH sidecar point count does not match geometry');
+  }
+  if (gaussianSH && meta?.gaussian_sh) {
+    const declared = meta.gaussian_sh;
+    const expectedSHProperties = ['f_dc_0', 'f_dc_1', 'f_dc_2',
+      ...Array.from({ length: Math.max(0, gaussianSH.coefficientCount - 3) }, (_, i) => `f_rest_${i}`)];
+    if (declared.degree !== gaussianSH.degree ||
+        declared.coefficient_count !== gaussianSH.coefficientCount ||
+        (declared.properties != null &&
+          (!Array.isArray(declared.properties) ||
+           declared.properties.length !== gaussianSH.coefficientCount ||
+           declared.properties.some((name, i) => name !== expectedSHProperties[i])))) {
+      throw new Error('[nif-format] Gaussian SH sidecar metadata does not match the binary chunk');
+    }
+  }
+
   const thumbChunk = reader.getChunk(CHUNK.THUMBNAIL);
   const thumbnailBytes = thumbChunk ? thumbChunk.data : null;
 
@@ -368,7 +571,7 @@ export async function decodeNif(arrayBuffer) {
     } catch (err) { console.warn('[nif-format] LiDAR attributes ignored:', err.message); }
   }
 
-  return { reader, meta, thumbnailBytes, gaussians: geometry, calibration, verification, mesh, lidarAttributes };
+  return { reader, meta, thumbnailBytes, gaussians: geometry, gaussianSH, calibration, verification, mesh, lidarAttributes };
 }
 
 // ── Draco decoder — lazily created, reused across every mesh this session.
@@ -513,8 +716,9 @@ export async function decodeLayers(reader) {
   for (let i = 0; i < nLayers; i++) {
     if (offset + 1 > dv.byteLength) break;
     const labelLen = dv.getUint8(offset); offset += 1;
-    let label = '';
-    for (let j = 0; j < labelLen; j++) label += String.fromCharCode(dv.getUint8(offset++));
+    if (offset + labelLen > dv.byteLength) break;
+    const label = new TextDecoder('utf-8').decode(new Uint8Array(arrayBuffer, offset, labelLen));
+    offset += labelLen;
     if (offset + 12 > dv.byteLength) break;
     const depthMin = dv.getFloat32(offset, false); offset += 4;
     const depthMax = dv.getFloat32(offset, false); offset += 4;
@@ -583,7 +787,16 @@ export function gaussiansToRenderArrays(gaussians) {
 // thing fetched, stored, and exported; this conversion happens in memory only,
 // purely to hand off to the already-working render path.
 export function geometryToSplatRows(gaussians) {
-  const { count, data } = gaussians;
+  const { count, data } = gaussians || {};
+  if (!Number.isInteger(count) || count < 1 || count > MAX_CONVERSION_GAUSSIANS ||
+      !(data instanceof Float32Array) || data.length !== count * FLOATS_PER_POINT) {
+    throw new Error('[nif-format] decoded geometry has an invalid point count or data length');
+  }
+  for (let i = 0; i < data.length; i++) {
+    if (!Number.isFinite(data[i])) {
+      throw new Error(`[nif-format] decoded geometry contains a non-finite value at float index ${i}`);
+    }
+  }
   const rowSize = 32;
   const out = new Uint8Array(count * rowSize);
   const dv  = new DataView(out.buffer);
@@ -591,21 +804,28 @@ export function geometryToSplatRows(gaussians) {
   for (let i = 0; i < count; i++) {
     const o = i * FLOATS_PER_POINT;
     const base = i * rowSize;
+    const scales = [data[o+3], data[o+4], data[o+5]].map(Math.exp);
+    if (scales.some(scale => !Number.isFinite(scale) || scale < 1.401298464324817e-45 || scale > 3.4028234663852886e38)) {
+      throw new Error(`[nif-format] point ${i} has a log-scale outside the representable float32 SPLAT range`);
+    }
+    const qNorm = Math.hypot(data[o+6], data[o+7], data[o+8], data[o+9]);
+    if (!Number.isFinite(qNorm) || qNorm < 1e-8) {
+      throw new Error(`[nif-format] point ${i} has an invalid zero-length quaternion`);
+    }
 
     dv.setFloat32(base + 0, data[o+0], true);
     dv.setFloat32(base + 4, data[o+1], true);
     dv.setFloat32(base + 8, data[o+2], true);
+    dv.setFloat32(base + 12, scales[0], true);
+    dv.setFloat32(base + 16, scales[1], true);
+    dv.setFloat32(base + 20, scales[2], true);
 
-    dv.setFloat32(base + 12, Math.exp(data[o+3]), true);
-    dv.setFloat32(base + 16, Math.exp(data[o+4]), true);
-    dv.setFloat32(base + 20, Math.exp(data[o+5]), true);
-
-    // Re-quantise quaternion (canonical is already-normalised float wxyz)
+    // Re-quantise a normalized quaternion (canonical float order is wxyz).
     const clamp255 = v => Math.max(0, Math.min(255, Math.round(v)));
-    out[base + 28] = clamp255(data[o+6] * 128 + 128);
-    out[base + 29] = clamp255(data[o+7] * 128 + 128);
-    out[base + 30] = clamp255(data[o+8] * 128 + 128);
-    out[base + 31] = clamp255(data[o+9] * 128 + 128);
+    out[base + 28] = clamp255((data[o+6] / qNorm) * 128 + 128);
+    out[base + 29] = clamp255((data[o+7] / qNorm) * 128 + 128);
+    out[base + 30] = clamp255((data[o+8] / qNorm) * 128 + 128);
+    out[base + 31] = clamp255((data[o+9] / qNorm) * 128 + 128);
 
     const opacity01 = sigmoid(data[o+10]);
     out[base + 27] = clamp255(opacity01 * 255);

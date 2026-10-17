@@ -97,18 +97,34 @@
   // ── Resolve source URL ────────────────────────────────────────────────────
   let srcUrl = fumocUrl;
 
+  let resolvedNifId = '';
   if (!srcUrl && splatId) {
-    // Load from Supabase via config
-    import('/config.js').then(async () => {
+    // NIF records live in nif_files, not the retired splats table. The
+    // fumoc-player only understands .fumoc files, so never feed it a NIF URL.
+    try {
+      await import('/config.js');
       const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm');
       const sb = createClient(window.FUMOCA_SUPABASE_URL, window.FUMOCA_SUPABASE_ANON_KEY);
-      const { data } = await sb.from('splats').select('fumoc_url,title,thumbnail_url').eq('id', splatId).single();
-      if (data) {
-        titleEl.textContent = data.title || titleParam;
-        if (data.thumbnail_url) _setThumb(data.thumbnail_url);
-        if (data.fumoc_url)    _loadPlayer(data.fumoc_url);
+      const { data, error } = await sb.from('nif_files')
+        .select('id,title,thumbnail_url,r2_key,meta,is_public')
+        .eq('id', splatId)
+        .eq('is_public', true)
+        .single();
+      if (error || !data) throw new Error('This scene is private or unavailable.');
+      resolvedNifId = data.id;
+      titleEl.textContent = data.title || titleParam;
+      document.title = titleEl.textContent + ' — FUMOCA';
+      if (data.thumbnail_url) _setThumb(data.thumbnail_url);
+      else if (data.meta?.thumbnail_r2_key) {
+        const r2 = (await import('../js/r2Client.js')).default;
+        const thumbUrl = r2.publicUrl('thumbnails', data.meta.thumbnail_r2_key);
+        if (thumbUrl) _setThumb(thumbUrl);
       }
-    });
+      labelEl.textContent = 'NIF scene ready. Open the full viewer for interactive 3D.';
+    } catch (error) {
+      labelEl.textContent = error?.message || 'Could not load this public scene.';
+      openBtn.disabled = true;
+    }
   } else if (srcUrl) {
     _loadPlayer(srcUrl);
   } else {
@@ -141,9 +157,11 @@
   openBtn.addEventListener('click', () => {
     const dest = fumocUrl
       ? `/open?url=${encodeURIComponent(fumocUrl)}`
-      : splatId
-        ? `/viewer?id=${splatId}`
-        : '/open';
+      : resolvedNifId
+        ? `/viewer.html?nifId=${encodeURIComponent(resolvedNifId)}&public=1`
+        : splatId
+          ? `/viewer.html?nifId=${encodeURIComponent(splatId)}&public=1`
+          : '/open';
     window.open(dest, '_blank');
   });
 

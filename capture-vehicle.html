@@ -516,49 +516,83 @@ async function stopRecording() {
 
 async function uploadAll() {
   uploadState.classList.add('show');
-  const uploadFill  = document.getElementById('uploadFill');
+  const uploadFill = document.getElementById('uploadFill');
   const uploadLabel = document.getElementById('uploadLabel');
 
-  const toUpload = Object.entries(blobs);
-  let uploaded = 0;
-
-  for (const [type, blob] of toUpload) {
-    uploadLabel.textContent = `Uploading ${type.replace('_', ' ')} capture…`;
-    const ext  = blob.type.includes('mp4') ? 'mp4' : 'webm';
-    const path = `captures/${splatId}/${type}.${ext}`;
-
-    try {
-      await r2.upload(path, blob);
-    } catch {
-      // Fallback: Supabase storage
-      await supabase.storage.from('captures').upload(path, blob, { upsert: true });
+  try {
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+      uploadLabel.textContent = 'Please sign in before uploading a vehicle capture.';
+      return;
     }
 
-    uploaded++;
-    uploadFill.style.width = ((uploaded / toUpload.length) * 80) + '%';
+    const toUpload = Object.entries(blobs).filter(([, blob]) => blob instanceof Blob && blob.size > 0);
+    if (!toUpload.length) throw new Error('No capture clips were recorded. Record at least the exterior clip and try again.');
+    if (!blobs.exterior || !blobs.exterior.size) throw new Error('The exterior walk-around is required for the current reconstruction pipeline.');
+
+    const uploadedFiles = {};
+    let uploaded = 0;
+
+    for (const [type, blob] of toUpload) {
+      uploadLabel.textContent = `Uploading ${type.replace('_', ' ')} capture…`;
+      const isMp4 = String(blob.type || '').toLowerCase().includes('mp4');
+      const ext = isMp4 ? 'mp4' : 'webm';
+      const contentType = blob.type || (isMp4 ? 'video/mp4' : 'video/webm');
+      const path = `${user.id}/captures/${splatId}/${type}.${ext}`;
+      const { fileKey, error } = await r2.from('nif-videos').upload(path, blob, {
+        contentType,
+        onProgress: pct => {
+          const clipProgress = Math.round((pct / 100) * 100);
+          uploadLabel.textContent = `Uploading ${type.replace('_', ' ')} capture… ${clipProgress}%`;
+        },
+      });
+      if (error) throw new Error(`Could not upload ${type} capture: ${error.message || error}`);
+      if (!fileKey) throw new Error(`Storage did not return a key for the ${type} capture.`);
+      uploadedFiles[type] = { r2_key: fileKey, filename: `${type}.${ext}`, content_type: contentType, byte_size: blob.size };
+      uploaded++;
+      uploadFill.style.width = Math.round((uploaded / toUpload.length) * 65) + '%';
+    }
+
+    const exterior = uploadedFiles.exterior;
+    if (!exterior?.r2_key) throw new Error('Exterior capture upload is missing; reconstruction was not queued.');
+
+    uploadLabel.textContent = 'Queuing exterior reconstruction…';
+    const captureManifest = Object.fromEntries(
+      Object.entries(uploadedFiles).map(([type, file]) => [type, file])
+    );
+    const { data: job, error: jobError } = await supabase.from('reconstruction_jobs').insert({
+      user_id: user.id,
+      status: 'queued',
+      progress: 0,
+      vertical: 'vehicle',
+      capture_mode: 'exterior_car',
+      raw_r2_key: exterior.r2_key,
+      meta: {
+        title: 'Vehicle capture',
+        description: 'Exterior video reconstruction. Additional recorded clips are preserved as supporting source assets.',
+        capture_types: Object.keys(uploadedFiles),
+        capture_manifest: captureManifest,
+        source_r2_key: exterior.r2_key,
+        source_capture: { ...exterior, format: 'video', capture_type: 'exterior', created_at: new Date().toISOString() },
+        auxiliary_capture_keys: Object.entries(uploadedFiles)
+          .filter(([type]) => type !== 'exterior')
+          .map(([type, file]) => ({ type, r2_key: file.r2_key })),
+        multi_clip_fusion: 'not_supported_by_current_worker',
+      },
+    }).select('id,status').single();
+    if (jobError) throw jobError;
+    if (!job?.id) throw new Error('Reconstruction queue did not return a job ID.');
+
+    uploadFill.style.width = '100%';
+    uploadLabel.textContent = 'Queued. The exterior clip will be reconstructed; anchor/interior clips are saved but are not yet fused by the current worker.';
+    setTimeout(() => {
+      window.location.href = `/viewer.html?nifId=${encodeURIComponent(job.id)}&processing=1`;
+    }, 1800);
+  } catch (error) {
+    console.error('[FUMOCA vehicle capture] upload/queue failed', error);
+    uploadLabel.textContent = `Upload failed: ${error?.message || 'Unknown error'}. Your clips remain in this page; retry when ready.`;
   }
-
-  // Create processing job in Supabase
-  uploadLabel.textContent = 'Queuing for processing…';
-  await supabase.from('processing_jobs').insert({
-    splat_id:    splatId,
-    status:      'queued',
-    stage:       'dual_capture_stitch',
-    metadata: {
-      capture_types: Object.keys(blobs),
-      anchor_count:  4,
-      stitch_mode:   'portal_v83',
-    },
-  }).catch(console.warn);
-
-  uploadFill.style.width = '100%';
-  uploadLabel.textContent = '✓ Uploaded! Processing will begin shortly.';
-
-  setTimeout(() => {
-    window.location.href = `/viewer.html?id=${splatId}&processing=1`;
-  }, 2500);
 }
-
 // ── Restart current phase ──────────────────────────────────────────────────
 
 restartBtn.addEventListener('click', () => {
@@ -592,7 +626,7 @@ await initCamera();
 // If splatId provided, show it
 const urlId = new URLSearchParams(location.search).get('splatId');
 if (urlId) {
-  const { data } = await supabase.from('splats').select('title').eq('id', urlId).single();
+  const { data } = await supabase.from('nif_files').select('title').eq('id', urlId).maybeSingle();
   if (data?.title) document.title = `FUMOCA Capture · ${data.title}`;
 }
 

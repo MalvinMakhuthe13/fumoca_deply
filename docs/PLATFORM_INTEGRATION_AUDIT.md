@@ -45,7 +45,7 @@ Classify jobs by operation, not just by file extension:
 | Operation | Preferred execution | GPU required? | Output/quality rule |
 |---|---|---|---|
 | Existing binary `.splat` → NIF | Browser/CPU encoder in `js/modules/nif-format.js` | No | Preserve source bytes as a separate R2 object; register NIF derivative with source key, output key, conversion metadata and Gaussian count; round-trip through `decodeNif` |
-| Gaussian PLY → NIF | Browser/CPU attribute adapter | No | Preserve anisotropic scales, quaternion, opacity and DC colour where supported; disclose discarded higher-order SH fields if present |
+| Gaussian PLY → NIF | Browser/CPU attribute adapter | No | Preserve exact f_dc/f_rest in GAUSSIAN_SH sidecar; use raw geometry if quantization would clamp log-scales; fail closed for unsupported SH layouts |
 | Ordinary point-cloud PLY → NIF | Browser/CPU encoder | No | Encode as isotropic points; explicitly do not claim Gaussian fidelity or mesh topology |
 | Existing NIF import, metadata edits, thumbnails, publish/share and format checks | Browser/CPU + storage/API | No | No reconstruction job should be queued just to repackage or publish an existing artifact |
 | Mesh extraction from an existing splat | CPU when size/algorithm permits; GPU optional only if a selected method requires it | Not inherently | Record mesh method, runtime, topology checks and calibration; never label watertight without testing |
@@ -86,9 +86,215 @@ Create frozen test sets for calibrated vehicle, object and scene captures. NaviG
 9. Mesh/print dimensional claims stay unverified until independently calibrated.
 10. CI covers syntax, unit tests, schema/API contracts, page-level E2E and a separate GPU smoke run with a known reference capture.
 
+## QA/QC execution log — 2026-10-17
+
+**Scope:** repository-backed static checks and targeted Studio persistence hardening. This is not a production sign-off.
+
+### Verified in GitHub Actions
+
+- Latest completed baseline workflow on `main` passed syntax checks for Studio, viewer and persistence-sensitive modules; inline Studio script checks; regression guards for layer transforms and subject selection; PLY fidelity metadata tests; CPU-only SPLAT→NIF smoke test; and the tiny GLB preflight fixture.
+- Run: https://github.com/MalvinMakhuthe13/fumoca_deply/actions/runs/39038435877
+- The earlier failures in the inline-script check were caused by the QA extractor treating an import map JSON block as JavaScript. The extractor now excludes import maps/JSON blocks; the corrected run passed.
+- A dedicated branch, `qa-qc-full-platform-2026-10-17`, contains additional NIF Studio layer-manifest persistence changes and regression guards. Its own CI result must pass before those changes are considered validated.
+
+### Findings addressed in the QA branch
+
+- NIF export and save now attach a versioned `editor_scene` manifest containing compact point-index membership, layer IDs/names, visibility, opacity and active layer.
+- NIF load restores valid layer masks from that manifest and bounds-checks every saved point index.
+- Opening a different asset clears prior NIF metadata and thumbnail state, preventing a previous file's layer manifest from leaking into a later non-NIF import.
+- Save metadata includes the same scene manifest so the database record and exported NIF can agree on the current editor scene.
+
+### Follow-up QA/QC — PLY layer persistence
+
+- Added a guarded restore path for SH-preserving edited PLY files: the editor only reapplies the database `editor_scene` manifest when the file is opened from a matching `nifId` record, the URL matches that record's current `r2_key`, and the manifest point count matches the loaded PLY.
+- Found and corrected a separate reopen risk: the editor bootstrap previously preferred legacy URL columns even after Studio updated `nif_files.r2_key`. It now builds the current artifact URL from the latest R2 key first, so a save does not silently reopen an older URL-backed artifact. Static CI guards cover this preference.
+- Added automated tests for compact index remapping, layer visibility/opacity, malformed indices, legacy files, and positive/negative PLY record matching.
+- GitHub Actions caught a test-harness newline-joining error on the first run. The harness was corrected; the subsequent run passed: https://github.com/MalvinMakhuthe13/fumoca_deply/actions/runs/39040672368
+- This is targeted regression evidence, not proof of a live browser/R2/Supabase round-trip. Signed URL formats and the deployed loader path still need an end-to-end staging test.
+
+### Security QA/QC — R2 object deletion ownership
+
+- Follow-up read/write audit found the multipart abort route was the one write-side path still missing a per-key ownership check. Added the same fail-closed `userMayWriteFileKey` guard before `resumeMultipartUpload(...).abort()` and a route-order regression assertion. This closes the route-level gap in code; CI and live staging verification are still required.
+
+- Found a critical authorization gap in `cloudflare/workers/r2-storage.js`: the delete route authenticated a user but did not verify that the user owned the requested R2 key.
+- The delete route now checks ownership before deleting. Keys under the authenticated user's own ID prefix are allowed; Studio-edited derivatives require a matching `nif_files` row owned by that user with the exact current `r2_key`. Trusted server-to-server calls retain their explicit server principal. Ownership lookup failures deny deletion.
+- Added focused regression tests for user-prefixed keys, owned Studio derivatives, cross-user denial, trusted server principal handling and missing-token denial. The full validation workflow passed on commit `1db23307341a862162e568aa4d5628410347d715`: https://github.com/MalvinMakhuthe13/fumoca_deply/actions/runs/39042632575
+- Extended the same ownership boundary to presigned upload URL issuance, direct PUT uploads, multipart create/part/complete/abort. New Studio derivative keys are accepted only when their parent `nif_files` record is owned by the authenticated user; a new derivative does not need to already equal the row's current `r2_key`. Keys outside the user's own prefix or owned Studio derivative pattern are denied. Regression tests cover cross-user write denial and fail-closed missing-token behavior.
+- CI is repository-level regression evidence, not a live integration test. The changes are not deployed to the live Cloudflare Worker. The ownership lookup depends on the deployed Supabase table's `user_id` field and RLS behavior; verify with a staging account before deployment. Existing deployed worker behavior remains a release blocker until updated and tested.
+
+### Delete-flow QA/QC — ownership lookup and database-row ordering
+
+- A critical integration issue was found in the delete path: the viewer/feed deleted the `nif_files` row before calling the R2 Worker, but the Worker verifies ownership by looking up that row. For record-backed keys, cleanup could therefore be denied after the database row was already gone.
+- The same cleanup lists also sent source capture and thumbnail keys to the wrong bucket. The viewer and feed now route output/source/thumbnail keys to `nif-files`, `nif-videos`, and `thumbnails` respectively.
+- The Worker ownership check now allows a user to delete a key under their own user prefix or a key that exactly matches their own NIF row's canonical `r2_key` or known source/thumbnail metadata. Unknown and cross-user keys fail closed. The row is deleted only after storage cleanup succeeds; if cleanup fails, the UI keeps the record and reports a retryable failure rather than pretending deletion completed.
+- Regression coverage was extended for source and thumbnail ownership. CI remains source-level testing: validate the PostgREST filter syntax and RLS behavior with a real staging user before deploying. Deleting several objects is not transactional; if a later delete fails after earlier objects succeeded, the row is retained and retrying must tolerate already-absent objects. Follow-up QA found the browser R2 client ignored non-2xx DELETE responses, falsely reporting cleanup success after a Worker 403/500. The client now rejects non-2xx responses and has regression coverage for success, 403 authorization denial, and 503 storage failure. The Worker uses R2's idempotent delete operation for missing keys, but that behavior still needs a staging check against the deployed provider.
+
+### Viewer QA/QC — incorrect R2 bucket routing for thumbnails and cleanup
+
+- Found that the viewer built `meta.thumbnail_r2_key` URLs using the `nif-files` bucket, while the feed resolves the same field from `thumbnails`. This could make a valid thumbnail fail to load from the viewer.
+- Found that the viewer's delete cleanup sent the NIF output, source capture/video keys, and thumbnail keys all to `nif-files`. Objects in `nif-videos` and `thumbnails` would not be cleaned from their actual buckets, potentially leaving orphaned storage objects.
+- Fixed on the QA branch: thumbnail URLs now use `thumbnails`; cleanup routes NIF output to `nif-files`, source keys to `nif-videos`, and thumbnail keys to `thumbnails`, de-duplicating by bucket + key.
+- Added `tests/viewer-r2-bucket-routing.mjs` and wired it into CI. This is a source-contract regression test, not proof that deletion works against live R2. Existing worker authorization and record-deletion ordering still need staging verification; the record is deleted before object cleanup, so a cleanup failure can leave orphaned objects and should be handled with a retryable cleanup queue in a later pass.
+
+### Security QA/QC — public R2 read route and visibility bypass
+- Additional configuration drift: the checked-in `supabase_storage_policies.sql` defines legacy Supabase Storage buckets `splat-videos` and `splat-files`, while the current browser client and Cloudflare Worker use R2 bucket names `nif-videos` and `nif-files`. The SQL also marks legacy `splat-files`, `preview-videos`, `thumbnails`, and `avatars` buckets public. This script does not configure Cloudflare R2 bucket privacy, and its names do not match the current NIF buckets. Do not treat running this SQL as proof that current R2 access is secure. Before release, inventory actual Supabase Storage buckets and R2 bucket/custom-domain settings, identify legacy URLs still referenced by records, and either migrate/update the policy script or explicitly retire the legacy path.
+- Scope clarification from the bucket resolver: the same unauthenticated GET handler accepts all five configured buckets (`nif-files`, `nif-videos`, `preview-videos`, `thumbnails`, `avatars`) via the `bucket` query parameter. Therefore the risk is not limited to canonical NIF outputs: any object in the source-video, preview-video, thumbnail or avatar buckets is also served without a Worker-level access decision. Public bucket bindings/CDN exposure may add another access path and must be checked separately.
+- QA acceptance should be bucket-specific: published model output may be public; raw/source capture assets and private preview videos should default private; thumbnails/avatars need an explicit product visibility policy; any public sharing mechanism must be deliberate and revocable where supported. Test both the Worker URL and any direct R2/custom-domain URL from a clean unauthenticated browser context.
+
+- Follow-up inspection found that `GET /file/:key` serves any existing object in any configured bucket without authentication or consulting `nif_files.visibility`. The response is cached with `Cache-Control: public` for up to seven days (thumbnails: one day). This means the app's `public` / `followers` visibility filter is not itself a storage access control: anyone who obtains or guesses an object URL can fetch the object directly. The URL is also returned by upload helpers as a public URL.
+- This may be intentional for published viewer assets, thumbnails and embeds, so a blanket auth requirement could break public sharing. However, private captures, source video/ZIP/PLY files and derivatives must not be assumed private just because their database record is private.
+- **Release blocker:** define and implement a storage-level read policy. At minimum, public published artifacts should be distinguishable from original/source assets; private assets must require an authenticated owner or a properly authorized share token; follower access must verify the relationship instead of treating `followers` as public. Avoid shared-cache responses for authenticated/private content, and add tests proving anonymous denial for private keys, owner access, authorized share access, and public viewer access for published assets.
+- No read-policy behavior was changed in this pass because the correct published-vs-source policy and follower/share-token contract must be explicit first. No live bucket or CDN exposure was probed. Treat existing public URLs as potentially public until the policy is implemented and verified.
+
+### Remaining release blockers / evidence still required
+
+| Gate | Current status | Evidence needed |
+|---|---|---|
+| Object-layer save/reopen | Code change in QA branch; pending branch CI and runtime test | Browser test with two subjects, distinct colours, transforms, export, reload and membership comparison |
+| Gaussian PLY higher-order SH preservation | Implemented on QA branch: optional NIF v1.2 GAUSSIAN_SH chunk preserves exact f_dc/f_rest float coefficients and property names; point-count and payload guards added | Confirm CI round-trip tests pass; later add an explicit NIF→Gaussian-PLY export UI if required |
+| PLY save with object-layer manifest | Not proven round-trip | Store/read scene manifest alongside PLY and verify viewer/editor consumes it, or disable the claim of persistence for that path |
+| Real R2/Supabase write and read | Not verified by CI | Authenticated, non-destructive staging probe with actual storage key and record lookup |
+| Worker job lifecycle | Static contract checks only | Queue a known test capture and verify queued → processing → terminal state plus artifact resolution |
+| Browser-level interaction | Not covered by current CI | Automated browser E2E for selection, transform, undo/redo, save/reload, errors and responsive layout |
+| GPU reconstruction and physical dimensions | Not verified by this run | Known capture with calibration/reference dimensions; report fallback models and mesh topology truthfully |
+
+**Release decision:** do not mark FUMOCA production-ready based only on repository CI. Keep release blocked until browser E2E, staging storage/API round-trip and one reference GPU reconstruction have recorded evidence. Do not run destructive migrations or paid GPU jobs as part of this QA pass.
+
+## Follow-up sweep: conversion validation and derivative-key ownership (2026-10-17)
+
+- Hardened `encodeNif`'s quantized geometry path to reject empty scenes, malformed 14-float records, and non-finite values before calculating bounds. Added `tests/nif-geometry-validation.mjs` and wired it into `fumoca-validation.yml`.
+- Expanded the CPU conversion smoke test to assert decoded positions, scale, opacity, RGB, NIF → legacy 32-byte SPLAT renderer conversion, and PLY point-cloud → NIF attributes. These assertions are committed but require the next GitHub Actions run to confirm; do not treat them as passed until that run is green.
+- Fixed the optional calibration/reference-mesh upload key from `verify-refs/<user>/...` to `<user>/verify-refs/...`, so the R2 Worker’s owner-prefix write authorization can accept it. Added a schema-contract assertion.
+- Fixed the cleaned-splat derivative key to `<nif-record-id>/edited_cleaned_<timestamp>.splat`, which matches the Worker’s record-owned edited-derivative contract. Extended the Studio save contract test to guard this key shape.
+- Follow-up found the matching read-side gap: the Worker’s owner lookup did not associate `meta.cleaned_splat.r2_key` with its parent NIF. Added that exact association to read authorization and regression cases for owner allow / other-user deny. The owner allow/other-user deny regression is included in the latest passing CI run.
+
+- Fixed the mobile-widget upload path in code: generated HTML now uses an authenticated owner-prefixed key, persists the exact R2 key in parent NIF metadata, checks both database writes, and attempts compensating cleanup on failure. R2 read authorization now exposes the widget anonymously only when its parent NIF is published; private owners retain private access. The Worker permits `text/html` in the NIF bucket only with a restrictive sandbox CSP, and a new regression test covers HTML injection and unsafe URL schemes. The new HTML injection and storage-policy regression tests pass in CI; staging must still verify the deployed Worker and direct-bucket exposure before release.
+- Security note: the Worker route's sandbox CSP does not prove that the underlying R2 bucket has no public custom-domain bypass. Direct bucket/custom-domain exposure remains a staging release gate.
+
+- Extended invalid-geometry validation to the uncompressed NIF encoding path as well as the quantized path; added tests for empty, malformed and non-finite geometry in both modes.
+- Executed a targeted in-memory harness against the current NIFSpec/NIF bridge source: compressed and raw invalid-geometry rejection, SPLAT → NIF attribute round-trip, NIF → 32-byte SPLAT renderer conversion, and PLY point-cloud → NIF positions/colour/opacity checks passed. The harness used a minimal ASCII metadata codec shim and is not a substitute for the repository's full Node/GitHub Actions suite.
+- Fixed a stale-state merge in Studio bootstrap so the freshly loaded database record takes precedence over an older in-memory record. Added a regression assertion.
+- Fixed direct NIF/SPLAT/PLY import publication state to honor the selected visibility instead of always inserting `is_public: false`. Added a regression assertion for the direct conversion insert.
+- Fixed baked open-state variants to preserve the original NIF META fields, thumbnail, and non-geometry chunks (including mesh/layers/physics/LiDAR/calibration/verification where present) rather than silently reducing the variant to Gaussian geometry. Added a storage/component-preservation contract test.
+
+- Hardened the open-state authoring flow further: private previews use a short-lived ticket, saved hotspot actions retain only the canonical URL plus R2 key, and runtime toggles renew the ticket for private parents. Failed remote hotspot saves now roll back the action and clean up the baked variant instead of claiming success; local backup/analytics errors no longer turn a committed remote save into a false failure.
+- Fixed legacy `.fumoc` sharing: the browser now requires a signed-in user, uses an owner-scoped object path and sanitized filename, handles popup/clipboard failure, and the storage bootstrap SQL allows `application/fumoc` with owner-scoped write/update/delete policies. A CI contract test covers the path and policies; the SQL still needs staging application.
+
+- Extended profile/feed/viewer deletion to remove all registered source, preserved LiDAR, mobile-widget, cleaned-splat, open-state, thumbnail and teaser objects before deleting the parent row. Current source metadata records the bucket explicitly; legacy raw-burst keys are routed to `nif-videos`, and the Worker retains owner-only access for old `raw/<user-id>/...` keys during migration.
+- Fixed the photo-burst upload path from `raw/<user-id>/...` (which the owner-prefix write guard rejected) to `<user-id>/raw/...`; added bucket metadata and regression checks for both new and legacy keys.
+- Fixed additional stale-META writers across live edit saves, edit-engine fallback, scene-part swaps, 4D flags, visual presets, motion tracking, viewer variants and pipeline queues. They now reload the owner-scoped NIF row, merge into current META, verify the update, and synchronize in-memory state; the old live-edit helper no longer writes phantom top-level `edit_recipe`/`nif_url` columns.
+- Hardened additional metadata writers in motion-states and the engine-next API. Measurement writes are owner-scoped, bounded, and report database failures. The legacy `/api/nif/:id/edits` route now fails closed with HTTP 501 because its former implementation wrote raw Float32 bytes to a `.nif` object key and could overwrite/corrupt the original; it must be reimplemented with the canonical NIF serializer before re-enabling.
+- Tightened R2 authorization so a metadata reference alone cannot grant public-read or delete rights to another user’s NIF, thumbnail, teaser, mobile widget, open-state variant or cleaned derivative. Public asset keys are now bound to the owning user and/or parent record path. Legacy objects with unscoped keys must be migrated/verified before release rather than silently treated as owned.
+### Newly confirmed storage integration blockers
+
+- The open-state variant storage contract has now been implemented in code: variants use owner-prefixed keys, exact keys are registered in `meta.open_variant_r2_keys`, public reads require a published parent NIF, private reads remain owner-only, cancelled previews unregister/delete their objects, non-geometry NIF chunks are preserved, and private preview/toggle operations request fresh read tickets while persisting only canonical URLs. Regression tests cover these contracts. Staging validation remains outstanding, so the live toggle remains release-blocked until that evidence exists.
+- The mobile-widget storage contract is implemented and its CI tests pass, but it remains release-blocked pending staging verification. Confirm that the deployed Worker returns the sandbox CSP on HTML responses, that a published parent exposes its widget, that private parents do not, and that the underlying R2 bucket has no direct public bypass.
+- Added `supabase_migration_mobile_assets.sql` to create the `mobile_assets` registry and owner/public-parent RLS policies, plus a CI schema contract. This migration has not been applied anywhere; stage it and verify the existing `nif_files` RLS/schema before any deployment.
+- These paths were discovered by tracing the stricter Worker write/read contract against their actual upload keys. No production Worker deployment, bucket change, migration, or public-access bypass was attempted.
+
 ## Licensing and scope boundaries
 
 - No copy/paste of external GPL-2.0 KIRI Blender add-on code or GPL-3.0 LichtFeld code into this app in this pass.
 - Do not describe FUMOCA as “best” or “at the pinnacle” until it is measured against a fixed benchmark.
 - Do not switch the engine stack or run migrations against production before schema, licensing and rollback review.
 - This audit branch documents the integration plan; production code and deployed services remain unchanged.
+
+## Latest CI evidence
+
+- GitHub Actions run [39056528849](https://github.com/MalvinMakhuthe13/fumoca_deply/actions/runs/39056528849) passed all 60 validation steps at QA head `1e0e1cc64313fa1a5a348b8938dc1ee5459c1653`, including the mobile-widget HTML security, mobile storage/RLS, open-variant ownership/component preservation, CPU conversion, geometry validation, and GLB preflight tests. This is repository CI, not live staging or browser E2E evidence.
+
+## R2 read authorization contract (implemented on QA branch; staging and deployment not verified)
+
+The previous Worker `GET /file/:key` route had no authorization/visibility check and returned `Cache-Control: public` for every configured bucket. The QA branch now checks read authorization before shared-cache lookup, only caches responses explicitly classified public, and marks owner/private responses `Cache-Control: private, no-store`. This is a code-level mitigation, not proof that live Supabase RLS, deployed Worker bindings, custom domains, direct R2 domains or CDN caches behave correctly. Treat storage privacy as a release blocker until staging evidence exists.
+
+### Implemented policy and remaining validation
+
+Use the deployed `nif_files` schema as the source of truth (`is_public` is the visibility flag; do not invent a `visibility` column):
+
+- `nif-files`: public only when the key resolves to a `nif_files` row whose `is_public = true`. The authenticated owner may read their own private file. A known key alone is never authorization.
+- `nif-videos`: private by default. Permit only the authenticated owner or a trusted server principal; do not expose raw capture media simply because the derived NIF is public.
+- `preview-videos`: private by default. A teaser is public only when its exact key is recorded as `meta.teaser_video_r2_key` on a `nif_files` row with `is_public = true`. A caller-supplied query parameter is not proof of publication.
+- `thumbnails`: public only when associated with a published NIF; otherwise owner-only. This prevents a public thumbnail bucket from bypassing private model visibility.
+- `avatars`: may remain public for profile compatibility, but must not be treated as a general-purpose private-file bucket.
+- For authenticated/private responses, use `Cache-Control: private, no-store` (or another explicitly justified private cache policy) and bypass `caches.default`. Public cache entries must not be reused for private responses. Cache identity and invalidation must be tested when a NIF changes from public to private.
+- Any future token-based share access must validate the token against the intended NIF/allowed origins and be a distinct, explicit authorization path; do not infer access from referrer or `?public=1` / `?embed=1` viewer flags.
+
+### Required regression matrix before release
+
+| Request | Expected result |
+|---|---|
+| Anonymous GET of published NIF output | Allow |
+| Anonymous GET of private NIF output | Deny |
+| Owner GET of their private NIF output with valid session | Allow |
+| Different authenticated user GET of that private output | Deny |
+| Anonymous GET of raw source video | Deny |
+| Owner GET of their raw source video | Allow |
+| Anonymous GET of thumbnail attached to a published NIF | Allow |
+| Anonymous GET of thumbnail attached to a private NIF | Deny |
+| Anonymous GET of teaser video attached to a published NIF | Allow only for exact `meta.teaser_video_r2_key` association |
+| Anonymous GET of teaser video attached to a private NIF | Deny |
+| Anonymous GET of an avatar | Allow, if public-avatar policy retained |
+| Request for unknown bucket/key or malformed key | Reject safely; never broaden access |
+| Private request after a public cache hit | Deny; no shared-cache leak |
+| NIF toggled public → private | Subsequent anonymous requests denied; cache invalidation/TTL behaviour evidenced |
+
+The QA branch implements lookups for keys stored directly on `nif_files.r2_key`, source/thumbnail keys stored in `meta`, and raw keys in `reconstruction_jobs.raw_r2_key`. Private owner reads now have a five-minute HMAC-signed, bucket/key-bound ticket endpoint (`POST /file/ticket`) so renderer libraries can fetch private NIFs without exposing the Supabase bearer token in the URL. Viewer and Studio bootstrap use the ticket URL for loading while retaining the canonical URL for metadata; ticketed/private responses bypass shared caching. The Worker requires `FUMOCA_API_SECRET` to sign tickets; verify this variable is configured in the deployed Worker before rollout. `tests/r2-read-authorization.mjs` exercises the extracted authorization helper and asserts authorization precedes cache access. `sanitiseKey` now rejects traversal segments, NUL bytes and overlong keys rather than rewriting/truncating them; encoded-path decoding failures on GET/DELETE/PUT return 400 rather than throwing. `tests/r2-key-sanitization.mjs` covers the key contract. The profile page no longer queries the absent legacy `splats` table on load, resolves thumbnails from `thumbnails`, and deletes NIF-associated R2 objects from their correct buckets before deleting the owning row; `tests/profile-r2-delete-contract.mjs` guards this path. The feed's public result query now explicitly filters `nif_files.is_public = true`, while separately including the signed-in user's own rows; job status lookup prefers `job_id` and falls back to `nif_files.id` because the current worker registers pipeline artifacts with `id = reconstruction_jobs.id`; direct imports without a matching job remain ready without a worker job. `tests/feed-visibility-contract.mjs` covers that source-level contract. Feed, viewer and profile deletion now also attempt to remove the associated `reconstruction_jobs` row only when an explicit `job_id` exists and scope that cleanup to the owning user; failures are logged for follow-up rather than masking a successful artifact deletion. `tests/nif-delete-job-cleanup.mjs` guards the contract. The vehicle-capture page now uploads clips through the actual R2 client under the authenticated user's key prefix and creates a real `reconstruction_jobs` row using the exterior clip as the current worker input. It explicitly records that auxiliary anchor/interior clips are saved but not fused by the current worker; this path still requires an authenticated browser run and worker smoke test. External-provider publishing was also corrected to write only deployed `nif_files` columns, with legacy provider/status/URL fields moved into `meta`; `is_public` now reflects the selected visibility and uploaded thumbnail keys are associated for access control and cleanup. Feed/viewer/profile URL resolution reads external URLs from `meta`. `tests/upload-nif-schema-contract.mjs` guards the schema contract. Studio publishing now requires an authenticated owner, fails rather than claiming success when the database update/insert fails, stores metadata in `meta`, uses a valid user-prefixed key for new assets, rejects unsupported followers-only visibility, and links to the viewer with `nifId`. The Worker allows the record owner to clean up a failed edited derivative without allowing cross-user deletion; `tests/publish-contract.mjs` guards the publish contract. The object-extraction save path was also moved off the absent `splats` table to `nif_files`, with user-prefixed R2 storage, private-by-default visibility, point-count/provenance metadata and a `nifId` viewer link; failed registration attempts clean up the uploaded object. `tests/object-extract-nif-contract.mjs` guards it. This is mocked regression coverage, not live Supabase/R2 evidence. Validate actual deployed RLS/PostgREST behaviour with staging credentials before relying on owner lookups. The code currently deliberately denies public `preview-videos` except owner-prefixed keys or trusted server reads; confirm this does not break any intended public preview product flow before release. No production Worker deployment or cache purge is authorized by this audit-only step.
+## Follow-up sweep: legacy page paths and failure handling (QA branch)
+
+This follow-up sweep found and corrected additional active-page paths that still referenced the retired splats / processing_jobs schema:
+
+- js/modules/pipeline.js now uploads source captures to nif-videos, inserts reconstruction_jobs with raw_r2_key and capture metadata, and attempts to remove the uploaded object if job registration fails. It no longer creates a fictitious splats row. tests/pipeline-upload-contract.mjs guards the contract.
+- js/modules/profile.js no longer has an unreachable legacy deletion branch that attempted to delete from absent tables. Unexpected legacy-shaped items now fail clearly rather than issuing stale writes. tests/profile-r2-delete-contract.mjs covers the safer behaviour.
+- ad-studio.html loads public NIFs and the signed-in user's own private NIFs from nif_files.
+- public-preview.html resolves IDs against public nif_files rows and sends NIFs to the NIF viewer rather than trying to load a NIF URL into the .fumoc-only player.
+- feed.html now reads published story/tag data from nif_files, resolves thumbnail keys through the thumbnails bucket, and bases its action-needed badge on failed reconstruction_jobs. Feed reaction clicks are deliberately session-only until a dedicated, deployed reaction table is confirmed; the page no longer attempts to write reactions into a retired table.
+- edit.html no longer falls back to the absent splats table or legacy splat-files bucket when an NIF save fails. A failed row update triggers best-effort cleanup of the new derivative and returns failure rather than claiming a save worked. This may expose old records that cannot be edited through the current schema; they need an explicit migration/import path, not a silent fallback.
+
+### Remaining active-page gaps discovered in this sweep
+
+| Area | Finding | Required next action |
+|---|---|---|
+| media-edit.html publishing | The retired splats insert has been removed; the UI now explicitly tells users publishing is not connected. The editor still does not persist the actual edited image/video output as a durable asset. nif_files is not a safe substitute because it is a NIF/scene registry, not a general media-post schema. | Define and review a media asset/post schema, R2 bucket policy, output-upload contract and rollback plan; then implement and test. Do not run a production migration without approval. |
+| convert.html share upload | Code now requires a signed-in user, uses an owner-prefixed path, sanitizes filenames, allows `application/fumoc`, and includes owner-scoped Supabase Storage insert/update/delete policies plus a CI contract test. The flow still uses the separate legacy `splat-files` bucket. | Apply `supabase_storage_policies.sql` to staging and verify authenticated upload, public share read, and denied cross-user writes before release; do not assume the SQL is deployed. |
+| Browser end-to-end QA | Current CI runs syntax, format and source-contract regression tests, but does not exercise real browser authentication, object selection, transforms, undo/redo, file save/reopen or responsive interaction. | Add/execute browser tests in a controlled staging environment with mocked services first, then a credentialed staging round-trip. |
+| R2 deployment and CDN | Worker code and config have not been deployed/probed in this pass. Direct R2/custom-domain access may bypass Worker policy if any bucket/domain is configured for public reads. | Inventory R2 public-access/custom-domain settings and test both Worker URLs and direct bucket/custom-domain URLs before release. |
+
+The latest green GitHub Actions run is repository-level evidence only. It does not close any staging, browser, data-policy or calibrated-GPU acceptance gate. Production remains unchanged; do not merge, deploy, purge caches, run migrations, or launch paid GPU work as part of this sweep without explicit approval.
+## Additional sweep findings (2026-10-17)
+
+- **Private feed thumbnails:** the feed previously built a public URL for a private thumbnail, which the new Worker correctly denies. The owner feed now obtains a short-lived authorized thumbnail URL before rendering. Regression assertions are wired into the feed contract test.
+- **Embed player schema and privacy:** the player now resolves only one embed token via `resolve_embed_token(p_token)`, uses `nif_files` rather than the retired `splats` table, checks `is_public=true`, matches the actual profile columns (`first_name`, `last_name`, `username`, `avatar_url`), applies configured origin allowlists when framed, and fixes the view-count RPC parameter. Private NIFs cannot be given public embed tokens through the manager.
+- **JavaScript syntax sweep:** CI was expanded from a few selected files to all first-party `.js` files plus executable inline JavaScript across HTML. This found an invalid `await saveRemote()` in the non-async `hsCaptureCurrent` callback in `js/modules/hotspot-pro.js`; the handler is now async. The sweep intentionally skips JSON/import-map/template script blocks.
+- **Job linkage correctness:** feed, profile and preflight no longer guess `reconstruction_jobs.id` from `nif_files.id` when `job_id` is absent. They query status only through an explicit `job_id`; a regression test is wired into CI.
+- **Byte-range reads:** the R2 Worker previously advertised `Accept-Ranges` without implementing HTTP range responses. It now parses single byte ranges, uses R2 `head` + bounded `get` for 206 responses, returns 416 for invalid ranges, and bypasses shared caching for all range responses. This prevents preflight's one-byte probe from accidentally downloading an entire large NIF and avoids serving a full cached body to range requests. Mocked parser and route-contract tests are wired into CI.
+
+These are repository changes and mocked/static tests only. The Worker is not deployed, so R2's actual range semantics, direct bucket/custom-domain exposure, Supabase RLS/PostgREST policy behaviour and real browser round-trips remain staging gates.
+- **Teaser video flow:** the old upload path `teasers/<nif-id>/...` failed the Worker’s ownership guard, and the Worker had no published-NIF association rule for `preview-videos`. Teaser uploads now use the authenticated owner prefix, persist `meta.teaser_video_r2_key`, scope metadata updates to the owner, clean up the object if metadata persistence fails, resolve metadata-backed teaser URLs in the feed, and delete teaser objects from feed/profile/viewer cleanup. CI includes public/private teaser authorization and upload/cleanup contract tests.
+
+## Deployment guide correction
+
+`cloudflare/DEPLOY.md` previously contained stale instructions that described the old one-bucket Worker, legacy `splats` schema, and `cd cloudflare && wrangler deploy`. It has been replaced with staging-safe instructions that identify root `wrangler.jsonc` as the canonical config, explicitly prohibit deploying this QA branch to production, require separate staging buckets/Worker/Supabase, and call for direct R2/custom-domain tests. A deployment-document contract test is now wired into CI.
+
+Latest full repository validation for this branch passed: https://github.com/MalvinMakhuthe13/fumoca_deply/actions/runs/39054649151 (commit `80e79d7b82e9be525639a48e3bb1cdaf91230ca8`). This remains static/mocked repository validation, not live integration sign-off.
+
+## Continued full sweep — Studio SH and publish pipeline (2026-10-17)
+
+This follow-up found defects beyond the prior static contracts and addressed them on the isolated QA branch:
+
+- **Studio NIF SH round-trip:** opening or adding a NIF with a GAUSSIAN_SH sidecar now restores the coefficient attributes into the editor/renderer state. NIF export compacts SH values in the exact same alive-point order as geometry, validates canonical property layouts, updates DC coefficients for painted points, clears their higher-order bands, and fails closed when SH metadata exists but coefficients are missing.
+- **Duplicate chunk prevention:** the Studio's passthrough filter previously excluded LiDAR chunk 0x0019 but not Gaussian SH chunk 0x001A; after adding explicit SH re-encoding, that could duplicate the sidecar. The filter now excludes both geometry-indexed chunks and re-encodes them from current editor state.
+- **Publish fidelity:** the publish builder now serializes current edited positions, anisotropic scales, rotations, colors and opacity for both Gaussian PLY and SPLAT/NIF sources, compacts SH and LiDAR sidecars against the alive-point list, and carries forward metadata, layer manifests, thumbnails, mesh and vertical. It no longer copies stale point-indexed SH/LiDAR chunks through unchanged.
+- **Canonical URL and local-file isolation:** publishing now recognizes the lowercase window._fumocanifUrl set by the viewer, preserves the original vertical for local NIF files, and does not use stale ?file= URLs after a local file is opened. Local imports are detached from the previous saved record so a Publish action creates a new record instead of overwriting a different asset. Upload responses missing a key or URL fail visibly, and rollback inspects returned R2 deletion errors.
+- **New regression coverage:** added unit tests for Studio row encoding and SH sidecar compaction/round-trip, plus publish contracts for sidecar alignment, metadata, local-import isolation and chunk duplication.
+
+The newly added tests are wired into GitHub Actions. **Do not record this batch as passing until a completed run on the latest branch head confirms it.** Earlier runs exposed an incorrect assertion scope in the new publish contract; that assertion was corrected before the latest test run.
+
+### Still requiring external evidence
+
+- Real browser E2E for authentication, file opening, selection/transforms, undo/redo, save/reopen and responsive controls.
+- Authenticated staging probes against the deployed Worker, R2 buckets/custom domains, Supabase RLS/PostgREST and cache/range semantics.
+- A calibrated GPU reconstruction compared with a physical reference, including dimensional error and artifact inspection.
+- A reviewed schema and durable output path for media-edit publishing; do not treat a disabled button as a completed feature.
+- Verify that legacy convert.html Supabase Storage policies have been applied to staging and that direct public share reads coexist with denied cross-user writes.
+
+The QA branch remains unmerged and undeployed. Repository CI, even when green, does not close these live integration or measurement gates.

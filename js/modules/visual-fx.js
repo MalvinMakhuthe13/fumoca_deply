@@ -174,9 +174,9 @@ const FumocaVisualFX = (() => {
   // ── Save / load presets to Supabase ───────────────────────────────
   async function savePreset(presetName) {
     const rec = window._fumocaCurrentRecord;
-    if (!rec?.id) return;
-    const current = rec.meta?.visual_presets || rec.visual_presets || {};
-    current[presetName] = {
+    const sb = window._fumocaSupabase;
+    if (!rec?.id || !rec?.user_id || !sb) return false;
+    const preset = {
       glowRadius: getComputedStyle(document.documentElement).getPropertyValue('--vfx-glow-radius'),
       glowColor:  getComputedStyle(document.documentElement).getPropertyValue('--vfx-glow-color'),
       edgeSpread: getComputedStyle(document.documentElement).getPropertyValue('--vfx-edge-spread'),
@@ -185,10 +185,26 @@ const FumocaVisualFX = (() => {
       brightness: getComputedStyle(document.documentElement).getPropertyValue('--vfx-brightness'),
       saturate:   getComputedStyle(document.documentElement).getPropertyValue('--vfx-saturate'),
     };
-    await window._fumocaSupabase?.from('nif_files')
-      .update({ meta: { ...(rec.meta || {}), visual_presets: current } })
-      .eq('id', rec.id);
-    console.log(`[VFX] Preset "${presetName}" saved live`);
+    try {
+      const { data: latest, error: readError } = await sb.from('nif_files')
+        .select('id,user_id,meta').eq('id', rec.id).eq('user_id', rec.user_id).single();
+      if (readError || !latest) throw new Error(readError?.message || 'NIF could not be reloaded before saving the visual preset.');
+      const latestMeta = latest.meta && typeof latest.meta === 'object' ? latest.meta : {};
+      const presets = { ...(latestMeta.visual_presets || {}) };
+      presets[presetName] = preset;
+      const nextMeta = { ...latestMeta, visual_presets: presets };
+      const { data: updated, error: writeError } = await sb.from('nif_files').update({ meta: nextMeta })
+        .eq('id', rec.id).eq('user_id', rec.user_id).select('id').maybeSingle();
+      if (writeError || !updated) throw new Error(writeError?.message || 'Visual preset was not saved.');
+      if (window._fumocaCurrentRecord?.id === rec.id) {
+        window._fumocaCurrentRecord = { ...window._fumocaCurrentRecord, meta: nextMeta };
+      }
+      console.log(`[VFX] Preset "${presetName}" saved live`);
+      return true;
+    } catch (error) {
+      console.error('[VFX] Preset save failed:', error?.message || error);
+      return false;
+    }
   }
 
   async function loadFromRecord(rec) {

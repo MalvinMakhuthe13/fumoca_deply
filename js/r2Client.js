@@ -382,8 +382,50 @@ async function uploadMultipart(
   }
 }
 
+async function deleteR2Object(bucketName, path, token) {
+  const response = await fetch(`${WORKER_URL}/file/${encodeURIComponent(path)}?bucket=${encodeURIComponent(bucketName)}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const responseText = await response.text();
+  let data = null;
+  try { data = JSON.parse(responseText); } catch { /* keep raw response */ }
+  if (!response.ok) {
+    throw new Error(
+      data?.error ||
+      responseText ||
+      `R2 delete failed (${response.status})`
+    );
+  }
+  return data;
+}
+
 function bucketRef(bucketName) {
   return {
+    /**
+     * Get a URL that can read an existing object. Private objects receive a
+     * short-lived, key-bound ticket from the Worker; the user's Supabase token
+     * is never placed in the URL.
+     * @param {string} path
+     * @returns {Promise<string>}
+     */
+    async authenticatedUrl(path) {
+      if (!WORKER_URL) throw new Error('r2WorkerUrl is not configured in config.js');
+      const token = await getAccessToken();
+      const response = await fetch(`${WORKER_URL}/file/ticket`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ bucket: bucketName, key: path }),
+      });
+      const responseText = await response.text();
+      let data = null;
+      try { data = JSON.parse(responseText); } catch { /* handled below */ }
+      if (!response.ok || !data?.url) {
+        throw new Error(data?.error || responseText || `Could not authorize file read (${response.status})`);
+      }
+      return data.url;
+    },
+
     /**
      * @param {string} path - key/path within the bucket
      * @param {Blob|File} fileOrBlob
@@ -462,12 +504,7 @@ function bucketRef(bucketName) {
       try {
         const token = await getAccessToken();
         const list = Array.isArray(paths) ? paths : [paths];
-        await Promise.all(list.map((p) =>
-          fetch(`${WORKER_URL}/file/${encodeURIComponent(p)}?bucket=${encodeURIComponent(bucketName)}`, {
-            method: 'DELETE',
-            headers: { Authorization: `Bearer ${token}` },
-          })
-        ));
+        await Promise.all(list.map((p) => deleteR2Object(bucketName, p, token)));
         return { error: null };
       } catch (err) {
         return { error: err instanceof Error ? err : new Error(String(err)) };

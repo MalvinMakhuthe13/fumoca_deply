@@ -12,6 +12,15 @@
 let bed = null;
 let unlocked = false;
 
+function safeMediaUrl(value) {
+  try {
+    const url = new URL(String(value || ''), window.location.href);
+    if (['http:', 'https:'].includes(url.protocol)) return url.href;
+    if (url.protocol === 'blob:' && url.origin === window.location.origin) return url.href;
+  } catch (_) {}
+  return '';
+}
+
 export function getSceneAudioConfig(meta = {}) {
   return meta.sceneAudio || meta.audio || null;
 }
@@ -33,9 +42,10 @@ export function stopSceneBed() {
 }
 
 export async function playSceneBed(config, { force = false } = {}) {
-  if (!config?.bed?.url) return null;
+  const bedUrl = safeMediaUrl(config?.bed?.url);
+  if (!bedUrl) return null;
   stopSceneBed();
-  const el = new Audio(config.bed.url);
+  const el = new Audio(bedUrl);
   el.loop = config.bed.loop !== false;
   el.volume = Math.min(1, Math.max(0, config.bed.volume ?? 0.35));
   bed = el;
@@ -51,8 +61,9 @@ export async function playSceneBed(config, { force = false } = {}) {
 }
 
 export function playOneShot(url, { volume = 1 } = {}) {
-  if (!url) return;
-  const el = new Audio(url);
+  const safeUrl = safeMediaUrl(url);
+  if (!safeUrl) return;
+  const el = new Audio(safeUrl);
   el.volume = volume;
   el.play().catch(() => {});
   return el;

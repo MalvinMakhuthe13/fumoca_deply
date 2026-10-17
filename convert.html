@@ -381,26 +381,48 @@ function showResult(stats) {
   };
 
   btnShare.onclick = async () => {
-    // Upload to FUMOCA storage for a shareable link
+    // Upload to FUMOCA storage for a shareable link.
     btnShare.textContent='Uploading…'; btnShare.disabled=true;
+    let shareUrl;
     try {
-      const shareUrl = await uploadForShare(resultBuffer, dlName);
+      shareUrl = await uploadForShare(resultBuffer, dlName);
+    } catch(e) {
+      btnShare.textContent='Upload failed: '+e.message;
+      setTimeout(()=>{btnShare.textContent='🔗 Copy share link';btnShare.disabled=false;},3000);
+      return;
+    }
+    try {
       await navigator.clipboard.writeText(shareUrl);
       btnShare.textContent='✓ Link copied!';
-      setTimeout(()=>{btnShare.textContent='🔗 Copy share link';btnShare.disabled=false;},3000);
-    } catch(e) {
-      btnShare.textContent='Upload failed';
-      setTimeout(()=>{btnShare.textContent='🔗 Copy share link';btnShare.disabled=false;},2000);
+    } catch {
+      window.prompt('Copy your FUMOCA share link:', shareUrl);
+      btnShare.textContent='✓ Link ready';
     }
+    setTimeout(()=>{btnShare.textContent='🔗 Copy share link';btnShare.disabled=false;},3000);
   };
 
   btnUpload.onclick = async () => {
+    // Open synchronously from the user gesture; browsers may block a popup
+    // created only after the asynchronous upload has finished.
+    const shareWindow = window.open('about:blank', '_blank');
     btnUpload.textContent='Uploading…'; btnUpload.disabled=true;
     try {
       const shareUrl = await uploadForShare(resultBuffer, dlName);
-      btnUpload.textContent='☁ Uploaded!';
-      window.open(shareUrl, '_blank');
+      if (shareWindow && !shareWindow.closed) {
+        shareWindow.location.href = shareUrl;
+        btnUpload.textContent='☁ Uploaded!';
+      } else {
+        try {
+          await navigator.clipboard.writeText(shareUrl);
+          btnUpload.textContent='✓ Link copied!';
+        } catch {
+          window.prompt('Copy your FUMOCA share link:', shareUrl);
+          btnUpload.textContent='✓ Link ready';
+        }
+      }
+      setTimeout(()=>{btnUpload.textContent='☁ Upload to FUMOCA';btnUpload.disabled=false;},3000);
     } catch(e) {
+      if (shareWindow && !shareWindow.closed) shareWindow.close();
       btnUpload.textContent='Failed: '+e.message;
       setTimeout(()=>{btnUpload.textContent='☁ Upload to FUMOCA';btnUpload.disabled=false;},3000);
     }
@@ -414,15 +436,22 @@ function showResult(stats) {
 
 // ── Upload for share link ─────────────────────────────────────────────────────
 async function uploadForShare(buffer, filename) {
-  const cfg  = window.FUMOCA_CONFIG || {};
-  if (!cfg.supabaseUrl) throw new Error('Supabase not configured');
-  const {createClient} = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm');
-  const sb   = createClient(cfg.supabaseUrl, cfg.supabaseAnonKey);
-  const ts   = Date.now();
-  const path = `public-convert/${ts}/${filename}`;
-  const { error } = await sb.storage.from('splat-files').upload(path, buffer, {contentType:'application/fumoc',upsert:false});
+  const cfg = window.FUMOCA_CONFIG || {};
+  if (!cfg.supabaseUrl || !cfg.supabaseAnonKey) throw new Error('Supabase not configured');
+  const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm');
+  const sb = createClient(cfg.supabaseUrl, cfg.supabaseAnonKey);
+  const { data: { user }, error: authError } = await sb.auth.getUser();
+  if (authError || !user?.id) throw new Error('Sign in to FUMOCA before uploading a shareable .fumoc file.');
+  const safeName = String(filename || 'converted.fumoc').split(/[\\/]/).pop()
+    .replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 180) || 'converted.fumoc';
+  const ts = Date.now();
+  const path = `${user.id}/public-convert/${ts}_${safeName}`;
+  const { error } = await sb.storage.from('splat-files').upload(path, buffer, {
+    contentType: 'application/fumoc',
+    upsert: false,
+  });
   if (error) throw new Error(error.message);
-  const {data:{publicUrl}} = sb.storage.from('splat-files').getPublicUrl(path);
+  const { data: { publicUrl } } = sb.storage.from('splat-files').getPublicUrl(path);
   return `${location.origin}/open?url=${encodeURIComponent(publicUrl)}`;
 }
 </script>

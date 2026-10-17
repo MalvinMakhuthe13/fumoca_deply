@@ -308,25 +308,50 @@ async function deleteCurrentUpload() {
   const original = btn?.textContent || 'Delete upload';
   if (btn) { btn.disabled = true; btn.textContent = 'Deletingâ€¦'; }
   try {
-    // nif_files stores canonical R2 keys; CDN URLs cannot be parsed as
-    // Supabase Storage URLs. Delete the owned record first, then clean its
-    // known NIF/source/thumbnail objects from the correct R2 bucket.
+    // Keep the ownership row available while the Worker verifies each R2 key.
+    // Remove the row only after all known objects have been cleaned successfully.
+    const sourceCapture = currentRecord.meta?.source_capture;
+    const cleanupCandidates = [
+      { bucket: 'nif-files', key: currentRecord.r2_key },
+      { bucket: currentRecord.meta?.source_r2_bucket || (currentRecord.meta?.source_r2_key?.startsWith('raw/') ? 'nif-videos' : 'nif-files'), key: currentRecord.meta?.source_r2_key },
+      ...(!currentRecord.meta?.source_r2_bucket && currentRecord.meta?.source_r2_key && !currentRecord.meta.source_r2_key.startsWith('raw/') ? [{ bucket: 'nif-videos', key: currentRecord.meta.source_r2_key }] : []),
+      { bucket: sourceCapture?.r2_bucket || sourceCapture?.bucket || (sourceCapture?.r2_key?.startsWith('raw/') ? 'nif-videos' : 'nif-files'), key: sourceCapture?.r2_key },
+      ...(!sourceCapture?.r2_bucket && !sourceCapture?.bucket && sourceCapture?.r2_key && !sourceCapture.r2_key.startsWith('raw/')
+        ? [{ bucket: 'nif-videos', key: sourceCapture.r2_key }] : []),
+      ...(Array.isArray(currentRecord.meta?.lidar_sources) ? currentRecord.meta.lidar_sources.flatMap(source => [
+        { bucket: source?.r2_bucket || source?.bucket || (source?.r2_key?.startsWith('raw/') ? 'nif-videos' : 'nif-files'), key: source?.r2_key },
+        ...(!source?.r2_bucket && !source?.bucket && source?.r2_key && !source.r2_key.startsWith('raw/') ? [{ bucket: 'nif-videos', key: source.r2_key }] : []),
+      ]) : []),
+      { bucket: 'nif-files', key: currentRecord.meta?.mobile_asset_r2_key },
+      { bucket: 'nif-files', key: currentRecord.meta?.cleaned_splat?.r2_key },
+      ...(Array.isArray(currentRecord.meta?.open_variant_r2_keys)
+        ? currentRecord.meta.open_variant_r2_keys.map(key => ({ bucket: 'nif-files', key })) : []),
+      { bucket: 'thumbnails', key: currentRecord.meta?.thumbnail_r2_key },
+      { bucket: 'thumbnails', key: currentRecord.meta?.capture_thumbnail_r2_key },
+      { bucket: 'preview-videos', key: currentRecord.meta?.teaser_video_r2_key },
+    ];
+    const cleanupTargets = cleanupCandidates.filter((item, index, all) =>
+      typeof item.key === 'string' &&
+      item.key.trim() &&
+      all.findIndex(candidate => candidate.bucket === item.bucket && candidate.key === item.key) === index
+    );
+    const cleanup = await Promise.allSettled(
+      cleanupTargets.map(({ bucket, key }) => r2.from(bucket).remove([key]))
+    );
+    if (cleanup.some(result => result.status === 'rejected' || result.value?.error)) {
+      throw new Error('Some storage objects could not be deleted. The NIF record was kept so cleanup can be retried.');
+    }
     const { error } = await supabase.from('nif_files')
       .delete().eq('id', currentRecord.id).eq('user_id', currentRecord.user_id);
     if (error) throw error;
-
-    const keys = [
-      currentRecord.r2_key,
-      currentRecord.meta?.source_r2_key,
-      currentRecord.meta?.source_capture?.r2_key,
-      currentRecord.meta?.thumbnail_r2_key,
-      currentRecord.meta?.capture_thumbnail_r2_key,
-    ].filter((key, index, all) => typeof key === 'string' && key.trim() && all.indexOf(key) === index);
-    const cleanup = await Promise.allSettled(
-      keys.map(key => r2.from('nif-files').remove([key]))
-    );
-    if (cleanup.some(result => result.status === 'rejected' || result.value?.error)) {
-      console.warn('[FUMOCA viewer] NIF row deleted; some R2 objects may need cleanup', currentRecord.id);
+    if (currentRecord.job_id) {
+      const { error: jobDeleteError } = await supabase.from('reconstruction_jobs')
+        .delete().eq('id', currentRecord.job_id).eq('user_id', currentRecord.user_id);
+      if (jobDeleteError) {
+        console.warn('[FUMOCA viewer] NIF deleted but reconstruction job cleanup failed', {
+          nifId: currentRecord.id, jobId: currentRecord.job_id, error: jobDeleteError.message,
+        });
+      }
     }
     window.location.href = 'feed.html';
   } catch (err) {
@@ -336,10 +361,13 @@ async function deleteCurrentUpload() {
   }
 }
 function firstNonEmpty(...values) { return values.find(v => typeof v === 'string' && v.trim()) || ''; }
-function getHotspotStorageKey() { return `fumoca:hotspots:${nifId || fileUrl || 'default'}`; }
-function getLookStorageKey() { return `fumoca:look:${nifId || fileUrl || 'default'}`; }
-function getMaskStorageKey() { return `fumoca:masks:${nifId || fileUrl || 'default'}`; }
-function getLassoStorageKey() { return `fumoca:lasso:${nifId || fileUrl || 'default'}`; }
+function getStorageAssetId() {
+  return nifId || (currentRecord?.r2_key ? `r2:${currentRecord.r2_key}` : resolvenifUrl(currentRecord) || originalnifUrl || fileUrl || 'default');
+}
+function getHotspotStorageKey() { return `fumoca:hotspots:${getStorageAssetId()}`; }
+function getLookStorageKey() { return `fumoca:look:${getStorageAssetId()}`; }
+function getMaskStorageKey() { return `fumoca:masks:${getStorageAssetId()}`; }
+function getLassoStorageKey() { return `fumoca:lasso:${getStorageAssetId()}`; }
 function loadHotspots() {
   try { hotspots = JSON.parse(localStorage.getItem(getHotspotStorageKey()) || '[]'); } catch (_) { hotspots = []; }
 }
@@ -701,7 +729,8 @@ function resolvenifUrl(record) {
   if (!record) return '';
   const candidates = [
     record.output_url, record.nif_url, record.public_url,
-    record.file_url, record.external_nif_url, record.provider_nif_url
+    record.file_url, record.external_nif_url, record.provider_nif_url,
+    record.meta?.nif_url, record.meta?.external_nif_url, record.meta?.provider_nif_url
   ];
   for (const url of candidates) {
     const v = _validnifUrl(url);
@@ -718,12 +747,13 @@ function resolvenifUrl(record) {
   }
   return '';
 }
-function resolvePreviewVideo(record) { return record ? firstNonEmpty(record.preview_video_url, record.teaser_video_url, record.video_url) : ''; }
+function resolvePreviewVideo(record) { return record ? firstNonEmpty(record.preview_video_url, record.teaser_video_url, record.video_url, record.meta?.preview_video_url, record.meta?.teaser_video_url) : ''; }
 function resolveThumbnail(record) {
   if (!record) return '';
   const thumbKey = record.meta?.thumbnail_r2_key;
   if (thumbKey) {
-    const built = r2.publicUrl('nif-files', thumbKey);
+    // Thumbnail keys belong to the dedicated thumbnails bucket, not nif-files.
+    const built = r2.publicUrl('thumbnails', thumbKey);
     if (built) return built;
   }
   return firstNonEmpty(record.thumbnail_url, record.poster_url, record.preview_image_url);
@@ -911,7 +941,8 @@ function applyHeader(record) {
 
   const provider = firstNonEmpty(
     record?.provider_name,
-    record?.source_type === 'external' ? 'External provider' : 'FUMOCA'
+    record?.meta?.provider_name,
+    (record?.source_type === 'external' || record?.meta?.source_type === 'external') ? 'External provider' : 'FUMOCA'
   );
 
   const status = normalizeStatus(
@@ -2042,17 +2073,47 @@ async function boot() {
     previewVideoUrl = previewVideoUrl || sessionRecord.previewVideo || '';
     fileUrl = fileUrl || _validnifUrl(sessionRecord.file) || '';
   }
-  // Probe fileUrl â€” if storage returns 400/404 it's a ghost file, use DB record
-  // Skip probe for blob: URLs â€” they don't support HEAD requests
-  if (fileUrl && !fileUrl.startsWith('blob:')) {
+
+  // Private NIF outputs are not anonymously readable. Ask the Worker for a
+  // short-lived key-bound URL so the renderer can load the object without
+  // exposing the user's Supabase access token to the rendering library.
+  let privateReadAuthorizationFailed = false;
+  if (currentRecord?.r2_key && currentRecord.is_public !== true) {
+    try {
+      fileUrl = await r2.from('nif-files').authenticatedUrl(currentRecord.r2_key);
+    } catch (error) {
+      console.warn('[Viewer] private NIF read authorization failed', error?.message || error);
+      fileUrl = '';
+      privateReadAuthorizationFailed = true;
+    }
+    if (currentRecord.meta?.thumbnail_r2_key) {
+      try {
+        thumbnailUrl = await r2.from('thumbnails').authenticatedUrl(currentRecord.meta.thumbnail_r2_key);
+      } catch (error) {
+        console.warn('[Viewer] private thumbnail authorization failed', error?.message || error);
+      }
+    } else if (currentRecord.meta?.capture_thumbnail_r2_key) {
+      try {
+        thumbnailUrl = await r2.from('thumbnails').authenticatedUrl(currentRecord.meta.capture_thumbnail_r2_key);
+      } catch (error) {
+        console.warn('[Viewer] private capture thumbnail authorization failed', error?.message || error);
+      }
+    }
+  }
+  // Probe external file URLs for stale links, but never HEAD-probe the R2 Worker:
+  // its file route intentionally supports GET only. HEAD there always fails and
+  // used to discard valid NIF URLs before falling back to the same key.
+  let isR2WorkerFileUrl = false;
+  try { isR2WorkerFileUrl = !!fileUrl && new URL(fileUrl, window.location.href).pathname.includes('/file/'); } catch (_) {}
+  if (fileUrl && !fileUrl.startsWith('blob:') && !isR2WorkerFileUrl) {
     try {
       const probe = await fetch(fileUrl, { method: 'HEAD' });
       if (!probe.ok) {
-        console.warn('[Viewer] file= URL returned HTTP', probe.status, 'â€” falling back to DB record');
+        console.warn('[Viewer] external file URL returned HTTP', probe.status, '— falling back to DB record');
         fileUrl = '';
       }
     } catch(e) {
-      console.warn('[Viewer] file= URL unreachable â€” falling back to DB record');
+      console.warn('[Viewer] external file URL unreachable — falling back to DB record');
       fileUrl = '';
     }
   }
@@ -2061,7 +2122,7 @@ async function boot() {
     try { sessionStorage.removeItem('fumoca:selectedNif'); } catch(_) {}
   }
   applyHeader(currentRecord);
-  if (!fileUrl && currentRecord) fileUrl = resolvenifUrl(currentRecord);
+  if (!fileUrl && currentRecord && !privateReadAuthorizationFailed) fileUrl = resolvenifUrl(currentRecord);
   console.log('[Viewer] Final fileUrl:', fileUrl || '(empty â€” no renderable file found)');
   configurePreview(currentRecord);
   await detectManagePermission();
@@ -2360,16 +2421,23 @@ async function _fumocaFlushPipelineQueue() {
       continue;
     }
     try {
-      const currentMeta = { ...((currentRecord || {}).meta || {}) };
+      if (!supabase || !currentRecord?.id || !currentRecord?.user_id) {
+        throw new Error('Owner-scoped NIF record is unavailable for pipeline retry persistence.');
+      }
+      const { data: latest, error: readError } = await supabase.from('nif_files')
+        .select('id,user_id,title,description,r2_key,is_public,meta')
+        .eq('id', currentRecord.id).eq('user_id', currentRecord.user_id).single();
+      if (readError || !latest) throw new Error(readError?.message || 'NIF could not be reloaded before queue retry.');
+      const currentMeta = latest.meta && typeof latest.meta === 'object' ? latest.meta : {};
       const queue = Array.isArray(currentMeta.processing_requests) ? currentMeta.processing_requests.slice() : [];
       const existing = queue.find((q) => q && q.id === item.payload?.id);
-      if (!existing && supabase && currentRecord?.id) {
+      if (!existing) {
         queue.unshift(item.payload);
-        currentMeta.processing_requests = queue.slice(0, 50);
-        currentMeta.last_processing_request = item.payload;
-        const { error } = await supabase.from('nif_files').update({ meta: currentMeta }).eq('id', currentRecord.id);
-        if (error) throw error;
-        currentRecord = { ...(currentRecord || {}), meta: currentMeta };
+        const nextMeta = { ...currentMeta, processing_requests: queue.slice(0, 50), last_processing_request: item.payload };
+        const { data: updated, error } = await supabase.from('nif_files').update({ meta: nextMeta })
+          .eq('id', currentRecord.id).eq('user_id', currentRecord.user_id).select('id').maybeSingle();
+        if (error || !updated) throw new Error(error?.message || 'Pipeline retry request was not saved.');
+        currentRecord = { ...(currentRecord || {}), ...latest, meta: nextMeta };
         window._fumocaCurrentRecord = currentRecord;
       }
       _fumocaShowPipelineIllusion('Finishing background prepâ€¦', 1400);
@@ -2704,27 +2772,43 @@ async function _fumocaSaveVariant(name = null) {
   const variantName = (name || window.prompt('Variant name', 'Clean Variant') || '').trim();
   if (!variantName) return null;
   const rec = currentRecord || {};
-  const metadata = { ...(rec.meta || {}) };
-  const variants = Array.isArray(metadata.variants) ? metadata.variants.slice() : [];
+  let metadata = { ...(rec.meta || {}) };
   const recipe = _fumocaBuildRecipe(variantName);
-  variants.unshift(recipe);
-  metadata.variants = variants.slice(0, 25);
   let savedRemote = false;
-  if (supabase && rec.id) {
+  if (supabase && rec.id && rec.user_id) {
     try {
-      const { error } = await supabase.from('nif_files').update({ meta: metadata }).eq('id', rec.id);
-      if (error) throw error;
+      const { data: latest, error: readError } = await supabase.from('nif_files')
+        .select('id,user_id,title,description,r2_key,is_public,meta')
+        .eq('id', rec.id).eq('user_id', rec.user_id).single();
+      if (readError || !latest) throw new Error(readError?.message || 'NIF could not be reloaded before saving the variant.');
+      const latestMeta = latest.meta && typeof latest.meta === 'object' ? latest.meta : {};
+      const variants = Array.isArray(latestMeta.variants) ? latestMeta.variants.slice() : [];
+      variants.unshift(recipe);
+      metadata = { ...latestMeta, variants: variants.slice(0, 25) };
+      const { data: updated, error: writeError } = await supabase.from('nif_files').update({ meta: metadata })
+        .eq('id', rec.id).eq('user_id', rec.user_id).select('id').maybeSingle();
+      if (writeError || !updated) throw new Error(writeError?.message || 'Variant was not saved.');
       savedRemote = true;
+      currentRecord = { ...(currentRecord || {}), ...latest, meta: metadata };
     } catch (err) {
-      console.warn('[fumoca] variant remote save failed', err);
+      console.warn('[fumoca] variant remote save failed', err?.message || err);
+      // Keep a local copy for the current session, but the event below clearly
+      // reports that the remote NIF record was not updated.
+      const localVariants = Array.isArray(metadata.variants) ? metadata.variants.slice() : [];
+      if (!localVariants.some(item => item?.id === recipe.id)) localVariants.unshift(recipe);
+      metadata = { ...metadata, variants: localVariants.slice(0, 25) };
     }
+  } else {
+    const variants = Array.isArray(metadata.variants) ? metadata.variants.slice() : [];
+    variants.unshift(recipe);
+    metadata = { ...metadata, variants: variants.slice(0, 25) };
   }
-  currentRecord = { ...rec, meta: metadata };
+  currentRecord = { ...(currentRecord || rec), meta: metadata };
   window._fumocaCurrentRecord = currentRecord;
   try {
-    localStorage.setItem(`fumoca_variants_${rec.id || location.pathname}`, JSON.stringify(metadata.variants));
+    localStorage.setItem(`fumoca_variants_${rec.id || location.pathname}`, JSON.stringify(metadata.variants || []));
   } catch (_) {}
-  window.dispatchEvent(new CustomEvent('fumoca:variantsUpdated', { detail: metadata.variants }));
+  window.dispatchEvent(new CustomEvent('fumoca:variantsUpdated', { detail: metadata.variants || [] }));
   window.dispatchEvent(new CustomEvent('fumoca:variantSaved', { detail: { savedRemote, recipe } }));
   return { savedRemote, recipe };
 }
@@ -2763,29 +2847,33 @@ async function _fumocaQueuePipeline(kind = 'mesh_cleanup', extraPayload = {}) {
     source_record_id: safeExtra.source_record_id || rec.id || null,
     status: safeExtra.status || 'queued',
   };
-  const metadata = { ...(rec.meta || {}) };
-  const queue = Array.isArray(metadata.processing_requests) ? metadata.processing_requests.slice() : [];
-  queue.unshift(payload);
-  metadata.processing_requests = queue.slice(0, 50);
-  metadata.last_processing_request = payload;
+  let metadata = { ...(rec.meta || {}) };
   let savedRemote = false;
-  if (supabase && rec.id) {
+  if (supabase && rec.id && rec.user_id) {
     try {
-      const { error } = await supabase.from('nif_files').update({ meta: metadata }).eq('id', rec.id);
-      if (error) throw error;
+      const { data: latest, error: readError } = await supabase.from('nif_files')
+        .select('id,user_id,title,description,r2_key,is_public,meta')
+        .eq('id', rec.id).eq('user_id', rec.user_id).single();
+      if (readError || !latest) throw new Error(readError?.message || 'NIF could not be reloaded before queueing pipeline work.');
+      const latestMeta = latest.meta && typeof latest.meta === 'object' ? latest.meta : {};
+      const queue = Array.isArray(latestMeta.processing_requests) ? latestMeta.processing_requests.slice() : [];
+      queue.unshift(payload);
+      metadata = { ...latestMeta, processing_requests: queue.slice(0, 50), last_processing_request: payload };
+      const { data: updated, error: writeError } = await supabase.from('nif_files').update({ meta: metadata })
+        .eq('id', rec.id).eq('user_id', rec.user_id).select('id').maybeSingle();
+      if (writeError || !updated) throw new Error(writeError?.message || 'Pipeline request was not saved to the NIF record.');
       savedRemote = true;
+      currentRecord = { ...(currentRecord || rec), ...latest, meta: metadata };
     } catch (err) {
-      console.warn('[fumoca] queue pipeline remote save failed', err);
-      try {
-        _fumocaEnqueuePipelineRetry(kind, payload);
-      } catch (_) {}
+      console.warn('[fumoca] queue pipeline remote save failed', err?.message || err);
+      try { _fumocaEnqueuePipelineRetry(kind, payload); } catch (_) {}
     }
   } else {
-    try {
-      _fumocaEnqueuePipelineRetry(kind, payload);
-    } catch (_) {}
+    try { _fumocaEnqueuePipelineRetry(kind, payload); } catch (_) {}
   }
-  currentRecord = { ...rec, metadata };
+  // Keep the correct META shape in memory even when the request is queued
+  // locally for retry; never create a phantom top-level "metadata" property.
+  currentRecord = { ...(currentRecord || rec), meta: metadata };
   window._fumocaCurrentRecord = currentRecord;
   const label = String(kind || 'pipeline').replace(/_/g, ' ');
   _fumocaShowPipelineIllusion(savedRemote ? `${label} queued` : `${label} saved locally â€” syncing soon`, 1800);

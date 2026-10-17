@@ -13,6 +13,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Check diff whitespace
+        run: |
+          git fetch --no-tags --unshallow origin main || git fetch --no-tags origin main
+          git diff --check origin/main...HEAD
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
@@ -22,11 +26,93 @@ jobs:
         with:
           python-version: "3.11"
       - name: Check whole-platform integration audit
-        run: test -s docs/PLATFORM_INTEGRATION_AUDIT.md && grep -q "Acceptance gates for a clean release" docs/PLATFORM_INTEGRATION_AUDIT.md
+        run: |
+          test -s docs/PLATFORM_INTEGRATION_AUDIT.md
+          grep -q "Acceptance gates for a clean release" docs/PLATFORM_INTEGRATION_AUDIT.md
+          grep -q "public R2 read route and visibility bypass" docs/PLATFORM_INTEGRATION_AUDIT.md
+          grep -q "supabase_storage_policies.sql" docs/PLATFORM_INTEGRATION_AUDIT.md
+          grep -q "legacy.*Supabase Storage buckets" docs/PLATFORM_INTEGRATION_AUDIT.md
       - name: Check Studio JavaScript syntax
         run: node --check js/modules/image-to-splat-studio.js
       - name: Check viewer ES module syntax
         run: node --input-type=module --check < js/modules/viewer.js
+      - name: Check profile ES module syntax
+        run: node --input-type=module --check < js/modules/profile.js
+      - name: Check feed ES module syntax
+        run: node --input-type=module --check < js/modules/feed.js
+      - name: Check R2 browser client syntax
+        run: node --input-type=module --check < js/r2Client.js
+      - name: Check R2 Worker module syntax
+        run: node --input-type=module --check < cloudflare/workers/r2-storage.js
+      - name: Check publish module syntax
+        run: node --input-type=module --check < js/modules/publish-to-fumoca.js
+      - name: Check object extraction module syntax
+        run: node --input-type=module --check < js/modules/object-extract.js
+      - name: Check embed manager syntax
+        run: node --input-type=module --check < js/modules/embed-manager.js
+      - name: Check embed player inline module syntax
+        run: |
+          python - <<'PY'
+          import re
+          from pathlib import Path
+          html = Path("embed/player.html").read_text(encoding="utf-8")
+          match = re.search(r'<script type="module">([\s\S]*?)</script>', html)
+          if not match:
+              raise SystemExit("embed player module script not found")
+          Path("/tmp/fumoca-embed-player.mjs").write_text(match.group(1), encoding="utf-8")
+          PY
+          node --check /tmp/fumoca-embed-player.mjs
+      - name: Sweep first-party JavaScript syntax
+        run: |
+          find . -type f -name '*.js' \
+            -not -path './node_modules/*' \
+            -not -path './vendor/*' \
+            -not -path './dist/*' \
+            -print0 | while IFS= read -r -d '' file; do
+              echo "Checking $file"
+              node --input-type=module --check < "$file"
+            done
+      - name: Sweep inline JavaScript syntax across HTML
+        run: |
+          python - <<'PY'
+          import re
+          from pathlib import Path
+          out = Path('/tmp/fumoca-html-scripts')
+          out.mkdir(parents=True, exist_ok=True)
+          count = 0
+          for html_path in Path('.').rglob('*.html'):
+              if any(part in {'node_modules', 'vendor', 'dist'} for part in html_path.parts):
+                  continue
+              try:
+                  source = html_path.read_text(encoding='utf-8-sig')
+              except UnicodeDecodeError:
+                  continue
+              for match in re.finditer(r'<script\b([^>]*)>([\s\S]*?)</script\s*>', source, re.I):
+                  attrs, script = match.group(1), match.group(2)
+                  if not script.strip() or re.search(r'\bsrc\s*=', attrs, re.I):
+                      continue
+                  type_match = re.search(r'\btype\s*=\s*["\']([^"\']+)["\']', attrs, re.I)
+                  script_type = type_match.group(1).lower() if type_match else ''
+                  if script_type and script_type not in {'module', 'text/javascript', 'application/javascript'}:
+                      continue  # JSON/import maps/templates are data, not executable JS.
+                  count += 1
+                  is_module = script_type == 'module'
+                  suffix = 'mjs' if is_module else 'js'
+                  target = out / f'script-{count:04d}.{suffix}'
+                  target.write_text(script, encoding='utf-8')
+                  print(f'{target}: {html_path}')
+          print(f'Extracted {count} inline scripts')
+          PY
+          for file in /tmp/fumoca-html-scripts/*.js; do
+            [ -e "$file" ] || continue
+            echo "Checking classic script $file"
+            node --check "$file"
+          done
+          for file in /tmp/fumoca-html-scripts/*.mjs; do
+            [ -e "$file" ] || continue
+            echo "Checking module script $file"
+            node --check "$file"
+          done
       - name: Check persistence-sensitive editor modules
         run: |
           node --input-type=module --check < js/modules/edit-engine.js
@@ -52,7 +138,8 @@ jobs:
           grep -q "ply_to_nif" js/modules/upload-page.js
           grep -q "inspectPlyAttributes" js/modules/upload-page.js
           grep -q "discarded_attributes" js/modules/upload-page.js
-          grep -q "higher_order_sh_discarded_colour_approximation" js/modules/ply-conversion-metadata.js
+          grep -q "higher_order_sh_preserved_in_nif_sidecar" js/modules/ply-conversion-metadata.js
+          grep -q "gaussianSH: {" js/modules/upload-page.js
           grep -q "conversion: outputBuffer ? {" js/modules/upload-page.js
           grep -q "gpu_required: false" js/modules/upload-page.js
           grep -q "source_r2_key" js/modules/upload-page.js
@@ -62,9 +149,9 @@ jobs:
           grep -q "storage did not return a file key and URL" js/modules/upload-page.js
           ! grep -n "nif_file_id" js/modules/feed.js
           grep -q "post.meta?.source_r2_key" js/modules/feed.js
-          grep -q "item.meta?.source_capture?.r2_key" js/modules/profile.js
+          grep -q "sourceCapture?.r2_key" js/modules/profile.js
           grep -q "from('reconstruction_jobs')" js/modules/feed.js
-          grep -q "row.job_id || row.id" js/modules/feed.js
+          grep -q "const jobId = row.job_id" js/modules/feed.js
           grep -q "row.status = 'needs_retry'" js/modules/feed.js
           grep -q "needs_retry" js/modules/feed.js
           grep -q "jobsById.get" js/modules/profile.js
@@ -76,10 +163,22 @@ jobs:
           grep -q "post.meta?.capture_thumbnail_r2_key" js/modules/feed.js
           grep -q "item.meta?.capture_thumbnail_r2_key" js/modules/profile.js
           grep -q "currentRecord.meta?.capture_thumbnail_r2_key" js/modules/viewer.js
-          grep -q "currentRecord.meta?.source_capture?.r2_key" js/modules/viewer.js
+          grep -q "sourceCapture?.r2_key" js/modules/viewer.js
           grep -q "if (!currentRecord.r2_key || !currentRecord.user_id)" js/modules/viewer.js
           grep -q "not a saved NIF artifact" js/modules/viewer.js
           ! grep -n "eq('nif_id'" js/modules/viewer.js
+      - name: Check vehicle capture module syntax
+        run: |
+          python - <<'PY'
+          import re
+          from pathlib import Path
+          html = Path("capture-vehicle.html").read_text(encoding="utf-8")
+          match = re.search(r'<script type="module">([\s\S]*?)</script>', html)
+          if not match:
+              raise SystemExit("vehicle capture module script not found")
+          Path("/tmp/fumoca-capture-vehicle.mjs").write_text(match.group(1), encoding="utf-8")
+          PY
+          node --check /tmp/fumoca-capture-vehicle.mjs
       - name: Check inline Studio script syntax
         run: |
           python - <<'PY'
@@ -98,6 +197,93 @@ jobs:
           print(f"Extracted {len(scripts)} inline Studio scripts for syntax validation")
           PY
           for script in /tmp/fumoca-inline-scripts/script-*; do node --check "$script"; done
+      - name: Guard R2 delete ownership
+        run: |
+          grep -q "async function userOwnsFileKey" cloudflare/workers/r2-storage.js
+          grep -q "async function userMayWriteFileKey" cloudflare/workers/r2-storage.js
+          grep -q "userMayWriteFileKey(request, env, principal, bucket, fileKey)" cloudflare/workers/r2-storage.js
+          grep -q "userMayWriteFileKey(request, env, principal, bucketParam, safeFileKey)" cloudflare/workers/r2-storage.js
+          grep -q "userMayWriteFileKey(request, env, principal, bucketParam, fileKey)" cloudflare/workers/r2-storage.js
+          grep -q "userMayWriteFileKey(request, env, principal, bucketParam, fileKey)" cloudflare/workers/r2-storage.js
+          grep -q "const ownsKey = await userOwnsFileKey(request, env, principal, bucketParam, fileKey)" cloudflare/workers/r2-storage.js
+          grep -q "Forbidden — you do not own this file key" cloudflare/workers/r2-storage.js
+          grep -q "user_id:" cloudflare/workers/r2-storage.js
+      - name: Test R2 delete ownership
+        run: node --experimental-default-type=module tests/r2-delete-ownership.mjs
+      - name: Test viewer R2 bucket routing
+        run: node --experimental-default-type=module tests/viewer-r2-bucket-routing.mjs
+      - name: Test profile NIF R2 delete contract
+        run: node --experimental-default-type=module tests/profile-r2-delete-contract.mjs
+      - name: Test feed visibility contract
+        run: node --experimental-default-type=module tests/feed-visibility-contract.mjs
+      - name: Test explicit NIF to reconstruction job links
+        run: node --experimental-default-type=module tests/explicit-job-link-contract.mjs
+      - name: Test linked reconstruction job cleanup
+        run: node --experimental-default-type=module tests/nif-delete-job-cleanup.mjs
+      - name: Test linked R2 asset deletion
+        run: node --experimental-default-type=module tests/linked-r2-delete-assets-contract.mjs
+      - name: Test vehicle capture upload contract
+        run: node --experimental-default-type=module tests/vehicle-capture-contract.mjs
+      - name: Test upload pipeline schema contract
+        run: node --experimental-default-type=module tests/pipeline-upload-contract.mjs
+      - name: Test legacy page NIF schema contract
+        run: node --experimental-default-type=module tests/legacy-pages-nif-schema.mjs
+      - name: Test upload NIF schema contract
+        run: node --experimental-default-type=module tests/upload-nif-schema-contract.mjs
+      - name: Test Studio-to-NIF geometry row encoder
+        run: node --experimental-default-type=module tests/editor-splat-rows.mjs
+      - name: Test NIF publish contract
+        run: node --experimental-default-type=module tests/publish-contract.mjs
+      - name: Test NIF publish geometry and sidecar fidelity
+        run: node --experimental-default-type=module tests/publish-nif-fidelity-contract.mjs
+      - name: Test viewer NIF export contract
+        run: node --experimental-default-type=module tests/fumoc-export-ui-contract.mjs
+      - name: Test object extraction NIF contract
+        run: node --experimental-default-type=module tests/object-extract-nif-contract.mjs
+      - name: Test R2 client delete error handling
+        run: node --experimental-default-type=module tests/r2-client-delete-errors.mjs
+      - name: Test R2 read authorization
+        run: node --experimental-default-type=module tests/r2-read-authorization.mjs
+      - name: Test R2 signed read tickets
+        run: node --experimental-default-type=module tests/r2-read-ticket.mjs
+      - name: Test R2 key sanitization
+        run: node --experimental-default-type=module tests/r2-key-sanitization.mjs
+      - name: Test R2 byte-range reads
+        run: node --experimental-default-type=module tests/r2-range-requests.mjs
+      - name: Test embed token privacy and deployed schema
+        run: node --experimental-default-type=module tests/embed-token-privacy-contract.mjs
+      - name: Test teaser upload and read visibility
+        run: node --experimental-default-type=module tests/teaser-video-contract.mjs
+      - name: Test deployment documentation contract
+        run: node --experimental-default-type=module tests/deployment-doc-contract.mjs
+      - name: Test legacy FUMOC share contract
+        run: node --experimental-default-type=module tests/legacy-fumoc-share-contract.mjs
+      - name: Test NIF metadata merge contract
+        run: node --experimental-default-type=module tests/nif-meta-merge-contract.mjs
+      - name: Test backend measurement and NIF edit safety
+        run: node --experimental-default-type=module tests/backend-measurements-contract.mjs
+      - name: Guard R2 read authorization and cache ordering
+        run: |
+          grep -q "async function authorizeFileRead" cloudflare/workers/r2-storage.js
+          grep -q "authorizeFileRead(request, env, principal, bucketParam, fileKey)" cloudflare/workers/r2-storage.js
+          grep -q "if (access.isPublic && !rangeHeader) ctx.waitUntil(cache.put" cloudflare/workers/r2-storage.js
+          grep -q "function parseByteRange(rangeHeader, size)" cloudflare/workers/r2-storage.js
+          grep -q "range: { offset: parsedRange.start, length: parsedRange.length }" cloudflare/workers/r2-storage.js
+      - name: Test NIF Studio layer manifest round-trip
+        run: node --experimental-default-type=module tests/editor-scene-manifest.mjs
+      - name: Test Studio save schema contract
+        run: node --experimental-default-type=module tests/editor-save-schema-contract.mjs
+      - name: Guard NIF Studio layer persistence
+        run: |
+          grep -q "function serializeEditorSceneMetadata(aliveIndices)" edit.html
+          grep -q "function restoreEditorSceneMetadata(meta, pointCount)" edit.html
+          grep -q "editor_scene: serializeEditorSceneMetadata(idx)" edit.html
+          grep -q "editor_scene: serializeEditorSceneMetadata(aliveIdx)" edit.html
+          grep -q "restoreEditorSceneMetadata(S.nifMeta, parsed.count)" edit.html
+          grep -q "S.nifMeta = {};" edit.html
+          grep -Fq "data.r2_key ? r2.publicUrl('nif-files', data.r2_key)" edit.html
+          grep -q "restoreSavedPlySceneMetadata" edit.html
+          grep -Fq "point_indices: Array.from(compactIndex.entries())" edit.html
       - name: Guard immediate transform attachment after Add Splat
         run: |
           grep -q "Rebuild the source-index map and attach the gizmo after the appended layer" edit.html
@@ -127,8 +313,52 @@ jobs:
         run: |
           node --input-type=module --check < js/modules/ply-conversion-metadata.js
           node --experimental-default-type=module tests/ply-conversion-metadata.mjs
+      - name: Test 4D capture HTML injection guards
+        run: node --experimental-default-type=module tests/fourd-capture-xss-contract.mjs
+      - name: Test persisted UI and SDK status injection guards
+        run: node --experimental-default-type=module tests/persisted-ui-xss-contract.mjs
+      - name: Test commerce and teaser URL security
+        run: node --experimental-default-type=module tests/commerce-teaser-security-contract.mjs
+      - name: Test hotspot URL security
+        run: node --experimental-default-type=module tests/hotspot-url-security-contract.mjs
+      - name: Test tour URL security
+        run: node --experimental-default-type=module tests/tour-url-security-contract.mjs
+      - name: Test ad URL security
+        run: node --experimental-default-type=module tests/ad-url-security-contract.mjs
+      - name: Test audio URL security
+        run: node --experimental-default-type=module tests/audio-url-security-contract.mjs
+      - name: Test mobile widget HTML security
+        run: node --experimental-default-type=module tests/mobile-asset-html-security.mjs
+      - name: Test mobile widget storage contract
+        run: node --experimental-default-type=module tests/mobile-asset-storage-contract.mjs
+      - name: Test mobile assets schema contract
+        run: node --experimental-default-type=module tests/mobile-assets-schema-contract.mjs
+      - name: Test open-state variant storage contract
+        run: node --experimental-default-type=module tests/open-variant-storage-contract.mjs
       - name: Test CPU-only splat to NIF conversion
         run: node --experimental-default-type=module tests/splat-to-nif-smoke.mjs
+      - name: Test Gaussian SH sidecar round-trip
+        run: node --experimental-default-type=module tests/nif-gaussian-sh-sidecar.mjs
+      - name: Test Studio Gaussian SH sidecar preservation
+        run: node --experimental-default-type=module tests/nif-sh-sidecar-studio.mjs
+      - name: Test NIF LAYER_GEO compaction round-trip
+        run: node --experimental-default-type=module tests/nif-layer-geo-roundtrip.mjs
+      - name: Test Gaussian PLY import fidelity
+        run: node --experimental-default-type=module tests/ply-import-fidelity-contract.mjs
+      - name: Test NIF reader geometry bounds
+        run: node --experimental-default-type=module tests/nif-reader-bounds.mjs
+      - name: Test FUMOC format bounds
+        run: node --experimental-default-type=module tests/fumoc-format-bounds.mjs
+      - name: Test FUMOC decoder bounds
+        run: node --experimental-default-type=module tests/fumoc-decoder-bounds.mjs
+      - name: Test NIF geometry validation
+        run: node --experimental-default-type=module tests/nif-geometry-validation.mjs
+      - name: Install Playwright Chromium for browser runtime QA
+        run: |
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+      - name: Test browser runtime NIF and SH round-trip
+        run: node --experimental-default-type=module tests/browser-runtime-smoke.mjs
       - name: Compile Kaggle preflight script
         run: python -m py_compile kaggle/mesh2splat_preflight.py
       - name: Install preflight dependencies

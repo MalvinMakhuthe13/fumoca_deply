@@ -38,6 +38,13 @@
 
 import * as THREE from 'three';
 
+function safeHttpUrl(value) {
+  try {
+    const url = new URL(String(value || ''), window.location.href);
+    return ['http:', 'https:'].includes(url.protocol) ? url.href : '';
+  } catch (_) { return ''; }
+}
+
 // ── State ─────────────────────────────────────────────────────────────────────
 
 const _s = {
@@ -249,15 +256,19 @@ async function _activateInteractive(pausePoint) {
     }
   }
 
-  // Show CTA if configured
+  // Show CTA only for a safe HTTP(S) destination from ad metadata.
   const ctaBtn = document.getElementById('fumocAdCTABtn');
-  if (ctaBtn && _s.adMeta.cta_url) {
-    ctaBtn.textContent    = _s.adMeta.cta_text || 'Learn more';
-    ctaBtn.style.display  = 'block';
-    ctaBtn.onclick        = () => {
-      _s.onCTA?.(_s.adMeta.cta_url);
-      window.open(_s.adMeta.cta_url, '_blank', 'noopener');
+  const ctaUrl = safeHttpUrl(_s.adMeta?.cta_url);
+  if (ctaBtn && ctaUrl) {
+    ctaBtn.textContent = _s.adMeta.cta_text || 'Learn more';
+    ctaBtn.style.display = 'block';
+    ctaBtn.onclick = () => {
+      _s.onCTA?.(ctaUrl);
+      window.open(ctaUrl, '_blank', 'noopener,noreferrer');
     };
+  } else if (ctaBtn) {
+    ctaBtn.style.display = 'none';
+    ctaBtn.onclick = null;
   }
 
   // Enable orbit controls

@@ -12,7 +12,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
  *                                   optional ?bucket=<name>, defaults to nif-files
  *   GET    /file/:key             → Serve file (with CDN caching)
  *                                   optional ?bucket=<name>, defaults to nif-files
- *   DELETE /file/:key             → Delete file (any authenticated user — see NOTE below)
+ *   DELETE /file/:key             → Delete file (owner or trusted server only)
  *                                   optional ?bucket=<name>, defaults to nif-files
  *   GET    /health                → Health check
  *
@@ -48,7 +48,7 @@ const DEFAULT_MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
 const ALLOWED_MIME_TYPES = {
   'nif-videos': ['video/mp4', 'video/webm', 'video/quicktime', 'application/zip'],
   'preview-videos': ['video/mp4', 'video/webm'],
-  'nif-files': ['application/octet-stream','application/x-ply','model/x-ply','application/ply','model/ply','model/gltf-binary','application/zip'],
+  'nif-files': ['application/octet-stream','application/x-ply','model/x-ply','application/ply','model/ply','model/gltf-binary','application/zip','text/html'],
   'thumbnails': ['image/jpeg', 'image/png', 'image/webp'],
   'avatars': ['image/jpeg', 'image/png', 'image/webp'],
 };
@@ -117,17 +117,336 @@ async function authorize(request, env) {
   }
 }
 
+// A valid session alone does not grant ownership of arbitrary R2 keys.
+// Most user uploads live under <auth-user-id>/; Studio edits use
+// <nif_files-record-id>/edited_<timestamp>.<ext>, so those require a row-owner
+// lookup. Fail closed if the database cannot confirm ownership.
+async function userOwnsFileKey(request, env, principal, bucketName, fileKey) {
+  if (principal?.kind === 'server-to-server') return true;
+  if (!principal?.id || principal.kind !== 'user') return false;
+  if (fileKey.startsWith(`${principal.id}/`)) return true;
+  // Trusted reconstruction outputs use nif/<user-id>/<job-id>/... in nif-files.
+  if (bucketName === 'nif-files' && fileKey.startsWith(`nif/${principal.id}/`)) return true;
+  // Legacy photo-burst keys used raw/<user-id>/... before the owner prefix was standardized.
+  if (bucketName === 'nif-videos' && fileKey.startsWith(`raw/${principal.id}/`)) return true;
+  if (!['nif-files', 'nif-videos', 'preview-videos', 'thumbnails'].includes(bucketName)) return false;
+
+  const token = (request.headers.get('Authorization') || '').replace(/^Bearer\s+/, '');
+  if (!token || !env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) return false;
+
+  // Publishing uploads a new edited derivative before nif_files.r2_key is
+  // switched to it. Allow the record owner to clean up such a derivative if
+  // the DB update fails; do not allow arbitrary sibling keys or other owners.
+  if (bucketName === 'nif-files') {
+    const slash = fileKey.indexOf('/');
+    if (slash > 0 && /^edited_[A-Za-z0-9_-]+\.(?:nif|ply|splat|glb)$/i.test(fileKey.slice(slash + 1))) {
+      const recordId = fileKey.slice(0, slash);
+      const derivativeQuery = new URLSearchParams({
+        select: 'id,user_id',
+        id: `eq.${recordId}`,
+        user_id: `eq.${principal.id}`,
+        limit: '1',
+      });
+      try {
+        const derivativeResponse = await fetch(`${env.SUPABASE_URL}/rest/v1/nif_files?${derivativeQuery}`, {
+          headers: { Authorization: `Bearer ${token}`, apikey: env.SUPABASE_ANON_KEY },
+        });
+        if (!derivativeResponse.ok) return false;
+        const derivativeRows = await derivativeResponse.json();
+        return Array.isArray(derivativeRows) && derivativeRows.some(row => row?.id === recordId && row?.user_id === principal.id);
+      } catch (error) {
+        console.error('[R2 delete] derivative owner lookup errored', error?.message || String(error));
+        return false;
+      }
+    }
+  }
+
+  // Match the exact object key against the caller's own NIF row or its known
+  // source/thumbnail metadata. This supports cleanup without granting access
+  // to arbitrary keys merely because a caller knows a record ID.
+  const encodedKey = fileKey.replace(/,/g, '\\,');
+  const query = new URLSearchParams({
+    select: 'id,r2_key,meta',
+    user_id: `eq.${principal.id}`,
+    limit: '1',
+    or: `(r2_key.eq.${encodedKey},meta->>source_r2_key.eq.${encodedKey},meta->source_capture->>r2_key.eq.${encodedKey},meta->>thumbnail_r2_key.eq.${encodedKey},meta->>capture_thumbnail_r2_key.eq.${encodedKey},meta->>teaser_video_r2_key.eq.${encodedKey},meta->cleaned_splat->>r2_key.eq.${encodedKey},meta->>mobile_asset_r2_key.eq.${encodedKey},meta->open_variant_r2_keys.cs.{${encodedKey}})`,
+  });
+  try {
+    const response = await fetch(`${env.SUPABASE_URL}/rest/v1/nif_files?${query}`, {
+      headers: { Authorization: `Bearer ${token}`, apikey: env.SUPABASE_ANON_KEY },
+    });
+    if (!response.ok) {
+      console.error('[R2 delete] owner lookup failed', response.status);
+      return false;
+    }
+    const rows = await response.json();
+    return Array.isArray(rows) && rows.some(row => {
+      if (row?.user_id && row.user_id !== principal.id) return false;
+      const meta = row?.meta || {};
+      const knownKeys = [
+        row?.r2_key,
+        meta.source_r2_key,
+        meta.source_capture?.r2_key,
+        meta.thumbnail_r2_key,
+        meta.capture_thumbnail_r2_key,
+        meta.teaser_video_r2_key,
+        meta.cleaned_splat?.r2_key,
+        meta.mobile_asset_r2_key,
+        ...(Array.isArray(meta.open_variant_r2_keys) ? meta.open_variant_r2_keys : []),
+      ];
+      // A row's META is not an ownership grant by itself: non-user-prefixed keys must live under that row's own derivative prefix.
+      return !!row?.id && fileKey.startsWith(`${row.id}/`) && knownKeys.includes(fileKey);
+    });
+  } catch (error) {
+    console.error('[R2 delete] owner lookup errored', error?.message || String(error));
+    return false;
+  }
+}
+
+// Authorize writes separately from deletes: a new Studio derivative does not yet
+// equal nif_files.r2_key, but its record must still belong to the caller.
+async function userMayWriteFileKey(request, env, principal, bucketName, fileKey) {
+  if (principal?.kind === 'server-to-server') return true;
+  if (!principal?.id || principal.kind !== 'user') return false;
+  if (fileKey.startsWith(`${principal.id}/`)) return true;
+  // Legacy photo-burst keys used raw/<user-id>/... before the owner prefix was standardized.
+  if (bucketName === 'nif-videos' && fileKey.startsWith(`raw/${principal.id}/`)) return true;
+  if (bucketName !== 'nif-files') return false;
+
+  const slash = fileKey.indexOf('/');
+  if (slash <= 0) return false;
+  const recordId = fileKey.slice(0, slash);
+  const remainder = fileKey.slice(slash + 1);
+  if (!/^edited_[A-Za-z0-9_-]+\.(?:nif|ply|splat|glb)$/i.test(remainder)) return false;
+
+  const token = (request.headers.get('Authorization') || '').replace(/^Bearer\s+/, '');
+  if (!token || !env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) return false;
+  const query = new URLSearchParams({
+    select: 'id',
+    id: `eq.${recordId}`,
+    user_id: `eq.${principal.id}`,
+    limit: '1',
+  });
+  try {
+    const response = await fetch(`${env.SUPABASE_URL}/rest/v1/nif_files?${query}`, {
+      headers: { Authorization: `Bearer ${token}`, apikey: env.SUPABASE_ANON_KEY },
+    });
+    if (!response.ok) {
+      console.error('[R2 write] owner lookup failed', response.status);
+      return false;
+    }
+    const rows = await response.json();
+    return Array.isArray(rows) && rows.some(row => row?.id === recordId);
+  } catch (error) {
+    console.error('[R2 write] owner lookup errored', error?.message || String(error));
+    return false;
+  }
+}
+
+// Read access is deliberately stricter than URL visibility flags in the browser.
+// Public NIF output is public only when its owning nif_files row says is_public=true.
+// Raw capture videos remain private. Preview videos are public only when their
+// teaser_video_r2_key is associated with a published NIF; a known key or ?public=1
+// flag is never an authorization grant.
+async function authorizeFileRead(request, env, principal, bucketName, fileKey) {
+  if (!['nif-files', 'nif-videos', 'preview-videos', 'thumbnails', 'avatars'].includes(bucketName)) {
+    return { allowed: false, isPublic: false, reason: 'unknown-bucket' };
+  }
+
+  // Profile avatars are intentionally public for existing profile/feed compatibility.
+  if (bucketName === 'avatars') return { allowed: true, isPublic: true, reason: 'public-avatar' };
+
+  // User-scoped object keys remain readable by their owner, never by another user.
+  if (principal?.kind === 'user' && principal.id && fileKey.startsWith(`${principal.id}/`)) {
+    return { allowed: true, isPublic: false, reason: 'owner-key' };
+  }
+  if (bucketName === 'nif-files' && principal?.kind === 'user' && principal.id && fileKey.startsWith(`nif/${principal.id}/`)) {
+    return { allowed: true, isPublic: false, reason: 'owner-pipeline-key' };
+  }
+  // Permit an owner to access legacy photo-burst keys while old records are migrated.
+  if (bucketName === 'nif-videos' && principal?.kind === 'user' && principal.id && fileKey.startsWith(`raw/${principal.id}/`)) {
+    return { allowed: true, isPublic: false, reason: 'legacy-owner-key' };
+  }
+  if (principal?.kind === 'server-to-server') {
+    return { allowed: true, isPublic: false, reason: 'trusted-server' };
+  }
+  if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) {
+    return { allowed: false, isPublic: false, reason: 'lookup-not-configured' };
+  }
+
+  const authHeader = request.headers.get('Authorization') || '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  const headers = { apikey: env.SUPABASE_ANON_KEY };
+  if (token && principal?.kind === 'user') headers.Authorization = `Bearer ${token}`;
+  const encodedKey = fileKey.replace(/,/g, '\\,');
+  const query = new URLSearchParams({
+    select: 'id,user_id,r2_key,is_public,meta',
+    limit: '20',
+    or: `(r2_key.eq.${encodedKey},meta->>source_r2_key.eq.${encodedKey},meta->source_capture->>r2_key.eq.${encodedKey},meta->>thumbnail_r2_key.eq.${encodedKey},meta->>capture_thumbnail_r2_key.eq.${encodedKey},meta->>teaser_video_r2_key.eq.${encodedKey},meta->cleaned_splat->>r2_key.eq.${encodedKey},meta->>mobile_asset_r2_key.eq.${encodedKey},meta->open_variant_r2_keys.cs.{${encodedKey}})`,
+  });
+  try {
+    const response = await fetch(`${env.SUPABASE_URL}/rest/v1/nif_files?${query}`, { headers });
+    if (!response.ok) {
+      console.error('[R2 read] NIF access lookup failed', response.status);
+      return { allowed: false, isPublic: false, reason: 'lookup-failed' };
+    }
+    const rows = await response.json();
+    if (!Array.isArray(rows)) return { allowed: false, isPublic: false, reason: 'invalid-lookup' };
+
+    for (const row of rows) {
+      const meta = row?.meta || {};
+      const rowOwner = typeof row?.user_id === 'string' && row.user_id;
+      const userPrefixKey = !!rowOwner && fileKey.startsWith(`${rowOwner}/`);
+      const pipelineKey = bucketName === 'nif-files' && !!rowOwner && !!row?.id &&
+        fileKey.startsWith(`nif/${rowOwner}/${row.id}/`);
+      const ownerKey = userPrefixKey || pipelineKey;
+      const legacyRawOwnerKey = bucketName === 'nif-videos' && !!rowOwner && fileKey.startsWith(`raw/${rowOwner}/`);
+      const rowScopedKey = !!row?.id && fileKey.startsWith(`${row.id}/`);
+      const isNifOutput = bucketName === 'nif-files' && row?.r2_key === fileKey && (userPrefixKey || pipelineKey || rowScopedKey);
+      const isThumbnail = ['thumbnails', 'nif-files'].includes(bucketName) &&
+        (userPrefixKey || pipelineKey || rowScopedKey) &&
+        [meta.thumbnail_r2_key, meta.capture_thumbnail_r2_key].includes(fileKey);
+      const isSource = ['nif-files', 'nif-videos'].includes(bucketName) &&
+        (userPrefixKey || pipelineKey || legacyRawOwnerKey || rowScopedKey) &&
+        [meta.source_r2_key, meta.source_capture?.r2_key, ...(Array.isArray(meta.lidar_sources) ? meta.lidar_sources.map(source => source?.r2_key) : [])].includes(fileKey);
+      const isPreviewVideo = bucketName === 'preview-videos' && userPrefixKey &&
+        fileKey.startsWith(`${rowOwner}/teasers/${row.id}/`) && meta.teaser_video_r2_key === fileKey;
+      const isProxyVideo = bucketName === 'nif-files' && pipelineKey && meta.proxy_r2_key === fileKey;
+      const isMobileAsset = bucketName === 'nif-files' && userPrefixKey &&
+        fileKey.startsWith(`${rowOwner}/mobile-assets/${row.id}/`) && meta.mobile_asset_r2_key === fileKey;
+      const isOpenVariant = bucketName === 'nif-files' && userPrefixKey &&
+        fileKey.startsWith(`${rowOwner}/open-variants/${row.id}_`) &&
+        Array.isArray(meta.open_variant_r2_keys) && meta.open_variant_r2_keys.includes(fileKey);
+      const isCleanedSplat = bucketName === 'nif-files' && rowScopedKey &&
+        fileKey.startsWith(`${row.id}/edited_cleaned_`) && meta.cleaned_splat?.r2_key === fileKey;
+      const owner = !!(principal?.kind === 'user' && principal.id && row?.user_id === principal.id);
+      if (isNifOutput && row.is_public === true) {
+        return { allowed: true, isPublic: true, reason: 'published-nif' };
+      }
+      if (isProxyVideo && row.is_public === true) {
+        return { allowed: true, isPublic: true, reason: 'published-nif-proxy-video' };
+      }
+      if (isMobileAsset && row.is_public === true) {
+        return { allowed: true, isPublic: true, reason: 'published-nif-mobile-asset' };
+      }
+      if (isOpenVariant && row.is_public === true) {
+        return { allowed: true, isPublic: true, reason: 'published-nif-open-variant' };
+      }
+      if (owner && (isNifOutput || isThumbnail || isSource || isPreviewVideo || isProxyVideo || isCleanedSplat || isMobileAsset || isOpenVariant)) {
+        return { allowed: true, isPublic: false, reason: 'owner-associated-file' };
+      }
+      if (isThumbnail && row.is_public === true) {
+        return { allowed: true, isPublic: true, reason: 'published-nif-thumbnail' };
+      }
+      if (isPreviewVideo && row.is_public === true) {
+        return { allowed: true, isPublic: true, reason: 'published-nif-preview-video' };
+      }
+    }
+
+    return { allowed: false, isPublic: false, reason: 'not-published-or-not-owner' };
+  } catch (error) {
+    console.error('[R2 read] access lookup errored', error?.message || String(error));
+    return { allowed: false, isPublic: false, reason: 'lookup-error' };
+  }
+}
+
+function bytesToBase64Url(bytes) {
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function base64UrlToBytes(value) {
+  const base64 = value.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = base64 + '='.repeat((4 - base64.length % 4) % 4);
+  const binary = atob(padded);
+  return Uint8Array.from(binary, char => char.charCodeAt(0));
+}
+
+async function createReadTicket(bucketName, fileKey, secret, now = Date.now()) {
+  if (!secret) throw new Error('R2 read ticket secret is not configured');
+  const payload = bytesToBase64Url(new TextEncoder().encode(JSON.stringify({
+    bucket: bucketName,
+    key: fileKey,
+    expiresAt: now + 5 * 60 * 1000,
+  })));
+  const key = await crypto.subtle.importKey(
+    'raw', new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+  );
+  const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(payload));
+  return `${payload}.${bytesToBase64Url(new Uint8Array(signature))}`;
+}
+
+async function verifyReadTicket(ticket, bucketName, fileKey, secret, now = Date.now()) {
+  if (!secret || typeof ticket !== 'string') return false;
+  const parts = ticket.split('.');
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return false;
+  try {
+    const key = await crypto.subtle.importKey(
+      'raw', new TextEncoder().encode(secret),
+      { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']
+    );
+    const valid = await crypto.subtle.verify(
+      'HMAC', key, base64UrlToBytes(parts[1]), new TextEncoder().encode(parts[0])
+    );
+    if (!valid) return false;
+    const payload = JSON.parse(new TextDecoder().decode(base64UrlToBytes(parts[0])));
+    return payload?.bucket === bucketName &&
+      payload?.key === fileKey &&
+      Number.isFinite(payload?.expiresAt) &&
+      payload.expiresAt > now &&
+      payload.expiresAt <= now + 6 * 60 * 1000;
+  } catch {
+    return false;
+  }
+}
+
+// Parse one HTTP byte range. Returns null when no Range header is supplied,
+// a bounded { start, end, length } for a valid range, or { invalid: true }.
+// Multi-range requests are intentionally rejected rather than served incorrectly.
+function parseByteRange(rangeHeader, size) {
+  if (!rangeHeader) return null;
+  if (!Number.isSafeInteger(size) || size < 0) return { invalid: true };
+  const match = /^bytes=(\d*)-(\d*)$/i.exec(String(rangeHeader).trim());
+  if (!match || (!match[1] && !match[2]) || size === 0) return { invalid: true };
+
+  let start;
+  let end;
+  if (!match[1]) {
+    const suffixLength = Number(match[2]);
+    if (!Number.isSafeInteger(suffixLength) || suffixLength <= 0) return { invalid: true };
+    start = Math.max(0, size - suffixLength);
+    end = size - 1;
+  } else {
+    start = Number(match[1]);
+    end = match[2] ? Number(match[2]) : size - 1;
+    if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end < start || start >= size) {
+      return { invalid: true };
+    }
+    end = Math.min(end, size - 1);
+  }
+
+  return { start, end, length: end - start + 1 };
+}
+
 // ── Key sanitisation ────────────────────────────────────────────────────────
 // Strips traversal attempts, backslashes, and collapses duplicate slashes.
 // Also enforces a sane max length so absurdly long paths can't be used to
 // abuse R2 key limits or your CDN/cache layer.
 function sanitiseKey(rawPath) {
-  const cleaned = rawPath
-    .replace(/\.\./g, '')
-    .replace(/\\/g, '/')
-    .replace(/\/+/g, '/')
-    .replace(/^\/+/, '');
-  return cleaned.slice(0, MAX_KEY_LENGTH);
+  if (typeof rawPath !== 'string' || rawPath.length === 0 || rawPath.length > MAX_KEY_LENGTH ||
+      /[\u0000-\u001F\u007F]/.test(rawPath) || /[(),{}\x22\x27]/u.test(rawPath)) {
+    return '';
+  }
+  // These characters are reserved by the PostgREST filter grammar used by
+  // read/delete ownership lookups. Reject them before interpolating a key into
+  // exact-match filters; generated FUMOCA keys use a safe subset already.
+  const slashNormalised = rawPath.replace(/\\/g, '/');
+  const segments = slashNormalised.split('/');
+  // Reject traversal segments instead of silently rewriting them to a different key.
+  if (segments.some(segment => segment === '.' || segment === '..')) return '';
+  return slashNormalised.replace(/\/+/g, '/').replace(/^\/+/, '');
 }
 
 function isAllowedMimeType(bucketName, contentType) {
@@ -216,15 +535,17 @@ export default {
       };
       const presignConfigured = !!(env.ACCOUNT_ID && env.R2_ACCESS_KEY_ID && env.R2_SECRET_ACCESS_KEY);
       const supabaseConfigured = !!(env.SUPABASE_URL && env.SUPABASE_ANON_KEY);
+      const readTicketsConfigured = !!env.FUMOCA_API_SECRET;
       const allBucketsBound = Object.values(buckets).every(Boolean);
 
       return json({
-        ok: allBucketsBound && supabaseConfigured,
+        ok: allBucketsBound && supabaseConfigured && readTicketsConfigured,
         service: 'fumoca-r2',
         ts: Date.now(),
         buckets,
         presignConfigured,
         supabaseConfigured,
+        readTicketsConfigured,
       }, 200, cors);
     }
 
@@ -263,6 +584,8 @@ export default {
 
       const fileKey = sanitiseKey(userPath);
       if (!fileKey) return json({ error: 'Invalid path' }, 400, cors);
+      const mayWrite = await userMayWriteFileKey(request, env, principal, bucket, fileKey);
+      if (!mayWrite) return json({ error: 'Forbidden — you may not write this file key' }, 403, cors);
 
       // Pass the bucket NAME (not the binding) — the S3-compat API needs a name.
       const presigned = await generatePresignedPut(bucket, fileKey, contentType, env);
@@ -319,6 +642,8 @@ export default {
       if (!fileKey) {
         return json({ error: 'Invalid path' }, 400, cors);
       }
+      const mayWrite = await userMayWriteFileKey(request, env, principal, bucketParam, fileKey);
+      if (!mayWrite) return json({ error: 'Forbidden — you may not write this file key' }, 403, cors);
 
       try {
         const upload = await r2Bucket.createMultipartUpload(fileKey, {
@@ -373,10 +698,17 @@ export default {
         return json({ error: 'Invalid partNumber' }, 400, cors);
       }
 
-      const safeFileKey = sanitiseKey(decodeURIComponent(fileKeyParam));
+      let safeFileKey;
+      try {
+        safeFileKey = sanitiseKey(decodeURIComponent(fileKeyParam));
+      } catch {
+        return json({ error: 'Malformed file key' }, 400, cors);
+      }
       if (!safeFileKey) {
         return json({ error: 'Invalid key' }, 400, cors);
       }
+      const mayWrite = await userMayWriteFileKey(request, env, principal, bucketParam, safeFileKey);
+      if (!mayWrite) return json({ error: 'Forbidden — you may not write this file key' }, 403, cors);
 
       try {
         const multipart = r2Bucket.resumeMultipartUpload(safeFileKey, uploadId);
@@ -433,6 +765,8 @@ export default {
       if (!fileKey) {
         return json({ error: 'Invalid key' }, 400, cors);
       }
+      const mayWrite = await userMayWriteFileKey(request, env, principal, bucketParam, fileKey);
+      if (!mayWrite) return json({ error: 'Forbidden — you may not write this file key' }, 403, cors);
 
       const normalisedParts = parts.map((part) => ({
         partNumber: Number(part?.partNumber),
@@ -513,6 +847,8 @@ export default {
       if (!fileKey) {
         return json({ error: 'Invalid key' }, 400, cors);
       }
+      const mayWrite = await userMayWriteFileKey(request, env, principal, bucketParam, fileKey);
+      if (!mayWrite) return json({ error: 'Forbidden — you may not write this file key' }, 403, cors);
 
       const r2Bucket = getBucket(bucketParam, env);
       if (!r2Bucket) {
@@ -539,8 +875,15 @@ export default {
         return json({ error: 'Unauthorized — sign in and try again' }, 401, cors);
       }
 
-      const fileKey = sanitiseKey(decodeURIComponent(path.slice('/upload/'.length)));
-      if (!fileKey) return json({ error: 'Missing key' }, 400, cors);
+      let fileKey;
+      try {
+        fileKey = sanitiseKey(decodeURIComponent(path.slice('/upload/'.length)));
+      } catch {
+        return json({ error: 'Malformed file key' }, 400, cors);
+      }
+      if (!fileKey) return json({ error: 'Invalid file key' }, 400, cors);
+      const mayWrite = await userMayWriteFileKey(request, env, principal, bucketParam, fileKey);
+      if (!mayWrite) return json({ error: 'Forbidden — you may not write this file key' }, 403, cors);
 
       const r2Bucket = getBucket(bucketParam, env);
       if (!r2Bucket) {
@@ -578,39 +921,154 @@ export default {
       return json({ ok: true, fileKey, publicUrl }, 200, cors);
     }
 
-    // ── GET /file/:key — Serve file with caching ───────────────────────────
+    // ── POST /file/ticket — issue a short-lived URL for an authorized private read
+    if (request.method === 'POST' && path === '/file/ticket') {
+      const principal = await authorize(request, env);
+      if (!principal) return json({ error: 'Unauthorized — sign in and try again' }, 401, cors);
+
+      let body;
+      try { body = await request.json(); } catch {
+        return json({ error: 'Invalid JSON body' }, 400, cors);
+      }
+      const bucket = body?.bucket || 'nif-files';
+      const fileKey = sanitiseKey(body?.key);
+      if (!fileKey) return json({ error: 'Invalid file key' }, 400, cors);
+      if (!getBucket(bucket, env)) return json({ error: `Unknown bucket: ${bucket}` }, 400, cors);
+
+      const access = await authorizeFileRead(request, env, principal, bucket, fileKey);
+      if (!access.allowed) return json({ error: 'Not found' }, 404, { ...cors, 'Cache-Control': 'no-store' });
+
+      const base = env.PUBLIC_BASE_URL || url.origin;
+      if (access.isPublic) {
+        return json({
+          url: `${base}/file/${encodeURIComponent(fileKey)}?bucket=${encodeURIComponent(bucket)}`,
+          expiresAt: null,
+          isPublic: true,
+        }, 200, cors);
+      }
+      if (!env.FUMOCA_API_SECRET) {
+        return json({ error: 'Private read tickets are not configured' }, 503, { ...cors, 'Cache-Control': 'no-store' });
+      }
+
+      try {
+        const ticket = await createReadTicket(bucket, fileKey, env.FUMOCA_API_SECRET);
+        return json({
+          url: `${base}/file/${encodeURIComponent(fileKey)}?bucket=${encodeURIComponent(bucket)}&ticket=${encodeURIComponent(ticket)}`,
+          expiresAt: Date.now() + 5 * 60 * 1000,
+          isPublic: false,
+        }, 200, { ...cors, 'Cache-Control': 'no-store' });
+      } catch (error) {
+        console.error('[R2 read ticket] signing failed', error?.message || String(error));
+        return json({ error: 'Could not issue private read ticket' }, 503, { ...cors, 'Cache-Control': 'no-store' });
+      }
+    }
+
+    // ── GET /file/:key — authorize before cache or object access ───────────
     if (request.method === 'GET' && path.startsWith('/file/')) {
-      const fileKey = decodeURIComponent(path.slice('/file/'.length));
-      if (!fileKey) return json({ error: 'Missing key' }, 400, cors);
+      let fileKey;
+      try {
+        fileKey = sanitiseKey(decodeURIComponent(path.slice('/file/'.length)));
+      } catch {
+        return json({ error: 'Malformed file key' }, 400, cors);
+      }
+      if (!fileKey) return json({ error: 'Invalid file key' }, 400, cors);
+
+      const r2Bucket = getBucket(bucketParam, env);
+      if (!r2Bucket) return json({ error: `Unknown bucket: ${bucketParam}` }, 400, cors);
+
+      let principal = null;
+      if (request.headers.get('Authorization')) principal = await authorize(request, env);
+      const ticket = url.searchParams.get('ticket') || '';
+      const ticketValid = ticket
+        ? await verifyReadTicket(ticket, bucketParam, fileKey, env.FUMOCA_API_SECRET)
+        : false;
+
+      // Tickets are short-lived, signed, and scoped to this exact bucket/key.
+      // Validate both session policy and ticket before any shared cache lookup.
+      const access = ticketValid
+        ? { allowed: true, isPublic: false, reason: 'private-read-ticket' }
+        : await authorizeFileRead(request, env, principal, bucketParam, fileKey);
+      if (!access.allowed) return json({ error: 'Not found' }, 404, {
+        ...cors,
+        'Cache-Control': 'private, no-store',
+        'X-Content-Type-Options': 'nosniff',
+      });
 
       const cache = caches.default;
       const cacheKey = new Request(request.url, { method: 'GET' });
-      const cached = await cache.match(cacheKey);
-      if (cached) return cached;
-
-      const r2Bucket = getBucket(bucketParam, env);
-      if (!r2Bucket) {
-        return json({ error: `Unknown bucket: ${bucketParam}` }, 400, cors);
+      const rangeHeader = request.headers.get('Range');
+      // Shared cache stores complete public objects only. Range responses must
+      // bypass it so a 1-byte probe or media seek never receives a full cached body.
+      if (access.isPublic && !rangeHeader) {
+        const cached = await cache.match(cacheKey);
+        if (cached) return new Response(cached.body, {
+          status: cached.status,
+          statusText: cached.statusText,
+          headers: { ...Object.fromEntries(cached.headers), ...cors, 'X-Content-Type-Options': 'nosniff' },
+        });
       }
 
-      const obj = await r2Bucket.get(fileKey);
-      if (!obj) return json({ error: 'Not found' }, 404, cors);
+      let obj;
+      let totalSize = null;
+      let parsedRange = null;
+      if (rangeHeader) {
+        const head = await r2Bucket.head(fileKey);
+        if (!head) return json({ error: 'Not found' }, 404, {
+          ...cors, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
+        });
+        totalSize = head.size;
+        parsedRange = parseByteRange(rangeHeader, totalSize);
+        if (!parsedRange || parsedRange.invalid) {
+          return new Response(null, {
+            status: 416,
+            headers: {
+              ...cors,
+              'Content-Range': `bytes */${totalSize}`,
+              'Accept-Ranges': 'bytes',
+              'Cache-Control': 'no-store',
+              'X-Content-Type-Options': 'nosniff',
+            },
+          });
+        }
+        obj = await r2Bucket.get(fileKey, {
+          range: { offset: parsedRange.start, length: parsedRange.length },
+        });
+      } else {
+        obj = await r2Bucket.get(fileKey);
+      }
+      if (!obj) return json({ error: 'Not found' }, 404, {
+        ...cors,
+        'Cache-Control': access.isPublic && !rangeHeader ? 'public, max-age=60' : 'private, no-store',
+        'X-Content-Type-Options': 'nosniff',
+      });
 
       const isThumb = fileKey.startsWith('thumbs/') || fileKey.startsWith('avatars/') || bucketParam === 'thumbnails' || bucketParam === 'avatars';
       const ttl = isThumb ? THUMB_TTL : CACHE_TTL;
       const contentType = obj.httpMetadata?.contentType || 'application/octet-stream';
-
+      const responseHeaders = {
+        'Content-Type': contentType,
+        'Cache-Control': rangeHeader ? 'no-store' : (access.isPublic ? `public, max-age=${ttl}` : 'private, no-store'),
+        'ETag': obj.etag,
+        'Accept-Ranges': 'bytes',
+        'X-Content-Type-Options': 'nosniff',
+        ...(contentType.split(';', 1)[0].trim().toLowerCase() === 'text/html' ? {
+          'Content-Security-Policy': "sandbox allow-scripts allow-top-navigation-by-user-activation; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src https: data:; media-src https:; font-src https: data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+        } : {}),
+        ...cors,
+      };
+      if (parsedRange && totalSize !== null) {
+        responseHeaders['Content-Range'] = `bytes ${parsedRange.start}-${parsedRange.end}/${totalSize}`;
+        responseHeaders['Content-Length'] = String(parsedRange.length);
+      } else if (Number.isFinite(obj.size)) {
+        responseHeaders['Content-Length'] = String(obj.size);
+      }
       const response = new Response(obj.body, {
-        headers: {
-          'Content-Type': contentType,
-          'Cache-Control': `public, max-age=${ttl}`,
-          'ETag': obj.etag,
-          'Accept-Ranges': 'bytes',
-          ...cors,
-        },
+        status: parsedRange ? 206 : 200,
+        headers: responseHeaders,
       });
 
-      ctx.waitUntil(cache.put(cacheKey, response.clone()));
+      // Private/ticketed and range responses are never inserted into the shared cache.
+      if (access.isPublic && !rangeHeader) ctx.waitUntil(cache.put(cacheKey, response.clone()));
       return response;
     }
 
@@ -620,14 +1078,18 @@ export default {
       if (!principal) {
         return json({ error: 'Unauthorized — sign in and try again' }, 401, cors);
       }
-      // NOTE — remaining gap, not fixed here: this only confirms the caller is SOME
-      // authenticated user, not that they own this specific file. Any signed-in user
-      // can currently delete any file if they know/guess its key. Closing that fully
-      // needs a lookup against your DB (matching this fileKey to a row's user_id)
-      // before this is trusted with real user data at scale.
+      let fileKey;
+      try {
+        fileKey = sanitiseKey(decodeURIComponent(path.slice('/file/'.length)));
+      } catch {
+        return json({ error: 'Malformed file key' }, 400, cors);
+      }
+      if (!fileKey) return json({ error: 'Invalid file key' }, 400, cors);
 
-      const fileKey = sanitiseKey(decodeURIComponent(path.slice('/file/'.length)));
-      if (!fileKey) return json({ error: 'Missing key' }, 400, cors);
+      const ownsKey = await userOwnsFileKey(request, env, principal, bucketParam, fileKey);
+      if (!ownsKey) {
+        return json({ error: 'Forbidden — you do not own this file key' }, 403, cors);
+      }
 
       const r2Bucket = getBucket(bucketParam, env);
       if (!r2Bucket) {

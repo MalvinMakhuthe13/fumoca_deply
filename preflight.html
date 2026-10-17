@@ -205,6 +205,7 @@
 
 <script type="module">
   import { supabase } from './js/supabaseClient.js';
+  import r2 from './js/r2Client.js';
   import { ensureServiceWorker, prefetchSplat, onPrefetchResult, isOnline }
     from './js/modules/offline-helper.js';
 
@@ -259,15 +260,25 @@
     setCheck('resolve', 'running');
     let row = null;
     try {
-      const { data, error } = await supabase.from('splats')
-        .select('id,title,status,splat_url,output_url,file_url,thumbnail_url,processing_error,metadata')
+      const { data, error } = await supabase.from('nif_files')
+        .select('id,user_id,job_id,title,r2_key,is_public,thumbnail_url,meta,created_at')
         .eq('id', id).maybeSingle();
       if (error || !data) {
-        setCheck('resolve', 'fail', error?.message || `No record for id="${id}"`);
+        setCheck('resolve', 'fail', error?.message || `No NIF record for id="${id}"`);
         fail++;
         return renderSummary(id, pass, warn, fail);
       }
       row = data;
+      let job = null;
+      if (row.job_id) {
+        const { data: jobData, error: jobError } = await supabase.from('reconstruction_jobs')
+          .select('id,status,progress,error_message')
+          .eq('id', row.job_id).maybeSingle();
+        if (jobError) console.warn('[Preflight] job status lookup failed', jobError);
+        else job = jobData;
+      }
+      row.status = job?.status || row.meta?.status || (row.job_id ? 'needs_retry' : 'done');
+      row.processing_error = job?.error_message || row.meta?.quality_reason || '';
       setCheck('resolve', 'pass', `Found: ${data.title || '(untitled)'}`);
       pass++;
     } catch (err) {
@@ -278,10 +289,10 @@
 
     // 2. Status complete
     setCheck('status', 'running');
-    if (row.status === 'complete') {
-      setCheck('status', 'pass', "status='complete'");
+    if (['complete', 'done', 'ready', 'published', 'completed'].includes(String(row.status || '').toLowerCase())) {
+      setCheck('status', 'pass', `status='${row.status}'`);
       pass++;
-    } else if (row.status === 'failed_reconstruction' || row.status === 'failed') {
+    } else if (['failed_reconstruction', 'failed', 'needs_retry', 'error'].includes(String(row.status || '').toLowerCase())) {
       setCheck('status', 'fail', `status='${row.status}' — ${row.processing_error || 'no error message'}`);
       fail++;
     } else {
@@ -291,20 +302,21 @@
 
     // 3. Splat URL reachable
     setCheck('splat-url', 'running');
-    const splatUrl = row.splat_url || row.output_url || row.file_url;
+    let splatUrl = row.r2_key ? r2.publicUrl('nif-files', row.r2_key) : (row.meta?.external_nif_url || row.meta?.nif_url || null);
+    if (row.r2_key && row.is_public !== true) {
+      try { splatUrl = await r2.from('nif-files').authenticatedUrl(row.r2_key); }
+      catch (err) { console.warn('[Preflight] private NIF ticket failed', err); splatUrl = null; }
+    }
     if (!splatUrl) {
-      setCheck('splat-url', 'fail', 'No splat_url / output_url / file_url populated');
+      setCheck('splat-url', 'fail', 'No readable NIF URL could be resolved');
       fail++;
     } else {
       try {
-        // HEAD first; some CDNs reject HEAD, fall back to range-GET 1 byte.
-        let res = await fetch(splatUrl, { method: 'HEAD', cache: 'no-store' }).catch(() => null);
-        if (!res || !res.ok) {
-          res = await fetch(splatUrl, {
-            method: 'GET', cache: 'no-store',
-            headers: { 'Range': 'bytes=0-0' },
-          });
-        }
+        // R2 Worker supports GET, not HEAD. Use a small range GET to validate.
+        const res = await fetch(splatUrl, {
+          method: 'GET', cache: 'no-store',
+          headers: { 'Range': 'bytes=0-0' },
+        });
         if (res.ok || res.status === 206) {
           const size = res.headers.get('content-length');
           setCheck('splat-url', 'pass', size ? `Reachable (${fmtSize(+size)})` : 'Reachable');
@@ -320,8 +332,20 @@
     }
 
     // 4. Thumbnail
+    let thumbnailUrl = row.thumbnail_url || '';
+    const thumbnailKey = row.meta?.thumbnail_r2_key || row.meta?.capture_thumbnail_r2_key;
+    if (thumbnailKey) {
+      try {
+        thumbnailUrl = row.is_public === true
+          ? r2.publicUrl('thumbnails', thumbnailKey)
+          : await r2.from('thumbnails').authenticatedUrl(thumbnailKey);
+      } catch (err) {
+        console.warn('[Preflight] thumbnail ticket failed', err);
+        thumbnailUrl = '';
+      }
+    }
     setCheck('thumb', 'running');
-    if (!row.thumbnail_url) {
+    if (!thumbnailUrl) {
       setCheck('thumb', 'warn', 'No thumbnail — shares will have no preview image');
       warn++;
     } else {
@@ -330,7 +354,7 @@
           const i = new Image();
           i.onload = () => resolve(i);
           i.onerror = () => reject(new Error('image failed'));
-          i.src = row.thumbnail_url;
+          i.src = thumbnailUrl;
           setTimeout(() => reject(new Error('timeout')), 5000);
         });
         setCheck('thumb', 'pass', `${img.naturalWidth}×${img.naturalHeight}`);
@@ -359,41 +383,46 @@
 
     // 6. Service worker + pre-cache
     setCheck('sw', 'running');
-    try {
-      const reg = await ensureServiceWorker();
-      if (!reg) {
-        setCheck('sw', 'warn', 'Service workers not supported in this browser');
-        warn++;
-      } else {
-        const urls = [splatUrl, row.thumbnail_url].filter(Boolean);
-        const done = new Promise(resolve => {
-          const unsub = onPrefetchResult(r => { unsub(); resolve(r); });
-          setTimeout(() => { unsub(); resolve(null); }, 15000);
-        });
-        const r = await prefetchSplat({ extraUrls: urls });
-        if (!r.supported) {
-          setCheck('sw', 'warn', 'SW registered but not controlling this page yet — reload and retry');
+    if (row.is_public !== true) {
+      setCheck('sw', 'warn', 'Private NIFs are not added to the shared offline cache');
+      warn++;
+    } else {
+      try {
+        const reg = await ensureServiceWorker();
+        if (!reg) {
+          setCheck('sw', 'warn', 'Service workers not supported in this browser');
           warn++;
         } else {
-          const res = await done;
-          if (!res) {
-            setCheck('sw', 'warn', 'Pre-cache queued but no completion event — reload and retry if unsure');
+          const urls = [splatUrl, thumbnailUrl].filter(Boolean);
+          const done = new Promise(resolve => {
+            const unsub = onPrefetchResult(r => { unsub(); resolve(r); });
+            setTimeout(() => { unsub(); resolve(null); }, 15000);
+          });
+          const r = await prefetchSplat({ extraUrls: urls });
+          if (!r.supported) {
+            setCheck('sw', 'warn', 'SW registered but not controlling this page yet — reload and retry');
             warn++;
           } else {
-            const okCount = res.filter(x => x.ok).length;
-            if (okCount === res.length) {
-              setCheck('sw', 'pass', `Pre-cached ${okCount} file${okCount === 1 ? '' : 's'}`);
-              pass++;
-            } else {
-              setCheck('sw', 'warn', `Pre-cached ${okCount} of ${res.length} files`);
+            const res = await done;
+            if (!res) {
+              setCheck('sw', 'warn', 'Pre-cache queued but no completion event — reload and retry if unsure');
               warn++;
+            } else {
+              const okCount = res.filter(x => x.ok).length;
+              if (okCount === res.length) {
+                setCheck('sw', 'pass', `Pre-cached ${okCount} file${okCount === 1 ? '' : 's'}`);
+                pass++;
+              } else {
+                setCheck('sw', 'warn', `Pre-cached ${okCount} of ${res.length} files`);
+                warn++;
+              }
             }
           }
         }
+      } catch (err) {
+        setCheck('sw', 'warn', err.message);
+        warn++;
       }
-    } catch (err) {
-      setCheck('sw', 'warn', err.message);
-      warn++;
     }
 
     // 7. Network sanity

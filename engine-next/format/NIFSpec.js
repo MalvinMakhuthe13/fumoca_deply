@@ -16,11 +16,12 @@
 
 export const NIF_MAGIC         = 0x4E494600; // 'NIF\0'
 export const NIF_VERSION_MAJOR = 1;
-export const NIF_VERSION_MINOR = 1;  // 1.1: added CALIBRATION (0x0017) and
-                                      // VERIFICATION (0x0018) chunk types.
-                                      // Per §12 of NIF_SPEC_v1.0.md, this is
-                                      // a minor bump — old readers that
-                                      // ignore unknown chunks stay compatible.
+const MAX_NIF_GAUSSIANS = 5_000_000; // Guard browser allocations when opening untrusted files.
+const MAX_DECOMPRESSED_CHUNK_BYTES = 512 * 1024 * 1024; // Refuse gzip bombs / oversized browser allocations.
+
+export const NIF_VERSION_MINOR = 2;  // 1.2: added GAUSSIAN_SH (0x001A) for exact Gaussian PLY coefficients.
+                                      // v1.1 added CALIBRATION (0x0017) and VERIFICATION (0x0018).
+                                      // Additive chunks remain compatible with v1.x readers that skip unknown IDs.
 
 /**
  * ── Shared chunk-ID registry with .spax ──────────────────────────────────
@@ -90,6 +91,7 @@ export const CHUNK = Object.freeze({
                            // engine-next/reconstruction/verify.py and encodeVerificationChunk()
                            // below. Absence means "not verified", never inferred as "passed".
   LIDAR_ATTR:    0x0019,  // Optional per-point LiDAR intensity/class/return arrays (v1; see nif-format.js).
+  GAUSSIAN_SH:   0x001A,  // Optional exact Gaussian PLY f_dc_*/f_rest_* coefficient sidecar.
   SPATIAL_AUDIO: 0x0300,  // RESERVED — ambisonics B-format + HRTF source positions.
                            // Shared ID with SPAXSpec.js's SPAX_CHUNK.SPATIAL_AUDIO — see the
                            // "Shared chunk-ID registry" note above CHUNK for why this moved
@@ -217,6 +219,10 @@ export async function gzipDecompress(bytes) {
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
+    if (total + value.length > MAX_DECOMPRESSED_CHUNK_BYTES) {
+      await reader.cancel('NIF decompressed chunk exceeds the 512 MiB safety limit').catch(() => {});
+      throw new Error('[NIFSpec] Decompressed chunk exceeds the 512 MiB safety limit');
+    }
     parts.push(value); total += value.length;
   }
   const out = new Uint8Array(total); let off = 0;
@@ -529,6 +535,35 @@ export async function decodeVerificationChunk(chunk) {
 }
 
 // ─── Writer (Node.js pipeline — server-side) ──────────────────────────────────
+export function encodeGaussianSHChunk(gaussianSH) {
+  const degree = gaussianSH?.degree;
+  const pointCount = gaussianSH?.pointCount ?? gaussianSH?.count;
+  const values = gaussianSH?.values;
+  const coefficientCount = gaussianSH?.coefficientCount ??
+    (Number.isInteger(degree) && degree >= 0 && degree <= 8 ? 3 * (degree + 1) ** 2 : 0);
+  if (!Number.isInteger(degree) || degree < 0 || degree > 8 ||
+      !Number.isInteger(pointCount) || pointCount < 1 || pointCount > MAX_NIF_GAUSSIANS ||
+      !Number.isInteger(coefficientCount) || coefficientCount !== 3 * (degree + 1) ** 2 ||
+      !(values instanceof Float32Array) || values.length !== pointCount * coefficientCount) {
+    throw new Error('[NIFSpec] Gaussian SH sidecar has an invalid degree, point count, coefficient count or value array');
+  }
+  const byteLength = 8 + values.length * 4;
+  if (!Number.isSafeInteger(byteLength) || byteLength > MAX_DECOMPRESSED_CHUNK_BYTES) {
+    throw new Error('[NIFSpec] Gaussian SH sidecar exceeds the 512 MiB safety limit');
+  }
+  const out = new Uint8Array(byteLength);
+  const dv = new DataView(out.buffer);
+  dv.setUint8(0, 1); // sidecar version
+  dv.setUint8(1, degree);
+  dv.setUint16(2, coefficientCount, false);
+  dv.setUint32(4, pointCount, false);
+  for (let i = 0; i < values.length; i++) {
+    if (!Number.isFinite(values[i])) throw new Error(`[NIFSpec] Gaussian SH value ${i} is not finite`);
+    dv.setFloat32(8 + i * 4, values[i], false);
+  }
+  return out;
+}
+
 export class NIFWriter {
   constructor(headerOpts = {}) {
     this.header = new NIFHeader(headerOpts);
@@ -717,9 +752,8 @@ export class NIFReader {
     // Compatibility contract, decided now while only v1.x files exist:
     //   - Same major version: always readable, regardless of minor. Minor
     //     version bumps only ever ADD new chunk types (see NIF_SPEC_v1.0.md
-    //     §12) — a v1.0 reader given a v1.1 file just won't see the new
-    //     chunks, which is exactly what the per-chunk defensive parsing
-    //     above already handles gracefully.
+    //     §12) — older v1.x readers skip newer optional chunks, which is the
+    //     intended forward/backward compatibility behavior.
     //   - Different major version: NOT assumed readable. A major bump is
     //     reserved for changes that break this assumption (e.g. a changed
     //     chunk header layout), so an unknown major version chunk-parses
@@ -787,6 +821,38 @@ export class NIFReader {
     return cert.tier;
   }
 
+  async getGaussianSH() {
+    const chunk = this.getChunk(CHUNK.GAUSSIAN_SH);
+    if (!chunk) return null;
+    const bytes = await decompressChunk(chunk);
+    if (!(bytes instanceof Uint8Array) || bytes.byteLength < 8) {
+      throw new Error('[NIFSpec] Gaussian SH sidecar is shorter than its header');
+    }
+    const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const version = dv.getUint8(0);
+    const degree = dv.getUint8(1);
+    const coefficientCount = dv.getUint16(2, false);
+    const pointCount = dv.getUint32(4, false);
+    if (version !== 1 || !Number.isInteger(degree) || degree > 8 ||
+        coefficientCount !== 3 * (degree + 1) ** 2 ||
+        pointCount < 1 || pointCount > MAX_NIF_GAUSSIANS) {
+      throw new Error('[NIFSpec] Gaussian SH sidecar header is invalid or unsupported');
+    }
+    const valueCount = pointCount * coefficientCount;
+    const expectedBytes = 8 + valueCount * 4;
+    if (!Number.isSafeInteger(expectedBytes) || expectedBytes > bytes.byteLength ||
+        expectedBytes > MAX_DECOMPRESSED_CHUNK_BYTES) {
+      throw new Error('[NIFSpec] Gaussian SH sidecar payload is truncated or oversized');
+    }
+    const values = new Float32Array(valueCount);
+    for (let i = 0; i < valueCount; i++) {
+      const value = dv.getFloat32(8 + i * 4, false);
+      if (!Number.isFinite(value)) throw new Error(`[NIFSpec] Gaussian SH value ${i} is not finite`);
+      values[i] = value;
+    }
+    return { version, degree, pointCount, coefficientCount, values };
+  }
+
   // Deserialise geometry chunk → { count, data: Float32Array }
   /**
    * Parse KEYFRAME_GEO chunk.
@@ -811,10 +877,16 @@ export class NIFReader {
     const chunk = this.getChunk(CHUNK.KEYFRAME_GEO);
     if (!chunk) return null;
     const decompressed = await decompressChunk(chunk);
+    if (!(decompressed instanceof Uint8Array) || decompressed.byteLength < 5) {
+      throw new Error('[NIFSpec] Geometry chunk is shorter than its 5-byte header');
+    }
     const dv = new DataView(decompressed.buffer, decompressed.byteOffset, decompressed.byteLength);
 
     const flag  = dv.getUint8(0);
     const count = dv.getUint32(1, false);   // big-endian
+    if (!Number.isInteger(count) || count < 1 || count > MAX_NIF_GAUSSIANS) {
+      throw new Error(`[NIFSpec] Geometry point count ${count} is outside the supported range 1–${MAX_NIF_GAUSSIANS}`);
+    }
 
     if (flag === 0x00) {
       // ── Raw float32 (fallback format) ──────────────────────────────────────
@@ -822,15 +894,33 @@ export class NIFReader {
       // is not guaranteed to be a multiple of 4, and Float32Array construction
       // throws if the view isn't aligned.
       const byteLen = count * 14 * 4;
+      if (!Number.isSafeInteger(byteLen) || byteLen > decompressed.byteLength - 5) {
+        throw new Error('[NIFSpec] Raw geometry payload is truncated for its declared point count');
+      }
       const raw  = new Uint8Array(decompressed.buffer, decompressed.byteOffset + 5, byteLen);
       const copy = new ArrayBuffer(byteLen);
       new Uint8Array(copy).set(raw);
-      return { count, data: new Float32Array(copy) };
+      const data = new Float32Array(copy);
+      for (let i = 0; i < data.length; i++) {
+        if (!Number.isFinite(data[i])) throw new Error(`[NIFSpec] Raw geometry contains a non-finite value at float index ${i}`);
+      }
+      for (let i = 0; i < count; i++) {
+        const o = i * 14 + 6;
+        const norm = Math.hypot(data[o], data[o+1], data[o+2], data[o+3]);
+        if (!Number.isFinite(norm) || norm < 1e-8) {
+          throw new Error(`[NIFSpec] Raw geometry point ${i} has an invalid zero-length quaternion`);
+        }
+        for (let j = 0; j < 4; j++) data[o+j] /= norm;
+      }
+      return { count, data };
     }
 
     if (flag === 0x01) {
       // ── Quantised format ───────────────────────────────────────────────────
       // Header: flag(1) + count(4) + bb_min(12) + bb_max(12) = 29 bytes
+      if (decompressed.byteLength < 29 || count * 17 > decompressed.byteLength - 29) {
+        throw new Error('[NIFSpec] Quantised geometry payload is truncated for its declared point count');
+      }
       const bbMinX = dv.getFloat32(5,  false);
       const bbMinY = dv.getFloat32(9,  false);
       const bbMinZ = dv.getFloat32(13, false);
@@ -838,6 +928,10 @@ export class NIFReader {
       const bbMaxY = dv.getFloat32(21, false);
       const bbMaxZ = dv.getFloat32(25, false);
 
+      if (![bbMinX, bbMinY, bbMinZ, bbMaxX, bbMaxY, bbMaxZ].every(Number.isFinite) ||
+          bbMaxX < bbMinX || bbMaxY < bbMinY || bbMaxZ < bbMinZ) {
+        throw new Error('[NIFSpec] Quantised geometry has invalid or inverted bounds');
+      }
       const rangeX = bbMaxX - bbMinX;
       const rangeY = bbMaxY - bbMinY;
       const rangeZ = bbMaxZ - bbMinZ;
@@ -868,6 +962,11 @@ export class NIFReader {
         out[o + 7] = dv.getInt8(base + 10) / 127;
         out[o + 8] = dv.getInt8(base + 11) / 127;
         out[o + 9] = dv.getInt8(base + 12) / 127;
+        const qNorm = Math.hypot(out[o+6], out[o+7], out[o+8], out[o+9]);
+        if (!Number.isFinite(qNorm) || qNorm < 1e-8) {
+          throw new Error(`[NIFSpec] Quantised geometry point ${i} has an invalid zero-length quaternion`);
+        }
+        for (let j = 6; j <= 9; j++) out[o+j] /= qNorm;
 
         // Opacity (uint8 → logit-space)
         const opSig = decompressed[base + 13] / 255;

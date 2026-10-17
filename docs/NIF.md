@@ -1,6 +1,6 @@
 # NIF — Neural Interactive Format
 
-**Status:** Established specification · v1.1  
+**Status:** Established specification · v1.2
 **Extension:** `.nif`  
 **MIME:** `model/x-nif`  
 **Magic:** `NIF\0` (`0x4E 0x49 0x46 0x00`)
@@ -44,18 +44,42 @@ Canonical implementation:
 
 | ID | Name | Role |
 |----|------|------|
-| `0x0001` | META | JSON: title, author, capture info |
-| `0x0002` | KEYFRAME_GEO | Gaussian / point field (14-float layout) |
+| `0x0001` | META | JSON metadata, conversion provenance and optional sidecar property names |
+| `0x0002` | PROXY_VIDEO | Optional video preview |
+| `0x0003` | KEYFRAME_GEO | Render-ready Gaussian / point field (14-float canonical layout) |
+| `0x0004` | KEYFRAME_MESH | Optional solid mesh |
+| `0x0007` | DEPTH_MAP | Optional depth map; metric only when calibration says so |
+| `0x0009` | LAYER_GEO | Optional labeled geometry layers |
+| `0x000B` | CAMERAS | Camera path / frame matrices |
 | `0x0014` | PRINT_EXPORT | Print-ready mesh pack |
 | `0x0015` | THUMBNAIL | JPEG poster |
-| `0x0017` | CALIBRATION | Capture calibration |
-| `0x0018` | VERIFICATION | Integrity / pipeline marks |
+| `0x0016` | SEMANTIC_MAP | Optional semantic labels |
+| `0x0017` | CALIBRATION | Capture calibration and dimensional confidence |
+| `0x0018` | VERIFICATION | Reference-measurement report, when available |
+| `0x0019` | LIDAR_ATTR | Per-point LiDAR intensity/class/return data |
+| `0x001A` | GAUSSIAN_SH | Exact Gaussian PLY `f_dc_*` and `f_rest_*` coefficients, stored separately from render-ready geometry |
 | `0x0020` | CERT | Encoder license tier |
 | `0x0300` | SPATIAL_AUDIO | Shared with SPAX |
 | `0x0500` | EDIT_HISTORY | Shared with SPAX |
 | `0x0600` | INTERACTION | Hotspots / paths |
 
-Full enum and layout: `engine-next/format/NIFSpec.js`.
+Full enum and binary layout: `engine-next/format/NIFSpec.js`.
+
+### Gaussian PLY fidelity
+
+The canonical geometry keeps render-ready position, log-scale, rotation, opacity and DC-derived colour. For Gaussian PLY inputs, the optional `GAUSSIAN_SH` chunk stores the exact `f_dc_*` and `f_rest_*` float coefficients in per-point order. The metadata records the coefficient property names so future exporters can reconstruct the original SH layout. If an input has an unsupported `f_rest_*` count, the importer fails clearly instead of silently discarding those values. A NIF can therefore render using the current 14-float geometry while retaining the source coefficients for a fidelity-preserving export path.
+
+**GAUSSIAN_SH binary payload (chunk 0x001A, sidecar version 1):**
+
+| Offset | Type | Meaning |
+|---:|---|---|
+| 0 | u8 | Sidecar version, currently `1` |
+| 1 | u8 | SH degree, `0–8` |
+| 2 | u16 BE | Coefficient count per point; must equal `3 × (degree + 1)²` |
+| 4 | u32 BE | Point count; must match KEYFRAME_GEO |
+| 8 | float32 BE[] | Point-major coefficient values |
+
+Values are ordered as `f_dc_0`, `f_dc_1`, `f_dc_2`, then `f_rest_0...` in numeric order. `meta.gaussian_sh.properties` stores the exact property names. The reader rejects malformed counts, non-finite values, truncated payloads, degenerate geometry quaternions, and sidecars larger than the 512 MiB safety budget; browser import is capped at 5 million points.
 
 ---
 

@@ -39,6 +39,10 @@ const enc = new TextEncoder();
 const MAGIC_V1 = 'FUMOC1';
 const CODEC_VERSION = 3; // v3: radix sort, order-1 ANS, perceptual quantise
 const MAGIC_V2 = 'FUMOC2';
+const MAX_FUMOC_HEADER_BYTES = 1024 * 1024;
+const MAX_FUMOC_SECTION_BYTES = 512 * 1024 * 1024;
+const MAX_FUMOC_FILE_BYTES = 2 * 1024 * 1024 * 1024;
+const MAX_GAUSSIANS = 5_000_000;
 
 const CHANNEL = Object.freeze({
   0x01: 'POS_X', 0x02: 'POS_Y', 0x03: 'POS_Z',
@@ -51,30 +55,50 @@ const CHANNEL = Object.freeze({
 // ── File-level reader ─────────────────────────────────────────────────────────
 
 function readFileHeader(bytes) {
-  const magic = dec.decode(bytes.slice(0, 6));
-  if (!magic.startsWith('FUMOC')) throw new Error('[FUMOC] Not a .fumoc file');
-  const version   = bytes[8] | (bytes[9] << 8);
-  const headerLen = new DataView(bytes.buffer, bytes.byteOffset + 10, 4).getUint32(0, true);
-  const headerStr = dec.decode(bytes.slice(14, 14 + headerLen));
-  const header    = JSON.parse(headerStr);
+  if (!(bytes instanceof Uint8Array) || bytes.byteLength < 14) {
+    throw new Error('[FUMOC] File is shorter than its 14-byte header');
+  }
+  if (bytes.byteLength > MAX_FUMOC_FILE_BYTES) throw new Error('[FUMOC] File exceeds the 2 GiB safety limit');
+  const magic = dec.decode(bytes.subarray(0, 6));
+  if (magic !== MAGIC_V1 && magic !== MAGIC_V2) throw new Error('[FUMOC] Unsupported file magic');
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const version = view.getUint16(8, true);
+  if (!Number.isInteger(version) || version < 1 || version > 2) {
+    throw new Error(`[FUMOC] Unsupported file version ${version}`);
+  }
+  const headerLen = view.getUint32(10, true);
+  if (headerLen > MAX_FUMOC_HEADER_BYTES || 14 + headerLen > bytes.byteLength) {
+    throw new Error('[FUMOC] Header length is invalid, truncated or exceeds 1 MiB');
+  }
+  let header;
+  try { header = JSON.parse(dec.decode(bytes.subarray(14, 14 + headerLen))); }
+  catch (error) { throw new Error('[FUMOC] Header JSON is invalid', { cause: error }); }
+  if (!header || typeof header !== 'object' || Array.isArray(header)) {
+    throw new Error('[FUMOC] Header must be a JSON object');
+  }
   return { version, header, dataOffset: 14 + headerLen };
 }
 
 // ── Section reader ─────────────────────────────────────────────────────────────
 
 function* readSections(bytes, startOffset) {
-  const view = new DataView(bytes.buffer, bytes.byteOffset);
-  let   off  = startOffset;
-
-  while (off + 13 <= bytes.length) {
-    const id = String.fromCharCode(
-      bytes[off], bytes[off+1], bytes[off+2], bytes[off+3]);
-    const flags   = bytes[off + 4];
+  if (!Number.isInteger(startOffset) || startOffset < 14 || startOffset > bytes.byteLength) {
+    throw new Error('[FUMOC] Section start offset is invalid');
+  }
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let off = startOffset;
+  while (off < bytes.byteLength) {
+    if (bytes.byteLength - off < 13) throw new Error('[FUMOC] Truncated section header');
+    const id = String.fromCharCode(bytes[off], bytes[off+1], bytes[off+2], bytes[off+3]);
+    const flags = bytes[off + 4];
     const compLen = view.getUint32(off + 5, true);
-    const rawLen  = view.getUint32(off + 9, true);
-
-    if (off + 13 + compLen > bytes.length) break;
-
+    const rawLen = view.getUint32(off + 9, true);
+    if (flags & ~0x03) throw new Error(`[FUMOC] Section ${id} has unsupported flag bits`);
+    if (compLen > MAX_FUMOC_SECTION_BYTES || rawLen > MAX_FUMOC_SECTION_BYTES) {
+      throw new Error(`[FUMOC] Section ${id} exceeds the 512 MiB safety limit`);
+    }
+    if (off + 13 + compLen > bytes.byteLength) throw new Error(`[FUMOC] Section ${id} is truncated`);
+    if (!(flags & 0x01) && rawLen !== compLen) throw new Error(`[FUMOC] Section ${id} has mismatched uncompressed lengths`);
     const data = bytes.slice(off + 13, off + 13 + compLen);
     yield { id, flags, compLen, rawLen, data, offset: off };
     off += 13 + compLen;
@@ -84,70 +108,140 @@ function* readSections(bytes, startOffset) {
 // ── Decompress non-SPLT sections (deflate) ────────────────────────────────────
 
 async function inflate(data) {
+  let reader = null;
   try {
-    const ds     = new DecompressionStream('deflate');
+    const ds = new DecompressionStream('deflate');
     const writer = ds.writable.getWriter();
-    writer.write(data); writer.close();
+    const writePromise = writer.write(data);
+    const closePromise = writer.close();
+    writePromise.catch(() => {});
+    closePromise.catch(() => {});
     const chunks = [];
-    const reader = ds.readable.getReader();
+    let total = 0;
+    reader = ds.readable.getReader();
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
+      if (total + value.byteLength > MAX_FUMOC_SECTION_BYTES) {
+        await reader.cancel('FUMOC decompressed section exceeds 512 MiB').catch(() => {});
+        throw new Error('[FUMOC] Decompressed section exceeds the 512 MiB safety limit');
+      }
       chunks.push(value);
+      total += value.byteLength;
     }
-    const total = chunks.reduce((n, c) => n + c.length, 0);
-    const out   = new Uint8Array(total);
-    let o = 0; for (const c of chunks) { out.set(c, o); o += c.length; }
+    await Promise.all([writePromise, closePromise]);
+    const out = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) { out.set(chunk, offset); offset += chunk.byteLength; }
     return out;
-  } catch {
-    return data; // Not compressed — return as-is (v1 fallback)
+  } catch (error) {
+    await reader?.cancel().catch(() => {});
+    if (error instanceof Error && error.message.includes('512 MiB safety limit')) throw error;
+    throw new Error('[FUMOC] Invalid or truncated compressed section', { cause: error });
   }
+}
+
+async function sectionPayload(section) {
+  const raw = (section.flags & 0x01) ? await inflate(section.data) : section.data;
+  if (raw.byteLength !== section.rawLen) {
+    throw new Error(`[FUMOC] Section ${section.id} decoded length does not match its header`);
+  }
+  return raw;
 }
 
 // ── SPLT v2 section decoder ────────────────────────────────────────────────────
 
 function decodeSpltV2(spltData) {
-  const view  = new DataView(spltData.buffer, spltData.byteOffset);
-  const N     = view.getUint32(0, true);
-  const nChan = view.getUint32(4, true);
-  let   off   = 8;
-
-  const channels = {};
-
-  for (let c = 0; c < nChan; c++) {
-    const chanId    = spltData[off++];
-    // v92: order-0 only — freq table is always 512 bytes
-    // order-1 (131072 byte tables) disabled until format is stabilised
-    const freqLen   = 512;
-    const freqBytes = spltData.slice(off, off + freqLen); off += freqLen;
-    const metaLen   = view.getUint32(off, true); off += 4;
-    const metaJson  = dec.decode(spltData.slice(off, off + metaLen)); off += metaLen;
-    const compLen   = view.getUint32(off, true); off += 4;
-    const compData  = spltData.slice(off, off + compLen); off += compLen;
-
-    const meta      = JSON.parse(metaJson);
-    const chanName  = CHANNEL[chanId] || `CH_${chanId.toString(16)}`;
-
-    if (chanName === 'SORT') {
-      // Decode sort index
-      const sortBytes = FumocCodec.ansDecode(compData, freqBytes, meta.length * 4);
-      channels.SORT   = new Uint32Array(sortBytes.buffer, sortBytes.byteOffset, meta.length);
-    } else if (chanName.startsWith('COL_') || chanName.startsWith('ROT_')) {
-      // Colour and rotation: ANS only (no quantise/delta pipeline)
-      const raw = FumocCodec.ansDecode(compData, freqBytes, meta.length);
-      channels[chanName] = raw;
-    } else {
-      // Position and scale: full decode pipeline
-      // v3: check order flag in meta (order:1 = order-1 ANS tables)
-      if (meta.order === 1 && FumocCodec.ansDecodeOrder1) {
-        // order-1 decode — freqBytes is 256*256*2 = 131072 bytes
-        channels[chanName] = FumocCodec.decodeChannel(compData, freqBytes, meta);
-      } else {
-        channels[chanName] = FumocCodec.decodeChannel(compData, freqBytes, meta);
-      }
-    }
+  if (!(spltData instanceof Uint8Array) || spltData.byteLength < 8) {
+    throw new Error('[FUMOC] SPLT v2 payload is shorter than its header');
+  }
+  const view = new DataView(spltData.buffer, spltData.byteOffset, spltData.byteLength);
+  const u32 = (offset, label) => {
+    if (offset < 0 || offset + 4 > view.byteLength) throw new Error(`[FUMOC] Truncated SPLT v2 ${label}`);
+    return view.getUint32(offset, true);
+  };
+  const N = u32(0, 'point count');
+  const nChan = u32(4, 'channel count');
+  if (!Number.isInteger(N) || N < 1 || N > MAX_GAUSSIANS) {
+    throw new Error(`[FUMOC] SPLT v2 point count must be between 1 and ${MAX_GAUSSIANS}`);
+  }
+  if (!Number.isInteger(nChan) || nChan < 1 || nChan > 15) {
+    throw new Error('[FUMOC] SPLT v2 channel count must be between 1 and 15');
   }
 
+  let off = 8;
+  const channels = {};
+  for (let c = 0; c < nChan; c++) {
+    if (off >= spltData.byteLength) throw new Error('[FUMOC] SPLT v2 channel ID is missing');
+    const chanId = spltData[off++];
+    const chanName = CHANNEL[chanId];
+    if (!chanName) throw new Error(`[FUMOC] Unsupported SPLT v2 channel ID ${chanId}`);
+    if (channels[chanName] !== undefined) throw new Error(`[FUMOC] Duplicate SPLT v2 channel ${chanName}`);
+
+    // The v3 codec may use a 512-byte order-0 table or a 131072-byte order-1
+    // table. The table size is inferred by validating the following metadata.
+    let selected = null;
+    for (const freqLen of [512, 131072]) {
+      const metaLenOffset = off + freqLen;
+      if (metaLenOffset + 4 > spltData.byteLength) continue;
+      const metaLen = u32(metaLenOffset, 'channel metadata length');
+      if (metaLen < 2 || metaLen > MAX_FUMOC_HEADER_BYTES ||
+          metaLenOffset + 4 + metaLen + 4 > spltData.byteLength) continue;
+      let meta;
+      try { meta = JSON.parse(dec.decode(spltData.subarray(metaLenOffset + 4, metaLenOffset + 4 + metaLen))); }
+      catch { continue; }
+      if (!meta || typeof meta !== 'object' || Array.isArray(meta)) continue;
+      if (freqLen === 131072 && meta.order !== 1) continue;
+      if (freqLen === 512 && meta.order === 1) continue;
+      selected = { freqLen, metaLen, meta };
+      break;
+    }
+    if (!selected) throw new Error(`[FUMOC] Invalid or truncated metadata for SPLT v2 channel ${chanName}`);
+
+    const { freqLen, metaLen, meta } = selected;
+    const freqBytes = spltData.subarray(off, off + freqLen);
+    off += freqLen + 4;
+    off += metaLen;
+    const compLen = u32(off, 'compressed channel length');
+    off += 4;
+    if (compLen > MAX_FUMOC_SECTION_BYTES || off + compLen > spltData.byteLength) {
+      throw new Error(`[FUMOC] Compressed data for channel ${chanName} is truncated or oversized`);
+    }
+    const compData = spltData.subarray(off, off + compLen);
+    off += compLen;
+
+    if (!Number.isInteger(meta.length) || meta.length !== N) {
+      throw new Error(`[FUMOC] Channel ${chanName} length must match the declared point count`);
+    }
+    if (chanName.startsWith('POS_') || chanName.startsWith('SCL_')) {
+      if (!Number.isInteger(meta.bits) || meta.bits < 1 || meta.bits > 16 ||
+          !Number.isFinite(meta.min) || !Number.isFinite(meta.max) || meta.max < meta.min) {
+        throw new Error(`[FUMOC] Channel ${chanName} quantization metadata is invalid`);
+      }
+    }
+
+    const decodeAns = meta.order === 1 ? FumocCodec.ansDecodeOrder1 : FumocCodec.ansDecode;
+    if (meta.order === 1 && !FumocCodec.ansDecodeOrder1) {
+      throw new Error('[FUMOC] Order-1 ANS decoder is unavailable in this build');
+    }
+    if (chanName === 'SORT') {
+      const sortBytes = decodeAns(compData, freqBytes, N * 4);
+      const sort = new Uint32Array(sortBytes.buffer, sortBytes.byteOffset, N);
+      for (let i = 0; i < N; i++) if (sort[i] >= N) throw new Error('[FUMOC] SORT index is outside the point range');
+      channels.SORT = sort;
+    } else if (chanName.startsWith('COL_') || chanName.startsWith('ROT_')) {
+      channels[chanName] = decodeAns(compData, freqBytes, N);
+    } else {
+      channels[chanName] = meta.order === 1
+        ? FumocCodec.decodeChannelOrder1(compData, freqBytes, meta)
+        : FumocCodec.decodeChannel(compData, freqBytes, meta);
+      for (let i = 0; i < N; i++) {
+        if (!Number.isFinite(channels[chanName][i])) throw new Error(`[FUMOC] Channel ${chanName} contains a non-finite value`);
+      }
+    }
+    if (channels[chanName]?.length !== N) throw new Error(`[FUMOC] Channel ${chanName} decoded to an unexpected length`);
+  }
+  if (off !== spltData.byteLength) throw new Error('[FUMOC] SPLT v2 payload contains trailing or unparsed bytes');
   return { N, channels };
 }
 
@@ -188,7 +282,13 @@ function assembleGaussians(N, channels) {
  */
 function toSplatBinary(gaussians) {
   const { N, posX, posY, posZ, sclX, sclY, sclZ,
-          colR, colG, colB, colA, rotQ0, rotQ1, rotQ2, rotQ3 } = gaussians;
+          colR, colG, colB, colA, rotQ0, rotQ1, rotQ2, rotQ3 } = gaussians || {};
+  if (!Number.isInteger(N) || N < 1 || N > MAX_GAUSSIANS) {
+    throw new Error(`[FUMOC] SPLAT output point count must be between 1 and ${MAX_GAUSSIANS}`);
+  }
+  for (const [name, channel] of Object.entries({posX,posY,posZ,sclX,sclY,sclZ,colR,colG,colB,colA,rotQ0,rotQ1,rotQ2,rotQ3})) {
+    if (!channel || channel.length !== N) throw new Error(`[FUMOC] SPLAT output channel ${name} has an invalid length`);
+  }
   const out  = new Uint8Array(N * FumocCodec.SPLAT_ROW);
   const view = new DataView(out.buffer);
 
@@ -217,9 +317,15 @@ function toSplatBinary(gaussians) {
 
 async function decodeSpltV1(data, flags) {
   let raw = data;
-  if (flags & 0x01) raw = await inflate(data); // only inflate if not already done
-  const N  = Math.floor(raw.length / FumocCodec.SPLAT_ROW);
-  const dv = new DataView(raw.buffer, raw.byteOffset);
+  if (flags & 0x01) raw = await inflate(data);
+  if (raw.byteLength === 0 || raw.byteLength % FumocCodec.SPLAT_ROW !== 0) {
+    throw new Error('[FUMOC] Raw SPLT payload must contain complete 32-byte Gaussian rows');
+  }
+  const N = raw.byteLength / FumocCodec.SPLAT_ROW;
+  if (!Number.isInteger(N) || N < 1 || N > MAX_GAUSSIANS) {
+    throw new Error(`[FUMOC] Raw SPLT point count must be between 1 and ${MAX_GAUSSIANS}`);
+  }
+  const dv = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
 
   const posX  = new Float32Array(N), posY  = new Float32Array(N), posZ  = new Float32Array(N);
   const sclX  = new Float32Array(N), sclY  = new Float32Array(N), sclZ  = new Float32Array(N);
@@ -246,6 +352,12 @@ async function decodeSpltV1(data, flags) {
     rotQ3[i] = dv.getUint8  (b + 31);
   }
 
+  for (let i = 0; i < N; i++) {
+    if (![posX[i], posY[i], posZ[i], sclX[i], sclY[i], sclZ[i]].every(Number.isFinite) ||
+        sclX[i] <= 0 || sclY[i] <= 0 || sclZ[i] <= 0) {
+      throw new Error(`[FUMOC] Raw SPLT point ${i} has invalid position or scale values`);
+    }
+  }
   return { N, posX, posY, posZ, sclX, sclY, sclZ,
            colR, colG, colB, colA, rotQ0, rotQ1, rotQ2, rotQ3 };
 }
@@ -309,99 +421,78 @@ async function decode(buffer, options = {}) {
 
   _prog(8, 'Reading sections…');
 
+  const seenSections = new Set();
+  let sawSplat = false;
   for (const section of readSections(bytes, dataOffset)) {
-    const { id, flags, data } = section;
+    const { id, flags } = section;
+    if (seenSections.has(id)) throw new Error(`[FUMOC] Duplicate section ${id}`);
+    seenSections.add(id);
 
     if (id === 'SPLT') {
+      sawSplat = true;
       _prog(15, 'Decoding splat data…');
-
-      // Decompress first if deflate-compressed (flag 0x01).
-      // fumoc-format.js (v1-style encoder) writes flag 0x01 even for v2 codec
-      // SPLT sections, so we must decompress before we can probe the structure.
-      let spltData = data;
-      if (flags & 0x01) spltData = await inflate(data);
-
-      // Detect v2 codec SPLT by peeking at the internal structure:
-      //   bytes 0-3: N (Gaussian count, u32) — must be > 0
-      //   bytes 4-7: nChan (channel count, u32) — must be 1-15
-      // A raw .splat binary starts with an XYZ float32, which interpreted as
-      // a u32 would never land cleanly in [1,15], so this probe is reliable.
-      let looksV2 = false;
-      if (spltData.length >= 8) {
-        const probe = new DataView(spltData.buffer, spltData.byteOffset, 8);
-        const peekN    = probe.getUint32(0, true);
-        const peekChan = probe.getUint32(4, true);
-        looksV2 = peekN > 0 && peekChan >= 1 && peekChan <= 15
-                  && spltData.length > peekN * 32; // channel-packed < raw .splat
+      const spltData = await sectionPayload(section);
+      if (header.splat_byte_length != null &&
+          (!Number.isSafeInteger(Number(header.splat_byte_length)) ||
+           Number(header.splat_byte_length) !== spltData.byteLength)) {
+        throw new Error('[FUMOC] Header splat_byte_length does not match the SPLT section');
       }
-
+      let looksV2 = false;
+      if (spltData.byteLength >= 8) {
+        const probe = new DataView(spltData.buffer, spltData.byteOffset, spltData.byteLength);
+        const peekN = probe.getUint32(0, true);
+        const peekChan = probe.getUint32(4, true);
+        looksV2 = peekN > 0 && peekN <= MAX_GAUSSIANS && peekChan >= 1 && peekChan <= 15;
+      }
       if ((version >= 2 && (flags & 0x02)) || looksV2) {
-        // v2 codec — channel-structured SPLT (already decompressed above)
         const { N, channels } = decodeSpltV2(spltData);
         result.gaussians = assembleGaussians(N, channels);
       } else {
-        // v1: raw .splat binary (already decompressed — pass flags=0 to skip re-inflate)
         result.gaussians = await decodeSpltV1(spltData, 0);
       }
-
       _prog(85, 'Reconstructing geometry…');
-      if (wantBinary) {
-        result.splatBinary = toSplatBinary(result.gaussians);
-      }
-
+      if (wantBinary) result.splatBinary = toSplatBinary(result.gaussians);
     } else if (id === 'META') {
-      const raw = (flags & 0x01) ? await inflate(data) : data;
-      try { result.meta = JSON.parse(dec.decode(raw)); } catch {}
-
+      const raw = await sectionPayload(section);
+      try { result.meta = JSON.parse(dec.decode(raw)); } catch { throw new Error('[FUMOC] META section JSON is invalid'); }
     } else if (id === 'TOUR') {
-      const raw = (flags & 0x01) ? await inflate(data) : data;
-      try { result.tour = JSON.parse(dec.decode(raw)); } catch {}
-
+      const raw = await sectionPayload(section);
+      try { result.tour = JSON.parse(dec.decode(raw)); } catch { throw new Error('[FUMOC] TOUR section JSON is invalid'); }
     } else if (id === 'HOTS') {
-      const raw = (flags & 0x01) ? await inflate(data) : data;
-      try { result.hotspots = JSON.parse(dec.decode(raw)); } catch {}
-
+      const raw = await sectionPayload(section);
+      try { result.hotspots = JSON.parse(dec.decode(raw)); } catch { throw new Error('[FUMOC] HOTS section JSON is invalid'); }
     } else if (id === 'THUM') {
-      result.thumbnail = (flags & 0x01) ? await inflate(data) : data;
-
+      result.thumbnail = await sectionPayload(section);
     } else if (id === 'MOTN') {
-      const raw = (flags & 0x01) ? await inflate(data) : data;
-      try { result.motionStates = JSON.parse(dec.decode(raw)); } catch {}
-
+      const raw = await sectionPayload(section);
+      try { result.motionStates = JSON.parse(dec.decode(raw)); } catch { throw new Error('[FUMOC] MOTN section JSON is invalid'); }
     } else if (id === 'CAMR') {
-      const raw = (flags & 0x01) ? await inflate(data) : data;
-      try { result.cameras = JSON.parse(dec.decode(raw)); } catch {}
-
+      const raw = await sectionPayload(section);
+      try { result.cameras = JSON.parse(dec.decode(raw)); } catch { throw new Error('[FUMOC] CAMR section JSON is invalid'); }
     } else if (id === 'SOND') {
-      const raw = (flags & 0x01) ? await inflate(data) : data;
-      try { result.soundConfig = JSON.parse(dec.decode(raw)); } catch {}
-
+      const raw = await sectionPayload(section);
+      try { result.soundConfig = JSON.parse(dec.decode(raw)); } catch { throw new Error('[FUMOC] SOND section JSON is invalid'); }
     } else if (id === 'VIDP') {
-      // Video payload — raw, no decompression needed
-      result.videoPayload = data; // Uint8Array (MP4/WebM bytes)
-
+      result.videoPayload = await sectionPayload(section);
     } else if (id === 'IPTS') {
-      const raw = (flags & 0x01) ? await inflate(data) : data;
-      try { result.pausePoints = JSON.parse(dec.decode(raw)); } catch {}
-
+      const raw = await sectionPayload(section);
+      try { result.pausePoints = JSON.parse(dec.decode(raw)); } catch { throw new Error('[FUMOC] IPTS section JSON is invalid'); }
     } else if (id === 'SCNE') {
-      const raw = (flags & 0x01) ? await inflate(data) : data;
-      try { result.sceneMeta = JSON.parse(dec.decode(raw)); } catch {}
-
+      const raw = await sectionPayload(section);
+      try { result.sceneMeta = JSON.parse(dec.decode(raw)); } catch { throw new Error('[FUMOC] SCNE section JSON is invalid'); }
     } else if (id === 'ANOT') {
-      const raw = (flags & 0x01) ? await inflate(data) : data;
-      try { result.annotations = JSON.parse(dec.decode(raw)); } catch {}
-
+      const raw = await sectionPayload(section);
+      try { result.annotations = JSON.parse(dec.decode(raw)); } catch { throw new Error('[FUMOC] ANOT section JSON is invalid'); }
     } else if (id === 'PORT') {
-      const raw = (flags & 0x01) ? await inflate(data) : data;
-      try { result.portals = JSON.parse(dec.decode(raw)); } catch {}
-
+      const raw = await sectionPayload(section);
+      try { result.portals = JSON.parse(dec.decode(raw)); } catch { throw new Error('[FUMOC] PORT section JSON is invalid'); }
     } else if (id === 'BRND') {
-      const raw = (flags & 0x01) ? await inflate(data) : data;
-      try { result.branding = JSON.parse(dec.decode(raw)); } catch {}
+      const raw = await sectionPayload(section);
+      try { result.branding = JSON.parse(dec.decode(raw)); } catch { throw new Error('[FUMOC] BRND section JSON is invalid'); }
     }
-    // Unknown sections silently ignored — forward compatibility
   }
+  if (!sawSplat || !result.gaussians) throw new Error('[FUMOC] Required SPLT section is missing');
+
 
   _prog(100, 'Done');
   return result;
@@ -417,20 +508,23 @@ async function decodePreview(buffer) {
 
   const result = { header, version, meta: {}, thumbnail: null, hotspots: [], tour: [] };
 
+  const seenSections = new Set();
   for (const section of readSections(bytes, dataOffset)) {
-    const { id, flags, data } = section;
-    if (id === 'SPLT') continue; // skip the heavy part
+    const { id } = section;
+    if (seenSections.has(id)) throw new Error(`[FUMOC] Duplicate section ${id}`);
+    seenSections.add(id);
+    if (id === 'SPLT') continue; // skip the heavy payload without decompressing it
     if (id === 'META') {
-      const raw = (flags & 0x01) ? await inflate(data) : data;
-      try { result.meta = JSON.parse(dec.decode(raw)); } catch {}
+      const raw = await sectionPayload(section);
+      try { result.meta = JSON.parse(dec.decode(raw)); } catch { throw new Error('[FUMOC] META section JSON is invalid'); }
     } else if (id === 'THUM') {
-      result.thumbnail = (flags & 0x01) ? await inflate(data) : data;
+      result.thumbnail = await sectionPayload(section);
     } else if (id === 'HOTS') {
-      const raw = (flags & 0x01) ? await inflate(data) : data;
-      try { result.hotspots = JSON.parse(dec.decode(raw)); } catch {}
+      const raw = await sectionPayload(section);
+      try { result.hotspots = JSON.parse(dec.decode(raw)); } catch { throw new Error('[FUMOC] HOTS section JSON is invalid'); }
     } else if (id === 'TOUR') {
-      const raw = (flags & 0x01) ? await inflate(data) : data;
-      try { result.tour = JSON.parse(dec.decode(raw)); } catch {}
+      const raw = await sectionPayload(section);
+      try { result.tour = JSON.parse(dec.decode(raw)); } catch { throw new Error('[FUMOC] TOUR section JSON is invalid'); }
     }
   }
   return result;

@@ -2,7 +2,7 @@ window._fumocaUseHotspotPro = true;
 
 import * as THREE from 'three';
 import { renderActionButtons } from './hotspot-actions.js';
-import { authorPartToggle } from './nif-part-toggle.js';
+import { authorPartToggle, discardPartToggleVariant } from './nif-part-toggle.js';
 
 const hotspotLayer = document.getElementById('hotspotLayer');
 const hotspotBtn = document.getElementById('hotspotBtn');
@@ -223,6 +223,22 @@ function escapeHtml(s = '') {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+function safeHttpUrl(value) {
+  try {
+    const url = new URL(String(value || ''), location.href);
+    return ['http:', 'https:'].includes(url.protocol) ? url.href : '';
+  } catch (_) { return ''; }
+}
+
+function safeMediaUrl(value) {
+  const url = safeHttpUrl(value);
+  if (url) return url;
+  try {
+    const parsed = new URL(String(value || ''), location.href);
+    return parsed.protocol === 'blob:' && parsed.origin === location.origin ? parsed.href : '';
+  } catch (_) { return ''; }
 }
 
 function localKey() {
@@ -476,26 +492,36 @@ function _parsePriceToCents(priceStr) {
 }
 
 async function saveRemote() {
-  if (state.saving) return;
+  if (state.saving) return false;
   const sb = window._fumocaSupabase;
   const rec = window._fumocaCurrentRecord || {};
   if (!sb || !rec?.id) {
-    persistLocal();
+    try { persistLocal(); } catch (error) { console.warn('[hotspot-pro] local backup failed:', error); }
     return false;
   }
   state.saving = true;
   try {
     await _syncProductHotspots(sb, rec.id, rec.user_id);
-    const metadata = { ...(rec.meta || {}), hotspots: state.hotspots };
-    const { error } = await sb.from('nif_files').update({ meta: metadata }).eq('id', rec.id);
+    const { data: latest, error: readError } = await sb.from('nif_files')
+      .select('id,user_id,title,description,r2_key,is_public,meta')
+      .eq('id', rec.id).eq('user_id', rec.user_id).single();
+    if (readError || !latest) throw new Error(readError?.message || 'Parent NIF could not be reloaded before saving hotspots.');
+    const latestMeta = latest.meta && typeof latest.meta === 'object' ? latest.meta : {};
+    const metadata = { ...latestMeta, hotspots: state.hotspots };
+    const { error } = await sb.from('nif_files').update({ meta: metadata })
+      .eq('id', rec.id).eq('user_id', rec.user_id);
     if (error) throw error;
-    window._fumocaCurrentRecord = { ...rec, meta: metadata };
-    persistLocal();
-    track('hotspot_save', { recordId: rec.id, count: state.hotspots.length });
+    window._fumocaCurrentRecord = { ...(window._fumocaCurrentRecord || {}), ...latest, meta: metadata };
+    // Local backup and analytics must not turn a successful remote commit into
+    // a false failure; callers use this boolean to decide whether to discard
+    // newly uploaded assets.
+    try { persistLocal(); } catch (backupError) { console.warn('[hotspot-pro] local backup failed after remote save:', backupError); }
+    try { track('hotspot_save', { recordId: rec.id, count: state.hotspots.length }); }
+    catch (trackError) { console.warn('[hotspot-pro] analytics failed after remote save:', trackError); }
     return true;
   } catch (err) {
     console.warn('[hotspot-pro] remote save failed, using local backup', err);
-    persistLocal();
+    try { persistLocal(); } catch (backupError) { console.warn('[hotspot-pro] local backup failed:', backupError); }
     return false;
   } finally {
     state.saving = false;
@@ -535,10 +561,11 @@ function stopAudio() {
 }
 
 function playHotspotAudio(h) {
-  if (!h.audioUrl) return;
+  const audioUrl = safeMediaUrl(h.audioUrl);
+  if (!audioUrl) return;
   try {
     stopAudio();
-    const audio = new Audio(h.audioUrl);
+    const audio = new Audio(audioUrl);
     audio.preload = 'auto';
     audio.play().catch(() => {});
     state.activeAudio = audio;
@@ -548,12 +575,15 @@ function playHotspotAudio(h) {
 
 function buildNestedSplatUrl(h) {
   if (h.overlayUrl) {
-    if (/viewer\.html/i.test(h.overlayUrl)) return h.overlayUrl;
-    return `embed/viewer.html?file=${encodeURIComponent(h.overlayUrl)}`;
+    const overlayUrl = safeHttpUrl(h.overlayUrl);
+    if (!overlayUrl) return '';
+    if (/viewer\.html(?:[?#]|$)/i.test(overlayUrl)) return overlayUrl;
+    return `embed/viewer.html?file=${encodeURIComponent(overlayUrl)}`;
   }
   if (h.overlaySplatId) return `embed/viewer.html?splatId=${encodeURIComponent(h.overlaySplatId)}`;
-  if (h.link && /\.(splat|ply|ksplat)(\?|$)/i.test(h.link)) {
-    return `embed/viewer.html?file=${encodeURIComponent(h.link)}`;
+  const linkedAsset = safeHttpUrl(h.link);
+  if (linkedAsset && /\.(splat|ply|ksplat|nif)(?:\?|$)/i.test(new URL(linkedAsset).pathname + new URL(linkedAsset).search)) {
+    return `embed/viewer.html?file=${encodeURIComponent(linkedAsset)}`;
   }
   return '';
 }
@@ -663,11 +693,14 @@ function activateHotspot(h) {
 
 function actionButtons(h) {
   const buttons = [];
-  if (h.audioUrl) buttons.push(`<button class="e-btn e-btn-acid" data-hs-audio="${h.id}">${state.activeAudio ? 'Restart audio' : 'Play audio'}</button>`);
-  if (buildNestedSplatUrl(h)) buttons.push(`<button class="e-btn e-btn-primary" data-hs-overlay="${h.id}">Open nested splat</button>`);
-  if (h.ctaLink) buttons.push(`<a href="${escapeHtml(h.ctaLink)}" target="_blank" rel="noopener" class="e-btn e-btn-warn" style="text-decoration:none;display:inline-block;">${escapeHtml(h.ctaLabel || 'Open')}</a>`);
-  else if (h.link) buttons.push(`<a href="${escapeHtml(h.link)}" target="_blank" rel="noopener" class="e-btn e-btn-warn" style="text-decoration:none;display:inline-block;">Open link</a>`);
-  if (state.canManage) buttons.push(`<button class="e-btn e-btn-ghost" data-hs-edit="${h.id}">Edit hotspot</button><button class="e-btn e-btn-danger" data-hs-delete="${h.id}">Delete hotspot</button>`);
+  const id = escapeHtml(h.id);
+  const ctaUrl = safeHttpUrl(h.ctaLink);
+  const fallbackUrl = safeHttpUrl(h.link);
+  if (safeMediaUrl(h.audioUrl)) buttons.push(`<button class="e-btn e-btn-acid" data-hs-audio="${id}">${state.activeAudio ? 'Restart audio' : 'Play audio'}</button>`);
+  if (buildNestedSplatUrl(h)) buttons.push(`<button class="e-btn e-btn-primary" data-hs-overlay="${id}">Open nested splat</button>`);
+  if (ctaUrl) buttons.push(`<a href="${escapeHtml(ctaUrl)}" target="_blank" rel="noopener noreferrer" class="e-btn e-btn-warn" style="text-decoration:none;display:inline-block;">${escapeHtml(h.ctaLabel || 'Open')}</a>`);
+  else if (fallbackUrl) buttons.push(`<a href="${escapeHtml(fallbackUrl)}" target="_blank" rel="noopener noreferrer" class="e-btn e-btn-warn" style="text-decoration:none;display:inline-block;">Open link</a>`);
+  if (state.canManage) buttons.push(`<button class="e-btn e-btn-ghost" data-hs-edit="${id}">Edit hotspot</button><button class="e-btn e-btn-danger" data-hs-delete="${id}">Delete hotspot</button>`);
   if (state.hotspots.length > 1) buttons.push(`<button class="e-btn e-btn-acid" id="hsPrevBtn">← Prev</button>`);
   buttons.push(`<button class="e-btn e-btn-acid" id="hsNextBtn">Next →</button>`);
   return buttons.join('');
@@ -675,12 +708,15 @@ function actionButtons(h) {
 
 function renderGallery(h) {
   if (!Array.isArray(h.gallery) || !h.gallery.length) return '';
-  return `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(92px,1fr));gap:8px;">${h.gallery.slice(0,6).map(src => `<a href="${escapeHtml(src)}" target="_blank" rel="noopener" style="display:block;border-radius:12px;overflow:hidden;border:1px solid rgba(255,255,255,.08);"><img src="${escapeHtml(src)}" alt="gallery item" style="width:100%;height:84px;object-fit:cover;display:block;background:#0b0e14;"></a>`).join('')}</div>`;
+  const images = h.gallery.slice(0, 6).map(safeHttpUrl).filter(Boolean);
+  return `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(92px,1fr));gap:8px;">${images.map(src => `<a href="${escapeHtml(src)}" target="_blank" rel="noopener noreferrer" style="display:block;border-radius:12px;overflow:hidden;border:1px solid rgba(255,255,255,.08);"><img src="${escapeHtml(src)}" alt="gallery item" loading="lazy" referrerpolicy="no-referrer" style="width:100%;height:84px;object-fit:cover;display:block;background:#0b0e14;"></a>`).join('')}</div>`;
 }
 
 function renderMedia(h) {
-  if (h.mediaVideo) return `<video src="${escapeHtml(h.mediaVideo)}" controls playsinline style="width:100%;border-radius:14px;background:#05070b;"></video>`;
-  if (h.mediaImage) return `<img src="${escapeHtml(h.mediaImage)}" alt="${escapeHtml(h.title)}" style="width:100%;border-radius:14px;display:block;background:#05070b;max-height:220px;object-fit:cover;">`;
+  const videoUrl = safeMediaUrl(h.mediaVideo);
+  if (videoUrl) return `<video src="${escapeHtml(videoUrl)}" controls playsinline preload="metadata" style="width:100%;border-radius:14px;background:#05070b;"></video>`;
+  const imageUrl = safeHttpUrl(h.mediaImage);
+  if (imageUrl) return `<img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(h.title)}" loading="lazy" referrerpolicy="no-referrer" style="width:100%;border-radius:14px;display:block;background:#05070b;max-height:220px;object-fit:cover;">`;
   return '';
 }
 
@@ -952,7 +988,7 @@ function renderPanel() {
     await saveRemote();
     activateHotspot(hotspot);
   });
-  hotspotPanel.querySelector('#hsCaptureCurrent')?.addEventListener('click', () => {
+  hotspotPanel.querySelector('#hsCaptureCurrent')?.addEventListener('click', async () => {
     const created = promptHotspot(getCurrentViewerAnchor());
     if (!created) return;
     const hotspot = normalizeHotspot(created, state.hotspots.length);
@@ -1026,25 +1062,35 @@ async function animatePartFlow(h) {
   const axisStr = prompt('Rotation axis as "x,y,z" (default 0,1,0 = vertical hinge, like a side-opening door)', '0,1,0');
   if (axisStr == null) return;
   const axis = axisStr.split(',').map(Number);
-  if (axis.length !== 3 || axis.some(Number.isNaN)) { alert('Axis must be three numbers, e.g. 0,1,0'); return; }
+  if (axis.length !== 3 || axis.some(value => !Number.isFinite(value)) || Math.hypot(...axis) < 1e-8) {
+    alert('Axis must be three finite numbers and cannot be zero, e.g. 0,1,0');
+    return;
+  }
 
-  const angleStr = prompt('Open angle in degrees', '60');
+  const angleStr = prompt('Open angle in degrees (-360 to 360)', '60');
   if (angleStr == null) return;
-  const angleDeg = Number(angleStr) || 60;
+  const angleDeg = Number(angleStr);
+  if (!Number.isFinite(angleDeg) || Math.abs(angleDeg) > 360) {
+    alert('Open angle must be a finite number between -360 and 360 degrees.');
+    return;
+  }
 
   const statusBtn = hotspotPanel.querySelector(`[data-action="animate"][data-id="${h.id}"]`);
   const originalLabel = statusBtn?.textContent;
   if (statusBtn) { statusBtn.textContent = 'Baking…'; statusBtn.disabled = true; }
 
   try {
-    const { openNifUrl, layers } = await authorPartToggle(nifUrl, layer, { axis, angleDeg });
+    const currentRecord = window._fumocaCurrentRecord || {};
+    const { openNifUrl, previewNifUrl, fileKey, layers } = await authorPartToggle(nifUrl, layer, {
+      axis, angleDeg, recordId: currentRecord.id, ownerId: currentRecord.user_id,
+    });
 
     // Preview before committing — show the baked "open" state live via the
     // same toggle mechanism the hotspot will use, instead of saving blind
     // and only finding out it looks wrong after publishing to visitors.
     if (window._fumocaApplyRendererPreview) {
       if (statusBtn) statusBtn.textContent = 'Previewing…';
-      window._fumocaApplyRendererPreview(openNifUrl);
+      window._fumocaApplyRendererPreview(previewNifUrl || openNifUrl);
       const looksRight = confirm(
         `Showing "${layer}" rotated ${angleDeg}° around axis [${axis.join(',')}]. ` +
         `Does this look correct?\n\nOK = save this as the hotspot's toggle action.\n` +
@@ -1052,21 +1098,39 @@ async function animatePartFlow(h) {
       );
       window._fumocaRestoreRendererPreview?.();
       if (!looksRight) {
+        try {
+          await discardPartToggleVariant(fileKey, currentRecord.id, currentRecord.user_id);
+        } catch (cleanupError) {
+          console.warn('[hotspot-pro] discarded variant cleanup failed:', cleanupError);
+          alert(`The preview was discarded, but storage cleanup needs attention: ${cleanupError.message}`);
+        }
         if (statusBtn) { statusBtn.textContent = originalLabel; statusBtn.disabled = false; }
         return;
       }
     }
 
-    h.actions = Array.isArray(h.actions) ? h.actions : [];
+    const originalActions = Array.isArray(h.actions) ? h.actions.slice() : [];
+    h.actions = originalActions.slice();
     // Replace any existing animate action for this same layer on this hotspot
     // — one toggle definition per layer per hotspot, last authored wins.
     h.actions = h.actions.filter(a => !(a?.action?.type === 'animate' && a.action.layer === layer));
     h.actions.push({
       id: `animate_${layer}_${Date.now()}`,
       label: `Toggle ${layer}`,
-      action: { type: 'animate', layer, openNifUrl },
+      action: { type: 'animate', layer, openNifUrl, openNifR2Key: fileKey },
     });
-    await saveRemote();
+    const saved = await saveRemote();
+    if (!saved) {
+      h.actions = originalActions;
+      persistLocal();
+      renderPanel();
+      try {
+        await discardPartToggleVariant(fileKey, currentRecord.id, currentRecord.user_id);
+      } catch (cleanupError) {
+        console.warn('[hotspot-pro] failed to clean up unsaved variant:', cleanupError);
+      }
+      throw new Error('The hotspot action was not saved to the NIF record. Check your connection and retry; the variant was not kept as a published action.');
+    }
     renderPanel();
     alert(`Saved. This hotspot now has a "Toggle ${layer}" button that snaps it open/closed.\n` +
       `Animatable layers found in this file: ${layers.map(l => l.label).join(', ') || '(none)'}`);
