@@ -265,7 +265,7 @@ async function authorizeFileRead(request, env, principal, bucketName, fileKey) {
   const query = new URLSearchParams({
     select: 'id,user_id,r2_key,is_public,meta',
     limit: '20',
-    or: `(r2_key.eq.${encodedKey},meta->>source_r2_key.eq.${encodedKey},meta->source_capture->>r2_key.eq.${encodedKey},meta->>thumbnail_r2_key.eq.${encodedKey},meta->>capture_thumbnail_r2_key.eq.${encodedKey},meta->>teaser_video_r2_key.eq.${encodedKey})`,
+    or: `(r2_key.eq.${encodedKey},meta->>source_r2_key.eq.${encodedKey},meta->source_capture->>r2_key.eq.${encodedKey},meta->>thumbnail_r2_key.eq.${encodedKey},meta->>capture_thumbnail_r2_key.eq.${encodedKey},meta->>teaser_video_r2_key.eq.${encodedKey},meta->cleaned_splat->>r2_key.eq.${encodedKey})`,
   });
   try {
     const response = await fetch(`${env.SUPABASE_URL}/rest/v1/nif_files?${query}`, { headers });
