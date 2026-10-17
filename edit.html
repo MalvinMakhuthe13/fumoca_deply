@@ -2518,6 +2518,10 @@ async function loadFile(file, urlOverride) {
   const buf = await file.arrayBuffer(); setProgress(40);
   const extSource = (urlOverride || file.name).split(/[?#]/, 1)[0];
   const ext = extSource.split('.').pop().toLowerCase();
+  // Do not leak metadata or mesh/chunk state from the previously opened asset.
+  // A non-NIF import must never inherit the previous NIF's layer manifest.
+  S.nifMeta = {};
+  S.nifThumbnailBytes = null;
   S.nifMesh = null;
   S.nifPassthroughChunks = [];
   S.lidarIntensity = S.lidarClassification = S.lidarReturnNumber = null;
@@ -4528,6 +4532,7 @@ window.saveLiveEdit = async function saveLiveEdit(extra = {}) {
         const currentMeta = window._fumocaCurrentRecord?.meta || {};
         const meta = {
           ...currentMeta,
+          editor_scene: serializeEditorSceneMetadata(aliveIdx),
           last_edited_at: new Date().toISOString(),
           edit_completed: true,
           ...(extra.hotspots !== undefined ? { hotspots: extra.hotspots } : {}),
