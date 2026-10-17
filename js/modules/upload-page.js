@@ -1,6 +1,9 @@
 import { supabase } from '../supabaseClient.js';
 import { runtimeConfig } from '../runtime-config.js';
 import r2 from '../r2Client.js';
+import { encodeNif } from './nif-format.js';
+import { inspectPlyAttributes } from './ply-conversion-metadata.js';
+import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
 
 const VIDEO_BUCKET = 'nif-videos';
 let selectedFile = null;
@@ -127,14 +130,14 @@ window.setUploadMode = function(mode) {
     submitLabel.textContent = selectedFiles.length ? 'Upload and queue' : 'Select 3+ photos to start';
   } else if (currentUploadMode === 'ply') {
     // Switch file input to accept .ply and .nif
-    if (fileInput) { fileInput.accept = '.ply,.nif'; fileInput.multiple = false; }
+    if (fileInput) { fileInput.accept = '.splat,.ply,.nif'; fileInput.multiple = false; }
     uploadZone.querySelector('#uploadIcon').textContent = '📂';
-    uploadZone.querySelector('#uploadTitle').textContent = selectedFile ? selectedFile.name : 'Drop your .ply file here';
+    uploadZone.querySelector('#uploadTitle').textContent = selectedFile ? selectedFile.name : 'Drop a .splat, .ply or .nif file here';
     uploadZone.querySelector('#uploadSub').innerHTML = selectedFile
       ? `<strong>${(selectedFile.size / 1024 / 1024).toFixed(1)} MB</strong> · PLY ready`
-      : '.ply or .nif files · Full capture data preserved<br>Camera positions, colours, and Gaussian structure imported directly.';
+      : '.splat, .ply or .nif · Existing .splat files can be converted to NIF in-browser without a GPU.';
     submitBtn.disabled = !selectedFile;
-    submitLabel.textContent = selectedFile ? 'Upload & open in Studio' : 'Select a .ply file to start';
+    submitLabel.textContent = selectedFile ? 'Upload & open in Studio' : 'Select a splat, PLY or NIF file';
     showMsg('PLY mode — drop a .ply capture file to upload directly and open in the editor.', false);
   } else if (currentUploadMode === 'lidar') {
     if (fileInput) { fileInput.accept = '.las,.xyz,.csv,.txt'; fileInput.multiple = false; }
@@ -174,11 +177,12 @@ function setFile(file) {
     window.setUploadMode(currentUploadMode);
     return showMsg(message, true);
   };
-  const isPly = file.name.match(/\.(ply|nif)$/i);
+  const isPly = file.name.match(/\.(ply|nif|splat)$/i);
   const isLidar = file.name.match(/\.(las|xyz|csv|txt)$/i);
   if (currentUploadMode === 'ply') {
-    if (!isPly) return reject('Please select a .ply or .nif file in PLY mode.');
-    if (file.size > 500 * 1024 * 1024) return reject('PLY file is very large (>500MB). Choose a smaller file for this upload flow.');
+    if (!isPly) return reject('Please select a .splat, .ply or .nif file in direct-import mode.');
+    if (/\.(splat|ply)$/i.test(file.name) && file.size > 200 * 1024 * 1024) return reject('Browser .splat/.ply → NIF conversion is limited to 200MB to protect device memory.');
+    if (file.size > 500 * 1024 * 1024) return reject('This file is larger than the 500MB direct-import limit.');
   } else if (currentUploadMode === 'lidar') {
     if (!isLidar) return reject('Choose an uncompressed .las, .xyz, .csv, or .txt point cloud.');
     if (file.size > 100 * 1024 * 1024) return reject('LiDAR uploads are limited to 100MB for browser conversion.');
@@ -469,7 +473,7 @@ window.handleSubmit = async function() {
   }
   if (currentUploadMode === 'pipeline' && !selectedFile) return showMsg('Please select a video file first.', true);
   if (currentUploadMode === 'photos' && selectedFiles.length < 3) return showMsg('Select at least 3 photos first.', true);
-  if (currentUploadMode === 'ply' && !selectedFile) return showMsg('Please select a PLY or NIF file first.', true);
+  if (currentUploadMode === 'ply' && !selectedFile) return showMsg('Please select a .splat, .ply or .nif file first.', true);
   if (currentUploadMode === 'lidar' && !selectedFile) return showMsg('Please select a LiDAR point cloud first.', true);
 
   const btn = document.getElementById('submitBtn');
@@ -615,7 +619,7 @@ window.handleSubmit = async function() {
         vertical: category || 'generic',
         capture_mode: 'burst',
         raw_r2_key: fileKey,
-        meta: { ...captureMetadata(title, desc, calibVerifyMeta), photo_count: selectedFiles.length, thumbnail_r2_key: uploadedThumbnail.fileKey },
+        meta: { ...captureMetadata(title, desc, calibVerifyMeta), photo_count: selectedFiles.length, thumbnail_r2_key: uploadedThumbnail.fileKey, capture_thumbnail_r2_key: uploadedThumbnail.fileKey, source_r2_key: fileKey, source_capture: { r2_key: fileKey, filename: `${title || 'photo-capture'}.zip`, format: 'photo_zip', photo_count: selectedFiles.length, created_at: new Date().toISOString() } },
       }).select().single();
       if (jobError) throw jobError;
 
@@ -627,88 +631,232 @@ window.handleSubmit = async function() {
       return;
     }
 
-    // ── PLY direct upload ──────────────────────────────
+    // ── Direct Gaussian / point-cloud import ───────────────────────────────
     if (currentUploadMode === 'ply') {
-      if (!selectedFile) throw new Error('No .ply file selected');
-      setProgress(20, 'Uploading .ply file...');
-
+      if (!selectedFile) throw new Error('Select a .splat, .ply or .nif file.');
+      const ext = selectedFile.name.split('.').pop().toLowerCase();
+      const isSplat = ext === 'splat';
+      const isNif = ext === 'nif';
+      const stamp = Date.now();
       const safeName = selectedFile.name.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9._-]/g, '');
-      const filePath = `${user.id}/${Date.now()}_${safeName}`;
+      const sourcePath = `${user.id}/sources/${stamp}_${safeName}`;
+      let outputBuffer = null;
+      let gaussianCount = null;
+      // Mirror conversion provenance into both the NIF META chunk and the
+      // database record so Studio/library consumers can disclose lossy imports.
+      let conversionDetails = null;
+      let outputName = selectedFile.name;
+      let outputKey = sourcePath;
+      let outputUrl = '';
+      let sourceKey = sourcePath;
+      let sourceUrl = '';
 
-      // Upload to R2 (replaces supabase.storage bucket fallback loop)
-      const { publicUrl, fileKey, error: r2Err } = await r2
-        .from('nif-files')
-        .upload(filePath, selectedFile, {
-          contentType: 'model/x-ply',
-          onProgress: (pct) => {
-            setProgress(20 + Math.round((pct / 100) * 35), `Uploading .ply file... ${pct}%`);
+      if (isSplat) {
+        setProgress(15, 'Reading existing Gaussian splat (no GPU required)…');
+        const sourceBuffer = await selectedFile.arrayBuffer();
+        if (!sourceBuffer.byteLength || sourceBuffer.byteLength % 32 !== 0) {
+          throw new Error('Invalid .splat file: expected complete 32-byte Gaussian rows.');
+        }
+        gaussianCount = sourceBuffer.byteLength / 32;
+        if (!gaussianCount) throw new Error('The .splat file contains no Gaussian rows.');
+        setProgress(25, 'Packing Gaussian rows into FUMOCA NIF…');
+        const aliveIndices = new Uint32Array(gaussianCount);
+        for (let i = 0; i < gaussianCount; i++) aliveIndices[i] = i;
+        conversionDetails = {
+          engine: 'fumoca-nif-format',
+          mode: 'quantized-geometry',
+          gpu_required: false,
+          preserved_attributes: ['position', 'scale', 'rotation', 'RGBA/opacity'],
+          discarded_attributes: [],
+          quality_flags: [],
+          created_at: new Date().toISOString(),
+        };
+        outputBuffer = encodeNif({
+          sourceBuffer: new Uint8Array(sourceBuffer),
+          aliveIndices,
+          rowSize: 32,
+          vertical: category || 'generic',
+          meta: {
+            title: title || selectedFile.name.replace(/\.splat$/i, ''),
+            description: desc || '',
+            source_format: 'splat',
+            conversion: conversionDetails,
           },
         });
-      if (r2Err) throw new Error('R2 upload failed — ' + r2Err.message);
+        outputName = selectedFile.name.replace(/\.splat$/i, '') + '.nif';
+      } else if (ext === 'ply') {
+        setProgress(15, 'Parsing PLY geometry (CPU/browser route)…');
+        const parsedGeometry = new PLYLoader().parse(await selectedFile.arrayBuffer());
+        const posAttr = parsedGeometry.getAttribute('position');
+        if (!posAttr || !posAttr.count) throw new Error('PLY contains no vertex positions.');
+        const count = posAttr.count;
+        const attr = name => parsedGeometry.getAttribute(name);
+        const sx = attr('scale_0'), sy = attr('scale_1'), sz = attr('scale_2');
+        const opacityAttr = attr('opacity');
+        const dc0 = attr('f_dc_0'), dc1 = attr('f_dc_1'), dc2 = attr('f_dc_2');
+        const rot0 = attr('rot_0'), rot1 = attr('rot_1'), rot2 = attr('rot_2'), rot3 = attr('rot_3');
+        const colorAttr = parsedGeometry.getAttribute('color');
+        const isGaussianPly = !!(sx && sy && sz && opacityAttr && dc0 && dc1 && dc2 && rot0 && rot1 && rot2 && rot3);
+        const plyAttributeNames = Object.keys(parsedGeometry.attributes || {});
+        const shMetadata = inspectPlyAttributes(plyAttributeNames, isGaussianPly);
+        setProgress(25, isGaussianPly ? 'Converting Gaussian PLY attributes…' : 'Converting point-cloud PLY to NIF…');
 
-      setProgress(60, 'Creating record...');
+        if (isGaussianPly) {
+          const rows = new Uint8Array(count * 32);
+          const view = new DataView(rows.buffer);
+          const clampByte = value => Math.max(0, Math.min(255, Math.round(value)));
+          const sigmoid = value => 1 / (1 + Math.exp(-value));
+          const rgb = value => clampByte((value * 0.2820947918 + 0.5) * 255);
+          for (let i = 0; i < count; i++) {
+            const o = i * 32;
+            view.setFloat32(o, posAttr.getX(i), true);
+            view.setFloat32(o + 4, posAttr.getY(i), true);
+            view.setFloat32(o + 8, posAttr.getZ(i), true);
+            view.setFloat32(o + 12, Math.exp(sx.getX(i)), true);
+            view.setFloat32(o + 16, Math.exp(sy.getX(i)), true);
+            view.setFloat32(o + 20, Math.exp(sz.getX(i)), true);
+            rows[o + 24] = rgb(dc0.getX(i));
+            rows[o + 25] = rgb(dc1.getX(i));
+            rows[o + 26] = rgb(dc2.getX(i));
+            rows[o + 27] = clampByte(sigmoid(opacityAttr.getX(i)) * 255);
+            for (const [j, a] of [[28,rot0],[29,rot1],[30,rot2],[31,rot3]]) {
+              rows[o + j] = clampByte((Math.max(-1, Math.min(1, a.getX(i))) + 1) * 127.5);
+            }
+          }
+          const aliveIndices = new Uint32Array(count);
+          for (let i = 0; i < count; i++) aliveIndices[i] = i;
+          conversionDetails = {
+            engine: 'fumoca-nif-format',
+            gpu_required: false,
+            attribute_mapping: 'xyz/scale/f_dc/opacity/rotation',
+            preserved_attributes: ['position', 'scale', 'rotation', 'opacity', 'DC colour'],
+            sh_degree_detected: shMetadata.detectedShDegree,
+            higher_order_sh_attribute_count: shMetadata.higherOrderShCount,
+            discarded_attributes: shMetadata.discardedAttributes,
+            quality_flags: shMetadata.qualityFlags,
+            created_at: new Date().toISOString(),
+          };
+          outputBuffer = encodeNif({
+            sourceBuffer: rows, aliveIndices, rowSize: 32, vertical: category || 'generic',
+            meta: { title: title || selectedFile.name.replace(/\.ply$/i, ''), description: desc || '', source_format: 'gaussian_ply', conversion: conversionDetails },
+          });
+        } else {
+          const positions = new Float32Array(count * 3);
+          const colors01 = new Float32Array(count * 3);
+          const opacities01 = new Float32Array(count);
+          const opacity = opacityAttr;
+          for (let i = 0; i < count; i++) {
+            positions[i*3] = posAttr.getX(i); positions[i*3+1] = posAttr.getY(i); positions[i*3+2] = posAttr.getZ(i);
+            if (colorAttr) {
+              const max = Math.max(colorAttr.getX(i), colorAttr.getY(i), colorAttr.getZ(i)) > 1 ? 255 : 1;
+              colors01[i*3] = colorAttr.getX(i) / max;
+              colors01[i*3+1] = colorAttr.getY(i) / max;
+              colors01[i*3+2] = colorAttr.getZ(i) / max;
+            } else { colors01[i*3] = 0.8; colors01[i*3+1] = 0.8; colors01[i*3+2] = 0.8; }
+            const rawOpacity = opacity ? opacity.getX(i) : 1;
+            opacities01[i] = rawOpacity < 0 || rawOpacity > 1 ? 1 / (1 + Math.exp(-rawOpacity)) : rawOpacity;
+          }
+          conversionDetails = {
+            engine: 'fumoca-nif-format',
+            gpu_required: false,
+            geometry_quality: 'isotropic-points; mesh reconstruction not run',
+            preserved_attributes: ['position', ...(colorAttr ? ['RGB colour'] : []), ...(opacity ? ['opacity'] : [])],
+            discarded_attributes: [],
+            quality_flags: ['point_cloud_not_gaussian', 'mesh_reconstruction_not_run'],
+            created_at: new Date().toISOString(),
+          };
+          outputBuffer = encodeNif({
+            positions, colors01, opacities01, vertical: category || 'generic',
+            meta: { title: title || selectedFile.name.replace(/\.ply$/i, ''), description: desc || '', source_format: 'point_cloud_ply', conversion: conversionDetails },
+          });
+        }
+        gaussianCount = count;
+        outputName = selectedFile.name.replace(/\.ply$/i, '') + '.nif';
+      }
+
+      setProgress(35, 'Preserving original source in R2…');
+      const { publicUrl: uploadedSourceUrl, fileKey: uploadedSourceKey, error: sourceErr } = await r2
+        .from('nif-files')
+        .upload(sourcePath, selectedFile, {
+          contentType: isSplat ? 'application/octet-stream' : ext === 'ply' ? 'model/x-ply' : 'application/octet-stream',
+          onProgress: (pct) => setProgress(35 + Math.round(pct * 0.2), `Uploading original source… ${pct}%`),
+        });
+      if (sourceErr || !uploadedSourceKey || !uploadedSourceUrl) {
+        throw new Error('Source upload failed: ' + (sourceErr?.message || 'storage did not return a file key and URL'));
+      }
+      sourceUrl = uploadedSourceUrl;
+      sourceKey = uploadedSourceKey;
+
+      if (isSplat || ext === 'ply') {
+        const outputPath = `${user.id}/converted/${stamp}_${outputName}`;
+        setProgress(60, 'Uploading converted NIF…');
+        const { publicUrl, fileKey, error: outputErr } = await r2
+          .from('nif-files')
+          .upload(outputPath, new Blob([outputBuffer], { type: 'application/octet-stream' }), {
+            contentType: 'application/octet-stream',
+            onProgress: (pct) => setProgress(60 + Math.round(pct * 0.2), `Uploading NIF… ${pct}%`),
+          });
+        if (outputErr || !fileKey || !publicUrl) {
+          throw new Error('NIF upload failed: ' + (outputErr?.message || 'storage did not return a file key and URL'));
+        }
+        outputUrl = publicUrl;
+        outputKey = fileKey;
+      } else {
+        outputUrl = sourceUrl;
+        outputKey = sourceKey;
+      }
+
+      setProgress(85, 'Registering asset and provenance…');
       const { data: nif, error: dbErr } = await supabase.from('nif_files').insert([{
         user_id: user.id,
-        title: title || selectedFile.name,
+        title: title || selectedFile.name.replace(/\.(splat|ply|nif)$/i, ''),
         description: desc || null,
-        vertical: category || 'general',
-        r2_key: filePath,
-        file_size: selectedFile.size,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        vertical: category || 'generic',
+        r2_key: outputKey,
+        file_size: outputBuffer ? outputBuffer.byteLength : selectedFile.size,
+        gaussian_count: gaussianCount,
+        is_public: false,
         meta: {
-          source_type: 'direct_ply',
+          source_type: isSplat ? 'splat_to_nif' : ext === 'ply' ? 'ply_to_nif' : 'direct_nif',
           source_filename: selectedFile.name,
-          source_capture: {
-            public_url: publicUrl,
-            r2_key: fileKey || filePath,
-            filename: selectedFile.name,
-            format: selectedFile.name.split('.').pop().toLowerCase(),
-            byte_size: selectedFile.size,
-          },
-          nif_url: publicUrl,
-          output_url: publicUrl,
+          source_capture: { r2_key: sourceKey, public_url: sourceUrl, filename: selectedFile.name, format: ext, byte_size: selectedFile.size },
+          source_r2_key: sourceKey,
+          source_public_url: sourceUrl,
+          output_format: (isSplat || ext === 'ply') ? 'nif' : ext,
+          output_r2_key: outputKey,
+          output_public_url: outputUrl,
+          conversion: outputBuffer ? {
+            ...(conversionDetails || {}),
+            input_bytes: selectedFile.size,
+            output_bytes: outputBuffer.byteLength,
+            gaussian_count: gaussianCount,
+            source_format: ext,
+          } : null,
           status: 'done',
-          processing_stage: 'published',
+          processing_stage: (isSplat || ext === 'ply') ? 'converted' : 'imported',
           processing_progress: 100,
-          must_edit_before_publish: false,
-          edit_completed: true,
           tags,
           visibility,
-          thumbnail_r2_key: uploadedThumbnail.fileKey
+          thumbnail_r2_key: uploadedThumbnail.fileKey,
         },
-        thumbnail_url: uploadedThumbnail.publicUrl
+        thumbnail_url: uploadedThumbnail.publicUrl,
       }]).select().single();
-
       if (dbErr) throw dbErr;
 
-      setProgress(100, 'Ready!');
+      setProgress(100, (isSplat || ext === 'ply') ? 'NIF conversion complete.' : 'NIF imported.');
       setStep('step-upload', 'done');
       setStep('step-live', 'done');
-      showMsg(`PLY uploaded. <a href="edit.html?file=${encodeURIComponent(publicUrl)}&nifId=${nif.id}&live=true" style="color:#0ef;text-decoration:underline;">Open in Studio →</a>`, false);
-      document.getElementById('submitLabel').textContent = 'Open in Studio';
-      document.getElementById('submitBtn').textContent = 'Open in Studio';
-      document.getElementById('submitBtn').disabled = false;
-      document.getElementById('submitBtn').onclick = () => {
-        window.location.href = `edit.html?file=${encodeURIComponent(publicUrl)}&nifId=${nif.id}&live=true`;
-      };
+      const studioUrl = `edit.html?file=${encodeURIComponent(outputUrl)}&nifId=${encodeURIComponent(nif.id)}&live=true`;
+      const message = isSplat
+        ? `Converted ${gaussianCount} Gaussian rows into a NIF derivative. Original .splat preserved. `
+        : ext === 'ply' ? `Converted ${gaussianCount} PLY vertices into a NIF derivative. Original PLY preserved. ` : 'NIF imported. ';
+      showMsg(message + `Original source preserved. <a href="${studioUrl}" style="color:#0ef;text-decoration:underline">Open in Studio →</a>`, false);
+      const submitBtn = document.getElementById('submitBtn');
+      submitBtn.textContent = 'Open in Studio';
+      submitBtn.disabled = false;
+      submitBtn.onclick = () => { window.location.href = studioUrl; };
       return;
     }
-
-    const { data: { session } } = await supabase.auth.getSession();
-    const accessToken = session?.access_token;
-    if (!accessToken) throw new Error('Missing signed-in session token for resumable upload. Sign in again and retry.');
-
-    const safeName = selectedFile.name.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9._-]/g, '');
-    const filePath = `${user.id}/${Date.now()}_${safeName}`;
-    await uploadSingleBucket(filePath, selectedFile, accessToken);
-
-    setStep('step-upload', 'done');
-    setStep('step-frames', 'active');
-    setProgress(35, 'Queueing reconstruction job...');
-
-    const calibVerifyMeta = await buildCalibVerifyMeta(user.id);
-
     // reconstruction_jobs is the real, live table — confirmed against the
     // actual production Supabase project in an earlier session (there was a
     // stale doubt about whether nif_files/reconstruction_jobs existed there;
@@ -722,7 +870,7 @@ window.handleSubmit = async function() {
       vertical: category || 'generic',
       capture_mode: 'video',
       raw_r2_key: filePath,
-      meta: { ...captureMetadata(title, desc, calibVerifyMeta), video_filename: selectedFile.name, thumbnail_r2_key: uploadedThumbnail.fileKey },
+      meta: { ...captureMetadata(title, desc, calibVerifyMeta), video_filename: selectedFile.name, thumbnail_r2_key: uploadedThumbnail.fileKey, capture_thumbnail_r2_key: uploadedThumbnail.fileKey, source_r2_key: filePath, source_capture: { r2_key: filePath, filename: selectedFile.name, format: selectedFile.type || 'video', byte_size: selectedFile.size, created_at: new Date().toISOString() } },
     }).select().single();
     if (jobError) throw jobError;
 

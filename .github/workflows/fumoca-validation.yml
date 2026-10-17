@@ -2,7 +2,7 @@ name: FUMOCA validation
 
 on:
   push:
-    branches: [main, "feat/**"]
+    branches: [main, "feat/**", "platform-integration-audit"]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -21,10 +21,69 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Check whole-platform integration audit
+        run: test -s docs/PLATFORM_INTEGRATION_AUDIT.md && grep -q "Acceptance gates for a clean release" docs/PLATFORM_INTEGRATION_AUDIT.md
       - name: Check Studio JavaScript syntax
         run: node --check js/modules/image-to-splat-studio.js
       - name: Check viewer ES module syntax
         run: node --input-type=module --check < js/modules/viewer.js
+      - name: Check persistence-sensitive editor modules
+        run: |
+          node --input-type=module --check < js/modules/edit-engine.js
+          node --input-type=module --check < js/modules/splat-edit-engine.js
+          node --input-type=module --check < js/modules/hotspot-persist.js
+          node --input-type=module --check < js/modules/motion-states.js
+          node --input-type=module --check < js/modules/notifications.js
+          node --input-type=module --check < js/modules/upload-page.js
+          node --input-type=module --check < js/modules/feed.js
+          node --input-type=module --check < js/modules/profile.js
+      - name: Check editor persistence contract
+        run: |
+          ! grep -nE "from\\('(nifs|splats)'\\)" js/modules/edit-engine.js js/modules/splat-edit-engine.js
+          grep -q "from('nif_files')" js/modules/edit-engine.js
+          grep -q "from('nif_files')" js/modules/splat-edit-engine.js
+          ! grep -nE "from\\('(splats)'\\)" js/modules/hotspot-persist.js js/modules/motion-states.js
+          grep -q "from('nif_files')" js/modules/hotspot-persist.js
+          grep -q "from('nif_files')" js/modules/motion-states.js
+          grep -q "fumoca:motionStateSaveFailed" js/modules/motion-states.js
+          ! grep -nE "from\\('(processing_jobs)'\\)" js/modules/notifications.js
+          grep -q "from('reconstruction_jobs')" js/modules/notifications.js
+          grep -q "splat_to_nif" js/modules/upload-page.js
+          grep -q "ply_to_nif" js/modules/upload-page.js
+          grep -q "inspectPlyAttributes" js/modules/upload-page.js
+          grep -q "discarded_attributes" js/modules/upload-page.js
+          grep -q "higher_order_sh_discarded_colour_approximation" js/modules/ply-conversion-metadata.js
+          grep -q "conversion: outputBuffer ? {" js/modules/upload-page.js
+          grep -q "gpu_required: false" js/modules/upload-page.js
+          grep -q "source_r2_key" js/modules/upload-page.js
+          grep -q "Open in Studio" js/modules/upload-page.js
+          grep -q "storage did not return a file key and URL" js/modules/upload-page.js
+          ! grep -n "nif_file_id" js/modules/feed.js
+          grep -q "post.meta?.source_r2_key" js/modules/feed.js
+          grep -q "item.meta?.source_capture?.r2_key" js/modules/profile.js
+          grep -q "from('reconstruction_jobs')" js/modules/feed.js
+          grep -q "row.job_id || row.id" js/modules/feed.js
+          grep -q "row.status = 'needs_retry'" js/modules/feed.js
+          grep -q "needs_retry" js/modules/feed.js
+          grep -q "jobsById.get" js/modules/profile.js
+          grep -q "row.job_id ? 'needs_retry' : 'done'" js/modules/profile.js
+          grep -q "viewer.html?nifId=" js/modules/profile.js
+          grep -q "source_capture: { r2_key: fileKey" js/modules/upload-page.js
+          grep -q "source_capture: { r2_key: filePath" js/modules/upload-page.js
+          grep -q "capture_thumbnail_r2_key: uploadedThumbnail.fileKey" js/modules/upload-page.js
+          grep -q "post.meta?.capture_thumbnail_r2_key" js/modules/feed.js
+          grep -q "item.meta?.capture_thumbnail_r2_key" js/modules/profile.js
+          grep -q "currentRecord.meta?.capture_thumbnail_r2_key" js/modules/viewer.js
+          grep -q "currentRecord.meta?.source_capture?.r2_key" js/modules/viewer.js
+          grep -q "if (!currentRecord.r2_key || !currentRecord.user_id)" js/modules/viewer.js
+          grep -q "not a saved NIF artifact" js/modules/viewer.js
+          ! grep -n "eq('nif_id'" js/modules/viewer.js
+      - name: Test PLY conversion fidelity disclosure
+        run: |
+          node --input-type=module --check < js/modules/ply-conversion-metadata.js
+          node --experimental-default-type=module tests/ply-conversion-metadata.mjs
+      - name: Test CPU-only splat to NIF conversion
+        run: node --experimental-default-type=module tests/splat-to-nif-smoke.mjs
       - name: Compile Kaggle preflight script
         run: python -m py_compile kaggle/mesh2splat_preflight.py
       - name: Install preflight dependencies

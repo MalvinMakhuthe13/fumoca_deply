@@ -1,0 +1,27 @@
+import assert from 'node:assert/strict';
+import { inspectPlyAttributes } from '../js/modules/ply-conversion-metadata.js';
+
+const degreeThree = Array.from({ length: 45 }, (_, i) => `f_rest_${i}`);
+const gaussian = inspectPlyAttributes([
+  'x', 'y', 'z', 'scale_0', 'scale_1', 'scale_2', 'opacity',
+  'rot_0', 'rot_1', 'rot_2', 'rot_3', 'f_dc_0', 'f_dc_1', 'f_dc_2',
+  ...degreeThree,
+], true);
+assert.equal(gaussian.detectedShDegree, 3);
+assert.equal(gaussian.higherOrderShCount, 45);
+assert.ok(gaussian.discardedAttributes.some(value => value.includes('f_rest_*')));
+assert.ok(gaussian.qualityFlags.includes('higher_order_sh_discarded_colour_approximation'));
+
+const degreeOne = inspectPlyAttributes(Array.from({ length: 9 }, (_, i) => `f_rest_${i}`), true);
+assert.equal(degreeOne.detectedShDegree, 1);
+
+const dcOnly = inspectPlyAttributes(['x', 'y', 'z', 'f_dc_0', 'f_dc_1', 'f_dc_2'], true);
+assert.equal(dcOnly.detectedShDegree, 0);
+assert.deepEqual(dcOnly.discardedAttributes, []);
+assert.deepEqual(dcOnly.qualityFlags, []);
+
+const pointCloud = inspectPlyAttributes(['x', 'y', 'z', 'red', 'green', 'blue'], false);
+assert.deepEqual(pointCloud.qualityFlags, ['point_cloud_not_gaussian', 'mesh_reconstruction_not_run']);
+assert.deepEqual(pointCloud.discardedAttributes, []);
+
+console.log('PLY conversion provenance passed: SH losses are detected and disclosed.');
