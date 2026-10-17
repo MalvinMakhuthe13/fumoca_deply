@@ -16,6 +16,14 @@ assert.match(source, /window\._fumocaCurrentRecord = \{ \.\.\.\(window\._fumocaC
   'bootstrap must prefer fresh database fields over stale in-memory NIF state');
 assert.match(source, /if \(source\.r2_key\)[\s\S]*?authenticatedUrl\(source\.r2_key\)/,
   'private original source files must be opened through an authorized R2 read ticket');
+const preserveStart = source.indexOf('window.preserveImportedLidarSource = async');
+const preserveEnd = source.indexOf('let _solidMeshPreviewObject', preserveStart);
+assert.ok(preserveStart >= 0 && preserveEnd > preserveStart, 'original source preservation function must exist');
+const preserve = source.slice(preserveStart, preserveEnd);
+assert.match(preserve, /select\('meta'\)\.eq\('id', record\.id\)\.eq\('user_id', user\.id\)\.single\(\)/,
+  'original source linking must merge into fresh parent metadata');
+assert.match(preserve, /r2\.from\('nif-files'\)\.remove\(\[fileKey\]\)/,
+  'failed source metadata linking must clean up the uploaded source object');
 const legacyEditor = await readFile(new URL('../js/modules/splat-edit-engine.js', import.meta.url), 'utf8');
 assert.match(legacyEditor, /const path=\`\$\{splatId\}\/edited_cleaned_\$\{Date\.now\(\)\}\.splat\`;/,
   'cleaned splat derivatives must use the record-scoped edited_ key accepted by the R2 ownership guard');
