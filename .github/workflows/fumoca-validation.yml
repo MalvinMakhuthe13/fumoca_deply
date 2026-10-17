@@ -50,6 +50,10 @@ jobs:
           grep -q "from('reconstruction_jobs')" js/modules/notifications.js
           grep -q "splat_to_nif" js/modules/upload-page.js
           grep -q "ply_to_nif" js/modules/upload-page.js
+          grep -q "higherOrderShAttributes" js/modules/upload-page.js
+          grep -q "discarded_attributes" js/modules/upload-page.js
+          grep -q "higher_order_sh_discarded_colour_approximation" js/modules/upload-page.js
+          grep -q "conversion: outputBuffer ? {" js/modules/upload-page.js
           grep -q "gpu_required: false" js/modules/upload-page.js
           grep -q "source_r2_key" js/modules/upload-page.js
           ! grep -n "nif_file_id" js/modules/feed.js
