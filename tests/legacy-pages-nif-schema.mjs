@@ -26,4 +26,7 @@ assert.ok(feed.includes(".eq('is_public',true)"), 'stories and trending tags mus
 assert.ok(feed.includes("from('reconstruction_jobs')"), 'action-needed notification count must use reconstruction jobs');
 assert.ok(!feed.includes("from('splats')"), 'feed must not query the retired splats table');
 assert.ok(!feed.includes("from('processing_jobs')"), 'feed must not query the retired processing_jobs table');
+const mediaEdit = await readFile(new URL('../media-edit.html', import.meta.url), 'utf8');
+assert.ok(!mediaEdit.includes("from('splats')"), 'media editor must not write to the retired splats table');
+assert.ok(mediaEdit.includes('Publishing is not connected'), 'unsupported media publishing must fail clearly until a media asset schema exists');
 console.log('Ad Studio, public preview and feed NIF schema contracts passed.');
