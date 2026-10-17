@@ -144,7 +144,7 @@ jobs:
           grep -q "storage did not return a file key and URL" js/modules/upload-page.js
           ! grep -n "nif_file_id" js/modules/feed.js
           grep -q "post.meta?.source_r2_key" js/modules/feed.js
-          grep -q "item.meta?.source_capture?.r2_key" js/modules/profile.js
+          grep -q "sourceCapture?.r2_key" js/modules/profile.js
           grep -q "from('reconstruction_jobs')" js/modules/feed.js
           grep -q "const jobId = row.job_id" js/modules/feed.js
           grep -q "row.status = 'needs_retry'" js/modules/feed.js
@@ -158,7 +158,7 @@ jobs:
           grep -q "post.meta?.capture_thumbnail_r2_key" js/modules/feed.js
           grep -q "item.meta?.capture_thumbnail_r2_key" js/modules/profile.js
           grep -q "currentRecord.meta?.capture_thumbnail_r2_key" js/modules/viewer.js
-          grep -q "currentRecord.meta?.source_capture?.r2_key" js/modules/viewer.js
+          grep -q "sourceCapture?.r2_key" js/modules/viewer.js
           grep -q "if (!currentRecord.r2_key || !currentRecord.user_id)" js/modules/viewer.js
           grep -q "not a saved NIF artifact" js/modules/viewer.js
           ! grep -n "eq('nif_id'" js/modules/viewer.js
