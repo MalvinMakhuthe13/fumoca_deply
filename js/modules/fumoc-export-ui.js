@@ -217,209 +217,250 @@ function _ensurePanel() {
 
 function _wire() {
   const panel = _panel;
-
-  // Close
   panel.querySelector('#fepCloseBtn').addEventListener('click', close);
   panel.addEventListener('click', e => { if (e.target === panel) close(); });
 
-  // Quality selector
-  let quality = 'medium';
-  panel.querySelectorAll('.fep-q').forEach(btn => {
-    btn.addEventListener('click', () => {
-      panel.querySelectorAll('.fep-q').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      quality = btn.dataset.q;
-      _updateEstimate(quality);
-    });
-  });
-
-  // Hide the mesh toggle if WASM is unavailable in this browser
-  import('./fumoc-draco-encoder.js').then(({ isDracoEncoderAvailable }) => {
-    if (!isDracoEncoderAvailable()) {
-      const row = panel.querySelector('#fepMeshRow');
-      if (row) row.style.display = 'none';
-    }
-  }).catch(() => {
-    const row = panel.querySelector('#fepMeshRow');
-    if (row) row.style.display = 'none';
-  });
-
-  // Encode button
   let _lastBuffer = null;
-  let _lastStats  = null;
+  let _lastStats = null;
 
   panel.querySelector('#fepEncodeBtn').addEventListener('click', async () => {
     if (_encoding) return;
-
-    const S      = window.S;
+    const S = window.S;
     const record = window._fumocaCurrentRecord;
-    const _hasFileParam = !!(new URLSearchParams(location.search).get('file') || new URLSearchParams(location.search).get('url'));
-    if (!S?.alive && !record && !_hasFileParam) {
-      alert('No splat loaded — open a splat first.');
+    const params = new URLSearchParams(location.search);
+    const hasEditorState = !!(S?.alive?.length && S?.positions?.length === S.alive.length * 3);
+    const sourceName = record?.r2_key || record?.splat_url || params.get('file') || params.get('url') || '';
+    if (!hasEditorState && !sourceName && !window._fumocanifUrl) {
+      alert('No supported NIF or SPLAT source is available to export.');
       return;
     }
 
     _encoding = true;
     _lastBuffer = null;
-    _lastStats  = null;
-
-    const encBtn   = panel.querySelector('#fepEncodeBtn');
-    const dlBtn    = panel.querySelector('#fepDownloadBtn');
-    const shBtn    = panel.querySelector('#fepShareBtn');
+    _lastStats = null;
+    const encBtn = panel.querySelector('#fepEncodeBtn');
+    const dlBtn = panel.querySelector('#fepDownloadBtn');
+    const shBtn = panel.querySelector('#fepShareBtn');
     const progArea = panel.querySelector('#fepProgressArea');
-    const stats    = panel.querySelector('#fepStats');
-    const meshCheck = panel.querySelector('#fepMeshCheck');
-
+    const stats = panel.querySelector('#fepStats');
     encBtn.disabled = true;
-    dlBtn.disabled  = true;
-    shBtn.disabled  = true;
+    dlBtn.disabled = true;
+    shBtn.disabled = true;
     progArea.style.display = 'block';
-    stats.style.display    = 'none';
-    encBtn.textContent     = '⏳ Compressing…';
+    stats.style.display = 'none';
+    encBtn.textContent = 'Preparing NIF…';
 
     const onProgress = (pct, label) => {
-      panel.querySelector('#fepProgressFill').style.width  = pct + '%';
+      panel.querySelector('#fepProgressFill').style.width = pct + '%';
       panel.querySelector('#fepProgressLabel').textContent = label;
     };
 
     try {
-      // Get splat source buffer — try all known sources
-      let splatBuffer = S?.sourceBuffer;
-
-      if (!splatBuffer && record?.splat_url) {
-        onProgress(2, 'Fetching splat data…');
-        const resp = await fetch(record.splat_url);
-        splatBuffer = await resp.arrayBuffer();
+      let sourceBytes = null;
+      let inputBytes = 0;
+      if (hasEditorState) {
+        inputBytes = S.sourceBuffer?.byteLength || S.alive.length * 32;
+      } else {
+        let sourceUrl = '';
+        if (record?.r2_key) {
+          onProgress(5, 'Authorizing source read…');
+          sourceUrl = record.is_public === true
+            ? r2.publicUrl('nif-files', record.r2_key)
+            : await r2.from('nif-files').authenticatedUrl(record.r2_key);
+        } else {
+          sourceUrl = record?.splat_url || params.get('file') || params.get('url') || window._fumocanifUrl || '';
+        }
+        if (!sourceUrl) throw new Error('No source URL or editor state is available.');
+        onProgress(12, 'Fetching source data…');
+        const response = await fetch(sourceUrl);
+        if (!response.ok) throw new Error('Source fetch failed with HTTP ' + response.status);
+        sourceBytes = new Uint8Array(await response.arrayBuffer());
+        inputBytes = sourceBytes.byteLength;
       }
-      // Fallback: fetch from ?file= URL param (direct file load path)
-      if (!splatBuffer) {
-        const _p = new URLSearchParams(location.search);
-        const _u = _p.get('file') || _p.get('url');
-        if (_u) {
-          onProgress(2, 'Fetching splat from source URL…');
-          try {
-            const resp = await fetch(_u);
-            if (resp.ok) splatBuffer = await resp.arrayBuffer();
-          } catch(e) {}
+
+      let nifBuffer;
+      let gaussianCount = 0;
+      if (hasEditorState) {
+        onProgress(35, 'Encoding current Studio state…');
+        const aliveIndices = [];
+        for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) aliveIndices.push(i);
+        if (!aliveIndices.length) throw new Error('Cannot export an empty scene: no live points remain.');
+        const rows = encodeEditorSplatRows(S, aliveIndices);
+        const sourceMeta = {
+          ...(S.nifMeta && typeof S.nifMeta === 'object' ? S.nifMeta : {}),
+          ...(record?.meta && typeof record.meta === 'object' ? record.meta : {}),
+        };
+        const gaussianSH = compactGaussianSHSidecar({
+          indices: aliveIndices,
+          attributes: S.shAttributes || [],
+          coefficients: S.shCoefficients,
+          pointCount: S.alive.length,
+          paintColors: S.paintColors,
+          colors: S.colors,
+        });
+        if (sourceMeta.gaussian_sh && !gaussianSH) {
+          throw new Error('Export blocked: metadata declares Gaussian SH data but the coefficient sidecar is unavailable.');
+        }
+        const gaussianShMeta = gaussianSH ? gaussianSHMetadata(gaussianSH, S.shAttributes) : null;
+        let layerSources = Array.isArray(S.nifLayers) && S.nifLayers.length ? S.nifLayers : [];
+        if (!layerSources.length && Array.isArray(S.layers)) {
+          layerSources = S.layers.map(layer => ({
+            label: String(layer.name || layer.label || '').trim(),
+            depthMin: 0, depthMax: 0,
+            indices: Array.from({ length: S.alive.length }, (_, i) => i).filter(i => Boolean(layer.mask?.[i])),
+          })).filter(layer => layer.label && layer.indices.length);
+        }
+        if (!layerSources.length && Array.isArray(sourceMeta.editor_scene?.layers)) {
+          layerSources = sourceMeta.editor_scene.layers.map(layer => ({
+            label: layer.name, depthMin: 0, depthMax: 0, indices: layer.point_indices,
+          }));
+        }
+        const layerData = compactNifLayers(layerSources, aliveIndices, S.alive.length);
+        const meta = {
+          ...sourceMeta,
+          ...(gaussianShMeta ? { gaussian_sh: gaussianShMeta } : {}),
+          title: record?.title || sourceMeta.title || 'Exported Scene',
+          description: sourceMeta.description || record?.description || '',
+        };
+        if (window._fumocaSerializeEditorSceneMetadata) {
+          meta.editor_scene = window._fumocaSerializeEditorSceneMetadata(aliveIndices);
+        } else if (sourceMeta.editor_scene && aliveIndices.length !== S.alive.length) {
+          delete meta.editor_scene;
+        }
+        if (layerData.droppedUnindexed) {
+          meta.quality_flags = [...new Set([...(Array.isArray(meta.quality_flags) ? meta.quality_flags : []), 'legacy_layer_geo_dropped_no_indices'])];
+          meta.layer_geo_status = 'legacy_layers_dropped_unindexed';
+        }
+        const compactLidar = source => source ? aliveIndices.map(i => source[i] ?? 0) : null;
+        const lidarAttributes = S.lidarIntensity || S.lidarClassification || S.lidarReturnNumber ? {
+          intensity: S.lidarIntensity ? Uint16Array.from(compactLidar(S.lidarIntensity)) : null,
+          classification: S.lidarClassification ? Uint8Array.from(compactLidar(S.lidarClassification)) : null,
+          returnNumber: S.lidarReturnNumber ? Uint8Array.from(compactLidar(S.lidarReturnNumber)) : null,
+        } : null;
+        const passthroughChunks = (S.nifPassthroughChunks || []).filter(chunk => ![
+          CHUNK.KEYFRAME_GEO, CHUNK.META, CHUNK.THUMBNAIL, CHUNK.KEYFRAME_MESH,
+          CHUNK.LAYER_GEO, CHUNK.GAUSSIAN_SH, CHUNK.LIDAR_ATTR,
+        ].includes(chunk.type));
+        nifBuffer = encodeNif({
+          sourceBuffer: rows,
+          aliveIndices: Array.from({ length: aliveIndices.length }, (_, i) => i),
+          rowSize: 32,
+          meta,
+          gaussianSH: gaussianSH || undefined,
+          lidarAttributes,
+          layers: layerData.layers,
+          mesh: S.nifMesh || undefined,
+          thumbnailBytes: S.nifThumbnailBytes || undefined,
+          vertical: S.nifVertical || sourceMeta.vertical || 'generic',
+          passthroughChunks,
+        });
+        gaussianCount = aliveIndices.length;
+      } else {
+        const name = String(sourceName).split('?')[0].toLowerCase();
+        const isNif = name.endsWith('.nif') ||
+          (sourceBytes[0] === 0x4e && sourceBytes[1] === 0x49 && sourceBytes[2] === 0x46);
+        const isSplat = name.endsWith('.splat') || record?.meta?.source_format === 'splat';
+        if (isNif) {
+          onProgress(50, 'Validating existing NIF…');
+          const sourceBuffer = sourceBytes.buffer.slice(sourceBytes.byteOffset, sourceBytes.byteOffset + sourceBytes.byteLength);
+          const decoded = await decodeNif(sourceBuffer);
+          gaussianCount = decoded.gaussians.count;
+          // No edits are present in this viewer context: download the original
+          // NIF byte-for-byte, retaining every supported and future chunk.
+          nifBuffer = sourceBuffer;
+        } else if (isSplat) {
+          onProgress(45, 'Converting SPLAT to NIF…');
+          if (sourceBytes.byteLength === 0 || sourceBytes.byteLength % 32 !== 0) {
+            throw new Error('SPLAT source length is not a whole number of 32-byte Gaussian records.');
+          }
+          const count = sourceBytes.byteLength / 32;
+          const meta = {
+            ...(record?.meta && typeof record.meta === 'object' ? record.meta : {}),
+            title: record?.title || 'Exported Scene',
+            description: record?.description || '',
+          };
+          if (meta.gaussian_sh) {
+            throw new Error('This SPLAT source has Gaussian SH metadata but no SH coefficient sidecar. Open the original NIF in Studio to preserve it.');
+          }
+          const layerSources = Array.isArray(meta.editor_scene?.layers)
+            ? meta.editor_scene.layers.map(layer => ({ label: layer.name, depthMin: 0, depthMax: 0, indices: layer.point_indices }))
+            : [];
+          const layerData = compactNifLayers(layerSources, Array.from({ length: count }, (_, i) => i), count);
+          nifBuffer = encodeNif({
+            sourceBuffer: sourceBytes,
+            aliveIndices: Array.from({ length: count }, (_, i) => i),
+            rowSize: 32,
+            meta,
+            layers: layerData.layers,
+            vertical: record?.meta?.vertical || record?.vertical || 'generic',
+          });
+          gaussianCount = count;
+        } else {
+          throw new Error('This export panel supports NIF and SPLAT sources. Open PLY or Gaussian PLY in Studio to preserve scales, rotations and SH coefficients.');
         }
       }
-      if (!splatBuffer) throw new Error('No splat data available. Load a splat first.');
 
-      // Get thumbnail
-      let thumbnailBuffer = null;
-      if (record?.thumbnail_url) {
-        try {
-          const r = await fetch(record.thumbnail_url);
-          if (r.ok) thumbnailBuffer = new Uint8Array(await r.arrayBuffer());
-        } catch {}
-      }
-
-      // NOTE: Draco mesh-section export (KEYFRAME_MESH chunk) isn't wired up
-      // yet in this .nif path — the chunk type exists in NIFSpec.js but the
-      // Draco→NIF bridge hasn't been written. The "Include mesh" checkbox is
-      // disabled below until that's built; flagging rather than silently
-      // dropping it.
-      if (meshCheck?.checked) {
-        console.warn('[FumocExportUI] Mesh export not yet supported for .nif — ignoring "Include mesh".');
-      }
-
-      onProgress(20, 'Packing .nif…');
-      const { encodeNif } = await import('./nif-format.js');
-
-      const bytes = new Uint8Array(splatBuffer);
-      // If this came from a live edit session (S.sourceBuffer), respect the
-      // alive filter; otherwise (fetched whole file) every row is included.
-      const aliveIndices = [];
-      if (S?.sourceBuffer && S.sourceBuffer === splatBuffer && S.alive) {
-        for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) aliveIndices.push(i);
-      } else {
-        const rowSize = S?.splatRowSize ?? 32;
-        for (let i = 0; i < bytes.byteLength / rowSize; i++) aliveIndices.push(i);
-      }
-
-      const nifBuffer = encodeNif({
-        sourceBuffer: bytes,
-        aliveIndices,
-        rowSize: S?.splatRowSize ?? 32,
-        meta: {
-          title: record?.metadata?.title || record?.title || 'Exported Scene',
-          description: record?.metadata?.description || record?.description || '',
-          hotspots: record?.metadata?.hotspots  || [],
-          tourStops: record?.metadata?.tourStops || [],
-        },
-        thumbnailBytes: thumbnailBuffer,
-        vertical: record?.metadata?.vertical || record?.vertical || 'generic',
-      });
-      onProgress(90, 'Finishing…');
-
+      onProgress(90, 'Finalizing NIF…');
       _lastBuffer = nifBuffer;
-      _lastStats  = {
-        inputBytes:  bytes.byteLength,
+      _lastStats = {
+        inputBytes,
         outputBytes: nifBuffer.byteLength,
-        ratio:       bytes.byteLength / nifBuffer.byteLength,
-        nGaussians:  aliveIndices.length,
-        reductionPct: Math.round((1 - nifBuffer.byteLength / bytes.byteLength) * 100),
+        ratio: inputBytes / nifBuffer.byteLength,
+        nGaussians: gaussianCount,
+        reductionPct: Math.round((1 - nifBuffer.byteLength / inputBytes) * 100),
       };
-
-      // Show stats
       const s = _lastStats;
-      panel.querySelector('#fepStatIn').textContent    = (s.inputBytes  / 1048576).toFixed(1) + ' MB';
-      panel.querySelector('#fepStatOut').textContent   = (s.outputBytes / 1048576).toFixed(1) + ' MB';
+      panel.querySelector('#fepStatIn').textContent = (s.inputBytes / 1048576).toFixed(1) + ' MB';
+      panel.querySelector('#fepStatOut').textContent = (s.outputBytes / 1048576).toFixed(1) + ' MB';
       panel.querySelector('#fepStatRatio').textContent = s.ratio.toFixed(1) + '×';
-      panel.querySelector('#fepStatN').textContent     = s.nGaussians.toLocaleString();
-      panel.querySelector('#fepStatSaved').textContent = s.reductionPct + '% smaller';
+      panel.querySelector('#fepStatN').textContent = s.nGaussians.toLocaleString();
+      panel.querySelector('#fepStatSaved').textContent = s.reductionPct > 0
+        ? s.reductionPct + '% smaller'
+        : s.reductionPct < 0 ? Math.abs(s.reductionPct) + '% larger' : 'same size';
       stats.style.display = 'block';
-
-      encBtn.textContent  = '✓ Packed!';
-      dlBtn.disabled      = false;
-      shBtn.disabled      = false;
-
+      encBtn.textContent = '✓ Ready to download';
+      dlBtn.disabled = false;
+      shBtn.disabled = false;
+      onProgress(100, 'NIF export ready.');
     } catch (err) {
       console.error('[FumocExportUI]', err);
       panel.querySelector('#fepProgressLabel').textContent = '⚠ ' + err.message;
-      encBtn.textContent  = '⚡ Compress & Export';
-      encBtn.disabled     = false;
+      encBtn.textContent = 'Export NIF';
+      encBtn.disabled = false;
     } finally {
       _encoding = false;
     }
   });
 
-  // Download
   panel.querySelector('#fepDownloadBtn').addEventListener('click', () => {
     if (!_lastBuffer) return;
     const record = window._fumocaCurrentRecord;
-    const fname  = (record?.title || 'scene').replace(/[^a-z0-9_-]/gi, '_');
-    const blob   = new Blob([_lastBuffer], { type: 'application/octet-stream' });
-    const url    = URL.createObjectURL(blob);
-    const a      = document.createElement('a');
+    const fname = (record?.title || 'scene').replace(/[^a-z0-9_-]/gi, '_');
+    const blob = new Blob([_lastBuffer], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
     a.href = url; a.download = fname + '.nif';
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 5000);
   });
 
-  // Share
   panel.querySelector('#fepShareBtn').addEventListener('click', async () => {
     if (!_lastBuffer) return;
     const record = window._fumocaCurrentRecord;
     if (window.FumocSocialHub) {
-      const file = new File(
-        [_lastBuffer],
-        (record?.title || 'scene') + '.nif',
-        { type: 'application/octet-stream' }
-      );
+      const file = new File([_lastBuffer], (record?.title || 'scene') + '.nif', { type: 'application/octet-stream' });
       await FumocSocialHub.nativeShare(record || {}, file);
     }
   });
 }
 
-function _updateEstimate(quality) {
+function _updateEstimate() {
   const S = window.S;
-  if (!S?.alive) { document.getElementById('fepEstimate').textContent = '—'; return; }
-  const inputMB  = (S.sourceBuffer?.byteLength || 0) / 1048576;
-  const ratioMap = { high: 8, medium: 20, low: 40 };
-  const ratio    = ratioMap[quality] || 20;
-  const estMB    = (inputMB / ratio).toFixed(1);
-  document.getElementById('fepEstimate').textContent = `~${estMB} MB`;
+  const record = window._fumocaCurrentRecord;
+  const count = S?.alive?.length || record?.gaussian_count || null;
+  document.getElementById('fepEstimate').textContent = count
+    ? count.toLocaleString() + ' points · actual size measured after export'
+    : 'Actual size measured after export';
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────────
@@ -427,7 +468,7 @@ function _updateEstimate(quality) {
 function open() {
   const panel = _ensurePanel();
   panel.classList.add('open');
-  _updateEstimate('medium');
+  _updateEstimate();
 }
 
 function close() {
