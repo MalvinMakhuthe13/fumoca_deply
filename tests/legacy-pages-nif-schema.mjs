@@ -15,6 +15,10 @@ assert.ok(preview.includes("from('nif_files')"), 'public preview must resolve NI
 assert.ok(preview.includes(".eq('is_public', true)"), 'public preview must not expose private NIF records');
 assert.ok(preview.includes('/viewer.html?nifId='), 'NIF records must open in the NIF viewer, not the .fumoc player');
 assert.ok(!preview.includes("from('splats')"), 'public preview must not query retired splats table');
+const nestedPreview = await readFile(new URL('../preview/index.html', import.meta.url), 'utf8');
+assert.ok(nestedPreview.includes("from('nif_files')"), 'nested preview route must use the same NIF contract');
+assert.ok(nestedPreview.includes(".eq('is_public', true)"), 'nested preview must not expose private NIF records');
+assert.ok(!nestedPreview.includes("from('splats')"), 'nested preview must not query retired splats table');
 
 const feed = await readFile(new URL('../feed.html', import.meta.url), 'utf8');
 assert.ok(feed.includes("from('nif_files')"), 'feed stories and tags must use nif_files');
