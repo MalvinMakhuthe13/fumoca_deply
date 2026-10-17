@@ -662,17 +662,18 @@ function ansDecodeOrder1(compressed, tableBytes, outputLength) {
     const base=c*256,cumBase=c*257,dtBase=c*ANS_M;
     for (let s=0;s<256;s++) for (let sl=cumFlat[cumBase+s];sl<cumFlat[cumBase+s+1];sl++) decodeTable[dtBase+sl]=s;
   }
-  const out=[]; let state=(compressed[0]|(compressed[1]<<8)|(compressed[2]<<16)|(compressed[3]<<24))>>>0;
+  const out = new Uint8Array(outputLength);
+  let state=(compressed[0]|(compressed[1]<<8)|(compressed[2]<<16)|(compressed[3]<<24))>>>0;
   let bytePos=4, ctx=0;
   for (let i=0;i<outputLength;i++) {
     const slot=state%ANS_M, sym=decodeTable[ctx*ANS_M+slot];
-    out.push(sym);
+    out[i] = sym;
     const base=ctx*256,cumBase=ctx*257;
     const f=freqFlat[base+sym],cum=cumFlat[cumBase+sym];
     state=f*Math.floor(state/ANS_M)+slot-cum; ctx=sym;
     while (state < ANS_L) { if (bytePos >= compressed.length) throw new Error('[FumocCodec] Order-1 ANS stream ended before renormalization completed'); state = (state << 8) | compressed[bytePos++]; }
   }
-  return new Uint8Array(out);
+  return out;
 }
 
 // v3: Perceptual quantise with adaptive range (P1-P99 clamping)
