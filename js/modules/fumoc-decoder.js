@@ -39,6 +39,10 @@ const enc = new TextEncoder();
 const MAGIC_V1 = 'FUMOC1';
 const CODEC_VERSION = 3; // v3: radix sort, order-1 ANS, perceptual quantise
 const MAGIC_V2 = 'FUMOC2';
+const MAX_FUMOC_HEADER_BYTES = 1024 * 1024;
+const MAX_FUMOC_SECTION_BYTES = 512 * 1024 * 1024;
+const MAX_FUMOC_FILE_BYTES = 2 * 1024 * 1024 * 1024;
+const MAX_GAUSSIANS = 5_000_000;
 
 const CHANNEL = Object.freeze({
   0x01: 'POS_X', 0x02: 'POS_Y', 0x03: 'POS_Z',
@@ -51,30 +55,50 @@ const CHANNEL = Object.freeze({
 // ── File-level reader ─────────────────────────────────────────────────────────
 
 function readFileHeader(bytes) {
-  const magic = dec.decode(bytes.slice(0, 6));
-  if (!magic.startsWith('FUMOC')) throw new Error('[FUMOC] Not a .fumoc file');
-  const version   = bytes[8] | (bytes[9] << 8);
-  const headerLen = new DataView(bytes.buffer, bytes.byteOffset + 10, 4).getUint32(0, true);
-  const headerStr = dec.decode(bytes.slice(14, 14 + headerLen));
-  const header    = JSON.parse(headerStr);
+  if (!(bytes instanceof Uint8Array) || bytes.byteLength < 14) {
+    throw new Error('[FUMOC] File is shorter than its 14-byte header');
+  }
+  if (bytes.byteLength > MAX_FUMOC_FILE_BYTES) throw new Error('[FUMOC] File exceeds the 2 GiB safety limit');
+  const magic = dec.decode(bytes.subarray(0, 6));
+  if (magic !== MAGIC_V1 && magic !== MAGIC_V2) throw new Error('[FUMOC] Unsupported file magic');
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const version = view.getUint16(8, true);
+  if (!Number.isInteger(version) || version < 1 || version > 2) {
+    throw new Error(`[FUMOC] Unsupported file version ${version}`);
+  }
+  const headerLen = view.getUint32(10, true);
+  if (headerLen > MAX_FUMOC_HEADER_BYTES || 14 + headerLen > bytes.byteLength) {
+    throw new Error('[FUMOC] Header length is invalid, truncated or exceeds 1 MiB');
+  }
+  let header;
+  try { header = JSON.parse(dec.decode(bytes.subarray(14, 14 + headerLen))); }
+  catch (error) { throw new Error('[FUMOC] Header JSON is invalid', { cause: error }); }
+  if (!header || typeof header !== 'object' || Array.isArray(header)) {
+    throw new Error('[FUMOC] Header must be a JSON object');
+  }
   return { version, header, dataOffset: 14 + headerLen };
 }
 
 // ── Section reader ─────────────────────────────────────────────────────────────
 
 function* readSections(bytes, startOffset) {
-  const view = new DataView(bytes.buffer, bytes.byteOffset);
-  let   off  = startOffset;
-
-  while (off + 13 <= bytes.length) {
-    const id = String.fromCharCode(
-      bytes[off], bytes[off+1], bytes[off+2], bytes[off+3]);
-    const flags   = bytes[off + 4];
+  if (!Number.isInteger(startOffset) || startOffset < 14 || startOffset > bytes.byteLength) {
+    throw new Error('[FUMOC] Section start offset is invalid');
+  }
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let off = startOffset;
+  while (off < bytes.byteLength) {
+    if (bytes.byteLength - off < 13) throw new Error('[FUMOC] Truncated section header');
+    const id = String.fromCharCode(bytes[off], bytes[off+1], bytes[off+2], bytes[off+3]);
+    const flags = bytes[off + 4];
     const compLen = view.getUint32(off + 5, true);
-    const rawLen  = view.getUint32(off + 9, true);
-
-    if (off + 13 + compLen > bytes.length) break;
-
+    const rawLen = view.getUint32(off + 9, true);
+    if (flags & ~0x03) throw new Error(`[FUMOC] Section ${id} has unsupported flag bits`);
+    if (compLen > MAX_FUMOC_SECTION_BYTES || rawLen > MAX_FUMOC_SECTION_BYTES) {
+      throw new Error(`[FUMOC] Section ${id} exceeds the 512 MiB safety limit`);
+    }
+    if (off + 13 + compLen > bytes.byteLength) throw new Error(`[FUMOC] Section ${id} is truncated`);
+    if (!(flags & 0x01) && rawLen !== compLen) throw new Error(`[FUMOC] Section ${id} has mismatched uncompressed lengths`);
     const data = bytes.slice(off + 13, off + 13 + compLen);
     yield { id, flags, compLen, rawLen, data, offset: off };
     off += 13 + compLen;
@@ -84,24 +108,45 @@ function* readSections(bytes, startOffset) {
 // ── Decompress non-SPLT sections (deflate) ────────────────────────────────────
 
 async function inflate(data) {
+  let reader = null;
   try {
-    const ds     = new DecompressionStream('deflate');
+    const ds = new DecompressionStream('deflate');
     const writer = ds.writable.getWriter();
-    writer.write(data); writer.close();
+    const writePromise = writer.write(data);
+    const closePromise = writer.close();
+    writePromise.catch(() => {});
+    closePromise.catch(() => {});
     const chunks = [];
-    const reader = ds.readable.getReader();
+    let total = 0;
+    reader = ds.readable.getReader();
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
+      if (total + value.byteLength > MAX_FUMOC_SECTION_BYTES) {
+        await reader.cancel('FUMOC decompressed section exceeds 512 MiB').catch(() => {});
+        throw new Error('[FUMOC] Decompressed section exceeds the 512 MiB safety limit');
+      }
       chunks.push(value);
+      total += value.byteLength;
     }
-    const total = chunks.reduce((n, c) => n + c.length, 0);
-    const out   = new Uint8Array(total);
-    let o = 0; for (const c of chunks) { out.set(c, o); o += c.length; }
+    await Promise.all([writePromise, closePromise]);
+    const out = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) { out.set(chunk, offset); offset += chunk.byteLength; }
     return out;
-  } catch {
-    return data; // Not compressed — return as-is (v1 fallback)
+  } catch (error) {
+    await reader?.cancel().catch(() => {});
+    if (error instanceof Error && error.message.includes('512 MiB safety limit')) throw error;
+    throw new Error('[FUMOC] Invalid or truncated compressed section', { cause: error });
   }
+}
+
+async function sectionPayload(section) {
+  const raw = (section.flags & 0x01) ? await inflate(section.data) : section.data;
+  if (raw.byteLength !== section.rawLen) {
+    throw new Error(`[FUMOC] Section ${section.id} decoded length does not match its header`);
+  }
+  return raw;
 }
 
 // ── SPLT v2 section decoder ────────────────────────────────────────────────────
