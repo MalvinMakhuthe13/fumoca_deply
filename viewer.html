@@ -2432,7 +2432,11 @@ window.addEventListener('fumoca:recordLoaded', e => {
       if ((!result?.hotspots || !result.hotspots.length) && wantDemo) {
         const hs = vehicleDemoHotspots({});
         window._fumocaHotspots = hs;
-        renderHotspotsToLayer(hs);
+        if (window._fumocaUseHotspotPro) {
+          window.dispatchEvent(new CustomEvent('fumoca:hotspotsSeeded', { detail: { hotspots: hs } }));
+        } else {
+          renderHotspotsToLayer(hs);
+        }
         console.info('[FUMOCA] Seeded vehicle demo hotspots (not yet published)');
       }
     } catch (err) {
