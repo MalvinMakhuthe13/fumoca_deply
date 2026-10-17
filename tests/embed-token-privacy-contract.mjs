@@ -11,6 +11,8 @@ assert.match(migration, /create or replace function public\.resolve_embed_token\
 assert.match(migration, /grant execute on function public\.resolve_embed_token\(uuid\) to anon, authenticated/, 'anonymous visitors must be able to resolve their one token');
 assert.match(player, /rpc\/resolve_embed_token/);
 assert.match(player, /JSON\.stringify\(\{ p_token: token \}\)/, 'token RPC argument must match SQL function name');
+assert.match(player, /allowed_origins/, 'embed origin allowlist should be checked in iframe context');
+assert.match(player, /This embed is not authorized for this website/, 'disallowed iframe origins should fail clearly');
 assert.match(player, /nif_files\?id=eq\.[\s\S]*?is_public=eq\.true/, 'embed player must load only published NIFs');
 assert.doesNotMatch(player, /splats\?id=eq\./, 'embed player must not query the retired splats table');
 assert.match(manager, /splatRecord\.is_public !== true/, 'private NIFs must not receive public embed tokens');
