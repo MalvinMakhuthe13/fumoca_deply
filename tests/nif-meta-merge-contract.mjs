@@ -6,6 +6,7 @@ const specs = [
   { path: '../js/modules/4d-engine.js', name: '4D metadata', owner: /\.eq\('id', S\.record\.id\)\.eq\('user_id', ownerId\)\.single\(\)/ },
   { path: '../js/modules/visual-fx.js', name: 'visual presets', owner: /\.eq\('id', rec\.id\)\.eq\('user_id', rec\.user_id\)\.single\(\)/ },
   { path: '../js/modules/motion-tracking.js', name: 'motion tracking', owner: /\.eq\('id', record\.id\)\.eq\('user_id', record\.user_id\)\.single\(\)/ },
+  { path: '../js/modules/motion-states.js', name: 'motion states', owner: /\.eq\('id', _record\.id\)\.eq\('user_id', ownerId\)\.single\(\)/ },
 ];
 for (const spec of specs) {
   const source = await readFile(new URL(spec.path, import.meta.url), 'utf8');
