@@ -295,7 +295,15 @@ async function deleteCurrentUpload() {
     alert('Only the owner or admin can delete this upload.');
     return;
   }
-  if (!window.confirm('Delete this upload, linked files, and its processing rows?')) return;
+  // fetchRecord() can deliberately return a reconstruction_jobs-only
+  // placeholder while processing is queued/running or before nif_files is
+  // registered. That placeholder is not a stored artifact and must never be
+  // deleted through the nif_files path (especially for admins).
+  if (!currentRecord.r2_key || !currentRecord.user_id) {
+    alert('This item is a processing job, not a saved NIF artifact. Open your profile or feed to manage it after processing finishes.');
+    return;
+  }
+  if (!window.confirm('Delete this saved NIF and its linked source/thumbnail files?')) return;
   const btn = deleteUploadBtn;
   const original = btn?.textContent || 'Delete upload';
   if (btn) { btn.disabled = true; btn.textContent = 'Deletingâ€¦'; }
