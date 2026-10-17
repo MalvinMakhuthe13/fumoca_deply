@@ -435,9 +435,13 @@ function parseByteRange(rangeHeader, size) {
 // Also enforces a sane max length so absurdly long paths can't be used to
 // abuse R2 key limits or your CDN/cache layer.
 function sanitiseKey(rawPath) {
-  if (typeof rawPath !== 'string' || rawPath.length === 0 || rawPath.length > MAX_KEY_LENGTH || rawPath.includes('\0')) {
+  if (typeof rawPath !== 'string' || rawPath.length === 0 || rawPath.length > MAX_KEY_LENGTH ||
+      /[\u0000-\u001F\u007F]/.test(rawPath) || /[(),{}"']/u.test(rawPath)) {
     return '';
   }
+  // These characters are reserved by the PostgREST filter grammar used by
+  // read/delete ownership lookups. Reject them before interpolating a key into
+  // exact-match filters; generated FUMOCA keys use a safe subset already.
   const slashNormalised = rawPath.replace(/\\/g, '/');
   const segments = slashNormalised.split('/');
   // Reject traversal segments instead of silently rewriting them to a different key.
