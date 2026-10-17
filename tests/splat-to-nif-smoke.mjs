@@ -73,7 +73,7 @@ closeTo(legacyView.getFloat32(4, true), 1, 0.0001, 'legacy row 0 y');
 closeTo(legacyView.getFloat32(8, true), -0.5, 0.0001, 'legacy row 0 z');
 assert.ok(legacyRows[24] >= 219 && legacyRows[24] <= 221, 'red channel survives NIF → SPLAT');
 assert.ok(legacyRows[27] >= 229 && legacyRows[27] <= 231, 'opacity survives NIF → SPLAT');
-for (let q = 0; q < 4; q++) assert.ok(Math.abs(legacyRows[28 + q] - [235, 148, 118, 136][q]) <= 1, `quaternion byte ${q} survives NIF → SPLAT`);
+for (let q = 0; q < 4; q++) assert.ok(Math.abs(legacyRows[28 + q] - Math.round(decoded.gaussians.data[6 + q] * 128 + 128)) <= 1, `normalized quaternion byte ${q} survives NIF → SPLAT`);
 
 // Plain PLY point clouds have a distinct CPU-only route: encode positions,
 // RGB and opacity as isotropic points, and do not claim Gaussian source fidelity.
