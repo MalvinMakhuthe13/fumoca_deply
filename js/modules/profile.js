@@ -205,7 +205,7 @@ async function init() {
     .eq('user_id', user.id)
     .order('created_at', { ascending: false });
   const nifList = Array.isArray(nifRows) ? nifRows : [];
-  const jobIds = nifList.map(row => row.job_id || row.id).filter(Boolean);
+  const jobIds = nifList.map(row => row.job_id).filter(Boolean);
   let jobsById = new Map();
   if (jobIds.length) {
     const { data: jobs, error: jobsError } = await supabase
@@ -216,7 +216,7 @@ async function init() {
     else jobsById = new Map((jobs || []).map(job => [job.id, job]));
   }
   const nifs = nifList.map((row) => {
-    const job = jobsById.get(row.job_id || row.id);
+    const job = row.job_id ? jobsById.get(row.job_id) : null;
     return {
       id: row.id,
       user_id: row.user_id,
