@@ -80,7 +80,7 @@ const plyRecord = { id: 'record-1', r2_key: 'record-1/edited_123.ply', meta: {
     { id: 'subject', name: 'Subject', point_indices: [0, 2], visible: true, opacity: 1 }
   ] }
 }};
-assert.equal(plyHelpers(plyState, plyRecord, 'record-1', 'https://storage.test/record-1/edited_123.ply', 3), true);
+assert.equal(plyHelpers(plyRecord, 'record-1', 'https://storage.test/record-1/edited_123.ply', 3), true);
 assert.deepEqual(Array.from(plyState.layers[0].mask), [1,0,1]);
 assert.equal(plyHelpers(plyState, plyRecord, 'record-1', 'https://storage.test/other.ply', 3), false);
 assert.equal(plyHelpers(plyState, plyRecord, 'different-record', 'https://storage.test/record-1/edited_123.ply', 3), false);
