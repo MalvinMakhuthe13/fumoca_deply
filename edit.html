@@ -5468,7 +5468,12 @@ $('mobilePanelBackdrop')?.addEventListener('click', closeMobilePanels);
           window._fumocaCanonicalFileUrl = currentR2Url || data.meta?.external_nif_url || data.meta?.nif_url || data.output_url || data.nif_url || data.splat_url || null;
           let loadR2Url = currentR2Url;
           if (data.r2_key && data.is_public !== true) {
-            loadR2Url = await r2.from('nif-files').authenticatedUrl(data.r2_key);
+            try {
+              loadR2Url = await r2.from('nif-files').authenticatedUrl(data.r2_key);
+            } catch (error) {
+              fileUrl = null;
+              throw error;
+            }
           }
           fileUrl = loadR2Url || fileUrl || window._fumocaCanonicalFileUrl || null;
           _renderLidarSourceLinks(data.meta || {});
