@@ -110,7 +110,7 @@ jobs:
           grep -q "S.nifMeta = {};" edit.html
           grep -q "data.r2_key ? r2.publicUrl(\x27nif-files\x27, data.r2_key)" edit.html
           grep -q "restoreSavedPlySceneMetadata" edit.html
-          grep -q "point_indices: Array.from(compactIndex.entries())" edit.html
+          grep -Fq "point_indices: Array.from(compactIndex.entries())" edit.html
       - name: Guard immediate transform attachment after Add Splat
         run: |
           grep -q "Rebuild the source-index map and attach the gizmo after the appended layer" edit.html
