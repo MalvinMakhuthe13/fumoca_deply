@@ -11,6 +11,10 @@ const upload = convert.slice(start, end);
 assert.match(upload, /sb\.auth\.getUser\(\)/, 'FUMOC share uploads must require a signed-in user');
 assert.match(upload, /\$\{user\.id\}\/public-convert\//, 'share objects must use the authenticated user prefix');
 assert.match(upload, /contentType: 'application\/fumoc'/, 'FUMOC MIME type must match the storage bucket allow-list');
+assert.match(convert, /const shareWindow = window\.open\('about:blank', '_blank'\);[\s\S]*?const shareUrl = await uploadForShare/,
+  'share tab must be opened during the user gesture before asynchronous upload work');
+assert.match(convert, /window\.prompt\('Copy your FUMOCA share link:'/,
+  'share link must remain recoverable when the browser blocks popups and clipboard access');
 assert.match(upload, /safeName = String\(filename[\s\S]*replace\(\/\[\^A-Za-z0-9\._-\]\/g, '_'/,
   'uploaded share filename must be sanitized');
 assert.match(policies, /'splat-files',[^\n]*'application\/fumoc'/,
