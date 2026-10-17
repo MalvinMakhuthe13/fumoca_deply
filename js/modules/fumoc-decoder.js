@@ -152,47 +152,90 @@ async function sectionPayload(section) {
 // ── SPLT v2 section decoder ────────────────────────────────────────────────────
 
 function decodeSpltV2(spltData) {
-  const view  = new DataView(spltData.buffer, spltData.byteOffset);
-  const N     = view.getUint32(0, true);
-  const nChan = view.getUint32(4, true);
-  let   off   = 8;
-
-  const channels = {};
-
-  for (let c = 0; c < nChan; c++) {
-    const chanId    = spltData[off++];
-    // v92: order-0 only — freq table is always 512 bytes
-    // order-1 (131072 byte tables) disabled until format is stabilised
-    const freqLen   = 512;
-    const freqBytes = spltData.slice(off, off + freqLen); off += freqLen;
-    const metaLen   = view.getUint32(off, true); off += 4;
-    const metaJson  = dec.decode(spltData.slice(off, off + metaLen)); off += metaLen;
-    const compLen   = view.getUint32(off, true); off += 4;
-    const compData  = spltData.slice(off, off + compLen); off += compLen;
-
-    const meta      = JSON.parse(metaJson);
-    const chanName  = CHANNEL[chanId] || `CH_${chanId.toString(16)}`;
-
-    if (chanName === 'SORT') {
-      // Decode sort index
-      const sortBytes = FumocCodec.ansDecode(compData, freqBytes, meta.length * 4);
-      channels.SORT   = new Uint32Array(sortBytes.buffer, sortBytes.byteOffset, meta.length);
-    } else if (chanName.startsWith('COL_') || chanName.startsWith('ROT_')) {
-      // Colour and rotation: ANS only (no quantise/delta pipeline)
-      const raw = FumocCodec.ansDecode(compData, freqBytes, meta.length);
-      channels[chanName] = raw;
-    } else {
-      // Position and scale: full decode pipeline
-      // v3: check order flag in meta (order:1 = order-1 ANS tables)
-      if (meta.order === 1 && FumocCodec.ansDecodeOrder1) {
-        // order-1 decode — freqBytes is 256*256*2 = 131072 bytes
-        channels[chanName] = FumocCodec.decodeChannel(compData, freqBytes, meta);
-      } else {
-        channels[chanName] = FumocCodec.decodeChannel(compData, freqBytes, meta);
-      }
-    }
+  if (!(spltData instanceof Uint8Array) || spltData.byteLength < 8) {
+    throw new Error('[FUMOC] SPLT v2 payload is shorter than its header');
+  }
+  const view = new DataView(spltData.buffer, spltData.byteOffset, spltData.byteLength);
+  const u32 = (offset, label) => {
+    if (offset < 0 || offset + 4 > view.byteLength) throw new Error(`[FUMOC] Truncated SPLT v2 ${label}`);
+    return view.getUint32(offset, true);
+  };
+  const N = u32(0, 'point count');
+  const nChan = u32(4, 'channel count');
+  if (!Number.isInteger(N) || N < 1 || N > MAX_GAUSSIANS) {
+    throw new Error(`[FUMOC] SPLT v2 point count must be between 1 and ${MAX_GAUSSIANS}`);
+  }
+  if (!Number.isInteger(nChan) || nChan < 1 || nChan > 15) {
+    throw new Error('[FUMOC] SPLT v2 channel count must be between 1 and 15');
   }
 
+  let off = 8;
+  const channels = {};
+  for (let c = 0; c < nChan; c++) {
+    if (off >= spltData.byteLength) throw new Error('[FUMOC] SPLT v2 channel ID is missing');
+    const chanId = spltData[off++];
+    const chanName = CHANNEL[chanId];
+    if (!chanName) throw new Error(`[FUMOC] Unsupported SPLT v2 channel ID ${chanId}`);
+    if (channels[chanName] !== undefined) throw new Error(`[FUMOC] Duplicate SPLT v2 channel ${chanName}`);
+
+    // The v3 codec may use a 512-byte order-0 table or a 131072-byte order-1
+    // table. The table size is inferred by validating the following metadata.
+    let selected = null;
+    for (const freqLen of [512, 131072]) {
+      const metaLenOffset = off + freqLen;
+      if (metaLenOffset + 4 > spltData.byteLength) continue;
+      const metaLen = u32(metaLenOffset, 'channel metadata length');
+      if (metaLen < 2 || metaLen > MAX_FUMOC_HEADER_BYTES ||
+          metaLenOffset + 4 + metaLen + 4 > spltData.byteLength) continue;
+      let meta;
+      try { meta = JSON.parse(dec.decode(spltData.subarray(metaLenOffset + 4, metaLenOffset + 4 + metaLen))); }
+      catch { continue; }
+      if (!meta || typeof meta !== 'object' || Array.isArray(meta)) continue;
+      if (freqLen === 131072 && meta.order !== 1) continue;
+      if (freqLen === 512 && meta.order === 1) continue;
+      selected = { freqLen, metaLen, meta };
+      break;
+    }
+    if (!selected) throw new Error(`[FUMOC] Invalid or truncated metadata for SPLT v2 channel ${chanName}`);
+
+    const { freqLen, metaLen, meta } = selected;
+    const freqBytes = spltData.subarray(off, off + freqLen);
+    off += freqLen + 4;
+    off += metaLen;
+    const compLen = u32(off, 'compressed channel length');
+    off += 4;
+    if (compLen > MAX_FUMOC_SECTION_BYTES || off + compLen > spltData.byteLength) {
+      throw new Error(`[FUMOC] Compressed data for channel ${chanName} is truncated or oversized`);
+    }
+    const compData = spltData.subarray(off, off + compLen);
+    off += compLen;
+
+    if (!Number.isInteger(meta.length) || meta.length !== N) {
+      throw new Error(`[FUMOC] Channel ${chanName} length must match the declared point count`);
+    }
+    if (chanName.startsWith('POS_') || chanName.startsWith('SCL_')) {
+      if (!Number.isInteger(meta.bits) || meta.bits < 1 || meta.bits > 16 ||
+          !Number.isFinite(meta.min) || !Number.isFinite(meta.max) || meta.max < meta.min) {
+        throw new Error(`[FUMOC] Channel ${chanName} quantization metadata is invalid`);
+      }
+    }
+
+    if (chanName === 'SORT') {
+      const sortBytes = FumocCodec.ansDecode(compData, freqBytes, N * 4);
+      const sort = new Uint32Array(sortBytes.buffer, sortBytes.byteOffset, N);
+      for (let i = 0; i < N; i++) if (sort[i] >= N) throw new Error('[FUMOC] SORT index is outside the point range');
+      channels.SORT = sort;
+    } else if (chanName.startsWith('COL_') || chanName.startsWith('ROT_')) {
+      channels[chanName] = FumocCodec.ansDecode(compData, freqBytes, N);
+    } else {
+      channels[chanName] = FumocCodec.decodeChannel(compData, freqBytes, meta);
+      for (let i = 0; i < N; i++) {
+        if (!Number.isFinite(channels[chanName][i])) throw new Error(`[FUMOC] Channel ${chanName} contains a non-finite value`);
+      }
+    }
+    if (channels[chanName]?.length !== N) throw new Error(`[FUMOC] Channel ${chanName} decoded to an unexpected length`);
+  }
+  if (off !== spltData.byteLength) throw new Error('[FUMOC] SPLT v2 payload contains trailing or unparsed bytes');
   return { N, channels };
 }
 
