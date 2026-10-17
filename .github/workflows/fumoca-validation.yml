@@ -31,6 +31,18 @@ jobs:
         run: node --input-type=module --check < js/modules/notifications.js
       - name: Check motion-state module syntax
         run: node --input-type=module --check < js/modules/motion-states.js
+      - name: Check Preflight module syntax
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          html = Path("preflight.html").read_text(encoding="utf-8")
+          scripts = re.findall(r'<script type="module">(.*?)</script>', html, flags=re.S)
+          assert scripts, "Preflight module script not found"
+          Path("/tmp/fumoca-preflight-check.mjs").write_text(scripts[-1], encoding="utf-8")
+          PY
+          node --check /tmp/fumoca-preflight-check.mjs
       - name: Test NIF job and motion-state integration
         run: node --test tests/platform-workflow-contract.test.mjs
       - name: Compile Kaggle preflight script
