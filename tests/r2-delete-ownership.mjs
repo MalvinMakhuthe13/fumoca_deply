@@ -43,4 +43,9 @@ assert.equal(await check(request, env, user, 'nif-files', 'user-123/source.ply')
 assert.equal(fetchCalls, 0, 'prefix ownership needs no database lookup');
 assert.equal(await check(request, env, user, 'nif-files', 'record-456/edited_123.ply'), true, 'owned Studio derivative');
 assert.equal(fetchCalls, 1, 'Studio derivative must check the record owner');
-assert.equal(await check(request, env, user, 'nif-files', 'record-999/edited_123.ply'), true, 'mock currently models only the returned owned record; this path should not be treated as a general prefix grant');
+assert.equal(await check(request, env, user, 'nif-files', 'record-999/edited_123.ply'), false, 'unowned Studio derivative is denied');
+assert.equal(await check(request, env, user, 'nif-files', 'other-user/private.ply'), false, 'other user prefix is denied');
+assert.equal(await check(request, env, { id: 'server', kind: 'server-to-server' }, 'nif-files', 'any/key.ply'), true, 'trusted server principal may clean up its artifacts');
+const noTokenRequest = { headers: { get: () => '' } };
+assert.equal(await check(noTokenRequest, env, user, 'nif-files', 'record-456/edited_123.ply'), false, 'missing token fails closed');
+console.log('R2 delete ownership tests passed: user prefixes, owned derivatives, cross-user denial, server principal, and missing token.');
