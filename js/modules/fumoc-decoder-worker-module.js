@@ -51,6 +51,82 @@ function ansDecode(compressed, freqTableBytes, outputLength) {
   return out;
 }
 
+function ansDecodeOrder1(compressed, tableBytes, outputLength) {
+  if (!Number.isSafeInteger(outputLength) || outputLength < 0 || outputLength > MAX_GAUSSIANS * 4) {
+    throw new Error('[FUMOC Worker] Order-1 ANS output length is invalid');
+  }
+  if (outputLength === 0) return new Uint8Array(0);
+  if (!(compressed instanceof Uint8Array) || compressed.byteLength < 4 || compressed.byteLength > MAX_SECTION_BYTES ||
+      !(tableBytes instanceof Uint8Array) || tableBytes.byteLength !== 131072) {
+    throw new Error('[FUMOC Worker] Order-1 ANS stream or frequency table is invalid');
+  }
+  const tableView = new DataView(tableBytes.buffer, tableBytes.byteOffset, tableBytes.byteLength);
+  const freqFlat = new Uint16Array(256 * 256);
+  for (let i = 0; i < freqFlat.length; i++) freqFlat[i] = tableView.getUint16(i * 2, true);
+  const cumFlat = new Uint32Array(256 * 257);
+  for (let ctx = 0; ctx < 256; ctx++) {
+    const base = ctx * 256, cumBase = ctx * 257;
+    let sum = 0;
+    for (let sym = 0; sym < 256; sym++) {
+      sum += freqFlat[base + sym];
+      cumFlat[cumBase + sym + 1] = sum;
+    }
+    if (sum !== ANS_M) throw new Error(`[FUMOC Worker] Order-1 frequency context ${ctx} is invalid`);
+  }
+  const decodeTable = new Uint8Array(256 * ANS_M);
+  for (let ctx = 0; ctx < 256; ctx++) {
+    const base = ctx * 256, cumBase = ctx * 257, tableBase = ctx * ANS_M;
+    for (let sym = 0; sym < 256; sym++) {
+      for (let slot = cumFlat[cumBase + sym]; slot < cumFlat[cumBase + sym + 1]; slot++) {
+        decodeTable[tableBase + slot] = sym;
+      }
+    }
+  }
+  const out = new Uint8Array(outputLength);
+  let state = ((compressed[0] << 24) | (compressed[1] << 16) | (compressed[2] << 8) | compressed[3]) >>> 0;
+  let bytePos = 4, ctx = 0;
+  for (let i = 0; i < outputLength; i++) {
+    const slot = state % ANS_M;
+    const sym = decodeTable[ctx * ANS_M + slot];
+    out[i] = sym;
+    const base = ctx * 256, cumBase = ctx * 257;
+    state = freqFlat[base + sym] * Math.floor(state / ANS_M) + slot - cumFlat[cumBase + sym];
+    ctx = sym;
+    while (state < ANS_L) {
+      if (bytePos >= compressed.byteLength) throw new Error('[FUMOC Worker] Order-1 ANS stream is truncated');
+      state = (state << 8) | compressed[bytePos++];
+    }
+  }
+  return out;
+}
+
+function decodeChannelOrder1(compressed, tableBytes, meta) {
+  if (!meta || !Number.isInteger(meta.length) || meta.length < 1 || meta.length > MAX_GAUSSIANS ||
+      !Number.isInteger(meta.bits) || meta.bits < 1 || meta.bits > 16 ||
+      !Number.isFinite(meta.min) || !Number.isFinite(meta.max) || meta.max < meta.min || meta.order !== 1) {
+    throw new Error('[FUMOC Worker] Order-1 channel metadata is invalid');
+  }
+  const bytesPerSample = meta.bits > 8 ? 2 : 1;
+  const rawBytes = ansDecodeOrder1(compressed, tableBytes, meta.length * bytesPerSample);
+  let quant;
+  if (meta.bits > 8) {
+    const view = new DataView(rawBytes.buffer, rawBytes.byteOffset, rawBytes.byteLength);
+    quant = new Int16Array(meta.length);
+    for (let i = 0; i < meta.length; i++) {
+      const zz = view.getUint16(i * 2, true);
+      quant[i] = zz & 1 ? -((zz + 1) >> 1) : zz >> 1;
+    }
+  } else {
+    quant = new Int8Array(meta.length);
+    for (let i = 0; i < meta.length; i++) {
+      const zz = rawBytes[i];
+      quant[i] = zz & 1 ? -((zz + 1) >> 1) : zz >> 1;
+    }
+  }
+  if (meta.delta) quant = deltaDecode(quant);
+  return dequantise(quant, meta.min, meta.max, meta.bits, meta.signed);
+}
+
 // ── Quantisation ──────────────────────────────────────────────────────────────
 function deltaDecode(arr) {
   const out = new arr.constructor(arr.length);
