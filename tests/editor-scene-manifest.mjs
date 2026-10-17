@@ -28,7 +28,8 @@ function extractFunction(name) {
 const source = [
   extractFunction('serializeEditorSceneMetadata'),
   extractFunction('restoreEditorSceneMetadata'),
-  'return { serializeEditorSceneMetadata, restoreEditorSceneMetadata };'
+  extractFunction('restoreSavedPlySceneMetadata'),
+  'return { serializeEditorSceneMetadata, restoreEditorSceneMetadata, restoreSavedPlySceneMetadata };'
 ].join('\n');
 // Test compact remapping after deleted points and correct layer membership.
 const S = {
@@ -67,4 +68,22 @@ assert.deepEqual(Array.from(restoredState.selected), [0,0,0]);
 const legacy = { layers: [], activeLayerId: null, layerHidden: null, selected: null };
 const restoreLegacy = new Function('S', extractFunction('restoreEditorSceneMetadata') + '; return restoreEditorSceneMetadata;')(legacy);
 assert.equal(restoreLegacy({}, 2), false);
+
+const plyState = { layers: [], activeLayerId: null, layerHidden: null, selected: null };
+const plyHelpers = new Function('S', [
+  extractFunction('restoreEditorSceneMetadata'),
+  extractFunction('restoreSavedPlySceneMetadata'),
+  'return restoreSavedPlySceneMetadata;'
+].join('\\n'))(plyState);
+const plyRecord = { id: 'record-1', r2_key: 'record-1/edited_123.ply', meta: {
+  editor_scene: { version: 1, point_count: 3, active_layer_id: 'subject', layers: [
+    { id: 'subject', name: 'Subject', point_indices: [0, 2], visible: true, opacity: 1 }
+  ] }
+}};
+assert.equal(plyHelpers(plyState, plyRecord, 'record-1', 'https://storage.test/record-1/edited_123.ply', 3), true);
+assert.deepEqual(Array.from(plyState.layers[0].mask), [1,0,1]);
+assert.equal(plyHelpers(plyState, plyRecord, 'record-1', 'https://storage.test/other.ply', 3), false);
+assert.equal(plyHelpers(plyState, plyRecord, 'different-record', 'https://storage.test/record-1/edited_123.ply', 3), false);
+assert.equal(plyHelpers(plyState, plyRecord, 'record-1', 'https://storage.test/record-1/edited_123.ply', 4), false);
+
 console.log('Editor scene manifest tests passed: compact indices, visibility/opacity, bounded restore, empty/legacy manifests.');
