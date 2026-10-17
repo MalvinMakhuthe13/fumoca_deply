@@ -2055,17 +2055,20 @@ async function boot() {
     previewVideoUrl = previewVideoUrl || sessionRecord.previewVideo || '';
     fileUrl = fileUrl || _validnifUrl(sessionRecord.file) || '';
   }
-  // Probe fileUrl â€” if storage returns 400/404 it's a ghost file, use DB record
-  // Skip probe for blob: URLs â€” they don't support HEAD requests
-  if (fileUrl && !fileUrl.startsWith('blob:')) {
+  // Probe external file URLs for stale links, but never HEAD-probe the R2 Worker:
+  // its file route intentionally supports GET only. HEAD there always fails and
+  // used to discard valid NIF URLs before falling back to the same key.
+  let isR2WorkerFileUrl = false;
+  try { isR2WorkerFileUrl = !!fileUrl && new URL(fileUrl, window.location.href).pathname.includes('/file/'); } catch (_) {}
+  if (fileUrl && !fileUrl.startsWith('blob:') && !isR2WorkerFileUrl) {
     try {
       const probe = await fetch(fileUrl, { method: 'HEAD' });
       if (!probe.ok) {
-        console.warn('[Viewer] file= URL returned HTTP', probe.status, 'â€” falling back to DB record');
+        console.warn('[Viewer] external file URL returned HTTP', probe.status, '— falling back to DB record');
         fileUrl = '';
       }
     } catch(e) {
-      console.warn('[Viewer] file= URL unreachable â€” falling back to DB record');
+      console.warn('[Viewer] external file URL unreachable — falling back to DB record');
       fileUrl = '';
     }
   }
