@@ -36,6 +36,10 @@ assert.match(builder, /sourceMeta\.gaussian_sh && !gaussianSH/,
   'publish must fail closed if SH metadata exists but coefficients are unavailable');
 assert.match(publish, /_buildNifBlob\(\{ title, description, parentMeta: existingMeta \}\)/,
   'published NIF META must merge fresh database metadata, not just title/description');
+assert.match(publish, /window\._fumocaLoadedFromRecord === false[\s\S]*?null/,
+  'publishing a local file must create a new NIF rather than overwrite the prior URL record');
+assert.match(publish, /if \(uploadError \|\| !fileKey \|\| !publicUrl\)/,
+  'publishing must fail if storage returns an incomplete upload result');
 
 const editor = await readFile(new URL('../edit.html', import.meta.url), 'utf8');
 assert.match(editor, /window\._fumocaSerializeEditorSceneMetadata = serializeEditorSceneMetadata/,
