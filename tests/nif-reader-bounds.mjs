@@ -54,6 +54,26 @@ await assert.rejects(
   'quantized geometry must reject inverted bounding boxes',
 );
 
+const zeroQuatRaw = header(0, 1, 61);
+const zeroQuatRawView = new DataView(zeroQuatRaw.buffer);
+for (let i = 0; i < 4; i++) zeroQuatRawView.setFloat32(5 + (6 + i) * 4, 0, true);
+await assert.rejects(
+  () => readerFor(zeroQuatRaw).getGeometry(),
+  /zero-length quaternion/,
+  'raw NIF geometry must reject degenerate rotations',
+);
+
+const zeroQuatQuantized = header(1, 1, 46);
+const zeroQuatView = new DataView(zeroQuatQuantized.buffer);
+for (const [offset, value] of [[5,0],[9,0],[13,0],[17,1],[21,1],[25,1]]) {
+  zeroQuatView.setFloat32(offset, value, false);
+}
+await assert.rejects(
+  () => readerFor(zeroQuatQuantized).getGeometry(),
+  /zero-length quaternion/,
+  'quantized NIF geometry must reject degenerate rotations',
+);
+
 const originalDecompressionStream = globalThis.DecompressionStream;
 class OversizedFakeDecompressionStream {
   constructor() {
