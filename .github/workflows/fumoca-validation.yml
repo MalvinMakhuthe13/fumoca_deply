@@ -88,6 +88,11 @@ jobs:
           grep -q "const selectedCount = selectedPointCount();" edit.html
           grep -q "Never expose a scene-wide transform gizmo" edit.html
           grep -q "Never translate the camera target or whole scene as a fallback" edit.html
+      - name: Guard independent subject transform attachment
+        run: |
+          grep -q "Selecting a layer must select only its live, visible points" edit.html
+          grep -q "syncTransformGizmo();" edit.html
+          grep -q "Selected subject:" edit.html
       - name: Guard click-to-select subject workflow
         run: |
           grep -q "function selectSubjectAtScreen" edit.html
