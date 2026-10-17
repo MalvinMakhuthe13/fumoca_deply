@@ -143,20 +143,48 @@ async function deletePostRecord(post, opts = {}) {
   const thumb = resolveThumbnail(post);
   if (thumb) { const p = extractStoragePath(thumb); if (p) filesToDelete.push(p); }
 
-  // 2. Delete storage (best-effort — don't block on RLS or missing files)
+  // Canonical NIF artifacts are stored as R2 keys, not Supabase Storage URLs.
+  // Include the output, captured original and thumbnail only when the record
+  // carries their explicit keys. The direct upload path stores these in nif-files.
+  if (post.r2_key) filesToDelete.push({ bucket: 'nif-files', path: post.r2_key });
+  if (post.meta?.source_capture?.r2_key) filesToDelete.push({ bucket: 'nif-files', path: post.meta.source_capture.r2_key });
+  if (post.meta?.thumbnail_r2_key) filesToDelete.push({ bucket: 'nif-files', path: post.meta.thumbnail_r2_key });
+
+  // 2. Delete storage best-effort. Keep DB deletion available if a stale/orphaned
+  // object has already disappeared; failures are surfaced in the console.
   const grouped = {};
   filesToDelete.forEach(({ bucket, path }) => {
-    if (!grouped[bucket]) grouped[bucket] = [];
-    grouped[bucket].push(path);
+    if (!bucket || !path) return;
+    if (!grouped[bucket]) grouped[bucket] = new Set();
+    grouped[bucket].add(path);
   });
-  await Promise.allSettled(
+  const removals = await Promise.allSettled(
     Object.entries(grouped).map(([bucket, paths]) =>
-      r2.from(bucket).remove(paths)
+      r2.from(bucket).remove([...paths])
     )
   );
+  removals.forEach((result, index) => {
+    if (result.status === 'rejected' || result.value?.error) {
+      console.warn('[FUMOCA delete] R2 cleanup was incomplete for', Object.keys(grouped)[index]);
+    }
+  });
 
-  // 3. Delete processing jobs (cascade handles it too, but explicit is safer for RLS)
-  await supabase.from('reconstruction_jobs').delete().eq('nif_file_id', post.id);
+  // 3. Worker output rows use the job ID as the NIF ID; direct file uploads
+  // may have no reconstruction job. Check existence/ownership instead of
+  // filtering on the nonexistent nif_file_id column.
+  try {
+    const jobId = post.job_id || post.id;
+    const { data: job, error: lookupError } = await supabase.from('reconstruction_jobs')
+      .select('id').eq('id', jobId).eq('user_id', post.user_id).maybeSingle();
+    if (lookupError) console.warn('[FUMOCA delete] Could not resolve related job:', lookupError.message);
+    else if (job?.id) {
+      const { error: jobDeleteError } = await supabase.from('reconstruction_jobs')
+        .delete().eq('id', job.id).eq('user_id', post.user_id);
+      if (jobDeleteError) console.warn('[FUMOCA delete] Could not delete related job:', jobDeleteError.message);
+    }
+  } catch (jobCleanupError) {
+    console.warn('[FUMOCA delete] Related job cleanup failed:', jobCleanupError);
+  }
 
   // 4. Delete nif file row
   const { error } = await supabase.from('nif_files').delete().eq('id', post.id);
@@ -405,19 +433,38 @@ function openViewer(post, openTeaser = false) {
 }
 
 async function toggleLike(nifId, btn) {
-  if (!currentUserId || !btn) return;
+  if (!currentUserId || !btn || btn.disabled) return;
   const isLiked = likedIds.has(nifId);
   const countEl = btn.querySelector('.like-count');
   const iconEl = btn.querySelector('.icon');
-  const current = parseInt(countEl.textContent, 10) || 0;
-  if (isLiked) {
-    likedIds.delete(nifId); btn.classList.remove('liked'); iconEl.textContent = '🤍';
-    countEl.textContent = Math.max(0, current-1);
-    await supabase.from('likes').delete().eq('user_id', currentUserId).eq('nif_id', nifId);
-  } else {
-    likedIds.add(nifId); btn.classList.add('liked'); iconEl.textContent = '❤️';
-    countEl.textContent = current+1;
-    await supabase.from('likes').insert({ user_id: currentUserId, nif_id: nifId });
+  if (!countEl || !iconEl) return;
+
+  // Feed rows are nif_files, so likes belong to nif_likes (not legacy likes.splat_id).
+  // Commit the DB mutation first; only then update the optimistic visual state.
+  btn.disabled = true;
+  try {
+    const result = isLiked
+      ? await supabase.from('nif_likes').delete().eq('user_id', currentUserId).eq('nif_id', nifId)
+      : await supabase.from('nif_likes').insert({ user_id: currentUserId, nif_id: nifId });
+    if (result.error) throw result.error;
+
+    const current = parseInt(countEl.textContent, 10) || 0;
+    if (isLiked) {
+      likedIds.delete(nifId);
+      btn.classList.remove('liked');
+      iconEl.textContent = '🤍';
+      countEl.textContent = String(Math.max(0, current - 1));
+    } else {
+      likedIds.add(nifId);
+      btn.classList.add('liked');
+      iconEl.textContent = '❤️';
+      countEl.textContent = String(current + 1);
+    }
+  } catch (error) {
+    console.error('[FUMOCA feed] Like update failed:', error);
+    showToast('Could not save your like. Please check your connection and try again.', true);
+  } finally {
+    btn.disabled = false;
   }
 }
 
@@ -507,9 +554,16 @@ async function loadFeed() {
   feedGrid.innerHTML = skeletonCards(3);
   try {
     const rows = await fetchFeedNifs();
+    likedIds = new Set();
     if (currentUserId) {
-      const { data: myLikes } = await supabase.from('likes').select('nif_id').eq('user_id', currentUserId);
-      likedIds = new Set((myLikes||[]).map(l => l.nif_id));
+      const { data: myLikes, error: likesError } = await supabase.from('nif_likes')
+        .select('nif_id').eq('user_id', currentUserId);
+      if (likesError) {
+        console.warn('[FUMOCA feed] Could not load like state:', likesError.message);
+        showToast('Like status is temporarily unavailable.', true);
+      } else {
+        likedIds = new Set((myLikes || []).map(like => like.nif_id));
+      }
     }
     let profilesById = new Map();
     try { profilesById = await fetchProfilesFor(rows); }
