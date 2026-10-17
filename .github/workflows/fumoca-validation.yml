@@ -80,6 +80,28 @@ jobs:
           grep -q "if (!currentRecord.r2_key || !currentRecord.user_id)" js/modules/viewer.js
           grep -q "not a saved NIF artifact" js/modules/viewer.js
           ! grep -n "eq('nif_id'" js/modules/viewer.js
+      - name: Check inline Studio script syntax
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          html = Path("edit.html").read_text(encoding="utf-8")
+          scripts = re.findall(r"<script\\b(?![^>]*\\bsrc=)[^>]*>(.*?)</script\\s*>", html, re.I | re.S)
+          if not scripts:
+              raise SystemExit("No inline Studio scripts found")
+          out = Path("/tmp/fumoca-inline-scripts")
+          out.mkdir(exist_ok=True)
+          for i, source in enumerate(scripts):
+              (out / f"script-{i}.js").write_text(source, encoding="utf-8")
+          print(f"Extracted {len(scripts)} inline Studio scripts for syntax validation")
+          PY
+          for script in /tmp/fumoca-inline-scripts/script-*.js; do node --check "$script"; done
+      - name: Guard immediate transform attachment after Add Splat
+        run: |
+          grep -q "Rebuild the source-index map and attach the gizmo after the appended layer" edit.html
+          grep -q "refreshTransformSourceMap();" edit.html
+          grep -q "syncTransformGizmo();" edit.html
+          grep -q "if (!L.visible && S.activeLayerId === L.id)" edit.html
       - name: Guard multi-splat object selection and transforms
         run: |
           grep -Fq 'Added ${file.name} as a separate layer' edit.html
