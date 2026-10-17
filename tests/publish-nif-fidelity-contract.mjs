@@ -16,10 +16,10 @@ assert.match(publish, /CHUNK\.KEYFRAME_MESH, CHUNK\.GAUSSIAN_SH, CHUNK\.LIDAR_AT
   'mesh and point-indexed sidecars must be rebuilt rather than duplicated as passthrough');
 assert.match(builder, /_encodeCurrentSplatRows\(S, aliveIndices\)/,
   'publish must serialize current edited geometry for every source format');
-assert.match(builder, /S\.scaleXYZ\?\./,
-  'publish must preserve anisotropic per-axis scale');
-assert.match(builder, /S\.rotation/,
-  'publish must preserve current Gaussian rotations');
+assert.match(publish, /S\.scaleXYZ\?\./,
+  'publish row encoder must preserve anisotropic per-axis scale');
+assert.match(publish, /S\.rotation/,
+  'publish row encoder must preserve current Gaussian rotations');
 assert.match(builder, /compactGaussianSHSidecar\(/,
   'publish must compact SH coefficients using the same alive-point indices as geometry');
 assert.match(builder, /gaussianSH: gaussianSH \|\| undefined/,
