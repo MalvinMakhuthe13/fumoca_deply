@@ -50,9 +50,9 @@ jobs:
           grep -q "from('reconstruction_jobs')" js/modules/notifications.js
           grep -q "splat_to_nif" js/modules/upload-page.js
           grep -q "ply_to_nif" js/modules/upload-page.js
-          grep -q "higherOrderShAttributes" js/modules/upload-page.js
+          grep -q "inspectPlyAttributes" js/modules/upload-page.js
           grep -q "discarded_attributes" js/modules/upload-page.js
-          grep -q "higher_order_sh_discarded_colour_approximation" js/modules/upload-page.js
+          grep -q "higher_order_sh_discarded_colour_approximation" js/modules/ply-conversion-metadata.js
           grep -q "conversion: outputBuffer ? {" js/modules/upload-page.js
           grep -q "gpu_required: false" js/modules/upload-page.js
           grep -q "source_r2_key" js/modules/upload-page.js
@@ -76,6 +76,10 @@ jobs:
           grep -q "if (!currentRecord.r2_key || !currentRecord.user_id)" js/modules/viewer.js
           grep -q "not a saved NIF artifact" js/modules/viewer.js
           ! grep -n "eq('nif_id'" js/modules/viewer.js
+      - name: Test PLY conversion fidelity disclosure
+        run: |
+          node --input-type=module --check < js/modules/ply-conversion-metadata.js
+          node --experimental-default-type=module tests/ply-conversion-metadata.mjs
       - name: Test CPU-only splat to NIF conversion
         run: node --experimental-default-type=module tests/splat-to-nif-smoke.mjs
       - name: Compile Kaggle preflight script
