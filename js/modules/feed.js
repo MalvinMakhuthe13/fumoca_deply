@@ -673,19 +673,31 @@ window.editLiveFromFeed = async function(nifId, mediaType) {
 // ─── v60: saveLiveEdit (global helper) ───────────────────────────────────────
 window.saveLiveEdit = async function(recipeDelta) {
   const rec = window._fumocaCurrentRecord;
-  const sb  = window._fumocaSupabase;
-  if (!rec?.id || !sb) return false;
-  const current = typeof rec.edit_recipe === 'object' ? rec.edit_recipe : {};
-  const merged  = { ...current, ...recipeDelta, lastSaved: new Date().toISOString() };
-  const payload = {
-    edit_recipe:    merged,
-    last_edited_at: new Date().toISOString(),
-  };
-  if (window._fumocaEditedNifUrl) payload.nif_url = window._fumocaEditedNifUrl;
-  const { error } = await sb.from('nif_files').update(payload).eq('id', rec.id);
-  if (!error) {
-    window._fumocaCurrentRecord = { ...rec, edit_recipe: merged };
+  const sb = window._fumocaSupabase;
+  if (!rec?.id || !rec?.user_id || !sb) return false;
+  try {
+    const { data: latest, error: readError } = await sb.from('nif_files')
+      .select('id,user_id,title,description,r2_key,is_public,meta')
+      .eq('id', rec.id).eq('user_id', rec.user_id).single();
+    if (readError || !latest) throw new Error(readError?.message || 'NIF could not be reloaded before saving edits.');
+    const currentMeta = latest.meta && typeof latest.meta === 'object' ? latest.meta : {};
+    const currentRecipe = currentMeta.edit_recipe && typeof currentMeta.edit_recipe === 'object'
+      ? currentMeta.edit_recipe : {};
+    const merged = { ...currentRecipe, ...recipeDelta, lastSaved: new Date().toISOString() };
+    const nextMeta = {
+      ...currentMeta,
+      edit_recipe: merged,
+      last_edited_at: new Date().toISOString(),
+    };
+    if (window._fumocaEditedNifUrl) nextMeta.edited_nif_url = window._fumocaEditedNifUrl;
+    const { data: updated, error: writeError } = await sb.from('nif_files')
+      .update({ meta: nextMeta }).eq('id', rec.id).eq('user_id', rec.user_id).select('id').maybeSingle();
+    if (writeError || !updated) throw new Error(writeError?.message || 'NIF edit metadata was not saved.');
+    window._fumocaCurrentRecord = { ...(window._fumocaCurrentRecord || {}), ...latest, meta: nextMeta };
     window.dispatchEvent(new CustomEvent('fumoca:liveEditSaved', { detail: { nifId: rec.id } }));
+    return true;
+  } catch (error) {
+    console.error('[FUMOCA] Live edit save failed:', error?.message || error);
+    return false;
   }
-  return !error;
 };
