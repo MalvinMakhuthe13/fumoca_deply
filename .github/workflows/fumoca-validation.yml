@@ -337,6 +337,8 @@ jobs:
         run: node --experimental-default-type=module tests/ply-import-fidelity-contract.mjs
       - name: Test NIF reader geometry bounds
         run: node --experimental-default-type=module tests/nif-reader-bounds.mjs
+      - name: Test FUMOC format bounds
+        run: node --experimental-default-type=module tests/fumoc-format-bounds.mjs
       - name: Test NIF geometry validation
         run: node --experimental-default-type=module tests/nif-geometry-validation.mjs
       - name: Compile Kaggle preflight script
