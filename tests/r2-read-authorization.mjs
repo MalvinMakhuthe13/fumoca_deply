@@ -37,7 +37,7 @@ const publicNif = { id: 'nif-public', user_id: 'user-a', r2_key: 'published/mode
 const privateNif = { id: 'nif-private', user_id: 'user-a', r2_key: 'private/model.nif', is_public: false, meta: {} };
 const thumbPublic = { id: 'nif-thumb-public', user_id: 'user-a', r2_key: 'published/model.nif', is_public: true, meta: { thumbnail_r2_key: 'published/thumb.webp' } };
 const thumbPrivate = { id: 'nif-thumb-private', user_id: 'user-a', r2_key: 'private/model.nif', is_public: false, meta: { thumbnail_r2_key: 'private/thumb.webp' } };
-const sourceRow = { id: 'nif-source', user_id: 'user-a', r2_key: 'published/model.nif', is_public: true, meta: { source_r2_key: 'user-a/raw.mp4' } };
+const sourceRow = { id: 'nif-source', user_id: 'user-a', r2_key: 'published/model.nif', is_public: true, meta: { source_r2_key: 'record-source/raw.mp4' } };
 const run = (rows, jobs = [], responseStatus = 200) => helper(async (url, options) => {
   const parsed = new URL(url);
   assert.equal(options.headers.apikey, 'anon-test');
