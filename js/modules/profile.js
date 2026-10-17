@@ -215,11 +215,13 @@ async function init() {
       id: row.id,
       user_id: row.user_id,
       // Direct imports have no matching job and are ready immediately.
-      // Pipeline artifacts can exist with needs_retry, so never infer quality
-      // from the existence of a NIF row or storage key alone.
-      status: job?.status || 'done',
-      processing_progress: job?.progress ?? 100,
-      error_message: job?.error_message || '',
+      // If a pipeline artifact names a job but that job is unavailable (or
+      // hidden by permissions), do not infer success from the NIF row alone.
+      status: job?.status || (row.job_id ? 'needs_retry' : 'done'),
+      processing_progress: job?.progress ?? (row.job_id ? 0 : 100),
+      error_message: job?.error_message || (row.job_id && !job
+        ? 'Processing status could not be found. Refresh or retry this job.'
+        : ''),
       title: row.title,
       created_at: row.created_at,
       output_url: row.r2_key ? r2.publicUrl('nif-files', row.r2_key) : '',
