@@ -35,6 +35,8 @@ jobs:
           node --input-type=module --check < js/modules/motion-states.js
           node --input-type=module --check < js/modules/notifications.js
           node --input-type=module --check < js/modules/upload-page.js
+          node --input-type=module --check < js/modules/feed.js
+          node --input-type=module --check < js/modules/profile.js
       - name: Check editor persistence contract
         run: |
           ! grep -nE "from\\('(nifs|splats)'\\)" js/modules/edit-engine.js js/modules/splat-edit-engine.js
@@ -50,6 +52,9 @@ jobs:
           grep -q "ply_to_nif" js/modules/upload-page.js
           grep -q "gpu_required: false" js/modules/upload-page.js
           grep -q "source_r2_key" js/modules/upload-page.js
+          ! grep -n "nif_file_id" js/modules/feed.js
+          grep -q "post.meta?.source_r2_key" js/modules/feed.js
+          grep -q "item.meta?.source_capture?.r2_key" js/modules/profile.js
       - name: Test CPU-only splat to NIF conversion
         run: node --experimental-default-type=module tests/splat-to-nif-smoke.mjs
       - name: Compile Kaggle preflight script
