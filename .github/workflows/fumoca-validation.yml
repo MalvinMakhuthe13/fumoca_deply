@@ -52,9 +52,13 @@ jobs:
           from pathlib import Path
           import re
           html = Path("viewer.html").read_text(encoding="utf-8")
-          match = re.search(r'<!-- Ad Studio bridge:[\s\S]*?<script>(.*?)</script>', html)
-          assert match, "Viewer Ad Studio bridge not found"
-          Path("/tmp/fumoca-viewer-ad-bridge-check.js").write_text(match.group(1), encoding="utf-8")
+          marker = html.find("<!-- Ad Studio bridge:")
+          assert marker >= 0, "Viewer Ad Studio bridge marker not found"
+          script_start = html.find("<script>", marker)
+          script_end = html.find("</script>", script_start)
+          assert script_start >= 0 and script_end > script_start, "Viewer Ad Studio bridge script not found"
+          script_start += len("<script>")
+          Path("/tmp/fumoca-viewer-ad-bridge-check.js").write_text(html[script_start:script_end], encoding="utf-8")
           PY
           node --check /tmp/fumoca-viewer-ad-bridge-check.js
       - name: Check Preflight module syntax
