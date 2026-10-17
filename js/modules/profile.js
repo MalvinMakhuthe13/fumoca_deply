@@ -48,6 +48,7 @@ async function deleteUploadRecord(item) {
       item.meta?.source_r2_key,
       item.meta?.source_capture?.r2_key,
       item.meta?.thumbnail_r2_key,
+      item.meta?.capture_thumbnail_r2_key,
     ].filter((key, index, all) => typeof key === 'string' && key.trim() && all.indexOf(key) === index);
     const results = await Promise.allSettled(keys.map(key => r2.from('nif-files').remove([key])));
     const failed = results.filter(result => result.status === 'rejected' || result.value?.error);
