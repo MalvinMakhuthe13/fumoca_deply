@@ -719,7 +719,7 @@ async function saveToSupabase() {
       blob=new Blob([out],{type:'application/octet-stream'});
     }
     if(!blob){setStatus('Only .splat can be saved back.');return;}
-    const path=`splats/${splatId}/cleaned_${Date.now()}.splat`;
+    const path=`${splatId}/edited_cleaned_${Date.now()}.splat`;
     const arr=await blob.arrayBuffer();
     const { publicUrl, fileKey, error } = await r2.from('nif-files').upload(path, new Blob([arr], {type:'application/octet-stream'}), {contentType:'application/octet-stream'});
     if(error)throw error;
