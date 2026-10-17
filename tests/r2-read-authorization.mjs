@@ -178,4 +178,53 @@ const openVariantLookups = source.split('meta->open_variant_r2_keys.cs.{${encode
 assert.equal(openVariantLookups, 2,
   'open-state variant keys must be included in both read and delete ownership lookups');
 
+const publicParent = {
+  id: 'nif-a',
+  user_id: 'user-a',
+  r2_key: 'user-a/original.nif',
+  is_public: true,
+  meta: {
+    open_variant_r2_keys: ['user-a/open-variants/nif-a_door_1.nif'],
+    mobile_asset_r2_key: 'user-a/mobile-assets/nif-a/widget_1.html',
+    thumbnail_r2_key: 'user-a/thumbnail.webp',
+    teaser_video_r2_key: 'user-a/teasers/nif-a/teaser_1.webm',
+  },
+};
+access = await run([publicParent])(req(), env, null, 'nif-files', 'user-a/open-variants/nif-a_door_1.nif');
+assert.deepEqual(access, { allowed: true, isPublic: true, reason: 'published-nif-open-variant' },
+  'a public NIF may expose only its own owner-prefixed open variant');
+access = await run([publicParent])(req(), env, null, 'nif-files', 'user-a/mobile-assets/nif-a/widget_1.html');
+assert.deepEqual(access, { allowed: true, isPublic: true, reason: 'published-nif-mobile-asset' },
+  'a public NIF may expose only its own owner-prefixed mobile widget');
+access = await run([publicParent])(req(), env, null, 'thumbnails', 'user-a/thumbnail.webp');
+assert.deepEqual(access, { allowed: true, isPublic: true, reason: 'published-nif-thumbnail' },
+  'a public NIF may expose its own owner-prefixed thumbnail');
+access = await run([publicParent])(req(), env, null, 'preview-videos', 'user-a/teasers/nif-a/teaser_1.webm');
+assert.deepEqual(access, { allowed: true, isPublic: true, reason: 'published-nif-teaser-video' },
+  'a public NIF may expose only its own record-scoped teaser video');
+
+const maliciousParent = {
+  id: 'nif-a',
+  user_id: 'user-a',
+  r2_key: 'user-a/original.nif',
+  is_public: true,
+  meta: {
+    open_variant_r2_keys: ['user-b/open-variants/nif-b_door_1.nif'],
+    mobile_asset_r2_key: 'user-b/mobile-assets/nif-b/widget_1.html',
+    thumbnail_r2_key: 'user-b/thumbnail.webp',
+    teaser_video_r2_key: 'user-b/teasers/nif-b/teaser_1.webm',
+    cleaned_splat: { r2_key: 'nif-b/edited_cleaned_1.splat' },
+  },
+};
+for (const [bucket, key] of [
+  ['nif-files', 'user-b/open-variants/nif-b_door_1.nif'],
+  ['nif-files', 'user-b/mobile-assets/nif-b/widget_1.html'],
+  ['nif-files', 'nif-b/edited_cleaned_1.splat'],
+  ['thumbnails', 'user-b/thumbnail.webp'],
+  ['preview-videos', 'user-b/teasers/nif-b/teaser_1.webm'],
+]) {
+  access = await run([maliciousParent])(req(), env, null, bucket, key);
+  assert.equal(access.allowed, false, `public NIF metadata must not expose another user's ${bucket} object: ${key}`);
+}
+
 console.log('R2 read authorization regression tests passed.');
