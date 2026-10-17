@@ -4663,7 +4663,7 @@ window.saveLiveEdit = async function saveLiveEdit(extra = {}) {
         paintColors: S.paintColors,
         colors: S.colors,
       });
-      if (S.nifMeta?.gaussian_sh && !gaussianSH) {
+      if ((S.nifMeta?.gaussian_sh || window._fumocaCurrentRecord?.meta?.gaussian_sh) && !gaussianSH) {
         throw new Error('Save blocked: this scene declares Gaussian SH data but its coefficient sidecar is unavailable.');
       }
       const gaussianShMeta = gaussianSH ? gaussianSHMetadata(gaussianSH, S.shAttributes) : null;
