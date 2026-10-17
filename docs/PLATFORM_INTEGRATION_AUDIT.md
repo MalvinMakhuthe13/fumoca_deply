@@ -166,3 +166,38 @@ Create frozen test sets for calibrated vehicle, object and scene captures. NaviG
 - Do not describe FUMOCA as “best” or “at the pinnacle” until it is measured against a fixed benchmark.
 - Do not switch the engine stack or run migrations against production before schema, licensing and rollback review.
 - This audit branch documents the integration plan; production code and deployed services remain unchanged.
+
+## Next QA gate: R2 read authorization contract (proposed, not yet implemented)
+
+The current Worker `GET /file/:key` route has no authorization/visibility check and returns `Cache-Control: public` for every configured bucket. It also checks the shared cache before any policy decision. An object fetched while public may remain served from cache after a later policy change unless cache keys, TTL and purge behaviour are addressed. Treat this as a release-blocking privacy issue, not merely a missing test.
+
+### Conservative policy to implement and test
+
+Use the deployed `nif_files` schema as the source of truth (`is_public` is the visibility flag; do not invent a `visibility` column):
+
+- `nif-files`: public only when the key resolves to a `nif_files` row whose `is_public = true`. The authenticated owner may read their own private file. A known key alone is never authorization.
+- `nif-videos`: private by default. Permit only the authenticated owner or a trusted server principal; do not expose raw capture media simply because the derived NIF is public.
+- `preview-videos`: private by default unless an explicit, validated public association to a published NIF is implemented. A caller-supplied query parameter is not proof of publication.
+- `thumbnails`: public only when associated with a published NIF; otherwise owner-only. This prevents a public thumbnail bucket from bypassing private model visibility.
+- `avatars`: may remain public for profile compatibility, but must not be treated as a general-purpose private-file bucket.
+- For authenticated/private responses, use `Cache-Control: private, no-store` (or another explicitly justified private cache policy) and bypass `caches.default`. Public cache entries must not be reused for private responses. Cache identity and invalidation must be tested when a NIF changes from public to private.
+- Any future token-based share access must validate the token against the intended NIF/allowed origins and be a distinct, explicit authorization path; do not infer access from referrer or `?public=1` / `?embed=1` viewer flags.
+
+### Required regression matrix before release
+
+| Request | Expected result |
+|---|---|
+| Anonymous GET of published NIF output | Allow |
+| Anonymous GET of private NIF output | Deny |
+| Owner GET of their private NIF output with valid session | Allow |
+| Different authenticated user GET of that private output | Deny |
+| Anonymous GET of raw source video | Deny |
+| Owner GET of their raw source video | Allow |
+| Anonymous GET of thumbnail attached to a published NIF | Allow |
+| Anonymous GET of thumbnail attached to a private NIF | Deny |
+| Anonymous GET of an avatar | Allow, if public-avatar policy retained |
+| Request for unknown bucket/key or malformed key | Reject safely; never broaden access |
+| Private request after a public cache hit | Deny; no shared-cache leak |
+| NIF toggled public → private | Subsequent anonymous requests denied; cache invalidation/TTL behaviour evidenced |
+
+Implementation must account for keys stored directly on `nif_files.r2_key` and source/thumbnail keys stored in `meta` or `reconstruction_jobs.raw_r2_key`. Validate actual deployed RLS/PostgREST behaviour with staging credentials before relying on owner lookups. No production Worker deployment or cache purge is authorized by this audit-only step.
