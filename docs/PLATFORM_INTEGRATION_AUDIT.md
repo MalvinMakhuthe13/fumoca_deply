@@ -116,8 +116,9 @@ Create frozen test sets for calibrated vehicle, object and scene captures. NaviG
 
 - Found a critical authorization gap in `cloudflare/workers/r2-storage.js`: the delete route authenticated a user but did not verify that the user owned the requested R2 key.
 - The delete route now checks ownership before deleting. Keys under the authenticated user's own ID prefix are allowed; Studio-edited derivatives require a matching `nif_files` row owned by that user with the exact current `r2_key`. Trusted server-to-server calls retain their explicit server principal. Ownership lookup failures deny deletion.
-- Added a focused regression test for user-prefixed keys, owned Studio derivatives, cross-user denial, server principal handling and missing-token denial. CI execution is pending for the latest commit.
-- This code change is not yet deployed to the live Cloudflare Worker. The ownership lookup also depends on the deployed Supabase table's `user_id` and RLS behavior; verify with a staging account before deployment. Existing deployed worker behavior remains a release blocker until updated and tested.
+- Added focused regression tests for user-prefixed keys, owned Studio derivatives, cross-user denial, trusted server principal handling and missing-token denial. The full validation workflow passed on commit `1db23307341a862162e568aa4d5628410347d715`: https://github.com/MalvinMakhuthe13/fumoca_deply/actions/runs/39042632575
+- Extended the same ownership boundary to presigned upload URL issuance, direct PUT uploads, multipart create/part/complete/abort. New Studio derivative keys are accepted only when their parent `nif_files` record is owned by the authenticated user; a new derivative does not need to already equal the row's current `r2_key`. Keys outside the user's own prefix or owned Studio derivative pattern are denied. Regression tests cover cross-user write denial and fail-closed missing-token behavior.
+- CI is repository-level regression evidence, not a live integration test. The changes are not deployed to the live Cloudflare Worker. The ownership lookup depends on the deployed Supabase table's `user_id` field and RLS behavior; verify with a staging account before deployment. Existing deployed worker behavior remains a release blocker until updated and tested.
 
 ### Remaining release blockers / evidence still required
 
