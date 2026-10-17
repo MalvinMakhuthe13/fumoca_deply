@@ -70,6 +70,12 @@ const droppedSH = encodeNif({
 const droppedSHDecoded = await decodeNif(droppedSH);
 assert.equal(droppedSHDecoded.reader.chunks.filter(chunk => chunk.type === 0x001A).length, 0,
   'explicitly omitted SH data must not reattach a stale passthrough sidecar');
+assert.throws(() => encodeNif({
+  sourceBuffer: roundTripRows, aliveIndices: [0, 1], rowSize: 32,
+  gaussianSH: undefined,
+  meta: { gaussian_sh: gaussianSHMetadata(compact, names) },
+}), /metadata declares Gaussian SH but no coefficient sidecar/,
+  'the NIF encoder itself must reject metadata that promises missing SH data');
 
 
 const objectValues = Object.fromEntries(names.map((name, j) => [
