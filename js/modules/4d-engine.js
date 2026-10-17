@@ -185,13 +185,15 @@ const Fumoca4D = (() => {
 
     // Mark the NIF as having 4D data without overwriting newer metadata.
     try {
+      const ownerId = S.record.user_id || window._fumocaCurrentRecord?.user_id;
+      if (!ownerId) throw new Error('NIF owner is unavailable for 4D metadata persistence.');
       const { data: latest, error: readError } = await sb.from('nif_files')
-        .select('id,user_id,meta').eq('id', S.record.id).eq('user_id', S.record.user_id).single();
+        .select('id,user_id,meta').eq('id', S.record.id).eq('user_id', ownerId).single();
       if (readError || !latest) throw new Error(readError?.message || 'NIF could not be reloaded before saving 4D metadata.');
       const latestMeta = latest.meta && typeof latest.meta === 'object' ? latest.meta : {};
       const nextMeta = { ...latestMeta, has_4d: true };
       const { data: updated, error: writeError } = await sb.from('nif_files').update({ meta: nextMeta })
-        .eq('id', S.record.id).eq('user_id', S.record.user_id).select('id').maybeSingle();
+        .eq('id', S.record.id).eq('user_id', ownerId).select('id').maybeSingle();
       if (writeError || !updated) throw new Error(writeError?.message || '4D metadata was not saved.');
       S.record = { ...S.record, meta: nextMeta };
       if (window._fumocaCurrentRecord?.id === S.record.id) {
