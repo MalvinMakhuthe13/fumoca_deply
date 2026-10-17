@@ -18,6 +18,10 @@ assert.match(mobile, /\$\{ownerId\}\/mobile-assets\/\$\{splatRecord\.id\}\/widge
   'widget writes must use the authenticated owner prefix');
 assert.match(mobile, /mobile_asset_r2_key: fileKey/,
   'the widget object key must be persisted on the parent NIF for authorization');
+assert.match(mobile, /r2_key:\s*fileKey/,
+  'the mobile asset registry must retain its R2 key for replacement cleanup');
+assert.match(mobile, /previousAsset\?\.r2_key && previousAsset\.r2_key !== fileKey/,
+  'replacing a widget must clean up the previous R2 object after the new one is committed');
 assert.match(mobile, /select\('meta'\)\.eq\('id', splatRecord\.id\)\.eq\('user_id', ownerId\)\.single\(\)/,
   'mobile asset save must reload current parent metadata before merging, avoiding stale overwrites');
 assert.match(mobile, /window\._fumocaCurrentRecord = \{ \.\.\.window\._fumocaCurrentRecord, meta: nextMeta \}/,
