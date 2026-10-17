@@ -201,6 +201,7 @@ const MS = (() => {
       if (error) throw error;
       if (!data?.id) throw new Error('No matching asset row was updated.');
       _record.metadata = currentMeta;
+      if (Object.prototype.hasOwnProperty.call(_record, 'meta')) _record.meta = currentMeta;
     } catch (e) {
       console.warn('[MotionStates] persist failed:', e?.message || e);
       window.dispatchEvent(new CustomEvent('fumoca:motionStateSaveFailed', {
