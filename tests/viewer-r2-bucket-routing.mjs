@@ -18,13 +18,13 @@ assert.match(
 );
 assert.match(
   viewer,
-  /\{ bucket: 'nif-videos', key: currentRecord\.meta\?\.source_r2_key \}/,
-  'source_r2_key cleanup must target nif-videos'
+  /bucket: currentRecord\.meta\?\.source_r2_bucket \|\| \(currentRecord\.meta\?\.source_r2_key\?\.startsWith\('raw\/'\) \? 'nif-videos' : 'nif-files'\)/,
+  'source_r2_key cleanup must honor recorded bucket and infer legacy raw-burst bucket'
 );
 assert.match(
   viewer,
-  /\{ bucket: 'nif-videos', key: currentRecord\.meta\?\.source_capture\?\.r2_key \}/,
-  'source_capture.r2_key cleanup must target nif-videos'
+  /bucket: sourceCapture\?\.r2_bucket \|\| sourceCapture\?\.bucket \|\| \(sourceCapture\?\.r2_key\?\.startsWith\('raw\/'\) \? 'nif-videos' : 'nif-files'\)/,
+  'source_capture cleanup must honor its recorded bucket and infer legacy raw-burst bucket'
 );
 assert.match(
   viewer,
