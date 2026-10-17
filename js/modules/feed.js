@@ -136,6 +136,7 @@ async function deletePostRecord(post, opts = {}) {
     { bucket: 'nif-videos', path: post.meta?.source_capture?.r2_key },
     { bucket: 'thumbnails', path: post.meta?.thumbnail_r2_key },
     { bucket: 'thumbnails', path: post.meta?.capture_thumbnail_r2_key },
+    { bucket: 'preview-videos', path: post.meta?.teaser_video_r2_key },
   ]) {
     if (typeof item.path === 'string' && item.path.trim()) filesToDelete.push(item);
   }
