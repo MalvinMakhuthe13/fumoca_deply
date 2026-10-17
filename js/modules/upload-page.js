@@ -2,6 +2,7 @@ import { supabase } from '../supabaseClient.js';
 import { runtimeConfig } from '../runtime-config.js';
 import r2 from '../r2Client.js';
 import { encodeNif } from './nif-format.js';
+import { inspectPlyAttributes } from './ply-conversion-metadata.js';
 import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
 
 const VIDEO_BUCKET = 'nif-videos';
@@ -697,15 +698,7 @@ window.handleSubmit = async function() {
         const colorAttr = parsedGeometry.getAttribute('color');
         const isGaussianPly = !!(sx && sy && sz && opacityAttr && dc0 && dc1 && dc2 && rot0 && rot1 && rot2 && rot3);
         const plyAttributeNames = Object.keys(parsedGeometry.attributes || {});
-        const higherOrderShAttributes = plyAttributeNames.filter(name => /^f_rest_\d+$/.test(name));
-        const higherOrderShCount = higherOrderShAttributes.length;
-        const shOrderCandidate = higherOrderShCount % 3 === 0
-          ? Math.round(Math.sqrt(higherOrderShCount / 3 + 1) - 1)
-          : -1;
-        const detectedShDegree = shOrderCandidate >= 1 &&
-          3 * ((shOrderCandidate + 1) ** 2 - 1) === higherOrderShCount
-          ? shOrderCandidate
-          : 0;
+        const shMetadata = inspectPlyAttributes(plyAttributeNames, isGaussianPly);
         setProgress(25, isGaussianPly ? 'Converting Gaussian PLY attributes…' : 'Converting point-cloud PLY to NIF…');
 
         if (isGaussianPly) {
@@ -737,13 +730,10 @@ window.handleSubmit = async function() {
             gpu_required: false,
             attribute_mapping: 'xyz/scale/f_dc/opacity/rotation',
             preserved_attributes: ['position', 'scale', 'rotation', 'opacity', 'DC colour'],
-            sh_degree_detected: detectedShDegree,
-            discarded_attributes: higherOrderShCount
-              ? ['higher-order spherical-harmonic colour coefficients (f_rest_*)']
-              : [],
-            quality_flags: higherOrderShCount
-              ? ['higher_order_sh_discarded_colour_approximation']
-              : [],
+            sh_degree_detected: shMetadata.detectedShDegree,
+            higher_order_sh_attribute_count: shMetadata.higherOrderShCount,
+            discarded_attributes: shMetadata.discardedAttributes,
+            quality_flags: shMetadata.qualityFlags,
             created_at: new Date().toISOString(),
           };
           outputBuffer = encodeNif({
