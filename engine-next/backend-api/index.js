@@ -891,7 +891,7 @@ app.post('/api/nif/:id/measurements', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'measurements must be an array of up to 500 objects' });
   }
   const { data: nif, error: readError } = await supabaseAdmin.from('nif_files')
-    .select('id,user_id,meta').eq('id', req.params.id).single();
+    .select('id,user_id,meta').eq('id', req.params.id).maybeSingle();
   if (readError) return res.status(500).json({ error: 'Could not load NIF measurements metadata' });
   if (!nif) return res.status(404).json({ error: 'NIF not found' });
   if (nif.user_id !== req.user.id) return res.status(403).json({ error: 'Forbidden' });
