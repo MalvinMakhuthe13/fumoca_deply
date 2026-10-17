@@ -38,7 +38,21 @@ The repository also says the advanced engine/backend is partly isolated and the 
 | Packaging + delivery | Image2Splat + KIRI | Preserve original captures; track derivative parent IDs, versions, hashes and conversion outcomes; make exports usable outside Studio | Cross-format artifact tests and real exported asset opened in another viewer |
 | Benchmark + quality | NaviGS | Build held-out calibrated capture set across vehicle/object/property, including RGB, poses, depth/LiDAR where available and measured references | Compare against frozen baseline using coverage, pose success, reprojection error when ground truth exists, surface error, mesh completeness and runtime |
 
-## Prioritised phases
+## Processing routes: avoid GPU work when it is not needed
+
+Classify jobs by operation, not just by file extension:
+
+| Operation | Preferred execution | GPU required? | Output/quality rule |
+|---|---|---|---|
+| Existing binary `.splat` → NIF | Browser/CPU encoder in `js/modules/nif-format.js` | No | Preserve source bytes as a separate R2 object; register NIF derivative with source key, output key, conversion metadata and Gaussian count; round-trip through `decodeNif` |
+| Gaussian PLY → NIF | Browser/CPU attribute adapter | No | Preserve anisotropic scales, quaternion, opacity and DC colour where supported; disclose discarded higher-order SH fields if present |
+| Ordinary point-cloud PLY → NIF | Browser/CPU encoder | No | Encode as isotropic points; explicitly do not claim Gaussian fidelity or mesh topology |
+| Existing NIF import, metadata edits, thumbnails, publish/share and format checks | Browser/CPU + storage/API | No | No reconstruction job should be queued just to repackage or publish an existing artifact |
+| Mesh extraction from an existing splat | CPU when size/algorithm permits; GPU optional only if a selected method requires it | Not inherently | Record mesh method, runtime, topology checks and calibration; never label watertight without testing |
+| Video/photo → reconstructed Gaussian scene | Kaggle GPU worker when neural depth/training is selected | Usually for current full path | Record pose/depth fallbacks and quality flags; do not silently send expensive jobs to CPU |
+| LiDAR parsing, CRS/units checks, geometry preflight | Browser/CPU | No | Preserve raw measurements and source CRS/units; conversion is not reconstruction |
+
+The UI and worker should expose an operation capability/preflight result (`cpu_supported`, `gpu_required`, `gpu_optional`, input limit, expected outputs) before work begins. Kaggle remains the current replaceable GPU target; do not move paid processing to another service without an explicit decision. Browser conversion must have memory/size limits and preserve original source assets.
 
 ### P0 — Establish one working truth
 1. Inventory every database query in root HTML and js/modules; tag each as current NIF schema, legacy schema or unknown.
