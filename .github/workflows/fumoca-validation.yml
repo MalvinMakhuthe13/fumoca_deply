@@ -33,7 +33,7 @@ jobs:
           node --input-type=module --check < js/modules/splat-edit-engine.js
       - name: Check editor persistence contract
         run: |
-          ! grep -nE "from\\(['\\"](nifs|splats)['\\"]\\)" js/modules/edit-engine.js js/modules/splat-edit-engine.js
+          ! grep -nE "from\\('(nifs|splats)'\\)" js/modules/edit-engine.js js/modules/splat-edit-engine.js
           grep -q "from('nif_files')" js/modules/edit-engine.js
           grep -q "from('nif_files')" js/modules/splat-edit-engine.js
       - name: Compile Kaggle preflight script
