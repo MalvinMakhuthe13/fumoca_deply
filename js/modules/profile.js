@@ -42,12 +42,12 @@ async function deleteUploadRecord(item) {
     // Read the related source key before deleting the record/job. NIF worker
     // outputs store R2 object keys (not Supabase Storage URLs), and the worker
     // uses job.id === nif_files.id for processed captures.
-    let rawKey = item.meta?.source_capture?.r2_key || '';
+    let rawVideoKey = '';
     try {
       const { data: job, error: jobError } = await supabase.from('reconstruction_jobs')
         .select('id,raw_r2_key').eq('id', item.id).eq('user_id', item.user_id).maybeSingle();
       if (jobError) console.warn('[FUMOCA profile] Related job lookup failed:', jobError.message);
-      if (job?.raw_r2_key) rawKey = job.raw_r2_key;
+      if (job?.raw_r2_key) rawVideoKey = job.raw_r2_key;
     } catch (error) {
       console.warn('[FUMOCA profile] Related job lookup failed:', error?.message || error);
     }
@@ -69,7 +69,7 @@ async function deleteUploadRecord(item) {
     if (item.r2_key) keys.set('nif-files:' + item.r2_key, { bucket: 'nif-files', path: item.r2_key });
     if (item.meta?.source_capture?.r2_key) keys.set('nif-files:' + item.meta.source_capture.r2_key, { bucket: 'nif-files', path: item.meta.source_capture.r2_key });
     if (item.meta?.thumbnail_r2_key) keys.set('nif-files:' + item.meta.thumbnail_r2_key, { bucket: 'nif-files', path: item.meta.thumbnail_r2_key });
-    if (rawKey) keys.set('nif-videos:' + rawKey, { bucket: 'nif-videos', path: rawKey });
+    if (rawVideoKey) keys.set('nif-videos:' + rawVideoKey, { bucket: 'nif-videos', path: rawVideoKey });
     for (const entry of keys.values()) {
       try {
         const { error: storageError } = await r2.from(entry.bucket).remove([entry.path]);
