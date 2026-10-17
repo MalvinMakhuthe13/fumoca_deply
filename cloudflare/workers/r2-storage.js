@@ -884,8 +884,18 @@ export default {
 
       // Authorize before touching the shared cache. Private/owner responses must
       // never be read from or written to caches.default.
-      let principal = await authorize(request, env);
-      const access = await authorizeFileRead(request, env, principal, bucketParam, fileKey);
+      const ticket = url.searchParams.get('ticket');
+      let access;
+      if (ticket) {
+        const validTicket = await verifyReadTicket(ticket, bucketParam, fileKey, env.FUMOCA_API_SECRET);
+        if (!validTicket) {
+          return json({ error: 'Not found' }, 404, { ...cors, 'Cache-Control': 'no-store' });
+        }
+        access = { allowed: true, isPublic: false, reason: 'signed-read-ticket' };
+      } else {
+        const principal = await authorize(request, env);
+        access = await authorizeFileRead(request, env, principal, bucketParam, fileKey);
+      }
       if (!access.allowed) {
         return json({ error: 'Not found' }, 404, {
           ...cors,
