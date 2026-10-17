@@ -1037,7 +1037,10 @@ async function animatePartFlow(h) {
   if (statusBtn) { statusBtn.textContent = 'Baking…'; statusBtn.disabled = true; }
 
   try {
-    const { openNifUrl, layers } = await authorPartToggle(nifUrl, layer, { axis, angleDeg });
+    const currentRecord = window._fumocaCurrentRecord || {};
+    const { openNifUrl, layers } = await authorPartToggle(nifUrl, layer, {
+      axis, angleDeg, recordId: currentRecord.id, ownerId: currentRecord.user_id,
+    });
 
     // Preview before committing — show the baked "open" state live via the
     // same toggle mechanism the hotspot will use, instead of saving blind
