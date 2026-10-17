@@ -125,9 +125,15 @@ const FumocaMobileAsset = (() => {
       }, { onConflict: 'splat_id' }).select().single();
       if (rowError || !row) throw new Error(rowError?.message || 'Mobile asset record was not saved.');
 
+      const { data: currentNif, error: currentNifError } = await sb.from('nif_files')
+        .select('meta').eq('id', splatRecord.id).eq('user_id', ownerId).single();
+      if (currentNifError || !currentNif) {
+        throw new Error(currentNifError?.message || 'Parent NIF could not be reloaded before saving mobile asset metadata.');
+      }
+      const currentMeta = currentNif.meta && typeof currentNif.meta === 'object' ? currentNif.meta : {};
       const { data: updatedNif, error: metaError } = await sb.from('nif_files').update({
         meta: {
-          ...(splatRecord.meta || {}),
+          ...currentMeta,
           mobile_asset_url: assetUrl,
           mobile_asset_r2_key: fileKey,
           mobile_asset_meta: config,
