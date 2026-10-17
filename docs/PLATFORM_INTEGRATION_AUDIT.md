@@ -114,6 +114,8 @@ Create frozen test sets for calibrated vehicle, object and scene captures. NaviG
 
 ### Security QA/QC — R2 object deletion ownership
 
+- Follow-up read/write audit found the multipart abort route was the one write-side path still missing a per-key ownership check. Added the same fail-closed `userMayWriteFileKey` guard before `resumeMultipartUpload(...).abort()` and a route-order regression assertion. This closes the route-level gap in code; CI and live staging verification are still required.
+
 - Found a critical authorization gap in `cloudflare/workers/r2-storage.js`: the delete route authenticated a user but did not verify that the user owned the requested R2 key.
 - The delete route now checks ownership before deleting. Keys under the authenticated user's own ID prefix are allowed; Studio-edited derivatives require a matching `nif_files` row owned by that user with the exact current `r2_key`. Trusted server-to-server calls retain their explicit server principal. Ownership lookup failures deny deletion.
 - Added focused regression tests for user-prefixed keys, owned Studio derivatives, cross-user denial, trusted server principal handling and missing-token denial. The full validation workflow passed on commit `1db23307341a862162e568aa4d5628410347d715`: https://github.com/MalvinMakhuthe13/fumoca_deply/actions/runs/39042632575
