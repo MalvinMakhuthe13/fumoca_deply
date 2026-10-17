@@ -781,9 +781,11 @@ window.handleSubmit = async function() {
           contentType: isSplat ? 'application/octet-stream' : ext === 'ply' ? 'model/x-ply' : 'application/octet-stream',
           onProgress: (pct) => setProgress(35 + Math.round(pct * 0.2), `Uploading original source… ${pct}%`),
         });
-      if (sourceErr) throw new Error('Source upload failed: ' + sourceErr.message);
-      sourceUrl = uploadedSourceUrl || '';
-      sourceKey = uploadedSourceKey || sourcePath;
+      if (sourceErr || !uploadedSourceKey || !uploadedSourceUrl) {
+        throw new Error('Source upload failed: ' + (sourceErr?.message || 'storage did not return a file key and URL'));
+      }
+      sourceUrl = uploadedSourceUrl;
+      sourceKey = uploadedSourceKey;
 
       if (isSplat || ext === 'ply') {
         const outputPath = `${user.id}/converted/${stamp}_${outputName}`;
@@ -794,9 +796,11 @@ window.handleSubmit = async function() {
             contentType: 'application/octet-stream',
             onProgress: (pct) => setProgress(60 + Math.round(pct * 0.2), `Uploading NIF… ${pct}%`),
           });
-        if (outputErr) throw new Error('NIF upload failed: ' + outputErr.message);
-        outputUrl = publicUrl || '';
-        outputKey = fileKey || outputPath;
+        if (outputErr || !fileKey || !publicUrl) {
+          throw new Error('NIF upload failed: ' + (outputErr?.message || 'storage did not return a file key and URL'));
+        }
+        outputUrl = publicUrl;
+        outputKey = fileKey;
       } else {
         outputUrl = sourceUrl;
         outputKey = sourceKey;
@@ -842,12 +846,15 @@ window.handleSubmit = async function() {
       setProgress(100, (isSplat || ext === 'ply') ? 'NIF conversion complete.' : 'NIF imported.');
       setStep('step-upload', 'done');
       setStep('step-live', 'done');
+      const studioUrl = `edit.html?file=${encodeURIComponent(outputUrl)}&nifId=${encodeURIComponent(nif.id)}&live=true`;
       const message = isSplat
         ? `Converted ${gaussianCount} Gaussian rows into a NIF derivative. Original .splat preserved. `
         : ext === 'ply' ? `Converted ${gaussianCount} PLY vertices into a NIF derivative. Original PLY preserved. ` : 'NIF imported. ';
-      showMsg(message + `Asset id: ${nif.id}. Open it from your library.`, false);
-      document.getElementById('submitLabel').textContent = 'Imported';
-      document.getElementById('submitBtn').textContent = 'Imported';
+      showMsg(message + `Original source preserved. <a href="${studioUrl}" style="color:#0ef;text-decoration:underline">Open in Studio →</a>`, false);
+      const submitBtn = document.getElementById('submitBtn');
+      submitBtn.textContent = 'Open in Studio';
+      submitBtn.disabled = false;
+      submitBtn.onclick = () => { window.location.href = studioUrl; };
       return;
     }
     // reconstruction_jobs is the real, live table — confirmed against the
