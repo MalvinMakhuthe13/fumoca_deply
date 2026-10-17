@@ -17,16 +17,22 @@ for (const spec of specs) {
 }
 
 const viewer = await readFile(new URL('../js/modules/viewer.js', import.meta.url), 'utf8');
-for (const name of ['_fumocaFlushPipelineQueue', '_fumocaSaveVariant', '_fumocaQueuePipeline']) {
-  const start = viewer.indexOf(`async function ${name}`);
-  assert.ok(start >= 0, `viewer function ${name} must exist`);
-  const next = viewer.indexOf('\nasync function ', start + 10);
-  const block = viewer.slice(start, next > start ? next : undefined);
+const viewerFunctions = [
+  { name: '_fumocaFlushPipelineQueue', next: 'async function _fumocaSaveVariant' },
+  { name: '_fumocaSaveVariant', next: 'async function _fumocaQueuePipeline' },
+  { name: '_fumocaQueuePipeline', next: 'function _fumocaApplyAutoCleanPreset' },
+];
+for (const spec of viewerFunctions) {
+  const start = viewer.indexOf(`async function ${spec.name}`);
+  assert.ok(start >= 0, `viewer function ${spec.name} must exist`);
+  const next = viewer.indexOf(spec.next, start + 10);
+  assert.ok(next > start, `viewer function ${spec.name} must have a clear end boundary`);
+  const block = viewer.slice(start, next);
   assert.match(block, /select\('id,user_id,title,description,r2_key,is_public,meta'\)/,
-    `${name} must reload the current NIF row`);
+    `${spec.name} must reload the current NIF row`);
   assert.match(block, /\.eq\('id', rec\.id\)\.eq\('user_id', rec\.user_id\)/,
-    `${name} must scope database writes to the owner`);
+    `${spec.name} must scope database writes to the owner`);
   assert.doesNotMatch(block, /\.update\(\{ meta: metadata \}\)\.eq\('id', rec\.id\);/,
-    `${name} must not use the old unscoped stale-META write`);
+    `${spec.name} must not use the old unscoped stale-META write`);
 }
 console.log('NIF metadata merge contract passed for scene parts, 4D, visual FX, motion tracking and viewer queues.');
