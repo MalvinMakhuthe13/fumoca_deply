@@ -7,7 +7,7 @@ const worker = await readFile(new URL('../cloudflare/workers/r2-storage.js', imp
 const profile = await readFile(new URL('../js/modules/profile.js', import.meta.url), 'utf8');
 const viewer = await readFile(new URL('../js/modules/viewer.js', import.meta.url), 'utf8');
 
-assert.match(teaser, /\$\{ownerId\}\/teasers\/\$\{splatId\}/, 'teaser objects must be written under the authenticated owner's prefix');
+assert.match(teaser, /\$\{ownerId\}\/teasers\/\$\{splatId\}/, 'teaser objects must be written under the authenticated owner prefix');
 assert.match(teaser, /teaser_video_r2_key: fileKey/, 'the object key must be persisted with the NIF metadata');
 assert.match(teaser, /\.eq\('id', splatId\)\s*\.eq\('user_id', ownerId\)/, 'metadata writes must be owner-scoped');
 assert.match(teaser, /from\('preview-videos'\)\.remove\(\[fileKey\]\)/, 'failed metadata writes must clean up the uploaded object');
