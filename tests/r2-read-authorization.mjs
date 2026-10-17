@@ -67,7 +67,7 @@ access = await run([thumbPrivate])(req(), env, null, 'thumbnails', 'user-a/priva
 assert.equal(access.allowed, false, 'private NIF thumbnail must not bypass visibility');
 
 const mobilePublic = {
-  id: 'nif-mobile-public', user_id: 'user-a', r2_key: 'published/mobile.nif',
+  id: 'nif-mobile-public', user_id: 'user-a', r2_key: 'user-a/mobile.nif',
   is_public: true, meta: { mobile_asset_r2_key: 'user-a/mobile-assets/nif-mobile-public/widget_1.html' },
 };
 const mobilePrivate = {
@@ -84,7 +84,7 @@ assert.deepEqual(access, { allowed: true, isPublic: false, reason: 'owner-key' }
   'owner can read their private mobile widget through its owner-prefixed key');
 
 const openVariantPublic = {
-  id: 'nif-open-public', user_id: 'user-a', r2_key: 'published/open.nif',
+  id: 'nif-open-public', user_id: 'user-a', r2_key: 'user-a/open.nif',
   is_public: true, meta: { open_variant_r2_keys: ['user-a/open-variants/nif-open-public_door_1.nif'] },
 };
 const openVariantPrivate = {
