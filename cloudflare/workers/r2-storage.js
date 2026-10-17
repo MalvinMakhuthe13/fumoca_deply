@@ -192,7 +192,8 @@ async function userOwnsFileKey(request, env, principal, bucketName, fileKey) {
         meta.mobile_asset_r2_key,
         ...(Array.isArray(meta.open_variant_r2_keys) ? meta.open_variant_r2_keys : []),
       ];
-      return knownKeys.includes(fileKey);
+      // A row's META is not an ownership grant by itself: non-user-prefixed keys must live under that row's own derivative prefix.
+      return !!row?.id && fileKey.startsWith(`${row.id}/`) && knownKeys.includes(fileKey);
     });
   } catch (error) {
     console.error('[R2 delete] owner lookup errored', error?.message || String(error));
@@ -289,15 +290,24 @@ async function authorizeFileRead(request, env, principal, bucketName, fileKey) {
 
     for (const row of rows) {
       const meta = row?.meta || {};
-      const isNifOutput = bucketName === 'nif-files' && row?.r2_key === fileKey;
-      const isThumbnail = bucketName === 'thumbnails' &&
+      const rowOwner = typeof row?.user_id === 'string' && row.user_id;
+      const ownerKey = !!rowOwner && fileKey.startsWith(`${rowOwner}/`);
+      const legacyRawOwnerKey = bucketName === 'nif-videos' && !!rowOwner && fileKey.startsWith(`raw/${rowOwner}/`);
+      const rowScopedKey = !!row?.id && fileKey.startsWith(`${row.id}/`);
+      const isNifOutput = bucketName === 'nif-files' && row?.r2_key === fileKey && (ownerKey || rowScopedKey);
+      const isThumbnail = bucketName === 'thumbnails' && ownerKey &&
         [meta.thumbnail_r2_key, meta.capture_thumbnail_r2_key].includes(fileKey);
-      const isSource = bucketName === 'nif-videos' &&
-        [meta.source_r2_key, meta.source_capture?.r2_key].includes(fileKey);
-      const isPreviewVideo = bucketName === 'preview-videos' && meta.teaser_video_r2_key === fileKey;
-      const isMobileAsset = bucketName === 'nif-files' && meta.mobile_asset_r2_key === fileKey;
-      const isOpenVariant = bucketName === 'nif-files' && Array.isArray(meta.open_variant_r2_keys) && meta.open_variant_r2_keys.includes(fileKey);
-      const isCleanedSplat = bucketName === 'nif-files' && meta.cleaned_splat?.r2_key === fileKey;
+      const isSource = bucketName === 'nif-videos' && (ownerKey || legacyRawOwnerKey || rowScopedKey) &&
+        [meta.source_r2_key, meta.source_capture?.r2_key, ...(Array.isArray(meta.lidar_sources) ? meta.lidar_sources.map(source => source?.r2_key) : [])].includes(fileKey);
+      const isPreviewVideo = bucketName === 'preview-videos' && ownerKey &&
+        fileKey.startsWith(`${rowOwner}/teasers/${row.id}/`) && meta.teaser_video_r2_key === fileKey;
+      const isMobileAsset = bucketName === 'nif-files' && ownerKey &&
+        fileKey.startsWith(`${rowOwner}/mobile-assets/${row.id}/`) && meta.mobile_asset_r2_key === fileKey;
+      const isOpenVariant = bucketName === 'nif-files' && ownerKey &&
+        fileKey.startsWith(`${rowOwner}/open-variants/${row.id}_`) &&
+        Array.isArray(meta.open_variant_r2_keys) && meta.open_variant_r2_keys.includes(fileKey);
+      const isCleanedSplat = bucketName === 'nif-files' && rowScopedKey &&
+        fileKey.startsWith(`${row.id}/edited_cleaned_`) && meta.cleaned_splat?.r2_key === fileKey;
       const owner = !!(principal?.kind === 'user' && principal.id && row?.user_id === principal.id);
       if (isNifOutput && row.is_public === true) {
         return { allowed: true, isPublic: true, reason: 'published-nif' };
@@ -330,7 +340,7 @@ async function authorizeFileRead(request, env, principal, bucketName, fileKey) {
       const jobsResponse = await fetch(`${env.SUPABASE_URL}/rest/v1/reconstruction_jobs?${jobsQuery}`, { headers });
       if (jobsResponse.ok) {
         const jobs = await jobsResponse.json();
-        if (Array.isArray(jobs) && jobs.some(job => job?.user_id === principal.id && job?.raw_r2_key === fileKey)) {
+        if (Array.isArray(jobs) && jobs.some(job => job?.user_id === principal.id && job?.raw_r2_key === fileKey && (fileKey.startsWith(`${principal.id}/`) || fileKey.startsWith(`raw/${principal.id}/`)))) {
           return { allowed: true, isPublic: false, reason: 'owner-source-job' };
         }
       } else {
