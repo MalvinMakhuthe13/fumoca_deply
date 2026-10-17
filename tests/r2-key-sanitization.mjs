@@ -30,6 +30,9 @@ assert.equal(sanitiseKey('user-a/../other/private.ply'), '');
 assert.equal(sanitiseKey('user-a/./model.ply'), '');
 assert.equal(sanitiseKey('a'.repeat(501)), '', 'overlong key must be rejected, not truncated to another object');
 assert.equal(sanitiseKey('bad\0key'), '', 'NUL bytes must be rejected');
+for (const reserved of ['user-a/model,other.ply', 'user-a/(model).ply', 'user-a/{model}.ply', 'user-a/"model".ply', "user-a/'model'.ply", 'user-a/model\n.ply']) {
+  assert.equal(sanitiseKey(reserved), '', `PostgREST filter/control character must be rejected: ${JSON.stringify(reserved)}`);
+}
 assert.equal(sanitiseKey(''), '');
 assert.equal(sanitiseKey(null), '');
 console.log('R2 key sanitization regression tests passed.');
