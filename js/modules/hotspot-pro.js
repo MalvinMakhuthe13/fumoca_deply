@@ -785,22 +785,52 @@ function closeInfo() {
   renderHotspots();
 }
 
+const hotspotElements = new Map();
+
 function renderHotspots() {
   window._fumocaHotspots = state.hotspots.slice();
   if (!hotspotLayer) return;
-  hotspotLayer.innerHTML = '';
+
+  const liveIds = new Set();
   for (const h of state.hotspots) {
+    if (!h?.id) continue;
+    liveIds.add(h.id);
     const pos = getRenderPosition(h);
-    const el = document.createElement('button');
-    el.className = `hotspot-marker${state.activeId === h.id ? ' active pulse' : ''}`;
-    el.dataset.id = h.id;
-    el.dataset.type = h.type;
-    el.style.left = `${pos.x}%`;
-    el.style.top = `${pos.y}%`;
-    el.title = h.title;
-    el.innerHTML = `<span class="hotspot-pill">${escapeHtml(h.title)}</span>`;
-    el.addEventListener('click', () => activateHotspot(h));
-    hotspotLayer.appendChild(el);
+    let el = hotspotElements.get(h.id);
+    if (!el) {
+      el = document.createElement('button');
+      el.type = 'button';
+      el.className = 'hotspot-marker';
+      el.dataset.id = h.id;
+      const pill = document.createElement('span');
+      pill.className = 'hotspot-pill';
+      el.appendChild(pill);
+      // Resolve the current record by ID so updates don't leave a stale object
+      // captured by an event listener created during an earlier render.
+      el.addEventListener('click', () => {
+        const current = state.hotspots.find(item => item.id === el.dataset.id);
+        if (current) activateHotspot(current);
+      });
+      hotspotElements.set(h.id, el);
+      hotspotLayer.appendChild(el);
+    }
+
+    el.classList.toggle('active', state.activeId === h.id);
+    el.classList.toggle('pulse', state.activeId === h.id);
+    el.dataset.type = h.type || 'info';
+    el.style.left = `${Math.max(0, Math.min(100, pos.x))}%`;
+    el.style.top = `${Math.max(0, Math.min(100, pos.y))}%`;
+    el.title = String(h.title || 'Hotspot');
+    const pill = el.querySelector('.hotspot-pill');
+    if (pill && pill.textContent !== String(h.title || 'Hotspot')) {
+      pill.textContent = String(h.title || 'Hotspot');
+    }
+  }
+
+  for (const [id, el] of hotspotElements) {
+    if (liveIds.has(id)) continue;
+    el.remove();
+    hotspotElements.delete(id);
   }
 }
 
@@ -1188,7 +1218,15 @@ function attachUi() {
     renderHotspots(); renderPanel();
     saveRemote();
   });
-  const loop = () => { renderHotspots(); requestAnimationFrame(loop); };
+  // Only reproject per frame when at least one hotspot has a world-space
+  // anchor. Screen-space-only markers are updated by authoring/load/resize
+  // events and should not trigger needless DOM work at 60+ FPS.
+  const loop = () => {
+    if (state.hotspots.some(h => [h.wx, h.wy, h.wz].every(Number.isFinite))) {
+      renderHotspots();
+    }
+    requestAnimationFrame(loop);
+  };
   requestAnimationFrame(loop);
 }
 
