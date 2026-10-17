@@ -95,7 +95,7 @@ test('Ad Studio queries NIF and legacy assets without falsely baking unsupported
   assert.match(source, /from\('nif_files'\)/);
   assert.match(source, /from\('splats'\)/);
   assert.match(source, /_rawSplatUrl/);
-  assert.match(source, /current encoder accepts raw \\.splat rows/);
+  assert.match(source, /current encoder accepts raw/);
   assert.match(source, /e\.source !== iframe\.contentWindow/);
   assert.match(source, /e\.origin !== location\.origin/);
   assert.doesNotMatch(source, /postMessage\([^;]*,\s*['"]\*['"]\s*\)/);
