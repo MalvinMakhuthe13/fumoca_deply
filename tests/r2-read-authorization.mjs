@@ -66,6 +66,23 @@ assert.deepEqual(access, { allowed: true, isPublic: true, reason: 'published-nif
 access = await run([thumbPrivate])(req(), env, null, 'thumbnails', 'private/thumb.webp');
 assert.equal(access.allowed, false, 'private NIF thumbnail must not bypass visibility');
 
+const mobilePublic = {
+  id: 'nif-mobile-public', user_id: 'user-a', r2_key: 'published/mobile.nif',
+  is_public: true, meta: { mobile_asset_r2_key: 'user-a/mobile-assets/nif-mobile-public/widget_1.html' },
+};
+const mobilePrivate = {
+  id: 'nif-mobile-private', user_id: 'user-a', r2_key: 'private/mobile.nif',
+  is_public: false, meta: { mobile_asset_r2_key: 'user-a/mobile-assets/nif-mobile-private/widget_1.html' },
+};
+access = await run([mobilePublic])(req(), env, null, 'nif-files', mobilePublic.meta.mobile_asset_r2_key);
+assert.deepEqual(access, { allowed: true, isPublic: true, reason: 'published-nif-mobile-asset' },
+  'mobile widget is public only when its parent NIF is published');
+access = await run([mobilePrivate])(req(), env, null, 'nif-files', mobilePrivate.meta.mobile_asset_r2_key);
+assert.equal(access.allowed, false, 'private parent NIF must not expose its mobile widget');
+access = await run([mobilePrivate])(req('token-a'), env, userA, 'nif-files', mobilePrivate.meta.mobile_asset_r2_key);
+assert.deepEqual(access, { allowed: true, isPublic: false, reason: 'owner-associated-file' },
+  'owner can read their private mobile widget without making it public');
+
 access = await run([sourceRow])(req('token-a'), env, userA, 'nif-videos', 'user-a/raw.mp4');
 assert.deepEqual(access, { allowed: true, isPublic: false, reason: 'owner-key' });
 
