@@ -125,42 +125,50 @@ function showToast(msg, isError = false) {
 async function deletePostRecord(post, opts = {}) {
   const { silent = false } = opts;
 
-  // 1. Collect storage paths
+  // Delete the database row first so an RLS/schema failure cannot leave a
+  // live feed card pointing at objects that were already removed.
+  const { error } = await supabase.from('nif_files').delete().eq('id', post.id).eq('user_id', post.user_id);
+  if (error) throw error;
+
+  // The canonical table stores R2 keys. CDN URLs are not Supabase Storage
+  // URLs, so URL parsing alone misses the main NIF, original source and poster.
   const filesToDelete = [];
+  for (const key of [
+    post.r2_key,
+    post.meta?.source_r2_key,
+    post.meta?.source_capture?.r2_key,
+    post.meta?.thumbnail_r2_key,
+  ]) {
+    if (typeof key === 'string' && key.trim()) filesToDelete.push({ bucket: 'nif-files', path: key });
+  }
   if (post.video_path && post.video_bucket) {
     filesToDelete.push({ bucket: post.video_bucket, path: post.video_path });
   } else if (post.video_url) {
     const p = extractStoragePath(post.video_url);
     if (p) filesToDelete.push(p);
   }
-  // Nif output (only if not external)
   const nifUrl = resolveUrl(post);
   if (nifUrl && !post.external_nif_url) {
     const p = extractStoragePath(nifUrl);
     if (p) filesToDelete.push(p);
   }
-  // Thumbnail
   const thumb = resolveThumbnail(post);
   if (thumb) { const p = extractStoragePath(thumb); if (p) filesToDelete.push(p); }
 
-  // 2. Delete storage (best-effort — don't block on RLS or missing files)
   const grouped = {};
   filesToDelete.forEach(({ bucket, path }) => {
-    if (!grouped[bucket]) grouped[bucket] = [];
-    grouped[bucket].push(path);
+    if (!grouped[bucket]) grouped[bucket] = new Set();
+    grouped[bucket].add(path);
   });
-  await Promise.allSettled(
+  const cleanup = await Promise.allSettled(
     Object.entries(grouped).map(([bucket, paths]) =>
-      r2.from(bucket).remove(paths)
+      r2.from(bucket).remove([...paths])
     )
   );
-
-  // 3. Delete processing jobs (cascade handles it too, but explicit is safer for RLS)
-  await supabase.from('reconstruction_jobs').delete().eq('nif_file_id', post.id);
-
-  // 4. Delete nif file row
-  const { error } = await supabase.from('nif_files').delete().eq('id', post.id);
-  if (error) throw error;
+  const failedCleanup = cleanup.some(result => result.status === 'rejected' || result.value?.error);
+  if (failedCleanup) {
+    console.warn('[FUMOCA feed] Capture record deleted; some R2 objects may need cleanup', post.id);
+  }
 
   // 5. Animate card out
   const card = document.querySelector(`article[data-id="${post.id}"]`);
