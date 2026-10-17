@@ -10,6 +10,10 @@ const viewer = await readFile(new URL('../js/modules/viewer.js', import.meta.url
 assert.match(teaser, /\$\{ownerId\}\/teasers\/\$\{splatId\}/, 'teaser objects must be written under the authenticated owner prefix');
 assert.match(teaser, /teaser_video_r2_key: fileKey/, 'the object key must be persisted with the NIF metadata');
 assert.match(teaser, /\.eq\('id', splatId\)\s*\.eq\('user_id', ownerId\)/, 'metadata writes must be owner-scoped');
+assert.match(teaser, /select\('meta'\)\.eq\('id', splatId\)\.eq\('user_id', ownerId\)\.single\(\)/,
+  'teaser save must reload current parent metadata before merging');
+assert.match(teaser, /window\._fumocaCurrentRecord = \{ \.\.\.window\._fumocaCurrentRecord, meta: nextMeta \}/,
+  'teaser save must synchronize the in-memory parent record');
 assert.match(teaser, /from\('preview-videos'\)\.remove\(\[fileKey\]\)/, 'failed metadata writes must clean up the uploaded object');
 assert.match(feed, /row\.meta\?\.teaser_video_url/, 'feed must resolve teaser URLs from NIF metadata');
 assert.match(feed, /post\.meta\?\.teaser_video_r2_key/, 'feed deletion must clean up teaser objects');
