@@ -330,6 +330,15 @@ async function deleteCurrentUpload() {
     const { error } = await supabase.from('nif_files')
       .delete().eq('id', currentRecord.id).eq('user_id', currentRecord.user_id);
     if (error) throw error;
+    if (currentRecord.job_id) {
+      const { error: jobDeleteError } = await supabase.from('reconstruction_jobs')
+        .delete().eq('id', currentRecord.job_id).eq('user_id', currentRecord.user_id);
+      if (jobDeleteError) {
+        console.warn('[FUMOCA viewer] NIF deleted but reconstruction job cleanup failed', {
+          nifId: currentRecord.id, jobId: currentRecord.job_id, error: jobDeleteError.message,
+        });
+      }
+    }
     window.location.href = 'feed.html';
   } catch (err) {
     console.error('[FUMOCA delete upload]', err);
