@@ -261,6 +261,57 @@ export function encodeGeometryOnly(opts = {}) {
 }
 
 // ── Public: build a real .nif ArrayBuffer ─────────────────────────────────────
+function encodeLayerGeoChunk(layers, geoData, pointCount) {
+  const valid = (Array.isArray(layers) ? layers : []).filter(layer =>
+    Array.isArray(layer?.indices) && layer.indices.length > 0);
+  if (!valid.length) return null;
+  if (valid.length > 0xffffffff) throw new Error('[nif-format] too many LAYER_GEO layers');
+
+  const normalized = valid.map(layer => {
+    const label = String(layer.label || layer.name || '').trim();
+    if (!label || label.length > 255 || [...label].some(ch => ch.charCodeAt(0) > 127)) {
+      throw new Error('[nif-format] LAYER_GEO labels must be non-empty ASCII strings of at most 255 characters');
+    }
+    const indices = Array.from(layer.indices);
+    const seen = new Set();
+    for (const index of indices) {
+      if (!Number.isInteger(index) || index < 0 || index >= pointCount) {
+        throw new Error(`[nif-format] LAYER_GEO layer "${label}" contains an out-of-range point index`);
+      }
+      if (seen.has(index)) throw new Error(`[nif-format] LAYER_GEO layer "${label}" contains duplicate point indices`);
+      seen.add(index);
+    }
+    const depthMin = Number.isFinite(layer.depthMin) ? layer.depthMin : 0;
+    const depthMax = Number.isFinite(layer.depthMax) ? layer.depthMax : 0;
+    return { label, labelBytes: Uint8Array.from([...label].map(ch => ch.charCodeAt(0))), indices, depthMin, depthMax };
+  });
+  const byteLength = 4 + normalized.reduce((sum, layer) =>
+    sum + 1 + layer.labelBytes.length + 12 + layer.indices.length * (14 * 4 + 4), 0);
+  if (!Number.isSafeInteger(byteLength) || byteLength > 512 * 1024 * 1024) {
+    throw new Error('[nif-format] LAYER_GEO chunk exceeds the 512 MiB safety limit');
+  }
+  const bytes = new Uint8Array(byteLength);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(0, normalized.length, false);
+  let offset = 4;
+  for (const layer of normalized) {
+    view.setUint8(offset++, layer.labelBytes.length);
+    bytes.set(layer.labelBytes, offset); offset += layer.labelBytes.length;
+    view.setFloat32(offset, layer.depthMin, false); offset += 4;
+    view.setFloat32(offset, layer.depthMax, false); offset += 4;
+    view.setUint32(offset, layer.indices.length, false); offset += 4;
+    for (const index of layer.indices) {
+      const base = index * FLOATS_PER_POINT;
+      for (let f = 0; f < FLOATS_PER_POINT; f++) {
+        view.setFloat32(offset, geoData[base + f], true);
+        offset += 4;
+      }
+    }
+    for (const index of layer.indices) { view.setUint32(offset, index, false); offset += 4; }
+  }
+  return bytes;
+}
+
 /**
  * @param {object} opts
  *   geometry      Float32Array  already-packed 14-floats/point data (optional —
