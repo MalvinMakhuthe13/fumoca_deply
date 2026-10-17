@@ -134,15 +134,17 @@ const FumocaTour = (() => {
   function _renderTitleCard(stop) {
     const card = _ensureTitleCard();
     if (!stop) { card.style.display = 'none'; return; }
-    const accent = stop.accentColor || '#c8ff00';
+    const accent = _safeAccentColor(stop.accentColor);
+    const mediaUrl = _safeHttpUrl(stop.mediaUrl);
+    const ctaUrl = _safeHttpUrl(stop.ctaUrl);
 
     card.style.display = 'block';
     card.innerHTML = `
       <div style="font-family:var(--font-display);font-size:28px;letter-spacing:.04em;color:#fff;line-height:1;">${_esc(stop.title)}</div>
       ${stop.description ? `<div style="margin-top:8px;font-size:13px;line-height:1.6;color:rgba(255,255,255,.72);">${_esc(stop.description)}</div>` : ''}
-      ${stop.mediaUrl ? `<img src="${_esc(stop.mediaUrl)}" style="width:100%;border-radius:12px;margin-top:10px;object-fit:cover;max-height:160px;">` : ''}
-      ${stop.ctaLabel && stop.ctaUrl ? `
-        <a href="${_esc(stop.ctaUrl)}" target="_blank" rel="noopener" style="
+      ${mediaUrl ? `<img src="${_esc(mediaUrl)}" alt="" loading="lazy" referrerpolicy="no-referrer" style="width:100%;border-radius:12px;margin-top:10px;object-fit:cover;max-height:160px;">` : ''}
+      ${stop.ctaLabel && ctaUrl ? `
+        <a href="${_esc(ctaUrl)}" target="_blank" rel="noopener noreferrer" style="
           display:block;margin-top:12px;padding:11px 16px;border-radius:12px;
           background:${accent};color:${_isDark(accent)?'#fff':'#000'};
           font-weight:700;font-size:13px;text-decoration:none;text-align:center;
@@ -215,9 +217,11 @@ const FumocaTour = (() => {
 
   // ── Audio ─────────────────────────────────────────────────────
   function _playAudio(url) {
+    const safeUrl = _safeMediaUrl(url);
+    if (!safeUrl) return;
     _stopAudio();
     try {
-      activeAudio = new Audio(url);
+      activeAudio = new Audio(safeUrl);
       activeAudio.play().catch(() => {});
     } catch (_) {}
   }
@@ -287,7 +291,27 @@ const FumocaTour = (() => {
   }
 
   function _esc(s) {
-    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  }
+  function _safeHttpUrl(value) {
+    try {
+      const url = new URL(String(value || ''), window.location.href);
+      return ['http:', 'https:'].includes(url.protocol) ? url.href : '';
+    } catch (_) { return ''; }
+  }
+  function _safeMediaUrl(value) {
+    const httpUrl = _safeHttpUrl(value);
+    if (httpUrl) return httpUrl;
+    try {
+      const url = new URL(String(value || ''), window.location.href);
+      return url.protocol === 'blob:' && url.origin === window.location.origin ? url.href : '';
+    } catch (_) { return ''; }
+  }
+  function _safeAccentColor(value) {
+    const color = String(value || '').trim();
+    if (/^#[0-9a-f]{3}(?:[0-9a-f]{3})?(?:[0-9a-f]{2})?$/i.test(color)) return color;
+    if (/^var\(--[a-z0-9-]+\)$/i.test(color)) return color;
+    return '#c8ff00';
   }
   function _isDark(c) {
     try { const h=c.replace('#',''); return (parseInt(h.slice(0,2),16)*299+parseInt(h.slice(2,4),16)*587+parseInt(h.slice(4,6),16)*114)/1000<128; } catch(_){return false;}
