@@ -130,6 +130,14 @@ const FumocaPublish = (() => {
     );
     if (!S?.alive) throw new Error('No splat loaded in editor');
 
+    if (visibility === 'followers') {
+      throw new Error('Followers-only access is not implemented yet. Choose Public or Private so access is enforced correctly.');
+    }
+
+    const { data: { user }, error: userError } = await sb.auth.getUser();
+    if (userError || !user?.id) throw new Error('Sign in before publishing this NIF.');
+    if (rec?.user_id && rec.user_id !== user.id) throw new Error('You cannot publish an asset owned by another user.');
+
     const splatId = rec?.id || new URLSearchParams(location.search).get('splatId');
     const aliveCount = Array.from(S.alive).filter(Boolean).length;
 
@@ -141,13 +149,11 @@ const FumocaPublish = (() => {
 
     // 2. Upload to storage
     const timestamp = Date.now();
-    // Path: {splatId}/edited_{ts}.nif — under the real R2 'nif-files' bucket
-    // (comment previously said "splat-files", a pre-R2-migration bucket name
-    // that doesn't exist — the actual .from('nif-files') call below was
-    // already correct, just the comment was stale).
+    // Existing assets use an owner-checked edited derivative key. New assets
+    // must start under the authenticated user's prefix or the Worker rejects them.
     const path = splatId
       ? `${splatId}/edited_${timestamp}.nif`
-      : `new/upload_${timestamp}.nif`;
+      : `${user.id}/edited_${timestamp}.nif`;
 
     // ── Upload to Cloudflare R2 (replaces supabase.storage) ─────────────────
     const { publicUrl, fileKey, error: uploadError } = await r2
@@ -162,29 +168,47 @@ const FumocaPublish = (() => {
     // table (confirmed against production; `splats` does not exist there).
     // r2_key stores the storage key, not a public URL — the same convention
     // reconstruction_jobs/pipeline.py already uses.
+    const existingMeta = rec?.meta && typeof rec.meta === 'object' ? rec.meta : {};
     const payload = {
       r2_key: fileKey,
       is_public: visibility === 'public',
       gaussian_count: aliveCount,
       updated_at: new Date().toISOString(),
+      meta: {
+        ...existingMeta,
+        title: title || rec?.title || S.fileName || 'Untitled Splat',
+        description: description ?? rec?.description ?? '',
+        publish_visibility: visibility,
+        publish_status: 'published',
+      },
     };
     if (title) payload.title = title;
-    if (description) payload.description = description;
+    if (description !== undefined) payload.description = description;
 
     let finalId = splatId;
     if (splatId) {
-      const { error } = await sb.from('nif_files').update(payload).eq('id', splatId);
-      if (error) console.warn('[Publish] DB update failed:', error.message);
+      const { data: updated, error } = await sb.from('nif_files').update(payload)
+        .eq('id', splatId).eq('user_id', user.id).select('id').maybeSingle();
+      if (error || !updated?.id) {
+        try { await r2.from('nif-files').remove([fileKey]); } catch (cleanupError) {
+          console.warn('[Publish] Failed to clean up an unregistered derivative', cleanupError?.message || cleanupError);
+        }
+        throw new Error(error?.message || 'Could not update the owned NIF record. The publish was not completed.');
+      }
     } else {
-      // Create new record
-      const { data: { user } } = await sb.auth.getUser().catch(() => ({ data: {} }));
       const { data: newRec, error } = await sb.from('nif_files').insert({
         ...payload,
-        user_id: user?.id,
+        user_id: user.id,
         title: title || S.fileName || 'Untitled Splat',
         created_at: new Date().toISOString(),
-      }).select().single();
-      if (!error && newRec) finalId = newRec.id;
+      }).select('id').single();
+      if (error || !newRec?.id) {
+        try { await r2.from('nif-files').remove([fileKey]); } catch (cleanupError) {
+          console.warn('[Publish] Failed to clean up an unregistered NIF', cleanupError?.message || cleanupError);
+        }
+        throw new Error(error?.message || 'Could not register the new NIF. The publish was not completed.');
+      }
+      finalId = newRec.id;
     }
 
     onProgress?.('Published!', 100);
@@ -195,7 +219,7 @@ const FumocaPublish = (() => {
       publicUrl,
       gaussianCount: aliveCount,
       feedUrl: `feed.html`,
-      viewerUrl: `viewer.html?id=${encodeURIComponent(finalId)}`,
+      viewerUrl: `viewer.html?nifId=${encodeURIComponent(finalId)}`,
     };
   }
 
