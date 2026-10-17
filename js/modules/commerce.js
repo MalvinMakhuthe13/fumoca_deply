@@ -111,17 +111,18 @@ const FumocaCommerce = (() => {
       animation:fumocaSlideUp .22s ease;
     `;
 
-    const accentColor = window._fumocaWhiteLabel?.getBrandConfig?.()?.accentColor || 'var(--neon)';
+    const accentColor = _safeAccentColor(window._fumocaWhiteLabel?.getBrandConfig?.()?.accentColor);
     const price = hotspot.productPrice || '';
-    const image = hotspot.productImage || '';
+    const image = _safeHttpUrl(hotspot.productImage || '');
     const desc = hotspot.description || hotspot.desc || '';
     const ctaLabel = hotspot.ctaLabel || 'Buy now';
-    const ctaUrl = hotspot.productUrl || hotspot.ctaLink || hotspot.link || '';
+    const ctaUrl = _safeHttpUrl(hotspot.productUrl || hotspot.ctaLink || hotspot.link || '');
     const variants = hotspot.variantOptions || [];
 
     card.innerHTML = `
       <div style="height:4px;background:linear-gradient(90deg,${accentColor},var(--acid2,#00ffc8));"></div>
-      ${image ? `<div style="background:center/cover no-repeat url('${image}');height:200px;position:relative;">
+      ${image ? `<div style="height:200px;position:relative;background:#111;">
+        <img src="${_esc(image)}" alt="" loading="lazy" referrerpolicy="no-referrer" style="width:100%;height:200px;object-fit:cover;display:block;">
         <div style="position:absolute;inset:0;background:linear-gradient(180deg,transparent 50%,rgba(7,10,16,.85));"></div>
       </div>` : ''}
       <div style="padding:16px;">
@@ -229,7 +230,7 @@ const FumocaCommerce = (() => {
       <div id="fumocaCartItems" style="flex:1;overflow-y:auto;padding:12px 16px;">
         ${cart.length ? cart.map(item => `
           <div class="fumocaCartItem" data-id="${item.productId}" style="display:flex;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid rgba(255,255,255,.06);">
-            ${item.productImage ? `<img src="${_esc(item.productImage)}" style="width:52px;height:52px;object-fit:cover;border-radius:12px;">` : '<div style="width:52px;height:52px;border-radius:12px;background:rgba(255,255,255,.06);"></div>'}
+            ${_safeHttpUrl(item.productImage) ? `<img src="${_esc(_safeHttpUrl(item.productImage))}" alt="" loading="lazy" referrerpolicy="no-referrer" style="width:52px;height:52px;object-fit:cover;border-radius:12px;">` : '<div style="width:52px;height:52px;border-radius:12px;background:rgba(255,255,255,.06);"></div>'}
             <div style="flex:1;min-width:0;">
               <div style="font-weight:700;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${_esc(item.productLabel || 'Product')}</div>
               ${item.productPrice ? `<div style="font-size:12px;color:var(--neon);">${_esc(item.productPrice)}</div>` : ''}
@@ -358,6 +359,18 @@ const FumocaCommerce = (() => {
   // ── Utils ─────────────────────────────────────────────────────
   function _esc(s) {
     return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+  function _safeHttpUrl(value) {
+    try {
+      const url = new URL(String(value || ''), window.location.href);
+      return ['http:', 'https:'].includes(url.protocol) ? url.href : '';
+    } catch (_) { return ''; }
+  }
+  function _safeAccentColor(value) {
+    const color = String(value || '').trim();
+    if (/^#[0-9a-f]{3}(?:[0-9a-f]{3})?(?:[0-9a-f]{2})?$/i.test(color)) return color;
+    if (/^var\\(--[a-z0-9-]+\\)$/i.test(color)) return color;
+    return 'var(--neon)';
   }
   function _isDark(color) {
     try {
