@@ -26,11 +26,11 @@ const FumocaPublish = (() => {
   // to {vertical:'generic', passthroughChunks:[]} if there's no original
   // .nif to read from (e.g. brand-new upload, not an edit of an existing one).
   async function _loadOriginalForPassthrough() {
-    const url = window._fumocaNifUrl || new URLSearchParams(location.search).get('file');
-    let vertical = 'generic';
+    const url = window._fumocanifUrl || window._fumocaNifUrl || new URLSearchParams(location.search).get('file');
+    let vertical = window.S?.nifVertical || window.S?.nifMeta?.vertical || 'generic';
     const shouldPassThrough = chunk => ![
       CHUNK.KEYFRAME_GEO, CHUNK.META, CHUNK.THUMBNAIL,
-      CHUNK.GAUSSIAN_SH, CHUNK.LIDAR_ATTR,
+      CHUNK.KEYFRAME_MESH, CHUNK.GAUSSIAN_SH, CHUNK.LIDAR_ATTR,
     ].includes(chunk.type);
     // Local file imports already hold decoded chunks in editor state. Keep
     // those if there is no fetchable URL or if a private URL fetch fails.
@@ -170,6 +170,8 @@ const FumocaPublish = (() => {
       vertical,
       gaussianSH: gaussianSH || undefined,
       lidarAttributes: _compactLidarAttributes(S, aliveIndices),
+      thumbnailBytes: S.nifThumbnailBytes || undefined,
+      mesh: S.nifMesh || undefined,
       passthroughChunks,
     });
     return new Blob([buf], { type: 'application/octet-stream' });
