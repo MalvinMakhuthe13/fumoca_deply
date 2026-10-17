@@ -298,6 +298,8 @@ jobs:
         run: node --experimental-default-type=module tests/mobile-asset-html-security.mjs
       - name: Test mobile widget storage contract
         run: node --experimental-default-type=module tests/mobile-asset-storage-contract.mjs
+      - name: Test open-state variant storage contract
+        run: node --experimental-default-type=module tests/open-variant-storage-contract.mjs
       - name: Test CPU-only splat to NIF conversion
         run: node --experimental-default-type=module tests/splat-to-nif-smoke.mjs
       - name: Test NIF geometry validation
