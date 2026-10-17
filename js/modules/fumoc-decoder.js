@@ -497,20 +497,23 @@ async function decodePreview(buffer) {
 
   const result = { header, version, meta: {}, thumbnail: null, hotspots: [], tour: [] };
 
+  const seenSections = new Set();
   for (const section of readSections(bytes, dataOffset)) {
-    const { id, flags, data } = section;
-    if (id === 'SPLT') continue; // skip the heavy part
+    const { id } = section;
+    if (seenSections.has(id)) throw new Error(`[FUMOC] Duplicate section ${id}`);
+    seenSections.add(id);
+    if (id === 'SPLT') continue; // skip the heavy payload without decompressing it
     if (id === 'META') {
-      const raw = (flags & 0x01) ? await inflate(data) : data;
-      try { result.meta = JSON.parse(dec.decode(raw)); } catch {}
+      const raw = await sectionPayload(section);
+      try { result.meta = JSON.parse(dec.decode(raw)); } catch { throw new Error('[FUMOC] META section JSON is invalid'); }
     } else if (id === 'THUM') {
-      result.thumbnail = (flags & 0x01) ? await inflate(data) : data;
+      result.thumbnail = await sectionPayload(section);
     } else if (id === 'HOTS') {
-      const raw = (flags & 0x01) ? await inflate(data) : data;
-      try { result.hotspots = JSON.parse(dec.decode(raw)); } catch {}
+      const raw = await sectionPayload(section);
+      try { result.hotspots = JSON.parse(dec.decode(raw)); } catch { throw new Error('[FUMOC] HOTS section JSON is invalid'); }
     } else if (id === 'TOUR') {
-      const raw = (flags & 0x01) ? await inflate(data) : data;
-      try { result.tour = JSON.parse(dec.decode(raw)); } catch {}
+      const raw = await sectionPayload(section);
+      try { result.tour = JSON.parse(dec.decode(raw)); } catch { throw new Error('[FUMOC] TOUR section JSON is invalid'); }
     }
   }
   return result;
