@@ -98,6 +98,8 @@ jobs:
           print(f"Extracted {len(scripts)} inline Studio scripts for syntax validation")
           PY
           for script in /tmp/fumoca-inline-scripts/script-*; do node --check "$script"; done
+      - name: Test NIF Studio layer manifest round-trip
+        run: node --experimental-default-type=module tests/editor-scene-manifest.mjs
       - name: Guard NIF Studio layer persistence
         run: |
           grep -q "function serializeEditorSceneMetadata(aliveIndices)" edit.html
