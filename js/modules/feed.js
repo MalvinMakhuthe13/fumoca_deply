@@ -566,6 +566,20 @@ async function loadFeed() {
     let profilesById = new Map();
     try { profilesById = await fetchProfilesFor(rows); }
     catch (e) { console.warn('[FUMOCA feed] profile lookup failed', e); }
+    // Private captures' thumbnails are protected by the R2 Worker too. Resolve
+    // owner-only thumbnail URLs before rendering so the owner's feed doesn't
+    // show broken images while anonymous users remain unable to fetch them.
+    const authorizedPrivateThumbnails = new Map();
+    await Promise.all(rows.map(async row => {
+      if (row?.is_public === true || row?.user_id !== currentUserId) return;
+      const key = row.meta?.thumbnail_r2_key || row.meta?.capture_thumbnail_r2_key;
+      if (!key) return;
+      try {
+        authorizedPrivateThumbnails.set(row.id, await r2.from('thumbnails').authenticatedUrl(key));
+      } catch (error) {
+        console.warn('[FUMOCA feed] private thumbnail authorization failed', row.id, error?.message || error);
+      }
+    }));
     allPosts = rows.map(row => {
       const profile = profilesById.get(row.user_id) || {};
       const url = resolveUrl(row);
@@ -574,7 +588,7 @@ async function loadFeed() {
         ...row, status: ns,
         username: profile.username || profile.first_name || 'fumoca_user',
         avatar_url: profile.avatar_url || '',
-        thumbnail_url: resolveThumbnail(row),
+        thumbnail_url: authorizedPrivateThumbnails.get(row.id) || resolveThumbnail(row),
         preview_video_url: resolvePreviewVideo(row),
         source_type: row.source_type || (row.external_nif_url ? 'external' : 'fumoca'),
         provider_name: row.provider_name || row.meta?.provider_name || (row.external_nif_url || row.meta?.external_nif_url ? 'External provider' : 'FUMOCA'),
