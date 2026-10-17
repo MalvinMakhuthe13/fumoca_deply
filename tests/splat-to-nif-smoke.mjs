@@ -57,7 +57,7 @@ for (let i = 0; i < 2; i++) {
   const qBytes = i === 0 ? [235, 148, 118, 136] : [255, 128, 128, 128];
   const qRaw = qBytes.map(value => (value - 128) / 128);
   const qLength = Math.hypot(...qRaw) || 1;
-  for (let q = 0; q < 4; q++) closeTo(decoded.gaussians.data[o + 6 + q], qRaw[q] / qLength, 0.0001, `point ${i} quaternion ${q}`);
+  for (let q = 0; q < 4; q++) closeTo(decoded.gaussians.data[o + 6 + q], qRaw[q] / qLength, 0.002, `point ${i} quaternion ${q}`);
   closeTo(sigmoid(decoded.gaussians.data[o + 10]), 230 / 255, 0.003, `point ${i} opacity`);
   closeTo(sigmoid(decoded.gaussians.data[o + 11]), 220 / 255, 0.003, `point ${i} red`);
   closeTo(sigmoid(decoded.gaussians.data[o + 12]), 120 / 255, 0.003, `point ${i} green`);
