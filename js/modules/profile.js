@@ -116,7 +116,7 @@ function renderManage() {
           <div class="mini-item-sub">${esc(status)} · ${new Date(item.created_at).toLocaleString()}</div>
         </div>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-          ${status === 'done' ? `<a href="viewer.html?id=${encodeURIComponent(item.id)}" class="nav-item active" style="display:inline-flex;padding:10px 12px;">Open</a>` : ''}
+          ${status === 'done' ? `<a href="viewer.html?nifId=${encodeURIComponent(item.id)}" class="nav-item active" style="display:inline-flex;padding:10px 12px;">Open</a>` : ''}
           <button class="upload-btn manage-delete-btn" type="button" data-delete-id="${esc(item.id)}" style="padding:10px 14px;background:rgba(255,72,72,0.12);border-color:rgba(255,72,72,0.28);color:#ffb1b1;">Delete</button>
         </div>
       </div>
