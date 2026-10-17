@@ -16,7 +16,9 @@ for (const [bucket, key] of [
 assert.ok(block.indexOf('Promise.allSettled(') < block.indexOf(".from('nif_files')"), 'R2 cleanup must run before deleting the ownership row');
 assert.match(block, /bucket: item\.meta\?\.source_r2_bucket \|\| 'nif-files', key: item\.meta\?\.source_r2_key/,
   'source_r2_key cleanup must honor the recorded bucket');
-assert.match(block, /!item\.meta\?\.source_r2_bucket && item\.meta\?\.source_r2_key \? \[\{ bucket: 'nif-videos', key: item\.meta\.source_r2_key \}\]/,
+assert.match(block, /item\.meta\?\.source_r2_key\?\.startsWith\('raw\/'\) \? 'nif-videos' : 'nif-files'/,
+  'legacy raw-burst keys must be routed directly to nif-videos to avoid false delete failures');
+assert.match(block, /!item\.meta\?\.source_r2_bucket && item\.meta\?\.source_r2_key && !item\.meta\.source_r2_key\.startsWith\('raw\/'\) \? \[\{ bucket: 'nif-videos', key: item\.meta\.source_r2_key \}\]/,
   'legacy source keys without a bucket marker must be checked in the old video bucket too');
 assert.match(block, /bucket: sourceCapture\?\.r2_bucket \|\| sourceCapture\?\.bucket \|\| 'nif-files', key: sourceCapture\?\.r2_key/,
   'source capture cleanup must use its recorded bucket, defaulting to nif-files');
