@@ -73,7 +73,7 @@ jobs:
           grep -q "post.meta?.source_r2_key" js/modules/feed.js
           grep -q "item.meta?.source_capture?.r2_key" js/modules/profile.js
           grep -q "from('reconstruction_jobs')" js/modules/feed.js
-          grep -q "row.job_id || row.id" js/modules/feed.js
+          grep -q "const jobId = row.job_id" js/modules/feed.js
           grep -q "row.status = 'needs_retry'" js/modules/feed.js
           grep -q "needs_retry" js/modules/feed.js
           grep -q "jobsById.get" js/modules/profile.js
