@@ -222,11 +222,9 @@ const FumocaTeaserVideo = (() => {
             }
             if (splatRecord && typeof splatRecord === 'object') splatRecord.meta = nextMeta;
 
+            // The URL and R2 key were committed together above. Do not perform
+            // a second stale metadata write through the generic edit-recipe helper.
             uploadedUrl = candidateUrl;
-            if (typeof window.saveLiveEdit === 'function') {
-              await window.saveLiveEdit({ teaser_video_url: uploadedUrl, teaser_video_r2_key: fileKey });
-            }
-
             console.log(`%c[Teaser] Uploaded → ${uploadedUrl}`, 'color:#c8ff00;font-weight:800');
             window.dispatchEvent(new CustomEvent('fumoca:teaserReady', {
               detail: { splatId, url: uploadedUrl }
