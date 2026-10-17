@@ -116,6 +116,8 @@ jobs:
           grep -q "user_id:" cloudflare/workers/r2-storage.js
       - name: Test R2 delete ownership
         run: node --experimental-default-type=module tests/r2-delete-ownership.mjs
+      - name: Test viewer R2 bucket routing
+        run: node --experimental-default-type=module tests/viewer-r2-bucket-routing.mjs
       - name: Test NIF Studio layer manifest round-trip
         run: node --experimental-default-type=module tests/editor-scene-manifest.mjs
       - name: Guard NIF Studio layer persistence
