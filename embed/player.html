@@ -317,10 +317,11 @@ async function resolveContent() {
   if (splat.user_id) {
     try {
       const profiles = await sbFetch(
-        `profiles?id=eq.${encodeURIComponent(splat.user_id)}&select=username,display_name,avatar_url`
+        `profiles?id=eq.${encodeURIComponent(splat.user_id)}&select=username,first_name,last_name,avatar_url`
       );
       if (profiles?.[0]) {
-        author = profiles[0].display_name || profiles[0].username || author;
+        const fullName = [profiles[0].first_name, profiles[0].last_name].filter(Boolean).join(' ');
+        author = fullName || profiles[0].username || author;
         avatarUrl = profiles[0].avatar_url || avatarUrl;
       }
     } catch (_) {}
