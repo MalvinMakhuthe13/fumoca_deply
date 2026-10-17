@@ -27,6 +27,14 @@ assert.match(hotspot, /discardPartToggleVariant\(fileKey, currentRecord\.id, cur
   'cancelling preview must unregister and delete the generated variant');
 assert.match(hotspot, /recordId: currentRecord\.id, ownerId: currentRecord\.user_id/,
   'the authoring flow must pass parent identity into variant creation');
+assert.match(toggle, /authenticatedUrl\(fileKey\)/,
+  'private-parent preview must use a short-lived authorized read ticket');
+assert.match(toggle, /return \{ openNifUrl: publicUrl, previewNifUrl, fileKey, layers \}/,
+  'canonical public URL and temporary preview URL must remain separate');
+assert.match(hotspot, /_fumocaApplyRendererPreview\(previewNifUrl \|\| openNifUrl\)/,
+  'preview must use the authorized URL without persisting its temporary ticket');
+assert.match(hotspot, /action: \{ type: 'animate', layer, openNifUrl \}/,
+  'saved hotspot action must keep the canonical variant URL');
 assert.equal(worker.split('meta->open_variant_r2_keys.cs.{${encodedKey}}').length - 1, 2,
   'R2 read and delete authorization must query the parent record association');
 assert.match(worker, /meta\.open_variant_r2_keys\.includes\(fileKey\)/,
