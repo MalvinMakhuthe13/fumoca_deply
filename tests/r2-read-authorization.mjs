@@ -38,6 +38,8 @@ const privateNif = { id: 'nif-private', user_id: 'user-a', r2_key: 'private/mode
 const thumbPublic = { id: 'nif-thumb-public', user_id: 'user-a', r2_key: 'published/model.nif', is_public: true, meta: { thumbnail_r2_key: 'published/thumb.webp' } };
 const thumbPrivate = { id: 'nif-thumb-private', user_id: 'user-a', r2_key: 'private/model.nif', is_public: false, meta: { thumbnail_r2_key: 'private/thumb.webp' } };
 const sourceRow = { id: 'nif-source', user_id: 'user-a', r2_key: 'published/model.nif', is_public: true, meta: { source_r2_key: 'record-source/raw.mp4' } };
+const teaserPublic = { id: 'nif-teaser-public', user_id: 'user-a', r2_key: 'published/model.nif', is_public: true, meta: { teaser_video_r2_key: 'user-a/teasers/nif-teaser-public/teaser.webm' } };
+const teaserPrivate = { id: 'nif-teaser-private', user_id: 'user-a', r2_key: 'private/model.nif', is_public: false, meta: { teaser_video_r2_key: 'user-a/teasers/nif-teaser-private/teaser.webm' } };
 const run = (rows, jobs = [], responseStatus = 200) => helper(async (url, options) => {
   const parsed = new URL(url);
   assert.equal(options.headers.apikey, 'anon-test');
@@ -78,6 +80,12 @@ assert.equal(access.allowed, false, 'raw source media must be private by default
 
 access = await run([])(req('token-a'), env, userA, 'preview-videos', 'user-a/preview.mp4');
 assert.deepEqual(access, { allowed: true, isPublic: false, reason: 'owner-key' });
+
+access = await run([teaserPublic])(req(), env, null, 'preview-videos', 'user-a/teasers/nif-teaser-public/teaser.webm');
+assert.deepEqual(access, { allowed: true, isPublic: true, reason: 'published-nif-preview-video' }, 'published teaser video can be read publicly through its NIF association');
+
+access = await run([teaserPrivate])(req(), env, null, 'preview-videos', 'user-a/teasers/nif-teaser-private/teaser.webm');
+assert.equal(access.allowed, false, 'private NIF teaser video must remain private');
 
 access = await run([])(req(), env, null, 'preview-videos', 'preview/unknown.mp4');
 assert.equal(access.allowed, false, 'preview videos are private by default');
