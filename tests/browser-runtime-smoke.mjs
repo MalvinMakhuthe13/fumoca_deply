@@ -38,7 +38,7 @@ try {
   const studioErrors = [];
   studio.on('pageerror', error => studioErrors.push(error.message));
   await studio.goto(`http://127.0.0.1:${port}/edit.html`, { waitUntil: 'domcontentloaded' });
-  await studio.locator('#fileInput').waitFor();
+  await studio.locator('#fileInput').waitFor({ state: 'attached' });
   const fixture = Buffer.alloc(32);
   const fixtureView = new DataView(fixture.buffer, fixture.byteOffset, fixture.byteLength);
   fixtureView.setFloat32(0, 0.25, true);
