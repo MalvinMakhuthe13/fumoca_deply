@@ -42,6 +42,25 @@ function sigmoid(x) { return 1 / (1 + Math.exp(-x)); }
  * @param {number}     rowSize       bytes per point (default 32, antimatter15 layout)
  */
 function splatRowsToGeometry(sourceBuffer, aliveIndices, rowSize = 32) {
+  if (!(sourceBuffer instanceof Uint8Array)) {
+    throw new Error('[nif-format] SPLAT source must be a Uint8Array');
+  }
+  if (!Number.isInteger(rowSize) || rowSize < 32) {
+    throw new Error('[nif-format] SPLAT row size must be an integer of at least 32 bytes');
+  }
+  if (sourceBuffer.byteLength % rowSize !== 0) {
+    throw new Error('[nif-format] SPLAT source length must be divisible by row size');
+  }
+  if (!aliveIndices || typeof aliveIndices.length !== 'number') {
+    throw new Error('[nif-format] aliveIndices must be an array-like collection');
+  }
+  const rowCount = sourceBuffer.byteLength / rowSize;
+  for (let i = 0; i < aliveIndices.length; i++) {
+    const index = aliveIndices[i];
+    if (!Number.isInteger(index) || index < 0 || index >= rowCount) {
+      throw new Error(`[nif-format] SPLAT point index ${index} at position ${i} is out of bounds`);
+    }
+  }
   const dv    = new DataView(sourceBuffer.buffer, sourceBuffer.byteOffset, sourceBuffer.byteLength);
   const count = aliveIndices.length;
   const out   = new Float32Array(count * FLOATS_PER_POINT);
