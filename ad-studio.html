@@ -349,11 +349,21 @@ let _currentCamera = { position: [0,1,5], lookAt: [0,0,0] };
 
 // ── Load splat ─────────────────────────────────────────────────────────────
 document.getElementById('loadSplatBtn').addEventListener('click', async () => {
-  const { data: splats } = await supabase
-    .from('splats').select('id,title,metadata').order('created_at', { ascending: false }).limit(20);
-  if (!splats?.length) { alert('No splats found.'); return; }
+  const { data: { user } } = await supabase.auth.getUser();
+  let query = supabase.from('nif_files')
+    .select('id,user_id,title,r2_key,is_public,meta,created_at')
+    .order('created_at', { ascending: false })
+    .limit(20);
+  // Public assets are available to everyone; private assets only appear in
+  // the signed-in owner's picker. Do not query the absent legacy splats table.
+  query = user
+    ? query.or(`is_public.eq.true,user_id.eq.${user.id}`)
+    : query.eq('is_public', true);
+  const { data: nifs, error } = await query;
+  if (error) { alert(`Could not load scenes: ${error.message}`); return; }
+  if (!nifs?.length) { alert('No available NIF scenes found.'); return; }
 
-  const choice = splats[0]; // TODO: show picker
+  const choice = nifs[0]; // TODO: show picker
   _sendToViewer({ type: 'loadSplat', splatId: choice.id });
 });
 
