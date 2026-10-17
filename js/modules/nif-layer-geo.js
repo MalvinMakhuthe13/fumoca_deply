@@ -18,7 +18,7 @@ export function compactNifLayers(sourceLayers, aliveIndices, sourcePointCount) {
   const layers = [];
   let droppedUnindexed = 0;
   for (const layer of Array.isArray(sourceLayers) ? sourceLayers : []) {
-    if (!layer || !Array.isArray(layer.indices) && !ArrayBuffer.isView(layer.indices)) {
+    if (!layer || !(Array.isArray(layer.indices) || (ArrayBuffer.isView(layer.indices) && !(layer.indices instanceof DataView)))) {
       droppedUnindexed++;
       continue;
     }
