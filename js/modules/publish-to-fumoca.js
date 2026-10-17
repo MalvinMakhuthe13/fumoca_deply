@@ -28,7 +28,15 @@ const FumocaPublish = (() => {
   async function _loadOriginalForPassthrough() {
     const url = window._fumocaNifUrl || new URLSearchParams(location.search).get('file');
     let vertical = 'generic';
-    let passthroughChunks = [];
+    const shouldPassThrough = chunk => ![
+      CHUNK.KEYFRAME_GEO, CHUNK.META, CHUNK.THUMBNAIL,
+      CHUNK.GAUSSIAN_SH, CHUNK.LIDAR_ATTR,
+    ].includes(chunk.type);
+    // Local file imports already hold decoded chunks in editor state. Keep
+    // those if there is no fetchable URL or if a private URL fetch fails.
+    let passthroughChunks = Array.isArray(window.S?.nifPassthroughChunks)
+      ? window.S.nifPassthroughChunks.filter(shouldPassThrough)
+      : [];
 
     if (url && /\.nif(\?|$)/i.test(url)) {
       try {
@@ -39,11 +47,7 @@ const FumocaPublish = (() => {
         // Geometry-indexed sidecars must be rebuilt against the current alive
         // point list. Passing the source SH/LiDAR chunks through unchanged would
         // leave stale point counts or misalign attributes after deletion.
-        passthroughChunks = reader.chunks.filter(c =>
-          ![
-            CHUNK.KEYFRAME_GEO, CHUNK.META, CHUNK.THUMBNAIL,
-            CHUNK.GAUSSIAN_SH, CHUNK.LIDAR_ATTR,
-          ].includes(c.type));
+        passthroughChunks = reader.chunks.filter(shouldPassThrough);
         vertical = reader.header?.vertical || 'generic';
       } catch (e) {
         console.warn('[Publish] Could not read original .nif for passthrough — proceeding without it:', e.message);
