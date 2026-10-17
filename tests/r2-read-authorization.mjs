@@ -40,10 +40,8 @@ const thumbPrivate = { id: 'nif-thumb-private', user_id: 'user-a', r2_key: 'user
 const sourceRow = { id: 'record-source', user_id: 'user-a', r2_key: 'user-a/model.nif', is_public: true, meta: { source_r2_key: 'record-source/raw.mp4' } };
 const teaserPublic = { id: 'nif-teaser-public', user_id: 'user-a', r2_key: 'user-a/model.nif', is_public: true, meta: { teaser_video_r2_key: 'user-a/teasers/nif-teaser-public/teaser.webm' } };
 const teaserPrivate = { id: 'nif-teaser-private', user_id: 'user-a', r2_key: 'user-a/private/model.nif', is_public: false, meta: { teaser_video_r2_key: 'user-a/teasers/nif-teaser-private/teaser.webm' } };
-const run = (rows, jobs = [], responseStatus = 200) => helper(async (url, options) => {
-  const parsed = new URL(url);
+const run = (rows, responseStatus = 200) => helper(async (_url, options) => {
   assert.equal(options.headers.apikey, 'anon-test');
-  if (parsed.pathname.endsWith('/reconstruction_jobs')) return new Response(JSON.stringify(jobs), { status: responseStatus });
   return new Response(JSON.stringify(rows), { status: responseStatus });
 }, { error: () => {} });
 
@@ -146,7 +144,7 @@ assert.deepEqual(access, { allowed: true, isPublic: true, reason: 'public-avatar
 access = await run([])(req(), env, null, 'unexpected-bucket', 'anything');
 assert.equal(access.allowed, false, 'unknown buckets must fail closed');
 
-access = await run([], [], 503)(req(), env, null, 'nif-files', 'user-a/model.nif');
+access = await run([], 503)(req(), env, null, 'nif-files', 'user-a/model.nif');
 assert.equal(access.allowed, false, 'database lookup failures must fail closed');
 
 const getStart = source.indexOf("if (request.method === 'GET' && path.startsWith('/file/'))");
