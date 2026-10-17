@@ -22,7 +22,12 @@ jobs:
         with:
           python-version: "3.11"
       - name: Check whole-platform integration audit
-        run: test -s docs/PLATFORM_INTEGRATION_AUDIT.md && grep -q "Acceptance gates for a clean release" docs/PLATFORM_INTEGRATION_AUDIT.md
+        run: |
+          test -s docs/PLATFORM_INTEGRATION_AUDIT.md
+          grep -q "Acceptance gates for a clean release" docs/PLATFORM_INTEGRATION_AUDIT.md
+          grep -q "public R2 read route and visibility bypass" docs/PLATFORM_INTEGRATION_AUDIT.md
+          grep -q "supabase_storage_policies.sql" docs/PLATFORM_INTEGRATION_AUDIT.md
+          grep -q "legacy.*Supabase Storage buckets" docs/PLATFORM_INTEGRATION_AUDIT.md
       - name: Check Studio JavaScript syntax
         run: node --check js/modules/image-to-splat-studio.js
       - name: Check viewer ES module syntax
