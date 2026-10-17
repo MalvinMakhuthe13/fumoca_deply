@@ -171,6 +171,17 @@ async function deletePostRecord(post, opts = {}) {
     .delete().eq('id', post.id).eq('user_id', post.user_id);
   if (error) throw error;
 
+  // Remove the associated job when this artifact has an explicit job link.
+  if (post.job_id) {
+    const { error: jobDeleteError } = await supabase.from('reconstruction_jobs')
+      .delete().eq('id', post.job_id).eq('user_id', post.user_id);
+    if (jobDeleteError) {
+      console.warn('[FUMOCA feed] NIF deleted but reconstruction job cleanup failed', {
+        nifId: post.id, jobId: post.job_id, error: jobDeleteError.message,
+      });
+    }
+  }
+
   // 5. Animate card out
   const card = document.querySelector(`article[data-id="${post.id}"]`);
   if (card) {
