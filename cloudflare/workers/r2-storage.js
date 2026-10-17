@@ -174,9 +174,9 @@ async function userMayWriteFileKey(request, env, principal, bucketName, fileKey)
   if (slash <= 0) return false;
   const recordId = fileKey.slice(0, slash);
   const remainder = fileKey.slice(slash + 1);
-  if (!/^edited_[A-Za-z0-9_-]+\\.(?:nif|ply|splat|glb)$/i.test(remainder)) return false;
+  if (!/^edited_[A-Za-z0-9_-]+\.(?:nif|ply|splat|glb)$/i.test(remainder)) return false;
 
-  const token = (request.headers.get('Authorization') || '').replace(/^Bearer\\s+/, '');
+  const token = (request.headers.get('Authorization') || '').replace(/^Bearer\s+/, '');
   if (!token || !env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) return false;
   const query = new URLSearchParams({
     select: 'id',
