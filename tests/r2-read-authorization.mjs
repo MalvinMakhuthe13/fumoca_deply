@@ -99,5 +99,14 @@ assert.ok(getRoute.indexOf('authorizeFileRead(') < getRoute.indexOf('cache.match
 assert.match(getRoute, /Cache-Control': access\.isPublic \? `public, max-age=\$\{ttl\}` : 'private, no-store'/);
 assert.match(getRoute, /if \(access\.isPublic\) ctx\.waitUntil\(cache\.put/);
 assert.match(getRoute, /'X-Content-Type-Options': 'nosniff'/);
+assert.ok(getRoute.indexOf('verifyReadTicket(') < getRoute.indexOf('cache.match('), 'signed ticket validation must happen before cache lookup');
+assert.match(getRoute, /Cache-Control': access\.isPublic \? `public, max-age=\$\{ttl\}` : 'private, no-store'/);
+const ticketStart = source.indexOf("if (request.method === 'POST' && path === '/file/ticket')");
+const ticketEnd = source.indexOf("// ── GET /file/:key", ticketStart);
+assert.ok(ticketStart >= 0 && ticketEnd > ticketStart, 'private read ticket endpoint must exist');
+const ticketRoute = source.slice(ticketStart, ticketEnd);
+assert.ok(ticketRoute.indexOf('authorizeFileRead(') < ticketRoute.indexOf('createReadTicket('), 'tickets must only be issued after access authorization');
+assert.match(ticketRoute, /expiresAt: Date\.now\(\) \+ 5 \* 60 \* 1000/);
+
 
 console.log('R2 read authorization regression tests passed.');
