@@ -731,46 +731,57 @@ window.handleSubmit = async function() {
         setProgress(25, isGaussianPly ? 'Converting Gaussian PLY attributes…' : 'Converting point-cloud PLY to NIF…');
 
         if (isGaussianPly) {
-          const rows = new Uint8Array(count * 32);
-          const view = new DataView(rows.buffer);
-          const clampByte = value => Math.max(0, Math.min(255, Math.round(value)));
-          const sigmoid = value => 1 / (1 + Math.exp(-value));
-          const rgb = value => clampByte((value * 0.2820947918 + 0.5) * 255);
+          const gaussianGeometry = new Float32Array(count * 14);
+          const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+          const dcToLogit = value => {
+            const color = clamp(value * 0.2820947918 + 0.5, 1e-6, 1 - 1e-6);
+            return Math.log(color / (1 - color));
+          };
+          let requiresRawScalePreservation = false;
           for (let i = 0; i < count; i++) {
-            const o = i * 32;
-            view.setFloat32(o, posAttr.getX(i), true);
-            view.setFloat32(o + 4, posAttr.getY(i), true);
-            view.setFloat32(o + 8, posAttr.getZ(i), true);
-            view.setFloat32(o + 12, Math.exp(sx.getX(i)), true);
-            view.setFloat32(o + 16, Math.exp(sy.getX(i)), true);
-            view.setFloat32(o + 20, Math.exp(sz.getX(i)), true);
-            rows[o + 24] = rgb(dc0.getX(i));
-            rows[o + 25] = rgb(dc1.getX(i));
-            rows[o + 26] = rgb(dc2.getX(i));
-            rows[o + 27] = clampByte(sigmoid(opacityAttr.getX(i)) * 255);
-            for (const [j, a] of [[28,rot0],[29,rot1],[30,rot2],[31,rot3]]) {
-              rows[o + j] = clampByte((Math.max(-1, Math.min(1, a.getX(i))) + 1) * 127.5);
+            const o = i * 14;
+            const x = posAttr.getX(i), y = posAttr.getY(i), z = posAttr.getZ(i);
+            const logSx = sx.getX(i), logSy = sy.getX(i), logSz = sz.getX(i);
+            if ([logSx, logSy, logSz].some(value => value < -8 || value > 2)) {
+              requiresRawScalePreservation = true;
             }
+            gaussianGeometry[o] = x;
+            gaussianGeometry[o + 1] = y;
+            gaussianGeometry[o + 2] = z;
+            gaussianGeometry[o + 3] = logSx;
+            gaussianGeometry[o + 4] = logSy;
+            gaussianGeometry[o + 5] = logSz;
+            gaussianGeometry[o + 6] = rot0.getX(i);
+            gaussianGeometry[o + 7] = rot1.getX(i);
+            gaussianGeometry[o + 8] = rot2.getX(i);
+            gaussianGeometry[o + 9] = rot3.getX(i);
+            gaussianGeometry[o + 10] = opacityAttr.getX(i);
+            gaussianGeometry[o + 11] = dcToLogit(dc0.getX(i));
+            gaussianGeometry[o + 12] = dcToLogit(dc1.getX(i));
+            gaussianGeometry[o + 13] = dcToLogit(dc2.getX(i));
           }
-          const aliveIndices = new Uint32Array(count);
-          for (let i = 0; i < count; i++) aliveIndices[i] = i;
           conversionDetails = {
             engine: 'fumoca-nif-format',
             gpu_required: false,
-            attribute_mapping: 'xyz/scale/f_dc/opacity/rotation',
+            geometry_encoding: requiresRawScalePreservation ? 'raw_float32' : 'quantized_17_bytes_per_point',
+            attribute_mapping: 'xyz/log-scale/normalized-rotation/opacity/DC-derived-colour',
             preserved_attributes: [
-              'position', 'scale', 'rotation', 'opacity', 'render-ready DC colour',
+              'position', 'log-scale', 'rotation', 'opacity', 'render-ready DC colour',
               'exact f_dc_* coefficients in GAUSSIAN_SH sidecar',
               ...(shMetadata.higherOrderShCount ? ['exact f_rest_* coefficients in GAUSSIAN_SH sidecar'] : []),
             ],
             sh_degree_detected: shMetadata.detectedShDegree,
             higher_order_sh_attribute_count: shMetadata.higherOrderShCount,
             discarded_attributes: [],
-            quality_flags: shMetadata.qualityFlags,
+            quality_flags: [
+              ...shMetadata.qualityFlags,
+              ...(requiresRawScalePreservation ? ['raw_geometry_used_to_preserve_log_scale_range'] : []),
+            ],
             created_at: new Date().toISOString(),
           };
           outputBuffer = encodeNif({
-            sourceBuffer: rows, aliveIndices, rowSize: 32, vertical: category || 'generic',
+            geometry: gaussianGeometry,
+            compress: !requiresRawScalePreservation,
             gaussianSH: {
               degree: shMetadata.detectedShDegree,
               pointCount: count,
