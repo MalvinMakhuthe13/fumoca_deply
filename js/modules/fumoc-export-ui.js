@@ -375,6 +375,10 @@ function _wire() {
             ? meta.editor_scene.layers.map(layer => ({ label: layer.name, depthMin: 0, depthMax: 0, indices: layer.point_indices }))
             : [];
           const layerData = compactNifLayers(layerSources, Array.from({ length: count }, (_, i) => i), count);
+          if (layerData.droppedUnindexed) {
+            meta.quality_flags = [...new Set([...(Array.isArray(meta.quality_flags) ? meta.quality_flags : []), 'legacy_layer_geo_dropped_no_indices'])];
+            meta.layer_geo_status = 'legacy_layers_dropped_unindexed';
+          }
           nifBuffer = encodeNif({
             sourceBuffer: sourceBytes,
             aliveIndices: Array.from({ length: count }, (_, i) => i),
