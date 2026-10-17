@@ -1765,7 +1765,7 @@ scene.add(new THREE.AxesHelper(1.5));
 // ─── STATE ──────────────────────────────────────────────────────────────────
 const S = {
   fileName: '', fileType: '', sourceBuffer: null, splatRowSize: 32, splatSourceUrl: '',
-  positions: null, colors: null, opacity: null, scale: null, scaleXYZ: null, rotation: null, shAttributes: [], shCoefficients: null, nifVertical: 'generic', nifLayers: [], alive: null, selected: null,
+  positions: null, colors: null, opacity: null, scale: null, scaleXYZ: null, rotation: null, shAttributes: [], shCoefficients: null, nifVertical: 'generic', nifLayers: [], nifRawMeshChunk: null, alive: null, selected: null,
   pivot: null,
   measurements: [], measurementStart: null,
   paintColors: null,
@@ -2577,6 +2577,7 @@ async function loadFile(file, urlOverride) {
   S.nifMeta = {};
   S.nifVertical = 'generic';
   S.nifLayers = [];
+  S.nifRawMeshChunk = null;
   S.nifThumbnailBytes = null;
   S.nifMesh = null;
   S.nifPassthroughChunks = [];
@@ -2595,11 +2596,15 @@ async function loadFile(file, urlOverride) {
     S.nifVertical = decoded.reader.header?.vertical || 'generic';
     S.nifLayers = await decodeLayers(decoded.reader);
     S.nifThumbnailBytes = decoded.thumbnailBytes || null;
-    S.nifPassthroughChunks = decoded.reader.chunks.filter(chunk => ![0x0001, 0x0003, 0x0004, 0x0009, 0x0015, 0x0019, 0x001A].includes(chunk.type));
     S.nifMesh = decoded.mesh ? {
       vertices: decoded.mesh.positions, colours: decoded.mesh.colors,
       triangles: decoded.mesh.faces,
     } : null;
+    S.nifRawMeshChunk = decoded.reader.getChunk(CHUNK.KEYFRAME_MESH) || null;
+    S.nifPassthroughChunks = decoded.reader.chunks.filter(chunk =>
+      ![0x0001, 0x0003, 0x0009, 0x0015, 0x0019, 0x001A].includes(chunk.type) &&
+      !(chunk.type === CHUNK.KEYFRAME_MESH && S.nifMesh)
+    );
     S.lidarIntensity = decoded.lidarAttributes?.intensity || null;
     S.lidarClassification = decoded.lidarAttributes?.classification || null;
     S.lidarReturnNumber = decoded.lidarAttributes?.returnNumber || null;
