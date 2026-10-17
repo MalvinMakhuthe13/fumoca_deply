@@ -705,8 +705,8 @@ window.handleSubmit = async function() {
         const isGaussianPly = !!(sx && sy && sz && opacityAttr && dc0 && dc1 && dc2 && rot0 && rot1 && rot2 && rot3);
         const plyAttributeNames = Object.keys(parsedGeometry.attributes || {});
         const shMetadata = inspectPlyAttributes(plyAttributeNames, isGaussianPly);
-        if (isGaussianPly && shMetadata.hasUnsupportedShLayout) {
-          throw new Error('This Gaussian PLY has an unsupported f_rest_* coefficient layout. FUMOCA refuses to discard those attributes; export a standard SH-degree PLY and retry.');
+        if (shMetadata.hasUnsupportedShLayout) {
+          throw new Error('This PLY contains f_rest_* coefficients that cannot be mapped safely to a standard Gaussian SH layout. FUMOCA refuses to discard them; export a complete Gaussian PLY with standard f_dc_*/f_rest_* properties and retry.');
         }
         const shRestNames = plyAttributeNames.filter(name => /^f_rest_\d+$/.test(name))
           .sort((a, b) => Number(a.slice(7)) - Number(b.slice(7)));
