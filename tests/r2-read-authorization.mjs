@@ -215,6 +215,16 @@ const maliciousParent = {
     cleaned_splat: { r2_key: 'nif-b/edited_cleaned_1.splat' },
   },
 };
+const maliciousOutput = {
+  id: 'nif-a',
+  user_id: 'user-a',
+  r2_key: 'user-b/private.nif',
+  is_public: true,
+  meta: {},
+};
+access = await run([maliciousOutput])(req(), env, null, 'nif-files', 'user-b/private.nif');
+assert.equal(access.allowed, false, 'a public NIF row must not expose another owner’s output by changing r2_key');
+
 for (const [bucket, key] of [
   ['nif-files', 'user-b/open-variants/nif-b_door_1.nif'],
   ['nif-files', 'user-b/mobile-assets/nif-b/widget_1.html'],
