@@ -230,6 +230,8 @@ jobs:
         run: node --experimental-default-type=module tests/legacy-pages-nif-schema.mjs
       - name: Test upload NIF schema contract
         run: node --experimental-default-type=module tests/upload-nif-schema-contract.mjs
+      - name: Test Studio-to-NIF geometry row encoder
+        run: node --experimental-default-type=module tests/editor-splat-rows.mjs
       - name: Test NIF publish contract
         run: node --experimental-default-type=module tests/publish-contract.mjs
       - name: Test NIF publish geometry and sidecar fidelity
