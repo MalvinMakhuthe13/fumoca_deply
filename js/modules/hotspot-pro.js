@@ -198,6 +198,7 @@ const state = {
   canManage: false,
   loaded: false,
   saving: false,
+  saveStatus: 'Not saved',
   tourIndex: -1,
   worldProjectionEnabled: false,
   tourActive: false,
@@ -496,10 +497,16 @@ async function saveRemote() {
   const sb = window._fumocaSupabase;
   const rec = window._fumocaCurrentRecord || {};
   if (!sb || !rec?.id) {
+    state.saveStatus = 'Local backup only';
     try { persistLocal(); } catch (error) { console.warn('[hotspot-pro] local backup failed:', error); }
+    window.dispatchEvent(new CustomEvent('fumoca:hotspotSaveFailed', {
+      detail: { recordId: rec?.id || null, message: 'No active NIF record or Supabase connection; changes are only in this browser.' }
+    }));
+    renderPanel();
     return false;
   }
   state.saving = true;
+  state.saveStatus = 'Saving…';
   try {
     await _syncProductHotspots(sb, rec.id, rec.user_id);
     const { data: latest, error: readError } = await sb.from('nif_files')
@@ -518,10 +525,18 @@ async function saveRemote() {
     try { persistLocal(); } catch (backupError) { console.warn('[hotspot-pro] local backup failed after remote save:', backupError); }
     try { track('hotspot_save', { recordId: rec.id, count: state.hotspots.length }); }
     catch (trackError) { console.warn('[hotspot-pro] analytics failed after remote save:', trackError); }
+    state.saveStatus = 'Saved to NIF';
+    window.dispatchEvent(new CustomEvent('fumoca:hotspotsSaved', {
+      detail: { recordId: rec.id, count: state.hotspots.length }
+    }));
     return true;
   } catch (err) {
     console.warn('[hotspot-pro] remote save failed, using local backup', err);
+    state.saveStatus = 'Save failed — local backup only';
     try { persistLocal(); } catch (backupError) { console.warn('[hotspot-pro] local backup failed:', backupError); }
+    window.dispatchEvent(new CustomEvent('fumoca:hotspotSaveFailed', {
+      detail: { recordId: rec?.id || null, message: err?.message || String(err) }
+    }));
     return false;
   } finally {
     state.saving = false;
@@ -982,7 +997,7 @@ function renderPanel() {
         <div class="e-stat warn"><div class="e-stat-val">${state.worldProjectionEnabled ? '3D' : '2D'}</div><div class="e-stat-lbl">Anchor mode</div></div>
       </div>
       <div class="e-control">
-        <div class="e-label"><span>Experience actions</span><span class="e-val">${state.saving ? 'Saving…' : 'Ready'}</span></div>
+        <div class="e-label"><span>Experience actions</span><span class="e-val">${state.saving ? 'Saving…' : escapeHtml(state.saveStatus || 'Not saved')}</span></div>
         <button class="e-btn e-btn-primary" id="hsNextTour">Next hotspot</button>
         <button class="e-btn e-btn-warn" id="hsToggleTour">${state.tourActive ? 'Stop tour' : 'Start tour'}</button>
         <button class="e-btn e-btn-ghost" id="hsPresentBtn">${document.fullscreenElement ? '🡼 Exit present' : '🎦 Present'}</button>
@@ -1201,6 +1216,16 @@ function attachUi() {
   window.addEventListener('resize', renderHotspots);
   window.addEventListener('fumoca:viewerReady', renderHotspots);
   window.addEventListener('fumoca:recordLoaded', async () => { await detectManagePermission(); await loadHotspots(); renderPanel(); });
+  // Legacy viewer demo seeding routes through the same state owner, avoiding
+  // duplicate markers from hotspot-persist.js and Hotspots Pro.
+  window.addEventListener('fumoca:hotspotsSeeded', (event) => {
+    const seeded = event.detail?.hotspots;
+    if (!Array.isArray(seeded)) return;
+    state.hotspots = seeded.map(normalizeHotspot);
+    state.activeId = null;
+    renderHotspots();
+    renderPanel();
+  });
   // Editor: reload hotspots when a new file loads and reset point cloud cache
   window.addEventListener('fumoca:fileLoaded', async () => {
     pointCloudCache.loaded = false; pointCloudCache.url = '';
