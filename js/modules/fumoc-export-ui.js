@@ -266,6 +266,8 @@ function _wire() {
       let nifBuffer;
       let gaussianCount = 0;
       if (hasEditorState) {
+        if (S.nifSHChunkUnavailable) throw new Error('Export blocked: source Gaussian SH chunk could not be decoded; refusing to lose colour detail.');
+        if (S.nifLidarChunkUnavailable) throw new Error('Export blocked: source LiDAR attribute chunk could not be decoded; refusing to lose point attributes.');
         onProgress(35, 'Encoding current Studio state…');
         const aliveIndices = [];
         for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) aliveIndices.push(i);
