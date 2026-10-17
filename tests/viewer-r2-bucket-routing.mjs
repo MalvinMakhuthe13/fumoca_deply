@@ -1,0 +1,45 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+
+// Regression guard for the viewer's R2 bucket contract.
+// This is a source-level contract check; it does not claim a live R2 delete test.
+const viewer = readFileSync(new URL('../js/modules/viewer.js', import.meta.url), 'utf8');
+
+assert.match(
+  viewer,
+  /function resolveThumbnail\(record\)[\s\S]*?r2\.publicUrl\('thumbnails',\s*thumbKey\)/,
+  'thumbnail_r2_key must resolve through the dedicated thumbnails bucket'
+);
+
+assert.match(
+  viewer,
+  /const cleanupTargets = \[[\s\S]*?\{ bucket: 'nif-files', key: currentRecord\.r2_key \}/,
+  'NIF output cleanup must target nif-files'
+);
+assert.match(
+  viewer,
+  /\{ bucket: 'nif-videos', key: currentRecord\.meta\?\.source_r2_key \}/,
+  'source_r2_key cleanup must target nif-videos'
+);
+assert.match(
+  viewer,
+  /\{ bucket: 'nif-videos', key: currentRecord\.meta\?\.source_capture\?\.r2_key \}/,
+  'source_capture.r2_key cleanup must target nif-videos'
+);
+assert.match(
+  viewer,
+  /\{ bucket: 'thumbnails', key: currentRecord\.meta\?\.thumbnail_r2_key \}/,
+  'thumbnail_r2_key cleanup must target thumbnails'
+);
+assert.match(
+  viewer,
+  /\{ bucket: 'thumbnails', key: currentRecord\.meta\?\.capture_thumbnail_r2_key \}/,
+  'capture_thumbnail_r2_key cleanup must target thumbnails'
+);
+assert.match(
+  viewer,
+  /cleanupTargets\.map\(\(\{ bucket, key \}\) => r2\.from\(bucket\)\.remove\(\[key\]\)\)/,
+  'each object must be deleted through its own bucket'
+);
+
+console.log('Viewer R2 bucket routing contracts passed.');
