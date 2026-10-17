@@ -2,7 +2,7 @@ name: FUMOCA validation
 
 on:
   push:
-    branches: [main, "feat/**"]
+    branches: [main, "feat/**", "platform-job-and-motion-contract"]
   pull_request:
     branches: [main]
   workflow_dispatch:
