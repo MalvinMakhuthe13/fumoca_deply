@@ -25,6 +25,12 @@ jobs:
         run: node --check js/modules/image-to-splat-studio.js
       - name: Check viewer ES module syntax
         run: node --input-type=module --check < js/modules/viewer.js
+      - name: Check notifications module syntax
+        run: node --input-type=module --check < js/modules/notifications.js
+      - name: Check motion-state module syntax
+        run: node --input-type=module --check < js/modules/motion-states.js
+      - name: Test NIF job and motion-state integration
+        run: node --test tests/platform-workflow-contract.test.mjs
       - name: Compile Kaggle preflight script
         run: python -m py_compile kaggle/mesh2splat_preflight.py
       - name: Install preflight dependencies
