@@ -2,7 +2,7 @@ name: FUMOCA validation
 
 on:
   push:
-    branches: [main, "feat/**"]
+    branches: [main, "feat/**", "whole-platform-reference-audit"]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -25,6 +25,8 @@ jobs:
         run: node --check js/modules/image-to-splat-studio.js
       - name: Check viewer ES module syntax
         run: node --input-type=module --check < js/modules/viewer.js
+      - name: Test whole-platform audit contract
+        run: node --test tests/whole-platform-audit.test.mjs
       - name: Compile Kaggle preflight script
         run: python -m py_compile kaggle/mesh2splat_preflight.py
       - name: Install preflight dependencies
