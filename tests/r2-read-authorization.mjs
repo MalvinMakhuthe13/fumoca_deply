@@ -83,6 +83,24 @@ access = await run([mobilePrivate])(req('token-a'), env, userA, 'nif-files', mob
 assert.deepEqual(access, { allowed: true, isPublic: false, reason: 'owner-associated-file' },
   'owner can read their private mobile widget without making it public');
 
+const openVariantPublic = {
+  id: 'nif-open-public', user_id: 'user-a', r2_key: 'published/open.nif',
+  is_public: true, meta: { open_variant_r2_keys: ['user-a/open-variants/nif-open-public_door_1.nif'] },
+};
+const openVariantPrivate = {
+  id: 'nif-open-private', user_id: 'user-a', r2_key: 'private/open.nif',
+  is_public: false, meta: { open_variant_r2_keys: ['user-a/open-variants/nif-open-private_door_1.nif'] },
+};
+const openVariantKey = openVariantPublic.meta.open_variant_r2_keys[0];
+access = await run([openVariantPublic])(req(), env, null, 'nif-files', openVariantKey);
+assert.deepEqual(access, { allowed: true, isPublic: true, reason: 'published-nif-open-variant' },
+  'open-state variant is public only when its parent NIF is published');
+access = await run([openVariantPrivate])(req(), env, null, 'nif-files', openVariantPrivate.meta.open_variant_r2_keys[0]);
+assert.equal(access.allowed, false, 'private parent NIF must not expose an open-state variant');
+access = await run([openVariantPrivate])(req('token-a'), env, userA, 'nif-files', openVariantPrivate.meta.open_variant_r2_keys[0]);
+assert.deepEqual(access, { allowed: true, isPublic: false, reason: 'owner-associated-file' },
+  'owner can read their private open-state variant');
+
 access = await run([sourceRow])(req('token-a'), env, userA, 'nif-videos', 'user-a/raw.mp4');
 assert.deepEqual(access, { allowed: true, isPublic: false, reason: 'owner-key' });
 
@@ -153,5 +171,8 @@ assert.equal(cleanedSplatLookups.length, 2,
 const mobileAssetLookups = source.match(/meta->>mobile_asset_r2_key\.eq\.\$\{encodedKey\}/g) || [];
 assert.equal(mobileAssetLookups.length, 2,
   'mobile asset keys must be included in both read and delete ownership lookups');
+const openVariantLookups = source.match(/meta->open_variant_r2_keys\.cs\.\$\{encodedKey\}/g) || [];
+assert.equal(openVariantLookups.length, 2,
+  'open-state variant keys must be included in both read and delete ownership lookups');
 
 console.log('R2 read authorization regression tests passed.');
