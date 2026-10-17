@@ -2,6 +2,7 @@ import { supabase } from '../supabaseClient.js';
 import { runtimeConfig } from '../runtime-config.js';
 import r2 from '../r2Client.js';
 import { encodeNif } from './nif-format.js';
+import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
 
 const VIDEO_BUCKET = 'nif-videos';
 let selectedFile = null;
@@ -179,7 +180,7 @@ function setFile(file) {
   const isLidar = file.name.match(/\.(las|xyz|csv|txt)$/i);
   if (currentUploadMode === 'ply') {
     if (!isPly) return reject('Please select a .splat, .ply or .nif file in direct-import mode.');
-    if (/\.splat$/i.test(file.name) && file.size > 200 * 1024 * 1024) return reject('Browser .splat → NIF conversion is limited to 200MB to protect device memory.');
+    if (/\.(splat|ply)$/i.test(file.name) && file.size > 200 * 1024 * 1024) return reject('Browser .splat/.ply → NIF conversion is limited to 200MB to protect device memory.');
     if (file.size > 500 * 1024 * 1024) return reject('This file is larger than the 500MB direct-import limit.');
   } else if (currentUploadMode === 'lidar') {
     if (!isLidar) return reject('Choose an uncompressed .las, .xyz, .csv, or .txt point cloud.');
@@ -639,6 +640,7 @@ window.handleSubmit = async function() {
       const safeName = selectedFile.name.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9._-]/g, '');
       const sourcePath = `${user.id}/sources/${stamp}_${safeName}`;
       let outputBuffer = null;
+      let gaussianCount = null;
       let outputName = selectedFile.name;
       let outputKey = sourcePath;
       let outputUrl = '';
@@ -668,7 +670,74 @@ window.handleSubmit = async function() {
             conversion: { engine: 'fumoca-nif-format', mode: 'quantized-geometry', gpu_required: false, created_at: new Date().toISOString() },
           },
         });
+        gaussianCount = gaussianCount || selectedFile.size / 32;
         outputName = selectedFile.name.replace(/\.splat$/i, '') + '.nif';
+      } else if (ext === 'ply') {
+        setProgress(15, 'Parsing PLY geometry (CPU/browser route)…');
+        const parsedGeometry = new PLYLoader().parse(await selectedFile.arrayBuffer());
+        const posAttr = parsedGeometry.getAttribute('position');
+        if (!posAttr || !posAttr.count) throw new Error('PLY contains no vertex positions.');
+        const count = posAttr.count;
+        const attr = name => parsedGeometry.getAttribute(name);
+        const sx = attr('scale_0'), sy = attr('scale_1'), sz = attr('scale_2');
+        const opacityAttr = attr('opacity');
+        const dc0 = attr('f_dc_0'), dc1 = attr('f_dc_1'), dc2 = attr('f_dc_2');
+        const rot0 = attr('rot_0'), rot1 = attr('rot_1'), rot2 = attr('rot_2'), rot3 = attr('rot_3');
+        const colorAttr = parsedGeometry.getAttribute('color');
+        const isGaussianPly = !!(sx && sy && sz && opacityAttr && dc0 && dc1 && dc2 && rot0 && rot1 && rot2 && rot3);
+        setProgress(25, isGaussianPly ? 'Converting Gaussian PLY attributes…' : 'Converting point-cloud PLY to NIF…');
+
+        if (isGaussianPly) {
+          const rows = new Uint8Array(count * 32);
+          const view = new DataView(rows.buffer);
+          const clampByte = value => Math.max(0, Math.min(255, Math.round(value)));
+          const sigmoid = value => 1 / (1 + Math.exp(-value));
+          const rgb = value => clampByte((value * 0.2820947918 + 0.5) * 255);
+          for (let i = 0; i < count; i++) {
+            const o = i * 32;
+            view.setFloat32(o, posAttr.getX(i), true);
+            view.setFloat32(o + 4, posAttr.getY(i), true);
+            view.setFloat32(o + 8, posAttr.getZ(i), true);
+            view.setFloat32(o + 12, Math.exp(sx.getX(i)), true);
+            view.setFloat32(o + 16, Math.exp(sy.getX(i)), true);
+            view.setFloat32(o + 20, Math.exp(sz.getX(i)), true);
+            rows[o + 24] = rgb(dc0.getX(i));
+            rows[o + 25] = rgb(dc1.getX(i));
+            rows[o + 26] = rgb(dc2.getX(i));
+            rows[o + 27] = clampByte(sigmoid(opacityAttr.getX(i)) * 255);
+            for (const [j, a] of [[28,rot0],[29,rot1],[30,rot2],[31,rot3]]) {
+              rows[o + j] = clampByte((Math.max(-1, Math.min(1, a.getX(i))) + 1) * 127.5);
+            }
+          }
+          const aliveIndices = new Uint32Array(count);
+          for (let i = 0; i < count; i++) aliveIndices[i] = i;
+          outputBuffer = encodeNif({
+            sourceBuffer: rows, aliveIndices, rowSize: 32, vertical: category || 'generic',
+            meta: { title: title || selectedFile.name.replace(/\.ply$/i, ''), description: desc || '', source_format: 'gaussian_ply', conversion: { engine: 'fumoca-nif-format', gpu_required: false, attribute_mapping: 'xyz/scale/f_dc/opacity/rotation', created_at: new Date().toISOString() } },
+          });
+        } else {
+          const positions = new Float32Array(count * 3);
+          const colors01 = new Float32Array(count * 3);
+          const opacities01 = new Float32Array(count);
+          const opacity = opacityAttr;
+          for (let i = 0; i < count; i++) {
+            positions[i*3] = posAttr.getX(i); positions[i*3+1] = posAttr.getY(i); positions[i*3+2] = posAttr.getZ(i);
+            if (colorAttr) {
+              const max = Math.max(colorAttr.getX(i), colorAttr.getY(i), colorAttr.getZ(i)) > 1 ? 255 : 1;
+              colors01[i*3] = colorAttr.getX(i) / max;
+              colors01[i*3+1] = colorAttr.getY(i) / max;
+              colors01[i*3+2] = colorAttr.getZ(i) / max;
+            } else { colors01[i*3] = 0.8; colors01[i*3+1] = 0.8; colors01[i*3+2] = 0.8; }
+            const rawOpacity = opacity ? opacity.getX(i) : 1;
+            opacities01[i] = rawOpacity < 0 || rawOpacity > 1 ? 1 / (1 + Math.exp(-rawOpacity)) : rawOpacity;
+          }
+          outputBuffer = encodeNif({
+            positions, colors01, opacities01, vertical: category || 'generic',
+            meta: { title: title || selectedFile.name.replace(/\.ply$/i, ''), description: desc || '', source_format: 'point_cloud_ply', conversion: { engine: 'fumoca-nif-format', gpu_required: false, geometry_quality: 'isotropic-points; mesh reconstruction not run', created_at: new Date().toISOString() } },
+          });
+        }
+        gaussianCount = count;
+        outputName = selectedFile.name.replace(/\.ply$/i, '') + '.nif';
       }
 
       setProgress(35, 'Preserving original source in R2…');
@@ -682,7 +751,7 @@ window.handleSubmit = async function() {
       sourceUrl = uploadedSourceUrl || '';
       sourceKey = uploadedSourceKey || sourcePath;
 
-      if (isSplat) {
+      if (isSplat || ext === 'ply') {
         const outputPath = `${user.id}/converted/${stamp}_${outputName}`;
         setProgress(60, 'Uploading converted NIF…');
         const { publicUrl, fileKey, error: outputErr } = await r2
@@ -706,21 +775,21 @@ window.handleSubmit = async function() {
         description: desc || null,
         vertical: category || 'generic',
         r2_key: outputKey,
-        file_size: isSplat ? outputBuffer.byteLength : selectedFile.size,
-        gaussian_count: isSplat ? selectedFile.size / 32 : null,
+        file_size: outputBuffer ? outputBuffer.byteLength : selectedFile.size,
+        gaussian_count: gaussianCount,
         is_public: false,
         meta: {
-          source_type: isSplat ? 'splat_to_nif' : isNif ? 'direct_nif' : 'direct_ply_source',
+          source_type: isSplat ? 'splat_to_nif' : ext === 'ply' ? 'ply_to_nif' : 'direct_nif',
           source_filename: selectedFile.name,
           source_capture: { r2_key: sourceKey, public_url: sourceUrl, filename: selectedFile.name, format: ext, byte_size: selectedFile.size },
           source_r2_key: sourceKey,
           source_public_url: sourceUrl,
-          output_format: isSplat ? 'nif' : ext,
+          output_format: (isSplat || ext === 'ply') ? 'nif' : ext,
           output_r2_key: outputKey,
           output_public_url: outputUrl,
-          conversion: isSplat ? { engine: 'fumoca-nif-format', gpu_required: false, input_bytes: selectedFile.size, output_bytes: outputBuffer.byteLength, gaussian_count: selectedFile.size / 32 } : null,
+          conversion: outputBuffer ? { engine: 'fumoca-nif-format', gpu_required: false, input_bytes: selectedFile.size, output_bytes: outputBuffer.byteLength, gaussian_count: gaussianCount, source_format: ext } : null,
           status: 'done',
-          processing_stage: isSplat ? 'converted' : 'imported',
+          processing_stage: (isSplat || ext === 'ply') ? 'converted' : 'imported',
           processing_progress: 100,
           tags,
           visibility,
@@ -730,12 +799,12 @@ window.handleSubmit = async function() {
       }]).select().single();
       if (dbErr) throw dbErr;
 
-      setProgress(100, isSplat ? 'NIF conversion complete.' : isNif ? 'NIF imported.' : 'PLY source preserved; conversion not run.');
+      setProgress(100, (isSplat || ext === 'ply') ? 'NIF conversion complete.' : 'NIF imported.');
       setStep('step-upload', 'done');
       setStep('step-live', 'done');
       const message = isSplat
-        ? `Converted ${selectedFile.size / 32} Gaussian rows into a NIF derivative. Original .splat preserved. `
-        : isNif ? 'NIF imported. ' : 'PLY source preserved, but not converted to NIF yet. ';
+        ? `Converted ${gaussianCount} Gaussian rows into a NIF derivative. Original .splat preserved. `
+        : ext === 'ply' ? `Converted ${gaussianCount} PLY vertices into a NIF derivative. Original PLY preserved. ` : 'NIF imported. ';
       showMsg(message + `Asset id: ${nif.id}. Open it from your library.`, false);
       document.getElementById('submitLabel').textContent = 'Imported';
       document.getElementById('submitBtn').textContent = 'Imported';
