@@ -160,6 +160,19 @@ Create frozen test sets for calibrated vehicle, object and scene captures. NaviG
 
 **Release decision:** do not mark FUMOCA production-ready based only on repository CI. Keep release blocked until browser E2E, staging storage/API round-trip and one reference GPU reconstruction have recorded evidence. Do not run destructive migrations or paid GPU jobs as part of this QA pass.
 
+## Follow-up sweep: conversion validation and derivative-key ownership (2026-10-17)
+
+- Hardened `encodeNif`'s quantized geometry path to reject empty scenes, malformed 14-float records, and non-finite values before calculating bounds. Added `tests/nif-geometry-validation.mjs` and wired it into `fumoca-validation.yml`.
+- Expanded the CPU conversion smoke test to assert decoded positions, scale, opacity, RGB, NIF → legacy 32-byte SPLAT renderer conversion, and PLY point-cloud → NIF attributes. These assertions are committed but require the next GitHub Actions run to confirm; do not treat them as passed until that run is green.
+- Fixed the optional calibration/reference-mesh upload key from `verify-refs/<user>/...` to `<user>/verify-refs/...`, so the R2 Worker’s owner-prefix write authorization can accept it. Added a schema-contract assertion.
+- Fixed the cleaned-splat derivative key to `<nif-record-id>/edited_cleaned_<timestamp>.splat`, which matches the Worker’s record-owned edited-derivative contract. Extended the Studio save contract test to guard this key shape.
+
+### Newly confirmed storage integration blockers
+
+- `js/modules/nif-part-toggle.js` uploads baked open-state NIFs under `open-variants/...`, outside the authenticated owner prefix and outside the record-scoped `edited_*` derivative pattern. The current Worker correctly denies that write. A superficial prefix change is not enough: public viewers also need a deliberate association between the open-state variant and its published parent NIF, and the read policy must authorize only that associated variant. Keep this feature release-blocked until its metadata and authorization contract are implemented and tested.
+- `js/modules/mobile-asset.js` uploads widget HTML to `<splatRecord.id>/widget.html` in the `nif-files` bucket. That key is neither user-prefixed nor a recognized record-owned edited derivative, and the current read policy only treats published NIF outputs (plus explicit thumbnail/teaser associations) as public. The mobile widget flow therefore needs a dedicated generic-asset bucket/registry and visibility policy, or a documented private-only behavior; do not assume its returned URL is publicly readable.
+- These paths were discovered by tracing the stricter Worker write/read contract against their actual upload keys. No production Worker deployment, bucket change, migration, or public-access bypass was attempted.
+
 ## Licensing and scope boundaries
 
 - No copy/paste of external GPL-2.0 KIRI Blender add-on code or GPL-3.0 LichtFeld code into this app in this pass.
