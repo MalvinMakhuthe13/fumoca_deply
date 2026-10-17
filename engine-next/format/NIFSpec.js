@@ -93,6 +93,7 @@ export const CHUNK = Object.freeze({
                            // engine-next/reconstruction/verify.py and encodeVerificationChunk()
                            // below. Absence means "not verified", never inferred as "passed".
   LIDAR_ATTR:    0x0019,  // Optional per-point LiDAR intensity/class/return arrays (v1; see nif-format.js).
+  GAUSSIAN_SH:   0x001A,  // Optional exact Gaussian PLY f_dc_*/f_rest_* coefficient sidecar.
   SPATIAL_AUDIO: 0x0300,  // RESERVED — ambisonics B-format + HRTF source positions.
                            // Shared ID with SPAXSpec.js's SPAX_CHUNK.SPATIAL_AUDIO — see the
                            // "Shared chunk-ID registry" note above CHUNK for why this moved
@@ -536,6 +537,35 @@ export async function decodeVerificationChunk(chunk) {
 }
 
 // ─── Writer (Node.js pipeline — server-side) ──────────────────────────────────
+export function encodeGaussianSHChunk(gaussianSH) {
+  const degree = gaussianSH?.degree;
+  const pointCount = gaussianSH?.pointCount ?? gaussianSH?.count;
+  const values = gaussianSH?.values;
+  const coefficientCount = gaussianSH?.coefficientCount ??
+    (Number.isInteger(degree) && degree >= 0 && degree <= 8 ? 3 * (degree + 1) ** 2 : 0);
+  if (!Number.isInteger(degree) || degree < 0 || degree > 8 ||
+      !Number.isInteger(pointCount) || pointCount < 1 || pointCount > MAX_NIF_GAUSSIANS ||
+      !Number.isInteger(coefficientCount) || coefficientCount !== 3 * (degree + 1) ** 2 ||
+      !(values instanceof Float32Array) || values.length !== pointCount * coefficientCount) {
+    throw new Error('[NIFSpec] Gaussian SH sidecar has an invalid degree, point count, coefficient count or value array');
+  }
+  const byteLength = 8 + values.length * 4;
+  if (!Number.isSafeInteger(byteLength) || byteLength > MAX_DECOMPRESSED_CHUNK_BYTES) {
+    throw new Error('[NIFSpec] Gaussian SH sidecar exceeds the 512 MiB safety limit');
+  }
+  const out = new Uint8Array(byteLength);
+  const dv = new DataView(out.buffer);
+  dv.setUint8(0, 1); // sidecar version
+  dv.setUint8(1, degree);
+  dv.setUint16(2, coefficientCount, false);
+  dv.setUint32(4, pointCount, false);
+  for (let i = 0; i < values.length; i++) {
+    if (!Number.isFinite(values[i])) throw new Error(`[NIFSpec] Gaussian SH value ${i} is not finite`);
+    dv.setFloat32(8 + i * 4, values[i], false);
+  }
+  return out;
+}
+
 export class NIFWriter {
   constructor(headerOpts = {}) {
     this.header = new NIFHeader(headerOpts);
@@ -792,6 +822,38 @@ export class NIFReader {
     const cert = this.getCertificate();
     if (!cert || !cert.isActive()) return ENCODER_TIER.UNCERTIFIED;
     return cert.tier;
+  }
+
+  async getGaussianSH() {
+    const chunk = this.getChunk(CHUNK.GAUSSIAN_SH);
+    if (!chunk) return null;
+    const bytes = await decompressChunk(chunk);
+    if (!(bytes instanceof Uint8Array) || bytes.byteLength < 8) {
+      throw new Error('[NIFSpec] Gaussian SH sidecar is shorter than its header');
+    }
+    const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const version = dv.getUint8(0);
+    const degree = dv.getUint8(1);
+    const coefficientCount = dv.getUint16(2, false);
+    const pointCount = dv.getUint32(4, false);
+    if (version !== 1 || !Number.isInteger(degree) || degree > 8 ||
+        coefficientCount !== 3 * (degree + 1) ** 2 ||
+        pointCount < 1 || pointCount > MAX_NIF_GAUSSIANS) {
+      throw new Error('[NIFSpec] Gaussian SH sidecar header is invalid or unsupported');
+    }
+    const valueCount = pointCount * coefficientCount;
+    const expectedBytes = 8 + valueCount * 4;
+    if (!Number.isSafeInteger(expectedBytes) || expectedBytes > bytes.byteLength ||
+        expectedBytes > MAX_DECOMPRESSED_CHUNK_BYTES) {
+      throw new Error('[NIFSpec] Gaussian SH sidecar payload is truncated or oversized');
+    }
+    const values = new Float32Array(valueCount);
+    for (let i = 0; i < valueCount; i++) {
+      const value = dv.getFloat32(8 + i * 4, false);
+      if (!Number.isFinite(value)) throw new Error(`[NIFSpec] Gaussian SH value ${i} is not finite`);
+      values[i] = value;
+    }
+    return { version, degree, pointCount, coefficientCount, values };
   }
 
   // Deserialise geometry chunk → { count, data: Float32Array }
