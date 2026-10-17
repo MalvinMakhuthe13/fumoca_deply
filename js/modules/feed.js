@@ -57,7 +57,7 @@ function resolveThumbnail(row) {
 }
 
 function resolvePreviewVideo(row) {
-  return firstNonEmpty(row.preview_video_url, row.teaser_video_url, row.video_url);
+  return firstNonEmpty(row.preview_video_url, row.teaser_video_url, row.video_url, row.meta?.preview_video_url, row.meta?.teaser_video_url);
 }
 
 function normalizeStatus(status, url) {
