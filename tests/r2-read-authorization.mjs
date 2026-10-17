@@ -67,6 +67,12 @@ assert.equal(access.allowed, false, 'private NIF thumbnail must not bypass visib
 access = await run([sourceRow])(req('token-a'), env, userA, 'nif-videos', 'user-a/raw.mp4');
 assert.deepEqual(access, { allowed: true, isPublic: false, reason: 'owner-key' });
 
+access = await run([sourceRow])(req('token-a'), env, userA, 'nif-videos', 'record-source/raw.mp4');
+assert.deepEqual(access, { allowed: true, isPublic: false, reason: 'owner-associated-file' }, 'owner can read source media linked through NIF metadata');
+
+access = await run([], [{ id: 'job-1', user_id: 'user-a', raw_r2_key: 'record-source/raw.mp4' }])(req('token-a'), env, userA, 'nif-videos', 'record-source/raw.mp4');
+assert.deepEqual(access, { allowed: true, isPublic: false, reason: 'owner-source-job' }, 'owner can read raw source keys stored on reconstruction_jobs');
+
 access = await run([sourceRow])(req(), env, null, 'nif-videos', 'private/raw.mp4');
 assert.equal(access.allowed, false, 'raw source media must be private by default');
 
