@@ -187,8 +187,8 @@ const FumocaTeaserVideo = (() => {
 
     if (sb && splatId) {
       try {
-        const { data: { user } = {} } = await sb.auth.getUser();
-        const ownerId = splatRecord?.user_id || user?.id;
+        const { data: authData } = await sb.auth.getUser();
+        const ownerId = splatRecord?.user_id || authData?.user?.id;
         if (!ownerId) throw new Error('Sign in as the capture owner before saving a teaser.');
         const path = `${ownerId}/teasers/${splatId}/teaser_${Date.now()}.webm`;
         const { publicUrl: _teaserUrl, fileKey, error } = await r2
@@ -198,15 +198,22 @@ const FumocaTeaserVideo = (() => {
         if (error || !fileKey) {
           console.error('[Teaser] R2 upload error:', error || 'No storage key returned');
         } else {
-          uploadedUrl = _teaserUrl || null;
+          const candidateUrl = _teaserUrl || null;
+          if (candidateUrl) {
+            const { error: metadataError } = await sb.from('nif_files')
+              .update({ meta: { ...(splatRecord?.meta || {}), teaser_video_url: candidateUrl, teaser_video_r2_key: fileKey, last_edited_at: new Date().toISOString() } })
+              .eq('id', splatId)
+              .eq('user_id', ownerId);
 
-          if (uploadedUrl) {
-            await sb.from('nif_files')
-              .update({ meta: { ...(splatRecord?.meta || {}), teaser_video_url: uploadedUrl, teaser_video_r2_key: fileKey, last_edited_at: new Date().toISOString() } })
-              .eq('id', splatId);
+            if (metadataError) {
+              try { await r2.from('preview-videos').remove([fileKey]); }
+              catch (cleanupError) { console.warn('[Teaser] Orphan cleanup failed:', cleanupError); }
+              throw metadataError;
+            }
 
+            uploadedUrl = candidateUrl;
             if (typeof window.saveLiveEdit === 'function') {
-              await window.saveLiveEdit({ teaser_video_url: uploadedUrl });
+              await window.saveLiveEdit({ teaser_video_url: uploadedUrl, teaser_video_r2_key: fileKey });
             }
 
             console.log(`%c[Teaser] Uploaded → ${uploadedUrl}`, 'color:#c8ff00;font-weight:800');
