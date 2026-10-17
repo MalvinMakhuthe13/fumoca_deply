@@ -80,8 +80,8 @@ assert.deepEqual(access, { allowed: true, isPublic: true, reason: 'published-nif
 access = await run([mobilePrivate])(req(), env, null, 'nif-files', mobilePrivate.meta.mobile_asset_r2_key);
 assert.equal(access.allowed, false, 'private parent NIF must not expose its mobile widget');
 access = await run([mobilePrivate])(req('token-a'), env, userA, 'nif-files', mobilePrivate.meta.mobile_asset_r2_key);
-assert.deepEqual(access, { allowed: true, isPublic: false, reason: 'owner-associated-file' },
-  'owner can read their private mobile widget without making it public');
+assert.deepEqual(access, { allowed: true, isPublic: false, reason: 'owner-key' },
+  'owner can read their private mobile widget through its owner-prefixed key');
 
 const openVariantPublic = {
   id: 'nif-open-public', user_id: 'user-a', r2_key: 'published/open.nif',
@@ -98,8 +98,8 @@ assert.deepEqual(access, { allowed: true, isPublic: true, reason: 'published-nif
 access = await run([openVariantPrivate])(req(), env, null, 'nif-files', openVariantPrivate.meta.open_variant_r2_keys[0]);
 assert.equal(access.allowed, false, 'private parent NIF must not expose an open-state variant');
 access = await run([openVariantPrivate])(req('token-a'), env, userA, 'nif-files', openVariantPrivate.meta.open_variant_r2_keys[0]);
-assert.deepEqual(access, { allowed: true, isPublic: false, reason: 'owner-associated-file' },
-  'owner can read their private open-state variant');
+assert.deepEqual(access, { allowed: true, isPublic: false, reason: 'owner-key' },
+  'owner can read their private open-state variant through its owner-prefixed key');
 
 access = await run([sourceRow])(req('token-a'), env, userA, 'nif-videos', 'user-a/raw.mp4');
 assert.deepEqual(access, { allowed: true, isPublic: false, reason: 'owner-key' });
