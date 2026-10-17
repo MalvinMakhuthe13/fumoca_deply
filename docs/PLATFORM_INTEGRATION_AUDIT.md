@@ -86,6 +86,38 @@ Create frozen test sets for calibrated vehicle, object and scene captures. NaviG
 9. Mesh/print dimensional claims stay unverified until independently calibrated.
 10. CI covers syntax, unit tests, schema/API contracts, page-level E2E and a separate GPU smoke run with a known reference capture.
 
+## QA/QC execution log — 2026-10-17
+
+**Scope:** repository-backed static checks and targeted Studio persistence hardening. This is not a production sign-off.
+
+### Verified in GitHub Actions
+
+- Latest completed baseline workflow on `main` passed syntax checks for Studio, viewer and persistence-sensitive modules; inline Studio script checks; regression guards for layer transforms and subject selection; PLY fidelity metadata tests; CPU-only SPLAT→NIF smoke test; and the tiny GLB preflight fixture.
+- Run: https://github.com/MalvinMakhuthe13/fumoca_deply/actions/runs/39038435877
+- The earlier failures in the inline-script check were caused by the QA extractor treating an import map JSON block as JavaScript. The extractor now excludes import maps/JSON blocks; the corrected run passed.
+- A dedicated branch, `qa-qc-full-platform-2026-10-17`, contains additional NIF Studio layer-manifest persistence changes and regression guards. Its own CI result must pass before those changes are considered validated.
+
+### Findings addressed in the QA branch
+
+- NIF export and save now attach a versioned `editor_scene` manifest containing compact point-index membership, layer IDs/names, visibility, opacity and active layer.
+- NIF load restores valid layer masks from that manifest and bounds-checks every saved point index.
+- Opening a different asset clears prior NIF metadata and thumbnail state, preventing a previous file's layer manifest from leaking into a later non-NIF import.
+- Save metadata includes the same scene manifest so the database record and exported NIF can agree on the current editor scene.
+
+### Remaining release blockers / evidence still required
+
+| Gate | Current status | Evidence needed |
+|---|---|---|
+| Object-layer save/reopen | Code change in QA branch; pending branch CI and runtime test | Browser test with two subjects, distinct colours, transforms, export, reload and membership comparison |
+| Gaussian PLY higher-order SH preservation | Known loss in 32-byte SPLAT/NIF adapter; disclosure exists | Decide on a native SH-preserving NIF representation or keep an explicit lossy-conversion warning |
+| PLY save with object-layer manifest | Not proven round-trip | Store/read scene manifest alongside PLY and verify viewer/editor consumes it, or disable the claim of persistence for that path |
+| Real R2/Supabase write and read | Not verified by CI | Authenticated, non-destructive staging probe with actual storage key and record lookup |
+| Worker job lifecycle | Static contract checks only | Queue a known test capture and verify queued → processing → terminal state plus artifact resolution |
+| Browser-level interaction | Not covered by current CI | Automated browser E2E for selection, transform, undo/redo, save/reload, errors and responsive layout |
+| GPU reconstruction and physical dimensions | Not verified by this run | Known capture with calibration/reference dimensions; report fallback models and mesh topology truthfully |
+
+**Release decision:** do not mark FUMOCA production-ready based only on repository CI. Keep release blocked until browser E2E, staging storage/API round-trip and one reference GPU reconstruction have recorded evidence. Do not run destructive migrations or paid GPU jobs as part of this QA pass.
+
 ## Licensing and scope boundaries
 
 - No copy/paste of external GPL-2.0 KIRI Blender add-on code or GPL-3.0 LichtFeld code into this app in this pass.
