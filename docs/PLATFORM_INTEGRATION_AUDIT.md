@@ -104,6 +104,13 @@ Create frozen test sets for calibrated vehicle, object and scene captures. NaviG
 - Opening a different asset clears prior NIF metadata and thumbnail state, preventing a previous file's layer manifest from leaking into a later non-NIF import.
 - Save metadata includes the same scene manifest so the database record and exported NIF can agree on the current editor scene.
 
+### Follow-up QA/QC — PLY layer persistence
+
+- Added a guarded restore path for SH-preserving edited PLY files: the editor only reapplies the database `editor_scene` manifest when the file is opened from a matching `nifId` record, the URL matches that record's current `r2_key`, and the manifest point count matches the loaded PLY.
+- Added automated tests for compact index remapping, layer visibility/opacity, malformed indices, legacy files, and positive/negative PLY record matching.
+- GitHub Actions caught a test-harness newline-joining error on the first run. The harness was corrected; the subsequent run passed: https://github.com/MalvinMakhuthe13/fumoca_deply/actions/runs/39040672368
+- This is targeted regression evidence, not proof of a live browser/R2/Supabase round-trip. Signed URL formats and the deployed loader path still need an end-to-end staging test.
+
 ### Remaining release blockers / evidence still required
 
 | Gate | Current status | Evidence needed |
