@@ -339,6 +339,8 @@ jobs:
         run: node --experimental-default-type=module tests/nif-reader-bounds.mjs
       - name: Test FUMOC format bounds
         run: node --experimental-default-type=module tests/fumoc-format-bounds.mjs
+      - name: Test FUMOC decoder bounds
+        run: node --experimental-default-type=module tests/fumoc-decoder-bounds.mjs
       - name: Test NIF geometry validation
         run: node --experimental-default-type=module tests/nif-geometry-validation.mjs
       - name: Compile Kaggle preflight script
