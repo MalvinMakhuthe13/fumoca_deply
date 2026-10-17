@@ -148,6 +148,8 @@ jobs:
         run: node --experimental-default-type=module tests/r2-client-delete-errors.mjs
       - name: Test R2 read authorization
         run: node --experimental-default-type=module tests/r2-read-authorization.mjs
+      - name: Test R2 signed read tickets
+        run: node --experimental-default-type=module tests/r2-read-ticket.mjs
       - name: Test R2 key sanitization
         run: node --experimental-default-type=module tests/r2-key-sanitization.mjs
       - name: Guard R2 read authorization and cache ordering
