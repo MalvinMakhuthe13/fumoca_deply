@@ -39,6 +39,7 @@ await assert.rejects(async () => {
 // Build a minimal order-1 ANS channel to prove the canonical decoder reads
 // the full 131072-byte table instead of mis-parsing it as an order-0 table.
 const encodedOrder1 = FumocCodec.ansEncodeOrder1(new Uint8Array([128]));
+assert.deepEqual([...FumocCodec.ansDecodeOrder1(encodedOrder1.compressed, encodedOrder1.tables, 1)], [128], 'order-1 ANS round-trip must preserve its byte');
 const order1Meta = new TextEncoder().encode(JSON.stringify({
   length: 1, bits: 8, min: 0, max: 1, signed: true, delta: false, order: 1,
 }));
