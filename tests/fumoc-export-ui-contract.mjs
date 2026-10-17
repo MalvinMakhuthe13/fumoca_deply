@@ -24,4 +24,8 @@ assert.doesNotMatch(source, /fumoc-draco-encoder|fepMeshCheck/,
   'UI must not imply it generates a new Draco mesh when it does not');
 assert.match(source, /Actual size measured after export/,
   'estimated output size must be described honestly until measured');
+assert.match(source, /legacy_layer_geo_dropped_no_indices/,
+  'viewer export must disclose when legacy layer data cannot be safely reindexed');
+assert.match(source, /encBtn\.disabled = false;\s*dlBtn\.disabled = false/,
+  'export panel must remain reusable after a successful export');
 console.log('Viewer NIF export source selection, authorization, metadata and sidecar contracts passed.');
