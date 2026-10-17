@@ -50,6 +50,7 @@ async function deleteUploadRecord(item) {
     { bucket: 'nif-videos', key: item.meta?.source_capture?.r2_key },
     { bucket: 'thumbnails', key: item.meta?.thumbnail_r2_key },
     { bucket: 'thumbnails', key: item.meta?.capture_thumbnail_r2_key },
+    { bucket: 'preview-videos', key: item.meta?.teaser_video_r2_key },
   ].filter(entry => typeof entry.key === 'string' && entry.key.trim());
   const unique = new Map();
   for (const entry of candidates) unique.set(`${entry.bucket}:${entry.key}`, entry);
