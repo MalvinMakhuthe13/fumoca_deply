@@ -86,16 +86,18 @@ jobs:
           from pathlib import Path
           import re
           html = Path("edit.html").read_text(encoding="utf-8")
-          scripts = re.findall(r"<script\b(?![^>]*\bsrc=)[^>]*>(.*?)</script\s*>", html, re.I | re.S)
+          matches = re.findall(r"<script\\b([^>]*)>(.*?)</script\\s*>", html, re.I | re.S)
+          scripts = [(attrs, source) for attrs, source in matches if not re.search(r"\\bsrc\\s*=", attrs, re.I)]
           if not scripts:
               raise SystemExit("No inline Studio scripts found")
           out = Path("/tmp/fumoca-inline-scripts")
           out.mkdir(exist_ok=True)
-          for i, source in enumerate(scripts):
-              (out / f"script-{i}.js").write_text(source, encoding="utf-8")
+          for i, (attrs, source) in enumerate(scripts):
+              suffix = ".mjs" if re.search(r"type\\s*=\\s*['\"]?module", attrs, re.I) else ".js"
+              (out / f"script-{i}{suffix}").write_text(source, encoding="utf-8")
           print(f"Extracted {len(scripts)} inline Studio scripts for syntax validation")
           PY
-          for script in /tmp/fumoca-inline-scripts/script-*.js; do node --check "$script"; done
+          for script in /tmp/fumoca-inline-scripts/script-*; do node --check "$script"; done
       - name: Guard immediate transform attachment after Add Splat
         run: |
           grep -q "Rebuild the source-index map and attach the gizmo after the appended layer" edit.html
