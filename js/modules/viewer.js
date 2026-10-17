@@ -313,14 +313,14 @@ async function deleteCurrentUpload() {
     const sourceCapture = currentRecord.meta?.source_capture;
     const cleanupCandidates = [
       { bucket: 'nif-files', key: currentRecord.r2_key },
-      { bucket: currentRecord.meta?.source_r2_bucket || 'nif-files', key: currentRecord.meta?.source_r2_key },
-      ...(!currentRecord.meta?.source_r2_bucket && currentRecord.meta?.source_r2_key ? [{ bucket: 'nif-videos', key: currentRecord.meta.source_r2_key }] : []),
-      { bucket: sourceCapture?.r2_bucket || sourceCapture?.bucket || 'nif-files', key: sourceCapture?.r2_key },
-      ...(!sourceCapture?.r2_bucket && !sourceCapture?.bucket && sourceCapture?.r2_key
+      { bucket: currentRecord.meta?.source_r2_bucket || (currentRecord.meta?.source_r2_key?.startsWith('raw/') ? 'nif-videos' : 'nif-files'), key: currentRecord.meta?.source_r2_key },
+      ...(!currentRecord.meta?.source_r2_bucket && currentRecord.meta?.source_r2_key && !currentRecord.meta.source_r2_key.startsWith('raw/') ? [{ bucket: 'nif-videos', key: currentRecord.meta.source_r2_key }] : []),
+      { bucket: sourceCapture?.r2_bucket || sourceCapture?.bucket || (sourceCapture?.r2_key?.startsWith('raw/') ? 'nif-videos' : 'nif-files'), key: sourceCapture?.r2_key },
+      ...(!sourceCapture?.r2_bucket && !sourceCapture?.bucket && sourceCapture?.r2_key && !sourceCapture.r2_key.startsWith('raw/')
         ? [{ bucket: 'nif-videos', key: sourceCapture.r2_key }] : []),
       ...(Array.isArray(currentRecord.meta?.lidar_sources) ? currentRecord.meta.lidar_sources.flatMap(source => [
-        { bucket: source?.r2_bucket || source?.bucket || 'nif-files', key: source?.r2_key },
-        ...(!source?.r2_bucket && !source?.bucket && source?.r2_key ? [{ bucket: 'nif-videos', key: source.r2_key }] : []),
+        { bucket: source?.r2_bucket || source?.bucket || (source?.r2_key?.startsWith('raw/') ? 'nif-videos' : 'nif-files'), key: source?.r2_key },
+        ...(!source?.r2_bucket && !source?.bucket && source?.r2_key && !source.r2_key.startsWith('raw/') ? [{ bucket: 'nif-videos', key: source.r2_key }] : []),
       ]) : []),
       { bucket: 'nif-files', key: currentRecord.meta?.mobile_asset_r2_key },
       { bucket: 'nif-files', key: currentRecord.meta?.cleaned_splat?.r2_key },
