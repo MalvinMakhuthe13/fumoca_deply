@@ -27,6 +27,15 @@ jobs:
         run: node --check js/modules/image-to-splat-studio.js
       - name: Check viewer ES module syntax
         run: node --input-type=module --check < js/modules/viewer.js
+      - name: Check persistence-sensitive editor modules
+        run: |
+          node --input-type=module --check < js/modules/edit-engine.js
+          node --input-type=module --check < js/modules/splat-edit-engine.js
+      - name: Check editor persistence contract
+        run: |
+          ! grep -nE "from\\(['\\"](nifs|splats)['\\"]\\)" js/modules/edit-engine.js js/modules/splat-edit-engine.js
+          grep -q "from('nif_files')" js/modules/edit-engine.js
+          grep -q "from('nif_files')" js/modules/splat-edit-engine.js
       - name: Compile Kaggle preflight script
         run: python -m py_compile kaggle/mesh2splat_preflight.py
       - name: Install preflight dependencies
