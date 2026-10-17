@@ -653,7 +653,7 @@ window.handleSubmit = async function() {
         if (!sourceBuffer.byteLength || sourceBuffer.byteLength % 32 !== 0) {
           throw new Error('Invalid .splat file: expected complete 32-byte Gaussian rows.');
         }
-        const gaussianCount = sourceBuffer.byteLength / 32;
+        gaussianCount = sourceBuffer.byteLength / 32;
         if (!gaussianCount) throw new Error('The .splat file contains no Gaussian rows.');
         setProgress(25, 'Packing Gaussian rows into FUMOCA NIF…');
         const aliveIndices = new Uint32Array(gaussianCount);
@@ -670,7 +670,6 @@ window.handleSubmit = async function() {
             conversion: { engine: 'fumoca-nif-format', mode: 'quantized-geometry', gpu_required: false, created_at: new Date().toISOString() },
           },
         });
-        gaussianCount = gaussianCount || selectedFile.size / 32;
         outputName = selectedFile.name.replace(/\.splat$/i, '') + '.nif';
       } else if (ext === 'ply') {
         setProgress(15, 'Parsing PLY geometry (CPU/browser route)…');
