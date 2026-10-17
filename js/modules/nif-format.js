@@ -128,11 +128,12 @@ function plyPointsToGeometry(positions, colors01, opacities01) {
 function packGeometryQuantized(geoData, count) {
   // Reject invalid scenes before calculating bounds. Empty/NaN geometry would
   // otherwise produce Infinity bounds and a syntactically valid but unusable NIF.
+  if (!(geoData instanceof Float32Array) || geoData.length % FLOATS_PER_POINT !== 0 ||
+      geoData.length !== count * FLOATS_PER_POINT) {
+    throw new Error('[nif-format] geometry length must equal point count × 14 floats');
+  }
   if (!Number.isInteger(count) || count < 1) {
     throw new Error('[nif-format] geometry must contain at least one point');
-  }
-  if (!(geoData instanceof Float32Array) || geoData.length !== count * FLOATS_PER_POINT) {
-    throw new Error('[nif-format] geometry length must equal point count × 14 floats');
   }
   for (let i = 0; i < geoData.length; i++) {
     if (!Number.isFinite(geoData[i])) {
