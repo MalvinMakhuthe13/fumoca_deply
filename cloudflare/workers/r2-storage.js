@@ -12,7 +12,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
  *                                   optional ?bucket=<name>, defaults to nif-files
  *   GET    /file/:key             → Serve file (with CDN caching)
  *                                   optional ?bucket=<name>, defaults to nif-files
- *   DELETE /file/:key             → Delete file (any authenticated user — see NOTE below)
+ *   DELETE /file/:key             → Delete file (owner or trusted server only)
  *                                   optional ?bucket=<name>, defaults to nif-files
  *   GET    /health                → Health check
  *
@@ -158,6 +158,44 @@ async function userOwnsFileKey(request, env, principal, bucketName, fileKey) {
     );
   } catch (error) {
     console.error('[R2 delete] owner lookup errored', error?.message || String(error));
+    return false;
+  }
+}
+
+// Authorize writes separately from deletes: a new Studio derivative does not yet
+// equal nif_files.r2_key, but its record must still belong to the caller.
+async function userMayWriteFileKey(request, env, principal, bucketName, fileKey) {
+  if (principal?.kind === 'server-to-server') return true;
+  if (!principal?.id || principal.kind !== 'user') return false;
+  if (fileKey.startsWith(`${principal.id}/`)) return true;
+  if (bucketName !== 'nif-files') return false;
+
+  const slash = fileKey.indexOf('/');
+  if (slash <= 0) return false;
+  const recordId = fileKey.slice(0, slash);
+  const remainder = fileKey.slice(slash + 1);
+  if (!/^edited_[A-Za-z0-9_-]+\\.(?:nif|ply|splat|glb)$/i.test(remainder)) return false;
+
+  const token = (request.headers.get('Authorization') || '').replace(/^Bearer\\s+/, '');
+  if (!token || !env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) return false;
+  const query = new URLSearchParams({
+    select: 'id',
+    id: `eq.${recordId}`,
+    user_id: `eq.${principal.id}`,
+    limit: '1',
+  });
+  try {
+    const response = await fetch(`${env.SUPABASE_URL}/rest/v1/nif_files?${query}`, {
+      headers: { Authorization: `Bearer ${token}`, apikey: env.SUPABASE_ANON_KEY },
+    });
+    if (!response.ok) {
+      console.error('[R2 write] owner lookup failed', response.status);
+      return false;
+    }
+    const rows = await response.json();
+    return Array.isArray(rows) && rows.some(row => row?.id === recordId);
+  } catch (error) {
+    console.error('[R2 write] owner lookup errored', error?.message || String(error));
     return false;
   }
 }
@@ -308,6 +346,8 @@ export default {
 
       const fileKey = sanitiseKey(userPath);
       if (!fileKey) return json({ error: 'Invalid path' }, 400, cors);
+      const mayWrite = await userMayWriteFileKey(request, env, principal, bucket, fileKey);
+      if (!mayWrite) return json({ error: 'Forbidden — you may not write this file key' }, 403, cors);
 
       // Pass the bucket NAME (not the binding) — the S3-compat API needs a name.
       const presigned = await generatePresignedPut(bucket, fileKey, contentType, env);
@@ -364,6 +404,8 @@ export default {
       if (!fileKey) {
         return json({ error: 'Invalid path' }, 400, cors);
       }
+      const mayWrite = await userMayWriteFileKey(request, env, principal, bucketParam, fileKey);
+      if (!mayWrite) return json({ error: 'Forbidden — you may not write this file key' }, 403, cors);
 
       try {
         const upload = await r2Bucket.createMultipartUpload(fileKey, {
@@ -422,6 +464,8 @@ export default {
       if (!safeFileKey) {
         return json({ error: 'Invalid key' }, 400, cors);
       }
+      const mayWrite = await userMayWriteFileKey(request, env, principal, bucketParam, safeFileKey);
+      if (!mayWrite) return json({ error: 'Forbidden — you may not write this file key' }, 403, cors);
 
       try {
         const multipart = r2Bucket.resumeMultipartUpload(safeFileKey, uploadId);
@@ -478,6 +522,8 @@ export default {
       if (!fileKey) {
         return json({ error: 'Invalid key' }, 400, cors);
       }
+      const mayWrite = await userMayWriteFileKey(request, env, principal, bucketParam, fileKey);
+      if (!mayWrite) return json({ error: 'Forbidden — you may not write this file key' }, 403, cors);
 
       const normalisedParts = parts.map((part) => ({
         partNumber: Number(part?.partNumber),
@@ -586,6 +632,8 @@ export default {
 
       const fileKey = sanitiseKey(decodeURIComponent(path.slice('/upload/'.length)));
       if (!fileKey) return json({ error: 'Missing key' }, 400, cors);
+      const mayWrite = await userMayWriteFileKey(request, env, principal, bucketParam, fileKey);
+      if (!mayWrite) return json({ error: 'Forbidden — you may not write this file key' }, 403, cors);
 
       const r2Bucket = getBucket(bucketParam, env);
       if (!r2Bucket) {
