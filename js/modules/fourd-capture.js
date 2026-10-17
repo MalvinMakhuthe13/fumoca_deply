@@ -464,7 +464,7 @@ const FourDCapture = (() => {
       <div class="fourDMomentRow">
         <div class="fourDMomentDot" style="background:${i===MS.getCurrentIdx()?'#c8ff00':'rgba(255,255,255,.3)'}"></div>
         <div class="fourDMomentLabel" style="cursor:pointer" onclick="window.FumocaMotionStates.goTo(${i})">${escapeHtml(s.label)}</div>
-        <button onclick="window.FumocaMotionStates.removeState('${s.id}')" style="background:none;border:none;color:rgba(255,255,255,.25);cursor:pointer;font-size:12px">✕</button>
+        <button onclick="window.FumocaMotionStates.removeState('${String(s.id ?? '').replace(/[^A-Za-z0-9_-]/g, '')}')" style="background:none;border:none;color:rgba(255,255,255,.25);cursor:pointer;font-size:12px">✕</button>
       </div>`).join('');
   }
 
@@ -484,7 +484,7 @@ const FourDCapture = (() => {
     if (!_sessionJobs.length) { el.innerHTML = '<div class="fourDNote">No jobs yet. Analyze a video to start.</div>'; return; }
     el.innerHTML = _sessionJobs.map(j => `
       <div class="fourDJobRow">
-        <div class="fourDJobStatus status-${j.status}"></div>
+        <div class="fourDJobStatus status-${['queued', 'processing', 'completed', 'failed', 'cancelled'].includes(j.status) ? j.status : 'queued'}"></div>
         <span style="flex:1">${escapeHtml(j.label)}</span>
         <span style="color:rgba(255,255,255,.35);font-size:11px">${escapeHtml(j.statusText || j.status)}</span>
       </div>`).join('');
