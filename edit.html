@@ -5788,18 +5788,19 @@ function _injectV60Panels() {
     div.className = 'panel-body'; div.id = 'rtab-camera'; div.style.display = 'none';
     div.innerHTML = `
       <div class="section">
-        <div class="sec-head"><span class="sec-label">🎥 Camera Modes</span><span class="sec-badge">v61</span></div>
+        <div class="sec-head"><span class="sec-label">🎥 Camera Modes</span><span class="sec-badge">live</span></div>
         <div class="sec-body">
           <div class="btn-grid col2">
-            <button class="ac-btn" onclick="FumocaAutoFix?.setMode('free')">🕹 Free Camera</button>
-            <button class="ac-btn" onclick="FumocaAutoFix?.setMode('cinematic')">🎬 Cinematic</button>
-            <button class="ac-btn" onclick="FumocaAutoFix?.setMode('capture')">📸 Capture Angles</button>
-            <button class="ac-btn" onclick="FumocaAutoFix?.setMode('debug')">🔬 Debug Mode</button>
+            <button class="ac-btn" data-cam-mode="free" onclick="FumocaAutoFix?.setMode('free')">🕹 Free Camera</button>
+            <button class="ac-btn" data-cam-mode="cinematic" onclick="FumocaAutoFix?.setMode('cinematic')">🎬 Cinematic</button>
+            <button class="ac-btn" data-cam-mode="capture" onclick="FumocaAutoFix?.setMode('capture')">📸 Capture Angles</button>
+            <button class="ac-btn" data-cam-mode="debug" onclick="FumocaAutoFix?.setMode('debug')">🔬 Debug Mode</button>
           </div>
-          <button class="ac-btn amber full" style="margin-top:10px;" onclick="FumocaAutoFix?.run(window._fumocaCurrentRecord, window._fumocaRenderer)">
+          <button class="ac-btn amber full" style="margin-top:10px;" onclick="FumocaAutoFix?.run(window._fumocaCurrentRecord||{}, window._fumocaRenderer);FumocaAutoFix?.forceFitCamera?.();">
             🔁 Re-centre & Fix Camera
           </button>
-          <div class="hint" style="margin-top:8px;">Use Re-centre if the splat appears missing or off-screen.</div>
+          <div id="v61CameraModeStatus" style="margin-top:8px;font-size:12px;color:rgba(200,255,0,.8);min-height:1.2em;">Free camera</div>
+          <div class="hint" style="margin-top:6px;">Cinematic orbits the car. Capture Angles cycles studio views. Re-centre always re-fits.</div>
         </div>
       </div>
       <div class="section" style="margin-top:8px;">
@@ -5808,7 +5809,6 @@ function _injectV60Panels() {
           <span class="sec-badge" id="camPosBadge">0</span>
         </div>
         <div class="sec-body">
-          <div class="hint" style="margin-bottom:8px;">Camera positions embedded in the PLY file. Click any to fly there.</div>
           <div id="v61CameraViewPanel"></div>
         </div>
       </div>

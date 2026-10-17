@@ -1,255 +1,478 @@
 /**
- * FUMOCA Splat Auto-Fix Engine v61
+ * FUMOCA Splat Auto-Fix + Live Camera Modes
  * ═══════════════════════════════════════════════════════════════════
- * Guarantees the splat is ALWAYS visible on load.
- * No raw splat is ever allowed to be hidden, off-centre, or broken.
- *
- * Runs automatically when a splat loads. If anything is wrong it
- * corrects it silently — the user never sees a broken state.
- *
- * Fixes applied:
- *   1. Bounding box computation from live Gaussian positions
- *   2. Re-centring: translates the splat cloud to origin
- *   3. Camera initialisation: positions camera at correct distance
- *      facing the centre of the bounding box
- *   4. Scale normalisation: if the splat is tiny or enormous, scales
- *      the camera orbit distance to match
- *   5. Persists bounding_box to Supabase so future loads are instant
+ * - Guarantees splat is visible on load (re-centre / fit)
+ * - Camera modes that actually change the experience in Studio
+ * - Generated capture angles when PLY has no embedded cameras
+ * - Save current view as a pose + fly between poses
  * ═══════════════════════════════════════════════════════════════════
  */
 
 import * as THREE from 'three';
 
 const FumocaAutoFix = (() => {
+  let _mode = 'free';
+  let _cinematicRaf = 0;
+  let _captureIdx = 0;
+  let _debugOn = false;
+  let _savedPoses = []; // user-saved camera poses for this session / record
+  let _statusEl = null;
+  let _boundsHelper = null;
 
-  // ── Compute bounding box from raw Gaussian positions ─────────────
+  function _cam() {
+    return window._fumocaViewerCamera || window._fumocaViewer?.camera || window._fumocaCamera || null;
+  }
+  function _controls() {
+    return window._fumocaViewerControls || window._fumocaViewer?.controls || window._fumocaControls || null;
+  }
+  function _scene() {
+    return window._fumocaScene || window._fumocaViewer?.scene || null;
+  }
+
+  function _setStatus(msg) {
+    _statusEl = _statusEl || document.getElementById('v61CameraModeStatus');
+    if (_statusEl) _statusEl.textContent = msg;
+    console.log('[AutoFix]', msg);
+  }
+
+  function _highlightMode(mode) {
+    document.documentElement.dataset.cameraMode = mode;
+    document.querySelectorAll('[data-cam-mode]').forEach((btn) => {
+      const on = btn.getAttribute('data-cam-mode') === mode;
+      btn.classList.toggle('active', on);
+      btn.style.outline = on ? '2px solid rgba(200,255,0,.85)' : '';
+      btn.style.background = on ? 'rgba(200,255,0,.12)' : '';
+    });
+  }
+
+  // ── Bounds ────────────────────────────────────────────────────────
   function computeBoundsFromPositions(positions) {
     if (!positions || positions.length < 3) return null;
     let xMin = Infinity, yMin = Infinity, zMin = Infinity;
     let xMax = -Infinity, yMax = -Infinity, zMax = -Infinity;
-    for (let i = 0; i < positions.length; i += 3) {
-      const x = positions[i], y = positions[i+1], z = positions[i+2];
+    const stride = positions.length > 300000 ? 9 : positions.length > 100000 ? 6 : 3;
+    for (let i = 0; i < positions.length; i += stride) {
+      const x = positions[i], y = positions[i + 1], z = positions[i + 2];
       if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) continue;
       if (x < xMin) xMin = x; if (x > xMax) xMax = x;
       if (y < yMin) yMin = y; if (y > yMax) yMax = y;
       if (z < zMin) zMin = z; if (z > zMax) zMax = z;
     }
     if (!Number.isFinite(xMin)) return null;
-    const center = new THREE.Vector3((xMin+xMax)/2, (yMin+yMax)/2, (zMin+zMax)/2);
-    const size   = new THREE.Vector3(xMax-xMin, yMax-yMin, zMax-zMin);
-    const radius = Math.max(size.x, size.y, size.z) / 2;
-    return { min:{x:xMin,y:yMin,z:zMin}, max:{x:xMax,y:yMax,z:zMax}, center, size, radius };
+    const center = new THREE.Vector3((xMin + xMax) / 2, (yMin + yMax) / 2, (zMin + zMax) / 2);
+    const size = new THREE.Vector3(xMax - xMin, yMax - yMin, zMax - zMin);
+    const radius = Math.max(size.x, size.y, size.z, 0.2) / 2;
+    return {
+      min: { x: xMin, y: yMin, z: zMin },
+      max: { x: xMax, y: yMax, z: zMax },
+      center, size, radius,
+    };
   }
 
-  // ── Fix camera so it always faces the splat ────────────────────────
-  function fixCamera(bounds) {
-    // If edit.html already did a precise fit from real position data, don't override it
-    if (window._fumocaCameraFitted) {
-      console.log('%c[AutoFix] Camera already fitted by editor — skipping override', 'color:#888');
+  function getLiveBounds() {
+    // Prefer live editor point cloud
+    if (window.S?.positions?.length) {
+      const pos = window.S.positions;
+      const alive = window.S.alive;
+      if (alive?.length) {
+        const out = [];
+        for (let i = 0; i < alive.length; i++) {
+          if (!alive[i]) continue;
+          out.push(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]);
+        }
+        if (out.length >= 9) return computeBoundsFromPositions(out);
+      }
+      return computeBoundsFromPositions(pos);
+    }
+    if (window._editEngine?.getPointCloud) {
+      try {
+        const pc = window._editEngine.getPointCloud();
+        if (pc?.positions) return computeBoundsFromPositions(pc.positions);
+      } catch (_) {}
+    }
+    const renderer = window._fumocaRenderer || window._fumocaViewer;
+    if (renderer?.getPositions) {
+      try {
+        return computeBoundsFromPositions(renderer.getPositions());
+      } catch (_) {}
+    }
+    const rec = window._fumocaCurrentRecord;
+    const bb = rec?.meta?.bounding_box || rec?.bounding_box;
+    if (bb?.center) {
+      return {
+        min: bb.min || { x: -1, y: -1, z: -1 },
+        max: bb.max || { x: 1, y: 1, z: 1 },
+        center: new THREE.Vector3(bb.center.x, bb.center.y, bb.center.z),
+        radius: bb.radius || 1.5,
+        size: new THREE.Vector3(2, 2, 2),
+      };
+    }
+    return {
+      center: new THREE.Vector3(0, 0, 0),
+      radius: 1.5,
+      size: new THREE.Vector3(3, 3, 3),
+      min: { x: -1.5, y: -1.5, z: -1.5 },
+      max: { x: 1.5, y: 1.5, z: 1.5 },
+    };
+  }
+
+  // ── Force fit camera (ignores "already fitted") ───────────────────
+  function forceFitCamera(bounds) {
+    const cam = _cam();
+    const controls = _controls();
+    bounds = bounds || getLiveBounds();
+    if (!cam || !controls || !bounds?.center) {
+      _setStatus('No camera/controls — load a splat first');
       return false;
     }
-    const cam      = window._fumocaViewerCamera || window._fumocaViewer?.camera;
-    const controls = window._fumocaViewerControls || window._fumocaViewer?.controls;
-    if (!cam || !bounds) return false;
-
-    const { center, radius } = bounds;
-    const safeDist = Math.max(1.2, radius * 2.8);
-
-    // Set orbit target to bounding box centre
-    if (controls?.target) {
-      controls.target.set(center.x, center.y, center.z);
-    }
-
-    // Position camera at correct distance on current view axis (or default diagonal)
-    const idealPos = new THREE.Vector3(
-      center.x + safeDist * 0.6,
-      center.y + safeDist * 0.35,
-      center.z + safeDist * 0.8
-    );
-
-    // Only move if camera is clearly wrong (too far, too close, or at origin)
-    const currentDist = cam.position.distanceTo(new THREE.Vector3(center.x, center.y, center.z));
-    const needsFix = currentDist < radius * 0.2 || currentDist > radius * 20 ||
-                     cam.position.lengthSq() < 0.001;
-
-    if (needsFix) {
-      cam.position.copy(idealPos);
-      cam.lookAt(center.x, center.y, center.z);
-    }
-
-    if (controls) {
-      if (controls.minDistance !== undefined) controls.minDistance = radius * 0.3;
-      if (controls.maxDistance !== undefined) controls.maxDistance = radius * 12;
-      controls.update?.();
-    }
-
-    console.log(`%c[AutoFix] Camera fixed — radius:${radius.toFixed(2)} dist:${safeDist.toFixed(2)}`, 'color:#c8ff00');
+    const center = bounds.center.clone ? bounds.center.clone() : new THREE.Vector3(bounds.center.x, bounds.center.y, bounds.center.z);
+    const radius = Math.max(0.4, Number(bounds.radius) || 1.5);
+    const dist = radius * 2.6;
+    // Prefer a 3/4 elevated view
+    const dir = new THREE.Vector3(0.65, 0.35, 0.7).normalize();
+    cam.position.copy(center).add(dir.multiplyScalar(dist));
+    if (controls.target) controls.target.copy(center);
+    controls.minDistance = radius * 0.15;
+    controls.maxDistance = radius * 12;
+    controls.update?.();
+    cam.near = Math.max(0.001, radius * 0.001);
+    cam.far = Math.max(200, radius * 40);
+    cam.updateProjectionMatrix?.();
+    window._fumocaCameraFitted = true;
+    _setStatus(`Camera fitted · radius ${radius.toFixed(2)}`);
     return true;
   }
 
-  // ── Main auto-fix entry point ──────────────────────────────────────
-  async function run(splatRecord, renderer) {
-    if (!splatRecord) return;
+  function fixCamera(bounds) {
+    // Soft path used on auto-load: still fit if not fitted yet
+    if (window._fumocaCameraFitted) return false;
+    return forceFitCamera(bounds);
+  }
 
-    // Try to get positions from renderer
-    let bounds = null;
-    if (renderer && typeof renderer.getPositions === 'function') {
-      try {
-        const positions = renderer.getPositions();
-        bounds = computeBoundsFromPositions(positions);
-      } catch (_) {}
-    }
-
-    // Try edit-engine point cloud
-    if (!bounds && window._editEngine?.getPointCloud) {
-      try {
-        const pc = window._editEngine.getPointCloud();
-        if (pc?.positions) bounds = computeBoundsFromPositions(pc.positions);
-      } catch (_) {}
-    }
-
-    // Use persisted bounding_box from DB as fallback
-    if (!bounds && splatRecord.bounding_box && splatRecord.bounding_box.center) {
-      const bb = splatRecord.bounding_box;
-      bounds = {
-        min: bb.min,
-        max: bb.max,
-        center: new THREE.Vector3(bb.center.x, bb.center.y, bb.center.z),
-        radius: bb.radius || 1,
-        size: new THREE.Vector3(
-          (bb.max?.x||1)-(bb.min?.x||0),
-          (bb.max?.y||1)-(bb.min?.y||0),
-          (bb.max?.z||1)-(bb.min?.z||0)
-        )
-      };
-    }
-
-    if (!bounds) {
-      // No geometry info at all — apply a safe default camera reset
-      console.warn('[AutoFix] No geometry data — applying safe default camera');
-      fixCamera({ center: new THREE.Vector3(0,0,0), radius: 1.5 });
-      return false;
-    }
-
-    const fixed = fixCamera(bounds);
-    if (!fixed) return false;
-
-    // Persist bounding_box to DB so future loads skip recompute
-    if (fixed && splatRecord.id && !splatRecord.meta?.bounding_box?.center) {
+  async function run(splatRecord = {}, renderer = null, { force = false } = {}) {
+    const bounds = getLiveBounds();
+    if (force) return forceFitCamera(bounds);
+    if (window._fumocaCameraFitted) return false;
+    const ok = forceFitCamera(bounds);
+    // Persist bounds into meta when possible
+    if (ok && splatRecord?.id && bounds?.center && window._fumocaSupabase) {
       try {
         const bounding_box = {
-          min:    { x: bounds.min?.x||0, y: bounds.min?.y||0, z: bounds.min?.z||0 },
-          max:    { x: bounds.max?.x||0, y: bounds.max?.y||0, z: bounds.max?.z||0 },
-          center: { x: bounds.center.x,  y: bounds.center.y,  z: bounds.center.z  },
-          radius: bounds.radius
+          min: bounds.min,
+          max: bounds.max,
+          center: { x: bounds.center.x, y: bounds.center.y, z: bounds.center.z },
+          radius: bounds.radius,
         };
-        // nif_files (the live table splatRecord actually comes from — see
-        // window._fumocaCurrentRecord) has no bounding_box column; fold it
-        // into meta instead, same pattern as hotspots/variants elsewhere.
-        await window._fumocaSupabase?.from('nif_files').update({
-          meta: { ...(splatRecord.meta || {}), bounding_box }
+        await window._fumocaSupabase.from('nif_files').update({
+          meta: { ...(splatRecord.meta || {}), bounding_box },
         }).eq('id', splatRecord.id);
       } catch (_) {}
     }
-
     window.dispatchEvent(new CustomEvent('fumoca:autoFixComplete', { detail: { bounds } }));
-    return true;
+    return ok;
   }
 
-  // ── Camera mode switcher ───────────────────────────────────────────
-  const MODES = {
-    free:      () => _setMode('free'),
-    cinematic: () => _setMode('cinematic'),
-    debug:     () => _setMode('debug'),
-    capture:   () => _setMode('capture'),  // all capture angles
-  };
+  // ── Cinematic orbit loop ──────────────────────────────────────────
+  function _stopCinematic() {
+    if (_cinematicRaf) cancelAnimationFrame(_cinematicRaf);
+    _cinematicRaf = 0;
+    const controls = _controls();
+    if (controls) controls.autoRotate = false;
+  }
 
+  function _startCinematic() {
+    _stopCinematic();
+    const cam = _cam();
+    const controls = _controls();
+    if (!cam || !controls) {
+      _setStatus('Cinematic needs a loaded splat');
+      return;
+    }
+    // Prefer manual orbit so it works even if OrbitControls.autoRotate is flaky
+    const bounds = getLiveBounds();
+    const center = bounds.center.clone ? bounds.center.clone() : new THREE.Vector3();
+    if (controls.target) controls.target.copy(center);
+    controls.autoRotate = false;
+    controls.enableRotate = true;
+    controls.enablePan = false;
+
+    let angle = Math.atan2(cam.position.x - center.x, cam.position.z - center.z);
+    const radius = cam.position.distanceTo(center) || (bounds.radius * 2.6);
+    const height = cam.position.y;
+    const speed = 0.35; // rad/sec — visible but calm
+
+    const tick = (t) => {
+      if (_mode !== 'cinematic') return;
+      const controlsNow = _controls();
+      const camNow = _cam();
+      if (!camNow || !controlsNow) return;
+      // keep height; orbit in XZ
+      angle += speed * 0.016;
+      camNow.position.x = center.x + Math.sin(angle) * radius;
+      camNow.position.z = center.z + Math.cos(angle) * radius;
+      camNow.position.y = height;
+      if (controlsNow.target) controlsNow.target.copy(center);
+      controlsNow.update?.();
+      _cinematicRaf = requestAnimationFrame(tick);
+    };
+    _cinematicRaf = requestAnimationFrame(tick);
+    _setStatus('Cinematic orbit · click Free Camera to stop');
+  }
+
+  // ── Generated capture angles when file has none ───────────────────
+  function _standardAngles(bounds) {
+    const c = bounds.center;
+    const r = Math.max(0.6, bounds.radius * 2.4);
+    const y = c.y + bounds.radius * 0.25;
+    return [
+      { name: 'Front ¾', px: c.x + r * 0.7, py: y, pz: c.z + r * 0.7, tx: c.x, ty: c.y, tz: c.z },
+      { name: 'Front', px: c.x, py: y, pz: c.z + r, tx: c.x, ty: c.y, tz: c.z },
+      { name: 'Right', px: c.x + r, py: y, pz: c.z, tx: c.x, ty: c.y, tz: c.z },
+      { name: 'Rear ¾', px: c.x - r * 0.7, py: y, pz: c.z - r * 0.7, tx: c.x, ty: c.y, tz: c.z },
+      { name: 'Left', px: c.x - r, py: y, pz: c.z, tx: c.x, ty: c.y, tz: c.z },
+      { name: 'Top', px: c.x, py: c.y + r * 1.2, pz: c.z + r * 0.15, tx: c.x, ty: c.y, tz: c.z },
+      { name: 'Detail low', px: c.x + r * 0.55, py: c.y + bounds.radius * 0.05, pz: c.z + r * 0.55, tx: c.x, ty: c.y, tz: c.z },
+    ];
+  }
+
+  function _allCaptureViews() {
+    const rec = window._fumocaCurrentRecord;
+    const embedded = Array.isArray(rec?.camera_views) ? rec.camera_views : [];
+    const fromCamView = window.FumocaCameraView?.getCameras?.() || [];
+    const mapped = fromCamView.map((c, i) => ({
+      name: c.name || `Capture ${i + 1}`,
+      px: c.x ?? c.px, py: c.y ?? c.py, pz: c.z ?? c.pz,
+      tx: c.tx ?? 0, ty: c.ty ?? 0, tz: c.tz ?? 0,
+    }));
+    const generated = _standardAngles(getLiveBounds());
+    return [..._savedPoses, ...embedded, ...mapped, ...generated];
+  }
+
+  function _flyToView(v, duration = 700) {
+    const cam = _cam();
+    const controls = _controls();
+    if (!cam || !v) return;
+    const endPos = new THREE.Vector3(v.px ?? v.x ?? 0, v.py ?? v.y ?? 1, v.pz ?? v.z ?? 2);
+    const endTarget = new THREE.Vector3(v.tx ?? 0, v.ty ?? 0, v.tz ?? 0);
+    const startPos = cam.position.clone();
+    const startTarget = controls?.target?.clone?.() || new THREE.Vector3();
+    const t0 = performance.now();
+    const tick = (now) => {
+      const p = Math.min(1, (now - t0) / duration);
+      const e = 1 - Math.pow(1 - p, 3);
+      cam.position.lerpVectors(startPos, endPos, e);
+      if (controls?.target?.lerpVectors) controls.target.lerpVectors(startTarget, endTarget, e);
+      controls?.update?.();
+      if (p < 1) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }
+
+  function nextCaptureAngle() {
+    const views = _allCaptureViews();
+    if (!views.length) {
+      _setStatus('No capture angles available');
+      return;
+    }
+    _captureIdx = (_captureIdx + 1) % views.length;
+    const v = views[_captureIdx];
+    _flyToView(v);
+    _setStatus(`Capture angle ${_captureIdx + 1}/${views.length} · ${v.name || 'view'}`);
+  }
+
+  // ── Debug overlay ─────────────────────────────────────────────────
+  function _setDebug(on) {
+    _debugOn = on;
+    const scene = _scene();
+    if (_boundsHelper) {
+      scene?.remove?.(_boundsHelper);
+      _boundsHelper.geometry?.dispose?.();
+      _boundsHelper.material?.dispose?.();
+      _boundsHelper = null;
+    }
+    if (!on) {
+      document.documentElement.classList.remove('fumoca-debug-cam');
+      _setStatus('Debug off');
+      return;
+    }
+    document.documentElement.classList.add('fumoca-debug-cam');
+    const bounds = getLiveBounds();
+    try {
+      const box = new THREE.Box3(
+        new THREE.Vector3(bounds.min.x, bounds.min.y, bounds.min.z),
+        new THREE.Vector3(bounds.max.x, bounds.max.y, bounds.max.z)
+      );
+      _boundsHelper = new THREE.Box3Helper(box, 0xc8ff00);
+      scene?.add?.(_boundsHelper);
+    } catch (_) {}
+    // Soft stage treatment
+    const vp = document.getElementById('viewport');
+    if (vp) vp.style.outline = '1px dashed rgba(200,255,0,.35)';
+    _setStatus(`Debug on · radius ${(bounds.radius || 0).toFixed(2)}`);
+  }
+
+  // ── Save current view as pose ─────────────────────────────────────
+  function saveCurrentPose(name) {
+    const cam = _cam();
+    const controls = _controls();
+    if (!cam) {
+      _setStatus('No camera to save');
+      return null;
+    }
+    const pose = {
+      name: name || `Pose ${_savedPoses.length + 1}`,
+      px: cam.position.x,
+      py: cam.position.y,
+      pz: cam.position.z,
+      tx: controls?.target?.x || 0,
+      ty: controls?.target?.y || 0,
+      tz: controls?.target?.z || 0,
+      id: 'pose_' + Math.random().toString(36).slice(2, 8),
+    };
+    _savedPoses.push(pose);
+    _renderPoseList();
+    _setStatus(`Saved “${pose.name}”`);
+    window.dispatchEvent(new CustomEvent('fumoca:cameraPoseSaved', { detail: pose }));
+    return pose;
+  }
+
+  function _renderPoseList() {
+    const panel = document.getElementById('v61CameraViewPanel');
+    const badge = document.getElementById('camPosBadge');
+    const views = _allCaptureViews();
+    if (badge) badge.textContent = String(_savedPoses.length + (window.FumocaCameraView?.getCameras?.()?.length || 0));
+    if (!panel) return;
+
+    const savedBlock = _savedPoses.length
+      ? `<div style="margin-bottom:8px;font-size:11px;color:rgba(200,255,0,.75);letter-spacing:.06em;text-transform:uppercase;">Saved poses</div>
+         ${_savedPoses.map((p, i) => `
+           <button data-pose-id="${p.id}" class="ac-btn full" style="margin-bottom:4px;text-align:left;font-size:12px;">
+             ${i + 1}. ${p.name}
+           </button>`).join('')}`
+      : '';
+
+    const angles = _standardAngles(getLiveBounds());
+    panel.innerHTML = `
+      ${savedBlock}
+      <div style="margin:8px 0 6px;font-size:11px;color:rgba(255,255,255,.45);letter-spacing:.06em;text-transform:uppercase;">Studio angles</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+        ${angles.map((a, i) => `
+          <button data-angle-idx="${i}" class="ac-btn" style="font-size:11px;padding:8px 6px;">${a.name}</button>
+        `).join('')}
+      </div>
+      <button id="v61SavePoseBtn" class="ac-btn lime full" style="margin-top:10px;">💾 Save current view</button>
+      <div class="hint" style="margin-top:8px;">PLY capture cameras appear here when the file includes them. Otherwise Studio angles still work.</div>
+    `;
+
+    panel.querySelectorAll('[data-pose-id]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const pose = _savedPoses.find((p) => p.id === btn.getAttribute('data-pose-id'));
+        if (pose) { _flyToView(pose); _setStatus(`Flew to ${pose.name}`); }
+      });
+    });
+    panel.querySelectorAll('[data-angle-idx]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const idx = Number(btn.getAttribute('data-angle-idx'));
+        const v = angles[idx];
+        if (v) { _flyToView(v); _setStatus(v.name); }
+      });
+    });
+    panel.querySelector('#v61SavePoseBtn')?.addEventListener('click', () => {
+      const name = prompt('Name this camera pose', `Pose ${_savedPoses.length + 1}`);
+      if (name == null) return;
+      saveCurrentPose(name.trim() || undefined);
+    });
+  }
+
+  // ── Mode switcher ─────────────────────────────────────────────────
   function _setMode(mode) {
-    const renderer = window._fumocaRenderer || window._fumocaViewer;
-    const controls = window._fumocaViewerControls || window._fumocaViewer?.controls;
+    const controls = _controls();
+    _mode = mode;
     window._fumocaCameraMode = mode;
+    _highlightMode(mode);
+    _stopCinematic();
 
     if (mode === 'free') {
-      if (controls) { controls.enablePan = true; controls.enableRotate = true; controls.autoRotate = false; }
+      if (controls) {
+        controls.enablePan = true;
+        controls.enableRotate = true;
+        controls.enableZoom = true;
+        controls.autoRotate = false;
+      }
+      if (_debugOn) _setDebug(false);
+      const vp = document.getElementById('viewport');
+      if (vp) vp.style.outline = '';
+      _setStatus('Free camera · orbit / pan / zoom');
     } else if (mode === 'cinematic') {
-      if (controls) { controls.enablePan = false; controls.autoRotate = true; controls.autoRotateSpeed = 0.4; }
+      if (controls) {
+        controls.enablePan = false;
+        controls.enableRotate = true;
+        controls.autoRotate = false;
+      }
+      _startCinematic();
     } else if (mode === 'debug') {
-      if (controls) { controls.enablePan = true; controls.autoRotate = false; }
-      // Show density overlay if renderer supports it
-      if (renderer && typeof renderer.setDebugMode === 'function') renderer.setDebugMode(true);
+      if (controls) {
+        controls.enablePan = true;
+        controls.autoRotate = false;
+      }
+      _setDebug(true);
     } else if (mode === 'capture') {
-      if (controls) { controls.autoRotate = false; }
-      // Cycle through camera_views from the splat record
-      _cycleCaptureCameraViews();
+      if (controls) controls.autoRotate = false;
+      nextCaptureAngle();
+      _renderPoseList();
     }
 
-    document.documentElement.dataset.cameraMode = mode;
     window.dispatchEvent(new CustomEvent('fumoca:cameraModeChanged', { detail: { mode } }));
-    console.log(`[AutoFix] Camera mode → ${mode}`);
   }
 
-  function _cycleCaptureCameraViews() {
-    const rec   = window._fumocaCurrentRecord;
-    const views = rec?.camera_views;
-    if (!Array.isArray(views) || !views.length) return;
-    let idx = 0;
-    const cam      = window._fumocaViewerCamera || window._fumocaViewer?.camera;
-    const controls = window._fumocaViewerControls || window._fumocaViewer?.controls;
-    const advance  = () => {
-      const v = views[idx % views.length];
-      if (v && cam) {
-        cam.position.set(v.px||0, v.py||1, v.pz||2);
-        if (controls?.target) controls.target.set(v.tx||0, v.ty||0, v.tz||0);
-        controls?.update?.();
-      }
-      idx++;
-    };
-    advance();
-    return { advance, total: views.length };
-  }
-
-  // ── Auto-hook into viewer load events ─────────────────────────────
   function attach() {
     let _hasRun = false;
     let _running = false;
     const _try = async () => {
       if (_hasRun || _running) return;
-      // Don't override if edit.html already fitted camera from real position data
       if (window._fumocaCameraFitted) {
-        console.log('%c[AutoFix] Camera already fitted by editor — skipping', 'color:#888');
         _hasRun = true;
         return;
       }
-      // recordLoaded fires before the NIF finishes decoding. Keep listening
-      // until real positions and the viewer camera are available.
-      const rec      = window._fumocaCurrentRecord;
-      const renderer = window._fumocaRenderer || window._fumocaViewer;
       _running = true;
       try {
-        _hasRun = await run(rec || {}, renderer) === true;
+        _hasRun = await run(window._fumocaCurrentRecord || {}, window._fumocaRenderer || window._fumocaViewer) === true;
       } finally {
         _running = false;
       }
     };
-
-    window.addEventListener('fumoca:viewerReady',  _try);
+    window.addEventListener('fumoca:viewerReady', _try);
     window.addEventListener('fumoca:recordLoaded', _try);
-    window.addEventListener('fumoca:fileLoaded',   _try);
-
-    // Also run immediately if already loaded
+    window.addEventListener('fumoca:fileLoaded', () => {
+      _hasRun = false;
+      _try();
+      setTimeout(() => _renderPoseList(), 400);
+    });
     if (window._fumocaCurrentRecord) _try();
+    // Build pose UI when panel exists
+    setTimeout(() => _renderPoseList(), 800);
   }
 
-  // ── Public API ────────────────────────────────────────────────────
-  return {
-    run,
-    attach,
-    computeBounds: computeBoundsFromPositions,
-    fixCamera,
-    camera: MODES,
-    setMode: _setMode,
+  const MODES = {
+    free: () => _setMode('free'),
+    cinematic: () => _setMode('cinematic'),
+    debug: () => _setMode('debug'),
+    capture: () => _setMode('capture'),
   };
 
+  return {
+    run: (rec, renderer) => run(rec || window._fumocaCurrentRecord, renderer, { force: true }),
+    attach,
+    computeBounds: computeBoundsFromPositions,
+    fixCamera: forceFitCamera,
+    forceFitCamera,
+    camera: MODES,
+    setMode: _setMode,
+    nextCaptureAngle,
+    saveCurrentPose,
+    getMode: () => _mode,
+    refreshPoses: _renderPoseList,
+  };
 })();
 
 window.FumocaAutoFix = FumocaAutoFix;
