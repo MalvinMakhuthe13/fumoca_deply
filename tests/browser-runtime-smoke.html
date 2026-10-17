@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>FUMOCA browser runtime QA</title></head>
+<body>
+  <button id="run" type="button">Run browser conversion checks</button>
+  <output id="status" role="status">READY</output>
+  <script type="module">
+    import { encodeNif, decodeNif } from '../js/modules/nif-format.js';
+    import { compactGaussianSHSidecar, gaussianSHMetadata } from '../js/modules/nif-sh-sidecar.js';
+    import { encodeEditorSplatRows } from '../js/modules/editor-splat-rows.js';
+
+    const status = document.getElementById('status');
+    document.getElementById('run').addEventListener('click', async () => {
+      try {
+        const state = {
+          alive: new Uint8Array([1, 1, 0]),
+          positions: new Float32Array([1, 2, 3, -4, 5, 6, 9, 9, 9]),
+          colors: new Float32Array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]),
+          paintColors: new Float32Array([-1, -1, -1, -1, -1, -1, -1, -1, -1]),
+          opacity: new Float32Array([0.25, 0.75, 1]),
+          scaleXYZ: new Float32Array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 1, 1, 1]),
+          rotation: new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]),
+        };
+        const indices = [1, 0];
+        const rows = encodeEditorSplatRows(state, indices);
+        const names = ['f_dc_0', 'f_dc_1', 'f_dc_2', ...Array.from({ length: 9 }, (_, i) => 'f_rest_' + i)];
+        const coefficients = Float32Array.from({ length: state.alive.length * names.length }, (_, i) => i / 100);
+        const gaussianSH = compactGaussianSHSidecar({
+          indices, attributes: names, coefficients, pointCount: state.alive.length,
+        });
+        const nif = encodeNif({
+          sourceBuffer: rows, aliveIndices: [0, 1], rowSize: 32,
+          gaussianSH,
+          meta: { title: 'browser QA fixture', gaussian_sh: gaussianSHMetadata(gaussianSH, names) },
+          vertical: 'industrial',
+        });
+        const decoded = await decodeNif(nif);
+        if (decoded.gaussians.count !== 2) throw new Error('NIF geometry count did not round-trip');
+        if (decoded.gaussianSH?.pointCount !== 2) throw new Error('Gaussian SH sidecar count did not round-trip');
+        if (decoded.reader.header.vertical !== 'industrial') throw new Error('NIF vertical header did not round-trip');
+        if (decoded.gaussianSH.values[0] !== coefficients[names.length]) throw new Error('SH compaction order did not match geometry');
+        if (Math.abs(decoded.gaussians.data[0] - (-4)) > 0.001) throw new Error('Reordered point position did not survive encoding');
+        window.__browserTestResult = { ok: true, points: decoded.gaussians.count, shCoefficients: decoded.gaussianSH.values.length };
+        status.textContent = 'PASS: browser NIF/SPLAT/SH round-trip';
+      } catch (error) {
+        window.__browserTestResult = { ok: false, error: error?.stack || String(error) };
+        status.textContent = 'FAIL: ' + (error?.message || String(error));
+      }
+    });
+  </script>
+</body>
+</html>
