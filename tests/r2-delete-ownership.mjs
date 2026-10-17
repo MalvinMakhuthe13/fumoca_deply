@@ -52,6 +52,7 @@ const mockFetch = async (url, options) => {
     rows = [{ id: 'record-456', user_id: 'user-123', r2_key: 'record-456/edited_123.ply', meta: { thumbnail_r2_key: 'user-b/thumb.webp' } }];
   } else if (requestedOr.includes('teaser.webm')) {
     rows = [{ id: 'record-456', user_id: 'user-123', r2_key: 'record-456/edited_123.ply', meta: { teaser_video_r2_key: 'record-456/teaser.webm' } }];
+  }
   return new Response(JSON.stringify(rows), { status: 200 });
 };
 const check = new Function('fetch', `${helperSource}; return userOwnsFileKey;`)(mockFetch);
