@@ -14,6 +14,8 @@ assert.ok(!save.includes("storage.from('splat-files')"), 'Studio must not upload
 assert.ok(save.includes('Legacy splats/Supabase Storage fallback is disabled'), 'failed NIF saves must fail visibly instead of pretending legacy fallback works');
 assert.match(source, /window\._fumocaCurrentRecord = \{ \.\.\.\(window\._fumocaCurrentRecord \|\| \{\}\), \.\.\.data \};/,
   'bootstrap must prefer fresh database fields over stale in-memory NIF state');
+assert.match(source, /if \(source\.r2_key\)[\s\S]*?authenticatedUrl\(source\.r2_key\)/,
+  'private original source files must be opened through an authorized R2 read ticket');
 const legacyEditor = await readFile(new URL('../js/modules/splat-edit-engine.js', import.meta.url), 'utf8');
 assert.match(legacyEditor, /const path=\`\$\{splatId\}\/edited_cleaned_\$\{Date\.now\(\)\}\.splat\`;/,
   'cleaned splat derivatives must use the record-scoped edited_ key accepted by the R2 ownership guard');
