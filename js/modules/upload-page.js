@@ -554,6 +554,7 @@ window.handleSubmit = async function() {
           source_capture: {
             public_url: sourceUrl,
             r2_key: sourceFileKey,
+            r2_bucket: 'nif-files',
             filename: selectedFile.name,
             format: cloud.source,
             byte_size: selectedFile.size,
