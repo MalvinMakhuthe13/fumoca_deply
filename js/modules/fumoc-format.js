@@ -193,6 +193,31 @@ async function readSection(view, offset, decodePayload = true) {
   return { id, flags, compLen, rawLen, isCompressed, data, totalBytes: 13 + compLen };
 }
 
+function parseFileHeader(bytes) {
+  if (!(bytes instanceof Uint8Array) || bytes.byteLength < 14) {
+    throw new Error('[FUMOC] File is shorter than its 14-byte header');
+  }
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const magic = bytesToStr(bytes.subarray(0, 8));
+  if (!magic.startsWith('FUMOC')) throw new Error('[FUMOC] Not a .fumoc file');
+  const version = view.getUint16(8, true);
+  if (version < 1 || version > VERSION) throw new Error(`[FUMOC] Unsupported file version ${version}`);
+  const headerLen = view.getUint32(10, true);
+  if (headerLen > MAX_FUMOC_HEADER_BYTES || 14 + headerLen > bytes.byteLength) {
+    throw new Error('[FUMOC] Header length is invalid, truncated or exceeds 1 MiB');
+  }
+  let header;
+  try {
+    header = JSON.parse(bytesToStr(bytes.subarray(14, 14 + headerLen)));
+  } catch (error) {
+    throw new Error('[FUMOC] Header JSON is invalid', { cause: error });
+  }
+  if (!header || typeof header !== 'object' || Array.isArray(header)) {
+    throw new Error('[FUMOC] Header must be a JSON object');
+  }
+  return { version, header, dataOffset: 14 + headerLen };
+}
+
 // ── ENCODER (public) ─────────────────────────────────────────────────────────
 
 /**
@@ -294,28 +319,20 @@ async function encode(payload) {
  */
 async function decode(buffer) {
   const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
-  const view  = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-
-  // Validate magic
-  const magic = bytesToStr(bytes.slice(0, 8));
-  if (!magic.startsWith('FUMOC')) throw new Error('[FUMOC] Not a .fumoc file');
-
-  const version   = view.getUint16(8, true);
-  const headerLen = view.getUint32(10, true);
-  const headerStr = bytesToStr(bytes.slice(14, 14 + headerLen));
-  const header    = JSON.parse(headerStr);
+  if (bytes.byteLength > MAX_FUMOC_FILE_BYTES) throw new Error('[FUMOC] File exceeds the 2 GiB safety limit');
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const { version, header, dataOffset } = parseFileHeader(bytes);
   header._version = version;
 
-  let offset = 14 + headerLen;
+  let offset = dataOffset;
   const sections = {};
-
   while (offset < bytes.byteLength) {
+    if (bytes.byteLength - offset < 13) throw new Error('[FUMOC] Trailing bytes do not form a complete section header');
     const section = await readSection(view, offset);
-    if (!section) break;
+    if (sections[section.id] !== undefined) throw new Error(`[FUMOC] Duplicate section ${section.id}`);
 
-    // Parse section data to its native type
     if (section.id === SECTION_SPLT || section.id === SECTION_THUM) {
-      sections[section.id] = section.data; // keep as binary
+      sections[section.id] = section.data;
     } else {
       try {
         sections[section.id] = JSON.parse(bytesToStr(section.data));
@@ -323,10 +340,17 @@ async function decode(buffer) {
         sections[section.id] = section.data;
       }
     }
-
     offset += section.totalBytes;
   }
 
+  if (!(sections[SECTION_SPLT] instanceof Uint8Array) || sections[SECTION_SPLT].byteLength === 0) {
+    throw new Error('[FUMOC] Required SPLT section is missing or empty');
+  }
+  if (header.splat_byte_length != null &&
+      (!Number.isSafeInteger(Number(header.splat_byte_length)) ||
+       Number(header.splat_byte_length) !== sections[SECTION_SPLT].byteLength)) {
+    throw new Error('[FUMOC] Header splat_byte_length does not match the decoded SPLT section');
+  }
   return { header, sections, version };
 }
 
@@ -338,11 +362,7 @@ async function decode(buffer) {
  */
 function readHeader(buffer) {
   const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
-  const view  = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const magic = bytesToStr(bytes.slice(0, 8));
-  if (!magic.startsWith('FUMOC')) throw new Error('[FUMOC] Not a .fumoc file');
-  const headerLen = view.getUint32(10, true);
-  return JSON.parse(bytesToStr(bytes.slice(14, 14 + headerLen)));
+  return parseFileHeader(bytes).header;
 }
 
 /**
