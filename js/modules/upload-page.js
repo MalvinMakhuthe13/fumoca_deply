@@ -327,7 +327,7 @@ async function buildCalibVerifyMeta(userId) {
   const refFile = document.getElementById('verifyRefFile')?.files?.[0];
   if (wantsVerify && refFile) {
     const safeName = refFile.name.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9._-]/g, '');
-    const refPath = `verify-refs/${userId}/${Date.now()}_${safeName}`;
+    const refPath = `${userId}/verify-refs/${Date.now()}_${safeName}`;
     const { fileKey, error: refErr } = await r2.from('nif-files').upload(refPath, refFile, {
       contentType: 'application/octet-stream',
     });
