@@ -187,19 +187,22 @@ const FumocaTeaserVideo = (() => {
 
     if (sb && splatId) {
       try {
-        const path = `teasers/${splatId}/teaser_${Date.now()}.webm`;
-        const { publicUrl: _teaserUrl, error } = await r2
+        const { data: { user } = {} } = await sb.auth.getUser();
+        const ownerId = splatRecord?.user_id || user?.id;
+        if (!ownerId) throw new Error('Sign in as the capture owner before saving a teaser.');
+        const path = `${ownerId}/teasers/${splatId}/teaser_${Date.now()}.webm`;
+        const { publicUrl: _teaserUrl, fileKey, error } = await r2
           .from('preview-videos')
           .upload(path, blob, { contentType: mimeType });
 
-        if (error) {
-          console.error('[Teaser] R2 upload error:', error);
+        if (error || !fileKey) {
+          console.error('[Teaser] R2 upload error:', error || 'No storage key returned');
         } else {
           uploadedUrl = _teaserUrl || null;
 
           if (uploadedUrl) {
             await sb.from('nif_files')
-              .update({ meta: { ...(splatRecord?.meta || {}), teaser_video_url: uploadedUrl, last_edited_at: new Date().toISOString() } })
+              .update({ meta: { ...(splatRecord?.meta || {}), teaser_video_url: uploadedUrl, teaser_video_r2_key: fileKey, last_edited_at: new Date().toISOString() } })
               .eq('id', splatId);
 
             if (typeof window.saveLiveEdit === 'function') {
