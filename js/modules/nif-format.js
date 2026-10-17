@@ -198,10 +198,14 @@ function packGeometryQuantized(geoData, count) {
     points[base+7] = clamp(Math.round(((geoData[o+4]-SCALE_MIN)/SCALE_RANGE)*255), 0, 255);
     points[base+8] = clamp(Math.round(((geoData[o+5]-SCALE_MIN)/SCALE_RANGE)*255), 0, 255);
 
-    pdv.setInt8(base+9,  clamp(Math.round(geoData[o+6]*127), -127, 127));
-    pdv.setInt8(base+10, clamp(Math.round(geoData[o+7]*127), -127, 127));
-    pdv.setInt8(base+11, clamp(Math.round(geoData[o+8]*127), -127, 127));
-    pdv.setInt8(base+12, clamp(Math.round(geoData[o+9]*127), -127, 127));
+    const qNorm = Math.hypot(geoData[o+6], geoData[o+7], geoData[o+8], geoData[o+9]);
+    if (!Number.isFinite(qNorm) || qNorm < 1e-8) {
+      throw new Error(`[nif-format] point ${i} has an invalid zero-length quaternion`);
+    }
+    pdv.setInt8(base+9,  clamp(Math.round((geoData[o+6] / qNorm)*127), -127, 127));
+    pdv.setInt8(base+10, clamp(Math.round((geoData[o+7] / qNorm)*127), -127, 127));
+    pdv.setInt8(base+11, clamp(Math.round((geoData[o+8] / qNorm)*127), -127, 127));
+    pdv.setInt8(base+12, clamp(Math.round((geoData[o+9] / qNorm)*127), -127, 127));
 
     points[base+13] = clamp(Math.round(sigmoid(geoData[o+10])*255), 0, 255);
     points[base+14] = clamp(Math.round(sigmoid(geoData[o+11])*255), 0, 255);
@@ -278,6 +282,17 @@ export function encodeNif(opts = {}) {
       if (!Number.isFinite(geoData[i])) {
         throw new Error(`[nif-format] geometry contains a non-finite value at float index ${i}`);
       }
+    }
+    // Canonical NIF quaternions are unit-length. Copy first so encoding never
+    // mutates a caller-owned geometry buffer.
+    geoData = geoData.slice();
+    for (let i = 0; i < count; i++) {
+      const o = i * FLOATS_PER_POINT + 6;
+      const norm = Math.hypot(geoData[o], geoData[o+1], geoData[o+2], geoData[o+3]);
+      if (!Number.isFinite(norm) || norm < 1e-8) {
+        throw new Error(`[nif-format] point ${i} has an invalid zero-length quaternion`);
+      }
+      for (let j = 0; j < 4; j++) geoData[o+j] /= norm;
     }
   }
 
