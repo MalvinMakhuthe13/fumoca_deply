@@ -200,7 +200,7 @@ access = await run([publicParent])(req(), env, null, 'thumbnails', 'user-a/thumb
 assert.deepEqual(access, { allowed: true, isPublic: true, reason: 'published-nif-thumbnail' },
   'a public NIF may expose its own owner-prefixed thumbnail');
 access = await run([publicParent])(req(), env, null, 'preview-videos', 'user-a/teasers/nif-a/teaser_1.webm');
-assert.deepEqual(access, { allowed: true, isPublic: true, reason: 'published-nif-teaser-video' },
+assert.deepEqual(access, { allowed: true, isPublic: true, reason: 'published-nif-preview-video' },
   'a public NIF may expose only its own record-scoped teaser video');
 
 const maliciousParent = {
