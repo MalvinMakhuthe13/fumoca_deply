@@ -36,15 +36,17 @@ function ansDecode(compressed, freqTableBytes, outputLength) {
   for (let sym = 0; sym < 256; sym++)
     for (let s = cumFreq[sym]; s < cumFreq[sym+1]; s++) decodeTable[s] = sym;
   const out = new Uint8Array(outputLength);
-  let state = (compressed[0] | (compressed[1]<<8) | (compressed[2]<<16) | (compressed[3]<<24)) >>> 0;
+  let state = ((compressed[0]<<24) | (compressed[1]<<16) | (compressed[2]<<8) | compressed[3]) >>> 0;
   let bytePos = 4;
   for (let i = 0; i < outputLength; i++) {
     const slot = state % ANS_M;
     const sym  = decodeTable[slot];
     out[i] = sym;
     state = freq[sym] * Math.floor(state / ANS_M) + slot - cumFreq[sym];
-    while (state < ANS_L && bytePos < compressed.length)
+    while (state < ANS_L) {
+      if (bytePos >= compressed.length) throw new Error('[FUMOC Worker] ANS stream ended before renormalization completed');
       state = (state << 8) | compressed[bytePos++];
+    }
   }
   return out;
 }
