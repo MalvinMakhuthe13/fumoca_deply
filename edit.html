@@ -2550,6 +2550,15 @@ function parsePLY(buffer) {
 }
 // ─── LOAD ────────────────────────────────────────────────────────────────────
 async function loadFile(file, urlOverride) {
+  // A file chosen from the local disk is a new, detached editor session.
+  // Do not let a previous viewer URL/record leak into its publish or save path.
+  window._fumocaLoadedFromRecord = !!urlOverride;
+  window._fumocanifUrl = urlOverride || '';
+  window._fumocaNifUrl = urlOverride || '';
+  if (!urlOverride) {
+    window._fumocaCurrentRecord = null;
+    window._fumocaCanonicalFileUrl = '';
+  }
   clearTimeout(_compareCaptureTimer);
   controls.autoRotate=false;
   S.pivot=null;
@@ -4543,7 +4552,7 @@ if (cmpDiv) {
 // ════════════════════════════════════════════════════════════════════════════
 window.saveLiveEdit = async function saveLiveEdit(extra = {}) {
   const params  = new URLSearchParams(location.search);
-  const splatId = params.get('splatId') || params.get('nifId') || window._fumocaCurrentRecord?.id;
+  const splatId = window._fumocaLoadedFromRecord === false ? null : (params.get('splatId') || params.get('nifId') || window._fumocaCurrentRecord?.id);
   if (!splatId) { console.warn('[saveLiveEdit] No splatId — cannot save'); return false; }
 
   let sb = window._fumocaSupabase || window.supabase;
