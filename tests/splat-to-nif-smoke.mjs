@@ -10,8 +10,8 @@ for (let i = 0; i < 2; i++) {
   view.setFloat32(o + 4, 1 + i, true);
   view.setFloat32(o + 8, -0.5, true);
   view.setFloat32(o + 12, 0.1, true);
-  view.setFloat32(o + 16, 0.1, true);
-  view.setFloat32(o + 20, 0.1, true);
+  view.setFloat32(o + 16, 0.2, true);
+  view.setFloat32(o + 20, 0.3, true);
   source[o + 24] = 220;
   source[o + 25] = 120;
   source[o + 26] = 40;
