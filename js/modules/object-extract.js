@@ -431,53 +431,54 @@ export async function saveExtractedAsNewSplat({
   if (!supabase || !r2) throw new Error('supabase and r2 clients are required');
   if (!plyBytes) throw new Error('no ply bytes to save');
 
-  // Create the new splats row first so we have an id for the storage path.
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData, error: authError } = await supabase.auth.getUser();
   const userId = userData?.user?.id || null;
+  if (authError || !userId) throw new Error('Sign in before saving an extracted object.');
+
+  const timestamp = Date.now();
+  const storagePath = `${userId}/extracted_${timestamp}.ply`;
+  const blob = new Blob([plyBytes], { type: 'application/octet-stream' });
+  const { publicUrl, fileKey, error: uploadErr } = await r2
+    .from('nif-files')
+    .upload(storagePath, blob, { contentType: 'application/octet-stream' });
+  if (uploadErr || !fileKey) throw new Error('Extracted object upload failed: ' + (uploadErr?.message || 'storage did not return a file key'));
 
   const insertPayload = {
-    title: title || 'Extracted object',
-    status: 'complete',
     user_id: userId,
-    metadata: {
-      extracted_from: sourceSplatId || null,
+    title: title || 'Extracted object',
+    description: null,
+    vertical: 'generic',
+    r2_key: fileKey,
+    file_size: plyBytes.byteLength,
+    is_public: false,
+    meta: {
+      source_type: 'object_extract',
+      source_nif_id: sourceSplatId || null,
       extracted_at: new Date().toISOString(),
+      point_count: stats?.count ?? null,
       extraction: stats ? {
         point_count: stats.count,
         dims: stats.dims,
       } : undefined,
+      output_format: 'ply',
     },
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
   };
   const { data: newRow, error: insertErr } = await supabase
-    .from('splats')
+    .from('nif_files')
     .insert(insertPayload)
-    .select()
+    .select('id')
     .single();
-  if (insertErr) throw insertErr;
-
-  const newId = newRow.id;
-  const storagePath = `splats/${newId}/extracted_${Date.now()}.ply`;
-  const blob = new Blob([plyBytes], { type: 'application/octet-stream' });
-
-  // Upload via r2Client (same API used elsewhere in the editor).
-  const { publicUrl, error: uploadErr } = await r2
-    .from('nif-files')
-    .upload(storagePath, blob, { contentType: 'application/octet-stream' });
-  if (uploadErr) {
-    // Best-effort: delete the row we just created so we don't leave orphans.
-    await supabase.from('splats').delete().eq('id', newId).catch(() => {});
-    throw uploadErr;
+  if (insertErr || !newRow?.id) {
+    try { await r2.from('nif-files').remove([fileKey]); } catch (cleanupError) {
+      console.warn('[ObjectExtract] failed to clean up unregistered PLY', cleanupError?.message || cleanupError);
+    }
+    throw new Error(insertErr?.message || 'Could not register extracted object in nif_files.');
   }
 
-  // Update the row with the URL now that we have it.
-  await supabase.from('splats').update({
-    splat_url: publicUrl,
-    output_url: publicUrl,
-    file_url: publicUrl,
-  }).eq('id', newId);
-
-  const viewerUrl = `viewer.html?splatId=${encodeURIComponent(newId)}`;
-  return { id: newId, url: publicUrl, viewerUrl };
+  const viewerUrl = `viewer.html?nifId=${encodeURIComponent(newRow.id)}`;
+  return { id: newRow.id, url: publicUrl, fileKey, viewerUrl };
 }
 
 // Default export for convenient importing
