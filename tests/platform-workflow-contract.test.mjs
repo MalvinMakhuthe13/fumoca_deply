@@ -53,3 +53,23 @@ test('feed deletion uses known R2 keys and the real reconstruction job key', asy
   assert.match(source, /select\('id,raw_r2_key'\)/);
   assert.match(source, /bucket: 'nif-videos'/);
 });
+
+test('preflight resolves canonical NIF rows and legacy rows explicitly', async () => {
+  const source = await read('preflight.html');
+  assert.match(source, /from\('nif_files'\)/);
+  assert.match(source, /r2\.publicUrl\('nif-files', data\.r2_key\)/);
+  assert.match(source, /from\('reconstruction_jobs'\)/);
+  assert.match(source, /from\('splats'\)/);
+  assert.match(source, /_assetKind: 'nif'/);
+  assert.match(source, /_assetKind: 'legacy'/);
+  assert.match(source, /_representation/);
+  assert.match(source, /isGaussianRepresentation/);
+});
+
+test('preflight passes the resolved asset URL to reachability, viewer and cache checks', async () => {
+  const source = await read('preflight.html');
+  assert.match(source, /const splatUrl = row\._displayUrl/);
+  assert.match(source, /probeViewer\(id, splatUrl\)/);
+  assert.match(source, /probeParams\.set\('file', artifactUrl\)/);
+  assert.match(source, /const urls = \[splatUrl, thumbnailUrl\]/);
+});
