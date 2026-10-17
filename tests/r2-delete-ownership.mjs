@@ -27,6 +27,7 @@ function extractFunction(name) {
 }
 
 const helperSource = extractFunction('userOwnsFileKey');
+const writeHelperSource = extractFunction('userMayWriteFileKey');
 const user = { id: 'user-123', kind: 'user' };
 const env = { SUPABASE_URL: 'https://db.example.test', SUPABASE_ANON_KEY: 'anon-test' };
 const request = { headers: { get: () => 'Bearer test-user-token' } };
@@ -35,7 +36,9 @@ const mockFetch = async (url, options) => {
   fetchCalls++;
   assert.match(String(url), /user_id=eq\.user-123/);
   assert.equal(options.headers.Authorization, 'Bearer test-user-token');
-  return new Response(JSON.stringify([{ id: 'record-456', r2_key: 'record-456/edited_123.ply' }]), { status: 200 });
+  const requestedId = new URL(String(url)).searchParams.get('id')?.slice(3);
+  const rows = requestedId === 'record-456' ? [{ id: 'record-456', r2_key: 'record-456/edited_123.ply' }] : [];
+  return new Response(JSON.stringify(rows), { status: 200 });
 };
 const check = new Function('fetch', `${helperSource}; return userOwnsFileKey;`)(mockFetch);
 
@@ -49,3 +52,14 @@ assert.equal(await check(request, env, { id: 'server', kind: 'server-to-server' 
 const noTokenRequest = { headers: { get: () => '' } };
 assert.equal(await check(noTokenRequest, env, user, 'nif-files', 'record-456/edited_123.ply'), false, 'missing token fails closed');
 console.log('R2 delete ownership tests passed: user prefixes, owned derivatives, cross-user denial, server principal, and missing token.');
+
+const mayWrite = new Function('fetch', `${writeHelperSource}; return userMayWriteFileKey;`)(mockFetch);
+assert.equal(await mayWrite(request, env, user, 'nif-files', 'user-123/new-upload.ply'), true, 'user may write under own prefix');
+assert.equal(await mayWrite(request, env, user, 'nif-files', 'record-456/edited_999.ply'), true, 'owner may create a new Studio derivative before r2_key updates');
+assert.equal(await mayWrite(request, env, user, 'nif-files', 'record-999/edited_999.ply'), false, 'cross-user Studio derivative write is denied');
+assert.equal(await mayWrite(request, env, user, 'nif-files', 'record-456/original.ply'), false, 'non-derivative record paths are denied');
+assert.equal(await mayWrite(request, env, user, 'nif-videos', 'other-user/video.mp4'), false, 'cross-user bucket key is denied');
+assert.equal(await mayWrite(request, env, { id: 'server', kind: 'server-to-server' }, 'nif-files', 'any/key.ply'), true, 'trusted server principal may write artifacts');
+assert.equal(await mayWrite(noTokenRequest, env, user, 'nif-files', 'record-456/edited_999.ply'), false, 'missing token fails closed for record writes');
+console.log('R2 write ownership tests passed: user prefixes, new owned derivatives, cross-user denial, bucket isolation, trusted server, and missing token.');
+
