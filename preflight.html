@@ -363,10 +363,6 @@
         setCheck('status', 'warn', `Reconstruction job status='${row._job.status}'. ${row._job.error_message || ''}`.trim());
         warn++;
       }
-      if (row.is_public !== true) {
-        // Private assets are still testable by their owner, but are not public-show ready.
-        setCheck('network', 'pending', 'This asset is private; viewer checks use the current signed-in session.');
-      }
     }
 
     // 3. Check the actual output location; NIF records store an R2 key, not a URL.
