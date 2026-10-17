@@ -150,7 +150,7 @@ const FumocaMobileAsset = (() => {
     // Prevent a record-controlled string from closing the inline script if
     // future widget state fields become user-authored.
     const statesJson = JSON.stringify(config.states).replace(/</g, '\\u003c')
-      .replace(/\\u2028/g, '\\\\u2028').replace(/\\u2029/g, '\\\\u2029');
+      .replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
 
     return `<!DOCTYPE html>
 <html lang="en">
