@@ -168,6 +168,8 @@ jobs:
         run: node --experimental-default-type=module tests/r2-read-ticket.mjs
       - name: Test R2 key sanitization
         run: node --experimental-default-type=module tests/r2-key-sanitization.mjs
+      - name: Test embed token privacy and deployed schema
+        run: node --experimental-default-type=module tests/embed-token-privacy-contract.mjs
       - name: Guard R2 read authorization and cache ordering
         run: |
           grep -q "async function authorizeFileRead" cloudflare/workers/r2-storage.js
