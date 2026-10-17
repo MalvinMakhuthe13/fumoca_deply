@@ -5,12 +5,17 @@
 create table if not exists public.mobile_assets (
   splat_id uuid primary key references public.nif_files(id) on delete cascade,
   asset_url text not null,
+  r2_key text not null,
   format text not null default 'fumoca-widget',
   interaction_rules jsonb not null default '{}'::jsonb,
   states jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- Existing installations may already have the table from an earlier prototype.
+-- Add the key column idempotently; legacy rows can remain NULL until regenerated.
+alter table public.mobile_assets add column if not exists r2_key text;
 
 alter table public.mobile_assets enable row level security;
 
