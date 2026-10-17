@@ -50,6 +50,13 @@
   const ANALYTICS_URL = BASE_URL + '/api/ad-analytics';
   const VERSION      = 'v85';
 
+  function safeHttpUrl(value) {
+    try {
+      const url = new URL(String(value || ''), window.location.href);
+      return ['http:', 'https:'].includes(url.protocol) ? url.href : '';
+    } catch (_) { return ''; }
+  }
+
   // ── Capability detection ──────────────────────────────────────────────────
 
   const CAN = {
@@ -193,14 +200,15 @@
   async function mount(container, opts = {}) {
     _injectStyles();
 
-    const src      = opts.src      || container.dataset.src;
+    const rawSrc   = opts.src      || container.dataset.src;
+    const src      = safeHttpUrl(rawSrc);
     const width    = opts.width    || container.dataset.width    || '100%';
     const height   = opts.height   || container.dataset.height   || '360';
     const autoplay = opts.autoplay !== false && container.dataset.autoplay !== 'false';
-    const ctaUrl   = opts.ctaUrl   || container.dataset.ctaUrl;
+    const ctaUrl   = safeHttpUrl(opts.ctaUrl || container.dataset.ctaUrl);
     const brand    = opts.brand    || container.dataset.brand    || '';
 
-    if (!src) { console.warn('[FumocAdEmbed] No src provided'); return; }
+    if (!src) { console.warn('[FumocAdEmbed] A valid HTTP(S) .fumoc URL is required'); return; }
 
     // Size the container
     container.classList.add('fumoca-ad-embed');
