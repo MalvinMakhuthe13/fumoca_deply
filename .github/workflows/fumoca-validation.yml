@@ -34,6 +34,7 @@ jobs:
           node --input-type=module --check < js/modules/hotspot-persist.js
           node --input-type=module --check < js/modules/motion-states.js
           node --input-type=module --check < js/modules/notifications.js
+          node --input-type=module --check < js/modules/upload-page.js
       - name: Check editor persistence contract
         run: |
           ! grep -nE "from\\('(nifs|splats)'\\)" js/modules/edit-engine.js js/modules/splat-edit-engine.js
@@ -45,6 +46,10 @@ jobs:
           grep -q "fumoca:motionStateSaveFailed" js/modules/motion-states.js
           ! grep -nE "from\\('(processing_jobs)'\\)" js/modules/notifications.js
           grep -q "from('reconstruction_jobs')" js/modules/notifications.js
+          grep -q "splat_to_nif" js/modules/upload-page.js
+          grep -q "ply_to_nif" js/modules/upload-page.js
+          grep -q "gpu_required: false" js/modules/upload-page.js
+          grep -q "source_r2_key" js/modules/upload-page.js
       - name: Compile Kaggle preflight script
         run: python -m py_compile kaggle/mesh2splat_preflight.py
       - name: Install preflight dependencies
