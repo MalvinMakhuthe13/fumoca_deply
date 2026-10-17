@@ -112,6 +112,13 @@ Create frozen test sets for calibrated vehicle, object and scene captures. NaviG
 - GitHub Actions caught a test-harness newline-joining error on the first run. The harness was corrected; the subsequent run passed: https://github.com/MalvinMakhuthe13/fumoca_deply/actions/runs/39040672368
 - This is targeted regression evidence, not proof of a live browser/R2/Supabase round-trip. Signed URL formats and the deployed loader path still need an end-to-end staging test.
 
+### Security QA/QC — R2 object deletion ownership
+
+- Found a critical authorization gap in `cloudflare/workers/r2-storage.js`: the delete route authenticated a user but did not verify that the user owned the requested R2 key.
+- The delete route now checks ownership before deleting. Keys under the authenticated user's own ID prefix are allowed; Studio-edited derivatives require a matching `nif_files` row owned by that user with the exact current `r2_key`. Trusted server-to-server calls retain their explicit server principal. Ownership lookup failures deny deletion.
+- Added a focused regression test for user-prefixed keys, owned Studio derivatives, cross-user denial, server principal handling and missing-token denial. CI execution is pending for the latest commit.
+- This code change is not yet deployed to the live Cloudflare Worker. The ownership lookup also depends on the deployed Supabase table's `user_id` and RLS behavior; verify with a staging account before deployment. Existing deployed worker behavior remains a release blocker until updated and tested.
+
 ### Remaining release blockers / evidence still required
 
 | Gate | Current status | Evidence needed |
