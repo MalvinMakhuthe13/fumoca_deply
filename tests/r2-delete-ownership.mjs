@@ -36,8 +36,17 @@ const mockFetch = async (url, options) => {
   fetchCalls++;
   assert.match(String(url), /user_id=eq\.user-123/);
   assert.equal(options.headers.Authorization, 'Bearer test-user-token');
-  const requestedId = new URL(String(url)).searchParams.get('id')?.slice(3);
-  const rows = requestedId === 'record-456' ? [{ id: 'record-456', r2_key: 'record-456/edited_123.ply' }] : [];
+  const parsed = new URL(String(url));
+  const requestedId = parsed.searchParams.get('id')?.slice(3);
+  const requestedOr = parsed.searchParams.get('or') || '';
+  let rows = [];
+  if (requestedId === 'record-456') {
+    rows = [{ id: 'record-456', user_id: 'user-123', r2_key: 'record-456/edited_123.ply', meta: {} }];
+  } else if (requestedOr.includes('source.mp4')) {
+    rows = [{ id: 'record-456', user_id: 'user-123', r2_key: 'record-456/edited_123.ply', meta: { source_r2_key: 'record-456/source.mp4' } }];
+  } else if (requestedOr.includes('thumb.webp')) {
+    rows = [{ id: 'record-456', user_id: 'user-123', r2_key: 'record-456/edited_123.ply', meta: { thumbnail_r2_key: 'record-456/thumb.webp' } }];
+  }
   return new Response(JSON.stringify(rows), { status: 200 });
 };
 const check = new Function('fetch', `${helperSource}; return userOwnsFileKey;`)(mockFetch);
@@ -48,6 +57,9 @@ assert.equal(await check(request, env, user, 'nif-files', 'record-456/edited_123
 assert.equal(fetchCalls, 1, 'Studio derivative must check the record owner');
 assert.equal(await check(request, env, user, 'nif-files', 'record-999/edited_123.ply'), false, 'unowned Studio derivative is denied');
 assert.equal(await check(request, env, user, 'nif-files', 'other-user/private.ply'), false, 'other user prefix is denied');
+assert.equal(await check(request, env, user, 'nif-videos', 'record-456/source.mp4'), true, 'owned source capture can be deleted from nif-videos');
+assert.equal(await check(request, env, user, 'thumbnails', 'record-456/thumb.webp'), true, 'owned thumbnail can be deleted from thumbnails');
+assert.equal(await check(request, env, user, 'nif-videos', 'record-999/source.mp4'), false, 'unknown source key is denied');
 assert.equal(await check(request, env, { id: 'server', kind: 'server-to-server' }, 'nif-files', 'any/key.ply'), true, 'trusted server principal may clean up its artifacts');
 const noTokenRequest = { headers: { get: () => '' } };
 assert.equal(await check(noTokenRequest, env, user, 'nif-files', 'record-456/edited_123.ply'), false, 'missing token fails closed');
