@@ -408,7 +408,7 @@ function showResult(stats) {
     btnUpload.textContent='Uploading…'; btnUpload.disabled=true;
     try {
       const shareUrl = await uploadForShare(resultBuffer, dlName);
-      if (shareWindow) {
+      if (shareWindow && !shareWindow.closed) {
         shareWindow.location.href = shareUrl;
         btnUpload.textContent='☁ Uploaded!';
       } else {
