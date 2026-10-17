@@ -43,10 +43,12 @@ const FumocaPublish = (() => {
       }
     }
     let vertical = window.S?.nifVertical || window.S?.nifMeta?.vertical || 'generic';
-    const shouldPassThrough = chunk => ![
-      CHUNK.KEYFRAME_GEO, CHUNK.META, CHUNK.THUMBNAIL,
-      CHUNK.KEYFRAME_MESH, CHUNK.LAYER_GEO, CHUNK.GAUSSIAN_SH, CHUNK.LIDAR_ATTR,
-    ].includes(chunk.type);
+    const shouldPassThrough = chunk =>
+      ![
+        CHUNK.KEYFRAME_GEO, CHUNK.META, CHUNK.THUMBNAIL,
+        CHUNK.LAYER_GEO, CHUNK.GAUSSIAN_SH, CHUNK.LIDAR_ATTR,
+      ].includes(chunk.type) &&
+      !(chunk.type === CHUNK.KEYFRAME_MESH && window.S?.nifMesh);
     // Local file imports already hold decoded chunks in editor state. Keep
     // those if there is no fetchable URL or if a private URL fetch fails.
     let passthroughChunks = Array.isArray(window.S?.nifPassthroughChunks)
@@ -176,7 +178,7 @@ const FumocaPublish = (() => {
       lidarAttributes: _compactLidarAttributes(S, aliveIndices),
       layers: layerData.layers,
       thumbnailBytes: S.nifThumbnailBytes || undefined,
-      mesh: S.nifMesh || undefined,
+      ...(S.nifMesh ? { mesh: S.nifMesh } : {}),
       passthroughChunks,
     });
     return new Blob([buf], { type: 'application/octet-stream' });
