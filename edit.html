@@ -5836,11 +5836,11 @@ function _injectV60Panels() {
         <div class="sec-body">
           <div id="v60HotspotList" style="max-height:320px;overflow-y:auto;margin-bottom:10px;">
             <div style="color:var(--muted);font-size:12px;text-align:center;padding:16px 0;">
-              No hotspots yet.<br>Use hotspot-pro panel (Shift+double-click) or click below.
+              No hotspots yet.<br>Click Add, then click on the 3D object to place one.
             </div>
           </div>
           <button class="ac-btn lime full" id="v60AddHotspotBtn">
-            📍 Add Hotspot at Current View
+            📍 Add Hotspot (click on object)
           </button>
           <button class="ac-btn cyan full" id="v60StartTourBtn" style="margin-top:6px;">
             ▶ Start Guided Tour Preview
@@ -6197,12 +6197,20 @@ function _wireButtons() {
   // hotspot-pro.js wires it automatically via attachUi)
   // We just need to make sure it shows in the right tab context too
   document.getElementById('v60AddHotspotBtn')?.addEventListener('click', () => {
-    // Open the hotspot-pro panel
+    // Open Hotspots Pro and start guided placement (or capture current view)
+    if (typeof window._fumocaEnterPlaceMode === 'function') {
+      window._fumocaOpenHotspotsPanel?.();
+      window._fumocaEnterPlaceMode();
+      return;
+    }
+    // Fallback if hotspot-pro failed to load
     const hsPanel = document.getElementById('hotspotProPanel');
     if (hsPanel) {
       hsPanel.classList.add('open');
       hsPanel.setAttribute('aria-hidden','false');
     }
+    console.warn('[FUMOCA] hotspot-pro.js not loaded — check console for SyntaxError');
+    alert('Hotspot system failed to load. Open the browser console (F12) and look for an error in hotspot-pro.js, then hard-refresh after fixing.');
   });
 }
 
@@ -6212,7 +6220,7 @@ function _refreshHotspotList() {
   if (!container) return;
   const hotspots = window._fumocaHotspots || [];
   if (!hotspots.length) {
-    container.innerHTML = '<div style="color:var(--muted);font-size:12px;text-align:center;padding:16px 0;">No hotspots yet.<br>Use Shift+double-click on the canvas.</div>';
+    container.innerHTML = '<div style="color:var(--muted);font-size:12px;text-align:center;padding:16px 0;">No hotspots yet.<br>Click Add, then click on the 3D object.</div>';
     return;
   }
   container.innerHTML = hotspots.map((h, i) => `

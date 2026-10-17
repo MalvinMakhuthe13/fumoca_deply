@@ -589,6 +589,8 @@ function renderCutoutMasks() {
 }
 function renderHotspots() {
   if (!hotspotLayer) return;
+  // Hotspot Pro owns the layer — do not wipe its markers or override pointer-events
+  if (window._fumocaUseHotspotPro) return;
   hotspotLayer.innerHTML = '';
   hotspotLayer.style.pointerEvents = hotspotEditMode ? 'auto' : 'none';
   hotspots.forEach((spot, index) => {
@@ -629,7 +631,10 @@ function setHotspotMode(enabled) {
   }
   if (hotspotBtn) hotspotBtn.textContent = enabled ? 'Done hotspots' : 'Hotspots';
   if (hotspotBtn) hotspotBtn.classList.toggle('active', enabled);
-  if (hotspotLayer) hotspotLayer.style.pointerEvents = enabled ? 'auto' : 'none';
+  // Do not override pointer-events when Hotspot Pro owns the layer
+  if (hotspotLayer && !window._fumocaUseHotspotPro) {
+    hotspotLayer.style.pointerEvents = enabled ? 'auto' : 'none';
+  }
   if (focusFrame) focusFrame.classList.toggle('visible', enabled || Number(studioState.isolation || 0) > 0);
   renderHotspots();
 }
@@ -642,7 +647,10 @@ function setEraseMaskMode(enabled) {
   if (eraseModeBtn) eraseModeBtn.classList.toggle('active', enabled);
   if (eraseModeValue) eraseModeValue.textContent = enabled ? 'Recipe mode' : 'Off';
   if (maskLayer) maskLayer.style.pointerEvents = enabled ? 'auto' : 'none';
-  if (hotspotLayer && !hotspotEditMode) hotspotLayer.style.pointerEvents = 'none';
+  // Do not disable hotspot clicks when Hotspot Pro owns the layer
+  if (hotspotLayer && !hotspotEditMode && !window._fumocaUseHotspotPro) {
+    hotspotLayer.style.pointerEvents = 'none';
+  }
   renderCutoutMasks();
 }
 function setLoading(msg) { loadingText.textContent = msg; loadingOverlay.classList.remove('hidden'); }

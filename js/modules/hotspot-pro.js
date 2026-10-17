@@ -206,6 +206,10 @@ const state = {
   tourLoop: true,
   activeAudio: null,
   overlayUrl: '',
+  // Guided placement / editor
+  placeMode: false,
+  editingId: null,   // id of hotspot being edited, or null when creating
+  draft: null,       // in-progress hotspot object while placing/editing
 };
 
 function uid() {
@@ -397,14 +401,38 @@ function normalizeHotspot(h, index = 0) {
     nextId: h?.nextId || action.nextId || '',
     productLabel: h?.productLabel || action.productLabel || '',
     productPrice: h?.productPrice || action.productPrice || '',
+    // Preserve multi-action arrays used by vehicle demos & hotspot-actions
+    actions: Array.isArray(h?.actions) ? h.actions : [],
+    label: h?.label || h?.title || '',
+    // Reaction controls what happens on click
+    // Presets: fly | detail | image_detail | audio | link | overlay | custom
+    reaction: h?.reaction || action.reaction || 'detail',
+    flyOnActivate: h?.flyOnActivate !== false && action.flyOnActivate !== false,
+    showCard: h?.showCard !== false && action.showCard !== false,
+    cardLayout: h?.cardLayout || action.cardLayout || 'standard', // standard | side | wide
+    keepInteractive: !!(h?.keepInteractive ?? action.keepInteractive ?? true),
+    autoplayAudio: !!(h?.audioAutoplay ?? h?.autoplayAudio ?? action.audioAutoplay ?? false),
+    openLinkOnActivate: !!(h?.openLinkOnActivate ?? action.openLinkOnActivate ?? false),
+    presenterNotes: h?.presenterNotes || action.presenterNotes || '',
     action,
   };
 }
 
-async function loadHotspots() {
-  const rec = window._fumocaCurrentRecord || {};
-  const meta = rec.meta || {};
-  let list = Array.isArray(meta.hotspots) ? meta.hotspots : null;
+async function loadHotspots(externalList = null) {
+  // Prefer an explicit list (e.g. from hotspot-persist), then canonical meta,
+  // then legacy metadata, then localStorage, then the shared window cache.
+  let list = Array.isArray(externalList) ? externalList : null;
+  if (!list) {
+    const rec = window._fumocaCurrentRecord || {};
+    const meta = (rec.meta && typeof rec.meta === 'object' ? rec.meta : null)
+              || (rec.metadata && typeof rec.metadata === 'object' ? rec.metadata : null)
+              || {};
+    list = Array.isArray(meta.hotspots) ? meta.hotspots
+         : (Array.isArray(meta.interactions?.hotspots) ? meta.interactions.hotspots : null);
+  }
+  if (!list && Array.isArray(window._fumocaHotspots) && window._fumocaHotspots.length) {
+    list = window._fumocaHotspots;
+  }
   if (!list) {
     try {
       const raw = localStorage.getItem(localKey());
@@ -413,6 +441,7 @@ async function loadHotspots() {
   }
   state.hotspots = (Array.isArray(list) ? list : []).map(normalizeHotspot);
   state.loaded = true;
+  window._fumocaHotspots = state.hotspots.slice();
   renderPanel();
   renderHotspots();
   window.dispatchEvent(new CustomEvent('fumoca:hotspotsLoaded', { detail: { count: state.hotspots.length } }));
@@ -649,16 +678,336 @@ function jumpToHotspotById(id) {
   openInfo(h);
 }
 
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * LIVING HOTSPOTS — scene-reactive differentiators
+ * The 3D scene itself responds: isolate, evidence, story beats.
+ * This is the product edge vs "popup on a 3D viewer" competitors.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+const _scenePulse = {
+  active: false,
+  prevFocus: null,
+  restoreTimer: null,
+  storyTimer: null,
+};
+
+function _ensurePulseOverlay() {
+  let el = document.getElementById('hsScenePulse');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'hsScenePulse';
+    el.style.cssText = [
+      'position:fixed', 'inset:0', 'z-index:4', 'pointer-events:none',
+      'opacity:0', 'transition:opacity .45s ease',
+      'background:radial-gradient(circle at 50% 50%, transparent 0%, transparent 12%, rgba(3,5,8,.55) 42%, rgba(3,5,8,.82) 100%)',
+    ].join(';');
+    // Breathing ring
+    const ring = document.createElement('div');
+    ring.id = 'hsScenePulseRing';
+    ring.style.cssText = [
+      'position:absolute', 'width:48px', 'height:48px', 'border-radius:999px',
+      'border:2px solid rgba(200,255,0,.7)',
+      'box-shadow:0 0 0 0 rgba(200,255,0,.35), 0 0 40px rgba(200,255,0,.25)',
+      'transform:translate(-50%,-50%)', 'left:50%', 'top:50%',
+      'animation:hsPulseBreath 2.2s ease-out infinite',
+    ].join(';');
+    el.appendChild(ring);
+    if (!document.getElementById('hsPulseKeyframes')) {
+      const style = document.createElement('style');
+      style.id = 'hsPulseKeyframes';
+      style.textContent = `
+        @keyframes hsPulseBreath {
+          0%   { transform:translate(-50%,-50%) scale(.85); opacity:1; box-shadow:0 0 0 0 rgba(200,255,0,.4); }
+          70%  { transform:translate(-50%,-50%) scale(1.6); opacity:.35; box-shadow:0 0 0 28px rgba(200,255,0,0); }
+          100% { transform:translate(-50%,-50%) scale(1.85); opacity:0; box-shadow:0 0 0 40px rgba(200,255,0,0); }
+        }
+      `;
+      document.head.appendChild(style);
+    }
+    document.body.appendChild(el);
+  }
+  return el;
+}
+
+function startScenePulse(h) {
+  const overlay = _ensurePulseOverlay();
+  const ring = document.getElementById('hsScenePulseRing');
+  const x = Number.isFinite(+h.x) ? +h.x : 50;
+  const y = Number.isFinite(+h.y) ? +h.y : 50;
+
+  // Remember prior focus CSS so we can restore
+  const root = document.documentElement;
+  if (!_scenePulse.prevFocus) {
+    _scenePulse.prevFocus = {
+      focusX: root.style.getPropertyValue('--focus-x'),
+      focusY: root.style.getPropertyValue('--focus-y'),
+      focusSize: root.style.getPropertyValue('--focus-size'),
+      focusOpacity: root.style.getPropertyValue('--focus-opacity'),
+      outerOpacity: root.style.getPropertyValue('--outer-opacity'),
+      focusFeather: root.style.getPropertyValue('--focus-feather'),
+    };
+  }
+
+  // Drive the existing focusOverlay vignette toward the hotspot
+  root.style.setProperty('--focus-x', `${x}%`);
+  root.style.setProperty('--focus-y', `${y}%`);
+  root.style.setProperty('--focus-size', '28%');
+  root.style.setProperty('--focus-feather', '14%');
+  root.style.setProperty('--focus-opacity', '0.55');
+  root.style.setProperty('--outer-opacity', '0.28');
+
+  const focusOverlay = document.getElementById('focusOverlay');
+  if (focusOverlay) focusOverlay.style.opacity = '1';
+
+  // Soft stage treatment
+  const stage = document.getElementById('stage');
+  if (stage) {
+    stage.style.filter = 'saturate(1.08) contrast(1.04)';
+    stage.style.transition = 'filter .5s ease';
+  }
+
+  if (ring) {
+    ring.style.left = `${x}%`;
+    ring.style.top = `${y}%`;
+  }
+  overlay.style.background = `radial-gradient(circle at ${x}% ${y}%, transparent 0%, transparent 10%, rgba(3,5,8,.5) 38%, rgba(3,5,8,.84) 100%)`;
+  overlay.style.opacity = '1';
+  _scenePulse.active = true;
+
+  // Auto-release after a beat unless locked by card
+  if (_scenePulse.restoreTimer) clearTimeout(_scenePulse.restoreTimer);
+  _scenePulse.restoreTimer = setTimeout(() => {
+    // Keep pulse while info card is open for this hotspot
+    if (state.activeId === h.id) return;
+    stopScenePulse();
+  }, 5200);
+
+  window.dispatchEvent(new CustomEvent('fumoca:scenePulse', { detail: { id: h.id, x, y } }));
+}
+
+function stopScenePulse() {
+  const overlay = document.getElementById('hsScenePulse');
+  if (overlay) overlay.style.opacity = '0';
+  const stage = document.getElementById('stage');
+  if (stage) stage.style.filter = '';
+  const root = document.documentElement;
+  const prev = _scenePulse.prevFocus;
+  if (prev) {
+    for (const [k, v] of Object.entries(prev)) {
+      const cssKey = '--' + k.replace(/[A-Z]/g, m => '-' + m.toLowerCase());
+      // map focusX → --focus-x etc.
+    }
+    // Explicit restore
+    if (prev.focusX) root.style.setProperty('--focus-x', prev.focusX); else root.style.removeProperty('--focus-x');
+    if (prev.focusY) root.style.setProperty('--focus-y', prev.focusY); else root.style.removeProperty('--focus-y');
+    if (prev.focusSize) root.style.setProperty('--focus-size', prev.focusSize); else root.style.removeProperty('--focus-size');
+    if (prev.focusOpacity) root.style.setProperty('--focus-opacity', prev.focusOpacity); else root.style.removeProperty('--focus-opacity');
+    if (prev.outerOpacity) root.style.setProperty('--outer-opacity', prev.outerOpacity); else root.style.removeProperty('--outer-opacity');
+    if (prev.focusFeather) root.style.setProperty('--focus-feather', prev.focusFeather); else root.style.removeProperty('--focus-feather');
+  }
+  _scenePulse.active = false;
+  _scenePulse.prevFocus = null;
+  if (_scenePulse.restoreTimer) { clearTimeout(_scenePulse.restoreTimer); _scenePulse.restoreTimer = null; }
+}
+
+function _evidenceFromRecord(h) {
+  const rec = window._fumocaCurrentRecord || {};
+  const meta = rec.meta || rec.metadata || {};
+  const quality = meta.quality || meta.splat_quality || {};
+  const capture = meta.capture || meta.capture_info || {};
+  const dims = meta.dimensions || meta.measurements || h.measurements || {};
+
+  const rows = [];
+  rows.push({ label: 'Subject', value: h.title || rec.title || '—' });
+  if (h.description) rows.push({ label: 'Detail', value: h.description });
+  if (dims.length || dims.width || dims.height) {
+    const parts = [dims.length, dims.width, dims.height].filter(Boolean).map(String);
+    rows.push({ label: 'Dimensions', value: parts.join(' × ') + (dims.unit ? ` ${dims.unit}` : '') });
+  }
+  if (quality.score != null || quality.confidence != null) {
+    rows.push({ label: 'Capture confidence', value: `${Math.round(Number(quality.score ?? quality.confidence))}%` });
+  }
+  if (capture.device || meta.device) rows.push({ label: 'Captured with', value: capture.device || meta.device });
+  if (capture.date || rec.created_at) {
+    const d = capture.date || rec.created_at;
+    try { rows.push({ label: 'Captured', value: new Date(d).toLocaleString() }); }
+    catch (_) { rows.push({ label: 'Captured', value: String(d) }); }
+  }
+  if (capture.location || meta.location || rec.location) {
+    rows.push({ label: 'Location', value: capture.location || meta.location || rec.location });
+  }
+  if (meta.verified || rec.verified) rows.push({ label: 'Status', value: '✓ Verified spatial capture' });
+  if (h.productLabel) rows.push({ label: 'Product', value: h.productLabel + (h.productPrice ? ` · ${h.productPrice}` : '') });
+
+  // Always show a FUMOCA differentiator line
+  rows.push({ label: 'Spatial ID', value: (h.id || 'hs').slice(0, 12) + (Number.isFinite(h.wx) ? ' · 3D-anchored' : ' · view-anchored') });
+
+  return rows;
+}
+
+function openEvidenceCard(h) {
+  const rows = _evidenceFromRecord(h);
+  // Reuse info card with evidence styling
+  state.activeId = h.id;
+  hotspotInfoCard.classList.add('visible');
+  hotspotInfoCard.setAttribute('aria-hidden', 'false');
+  hotspotInfoCard.dataset.layout = 'side';
+  hotspotInfoCard.style.cssText = [
+    'position:fixed', 'right:16px', 'top:72px', 'bottom:auto',
+    'width:min(360px,calc(100vw - 32px))', 'max-height:calc(100vh - 100px)',
+    'z-index:12', 'display:block', 'background:rgba(7,10,16,.96)',
+    'border:1px solid rgba(200,255,0,.22)', 'border-radius:22px',
+    'backdrop-filter:blur(18px)', 'box-shadow:0 18px 70px rgba(0,0,0,.5)',
+    'overflow:hidden', 'pointer-events:auto',
+  ].join(';');
+
+  const media = renderMedia(h);
+  hotspotInfoCard.innerHTML = `
+    <div style="padding:14px 16px;border-bottom:1px solid rgba(200,255,0,.15);display:flex;justify-content:space-between;gap:12px;align-items:flex-start;">
+      <div>
+        <div style="font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:rgba(200,255,0,.75);margin-bottom:4px;">Spatial evidence</div>
+        <div style="font-family:var(--font-display);font-size:20px;line-height:1.05;color:var(--neon);">${escapeHtml(h.title)}</div>
+      </div>
+      <button class="ghostBtn" id="hsCloseInfo" type="button">✕</button>
+    </div>
+    <div style="padding:14px 16px 16px;display:grid;gap:12px;max-height:min(70vh,720px);overflow:auto;">
+      ${media || ''}
+      <div style="display:grid;gap:0;border:1px solid rgba(255,255,255,.08);border-radius:14px;overflow:hidden;">
+        ${rows.map((r, i) => `
+          <div style="display:grid;grid-template-columns:110px 1fr;gap:8px;padding:10px 12px;background:${i % 2 ? 'rgba(255,255,255,.02)' : 'transparent'};border-top:${i ? '1px solid rgba(255,255,255,.05)' : 'none'};">
+            <div style="font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:rgba(255,255,255,.4);padding-top:2px;">${escapeHtml(r.label)}</div>
+            <div style="font-size:13px;color:rgba(255,255,255,.88);line-height:1.4;">${escapeHtml(String(r.value))}</div>
+          </div>`).join('')}
+      </div>
+      <div style="font-size:11px;color:rgba(255,255,255,.4);line-height:1.5;">Evidence is derived from the spatial capture and hotspot anchor — not a flat photo annotation.</div>
+      <div class="panel-actions">${actionButtons(h)}</div>
+    </div>`;
+
+  document.getElementById('hsCloseInfo')?.addEventListener('click', () => { closeInfo(); stopScenePulse(); });
+  document.getElementById('hsNextBtn')?.addEventListener('click', nextHotspot);
+  document.getElementById('hsPrevBtn')?.addEventListener('click', prevHotspot);
+  hotspotInfoCard.querySelector('[data-hs-edit]')?.addEventListener('click', () => openPanel(true));
+  hotspotInfoCard.querySelector('[data-hs-audio]')?.addEventListener('click', () => playHotspotAudio(h));
+  hotspotInfoCard.querySelector('[data-hs-overlay]')?.addEventListener('click', () => openNestedSplat(h));
+  if (Array.isArray(h.actions) && h.actions.length) {
+    const body = hotspotInfoCard.querySelector('.panel-actions')?.parentElement || hotspotInfoCard;
+    renderActionButtons(h, body, { hotspot: h });
+  }
+  renderHotspots();
+  window.dispatchEvent(new CustomEvent('fumoca:hotspotOpened', { detail: { id: h.id, type: h.type, reaction: 'evidence' } }));
+}
+
+function runStoryBeat(h) {
+  // After activate, auto-advance to nextId or next in list
+  if (_scenePulse.storyTimer) clearTimeout(_scenePulse.storyTimer);
+  const delay = Number(h.storyDelay) || 3200;
+  _scenePulse.storyTimer = setTimeout(() => {
+    if (h.nextId) {
+      jumpToHotspotById(h.nextId);
+      return;
+    }
+    const idx = state.hotspots.findIndex(x => x.id === h.id);
+    if (idx >= 0 && idx < state.hotspots.length - 1) {
+      activateHotspot(state.hotspots[idx + 1]);
+    }
+  }, delay);
+}
+
+function _resolveReaction(h) {
+  // Map preset → concrete flags (author can still override individual flags)
+  const preset = h.reaction || 'detail';
+  const base = {
+    fly: true,
+    card: true,
+    layout: 'standard',
+    audio: false,
+    link: false,
+    overlay: false,
+    keepInteractive: true,
+  };
+  const presets = {
+    fly:          { fly: true,  card: false, layout: 'standard', audio: false, link: false, overlay: false, pulse: false, evidence: false, story: false },
+    detail:       { fly: true,  card: true,  layout: 'standard', audio: false, link: false, overlay: false, pulse: false, evidence: false, story: false },
+    image_detail: { fly: true,  card: true,  layout: 'side',     audio: false, link: false, overlay: false, pulse: false, evidence: false, story: false },
+    audio:        { fly: true,  card: true,  layout: 'standard', audio: true,  link: false, overlay: false, pulse: false, evidence: false, story: false },
+    link:         { fly: true,  card: true,  layout: 'standard', audio: false, link: true,  overlay: false, pulse: false, evidence: false, story: false },
+    overlay:      { fly: true,  card: false, layout: 'standard', audio: false, link: false, overlay: true,  pulse: false, evidence: false, story: false },
+    // Living Hotspots — market differentiators
+    pulse_isolate:{ fly: true,  card: true,  layout: 'side',     audio: false, link: false, overlay: false, pulse: true,  evidence: false, story: false },
+    evidence:     { fly: true,  card: false, layout: 'side',     audio: false, link: false, overlay: false, pulse: true,  evidence: true,  story: false },
+    story_beat:   { fly: true,  card: true,  layout: 'standard', audio: false, link: false, overlay: false, pulse: false, evidence: false, story: true  },
+    custom:       null,
+  };
+  const fromPreset = presets[preset] || presets.detail;
+  if (fromPreset) {
+    return {
+      fly: h.flyOnActivate !== false ? fromPreset.fly : false,
+      card: h.showCard !== false ? fromPreset.card : false,
+      layout: h.cardLayout || fromPreset.layout,
+      audio: !!(h.autoplayAudio || h.audioAutoplay || fromPreset.audio),
+      link: !!(h.openLinkOnActivate || fromPreset.link),
+      overlay: !!(h.overlayAutoplay || fromPreset.overlay),
+      pulse: !!fromPreset.pulse,
+      evidence: !!fromPreset.evidence,
+      story: !!fromPreset.story,
+      keepInteractive: h.keepInteractive !== false,
+    };
+  }
+  // custom
+  return {
+    fly: h.flyOnActivate !== false,
+    card: h.showCard !== false,
+    layout: h.cardLayout || 'standard',
+    audio: !!(h.autoplayAudio || h.audioAutoplay),
+    link: !!h.openLinkOnActivate,
+    overlay: !!h.overlayAutoplay,
+    pulse: !!h.pulseIsolate,
+    evidence: !!h.evidenceMode,
+    story: !!h.storyBeat,
+    keepInteractive: h.keepInteractive !== false,
+  };
+}
+
 function activateHotspot(h) {
-  flyToHotspot(h);
-  if (h.audioAutoplay && h.audioUrl) playHotspotAudio(h);
+  const rx = _resolveReaction(h);
+
+  // Clear previous living-hotspot effects when switching
+  if (_scenePulse.storyTimer) { clearTimeout(_scenePulse.storyTimer); _scenePulse.storyTimer = null; }
+  if (!rx.pulse && _scenePulse.active) stopScenePulse();
+
+  if (rx.fly) flyToHotspot(h);
+
+  // Living: Scene Pulse — the differentiator. Dim world, spotlight the point.
+  if (rx.pulse) startScenePulse(h);
+
+  if (rx.audio && h.audioUrl) playHotspotAudio(h);
+
   if (h.type === 'reveal' && h.revealTarget) {
     window.dispatchEvent(new CustomEvent('fumoca:reveal', { detail: { target: h.revealTarget, hotspot: h } }));
   }
   if (h.type === 'tour_jump' && h.nextId) jumpToHotspotById(h.nextId);
-  if (h.type === 'splat_overlay' && h.overlayAutoplay) openNestedSplat(h);
-  openInfo(h);
-  track('hotspot_activate', { id: h.id, type: h.type });
+
+  if (rx.overlay && buildNestedSplatUrl(h)) openNestedSplat(h);
+
+  if (rx.link) {
+    const url = h.ctaLink || h.link;
+    if (url) window.open(url, '_blank', 'noopener');
+  }
+
+  // Living: Spatial Evidence card (provenance / trust layer)
+  if (rx.evidence) {
+    openEvidenceCard(h);
+  } else if (rx.card) {
+    openInfo(h, { layout: rx.layout, keepInteractive: rx.keepInteractive });
+  } else {
+    closeInfo();
+  }
+
+  // Living: Story beat — auto-advance the narrative
+  if (rx.story) runStoryBeat(h);
+
+  track('hotspot_activate', { id: h.id, type: h.type, reaction: h.reaction || 'detail' });
 }
 
 function actionButtons(h) {
@@ -684,34 +1033,70 @@ function renderMedia(h) {
   return '';
 }
 
-function openInfo(h) {
+function openInfo(h, opts = {}) {
   state.activeId = h.id;
+  const layout = opts.layout || h.cardLayout || 'standard';
+  const keepInteractive = opts.keepInteractive !== false && h.keepInteractive !== false;
+
   hotspotInfoCard.classList.add('visible');
   hotspotInfoCard.setAttribute('aria-hidden', 'false');
+  hotspotInfoCard.dataset.layout = layout;
+  hotspotInfoCard.dataset.interactive = keepInteractive ? '1' : '0';
+
+  // Layout styles — side/wide put the card out of the way so the 3D view stays usable
+  if (layout === 'side' || layout === 'wide') {
+    hotspotInfoCard.style.cssText = [
+      'position:fixed',
+      'right:16px',
+      'top:72px',
+      'bottom:auto',
+      layout === 'wide' ? 'width:min(420px,calc(100vw - 32px))' : 'width:min(340px,calc(100vw - 32px))',
+      'max-height:calc(100vh - 100px)',
+      'z-index:12',
+      'display:block',
+      'background:rgba(7,10,16,.94)',
+      'border:1px solid rgba(255,255,255,.1)',
+      'border-radius:22px',
+      'backdrop-filter:blur(18px)',
+      'box-shadow:0 18px 70px rgba(0,0,0,.42)',
+      'overflow:hidden',
+      'pointer-events:auto',
+    ].join(';');
+  } else {
+    // Reset to CSS defaults for standard bottom-right card
+    hotspotInfoCard.style.cssText = '';
+    hotspotInfoCard.classList.add('visible');
+  }
+
   const sponsor = h.sponsorLabel ? `<span class="lasso-badge">Sponsor · ${escapeHtml(h.sponsorLabel)}</span>` : '';
   const product = h.productLabel ? `<span class="lasso-badge">${escapeHtml(h.productLabel)}${h.productPrice ? ` · ${escapeHtml(h.productPrice)}` : ''}</span>` : '';
   const preset = h.scenePreset ? `<span class="lasso-badge">${escapeHtml(h.scenePreset)}</span>` : '';
+  const reactionBadge = h.reaction ? `<span class="lasso-badge">${escapeHtml(h.reaction)}</span>` : '';
   const idxInList = state.hotspots.findIndex(x => x.id === h.id);
   const progress = state.hotspots.length > 1
     ? `<div style="font-size:11px;color:rgba(255,255,255,.5);margin-top:2px;">${idxInList + 1} of ${state.hotspots.length}${state.tourActive ? ' · touring' : ''}</div>`
     : '';
+
+  const mediaBlock = renderMedia(h);
+  const isImageLayout = (layout === 'side' || layout === 'wide') && (h.mediaImage || h.mediaVideo);
+
   hotspotInfoCard.innerHTML = `
     <div style="padding:16px 16px 10px;border-bottom:1px solid rgba(255,255,255,.08);display:flex;justify-content:space-between;gap:12px;align-items:flex-start;">
       <div>
-        <div style="font-family:var(--font-display);font-size:24px;line-height:1;color:var(--neon);letter-spacing:.05em;">${escapeHtml(h.title)}</div>
-        <div style="font-size:11px;color:rgba(255,255,255,.45);margin-top:4px;text-transform:uppercase;letter-spacing:.08em;">${escapeHtml(h.type)}</div>
+        <div style="font-family:var(--font-display);font-size:22px;line-height:1.05;color:var(--neon);letter-spacing:.04em;">${escapeHtml(h.title)}</div>
+        <div style="font-size:11px;color:rgba(255,255,255,.45);margin-top:4px;text-transform:uppercase;letter-spacing:.08em;">${escapeHtml(h.type || 'info')}</div>
         ${progress}
       </div>
-      <button class="ghostBtn" id="hsCloseInfo">✕</button>
+      <button class="ghostBtn" id="hsCloseInfo" type="button">✕</button>
     </div>
     ${h.presenterNotes ? `<div style="padding:10px 16px;background:rgba(255,209,102,.08);border-bottom:1px solid rgba(255,209,102,.15);font-size:12px;color:#ffd166;"><strong>🎤 Presenter note:</strong> ${escapeHtml(h.presenterNotes)}</div>` : ''}
     <div style="padding:14px 16px 16px;display:grid;gap:10px;max-height:min(72vh,760px);overflow:auto;">
-      ${renderMedia(h)}
+      ${isImageLayout && mediaBlock ? `<div style="border-radius:14px;overflow:hidden;border:1px solid rgba(255,255,255,.08);">${mediaBlock}</div>` : mediaBlock}
       <div style="font-size:13px;line-height:1.6;color:rgba(255,255,255,.78);">${escapeHtml(h.description || 'Interactive focus point')}</div>
       <div class="lasso-chip-row">
         <span class="lasso-badge">Zoom ${(h.zoom || 1.12).toFixed(2)}×</span>
         ${Number.isFinite(h.wx) ? '<span class="lasso-badge">3D anchor</span>' : '<span class="lasso-badge">Screen anchor</span>'}
-        ${sponsor}${product}${preset}
+        ${reactionBadge}${sponsor}${product}${preset}
       </div>
       ${renderGallery(h)}
       <div class="panel-actions">${actionButtons(h)}</div>
@@ -739,13 +1124,19 @@ function openInfo(h) {
     renderActionButtons(h, body, { hotspot: h });
   }
   renderHotspots();
-  window.dispatchEvent(new CustomEvent('fumoca:hotspotOpened', { detail: { id: h.id, type: h.type } }));
+  window.dispatchEvent(new CustomEvent('fumoca:hotspotOpened', { detail: { id: h.id, type: h.type, reaction: h.reaction || 'detail' } }));
 }
 
 function closeInfo() {
   hotspotInfoCard.classList.remove('visible');
   hotspotInfoCard.setAttribute('aria-hidden', 'true');
+  hotspotInfoCard.removeAttribute('data-layout');
+  hotspotInfoCard.removeAttribute('data-interactive');
+  hotspotInfoCard.style.cssText = '';
   state.activeId = null;
+  // Release living-hotspot scene effects when the user dismisses the card
+  if (_scenePulse.active) stopScenePulse();
+  if (_scenePulse.storyTimer) { clearTimeout(_scenePulse.storyTimer); _scenePulse.storyTimer = null; }
   renderHotspots();
 }
 
@@ -756,14 +1147,21 @@ function renderHotspots() {
   for (const h of state.hotspots) {
     const pos = getRenderPosition(h);
     const el = document.createElement('button');
+    el.type = 'button';
     el.className = `hotspot-marker${state.activeId === h.id ? ' active pulse' : ''}`;
     el.dataset.id = h.id;
     el.dataset.type = h.type;
     el.style.left = `${pos.x}%`;
     el.style.top = `${pos.y}%`;
+    el.style.pointerEvents = 'auto';
     el.title = h.title;
+    el.setAttribute('aria-label', h.title || 'Hotspot');
     el.innerHTML = `<span class="hotspot-pill">${escapeHtml(h.title)}</span>`;
-    el.addEventListener('click', () => activateHotspot(h));
+    el.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      activateHotspot(h);
+    });
     hotspotLayer.appendChild(el);
   }
 }
@@ -828,72 +1226,283 @@ function startTour() {
   renderPanel();
 }
 
-function advancedPrompt(defaults = {}) {
-  const template = {
-    type: defaults.type || 'info',
-    description: defaults.description || '',
-    zoom: defaults.zoom || 1.12,
-    ctaLabel: defaults.ctaLabel || 'Open',
-    ctaLink: defaults.ctaLink || defaults.link || '',
-    sponsorLabel: defaults.sponsorLabel || '',
-    mediaImage: defaults.mediaImage || '',
-    mediaVideo: defaults.mediaVideo || '',
-    gallery: defaults.gallery || [],
-    audioUrl: defaults.audioUrl || '',
-    audioAutoplay: defaults.audioAutoplay || false,
-    overlayUrl: defaults.overlayUrl || '',
-    overlaySplatId: defaults.overlaySplatId || '',
-    overlayAutoplay: defaults.overlayAutoplay || false,
-    overlayMode: defaults.overlayMode || 'overlay',
-    scenePreset: defaults.scenePreset || '',
-    revealTarget: defaults.revealTarget || '',
-    nextId: defaults.nextId || '',
-    productLabel: defaults.productLabel || '',
-    productPrice: defaults.productPrice || '',
-    presenterNotes: defaults.presenterNotes || ''
-  };
-  const raw = prompt('Optional advanced hotspot JSON. Leave as-is or edit fields like overlayUrl, audioUrl, ctaLink, sponsorLabel, mediaImage, gallery.', JSON.stringify(template, null, 2));
-  if (raw == null) return defaults;
-  try {
-    return { ...defaults, ...JSON.parse(raw) };
-  } catch (err) {
-    alert('Advanced JSON was invalid. Keeping the basic fields.');
-    return defaults;
+
+function _ensurePlaceCursor() {
+  let el = document.getElementById('hsPlaceCursor');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'hsPlaceCursor';
+    el.style.cssText = [
+      'position:fixed', 'width:22px', 'height:22px', 'border-radius:999px',
+      'border:2px solid rgba(200,255,0,.95)', 'background:rgba(200,255,0,.2)',
+      'box-shadow:0 0 0 8px rgba(200,255,0,.1),0 0 18px rgba(200,255,0,.35)',
+      'transform:translate(-50%,-50%)', 'pointer-events:none', 'z-index:40',
+      'display:none', 'transition:left .04s linear,top .04s linear'
+    ].join(';');
+    document.body.appendChild(el);
   }
+  return el;
 }
 
-function promptHotspot(seed = null) {
-  const anchor = getCurrentViewerAnchor();
-  const h = seed ? { ...seed } : normalizeHotspot({ ...anchor }, state.hotspots.length);
-  const title = prompt('Hotspot title', h.title);
-  if (title == null) return null;
-  h.title = title.trim() || h.title;
-  const type = prompt('Hotspot type: info, audio, link, tour, reveal, tour_jump, splat_overlay, product, sponsor', h.type);
-  if (type == null) return null;
-  h.type = (type.trim() || h.type).toLowerCase();
-  const description = prompt('Description', h.description || '');
-  if (description == null) return null;
-  h.description = description;
-  const zoom = prompt('Zoom amount (example 1.12)', String(h.zoom ?? 1.12));
-  if (zoom == null) return null;
-  h.zoom = Math.max(1, Math.min(2.5, Number(zoom) || 1.12));
-  const link = prompt('Optional fallback link / CTA link', h.link || h.ctaLink || '');
-  if (link == null) return null;
-  h.link = link.trim();
-  const capture = prompt('Capture current camera target as this hotspot anchor? Type yes to use current view.', 'yes');
-  if (capture && capture.trim().toLowerCase() === 'yes') {
-    const live = getCurrentViewerAnchor();
-    h.x = live.x; h.y = live.y; h.wx = live.wx; h.wy = live.wy; h.wz = live.wz;
+function _ensurePlaceHint() {
+  let el = document.getElementById('hsPlaceHint');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'hsPlaceHint';
+    el.style.cssText = [
+      'position:fixed', 'left:50%', 'bottom:28px', 'transform:translateX(-50%)',
+      'z-index:41', 'padding:12px 20px', 'border-radius:999px',
+      'background:rgba(7,10,16,.92)', 'border:1px solid rgba(200,255,0,.35)',
+      'color:#e8ff8a', 'font-size:13px', 'letter-spacing:.02em',
+      'box-shadow:0 12px 40px rgba(0,0,0,.45)', 'display:none',
+      'backdrop-filter:blur(12px)', 'pointer-events:none', 'max-width:90vw',
+      'text-align:center'
+    ].join(';');
+    document.body.appendChild(el);
   }
-  return advancedPrompt(h);
+  return el;
+}
+
+function enterPlaceMode() {
+  if (!state.canManage) return;
+  state.placeMode = true;
+  state.editingId = null;
+  state.draft = null;
+  const cursor = _ensurePlaceCursor();
+  const hint = _ensurePlaceHint();
+  cursor.style.display = 'block';
+  hint.style.display = 'block';
+  hint.textContent = 'Click on the 3D object to place a hotspot · Esc to cancel';
+  document.body.style.cursor = 'crosshair';
+  openPanel(true);
+  renderPanel();
+  track('hotspot_place_mode_enter');
+}
+
+function exitPlaceMode() {
+  state.placeMode = false;
+  const cursor = document.getElementById('hsPlaceCursor');
+  const hint = document.getElementById('hsPlaceHint');
+  if (cursor) cursor.style.display = 'none';
+  if (hint) hint.style.display = 'none';
+  document.body.style.cursor = '';
+  renderPanel();
+}
+
+function openHotspotEditor(seed, { isNew = true } = {}) {
+  state.draft = normalizeHotspot(seed || {}, state.hotspots.length);
+  state.editingId = isNew ? null : state.draft.id;
+  state.placeMode = false;
+  const cursor = document.getElementById('hsPlaceCursor');
+  const hint = document.getElementById('hsPlaceHint');
+  if (cursor) cursor.style.display = 'none';
+  if (hint) hint.style.display = 'none';
+  document.body.style.cursor = '';
+  openPanel(true);
+  renderPanel();
+  // Focus title field after paint
+  requestAnimationFrame(() => {
+    document.getElementById('hsEditTitle')?.focus();
+  });
+}
+
+function cancelHotspotEditor() {
+  state.draft = null;
+  state.editingId = null;
+  exitPlaceMode();
+  renderPanel();
+}
+
+async function commitHotspotEditor() {
+  if (!state.draft) return;
+  const form = document.getElementById('hsEditorForm');
+  if (form) {
+    const title = form.querySelector('[name="title"]')?.value?.trim();
+    const type = (form.querySelector('[name="type"]')?.value || 'info').toLowerCase();
+    const reaction = form.querySelector('[name="reaction"]:checked')?.value || 'detail';
+    const description = form.querySelector('[name="description"]')?.value || '';
+    const zoom = Math.max(1, Math.min(2.5, Number(form.querySelector('[name="zoom"]')?.value) || 1.12));
+    const link = form.querySelector('[name="link"]')?.value?.trim() || '';
+    const ctaLabel = form.querySelector('[name="ctaLabel"]')?.value?.trim() || 'Open';
+    const mediaImage = form.querySelector('[name="mediaImage"]')?.value?.trim() || '';
+    const audioUrl = form.querySelector('[name="audioUrl"]')?.value?.trim() || '';
+
+    state.draft.title = title || state.draft.title || 'Hotspot';
+    state.draft.type = type;
+    state.draft.reaction = reaction;
+    state.draft.description = description;
+    state.draft.zoom = zoom;
+    state.draft.link = link;
+    state.draft.ctaLink = link;
+    state.draft.ctaLabel = ctaLabel;
+    state.draft.mediaImage = mediaImage;
+    state.draft.audioUrl = audioUrl;
+
+    // Custom flags (only meaningful when reaction === custom, but always stored)
+    state.draft.flyOnActivate = !!form.querySelector('[name="flyOnActivate"]')?.checked;
+    state.draft.showCard = !!form.querySelector('[name="showCard"]')?.checked;
+    state.draft.autoplayAudio = !!form.querySelector('[name="autoplayAudio"]')?.checked;
+    state.draft.audioAutoplay = state.draft.autoplayAudio;
+    state.draft.openLinkOnActivate = !!form.querySelector('[name="openLinkOnActivate"]')?.checked;
+    state.draft.keepInteractive = !!form.querySelector('[name="keepInteractive"]')?.checked;
+    state.draft.cardLayout = form.querySelector('[name="cardLayout"]')?.value || 'standard';
+
+    // Convenience presets
+    if (reaction === 'image_detail') {
+      state.draft.cardLayout = 'side';
+      state.draft.showCard = true;
+      state.draft.flyOnActivate = true;
+    }
+    if (reaction === 'fly') {
+      state.draft.showCard = false;
+    }
+    if (reaction === 'audio') {
+      state.draft.autoplayAudio = true;
+      state.draft.audioAutoplay = true;
+    }
+    if (reaction === 'pulse_isolate') {
+      state.draft.cardLayout = 'side';
+      state.draft.showCard = true;
+      state.draft.flyOnActivate = true;
+      state.draft.keepInteractive = true;
+    }
+    if (reaction === 'evidence') {
+      state.draft.cardLayout = 'side';
+      state.draft.flyOnActivate = true;
+    }
+    if (reaction === 'story_beat') {
+      state.draft.showCard = true;
+      state.draft.flyOnActivate = true;
+    }
+  }
+
+  const normalized = normalizeHotspot(state.draft, state.hotspots.length);
+  const existingIdx = state.hotspots.findIndex((x) => x.id === normalized.id);
+
+  if (existingIdx >= 0) {
+    state.hotspots[existingIdx] = { ...state.hotspots[existingIdx], ...normalized };
+  } else {
+    state.hotspots.push(normalized);
+  }
+
+  state.draft = null;
+  state.editingId = null;
+  exitPlaceMode();
+  renderHotspots();
+  renderPanel();
+  await saveRemote();
+  activateHotspot(normalized);
+  track('hotspot_saved', { id: normalized.id, type: normalized.type, reaction: normalized.reaction, isNew: existingIdx < 0 });
+}
+
+function _editorFormHtml(h) {
+  const isNew = !state.editingId;
+  const reaction = h.reaction || 'detail';
+  const reactionOptions = [
+    { id: 'fly',           label: 'Fly only',            desc: 'Camera zooms in — no card' },
+    { id: 'detail',        label: 'Detail card',         desc: 'Fly + info card (default)' },
+    { id: 'image_detail',  label: 'Image + detail',      desc: 'Fly + side card with large image' },
+    { id: 'pulse_isolate', label: '✦ Scene Pulse',       desc: 'World dims, spotlight on the point — living focus' },
+    { id: 'evidence',      label: '✦ Spatial Evidence',  desc: 'Provenance card: capture trust, dimensions, spatial ID' },
+    { id: 'story_beat',    label: '✦ Story Beat',        desc: 'Fly + card, then auto-advance the narrative' },
+    { id: 'audio',         label: 'Audio focus',         desc: 'Fly + autoplay audio + card' },
+    { id: 'link',          label: 'Open link',           desc: 'Fly + open CTA link' },
+    { id: 'overlay',       label: 'Nested splat',        desc: 'Fly + open nested 3D overlay' },
+    { id: 'custom',        label: 'Custom mix',          desc: 'Pick individual behaviours below' },
+  ];
+  return `
+    <div class="e-control" id="hsEditorForm" style="border:1px solid rgba(200,255,0,.28);background:rgba(200,255,0,.04);border-radius:16px;padding:14px;">
+      <div class="e-label"><span>${isNew ? 'New hotspot' : 'Edit hotspot'}</span><span class="e-val">${Number.isFinite(h.wx) ? '3D anchor' : 'Screen anchor'}</span></div>
+      <div style="display:grid;gap:10px;margin-top:10px;">
+        <label style="display:grid;gap:4px;font-size:11px;color:rgba(255,255,255,.55);">
+          Title
+          <input name="title" id="hsEditTitle" value="${escapeHtml(h.title || '')}" placeholder="e.g. Driver door"
+            style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.35);color:#fff;font-size:13px;">
+        </label>
+        <label style="display:grid;gap:4px;font-size:11px;color:rgba(255,255,255,.55);">
+          Type
+          <select name="type" style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.35);color:#fff;font-size:13px;">
+            ${['info','audio','link','tour','reveal','tour_jump','splat_overlay','product','sponsor'].map(t =>
+              `<option value="${t}" ${h.type === t ? 'selected' : ''}>${t}</option>`
+            ).join('')}
+          </select>
+        </label>
+
+        <div style="display:grid;gap:6px;">
+          <div style="font-size:11px;color:rgba(255,255,255,.55);">On-click reaction</div>
+          <div style="display:grid;gap:6px;">
+            ${reactionOptions.map(r => `
+              <label style="display:flex;gap:10px;align-items:flex-start;padding:8px 10px;border-radius:10px;border:1px solid ${reaction === r.id ? 'rgba(200,255,0,.45)' : 'rgba(255,255,255,.08)'};background:${reaction === r.id ? 'rgba(200,255,0,.08)' : 'transparent'};cursor:pointer;">
+                <input type="radio" name="reaction" value="${r.id}" ${reaction === r.id ? 'checked' : ''} style="margin-top:3px;">
+                <span>
+                  <span style="display:block;font-size:13px;color:#fff;">${r.label}</span>
+                  <span style="display:block;font-size:11px;color:rgba(255,255,255,.45);margin-top:2px;">${r.desc}</span>
+                </span>
+              </label>`).join('')}
+          </div>
+        </div>
+
+        <div id="hsCustomFlags" style="display:${reaction === 'custom' ? 'grid' : 'none'};gap:8px;padding:10px;border-radius:10px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);">
+          <div style="font-size:11px;color:rgba(255,255,255,.5);margin-bottom:2px;">Custom mix</div>
+          <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:rgba(255,255,255,.8);"><input type="checkbox" name="flyOnActivate" ${h.flyOnActivate !== false ? 'checked' : ''}> Fly / zoom camera</label>
+          <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:rgba(255,255,255,.8);"><input type="checkbox" name="showCard" ${h.showCard !== false ? 'checked' : ''}> Show detail card</label>
+          <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:rgba(255,255,255,.8);"><input type="checkbox" name="autoplayAudio" ${h.autoplayAudio || h.audioAutoplay ? 'checked' : ''}> Autoplay audio</label>
+          <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:rgba(255,255,255,.8);"><input type="checkbox" name="openLinkOnActivate" ${h.openLinkOnActivate ? 'checked' : ''}> Open link immediately</label>
+          <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:rgba(255,255,255,.8);"><input type="checkbox" name="keepInteractive" ${h.keepInteractive !== false ? 'checked' : ''}> Keep 3D view interactive</label>
+          <label style="display:grid;gap:4px;font-size:11px;color:rgba(255,255,255,.55);">Card layout
+            <select name="cardLayout" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.35);color:#fff;font-size:12px;">
+              <option value="standard" ${h.cardLayout === 'standard' || !h.cardLayout ? 'selected' : ''}>Standard (bottom-right)</option>
+              <option value="side" ${h.cardLayout === 'side' ? 'selected' : ''}>Side panel</option>
+              <option value="wide" ${h.cardLayout === 'wide' ? 'selected' : ''}>Wide side panel</option>
+            </select>
+          </label>
+        </div>
+
+        <label style="display:grid;gap:4px;font-size:11px;color:rgba(255,255,255,.55);">
+          Description
+          <textarea name="description" rows="3" placeholder="What should visitors know here?"
+            style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.35);color:#fff;font-size:13px;resize:vertical;">${escapeHtml(h.description || '')}</textarea>
+        </label>
+        <label style="display:grid;gap:4px;font-size:11px;color:rgba(255,255,255,.55);">
+          Zoom (${(h.zoom || 1.12).toFixed(2)}×)
+          <input name="zoom" type="range" min="1" max="2.5" step="0.02" value="${h.zoom || 1.12}"
+            oninput="this.previousSibling.textContent='Zoom ('+(+this.value).toFixed(2)+'×)'"
+            style="width:100%;">
+        </label>
+        <label style="display:grid;gap:4px;font-size:11px;color:rgba(255,255,255,.55);">
+          Image URL (shows large in Image + detail reaction)
+          <input name="mediaImage" value="${escapeHtml(h.mediaImage || '')}" placeholder="https://…/photo.jpg"
+            style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.35);color:#fff;font-size:13px;">
+        </label>
+        <label style="display:grid;gap:4px;font-size:11px;color:rgba(255,255,255,.55);">
+          Link / CTA URL (optional)
+          <input name="link" value="${escapeHtml(h.ctaLink || h.link || '')}" placeholder="https://…"
+            style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.35);color:#fff;font-size:13px;">
+        </label>
+        <label style="display:grid;gap:4px;font-size:11px;color:rgba(255,255,255,.55);">
+          CTA button label
+          <input name="ctaLabel" value="${escapeHtml(h.ctaLabel || 'Open')}" placeholder="Open"
+            style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.35);color:#fff;font-size:13px;">
+        </label>
+        <label style="display:grid;gap:4px;font-size:11px;color:rgba(255,255,255,.55);">
+          Audio URL (optional)
+          <input name="audioUrl" value="${escapeHtml(h.audioUrl || '')}" placeholder="https://…/clip.mp3"
+            style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.35);color:#fff;font-size:13px;">
+        </label>
+        <div class="panel-actions" style="margin-top:4px;display:flex;gap:8px;flex-wrap:wrap;">
+          <button type="button" class="e-btn e-btn-acid" id="hsEditorSave">${isNew ? 'Create hotspot' : 'Save changes'}</button>
+          <button type="button" class="e-btn e-btn-ghost" id="hsEditorCancel">Cancel</button>
+        </div>
+      </div>
+    </div>`;
 }
 
 function renderPanel() {
   if (!hotspotPanel) return;
   const rows = state.hotspots.map((h) => `
     <div class="e-control" data-row="${h.id}">
-      <div class="e-label"><span>${escapeHtml(h.title)}</span><span class="e-val">${escapeHtml(h.type)}</span></div>
-      <div class="e-note">${escapeHtml(h.description || 'No description')} · zoom ${(h.zoom || 1.12).toFixed(2)}×${buildNestedSplatUrl(h) ? ' · nested splat' : ''}${h.audioUrl ? ' · audio' : ''}${h.ctaLink ? ' · cta' : ''}</div>
+      <div class="e-label"><span>${escapeHtml(h.title)}</span><span class="e-val">${escapeHtml(h.reaction || h.type || 'detail')}</span></div>
+      <div class="e-note">${escapeHtml(h.description || 'No description')} · zoom ${(h.zoom || 1.12).toFixed(2)}×${h.mediaImage ? ' · image' : ''}${buildNestedSplatUrl(h) ? ' · nested splat' : ''}${h.audioUrl ? ' · audio' : ''}${h.ctaLink ? ' · cta' : ''}</div>
       <div class="panel-actions" style="margin-top:10px;">
         <button class="e-btn e-btn-acid" data-action="fly" data-id="${h.id}">Go</button>
         ${buildNestedSplatUrl(h) ? `<button class="e-btn e-btn-primary" data-action="overlay" data-id="${h.id}">Overlay</button>` : ''}
@@ -923,9 +1532,22 @@ function renderPanel() {
         <label style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:rgba(255,255,255,.6);margin-left:8px;">
           <input type="checkbox" id="hsTourLoop" ${state.tourLoop ? 'checked' : ''}> Loop
         </label>
-        ${state.canManage ? '<button class="e-btn e-btn-acid" id="hsAdd">Add hotspot</button><button class="e-btn e-btn-ghost" id="hsCaptureCurrent">Capture current view</button><button class="e-btn e-btn-ghost" id="hsSave">Save hotspots</button>' : ''}
-        <div class="e-note">To edit a hotspot, use Edit on its row here. Go flies the camera to it; it does not move the subject. Shift + double-click the stage to place a hotspot at the clicked subject point. “Capture current view” uses the camera target. Zoom is edited in the hotspot form. Use reveal or tour_jump for guided journeys, and splat_overlay for a nested splat.</div>
+        ${state.canManage ? (
+          state.placeMode
+            ? '<button class="e-btn e-btn-warn" id="hsCancelPlace">Cancel placement</button>'
+            : state.draft
+              ? ''
+              : '<button class="e-btn e-btn-acid" id="hsAdd">＋ Add hotspot</button><button class="e-btn e-btn-ghost" id="hsCaptureCurrent">Capture current view</button><button class="e-btn e-btn-ghost" id="hsSave">Save hotspots</button>'
+        ) : ''}
+        <div class="e-note">${
+          state.placeMode
+            ? 'Click anywhere on the 3D object to drop a hotspot. Esc cancels.'
+            : state.draft
+              ? 'Fill in the details below, then save.'
+              : 'Add hotspot → click the object to place → fill details → save. Capture current view uses the camera target. Shift+click also places.'
+        }</div>
       </div>
+      ${state.draft ? _editorFormHtml(state.draft) : ''}
       ${rows || '<div class="e-control"><div class="e-note">No hotspots yet.</div></div>'}
     </div>`;
 
@@ -943,25 +1565,29 @@ function renderPanel() {
     else document.documentElement.requestFullscreen?.().catch(err =>
       console.warn('[hotspot-pro] Fullscreen request failed:', err.message));
   });
-  hotspotPanel.querySelector('#hsAdd')?.addEventListener('click', async () => {
-    const created = promptHotspot({ x: 50, y: 50 });
-    if (!created) return;
-    const hotspot = normalizeHotspot(created, state.hotspots.length);
-    state.hotspots.push(hotspot);
-    renderHotspots(); renderPanel();
-    await saveRemote();
-    activateHotspot(hotspot);
+  hotspotPanel.querySelector('#hsAdd')?.addEventListener('click', () => {
+    enterPlaceMode();
+  });
+  hotspotPanel.querySelector('#hsCancelPlace')?.addEventListener('click', () => {
+    exitPlaceMode();
   });
   hotspotPanel.querySelector('#hsCaptureCurrent')?.addEventListener('click', () => {
-    const created = promptHotspot(getCurrentViewerAnchor());
-    if (!created) return;
-    const hotspot = normalizeHotspot(created, state.hotspots.length);
-    state.hotspots.push(hotspot);
-    renderHotspots(); renderPanel();
-    await saveRemote();
-    activateHotspot(hotspot);
+    const seed = getCurrentViewerAnchor();
+    openHotspotEditor({ ...seed, title: `Hotspot ${state.hotspots.length + 1}` }, { isNew: true });
   });
   hotspotPanel.querySelector('#hsSave')?.addEventListener('click', async () => { await saveRemote(); renderPanel(); });
+  hotspotPanel.querySelector('#hsEditorSave')?.addEventListener('click', () => { commitHotspotEditor(); });
+  hotspotPanel.querySelector('#hsEditorCancel')?.addEventListener('click', () => cancelHotspotEditor());
+  // Toggle custom flags panel when reaction changes
+  hotspotPanel.querySelectorAll('[name="reaction"]').forEach((radio) => {
+    radio.addEventListener('change', () => {
+      const custom = document.getElementById('hsCustomFlags');
+      if (custom) custom.style.display = radio.value === 'custom' && radio.checked ? 'grid' : 'none';
+      // Also hide when another radio is selected
+      if (!radio.checked) return;
+      if (custom) custom.style.display = radio.value === 'custom' ? 'grid' : 'none';
+    });
+  });
   hotspotPanel.querySelectorAll('[data-action="fly"]').forEach(btn => btn.addEventListener('click', () => {
     const h = state.hotspots.find(x => x.id === btn.dataset.id); if (h) activateHotspot(h);
   }));
@@ -971,17 +1597,15 @@ function renderPanel() {
   hotspotPanel.querySelectorAll('[data-action="edit"]').forEach(btn => btn.addEventListener('click', () => {
     const idx = state.hotspots.findIndex(x => x.id === btn.dataset.id);
     if (idx < 0) return;
-    const updated = promptHotspot(state.hotspots[idx]);
-    if (!updated) return;
-    state.hotspots[idx] = normalizeHotspot({ ...state.hotspots[idx], ...updated }, idx);
-    renderHotspots(); renderPanel();
-    saveRemote();
+    openHotspotEditor(state.hotspots[idx], { isNew: false });
   }));
   hotspotPanel.querySelectorAll('[data-action="delete"]').forEach(btn => btn.addEventListener('click', () => {
     const idx = state.hotspots.findIndex(x => x.id === btn.dataset.id);
-    if (idx < 0 || !confirm('Delete this hotspot?')) return;
+    if (idx < 0) return;
+    if (!confirm('Delete this hotspot?')) return;
+    const removedId = state.hotspots[idx].id;
     state.hotspots.splice(idx, 1);
-    if (state.activeId === btn.dataset.id) closeInfo();
+    if (state.activeId === removedId) closeInfo();
     renderHotspots(); renderPanel();
     saveRemote();
   }));
@@ -1089,7 +1713,13 @@ function attachUi() {
   nestedOverlay?.addEventListener('click', (e) => { if (e.target === nestedOverlay) closeNestedSplat(); });
   nestedOpenNew?.addEventListener('click', () => { if (state.overlayUrl) window.open(state.overlayUrl, '_blank', 'noopener'); });
   nestedFrame?.addEventListener('load', () => nestedOverlay?.classList.add('ready'));
-  window.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeNestedSplat(); });
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      if (state.placeMode) { exitPlaceMode(); return; }
+      if (state.draft) { cancelHotspotEditor(); return; }
+      closeNestedSplat();
+    }
+  });
   document.addEventListener('fullscreenchange', () => renderPanel());
 
   // Arrow-key navigation — a standard presenter affordance (clicker/keyboard
@@ -1100,6 +1730,7 @@ function attachUi() {
   window.addEventListener('keydown', (e) => {
     const tag = document.activeElement?.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement?.isContentEditable) return;
+    if (state.placeMode || state.draft) return;
     if (state.activeId == null || !state.hotspots.length) return;
     if (e.key === 'ArrowRight') { e.preventDefault(); nextHotspot(); }
     else if (e.key === 'ArrowLeft') { e.preventDefault(); prevHotspot(); }
@@ -1114,16 +1745,55 @@ function attachUi() {
   });
   window.addEventListener('fumoca:permissionsReady', (e) => { state.canManage = !!e.detail?.canManage; renderPanel(); });
   window.addEventListener('fumoca:permissionsUpdated', (e) => { state.canManage = !!e.detail?.canManage; renderPanel(); });
+
   const stage = document.getElementById('stageHost') || document.getElementById('stage');
+
+  // Track pointer so a drag-to-orbit does not accidentally place a hotspot
+  let _placePtr = null;
+  stage?.addEventListener('pointerdown', (event) => {
+    if (!state.placeMode) return;
+    _placePtr = { x: event.clientX, y: event.clientY, id: event.pointerId };
+  });
+  stage?.addEventListener('pointerup', async (event) => {
+    if (!state.placeMode || !state.canManage || !_placePtr) return;
+    const dx = event.clientX - _placePtr.x;
+    const dy = event.clientY - _placePtr.y;
+    const moved = (dx * dx + dy * dy) > 36; // >6px = drag, not click
+    _placePtr = null;
+    if (moved) return;
+    if (event.target?.closest?.('#hotspotProPanel, #hotspotInfoCard, .hotspot-marker, button, a, input, textarea, select')) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const anchor = await captureEventHotspotAnchor(event);
+    openHotspotEditor({
+      ...anchor,
+      title: `Hotspot ${state.hotspots.length + 1}`,
+      type: 'info',
+    }, { isNew: true });
+  });
+  stage?.addEventListener('pointercancel', () => { _placePtr = null; });
+
+  // Ghost cursor follows pointer while placing
+  stage?.addEventListener('pointermove', (event) => {
+    if (!state.placeMode) return;
+    const cursor = _ensurePlaceCursor();
+    cursor.style.display = 'block';
+    cursor.style.left = event.clientX + 'px';
+    cursor.style.top = event.clientY + 'px';
+  });
+
+  // Shift + double-click still places (power-user shortcut)
   stage?.addEventListener('dblclick', async (event) => {
     if (!state.canManage || !event.shiftKey) return;
     event.preventDefault();
-    const created = promptHotspot(await captureEventHotspotAnchor(event));
-    if (!created) return;
-    state.hotspots.push(normalizeHotspot(created, state.hotspots.length));
-    renderHotspots(); renderPanel();
-    saveRemote();
+    const anchor = await captureEventHotspotAnchor(event);
+    openHotspotEditor({
+      ...anchor,
+      title: `Hotspot ${state.hotspots.length + 1}`,
+      type: 'info',
+    }, { isNew: true });
   });
+
   const loop = () => { renderHotspots(); requestAnimationFrame(loop); };
   requestAnimationFrame(loop);
 }
@@ -1172,3 +1842,27 @@ window._fumocaHotspots = state.hotspots.slice();
 window._fumocaOpenNestedSplat = openNestedSplat;
 // Expose cache so editor can invalidate it after edits
 window._fumocaHotspotPointCloudCache = pointCloudCache;
+
+// Public API so persist / other modules can drive the same experience
+window._fumocaActivateHotspot = function (h) {
+  if (!h) return;
+  const normalized = normalizeHotspot(h);
+  // Ensure it exists in state so next/prev / tour still work
+  if (!state.hotspots.some((x) => x.id === normalized.id)) {
+    state.hotspots.push(normalized);
+  }
+  activateHotspot(normalized);
+};
+window._fumocaReloadHotspots = function (list) {
+  return loadHotspots(list);
+};
+window._fumocaFlyToHotspot = flyToHotspot;
+window._fumocaOpenHotspotInfo = openInfo;
+window._fumocaEnterPlaceMode = enterPlaceMode;
+window._fumocaExitPlaceMode = exitPlaceMode;
+window._fumocaOpenHotspotEditor = openHotspotEditor;
+window._fumocaCaptureHotspotAtView = function () {
+  const seed = getCurrentViewerAnchor();
+  openHotspotEditor({ ...seed, title: `Hotspot ${state.hotspots.length + 1}` }, { isNew: true });
+};
+window._fumocaOpenHotspotsPanel = function () { openPanel(true); };
