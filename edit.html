@@ -1764,7 +1764,7 @@ scene.add(new THREE.AxesHelper(1.5));
 // ─── STATE ──────────────────────────────────────────────────────────────────
 const S = {
   fileName: '', fileType: '', sourceBuffer: null, splatRowSize: 32, splatSourceUrl: '',
-  positions: null, colors: null, opacity: null, scale: null, scaleXYZ: null, rotation: null, shAttributes: [], shCoefficients: null, alive: null, selected: null,
+  positions: null, colors: null, opacity: null, scale: null, scaleXYZ: null, rotation: null, shAttributes: [], shCoefficients: null, nifVertical: 'generic', alive: null, selected: null,
   pivot: null,
   measurements: [], measurementStart: null,
   paintColors: null,
@@ -2565,6 +2565,7 @@ async function loadFile(file, urlOverride) {
   // Do not leak metadata or mesh/chunk state from the previously opened asset.
   // A non-NIF import must never inherit the previous NIF's layer manifest.
   S.nifMeta = {};
+  S.nifVertical = 'generic';
   S.nifThumbnailBytes = null;
   S.nifMesh = null;
   S.nifPassthroughChunks = [];
@@ -2580,6 +2581,7 @@ async function loadFile(file, urlOverride) {
     S.fileType = 'nif';
     S.sourceBuffer = rows.buffer;
     S.nifMeta = decoded.meta || {};
+    S.nifVertical = decoded.reader.header?.vertical || 'generic';
     S.nifThumbnailBytes = decoded.thumbnailBytes || null;
     S.nifPassthroughChunks = decoded.reader.chunks.filter(chunk => ![0x0001, 0x0003, 0x0004, 0x0015, 0x0019, 0x001A].includes(chunk.type));
     S.nifMesh = decoded.mesh ? {
