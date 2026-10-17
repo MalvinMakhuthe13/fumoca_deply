@@ -125,6 +125,8 @@ async function userOwnsFileKey(request, env, principal, bucketName, fileKey) {
   if (principal?.kind === 'server-to-server') return true;
   if (!principal?.id || principal.kind !== 'user') return false;
   if (fileKey.startsWith(`${principal.id}/`)) return true;
+  // Trusted reconstruction outputs use nif/<user-id>/<job-id>/... in nif-files.
+  if (bucketName === 'nif-files' && fileKey.startsWith(`nif/${principal.id}/`)) return true;
   // Legacy photo-burst keys used raw/<user-id>/... before the owner prefix was standardized.
   if (bucketName === 'nif-videos' && fileKey.startsWith(`raw/${principal.id}/`)) return true;
   if (!['nif-files', 'nif-videos', 'preview-videos', 'thumbnails'].includes(bucketName)) return false;
@@ -258,6 +260,9 @@ async function authorizeFileRead(request, env, principal, bucketName, fileKey) {
   if (principal?.kind === 'user' && principal.id && fileKey.startsWith(`${principal.id}/`)) {
     return { allowed: true, isPublic: false, reason: 'owner-key' };
   }
+  if (bucketName === 'nif-files' && principal?.kind === 'user' && principal.id && fileKey.startsWith(`nif/${principal.id}/`)) {
+    return { allowed: true, isPublic: false, reason: 'owner-pipeline-key' };
+  }
   // Permit an owner to access legacy photo-burst keys while old records are migrated.
   if (bucketName === 'nif-videos' && principal?.kind === 'user' && principal.id && fileKey.startsWith(`raw/${principal.id}/`)) {
     return { allowed: true, isPublic: false, reason: 'legacy-owner-key' };
@@ -291,19 +296,25 @@ async function authorizeFileRead(request, env, principal, bucketName, fileKey) {
     for (const row of rows) {
       const meta = row?.meta || {};
       const rowOwner = typeof row?.user_id === 'string' && row.user_id;
-      const ownerKey = !!rowOwner && fileKey.startsWith(`${rowOwner}/`);
+      const userPrefixKey = !!rowOwner && fileKey.startsWith(`${rowOwner}/`);
+      const pipelineKey = bucketName === 'nif-files' && !!rowOwner && !!row?.id &&
+        fileKey.startsWith(`nif/${rowOwner}/${row.id}/`);
+      const ownerKey = userPrefixKey || pipelineKey;
       const legacyRawOwnerKey = bucketName === 'nif-videos' && !!rowOwner && fileKey.startsWith(`raw/${rowOwner}/`);
       const rowScopedKey = !!row?.id && fileKey.startsWith(`${row.id}/`);
-      const isNifOutput = bucketName === 'nif-files' && row?.r2_key === fileKey && (ownerKey || rowScopedKey);
-      const isThumbnail = bucketName === 'thumbnails' && ownerKey &&
+      const isNifOutput = bucketName === 'nif-files' && row?.r2_key === fileKey && (userPrefixKey || pipelineKey || rowScopedKey);
+      const isThumbnail = ['thumbnails', 'nif-files'].includes(bucketName) &&
+        (userPrefixKey || pipelineKey || rowScopedKey) &&
         [meta.thumbnail_r2_key, meta.capture_thumbnail_r2_key].includes(fileKey);
-      const isSource = bucketName === 'nif-videos' && (ownerKey || legacyRawOwnerKey || rowScopedKey) &&
+      const isSource = ['nif-files', 'nif-videos'].includes(bucketName) &&
+        (userPrefixKey || pipelineKey || legacyRawOwnerKey || rowScopedKey) &&
         [meta.source_r2_key, meta.source_capture?.r2_key, ...(Array.isArray(meta.lidar_sources) ? meta.lidar_sources.map(source => source?.r2_key) : [])].includes(fileKey);
-      const isPreviewVideo = bucketName === 'preview-videos' && ownerKey &&
+      const isPreviewVideo = bucketName === 'preview-videos' && userPrefixKey &&
         fileKey.startsWith(`${rowOwner}/teasers/${row.id}/`) && meta.teaser_video_r2_key === fileKey;
-      const isMobileAsset = bucketName === 'nif-files' && ownerKey &&
+      const isProxyVideo = bucketName === 'nif-files' && pipelineKey && meta.proxy_r2_key === fileKey;
+      const isMobileAsset = bucketName === 'nif-files' && userPrefixKey &&
         fileKey.startsWith(`${rowOwner}/mobile-assets/${row.id}/`) && meta.mobile_asset_r2_key === fileKey;
-      const isOpenVariant = bucketName === 'nif-files' && ownerKey &&
+      const isOpenVariant = bucketName === 'nif-files' && userPrefixKey &&
         fileKey.startsWith(`${rowOwner}/open-variants/${row.id}_`) &&
         Array.isArray(meta.open_variant_r2_keys) && meta.open_variant_r2_keys.includes(fileKey);
       const isCleanedSplat = bucketName === 'nif-files' && rowScopedKey &&
@@ -312,13 +323,16 @@ async function authorizeFileRead(request, env, principal, bucketName, fileKey) {
       if (isNifOutput && row.is_public === true) {
         return { allowed: true, isPublic: true, reason: 'published-nif' };
       }
+      if (isProxyVideo && row.is_public === true) {
+        return { allowed: true, isPublic: true, reason: 'published-nif-proxy-video' };
+      }
       if (isMobileAsset && row.is_public === true) {
         return { allowed: true, isPublic: true, reason: 'published-nif-mobile-asset' };
       }
       if (isOpenVariant && row.is_public === true) {
         return { allowed: true, isPublic: true, reason: 'published-nif-open-variant' };
       }
-      if (owner && (isNifOutput || isThumbnail || isSource || isPreviewVideo || isCleanedSplat || isMobileAsset || isOpenVariant)) {
+      if (owner && (isNifOutput || isThumbnail || isSource || isPreviewVideo || isProxyVideo || isCleanedSplat || isMobileAsset || isOpenVariant)) {
         return { allowed: true, isPublic: false, reason: 'owner-associated-file' };
       }
       if (isThumbnail && row.is_public === true) {
