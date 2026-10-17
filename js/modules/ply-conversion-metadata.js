@@ -22,7 +22,7 @@ export function inspectPlyAttributes(attributeNames = [], isGaussianPly = false)
     return {
       detectedShDegree: 0,
       higherOrderShCount: count,
-      hasUnsupportedShLayout: false,
+      hasUnsupportedShLayout: count > 0,
       discardedAttributes: [],
       qualityFlags: ['point_cloud_not_gaussian', 'mesh_reconstruction_not_run'],
     };
