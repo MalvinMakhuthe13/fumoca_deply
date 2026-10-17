@@ -15,11 +15,15 @@ const rows = encodeEditorSplatRows(state, [2, 0]);
 assert.equal(rows.byteLength, 64, 'two retained points must produce two 32-byte rows');
 const view = new DataView(rows.buffer);
 assert.deepEqual([view.getFloat32(0, true), view.getFloat32(4, true), view.getFloat32(8, true)], [-4, 5, 6]);
-assert.deepEqual([view.getFloat32(12, true), view.getFloat32(16, true), view.getFloat32(20, true)], [0.4, 0.5, 0.6]);
+for (const [offset, expected] of [[12, 0.4], [16, 0.5], [20, 0.6]]) {
+  assert.ok(Math.abs(view.getFloat32(offset, true) - expected) < 1e-6, `axis scale at ${offset} survives float32 encoding`);
+}
 assert.deepEqual(Array.from(rows.slice(24, 28)), [204, 128, 51, 191], 'per-channel paint, unpainted color and opacity survive');
 assert.deepEqual(Array.from(rows.slice(28, 32)), [128, 255, 128, 128], 'non-unit quaternion is normalized before encoding');
 assert.deepEqual([view.getFloat32(32, true), view.getFloat32(36, true), view.getFloat32(40, true)], [1, 2, 3]);
-assert.deepEqual([view.getFloat32(44, true), view.getFloat32(48, true), view.getFloat32(52, true)], [0.1, 0.2, 0.3]);
+for (const [offset, expected] of [[44, 0.1], [48, 0.2], [52, 0.3]]) {
+  assert.ok(Math.abs(view.getFloat32(offset, true) - expected) < 1e-6, `axis scale at ${offset} survives float32 encoding`);
+}
 assert.deepEqual(Array.from(rows.slice(56, 60)), [26, 51, 77, 64]);
 assert.deepEqual(Array.from(rows.slice(60, 64)), [255, 128, 128, 128], 'identity quaternion is encoded in SPLAT convention');
 assert.throws(() => encodeEditorSplatRows(state, [1]), /invalid or dead source index/);
