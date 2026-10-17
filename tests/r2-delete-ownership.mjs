@@ -63,3 +63,10 @@ assert.equal(await mayWrite(request, env, { id: 'server', kind: 'server-to-serve
 assert.equal(await mayWrite(noTokenRequest, env, user, 'nif-files', 'record-456/edited_999.ply'), false, 'missing token fails closed for record writes');
 console.log('R2 write ownership tests passed: user prefixes, new owned derivatives, cross-user denial, bucket isolation, trusted server, and missing token.');
 
+const abortStart = source.indexOf("if (request.method === 'POST' && path === '/upload/multipart/abort')");
+const abortEnd = source.indexOf("if (request.method === 'PUT' && path.startsWith('/upload/'))", abortStart);
+assert.ok(abortStart >= 0 && abortEnd > abortStart, 'multipart abort route exists');
+const abortRoute = source.slice(abortStart, abortEnd);
+assert.match(abortRoute, /userMayWriteFileKey\(request, env, principal, bucketParam, fileKey\)/, 'multipart abort checks ownership before aborting upload');
+assert.ok(abortRoute.indexOf('userMayWriteFileKey') < abortRoute.indexOf('resumeMultipartUpload'), 'ownership check must run before touching multipart upload');
+console.log('R2 multipart abort ownership guard passed.');
