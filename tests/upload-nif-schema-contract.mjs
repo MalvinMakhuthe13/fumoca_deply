@@ -18,6 +18,12 @@ const directEnd = source.indexOf("}]).select().single();", directStart);
 assert.ok(directStart >= 0 && directEnd > directStart, 'direct NIF/CPU conversion insert must exist');
 assert.match(source.slice(directStart, directEnd), /is_public: visibility === 'public'/,
   'direct NIF, SPLAT-to-NIF and PLY-to-NIF imports must honor the selected visibility');
+assert.match(source, /const zipPath = `\$\{user\.id\}\/raw\/\$\{Date\.now\(\)\}_burst\.zip`/,
+  'photo-burst source uploads must use the owner prefix required by R2 write authorization');
+assert.match(source, /source_capture: \{ r2_key: fileKey, r2_bucket: 'nif-videos'/,
+  'photo-burst source metadata must record the actual R2 bucket');
+assert.match(source, /source_capture: \{ r2_key: sourceKey, r2_bucket: 'nif-files'/,
+  'direct PLY/SPLAT/NIF source metadata must record the actual R2 bucket');
 assert.match(source, /const refPath = `\$\{userId\}\/verify-refs\//, 'verification references must use an owner-prefixed key accepted by the R2 ownership guard');
 const extStart = source.indexOf('async function createExternalNif');
 const extEnd = source.indexOf('\nfunction captureMetadata', extStart);
