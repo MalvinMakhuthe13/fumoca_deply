@@ -28,8 +28,9 @@
  *
  * USAGE (from hotspot-actions.js's 'animate' case, or an authoring UI):
  *   import { authorPartToggle } from './nif-part-toggle.js';
- *   const { openNifUrl } = await authorPartToggle(currentNifUrl, 'door_front_left', {
+ *   const { openNifUrl, fileKey } = await authorPartToggle(currentNifUrl, 'door_front_left', {
  *     axis: [0,1,0], pivot: [1.2, 0, 0.4], angleDeg: 55,
+ *     recordId: currentNifRecord.id, ownerId: currentNifRecord.user_id,
  *   });
  *   // Save openNifUrl into that hotspot's action: {type:'animate', layer, openNifUrl}
  */
@@ -93,9 +94,9 @@ export function suggestHingePivot(layer, axis = [0, 1, 0]) {
  *   independently-toggled parts can't both be open at once (see
  *   animatePartFlow's comment in hotspot-pro.js) — it solves the different,
  *   common case of wanting several parts to move together as one action.
- * @param {object} opts   only used when labelOrParts is a single string —
- *   pivot, axis, angleDeg, same as before.
- * @returns {{openNifUrl: string, layers: Array}}
+ * @param {object} opts   pivot, axis, angleDeg plus required parent recordId/ownerId
+ *   so the uploaded variant is authorized through its parent NIF.
+ * @returns {{openNifUrl: string, fileKey: string, layers: Array}}
  */
 export async function authorPartToggle(nifUrl, labelOrParts, opts = {}) {
   const res = await fetch(nifUrl);
