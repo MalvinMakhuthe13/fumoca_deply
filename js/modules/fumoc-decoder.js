@@ -426,6 +426,11 @@ async function decode(buffer, options = {}) {
       sawSplat = true;
       _prog(15, 'Decoding splat data…');
       const spltData = await sectionPayload(section);
+      if (header.splat_byte_length != null &&
+          (!Number.isSafeInteger(Number(header.splat_byte_length)) ||
+           Number(header.splat_byte_length) !== spltData.byteLength)) {
+        throw new Error('[FUMOC] Header splat_byte_length does not match the SPLT section');
+      }
       let looksV2 = false;
       if (spltData.byteLength >= 8) {
         const probe = new DataView(spltData.buffer, spltData.byteOffset, spltData.byteLength);
