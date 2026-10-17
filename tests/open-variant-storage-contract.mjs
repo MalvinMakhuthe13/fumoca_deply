@@ -35,6 +35,8 @@ assert.match(hotspot, /_fumocaApplyRendererPreview\(previewNifUrl \|\| openNifUr
   'preview must use the authorized URL without persisting its temporary ticket');
 assert.match(hotspot, /const saved = await saveRemote\(\);[\s\S]*?if \(!saved\) \{[\s\S]*?h\.actions = originalActions;/,
   'failed remote persistence must roll back the local hotspot action');
+assert.match(hotspot, /select\('id,user_id,title,description,r2_key,is_public,meta'\)[\s\S]*?\.eq\('id', rec\.id\)\.eq\('user_id', rec\.user_id\)\.single\(\)/,
+  'hotspot save must reload current parent metadata before merging');
 assert.match(hotspot, /await discardPartToggleVariant\(fileKey, currentRecord\.id, currentRecord\.user_id\)/,
   'failed remote persistence must clean up the unregistered variant');
 assert.match(hotspot, /action: \{ type: 'animate', layer, openNifUrl, openNifR2Key: fileKey \}/,
