@@ -292,6 +292,58 @@ async function authorizeFileRead(request, env, principal, bucketName, fileKey) {
   }
 }
 
+function bytesToBase64Url(bytes) {
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function base64UrlToBytes(value) {
+  const base64 = value.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = base64 + '='.repeat((4 - base64.length % 4) % 4);
+  const binary = atob(padded);
+  return Uint8Array.from(binary, char => char.charCodeAt(0));
+}
+
+async function createReadTicket(bucketName, fileKey, secret, now = Date.now()) {
+  if (!secret) throw new Error('R2 read ticket secret is not configured');
+  const payload = bytesToBase64Url(new TextEncoder().encode(JSON.stringify({
+    bucket: bucketName,
+    key: fileKey,
+    expiresAt: now + 5 * 60 * 1000,
+  })));
+  const key = await crypto.subtle.importKey(
+    'raw', new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+  );
+  const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(payload));
+  return `${payload}.${bytesToBase64Url(new Uint8Array(signature))}`;
+}
+
+async function verifyReadTicket(ticket, bucketName, fileKey, secret, now = Date.now()) {
+  if (!secret || typeof ticket !== 'string') return false;
+  const parts = ticket.split('.');
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return false;
+  try {
+    const key = await crypto.subtle.importKey(
+      'raw', new TextEncoder().encode(secret),
+      { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']
+    );
+    const valid = await crypto.subtle.verify(
+      'HMAC', key, base64UrlToBytes(parts[1]), new TextEncoder().encode(parts[0])
+    );
+    if (!valid) return false;
+    const payload = JSON.parse(new TextDecoder().decode(base64UrlToBytes(parts[0])));
+    return payload?.bucket === bucketName &&
+      payload?.key === fileKey &&
+      Number.isFinite(payload?.expiresAt) &&
+      payload.expiresAt > now &&
+      payload.expiresAt <= now + 6 * 60 * 1000;
+  } catch {
+    return false;
+  }
+}
+
 // ── Key sanitisation ────────────────────────────────────────────────────────
 // Strips traversal attempts, backslashes, and collapses duplicate slashes.
 // Also enforces a sane max length so absurdly long paths can't be used to
