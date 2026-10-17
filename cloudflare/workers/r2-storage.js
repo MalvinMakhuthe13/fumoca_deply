@@ -430,20 +430,44 @@ async function readAccess(request, env, principal, bucketName, fileKey) {
     return { allowed: false, isPublic: false };
   }
 
+  if (bucketName === 'thumbnails') {
+    // Published thumbnails can be public, but only when a published NIF row
+    // explicitly associates this exact key with the thumbnail.
+    for (const field of ['thumbnail_r2_key', 'capture_thumbnail_r2_key']) {
+      const publishedThumb = await queryRows('nif_files', {
+        is_public: 'eq.true',
+        [`meta->>${field}`]: `eq.${fileKey}`,
+      });
+      if (publishedThumb === null) return { allowed: false, isPublic: false };
+      if (publishedThumb.some(row => row?.is_public === true && row?.meta?.[field] === fileKey)) {
+        return { allowed: true, isPublic: true };
+      }
+    }
+  }
+
   if (bucketName === 'thumbnails' || bucketName === 'nif-videos') {
-    const owned = await queryRows('nif_files', { user_id: `eq.${userId}` });
-    if (owned === null) return { allowed: false, isPublic: false };
-    const matches = owned.some(row => {
-      if (row?.user_id !== userId) return false;
-      const meta = row?.meta || {};
-      return [
-        meta.thumbnail_r2_key,
-        meta.capture_thumbnail_r2_key,
-        meta.source_r2_key,
-        meta.source_capture?.r2_key,
-      ].includes(fileKey);
-    });
-    if (matches) return { allowed: true, isPublic: false };
+    const fields = bucketName === 'thumbnails'
+      ? ['thumbnail_r2_key', 'capture_thumbnail_r2_key']
+      : ['source_r2_key', 'capture_thumbnail_r2_key'];
+    for (const field of fields) {
+      const owned = await queryRows('nif_files', {
+        user_id: `eq.${userId}`,
+        [`meta->>${field}`]: `eq.${fileKey}`,
+      });
+      if (owned === null) return { allowed: false, isPublic: false };
+      if (owned.some(row => {
+        if (row?.user_id !== userId) return false;
+        const meta = row?.meta || {};
+        return meta[field] === fileKey;
+      })) return { allowed: true, isPublic: false };
+    }
+    if (bucketName === 'nif-videos') {
+      const nestedSource = await queryRows('nif_files', { user_id: `eq.${userId}` });
+      if (nestedSource === null) return { allowed: false, isPublic: false };
+      if (nestedSource.some(row => row?.user_id === userId && row?.meta?.source_capture?.r2_key === fileKey)) {
+        return { allowed: true, isPublic: false };
+      }
+    }
   }
 
   return { allowed: false, isPublic: false };
