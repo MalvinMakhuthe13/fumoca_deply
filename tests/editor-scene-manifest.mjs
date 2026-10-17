@@ -30,8 +30,6 @@ const source = [
   extractFunction('restoreEditorSceneMetadata'),
   'return { serializeEditorSceneMetadata, restoreEditorSceneMetadata };'
 ].join('\n');
-const { serializeEditorSceneMetadata, restoreEditorSceneMetadata } = new Function('S', source)(undefined);
-
 // Test compact remapping after deleted points and correct layer membership.
 const S = {
   alive: Uint8Array.from([1, 0, 1, 1, 1]),
@@ -42,8 +40,7 @@ const S = {
   activeLayerId: 'blue',
   layerHidden: Uint8Array.from([0,0,0,1,1])
 };
-const manifest = serializeEditorSceneMetadata.call(null, [0,2,3,4]);
-// Function reads lexical S; execute a bound copy so the fixture is isolated.
+// Execute helpers with isolated fixture state.
 const bound = new Function('S', extractFunction('serializeEditorSceneMetadata') + '; return serializeEditorSceneMetadata;')(S);
 const saved = bound([0,2,3,4]);
 assert.equal(saved.version, 1);
