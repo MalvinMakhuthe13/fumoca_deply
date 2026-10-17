@@ -381,6 +381,11 @@ window.addEventListener('message', e => {
     if (e.data.is4D && frameCount > 1) _setup4D(frameCount);
     _setBakeCapability(_currentRecord);
   }
+  if (e.data.type === 'bridgeError') {
+    _setAssetStatus(e.data.message || 'Viewer bridge error.', true);
+    const bakeBtn = document.getElementById('bakeBtn');
+    if (bakeBtn) bakeBtn.disabled = true;
+  }
   if (e.data.type === 'cameraState' && Array.isArray(e.data.camera?.position) && Array.isArray(e.data.camera?.lookAt)) {
     _currentCamera = {
       position: e.data.camera.position.slice(0,3).map(Number),
