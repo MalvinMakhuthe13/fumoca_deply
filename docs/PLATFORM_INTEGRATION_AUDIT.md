@@ -166,6 +166,7 @@ Create frozen test sets for calibrated vehicle, object and scene captures. NaviG
 - Expanded the CPU conversion smoke test to assert decoded positions, scale, opacity, RGB, NIF → legacy 32-byte SPLAT renderer conversion, and PLY point-cloud → NIF attributes. These assertions are committed but require the next GitHub Actions run to confirm; do not treat them as passed until that run is green.
 - Fixed the optional calibration/reference-mesh upload key from `verify-refs/<user>/...` to `<user>/verify-refs/...`, so the R2 Worker’s owner-prefix write authorization can accept it. Added a schema-contract assertion.
 - Fixed the cleaned-splat derivative key to `<nif-record-id>/edited_cleaned_<timestamp>.splat`, which matches the Worker’s record-owned edited-derivative contract. Extended the Studio save contract test to guard this key shape.
+- Follow-up found the matching read-side gap: the Worker’s owner lookup did not associate `meta.cleaned_splat.r2_key` with its parent NIF. Added that exact association to read authorization and regression cases for owner allow / other-user deny. The test is committed but awaits a fresh CI run.
 
 ### Newly confirmed storage integration blockers
 
