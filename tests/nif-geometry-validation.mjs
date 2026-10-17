@@ -121,6 +121,18 @@ rejects(
   'NIF-to-SPLAT conversion must reject empty scenes',
 );
 
+const validGeometry = new Float32Array(14);
+validGeometry[3] = validGeometry[4] = validGeometry[5] = Math.log(0.01);
+validGeometry[6] = 1;
+rejects(
+  () => encodeNif({
+    geometry: validGeometry,
+    mesh: { vertices: new Float32Array([0, 0, 0]), triangles: new Uint32Array([0, 0, 0]), colours: new Float32Array([0.5, 0.5, 0.5]) },
+  }),
+  /byte colors/,
+  'mesh colors must be byte-valued RGB instead of silently truncating float colors',
+);
+
 const oneSplat = new Uint8Array(32);
 rejects(
   () => encodeNif({ sourceBuffer: oneSplat, aliveIndices: [1] }),
