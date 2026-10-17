@@ -1657,7 +1657,8 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
-import { decodeNif, encodeNif, geometryToSplatRows, downloadNif } from './js/modules/nif-format.js';
+import { decodeNif, decodeLayers, encodeNif, geometryToSplatRows, downloadNif } from './js/modules/nif-format.js';
+import { compactNifLayers } from './js/modules/nif-layer-geo.js';
 import { compactGaussianSHSidecar, gaussianSHMetadata } from './js/modules/nif-sh-sidecar.js';
 
 // Cloud storage is only needed for save/upload actions. Keep it out of the
@@ -1764,7 +1765,7 @@ scene.add(new THREE.AxesHelper(1.5));
 // ─── STATE ──────────────────────────────────────────────────────────────────
 const S = {
   fileName: '', fileType: '', sourceBuffer: null, splatRowSize: 32, splatSourceUrl: '',
-  positions: null, colors: null, opacity: null, scale: null, scaleXYZ: null, rotation: null, shAttributes: [], shCoefficients: null, nifVertical: 'generic', alive: null, selected: null,
+  positions: null, colors: null, opacity: null, scale: null, scaleXYZ: null, rotation: null, shAttributes: [], shCoefficients: null, nifVertical: 'generic', nifLayers: [], alive: null, selected: null,
   pivot: null,
   measurements: [], measurementStart: null,
   paintColors: null,
@@ -2575,6 +2576,7 @@ async function loadFile(file, urlOverride) {
   // A non-NIF import must never inherit the previous NIF's layer manifest.
   S.nifMeta = {};
   S.nifVertical = 'generic';
+  S.nifLayers = [];
   S.nifThumbnailBytes = null;
   S.nifMesh = null;
   S.nifPassthroughChunks = [];
@@ -2591,8 +2593,9 @@ async function loadFile(file, urlOverride) {
     S.sourceBuffer = rows.buffer;
     S.nifMeta = decoded.meta || {};
     S.nifVertical = decoded.reader.header?.vertical || 'generic';
+    S.nifLayers = await decodeLayers(decoded.reader);
     S.nifThumbnailBytes = decoded.thumbnailBytes || null;
-    S.nifPassthroughChunks = decoded.reader.chunks.filter(chunk => ![0x0001, 0x0003, 0x0004, 0x0015, 0x0019, 0x001A].includes(chunk.type));
+    S.nifPassthroughChunks = decoded.reader.chunks.filter(chunk => ![0x0001, 0x0003, 0x0004, 0x0009, 0x0015, 0x0019, 0x001A].includes(chunk.type));
     S.nifMesh = decoded.mesh ? {
       vertices: decoded.mesh.positions, colours: decoded.mesh.colors,
       triangles: decoded.mesh.faces,
@@ -2639,6 +2642,17 @@ async function loadFile(file, urlOverride) {
       new URLSearchParams(location.search).get('nifId'),
       urlOverride, parsed.count
     );
+  }
+  // If the source has no native LAYER_GEO chunk, derive one from the saved
+  // Studio scene manifest so PLY/SPLAT-backed records can still publish valid
+  // point-indexed layers rather than retaining a stale source chunk.
+  if (!S.nifLayers.length && Array.isArray(S.layers) && S.layers.length) {
+    S.nifLayers = S.layers.map(layer => ({
+      label: String(layer.name || layer.label || '').trim(),
+      depthMin: 0,
+      depthMax: 0,
+      indices: Array.from({ length: parsed.count }, (_, i) => i).filter(i => Boolean(layer.mask?.[i])),
+    })).filter(layer => layer.label && layer.indices.length);
   }
   const lidarColorMode = document.getElementById('lidarColorMode');
   if (lidarColorMode) {
