@@ -249,6 +249,8 @@ jobs:
         run: node --experimental-default-type=module tests/legacy-fumoc-share-contract.mjs
       - name: Test NIF metadata merge contract
         run: node --experimental-default-type=module tests/nif-meta-merge-contract.mjs
+      - name: Test backend measurement and NIF edit safety
+        run: node --experimental-default-type=module tests/backend-measurements-contract.mjs
       - name: Guard R2 read authorization and cache ordering
         run: |
           grep -q "async function authorizeFileRead" cloudflare/workers/r2-storage.js
