@@ -329,25 +329,6 @@ async function authorizeFileRead(request, env, principal, bucketName, fileKey) {
       }
     }
 
-    // Raw source keys may live on reconstruction_jobs rather than nif_files metadata.
-    if (bucketName === 'nif-videos' && principal?.kind === 'user' && principal.id) {
-      const jobsQuery = new URLSearchParams({
-        select: 'id,user_id,raw_r2_key',
-        user_id: `eq.${principal.id}`,
-        raw_r2_key: `eq.${fileKey}`,
-        limit: '1',
-      });
-      const jobsResponse = await fetch(`${env.SUPABASE_URL}/rest/v1/reconstruction_jobs?${jobsQuery}`, { headers });
-      if (jobsResponse.ok) {
-        const jobs = await jobsResponse.json();
-        if (Array.isArray(jobs) && jobs.some(job => job?.user_id === principal.id && job?.raw_r2_key === fileKey && (fileKey.startsWith(`${principal.id}/`) || fileKey.startsWith(`raw/${principal.id}/`)))) {
-          return { allowed: true, isPublic: false, reason: 'owner-source-job' };
-        }
-      } else {
-        console.error('[R2 read] source job lookup failed', jobsResponse.status);
-      }
-    }
-
     return { allowed: false, isPublic: false, reason: 'not-published-or-not-owner' };
   } catch (error) {
     console.error('[R2 read] access lookup errored', error?.message || String(error));
