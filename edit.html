@@ -1891,12 +1891,28 @@ function _syncViewportHud() {
 }
 function syncTransformGizmo() {
   const count = S.alive?.length || 0;
-  if (!count || !S.positions) { transformControls.detach(); transformControls.enabled=false; return; }
-  const hasSelection = selectedPointCount() > 0;
+  const selectedCount = selectedPointCount();
+  // Never expose a scene-wide transform gizmo when no points/object are selected.
+  // The old fallback attached it to the camera target, so dragging in Move mode
+  // could appear to move the grid/camera instead of the model.
+  if (!count || !S.positions || !selectedCount) {
+    transformControls.detach();
+    transformControls.enabled = false;
+    transformGizmo.visible = false;
+    _syncViewportHud();
+    return;
+  }
   let x=0,y=0,z=0,n=0;
-  if (hasSelection) {
-    for(let i=0;i<count;i++) if(S.alive[i] && S.selected[i]) { x+=S.positions[i*3];y+=S.positions[i*3+1];z+=S.positions[i*3+2];n++; }
-  } else { const pivot=S.pivot||controls.target;x=pivot.x;y=pivot.y;z=pivot.z;n=1; }
+  for(let i=0;i<count;i++) if(S.alive[i] && S.selected[i]) {
+    x+=S.positions[i*3]; y+=S.positions[i*3+1]; z+=S.positions[i*3+2]; n++;
+  }
+  if (!n) {
+    transformControls.detach();
+    transformControls.enabled = false;
+    transformGizmo.visible = false;
+    _syncViewportHud();
+    return;
+  }
   transformTarget.position.set(x/n,y/n,z/n);
   transformTarget.rotation.set(0,0,0); transformTarget.scale.set(1,1,1);
   transformControls.attach(transformTarget);
@@ -1904,6 +1920,7 @@ function syncTransformGizmo() {
   transformControls.setMode(mode);
   transformControls.enabled = ['move','scale-tool','rotate'].includes(S.mode);
   transformGizmo.visible = transformControls.enabled;
+  _syncViewportHud();
 }
 function refreshTransformSourceMap() {
   const indices = S.points?.geometry?.getAttribute('sourceIndex');
@@ -1926,8 +1943,14 @@ function applyGizmoDelta() {
   const v=new Float64Array(3), invPrev={x:-pq.x,y:-pq.y,z:-pq.z,w:pq.w};
   const uniformScale=Math.cbrt(Math.abs(rx*ry*rz));
   const selected=selectedPointCount()>0, posAttr=S.points?.geometry?.getAttribute('position');
+  if (!selected) {
+    // Defensive guard: gizmos may only edit an explicit point/object selection.
+    // Never translate the camera target or whole scene as a fallback.
+    captureGizmoTransform();
+    return;
+  }
   const scaleAttr=S.points?.geometry?.getAttribute('aScaleXYZ'), rotationAttr=S.points?.geometry?.getAttribute('aRotation'), sizeAttr=S.points?.geometry?.getAttribute('size');
-  for(let i=0;i<S.alive.length;i++) if(S.alive[i] && (!selected || S.selected[i])) {
+  for(let i=0;i<S.alive.length;i++) if(S.alive[i] && S.selected[i]) {
     let x=S.positions[i*3]-px,y=S.positions[i*3+1]-py,z=S.positions[i*3+2]-pz;
     rotate(x,y,z,invPrev,v); x=v[0]*rx;y=v[1]*ry;z=v[2]*rz;
     rotate(x,y,z,nq,v); x=v[0]+tx;y=v[1]+ty;z=v[2]+tz;
