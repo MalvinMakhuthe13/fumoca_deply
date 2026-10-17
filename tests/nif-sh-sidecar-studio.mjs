@@ -94,6 +94,8 @@ assert.equal((editor.match(/parsed\.shCoefficients = decoded\.gaussianSH\.values
   'both opening NIF and Add Splat must restore SH coefficients into live editor state');
 assert.match(editor, /gaussianSH: gaussianSH \|\| undefined/,
   'NIF export must write a compacted SH sidecar instead of silently dropping it');
+assert.match(editor, /S\.nifPassthroughChunks = decoded\.reader\.chunks\.filter\(chunk => !\[0x0001, 0x0003, 0x0004, 0x0015, 0x0019, 0x001A\]\.includes\(chunk\.type\)\)/,
+  're-encoded geometry, metadata, mesh, thumbnail, LiDAR and Gaussian SH chunks must not be duplicated as passthrough');
 assert.match(editor, /if \(S\.nifMeta\?\.gaussian_sh && !gaussianSH\)/,
   'export must fail closed if metadata claims SH but coefficient data is unavailable');
 
