@@ -2571,7 +2571,21 @@ async function loadFile(file, urlOverride) {
   S.layers = []; S.activeLayerId = null; S.layerHidden = new Uint8Array(parsed.count);
   // Restore saved object membership only when a versioned NIF scene manifest exists.
   // Legacy files remain valid and simply open as one ungrouped point set.
-  restoreEditorSceneMetadata(S.nifMeta, parsed.count);
+  const restoredNifScene = restoreEditorSceneMetadata(S.nifMeta, parsed.count);
+  // A SH-preserving edited PLY is saved as PLY plus the editor_scene manifest
+  // in nif_files.meta. Reapply that manifest only when loading the matching
+  // record's R2 object, never to an arbitrary dropped PLY with the same count.
+  if (!restoredNifScene && S.fileType === 'ply' && urlOverride) {
+    const record = window._fumocaCurrentRecord;
+    const recordId = new URLSearchParams(location.search).get('nifId');
+    const sourceUrl = decodeURIComponent(String(urlOverride));
+    const recordKey = String(record?.r2_key || '');
+    const recordMatches = !!recordId && record?.id === recordId && !!recordKey &&
+      (sourceUrl.includes(recordKey) || sourceUrl.includes(encodeURIComponent(recordKey)));
+    if (recordMatches && record?.meta?.editor_scene?.point_count === parsed.count) {
+      restoreEditorSceneMetadata(record.meta, parsed.count);
+    }
+  }
   const lidarColorMode = document.getElementById('lidarColorMode');
   if (lidarColorMode) {
     const has = { intensity: !!S.lidarIntensity, classification: !!S.lidarClassification, return: !!S.lidarReturnNumber };
