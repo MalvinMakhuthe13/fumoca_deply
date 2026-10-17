@@ -675,7 +675,7 @@ window.handleSubmit = async function() {
           gpu_required: false,
           preserved_attributes: ['position', 'scale', 'rotation', 'RGBA/opacity'],
           discarded_attributes: [],
-          quality_flags: [],
+          quality_flags: ['quantized_geometry_lossy'],
           created_at: new Date().toISOString(),
         };
         outputBuffer = encodeNif({
@@ -777,7 +777,7 @@ window.handleSubmit = async function() {
             discarded_attributes: [],
             quality_flags: [
               ...shMetadata.qualityFlags,
-              ...(requiresRawScalePreservation ? ['raw_geometry_used_to_preserve_log_scale_range'] : []),
+              ...(requiresRawScalePreservation ? ['raw_geometry_used_to_preserve_log_scale_range'] : ['quantized_geometry_lossy']),
             ],
             created_at: new Date().toISOString(),
           };
@@ -848,7 +848,7 @@ window.handleSubmit = async function() {
             geometry_quality: 'isotropic-points; mesh reconstruction not run',
             preserved_attributes: ['position', ...(hasVertexColors ? ['RGB vertex colour'] : []), ...(opacity ? ['opacity'] : [])],
             discarded_attributes: [],
-            quality_flags: ['point_cloud_not_gaussian', 'mesh_reconstruction_not_run', ...(!hasVertexColors ? ['source_vertex_colours_not_found'] : [])],
+            quality_flags: ['point_cloud_not_gaussian', 'mesh_reconstruction_not_run', 'quantized_geometry_lossy', ...(!hasVertexColors ? ['source_vertex_colours_not_found'] : [])],
             created_at: new Date().toISOString(),
           };
           outputBuffer = encodeNif({
