@@ -27,7 +27,9 @@ const FumocaPublish = (() => {
   // to {vertical:'generic', passthroughChunks:[]} if there's no original
   // .nif to read from (e.g. brand-new upload, not an edit of an existing one).
   async function _loadOriginalForPassthrough() {
-    const url = window._fumocanifUrl || window._fumocaNifUrl || new URLSearchParams(location.search).get('file');
+    const url = window._fumocaLoadedFromRecord === false
+      ? ''
+      : (window._fumocanifUrl || window._fumocaNifUrl || new URLSearchParams(location.search).get('file'));
     let vertical = window.S?.nifVertical || window.S?.nifMeta?.vertical || 'generic';
     const shouldPassThrough = chunk => ![
       CHUNK.KEYFRAME_GEO, CHUNK.META, CHUNK.THUMBNAIL,
