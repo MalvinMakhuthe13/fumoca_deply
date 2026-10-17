@@ -94,6 +94,15 @@ const SOUND_EVENTS = {
   tour_next:      '/sounds/ui/tour-advance.mp3',    // soft chime
 };
 
+function safeMediaUrl(value) {
+  try {
+    const url = new URL(String(value || ''), window.location.href);
+    if (['http:', 'https:'].includes(url.protocol)) return url.href;
+    if (url.protocol === 'blob:' && url.origin === window.location.origin) return url.href;
+  } catch (_) {}
+  return '';
+}
+
 // ── Manager ───────────────────────────────────────────────────────────────────
 
 class FumocSoundManager {
@@ -130,8 +139,9 @@ class FumocSoundManager {
     this._config = sond;
 
     // Start ambient from explicit config OR from mode preset
-    if (sond?.ambient?.url) {
-      await this._engine.setAmbient(sond.ambient.url, {
+    const ambientUrl = safeMediaUrl(sond?.ambient?.url);
+    if (ambientUrl) {
+      await this._engine.setAmbient(ambientUrl, {
         volume: sond.ambient.volume || 0.2,
         loop:   sond.ambient.loop !== false,
       });
@@ -142,8 +152,9 @@ class FumocSoundManager {
     // Wire hotspot sounds if configured
     if (sond?.hotspots?.length) {
       for (const hs of sond.hotspots) {
-        if (hs.url && hs.position) {
-          this._engine.addSpatialSource(hs.id, hs.url, hs.position, {
+        const audioUrl = safeMediaUrl(hs.url);
+        if (audioUrl && hs.position) {
+          this._engine.addSpatialSource(hs.id, audioUrl, hs.position, {
             volume:      hs.volume      || 0.7,
             maxDistance: hs.maxDistance || 12,
             loop:        hs.loop        || false,
@@ -271,13 +282,14 @@ class FumocSoundManager {
     this._playUISound(SOUND_EVENTS.hotspot_tap);
 
     // Hotspot-specific audio
-    if (hotspot.audioUrl) {
+    const hotspotAudioUrl = safeMediaUrl(hotspot.audioUrl);
+    if (hotspotAudioUrl) {
       if (hotspot.audioSpatial && hotspot.worldPos) {
         this._engine.playSpatialSource(hotspot.id, hotspot.worldPos);
       } else {
         // Play as a non-spatial sound
         try {
-          const audio = new Audio(hotspot.audioUrl);
+          const audio = new Audio(hotspotAudioUrl);
           audio.volume = hotspot.audioVolume || 0.7;
           audio.play().catch(() => {});
         } catch {}
@@ -291,9 +303,10 @@ class FumocSoundManager {
     await this.start();
     this._playUISound(SOUND_EVENTS.tour_next);
 
-    if (stop.audioUrl) {
+    const audioUrl = safeMediaUrl(stop.audioUrl);
+    if (audioUrl) {
       try {
-        await this._engine.setAmbient(stop.audioUrl, {
+        await this._engine.setAmbient(audioUrl, {
           volume: stop.audioVolume || 0.25,
           loop:   stop.audioLoop   || false,
           fadeIn: 800,
@@ -310,10 +323,11 @@ class FumocSoundManager {
     await this.start();
 
     const frames = this._config?.frames;
-    if (!frames?.[frameIndex]?.audioUrl) return;
-    const frame = frames[frameIndex];
+    const frame = frames?.[frameIndex];
+    const audioUrl = safeMediaUrl(frame?.audioUrl);
+    if (!audioUrl) return;
     try {
-      await this._engine.setAmbient(frame.audioUrl, {
+      await this._engine.setAmbient(audioUrl, {
         volume: frame.volume || 0.2, loop: true, fadeIn: 400,
       });
     } catch {}
@@ -335,9 +349,10 @@ class FumocSoundManager {
   // ── UI sound ──────────────────────────────────────────────────────────────
 
   _playUISound(url) {
-    if (!url) return;
+    const safeUrl = safeMediaUrl(url);
+    if (!safeUrl) return;
     try {
-      const audio = new Audio(url);
+      const audio = new Audio(safeUrl);
       audio.volume = 0.35;
       audio.play().catch(() => {});
     } catch {}
