@@ -14,6 +14,10 @@ assert.match(source, /compactGaussianSHSidecar\(/,
   'live editor export must preserve and compact SH coefficients');
 assert.match(source, /layers: layerData\.layers/,
   'live editor export must rebuild point-indexed LAYER_GEO chunks');
+assert.match(source, /chunk\.type === CHUNK\.KEYFRAME_MESH && S\.nifMesh/,
+  'viewer export must preserve undecoded raw mesh chunks');
+assert.match(source, /\.\.\.\(S\.nifMesh \? \{ mesh: S\.nifMesh \} : \{\}\)/,
+  'viewer export must only replace raw mesh data when a decoded mesh is available');
 assert.match(source, /record\?\.meta/,
   'viewer export must use the deployed nif_files.meta field');
 assert.doesNotMatch(source, /record\?\.metadata/,
