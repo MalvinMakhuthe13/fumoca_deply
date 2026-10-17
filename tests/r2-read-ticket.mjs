@@ -22,4 +22,6 @@ assert.equal(await verifyReadTicket(ticket, 'nif-files', 'owner/private.nif', 'w
 assert.equal(await verifyReadTicket(ticket, 'nif-files', 'owner/private.nif', secret, now + 6 * 60 * 1000), false, 'expired ticket must be rejected');
 assert.equal(await verifyReadTicket(ticket.slice(0, -2) + 'xx', 'nif-files', 'owner/private.nif', secret, now), false, 'tampered ticket must be rejected');
 assert.equal(await verifyReadTicket('not-a-ticket', 'nif-files', 'owner/private.nif', secret, now), false);
+assert.match(source, /readTicketsConfigured = !!env\.FUMOCA_API_SECRET/);
+assert.match(source, /ok: allBucketsBound && supabaseConfigured && readTicketsConfigured/);
 console.log('R2 signed read-ticket tests passed.');
