@@ -2163,13 +2163,32 @@ window.preserveImportedLidarSource = async (cloud) => {
     point_count: cloud.sourcePointCount || cloud.count,
   };
   const record = window._fumocaCurrentRecord || {};
-  const meta = { ...(record.meta || S.nifMeta || {}) };
-  meta.lidar_sources = [...(meta.lidar_sources || []), capture];
-  S.nifMeta = meta;
-  if (record.id) {
-    const { error: updateError } = await sb.from('nif_files').update({ meta }).eq('id', record.id);
-    if (updateError) throw new Error(`Original scan uploaded but could not be linked to the scene: ${updateError.message}`);
-    record.meta = meta;
+  let meta;
+  try {
+    if (record.id) {
+      const { data: latest, error: readError } = await sb.from('nif_files')
+        .select('meta').eq('id', record.id).eq('user_id', user.id).single();
+      if (readError || !latest) {
+        throw new Error(readError?.message || 'Parent NIF could not be reloaded before linking the original scan.');
+      }
+      const latestMeta = latest.meta && typeof latest.meta === 'object' ? latest.meta : {};
+      meta = { ...latestMeta, lidar_sources: [...(latestMeta.lidar_sources || []), capture] };
+      const { data: updated, error: updateError } = await sb.from('nif_files').update({ meta })
+        .eq('id', record.id).eq('user_id', user.id).select('id').maybeSingle();
+      if (updateError || !updated) {
+        throw new Error(updateError?.message || 'Original scan could not be linked to the parent NIF.');
+      }
+      record.meta = meta;
+      window._fumocaCurrentRecord = { ...window._fumocaCurrentRecord, meta };
+    } else {
+      const latestMeta = S.nifMeta && typeof S.nifMeta === 'object' ? S.nifMeta : {};
+      meta = { ...latestMeta, lidar_sources: [...(latestMeta.lidar_sources || []), capture] };
+    }
+    S.nifMeta = meta;
+  } catch (error) {
+    const { error: cleanupError } = await r2.from('nif-files').remove([fileKey]);
+    if (cleanupError) console.error('[FUMOCA] Original source cleanup failed:', cleanupError.message);
+    throw error;
   }
   _renderLidarSourceLinks(meta);
   return capture;
