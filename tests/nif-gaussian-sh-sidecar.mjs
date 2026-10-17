@@ -44,10 +44,12 @@ assert.throws(
   /not finite/,
   'sidecar coefficients must be finite',
 );
-const mismatch = encodeNif({
-  sourceBuffer: rows, aliveIndices,
-  gaussianSH: { degree: 0, pointCount: 2, coefficientCount: 3, values: new Float32Array(6) },
-});
-await assert.rejects(() => decodeNif(mismatch), /point count does not match geometry/,
-  'NIF geometry and SH sidecar point counts must agree');
+assert.throws(
+  () => encodeNif({
+    sourceBuffer: rows, aliveIndices,
+    gaussianSH: { degree: 0, pointCount: 2, coefficientCount: 3, values: new Float32Array(6) },
+  }),
+  /point count must match geometry/,
+  'NIF geometry and SH sidecar point counts must agree before encoding',
+);
 console.log('Gaussian PLY SH sidecar round-trip and validation passed.');
