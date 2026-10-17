@@ -2,6 +2,7 @@ import r2 from '../r2Client.js';
 import { encodeNif } from './nif-format.js';
 import { compactGaussianSHSidecar, gaussianSHMetadata } from './nif-sh-sidecar.js';
 import { encodeEditorSplatRows } from './editor-splat-rows.js';
+import { compactNifLayers } from './nif-layer-geo.js';
 import { NIFReader, CHUNK } from '../../engine-next/format/NIFSpec.js';
 /**
  * FUMOCA Publish Engine v1
@@ -44,7 +45,7 @@ const FumocaPublish = (() => {
     let vertical = window.S?.nifVertical || window.S?.nifMeta?.vertical || 'generic';
     const shouldPassThrough = chunk => ![
       CHUNK.KEYFRAME_GEO, CHUNK.META, CHUNK.THUMBNAIL,
-      CHUNK.KEYFRAME_MESH, CHUNK.GAUSSIAN_SH, CHUNK.LIDAR_ATTR,
+      CHUNK.KEYFRAME_MESH, CHUNK.LAYER_GEO, CHUNK.GAUSSIAN_SH, CHUNK.LIDAR_ATTR,
     ].includes(chunk.type);
     // Local file imports already hold decoded chunks in editor state. Keep
     // those if there is no fetchable URL or if a private URL fetch fails.
@@ -124,9 +125,37 @@ const FumocaPublish = (() => {
       throw new Error('Publishing blocked: metadata declares Gaussian SH data but the coefficient sidecar is unavailable.');
     }
     const gaussianShMeta = gaussianSH ? gaussianSHMetadata(gaussianSH, S.shAttributes) : null;
+    const editorLayerSources = Array.isArray(S.nifLayers) && S.nifLayers.length
+      ? S.nifLayers
+      : (Array.isArray(S.layers) ? S.layers.map(layer => ({
+          label: String(layer.name || layer.label || '').trim(),
+          depthMin: 0,
+          depthMax: 0,
+          indices: Array.from({ length: S.alive.length }, (_, i) => i).filter(i => Boolean(layer.mask?.[i])),
+        })).filter(layer => layer.label && layer.indices.length) : []);
+    const metadataLayerSources = Array.isArray(sourceMeta.editor_scene?.layers)
+      ? sourceMeta.editor_scene.layers.map(layer => ({
+          label: layer.name,
+          depthMin: 0,
+          depthMax: 0,
+          indices: layer.point_indices,
+        }))
+      : [];
+    const layerData = compactNifLayers(
+      editorLayerSources.length ? editorLayerSources : metadataLayerSources,
+      aliveIndices,
+      S.alive.length,
+    );
+    if (sourceMeta.gaussian_sh && !gaussianSH) {
+      throw new Error('Publishing blocked: metadata declares Gaussian SH data but the coefficient sidecar is unavailable.');
+    }
     const meta = {
       ...sourceMeta,
       ...(gaussianShMeta ? { gaussian_sh: gaussianShMeta } : {}),
+      ...(layerData.droppedUnindexed ? {
+        quality_flags: [...new Set([...(Array.isArray(sourceMeta.quality_flags) ? sourceMeta.quality_flags : []), 'legacy_layer_geo_dropped_no_indices'])],
+        layer_geo_status: 'legacy_layers_dropped_unindexed',
+      } : {}),
       title: title || window._fumocaCurrentRecord?.title || S.fileName || 'Untitled',
       description: description ?? sourceMeta.description ?? window._fumocaCurrentRecord?.description ?? '',
     };
@@ -145,6 +174,7 @@ const FumocaPublish = (() => {
       vertical,
       gaussianSH: gaussianSH || undefined,
       lidarAttributes: _compactLidarAttributes(S, aliveIndices),
+      layers: layerData.layers,
       thumbnailBytes: S.nifThumbnailBytes || undefined,
       mesh: S.nifMesh || undefined,
       passthroughChunks,
