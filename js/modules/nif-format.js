@@ -340,6 +340,19 @@ export function encodeNif(opts = {}) {
     : packGeometryQuantized(geoData, count);
   writer.add(CHUNK.KEYFRAME_GEO, geoBytes, CODEC.RAW);
   if (opts.gaussianSH) {
+    const shPointCount = opts.gaussianSH.pointCount ?? opts.gaussianSH.count;
+    if (shPointCount !== count) {
+      throw new Error('[nif-format] Gaussian SH sidecar point count must match geometry before encoding');
+    }
+    const declaredSH = opts.meta?.gaussian_sh;
+    if (declaredSH && (declaredSH.degree !== opts.gaussianSH.degree ||
+        declaredSH.coefficient_count !== (opts.gaussianSH.coefficientCount ?? 3 * (opts.gaussianSH.degree + 1) ** 2) ||
+        (declaredSH.properties != null &&
+          (!Array.isArray(declaredSH.properties) ||
+           declaredSH.properties.length !== (opts.gaussianSH.coefficientCount ?? 3 * (opts.gaussianSH.degree + 1) ** 2) ||
+           declaredSH.properties.some(name => typeof name !== 'string'))))) {
+      throw new Error('[nif-format] Gaussian SH metadata does not match the sidecar before encoding');
+    }
     writer.add(CHUNK.GAUSSIAN_SH, encodeGaussianSHChunk(opts.gaussianSH), CODEC.RAW);
   }
 
