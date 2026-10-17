@@ -44,6 +44,20 @@ jobs:
         run: node --input-type=module --check < js/modules/publish-to-fumoca.js
       - name: Check object extraction module syntax
         run: node --input-type=module --check < js/modules/object-extract.js
+      - name: Check embed manager syntax
+        run: node --input-type=module --check < js/modules/embed-manager.js
+      - name: Check embed player inline module syntax
+        run: |
+          python - <<'PY'
+          import re
+          from pathlib import Path
+          html = Path("embed/player.html").read_text(encoding="utf-8")
+          match = re.search(r'<script type="module">([\\s\\S]*?)</script>', html)
+          if not match:
+              raise SystemExit("embed player module script not found")
+          Path("/tmp/fumoca-embed-player.mjs").write_text(match.group(1), encoding="utf-8")
+          PY
+          node --check /tmp/fumoca-embed-player.mjs
       - name: Check persistence-sensitive editor modules
         run: |
           node --input-type=module --check < js/modules/edit-engine.js
