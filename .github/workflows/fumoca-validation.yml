@@ -56,6 +56,8 @@ jobs:
           grep -q "conversion: outputBuffer ? {" js/modules/upload-page.js
           grep -q "gpu_required: false" js/modules/upload-page.js
           grep -q "source_r2_key" js/modules/upload-page.js
+          grep -q "Open in Studio" js/modules/upload-page.js
+          grep -q "storage did not return a file key and URL" js/modules/upload-page.js
           ! grep -n "nif_file_id" js/modules/feed.js
           grep -q "post.meta?.source_r2_key" js/modules/feed.js
           grep -q "item.meta?.source_capture?.r2_key" js/modules/profile.js
