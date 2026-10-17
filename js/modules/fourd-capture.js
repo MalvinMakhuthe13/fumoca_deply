@@ -11,6 +11,7 @@ import MS from './motion-states.js';
 import MT from './motion-tracking.js';
 
 const FourDCapture = (() => {
+  const escapeHtml = value => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
   let _panel = null;
   let _record = null;
@@ -258,12 +259,12 @@ const FourDCapture = (() => {
     const trackBtn = document.getElementById('fourDRunTracking');
 
     el.style.display = '';
-    const cls = result.motionClass;
+    const cls = ['still', 'slow', 'moderate', 'fast'].includes(result.motionClass) ? result.motionClass : 'still';
     mc.innerHTML = `<div class="fourDMotionBadge motionBadge-${cls}">${_motionIcon(cls)} ${cls} motion detected</div>`;
 
     sb.innerHTML = `<div class="fourDStrategyCard">
-      <strong>${result.strategy.label}</strong>
-      ${result.strategy.tip}
+      <strong>${escapeHtml(result.strategy.label)}</strong>
+      ${escapeHtml(result.strategy.tip)}
       ${result.recommendMultiMoment ? `<br><br>Found <strong style="color:#c8ff00">${result.keyMoments?.length || 0} key moments</strong> — each will become a separate splat state.` : `<br><br>Best window: <strong style="color:#c8ff00">${result.bestWindowStart.toFixed(1)}s – ${result.bestWindowEnd.toFixed(1)}s</strong>`}
     </div>`;
 
@@ -382,17 +383,17 @@ const FourDCapture = (() => {
       <div class="fourDTrackStep">
         <div class="fourDTrackBadge">${i+1}</div>
         <div class="fourDTrackMeta">
-          <strong>${step.label} · ${step.time.toFixed(2)}s</strong>
-          ${step.hint}<br>
+          <strong>${escapeHtml(step.label)} · ${Number(step.time).toFixed(2)}s</strong>
+          ${escapeHtml(step.hint)}<br>
           Anchor ${(step.x * 100).toFixed(0)}% × ${(step.y * 100).toFixed(0)}%
         </div>
       </div>`).join('');
-    const mapNote = mapped.length ? `<div class="fourDStrategyCard"><strong>Mapped to motion states</strong>${mapped.map(m => `${m.step} → ${m.stateId}`).join('<br>')}${saved ? '<br><br>Saved to record metadata.' : ''}</div>` : '';
+    const mapNote = mapped.length ? `<div class="fourDStrategyCard"><strong>Mapped to motion states</strong>${mapped.map(m => `${escapeHtml(m.step)} → ${escapeHtml(m.stateId)}`).join('<br>')}${saved ? '<br><br>Saved to record metadata.' : ''}</div>` : '';
     el.innerHTML = `
       <div class="fourDStrategyCard">
         <strong>Learning overlay ready</strong>
-        ${tracking?.hints?.mode || 'Use each extracted step as a guided checkpoint inside the splat.'}<br><br>
-        ${tracking?.hints?.tracking || ''}
+        ${escapeHtml(tracking?.hints?.mode || 'Use each extracted step as a guided checkpoint inside the splat.')}<br><br>
+        ${escapeHtml(tracking?.hints?.tracking || '')}
       </div>
       ${cards}
       ${mapNote}`;
@@ -410,7 +411,7 @@ const FourDCapture = (() => {
   }
   function _renderTrackingError(msg) {
     const el = document.getElementById('fourDTrackingResult');
-    if (el) { el.style.display=''; el.innerHTML=`<div style="color:#f09595;font-size:12px;padding:8px">${msg}</div>`; }
+    if (el) { el.style.display=''; const node=document.createElement('div'); node.style.cssText='color:#f09595;font-size:12px;padding:8px'; node.textContent=String(msg ?? 'Tracking failed.'); el.replaceChildren(node); }
   }
 
   // ─── Multi-camera ──────────────────────────────────────────────────────────
@@ -426,7 +427,7 @@ const FourDCapture = (() => {
     list.innerHTML = _camSlots.map((c, i) => `
       <div class="fourDCamRow" data-cam="${c.id}">
         <span style="color:rgba(255,255,255,.4);font-size:11px">CAM ${i+1}</span>
-        <span style="flex:1;color:${c.file ? '#c8ff00' : 'rgba(255,255,255,.5)'}">${c.file ? c.file.name : 'No file'}</span>
+        <span style="flex:1;color:${c.file ? '#c8ff00' : 'rgba(255,255,255,.5)'}">${c.file ? escapeHtml(c.file.name) : 'No file'}</span>
         <button onclick="document.getElementById('camFile_${c.id}').click()" style="background:none;border:1px solid rgba(255,255,255,.15);border-radius:4px;color:rgba(255,255,255,.5);font-size:10px;padding:3px 7px;cursor:pointer">${c.file?'Change':'Select'}</button>
         <input type="file" id="camFile_${c.id}" accept="video/*" style="display:none" onchange="window.__fumocaCamFileChange('${c.id}', this.files[0])">
       </div>`).join('');
@@ -462,7 +463,7 @@ const FourDCapture = (() => {
     el.innerHTML = states.map((s, i) => `
       <div class="fourDMomentRow">
         <div class="fourDMomentDot" style="background:${i===MS.getCurrentIdx()?'#c8ff00':'rgba(255,255,255,.3)'}"></div>
-        <div class="fourDMomentLabel" style="cursor:pointer" onclick="window.FumocaMotionStates.goTo(${i})">${s.label}</div>
+        <div class="fourDMomentLabel" style="cursor:pointer" onclick="window.FumocaMotionStates.goTo(${i})">${escapeHtml(s.label)}</div>
         <button onclick="window.FumocaMotionStates.removeState('${s.id}')" style="background:none;border:none;color:rgba(255,255,255,.25);cursor:pointer;font-size:12px">✕</button>
       </div>`).join('');
   }
@@ -484,8 +485,8 @@ const FourDCapture = (() => {
     el.innerHTML = _sessionJobs.map(j => `
       <div class="fourDJobRow">
         <div class="fourDJobStatus status-${j.status}"></div>
-        <span style="flex:1">${j.label}</span>
-        <span style="color:rgba(255,255,255,.35);font-size:11px">${j.statusText || j.status}</span>
+        <span style="flex:1">${escapeHtml(j.label)}</span>
+        <span style="color:rgba(255,255,255,.35);font-size:11px">${escapeHtml(j.statusText || j.status)}</span>
       </div>`).join('');
   }
 
@@ -505,7 +506,7 @@ const FourDCapture = (() => {
   }
   function _renderError(msg) {
     const el = document.getElementById('fourDAnalysisResult');
-    if (el) { el.style.display=''; el.innerHTML=`<div style="color:#f09595;font-size:12px;padding:8px">${msg}</div>`; }
+    if (el) { el.style.display=''; const node=document.createElement('div'); node.style.cssText='color:#f09595;font-size:12px;padding:8px'; node.textContent=String(msg ?? 'Analysis failed.'); el.replaceChildren(node); }
   }
   function _switchTab(name) {
     document.querySelectorAll('.fourDTab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
