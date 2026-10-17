@@ -85,7 +85,7 @@ function placeholderClass(s) { return s === 'processing' ? 'processing' : s === 
 function placeholderIcon(s) { return s === 'done' ? '🧊' : s === 'processing' ? '⚙️' : s === 'failed' ? '❌' : '⏳'; }
 function progressPct(post) { return Math.min(100, Number(post.processing_progress ?? post.progress_percent ?? 0)); }
 function providerChip(post) {
-  const label = firstNonEmpty(post.provider_name, post.source_type === 'external' ? 'External provider' : 'FUMOCA');
+  const label = firstNonEmpty(post.provider_name, post.meta?.provider_name, post.meta?.source_type === 'external' ? 'External provider' : 'FUMOCA');
   return `<span class="post-tag">${esc(label)}</span>`;
 }
 function isAdminRole(role) { return ['admin','super_admin','owner'].includes(String(role||'').toLowerCase()); }
@@ -577,7 +577,7 @@ async function loadFeed() {
         thumbnail_url: resolveThumbnail(row),
         preview_video_url: resolvePreviewVideo(row),
         source_type: row.source_type || (row.external_nif_url ? 'external' : 'fumoca'),
-        provider_name: row.provider_name || (row.external_nif_url ? 'External provider' : 'FUMOCA'),
+        provider_name: row.provider_name || row.meta?.provider_name || (row.external_nif_url || row.meta?.external_nif_url ? 'External provider' : 'FUMOCA'),
         isViewable: ns === 'done' && !!url,
       };
     });
