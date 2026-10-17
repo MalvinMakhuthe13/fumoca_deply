@@ -14,6 +14,8 @@ assert.match(teaser, /select\('meta'\)\.eq\('id', splatId\)\.eq\('user_id', owne
   'teaser save must reload current parent metadata before merging');
 assert.match(teaser, /window\._fumocaCurrentRecord = \{ \.\.\.window\._fumocaCurrentRecord, meta: nextMeta \}/,
   'teaser save must synchronize the in-memory parent record');
+assert.doesNotMatch(teaser, /window\.saveLiveEdit\(\{ teaser_video_url:/,
+  'teaser registration must not perform a second stale metadata write after the R2 key was linked');
 assert.match(teaser, /from\('preview-videos'\)\.remove\(\[fileKey\]\)/, 'failed metadata writes must clean up the uploaded object');
 assert.match(feed, /row\.meta\?\.teaser_video_url/, 'feed must resolve teaser URLs from NIF metadata');
 assert.match(feed, /post\.meta\?\.teaser_video_r2_key/, 'feed deletion must clean up teaser objects');
