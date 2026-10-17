@@ -80,6 +80,14 @@ jobs:
           grep -q "if (!currentRecord.r2_key || !currentRecord.user_id)" js/modules/viewer.js
           grep -q "not a saved NIF artifact" js/modules/viewer.js
           ! grep -n "eq('nif_id'" js/modules/viewer.js
+      - name: Guard multi-splat object selection and transforms
+        run: |
+          grep -q "Added ${file.name} as a separate layer" edit.html
+          grep -q "S.layers.push({" edit.html
+          grep -q "mask: newMask" edit.html
+          grep -q "const selectedCount = selectedPointCount();" edit.html
+          grep -q "Never expose a scene-wide transform gizmo" edit.html
+          grep -q "Never translate the camera target or whole scene as a fallback" edit.html
       - name: Test PLY conversion fidelity disclosure
         run: |
           node --input-type=module --check < js/modules/ply-conversion-metadata.js
