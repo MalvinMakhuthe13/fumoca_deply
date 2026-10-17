@@ -767,37 +767,58 @@ export default {
 
     // ── GET /file/:key — Serve file with caching ───────────────────────────
     if (request.method === 'GET' && path.startsWith('/file/')) {
-      const fileKey = decodeURIComponent(path.slice('/file/'.length));
+      let rawKey;
+      try {
+        rawKey = decodeURIComponent(path.slice('/file/'.length));
+      } catch {
+        return json({ error: 'Malformed file key' }, 400, cors);
+      }
+      const fileKey = sanitiseKey(rawKey);
       if (!fileKey) return json({ error: 'Missing key' }, 400, cors);
-
-      const cache = caches.default;
-      const cacheKey = new Request(request.url, { method: 'GET' });
-      const cached = await cache.match(cacheKey);
-      if (cached) return cached;
 
       const r2Bucket = getBucket(bucketParam, env);
       if (!r2Bucket) {
         return json({ error: `Unknown bucket: ${bucketParam}` }, 400, cors);
       }
 
-      const obj = await r2Bucket.get(fileKey);
-      if (!obj) return json({ error: 'Not found' }, 404, cors);
+      // Authorize before touching the shared cache. Private/owner responses must
+      // never be read from or written to caches.default.
+      let principal = await authorize(request, env);
+      const access = await authorizeFileRead(request, env, principal, bucketParam, fileKey);
+      if (!access.allowed) {
+        return json({ error: 'Not found' }, 404, {
+          ...cors,
+          'Cache-Control': 'no-store',
+        });
+      }
 
-      const isThumb = fileKey.startsWith('thumbs/') || fileKey.startsWith('avatars/') || bucketParam === 'thumbnails' || bucketParam === 'avatars';
+      const cache = caches.default;
+      const cacheKey = new Request(request.url, { method: 'GET' });
+      if (access.isPublic) {
+        const cached = await cache.match(cacheKey);
+        if (cached) return new Response(cached.body, {
+          status: cached.status,
+          statusText: cached.statusText,
+          headers: { ...Object.fromEntries(cached.headers), ...cors, 'Cache-Control': cached.headers.get('Cache-Control') || 'public, max-age=60' },
+        });
+      }
+
+      const obj = await r2Bucket.get(fileKey);
+      if (!obj) return json({ error: 'Not found' }, 404, { ...cors, 'Cache-Control': 'no-store' });
+
+      const isThumb = bucketParam === 'thumbnails' || bucketParam === 'avatars';
       const ttl = isThumb ? THUMB_TTL : CACHE_TTL;
       const contentType = obj.httpMetadata?.contentType || 'application/octet-stream';
+      const responseHeaders = {
+        'Content-Type': contentType,
+        'ETag': obj.etag,
+        'Accept-Ranges': 'bytes',
+        ...cors,
+        'Cache-Control': access.isPublic ? `public, max-age=${ttl}` : 'private, no-store',
+      };
+      const response = new Response(obj.body, { headers: responseHeaders });
 
-      const response = new Response(obj.body, {
-        headers: {
-          'Content-Type': contentType,
-          'Cache-Control': `public, max-age=${ttl}`,
-          'ETag': obj.etag,
-          'Accept-Ranges': 'bytes',
-          ...cors,
-        },
-      });
-
-      ctx.waitUntil(cache.put(cacheKey, response.clone()));
+      if (access.isPublic) ctx.waitUntil(cache.put(cacheKey, response.clone()));
       return response;
     }
 
