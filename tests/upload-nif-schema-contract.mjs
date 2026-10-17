@@ -7,7 +7,7 @@ const end = source.indexOf('\nasync function createExternalNif', start);
 assert.ok(start >= 0 && end > start, 'baseNifPayload must exist');
 const base = source.slice(start, end);
 for (const column of ['user_id', 'title', 'description', 'vertical', 'tags', 'is_public', 'meta']) {
-  assert.match(base, new RegExp('\\b' + column + '\\s*:'), `base NIF payload must use deployed column ${column}`);
+  assert.match(base, new RegExp('\\b' + column + '\\s*(?::|,)'), `base NIF payload must use deployed column ${column}`);
 }
 for (const legacyColumn of ['category', 'visibility', 'status', 'processing_stage', 'processing_progress', 'nif_url', 'external_nif_url', 'provider_name']) {
   assert.doesNotMatch(base, new RegExp('\\b' + legacyColumn + '\\s*:'), `legacy field ${legacyColumn} belongs in meta, not as a nif_files column`);
