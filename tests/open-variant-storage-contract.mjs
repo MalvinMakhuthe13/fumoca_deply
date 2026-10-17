@@ -23,6 +23,8 @@ assert.match(toggle, /Math\.abs\(angleDeg\) > 360/,
   'rotation angles must be bounded to avoid invalid variant geometry');
 assert.match(toggle, /meta: \{ \.\.\.meta, open_variant_of: recordId, open_variant_layers: appliedLabels \}/,
   'baked variants must preserve existing NIF metadata');
+assert.match(toggle, /vertical: reader\.header\?\.vertical \|\| meta\.vertical \|\| 'generic'/,
+  'baked variants must preserve the NIF header vertical instead of defaulting local files to generic');
 assert.match(hotspot, /discardPartToggleVariant\(fileKey, currentRecord\.id, currentRecord\.user_id\)/,
   'cancelling preview must unregister and delete the generated variant');
 assert.match(hotspot, /recordId: currentRecord\.id, ownerId: currentRecord\.user_id/,
