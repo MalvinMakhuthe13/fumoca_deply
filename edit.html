@@ -5566,6 +5566,7 @@ animBg();
 <script type="module" src="js/modules/mobile-asset.js"></script>
 <script type="module" src="js/modules/hybrid-tri-splat.js"></script>
 <script type="module" src="js/modules/ai-clean-v2.js"></script>
+<script type="module" src="js/modules/studio-live-bridge.js"></script>
 <script type="module" src="js/modules/teaser-video.js"></script>
 <script type="module" src="js/modules/studio-timeline.js"></script>
 <script type="module" src="js/modules/ply-validator.js"></script>
@@ -5788,7 +5789,7 @@ function _injectV60Panels() {
     div.className = 'panel-body'; div.id = 'rtab-camera'; div.style.display = 'none';
     div.innerHTML = `
       <div class="section">
-        <div class="sec-head"><span class="sec-label">🎥 Camera Modes</span><span class="sec-badge">live</span></div>
+        <div class="sec-head"><span class="sec-label">🎥 Camera Modes</span><span class="sec-badge">v61</span></div>
         <div class="sec-body">
           <div class="btn-grid col2">
             <button class="ac-btn" data-cam-mode="free" onclick="FumocaAutoFix?.setMode('free')">🕹 Free Camera</button>
@@ -5809,6 +5810,7 @@ function _injectV60Panels() {
           <span class="sec-badge" id="camPosBadge">0</span>
         </div>
         <div class="sec-body">
+          <div class="hint" style="margin-bottom:8px;">Camera positions embedded in the PLY file. Click any to fly there.</div>
           <div id="v61CameraViewPanel"></div>
         </div>
       </div>
@@ -5881,8 +5883,18 @@ function _wireButtons() {
     const agg = parseInt(document.getElementById('v60IsolateAgg')?.value || 78);
     const btn = document.getElementById('v60IsolateBtn');
     if (btn) { btn.disabled = true; btn.textContent = '⏳ Isolating…'; }
-    window._fumocaUserTriggeredClean = true;
-    await window.FumocaAICleanV2?.runUniversalIsolate(agg, { useHybrid: false });
+    try {
+      window._fumocaUserTriggeredClean = true;
+      const ok = await window.FumocaAICleanV2?.runUniversalIsolate(agg, { useHybrid: false });
+      if (!ok && window._fumocaIsolateMainSubject) {
+        // Bridge fallback if AI clean could not drive the studio cloud
+        window._fumocaUserTriggeredClean = true;
+        await window._fumocaIsolateMainSubject({ strength: agg });
+      }
+    } catch (err) {
+      console.error(err);
+      showToast?.('Isolate failed', String(err.message || err), 'warn');
+    }
     if (btn) { btn.disabled = false; btn.textContent = '🎯 Isolate Main Subject Only'; }
   });
 
