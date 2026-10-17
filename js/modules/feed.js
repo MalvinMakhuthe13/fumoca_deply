@@ -133,8 +133,8 @@ async function deletePostRecord(post, opts = {}) {
   const sourceCapture = post.meta?.source_capture;
   const candidates = [
     { bucket: 'nif-files', path: post.r2_key },
-    { bucket: 'nif-files', path: post.meta?.source_r2_key },
-    { bucket: 'nif-videos', path: post.meta?.source_r2_key },
+    { bucket: post.meta?.source_r2_bucket || 'nif-files', path: post.meta?.source_r2_key },
+    ...(!post.meta?.source_r2_bucket && post.meta?.source_r2_key ? [{ bucket: 'nif-videos', path: post.meta.source_r2_key }] : []),
     { bucket: sourceCapture?.r2_bucket || sourceCapture?.bucket || 'nif-files', path: sourceCapture?.r2_key },
     ...(!sourceCapture?.r2_bucket && !sourceCapture?.bucket && sourceCapture?.r2_key
       ? [{ bucket: 'nif-videos', path: sourceCapture.r2_key }] : []),
