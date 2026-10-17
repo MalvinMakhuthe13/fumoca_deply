@@ -33,8 +33,10 @@ assert.match(toggle, /return \{ openNifUrl: publicUrl, previewNifUrl, fileKey, l
   'canonical public URL and temporary preview URL must remain separate');
 assert.match(hotspot, /_fumocaApplyRendererPreview\(previewNifUrl \|\| openNifUrl\)/,
   'preview must use the authorized URL without persisting its temporary ticket');
-assert.match(hotspot, /action: \{ type: 'animate', layer, openNifUrl \}/,
-  'saved hotspot action must keep the canonical variant URL');
+assert.match(hotspot, /action: \{ type: 'animate', layer, openNifUrl, openNifR2Key: fileKey \}/,
+  'saved hotspot action must keep the canonical URL and R2 key');
+assert.match((await readFile(new URL('../js/modules/hotspot-actions.js', import.meta.url), 'utf8')), /authenticatedUrl\(key\)/,
+  'private open-state toggles must obtain a fresh read ticket instead of reusing an expired preview URL');
 assert.equal(worker.split('meta->open_variant_r2_keys.cs.{${encodedKey}}').length - 1, 2,
   'R2 read and delete authorization must query the parent record association');
 assert.match(worker, /meta\.open_variant_r2_keys\.includes\(fileKey\)/,
