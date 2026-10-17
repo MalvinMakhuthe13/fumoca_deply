@@ -302,6 +302,8 @@ jobs:
         run: |
           node --input-type=module --check < js/modules/ply-conversion-metadata.js
           node --experimental-default-type=module tests/ply-conversion-metadata.mjs
+      - name: Test 4D capture HTML injection guards
+        run: node --experimental-default-type=module tests/fourd-capture-xss-contract.mjs
       - name: Test mobile widget HTML security
         run: node --experimental-default-type=module tests/mobile-asset-html-security.mjs
       - name: Test mobile widget storage contract
