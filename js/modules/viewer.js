@@ -315,15 +315,19 @@ async function deleteCurrentUpload() {
       .delete().eq('id', currentRecord.id).eq('user_id', currentRecord.user_id);
     if (error) throw error;
 
-    const keys = [
-      currentRecord.r2_key,
-      currentRecord.meta?.source_r2_key,
-      currentRecord.meta?.source_capture?.r2_key,
-      currentRecord.meta?.thumbnail_r2_key,
-      currentRecord.meta?.capture_thumbnail_r2_key,
-    ].filter((key, index, all) => typeof key === 'string' && key.trim() && all.indexOf(key) === index);
+    const cleanupTargets = [
+      { bucket: 'nif-files', key: currentRecord.r2_key },
+      { bucket: 'nif-videos', key: currentRecord.meta?.source_r2_key },
+      { bucket: 'nif-videos', key: currentRecord.meta?.source_capture?.r2_key },
+      { bucket: 'thumbnails', key: currentRecord.meta?.thumbnail_r2_key },
+      { bucket: 'thumbnails', key: currentRecord.meta?.capture_thumbnail_r2_key },
+    ].filter((item, index, all) =>
+      typeof item.key === 'string' &&
+      item.key.trim() &&
+      all.findIndex(candidate => candidate.bucket === item.bucket && candidate.key === item.key) === index
+    );
     const cleanup = await Promise.allSettled(
-      keys.map(key => r2.from('nif-files').remove([key]))
+      cleanupTargets.map(({ bucket, key }) => r2.from(bucket).remove([key]))
     );
     if (cleanup.some(result => result.status === 'rejected' || result.value?.error)) {
       console.warn('[FUMOCA viewer] NIF row deleted; some R2 objects may need cleanup', currentRecord.id);
@@ -723,7 +727,8 @@ function resolveThumbnail(record) {
   if (!record) return '';
   const thumbKey = record.meta?.thumbnail_r2_key;
   if (thumbKey) {
-    const built = r2.publicUrl('nif-files', thumbKey);
+    // Thumbnail keys belong to the dedicated thumbnails bucket, not nif-files.
+    const built = r2.publicUrl('thumbnails', thumbKey);
     if (built) return built;
   }
   return firstNonEmpty(record.thumbnail_url, record.poster_url, record.preview_image_url);
