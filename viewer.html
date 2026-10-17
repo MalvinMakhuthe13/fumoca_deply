@@ -2441,6 +2441,174 @@ window.addEventListener('fumoca:recordLoaded', e => {
   });
 </script>
 
+
+<!-- Ad Studio bridge: explicit same-origin protocol, no wildcard messages. -->
+<script>
+(function () {
+  const bootParams = new URLSearchParams(location.search);
+  if (bootParams.get('embed') !== 'ad-studio' || window.parent === window) return;
+  const trustedOrigin = location.origin;
+  let cameraControls = null;
+  let cameraChangeBound = false;
+
+  function send(type, payload = {}) {
+    window.parent.postMessage({ fumocaAdStudio: true, type, ...payload }, trustedOrigin);
+  }
+
+  function safeRecord(record) {
+    if (!record || typeof record !== 'object') return null;
+    return {
+      id: record.id || '',
+      title: record.title || '',
+      user_id: record.user_id || '',
+      created_at: record.created_at || '',
+      status: record.status || '',
+      r2_key: record.r2_key || '',
+      splat_url: record.splat_url || '',
+      output_url: record.output_url || '',
+      public_url: record.public_url || '',
+      file_url: record.file_url || '',
+      nif_url: record.nif_url || '',
+      gaussian_count: record.gaussian_count || 0,
+      meta: record.meta && typeof record.meta === 'object' ? record.meta : {},
+      metadata: record.metadata && typeof record.metadata === 'object' ? record.metadata : {},
+      _adStudioRepresentation: record.meta?.scene_representation ||
+        record.meta?.source_type || (record.r2_key ? 'nif_bundle' : 'legacy_asset'),
+    };
+  }
+
+  function emitCameraState() {
+    const camera = window._fumocaViewerCamera || window._fumocaViewer?.camera;
+    const controls = window._fumocaViewerControls || window._fumocaViewer?.controls || cameraControls;
+    const position = camera?.position?.toArray?.();
+    const lookAt = controls?.target?.toArray?.();
+    if (Array.isArray(position) && Array.isArray(lookAt)) {
+      send('cameraState', { camera: { position: position.slice(0, 3), lookAt: lookAt.slice(0, 3) } });
+    }
+  }
+
+  function bindCameraControls() {
+    const controls = window._fumocaViewerControls || window._fumocaViewer?.controls;
+    if (!controls || controls === cameraControls && cameraChangeBound) return;
+    cameraControls = controls;
+    if (typeof controls.addEventListener === 'function') {
+      controls.addEventListener('change', emitCameraState);
+      cameraChangeBound = true;
+    }
+    emitCameraState();
+  }
+
+  function publishLoadedRecord(record) {
+    const clean = safeRecord(record || window._fumocaCurrentRecord || window._fumocaViewer?.record);
+    if (!clean?.id) return;
+    const count = Number(clean.meta?.frame_count || clean.meta?.frameCount || 0);
+    // The ad encoder only understands raw .splat rows; frame support is
+    // advertised only if the record explicitly carries a frame count.
+    send('splatLoaded', {
+      record: clean,
+      title: clean.title || 'Scene loaded',
+      is4D: Number.isSafeInteger(count) && count > 1,
+      frameCount: Number.isSafeInteger(count) ? count : 0,
+    });
+    bindCameraControls();
+  }
+
+  function navigateCamera(stop, durationMs = 0) {
+    const camera = window._fumocaViewerCamera || window._fumocaViewer?.camera;
+    const controls = window._fumocaViewerControls || window._fumocaViewer?.controls || cameraControls;
+    if (!camera?.position?.set || !Array.isArray(stop?.position) || !Array.isArray(stop?.lookAt)) {
+      send('bridgeError', { message: 'Viewer camera is not ready to bake this camera path.' });
+      return;
+    }
+    const target = controls?.target;
+    const fromPos = camera.position.toArray();
+    const fromLook = target?.toArray?.() || [0, 0, 0];
+    const toPos = stop.position.slice(0, 3).map(Number);
+    const toLook = stop.lookAt.slice(0, 3).map(Number);
+    if (![...fromPos, ...fromLook, ...toPos, ...toLook].every(Number.isFinite)) {
+      send('bridgeError', { message: 'Camera path contains invalid coordinates.' });
+      return;
+    }
+
+    const total = Math.max(0, Number(durationMs) || 0);
+    if (!total) {
+      camera.position.set(...toPos);
+      if (target?.set) target.set(...toLook);
+      else camera.lookAt(...toLook);
+      controls?.update?.();
+      emitCameraState();
+      return;
+    }
+    const started = performance.now();
+    function tick(now) {
+      const t = Math.max(0, Math.min(1, (now - started) / total));
+      const eased = t * t * (3 - 2 * t);
+      const lerp = (a, b) => a + (b - a) * eased;
+      camera.position.set(lerp(fromPos[0], toPos[0]), lerp(fromPos[1], toPos[1]), lerp(fromPos[2], toPos[2]));
+      const look = [lerp(fromLook[0], toLook[0]), lerp(fromLook[1], toLook[1]), lerp(fromLook[2], toLook[2])];
+      if (target?.set) target.set(...look);
+      else camera.lookAt(...look);
+      controls?.update?.();
+      if (t < 1) requestAnimationFrame(tick);
+      else emitCameraState();
+    }
+    requestAnimationFrame(tick);
+  }
+
+  window.addEventListener('message', event => {
+    if (event.source !== window.parent || event.origin !== trustedOrigin) return;
+    const data = event.data;
+    if (!data?.fumocaAdStudio || typeof data.type !== 'string') return;
+
+    if (data.type === 'loadSplat') {
+      const id = String(data.assetKind === 'nif' ? (data.nifId || data.splatId || '') : (data.splatId || ''));
+      if (!/^[a-zA-Z0-9_-]{6,}$/.test(id)) {
+        send('bridgeError', { message: 'Invalid scene ID supplied to the viewer.' });
+        return;
+      }
+      const next = new URL(window.location.href);
+      next.searchParams.set('embed', 'ad-studio');
+      next.searchParams.delete('file');
+      next.searchParams.delete('id');
+      if (data.assetKind === 'nif') {
+        next.searchParams.set('nifId', id);
+        next.searchParams.delete('splatId');
+      } else {
+        next.searchParams.set('splatId', id);
+        next.searchParams.delete('nifId');
+      }
+      window.location.replace(next.pathname + next.search);
+      return;
+    }
+
+    if (data.type === 'adBakeFrame') {
+      const cmd = data.cmd;
+      if (cmd?.type === 'navigateTo') navigateCamera(cmd.stop || {}, cmd.duration);
+      else if (cmd?.type === 'render') {
+        // The viewer's render loop is continuous. This acknowledgement makes
+        // the parent/child contract observable without forcing an extra render.
+        send('frameReady');
+      }
+    }
+  });
+
+  window.addEventListener('fumoca:viewerReady', event => {
+    bindCameraControls();
+    send('viewerReady');
+    publishLoadedRecord(event.detail?.record || window._fumocaCurrentRecord || window._fumocaViewer?.record);
+  });
+  window.addEventListener('fumoca:recordLoaded', event => {
+    bindCameraControls();
+    publishLoadedRecord(event.detail?.record || window._fumocaCurrentRecord || window._fumocaViewer?.record);
+  });
+
+  // The bridge is ready independently of whether a scene has been loaded yet.
+  window.addEventListener('load', () => send('viewerReady'), { once: true });
+  if (window._fumocaViewerCamera || window._fumocaViewer?.camera) bindCameraControls();
+  if (window._fumocaCurrentRecord) publishLoadedRecord(window._fumocaCurrentRecord);
+})();
+</script>
+
 </body>
 </html>
 
