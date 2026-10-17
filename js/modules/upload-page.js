@@ -539,6 +539,7 @@ window.handleSubmit = async function() {
         title,
         description: desc || null,
         vertical: category || 'other',
+        is_public: visibility === 'public',
         r2_key: fileKey,
         file_size: plyBlob.size,
         created_at: new Date().toISOString(),
