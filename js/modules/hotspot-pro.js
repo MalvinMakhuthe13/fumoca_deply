@@ -1073,7 +1073,8 @@ async function animatePartFlow(h) {
       }
     }
 
-    h.actions = Array.isArray(h.actions) ? h.actions : [];
+    const originalActions = Array.isArray(h.actions) ? h.actions.slice() : [];
+    h.actions = originalActions.slice();
     // Replace any existing animate action for this same layer on this hotspot
     // — one toggle definition per layer per hotspot, last authored wins.
     h.actions = h.actions.filter(a => !(a?.action?.type === 'animate' && a.action.layer === layer));
@@ -1082,7 +1083,18 @@ async function animatePartFlow(h) {
       label: `Toggle ${layer}`,
       action: { type: 'animate', layer, openNifUrl, openNifR2Key: fileKey },
     });
-    await saveRemote();
+    const saved = await saveRemote();
+    if (!saved) {
+      h.actions = originalActions;
+      persistLocal();
+      renderPanel();
+      try {
+        await discardPartToggleVariant(fileKey, currentRecord.id, currentRecord.user_id);
+      } catch (cleanupError) {
+        console.warn('[hotspot-pro] failed to clean up unsaved variant:', cleanupError);
+      }
+      throw new Error('The hotspot action was not saved to the NIF record. Check your connection and retry; the variant was not kept as a published action.');
+    }
     renderPanel();
     alert(`Saved. This hotspot now has a "Toggle ${layer}" button that snaps it open/closed.\n` +
       `Animatable layers found in this file: ${layers.map(l => l.label).join(', ') || '(none)'}`);
