@@ -35,68 +35,47 @@ function extractStoragePath(urlString) {
 }
 
 async function deleteUploadRecord(item) {
-  if (item.source === 'nif_files') {
-    // Keep the ownership row available until the Worker has authorized cleanup.
-    // Each object must be deleted from its real bucket; never remove raw captures
-    // or thumbnails from nif-files just because they belong to one NIF record.
-    const candidates = [
-      { bucket: 'nif-files', key: item.r2_key },
-      { bucket: 'nif-videos', key: item.meta?.source_r2_key },
-      { bucket: 'nif-videos', key: item.meta?.source_capture?.r2_key },
-      { bucket: 'thumbnails', key: item.meta?.thumbnail_r2_key },
-      { bucket: 'thumbnails', key: item.meta?.capture_thumbnail_r2_key },
-    ].filter(entry => typeof entry.key === 'string' && entry.key.trim());
-    const unique = new Map();
-    for (const entry of candidates) unique.set(`${entry.bucket}:${entry.key}`, entry);
-
-    const cleanup = await Promise.allSettled(
-      [...unique.values()].map(entry => r2.from(entry.bucket).remove([entry.key]))
-    );
-    const failed = cleanup.some(result => result.status === 'rejected' || result.value?.error);
-    if (failed) {
-      throw new Error('Some storage objects could not be deleted. The NIF record was kept so cleanup can be retried.');
-    }
-
-    const { error } = await supabase.from('nif_files')
-      .delete().eq('id', item.id).eq('user_id', item.user_id);
-    if (error) throw error;
-
-    // Jobs are independent records; remove only a known job attached to this NIF.
-    if (item.job_id) {
-      const { error: jobsError } = await supabase.from('reconstruction_jobs')
-        .delete().eq('id', item.job_id).eq('user_id', item.user_id);
-      if (jobsError) {
-        console.warn('[FUMOCA profile] NIF deleted but its reconstruction job needs cleanup', {
-          nifId: item.id, jobId: item.job_id, error: jobsError.message,
-        });
-      }
-    }
-    return;
+  // The profile now loads only nif_files rows. Refuse stale legacy-shaped
+  // records instead of attempting writes to tables absent from production.
+  if (!item || item.source !== 'nif_files') {
+    throw new Error('This profile item uses an unsupported legacy record shape. Refresh the profile and retry.');
   }
+
+  // Keep the ownership row available until the Worker has authorized cleanup.
+  // Each object must be deleted from its real bucket; never remove raw captures
+  // or thumbnails from nif-files just because they belong to one NIF record.
   const candidates = [
-    item?.splat_url, item?.output_url, item?.public_url, item?.file_url, item?.external_splat_url, item?.provider_splat_url,
-    item?.thumbnail_url, item?.poster_url, item?.preview_image_url,
-    item?.preview_video_url, item?.teaser_video_url, item?.video_url, item?.source_video_url
-  ].filter(Boolean);
-  const explicitPaths = [
-    item?.video_bucket && item?.video_path ? { bucket: item.video_bucket, path: item.video_path } : null,
-    item?.splat_bucket && item?.splat_path ? { bucket: item.splat_bucket, path: item.splat_path } : null,
-    item?.thumb_bucket && item?.thumbnail_path ? { bucket: item.thumb_bucket, path: item.thumbnail_path } : null,
-  ].filter(Boolean);
-  const removals = [...explicitPaths];
-  for (const raw of candidates) {
-    const hit = extractStoragePath(raw);
-    if (hit) removals.push(hit);
+    { bucket: 'nif-files', key: item.r2_key },
+    { bucket: 'nif-videos', key: item.meta?.source_r2_key },
+    { bucket: 'nif-videos', key: item.meta?.source_capture?.r2_key },
+    { bucket: 'thumbnails', key: item.meta?.thumbnail_r2_key },
+    { bucket: 'thumbnails', key: item.meta?.capture_thumbnail_r2_key },
+  ].filter(entry => typeof entry.key === 'string' && entry.key.trim());
+  const unique = new Map();
+  for (const entry of candidates) unique.set(`${entry.bucket}:${entry.key}`, entry);
+
+  const cleanup = await Promise.allSettled(
+    [...unique.values()].map(entry => r2.from(entry.bucket).remove([entry.key]))
+  );
+  const failed = cleanup.some(result => result.status === 'rejected' || result.value?.error);
+  if (failed) {
+    throw new Error('Some storage objects could not be deleted. The NIF record was kept so cleanup can be retried.');
   }
-  const dedup = new Map();
-  removals.forEach(item => dedup.set(`${item.bucket}:${item.path}`, item));
-  for (const entry of dedup.values()) {
-    try { await r2.from(entry.bucket).remove([entry.path]); } catch (_) {}
-  }
-  try { await supabase.from('processing_jobs').delete().eq('splat_id', item.id); } catch (_) {}
-  try { await supabase.from('processing_jobs').delete().eq('user_id', item.user_id).eq('video_path', item.video_path); } catch (_) {}
-  const { error } = await supabase.from('splats').delete().eq('id', item.id).eq('user_id', item.user_id);
+
+  const { error } = await supabase.from('nif_files')
+    .delete().eq('id', item.id).eq('user_id', item.user_id);
   if (error) throw error;
+
+  // Jobs are independent records; remove only a known job attached to this NIF.
+  if (item.job_id) {
+    const { error: jobsError } = await supabase.from('reconstruction_jobs')
+      .delete().eq('id', item.job_id).eq('user_id', item.user_id);
+    if (jobsError) {
+      console.warn('[FUMOCA profile] NIF deleted but its reconstruction job needs cleanup', {
+        nifId: item.id, jobId: item.job_id, error: jobsError.message,
+      });
+    }
+  }
 }
 
 let userId = null;
