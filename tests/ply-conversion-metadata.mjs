@@ -20,6 +20,13 @@ assert.equal(degreeOne.hasUnsupportedShLayout, false);
 const malformed = inspectPlyAttributes(['f_rest_0', 'f_rest_1', 'f_rest_2', 'f_rest_3'], true);
 assert.equal(malformed.hasUnsupportedShLayout, true, 'unknown SH coefficient layouts must fail closed');
 
+const gappedDegreeOne = inspectPlyAttributes([
+  ...Array.from({ length: 8 }, (_, i) => `f_rest_${i}`),
+  'f_rest_9',
+], true);
+assert.equal(gappedDegreeOne.detectedShDegree, 1);
+assert.equal(gappedDegreeOne.hasUnsupportedShLayout, true, 'non-contiguous coefficient names must not be mislabeled as standard SH');
+
 const dcOnly = inspectPlyAttributes(['x', 'y', 'z', 'f_dc_0', 'f_dc_1', 'f_dc_2'], true);
 assert.equal(dcOnly.detectedShDegree, 0);
 assert.deepEqual(dcOnly.discardedAttributes, []);
