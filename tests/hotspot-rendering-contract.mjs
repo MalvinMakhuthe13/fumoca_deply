@@ -11,6 +11,9 @@ assert.match(pro, /for \(const \[id, el\] of hotspotElements\)/, 'stale hotspot 
 assert.doesNotMatch(pro, /function renderHotspots\(\) \{[\s\S]{0,180}hotspotLayer\.innerHTML\s*=\s*''/, 'render loop must not clear and recreate the full layer');
 assert.match(pro, /fumoca:hotspotSaveFailed/, 'remote persistence failures must be surfaced as an event');
 assert.match(pro, /Save failed — local backup only/, 'UI must distinguish local-only backup from remote save');
+assert.match(pro, /hotspotInfoCard\.animate/, 'hotspot details should animate into view after the camera flight starts');
+assert.match(pro, /prefers-reduced-motion: reduce/, 'cinematic card motion must respect reduced-motion preferences');
+assert.match(pro, /getAnimations\?\.\(\)\.forEach\(animation => animation\.cancel\(\)\)/, 'rapid hotspot changes and close actions must cancel stale card animations');
 
 assert.match(layer, /this\._editable && this\._addMode \? 'auto' : 'none'/, 'overlay should capture pointer events only while placing');
 assert.match(layer, /this\._overlayCanvas\.style\.pointerEvents = 'auto'/, 'add mode must enable pointer events');
