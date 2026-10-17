@@ -13,7 +13,7 @@ assert.match(
 
 assert.match(
   viewer,
-  /const cleanupTargets = \[[\s\S]*?\{ bucket: 'nif-files', key: currentRecord\.r2_key \}/,
+  /const cleanupCandidates = \[[\s\S]*?\{ bucket: 'nif-files', key: currentRecord\.r2_key \}/,
   'NIF output cleanup must target nif-files'
 );
 assert.match(
