@@ -1026,11 +1026,18 @@ async function animatePartFlow(h) {
   const axisStr = prompt('Rotation axis as "x,y,z" (default 0,1,0 = vertical hinge, like a side-opening door)', '0,1,0');
   if (axisStr == null) return;
   const axis = axisStr.split(',').map(Number);
-  if (axis.length !== 3 || axis.some(Number.isNaN)) { alert('Axis must be three numbers, e.g. 0,1,0'); return; }
+  if (axis.length !== 3 || axis.some(value => !Number.isFinite(value)) || Math.hypot(...axis) < 1e-8) {
+    alert('Axis must be three finite numbers and cannot be zero, e.g. 0,1,0');
+    return;
+  }
 
-  const angleStr = prompt('Open angle in degrees', '60');
+  const angleStr = prompt('Open angle in degrees (-360 to 360)', '60');
   if (angleStr == null) return;
-  const angleDeg = Number(angleStr) || 60;
+  const angleDeg = Number(angleStr);
+  if (!Number.isFinite(angleDeg) || Math.abs(angleDeg) > 360) {
+    alert('Open angle must be a finite number between -360 and 360 degrees.');
+    return;
+  }
 
   const statusBtn = hotspotPanel.querySelector(`[data-action="animate"][data-id="${h.id}"]`);
   const originalLabel = statusBtn?.textContent;
