@@ -848,7 +848,7 @@ window.handleSubmit = async function() {
         r2_key: outputKey,
         file_size: outputBuffer ? outputBuffer.byteLength : selectedFile.size,
         gaussian_count: gaussianCount,
-        is_public: false,
+        is_public: visibility === 'public',
         meta: {
           source_type: isSplat ? 'splat_to_nif' : ext === 'ply' ? 'ply_to_nif' : 'direct_nif',
           source_filename: selectedFile.name,
