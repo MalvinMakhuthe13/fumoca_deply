@@ -98,6 +98,12 @@ jobs:
           print(f"Extracted {len(scripts)} inline Studio scripts for syntax validation")
           PY
           for script in /tmp/fumoca-inline-scripts/script-*; do node --check "$script"; done
+      - name: Guard R2 delete ownership
+        run: |
+          grep -q "async function userOwnsFileKey" cloudflare/workers/r2-storage.js
+          grep -q "const ownsKey = await userOwnsFileKey(request, env, principal, bucketParam, fileKey)" cloudflare/workers/r2-storage.js
+          grep -q "Forbidden — you do not own this file key" cloudflare/workers/r2-storage.js
+          grep -q "user_id: `eq.\${principal.id}`" cloudflare/workers/r2-storage.js
       - name: Test NIF Studio layer manifest round-trip
         run: node --experimental-default-type=module tests/editor-scene-manifest.mjs
       - name: Guard NIF Studio layer persistence
