@@ -711,7 +711,12 @@ window.handleSubmit = async function() {
         const shRestNames = plyAttributeNames.filter(name => /^f_rest_\d+$/.test(name))
           .sort((a, b) => Number(a.slice(7)) - Number(b.slice(7)));
         const shPropertyNames = isGaussianPly ? ['f_dc_0', 'f_dc_1', 'f_dc_2', ...shRestNames] : [];
-        const gaussianSHValues = isGaussianPly ? new Float32Array(count * shPropertyNames.length) : null;
+        const gaussianSHValueCount = count * shPropertyNames.length;
+        if (isGaussianPly && (!Number.isSafeInteger(gaussianSHValueCount) ||
+            8 + gaussianSHValueCount * 4 > 512 * 1024 * 1024)) {
+          throw new Error('Gaussian PLY SH sidecar exceeds the 512 MiB safety limit; split the capture or lower SH degree.');
+        }
+        const gaussianSHValues = isGaussianPly ? new Float32Array(gaussianSHValueCount) : null;
         if (isGaussianPly) {
           const shAttrs = shPropertyNames.map(name => attr(name));
           if (shAttrs.some(attribute => !attribute)) throw new Error('Gaussian PLY is missing one or more SH coefficient attributes.');
