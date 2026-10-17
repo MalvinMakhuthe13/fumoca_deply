@@ -12,6 +12,10 @@ assert.ok(save.includes("r2.from('nif-files').remove([fileKey])"), 'failed regis
 assert.ok(!save.includes("from('splats')"), 'Studio must not write to the retired splats table');
 assert.ok(!save.includes("storage.from('splat-files')"), 'Studio must not upload to the retired Supabase Storage bucket');
 assert.ok(save.includes('Legacy splats/Supabase Storage fallback is disabled'), 'failed NIF saves must fail visibly instead of pretending legacy fallback works');
+assert.match(source, /window\._fumocaLoadedFromRecord === false \? null : \(params\.get\('splatId'\)/,
+  'local imports must not accidentally save over a previously selected database record');
+assert.match(source, /window\._fumocaLoadedFromRecord = !!urlOverride/,
+  'opening a local file must detach the current record while remote record opens retain ownership context');
 assert.match(source, /window\._fumocaCurrentRecord = \{ \.\.\.\(window\._fumocaCurrentRecord \|\| \{\}\), \.\.\.data \};/,
   'bootstrap must prefer fresh database fields over stale in-memory NIF state');
 assert.match(source, /if \(source\.r2_key\)[\s\S]*?authenticatedUrl\(source\.r2_key\)/,
