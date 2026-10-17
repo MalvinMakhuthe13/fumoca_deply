@@ -340,9 +340,13 @@ function serialiseFreqTable(freq) {
  * Deserialise frequency table from bytes.
  */
 function deserialiseFreqTable(bytes) {
-  const freq    = new Uint32Array(new Uint16Array(bytes.buffer, bytes.byteOffset, 256));
+  if (!(bytes instanceof Uint8Array) || bytes.byteLength !== 512) {
+    throw new Error('[FumocCodec] ANS frequency table must be exactly 512 bytes');
+  }
+  const freq = new Uint32Array(new Uint16Array(bytes.buffer, bytes.byteOffset, 256));
   const cumFreq = new Uint32Array(257);
   for (let s = 0; s < 256; s++) cumFreq[s+1] = cumFreq[s] + freq[s];
+  if (cumFreq[256] !== ANS_M) throw new Error('[FumocCodec] ANS frequency table sum is invalid');
   return { freq, cumFreq };
 }
 
@@ -400,7 +404,13 @@ function ansEncode(data) {
  * @returns Uint8Array
  */
 function ansDecode(compressed, freqTableBytes, outputLength) {
+  if (!Number.isSafeInteger(outputLength) || outputLength < 0 || outputLength > 512 * 1024 * 1024) {
+    throw new Error('[FumocCodec] ANS output length is invalid or exceeds 512 MiB');
+  }
   if (outputLength === 0) return new Uint8Array(0);
+  if (!(compressed instanceof Uint8Array) || compressed.byteLength < 4 || compressed.byteLength > 512 * 1024 * 1024) {
+    throw new Error('[FumocCodec] ANS compressed stream is truncated or oversized');
+  }
 
   const { freq, cumFreq } = deserialiseFreqTable(freqTableBytes);
 
@@ -493,9 +503,45 @@ function encodeChannel(floats, bits, delta = true, signed = true) {
 /**
  * Decode a channel.
  */
+function decodeChannelOrder1(compressed, tableBytes, meta) {
+  if (!meta || !Number.isInteger(meta.length) || meta.length < 1 || meta.length > 5_000_000 ||
+      !Number.isInteger(meta.bits) || meta.bits < 1 || meta.bits > 16 ||
+      !Number.isFinite(meta.min) || !Number.isFinite(meta.max) || meta.max < meta.min ||
+      meta.order !== 1) {
+    throw new Error('[FumocCodec] Order-1 channel metadata is invalid');
+  }
+  const bytesPerSample = meta.bits > 8 ? 2 : 1;
+  const rawBytes = ansDecodeOrder1(compressed, tableBytes, meta.length * bytesPerSample);
+  if (rawBytes.byteLength !== meta.length * bytesPerSample) throw new Error('[FumocCodec] Order-1 decoded channel length mismatch');
+  let quant;
+  if (meta.bits > 8) {
+    const view = new DataView(rawBytes.buffer, rawBytes.byteOffset, rawBytes.byteLength);
+    quant = new Int16Array(meta.length);
+    for (let i = 0; i < meta.length; i++) {
+      const zz = view.getUint16(i * 2, true);
+      quant[i] = zz & 1 ? -((zz + 1) >> 1) : zz >> 1;
+    }
+  } else {
+    quant = new Int8Array(meta.length);
+    for (let i = 0; i < meta.length; i++) {
+      const zz = rawBytes[i];
+      quant[i] = zz & 1 ? -((zz + 1) >> 1) : zz >> 1;
+    }
+  }
+  if (meta.delta) quant = deltaDecode(quant);
+  return dequantise(quant, meta.min, meta.max, meta.bits, meta.signed);
+}
+
 function decodeChannel(compressed, freqTable, meta) {
+  if (!meta || !Number.isInteger(meta.length) || meta.length < 1 || meta.length > 5_000_000 ||
+      !Number.isInteger(meta.bits) || meta.bits < 1 || meta.bits > 16 ||
+      !Number.isFinite(meta.min) || !Number.isFinite(meta.max) || meta.max < meta.min) {
+    throw new Error('[FumocCodec] Channel quantization metadata is invalid');
+  }
+  if (meta.order === 1) throw new Error('[FumocCodec] Order-1 channel requires decodeChannelOrder1');
   const bytesPerSample = meta.bits > 8 ? 2 : 1;
   const rawBytes = ansDecode(compressed, freqTable, meta.length * bytesPerSample);
+  if (rawBytes.byteLength !== meta.length * bytesPerSample) throw new Error('[FumocCodec] Decoded channel length mismatch');
 
   let quant;
   if (meta.bits > 8) {
@@ -584,7 +630,16 @@ function ansEncodeOrder1(data) {
 }
 
 function ansDecodeOrder1(compressed, tableBytes, outputLength) {
+  if (!Number.isSafeInteger(outputLength) || outputLength < 0 || outputLength > 512 * 1024 * 1024) {
+    throw new Error('[FumocCodec] Order-1 ANS output length is invalid or exceeds 512 MiB');
+  }
   if (!outputLength) return new Uint8Array(0);
+  if (!(compressed instanceof Uint8Array) || compressed.byteLength < 4 || compressed.byteLength > 512 * 1024 * 1024) {
+    throw new Error('[FumocCodec] Order-1 ANS stream is truncated or oversized');
+  }
+  if (!(tableBytes instanceof Uint8Array) || tableBytes.byteLength !== 131072) {
+    throw new Error('[FumocCodec] Order-1 frequency table must be exactly 131072 bytes');
+  }
   const freqFlat = new Uint16Array(tableBytes.buffer, tableBytes.byteOffset, 256*256);
   const cumFlat  = new Uint32Array(256*257);
   for (let c = 0; c < 256; c++) {
@@ -652,6 +707,7 @@ const FumocCodec = {
   // Combined channel pipeline
   encodeChannel,
   decodeChannel,
+  decodeChannelOrder1,
   // v3 extensions
   ansEncodeOrder1,
   ansDecodeOrder1,
