@@ -82,7 +82,7 @@ jobs:
           ! grep -n "eq('nif_id'" js/modules/viewer.js
       - name: Guard multi-splat object selection and transforms
         run: |
-          grep -q "Added ${file.name} as a separate layer" edit.html
+          grep -Fq 'Added ${file.name} as a separate layer' edit.html
           grep -q "S.layers.push({" edit.html
           grep -q "mask: newMask" edit.html
           grep -q "const selectedCount = selectedPointCount();" edit.html
