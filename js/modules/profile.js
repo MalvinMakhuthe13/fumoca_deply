@@ -61,13 +61,15 @@ async function deleteUploadRecord(item) {
       .delete().eq('id', item.id).eq('user_id', item.user_id);
     if (error) throw error;
 
-    // Jobs are independent records; remove only the jobs attached to this NIF.
-    const { error: jobsError } = await supabase.from('reconstruction_jobs')
-      .delete().eq('id', item.job_id).eq('user_id', item.user_id);
-    if (jobsError && item.job_id) {
-      console.warn('[FUMOCA profile] NIF deleted but its reconstruction job needs cleanup', {
-        nifId: item.id, jobId: item.job_id, error: jobsError.message,
-      });
+    // Jobs are independent records; remove only a known job attached to this NIF.
+    if (item.job_id) {
+      const { error: jobsError } = await supabase.from('reconstruction_jobs')
+        .delete().eq('id', item.job_id).eq('user_id', item.user_id);
+      if (jobsError) {
+        console.warn('[FUMOCA profile] NIF deleted but its reconstruction job needs cleanup', {
+          nifId: item.id, jobId: item.job_id, error: jobsError.message,
+        });
+      }
     }
     return;
   }
