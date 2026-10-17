@@ -5461,7 +5461,11 @@ $('mobilePanelBackdrop')?.addEventListener('click', closeMobilePanels);
         if (data) {
           window._fumocaCurrentRecord = { ...data, ...(window._fumocaCurrentRecord || {}) };
           window._fumocaCurrentRecord.meta = data.meta || window._fumocaCurrentRecord.meta || {};
-          if (!fileUrl) fileUrl = data.output_url || data.nif_url || data.splat_url || null;
+          // r2_key is updated on every Studio save; prefer it over legacy URL
+          // columns so reopening never silently loads an older derivative.
+          const r2 = await getR2Client();
+          const currentR2Url = data.r2_key ? r2.publicUrl('nif-files', data.r2_key) : null;
+          fileUrl = currentR2Url || fileUrl || data.output_url || data.nif_url || data.splat_url || null;
           _renderLidarSourceLinks(data.meta || {});
         }
       }
