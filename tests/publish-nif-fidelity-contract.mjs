@@ -28,6 +28,10 @@ assert.match(builder, /compactNifLayers\(/,
   'publish must rebuild LAYER_GEO indices against compacted geometry');
 assert.match(builder, /layers: layerData\.layers/,
   'publish must encode rebuilt LAYER_GEO chunks');
+assert.match(builder, /S\.nifSHChunkUnavailable/,
+  'publish must fail closed if a source SH chunk could not be decoded');
+assert.match(builder, /S\.nifLidarChunkUnavailable/,
+  'publish must fail closed if a source LiDAR chunk could not be decoded');
 assert.match(builder, /encodeEditorSplatRows\(S, aliveIndices\)/,
   'publish must serialize current edited geometry for every source format');
 assert.match(publish, /import \{ encodeEditorSplatRows \} from '\.\/editor-splat-rows\.js';/,
