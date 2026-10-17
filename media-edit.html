@@ -1577,26 +1577,17 @@ $('exportFrameBtn')?.addEventListener('click', ()=>$('screenshotBtn').click());
   btn?.addEventListener('click',()=>{$('publishModal').classList.add('open');});
 });
 $('pubCancelBtn').addEventListener('click',()=>$('publishModal').classList.remove('open'));
-$('pubSubmitBtn').addEventListener('click',async()=>{
-  const title=$('pubTitle').value.trim();if(!title){showToast('Add a title first','','warn');return;}
-  $('pubSubmitBtn').textContent='Posting…';$('pubSubmitBtn').disabled=true;
-  try{
-    const {data:{user}}=await supabase.auth.getUser();
-    if(!user)throw new Error('Not logged in');
-    const {error}=await supabase.from('splats').insert({
-      user_id:user.id,title,description:$('pubCaption').value,
-      tags:$('pubTags').value.split(' ').filter(Boolean),
-      status:'done',media_type:S.fileType,
-      created_at:new Date().toISOString()
-    });
-    if(error)throw error;
-    $('publishModal').classList.remove('open');
-    showToast('🚀 Posted!','Your content is live on FUMOCA','cyan');
-    setTimeout(()=>window.location.href='feed.html',2000);
-  }catch(err){
-    showToast('Post Failed',err.message,'warn');
-    $('pubSubmitBtn').textContent='🚀 Post Now';$('pubSubmitBtn').disabled=false;
-  }
+$('pubSubmitBtn').addEventListener('click',()=>{
+  // This editor handles arbitrary image/video exports, not NIF scenes. The
+  // deployed schema has no confirmed media-post table and the old splats
+  // insert is guaranteed to fail. Do not claim publication succeeded or
+  // write media metadata into nif_files, which is the NIF asset registry.
+  $('publishModal').classList.remove('open');
+  showToast(
+    'Publishing is not connected',
+    'Export your edited media for now. Publishing requires the media asset storage contract.',
+    'warn'
+  );
 });
 
 // ── VIEW CONTROLS ────────────────────────────────────────────────────────────
