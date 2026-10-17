@@ -5465,28 +5465,36 @@ $('mobilePanelBackdrop')?.addEventListener('click', closeMobilePanels);
           // columns so reopening never silently loads an older derivative.
           const r2 = await getR2Client();
           const currentR2Url = data.r2_key ? r2.publicUrl('nif-files', data.r2_key) : null;
-          fileUrl = currentR2Url || fileUrl || data.output_url || data.nif_url || data.splat_url || null;
+          window._fumocaCanonicalFileUrl = currentR2Url || data.meta?.external_nif_url || data.meta?.nif_url || data.output_url || data.nif_url || data.splat_url || null;
+          let loadR2Url = currentR2Url;
+          if (data.r2_key && data.is_public !== true) {
+            loadR2Url = await r2.from('nif-files').authenticatedUrl(data.r2_key);
+          }
+          fileUrl = loadR2Url || fileUrl || window._fumocaCanonicalFileUrl || null;
           _renderLidarSourceLinks(data.meta || {});
         }
       }
     } catch (e) { console.warn('[Bootstrap] NIF record lookup failed:', e); }
   }
 
-  // If we have a splatId but no file URL, look it up from Supabase
+  // Legacy splatId URLs resolve against the deployed NIF table, not the absent splats table.
   if (!fileUrl && splatId) {
     try {
-      setStatus('Looking up splat…', 'busy'); setProgress(10);
+      setStatus('Looking up NIF…', 'busy'); setProgress(10);
       const sb = window._fumocaSupabase || window.supabase;
       if (sb) {
-        const { data, error } = await sb.from('splats')
-          .select('splat_url,output_url,ply_url,title,metadata,bounding_box,camera_views')
-          .eq('id', splatId).single();
+        const { data, error } = await sb.from('nif_files').select('*').eq('id', splatId).maybeSingle();
         if (!error && data) {
-          fileUrl = data.output_url || data.ply_url || data.splat_url || null;
-          if (!window._fumocaCurrentRecord) window._fumocaCurrentRecord = { id: splatId, ...data };
+          window._fumocaCurrentRecord = data;
+          const r2 = await getR2Client();
+          const canonical = data.r2_key ? r2.publicUrl('nif-files', data.r2_key) : (data.meta?.external_nif_url || data.meta?.nif_url || null);
+          window._fumocaCanonicalFileUrl = canonical;
+          fileUrl = data.r2_key && data.is_public !== true
+            ? await r2.from('nif-files').authenticatedUrl(data.r2_key)
+            : canonical;
         }
       }
-    } catch (e) { console.warn('[Bootstrap] Supabase lookup failed:', e); }
+    } catch (e) { console.warn('[Bootstrap] NIF lookup failed:', e); }
   }
 
   // Ensure _fumocaCurrentRecord exists for publish/save guards
@@ -5498,13 +5506,15 @@ $('mobilePanelBackdrop')?.addEventListener('click', closeMobilePanels);
 
   try {
     setStatus('Loading from URL…', 'busy'); setProgress(20);
-    const res = await fetch(fileUrl);
+    const loadUrl = fileUrl;
+    const canonicalUrl = window._fumocaCanonicalFileUrl || loadUrl;
+    const res = await fetch(loadUrl);
     if (!res.ok) throw new Error(`HTTP ${res.status} — ${res.statusText}`);
     const blob2 = await res.blob();
-    const name  = decodeURIComponent((fileUrl.split('/').pop() || 'scene').split('?')[0]);
+    const name  = decodeURIComponent((canonicalUrl.split('/').pop() || 'scene').split('?')[0]);
     const file  = new File([blob2], name, { type: blob2.type || 'application/octet-stream' });
-    S.splatSourceUrl = fileUrl;
-    await loadFile(file, fileUrl);
+    S.splatSourceUrl = canonicalUrl;
+    await loadFile(file, canonicalUrl);
   } catch (err) {
     setStatus(`Load failed: ${err.message}`, 'warn');
     showToast('Load Failed', err.message, 'warn');
