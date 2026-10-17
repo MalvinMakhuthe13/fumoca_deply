@@ -39,6 +39,10 @@ jobs:
         run: node --test tests/lidar-coordinate-metadata.test.mjs
       - name: Test point-cloud downsampling alignment
         run: node --test tests/lidar-cloud-utils.test.mjs
+      - name: Run LiDAR regression tests
+        run: node --test tests/lidar-*.test.mjs
+      - name: Check standalone LiDAR report syntax
+        run: node --input-type=module --check < js/modules/lidar-quality-report.mjs
       - name: Compile Kaggle preflight script
         run: python -m py_compile kaggle/mesh2splat_preflight.py
       - name: Install preflight dependencies
