@@ -44,10 +44,24 @@ async function deleteUploadRecord(item) {
   // Keep the ownership row available until the Worker has authorized cleanup.
   // Each object must be deleted from its real bucket; never remove raw captures
   // or thumbnails from nif-files just because they belong to one NIF record.
+  const sourceCapture = item.meta?.source_capture;
   const candidates = [
     { bucket: 'nif-files', key: item.r2_key },
+    // Current direct NIF/SPLAT/PLY uploads keep source_r2_key in nif-files;
+    // try nif-videos too for records created by the older capture pipeline.
+    { bucket: 'nif-files', key: item.meta?.source_r2_key },
     { bucket: 'nif-videos', key: item.meta?.source_r2_key },
-    { bucket: 'nif-videos', key: item.meta?.source_capture?.r2_key },
+    { bucket: sourceCapture?.r2_bucket || sourceCapture?.bucket || 'nif-files', key: sourceCapture?.r2_key },
+    ...(!sourceCapture?.r2_bucket && !sourceCapture?.bucket && sourceCapture?.r2_key
+      ? [{ bucket: 'nif-videos', key: sourceCapture.r2_key }] : []),
+    ...(Array.isArray(item.meta?.lidar_sources) ? item.meta.lidar_sources.flatMap(source => [
+      { bucket: source?.r2_bucket || source?.bucket || 'nif-files', key: source?.r2_key },
+      ...(!source?.r2_bucket && !source?.bucket && source?.r2_key ? [{ bucket: 'nif-videos', key: source.r2_key }] : []),
+    ]) : []),
+    { bucket: 'nif-files', key: item.meta?.mobile_asset_r2_key },
+    { bucket: 'nif-files', key: item.meta?.cleaned_splat?.r2_key },
+    ...(Array.isArray(item.meta?.open_variant_r2_keys)
+      ? item.meta.open_variant_r2_keys.map(key => ({ bucket: 'nif-files', key })) : []),
     { bucket: 'thumbnails', key: item.meta?.thumbnail_r2_key },
     { bucket: 'thumbnails', key: item.meta?.capture_thumbnail_r2_key },
     { bucket: 'preview-videos', key: item.meta?.teaser_video_r2_key },
