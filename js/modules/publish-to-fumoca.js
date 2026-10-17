@@ -233,7 +233,8 @@ const FumocaPublish = (() => {
       r2_key: fileKey,
       is_public: visibility === 'public',
       gaussian_count: aliveCount,
-      title: payload.title || title || rec?.title || S.fileName || 'Untitled Splat',
+      title: payload.title || title || window._fumocaCurrentRecord?.title || rec?.title || S.fileName || 'Untitled Splat',
+      description: payload.description ?? description ?? window._fumocaCurrentRecord?.description ?? rec?.description ?? '',
       meta: payload.meta,
     };
     window._fumocaCanonicalFileUrl = publicUrl;
