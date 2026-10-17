@@ -176,9 +176,10 @@ export async function authorPartToggle(nifUrl, labelOrParts, opts = {}) {
     throw new Error(`Upload failed: ${error?.message || 'storage returned no key or URL'}`);
   }
 
+  let previewNifUrl = publicUrl;
   try {
     const { data: current, error: readError } = await sb.from('nif_files')
-      .select('meta').eq('id', recordId).eq('user_id', ownerId).single();
+      .select('meta,is_public').eq('id', recordId).eq('user_id', ownerId).single();
     if (readError || !current) throw new Error(readError?.message || 'Parent NIF was not found or is not owned by the current user.');
     const previous = current.meta && typeof current.meta === 'object' ? current.meta : {};
     const keys = Array.isArray(previous.open_variant_r2_keys) ? previous.open_variant_r2_keys : [];
@@ -192,13 +193,24 @@ export async function authorPartToggle(nifUrl, labelOrParts, opts = {}) {
     if (window._fumocaCurrentRecord?.id === recordId) {
       window._fumocaCurrentRecord = { ...window._fumocaCurrentRecord, meta: nextMeta };
     }
+    // A private parent needs a short-lived read ticket for the preview fetch.
+    // Persist only the canonical URL in the hotspot action; never persist a
+    // temporary ticket that will expire and break future toggles.
+    if (current.is_public !== true) {
+      previewNifUrl = await r2.from('nif-files').authenticatedUrl(fileKey);
+    }
   } catch (error) {
-    const { error: cleanupError } = await r2.from('nif-files').remove([fileKey]);
-    if (cleanupError) console.error('[nif-part-toggle] Orphan cleanup failed:', cleanupError.message);
+    try {
+      await discardPartToggleVariant(fileKey, recordId, ownerId);
+    } catch (cleanupError) {
+      console.error('[nif-part-toggle] Orphan cleanup failed:', cleanupError?.message || cleanupError);
+      const { error: fallbackDeleteError } = await r2.from('nif-files').remove([fileKey]);
+      if (fallbackDeleteError) console.error('[nif-part-toggle] Fallback object cleanup failed:', fallbackDeleteError.message);
+    }
     throw error;
   }
 
-  return { openNifUrl: publicUrl, fileKey, layers };
+  return { openNifUrl: publicUrl, previewNifUrl, fileKey, layers };
 }
 
 export async function discardPartToggleVariant(fileKey, recordId, ownerId) {
