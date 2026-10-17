@@ -328,6 +328,9 @@ function encodeLayerGeoChunk(layers, geoData, pointCount) {
  * @returns {ArrayBuffer}
  */
 export function encodeNif(opts = {}) {
+  if (Object.prototype.hasOwnProperty.call(opts, 'gaussianSH') && !opts.gaussianSH && opts.meta?.gaussian_sh) {
+    throw new Error('[nif-format] metadata declares Gaussian SH but no coefficient sidecar was supplied');
+  }
   let geoData, count;
 
   if (opts.geometry) {
