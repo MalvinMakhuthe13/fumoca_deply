@@ -377,7 +377,7 @@ async function verifyReadTicket(ticket, bucketName, fileKey, secret, now = Date.
 function parseByteRange(rangeHeader, size) {
   if (!rangeHeader) return null;
   if (!Number.isSafeInteger(size) || size < 0) return { invalid: true };
-  const match = /^bytes=(\\d*)-(\\d*)$/i.exec(String(rangeHeader).trim());
+  const match = /^bytes=(\d*)-(\d*)$/i.exec(String(rangeHeader).trim());
   if (!match || (!match[1] && !match[2]) || size === 0) return { invalid: true };
 
   let start;
