@@ -133,14 +133,14 @@ async function deletePostRecord(post, opts = {}) {
   const sourceCapture = post.meta?.source_capture;
   const candidates = [
     { bucket: 'nif-files', path: post.r2_key },
-    { bucket: post.meta?.source_r2_bucket || 'nif-files', path: post.meta?.source_r2_key },
-    ...(!post.meta?.source_r2_bucket && post.meta?.source_r2_key ? [{ bucket: 'nif-videos', path: post.meta.source_r2_key }] : []),
-    { bucket: sourceCapture?.r2_bucket || sourceCapture?.bucket || 'nif-files', path: sourceCapture?.r2_key },
-    ...(!sourceCapture?.r2_bucket && !sourceCapture?.bucket && sourceCapture?.r2_key
+    { bucket: post.meta?.source_r2_bucket || (post.meta?.source_r2_key?.startsWith('raw/') ? 'nif-videos' : 'nif-files'), path: post.meta?.source_r2_key },
+    ...(!post.meta?.source_r2_bucket && post.meta?.source_r2_key && !post.meta.source_r2_key.startsWith('raw/') ? [{ bucket: 'nif-videos', path: post.meta.source_r2_key }] : []),
+    { bucket: sourceCapture?.r2_bucket || sourceCapture?.bucket || (sourceCapture?.r2_key?.startsWith('raw/') ? 'nif-videos' : 'nif-files'), path: sourceCapture?.r2_key },
+    ...(!sourceCapture?.r2_bucket && !sourceCapture?.bucket && sourceCapture?.r2_key && !sourceCapture.r2_key.startsWith('raw/')
       ? [{ bucket: 'nif-videos', path: sourceCapture.r2_key }] : []),
     ...(Array.isArray(post.meta?.lidar_sources) ? post.meta.lidar_sources.flatMap(source => [
-      { bucket: source?.r2_bucket || source?.bucket || 'nif-files', path: source?.r2_key },
-      ...(!source?.r2_bucket && !source?.bucket && source?.r2_key ? [{ bucket: 'nif-videos', path: source.r2_key }] : []),
+      { bucket: source?.r2_bucket || source?.bucket || (source?.r2_key?.startsWith('raw/') ? 'nif-videos' : 'nif-files'), path: source?.r2_key },
+      ...(!source?.r2_bucket && !source?.bucket && source?.r2_key && !source.r2_key.startsWith('raw/') ? [{ bucket: 'nif-videos', path: source.r2_key }] : []),
     ]) : []),
     { bucket: 'nif-files', path: post.meta?.mobile_asset_r2_key },
     { bucket: 'nif-files', path: post.meta?.cleaned_splat?.r2_key },
