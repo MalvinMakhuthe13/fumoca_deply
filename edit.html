@@ -6385,8 +6385,18 @@ if (!window._fumocaBooted) {
       if (cloud.deferred) return;
       window.previewLidarCloud(cloud);
       if (!S.alive?.some(Boolean)) window.fitLidarToScene();
-      ['lidarFitBtn', 'lidarMergeBtn', 'lidarClearBtn'].forEach(id => { const b = document.getElementById(id); if (b) b.disabled = false; });
-      status(`LiDAR preview ready (${cloud.count.toLocaleString()} points). Adjust alignment, then merge when ready.`);
+      const canProceed = (() => {
+        try { return buildLidarQualityReport(cloud).gates.preview; } catch { return false; }
+      })();
+      const clearButton = document.getElementById('lidarClearBtn');
+      if (clearButton) clearButton.disabled = false;
+      const fitButton = document.getElementById('lidarFitBtn');
+      const mergeButton = document.getElementById('lidarMergeBtn');
+      if (fitButton) fitButton.disabled = !canProceed;
+      if (mergeButton) mergeButton.disabled = !canProceed;
+      status(canProceed
+        ? `LiDAR preview ready (${cloud.count.toLocaleString()} points). Review scan cautions, adjust alignment, then merge.`
+        : 'LiDAR preview is blocked by scan validation. Review the preflight report before continuing.');
     },
   });
   document.getElementById('lidarPickBtn')?.addEventListener('click', () => lidarApi.openPicker());
