@@ -11,7 +11,7 @@ function normalizeStatus(status, url) {
   const raw = String(status || '').toLowerCase();
   if (['done', 'ready', 'published', 'complete', 'completed'].includes(raw)) return 'done';
   if (['processing', 'running', 'training', 'rendering'].includes(raw)) return 'processing';
-  if (['failed', 'error'].includes(raw)) return 'failed';
+  if (['failed', 'error', 'needs_retry', 'cancelled'].includes(raw)) return 'failed';
   if (raw === 'queued' || raw === 'pending') return 'queued';
   return url ? 'done' : 'queued';
 }
@@ -197,19 +197,38 @@ async function init() {
     .select('id,user_id,title,created_at,r2_key,thumbnail_url,meta,job_id')
     .eq('user_id', user.id)
     .order('created_at', { ascending: false });
-  const nifs = (Array.isArray(nifRows) ? nifRows : []).map((row) => ({
-    id: row.id,
-    user_id: row.user_id,
-    status: 'done', // a nif_files row only ever exists after a successful pipeline run
-    title: row.title,
-    created_at: row.created_at,
-    output_url: row.r2_key ? r2.publicUrl('nif-files', row.r2_key) : '',
-    r2_key: row.r2_key,
-    job_id: row.job_id || null,
-    meta: row.meta || {},
-    thumbnail_url: (row.meta?.thumbnail_r2_key && r2.publicUrl('nif-files', row.meta.thumbnail_r2_key)) || row.thumbnail_url || '',
-    source: 'nif_files', // deleteUploadRecord needs this to know which table/bucket to clean up
-  }));
+  const nifList = Array.isArray(nifRows) ? nifRows : [];
+  const jobIds = nifList.map(row => row.job_id || row.id).filter(Boolean);
+  let jobsById = new Map();
+  if (jobIds.length) {
+    const { data: jobs, error: jobsError } = await supabase
+      .from('reconstruction_jobs')
+      .select('id,status,progress,error_message')
+      .in('id', [...new Set(jobIds)]);
+    if (jobsError) console.warn('[FUMOCA profile] reconstruction status lookup failed', jobsError);
+    else jobsById = new Map((jobs || []).map(job => [job.id, job]));
+  }
+  const nifs = nifList.map((row) => {
+    const job = jobsById.get(row.job_id || row.id);
+    return {
+      id: row.id,
+      user_id: row.user_id,
+      // Direct imports have no matching job and are ready immediately.
+      // Pipeline artifacts can exist with needs_retry, so never infer quality
+      // from the existence of a NIF row or storage key alone.
+      status: job?.status || 'done',
+      processing_progress: job?.progress ?? 100,
+      error_message: job?.error_message || '',
+      title: row.title,
+      created_at: row.created_at,
+      output_url: row.r2_key ? r2.publicUrl('nif-files', row.r2_key) : '',
+      r2_key: row.r2_key,
+      job_id: row.job_id || null,
+      meta: row.meta || {},
+      thumbnail_url: (row.meta?.thumbnail_r2_key && r2.publicUrl('nif-files', row.meta.thumbnail_r2_key)) || row.thumbnail_url || '',
+      source: 'nif_files', // deleteUploadRecord needs this to know which table/bucket to clean up
+    };
+  });
 
   uploads = [...nifs, ...(Array.isArray(splats) ? splats : [])]
     .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
