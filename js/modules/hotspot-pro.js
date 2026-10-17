@@ -486,10 +486,16 @@ async function saveRemote() {
   state.saving = true;
   try {
     await _syncProductHotspots(sb, rec.id, rec.user_id);
-    const metadata = { ...(rec.meta || {}), hotspots: state.hotspots };
-    const { error } = await sb.from('nif_files').update({ meta: metadata }).eq('id', rec.id);
+    const { data: latest, error: readError } = await sb.from('nif_files')
+      .select('id,user_id,title,description,r2_key,is_public,meta')
+      .eq('id', rec.id).eq('user_id', rec.user_id).single();
+    if (readError || !latest) throw new Error(readError?.message || 'Parent NIF could not be reloaded before saving hotspots.');
+    const latestMeta = latest.meta && typeof latest.meta === 'object' ? latest.meta : {};
+    const metadata = { ...latestMeta, hotspots: state.hotspots };
+    const { error } = await sb.from('nif_files').update({ meta: metadata })
+      .eq('id', rec.id).eq('user_id', rec.user_id);
     if (error) throw error;
-    window._fumocaCurrentRecord = { ...rec, meta: metadata };
+    window._fumocaCurrentRecord = { ...(window._fumocaCurrentRecord || {}), ...latest, meta: metadata };
     // Local backup and analytics must not turn a successful remote commit into
     // a false failure; callers use this boolean to decide whether to discard
     // newly uploaded assets.
