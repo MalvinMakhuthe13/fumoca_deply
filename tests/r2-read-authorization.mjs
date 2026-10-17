@@ -33,11 +33,11 @@ const req = (token = null) => new Request('https://r2.example.test/file/asset', 
 });
 const userA = { id: 'user-a', kind: 'user' };
 const userB = { id: 'user-b', kind: 'user' };
-const publicNif = { id: 'nif-public', user_id: 'user-a', r2_key: 'published/model.nif', is_public: true, meta: {} };
-const privateNif = { id: 'nif-private', user_id: 'user-a', r2_key: 'private/model.nif', is_public: false, meta: {} };
-const thumbPublic = { id: 'nif-thumb-public', user_id: 'user-a', r2_key: 'published/model.nif', is_public: true, meta: { thumbnail_r2_key: 'published/thumb.webp' } };
-const thumbPrivate = { id: 'nif-thumb-private', user_id: 'user-a', r2_key: 'private/model.nif', is_public: false, meta: { thumbnail_r2_key: 'private/thumb.webp' } };
-const sourceRow = { id: 'nif-source', user_id: 'user-a', r2_key: 'published/model.nif', is_public: true, meta: { source_r2_key: 'record-source/raw.mp4' } };
+const publicNif = { id: 'nif-public', user_id: 'user-a', r2_key: 'user-a/model.nif', is_public: true, meta: {} };
+const privateNif = { id: 'nif-private', user_id: 'user-a', r2_key: 'user-a/private/model.nif', is_public: false, meta: {} };
+const thumbPublic = { id: 'nif-thumb-public', user_id: 'user-a', r2_key: 'user-a/model.nif', is_public: true, meta: { thumbnail_r2_key: 'user-a/thumb.webp' } };
+const thumbPrivate = { id: 'nif-thumb-private', user_id: 'user-a', r2_key: 'user-a/private/model.nif', is_public: false, meta: { thumbnail_r2_key: 'user-a/private-thumb.webp' } };
+const sourceRow = { id: 'nif-source', user_id: 'user-a', r2_key: 'published/model.nif', is_public: true, meta: { source_r2_key: 'user-a/raw.mp4' } };
 const teaserPublic = { id: 'nif-teaser-public', user_id: 'user-a', r2_key: 'published/model.nif', is_public: true, meta: { teaser_video_r2_key: 'user-a/teasers/nif-teaser-public/teaser.webm' } };
 const teaserPrivate = { id: 'nif-teaser-private', user_id: 'user-a', r2_key: 'private/model.nif', is_public: false, meta: { teaser_video_r2_key: 'user-a/teasers/nif-teaser-private/teaser.webm' } };
 const run = (rows, jobs = [], responseStatus = 200) => helper(async (url, options) => {
@@ -60,10 +60,10 @@ assert.equal(access.isPublic, false, 'owner read must not be marked public/cache
 access = await run([privateNif])(req('token-b'), env, userB, 'nif-files', 'private/model.nif');
 assert.equal(access.allowed, false, 'different users must not read private NIFs');
 
-access = await run([thumbPublic])(req(), env, null, 'thumbnails', 'published/thumb.webp');
+access = await run([thumbPublic])(req(), env, null, 'thumbnails', 'user-a/thumb.webp');
 assert.deepEqual(access, { allowed: true, isPublic: true, reason: 'published-nif-thumbnail' });
 
-access = await run([thumbPrivate])(req(), env, null, 'thumbnails', 'private/thumb.webp');
+access = await run([thumbPrivate])(req(), env, null, 'thumbnails', 'user-a/private-thumb.webp');
 assert.equal(access.allowed, false, 'private NIF thumbnail must not bypass visibility');
 
 const mobilePublic = {
@@ -104,7 +104,7 @@ assert.deepEqual(access, { allowed: true, isPublic: false, reason: 'owner-key' }
 access = await run([sourceRow])(req('token-a'), env, userA, 'nif-videos', 'user-a/raw.mp4');
 assert.deepEqual(access, { allowed: true, isPublic: false, reason: 'owner-key' });
 
-access = await run([sourceRow])(req('token-a'), env, userA, 'nif-videos', 'record-source/raw.mp4');
+access = await run([sourceRow])(req('token-a'), env, userA, 'nif-videos', 'user-a/raw.mp4');
 assert.deepEqual(access, { allowed: true, isPublic: false, reason: 'owner-associated-file' }, 'owner can read source media linked through NIF metadata');
 access = await run([])(req('token-a'), env, userA, 'nif-videos', 'raw/user-a/old_burst.zip');
 assert.deepEqual(access, { allowed: true, isPublic: false, reason: 'legacy-owner-key' },
