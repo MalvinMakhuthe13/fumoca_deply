@@ -748,25 +748,39 @@ window.handleSubmit = async function() {
           const colors01 = new Float32Array(count * 3);
           const opacities01 = new Float32Array(count);
           const opacity = opacityAttr;
-          // PLYLoader normalizes uchar RGB to 0..1 for typical PLY files, but
-          // some exporters expose raw 0..255 values. Decide once for the whole
-          // attribute, not per vertex: per-point scaling can distort dark colors
-          // and create inconsistent results across a single cloud.
-          let colorValueMax = 0;
-          if (colorAttr && colorAttr.itemSize >= 3) {
-            const values = colorAttr.array;
-            for (let i = 0; i < values.length; i++) {
-              if (Number.isFinite(values[i]) && values[i] > colorValueMax) colorValueMax = values[i];
+          // PLY exporters use several RGB schemas. Prefer PLYLoader's combined
+          // color attribute, but also read common scalar channel names directly
+          // so diffuse_red / red / r files don't silently become grey.
+          const redAttr = attr('red') || attr('diffuse_red') || attr('r');
+          const greenAttr = attr('green') || attr('diffuse_green') || attr('g');
+          const blueAttr = attr('blue') || attr('diffuse_blue') || attr('b');
+          const hasCombinedColors = !!(colorAttr && colorAttr.itemSize >= 3);
+          const hasSeparateColors = !!(redAttr && greenAttr && blueAttr);
+          const rawColorMax = attributes => {
+            let max = 0;
+            for (const a of attributes) {
+              if (!a) continue;
+              for (let j = 0; j < a.array.length; j++) {
+                const v = a.array[j];
+                if (Number.isFinite(v) && v > max) max = v;
+              }
             }
-          }
-          const colorDivisor = colorValueMax > 1.00001 ? 255 : 1;
-          const hasVertexColors = !!(colorAttr && colorAttr.itemSize >= 3);
+            return max;
+          };
+          const colorDivisor = rawColorMax(hasCombinedColors
+            ? [colorAttr] : hasSeparateColors ? [redAttr, greenAttr, blueAttr] : []) > 1.00001 ? 255 : 1;
+          const hasVertexColors = hasCombinedColors || hasSeparateColors;
+          const channel01 = value => Math.max(0, Math.min(1, value / colorDivisor));
           for (let i = 0; i < count; i++) {
             positions[i*3] = posAttr.getX(i); positions[i*3+1] = posAttr.getY(i); positions[i*3+2] = posAttr.getZ(i);
-            if (hasVertexColors) {
-              colors01[i*3] = Math.max(0, Math.min(1, colorAttr.getX(i) / colorDivisor));
-              colors01[i*3+1] = Math.max(0, Math.min(1, colorAttr.getY(i) / colorDivisor));
-              colors01[i*3+2] = Math.max(0, Math.min(1, colorAttr.getZ(i) / colorDivisor));
+            if (hasCombinedColors) {
+              colors01[i*3] = channel01(colorAttr.getX(i));
+              colors01[i*3+1] = channel01(colorAttr.getY(i));
+              colors01[i*3+2] = channel01(colorAttr.getZ(i));
+            } else if (hasSeparateColors) {
+              colors01[i*3] = channel01(redAttr.getX(i));
+              colors01[i*3+1] = channel01(greenAttr.getX(i));
+              colors01[i*3+2] = channel01(blueAttr.getX(i));
             } else {
               colors01[i*3] = 0.8; colors01[i*3+1] = 0.8; colors01[i*3+2] = 0.8;
             }
