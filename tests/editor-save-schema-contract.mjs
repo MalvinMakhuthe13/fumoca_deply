@@ -8,6 +8,12 @@ assert.ok(start >= 0 && end > start, 'Studio save function must exist');
 const save = source.slice(start, end);
 assert.ok(save.includes("from('nif_files')"), 'Studio saves must update the deployed NIF row');
 assert.match(save, /r2\.from\('nif-files'\)\s*\.upload\(/, 'Studio derivatives must upload to R2');
+assert.match(save, /gaussianSH: gaussianSH \|\| undefined/,
+  'Studio save must preserve higher-order Gaussian SH coefficients in NIF instead of falling back to lossy PLY');
+assert.match(save, /layers: layerData\.layers/,
+  'Studio save must re-encode compacted LAYER_GEO membership');
+assert.match(source, /0x0009, 0x0015, 0x0019, 0x001A/,
+  'Studio passthrough must exclude LAYER_GEO, LiDAR and SH chunks that are rebuilt against current points');
 assert.ok(save.includes("r2.from('nif-files').remove([fileKey])"), 'failed registration should attempt derivative cleanup');
 assert.ok(!save.includes("from('splats')"), 'Studio must not write to the retired splats table');
 assert.ok(!save.includes("storage.from('splat-files')"), 'Studio must not upload to the retired Supabase Storage bucket');
