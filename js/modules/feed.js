@@ -499,7 +499,7 @@ async function fetchFeedNifs() {
   // reconstruction fails the quality bar. The artifact row exists for
   // inspection, but the job status—not the presence of r2_key—decides if it
   // should be presented as ready to publish.
-  const jobIds = [...new Set(rows.map(row => row.job_id).filter(Boolean))];
+  const jobIds = [...new Set(rows.map(row => row.job_id || row.id).filter(Boolean))];
   if (jobIds.length) {
     const { data: jobs, error: jobsError } = await supabase
       .from('reconstruction_jobs')
@@ -508,7 +508,7 @@ async function fetchFeedNifs() {
     if (jobsError) throw jobsError;
     const byId = new Map((jobs || []).map(job => [job.id, job]));
     for (const row of rows) {
-      const jobId = row.job_id;
+      const jobId = row.job_id || row.id;
       const job = byId.get(jobId);
       if (job) {
         row.status = job.status;
