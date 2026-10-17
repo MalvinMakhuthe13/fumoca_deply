@@ -666,8 +666,8 @@ export function geometryToSplatRows(gaussians) {
     const o = i * FLOATS_PER_POINT;
     const base = i * rowSize;
     const scales = [data[o+3], data[o+4], data[o+5]].map(Math.exp);
-    if (scales.some(scale => !Number.isFinite(scale) || scale <= 0)) {
-      throw new Error(`[nif-format] point ${i} has an invalid log-scale for SPLAT output`);
+    if (scales.some(scale => !Number.isFinite(scale) || scale < 1.401298464324817e-45 || scale > 3.4028234663852886e38)) {
+      throw new Error(`[nif-format] point ${i} has a log-scale outside the representable float32 SPLAT range`);
     }
     const qNorm = Math.hypot(data[o+6], data[o+7], data[o+8], data[o+9]);
     if (!Number.isFinite(qNorm) || qNorm < 1e-8) {
