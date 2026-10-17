@@ -320,6 +320,7 @@ async function deleteCurrentUpload() {
       currentRecord.meta?.source_r2_key,
       currentRecord.meta?.source_capture?.r2_key,
       currentRecord.meta?.thumbnail_r2_key,
+      currentRecord.meta?.capture_thumbnail_r2_key,
     ].filter((key, index, all) => typeof key === 'string' && key.trim() && all.indexOf(key) === index);
     const cleanup = await Promise.allSettled(
       keys.map(key => r2.from('nif-files').remove([key]))
