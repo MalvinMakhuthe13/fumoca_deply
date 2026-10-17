@@ -122,6 +122,13 @@ Create frozen test sets for calibrated vehicle, object and scene captures. NaviG
 - Extended the same ownership boundary to presigned upload URL issuance, direct PUT uploads, multipart create/part/complete/abort. New Studio derivative keys are accepted only when their parent `nif_files` record is owned by the authenticated user; a new derivative does not need to already equal the row's current `r2_key`. Keys outside the user's own prefix or owned Studio derivative pattern are denied. Regression tests cover cross-user write denial and fail-closed missing-token behavior.
 - CI is repository-level regression evidence, not a live integration test. The changes are not deployed to the live Cloudflare Worker. The ownership lookup depends on the deployed Supabase table's `user_id` field and RLS behavior; verify with a staging account before deployment. Existing deployed worker behavior remains a release blocker until updated and tested.
 
+### Security QA/QC — public R2 read route and visibility bypass
+
+- Follow-up inspection found that `GET /file/:key` serves any existing object in any configured bucket without authentication or consulting `nif_files.visibility`. The response is cached with `Cache-Control: public` for up to seven days (thumbnails: one day). This means the app's `public` / `followers` visibility filter is not itself a storage access control: anyone who obtains or guesses an object URL can fetch the object directly. The URL is also returned by upload helpers as a public URL.
+- This may be intentional for published viewer assets, thumbnails and embeds, so a blanket auth requirement could break public sharing. However, private captures, source video/ZIP/PLY files and derivatives must not be assumed private just because their database record is private.
+- **Release blocker:** define and implement a storage-level read policy. At minimum, public published artifacts should be distinguishable from original/source assets; private assets must require an authenticated owner or a properly authorized share token; follower access must verify the relationship instead of treating `followers` as public. Avoid shared-cache responses for authenticated/private content, and add tests proving anonymous denial for private keys, owner access, authorized share access, and public viewer access for published assets.
+- No read-policy behavior was changed in this pass because the correct published-vs-source policy and follower/share-token contract must be explicit first. No live bucket or CDN exposure was probed. Treat existing public URLs as potentially public until the policy is implemented and verified.
+
 ### Remaining release blockers / evidence still required
 
 | Gate | Current status | Evidence needed |
