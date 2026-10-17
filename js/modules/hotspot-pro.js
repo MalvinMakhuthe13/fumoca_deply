@@ -2,7 +2,7 @@ window._fumocaUseHotspotPro = true;
 
 import * as THREE from 'three';
 import { renderActionButtons } from './hotspot-actions.js';
-import { authorPartToggle } from './nif-part-toggle.js';
+import { authorPartToggle, discardPartToggleVariant } from './nif-part-toggle.js';
 
 const hotspotLayer = document.getElementById('hotspotLayer');
 const hotspotBtn = document.getElementById('hotspotBtn');
@@ -1038,7 +1038,7 @@ async function animatePartFlow(h) {
 
   try {
     const currentRecord = window._fumocaCurrentRecord || {};
-    const { openNifUrl, layers } = await authorPartToggle(nifUrl, layer, {
+    const { openNifUrl, fileKey, layers } = await authorPartToggle(nifUrl, layer, {
       axis, angleDeg, recordId: currentRecord.id, ownerId: currentRecord.user_id,
     });
 
@@ -1055,6 +1055,12 @@ async function animatePartFlow(h) {
       );
       window._fumocaRestoreRendererPreview?.();
       if (!looksRight) {
+        try {
+          await discardPartToggleVariant(fileKey, currentRecord.id, currentRecord.user_id);
+        } catch (cleanupError) {
+          console.warn('[hotspot-pro] discarded variant cleanup failed:', cleanupError);
+          alert(`The preview was discarded, but storage cleanup needs attention: ${cleanupError.message}`);
+        }
         if (statusBtn) { statusBtn.textContent = originalLabel; statusBtn.disabled = false; }
         return;
       }
