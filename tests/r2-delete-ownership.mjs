@@ -48,6 +48,8 @@ const mockFetch = async (url, options) => {
     rows = [{ id: 'record-456', user_id: 'user-123', r2_key: 'record-456/edited_123.ply', meta: { source_r2_key: 'record-456/source.mp4' } }];
   } else if (requestedOr.includes('thumb.webp')) {
     rows = [{ id: 'record-456', user_id: 'user-123', r2_key: 'record-456/edited_123.ply', meta: { thumbnail_r2_key: 'record-456/thumb.webp' } }];
+  } else if (requestedOr.includes('teaser.webm')) {
+    rows = [{ id: 'record-456', user_id: 'user-123', r2_key: 'record-456/edited_123.ply', meta: { teaser_video_r2_key: 'record-456/teaser.webm' } }];
   }
   return new Response(JSON.stringify(rows), { status: 200 });
 };
@@ -61,6 +63,7 @@ assert.equal(await check(request, env, user, 'nif-files', 'record-999/edited_123
 assert.equal(await check(request, env, user, 'nif-files', 'other-user/private.ply'), false, 'other user prefix is denied');
 assert.equal(await check(request, env, user, 'nif-videos', 'record-456/source.mp4'), true, 'owned source capture can be deleted from nif-videos');
 assert.equal(await check(request, env, user, 'thumbnails', 'record-456/thumb.webp'), true, 'owned thumbnail can be deleted from thumbnails');
+assert.equal(await check(request, env, user, 'preview-videos', 'record-456/teaser.webm'), true, 'owned teaser video can be deleted from preview-videos');
 assert.equal(await check(request, env, user, 'nif-videos', 'record-999/source.mp4'), false, 'unknown source key is denied');
 assert.equal(await check(request, env, { id: 'server', kind: 'server-to-server' }, 'nif-files', 'any/key.ply'), true, 'trusted server principal may clean up its artifacts');
 const noTokenRequest = { headers: { get: () => '' } };
