@@ -104,7 +104,7 @@ test('Ad Studio queries NIF and legacy assets without falsely baking unsupported
 test('viewer provides a same-origin Ad Studio bridge for load, camera and bake commands', async () => {
   const source = await read('viewer.html');
   assert.match(source, /Ad Studio bridge: explicit same-origin protocol/);
-  assert.match(source, /params\.get\('embed'\) !== 'ad-studio'/);
+  assert.match(source, /bootParams\.get\('embed'\) !== 'ad-studio'/);
   assert.match(source, /event\.source !== window\.parent/);
   assert.match(source, /event\.origin !== trustedOrigin/);
   assert.match(source, /fumoca:recordLoaded/);
