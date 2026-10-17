@@ -4567,14 +4567,64 @@ $('addSplatInput')?.addEventListener('change', async e => {
         }
         S.shAttributes = shNames; S.shCoefficients = sh;
       }
-      const alive = new Uint8Array(oldN + addN); alive.set(S.alive); alive.fill(1, oldN); S.alive = alive;
-      const selected = new Uint8Array(oldN + addN); selected.fill(1, oldN); S.selected = selected;
-      S.layerHidden = new Uint8Array(oldN + addN);
-      S.layers = []; S.activeLayerId = null;
+      const alive = new Uint8Array(oldN + addN);
+      alive.set(S.alive);
+      alive.fill(1, oldN);
+      S.alive = alive;
+
+      // Preserve existing object masks and register the appended file as its own
+      // layer. Previously this block erased every layer and left the new points
+      // selected but ungrouped, which made object selection and gizmo transforms
+      // ambiguous in multi-file scenes.
+      const extendMask = mask => {
+        const next = new Uint8Array(oldN + addN);
+        if (mask) next.set(mask.subarray ? mask.subarray(0, oldN) : mask);
+        return next;
+      };
+      if (!Array.isArray(S.layers)) S.layers = [];
+      if (S.layers.length === 0) {
+        const baseMask = new Uint8Array(oldN);
+        for (let i = 0; i < oldN; i++) if (S.alive[i]) baseMask[i] = 1;
+        if (baseMask.some(Boolean)) {
+          S.layers.push({
+            id: `layer_base_${Date.now()}`,
+            name: S.fileName || 'Original model',
+            icon: '🧊',
+            mask: extendMask(baseMask),
+            visible: true,
+            opacity: 1
+          });
+        }
+      } else {
+        S.layers = S.layers.map(layer => ({ ...layer, mask: extendMask(layer.mask) }));
+      }
+
+      const newMask = new Uint8Array(oldN + addN);
+      newMask.fill(1, oldN);
+      const layerId = `layer_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      S.layers.push({
+        id: layerId,
+        name: file.name,
+        icon: ext === 'ply' ? '🔷' : ext === 'nif' ? '🧊' : '✨',
+        mask: newMask,
+        visible: true,
+        opacity: 1
+      });
+      S.activeLayerId = layerId;
+      S.selected = new Uint8Array(oldN + addN);
+      S.selected.fill(1, oldN);
+
+      const hidden = new Uint8Array(oldN + addN);
+      if (S.layerHidden) hidden.set(S.layerHidden.subarray(0, oldN));
+      S.layerHidden = hidden;
+      S.layers.forEach(layer => {
+        if (!layer.visible) for (let i = 0; i < layer.mask.length; i++) if (layer.mask[i]) S.layerHidden[i] = 1;
+      });
+
       S.lidarIntensity = S.lidarClassification = S.lidarReturnNumber = S.lidarDisplayColors = null;
       S.sourceBuffer = null; S.fileType = 'scene';
-      S.fileName = `${S.fileName.replace(/\.[^.]+$/, '')} + ${file.name}`;
-      setStatus(`Added ${file.name} (${fmt(addN)} points)`, 'ok');
+      S.fileName = `${S.fileName.replace(/\\.[^.]+$/, '')} + ${file.name}`;
+      setStatus(`Added ${file.name} as a separate layer (${fmt(addN)} points)`, 'ok');
     } catch (err) { showToast('Could not add splat', err.message || String(err), 'warn'); }
   }
   rebuildGeometry(); renderLayers(); updateStats();
