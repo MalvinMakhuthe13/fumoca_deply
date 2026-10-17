@@ -4,19 +4,33 @@
 const SPLAT_ROW = 32;
 const ANS_M = 1 << 12;
 const ANS_L = 1 << 23;
+const MAX_GAUSSIANS = 5_000_000;
+const MAX_SECTION_BYTES = 512 * 1024 * 1024;
+const MAX_HEADER_BYTES = 1024 * 1024;
+const MAX_FILE_BYTES = 2 * 1024 * 1024 * 1024;
 
 // ── Minimal ANS decoder (order-0 only) ────────────────────────────────────────
 function deserialiseFreqTable(bytes) {
-  const freq    = new Uint32Array(256);
-  const view    = new DataView(bytes.buffer, bytes.byteOffset, 512);
+  if (!(bytes instanceof Uint8Array) || bytes.byteLength !== 512) {
+    throw new Error('[FUMOC Worker] ANS frequency table must be exactly 512 bytes');
+  }
+  const freq = new Uint32Array(256);
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   for (let i = 0; i < 256; i++) freq[i] = view.getUint16(i * 2, true);
   const cumFreq = new Uint32Array(257);
   for (let s = 0; s < 256; s++) cumFreq[s+1] = cumFreq[s] + freq[s];
+  if (cumFreq[256] !== ANS_M) throw new Error('[FUMOC Worker] ANS frequencies do not sum to the expected table size');
   return { freq, cumFreq };
 }
 
 function ansDecode(compressed, freqTableBytes, outputLength) {
+  if (!Number.isSafeInteger(outputLength) || outputLength < 0 || outputLength > MAX_GAUSSIANS * 4) {
+    throw new Error('[FUMOC Worker] ANS output length is invalid or exceeds the safety limit');
+  }
   if (outputLength === 0) return new Uint8Array(0);
+  if (!(compressed instanceof Uint8Array) || compressed.byteLength < 4 || compressed.byteLength > MAX_SECTION_BYTES) {
+    throw new Error('[FUMOC Worker] ANS compressed stream is truncated or oversized');
+  }
   const { freq, cumFreq } = deserialiseFreqTable(freqTableBytes);
   const decodeTable = new Uint8Array(ANS_M);
   for (let sym = 0; sym < 256; sym++)
@@ -55,8 +69,15 @@ function dequantise(arr, min, max, bits, signed) {
 }
 
 function decodeChannel(compressed, freqBytes, meta) {
+  if (!meta || !Number.isInteger(meta.length) || meta.length < 1 || meta.length > MAX_GAUSSIANS ||
+      !Number.isInteger(meta.bits) || meta.bits < 1 || meta.bits > 16 ||
+      !Number.isFinite(meta.min) || !Number.isFinite(meta.max) || meta.max < meta.min) {
+    throw new Error('[FUMOC Worker] Channel quantization metadata is invalid');
+  }
+  if (meta.order === 1) throw new Error('[FUMOC Worker] Order-1 ANS is not supported by this legacy worker; use the canonical FumocDecoder.');
   const bytesPerSample = meta.bits > 8 ? 2 : 1;
   const rawBytes = ansDecode(compressed, freqBytes, meta.length * bytesPerSample);
+  if (rawBytes.byteLength !== meta.length * bytesPerSample) throw new Error('[FUMOC Worker] Decoded channel length mismatch');
   let quant;
   if (meta.bits > 8) {
     const view = new DataView(rawBytes.buffer, rawBytes.byteOffset);
@@ -78,38 +99,63 @@ function decodeChannel(compressed, freqBytes, meta) {
 
 // ── SPLT decoder ──────────────────────────────────────────────────────────────
 function decodeSplt(spltData) {
-  const view  = new DataView(spltData.buffer, spltData.byteOffset);
-  const N     = view.getUint32(0, true);
+  if (!(spltData instanceof Uint8Array) || spltData.byteLength < 8) throw new Error('[FUMOC Worker] SPLT header is truncated');
+  const view = new DataView(spltData.buffer, spltData.byteOffset, spltData.byteLength);
+  const N = view.getUint32(0, true);
   const nChan = view.getUint32(4, true);
-  let   off   = 8;
+  if (!Number.isInteger(N) || N < 1 || N > MAX_GAUSSIANS) throw new Error('[FUMOC Worker] SPLT point count is invalid');
+  if (!Number.isInteger(nChan) || nChan < 1 || nChan > 15) throw new Error('[FUMOC Worker] SPLT channel count is invalid');
+  let off = 8;
   const channels = {};
   const dec = new TextDecoder();
-
+  const CHANNEL = {
+    1:'POS_X',2:'POS_Y',3:'POS_Z',4:'SCL_X',5:'SCL_Y',6:'SCL_Z',
+    7:'COL_R',8:'COL_G',9:'COL_B',10:'COL_A',
+    11:'ROT_Q0',12:'ROT_Q1',13:'ROT_Q2',14:'ROT_Q3',15:'SORT'
+  };
+  const u32 = (offset, label) => {
+    if (offset < 0 || offset + 4 > spltData.byteLength) throw new Error(`[FUMOC Worker] Truncated ${label}`);
+    return view.getUint32(offset, true);
+  };
   for (let c = 0; c < nChan; c++) {
-    const chanId    = spltData[off++];
-    const freqBytes = spltData.slice(off, off + 512); off += 512;
-    const metaLen   = view.getUint32(off, true); off += 4;
-    const metaJson  = dec.decode(spltData.slice(off, off + metaLen)); off += metaLen;
-    const compLen   = view.getUint32(off, true); off += 4;
-    const compData  = spltData.slice(off, off + compLen); off += compLen;
-    const meta      = JSON.parse(metaJson);
-
-    const CHANNEL = {
-      1:'POS_X',2:'POS_Y',3:'POS_Z',4:'SCL_X',5:'SCL_Y',6:'SCL_Z',
-      7:'COL_R',8:'COL_G',9:'COL_B',10:'COL_A',
-      11:'ROT_Q0',12:'ROT_Q1',13:'ROT_Q2',14:'ROT_Q3',15:'SORT'
-    };
-    const chanName = CHANNEL[chanId] || `CH_${chanId}`;
+    if (off >= spltData.byteLength) throw new Error('[FUMOC Worker] Channel ID is missing');
+    const chanId = spltData[off++];
+    const chanName = CHANNEL[chanId];
+    if (!chanName) throw new Error(`[FUMOC Worker] Unsupported channel ID ${chanId}`);
+    if (channels[chanName] !== undefined) throw new Error(`[FUMOC Worker] Duplicate channel ${chanName}`);
+    const freqBytes = spltData.subarray(off, off + 512);
+    if (freqBytes.byteLength !== 512) throw new Error('[FUMOC Worker] Frequency table is truncated');
+    off += 512;
+    const metaLen = u32(off, 'channel metadata length'); off += 4;
+    if (metaLen < 2 || metaLen > MAX_HEADER_BYTES || off + metaLen + 4 > spltData.byteLength) {
+      throw new Error('[FUMOC Worker] Channel metadata is truncated or oversized');
+    }
+    let meta;
+    try { meta = JSON.parse(dec.decode(spltData.subarray(off, off + metaLen))); }
+    catch (error) { throw new Error('[FUMOC Worker] Channel metadata JSON is invalid', { cause: error }); }
+    off += metaLen;
+    const compLen = u32(off, 'compressed channel length'); off += 4;
+    if (compLen < 4 || compLen > MAX_SECTION_BYTES || off + compLen > spltData.byteLength) {
+      throw new Error('[FUMOC Worker] Compressed channel is truncated or oversized');
+    }
+    const compData = spltData.subarray(off, off + compLen); off += compLen;
+    if (!Number.isInteger(meta.length) || meta.length !== N) throw new Error('[FUMOC Worker] Channel length must match point count');
+    if (meta.order === 1) throw new Error('[FUMOC Worker] Order-1 ANS is not supported by this legacy worker; use the canonical FumocDecoder.');
 
     if (chanName === 'SORT') {
-      const sortBytes = ansDecode(compData, freqBytes, meta.length * 4);
-      channels.SORT = new Uint32Array(sortBytes.buffer, sortBytes.byteOffset, meta.length);
+      const sortBytes = ansDecode(compData, freqBytes, N * 4);
+      const sort = new Uint32Array(sortBytes.buffer, sortBytes.byteOffset, N);
+      for (let i = 0; i < N; i++) if (sort[i] >= N) throw new Error('[FUMOC Worker] SORT index is out of range');
+      channels.SORT = sort;
     } else if (chanName.startsWith('COL_') || chanName.startsWith('ROT_')) {
-      channels[chanName] = ansDecode(compData, freqBytes, meta.length);
+      channels[chanName] = ansDecode(compData, freqBytes, N);
     } else {
       channels[chanName] = decodeChannel(compData, freqBytes, meta);
+      for (let i = 0; i < N; i++) if (!Number.isFinite(channels[chanName][i])) throw new Error(`[FUMOC Worker] Channel ${chanName} has a non-finite value`);
     }
+    if (channels[chanName]?.length !== N) throw new Error(`[FUMOC Worker] Channel ${chanName} decoded length mismatch`);
   }
+  if (off !== spltData.byteLength) throw new Error('[FUMOC Worker] SPLT has trailing or unparsed bytes');
   return { N, channels };
 }
 
