@@ -14,6 +14,8 @@ assert.match(publish, /window\._fumocanifUrl \|\| window\._fumocaNifUrl/,
   'publish must resolve the same canonical NIF URL exposed by the viewer and hotspot modules');
 assert.match(publish, /window\._fumocaLoadedFromRecord === false\s*\? ''/,
   'local file imports must not reuse the stale file query parameter for passthrough');
+assert.match(publish, /authenticatedUrl\(currentRecord\.r2_key\)/,
+  'private saved NIF passthrough reads must use a fresh authenticated ticket');
 assert.match(publish, /CHUNK\.KEYFRAME_MESH, CHUNK\.GAUSSIAN_SH, CHUNK\.LIDAR_ATTR/,
   'mesh and point-indexed sidecars must be rebuilt rather than duplicated as passthrough');
 assert.match(builder, /encodeEditorSplatRows\(S, aliveIndices\)/,
