@@ -218,10 +218,10 @@ function decodeSplt(spltData) {
       break;
     }
     if (!selected) throw new Error('[FUMOC Worker] Channel metadata is truncated, oversized or invalid');
-    if (selected.freqLen === 131072) {
-      throw new Error('[FUMOC Worker] Order-1 ANS is not supported by this legacy worker; use the canonical FumocDecoder.');
-    }
     const { freqLen, metaLen, meta } = selected;
+    if ((meta.order === 1 && freqLen !== 131072) || (meta.order !== 1 && freqLen !== 512)) {
+      throw new Error('[FUMOC Worker] Frequency table size does not match channel order');
+    }
     const freqBytes = spltData.subarray(off, off + freqLen);
     off += freqLen + 4 + metaLen;
     const compLen = u32(off, 'compressed channel length'); off += 4;
@@ -230,17 +230,18 @@ function decodeSplt(spltData) {
     }
     const compData = spltData.subarray(off, off + compLen); off += compLen;
     if (!Number.isInteger(meta.length) || meta.length !== N) throw new Error('[FUMOC Worker] Channel length must match point count');
-    if (meta.order === 1) throw new Error('[FUMOC Worker] Order-1 ANS is not supported by this legacy worker; use the canonical FumocDecoder.');
-
+    const decodeAns = meta.order === 1 ? ansDecodeOrder1 : ansDecode;
     if (chanName === 'SORT') {
-      const sortBytes = ansDecode(compData, freqBytes, N * 4);
+      const sortBytes = decodeAns(compData, freqBytes, N * 4);
       const sort = new Uint32Array(sortBytes.buffer, sortBytes.byteOffset, N);
       for (let i = 0; i < N; i++) if (sort[i] >= N) throw new Error('[FUMOC Worker] SORT index is out of range');
       channels.SORT = sort;
     } else if (chanName.startsWith('COL_') || chanName.startsWith('ROT_')) {
-      channels[chanName] = ansDecode(compData, freqBytes, N);
+      channels[chanName] = decodeAns(compData, freqBytes, N);
     } else {
-      channels[chanName] = decodeChannel(compData, freqBytes, meta);
+      channels[chanName] = meta.order === 1
+        ? decodeChannelOrder1(compData, freqBytes, meta)
+        : decodeChannel(compData, freqBytes, meta);
       for (let i = 0; i < N; i++) if (!Number.isFinite(channels[chanName][i])) throw new Error(`[FUMOC Worker] Channel ${chanName} has a non-finite value`);
     }
     if (channels[chanName]?.length !== N) throw new Error(`[FUMOC Worker] Channel ${chanName} decoded length mismatch`);
