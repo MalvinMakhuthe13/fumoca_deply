@@ -16,6 +16,8 @@ assert.match(source, /window\._fumocaLoadedFromRecord === false \? null : \(para
   'local imports must not accidentally save over a previously selected database record');
 assert.match(source, /window\._fumocaLoadedFromRecord = !!urlOverride/,
   'opening a local file must detach the current record while remote record opens retain ownership context');
+assert.match(source, /window\._fumocanifUrl = urlOverride \|\| ''[\s\S]*?window\._fumocaNifUrl = urlOverride \|\| ''/,
+  'local file opens must clear stale viewer URLs before publish passthrough selection');
 assert.match(source, /window\._fumocaCurrentRecord = \{ \.\.\.\(window\._fumocaCurrentRecord \|\| \{\}\), \.\.\.data \};/,
   'bootstrap must prefer fresh database fields over stale in-memory NIF state');
 assert.match(source, /if \(source\.r2_key\)[\s\S]*?authenticatedUrl\(source\.r2_key\)/,
