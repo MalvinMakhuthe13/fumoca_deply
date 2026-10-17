@@ -4565,57 +4565,28 @@ window.saveLiveEdit = async function saveLiveEdit(extra = {}) {
           savedToNifFiles = true;
           if (window._fumocaCurrentRecord) Object.assign(window._fumocaCurrentRecord, { r2_key: fileKey, gaussian_count: aliveCount, meta });
           console.log('%c[saveLiveEdit] ✅ Saved to nif_files', 'color:#c8ff00;font-weight:700');
-        } else if (error) {
-          console.warn('[saveLiveEdit] nif_files update failed, will try legacy splats path:', error);
+        } else {
+          console.warn('[saveLiveEdit] nif_files update failed; refusing legacy schema fallback:', error || 'No matching NIF row');
+          // A derivative without a registered row is an orphan. Attempt cleanup
+          // while the owner record still exists for Worker authorization.
+          try {
+            const { error: cleanupError } = await r2.from('nif-files').remove([fileKey]);
+            if (cleanupError) console.warn('[saveLiveEdit] Orphan derivative cleanup failed:', cleanupError);
+          } catch (cleanupError) {
+            console.warn('[saveLiveEdit] Orphan derivative cleanup failed:', cleanupError);
+          }
         }
-        // data.length === 0 with no error means splatId isn't a nif_files row
-        // at all (legacy content) — fall through to the splats path below.
       } else if (upErr) {
-        console.warn('[saveLiveEdit] R2 upload failed, will try legacy splats path:', upErr);
+        console.warn('[saveLiveEdit] R2 upload failed:', upErr);
       }
     } catch (e) {
-      console.warn('[saveLiveEdit] nif_files save path failed, will try legacy splats path:', e);
+      console.warn('[saveLiveEdit] NIF save path failed:', e);
     }
   }
 
   if (savedToNifFiles) return true;
-
-  // ── Fallback: legacy splats + Supabase Storage path ───────────────────────
-  // Only reached if splatId genuinely isn't a nif_files row (old content from
-  // before the new pipeline), or the R2/nif_files path threw. Unchanged from
-  // the original implementation.
-  let outputUrl = null;
-  if (rowBytes) {
-    try {
-      const hasSh = (S.shAttributes || []).length > 0;
-      const blob = hasSh ? _encodeGaussianPly(Array.from({ length: S.alive.length }, (_, i) => i).filter(i => S.alive[i])) : new Blob([rowBytes], { type: 'application/octet-stream' });
-      const extension = hasSh ? 'ply' : 'splat';
-      const contentType = hasSh ? 'text/plain' : 'application/octet-stream';
-      const path = `${splatId}/edited_${Date.now()}.${extension}`;
-      const { error: upErr } = await sb.storage.from('splat-files').upload(path, await blob.arrayBuffer(), { upsert: true, contentType });
-      if (!upErr) {
-        const { data: pub } = sb.storage.from('splat-files').getPublicUrl(path);
-        outputUrl = pub.publicUrl;
-      } else { console.warn('[saveLiveEdit] Legacy upload error:', upErr); }
-    } catch(e) { console.warn('[saveLiveEdit] Legacy export failed:', e); }
-  }
-
-  const payload = {
-    last_edited_at: new Date().toISOString(),
-    edit_completed:  true,
-    gaussian_count:  aliveCount,
-    ...(outputUrl   ? { output_url: outputUrl } : {}),
-    ...(extra.hotspots !== undefined ? { metadata: { ...(window._fumocaCurrentRecord?.metadata || {}), hotspots: extra.hotspots } } : {}),
-    ...(extra.teaser_video_url      ? { teaser_video_url: extra.teaser_video_url } : {}),
-    ...(extra.type === 'solidify_to_object' ? { asset_type: 'object' } : {}),
-  };
-
-  const { error } = await sb.from('splats').update(payload).eq('id', splatId);
-  if (error) { console.error('[saveLiveEdit] Legacy DB update failed too — nothing worked:', error); return false; }
-
-  if (window._fumocaCurrentRecord) Object.assign(window._fumocaCurrentRecord, payload);
-  console.log('%c[saveLiveEdit] ✅ Saved to legacy splats table', 'color:#c8ff00;font-weight:700', payload);
-  return true;
+  console.error('[saveLiveEdit] Save failed. Legacy splats/Supabase Storage fallback is disabled because that schema is not deployed.');
+  return false;
 };
 
 // ── Teaser preview modal ──────────────────────────────────────────────────────
