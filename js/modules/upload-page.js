@@ -398,20 +398,18 @@ async function uploadSingleBucket(fileName, file, _accessToken) {
   return { path: fileName, publicUrl };
 }
 
-function baseNifPayload(user, title, desc, category, price) {
+function baseNifPayload(user, title, desc, category, price, extraMeta = {}) {
   return {
     user_id: user.id,
     title,
     description: desc || null,
-    category,
+    vertical: category || 'other',
     tags,
-    visibility,
-    monetize_sale: saleEnabled,
-    price_zar: saleEnabled ? price : null,
-    monetize_print: printEnabled,
-    status: 'queued',
-    processing_stage: 'queued',
-    processing_progress: 0
+    is_public: visibility === 'public',
+    meta: {
+      ...captureMetadata(title, desc),
+      ...extraMeta,
+    },
   };
 }
 
@@ -431,17 +429,18 @@ async function createExternalNif(user, title, desc, category, price) {
   setStep('step-live', 'active');
 
   const payload = {
-    ...baseNifPayload(user, title, desc, category, price),
-    status: 'done',
-    processing_stage: 'published',
-    processing_progress: 100,
-    processing_completed_at: new Date().toISOString(),
-    nif_url: externalNifUrl,
-    external_nif_url: externalNifUrl,
+    ...baseNifPayload(user, title, desc, category, price, {
+      status: 'done',
+      processing_stage: 'published',
+      processing_progress: 100,
+      processing_completed_at: new Date().toISOString(),
+      nif_url: externalNifUrl,
+      external_nif_url: externalNifUrl,
+      preview_video_url: previewVideoUrl || null,
+      provider_name: providerName || 'External provider',
+      source_type: 'external',
+    }),
     thumbnail_url: thumbnailUrl || null,
-    preview_video_url: previewVideoUrl || null,
-    provider_name: providerName || 'External provider',
-    source_type: 'external'
   };
 
   const { data: nif, error } = await supabase.from('nif_files').insert([payload]).select().single();
