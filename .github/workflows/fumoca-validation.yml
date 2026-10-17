@@ -33,6 +33,30 @@ jobs:
         run: node --input-type=module --check < js/modules/notifications.js
       - name: Check motion-state module syntax
         run: node --input-type=module --check < js/modules/motion-states.js
+      - name: Check Ad Studio module syntax
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          html = Path("ad-studio.html").read_text(encoding="utf-8")
+          scripts = re.findall(r'<script type="module">(.*?)</script>', html, flags=re.S)
+          assert scripts, "Ad Studio module not found"
+          Path("/tmp/fumoca-ad-studio-check.mjs").write_text(scripts[0], encoding="utf-8")
+          PY
+          node --check /tmp/fumoca-ad-studio-check.mjs
+      - name: Check viewer Ad Studio bridge syntax
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          html = Path("viewer.html").read_text(encoding="utf-8")
+          match = re.search(r'<!-- Ad Studio bridge:[\s\S]*?<script>(.*?)</script>', html)
+          assert match, "Viewer Ad Studio bridge not found"
+          Path("/tmp/fumoca-viewer-ad-bridge-check.js").write_text(match.group(1), encoding="utf-8")
+          PY
+          node --check /tmp/fumoca-viewer-ad-bridge-check.js
       - name: Check Preflight module syntax
         shell: bash
         run: |
