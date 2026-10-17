@@ -1,5 +1,6 @@
 import r2 from '../r2Client.js';
 import { encodeNif } from './nif-format.js';
+import { compactGaussianSHSidecar, gaussianSHMetadata } from './nif-sh-sidecar.js';
 import { NIFReader, CHUNK } from '../../engine-next/format/NIFSpec.js';
 /**
  * FUMOCA Publish Engine v1
@@ -35,8 +36,14 @@ const FumocaPublish = (() => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const buf = await res.arrayBuffer();
         const reader = new NIFReader(buf);
+        // Geometry-indexed sidecars must be rebuilt against the current alive
+        // point list. Passing the source SH/LiDAR chunks through unchanged would
+        // leave stale point counts or misalign attributes after deletion.
         passthroughChunks = reader.chunks.filter(c =>
-          c.type !== CHUNK.KEYFRAME_GEO && c.type !== CHUNK.META && c.type !== CHUNK.THUMBNAIL);
+          ![
+            CHUNK.KEYFRAME_GEO, CHUNK.META, CHUNK.THUMBNAIL,
+            CHUNK.GAUSSIAN_SH, CHUNK.LIDAR_ATTR,
+          ].includes(c.type));
         vertical = reader.header?.vertical || 'generic';
       } catch (e) {
         console.warn('[Publish] Could not read original .nif for passthrough — proceeding without it:', e.message);
@@ -66,45 +73,99 @@ const FumocaPublish = (() => {
   }
 
   // ── Collect current edit state, encode as a real .nif ─────────────────────
-  async function _buildNifBlob({ title, description } = {}) {
-    const S = window.S;
-    if (!S?.alive) throw new Error('No splat loaded');
-
-    const meta = { title: title || S.fileName || 'Untitled', description: description || '' };
-    const { vertical, passthroughChunks } = await _loadOriginalForPassthrough();
-
-    // PLY source: isotropic point cloud (no per-point scale/rotation)
-    if (S.fileType === 'ply') {
-      const alive = [];
-      for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) alive.push(i);
-      const positions   = new Float32Array(alive.length * 3);
-      const colors01    = new Float32Array(alive.length * 3);
-      const opacities01 = new Float32Array(alive.length);
-      alive.forEach((i, row) => {
-        const pc = S.paintColors;
-        const r = pc && pc[i*3]   >= 0 ? pc[i*3]   : S.colors[i*3];
-        const g = pc && pc[i*3+1] >= 0 ? pc[i*3+1] : S.colors[i*3+1];
-        const b = pc && pc[i*3+2] >= 0 ? pc[i*3+2] : S.colors[i*3+2];
-        positions[row*3]   = S.positions[i*3];
-        positions[row*3+1] = S.positions[i*3+1];
-        positions[row*3+2] = S.positions[i*3+2];
-        colors01[row*3]   = r; colors01[row*3+1] = g; colors01[row*3+2] = b;
-        opacities01[row]  = S.opacity[i];
-      });
-      const buf = encodeNif({ positions, colors01, opacities01, meta, vertical, passthroughChunks });
-      return new Blob([buf], { type: 'application/octet-stream' });
+  function _encodeCurrentSplatRows(S, aliveIndices) {
+    const rows = new Uint8Array(aliveIndices.length * 32);
+    const view = new DataView(rows.buffer);
+    const clamp01 = value => Math.max(0, Math.min(1, value));
+    for (let row = 0; row < aliveIndices.length; row++) {
+      const i = aliveIndices[row], o = row * 32;
+      const xyz = [S.positions?.[i * 3], S.positions?.[i * 3 + 1], S.positions?.[i * 3 + 2]];
+      if (xyz.some(value => !Number.isFinite(value))) {
+        throw new Error(`Cannot publish: point ${i} has non-finite position data.`);
+      }
+      for (let c = 0; c < 3; c++) view.setFloat32(o + c * 4, xyz[c], true);
+      for (let c = 0; c < 3; c++) {
+        const scale = S.scaleXYZ?.[i * 3 + c] ?? S.scale?.[i] ?? 0.01;
+        if (!Number.isFinite(scale) || scale <= 0) throw new Error(`Cannot publish: point ${i} has invalid scale data.`);
+        view.setFloat32(o + 12 + c * 4, Math.max(1e-6, scale), true);
+      }
+      for (let c = 0; c < 3; c++) {
+        const painted = S.paintColors?.[i * 3 + c];
+        const value = painted != null && painted >= 0 ? painted : (S.colors?.[i * 3 + c] ?? 0.7);
+        if (!Number.isFinite(value)) throw new Error(`Cannot publish: point ${i} has invalid colour data.`);
+        rows[o + 24 + c] = Math.round(clamp01(value) * 255);
+      }
+      const opacity = S.opacity?.[i] ?? 1;
+      if (!Number.isFinite(opacity)) throw new Error(`Cannot publish: point ${i} has invalid opacity data.`);
+      rows[o + 27] = Math.round(clamp01(opacity) * 255);
+      const q = S.rotation
+        ? Array.from(S.rotation.subarray(i * 4, i * 4 + 4))
+        : [1, 0, 0, 0];
+      const qLength = Math.hypot(...q);
+      if (q.length !== 4 || !Number.isFinite(qLength) || qLength < 1e-8) {
+        throw new Error(`Cannot publish: point ${i} has invalid rotation data.`);
+      }
+      for (let c = 0; c < 4; c++) {
+        const normalized = q[c] / qLength;
+        rows[o + 28 + c] = Math.max(0, Math.min(255, Math.round(normalized * 128 + 128)));
+      }
     }
+    return rows;
+  }
 
-    // .splat source: filter alive Gaussians, pack straight into NIF KEYFRAME_GEO
-    if (!S.sourceBuffer) throw new Error('No source buffer');
+  function _compactLidarAttributes(S, aliveIndices) {
+    const compact = source => source ? aliveIndices.map(i => source[i] ?? 0) : null;
+    const intensity = S.lidarIntensity ? Uint16Array.from(compact(S.lidarIntensity)) : null;
+    const classification = S.lidarClassification ? Uint8Array.from(compact(S.lidarClassification)) : null;
+    const returnNumber = S.lidarReturnNumber ? Uint8Array.from(compact(S.lidarReturnNumber)) : null;
+    return intensity || classification || returnNumber ? { intensity, classification, returnNumber } : null;
+  }
+
+  async function _buildNifBlob({ title, description, parentMeta } = {}) {
+    const S = window.S;
+    if (!S?.alive || !S.positions) throw new Error('No splat loaded');
+
     const aliveIndices = [];
     for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) aliveIndices.push(i);
+    if (!aliveIndices.length) throw new Error('Cannot publish an empty scene: no live points remain.');
+
+    const sourceMeta = {
+      ...(S.nifMeta && typeof S.nifMeta === 'object' ? S.nifMeta : {}),
+      ...(parentMeta && typeof parentMeta === 'object' ? parentMeta : {}),
+    };
+    const gaussianSH = compactGaussianSHSidecar({
+      indices: aliveIndices,
+      attributes: S.shAttributes || [],
+      coefficients: S.shCoefficients,
+      pointCount: S.alive.length,
+      paintColors: S.paintColors,
+      colors: S.colors,
+    });
+    if (sourceMeta.gaussian_sh && !gaussianSH) {
+      throw new Error('Publishing blocked: metadata declares Gaussian SH data but the coefficient sidecar is unavailable.');
+    }
+    const gaussianShMeta = gaussianSH ? gaussianSHMetadata(gaussianSH, S.shAttributes) : null;
+    const meta = {
+      ...sourceMeta,
+      ...(gaussianShMeta ? { gaussian_sh: gaussianShMeta } : {}),
+      title: title || window._fumocaCurrentRecord?.title || S.fileName || 'Untitled',
+      description: description ?? sourceMeta.description ?? window._fumocaCurrentRecord?.description ?? '',
+    };
+    const editorScene = window._fumocaSerializeEditorSceneMetadata?.(aliveIndices);
+    if (editorScene) meta.editor_scene = editorScene;
+    else if (sourceMeta.editor_scene) delete meta.editor_scene; // Never publish stale point-index mappings.
+
+    const { vertical, passthroughChunks } = await _loadOriginalForPassthrough();
+    const rows = _encodeCurrentSplatRows(S, aliveIndices);
+    const compactIndices = Array.from({ length: aliveIndices.length }, (_, i) => i);
     const buf = encodeNif({
-      sourceBuffer: new Uint8Array(S.sourceBuffer),
-      aliveIndices,
-      rowSize: S.splatRowSize,
+      sourceBuffer: rows,
+      aliveIndices: compactIndices,
+      rowSize: 32,
       meta,
       vertical,
+      gaussianSH: gaussianSH || undefined,
+      lidarAttributes: _compactLidarAttributes(S, aliveIndices),
       passthroughChunks,
     });
     return new Blob([buf], { type: 'application/octet-stream' });
@@ -158,7 +219,7 @@ const FumocaPublish = (() => {
     onProgress?.('Preparing splat…', 10);
 
     // 1. Build a genuine .nif blob (no .fumoc, no bare .splat/.ply)
-    const blob = await _buildNifBlob({ title, description });
+    const blob = await _buildNifBlob({ title, description, parentMeta: existingMeta });
     onProgress?.('Uploading…', 20);
 
     // 2. Upload to storage
