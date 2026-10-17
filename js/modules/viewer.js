@@ -348,12 +348,12 @@ async function deleteCurrentUpload() {
 }
 function firstNonEmpty(...values) { return values.find(v => typeof v === 'string' && v.trim()) || ''; }
 function getStorageAssetId() {
-  return nifId || (currentRecord?.r2_key ? \`r2:\${currentRecord.r2_key}\` : resolvenifUrl(currentRecord) || originalnifUrl || fileUrl || 'default');
+  return nifId || (currentRecord?.r2_key ? `r2:${currentRecord.r2_key}` : resolvenifUrl(currentRecord) || originalnifUrl || fileUrl || 'default');
 }
-function getHotspotStorageKey() { return \`fumoca:hotspots:\${getStorageAssetId()}\`; }
-function getLookStorageKey() { return \`fumoca:look:\${getStorageAssetId()}\`; }
-function getMaskStorageKey() { return \`fumoca:masks:\${getStorageAssetId()}\`; }
-function getLassoStorageKey() { return \`fumoca:lasso:\${getStorageAssetId()}\`; }
+function getHotspotStorageKey() { return `fumoca:hotspots:${getStorageAssetId()}`; }
+function getLookStorageKey() { return `fumoca:look:${getStorageAssetId()}`; }
+function getMaskStorageKey() { return `fumoca:masks:${getStorageAssetId()}`; }
+function getLassoStorageKey() { return `fumoca:lasso:${getStorageAssetId()}`; }
 function loadHotspots() {
   try { hotspots = JSON.parse(localStorage.getItem(getHotspotStorageKey()) || '[]'); } catch (_) { hotspots = []; }
 }
