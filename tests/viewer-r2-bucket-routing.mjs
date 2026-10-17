@@ -48,4 +48,6 @@ assert.match(boot, /isR2WorkerFileUrl/);
 assert.match(boot, /!isR2WorkerFileUrl/, 'R2 Worker URLs must skip unsupported HEAD probes');
 assert.match(boot, /authenticatedUrl\(currentRecord\.r2_key\)/, 'private NIFs must use an authenticated read ticket');
 assert.match(boot, /!privateReadAuthorizationFailed/, 'failed private authorization must not fall back to an anonymous URL');
+assert.match(viewer, /function getStorageAssetId\(\)/, 'edit state must use a stable canonical asset identity');
+assert.match(viewer, /fumoca:hotspots:\$\{getStorageAssetId\(\)\}/, 'private ticket URLs must not fragment local edit state across sessions');
 console.log('Viewer R2 bucket routing contracts passed.');
