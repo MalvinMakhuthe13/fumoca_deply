@@ -2794,11 +2794,9 @@ async function _fumocaSaveVariant(name = null) {
       console.warn('[fumoca] variant remote save failed', err?.message || err);
       // Keep a local copy for the current session, but the event below clearly
       // reports that the remote NIF record was not updated.
-      if (!metadata.variants) {
-        const variants = Array.isArray(metadata.variants) ? metadata.variants.slice() : [];
-        variants.unshift(recipe);
-        metadata = { ...metadata, variants: variants.slice(0, 25) };
-      }
+      const localVariants = Array.isArray(metadata.variants) ? metadata.variants.slice() : [];
+      if (!localVariants.some(item => item?.id === recipe.id)) localVariants.unshift(recipe);
+      metadata = { ...metadata, variants: localVariants.slice(0, 25) };
     }
   } else {
     const variants = Array.isArray(metadata.variants) ? metadata.variants.slice() : [];
