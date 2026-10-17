@@ -15,6 +15,7 @@ function normalizeStatus(status) {
   if (['failed', 'failed_reconstruction', 'error'].includes(raw)) return 'Failed';
   if (['cancelled', 'canceled'].includes(raw)) return 'Cancelled';
   if (['processing', 'running', 'training', 'rendering'].includes(raw)) return 'Processing';
+  if (raw === 'staged') return 'Staged — not queued';
   if (['queued', 'pending', 'waiting'].includes(raw)) return 'Queued';
   return raw.replaceAll('_', ' ');
 }
@@ -106,6 +107,7 @@ async function init() {
       details.push(job._source === 'NIF' ? 'NIF pipeline' : 'Legacy pipeline');
       const subtitle = textNode('div', 'mini-item-sub', details.join(' · '));
       item.append(title, subtitle);
+      if (job.meta?.status_message) item.appendChild(textNode('div', 'mini-item-sub', job.meta.status_message));
       if (job.error_message) item.appendChild(textNode('div', 'mini-item-sub', 'Error: ' + job.error_message));
       wrap.appendChild(item);
     }
