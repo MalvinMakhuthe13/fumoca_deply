@@ -4696,19 +4696,9 @@ window.saveLiveEdit = async function saveLiveEdit(extra = {}) {
       const path = `${splatId}/edited_${Date.now()}.nif`;
       const r2 = await getR2Client();
       const { fileKey, error: upErr } = await r2.from('nif-files')
-        .upload(path, savedBlob, { contentType: savedContentType });
+        .upload(path, savedBlob, { contentType: 'application/octet-stream' });
 
       if (!upErr && fileKey) {
-        const currentMeta = window._fumocaCurrentRecord?.meta || {};
-        const meta = {
-          ...currentMeta,
-          editor_scene: serializeEditorSceneMetadata(aliveIdx),
-          last_edited_at: new Date().toISOString(),
-          edit_completed: true,
-          ...(extra.hotspots !== undefined ? { hotspots: extra.hotspots } : {}),
-          ...(extra.teaser_video_url ? { teaser_video_url: extra.teaser_video_url } : {}),
-          ...(extra.type === 'solidify_to_object' ? { asset_type: 'object' } : {}),
-        };
         const { data, error } = await sb.from('nif_files')
           .update({ r2_key: fileKey, gaussian_count: aliveCount, meta })
           .eq('id', splatId)
