@@ -245,6 +245,23 @@ export function encodeNif(opts = {}) {
     throw new Error('[nif-format] encodeNif: no geometry source provided');
   }
 
+  // The raw/uncompressed branch bypasses the quantized packer, so apply
+  // the same safety checks here rather than allowing NaN bounds into a NIF.
+  if (opts.compressed === false) {
+    if (!(geoData instanceof Float32Array) || geoData.length % FLOATS_PER_POINT !== 0 ||
+        geoData.length !== count * FLOATS_PER_POINT) {
+      throw new Error('[nif-format] geometry length must equal point count × 14 floats');
+    }
+    if (!Number.isInteger(count) || count < 1) {
+      throw new Error('[nif-format] geometry must contain at least one point');
+    }
+    for (let i = 0; i < geoData.length; i++) {
+      if (!Number.isFinite(geoData[i])) {
+        throw new Error(`[nif-format] geometry contains a non-finite value at float index ${i}`);
+      }
+    }
+  }
+
   const writer = new NIFWriter({
     vertical: opts.vertical ?? 'generic',
     frameCount: 1,
