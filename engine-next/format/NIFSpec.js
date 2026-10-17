@@ -19,11 +19,9 @@ export const NIF_VERSION_MAJOR = 1;
 const MAX_NIF_GAUSSIANS = 5_000_000; // Guard browser allocations when opening untrusted files.
 const MAX_DECOMPRESSED_CHUNK_BYTES = 512 * 1024 * 1024; // Refuse gzip bombs / oversized browser allocations.
 
-export const NIF_VERSION_MINOR = 1;  // 1.1: added CALIBRATION (0x0017) and
-                                      // VERIFICATION (0x0018) chunk types.
-                                      // Per §12 of NIF_SPEC_v1.0.md, this is
-                                      // a minor bump — old readers that
-                                      // ignore unknown chunks stay compatible.
+export const NIF_VERSION_MINOR = 2;  // 1.2: added GAUSSIAN_SH (0x001A) for exact Gaussian PLY coefficients.
+                                      // v1.1 added CALIBRATION (0x0017) and VERIFICATION (0x0018).
+                                      // Additive chunks remain compatible with v1.x readers that skip unknown IDs.
 
 /**
  * ── Shared chunk-ID registry with .spax ──────────────────────────────────
