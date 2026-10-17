@@ -13,6 +13,11 @@ for (const legacyColumn of ['category', 'visibility', 'status', 'processing_stag
   assert.doesNotMatch(base, new RegExp('\\b' + legacyColumn + '\\s*:'), `legacy field ${legacyColumn} belongs in meta, not as a nif_files column`);
 }
 assert.match(base, /is_public: visibility === 'public'/, 'publication must persist to is_public');
+const directStart = source.indexOf("const { data: nif, error: dbErr } = await supabase.from('nif_files').insert([");
+const directEnd = source.indexOf("}]).select().single();", directStart);
+assert.ok(directStart >= 0 && directEnd > directStart, 'direct NIF/CPU conversion insert must exist');
+assert.match(source.slice(directStart, directEnd), /is_public: visibility === 'public'/,
+  'direct NIF, SPLAT-to-NIF and PLY-to-NIF imports must honor the selected visibility');
 assert.match(source, /const refPath = `\$\{userId\}\/verify-refs\//, 'verification references must use an owner-prefixed key accepted by the R2 ownership guard');
 const extStart = source.indexOf('async function createExternalNif');
 const extEnd = source.indexOf('\nfunction captureMetadata', extStart);
