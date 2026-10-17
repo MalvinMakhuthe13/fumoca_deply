@@ -596,7 +596,7 @@ window.handleSubmit = async function() {
       const zipBlob = new Blob([zipBytes], { type: 'application/zip' });
 
       setProgress(45, `Uploading ${(zipBlob.size / 1024 / 1024).toFixed(1)} MB…`);
-      const zipPath = `raw/${user.id}/${Date.now()}_burst.zip`;
+      const zipPath = `${user.id}/raw/${Date.now()}_burst.zip`;
       const { fileKey, error: r2Err } = await r2
         .from('nif-videos')
         .upload(zipPath, zipBlob, {
@@ -625,7 +625,7 @@ window.handleSubmit = async function() {
         vertical: category || 'generic',
         capture_mode: 'burst',
         raw_r2_key: fileKey,
-        meta: { ...captureMetadata(title, desc, calibVerifyMeta), photo_count: selectedFiles.length, thumbnail_r2_key: uploadedThumbnail.fileKey, capture_thumbnail_r2_key: uploadedThumbnail.fileKey, source_r2_key: fileKey, source_capture: { r2_key: fileKey, filename: `${title || 'photo-capture'}.zip`, format: 'photo_zip', photo_count: selectedFiles.length, created_at: new Date().toISOString() } },
+        meta: { ...captureMetadata(title, desc, calibVerifyMeta), photo_count: selectedFiles.length, thumbnail_r2_key: uploadedThumbnail.fileKey, capture_thumbnail_r2_key: uploadedThumbnail.fileKey, source_r2_key: fileKey, source_capture: { r2_key: fileKey, r2_bucket: 'nif-videos', filename: `${title || 'photo-capture'}.zip`, format: 'photo_zip', photo_count: selectedFiles.length, created_at: new Date().toISOString() } },
       }).select().single();
       if (jobError) throw jobError;
 
@@ -853,7 +853,7 @@ window.handleSubmit = async function() {
         meta: {
           source_type: isSplat ? 'splat_to_nif' : ext === 'ply' ? 'ply_to_nif' : 'direct_nif',
           source_filename: selectedFile.name,
-          source_capture: { r2_key: sourceKey, public_url: sourceUrl, filename: selectedFile.name, format: ext, byte_size: selectedFile.size },
+          source_capture: { r2_key: sourceKey, r2_bucket: 'nif-files', public_url: sourceUrl, filename: selectedFile.name, format: ext, byte_size: selectedFile.size },
           source_r2_key: sourceKey,
           source_public_url: sourceUrl,
           output_format: (isSplat || ext === 'ply') ? 'nif' : ext,
@@ -904,7 +904,7 @@ window.handleSubmit = async function() {
       vertical: category || 'generic',
       capture_mode: 'video',
       raw_r2_key: filePath,
-      meta: { ...captureMetadata(title, desc, calibVerifyMeta), video_filename: selectedFile.name, thumbnail_r2_key: uploadedThumbnail.fileKey, capture_thumbnail_r2_key: uploadedThumbnail.fileKey, source_r2_key: filePath, source_capture: { r2_key: filePath, filename: selectedFile.name, format: selectedFile.type || 'video', byte_size: selectedFile.size, created_at: new Date().toISOString() } },
+      meta: { ...captureMetadata(title, desc, calibVerifyMeta), video_filename: selectedFile.name, thumbnail_r2_key: uploadedThumbnail.fileKey, capture_thumbnail_r2_key: uploadedThumbnail.fileKey, source_r2_key: filePath, source_capture: { r2_key: filePath, r2_bucket: 'nif-videos', filename: selectedFile.name, format: selectedFile.type || 'video', byte_size: selectedFile.size, created_at: new Date().toISOString() } },
     }).select().single();
     if (jobError) throw jobError;
 
