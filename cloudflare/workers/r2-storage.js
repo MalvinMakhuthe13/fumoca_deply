@@ -726,8 +726,13 @@ export default {
         return json({ error: 'Unauthorized — sign in and try again' }, 401, cors);
       }
 
-      const fileKey = sanitiseKey(decodeURIComponent(path.slice('/upload/'.length)));
-      if (!fileKey) return json({ error: 'Missing key' }, 400, cors);
+      let fileKey;
+      try {
+        fileKey = sanitiseKey(decodeURIComponent(path.slice('/upload/'.length)));
+      } catch {
+        return json({ error: 'Malformed file key' }, 400, cors);
+      }
+      if (!fileKey) return json({ error: 'Invalid file key' }, 400, cors);
       const mayWrite = await userMayWriteFileKey(request, env, principal, bucketParam, fileKey);
       if (!mayWrite) return json({ error: 'Forbidden — you may not write this file key' }, 403, cors);
 
@@ -830,8 +835,13 @@ export default {
       if (!principal) {
         return json({ error: 'Unauthorized — sign in and try again' }, 401, cors);
       }
-      const fileKey = sanitiseKey(decodeURIComponent(path.slice('/file/'.length)));
-      if (!fileKey) return json({ error: 'Missing key' }, 400, cors);
+      let fileKey;
+      try {
+        fileKey = sanitiseKey(decodeURIComponent(path.slice('/file/'.length)));
+      } catch {
+        return json({ error: 'Malformed file key' }, 400, cors);
+      }
+      if (!fileKey) return json({ error: 'Invalid file key' }, 400, cors);
 
       const ownsKey = await userOwnsFileKey(request, env, principal, bucketParam, fileKey);
       if (!ownsKey) {
