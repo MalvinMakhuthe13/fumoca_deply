@@ -105,6 +105,7 @@ jobs:
           grep -q "userMayWriteFileKey(request, env, principal, bucket, fileKey)" cloudflare/workers/r2-storage.js
           grep -q "userMayWriteFileKey(request, env, principal, bucketParam, safeFileKey)" cloudflare/workers/r2-storage.js
           grep -q "userMayWriteFileKey(request, env, principal, bucketParam, fileKey)" cloudflare/workers/r2-storage.js
+          grep -q "userMayWriteFileKey(request, env, principal, bucketParam, fileKey)" cloudflare/workers/r2-storage.js
           grep -q "const ownsKey = await userOwnsFileKey(request, env, principal, bucketParam, fileKey)" cloudflare/workers/r2-storage.js
           grep -q "Forbidden — you do not own this file key" cloudflare/workers/r2-storage.js
           grep -q "user_id:" cloudflare/workers/r2-storage.js
