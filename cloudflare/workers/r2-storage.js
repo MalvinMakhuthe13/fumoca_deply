@@ -445,15 +445,17 @@ export default {
       };
       const presignConfigured = !!(env.ACCOUNT_ID && env.R2_ACCESS_KEY_ID && env.R2_SECRET_ACCESS_KEY);
       const supabaseConfigured = !!(env.SUPABASE_URL && env.SUPABASE_ANON_KEY);
+      const readTicketsConfigured = !!env.FUMOCA_API_SECRET;
       const allBucketsBound = Object.values(buckets).every(Boolean);
 
       return json({
-        ok: allBucketsBound && supabaseConfigured,
+        ok: allBucketsBound && supabaseConfigured && readTicketsConfigured,
         service: 'fumoca-r2',
         ts: Date.now(),
         buckets,
         presignConfigured,
         supabaseConfigured,
+        readTicketsConfigured,
       }, 200, cors);
     }
 
