@@ -308,13 +308,8 @@ async function deleteCurrentUpload() {
   const original = btn?.textContent || 'Delete upload';
   if (btn) { btn.disabled = true; btn.textContent = 'Deletingâ€¦'; }
   try {
-    // nif_files stores canonical R2 keys; CDN URLs cannot be parsed as
-    // Supabase Storage URLs. Delete the owned record first, then clean its
-    // known NIF/source/thumbnail objects from the correct R2 bucket.
-    const { error } = await supabase.from('nif_files')
-      .delete().eq('id', currentRecord.id).eq('user_id', currentRecord.user_id);
-    if (error) throw error;
-
+    // Keep the ownership row available while the Worker verifies each R2 key.
+    // Remove the row only after all known objects have been cleaned successfully.
     const cleanupTargets = [
       { bucket: 'nif-files', key: currentRecord.r2_key },
       { bucket: 'nif-videos', key: currentRecord.meta?.source_r2_key },
@@ -330,8 +325,11 @@ async function deleteCurrentUpload() {
       cleanupTargets.map(({ bucket, key }) => r2.from(bucket).remove([key]))
     );
     if (cleanup.some(result => result.status === 'rejected' || result.value?.error)) {
-      console.warn('[FUMOCA viewer] NIF row deleted; some R2 objects may need cleanup', currentRecord.id);
+      throw new Error('Some storage objects could not be deleted. The NIF record was kept so cleanup can be retried.');
     }
+    const { error } = await supabase.from('nif_files')
+      .delete().eq('id', currentRecord.id).eq('user_id', currentRecord.user_id);
+    if (error) throw error;
     window.location.href = 'feed.html';
   } catch (err) {
     console.error('[FUMOCA delete upload]', err);
