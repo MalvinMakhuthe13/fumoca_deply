@@ -4655,21 +4655,45 @@ window.saveLiveEdit = async function saveLiveEdit(extra = {}) {
     try {
       const aliveIdx = [];
       for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) aliveIdx.push(i);
-      const hasSh = (S.shAttributes || []).length > 0;
-      const savedBlob = hasSh ? _encodeGaussianPly(aliveIdx) : new Blob([encodeNif({
+      const gaussianSH = compactGaussianSHSidecar({
+        indices: aliveIdx,
+        attributes: S.shAttributes || [],
+        coefficients: S.shCoefficients,
+        pointCount: S.alive.length,
+        paintColors: S.paintColors,
+        colors: S.colors,
+      });
+      if (S.nifMeta?.gaussian_sh && !gaussianSH) {
+        throw new Error('Save blocked: this scene declares Gaussian SH data but its coefficient sidecar is unavailable.');
+      }
+      const gaussianShMeta = gaussianSH ? gaussianSHMetadata(gaussianSH, S.shAttributes) : null;
+      const layerData = _compactNifLayers(aliveIdx);
+      const currentMeta = window._fumocaCurrentRecord?.meta || {};
+      const meta = _withLayerGeoQuality({
+        ...(S.nifMeta || {}),
+        ...currentMeta,
+        ...(gaussianShMeta ? { gaussian_sh: gaussianShMeta } : {}),
+        editor_scene: serializeEditorSceneMetadata(aliveIdx),
+        last_edited_at: new Date().toISOString(),
+        edit_completed: true,
+        ...(extra.hotspots !== undefined ? { hotspots: extra.hotspots } : {}),
+        ...(extra.teaser_video_url ? { teaser_video_url: extra.teaser_video_url } : {}),
+        ...(extra.type === 'solidify_to_object' ? { asset_type: 'object' } : {}),
+      }, layerData.droppedUnindexed);
+      const savedBlob = new Blob([encodeNif({
         sourceBuffer: rowBytes,
         aliveIndices: Array.from({ length: aliveIdx.length }, (_, i) => i),
         rowSize: 32,
-        meta: { ...(S.nifMeta || {}), editor_scene: serializeEditorSceneMetadata(aliveIdx) },
+        meta,
+        gaussianSH: gaussianSH || undefined,
         thumbnailBytes: S.nifThumbnailBytes || undefined,
         mesh: S.nifMesh || undefined,
         lidarAttributes: _compactLidarAttributes(aliveIdx),
+        layers: layerData.layers,
         passthroughChunks: S.nifPassthroughChunks || [],
-        vertical: S.nifMeta?.vertical || 'generic',
+        vertical: S.nifVertical || S.nifMeta?.vertical || 'generic',
       })], { type: 'application/octet-stream' });
-      const savedExt = hasSh ? 'ply' : 'nif';
-      const savedContentType = hasSh ? 'text/plain' : 'application/octet-stream';
-      const path = `${splatId}/edited_${Date.now()}.${savedExt}`;
+      const path = `${splatId}/edited_${Date.now()}.nif`;
       const r2 = await getR2Client();
       const { fileKey, error: upErr } = await r2.from('nif-files')
         .upload(path, savedBlob, { contentType: savedContentType });
