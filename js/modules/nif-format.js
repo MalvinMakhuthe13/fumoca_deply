@@ -27,6 +27,7 @@ import {
 } from '../../engine-next/format/NIFSpec.js';
 
 const FLOATS_PER_POINT = 14;
+const MAX_CONVERSION_GAUSSIANS = 5_000_000;
 
 // ── logit / sigmoid helpers (canonical NIF color+opacity space) ──────────────
 function logit(p) {
@@ -63,6 +64,9 @@ function splatRowsToGeometry(sourceBuffer, aliveIndices, rowSize = 32) {
   }
   const dv    = new DataView(sourceBuffer.buffer, sourceBuffer.byteOffset, sourceBuffer.byteLength);
   const count = aliveIndices.length;
+  if (count < 1 || count > MAX_CONVERSION_GAUSSIANS) {
+    throw new Error(`[nif-format] SPLAT conversion point count must be between 1 and ${MAX_CONVERSION_GAUSSIANS}`);
+  }
   const out   = new Float32Array(count * FLOATS_PER_POINT);
 
   aliveIndices.forEach((srcIdx, row) => {
@@ -119,7 +123,7 @@ function plyPointsToGeometry(positions, colors01, opacities01) {
     throw new Error('[nif-format] PLY positions, colors and opacities must be array-like');
   }
   const count = opacities01.length;
-  if (count < 1 || positions.length !== count * 3 || colors01.length !== count * 3) {
+  if (count < 1 || count > MAX_CONVERSION_GAUSSIANS || positions.length !== count * 3 || colors01.length !== count * 3) {
     throw new Error('[nif-format] PLY positions and colors must each contain exactly 3 values per point');
   }
   for (let i = 0; i < positions.length; i++) {
@@ -676,7 +680,7 @@ export function gaussiansToRenderArrays(gaussians) {
 // purely to hand off to the already-working render path.
 export function geometryToSplatRows(gaussians) {
   const { count, data } = gaussians || {};
-  if (!Number.isInteger(count) || count < 1 || count > 5_000_000 ||
+  if (!Number.isInteger(count) || count < 1 || count > MAX_CONVERSION_GAUSSIANS ||
       !(data instanceof Float32Array) || data.length !== count * FLOATS_PER_POINT) {
     throw new Error('[nif-format] decoded geometry has an invalid point count or data length');
   }
