@@ -130,14 +130,27 @@ async function deletePostRecord(post, opts = {}) {
   // Keep the ownership row available while the Worker verifies each R2 key.
   // Route canonical keys to their actual buckets; CDN URLs aren't Supabase paths.
   const filesToDelete = [];
-  for (const item of [
+  const sourceCapture = post.meta?.source_capture;
+  const candidates = [
     { bucket: 'nif-files', path: post.r2_key },
+    { bucket: 'nif-files', path: post.meta?.source_r2_key },
     { bucket: 'nif-videos', path: post.meta?.source_r2_key },
-    { bucket: 'nif-videos', path: post.meta?.source_capture?.r2_key },
+    { bucket: sourceCapture?.r2_bucket || sourceCapture?.bucket || 'nif-files', path: sourceCapture?.r2_key },
+    ...(!sourceCapture?.r2_bucket && !sourceCapture?.bucket && sourceCapture?.r2_key
+      ? [{ bucket: 'nif-videos', path: sourceCapture.r2_key }] : []),
+    ...(Array.isArray(post.meta?.lidar_sources) ? post.meta.lidar_sources.flatMap(source => [
+      { bucket: source?.r2_bucket || source?.bucket || 'nif-files', path: source?.r2_key },
+      ...(!source?.r2_bucket && !source?.bucket && source?.r2_key ? [{ bucket: 'nif-videos', path: source.r2_key }] : []),
+    ]) : []),
+    { bucket: 'nif-files', path: post.meta?.mobile_asset_r2_key },
+    { bucket: 'nif-files', path: post.meta?.cleaned_splat?.r2_key },
+    ...(Array.isArray(post.meta?.open_variant_r2_keys)
+      ? post.meta.open_variant_r2_keys.map(path => ({ bucket: 'nif-files', path })) : []),
     { bucket: 'thumbnails', path: post.meta?.thumbnail_r2_key },
     { bucket: 'thumbnails', path: post.meta?.capture_thumbnail_r2_key },
     { bucket: 'preview-videos', path: post.meta?.teaser_video_r2_key },
-  ]) {
+  ];
+  for (const item of candidates) {
     if (typeof item.path === 'string' && item.path.trim()) filesToDelete.push(item);
   }
   if (post.video_path && post.video_bucket) {
