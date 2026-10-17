@@ -2127,7 +2127,7 @@ function _renderLidarSourceLinks(meta = {}) {
         const tab = window.open('about:blank', '_blank');
         try {
           const r2 = await getR2Client();
-          const bucket = source.r2_bucket || source.bucket || 'nif-files';
+          const bucket = source.r2_bucket || source.bucket || (source.r2_key.startsWith('raw/') ? 'nif-videos' : 'nif-files');
           const authorizedUrl = await r2.from(bucket).authenticatedUrl(source.r2_key);
           if (tab && !tab.closed) {
             tab.location.href = authorizedUrl;
