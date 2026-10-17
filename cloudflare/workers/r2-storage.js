@@ -48,7 +48,7 @@ const DEFAULT_MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
 const ALLOWED_MIME_TYPES = {
   'nif-videos': ['video/mp4', 'video/webm', 'video/quicktime', 'application/zip'],
   'preview-videos': ['video/mp4', 'video/webm'],
-  'nif-files': ['application/octet-stream','application/x-ply','model/x-ply','application/ply','model/ply','model/gltf-binary','application/zip'],
+  'nif-files': ['application/octet-stream','application/x-ply','model/x-ply','application/ply','model/ply','model/gltf-binary','application/zip','text/html'],
   'thumbnails': ['image/jpeg', 'image/png', 'image/webp'],
   'avatars': ['image/jpeg', 'image/png', 'image/webp'],
 };
@@ -165,7 +165,7 @@ async function userOwnsFileKey(request, env, principal, bucketName, fileKey) {
     select: 'id,r2_key,meta',
     user_id: `eq.${principal.id}`,
     limit: '1',
-    or: `(r2_key.eq.${encodedKey},meta->>source_r2_key.eq.${encodedKey},meta->source_capture->>r2_key.eq.${encodedKey},meta->>thumbnail_r2_key.eq.${encodedKey},meta->>capture_thumbnail_r2_key.eq.${encodedKey},meta->>teaser_video_r2_key.eq.${encodedKey},meta->cleaned_splat->>r2_key.eq.${encodedKey})`,
+    or: `(r2_key.eq.${encodedKey},meta->>source_r2_key.eq.${encodedKey},meta->source_capture->>r2_key.eq.${encodedKey},meta->>thumbnail_r2_key.eq.${encodedKey},meta->>capture_thumbnail_r2_key.eq.${encodedKey},meta->>teaser_video_r2_key.eq.${encodedKey},meta->cleaned_splat->>r2_key.eq.${encodedKey},meta->>mobile_asset_r2_key.eq.${encodedKey})`,
   });
   try {
     const response = await fetch(`${env.SUPABASE_URL}/rest/v1/nif_files?${query}`, {
@@ -186,6 +186,8 @@ async function userOwnsFileKey(request, env, principal, bucketName, fileKey) {
         meta.thumbnail_r2_key,
         meta.capture_thumbnail_r2_key,
         meta.teaser_video_r2_key,
+        meta.cleaned_splat?.r2_key,
+        meta.mobile_asset_r2_key,
       ];
       return knownKeys.includes(fileKey);
     });
@@ -265,7 +267,7 @@ async function authorizeFileRead(request, env, principal, bucketName, fileKey) {
   const query = new URLSearchParams({
     select: 'id,user_id,r2_key,is_public,meta',
     limit: '20',
-    or: `(r2_key.eq.${encodedKey},meta->>source_r2_key.eq.${encodedKey},meta->source_capture->>r2_key.eq.${encodedKey},meta->>thumbnail_r2_key.eq.${encodedKey},meta->>capture_thumbnail_r2_key.eq.${encodedKey},meta->>teaser_video_r2_key.eq.${encodedKey},meta->cleaned_splat->>r2_key.eq.${encodedKey})`,
+    or: `(r2_key.eq.${encodedKey},meta->>source_r2_key.eq.${encodedKey},meta->source_capture->>r2_key.eq.${encodedKey},meta->>thumbnail_r2_key.eq.${encodedKey},meta->>capture_thumbnail_r2_key.eq.${encodedKey},meta->>teaser_video_r2_key.eq.${encodedKey},meta->cleaned_splat->>r2_key.eq.${encodedKey},meta->>mobile_asset_r2_key.eq.${encodedKey})`,
   });
   try {
     const response = await fetch(`${env.SUPABASE_URL}/rest/v1/nif_files?${query}`, { headers });
@@ -284,12 +286,16 @@ async function authorizeFileRead(request, env, principal, bucketName, fileKey) {
       const isSource = bucketName === 'nif-videos' &&
         [meta.source_r2_key, meta.source_capture?.r2_key].includes(fileKey);
       const isPreviewVideo = bucketName === 'preview-videos' && meta.teaser_video_r2_key === fileKey;
+      const isMobileAsset = bucketName === 'nif-files' && meta.mobile_asset_r2_key === fileKey;
       const isCleanedSplat = bucketName === 'nif-files' && meta.cleaned_splat?.r2_key === fileKey;
       const owner = !!(principal?.kind === 'user' && principal.id && row?.user_id === principal.id);
       if (isNifOutput && row.is_public === true) {
         return { allowed: true, isPublic: true, reason: 'published-nif' };
       }
-      if (owner && (isNifOutput || isThumbnail || isSource || isPreviewVideo || isCleanedSplat)) {
+      if (isMobileAsset && row.is_public === true) {
+        return { allowed: true, isPublic: true, reason: 'published-nif-mobile-asset' };
+      }
+      if (owner && (isNifOutput || isThumbnail || isSource || isPreviewVideo || isCleanedSplat || isMobileAsset)) {
         return { allowed: true, isPublic: false, reason: 'owner-associated-file' };
       }
       if (isThumbnail && row.is_public === true) {
@@ -1023,6 +1029,9 @@ export default {
         'ETag': obj.etag,
         'Accept-Ranges': 'bytes',
         'X-Content-Type-Options': 'nosniff',
+        ...(contentType.split(';', 1)[0].trim().toLowerCase() === 'text/html' ? {
+          'Content-Security-Policy': "sandbox allow-scripts allow-top-navigation-by-user-activation; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src https: data:; media-src https:; font-src https: data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+        } : {}),
         ...cors,
       };
       if (parsedRange && totalSize !== null) {
