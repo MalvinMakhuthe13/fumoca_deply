@@ -382,6 +382,24 @@ async function uploadMultipart(
   }
 }
 
+async function deleteR2Object(bucketName, path, token) {
+  const response = await fetch(`${WORKER_URL}/file/${encodeURIComponent(path)}?bucket=${encodeURIComponent(bucketName)}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const responseText = await response.text();
+  let data = null;
+  try { data = JSON.parse(responseText); } catch { /* keep raw response */ }
+  if (!response.ok) {
+    throw new Error(
+      data?.error ||
+      responseText ||
+      `R2 delete failed (${response.status})`
+    );
+  }
+  return data;
+}
+
 function bucketRef(bucketName) {
   return {
     /**
@@ -462,12 +480,7 @@ function bucketRef(bucketName) {
       try {
         const token = await getAccessToken();
         const list = Array.isArray(paths) ? paths : [paths];
-        await Promise.all(list.map((p) =>
-          fetch(`${WORKER_URL}/file/${encodeURIComponent(p)}?bucket=${encodeURIComponent(bucketName)}`, {
-            method: 'DELETE',
-            headers: { Authorization: `Bearer ${token}` },
-          })
-        ));
+        await Promise.all(list.map((p) => deleteR2Object(bucketName, p, token)));
         return { error: null };
       } catch (err) {
         return { error: err instanceof Error ? err : new Error(String(err)) };
