@@ -32,6 +32,10 @@ assert.equal(dcOnly.detectedShDegree, 0);
 assert.deepEqual(dcOnly.discardedAttributes, []);
 assert.deepEqual(dcOnly.qualityFlags, []);
 
+const incompleteGaussian = inspectPlyAttributes(['x', 'y', 'z', 'f_rest_0', 'f_rest_1', 'f_rest_2'], false);
+assert.equal(incompleteGaussian.hasUnsupportedShLayout, true,
+  'SH coefficients without the full Gaussian PLY schema must not silently fall back to point-cloud import');
+
 const pointCloud = inspectPlyAttributes(['x', 'y', 'z', 'red', 'green', 'blue'], false);
 assert.deepEqual(pointCloud.qualityFlags, ['point_cloud_not_gaussian', 'mesh_reconstruction_not_run']);
 assert.deepEqual(pointCloud.discardedAttributes, []);
