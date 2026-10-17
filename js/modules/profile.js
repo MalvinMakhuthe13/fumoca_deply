@@ -21,7 +21,10 @@ function firstNonEmpty(...values) {
 }
 
 function resolveUrl(row) {
-  return firstNonEmpty(row.splat_url, row.output_url, row.public_url, row.file_url, row.external_splat_url, row.provider_splat_url);
+  const stored = firstNonEmpty(row.splat_url, row.nif_url, row.output_url, row.public_url,
+    row.file_url, row.external_nif_url, row.external_splat_url, row.provider_nif_url, row.provider_splat_url);
+  if (stored) return stored;
+  return row?.r2_key ? r2.publicUrl('nif-files', row.r2_key) || '' : '';
 }
 
 function extractStoragePath(urlString) {
@@ -36,12 +39,45 @@ function extractStoragePath(urlString) {
 
 async function deleteUploadRecord(item) {
   if (item.source === 'nif_files') {
-    if (item.output_url) {
-      const hit = extractStoragePath(item.output_url);
-      if (hit) { try { await r2.from(hit.bucket).remove([hit.path]); } catch (_) {} }
+    // Read the related source key before deleting the record/job. NIF worker
+    // outputs store R2 object keys (not Supabase Storage URLs), and the worker
+    // uses job.id === nif_files.id for processed captures.
+    let rawVideoKey = '';
+    try {
+      const { data: job, error: jobError } = await supabase.from('reconstruction_jobs')
+        .select('id,raw_r2_key').eq('id', item.id).eq('user_id', item.user_id).maybeSingle();
+      if (jobError) console.warn('[FUMOCA profile] Related job lookup failed:', jobError.message);
+      if (job?.raw_r2_key) rawVideoKey = job.raw_r2_key;
+    } catch (error) {
+      console.warn('[FUMOCA profile] Related job lookup failed:', error?.message || error);
     }
-    const { error } = await supabase.from('nif_files').delete().eq('id', item.id).eq('user_id', item.user_id);
+
+    const { error } = await supabase.from('nif_files').delete()
+      .eq('id', item.id).eq('user_id', item.user_id);
     if (error) throw error;
+
+    try {
+      const { error: jobDeleteError } = await supabase.from('reconstruction_jobs')
+        .delete().eq('id', item.id).eq('user_id', item.user_id);
+      if (jobDeleteError) console.warn('[FUMOCA profile] Related job cleanup failed:', jobDeleteError.message);
+    } catch (error) {
+      console.warn('[FUMOCA profile] Related job cleanup failed:', error?.message || error);
+    }
+
+    // Best-effort storage cleanup after the owner-scoped DB deletion succeeds.
+    const keys = new Map();
+    if (item.r2_key) keys.set('nif-files:' + item.r2_key, { bucket: 'nif-files', path: item.r2_key });
+    if (item.meta?.source_capture?.r2_key) keys.set('nif-files:' + item.meta.source_capture.r2_key, { bucket: 'nif-files', path: item.meta.source_capture.r2_key });
+    if (item.meta?.thumbnail_r2_key) keys.set('nif-files:' + item.meta.thumbnail_r2_key, { bucket: 'nif-files', path: item.meta.thumbnail_r2_key });
+    if (rawVideoKey) keys.set('nif-videos:' + rawVideoKey, { bucket: 'nif-videos', path: rawVideoKey });
+    for (const entry of keys.values()) {
+      try {
+        const { error: storageError } = await r2.from(entry.bucket).remove([entry.path]);
+        if (storageError) console.warn('[FUMOCA profile] R2 cleanup incomplete:', entry.bucket, storageError.message);
+      } catch (error) {
+        console.warn('[FUMOCA profile] R2 cleanup incomplete:', entry.bucket, error?.message || error);
+      }
+    }
     return;
   }
   const candidates = [
@@ -186,9 +222,11 @@ async function init() {
   const nifs = (Array.isArray(nifRows) ? nifRows : []).map((row) => ({
     id: row.id,
     user_id: row.user_id,
-    status: 'done', // a nif_files row only ever exists after a successful pipeline run
+    status: row.meta?.status || row.meta?.processing_status || 'done',
     title: row.title,
     created_at: row.created_at,
+    r2_key: row.r2_key,
+    meta: row.meta && typeof row.meta === 'object' ? row.meta : {},
     output_url: row.r2_key ? r2.publicUrl('nif-files', row.r2_key) : '',
     thumbnail_url: (row.meta?.thumbnail_r2_key && r2.publicUrl('nif-files', row.meta.thumbnail_r2_key)) || row.thumbnail_url || '',
     source: 'nif_files', // deleteUploadRecord needs this to know which table/bucket to clean up

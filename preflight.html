@@ -205,6 +205,7 @@
 
 <script type="module">
   import { supabase } from './js/supabaseClient.js';
+  import r2 from './js/r2Client.js';
   import { ensureServiceWorker, prefetchSplat, onPrefetchResult, isOnline }
     from './js/modules/offline-helper.js';
 
@@ -251,53 +252,129 @@
     return null;
   }
 
+  function normalizeLegacyRecord(row) {
+    const metadata = row?.metadata && typeof row.metadata === 'object' ? row.metadata : {};
+    const url = row?.splat_url || row?.output_url || row?.file_url || '';
+    return {
+      ...row,
+      _assetKind: 'legacy',
+      _displayUrl: url,
+      _meta: metadata,
+      _status: String(row?.status || 'unknown').toLowerCase(),
+      _processingError: row?.processing_error || row?.error_message || '',
+      _jobStatus: row?.status || null,
+    };
+  }
+
+  async function resolvePreflightAsset(id) {
+    let nifError = null;
+    try {
+      const { data, error } = await supabase.from('nif_files')
+        .select('id,user_id,title,description,vertical,r2_key,thumbnail_url,file_size,gaussian_count,is_public,meta,created_at')
+        .eq('id', id).maybeSingle();
+      if (error) nifError = error;
+      if (data) {
+        const meta = data.meta && typeof data.meta === 'object' ? data.meta : {};
+        let job = null;
+        const jobResult = await supabase.from('reconstruction_jobs')
+          .select('id,status,progress,error_message,created_at,started_at,completed_at,capture_mode,meta')
+          .eq('id', data.id).maybeSingle();
+        if (!jobResult.error) job = jobResult.data || null;
+        const kind = meta.scene_representation || meta.asset_representation ||
+          meta.source_type || (data.gaussian_count > 0 ? 'nif_bundle' : 'unknown');
+        const url = data.r2_key ? r2.publicUrl('nif-files', data.r2_key) : '';
+        return {
+          ...data, _assetKind: 'nif', _meta: meta, _job: job,
+          _status: String(job?.status || meta.status || (url ? 'complete' : 'unknown')).toLowerCase(),
+          _processingError: job?.error_message || meta.error_message || '',
+          _displayUrl: url, _representation: String(kind).toLowerCase(),
+        };
+      }
+    } catch (error) {
+      nifError = error;
+    }
+
+    // Older installations may still have splats rows. Keep this compatibility
+    // path explicit and label it as legacy instead of pretending the schemas match.
+    try {
+      const { data, error } = await supabase.from('splats')
+        .select('id,user_id,title,status,splat_url,output_url,file_url,thumbnail_url,processing_error,metadata')
+        .eq('id', id).maybeSingle();
+      if (!error && data) return normalizeLegacyRecord(data);
+      return { error: error || nifError || new Error('No matching NIF or legacy asset was found.') };
+    } catch (error) {
+      return { error: error || nifError || new Error('Asset lookup failed.') };
+    }
+  }
+
+  function isGaussianRepresentation(row) {
+    const type = String(row?._representation || row?._meta?.scene_representation || row?._meta?.source_type || '').toLowerCase();
+    // Legacy splat rows historically represented Gaussian assets by default.
+    if (row?._assetKind === 'legacy') return true;
+    return ['gaussian_splat', 'gaussian_splats', 'nif_bundle', '3dgs', '3dgs_bundle'].includes(type) ||
+      (type === 'direct_ply' && Number(row?.gaussian_count || 0) > 0);
+  }
+
+  function isDoneStatus(status) {
+    return ['complete', 'completed', 'done', 'succeeded', 'success', 'ready', 'published'].includes(String(status || '').toLowerCase());
+  }
+  function isFailedStatus(status) {
+    return ['failed', 'error', 'failed_reconstruction', 'cancelled', 'canceled'].includes(String(status || '').toLowerCase());
+  }
+
   async function runAllChecks(id) {
     resetChecks();
     let pass = 0, warn = 0, fail = 0;
 
-    // 1. Resolve listing
+    // 1. Resolve NIF first; legacy splats are supported only as fallback.
     setCheck('resolve', 'running');
-    let row = null;
-    try {
-      const { data, error } = await supabase.from('splats')
-        .select('id,title,status,splat_url,output_url,file_url,thumbnail_url,processing_error,metadata')
-        .eq('id', id).maybeSingle();
-      if (error || !data) {
-        setCheck('resolve', 'fail', error?.message || `No record for id="${id}"`);
-        fail++;
-        return renderSummary(id, pass, warn, fail);
-      }
-      row = data;
-      setCheck('resolve', 'pass', `Found: ${data.title || '(untitled)'}`);
-      pass++;
-    } catch (err) {
-      setCheck('resolve', 'fail', err.message);
+    const resolved = await resolvePreflightAsset(id);
+    if (resolved.error) {
+      setCheck('resolve', 'fail', resolved.error.message || 'Asset record not found.');
       fail++;
       return renderSummary(id, pass, warn, fail);
     }
+    const row = resolved;
+    window._fumocaPreflightAsset = row;
+    const assetLabel = row.title || '(untitled)';
+    setCheck('resolve', 'pass', `Found: ${assetLabel} · ${row._assetKind === 'nif' ? 'NIF asset record' : 'legacy asset record'}`);
+    pass++;
 
-    // 2. Status complete
+    // 2. A valid asset row alone is not proof the worker produced a renderable splat.
     setCheck('status', 'running');
-    if (row.status === 'complete') {
-      setCheck('status', 'pass', "status='complete'");
-      pass++;
-    } else if (row.status === 'failed_reconstruction' || row.status === 'failed') {
-      setCheck('status', 'fail', `status='${row.status}' — ${row.processing_error || 'no error message'}`);
+    if (isFailedStatus(row._status)) {
+      setCheck('status', 'fail', `status='${row._status}' — ${row._processingError || 'no error message'}`);
       fail++;
-    } else {
-      setCheck('status', 'warn', `status='${row.status || 'unknown'}' — still processing?`);
+    } else if (!isDoneStatus(row._status)) {
+      setCheck('status', 'warn', `status='${row._status || 'unknown'}' — processing may not be complete`);
       warn++;
+    } else {
+      setCheck('status', 'pass', `status='${row._status}'`);
+      pass++;
     }
 
-    // 3. Splat URL reachable
+    if (row._assetKind === 'nif') {
+      const representation = row._representation || 'unknown';
+      if (!isGaussianRepresentation(row)) {
+        setCheck('status', 'warn', `This asset is ${representation}; it may be a point cloud, mesh, or other non-Gaussian representation, not a trained splat.`);
+        warn++;
+      }
+      if (row._job && !isDoneStatus(row._job.status)) {
+        setCheck('status', 'warn', `Reconstruction job status='${row._job.status}'. ${row._job.error_message || ''}`.trim());
+        warn++;
+      }
+    }
+
+    // 3. Check the actual output location; NIF records store an R2 key, not a URL.
     setCheck('splat-url', 'running');
-    const splatUrl = row.splat_url || row.output_url || row.file_url;
+    const splatUrl = row._displayUrl || '';
     if (!splatUrl) {
-      setCheck('splat-url', 'fail', 'No splat_url / output_url / file_url populated');
+      setCheck('splat-url', 'fail', row._assetKind === 'nif'
+        ? 'NIF record has no r2_key; there is no output file to load.'
+        : 'No splat_url / output_url / file_url populated.');
       fail++;
     } else {
       try {
-        // HEAD first; some CDNs reject HEAD, fall back to range-GET 1 byte.
         let res = await fetch(splatUrl, { method: 'HEAD', cache: 'no-store' }).catch(() => null);
         if (!res || !res.ok) {
           res = await fetch(splatUrl, {
@@ -319,19 +396,22 @@
       }
     }
 
-    // 4. Thumbnail
+    // 4. Thumbnail; resolve the stored R2 key when no direct URL is present.
     setCheck('thumb', 'running');
-    if (!row.thumbnail_url) {
+    const thumbnailUrl = row.thumbnail_url ||
+      (row._meta?.thumbnail_r2_key ? r2.publicUrl('nif-files', row._meta.thumbnail_r2_key) : '');
+    row._thumbnailUrl = thumbnailUrl;
+    if (!thumbnailUrl) {
       setCheck('thumb', 'warn', 'No thumbnail — shares will have no preview image');
       warn++;
     } else {
       try {
         const img = await new Promise((resolve, reject) => {
           const i = new Image();
-          i.onload = () => resolve(i);
-          i.onerror = () => reject(new Error('image failed'));
-          i.src = row.thumbnail_url;
-          setTimeout(() => reject(new Error('timeout')), 5000);
+          const timeout = setTimeout(() => reject(new Error('timeout')), 5000);
+          i.onload = () => { clearTimeout(timeout); resolve(i); };
+          i.onerror = () => { clearTimeout(timeout); reject(new Error('image failed')); };
+          i.src = thumbnailUrl;
         });
         setCheck('thumb', 'pass', `${img.naturalWidth}×${img.naturalHeight}`);
         pass++;
@@ -341,12 +421,13 @@
       }
     }
 
-    // 5. Viewer loads without error
+    // 5. Probe the actual artifact URL in viewer query state. This is a boot test,
+    // not proof the asset content renders correctly in every renderer.
     setCheck('viewer-load', 'running');
     try {
-      const ok = await probeViewer(id);
+      const ok = await probeViewer(id, splatUrl);
       if (ok) {
-        setCheck('viewer-load', 'pass', 'Viewer iframe booted cleanly');
+        setCheck('viewer-load', 'pass', 'Viewer iframe booted without an observed fatal failure');
         pass++;
       } else {
         setCheck('viewer-load', 'warn', 'Viewer booted but no confirmation event in 8 seconds');
@@ -365,7 +446,7 @@
         setCheck('sw', 'warn', 'Service workers not supported in this browser');
         warn++;
       } else {
-        const urls = [splatUrl, row.thumbnail_url].filter(Boolean);
+        const urls = [splatUrl, thumbnailUrl].filter(Boolean);
         const done = new Promise(resolve => {
           const unsub = onPrefetchResult(r => { unsub(); resolve(r); });
           setTimeout(() => { unsub(); resolve(null); }, 15000);
@@ -423,7 +504,7 @@
     renderSummary(id, pass, warn, fail);
   }
 
-  function probeViewer(id) {
+  function probeViewer(id, artifactUrl = '') {
     return new Promise((resolve) => {
       const frame = document.getElementById('probeFrame');
       let done = false;
@@ -451,7 +532,9 @@
       }, { once: true });
       frame.addEventListener('error', () => finish(false), { once: true });
 
-      frame.src = `viewer.html?splatId=${encodeURIComponent(id)}&reveal_duration=1500`;
+      const probeParams = new URLSearchParams({ splatId: id, reveal_duration: '1500' });
+      if (artifactUrl) probeParams.set('file', artifactUrl);
+      frame.src = `viewer.html?${probeParams.toString()}`;
     });
   }
 
@@ -478,7 +561,11 @@
     summary.innerHTML = `<h2>${title}</h2><div>${body}</div>`;
     summary.style.display = 'block';
 
-    document.getElementById('openViewerLink').href = `viewer.html?splatId=${encodeURIComponent(id)}`;
+    const currentRow = window._fumocaPreflightAsset || null;
+    const url = currentRow?._displayUrl || '';
+    const viewerParams = new URLSearchParams({ splatId: id });
+    if (url) viewerParams.set('file', url);
+    document.getElementById('openViewerLink').href = `viewer.html?${viewerParams.toString()}`;
     document.getElementById('openShowroomLink').href = `showroom.html?splatId=${encodeURIComponent(id)}`;
     const shareLink = document.getElementById('copyShareLink');
     shareLink.onclick = async (ev) => {

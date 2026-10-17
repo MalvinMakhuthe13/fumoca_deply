@@ -2,7 +2,7 @@ name: FUMOCA validation
 
 on:
   push:
-    branches: [main, "feat/**"]
+    branches: [main, "feat/**", "platform-job-and-motion-contract"]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -25,6 +25,68 @@ jobs:
         run: node --check js/modules/image-to-splat-studio.js
       - name: Check viewer ES module syntax
         run: node --input-type=module --check < js/modules/viewer.js
+      - name: Check feed module syntax
+        run: node --input-type=module --check < js/modules/feed.js
+      - name: Check profile module syntax
+        run: node --input-type=module --check < js/modules/profile.js
+      - name: Check notifications module syntax
+        run: node --input-type=module --check < js/modules/notifications.js
+      - name: Check motion-state module syntax
+        run: node --input-type=module --check < js/modules/motion-states.js
+      - name: Check Ad Studio module syntax
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          html = Path("ad-studio.html").read_text(encoding="utf-8")
+          scripts = re.findall(r'<script type="module">(.*?)</script>', html, flags=re.S)
+          assert scripts, "Ad Studio module not found"
+          Path("/tmp/fumoca-ad-studio-check.mjs").write_text(scripts[0], encoding="utf-8")
+          PY
+          node --check /tmp/fumoca-ad-studio-check.mjs
+      - name: Check viewer Ad Studio bridge syntax
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          html = Path("viewer.html").read_text(encoding="utf-8")
+          marker = html.find("<!-- Ad Studio bridge:")
+          assert marker >= 0, "Viewer Ad Studio bridge marker not found"
+          script_start = html.find("<script>", marker)
+          script_end = html.find("</script>", script_start)
+          assert script_start >= 0 and script_end > script_start, "Viewer Ad Studio bridge script not found"
+          script_start += len("<script>")
+          Path("/tmp/fumoca-viewer-ad-bridge-check.js").write_text(html[script_start:script_end], encoding="utf-8")
+          PY
+          node --check /tmp/fumoca-viewer-ad-bridge-check.js
+      - name: Check vehicle capture module syntax
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          html = Path("capture-vehicle.html").read_text(encoding="utf-8")
+          scripts = re.findall(r'<script type="module">(.*?)</script>', html, flags=re.S)
+          assert scripts, "Vehicle capture module not found"
+          Path("/tmp/fumoca-capture-vehicle-check.mjs").write_text(scripts[-1], encoding="utf-8")
+          PY
+          node --check /tmp/fumoca-capture-vehicle-check.mjs
+      - name: Check Preflight module syntax
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          html = Path("preflight.html").read_text(encoding="utf-8")
+          scripts = re.findall(r'<script type="module">(.*?)</script>', html, flags=re.S)
+          assert scripts, "Preflight module script not found"
+          Path("/tmp/fumoca-preflight-check.mjs").write_text(scripts[-1], encoding="utf-8")
+          PY
+          node --check /tmp/fumoca-preflight-check.mjs
+      - name: Test NIF job and motion-state integration
+        run: node --test tests/platform-workflow-contract.test.mjs
       - name: Compile Kaggle preflight script
         run: python -m py_compile kaggle/mesh2splat_preflight.py
       - name: Install preflight dependencies

@@ -7,6 +7,8 @@
  * events (entry → performance → closeup), any motion arc.
  */
 
+import r2 from '../r2Client.js';
+
 const MS = (() => {
 
   // ─── State ─────────────────────────────────────────────────────────────────
@@ -27,11 +29,13 @@ const MS = (() => {
   // ─── Load states from record metadata ─────────────────────────────────────
   function _loadStates(record) {
     try {
-      const raw = record?.metadata?.motion_states;
+      const raw = record?.meta?.motion_states ?? record?.metadata?.motion_states;
       if (Array.isArray(raw) && raw.length) return raw;
     } catch {}
     // Single splat = one state
-    const url = record?.splat_url || window._fumocaSplatUrl || '';
+    const url = record?.nif_url || record?.output_url || record?.splat_url ||
+      (record?.r2_key ? r2.publicUrl('nif-files', record.r2_key) : '') ||
+      window._fumocaSplatUrl || '';
     if (url) return [{ id: 'main', label: 'Main', splatUrl: url, thumbnailUrl: record?.thumbnail_url || '', time: 0 }];
     return [];
   }
@@ -164,14 +168,45 @@ const MS = (() => {
   // ─── Persist to Supabase record metadata ──────────────────────────────────
   async function _persistStates() {
     if (!_record?.id) return;
+    const sb = window._fumocaSupabase;
+    if (!sb) {
+      console.warn('[MotionStates] Cannot persist: shared Supabase client is unavailable.');
+      return;
+    }
+
+    const states = _states.map(state => ({ ...state }));
+    const currentMeta = {
+      ...((_record.meta && typeof _record.meta === 'object') ? _record.meta
+        : (_record.metadata && typeof _record.metadata === 'object') ? _record.metadata : {}),
+      motion_states: states,
+    };
+    const isNifRecord = Object.prototype.hasOwnProperty.call(_record, 'r2_key') ||
+      Object.prototype.hasOwnProperty.call(_record, 'meta');
+
     try {
-      const sb = window._fumocaSupabase;
-      if (!sb) return;
-      await sb.from('splats').update({
-        metadata: { ...(_record.metadata || {}), motion_states: _states }
-      }).eq('id', _record.id);
+      if (isNifRecord) {
+        const { data, error } = await sb.from('nif_files')
+          .update({ meta: currentMeta }).eq('id', _record.id).select('id').maybeSingle();
+        if (!error && data?.id) {
+          _record.meta = currentMeta;
+          return;
+        }
+        if (error) console.warn('[MotionStates] NIF persistence failed; checking legacy compatibility:', error.message || error);
+      }
+
+      // Compatibility only for records actually backed by the old schema (or
+      // while old rows still exist during migration). New NIF records are tried first.
+      const { data, error } = await sb.from('splats')
+        .update({ metadata: currentMeta }).eq('id', _record.id).select('id').maybeSingle();
+      if (error) throw error;
+      if (!data?.id) throw new Error('No matching asset row was updated.');
+      _record.metadata = currentMeta;
+      if (Object.prototype.hasOwnProperty.call(_record, 'meta')) _record.meta = currentMeta;
     } catch (e) {
-      console.warn('[MotionStates] persist failed:', e);
+      console.warn('[MotionStates] persist failed:', e?.message || e);
+      window.dispatchEvent(new CustomEvent('fumoca:motionStateSaveFailed', {
+        detail: { assetId: _record.id, message: e?.message || String(e) },
+      }));
     }
   }
 

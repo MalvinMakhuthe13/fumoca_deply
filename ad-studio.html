@@ -197,6 +197,8 @@ html, body {
     <div class="sb-section">
       <div class="sb-title">1 · Load Splat</div>
       <button class="btn ghost" id="loadSplatBtn">📦 Load from My Splats</button>
+      <div id="assetLoadStatus" role="status" aria-live="polite" style="font-size:11px;line-height:1.5;color:rgba(255,255,255,.55);margin-top:7px;">Connect to the viewer, then choose a scene.</div>
+      <div id="assetPickerRoot" style="display:none;margin-top:8px;gap:6px;flex-direction:column;"></div>
       <div style="font-size:11px;color:rgba(255,255,255,.3);margin-top:4px;">
         Or drag a .fumoc file onto the viewer
       </div>
@@ -309,6 +311,7 @@ import FumocAdEngine from './js/modules/fumoc-ad-engine.js';
 import FumocEncoder  from './js/modules/fumoc-encoder.js';
 import FumocDecoder  from './js/modules/fumoc-decoder.js';
 import { supabase }  from './js/supabaseClient.js';
+import r2 from './js/r2Client.js';
 
 // ── State ──────────────────────────────────────────────────────────────────
 let _pausePoints   = [];
@@ -322,39 +325,160 @@ let _selectedFrame = 0;
 
 // ── Viewer comms via postMessage ───────────────────────────────────────────
 const iframe = document.getElementById('viewerIframe');
+const viewerOrigin = new URL(iframe.src, location.href).origin;
+let _viewerBridgeReady = false;
+let _assetOptions = [];
 
 function _sendToViewer(msg) {
-  iframe.contentWindow?.postMessage({ fumocaAdStudio: true, ...msg }, '*');
+  // The viewer is same-origin; never broadcast the editing protocol to '*'.
+  if (iframe.contentWindow && viewerOrigin === location.origin) {
+    iframe.contentWindow.postMessage({ fumocaAdStudio: true, ...msg }, viewerOrigin);
+  }
+}
+
+function _setAssetStatus(message, isError = false) {
+  const el = document.getElementById('assetLoadStatus');
+  if (!el) return;
+  el.textContent = message;
+  el.style.color = isError ? '#ff8a8a' : 'rgba(255,255,255,.55)';
+}
+
+function _rawSplatUrl(record) {
+  const candidates = [
+    record?.splat_url, record?.output_url, record?.public_url, record?.file_url,
+    record?.r2_key ? r2.publicUrl('nif-files', record.r2_key) : '',
+  ].filter(value => typeof value === 'string' && value.trim());
+  return candidates.find(value => /\.splat(?:$|[?#])/i.test(value)) || '';
+}
+
+function _setBakeCapability(record) {
+  const rawUrl = _rawSplatUrl(record);
+  const bakeBtn = document.getElementById('bakeBtn');
+  if (bakeBtn) bakeBtn.disabled = !(_viewerBridgeReady && rawUrl);
+  if (rawUrl) {
+    _setAssetStatus('Scene loaded. Raw .splat data is available for ad baking.');
+  } else {
+    const kind = record?._adStudioRepresentation || record?.meta?.scene_representation ||
+      record?.meta?.source_type || record?.source_type || 'unknown representation';
+    _setAssetStatus('Scene loaded for viewing (' + kind + '). Baking is disabled: the current encoder accepts raw .splat rows, not NIF bundles or general PLY point clouds.');
+  }
 }
 
 window.addEventListener('message', e => {
-  if (!e.data?.fumocaAdStudio) return;
+  if (e.source !== iframe.contentWindow || e.origin !== viewerOrigin || e.origin !== location.origin) return;
+  if (!e.data?.fumocaAdStudio || typeof e.data.type !== 'string') return;
   if (e.data.type === 'viewerReady') {
-    document.getElementById('bakeBtn').disabled = false;
+    _viewerBridgeReady = true;
+    _setAssetStatus('Viewer connected. Choose a scene to begin.');
     _renderTimeline();
+    if (_currentRecord) _setBakeCapability(_currentRecord);
   }
   if (e.data.type === 'splatLoaded') {
-    _currentRecord = e.data.record;
-    _splatBuffer   = null; // will fetch on bake
-    const is4D     = e.data.is4D || false;
-    document.getElementById('headerSplatName').textContent = e.data.title || 'Splat loaded';
-    if (is4D && e.data.frameCount > 1) _setup4D(e.data.frameCount);
+    _currentRecord = e.data.record || null;
+    _splatBuffer = null; // fetched only if the record is raw-.splat compatible
+    document.getElementById('headerSplatName').textContent = e.data.title || 'Scene loaded';
+    const frameCount = Number(e.data.frameCount || 0);
+    if (e.data.is4D && frameCount > 1) _setup4D(frameCount);
+    _setBakeCapability(_currentRecord);
   }
-  if (e.data.type === 'cameraState') {
-    _currentCamera = e.data.camera; // {position, lookAt}
+  if (e.data.type === 'bridgeError') {
+    _setAssetStatus(e.data.message || 'Viewer bridge error.', true);
+    const bakeBtn = document.getElementById('bakeBtn');
+    if (bakeBtn) bakeBtn.disabled = true;
+  }
+  if (e.data.type === 'cameraState' && Array.isArray(e.data.camera?.position) && Array.isArray(e.data.camera?.lookAt)) {
+    _currentCamera = {
+      position: e.data.camera.position.slice(0,3).map(Number),
+      lookAt: e.data.camera.lookAt.slice(0,3).map(Number),
+    };
   }
 });
 
 let _currentCamera = { position: [0,1,5], lookAt: [0,0,0] };
 
-// ── Load splat ─────────────────────────────────────────────────────────────
+// ── Load scene — NIF is viewable; only raw .splat is bake-compatible ────────
 document.getElementById('loadSplatBtn').addEventListener('click', async () => {
-  const { data: splats } = await supabase
-    .from('splats').select('id,title,metadata').order('created_at', { ascending: false }).limit(20);
-  if (!splats?.length) { alert('No splats found.'); return; }
-
-  const choice = splats[0]; // TODO: show picker
-  _sendToViewer({ type: 'loadSplat', splatId: choice.id });
+  const button = document.getElementById('loadSplatBtn');
+  const root = document.getElementById('assetPickerRoot');
+  button.disabled = true;
+  _setAssetStatus('Loading your available scenes…');
+  try {
+    const [nifResult, legacyResult] = await Promise.all([
+      supabase.from('nif_files')
+        .select('id,title,r2_key,meta,gaussian_count,created_at')
+        .order('created_at', { ascending: false }).limit(30),
+      supabase.from('splats')
+        .select('id,title,splat_url,output_url,public_url,file_url,status,metadata,created_at')
+        .order('created_at', { ascending: false }).limit(30),
+    ]);
+    const choices = [];
+    if (!nifResult.error) {
+      for (const row of (nifResult.data || [])) {
+        choices.push({
+          id: row.id, title: row.title || 'Untitled NIF asset',
+          assetKind: 'nif', meta: row.meta || {},
+          url: row.r2_key ? r2.publicUrl('nif-files', row.r2_key) : '',
+          record: { ...row, _adStudioRepresentation: row.meta?.scene_representation || row.meta?.source_type || 'nif_bundle' },
+          created_at: row.created_at,
+        });
+      }
+    } else {
+      console.warn('[Ad Studio] NIF asset query failed:', nifResult.error.message || nifResult.error);
+    }
+    if (!legacyResult.error) {
+      for (const row of (legacyResult.data || [])) {
+        const url = [row.splat_url, row.output_url, row.public_url, row.file_url]
+          .find(value => typeof value === 'string' && value.trim()) || '';
+        choices.push({
+          id: row.id, title: row.title || 'Untitled legacy asset',
+          assetKind: 'legacy', meta: row.metadata || {}, url,
+          record: { ...row, _adStudioRepresentation: 'legacy asset' },
+          created_at: row.created_at,
+        });
+      }
+    } else {
+      console.info('[Ad Studio] Legacy splats query unavailable:', legacyResult.error.message || legacyResult.error);
+    }
+    choices.sort((a,b) => (Date.parse(b.created_at || '') || 0) - (Date.parse(a.created_at || '') || 0));
+    _assetOptions = choices;
+    root.replaceChildren();
+    if (!choices.length) {
+      root.style.display = 'none';
+      _setAssetStatus('No accessible scenes were found. Check your NIF/legacy asset permissions.', true);
+      return;
+    }
+    const select = document.createElement('select');
+    select.id = 'assetPickerSelect';
+    select.style.cssText = 'width:100%;padding:9px;border-radius:8px;background:#10131b;color:#fff;border:1px solid rgba(255,255,255,.15);';
+    for (const choice of choices) {
+      const option = document.createElement('option');
+      option.value = choice.assetKind + ':' + choice.id;
+      const isBakeReady = /\.splat(?:$|[?#])/i.test(choice.url);
+      option.textContent = (isBakeReady ? 'SPLAT · ' : (choice.assetKind === 'nif' ? 'NIF/view-only · ' : 'legacy/view-only · ')) + choice.title;
+      select.appendChild(option);
+    }
+    const loadButton = document.createElement('button');
+    loadButton.type = 'button';
+    loadButton.className = 'btn primary';
+    loadButton.textContent = 'Load selected scene';
+    loadButton.addEventListener('click', () => {
+      const [kind, id] = select.value.split(':');
+      const choice = _assetOptions.find(item => item.assetKind === kind && item.id === id);
+      if (!choice) { _setAssetStatus('That scene is no longer in the picker. Reload the list.', true); return; }
+      if (!_viewerBridgeReady) { _setAssetStatus('Viewer is still starting. Wait for the viewer connection, then retry.', true); return; }
+      _currentRecord = { ...choice.record, _adStudioRepresentation: choice.record._adStudioRepresentation };
+      _splatBuffer = null;
+      _sendToViewer({ type: 'loadSplat', assetKind: choice.assetKind, splatId: choice.id, nifId: choice.assetKind === 'nif' ? choice.id : '' });
+      _setAssetStatus('Opening ' + choice.title + '…');
+    });
+    root.append(select, loadButton);
+    root.style.display = 'flex';
+    _setAssetStatus(choices.length + ' scene(s) found. Raw .splat assets can be baked; other scene formats are view-only here.');
+  } catch (error) {
+    _setAssetStatus('Scene lookup failed: ' + (error?.message || error), true);
+  } finally {
+    button.disabled = false;
+  }
 });
 
 // ── 4D setup ──────────────────────────────────────────────────────────────
@@ -489,12 +613,16 @@ document.getElementById('bakeBtn').addEventListener('click', async () => {
   try {
     onProgress(5, 'Fetching splat data…');
 
-    // Get splat from current record
-    if (!_splatBuffer && _currentRecord?.splat_url) {
-      const resp    = await fetch(_currentRecord.splat_url);
-      _splatBuffer  = await resp.arrayBuffer();
+    // FUMOC's SPLT encoder is not a generic .nif / .ply converter.
+    // Only fetch known raw .splat bytes; do not reinterpret NIF bundle bytes
+    // or an arbitrary point-cloud PLY as fixed-width Gaussian rows.
+    const rawSplatUrl = _rawSplatUrl(_currentRecord);
+    if (!_splatBuffer && rawSplatUrl) {
+      const resp = await fetch(rawSplatUrl);
+      if (!resp.ok) throw new Error('Raw splat fetch failed: HTTP ' + resp.status);
+      _splatBuffer = await resp.arrayBuffer();
     }
-    if (!_splatBuffer) throw new Error('No splat loaded. Load a splat first.');
+    if (!_splatBuffer) throw new Error('The loaded asset is view-only in Ad Studio. Load a raw .splat asset to bake an interactive .fumoc ad.');
 
     // Build tour stops from pause points
     const tourStops = _pausePoints.map(pp => ({
