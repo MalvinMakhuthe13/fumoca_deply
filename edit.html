@@ -2158,7 +2158,7 @@ window.preserveImportedLidarSource = async (cloud) => {
   const { publicUrl, fileKey, error } = await r2.from('nif-files').upload(sourcePath, file, { contentType: file.type || 'application/octet-stream' });
   if (error || !publicUrl || !fileKey) throw new Error(error?.message || 'Original scan upload failed.');
   const capture = {
-    public_url: publicUrl, r2_key: fileKey, filename: file.name,
+    public_url: publicUrl, r2_key: fileKey, r2_bucket: 'nif-files', filename: file.name,
     format: file.name.split('.').pop().toLowerCase(), byte_size: file.size,
     point_count: cloud.sourcePointCount || cloud.count,
   };
