@@ -74,7 +74,7 @@ const plyHelpers = new Function('S', [
   extractFunction('restoreEditorSceneMetadata'),
   extractFunction('restoreSavedPlySceneMetadata'),
   'return restoreSavedPlySceneMetadata;'
-].join('\\n'))(plyState);
+].join('\n'))(plyState);
 const plyRecord = { id: 'record-1', r2_key: 'record-1/edited_123.ply', meta: {
   editor_scene: { version: 1, point_count: 3, active_layer_id: 'subject', layers: [
     { id: 'subject', name: 'Subject', point_indices: [0, 2], visible: true, opacity: 1 }
