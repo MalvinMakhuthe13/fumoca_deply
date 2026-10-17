@@ -269,12 +269,15 @@
         return renderSummary(id, pass, warn, fail);
       }
       row = data;
-      const jobId = row.job_id || row.id;
-      const { data: job, error: jobError } = await supabase.from('reconstruction_jobs')
-        .select('id,status,progress,error_message')
-        .eq('id', jobId).maybeSingle();
-      if (jobError) console.warn('[Preflight] job status lookup failed', jobError);
-      row.status = job?.status || row.meta?.status || (row.meta?.source_capture ? 'needs_retry' : 'done');
+      let job = null;
+      if (row.job_id) {
+        const { data: jobData, error: jobError } = await supabase.from('reconstruction_jobs')
+          .select('id,status,progress,error_message')
+          .eq('id', row.job_id).maybeSingle();
+        if (jobError) console.warn('[Preflight] job status lookup failed', jobError);
+        else job = jobData;
+      }
+      row.status = job?.status || row.meta?.status || (row.job_id ? 'needs_retry' : 'done');
       row.processing_error = job?.error_message || row.meta?.quality_reason || '';
       setCheck('resolve', 'pass', `Found: ${data.title || '(untitled)'}`);
       pass++;
