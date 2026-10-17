@@ -3645,7 +3645,7 @@ function exportFile(type = 'splat') {
     // Real .nif export — canonical 14-float/point chunked binary, not a
     // renamed .splat. Preserve Gaussian SH coefficients as a validated sidecar
     // and compact them using the same alive-point index list as geometry.
-    let gaussianSH, gaussianShMeta;
+    let gaussianSH, gaussianShMeta, layerData;
     try {
       gaussianSH = compactGaussianSHSidecar({
         indices: idx,
@@ -3659,16 +3659,17 @@ function exportFile(type = 'splat') {
         throw new Error('This scene declares Gaussian SH metadata but its coefficient sidecar is unavailable. Reopen the source before exporting.');
       }
       gaussianShMeta = gaussianSH ? gaussianSHMetadata(gaussianSH, S.shAttributes) : null;
+      layerData = _compactNifLayers(idx);
     } catch (error) {
       showToast('NIF export blocked', error.message || String(error), 'warn');
       return;
     }
     const sourceMeta = S.nifMeta || {};
-    const meta = {
+    const meta = _withLayerGeoQuality({
       ...sourceMeta,
       ...(gaussianShMeta ? { gaussian_sh: gaussianShMeta } : {}),
       editor_scene: serializeEditorSceneMetadata(idx),
-    };
+    }, layerData.droppedUnindexed);
     const buf = encodeNif({
       sourceBuffer: currentRows,
       aliveIndices: Array.from({ length: idx.length }, (_, i) => i),
@@ -3678,8 +3679,9 @@ function exportFile(type = 'splat') {
       thumbnailBytes: S.nifThumbnailBytes || undefined,
       mesh: S.nifMesh || undefined,
       lidarAttributes: _compactLidarAttributes(idx),
+      layers: layerData.layers,
       passthroughChunks: S.nifPassthroughChunks || [],
-      vertical: (S.nifMeta && S.nifMeta.vertical) || 'generic',
+      vertical: S.nifVertical || S.nifMeta?.vertical || 'generic',
     });
     name = S.fileName.replace(/\.[^.]+$/, '') + '.edited.nif';
     downloadNif(buf, name);
