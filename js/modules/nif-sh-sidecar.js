@@ -46,19 +46,40 @@ export function compactGaussianSHSidecar({
   if (!descriptor || attributes.some((name, i) => name !== descriptor.properties[i])) {
     throw new Error('[nif-sh-sidecar] unsupported or non-contiguous Gaussian SH property layout; refusing lossy NIF export');
   }
+  const valueCount = indices.length * attributes.length;
+  if (!Number.isSafeInteger(valueCount) || 8 + valueCount * 4 > 512 * 1024 * 1024) {
+    throw new Error('[nif-sh-sidecar] compacted SH sidecar exceeds the 512 MiB safety limit');
+  }
   const flat = ArrayBuffer.isView(coefficients);
   if (flat) {
-    if (coefficients.length !== pointCount * attributes.length) {
-      throw new Error('[nif-sh-sidecar] interleaved SH value count does not match source geometry');
+    if (!(coefficients instanceof Float32Array) || coefficients.length !== pointCount * attributes.length) {
+      throw new Error('[nif-sh-sidecar] interleaved SH values must be Float32Array data matching source geometry');
     }
   } else {
     for (const name of attributes) {
-      if (!ArrayBuffer.isView(coefficients[name]) || coefficients[name].length !== pointCount) {
+      if (!(coefficients[name] instanceof Float32Array) || coefficients[name].length !== pointCount) {
         throw new Error(`[nif-sh-sidecar] property ${name} does not match source geometry`);
       }
     }
   }
-  const values = new Float32Array(indices.length * attributes.length);
+  const hasPaint = !!paintColors && indices.some(sourceIndex =>
+    [0, 1, 2].some(c => paintColors[sourceIndex * 3 + c] >= 0));
+  if (flat && !hasPaint && indices.length === pointCount &&
+      indices.every((sourceIndex, row) => sourceIndex === row)) {
+    for (let i = 0; i < coefficients.length; i++) {
+      if (!Number.isFinite(coefficients[i])) {
+        throw new Error(`[nif-sh-sidecar] non-finite coefficient at flat index ${i}`);
+      }
+    }
+    return {
+      version: 1,
+      degree: descriptor.degree,
+      pointCount: indices.length,
+      coefficientCount: attributes.length,
+      values: coefficients,
+    };
+  }
+  const values = new Float32Array(valueCount);
   for (let row = 0; row < indices.length; row++) {
     const sourceIndex = indices[row];
     const paintOffset = sourceIndex * 3;
