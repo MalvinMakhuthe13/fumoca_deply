@@ -22,7 +22,7 @@
 import {
   NIFWriter, NIFReader, CHUNK, CODEC,
   encodeMetaChunk, decodeMetaChunk, encodeThumbnailChunk,
-  decompressChunk, decodePhysicsChunk,
+  decompressChunk, decodePhysicsChunk, encodeGaussianSHChunk,
   decodeCalibrationChunk, decodeVerificationChunk,
 } from '../../engine-next/format/NIFSpec.js';
 
@@ -335,6 +335,9 @@ export function encodeNif(opts = {}) {
       })()
     : packGeometryQuantized(geoData, count);
   writer.add(CHUNK.KEYFRAME_GEO, geoBytes, CODEC.RAW);
+  if (opts.gaussianSH) {
+    writer.add(CHUNK.GAUSSIAN_SH, encodeGaussianSHChunk(opts.gaussianSH), CODEC.RAW);
+  }
 
   // Keep the extracted solid as its own colored NIF component. Gaussian
   // geometry remains independent so editors/viewers can toggle the two.
@@ -412,6 +415,10 @@ export async function decodeNif(arrayBuffer) {
   }
   const geometry = await reader.getGeometry(); // { count, data: Float32Array(14/point) } | null
   if (!geometry) throw new Error('[nif-format] .nif file has no KEYFRAME_GEO chunk');
+  const gaussianSH = await reader.getGaussianSH();
+  if (gaussianSH && gaussianSH.pointCount !== geometry.count) {
+    throw new Error('[nif-format] Gaussian SH sidecar point count does not match geometry');
+  }
 
   const meta = decodeMetaChunk(reader.getChunk(CHUNK.META));
   const thumbChunk = reader.getChunk(CHUNK.THUMBNAIL);
@@ -453,7 +460,7 @@ export async function decodeNif(arrayBuffer) {
     } catch (err) { console.warn('[nif-format] LiDAR attributes ignored:', err.message); }
   }
 
-  return { reader, meta, thumbnailBytes, gaussians: geometry, calibration, verification, mesh, lidarAttributes };
+  return { reader, meta, thumbnailBytes, gaussians: geometry, gaussianSH, calibration, verification, mesh, lidarAttributes };
 }
 
 // ── Draco decoder — lazily created, reused across every mesh this session.
