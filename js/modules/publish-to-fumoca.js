@@ -106,6 +106,8 @@ const FumocaPublish = (() => {
   async function _buildNifBlob({ title, description, parentMeta } = {}) {
     const S = window.S;
     if (!S?.alive || !S.positions) throw new Error('No splat loaded');
+    if (S.nifSHChunkUnavailable) throw new Error('Publishing blocked: the source Gaussian SH chunk could not be decoded; refusing to lose colour detail.');
+    if (S.nifLidarChunkUnavailable) throw new Error('Publishing blocked: the source LiDAR attribute chunk could not be decoded; refusing to lose point attributes.');
 
     const aliveIndices = [];
     for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) aliveIndices.push(i);
