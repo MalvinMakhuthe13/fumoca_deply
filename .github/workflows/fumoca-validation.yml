@@ -138,7 +138,8 @@ jobs:
           grep -q "ply_to_nif" js/modules/upload-page.js
           grep -q "inspectPlyAttributes" js/modules/upload-page.js
           grep -q "discarded_attributes" js/modules/upload-page.js
-          grep -q "higher_order_sh_discarded_colour_approximation" js/modules/ply-conversion-metadata.js
+          grep -q "higher_order_sh_preserved_in_nif_sidecar" js/modules/ply-conversion-metadata.js
+          grep -q "gaussianSH: {" js/modules/upload-page.js
           grep -q "conversion: outputBuffer ? {" js/modules/upload-page.js
           grep -q "gpu_required: false" js/modules/upload-page.js
           grep -q "source_r2_key" js/modules/upload-page.js
