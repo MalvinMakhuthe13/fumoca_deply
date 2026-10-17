@@ -18,9 +18,9 @@ for (const spec of specs) {
 
 const viewer = await readFile(new URL('../js/modules/viewer.js', import.meta.url), 'utf8');
 const viewerFunctions = [
-  { name: '_fumocaFlushPipelineQueue', next: 'async function _fumocaSaveVariant' },
-  { name: '_fumocaSaveVariant', next: 'async function _fumocaQueuePipeline' },
-  { name: '_fumocaQueuePipeline', next: 'function _fumocaApplyAutoCleanPreset' },
+  { name: '_fumocaFlushPipelineQueue', next: 'async function _fumocaSaveVariant', owner: /\.eq\('id', currentRecord\.id\)\.eq\('user_id', currentRecord\.user_id\)/ },
+  { name: '_fumocaSaveVariant', next: 'async function _fumocaQueuePipeline', owner: /\.eq\('id', rec\.id\)\.eq\('user_id', rec\.user_id\)/ },
+  { name: '_fumocaQueuePipeline', next: 'function _fumocaApplyAutoCleanPreset', owner: /\.eq\('id', rec\.id\)\.eq\('user_id', rec\.user_id\)/ },
 ];
 for (const spec of viewerFunctions) {
   const start = viewer.indexOf(`async function ${spec.name}`);
@@ -30,7 +30,7 @@ for (const spec of viewerFunctions) {
   const block = viewer.slice(start, next);
   assert.match(block, /select\('id,user_id,title,description,r2_key,is_public,meta'\)/,
     `${spec.name} must reload the current NIF row`);
-  assert.match(block, /\.eq\('id', rec\.id\)\.eq\('user_id', rec\.user_id\)/,
+  assert.match(block, spec.owner,
     `${spec.name} must scope database writes to the owner`);
   assert.doesNotMatch(block, /\.update\(\{ meta: metadata \}\)\.eq\('id', rec\.id\);/,
     `${spec.name} must not use the old unscoped stale-META write`);
