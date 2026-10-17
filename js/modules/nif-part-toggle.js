@@ -122,9 +122,19 @@ export async function authorPartToggle(nifUrl, labelOrParts, opts = {}) {
         `${layers.map(l => l.label).join(', ') || '(none)'}`);
     }
     const jointDef = physics?.constraints?.find(c => c.bodyA === part.label && c.type === 'joint');
-    const axis     = part.axis     ?? jointDef?.params?.axis     ?? [0, 1, 0];
-    const pivot    = part.pivot    ?? jointDef?.params?.pivot    ?? suggestHingePivot(layer, axis);
+    const axis = part.axis ?? jointDef?.params?.axis ?? [0, 1, 0];
+    if (!Array.isArray(axis) || axis.length !== 3 || axis.some(value => !Number.isFinite(value)) ||
+        Math.hypot(...axis) < 1e-8) {
+      throw new Error(`Layer "${part.label}" needs a finite, non-zero three-component rotation axis.`);
+    }
+    const pivot = part.pivot ?? jointDef?.params?.pivot ?? suggestHingePivot(layer, axis);
+    if (!Array.isArray(pivot) || pivot.length !== 3 || pivot.some(value => !Number.isFinite(value))) {
+      throw new Error(`Layer "${part.label}" needs a finite three-component rotation pivot.`);
+    }
     const angleDeg = part.angleDeg ?? jointDef?.params?.angleMax ?? 60;
+    if (!Number.isFinite(angleDeg) || Math.abs(angleDeg) > 360) {
+      throw new Error(`Layer "${part.label}" rotation angle must be finite and between -360 and 360 degrees.`);
+    }
     // Chained, not parallel — each call returns a full new buffer built from
     // the previous one. Safe as long as different layers' indices don't
     // overlap (they don't — LAYER_GEO layers are disjoint groups from
