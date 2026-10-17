@@ -318,6 +318,8 @@ jobs:
         run: node --experimental-default-type=module tests/tour-url-security-contract.mjs
       - name: Test ad URL security
         run: node --experimental-default-type=module tests/ad-url-security-contract.mjs
+      - name: Test audio URL security
+        run: node --experimental-default-type=module tests/audio-url-security-contract.mjs
       - name: Test mobile widget HTML security
         run: node --experimental-default-type=module tests/mobile-asset-html-security.mjs
       - name: Test mobile widget storage contract
