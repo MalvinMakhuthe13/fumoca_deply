@@ -171,8 +171,8 @@ assert.equal(cleanedSplatLookups.length, 2,
 const mobileAssetLookups = source.match(/meta->>mobile_asset_r2_key\.eq\.\$\{encodedKey\}/g) || [];
 assert.equal(mobileAssetLookups.length, 2,
   'mobile asset keys must be included in both read and delete ownership lookups');
-const openVariantLookups = source.match(/meta->open_variant_r2_keys\.cs\.\$\{encodedKey\}/g) || [];
-assert.equal(openVariantLookups.length, 2,
+const openVariantLookups = source.split('meta->open_variant_r2_keys.cs.{${encodedKey}}').length - 1;
+assert.equal(openVariantLookups, 2,
   'open-state variant keys must be included in both read and delete ownership lookups');
 
 console.log('R2 read authorization regression tests passed.');
