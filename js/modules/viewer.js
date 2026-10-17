@@ -310,14 +310,27 @@ async function deleteCurrentUpload() {
   try {
     // Keep the ownership row available while the Worker verifies each R2 key.
     // Remove the row only after all known objects have been cleaned successfully.
-    const cleanupTargets = [
+    const sourceCapture = currentRecord.meta?.source_capture;
+    const cleanupCandidates = [
       { bucket: 'nif-files', key: currentRecord.r2_key },
+      { bucket: 'nif-files', key: currentRecord.meta?.source_r2_key },
       { bucket: 'nif-videos', key: currentRecord.meta?.source_r2_key },
-      { bucket: 'nif-videos', key: currentRecord.meta?.source_capture?.r2_key },
+      { bucket: sourceCapture?.r2_bucket || sourceCapture?.bucket || 'nif-files', key: sourceCapture?.r2_key },
+      ...(!sourceCapture?.r2_bucket && !sourceCapture?.bucket && sourceCapture?.r2_key
+        ? [{ bucket: 'nif-videos', key: sourceCapture.r2_key }] : []),
+      ...(Array.isArray(currentRecord.meta?.lidar_sources) ? currentRecord.meta.lidar_sources.flatMap(source => [
+        { bucket: source?.r2_bucket || source?.bucket || 'nif-files', key: source?.r2_key },
+        ...(!source?.r2_bucket && !source?.bucket && source?.r2_key ? [{ bucket: 'nif-videos', key: source.r2_key }] : []),
+      ]) : []),
+      { bucket: 'nif-files', key: currentRecord.meta?.mobile_asset_r2_key },
+      { bucket: 'nif-files', key: currentRecord.meta?.cleaned_splat?.r2_key },
+      ...(Array.isArray(currentRecord.meta?.open_variant_r2_keys)
+        ? currentRecord.meta.open_variant_r2_keys.map(key => ({ bucket: 'nif-files', key })) : []),
       { bucket: 'thumbnails', key: currentRecord.meta?.thumbnail_r2_key },
       { bucket: 'thumbnails', key: currentRecord.meta?.capture_thumbnail_r2_key },
       { bucket: 'preview-videos', key: currentRecord.meta?.teaser_video_r2_key },
-    ].filter((item, index, all) =>
+    ];
+    const cleanupTargets = cleanupCandidates.filter((item, index, all) =>
       typeof item.key === 'string' &&
       item.key.trim() &&
       all.findIndex(candidate => candidate.bucket === item.bucket && candidate.key === item.key) === index
