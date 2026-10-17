@@ -73,3 +73,19 @@ test('preflight passes the resolved asset URL to reachability, viewer and cache 
   assert.match(source, /probeParams\.set\('file', artifactUrl\)/);
   assert.match(source, /const urls = \[splatUrl, thumbnailUrl\]/);
 });
+
+test('profile opens NIF assets through the shared R2 resolver', async () => {
+  const source = await read('js/modules/profile.js');
+  assert.match(source, /row\?\.r2_key \? r2\.publicUrl\('nif-files', row\.r2_key\)/);
+  assert.match(source, /r2_key: row\.r2_key/);
+  assert.match(source, /meta: row\.meta/);
+  assert.match(source, /from\('nif_files'\)/);
+});
+
+test('profile deletion removes canonical output/source/thumbnail keys from correct buckets', async () => {
+  const source = await read('js/modules/profile.js');
+  assert.match(source, /item\.r2_key\)[\s\S]*?bucket: 'nif-files'/);
+  assert.match(source, /item\.meta\?\.source_capture\?\.r2_key/);
+  assert.match(source, /rawVideoKey/);
+  assert.match(source, /bucket: 'nif-videos', path: rawVideoKey/);
+});
