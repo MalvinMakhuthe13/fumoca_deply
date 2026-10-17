@@ -183,10 +183,23 @@ const Fumoca4D = (() => {
     S.states.push(data);
     console.log(`%c[4D] Keyframe "${data.step_label}" saved at t=${timeOff}s`, 'color:#c8ff00');
 
-    // Mark splat as having 4D data
-    await sb.from('nif_files')
-      .update({ meta: { ...(S.record.meta || {}), has_4d: true } })
-      .eq('id', S.record.id);
+    // Mark the NIF as having 4D data without overwriting newer metadata.
+    try {
+      const { data: latest, error: readError } = await sb.from('nif_files')
+        .select('id,user_id,meta').eq('id', S.record.id).eq('user_id', S.record.user_id).single();
+      if (readError || !latest) throw new Error(readError?.message || 'NIF could not be reloaded before saving 4D metadata.');
+      const latestMeta = latest.meta && typeof latest.meta === 'object' ? latest.meta : {};
+      const nextMeta = { ...latestMeta, has_4d: true };
+      const { data: updated, error: writeError } = await sb.from('nif_files').update({ meta: nextMeta })
+        .eq('id', S.record.id).eq('user_id', S.record.user_id).select('id').maybeSingle();
+      if (writeError || !updated) throw new Error(writeError?.message || '4D metadata was not saved.');
+      S.record = { ...S.record, meta: nextMeta };
+      if (window._fumocaCurrentRecord?.id === S.record.id) {
+        window._fumocaCurrentRecord = { ...window._fumocaCurrentRecord, meta: nextMeta };
+      }
+    } catch (metaError) {
+      console.warn('[4D] Keyframe was saved, but NIF 4D metadata could not be updated:', metaError?.message || metaError);
+    }
 
     return data;
   }
