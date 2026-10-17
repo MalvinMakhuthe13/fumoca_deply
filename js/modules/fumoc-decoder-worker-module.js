@@ -234,6 +234,9 @@ async function decodeFumoc(buffer) {
   self.postMessage({ type: 'progress', pct: 25, label: 'Decompressing splat data...' });
   const spltData = (spltSec.flags & 0x01) ? await inflate(spltSec.data) : spltSec.data;
   if (spltData.byteLength !== spltSec.rawLen) throw new Error('[FUMOC Worker] SPLT length does not match its section header');
+  if (header.splat_byte_length != null && Number(header.splat_byte_length) !== spltData.byteLength) {
+    throw new Error('[FUMOC Worker] Header SPLT length does not match the decoded payload');
+  }
   self.postMessage({ type: 'progress', pct: 40, label: 'Decoding Gaussian channels...' });
 
   let N, channels;
@@ -309,8 +312,9 @@ async function decodeFumoc(buffer) {
   // Extract thumbnail
   let thumbnail = null;
   if (sections['THUM']) {
-    thumbnail = sections['THUM'].data;
-    if (sections['THUM'].flags & 0x01) thumbnail = await inflate(thumbnail);
+    const thumbSection = sections['THUM'];
+    thumbnail = (thumbSection.flags & 0x01) ? await inflate(thumbSection.data) : thumbSection.data;
+    if (thumbnail.byteLength !== thumbSection.rawLen) throw new Error('[FUMOC Worker] Thumbnail length does not match its section header');
   }
 
   return { splatBinary: out, header, thumbnail, N };
