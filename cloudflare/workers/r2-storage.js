@@ -125,6 +125,8 @@ async function userOwnsFileKey(request, env, principal, bucketName, fileKey) {
   if (principal?.kind === 'server-to-server') return true;
   if (!principal?.id || principal.kind !== 'user') return false;
   if (fileKey.startsWith(`${principal.id}/`)) return true;
+  // Legacy photo-burst keys used raw/<user-id>/... before the owner prefix was standardized.
+  if (bucketName === 'nif-videos' && fileKey.startsWith(`raw/${principal.id}/`)) return true;
   if (!['nif-files', 'nif-videos', 'preview-videos', 'thumbnails'].includes(bucketName)) return false;
 
   const token = (request.headers.get('Authorization') || '').replace(/^Bearer\s+/, '');
@@ -204,6 +206,8 @@ async function userMayWriteFileKey(request, env, principal, bucketName, fileKey)
   if (principal?.kind === 'server-to-server') return true;
   if (!principal?.id || principal.kind !== 'user') return false;
   if (fileKey.startsWith(`${principal.id}/`)) return true;
+  // Legacy photo-burst keys used raw/<user-id>/... before the owner prefix was standardized.
+  if (bucketName === 'nif-videos' && fileKey.startsWith(`raw/${principal.id}/`)) return true;
   if (bucketName !== 'nif-files') return false;
 
   const slash = fileKey.indexOf('/');
@@ -252,6 +256,10 @@ async function authorizeFileRead(request, env, principal, bucketName, fileKey) {
   // User-scoped object keys remain readable by their owner, never by another user.
   if (principal?.kind === 'user' && principal.id && fileKey.startsWith(`${principal.id}/`)) {
     return { allowed: true, isPublic: false, reason: 'owner-key' };
+  }
+  // Permit an owner to access legacy photo-burst keys while old records are migrated.
+  if (bucketName === 'nif-videos' && principal?.kind === 'user' && principal.id && fileKey.startsWith(`raw/${principal.id}/`)) {
+    return { allowed: true, isPublic: false, reason: 'legacy-owner-key' };
   }
   if (principal?.kind === 'server-to-server') {
     return { allowed: true, isPublic: false, reason: 'trusted-server' };
