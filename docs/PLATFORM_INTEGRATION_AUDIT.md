@@ -122,6 +122,13 @@ Create frozen test sets for calibrated vehicle, object and scene captures. NaviG
 - Extended the same ownership boundary to presigned upload URL issuance, direct PUT uploads, multipart create/part/complete/abort. New Studio derivative keys are accepted only when their parent `nif_files` record is owned by the authenticated user; a new derivative does not need to already equal the row's current `r2_key`. Keys outside the user's own prefix or owned Studio derivative pattern are denied. Regression tests cover cross-user write denial and fail-closed missing-token behavior.
 - CI is repository-level regression evidence, not a live integration test. The changes are not deployed to the live Cloudflare Worker. The ownership lookup depends on the deployed Supabase table's `user_id` field and RLS behavior; verify with a staging account before deployment. Existing deployed worker behavior remains a release blocker until updated and tested.
 
+### Delete-flow QA/QC — ownership lookup and database-row ordering
+
+- A critical integration issue was found in the delete path: the viewer/feed deleted the `nif_files` row before calling the R2 Worker, but the Worker verifies ownership by looking up that row. For record-backed keys, cleanup could therefore be denied after the database row was already gone.
+- The same cleanup lists also sent source capture and thumbnail keys to the wrong bucket. The viewer and feed now route output/source/thumbnail keys to `nif-files`, `nif-videos`, and `thumbnails` respectively.
+- The Worker ownership check now allows a user to delete a key under their own user prefix or a key that exactly matches their own NIF row's canonical `r2_key` or known source/thumbnail metadata. Unknown and cross-user keys fail closed. The row is deleted only after storage cleanup succeeds; if cleanup fails, the UI keeps the record and reports a retryable failure rather than pretending deletion completed.
+- Regression coverage was extended for source and thumbnail ownership. CI remains source-level testing: validate the PostgREST filter syntax and RLS behavior with a real staging user before deploying. Deleting several objects is not transactional; if a later delete fails after earlier objects succeeded, the row is retained and retrying should be safe for already-absent objects only if the R2 client treats missing-key deletes as success.
+
 ### Viewer QA/QC — incorrect R2 bucket routing for thumbnails and cleanup
 
 - Found that the viewer built `meta.thumbnail_r2_key` URLs using the `nif-files` bucket, while the feed resolves the same field from `thumbnails`. This could make a valid thumbnail fail to load from the viewer.
