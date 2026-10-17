@@ -1080,7 +1080,7 @@ async function animatePartFlow(h) {
     h.actions.push({
       id: `animate_${layer}_${Date.now()}`,
       label: `Toggle ${layer}`,
-      action: { type: 'animate', layer, openNifUrl },
+      action: { type: 'animate', layer, openNifUrl, openNifR2Key: fileKey },
     });
     await saveRemote();
     renderPanel();
