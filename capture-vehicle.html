@@ -516,47 +516,91 @@ async function stopRecording() {
 
 async function uploadAll() {
   uploadState.classList.add('show');
-  const uploadFill  = document.getElementById('uploadFill');
+  const uploadFill = document.getElementById('uploadFill');
   const uploadLabel = document.getElementById('uploadLabel');
-
-  const toUpload = Object.entries(blobs);
+  const toUpload = Object.entries(blobs).filter(([, blob]) => blob && blob.size > 0);
+  const uploadedKeys = {};
   let uploaded = 0;
 
-  for (const [type, blob] of toUpload) {
-    uploadLabel.textContent = `Uploading ${type.replace('_', ' ')} capture…`;
-    const ext  = blob.type.includes('mp4') ? 'mp4' : 'webm';
-    const path = `captures/${splatId}/${type}.${ext}`;
-
-    try {
-      await r2.upload(path, blob);
-    } catch {
-      // Fallback: Supabase storage
-      await supabase.storage.from('captures').upload(path, blob, { upsert: true });
-    }
-
-    uploaded++;
-    uploadFill.style.width = ((uploaded / toUpload.length) * 80) + '%';
+  if (!toUpload.length) {
+    uploadLabel.textContent = 'No video captures were recorded. Return to the capture steps and record at least one segment.';
+    return;
   }
 
-  // Create processing job in Supabase
-  uploadLabel.textContent = 'Queuing for processing…';
-  await supabase.from('processing_jobs').insert({
-    splat_id:    splatId,
-    status:      'queued',
-    stage:       'dual_capture_stitch',
-    metadata: {
-      capture_types: Object.keys(blobs),
-      anchor_count:  4,
-      stitch_mode:   'portal_v83',
-    },
-  }).catch(console.warn);
+  try {
+    const { data: authData, error: authError } = await supabase.auth.getUser();
+    if (authError) throw authError;
+    const user = authData?.user;
+    if (!user) throw new Error('Sign in before uploading vehicle captures so the capture set can be saved to your account.');
 
-  uploadFill.style.width = '100%';
-  uploadLabel.textContent = '✓ Uploaded! Processing will begin shortly.';
+    for (const [type, blob] of toUpload) {
+      uploadLabel.textContent = 'Uploading ' + type.replace(/_/g, ' ') + ' capture to secure storage…';
+      const ext = blob.type.includes('mp4') ? 'mp4' : 'webm';
+      // The active NIF worker reads raw capture inputs from nif-videos.
+      // Use the shared R2 client API instead of the non-existent r2.upload()
+      // shortcut and do not silently fall back to a different storage system.
+      const path = 'vehicle-captures/' + user.id + '/' + splatId + '/' + type + '.' + ext;
+      const result = await r2.from('nif-videos').upload(path, blob, { contentType: blob.type || 'video/webm' });
+      if (result.error || !result.fileKey) throw result.error || new Error('Storage did not return a file key for ' + type);
+      uploadedKeys[type] = result.fileKey;
+      uploaded++;
+      uploadFill.style.width = Math.round((uploaded / toUpload.length) * 80) + '%';
+    }
 
-  setTimeout(() => {
-    window.location.href = `/viewer.html?id=${splatId}&processing=1`;
-  }, 2500);
+    uploadLabel.textContent = 'Saving capture manifest…';
+    const captureTypes = Object.keys(uploadedKeys);
+    const sourceSplatId = new URLSearchParams(location.search).get('splatId');
+    const primaryKey = uploadedKeys.exterior || uploadedKeys.anchor_scan || uploadedKeys.interior || Object.values(uploadedKeys)[0];
+    const statusMessage = 'Capture files are stored. Automatic multi-video vehicle stitching/registration is not implemented in the active NIF worker yet; this bundle was staged and was not queued for reconstruction.';
+    const { data: stagedJob, error: jobError } = await supabase.from('reconstruction_jobs').insert({
+      user_id: user.id,
+      status: 'staged',
+      progress: 0,
+      vertical: 'vehicle',
+      capture_mode: 'dual_capture_stitch',
+      raw_r2_key: primaryKey,
+      file_size: toUpload.reduce((sum, [, blob]) => sum + (blob.size || 0), 0),
+      meta: {
+        title: 'Vehicle multi-video capture',
+        capture_session_id: splatId,
+        legacy_splat_id: sourceSplatId || null,
+        capture_asset_keys: uploadedKeys,
+        capture_types: captureTypes,
+        anchor_count: 4,
+        stitch_mode: 'portal_v83',
+        staged_only: true,
+        worker_compatible: false,
+        status_message: statusMessage,
+      },
+    }).select('id').single();
+    if (jobError) throw jobError;
+
+    uploadFill.style.width = '100%';
+    uploadLabel.replaceChildren();
+    const message = document.createElement('div');
+    message.textContent = '✓ Capture set saved. ' + statusMessage;
+    message.style.lineHeight = '1.5';
+    uploadLabel.appendChild(message);
+    const link = document.createElement('a');
+    link.href = 'notifications.html';
+    link.textContent = 'View capture status';
+    link.style.cssText = 'display:inline-block;margin-top:10px;color:#c8ff00;font-weight:700;';
+    uploadLabel.appendChild(link);
+    const idLine = document.createElement('div');
+    idLine.textContent = 'Capture job: ' + stagedJob.id;
+    idLine.style.cssText = 'font-size:11px;opacity:.55;margin-top:6px;overflow-wrap:anywhere;';
+    uploadLabel.appendChild(idLine);
+  } catch (error) {
+    // Roll back any partial upload if the capture manifest could not be saved.
+    const keys = Object.values(uploadedKeys);
+    if (keys.length) {
+      const { error: cleanupError } = await r2.from('nif-videos').remove(keys);
+      if (cleanupError) console.warn('[Vehicle capture] Partial R2 cleanup failed:', cleanupError.message || cleanupError);
+    }
+    uploadFill.style.width = '0%';
+    uploadLabel.textContent = 'Capture upload did not finish: ' + (error?.message || String(error)) + '. You can retry after checking sign-in and storage access.';
+    uploadLabel.style.color = '#ff8a8a';
+  }
 }
 
 // ── Restart current phase ──────────────────────────────────────────────────
