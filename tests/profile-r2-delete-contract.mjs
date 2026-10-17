@@ -14,4 +14,5 @@ assert.match(block, /\{ bucket: 'thumbnails', key: item\.meta\?\.capture_thumbna
 assert.ok(block.indexOf('Promise.allSettled(') < block.indexOf(".from('nif_files').delete()"), 'R2 cleanup must run before deleting the ownership row');
 assert.match(block, /if \(failed\) \{\s*throw new Error\('Some storage objects could not be deleted/);
 assert.match(block, /if \(item\.job_id\)/, 'job cleanup must not query with a missing id');
+assert.match(source, /r2\.publicUrl\('thumbnails', row\.meta\.thumbnail_r2_key\)/, 'profile thumbnails must use the dedicated thumbnails bucket');
 console.log('Profile NIF R2 delete contract passed.');
