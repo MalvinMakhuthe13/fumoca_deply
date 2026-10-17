@@ -100,7 +100,6 @@ assert.match(getRoute, /Cache-Control': rangeHeader \\? 'no-store' : \\(access\\
 assert.match(getRoute, /if \(access\.isPublic\) ctx\.waitUntil\(cache\.put/);
 assert.match(getRoute, /'X-Content-Type-Options': 'nosniff'/);
 assert.ok(getRoute.indexOf('verifyReadTicket(') < getRoute.indexOf('cache.match('), 'signed ticket validation must happen before cache lookup');
-assert.match(getRoute, /Cache-Control': access\.isPublic \? `public, max-age=\$\{ttl\}` : 'private, no-store'/);
 const ticketStart = source.indexOf("if (request.method === 'POST' && path === '/file/ticket')");
 const ticketEnd = source.indexOf("// ── GET /file/:key", ticketStart);
 assert.ok(ticketStart >= 0 && ticketEnd > ticketStart, 'private read ticket endpoint must exist');
