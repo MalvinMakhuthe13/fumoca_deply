@@ -205,7 +205,9 @@ const FumocaPublish = (() => {
     if (userError || !user?.id) throw new Error('Sign in before publishing this NIF.');
     if (rec?.user_id && rec.user_id !== user.id) throw new Error('You cannot publish an asset owned by another user.');
 
-    const splatId = rec?.id || new URLSearchParams(location.search).get('splatId');
+    const splatId = window._fumocaLoadedFromRecord === false
+      ? null
+      : (rec?.id || new URLSearchParams(location.search).get('splatId'));
     const aliveCount = Array.from(S.alive).filter(Boolean).length;
 
     // Reload the latest row before merging META so concurrent Studio actions
@@ -241,7 +243,14 @@ const FumocaPublish = (() => {
       .from('nif-files')
       .upload(path, blob, { contentType: 'application/octet-stream' });
 
-    if (uploadError) throw new Error('R2 upload failed: ' + uploadError.message);
+    if (uploadError || !fileKey || !publicUrl) {
+      if (fileKey) {
+        try { await r2.from('nif-files').remove([fileKey]); } catch (cleanupError) {
+          console.warn('[Publish] Upload returned incomplete data and cleanup failed:', cleanupError?.message || cleanupError);
+        }
+      }
+      throw new Error('R2 upload failed: ' + (uploadError?.message || 'storage returned no file key or URL'));
+    }
 
     onProgress?.('Registering…', 70);
 
