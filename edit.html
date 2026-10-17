@@ -4695,7 +4695,14 @@ $('addSplatInput')?.addEventListener('change', async e => {
       setStatus(`Added ${file.name} as a separate layer (${fmt(addN)} points)`, 'ok');
     } catch (err) { showToast('Could not add splat', err.message || String(err), 'warn'); }
   }
-  rebuildGeometry(); renderLayers(); updateStats();
+  rebuildGeometry();
+  renderLayers();
+  updateStats();
+  // Rebuild the source-index map and attach the gizmo after the appended layer
+  // is selected, so transforms immediately target the newly added subject.
+  refreshTransformSourceMap();
+  syncTransformGizmo();
+  _syncViewportHud();
   $('fileName').textContent = S.fileName;
   $('fileMeta').textContent = `${fmt(S.positions.length / 3)} points · multi-splat scene`;
 });
@@ -5027,7 +5034,16 @@ function renderLayers() {
         L.visible = !L.visible;
         S.layerHidden = new Uint8Array(S.alive.length);
         S.layers.forEach(LL => { if (!LL.visible) for (let i=0;i<LL.mask.length;i++) if (LL.mask[i]) S.layerHidden[i]=1; });
-        rebuildGeometry(); renderLayers();
+        if (!L.visible && S.activeLayerId === L.id) {
+          S.selected.fill(0);
+          S.activeLayerId = null;
+        } else {
+          for (let i=0;i<S.selected.length;i++) if (L.mask[i] && !L.visible) S.selected[i] = 0;
+        }
+        rebuildGeometry();
+        renderLayers();
+        syncTransformGizmo();
+        _syncViewportHud();
         return;
       }
       S.activeLayerId = L.id;
