@@ -4,7 +4,7 @@ on:
   push:
     branches: [main, "feat/**", "lidar-splat-integrity-cleanup", "lichtfeld-inspired-clean-run"]
   pull_request:
-    branches: [main]
+    branches: [main, "lidar-splat-integrity-cleanup"]
   workflow_dispatch:
 
 jobs:
@@ -41,6 +41,8 @@ jobs:
         run: node --test tests/lidar-cloud-utils.test.mjs
       - name: Test LiDAR preflight quality gates
         run: node --test tests/lidar-quality-report.test.mjs
+      - name: Test Studio LiDAR visibility and validation gates
+        run: node --test tests/studio-lidar-visible.test.mjs
       - name: Check standalone LiDAR report syntax
         run: node --input-type=module --check < js/modules/lidar-quality-report.mjs
       - name: Compile Kaggle preflight script
