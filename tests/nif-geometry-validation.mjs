@@ -51,4 +51,21 @@ rejects(
   'uncompressed encoding must reject NaN geometry too',
 );
 
-console.log('NIF geometry validation passed: compressed and uncompressed invalid scenes are rejected.');
+const oneSplat = new Uint8Array(32);
+rejects(
+  () => encodeNif({ sourceBuffer: oneSplat, aliveIndices: [1] }),
+  /out of bounds/,
+  'SPLAT point indices must be validated before DataView reads',
+);
+rejects(
+  () => encodeNif({ sourceBuffer: oneSplat, aliveIndices: [0], rowSize: 16 }),
+  /at least 32 bytes/,
+  'SPLAT row size must cover the canonical 32-byte layout',
+);
+rejects(
+  () => encodeNif({ sourceBuffer: new Uint8Array(33), aliveIndices: [0] }),
+  /divisible by row size/,
+  'partial trailing SPLAT rows must be rejected',
+);
+
+console.log('NIF geometry and SPLAT input validation passed.');
