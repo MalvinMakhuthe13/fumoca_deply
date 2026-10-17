@@ -83,6 +83,7 @@ try {
   assert.match(worker, /MAX_GAUSSIANS = 5_000_000/, 'worker decoder must use the same point cap');
   assert.match(worker, /Decompressed section exceeds the 512 MiB safety limit/, 'worker decompression must be bounded');
   assert.match(worker, /Raw SPLT payload must contain complete 32-byte rows/, 'worker must reject partial raw SPLAT rows');
+  assert.match(worker, /Order-1 ANS is not supported by this legacy worker/, 'legacy worker must fail clearly rather than misparse order-1 tables');
 } finally {
   globalThis.DecompressionStream = originalDecompressionStream;
 }
