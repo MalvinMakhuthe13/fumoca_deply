@@ -727,14 +727,24 @@ async function saveToSupabase() {
     const { data: record, error: readError } = await supabase.from('nif_files').select('meta').eq('id',splatId).single();
     if(readError)throw new Error(`Could not load NIF metadata: ${readError.message}`);
     if(!record)throw new Error('NIF record was not found; the uploaded derivative was not registered.');
+    const parentMeta = record.meta && typeof record.meta === 'object' ? record.meta : {};
+    const hasGaussianShSidecar = Array.isArray(parentMeta.gaussian_sh?.properties) &&
+      parentMeta.gaussian_sh.properties.some(name => /^f_rest_\d+$/.test(name));
     const meta = {
-      ...(record.meta && typeof record.meta === 'object' ? record.meta : {}),
+      ...parentMeta,
       cleaned_splat: {
         r2_key: fileKey,
         public_url: publicUrl || null,
         gaussian_count: idx.length,
         created_at: new Date().toISOString(),
         source_format: 'splat',
+        preserved_attributes: ['position', 'scale', 'rotation', 'opacity', 'render-ready DC colour'],
+        discarded_attributes: hasGaussianShSidecar
+          ? ['f_dc_* and f_rest_* exact SH coefficients (retained on the original NIF only)']
+          : [],
+        quality_flags: hasGaussianShSidecar
+          ? ['higher_order_sh_not_representable_in_32_byte_splat']
+          : [],
       },
     };
     const { error: updateError } = await supabase.from('nif_files').update({meta}).eq('id',splatId);
