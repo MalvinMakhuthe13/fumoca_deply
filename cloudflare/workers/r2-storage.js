@@ -125,7 +125,7 @@ async function userOwnsFileKey(request, env, principal, bucketName, fileKey) {
   if (principal?.kind === 'server-to-server') return true;
   if (!principal?.id || principal.kind !== 'user') return false;
   if (fileKey.startsWith(`${principal.id}/`)) return true;
-  if (!['nif-files', 'nif-videos', 'thumbnails'].includes(bucketName)) return false;
+  if (!['nif-files', 'nif-videos', 'preview-videos', 'thumbnails'].includes(bucketName)) return false;
 
   const token = (request.headers.get('Authorization') || '').replace(/^Bearer\s+/, '');
   if (!token || !env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) return false;
@@ -165,7 +165,7 @@ async function userOwnsFileKey(request, env, principal, bucketName, fileKey) {
     select: 'id,r2_key,meta',
     user_id: `eq.${principal.id}`,
     limit: '1',
-    or: `(r2_key.eq.${encodedKey},meta->>source_r2_key.eq.${encodedKey},meta->source_capture->>r2_key.eq.${encodedKey},meta->>thumbnail_r2_key.eq.${encodedKey},meta->>capture_thumbnail_r2_key.eq.${encodedKey})`,
+    or: `(r2_key.eq.${encodedKey},meta->>source_r2_key.eq.${encodedKey},meta->source_capture->>r2_key.eq.${encodedKey},meta->>thumbnail_r2_key.eq.${encodedKey},meta->>capture_thumbnail_r2_key.eq.${encodedKey},meta->>teaser_video_r2_key.eq.${encodedKey})`,
   });
   try {
     const response = await fetch(`${env.SUPABASE_URL}/rest/v1/nif_files?${query}`, {
@@ -185,6 +185,7 @@ async function userOwnsFileKey(request, env, principal, bucketName, fileKey) {
         meta.source_capture?.r2_key,
         meta.thumbnail_r2_key,
         meta.capture_thumbnail_r2_key,
+        meta.teaser_video_r2_key,
       ];
       return knownKeys.includes(fileKey);
     });
@@ -263,7 +264,7 @@ async function authorizeFileRead(request, env, principal, bucketName, fileKey) {
   const query = new URLSearchParams({
     select: 'id,user_id,r2_key,is_public,meta',
     limit: '20',
-    or: `(r2_key.eq.${encodedKey},meta->>source_r2_key.eq.${encodedKey},meta->source_capture->>r2_key.eq.${encodedKey},meta->>thumbnail_r2_key.eq.${encodedKey},meta->>capture_thumbnail_r2_key.eq.${encodedKey})`,
+    or: `(r2_key.eq.${encodedKey},meta->>source_r2_key.eq.${encodedKey},meta->source_capture->>r2_key.eq.${encodedKey},meta->>thumbnail_r2_key.eq.${encodedKey},meta->>capture_thumbnail_r2_key.eq.${encodedKey},meta->>teaser_video_r2_key.eq.${encodedKey})`,
   });
   try {
     const response = await fetch(`${env.SUPABASE_URL}/rest/v1/nif_files?${query}`, { headers });
@@ -281,15 +282,19 @@ async function authorizeFileRead(request, env, principal, bucketName, fileKey) {
         [meta.thumbnail_r2_key, meta.capture_thumbnail_r2_key].includes(fileKey);
       const isSource = bucketName === 'nif-videos' &&
         [meta.source_r2_key, meta.source_capture?.r2_key].includes(fileKey);
+      const isPreviewVideo = bucketName === 'preview-videos' && meta.teaser_video_r2_key === fileKey;
       const owner = !!(principal?.kind === 'user' && principal.id && row?.user_id === principal.id);
       if (isNifOutput && row.is_public === true) {
         return { allowed: true, isPublic: true, reason: 'published-nif' };
       }
-      if (owner && (isNifOutput || isThumbnail || isSource)) {
+      if (owner && (isNifOutput || isThumbnail || isSource || isPreviewVideo)) {
         return { allowed: true, isPublic: false, reason: 'owner-associated-file' };
       }
       if (isThumbnail && row.is_public === true) {
         return { allowed: true, isPublic: true, reason: 'published-nif-thumbnail' };
+      }
+      if (isPreviewVideo && row.is_public === true) {
+        return { allowed: true, isPublic: true, reason: 'published-nif-preview-video' };
       }
     }
 
