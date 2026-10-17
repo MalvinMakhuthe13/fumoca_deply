@@ -28,7 +28,8 @@ function firstNonEmpty(...values) {
 
 function resolveUrl(row) {
   const stored = firstNonEmpty(row.nif_url, row.output_url, row.public_url,
-    row.file_url, row.external_nif_url, row.provider_nif_url);
+    row.file_url, row.external_nif_url, row.provider_nif_url,
+    row.meta?.nif_url, row.meta?.external_nif_url, row.meta?.provider_nif_url);
   if (stored) return stored;
   // nif_files (the real, live table for pipeline-produced NIFs) has no
   // URL column at all — pipeline.py's _register() only ever writes r2_key.
