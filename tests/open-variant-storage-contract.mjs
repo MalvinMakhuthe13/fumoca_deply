@@ -33,6 +33,10 @@ assert.match(toggle, /return \{ openNifUrl: publicUrl, previewNifUrl, fileKey, l
   'canonical public URL and temporary preview URL must remain separate');
 assert.match(hotspot, /_fumocaApplyRendererPreview\(previewNifUrl \|\| openNifUrl\)/,
   'preview must use the authorized URL without persisting its temporary ticket');
+assert.match(hotspot, /const saved = await saveRemote\(\);[\s\S]*?if \(!saved\) \{[\s\S]*?h\.actions = originalActions;/,
+  'failed remote persistence must roll back the local hotspot action');
+assert.match(hotspot, /await discardPartToggleVariant\(fileKey, currentRecord\.id, currentRecord\.user_id\)/,
+  'failed remote persistence must clean up the unregistered variant');
 assert.match(hotspot, /action: \{ type: 'animate', layer, openNifUrl, openNifR2Key: fileKey \}/,
   'saved hotspot action must keep the canonical URL and R2 key');
 assert.match((await readFile(new URL('../js/modules/hotspot-actions.js', import.meta.url), 'utf8')), /authenticatedUrl\(key\)/,
