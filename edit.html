@@ -1767,7 +1767,7 @@ scene.add(new THREE.AxesHelper(1.5));
 // ─── STATE ──────────────────────────────────────────────────────────────────
 const S = {
   fileName: '', fileType: '', sourceBuffer: null, splatRowSize: 32, splatSourceUrl: '',
-  positions: null, colors: null, opacity: null, scale: null, scaleXYZ: null, rotation: null, shAttributes: [], shCoefficients: null, nifVertical: 'generic', nifLayers: [], alive: null, selected: null,
+  positions: null, colors: null, opacity: null, scale: null, scaleXYZ: null, rotation: null, shAttributes: [], shCoefficients: null, nifVertical: 'generic', nifLayers: [], nifSHChunkUnavailable: false, nifLidarChunkUnavailable: false, alive: null, selected: null,
   pivot: null,
   measurements: [], measurementStart: null,
   paintColors: null,
@@ -2579,6 +2579,8 @@ async function loadFile(file, urlOverride) {
   S.nifMeta = {};
   S.nifVertical = 'generic';
   S.nifLayers = [];
+  S.nifSHChunkUnavailable = false;
+  S.nifLidarChunkUnavailable = false;
   S.nifThumbnailBytes = null;
   S.nifMesh = null;
   S.nifPassthroughChunks = [];
@@ -2595,6 +2597,8 @@ async function loadFile(file, urlOverride) {
     S.sourceBuffer = rows.buffer;
     S.nifMeta = decoded.meta || {};
     S.nifVertical = decoded.reader.header?.vertical || 'generic';
+    S.nifSHChunkUnavailable = !!decoded.reader.getChunk(CHUNK.GAUSSIAN_SH) && !decoded.gaussianSH;
+    S.nifLidarChunkUnavailable = !!decoded.reader.getChunk(CHUNK.LIDAR_ATTR) && !decoded.lidarAttributes;
     S.nifLayers = await decodeLayers(decoded.reader);
     S.nifThumbnailBytes = decoded.thumbnailBytes || null;
     S.nifMesh = decoded.mesh ? {
@@ -3543,6 +3547,15 @@ function _compactNifLayers(aliveIndices) {
   return compactNifLayers(sourceLayers, aliveIndices, S.alive?.length || 0);
 }
 
+function _assertNifSidecarsAvailable(action) {
+  if (S.nifSHChunkUnavailable) {
+    throw new Error(action + ' blocked: the source contains a Gaussian SH chunk that could not be decoded. No output was written, to avoid silently losing colour detail.');
+  }
+  if (S.nifLidarChunkUnavailable) {
+    throw new Error(action + ' blocked: the source contains a LiDAR attribute chunk that could not be decoded. No output was written, to avoid silently losing point attributes.');
+  }
+}
+
 function _withLayerGeoQuality(meta, droppedUnindexed) {
   if (!droppedUnindexed) return meta;
   const flags = Array.isArray(meta.quality_flags) ? meta.quality_flags : [];
@@ -3640,6 +3653,7 @@ function exportFile(type = 'splat') {
     // and compact them using the same alive-point index list as geometry.
     let gaussianSH, gaussianShMeta, layerData;
     try {
+      _assertNifSidecarsAvailable('NIF export');
       gaussianSH = compactGaussianSHSidecar({
         indices: idx,
         attributes: S.shAttributes || [],
@@ -4648,6 +4662,7 @@ window.saveLiveEdit = async function saveLiveEdit(extra = {}) {
     try {
       const aliveIdx = [];
       for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) aliveIdx.push(i);
+      _assertNifSidecarsAvailable('Save');
       const gaussianSH = compactGaussianSHSidecar({
         indices: aliveIdx,
         attributes: S.shAttributes || [],
