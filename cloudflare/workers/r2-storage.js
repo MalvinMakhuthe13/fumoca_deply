@@ -371,6 +371,34 @@ async function verifyReadTicket(ticket, bucketName, fileKey, secret, now = Date.
   }
 }
 
+// Parse one HTTP byte range. Returns null when no Range header is supplied,
+// a bounded { start, end, length } for a valid range, or { invalid: true }.
+// Multi-range requests are intentionally rejected rather than served incorrectly.
+function parseByteRange(rangeHeader, size) {
+  if (!rangeHeader) return null;
+  if (!Number.isSafeInteger(size) || size < 0) return { invalid: true };
+  const match = /^bytes=(\\d*)-(\\d*)$/i.exec(String(rangeHeader).trim());
+  if (!match || (!match[1] && !match[2]) || size === 0) return { invalid: true };
+
+  let start;
+  let end;
+  if (!match[1]) {
+    const suffixLength = Number(match[2]);
+    if (!Number.isSafeInteger(suffixLength) || suffixLength <= 0) return { invalid: true };
+    start = Math.max(0, size - suffixLength);
+    end = size - 1;
+  } else {
+    start = Number(match[1]);
+    end = match[2] ? Number(match[2]) : size - 1;
+    if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end < start || start >= size) {
+      return { invalid: true };
+    }
+    end = Math.min(end, size - 1);
+  }
+
+  return { start, end, length: end - start + 1 };
+}
+
 // ── Key sanitisation ────────────────────────────────────────────────────────
 // Strips traversal attempts, backslashes, and collapses duplicate slashes.
 // Also enforces a sane max length so absurdly long paths can't be used to
@@ -933,7 +961,10 @@ export default {
 
       const cache = caches.default;
       const cacheKey = new Request(request.url, { method: 'GET' });
-      if (access.isPublic) {
+      const rangeHeader = request.headers.get('Range');
+      // Shared cache stores complete public objects only. Range responses must
+      // bypass it so a 1-byte probe or media seek never receives a full cached body.
+      if (access.isPublic && !rangeHeader) {
         const cached = await cache.match(cacheKey);
         if (cached) return new Response(cached.body, {
           status: cached.status,
@@ -942,29 +973,64 @@ export default {
         });
       }
 
-      const obj = await r2Bucket.get(fileKey);
+      let obj;
+      let totalSize = null;
+      let parsedRange = null;
+      if (rangeHeader) {
+        const head = await r2Bucket.head(fileKey);
+        if (!head) return json({ error: 'Not found' }, 404, {
+          ...cors, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
+        });
+        totalSize = head.size;
+        parsedRange = parseByteRange(rangeHeader, totalSize);
+        if (!parsedRange || parsedRange.invalid) {
+          return new Response(null, {
+            status: 416,
+            headers: {
+              ...cors,
+              'Content-Range': `bytes */${totalSize}`,
+              'Accept-Ranges': 'bytes',
+              'Cache-Control': 'no-store',
+              'X-Content-Type-Options': 'nosniff',
+            },
+          });
+        }
+        obj = await r2Bucket.get(fileKey, {
+          range: { offset: parsedRange.start, length: parsedRange.length },
+        });
+      } else {
+        obj = await r2Bucket.get(fileKey);
+      }
       if (!obj) return json({ error: 'Not found' }, 404, {
         ...cors,
-        'Cache-Control': access.isPublic ? 'public, max-age=60' : 'private, no-store',
+        'Cache-Control': access.isPublic && !rangeHeader ? 'public, max-age=60' : 'private, no-store',
         'X-Content-Type-Options': 'nosniff',
       });
 
       const isThumb = fileKey.startsWith('thumbs/') || fileKey.startsWith('avatars/') || bucketParam === 'thumbnails' || bucketParam === 'avatars';
       const ttl = isThumb ? THUMB_TTL : CACHE_TTL;
       const contentType = obj.httpMetadata?.contentType || 'application/octet-stream';
+      const responseHeaders = {
+        'Content-Type': contentType,
+        'Cache-Control': rangeHeader ? 'no-store' : (access.isPublic ? `public, max-age=${ttl}` : 'private, no-store'),
+        'ETag': obj.etag,
+        'Accept-Ranges': 'bytes',
+        'X-Content-Type-Options': 'nosniff',
+        ...cors,
+      };
+      if (parsedRange && totalSize !== null) {
+        responseHeaders['Content-Range'] = `bytes ${parsedRange.start}-${parsedRange.end}/${totalSize}`;
+        responseHeaders['Content-Length'] = String(parsedRange.length);
+      } else if (Number.isFinite(obj.size)) {
+        responseHeaders['Content-Length'] = String(obj.size);
+      }
       const response = new Response(obj.body, {
-        headers: {
-          'Content-Type': contentType,
-          'Cache-Control': access.isPublic ? `public, max-age=${ttl}` : 'private, no-store',
-          'ETag': obj.etag,
-          'Accept-Ranges': 'bytes',
-          'X-Content-Type-Options': 'nosniff',
-          ...cors,
-        },
+        status: parsedRange ? 206 : 200,
+        headers: responseHeaders,
       });
 
-      // Private/ticketed responses are never inserted into the shared cache.
-      if (access.isPublic) ctx.waitUntil(cache.put(cacheKey, response.clone()));
+      // Private/ticketed and range responses are never inserted into the shared cache.
+      if (access.isPublic && !rangeHeader) ctx.waitUntil(cache.put(cacheKey, response.clone()));
       return response;
     }
 
