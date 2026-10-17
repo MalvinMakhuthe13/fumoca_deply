@@ -54,6 +54,30 @@ await assert.rejects(
   'quantized geometry must reject inverted bounding boxes',
 );
 
+const originalDecompressionStream = globalThis.DecompressionStream;
+class OversizedFakeDecompressionStream {
+  constructor() {
+    this.writable = new WritableStream({ write() {}, close() {} });
+    this.readable = new ReadableStream({
+      start(controller) {
+        controller.enqueue({ length: 512 * 1024 * 1024 + 1 });
+        controller.close();
+      },
+    });
+  }
+}
+try {
+  globalThis.DecompressionStream = OversizedFakeDecompressionStream;
+  const { decompressChunk } = await import('../engine-next/format/NIFSpec.js');
+  await assert.rejects(
+    () => decompressChunk({ codec: CODEC.GZIP, data: new Uint8Array([1]) }),
+    /512 MiB safety limit/,
+    'gzip decompression must stop before oversized output is accumulated',
+  );
+} finally {
+  globalThis.DecompressionStream = originalDecompressionStream;
+}
+
 const valid = encodeGeometryOnly({
   positions: new Float32Array([1, 2, 3]),
   colors01: new Float32Array([0.2, 0.4, 0.6]),
