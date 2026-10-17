@@ -2,7 +2,7 @@ name: FUMOCA validation
 
 on:
   push:
-    branches: [main, "feat/**", "platform-integration-audit"]
+    branches: [main, "feat/**", "platform-integration-audit", "qa-qc-full-platform-2026-10-17"]
   pull_request:
     branches: [main]
   workflow_dispatch:
