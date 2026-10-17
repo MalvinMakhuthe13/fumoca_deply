@@ -234,3 +234,9 @@ The latest green GitHub Actions run is repository-level evidence only. It does n
 
 These are repository changes and mocked/static tests only. The Worker is not deployed, so R2's actual range semantics, direct bucket/custom-domain exposure, Supabase RLS/PostgREST policy behaviour and real browser round-trips remain staging gates.
 - **Teaser video flow:** the old upload path `teasers/<nif-id>/...` failed the Worker’s ownership guard, and the Worker had no published-NIF association rule for `preview-videos`. Teaser uploads now use the authenticated owner prefix, persist `meta.teaser_video_r2_key`, scope metadata updates to the owner, clean up the object if metadata persistence fails, resolve metadata-backed teaser URLs in the feed, and delete teaser objects from feed/profile/viewer cleanup. CI includes public/private teaser authorization and upload/cleanup contract tests.
+
+## Deployment guide correction
+
+`cloudflare/DEPLOY.md` previously contained stale instructions that described the old one-bucket Worker, legacy `splats` schema, and `cd cloudflare && wrangler deploy`. It has been replaced with staging-safe instructions that identify root `wrangler.jsonc` as the canonical config, explicitly prohibit deploying this QA branch to production, require separate staging buckets/Worker/Supabase, and call for direct R2/custom-domain tests. A deployment-document contract test is now wired into CI.
+
+Latest full repository validation for this branch passed: https://github.com/MalvinMakhuthe13/fumoca_deply/actions/runs/39054649151 (commit `80e79d7b82e9be525639a48e3bb1cdaf91230ca8`). This remains static/mocked repository validation, not live integration sign-off.
