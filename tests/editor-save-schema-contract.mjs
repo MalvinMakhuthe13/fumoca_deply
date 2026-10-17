@@ -29,6 +29,9 @@ assert.match(preserve, /r2\.from\('nif-files'\)\.remove\(\[fileKey\]\)/,
 const legacyEditor = await readFile(new URL('../js/modules/splat-edit-engine.js', import.meta.url), 'utf8');
 assert.match(legacyEditor, /const path=\`\$\{splatId\}\/edited_cleaned_\$\{Date\.now\(\)\}\.splat\`;/,
   'cleaned splat derivatives must use the record-scoped edited_ key accepted by the R2 ownership guard');
+const editEngine = await readFile(new URL('../js/modules/edit-engine.js', import.meta.url), 'utf8');
+assert.match(editEngine, /select\('id,user_id,title,description,r2_key,is_public,meta'\)[\s\S]*?\.eq\('id', rec\.id\)\.eq\('user_id', rec\.user_id\)\.single\(\)/,
+  'fallback edit-engine saves must reload current owner-scoped NIF metadata');
 const feedSource = await readFile(new URL('../js/modules/feed.js', import.meta.url), 'utf8');
 const liveSaveStart = feedSource.indexOf('window.saveLiveEdit = async function(recipeDelta)');
 const liveSaveEnd = feedSource.indexOf('\n};', liveSaveStart);
