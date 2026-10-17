@@ -21,6 +21,9 @@ assert.match(layer, /this\._resizeObserver\?\.disconnect\(\)/, 'destroy must rel
 assert.match(layer, /if \(committed\) return/, 'label commit should be idempotent');
 
 assert.match(persist, /hotspots\.length && !window\._fumocaUseHotspotPro/, 'legacy persistence renderer must not duplicate Hotspots Pro markers');
+assert.match(persist, /window\._fumocaActivateHotspot\(hs\)/, 'legacy persisted marker clicks should route into Hotspots Pro');
+assert.match(persist, /aria-label.*Open hotspot/, 'persisted hotspot markers should be keyboard accessible');
+assert.match(pro, /window\._fumocaActivateHotspot = \(candidate\)/, 'Hotspots Pro should expose a shared activation entry point');
 assert.match(viewer, /fumoca:hotspotsSeeded/, 'demo hotspots should route through Hotspots Pro when active');
 
 console.log('Hotspot rendering, placement, persistence-status and duplicate-render contracts passed.');
