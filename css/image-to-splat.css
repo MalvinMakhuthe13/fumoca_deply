@@ -419,3 +419,38 @@
   color: #e8f0fa;
   font-size: 12px;
 }
+
+
+/* ── Angle Studio v4: multi-photo + video ─────────────────── */
+.its-video-panel { margin-top: 14px; padding: 12px; border-radius: 14px; border: 1px solid rgba(255,255,255,0.08); background: rgba(0,0,0,0.25); }
+.its-video-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(180px, 240px); gap: 14px; align-items: start; }
+@media (max-width: 720px) { .its-video-row { grid-template-columns: 1fr; } }
+.its-video-panel video { width: 100%; border-radius: 10px; background: #000; max-height: 220px; }
+.its-video-controls label { display: block; font-size: 12px; color: #9ab; margin-bottom: 8px; }
+.its-video-controls input[type=range] { width: 100%; }
+.its-spin-block { margin-top: 14px; }
+.its-spin-label { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 12px; color: #b7c8da; }
+.its-spin-label input[type=range] { flex: 1; min-width: 120px; }
+.its-spin-stage {
+  margin-top: 10px; border-radius: 14px; overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.1); background: #0a0e16;
+  min-height: 180px; display: flex; align-items: center; justify-content: center;
+}
+.its-spin-stage img { width: 100%; max-height: 280px; object-fit: contain; display: block; }
+.its-spin-empty { padding: 28px; color: rgba(255,255,255,0.4); font-size: 13px; text-align: center; }
+.its-gap-report {
+  margin: 12px 0; padding: 10px 12px; border-radius: 12px;
+  border: 1px solid rgba(255, 160, 60, 0.35); background: rgba(255, 140, 40, 0.08);
+  font-size: 12px; color: #ffd9a8;
+}
+.its-gap-report strong { color: #ffb44a; }
+.its-thumb.is-video::after {
+  content: "VIDEO"; position: absolute; top: 6px; left: 6px;
+  font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 4px;
+  background: #c8ff00; color: #111;
+}
+.its-thumb { position: relative; }
+.its-thumb.is-frame img { outline: 1px solid rgba(120,200,255,0.35); }
+.its-preview-strip figure.is-match { border-color: rgba(200,255,0,0.3); }
+.dot.gap { background: #ff8b4a; }
+.its-cam-popup { width: min(380px, calc(100vw - 20px)); }
