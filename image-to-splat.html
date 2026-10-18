@@ -11,6 +11,10 @@
   <link rel="stylesheet" href="css/image-to-splat.css">
   <script src="config.js"></script>
   <script src="js/modules/nav.js" defer></script>
+  <script type="module">
+    import R from "./js/modules/fumoc-scene-reconstructor.js";
+    window.FumocSceneReconstructor = R;
+  </script>
   <script src="js/modules/image-to-splat-studio.js" defer></script>
 </head>
 <body>
@@ -21,8 +25,8 @@
         <div>
           <div class="page-kicker">FUMOCA Studio · Experimental</div>
           <h1>IMAGE <span>→</span> SPLAT</h1>
-          <p>Place cameras on a 2D product photo, preview what each angle sees, then export a handoff package. Convert to a full splat later when a worker is ready.</p>
-          <div class="its-pills"><span>Place cameras yourself</span><span>Click to preview angles</span><span>Export when ready</span></div>
+          <p>Place cameras around your product. Depth-aware previews shift doors, tyres and panels as you move — not flat crops. Multi-photo matching when you have more listing shots. Export when ready; full splat later via worker.</p>
+          <div class="its-pills"><span>Depth-aware angles</span><span>Multi-photo match</span><span>Click to preview</span><span>Export when ready</span></div>
         </div>
         <div class="its-hero-mark" aria-hidden="true"><div class="its-orbit its-orbit-one"></div><div class="its-orbit its-orbit-two"></div><div class="its-orbit-dot"></div><span>3D</span></div>
       </header>
