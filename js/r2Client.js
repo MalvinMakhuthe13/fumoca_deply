@@ -85,8 +85,9 @@ function putWithProgress(uploadUrl, body, contentType, token, onProgress, { isWo
 
 // ── Multipart upload helpers ───────────────────────────────────────────────────
 
-const MULTIPART_PART_SIZE = 8 * 1024 * 1024;
+const MULTIPART_PART_SIZE = 16 * 1024 * 1024;
 const MULTIPART_MAX_RETRIES = 3;
+const MULTIPART_CONCURRENCY = 3;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -243,90 +244,81 @@ async function uploadMultipart(
 
   const totalBytes = fileOrBlob.size;
   const totalParts = Math.ceil(totalBytes / MULTIPART_PART_SIZE);
-  const parts = [];
-
-  let uploadedBeforePart = 0;
+  const parts = new Array(totalParts);
+  let bytesCompleted = 0;
+  const reportProgress = () => {
+    if (typeof onProgress === 'function' && totalBytes > 0) {
+      onProgress(Math.min(99, Math.round((bytesCompleted / totalBytes) * 100)));
+    }
+  };
 
   try {
-    for (let partNumber = 1; partNumber <= totalParts; partNumber++) {
-      const start = (partNumber - 1) * MULTIPART_PART_SIZE;
-      const end = Math.min(
-        start + MULTIPART_PART_SIZE,
-        totalBytes
-      );
+    // Parallel part uploads (sequential 8MB parts felt "stuck" on ~150MB videos).
+    let nextPart = 1;
+    const runWorker = async () => {
+      while (true) {
+        const partNumber = nextPart++;
+        if (partNumber > totalParts) return;
 
-      const partBlob = fileOrBlob.slice(start, end);
+        const start = (partNumber - 1) * MULTIPART_PART_SIZE;
+        const end = Math.min(start + MULTIPART_PART_SIZE, totalBytes);
+        const partBlob = fileOrBlob.slice(start, end);
+        const partUrl =
+          `${WORKER_URL}/upload/multipart/part` +
+          `?bucket=${encodeURIComponent(bucketName)}` +
+          `&uploadId=${encodeURIComponent(uploadId)}` +
+          `&key=${encodeURIComponent(fileKey)}` +
+          `&partNumber=${partNumber}`;
 
-      const partUrl =
-        `${WORKER_URL}/upload/multipart/part` +
-        `?bucket=${encodeURIComponent(bucketName)}` +
-        `&uploadId=${encodeURIComponent(uploadId)}` +
-        `&key=${encodeURIComponent(fileKey)}` +
-        `&partNumber=${partNumber}`;
-
-      let result = null;
-      let lastError = null;
-
-      for (
-        let attempt = 1;
-        attempt <= MULTIPART_MAX_RETRIES;
-        attempt++
-      ) {
-        try {
-          result = await uploadMultipartPart(
-            partUrl,
-            partBlob,
-            token,
-            partNumber,
-            totalBytes,
-            uploadedBeforePart,
-            onProgress
-          );
-          break;
-        } catch (err) {
-          lastError =
-            err instanceof Error
-              ? err
-              : new Error(String(err));
-
-          console.warn(
-            `[FUMOCA] Multipart part ${partNumber} attempt ${attempt}/${MULTIPART_MAX_RETRIES} failed:`,
-            lastError.message
-          );
-
-          if (attempt < MULTIPART_MAX_RETRIES) {
-            await sleep(1000 * Math.pow(2, attempt - 1));
+        let result = null;
+        let lastError = null;
+        for (let attempt = 1; attempt <= MULTIPART_MAX_RETRIES; attempt++) {
+          try {
+            result = await uploadMultipartPart(
+              partUrl,
+              partBlob,
+              token,
+              partNumber,
+              totalBytes,
+              bytesCompleted,
+              null
+            );
+            break;
+          } catch (err) {
+            lastError = err instanceof Error ? err : new Error(String(err));
+            console.warn(
+              `[FUMOCA] Multipart part ${partNumber} attempt ${attempt}/${MULTIPART_MAX_RETRIES} failed:`,
+              lastError.message
+            );
+            if (attempt < MULTIPART_MAX_RETRIES) {
+              await sleep(1000 * Math.pow(2, attempt - 1));
+            }
           }
         }
+
+        if (!result) {
+          throw lastError || new Error(`Multipart part ${partNumber} failed.`);
+        }
+
+        parts[partNumber - 1] = {
+          partNumber: result.partNumber,
+          etag: result.etag,
+        };
+        bytesCompleted += partBlob.size;
+        reportProgress();
       }
+    };
 
-      if (!result) {
-        throw lastError || new Error(
-          `Multipart part ${partNumber} failed.`
-        );
-      }
+    await Promise.all(
+      Array.from(
+        { length: Math.min(MULTIPART_CONCURRENCY, totalParts) },
+        () => runWorker()
+      )
+    );
 
-      parts.push({
-        partNumber: result.partNumber,
-        etag: result.etag,
-      });
+    const orderedParts = parts.filter(Boolean).sort((a, b) => a.partNumber - b.partNumber);
 
-      uploadedBeforePart += partBlob.size;
-
-      if (
-        typeof onProgress === 'function' &&
-        totalBytes > 0
-      ) {
-        onProgress(
-          Math.min(
-            100,
-            Math.round((uploadedBeforePart / totalBytes) * 100)
-          )
-        );
-      }
-    }
-
-    const completeUrl =
+        const completeUrl =
       `${WORKER_URL}/upload/multipart/complete?bucket=${encodeURIComponent(bucketName)}`;
 
     const completeData = await workerJson(
@@ -336,7 +328,7 @@ async function uploadMultipart(
       {
         uploadId,
         key: fileKey,
-        parts,
+        parts: orderedParts,
       }
     );
 
