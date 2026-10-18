@@ -21,15 +21,18 @@
         <div>
           <div class="page-kicker">FUMOCA Studio · Experimental</div>
           <h1>IMAGE <span>→</span> SPLAT</h1>
-          <p>Build a virtual camera orbit from listing photos you already have. Test coverage locally, export a handoff package, then connect reconstruction when your worker is ready.</p>
-          <div class="its-pills"><span>Existing photos first</span><span>Camera plan you control</span><span>AI fill off by default</span></div>
+          <p>Place cameras on a 2D product photo, preview what each angle sees, then export a handoff package. Convert to a full splat later when a worker is ready.</p>
+          <div class="its-pills"><span>Place cameras yourself</span><span>Click to preview angles</span><span>Export when ready</span></div>
         </div>
         <div class="its-hero-mark" aria-hidden="true"><div class="its-orbit its-orbit-one"></div><div class="its-orbit its-orbit-two"></div><div class="its-orbit-dot"></div><span>3D</span></div>
       </header>
 
       <div class="its-status" role="status">
         <span class="its-status-dot"></span>
-        <div><strong>Plan · preview · package — ready to test</strong><p>Load photos, tune the live orbit, score coverage, export a project ZIP. Gaussian reconstruction still needs a backend worker when you connect one.</p></div>
+        <div>
+          <strong>Place · preview · package</strong>
+          <p>Add cameras around the subject, click any marker to see that viewpoint, then export. Gaussian reconstruction still needs a backend worker when you connect one.</p>
+        </div>
         <a href="https://github.com/romanpillai/Image2Splat" target="_blank" rel="noopener noreferrer">Engine repository ↗</a>
       </div>
 
@@ -48,21 +51,38 @@
         </section>
 
         <section class="its-card its-camera-card">
-          <div class="its-card-head"><span class="its-step">02</span><div><h2>Virtual camera plan</h2><p>Choose the orbit before generating any views.</p></div></div>
-          <div class="its-orbit-preview" aria-label="Illustration of a camera orbit around a subject">
-            <div class="its-orbit-track"></div><div class="its-orbit-track its-track-inner"></div>
+          <div class="its-card-head"><span class="its-step">02</span><div><h2>Place cameras</h2><p>Add markers, drag them, click one to preview that view.</p></div></div>
+
+          <div class="its-orbit-preview" id="itsOrbitHost" aria-label="Camera placement around subject">
+            <div class="its-orbit-track"></div>
+            <div class="its-orbit-track its-track-inner"></div>
             <div class="its-subject-placeholder"><span>SUBJECT</span><i></i></div>
             <span class="its-cam its-cam-a">▣</span><span class="its-cam its-cam-b">▣</span><span class="its-cam its-cam-c">▣</span><span class="its-cam its-cam-d">▣</span><span class="its-cam its-cam-e">▣</span>
-            <div class="its-orbit-caption">CAMERA ORBIT · PREVIEW</div>
+            <div class="its-orbit-caption">CAMERA PLAN · LIVE</div>
           </div>
+
+          <div class="its-placement-toolbar" id="itsPlacementToolbar">
+            <button type="button" class="its-secondary" id="itsAddCam" title="Add a camera at a default angle">＋ Add camera</button>
+            <button type="button" class="its-secondary" id="itsDeleteCam" disabled title="Delete selected camera">Delete</button>
+            <button type="button" class="its-secondary" id="itsGenerateRing" title="Fill cameras from the ring sliders">Generate ring</button>
+            <span class="its-cam-count" id="itsCamCount">0 cameras</span>
+          </div>
+          <p class="its-hint-line">Tip: drag markers to move them. Click a marker to open the viewpoint popup.</p>
+
           <div class="its-controls">
-            <label class="its-control"><span>Camera positions <output id="itsCountOut">12</output></span><input id="itsCount" type="range" min="4" max="36" step="2" value="12"><small>More positions mean more frames to process.</small></label>
+            <label class="its-control"><span>Camera positions <output id="itsCountOut">12</output></span><input id="itsCount" type="range" min="4" max="36" step="2" value="12"><small>Used when you press Generate ring.</small></label>
             <label class="its-control"><span>Horizontal sweep <output id="itsSweepOut">360°</output></span><input id="itsSweep" type="range" min="45" max="360" step="15" value="360"></label>
             <label class="its-control"><span>Camera radius <output id="itsRadiusOut">3.0</output></span><input id="itsRadius" type="range" min="1" max="8" step="0.25" value="3"><small>Relative scene units, not a verified real-world distance.</small></label>
             <label class="its-control"><span>Elevation <output id="itsElevationOut">5°</output></span><input id="itsElevation" type="range" min="-20" max="45" step="5" value="5"></label>
             <label class="its-control"><span>Field of view <output id="itsFovOut">35°</output></span><input id="itsFov" type="range" min="20" max="75" step="1" value="35"></label>
           </div>
-          <div class="its-actions"><button id="itsExportPlan" type="button" class="its-primary">Export project bundle (.zip)</button><button id="itsExportJson" type="button" class="its-secondary">Export camera plan (.json)</button><button id="itsResetPlan" type="button" class="its-secondary">Reset defaults</button></div><p class="its-note">The ZIP includes your selected source images and camera-plan manifest. It prepares a handoff package; it does not run GPU reconstruction or create a splat.</p>
+
+          <div class="its-actions">
+            <button id="itsExportPlan" type="button" class="its-primary" disabled>Export project bundle (.zip)</button>
+            <button id="itsExportJson" type="button" class="its-secondary" disabled>Export camera plan (.json)</button>
+            <button id="itsResetPlan" type="button" class="its-secondary">Reset defaults</button>
+          </div>
+          <p class="its-note">The ZIP includes your selected source images and camera-plan manifest. It prepares a handoff package; it does not run GPU reconstruction or create a splat.</p>
         </section>
       </div>
 
@@ -101,6 +121,23 @@
       <footer class="its-footer">FUMOCA · Image-to-Splat Studio · Integration scaffold · <a href="https://github.com/romanpillai/Image2Splat" target="_blank" rel="noopener noreferrer">Image2Splat is a separate project</a></footer>
     </div>
   </main>
+</div>
+
+<!-- Camera viewpoint popup (shown when a marker is clicked) -->
+<div id="itsCamPopup" class="its-cam-popup" hidden role="dialog" aria-labelledby="itsCamPopupTitle">
+  <div class="its-cam-popup-head">
+    <strong id="itsCamPopupTitle">Cam 01</strong>
+    <button type="button" id="itsCamPopupClose" class="its-cam-popup-close" aria-label="Close">×</button>
+  </div>
+  <canvas id="itsCamPopupPreview" width="280" height="180" aria-label="Viewpoint preview"></canvas>
+  <div class="its-cam-popup-meta">
+    <span id="itsCamPopupAngles">Yaw 0° · Elev 5°</span>
+    <span id="itsCamPopupNote" class="its-cam-popup-note">Approximate view from source photo</span>
+  </div>
+  <div class="its-cam-popup-actions">
+    <button type="button" class="its-primary" id="itsCamPopupUse">Use this angle</button>
+    <button type="button" class="its-secondary" id="itsCamPopupDup">Duplicate</button>
+  </div>
 </div>
 </body>
 </html>
