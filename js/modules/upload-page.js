@@ -379,7 +379,7 @@ async function uploadSingleBucket(fileName, file, _accessToken) {
   // For large video files we stream directly to R2 via the worker presign flow.
   setProgress(10, 'Uploading source video...');
 
-  const { publicUrl, error } = await r2
+  const { publicUrl, fileKey, error } = await r2
     .from('nif-videos')
     .upload(fileName, file, {
       contentType: file?.type || 'video/mp4',
@@ -391,11 +391,13 @@ async function uploadSingleBucket(fileName, file, _accessToken) {
     });
 
   if (error) throw new Error('R2 video upload failed: ' + error.message);
+  const path = fileKey || fileName;
+  if (!path) throw new Error('R2 video upload returned no file key.');
 
   // Store publicUrl so callers can retrieve it
   uploadSingleBucket._lastPublicUrl = publicUrl;
   setProgress(34, 'Upload complete.');
-  return { path: fileName, publicUrl };
+  return { path, publicUrl, fileKey: path };
 }
 
 function baseNifPayload(user, title, desc, category, price) {
@@ -888,12 +890,30 @@ window.handleSubmit = async function() {
       submitBtn.onclick = () => { window.location.href = studioUrl; };
       return;
     }
-    // reconstruction_jobs is the real, live table — confirmed against the
-    // actual production Supabase project in an earlier session (there was a
-    // stale doubt about whether nif_files/reconstruction_jobs existed there;
-    // they do). No nif_files row yet at this point — there's no processed
-    // NIF at upload time; pipeline.py's own _register() creates that once
-    // processing completes.
+    // ── Video pipeline: upload source to R2, then queue reconstruction_jobs ──
+    // Bug fix: filePath was never defined here — upload was skipped and the
+    // job insert crashed with ReferenceError: filePath is not defined.
+    if (currentUploadMode !== 'pipeline') {
+      throw new Error('Unknown upload mode: ' + currentUploadMode);
+    }
+    if (!selectedFile) throw new Error('Select a video file first.');
+    if (!uploadedThumbnail?.fileKey) throw new Error('Thumbnail is required before queueing video.');
+
+    setStep('step-upload', 'active');
+    setProgress(12, 'Uploading source video to storage…');
+    const safeVideoName = selectedFile.name.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9._-]/g, '') || 'capture.mp4';
+    const filePath = `${user.id}/${Date.now()}_${safeVideoName}`;
+    const uploadResult = await uploadSingleBucket(filePath, selectedFile);
+    if (!uploadResult?.path) throw new Error('Video upload did not return a storage path.');
+
+    setStep('step-upload', 'done');
+    setStep('step-frames', 'active');
+    setProgress(55, 'Queueing reconstruction job…');
+
+    const calibVerifyMeta = await buildCalibVerifyMeta(user.id);
+
+    // reconstruction_jobs is the live table. No nif_files row yet — the
+    // worker registers the processed NIF when training completes.
     const { data: job, error: jobError } = await supabase.from('reconstruction_jobs').insert({
       user_id: user.id,
       status: 'queued',
@@ -901,13 +921,27 @@ window.handleSubmit = async function() {
       vertical: category || 'generic',
       capture_mode: 'video',
       raw_r2_key: filePath,
-      meta: { ...captureMetadata(title, desc, calibVerifyMeta), video_filename: selectedFile.name, thumbnail_r2_key: uploadedThumbnail.fileKey, capture_thumbnail_r2_key: uploadedThumbnail.fileKey, source_r2_key: filePath, source_capture: { r2_key: filePath, filename: selectedFile.name, format: selectedFile.type || 'video', byte_size: selectedFile.size, created_at: new Date().toISOString() } },
+      meta: {
+        ...captureMetadata(title, desc, calibVerifyMeta),
+        video_filename: selectedFile.name,
+        thumbnail_r2_key: uploadedThumbnail.fileKey,
+        capture_thumbnail_r2_key: uploadedThumbnail.fileKey,
+        source_r2_key: filePath,
+        source_public_url: uploadResult.publicUrl || null,
+        source_capture: {
+          r2_key: filePath,
+          public_url: uploadResult.publicUrl || null,
+          filename: selectedFile.name,
+          format: selectedFile.type || 'video',
+          byte_size: selectedFile.size,
+          created_at: new Date().toISOString(),
+        },
+      },
     }).select().single();
     if (jobError) throw jobError;
 
     setStep('step-frames', 'done');
     setStep('step-train', 'active');
-    setProgress(70, 'Queued for processing...');
     setProgress(100, 'Queued successfully. Open Kaggle worker to process this job.');
     showMsg(`Upload complete. Your video is queued for reconstruction. Job id: ${job.id}. Check your dashboard once processing completes.`, false);
     document.getElementById('submitLabel').textContent = 'Queued';
