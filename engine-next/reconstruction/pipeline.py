@@ -623,8 +623,8 @@ def remove_background(frames: list[np.ndarray]) -> list[np.ndarray]:
             masks.append(mask)
         return masks
 
-    except ImportError:
-        print('[NIF] rembg not available — using depth-based threshold fallback')
+    except Exception as e:
+        print(f'[NIF] rembg unavailable ({e}) — using colour-border threshold fallback')
         return _depth_threshold_masks(frames)
 
 def _depth_threshold_masks(frames):
@@ -710,28 +710,35 @@ def _depth_threshold_masks(frames):
 
         # Morphological cleanup using PIL only:
         # MaxFilter closes tiny holes/gaps; MinFilter removes isolated noise.
-        mask_img = Image.fromarray(mask_small, mode='L')
+        # Morphological cleanup without Pillow MaxFilter/MinFilter (broken on some
+        # Kaggle Pillow builds: Image.expand "takes exactly 2 arguments").
+        def _rank_filter(arr_u8: np.ndarray, k: int, rank: str) -> np.ndarray:
+            if k <= 1:
+                return arr_u8
+            pad = k // 2
+            padded = np.pad(arr_u8, pad, mode='edge')
+            try:
+                from numpy.lib.stride_tricks import sliding_window_view
+                win = sliding_window_view(padded, (k, k))
+                reduced = win.max(axis=(-2, -1)) if rank == 'max' else win.min(axis=(-2, -1))
+                return reduced.astype(np.uint8)
+            except Exception:
+                h0, w0 = arr_u8.shape
+                out = np.empty_like(arr_u8)
+                for y in range(h0):
+                    for x in range(w0):
+                        block = padded[y:y + k, x:x + k]
+                        out[y, x] = block.max() if rank == 'max' else block.min()
+                return out
 
         kernel = 5 if min(sh, sw) >= 256 else 3
-
-        mask_img = mask_img.filter(
-            ImageFilter.MaxFilter(kernel)
-        )
-        mask_img = mask_img.filter(
-            ImageFilter.MinFilter(kernel)
-        )
-
-        # A second, slightly stronger cleanup helps remove thin background
-        # fragments without requiring OpenCV/scipy.
+        cleaned = _rank_filter(mask_small, kernel, 'max')
+        cleaned = _rank_filter(cleaned, kernel, 'min')
         if min(sh, sw) >= 256:
-            mask_img = mask_img.filter(
-                ImageFilter.MinFilter(5)
-            )
-            mask_img = mask_img.filter(
-                ImageFilter.MaxFilter(5)
-            )
+            cleaned = _rank_filter(cleaned, 5, 'min')
+            cleaned = _rank_filter(cleaned, 5, 'max')
 
-        # Return to the original frame resolution.
+        mask_img = Image.fromarray(cleaned, mode='L')
         mask_full = mask_img.resize(
             (w, h),
             Image.Resampling.BILINEAR
