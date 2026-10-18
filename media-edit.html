@@ -278,8 +278,8 @@ input[type=range].lime::-webkit-slider-thumb{background:var(--lime);box-shadow:0
   <a href="feed.html" class="tb-brand">FUMOCA<span style="color:rgba(255,255,255,.25);font-weight:300;margin-left:3px">Media</span><sup>Studio</sup></a>
   <div class="tb-sep"></div>
   <div class="tb-file">
-    <div class="tb-file-name" id="fileName">Drop a video or photo to begin editing</div>
-    <div class="tb-file-meta" id="fileMeta">Video · Photo · Ready to post to FUMOCA</div>
+    <div class="tb-file-name" id="fileName">Drop a video or photo to begin</div>
+    <div class="tb-file-meta" id="fileMeta">Open a file or drag it onto the stage · then color, music, export</div>
   </div>
   <div class="tb-sep"></div>
   <div class="tb-actions">
@@ -307,8 +307,6 @@ input[type=range].lime::-webkit-slider-thumb{background:var(--lime);box-shadow:0
   <div class="tool-group">
     <span class="tool-group-label">Overlay</span>
     <button class="tool-btn" id="toolText" title="Add Text (T)">T</button>
-    <button class="tool-btn" id="toolSticker" title="Add Sticker">✨</button>
-    <button class="tool-btn" id="toolDraw" title="Draw (D)">✏</button>
   </div>
   <div class="tool-group">
     <span class="tool-group-label">Trim</span>
@@ -386,10 +384,7 @@ input[type=range].lime::-webkit-slider-thumb{background:var(--lime);box-shadow:0
             <button class="ac-btn" data-speed="3">3×</button>
             <button class="ac-btn" data-speed="4">4×</button>
           </div>
-          <div class="ctrl-row" style="margin-top:4px">
-            <span class="ctrl-label">Reverse</span>
-            <button class="ac-btn rose" style="padding:5px 12px;font-size:11px;opacity:.5;cursor:not-allowed" id="reverseBtn" disabled title="Reverse export needs the server-side video encoder, which is not configured.">⟲ Reverse unavailable</button>
-          </div>
+          <div class="hint" style="margin-top:6px">Speed applies on playback and export. Reverse is not offered in-browser yet.</div>
         </div>
       </div>
 
@@ -493,8 +488,8 @@ input[type=range].lime::-webkit-slider-thumb{background:var(--lime);box-shadow:0
       <div class="section">
         <div class="sec-head"><span class="sec-label">Captions (Auto)</span><span class="sec-arrow">▾</span></div>
         <div class="sec-body">
-          <button class="ac-btn violet full" id="autoCaptionBtn" disabled title="No speech-to-text service is configured.">✦ Auto-Generate Captions unavailable</button>
-          <div class="hint">Speech-to-text is not configured yet. You can add and time captions with the Text tools.</div>
+          <button class="ac-btn violet full" id="autoCaptionBtn">✦ Add caption at playhead</button>
+          <div class="hint">Adds a timed text overlay at the current playhead. Edit it in the Text panel.</div>
         </div>
       </div>
     </div>
@@ -502,14 +497,15 @@ input[type=range].lime::-webkit-slider-thumb{background:var(--lime);box-shadow:0
     <!-- MUSIC TAB -->
     <div class="panel-body" id="ltab-music" style="display:none">
       <div class="section">
-        <div class="sec-head"><span class="sec-label">Trending Audio</span><span class="sec-badge" style="font-size:9px;padding:2px 6px;border-radius:99px;background:var(--amber2);color:var(--amber);border:1px solid var(--amber-b)">HOT</span></div>
+        <div class="sec-head"><span class="sec-label">Add Music</span><span class="sec-badge" style="font-size:9px;padding:2px 6px;border-radius:99px;background:var(--lime2,rgba(200,255,0,.12));color:var(--lime,#c8ff00);border:1px solid rgba(200,255,0,.25)">LIVE</span></div>
         <div class="sec-body">
+          <button class="ac-btn lime full" id="uploadAudioBtn">📎 Upload audio file</button>
+          <input type="file" id="audioInput" accept="audio/*,.mp3,.wav,.m4a,.ogg" style="display:none">
+          <div class="hint" style="margin:10px 0 6px">Or use a free studio bed (generated in-browser — always available):</div>
           <div id="tracksList" style="display:flex;flex-direction:column;gap:6px">
-            <!-- tracks injected by JS -->
+            <!-- beds injected by JS -->
           </div>
-          <button class="ac-btn full" id="uploadAudioBtn" style="margin-top:6px">📎 Upload Your Own</button>
-          <input type="file" id="audioInput" accept="audio/*" style="display:none">
-          <div class="hint" style="margin-top:6px">Audio previews here and is mixed into video export. The named trending tracks are examples only until licensed audio files are connected.</div>
+          <div class="hint" style="margin-top:8px">Music is mixed into export when your browser supports Web Audio. Upload your own for full tracks.</div>
         </div>
       </div>
 
@@ -1385,32 +1381,151 @@ document.querySelectorAll('.ar-tile').forEach(tile=>{
   });
 });
 
-// ── MUSIC TRACKS ─────────────────────────────────────────────────────────────
-const TRACKS=[
-  {name:'Synthwave Drive',dur:'3:24',genre:'Electronic'},
-  {name:'Chill Lo-fi Beat',dur:'2:58',genre:'Lo-fi'},
-  {name:'Epic Cinematic',dur:'4:10',genre:'Cinematic'},
-  {name:'Trap Banger',dur:'2:42',genre:'Hip-Hop'},
-  {name:'Acoustic Vibes',dur:'3:05',genre:'Acoustic'},
-  {name:'Future Bass',dur:'2:30',genre:'Dance'},
+// ── MUSIC BEDS (procedural — always available, no license files required) ──
+async function _makeBedBlob({ name, bpm = 90, seconds = 8, kind = 'pulse' }) {
+  const sr = 44100;
+  const len = sr * seconds;
+  const ctx = new OfflineAudioContext(2, len, sr);
+  const master = ctx.createGain();
+  master.gain.value = 0.22;
+  master.connect(ctx.destination);
+
+  const beat = 60 / bpm;
+  if (kind === 'pulse' || kind === 'drive') {
+    for (let t = 0; t < seconds; t += beat) {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.value = kind === 'drive' ? 55 : 48;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.9, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+      o.connect(g); g.connect(master);
+      o.start(t); o.stop(t + 0.2);
+    }
+    // soft pad
+    const pad = ctx.createOscillator();
+    const pg = ctx.createGain();
+    pad.type = 'triangle';
+    pad.frequency.value = kind === 'drive' ? 110 : 98;
+    pg.gain.value = 0.06;
+    pad.connect(pg); pg.connect(master);
+    pad.start(0); pad.stop(seconds);
+  } else if (kind === 'cinematic') {
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(80, 0);
+    o.frequency.linearRampToValueAtTime(120, seconds);
+    g.gain.setValueAtTime(0.02, 0);
+    g.gain.linearRampToValueAtTime(0.12, seconds * 0.5);
+    g.gain.linearRampToValueAtTime(0.02, seconds);
+    const f = ctx.createBiquadFilter();
+    f.type = 'lowpass'; f.frequency.value = 600;
+    o.connect(f); f.connect(g); g.connect(master);
+    o.start(0); o.stop(seconds);
+  } else if (kind === 'lofi') {
+    for (let t = 0; t < seconds; t += beat * 2) {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'triangle';
+      o.frequency.value = 196;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.35, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.55);
+      o.connect(g); g.connect(master);
+      o.start(t); o.stop(t + 0.6);
+    }
+  } else {
+    // ambient wash
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = 'sine'; o.frequency.value = 130.81;
+    g.gain.value = 0.08;
+    o.connect(g); g.connect(master);
+    o.start(0); o.stop(seconds);
+  }
+
+  const rendered = await ctx.startRendering();
+  // encode WAV
+  const ch0 = rendered.getChannelData(0);
+  const ch1 = rendered.numberOfChannels > 1 ? rendered.getChannelData(1) : ch0;
+  const buf = new ArrayBuffer(44 + ch0.length * 4);
+  const view = new DataView(buf);
+  const w = (o, s) => { for (let i = 0; i < s.length; i++) view.setUint8(o + i, s.charCodeAt(i)); };
+  w(0, 'RIFF'); view.setUint32(4, 36 + ch0.length * 4, true); w(8, 'WAVE'); w(12, 'fmt ');
+  view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 2, true);
+  view.setUint32(24, sr, true); view.setUint32(28, sr * 4, true); view.setUint16(32, 4, true); view.setUint16(34, 16, true);
+  w(36, 'data'); view.setUint32(40, ch0.length * 4, true);
+  let off = 44;
+  for (let i = 0; i < ch0.length; i++) {
+    const s0 = Math.max(-1, Math.min(1, ch0[i]));
+    const s1 = Math.max(-1, Math.min(1, ch1[i]));
+    view.setInt16(off, s0 * 0x7fff, true); off += 2;
+    view.setInt16(off, s1 * 0x7fff, true); off += 2;
+  }
+  return new Blob([buf], { type: 'audio/wav' });
+}
+
+const TRACKS = [
+  { name: 'Pulse Drive', dur: '0:08', genre: 'Electronic', kind: 'drive', bpm: 100 },
+  { name: 'Soft Pulse', dur: '0:08', genre: 'Ambient', kind: 'pulse', bpm: 80 },
+  { name: 'Cinematic Rise', dur: '0:08', genre: 'Cinematic', kind: 'cinematic', bpm: 70 },
+  { name: 'Lo-fi Keys', dur: '0:08', genre: 'Lo-fi', kind: 'lofi', bpm: 84 },
+  { name: 'Clean Wash', dur: '0:08', genre: 'Ambient', kind: 'wash', bpm: 60 },
 ];
-const tl=document.getElementById('tracksList');
-TRACKS.forEach(t=>{
-  const row=document.createElement('div');row.className='track-row';
-  row.innerHTML=`<div class="track-icon">🎵</div><div class="track-meta"><div class="track-name">${t.name}</div><div class="track-dur">${t.dur} · ${t.genre}</div></div><button class="ac-btn" style="padding:5px 8px;font-size:10px" disabled title="No licensed audio source is attached">Unavailable</button>`;
-  tl.appendChild(row);
+const tl = document.getElementById('tracksList');
+TRACKS.forEach((tr) => {
+  const row = document.createElement('div');
+  row.className = 'track-row';
+  row.innerHTML = `<div class="track-icon">🎵</div><div class="track-meta"><div class="track-name">${tr.name}</div><div class="track-dur">${tr.dur} · ${tr.genre}</div></div><button class="ac-btn lime" style="padding:5px 10px;font-size:10px" data-bed="${tr.kind}">Use</button>`;
+  row.querySelector('button')?.addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true; btn.textContent = '…';
+    try {
+      const blob = await _makeBedBlob(tr);
+      const objectUrl = URL.createObjectURL(blob);
+      applyMusicFromUrl(objectUrl, tr.name, blob);
+      showToast('Music bed ready', tr.name + ' — loops with your clip');
+    } catch (err) {
+      console.error(err);
+      showToast('Bed failed', String(err.message || err), 'warn');
+    }
+    btn.disabled = false; btn.textContent = 'Use';
+  });
+  tl?.appendChild(row);
 });
+
+function applyMusicFromUrl(objectUrl, name, blob) {
+  if (S.selectedAudio?.objectUrl) URL.revokeObjectURL(S.selectedAudio.objectUrl);
+  const music = $('musicEl');
+  music.src = objectUrl; music.loop = true; music.load();
+  S.selectedAudio = { name, objectUrl, blob: blob || null, procedural: !!blob };
+  const sec = $('selectedTrackSection');
+  if (sec) sec.style.display = 'block';
+  const np = $('nowPlayingName');
+  if (np) np.textContent = name;
+  const row = $('audioTrackRow');
+  if (row) row.style.display = 'flex';
+  const clip = $('audioClip');
+  if (clip) clip.textContent = `🎵 ${name}`;
+  music.onloadedmetadata = () => {
+    const start = $('musicStart');
+    if (!start) return;
+    start.max = Math.max(0, Math.floor(music.duration || 0));
+    start.value = 0;
+    const sv = $('musicStartVal');
+    if (sv) sv.textContent = '0s';
+  };
+  updateAudioGains?.();
+}
 $('uploadAudioBtn').addEventListener('click',()=>$('audioInput').click());
 $('audioInput').addEventListener('change',e=>{
   const f=e.target.files?.[0]; if(!f)return;
-  if(S.selectedAudio?.objectUrl)URL.revokeObjectURL(S.selectedAudio.objectUrl);
-  const objectUrl=URL.createObjectURL(f); S.selectedAudio={name:f.name,objectUrl};
-  const music=$('musicEl'); music.src=objectUrl; music.loop=true; music.load();
-  $('selectedTrackSection').style.display='block'; $('nowPlayingName').textContent=f.name;
-  $('audioTrackRow').style.display='flex'; $('audioClip').textContent=`🎵 ${f.name}`;
-  music.onloadedmetadata=()=>{const start=$('musicStart');start.max=Math.max(0,Math.floor(music.duration||0));start.value=0;$('musicStartVal').textContent='0s';};
+  const objectUrl=URL.createObjectURL(f);
+  applyMusicFromUrl(objectUrl, f.name, f);
   e.target.value='';
-  updateAudioGains(); showToast('Audio ready',`${f.name} — preview or export with your video`,'cyan');
+  showToast('Audio ready', `${f.name} — preview or export with your video`, 'cyan');
 });
 $('musicStart')?.addEventListener('input',e=>{
   const value=Number(e.target.value)||0; $('musicStartVal').textContent=`${value}s`;
@@ -1764,6 +1879,7 @@ const toolbarTools=['toolSelect','toolCrop','toolRotateTool','toolText','toolTri
 toolbarTools.forEach(id=>$(id)?.addEventListener('click',()=>{
   toolbarTools.forEach(i=>$(i)?.classList.remove('active'));$(id)?.classList.add('active');
   if(id==='toolText')addTextOverlay();
+$('autoCaptionBtn')?.addEventListener('click',()=>{addTextOverlay();showToast('Caption added','Edit text in the overlay layer');});
   if(id==='toolRotateTool'){
     pushHistory();S.rotation=(Number(S.rotation||0)+90)%360;
     $('rotRange').value=S.rotation;$('rotVal').textContent=S.rotation+'°';
@@ -1780,7 +1896,7 @@ toolbarTools.forEach(id=>$(id)?.addEventListener('click',()=>{
   if(id==='toolSplit')$('splitHereBtn')?.click();
   if(id==='toolSpeed')document.querySelector('#speedRange')?.closest('.section')?.scrollIntoView({block:'nearest',behavior:'smooth'});
 }));
-['toolSticker','toolDraw'].forEach(id=>{const b=$(id);if(b){b.disabled=true;b.title='Not available yet — this tool does not create editable artwork';}});
+// stickers/draw removed from toolbar until fully implemented
 
 // ── URL BOOTSTRAP (from feed "Edit Media" button) ───────────────────────────
 (async()=>{
