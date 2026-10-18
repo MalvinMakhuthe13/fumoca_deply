@@ -41,6 +41,47 @@
       <a href="https://github.com/MalvinMakhuthe13/fumoca_deply" target="_blank" rel="noopener">Engine repository ↗</a>
     </div>
 
+
+    <section class="its-card" id="itsSubjectCard">
+      <div class="its-card-head">
+        <span class="its-step">00b</span>
+        <div>
+          <h2>Subject type</h2>
+          <p>Tunes capture guide, default orbit, and export metadata for anything you shoot.</p>
+        </div>
+      </div>
+      <div class="its-subject-types" id="itsSubjectTypes">
+        <label class="its-subject selected"><input type="radio" name="itsSubject" value="auto" checked><span>Auto</span><small>General object</small></label>
+        <label class="its-subject"><input type="radio" name="itsSubject" value="person"><span>Person</span><small>Semi-bust / portrait</small></label>
+        <label class="its-subject"><input type="radio" name="itsSubject" value="vehicle"><span>Vehicle</span><small>Car, bike, plant</small></label>
+        <label class="its-subject"><input type="radio" name="itsSubject" value="product"><span>Product</span><small>SKU, boxed goods</small></label>
+        <label class="its-subject"><input type="radio" name="itsSubject" value="object"><span>Object</span><small>Furniture, art, part</small></label>
+        <label class="its-subject"><input type="radio" name="itsSubject" value="scene"><span>Scene</span><small>Room / environment</small></label>
+      </div>
+      <div class="its-capture-guide" id="itsCaptureGuide">
+        <h3>Capture guide</h3>
+        <ul id="itsCaptureGuideList"></ul>
+        <p class="its-note" id="itsCaptureGuideNote">Pick a subject type for tailored tips. More steady angles beat one perfect photo.</p>
+      </div>
+    </section>
+
+    
+    <section class="its-card" id="itsProjectMeta">
+      <div class="its-card-head">
+        <span class="its-step">00c</span>
+        <div>
+          <h2>Project & scale</h2>
+          <p>Name the job, optional reference length for insurance/print, notes for handoff.</p>
+        </div>
+      </div>
+      <div class="its-meta-grid">
+        <label>Project name <input type="text" id="itsProjectName" placeholder="e.g. Starlet claim 6DWDLWCB"></label>
+        <label>Reference length (cm) <input type="number" id="itsScaleCm" min="0" step="0.1" placeholder="e.g. 8.5 card width"></label>
+        <label>Reference note <input type="text" id="itsScaleNote" placeholder="What was measured (ruler, panel, card)"></label>
+        <label class="its-meta-wide">Notes <textarea id="itsProjectNotes" rows="2" placeholder="Client, claim id, workshop notes…"></textarea></label>
+      </div>
+    </section>
+
     <div class="its-layout">
       <!-- 01 Source -->
       <section class="its-card">
@@ -64,6 +105,30 @@
           <button type="button" class="its-secondary" id="itsClearFiles" disabled>Clear</button>
         </div>
         <div id="itsImageGrid" class="its-grid"></div>
+
+        <div class="its-frame-tools" id="itsFrameTools">
+          <div class="its-frame-tools-bar">
+            <strong>Frame order & tags</strong>
+            <button type="button" class="its-secondary" id="itsReorderUp" title="Move selected up">↑</button>
+            <button type="button" class="its-secondary" id="itsReorderDown" title="Move selected down">↓</button>
+            <select id="itsTagSelected">
+              <option value="">Tag selected frame…</option>
+              <option value="front">front</option>
+              <option value="front_left">front_left</option>
+              <option value="left">left</option>
+              <option value="rear_left">rear_left</option>
+              <option value="rear">rear</option>
+              <option value="rear_right">rear_right</option>
+              <option value="right">right</option>
+              <option value="front_right">front_right</option>
+              <option value="top">top</option>
+              <option value="detail">detail</option>
+              <option value="other">other</option>
+            </select>
+          </div>
+          <p class="its-note">Select a thumbnail, tag it (front/side/rear…), reorder so orbit matching is accurate. Tags beat random screenshot order.</p>
+        </div>
+
         <div class="its-video-panel" id="itsVideoPanel" hidden>
           <div class="its-video-row">
             <video id="itsVideo" playsinline muted></video>
@@ -195,6 +260,22 @@
         <button type="button" class="its-secondary" id="itsExportJson" disabled>Export camera plan (.json)</button>
       </div>
     </section>
+  
+    <section class="its-card" id="itsEmbedCard">
+      <div class="its-card-head">
+        <span class="its-step">04</span>
+        <div>
+          <h2>Embed spin (marketplace)</h2>
+          <p>Lightweight viewer snippet from matched frames — no GPU required for the spin itself.</p>
+        </div>
+      </div>
+      <textarea id="itsEmbedCode" class="its-embed-code" readonly rows="6" placeholder="Export or save a project with frames to generate embed JSON…"></textarea>
+      <div class="its-actions">
+        <button type="button" class="its-secondary" id="itsCopyEmbed">Copy embed package JSON</button>
+      </div>
+      <p class="its-note">Hosts can build a simple &lt;img&gt; scrubber or feed this into FUMOCA viewer. Synthetic splat remains a separate worker step.</p>
+    </section>
+
   </main>
 </body>
 </html>

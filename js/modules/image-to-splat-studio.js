@@ -13,6 +13,7 @@
 
   /** @type {{kind:'image'|'video'|'frame', file?:File, blob?:Blob, name:string, url:string, yaw?:number}[]} */
   let media = [];
+  let selectedFrameIndex = -1;
   let cameras = [];
   let selectedCameraId = null;
   let dragState = null;
@@ -79,20 +80,28 @@
     });
   }
 
-  /** Best frame index for a yaw (ordered gallery assumed orbit-like). */
+  const TAG_YAW = {
+    front: 0, front_right: 45, right: 90, rear_right: 135,
+    rear: 180, rear_left: 225, left: 270, front_left: 315,
+    top: 0, detail: null, other: null,
+  };
+
+  /** Best frame index for a yaw — tags + explicit yaw beat gallery order. */
   function bestFrameIndex(yawDeg) {
     const frames = framesOnly();
     if (!frames.length) return -1;
-    // Prefer explicit yaw on frame (from video extract)
+    const target = ((yawDeg % 360) + 360) % 360;
     let best = 0;
     let bestDiff = 1e9;
-    const target = ((yawDeg % 360) + 360) % 360;
     frames.forEach((f, i) => {
-      let fy;
+      let fy = null;
       if (typeof f.yaw === 'number') fy = ((f.yaw % 360) + 360) % 360;
+      else if (f.tag && TAG_YAW[f.tag] != null) fy = TAG_YAW[f.tag];
       else fy = (i / Math.max(1, frames.length)) * 360;
       let d = Math.abs(fy - target);
       if (d > 180) d = 360 - d;
+      // Prefer tagged frames slightly
+      if (f.tag && TAG_YAW[f.tag] != null) d -= 5;
       if (d < bestDiff) {
         bestDiff = d;
         best = i;
@@ -491,17 +500,27 @@
 
   // ── Coverage score + gaps ───────────────────────────────────
   function coverageScore() {
-    const n = framesOnly().length;
+    const frames = framesOnly();
+    const n = frames.length;
     let score = 0;
-    if (n >= 1) score += 10;
-    if (n >= 4) score += 15;
-    if (n >= 8) score += 15;
-    if (n >= 16) score += 10;
+    if (n >= 1) score += 8;
+    if (n >= 4) score += 12;
+    if (n >= 8) score += 12;
+    if (n >= 16) score += 8;
     if (n >= 24) score += 5;
-    score += Math.min(25, cameras.length * 2);
+    score += Math.min(20, cameras.length * 2);
     const { gaps } = gapAnalysis();
-    if (n >= 3 && gaps.length === 0) score += 15;
-    else if (gaps.length && gaps[0].span < 90) score += 8;
+    if (n >= 3 && gaps.length === 0) score += 12;
+    else if (gaps.length && gaps[0].span < 90) score += 6;
+    const tagged = frames.filter((f) => f.tag).length;
+    if (tagged >= 3) score += 8;
+    else if (tagged >= 1) score += 3;
+    if (Number($('itsScaleCm')?.value) > 0) score += 5;
+    let markerCount = 0;
+    if (typeof markersByFrame !== 'undefined') {
+      markersByFrame.forEach((a) => (markerCount += (a || []).length));
+    }
+    if (markerCount > 0) score += Math.min(5, markerCount);
     if (cameras.length >= 2) {
       const yaws = cameras.map((c) => c.yaw_deg);
       if (Math.max(...yaws) - Math.min(...yaws) >= 120) score += 5;
@@ -597,12 +616,22 @@
               <button type="button" data-remove="${idx}" aria-label="Remove">✕</button>
             </div>`;
         } else {
+          const tagBadge = m.tag ? `<span class="its-tag-badge">${m.tag}</span>` : '';
+          const yawBit = typeof m.yaw === 'number' ? ' · ' + m.yaw.toFixed(0) + '°' : '';
+          const tagBit = m.tag ? ' · ' + m.tag : '';
           tile.innerHTML = `
             <img src="${m.url}" alt="">
+            ${tagBadge}
             <div class="its-thumb-meta">
-              <span title="${m.name}">${m.name}${typeof m.yaw === 'number' ? ' · ' + m.yaw.toFixed(0) + '°' : ''}</span>
+              <span title="${m.name}">${m.name}${yawBit}${tagBit}</span>
               <button type="button" data-remove="${idx}" aria-label="Remove">✕</button>
             </div>`;
+          if (idx === selectedFrameIndex) tile.classList.add('is-selected');
+          tile.addEventListener('click', (ev) => {
+            if (ev.target.closest('[data-remove]')) return;
+            selectedFrameIndex = idx;
+            renderFiles();
+          });
         }
         grid.append(tile);
       });
@@ -736,7 +765,11 @@
       return base;
     });
     return {
-      schema: 'fumoca.angle_studio.project.v4',
+      schema: 'fumoca.angle_studio.project.v5',
+      project_name: $('itsProjectName')?.value || '',
+      notes: $('itsProjectNotes')?.value || '',
+      scale_cm: Number($('itsScaleCm')?.value) || null,
+      scale_note: $('itsScaleNote')?.value || '',
       created_at: new Date().toISOString(),
       status: 'multi_photo_matched',
       coverage_score: coverageScore(),
@@ -748,6 +781,7 @@
           index: i,
           name: f.name,
           kind: f.kind,
+          tag: f.tag || null,
           yaw_deg: typeof f.yaw === 'number' ? f.yaw : null,
         })),
       },
@@ -760,6 +794,15 @@
         units: 'scene_relative',
         cameras: cams,
       },
+      subject_type: (typeof getSubject === 'function' ? getSubject() : 'auto'),
+      industry_mode: (typeof getIndustry === 'function' ? getIndustry() : 'ecommerce'),
+      inspection_markers: (() => {
+        const out = [];
+        markersByFrame.forEach((arr, frameIndex) => {
+          (arr || []).forEach((m) => out.push({ frameIndex, ...m }));
+        });
+        return out;
+      })(),
       provenance: {
         client: 'fumoca-angle-studio-v4',
         viewpoint_previews: 'real_matched_frames',
@@ -1005,8 +1048,359 @@
   });
   window.addEventListener('beforeunload', () => revokeAll());
 
+
+
+
+
+  function buildEmbedPackage() {
+    const frames = framesOnly();
+    const cams = cameras.map((c) => ({
+      id: c.id,
+      yaw_deg: c.yaw_deg,
+      frame: sourceIndexForCam(c),
+    }));
+    return {
+      type: 'fumoca.embed.spin.v1',
+      project: $('itsProjectName')?.value || 'untitled',
+      subject_type: typeof getSubject === 'function' ? getSubject() : 'auto',
+      industry_mode: typeof getIndustry === 'function' ? getIndustry() : 'ecommerce',
+      frames: frames.map((f, i) => ({
+        index: i,
+        name: f.name,
+        tag: f.tag || null,
+        yaw_deg: typeof f.yaw === 'number' ? f.yaw : null,
+      })),
+      cameras: cams,
+      note: 'Frame binary assets live in the exported ZIP under source-frames/. Hosts map index → URL after upload.',
+    };
+  }
+
+  function refreshEmbedCode() {
+    const el = $('itsEmbedCode');
+    if (!el) return;
+    if (!framesOnly().length) {
+      el.value = '';
+      return;
+    }
+    el.value = JSON.stringify(buildEmbedPackage(), null, 2);
+  }
+
+  $('itsCopyEmbed')?.addEventListener('click', async () => {
+    refreshEmbedCode();
+    const el = $('itsEmbedCode');
+    if (!el?.value) return;
+    try {
+      await navigator.clipboard.writeText(el.value);
+      alert('Embed package JSON copied');
+    } catch {
+      el.select();
+      alert('Copy manually (clipboard blocked)');
+    }
+  });
+
+  // ── Frame reorder & tags ────────────────────────────────────
+  function framesMediaIndices() {
+    const idxs = [];
+    media.forEach((m, i) => {
+      if (m.kind === 'image' || m.kind === 'frame') idxs.push(i);
+    });
+    return idxs;
+  }
+
+  function moveSelectedFrame(dir) {
+    if (selectedFrameIndex < 0 || selectedFrameIndex >= media.length) return;
+    const m = media[selectedFrameIndex];
+    if (m.kind !== 'image' && m.kind !== 'frame') return;
+    const order = framesMediaIndices();
+    const pos = order.indexOf(selectedFrameIndex);
+    const newPos = pos + dir;
+    if (newPos < 0 || newPos >= order.length) return;
+    const otherMediaIdx = order[newPos];
+    const tmp = media[selectedFrameIndex];
+    media[selectedFrameIndex] = media[otherMediaIdx];
+    media[otherMediaIdx] = tmp;
+    selectedFrameIndex = otherMediaIdx;
+    renderFiles();
+    autoAssign();
+  }
+
+  $('itsReorderUp')?.addEventListener('click', () => moveSelectedFrame(-1));
+  $('itsReorderDown')?.addEventListener('click', () => moveSelectedFrame(1));
+  $('itsTagSelected')?.addEventListener('change', () => {
+    const tag = $('itsTagSelected').value;
+    if (!tag || selectedFrameIndex < 0) return;
+    const m = media[selectedFrameIndex];
+    if (!m || (m.kind !== 'image' && m.kind !== 'frame')) return;
+    m.tag = tag;
+    if (TAG_YAW[tag] != null) m.yaw = TAG_YAW[tag];
+    $('itsTagSelected').value = '';
+    renderFiles();
+    autoAssign();
+  });
+
+  // ── Subject type + capture guides (any object) ─────────────
+  function getSubject() {
+    return document.querySelector('input[name="itsSubject"]:checked')?.value || 'auto';
+  }
+  function getIndustry() {
+    return document.querySelector('input[name="itsIndustry"]:checked')?.value || 'ecommerce';
+  }
+
+  const CAPTURE_GUIDES = {
+    auto: {
+      title: 'General object',
+      tips: [
+        'Walk a steady arc around the subject (same distance).',
+        'Keep the whole subject in frame; avoid extreme close-ups only.',
+        'Overlap shots ~30–50% so angles can match.',
+        'Or record a slow 360° / turntable video and extract frames.',
+        'Even lighting helps matching; avoid hard moving shadows.',
+      ],
+      ring: { count: 12, elev: 5, sweep: 360 },
+      minFrames: 8,
+    },
+    person: {
+      title: 'Person / semi-bust',
+      tips: [
+        'Front face + left ¾ + right ¾ are the minimum set.',
+        'Optional: slight above and below for nose / brow relief.',
+        'Keep camera height near eye level; distance steady.',
+        'Hair and ears need side coverage — gap finder will flag misses.',
+        'Phone pan: 10–20s slow horizontal arc, then Extract frames (24–36).',
+        'For print: mark nose tip, cheeks, jaw as print zones on a clear front frame.',
+      ],
+      ring: { count: 16, elev: 8, sweep: 180 },
+      minFrames: 6,
+    },
+    vehicle: {
+      title: 'Vehicle',
+      tips: [
+        'Auction-style set: front, both ¾, both sides, both rear ¾, rear.',
+        'Damage assessment: extra close frames of crush, scrape, panel gaps.',
+        'Same time of day / lighting if possible between shots.',
+        'Turntable or slow yard walk video works if motion is smooth.',
+        'Pin damage markers on the worst frames for insurer / workshop handoff.',
+      ],
+      ring: { count: 12, elev: 5, sweep: 360 },
+      minFrames: 8,
+    },
+    product: {
+      title: 'Product / SKU',
+      tips: [
+        'Plain background; fill the frame with the product.',
+        'Front, back, left, right, top if the listing needs it.',
+        'Keep scale consistent — same distance and zoom.',
+        'Turntable video is ideal for marketplace spin.',
+        'Avoid heavy reflections that change every angle.',
+      ],
+      ring: { count: 12, elev: 10, sweep: 360 },
+      minFrames: 6,
+    },
+    object: {
+      title: 'Object / furniture / art',
+      tips: [
+        'Full object in frame; include a scale reference if size matters later.',
+        'Orbit at mid-height; add high and low passes for complex form.',
+        'Texture and silhouette matter more than perfect studio light.',
+        'For parts: shoot mating faces and damage close-ups as extra frames.',
+      ],
+      ring: { count: 14, elev: 12, sweep: 360 },
+      minFrames: 8,
+    },
+    scene: {
+      title: 'Scene / room',
+      tips: [
+        'Overlap panoramas; turn slowly at corners.',
+        'Keep horizon level; shoot standing height consistently.',
+        'Doors and windows: capture both sides of transitions.',
+        'Video walk-through + frame extract is often easier than stills.',
+      ],
+      ring: { count: 20, elev: 0, sweep: 360 },
+      minFrames: 12,
+    },
+  };
+
+  function applyCaptureGuide() {
+    const sub = getSubject();
+    const g = CAPTURE_GUIDES[sub] || CAPTURE_GUIDES.auto;
+    const list = $('itsCaptureGuideList');
+    const note = $('itsCaptureGuideNote');
+    if (list) list.innerHTML = g.tips.map((t) => `<li>${t}</li>`).join('');
+    if (note) {
+      note.textContent = `${g.title}: aim for ≥ ${g.minFrames} frames. Generate ring uses subject defaults when you press it.`;
+    }
+  }
+
+  function applySubjectRingDefaults() {
+    const g = CAPTURE_GUIDES[getSubject()] || CAPTURE_GUIDES.auto;
+    if (settings.count) settings.count.value = String(g.ring.count);
+    if (settings.elevation) settings.elevation.value = String(g.ring.elev);
+    if (settings.sweep) settings.sweep.value = String(g.ring.sweep);
+    updateOutputs();
+  }
+
+  document.querySelectorAll('input[name="itsSubject"]').forEach((el) => {
+    el.addEventListener('change', () => {
+      document.querySelectorAll('.its-subject').forEach((lab) => lab.classList.remove('selected'));
+      el.closest('.its-subject')?.classList.add('selected');
+      applyCaptureGuide();
+      applySubjectRingDefaults();
+    });
+  });
+
+  // Patch Generate ring to use subject defaults first
+  const _buildRing = buildRingCameras;
+  buildRingCameras = function () {
+    applySubjectRingDefaults();
+    _buildRing();
+  };
+
+
+  // ── Inspection markers ──────────────────────────────────────
+  const markersByFrame = new Map();
+  let inspectFrameIndex = 0;
+  let markerSeq = 1;
+
+  function industryCopy(mode) {
+    const map = {
+      ecommerce: 'E-commerce: interactive views from real listing media. Reconstruction is optional and separate.',
+      insurance: 'Insurance: markers and frames are observational aids only. Not a substitute for physical inspection or certified assessment.',
+      mechanic: 'Mechanic: tag parts and damage for workshop handoff. Verify on the vehicle before ordering parts.',
+      print: 'Relief/Print: multi-view improves form. Single-image relief is approximate; export supports later mesh/print prep.',
+      heritage: 'Heritage: archive real viewpoints with provenance. Do not treat planned cameras as measured survey data.',
+    };
+    return map[mode] || map.ecommerce;
+  }
+  document.querySelectorAll('input[name="itsIndustry"]').forEach((el) => {
+    el.addEventListener('change', () => {
+      document.querySelectorAll('.its-industry').forEach((lab) => lab.classList.remove('selected'));
+      el.closest('.its-industry')?.classList.add('selected');
+      const d = $('itsIndustryDisclaimer');
+      if (d) d.textContent = industryCopy(el.value);
+    });
+  });
+
+  function refreshInspectFrameSelect() {
+    const sel = $('itsInspectFrame');
+    if (!sel) return;
+    const frames = framesOnly();
+    sel.innerHTML = frames.map((f, i) => `<option value="${i}">${i + 1}. ${f.name}</option>`).join('') || '<option value="0">No frames</option>';
+    if (inspectFrameIndex >= frames.length) inspectFrameIndex = 0;
+    sel.value = String(inspectFrameIndex);
+  }
+
+  function drawInspect() {
+    const c = $('itsInspectCanvas');
+    if (!c) return;
+    const ctx = c.getContext('2d');
+    const frames = framesOnly();
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = c.clientWidth || 800;
+    const h = Math.round(w * 0.62);
+    c.width = Math.floor(w * dpr);
+    c.height = Math.floor(h * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = '#0a0e16';
+    ctx.fillRect(0, 0, w, h);
+    if (!frames.length) {
+      ctx.fillStyle = 'rgba(255,255,255,0.4)';
+      ctx.font = '13px system-ui';
+      ctx.textAlign = 'center';
+      ctx.fillText('Load frames to annotate', w / 2, h / 2);
+      return;
+    }
+    const frame = frames[Math.min(inspectFrameIndex, frames.length - 1)];
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(w / img.width, h / img.height);
+      const dw = img.width * scale;
+      const dh = img.height * scale;
+      const dx = (w - dw) / 2;
+      const dy = (h - dh) / 2;
+      ctx.drawImage(img, dx, dy, dw, dh);
+      const marks = markersByFrame.get(inspectFrameIndex) || [];
+      marks.forEach((m, i) => {
+        const px = dx + m.x * dw;
+        const py = dy + m.y * dh;
+        ctx.fillStyle = m.type === 'damage' ? '#ff5a5a' : m.type === 'print' ? '#c8ff00' : '#56b4ff';
+        ctx.beginPath();
+        ctx.arc(px, py, 7, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.font = '10px system-ui';
+        ctx.textAlign = 'left';
+        ctx.fillText(String(i + 1), px + 10, py + 3);
+      });
+      c._inspectLayout = { dx, dy, dw, dh };
+    };
+    img.src = frame.url;
+    const list = $('itsMarkerList');
+    if (list) {
+      const marks = markersByFrame.get(inspectFrameIndex) || [];
+      list.innerHTML =
+        marks
+          .map(
+            (m, i) =>
+              `<li><strong>#${i + 1} ${m.type}</strong><br>${m.note || '(no note)'} · (${(m.x * 100).toFixed(1)}%, ${(m.y * 100).toFixed(1)}%)</li>`
+          )
+          .join('') || '<li>No markers on this frame</li>';
+    }
+  }
+
+  $('itsInspectFrame')?.addEventListener('change', (e) => {
+    inspectFrameIndex = Number(e.target.value) || 0;
+    drawInspect();
+  });
+  $('itsInspectCanvas')?.addEventListener('click', (e) => {
+    const c = $('itsInspectCanvas');
+    const layout = c?._inspectLayout;
+    if (!layout || !framesOnly().length) return;
+    const rect = c.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    if (x < layout.dx || y < layout.dy || x > layout.dx + layout.dw || y > layout.dy + layout.dh) return;
+    const arr = markersByFrame.get(inspectFrameIndex) || [];
+    arr.push({
+      id: markerSeq++,
+      x: (x - layout.dx) / layout.dw,
+      y: (y - layout.dy) / layout.dh,
+      type: $('itsMarkerType')?.value || 'damage',
+      note: $('itsMarkerNote')?.value || '',
+    });
+    markersByFrame.set(inspectFrameIndex, arr);
+    drawInspect();
+  });
+  $('itsClearMarkers')?.addEventListener('click', () => {
+    markersByFrame.set(inspectFrameIndex, []);
+    drawInspect();
+  });
+
+  const _rf = renderFiles;
+  // Patch: after renderFiles content, we already call afterCamerasChanged; add inspect refresh
+  const _after = afterCamerasChanged;
+  afterCamerasChanged = function () {
+    _after();
+    refreshInspectFrameSelect();
+    drawInspect();
+    refreshEmbedCode();
+  };
+
+  function refreshInspectFrameSelect() {
+    const sel = $('itsInspectFrame');
+    if (!sel) return;
+    const frames = framesOnly();
+    const prev = sel.value;
+    sel.innerHTML = frames.map((f, i) => `<option value="${i}">${i + 1}. ${f.name}</option>`).join('') || '<option value="0">No frames</option>';
+    if ([...sel.options].some((o) => o.value === prev)) sel.value = prev;
+    inspectFrameIndex = Number(sel.value) || 0;
+  }
+
+  applyCaptureGuide();
   updateCamCount();
   updateDeleteEnabled();
   renderFiles();
   updateOutputs();
+  refreshInspectFrameSelect();
+  drawInspect();
 })();
+
