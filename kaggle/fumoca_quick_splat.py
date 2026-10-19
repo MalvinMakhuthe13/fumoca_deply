@@ -364,23 +364,34 @@ def _run_training_gsplat(scene_dir: Path, model_dir: Path) -> Path:
     model_dir.mkdir(parents=True, exist_ok=True)
     examples = Path(os.getenv("GSPLAT_EXAMPLES", "/kaggle/working/gsplat_examples"))
     trainer = examples / "simple_trainer.py"
-    if not trainer.exists():
-        log("cloning gsplat examples (simple_trainer)")
-        tmp = Path("/kaggle/working/gsplat_src")
-        if not (tmp / "examples" / "simple_trainer.py").exists():
-            if tmp.exists():
-                shutil.rmtree(tmp, ignore_errors=True)
-            _sh(
-                [
-                    "git", "clone", "--depth", "1",
-                    "https://github.com/nerfstudio-project/gsplat.git",
-                    str(tmp),
-                ]
-            )
-        examples.parent.mkdir(parents=True, exist_ok=True)
-        if examples.exists():
-            shutil.rmtree(examples, ignore_errors=True)
-        shutil.copytree(tmp / "examples", examples)
+    tmp = Path("/kaggle/working/gsplat_src")
+    if not (tmp / "examples" / "simple_trainer.py").exists():
+        log("cloning gsplat repo (library + examples must match)")
+        if tmp.exists():
+            shutil.rmtree(tmp, ignore_errors=True)
+        _sh(
+            [
+                "git", "clone", "--depth", "1",
+                "https://github.com/nerfstudio-project/gsplat.git",
+                str(tmp),
+            ]
+        )
+    # Install *this* gsplat so examples match (fixes color_correct import)
+    log("pip install -e gsplat from git source (match simple_trainer)")
+    _sh(["pip", "install", "-q", "-e", str(tmp)], check=False)
+    # Verify color_correct exists
+    r = _sh(
+        ["python", "-c", "from gsplat.color_correct import color_correct_affine; print('gsplat src OK')"],
+        check=False,
+    )
+    if r.returncode != 0:
+        # try without editable
+        _sh(["pip", "install", "-q", "--force-reinstall", str(tmp)], check=False)
+
+    examples.parent.mkdir(parents=True, exist_ok=True)
+    if examples.exists():
+        shutil.rmtree(examples, ignore_errors=True)
+    shutil.copytree(tmp / "examples", examples)
 
     # Extra deps often needed by simple_trainer
     _sh(
