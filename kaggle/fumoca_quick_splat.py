@@ -183,50 +183,67 @@ def _run_colmap(scene_dir: Path) -> Path:
     sparse_dir.mkdir(parents=True, exist_ok=True)
     undistorted.mkdir(parents=True, exist_ok=True)
 
-    use_gpu = "1" if os.getenv("CUDA_VISIBLE_DEVICES", "") != "" or Path("/usr/local/cuda").exists() else "0"
-    # Kaggle T4 usually has CUDA — prefer GPU sift when possible
-    try:
-        import torch
-        if torch.cuda.is_available():
-            use_gpu = "1"
-    except Exception:
-        pass
+    # Kaggle is headless: COLMAP GPU SIFT needs OpenGL and crashes with
+    # "Check failed: context_.create()". Force CPU SIFT unless user overrides.
+    use_gpu = os.getenv("FUMOCA_COLMAP_GPU", "0").strip()
+    if use_gpu not in ("0", "1"):
+        use_gpu = "0"
 
-    log(f"COLMAP start use_gpu={use_gpu}")
+    log(f"COLMAP start use_gpu={use_gpu} (CPU SIFT default on Kaggle headless)")
     env = os.environ.copy()
-    env.setdefault("QT_QPA_PLATFORM", "offscreen")
+    env["QT_QPA_PLATFORM"] = "offscreen"
+    env.setdefault("DISPLAY", "")
+    # Avoid GL driver init noise
+    env.setdefault("LIBGL_ALWAYS_SOFTWARE", "1")
 
-    _sh(
-        [
-            COLMAP_BIN, "feature_extractor",
-            "--database_path", str(db_path),
-            "--image_path", str(input_dir),
-            "--ImageReader.single_camera", "1",
-            "--SiftExtraction.use_gpu", use_gpu,
-            "--SiftExtraction.max_image_size", str(max(MAX_SIDE, 1280)),
-            "--SiftExtraction.max_num_features", "6144",
-        ],
-        env=env,
-    )
+    def _feature_extractor(gpu_flag: str):
+        _sh(
+            [
+                COLMAP_BIN, "feature_extractor",
+                "--database_path", str(db_path),
+                "--image_path", str(input_dir),
+                "--ImageReader.single_camera", "1",
+                "--SiftExtraction.use_gpu", gpu_flag,
+                "--SiftExtraction.max_image_size", str(max(MAX_SIDE, 1280)),
+                "--SiftExtraction.max_num_features", "6144",
+            ],
+            env=env,
+        )
+
+    def _matcher(gpu_flag: str):
+        try:
+            _sh(
+                [
+                    COLMAP_BIN, "sequential_matcher",
+                    "--database_path", str(db_path),
+                    "--SiftMatching.use_gpu", gpu_flag,
+                ],
+                env=env,
+            )
+        except Exception:
+            log("sequential_matcher failed — trying exhaustive_matcher")
+            _sh(
+                [
+                    COLMAP_BIN, "exhaustive_matcher",
+                    "--database_path", str(db_path),
+                    "--SiftMatching.use_gpu", gpu_flag,
+                ],
+                env=env,
+            )
+
     try:
-        _sh(
-            [
-                COLMAP_BIN, "sequential_matcher",
-                "--database_path", str(db_path),
-                "--SiftMatching.use_gpu", use_gpu,
-            ],
-            env=env,
-        )
-    except Exception:
-        log("sequential_matcher failed — trying exhaustive_matcher")
-        _sh(
-            [
-                COLMAP_BIN, "exhaustive_matcher",
-                "--database_path", str(db_path),
-                "--SiftMatching.use_gpu", use_gpu,
-            ],
-            env=env,
-        )
+        _feature_extractor(use_gpu)
+        _matcher(use_gpu)
+    except Exception as e:
+        if use_gpu == "1":
+            log(f"COLMAP GPU path failed ({e}); retrying CPU SIFT")
+            if db_path.exists():
+                db_path.unlink()
+            use_gpu = "0"
+            _feature_extractor("0")
+            _matcher("0")
+        else:
+            raise
 
     _sh(
         [
