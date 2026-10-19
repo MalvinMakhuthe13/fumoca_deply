@@ -2387,6 +2387,7 @@ function parseSplat(buffer) {
 }
 function parsePLY(buffer) {
   let geo;
+  let sourceRgbTypes = null; // must be outside try — used after parse
   try {
   const loader = new PLYLoader();
   // Three's PLYLoader ignores unknown vertex fields unless they are mapped.
@@ -2396,7 +2397,6 @@ function parsePLY(buffer) {
   const headerText = new TextDecoder().decode(headerBytes);
   const headerEnd = headerText.indexOf('end_header');
   const customProperties = {};
-  let sourceRgbTypes = null;
   if (headerEnd >= 0) {
     let inVertex = false;
     const vertexProperties = new Map();
