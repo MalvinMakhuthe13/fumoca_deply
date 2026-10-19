@@ -297,28 +297,57 @@ def _run_colmap(scene_dir: Path) -> Path:
 
 # ── Gaussian train ──────────────────────────────────────────────────
 def _ensure_gs_repo() -> Path:
-    if (GS_REPO_DIR / "train.py").exists():
-        return GS_REPO_DIR
-    log(f"cloning gaussian-splatting → {GS_REPO_DIR}")
-    GS_REPO_DIR.parent.mkdir(parents=True, exist_ok=True)
-    if GS_REPO_DIR.exists():
-        shutil.rmtree(GS_REPO_DIR, ignore_errors=True)
-    _sh(
-        [
-            "git", "clone",
-            "https://github.com/graphdeco-inria/gaussian-splatting.git",
-            "--recursive",
-            str(GS_REPO_DIR),
-        ]
-    )
-    # Minimal deps often already present on Kaggle GPU image; try install
-    try:
+    if not (GS_REPO_DIR / "train.py").exists():
+        log(f"cloning gaussian-splatting → {GS_REPO_DIR}")
+        GS_REPO_DIR.parent.mkdir(parents=True, exist_ok=True)
+        if GS_REPO_DIR.exists():
+            shutil.rmtree(GS_REPO_DIR, ignore_errors=True)
         _sh(
-            ["pip", "install", "-q", "plyfile", "tqdm", "opencv-python-headless"],
+            [
+                "git", "clone",
+                "https://github.com/graphdeco-inria/gaussian-splatting.git",
+                "--recursive",
+                str(GS_REPO_DIR),
+            ]
+        )
+    # Python deps + CUDA extensions (required for train.py)
+    _sh(["pip", "install", "-q", "plyfile", "tqdm", "opencv-python-headless"], check=False)
+    # Build/install rasterizer + knn (must match current torch/CUDA)
+    for sub in (
+        "submodules/diff-gaussian-rasterization",
+        "submodules/simple-knn",
+        "submodules/fused-ssim",
+    ):
+        sub_path = GS_REPO_DIR / sub
+        if not sub_path.exists():
+            log(f"skip missing submodule {sub}")
+            continue
+        marker = sub_path / ".fumoca_installed"
+        if marker.exists():
+            continue
+        log(f"pip install -e {sub}")
+        r = _sh(
+            ["pip", "install", "-q", "-e", str(sub_path)],
             check=False,
         )
-    except Exception:
-        pass
+        if r.returncode == 0:
+            try:
+                marker.write_text("ok", encoding="utf-8")
+            except Exception:
+                pass
+        else:
+            log(f"WARN: install failed for {sub} — train may fail")
+    # Verify rasterizer import
+    r = _sh(
+        ["python", "-c", "from diff_gaussian_rasterization import GaussianRasterizer; print('rasterizer OK')"],
+        check=False,
+    )
+    if r.returncode != 0:
+        raise RuntimeError(
+            "diff_gaussian_rasterization not importable after install. "
+            "Need GPU notebook + matching CUDA torch. "
+            "Try: pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121"
+        )
     return GS_REPO_DIR
 
 
@@ -448,7 +477,10 @@ def run_quick_splat(job_id: str, user_id: str, raw_r2_key: str, meta: Optional[d
             log("COLMAP binary not found on PATH")
 
         if ply is None or not ply.exists():
-            pose_source = "synthetic_no_colmap"
+            if pose_source != "colmap":
+                pose_source = "synthetic_no_colmap"
+            else:
+                pose_source = "colmap_then_rgb_fallback"
             ply = _rgb_fallback_ply(frames, work / "fallback_point_cloud.ply")
 
         thumb = work / "thumb.jpg"
