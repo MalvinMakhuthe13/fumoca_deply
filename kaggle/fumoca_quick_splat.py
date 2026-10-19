@@ -102,7 +102,13 @@ def _upload_r2(path: Path, key: str, bucket: str = OUTPUT_BUCKET, content_type: 
     public = os.getenv("FUMOCA_R2_PUBLIC_BASE", "").rstrip("/")
     if public:
         return f"{public}/{key}"
-    return f"r2://{bucket}/{key}"
+    # FUMOCA R2 worker proxy (same pattern as upload-page public_url)
+    worker = os.getenv(
+        "FUMOCA_R2_WORKER",
+        "https://fumoca-r2.ntuthukochildofkrist.workers.dev",
+    ).rstrip("/")
+    from urllib.parse import quote
+    return f"{worker}/file/{quote(key, safe='')}?bucket={bucket}"
 
 
 # ── frames ──────────────────────────────────────────────────────────
@@ -355,10 +361,22 @@ def _patch_job(job_id: str, payload: dict) -> None:
 _INSTALLED = False
 
 
+def _supabase():
+    from supabase import create_client
+    url = os.environ["SUPABASE_URL"]
+    key = os.environ.get("SUPABASE_SECRET_KEY") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+    if not url or not key:
+        raise RuntimeError("SUPABASE_URL / SUPABASE_SECRET_KEY not set")
+    return create_client(url, key)
+
+
 def install_quick_splat_route() -> None:
     """
-    Patch ReconstructionWorker so splat_only / FUMOCA_QUICK_SPLAT jobs
+    Patch fumoca_nif_worker.main so splat_only / FUMOCA_QUICK_SPLAT jobs
     take the lean PLY path instead of full NIF.
+
+    Does not require nw.SB or pipeline at install time — those are created
+    inside the wrapped main() (pipeline only if a non-quick job appears).
     """
     global _INSTALLED
     if _INSTALLED:
@@ -368,30 +386,26 @@ def install_quick_splat_route() -> None:
     log(f"mode={'ON' if QUICK_ON else 'OFF (use capture_mode=splat_only)'} (PLY only — no full NIF)")
     log(f"limits frames≤{MAX_FRAMES} side≤{MAX_SIDE} iters_budget={GS_ITERS}")
 
-    try:
-        import sys
-        root = Path(__file__).resolve().parents[1]
-        if str(root) not in sys.path:
-            sys.path.insert(0, str(root))
-        from engine_next_path import ensure  # type: ignore
-    except Exception:
-        pass
-
-    # Patch at nif_worker loop level is more reliable than deep pipeline import.
     import fumoca_nif_worker as nw
-
-    original_main = nw.main
 
     def main_quick():
         log("nif_worker.main wrapped by Quick Splat")
-        # Replicate poll loop with branch — call original code paths by importing pipeline
         import traceback as tb
         import time as _time
+        import sys as _sys
 
-        # Ensure GPU message still applies for optional train
-        SB = nw.SB
-        POLL_SECONDS = getattr(nw, "POLL_SECONDS", 8)
-        pipeline = nw.pipeline
+        SB = _supabase()
+        POLL_SECONDS = int(os.environ.get("POLL_SECONDS", getattr(nw, "POLL_SECONDS", 15)))
+
+        # pipeline is optional — only needed for non-quick jobs
+        pipeline = None
+        recon_dir = os.path.join(os.path.dirname(os.path.abspath(nw.__file__)), "..", "engine-next", "reconstruction")
+        recon_dir = os.path.abspath(recon_dir)
+        if recon_dir not in _sys.path:
+            _sys.path.insert(0, recon_dir)
+        kaggle_dir = os.path.dirname(os.path.abspath(nw.__file__))
+        if kaggle_dir not in _sys.path:
+            _sys.path.insert(0, kaggle_dir)
 
         while True:
             try:
@@ -428,6 +442,10 @@ def install_quick_splat_route() -> None:
                 if _is_quick_job(capture_mode):
                     run_quick_splat(job_id, user_id, raw_r2_key, meta)
                 else:
+                    if pipeline is None:
+                        import pipeline as _pipeline
+                        pipeline = _pipeline
+                        log(f"full pipeline loaded DEVICE={getattr(pipeline, 'DEVICE', '?')}")
                     worker = pipeline.ReconstructionWorker(job_id, user_id)
                     if capture_mode == "mesh_only":
                         worker.run_mesh_only(raw_r2_key, meta)
