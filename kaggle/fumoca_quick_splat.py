@@ -358,42 +358,79 @@ def _gsplat_available() -> bool:
 
 def _run_training_gsplat(scene_dir: Path, model_dir: Path) -> Path:
     """
-    Train with nerfstudio gsplat simple_trainer (works on py3.13 + modern CUDA).
-    Expects COLMAP layout: scene_dir/images + scene_dir/sparse/0
+    Train with gsplat simple_trainer matched to the *installed* pip gsplat.
+    Do NOT rebuild gsplat from git on Kaggle py3.13 (wheel works; source build fails).
     """
     model_dir.mkdir(parents=True, exist_ok=True)
     examples = Path(os.getenv("GSPLAT_EXAMPLES", "/kaggle/working/gsplat_examples"))
     trainer = examples / "simple_trainer.py"
-    tmp = Path("/kaggle/working/gsplat_src")
-    if not (tmp / "examples" / "simple_trainer.py").exists():
-        log("cloning gsplat repo (library + examples must match)")
-        if tmp.exists():
-            shutil.rmtree(tmp, ignore_errors=True)
-        _sh(
-            [
-                "git", "clone", "--depth", "1",
-                "https://github.com/nerfstudio-project/gsplat.git",
-                str(tmp),
-            ]
-        )
-    # Install *this* gsplat so examples match (fixes color_correct import)
-    log("pip install -e gsplat from git source (match simple_trainer)")
-    _sh(["pip", "install", "-q", "-e", str(tmp)], check=False)
-    # Verify color_correct exists
+
+    # Version of the working pip wheel
+    ver = "unknown"
     r = _sh(
-        ["python", "-c", "from gsplat.color_correct import color_correct_affine; print('gsplat src OK')"],
+        ["python", "-c", "import gsplat; print(getattr(gsplat, '__version__', 'unknown'))"],
         check=False,
     )
-    if r.returncode != 0:
-        # try without editable
-        _sh(["pip", "install", "-q", "--force-reinstall", str(tmp)], check=False)
+    # parse version from last non-empty line of combined output is hard; query again
+    import subprocess as _sp
+    ver = _sp.check_output(
+        ["python", "-c", "import gsplat; print(getattr(gsplat, '__version__', '0.0.0'))"],
+        text=True,
+    ).strip()
+    log(f"installed gsplat version={ver}")
 
-    examples.parent.mkdir(parents=True, exist_ok=True)
-    if examples.exists():
-        shutil.rmtree(examples, ignore_errors=True)
-    shutil.copytree(tmp / "examples", examples)
+    # Prefer tagged examples matching pip version; fall back to v1.4.0 / v1.3.0
+    tags_to_try = []
+    if ver and ver != "unknown":
+        tags_to_try.append(f"v{ver}" if not ver.startswith("v") else ver)
+        tags_to_try.append(ver)
+    tags_to_try += ["v1.5.0", "v1.4.0", "v1.3.0", "v1.2.0"]
 
-    # Extra deps often needed by simple_trainer
+    tmp = Path("/kaggle/working/gsplat_src")
+    got_examples = False
+    for tag in tags_to_try:
+        log(f"trying gsplat examples tag={tag}")
+        if tmp.exists():
+            shutil.rmtree(tmp, ignore_errors=True)
+        r = _sh(
+            [
+                "git", "clone", "--depth", "1", "--branch", tag,
+                "https://github.com/nerfstudio-project/gsplat.git",
+                str(tmp),
+            ],
+            check=False,
+        )
+        if r.returncode != 0 or not (tmp / "examples" / "simple_trainer.py").exists():
+            continue
+        # Copy examples and patch color_correct import if missing in installed gsplat
+        if examples.exists():
+            shutil.rmtree(examples, ignore_errors=True)
+        shutil.copytree(tmp / "examples", examples)
+        trainer_src = (examples / "simple_trainer.py").read_text(encoding="utf-8", errors="ignore")
+        if "color_correct" in trainer_src:
+            has_cc = _sh(
+                ["python", "-c", "from gsplat.color_correct import color_correct_affine"],
+                check=False,
+            ).returncode == 0
+            if not has_cc:
+                log("patching simple_trainer: strip color_correct (not in pip gsplat)")
+                patched = trainer_src
+                # comment out / soft-fail the import
+                patched = patched.replace(
+                    "from gsplat.color_correct import color_correct_affine, color_correct_quadratic",
+                    "color_correct_affine = color_correct_quadratic = None  # patched: not in this gsplat",
+                )
+                patched = patched.replace(
+                    "from gsplat.color_correct import color_correct_affine",
+                    "color_correct_affine = None  # patched",
+                )
+                (examples / "simple_trainer.py").write_text(patched, encoding="utf-8")
+        got_examples = True
+        break
+
+    if not got_examples:
+        raise RuntimeError("Could not fetch a gsplat examples tag compatible with pip gsplat")
+
     _sh(
         [
             "pip", "install", "-q",
