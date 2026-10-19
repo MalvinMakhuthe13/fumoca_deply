@@ -535,6 +535,61 @@ def _run_training(scene_dir: Path, model_dir: Path) -> Path:
 
 
 # ── COLMAP sparse cloud export (real geometry, no CUDA train) ─────
+
+def _colmap_dense_ply(undistorted: Path, out: Path) -> Path:
+    """
+    Dense point cloud via COLMAP PatchMatch stereo + stereo_fusion.
+    No PyTorch CUDA extensions required — works on this Kaggle image.
+    Output is a dense XYZRGB PLY editable in Studio.
+    """
+    undistorted = Path(undistorted)
+    workspace = undistorted  # has images/ + sparse/0/
+    stereo_path = workspace / "stereo"
+    dense_path = workspace / "dense"
+    env = os.environ.copy()
+    env["QT_QPA_PLATFORM"] = "offscreen"
+    env.setdefault("DISPLAY", "")
+
+    log("COLMAP dense: patch_match_stereo (this can take a while)")
+    _sh(
+        [
+            COLMAP_BIN, "patch_match_stereo",
+            "--workspace_path", str(workspace),
+            "--workspace_format", "COLMAP",
+            "--PatchMatchStereo.geom_consistency", "true",
+            "--PatchMatchStereo.max_image_size", str(max(MAX_SIDE, 1000)),
+        ],
+        env=env,
+        check=True,
+    )
+    log("COLMAP dense: stereo_fusion")
+    dense_path.mkdir(parents=True, exist_ok=True)
+    fused = dense_path / "fused.ply"
+    _sh(
+        [
+            COLMAP_BIN, "stereo_fusion",
+            "--workspace_path", str(workspace),
+            "--workspace_format", "COLMAP",
+            "--input_type", "geometric",
+            "--output_path", str(fused),
+        ],
+        env=env,
+        check=True,
+    )
+    if not fused.exists():
+        # some versions write fused.ply next to workspace
+        alts = list(workspace.rglob("fused.ply"))
+        if not alts:
+            raise RuntimeError("stereo_fusion produced no fused.ply")
+        fused = alts[0]
+    size = fused.stat().st_size
+    if size < 10_000:
+        raise RuntimeError(f"Dense PLY too small ({size} bytes)")
+    shutil.copy2(fused, out)
+    log(f"COLMAP dense PLY size={size/1e6:.2f} MB → {out}")
+    return out
+
+
 def _colmap_sparse_to_ply(sparse_dir: Path, out: Path) -> Path:
     """
     Export SfM points as ASCII XYZRGB PLY.
@@ -670,43 +725,62 @@ def run_quick_splat(job_id: str, user_id: str, raw_r2_key: str, meta: Optional[d
             try:
                 undistorted = _run_colmap(scene)
                 pose_source = "colmap"
-                _patch_job(job_id, {"progress": 45})
-                # 2) Train
-                try:
-                    import torch
-                    if not torch.cuda.is_available():
-                        log("WARNING: no CUDA — train may be very slow or fail")
-                except Exception:
-                    pass
-                model_dir = work / "model"
-                ply = _run_training(undistorted, model_dir)
-                train_ok = True
-                _patch_job(job_id, {"progress": 85})
+                _patch_job(job_id, {"progress": 40})
+                # 2) Prefer COLMAP dense PLY for a full editable cloud (reliable on Kaggle)
+                #    Set FUMOCA_TRY_GS_TRAIN=1 to also attempt gsplat/graphdeco first.
+                try_gs = os.getenv("FUMOCA_TRY_GS_TRAIN", "0").strip() in ("1", "true", "True")
+                if try_gs:
+                    try:
+                        model_dir = work / "model"
+                        ply = _run_training(undistorted, model_dir)
+                        train_ok = True
+                        pose_source = "gaussian_train"
+                        _patch_job(job_id, {"progress": 85})
+                    except Exception as e:
+                        log(f"GS train skipped/failed: {e}")
+                        ply = None
+                if ply is None:
+                    log("Building full dense PLY via COLMAP stereo (editable in Studio)")
+                    ply = _colmap_dense_ply(undistorted, work / "colmap_dense.ply")
+                    pose_source = "colmap_dense"
+                    train_ok = False
+                    _patch_job(job_id, {"progress": 85})
             except Exception as e:
-                log(f"COLMAP/train failed: {e}")
+                log(f"COLMAP/dense failed: {e}")
                 traceback.print_exc()
                 ply = None
         else:
             log("COLMAP binary not found on PATH")
 
         if ply is None or not ply.exists():
-            # Prefer real SfM points over RGB billboards when COLMAP worked
-            sparse0 = scene / "undistorted" / "sparse" / "0"
-            if not (sparse0 / "points3D.bin").exists():
-                sparse0 = scene / "distorted" / "sparse" / "0"
-            if (sparse0 / "points3D.bin").exists() or (sparse0 / "points3D.txt").exists():
+            undistorted = scene / "undistorted"
+            # 1) Dense stereo PLY (full cloud, editable in Studio) — no torch CUDA ext
+            if (undistorted / "sparse" / "0" / "cameras.bin").exists():
                 try:
-                    ply = _colmap_sparse_to_ply(sparse0, work / "colmap_sparse.ply")
-                    pose_source = "colmap_sparse"
-                    log("using COLMAP sparse cloud (train skipped — no CUDA rasterizer)")
+                    log("Gaussian train unavailable — building COLMAP dense PLY")
+                    ply = _colmap_dense_ply(undistorted, work / "colmap_dense.ply")
+                    pose_source = "colmap_dense"
+                    train_ok = False
                 except Exception as e:
-                    log(f"sparse export failed: {e}")
+                    log(f"dense stereo failed: {e}")
+                    traceback.print_exc()
                     ply = None
+            # 2) Sparse SfM
             if ply is None or not ply.exists():
-                if pose_source == "colmap":
-                    pose_source = "colmap_then_rgb_fallback"
-                else:
-                    pose_source = "synthetic_no_colmap"
+                sparse0 = undistorted / "sparse" / "0"
+                if not (sparse0 / "points3D.bin").exists():
+                    sparse0 = scene / "distorted" / "sparse" / "0"
+                if (sparse0 / "points3D.bin").exists() or (sparse0 / "points3D.txt").exists():
+                    try:
+                        ply = _colmap_sparse_to_ply(sparse0, work / "colmap_sparse.ply")
+                        pose_source = "colmap_sparse"
+                        log("using COLMAP sparse cloud")
+                    except Exception as e:
+                        log(f"sparse export failed: {e}")
+                        ply = None
+            # 3) Last resort RGB billboards
+            if ply is None or not ply.exists():
+                pose_source = "synthetic_no_colmap"
                 ply = _rgb_fallback_ply(frames, work / "fallback_point_cloud.ply")
 
         thumb = work / "thumb.jpg"
