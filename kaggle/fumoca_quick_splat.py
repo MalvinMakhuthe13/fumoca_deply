@@ -343,16 +343,22 @@ def _ensure_gs_repo() -> Path:
         check=False,
     )
     if r.returncode != 0:
-        raise RuntimeError(
-            "diff_gaussian_rasterization not importable after install. "
-            "Need GPU notebook + matching CUDA torch. "
-            "Try: pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121"
+        log(
+            "diff_gaussian_rasterization not importable — will use COLMAP sparse PLY. "
+            "Full Gaussian train needs nvcc + CUDA torch on this machine."
         )
+        return GS_REPO_DIR
     return GS_REPO_DIR
 
 
 def _run_training(scene_dir: Path, model_dir: Path) -> Path:
     repo = _ensure_gs_repo()
+    r = _sh(
+        ["python", "-c", "from diff_gaussian_rasterization import GaussianRasterizer"],
+        check=False,
+    )
+    if r.returncode != 0:
+        raise RuntimeError("CUDA rasterizer unavailable — skip train, use sparse PLY")
     model_dir.mkdir(parents=True, exist_ok=True)
     log(f"train iterations={GS_ITERS} scene={scene_dir}")
     _sh(
@@ -386,39 +392,15 @@ def _run_training(scene_dir: Path, model_dir: Path) -> Path:
 
 # ── COLMAP sparse cloud export (real geometry, no CUDA train) ─────
 def _colmap_sparse_to_ply(sparse_dir: Path, out: Path) -> Path:
-    """Export SfM points via COLMAP model_converter — subject-shaped cloud."""
-    # Prefer official converter
-    tmp_dir = out.parent / "colmap_ply_export"
-    tmp_dir.mkdir(parents=True, exist_ok=True)
-    r = _sh(
-        [
-            COLMAP_BIN, "model_converter",
-            "--input_path", str(sparse_dir),
-            "--output_path", str(tmp_dir / "points3D"),
-            "--output_type", "PLY",
-        ],
-        check=False,
-    )
-    candidates = list(tmp_dir.glob("**/*.ply")) + list(tmp_dir.glob("**/*"))
-    ply_cands = [c for c in candidates if c.suffix.lower() == ".ply" or c.name.endswith("points3D")]
-    # model_converter with PLY often writes points3D.ply
-    for c in list(tmp_dir.iterdir()) if tmp_dir.exists() else []:
-        if c.suffix.lower() == ".ply":
-            shutil.copy2(c, out)
-            log(f"COLMAP sparse PLY → {out} ({out.stat().st_size/1e6:.2f} MB)")
-            return out
-    # Some COLMAP versions write without .ply extension
-    for c in tmp_dir.glob("*"):
-        if c.is_file() and c.stat().st_size > 1000:
-            # peek header
-            head = c.read_bytes()[:20]
-            if head.startswith(b"ply") or b"element vertex" in c.read_bytes()[:200]:
-                shutil.copy2(c, out)
-                log(f"COLMAP sparse PLY (no ext) → {out}")
-                return out
-    # Manual read of points3D.txt if converter wrote TXT
+    """
+    Export SfM points as ASCII XYZRGB PLY.
+    Always goes via points3D.txt (reliable). model_converter PLY path is flaky
+    across COLMAP builds and produced 0-byte files on Kaggle.
+    """
+    sparse_dir = Path(sparse_dir)
     txt = sparse_dir / "points3D.txt"
     if not txt.exists():
+        log("converting sparse model to TXT")
         _sh(
             [
                 COLMAP_BIN, "model_converter",
@@ -426,28 +408,35 @@ def _colmap_sparse_to_ply(sparse_dir: Path, out: Path) -> Path:
                 "--output_path", str(sparse_dir),
                 "--output_type", "TXT",
             ],
-            check=False,
+            check=True,
         )
-    txt = sparse_dir / "points3D.txt"
+        txt = sparse_dir / "points3D.txt"
     if not txt.exists():
-        raise RuntimeError("Could not export COLMAP points to PLY/TXT")
+        raise RuntimeError(f"points3D.txt missing under {sparse_dir}")
+
     points = []
     for line in txt.read_text(encoding="utf-8", errors="ignore").splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
         parts = line.split()
-        # POINT3D_ID, X, Y, Z, R, G, B, ERROR, TRACK[]
+        # POINT3D_ID X Y Z R G B ERROR TRACK...
         if len(parts) < 7:
             continue
         try:
             x, y, z = float(parts[1]), float(parts[2]), float(parts[3])
-            r, g, b = int(parts[4]), int(parts[5]), int(parts[6])
+            r, g, b = int(float(parts[4])), int(float(parts[5])), int(float(parts[6]))
+            r = max(0, min(255, r))
+            g = max(0, min(255, g))
+            b = max(0, min(255, b))
             points.append((x, y, z, r, g, b))
         except ValueError:
             continue
-    if len(points) < 50:
-        raise RuntimeError(f"Too few COLMAP points ({len(points)})")
+
+    if len(points) < 30:
+        raise RuntimeError(f"Too few COLMAP 3D points ({len(points)}) — capture may lack overlap")
+
+    out = Path(out)
     with out.open("w", encoding="ascii") as f:
         f.write("ply\nformat ascii 1.0\n")
         f.write(f"element vertex {len(points)}\n")
@@ -456,7 +445,11 @@ def _colmap_sparse_to_ply(sparse_dir: Path, out: Path) -> Path:
         f.write("end_header\n")
         for x, y, z, r, g, b in points:
             f.write(f"{x:.6f} {y:.6f} {z:.6f} {r} {g} {b}\n")
-    log(f"COLMAP sparse TXT→PLY points={len(points)} → {out}")
+
+    size = out.stat().st_size
+    if size < 500:
+        raise RuntimeError(f"PLY too small ({size} bytes)")
+    log(f"COLMAP sparse PLY points={len(points)} size={size/1e6:.3f} MB → {out}")
     return out
 
 
