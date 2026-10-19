@@ -351,16 +351,101 @@ def _ensure_gs_repo() -> Path:
     return GS_REPO_DIR
 
 
-def _run_training(scene_dir: Path, model_dir: Path) -> Path:
+def _gsplat_available() -> bool:
+    r = _sh(["python", "-c", "import gsplat; print(gsplat.__file__)"], check=False)
+    return r.returncode == 0
+
+
+def _run_training_gsplat(scene_dir: Path, model_dir: Path) -> Path:
+    """
+    Train with nerfstudio gsplat simple_trainer (works on py3.13 + modern CUDA).
+    Expects COLMAP layout: scene_dir/images + scene_dir/sparse/0
+    """
+    model_dir.mkdir(parents=True, exist_ok=True)
+    examples = Path(os.getenv("GSPLAT_EXAMPLES", "/kaggle/working/gsplat_examples"))
+    trainer = examples / "simple_trainer.py"
+    if not trainer.exists():
+        log("cloning gsplat examples (simple_trainer)")
+        tmp = Path("/kaggle/working/gsplat_src")
+        if not (tmp / "examples" / "simple_trainer.py").exists():
+            if tmp.exists():
+                shutil.rmtree(tmp, ignore_errors=True)
+            _sh(
+                [
+                    "git", "clone", "--depth", "1",
+                    "https://github.com/nerfstudio-project/gsplat.git",
+                    str(tmp),
+                ]
+            )
+        examples.parent.mkdir(parents=True, exist_ok=True)
+        if examples.exists():
+            shutil.rmtree(examples, ignore_errors=True)
+        shutil.copytree(tmp / "examples", examples)
+
+    # Extra deps often needed by simple_trainer
+    _sh(
+        [
+            "pip", "install", "-q",
+            "pycolmap", "viser", "nerfview", "splines", "torchmetrics",
+            "imageio[ffmpeg]", "tyro", "jaxtyping", "rich",
+        ],
+        check=False,
+    )
+
+    result_dir = model_dir / "gsplat_out"
+    result_dir.mkdir(parents=True, exist_ok=True)
+    log(f"gsplat train steps={GS_ITERS} data={scene_dir}")
+
+    # simple_trainer CLI (tyro): default config + overrides
+    cmd = [
+        "python", str(trainer),
+        "default",
+        "--data_dir", str(scene_dir),
+        "--result_dir", str(result_dir),
+        "--max_steps", str(GS_ITERS),
+        "--save_steps", str(GS_ITERS),
+        "--eval_steps", str(GS_ITERS + 1),  # effectively skip mid eval
+        "--data_factor", "1",
+        "--disable_viewer",
+    ]
+    # Some versions use different flag names — try primary first
+    r = _sh(cmd, cwd=str(examples), check=False)
+    if r.returncode != 0:
+        # Fallback smaller flag set
+        cmd2 = [
+            "python", str(trainer),
+            "default",
+            f"--data_dir={scene_dir}",
+            f"--result_dir={result_dir}",
+            f"--max_steps={GS_ITERS}",
+            "--data_factor=1",
+        ]
+        _sh(cmd2, cwd=str(examples), check=True)
+
+    # Find exported ply
+    ply_candidates = sorted(result_dir.rglob("*.ply"))
+    if not ply_candidates:
+        # Some builds write ckpt only — try common path
+        ply_candidates = sorted(model_dir.rglob("*.ply"))
+    if not ply_candidates:
+        raise RuntimeError("gsplat finished but no .ply found under result_dir")
+    # Prefer point_cloud / splat named files
+    preferred = [c for c in ply_candidates if "point_cloud" in c.name.lower() or "splat" in c.name.lower()]
+    out = preferred[-1] if preferred else ply_candidates[-1]
+    log(f"gsplat PLY → {out} ({out.stat().st_size/1e6:.2f} MB)")
+    return out
+
+
+def _run_training_graphdeco(scene_dir: Path, model_dir: Path) -> Path:
     repo = _ensure_gs_repo()
     r = _sh(
         ["python", "-c", "from diff_gaussian_rasterization import GaussianRasterizer"],
         check=False,
     )
     if r.returncode != 0:
-        raise RuntimeError("CUDA rasterizer unavailable — skip train, use sparse PLY")
+        raise RuntimeError("graphdeco CUDA rasterizer unavailable")
     model_dir.mkdir(parents=True, exist_ok=True)
-    log(f"train iterations={GS_ITERS} scene={scene_dir}")
+    log(f"graphdeco train iterations={GS_ITERS} scene={scene_dir}")
     _sh(
         [
             "python", "train.py",
@@ -377,17 +462,28 @@ def _run_training(scene_dir: Path, model_dir: Path) -> Path:
         model_dir / "point_cloud" / "iteration_3000" / "point_cloud.ply",
         model_dir / "point_cloud" / "iteration_1500" / "point_cloud.ply",
         model_dir / "point_cloud" / "iteration_1000" / "point_cloud.ply",
-        model_dir / "point_cloud" / "iteration_7000" / "point_cloud.ply",
     ]
     for c in candidates:
         if c.exists():
-            log(f"trained PLY {c}")
             return c
     found = sorted(model_dir.rglob("point_cloud.ply"))
     if found:
-        log(f"trained PLY (found) {found[-1]}")
         return found[-1]
-    raise RuntimeError("Training finished without point_cloud.ply")
+    raise RuntimeError("graphdeco training finished without point_cloud.ply")
+
+
+def _run_training(scene_dir: Path, model_dir: Path) -> Path:
+    """Prefer gsplat (works on this Kaggle image); fall back to graphdeco."""
+    if _gsplat_available():
+        try:
+            return _run_training_gsplat(scene_dir, model_dir)
+        except Exception as e:
+            log(f"gsplat train failed: {e}")
+            traceback.print_exc()
+    try:
+        return _run_training_graphdeco(scene_dir, model_dir)
+    except Exception as e:
+        raise RuntimeError(f"All train backends failed: {e}") from e
 
 
 # ── COLMAP sparse cloud export (real geometry, no CUDA train) ─────
