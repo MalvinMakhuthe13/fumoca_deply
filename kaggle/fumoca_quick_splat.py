@@ -384,6 +384,82 @@ def _run_training(scene_dir: Path, model_dir: Path) -> Path:
     raise RuntimeError("Training finished without point_cloud.ply")
 
 
+# ── COLMAP sparse cloud export (real geometry, no CUDA train) ─────
+def _colmap_sparse_to_ply(sparse_dir: Path, out: Path) -> Path:
+    """Export SfM points via COLMAP model_converter — subject-shaped cloud."""
+    # Prefer official converter
+    tmp_dir = out.parent / "colmap_ply_export"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    r = _sh(
+        [
+            COLMAP_BIN, "model_converter",
+            "--input_path", str(sparse_dir),
+            "--output_path", str(tmp_dir / "points3D"),
+            "--output_type", "PLY",
+        ],
+        check=False,
+    )
+    candidates = list(tmp_dir.glob("**/*.ply")) + list(tmp_dir.glob("**/*"))
+    ply_cands = [c for c in candidates if c.suffix.lower() == ".ply" or c.name.endswith("points3D")]
+    # model_converter with PLY often writes points3D.ply
+    for c in list(tmp_dir.iterdir()) if tmp_dir.exists() else []:
+        if c.suffix.lower() == ".ply":
+            shutil.copy2(c, out)
+            log(f"COLMAP sparse PLY → {out} ({out.stat().st_size/1e6:.2f} MB)")
+            return out
+    # Some COLMAP versions write without .ply extension
+    for c in tmp_dir.glob("*"):
+        if c.is_file() and c.stat().st_size > 1000:
+            # peek header
+            head = c.read_bytes()[:20]
+            if head.startswith(b"ply") or b"element vertex" in c.read_bytes()[:200]:
+                shutil.copy2(c, out)
+                log(f"COLMAP sparse PLY (no ext) → {out}")
+                return out
+    # Manual read of points3D.txt if converter wrote TXT
+    txt = sparse_dir / "points3D.txt"
+    if not txt.exists():
+        _sh(
+            [
+                COLMAP_BIN, "model_converter",
+                "--input_path", str(sparse_dir),
+                "--output_path", str(sparse_dir),
+                "--output_type", "TXT",
+            ],
+            check=False,
+        )
+    txt = sparse_dir / "points3D.txt"
+    if not txt.exists():
+        raise RuntimeError("Could not export COLMAP points to PLY/TXT")
+    points = []
+    for line in txt.read_text(encoding="utf-8", errors="ignore").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split()
+        # POINT3D_ID, X, Y, Z, R, G, B, ERROR, TRACK[]
+        if len(parts) < 7:
+            continue
+        try:
+            x, y, z = float(parts[1]), float(parts[2]), float(parts[3])
+            r, g, b = int(parts[4]), int(parts[5]), int(parts[6])
+            points.append((x, y, z, r, g, b))
+        except ValueError:
+            continue
+    if len(points) < 50:
+        raise RuntimeError(f"Too few COLMAP points ({len(points)})")
+    with out.open("w", encoding="ascii") as f:
+        f.write("ply\nformat ascii 1.0\n")
+        f.write(f"element vertex {len(points)}\n")
+        f.write("property float x\nproperty float y\nproperty float z\n")
+        f.write("property uchar red\nproperty uchar green\nproperty uchar blue\n")
+        f.write("end_header\n")
+        for x, y, z, r, g, b in points:
+            f.write(f"{x:.6f} {y:.6f} {z:.6f} {r} {g} {b}\n")
+    log(f"COLMAP sparse TXT→PLY points={len(points)} → {out}")
+    return out
+
+
 # ── RGB fallback (last resort) ──────────────────────────────────────
 def _rgb_fallback_ply(frames: List[Path], out: Path) -> Path:
     from PIL import Image
@@ -477,11 +553,24 @@ def run_quick_splat(job_id: str, user_id: str, raw_r2_key: str, meta: Optional[d
             log("COLMAP binary not found on PATH")
 
         if ply is None or not ply.exists():
-            if pose_source != "colmap":
-                pose_source = "synthetic_no_colmap"
-            else:
-                pose_source = "colmap_then_rgb_fallback"
-            ply = _rgb_fallback_ply(frames, work / "fallback_point_cloud.ply")
+            # Prefer real SfM points over RGB billboards when COLMAP worked
+            sparse0 = scene / "undistorted" / "sparse" / "0"
+            if not (sparse0 / "points3D.bin").exists():
+                sparse0 = scene / "distorted" / "sparse" / "0"
+            if (sparse0 / "points3D.bin").exists() or (sparse0 / "points3D.txt").exists():
+                try:
+                    ply = _colmap_sparse_to_ply(sparse0, work / "colmap_sparse.ply")
+                    pose_source = "colmap_sparse"
+                    log("using COLMAP sparse cloud (train skipped — no CUDA rasterizer)")
+                except Exception as e:
+                    log(f"sparse export failed: {e}")
+                    ply = None
+            if ply is None or not ply.exists():
+                if pose_source == "colmap":
+                    pose_source = "colmap_then_rgb_fallback"
+                else:
+                    pose_source = "synthetic_no_colmap"
+                ply = _rgb_fallback_ply(frames, work / "fallback_point_cloud.ply")
 
         thumb = work / "thumb.jpg"
         _thumbnail(video, thumb)
