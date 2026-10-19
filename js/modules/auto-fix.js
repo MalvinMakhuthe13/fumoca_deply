@@ -69,44 +69,7 @@ const FumocaAutoFix = (() => {
     };
   }
 
-  function getLiveBounds() {
-    // Prefer live editor point cloud
-    if (window.S?.positions?.length) {
-      const pos = window.S.positions;
-      const alive = window.S.alive;
-      if (alive?.length) {
-        const out = [];
-        for (let i = 0; i < alive.length; i++) {
-          if (!alive[i]) continue;
-          out.push(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]);
-        }
-        if (out.length >= 9) return computeBoundsFromPositions(out);
-      }
-      return computeBoundsFromPositions(pos);
-    }
-    if (window._editEngine?.getPointCloud) {
-      try {
-        const pc = window._editEngine.getPointCloud();
-        if (pc?.positions) return computeBoundsFromPositions(pc.positions);
-      } catch (_) {}
-    }
-    const renderer = window._fumocaRenderer || window._fumocaViewer;
-    if (renderer?.getPositions) {
-      try {
-        return computeBoundsFromPositions(renderer.getPositions());
-      } catch (_) {}
-    }
-    const rec = window._fumocaCurrentRecord;
-    const bb = rec?.meta?.bounding_box || rec?.bounding_box;
-    if (bb?.center) {
-      return {
-        min: bb.min || { x: -1, y: -1, z: -1 },
-        max: bb.max || { x: 1, y: 1, z: 1 },
-        center: new THREE.Vector3(bb.center.x, bb.center.y, bb.center.z),
-        radius: bb.radius || 1.5,
-        size: new THREE.Vector3(2, 2, 2),
-      };
-    }
+  function _defaultBounds() {
     return {
       center: new THREE.Vector3(0, 0, 0),
       radius: 1.5,
@@ -114,6 +77,55 @@ const FumocaAutoFix = (() => {
       min: { x: -1.5, y: -1.5, z: -1.5 },
       max: { x: 1.5, y: 1.5, z: 1.5 },
     };
+  }
+
+  function getLiveBounds() {
+    // Prefer live editor point cloud — never return null (camera panel needs center)
+    try {
+      if (window.S?.positions?.length) {
+        const pos = window.S.positions;
+        const alive = window.S.alive;
+        if (alive?.length) {
+          const out = [];
+          for (let i = 0; i < alive.length; i++) {
+            if (!alive[i]) continue;
+            out.push(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]);
+          }
+          if (out.length >= 9) {
+            const b = computeBoundsFromPositions(out);
+            if (b?.center) return b;
+          }
+        }
+        const b2 = computeBoundsFromPositions(pos);
+        if (b2?.center) return b2;
+      }
+      if (window._editEngine?.getPointCloud) {
+        const pc = window._editEngine.getPointCloud();
+        if (pc?.positions) {
+          const b = computeBoundsFromPositions(pc.positions);
+          if (b?.center) return b;
+        }
+      }
+      const renderer = window._fumocaRenderer || window._fumocaViewer;
+      if (renderer?.getPositions) {
+        const b = computeBoundsFromPositions(renderer.getPositions());
+        if (b?.center) return b;
+      }
+      const rec = window._fumocaCurrentRecord;
+      const bb = rec?.meta?.bounding_box || rec?.bounding_box;
+      if (bb?.center) {
+        return {
+          min: bb.min || { x: -1, y: -1, z: -1 },
+          max: bb.max || { x: 1, y: 1, z: 1 },
+          center: new THREE.Vector3(bb.center.x, bb.center.y, bb.center.z),
+          radius: bb.radius || 1.5,
+          size: new THREE.Vector3(2, 2, 2),
+        };
+      }
+    } catch (e) {
+      console.warn('[AutoFix] getLiveBounds', e);
+    }
+    return _defaultBounds();
   }
 
   // ── Force fit camera (ignores "already fitted") ───────────────────
@@ -221,8 +233,9 @@ const FumocaAutoFix = (() => {
 
   // ── Generated capture angles when file has none ───────────────────
   function _standardAngles(bounds) {
+    bounds = bounds?.center ? bounds : getLiveBounds();
     const c = bounds.center;
-    const r = Math.max(0.6, bounds.radius * 2.4);
+    const r = Math.max(0.6, (bounds.radius || 1.5) * 2.4);
     const y = c.y + bounds.radius * 0.25;
     return [
       { name: 'Front ¾', px: c.x + r * 0.7, py: y, pz: c.z + r * 0.7, tx: c.x, ty: c.y, tz: c.z },
