@@ -1892,10 +1892,8 @@ function _syncViewportHud() {
 function syncTransformGizmo() {
   const count = S.alive?.length || 0;
   const selectedCount = selectedPointCount();
-  // Never expose a scene-wide transform gizmo when no points/object are selected.
-  // The old fallback attached it to the camera target, so dragging in Move mode
-  // could appear to move the grid/camera instead of the model.
-  if (!count || !S.positions || !selectedCount) {
+  // In move/rotate/scale: gizmo targets selected points, or the whole scene if none selected.
+  if (!count || !S.positions || !['move','scale-tool','rotate'].includes(S.mode)) {
     transformControls.detach();
     transformControls.enabled = false;
     transformGizmo.visible = false;
@@ -1903,8 +1901,14 @@ function syncTransformGizmo() {
     return;
   }
   let x=0,y=0,z=0,n=0;
-  for(let i=0;i<count;i++) if(S.alive[i] && S.selected[i]) {
-    x+=S.positions[i*3]; y+=S.positions[i*3+1]; z+=S.positions[i*3+2]; n++;
+  const useSelection = selectedCount > 0;
+  for (let i = 0; i < count; i++) {
+    if (!S.alive[i]) continue;
+    if (useSelection && !S.selected[i]) continue;
+    x += S.positions[i * 3];
+    y += S.positions[i * 3 + 1];
+    z += S.positions[i * 3 + 2];
+    n++;
   }
   if (!n) {
     transformControls.detach();
@@ -1913,13 +1917,14 @@ function syncTransformGizmo() {
     _syncViewportHud();
     return;
   }
-  transformTarget.position.set(x/n,y/n,z/n);
-  transformTarget.rotation.set(0,0,0); transformTarget.scale.set(1,1,1);
+  transformTarget.position.set(x / n, y / n, z / n);
+  transformTarget.rotation.set(0, 0, 0);
+  transformTarget.scale.set(1, 1, 1);
   transformControls.attach(transformTarget);
-  const mode = S.mode==='move'?'translate':S.mode==='rotate'?'rotate':'scale';
+  const mode = S.mode === 'move' ? 'translate' : S.mode === 'rotate' ? 'rotate' : 'scale';
   transformControls.setMode(mode);
-  transformControls.enabled = ['move','scale-tool','rotate'].includes(S.mode);
-  transformGizmo.visible = transformControls.enabled;
+  transformControls.enabled = true;
+  transformGizmo.visible = true;
   _syncViewportHud();
 }
 function refreshTransformSourceMap() {
@@ -1965,10 +1970,8 @@ function applyGizmoDelta() {
   const uniformScale = Math.cbrt(Math.abs(rx * ry * rz));
   const selected = selectedPointCount() > 0;
   const posAttr = S.points?.geometry?.getAttribute('position');
-  if (!selected) {
-    captureGizmoTransform();
-    return;
-  }
+  // When nothing is selected, edit the whole live scene (matches HUD copy).
+  const editAll = !selected;
   const scaleAttr = S.points?.geometry?.getAttribute('aScaleXYZ');
   const rotationAttr = S.points?.geometry?.getAttribute('aRotation');
   const sizeAttr = S.points?.geometry?.getAttribute('size');
@@ -1978,7 +1981,7 @@ function applyGizmoDelta() {
   const noMove = Math.abs(tx - px) < 1e-10 && Math.abs(ty - py) < 1e-10 && Math.abs(tz - pz) < 1e-10;
   if (noRot && noScale && noMove) { captureGizmoTransform(); return; }
 
-  for (let i = 0; i < S.alive.length; i++) if (S.alive[i] && S.selected[i]) {
+  for (let i = 0; i < S.alive.length; i++) if (S.alive[i] && (editAll || S.selected[i])) {
     // Rigid path: (p - pivot) → optional scale → optional qDelta → + new pivot
     let x = S.positions[i * 3] - px;
     let y = S.positions[i * 3 + 1] - py;
@@ -2025,9 +2028,19 @@ transformControls.addEventListener('mouseDown',()=>{_gizmoGesture=true;pushHisto
 transformControls.addEventListener('objectChange',applyGizmoDelta);
 transformControls.addEventListener('mouseUp',()=>{
   window.FumocaGaussianRenderer?.invalidateSort();
-  const allLiveSelected=S.selected?.every((value,i)=>!S.alive[i]||value);
-  rebuildGeometry();_refreshSceneReference(allLiveSelected);refreshTransformSourceMap();syncTransformGizmo();renderMeasurementList();renderMeasurementOverlay();
-  _gizmoGesture=false;_previousGizmoTransform=null;
+  const allLiveSelected = S.selected?.every((value, i) => !S.alive[i] || value);
+  // Bake: rebuild from S.positions so Gaussian/point buffers match the moved data.
+  rebuildGeometry();
+  _refreshSceneReference(allLiveSelected);
+  refreshTransformSourceMap();
+  // Re-place gizmo at the NEW centroid so it does not snap back to the old pivot.
+  syncTransformGizmo();
+  captureGizmoTransform();
+  renderMeasurementList();
+  renderMeasurementOverlay();
+  _gizmoGesture = false;
+  // Keep _previousGizmoTransform in sync with the re-centered gizmo (do not null it
+  // before the next gesture — captureGizmoTransform already refreshed it).
 });
 transformControls.addEventListener('dragging-changed',event=>{controls.enabled=!event.value && S.mode==='orbit';});
 
@@ -3302,12 +3315,15 @@ function applyBrush(cx, cy) {
 }
 
 function transformSelection(mode, dx, dy, redraw = true) {
-  if (!S.positions || !S.selected) return;
+  if (!S.positions || !S.alive) return;
   // Fixed pivot for the whole gesture (recomputing centroid every move causes non-rigid drift)
   if (!_xformPivot || !_xformIndices?.length) {
     const indices = [];
     let cx = 0, cy = 0, cz = 0;
-    for (let i = 0; i < S.alive.length; i++) if (S.alive[i] && S.selected[i]) {
+    const hasSel = selectedPointCount() > 0;
+    for (let i = 0; i < S.alive.length; i++) {
+      if (!S.alive[i]) continue;
+      if (hasSel && !(S.selected && S.selected[i])) continue;
       indices.push(i);
       cx += S.positions[i * 3]; cy += S.positions[i * 3 + 1]; cz += S.positions[i * 3 + 2];
     }
@@ -4118,7 +4134,7 @@ window.addEventListener('pointerup', e => {
   }
   if (S.mode === 'lasso' && S.lassoPoints.length >= 3) selectByLasso(S.lassoPoints);
   if (['box','sphere','lasso'].includes(S.mode)) syncTransformGizmo();
-  if (['move','scale-tool','rotate'].includes(S.mode)) { window.FumocaGaussianRenderer?.invalidateSort(); rebuildGeometry(); }
+  if (['move','scale-tool','rotate'].includes(S.mode)) { window.FumocaGaussianRenderer?.invalidateSort(); rebuildGeometry(); syncTransformGizmo(); captureGizmoTransform(); _xformIndices = null; _xformPivot = null; }
   _xformPivot = null; _xformIndices = null;
   S.dragging = false; S.dragStart = null; S.dragCurrent = null; S.lassoPoints = [];
   renderLasso();
