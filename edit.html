@@ -1935,31 +1935,86 @@ function refreshTransformSourceMap() {
   _sourceToRender=map;
 }
 function captureGizmoTransform() {
-  _previousGizmoTransform = { position:transformTarget.position.clone(), quaternion:transformTarget.quaternion.clone(), scale:transformTarget.scale.clone() };
+  _previousGizmoTransform = {
+    position: transformTarget.position.clone(),
+    quaternion: transformTarget.quaternion.clone(),
+    scale: transformTarget.scale.clone(),
+  };
 }
+
+/** Snapshot selection at gesture start — absolute bake prevents snap-back. */
+let _gizmoGestureSnap = null; // { indices:number[], positions:Float32Array, centroid:THREE.Vector3, startPos, startQuat, startScale }
+
+function _gizmoCollectIndices() {
+  const indices = [];
+  if (!S.alive || !S.positions) return indices;
+  const hasSel = selectedPointCount() > 0;
+  for (let i = 0; i < S.alive.length; i++) {
+    if (!S.alive[i]) continue;
+    if (hasSel && !(S.selected && S.selected[i])) continue;
+    indices.push(i);
+  }
+  return indices;
+}
+
+function beginGizmoGesture() {
+  const indices = _gizmoCollectIndices();
+  if (!indices.length || !S.positions) {
+    _gizmoGestureSnap = null;
+    return;
+  }
+  const positions = new Float32Array(indices.length * 3);
+  let cx = 0, cy = 0, cz = 0;
+  for (let k = 0; k < indices.length; k++) {
+    const i = indices[k];
+    const x = S.positions[i * 3], y = S.positions[i * 3 + 1], z = S.positions[i * 3 + 2];
+    positions[k * 3] = x; positions[k * 3 + 1] = y; positions[k * 3 + 2] = z;
+    cx += x; cy += y; cz += z;
+  }
+  const n = indices.length;
+  _gizmoGestureSnap = {
+    indices,
+    positions,
+    scales: S.scale ? Float32Array.from(indices.map((i) => S.scale[i])) : null,
+    scaleXYZ: S.scaleXYZ ? Float32Array.from(indices.flatMap((i) => [S.scaleXYZ[i*3], S.scaleXYZ[i*3+1], S.scaleXYZ[i*3+2]])) : null,
+    rotations: S.rotation ? Float32Array.from(indices.flatMap((i) => [S.rotation[i*4], S.rotation[i*4+1], S.rotation[i*4+2], S.rotation[i*4+3]])) : null,
+    centroid: new THREE.Vector3(cx / n, cy / n, cz / n),
+    startPos: transformTarget.position.clone(),
+    startQuat: transformTarget.quaternion.clone(),
+    startScale: transformTarget.scale.clone(),
+  };
+  captureGizmoTransform();
+}
+
 function applyGizmoDelta() {
-  if (!_previousGizmoTransform || !S.positions || !S.alive) return;
-  const previous = _previousGizmoTransform;
-  const nextQ = transformTarget.quaternion.clone();
-  const qDelta = nextQ.clone().multiply(previous.quaternion.clone().invert());
-  // Mode-aware deltas: rotate/move must stay RIGID (no scale drift = deformation).
-  // TransformControls can report tiny non-uniform scale changes while rotating; ignore those.
+  const snap = _gizmoGestureSnap;
+  if (!snap || !S.positions || !S.alive) return;
+
   const tool = S.mode;
   const allowScale = tool === 'scale-tool';
   const allowRotate = tool === 'rotate' || tool === 'scale-tool';
   const allowMove = tool === 'move' || tool === 'rotate' || tool === 'scale-tool';
+
+  // Absolute delta from gesture start (not frame-to-frame) — cannot drift or snap back.
+  const startC = snap.centroid;
+  const curPos = transformTarget.position;
+  const curQuat = transformTarget.quaternion;
+  const curScale = transformTarget.scale;
+
+  const qDelta = curQuat.clone().multiply(snap.startQuat.clone().invert());
   let rx = 1, ry = 1, rz = 1;
   if (allowScale) {
-    rx = transformTarget.scale.x / Math.max(1e-6, previous.scale.x);
-    ry = transformTarget.scale.y / Math.max(1e-6, previous.scale.y);
-    rz = transformTarget.scale.z / Math.max(1e-6, previous.scale.z);
-    // Snap near-uniform to exact uniform to avoid ellipsoid stretch from float noise
+    rx = curScale.x / Math.max(1e-6, snap.startScale.x);
+    ry = curScale.y / Math.max(1e-6, snap.startScale.y);
+    rz = curScale.z / Math.max(1e-6, snap.startScale.z);
     if (Math.abs(rx - ry) < 1e-5 && Math.abs(ry - rz) < 1e-5) { ry = rx; rz = rx; }
   }
-  const px = previous.position.x, py = previous.position.y, pz = previous.position.z;
-  const tx = allowMove ? transformTarget.position.x : px;
-  const ty = allowMove ? transformTarget.position.y : py;
-  const tz = allowMove ? transformTarget.position.z : pz;
+  const uniformScale = Math.cbrt(Math.abs(rx * ry * rz));
+
+  const move = allowMove
+    ? new THREE.Vector3(curPos.x - snap.startPos.x, curPos.y - snap.startPos.y, curPos.z - snap.startPos.z)
+    : new THREE.Vector3(0, 0, 0);
+
   const rotate = (x, y, z, q, out) => {
     const ax = 2 * (q.y * z - q.z * y), ay = 2 * (q.z * x - q.x * z), az = 2 * (q.x * y - q.y * x);
     out[0] = x + q.w * ax + (q.y * az - q.z * ay);
@@ -1967,52 +2022,60 @@ function applyGizmoDelta() {
     out[2] = z + q.w * az + (q.x * ay - q.y * ax);
   };
   const v = new Float64Array(3);
-  const uniformScale = Math.cbrt(Math.abs(rx * ry * rz));
-  const selected = selectedPointCount() > 0;
   const posAttr = S.points?.geometry?.getAttribute('position');
-  // When nothing is selected, edit the whole live scene (matches HUD copy).
-  const editAll = !selected;
   const scaleAttr = S.points?.geometry?.getAttribute('aScaleXYZ');
   const rotationAttr = S.points?.geometry?.getAttribute('aRotation');
   const sizeAttr = S.points?.geometry?.getAttribute('size');
-  // Identity-ish delta? skip work
-  const noRot = !allowRotate || (Math.abs(qDelta.x) < 1e-10 && Math.abs(qDelta.y) < 1e-10 && Math.abs(qDelta.z) < 1e-10 && Math.abs(qDelta.w - 1) < 1e-6);
-  const noScale = Math.abs(rx - 1) < 1e-8 && Math.abs(ry - 1) < 1e-8 && Math.abs(rz - 1) < 1e-8;
-  const noMove = Math.abs(tx - px) < 1e-10 && Math.abs(ty - py) < 1e-10 && Math.abs(tz - pz) < 1e-10;
-  if (noRot && noScale && noMove) { captureGizmoTransform(); return; }
 
-  for (let i = 0; i < S.alive.length; i++) if (S.alive[i] && (editAll || S.selected[i])) {
-    // Rigid path: (p - pivot) → optional scale → optional qDelta → + new pivot
-    let x = S.positions[i * 3] - px;
-    let y = S.positions[i * 3 + 1] - py;
-    let z = S.positions[i * 3 + 2] - pz;
-    if (!noScale) { x *= rx; y *= ry; z *= rz; }
-    if (!noRot) { rotate(x, y, z, qDelta, v); x = v[0]; y = v[1]; z = v[2]; }
-    x += tx; y += ty; z += tz;
-    S.positions[i * 3] = x; S.positions[i * 3 + 1] = y; S.positions[i * 3 + 2] = z;
-    if (allowScale && S.scaleXYZ && !noScale) {
-      S.scaleXYZ[i * 3] *= rx; S.scaleXYZ[i * 3 + 1] *= ry; S.scaleXYZ[i * 3 + 2] *= rz;
+  for (let k = 0; k < snap.indices.length; k++) {
+    const i = snap.indices[k];
+    // Start from original snapshot positions (absolute)
+    let x = snap.positions[k * 3] - startC.x;
+    let y = snap.positions[k * 3 + 1] - startC.y;
+    let z = snap.positions[k * 3 + 2] - startC.z;
+    if (allowScale) { x *= rx; y *= ry; z *= rz; }
+    if (allowRotate) { rotate(x, y, z, qDelta, v); x = v[0]; y = v[1]; z = v[2]; }
+    x += startC.x + move.x;
+    y += startC.y + move.y;
+    z += startC.z + move.z;
+    S.positions[i * 3] = x;
+    S.positions[i * 3 + 1] = y;
+    S.positions[i * 3 + 2] = z;
+
+    if (allowScale && S.scaleXYZ && snap.scaleXYZ) {
+      S.scaleXYZ[i * 3] = snap.scaleXYZ[k * 3] * rx;
+      S.scaleXYZ[i * 3 + 1] = snap.scaleXYZ[k * 3 + 1] * ry;
+      S.scaleXYZ[i * 3 + 2] = snap.scaleXYZ[k * 3 + 2] * rz;
     }
-    if (allowScale && S.scale && !noScale) S.scale[i] *= uniformScale;
-    if (allowRotate && S.rotation && !noRot) {
+    if (allowScale && S.scale && snap.scales) S.scale[i] = snap.scales[k] * uniformScale;
+    if (allowRotate && S.rotation && snap.rotations) {
       const aw = qDelta.w, ax = qDelta.x, ay = qDelta.y, az = qDelta.z;
-      const bw = S.rotation[i * 4], bx = S.rotation[i * 4 + 1], by = S.rotation[i * 4 + 2], bz = S.rotation[i * 4 + 3];
+      const bw = snap.rotations[k * 4], bx = snap.rotations[k * 4 + 1], by = snap.rotations[k * 4 + 2], bz = snap.rotations[k * 4 + 3];
       let qw = aw * bw - ax * bx - ay * by - az * bz;
       let qx = aw * bx + ax * bw + ay * bz - az * by;
       let qy = aw * by - ax * bz + ay * bw + az * bx;
       let qz = aw * bz + ax * by - ay * bx + az * bw;
       const ql = Math.hypot(qw, qx, qy, qz) || 1;
-      S.rotation[i * 4] = qw / ql; S.rotation[i * 4 + 1] = qx / ql;
-      S.rotation[i * 4 + 2] = qy / ql; S.rotation[i * 4 + 3] = qz / ql;
+      S.rotation[i * 4] = qw / ql;
+      S.rotation[i * 4 + 1] = qx / ql;
+      S.rotation[i * 4 + 2] = qy / ql;
+      S.rotation[i * 4 + 3] = qz / ql;
     }
+
     const out = _sourceToRender?.[i];
     if (out !== undefined && out >= 0) {
-      if (posAttr) { posAttr.array[out * 3] = x; posAttr.array[out * 3 + 1] = y; posAttr.array[out * 3 + 2] = z; }
-      if (allowScale && scaleAttr && !noScale) {
-        scaleAttr.array[out * 3] *= rx; scaleAttr.array[out * 3 + 1] *= ry; scaleAttr.array[out * 3 + 2] *= rz;
+      if (posAttr) {
+        posAttr.array[out * 3] = x;
+        posAttr.array[out * 3 + 1] = y;
+        posAttr.array[out * 3 + 2] = z;
       }
-      if (allowScale && sizeAttr && !noScale) sizeAttr.array[out] *= uniformScale;
-      if (allowRotate && rotationAttr && S.rotation && !noRot) {
+      if (allowScale && scaleAttr && snap.scaleXYZ) {
+        scaleAttr.array[out * 3] = S.scaleXYZ[i * 3];
+        scaleAttr.array[out * 3 + 1] = S.scaleXYZ[i * 3 + 1];
+        scaleAttr.array[out * 3 + 2] = S.scaleXYZ[i * 3 + 2];
+      }
+      if (allowScale && sizeAttr && snap.scales) sizeAttr.array[out] = S.scale[i];
+      if (allowRotate && rotationAttr && S.rotation) {
         for (let a = 0; a < 4; a++) rotationAttr.array[out * 4 + a] = S.rotation[i * 4 + a];
       }
     }
@@ -2022,26 +2085,33 @@ function applyGizmoDelta() {
   if (sizeAttr) sizeAttr.needsUpdate = true;
   if (rotationAttr) rotationAttr.needsUpdate = true;
   if (S.points?.geometry) S.points.geometry.boundingSphere = null;
-  captureGizmoTransform();
 }
-transformControls.addEventListener('mouseDown',()=>{_gizmoGesture=true;pushHistory('transform gizmo');captureGizmoTransform();});
-transformControls.addEventListener('objectChange',applyGizmoDelta);
-transformControls.addEventListener('mouseUp',()=>{
-  window.FumocaGaussianRenderer?.invalidateSort();
+
+function endGizmoGesture() {
+  // Final absolute apply then bake into renderer buffers
+  applyGizmoDelta();
+  window.FumocaGaussianRenderer?.invalidateSort?.();
   const allLiveSelected = S.selected?.every((value, i) => !S.alive[i] || value);
-  // Bake: rebuild from S.positions so Gaussian/point buffers match the moved data.
   rebuildGeometry();
   _refreshSceneReference(allLiveSelected);
   refreshTransformSourceMap();
-  // Re-place gizmo at the NEW centroid so it does not snap back to the old pivot.
   syncTransformGizmo();
   captureGizmoTransform();
   renderMeasurementList();
   renderMeasurementOverlay();
   _gizmoGesture = false;
-  // Keep _previousGizmoTransform in sync with the re-centered gizmo (do not null it
-  // before the next gesture — captureGizmoTransform already refreshed it).
+  _gizmoGestureSnap = null;
+  _xformIndices = null;
+  _xformPivot = null;
+}
+
+transformControls.addEventListener('mouseDown', () => {
+  _gizmoGesture = true;
+  pushHistory('transform gizmo');
+  beginGizmoGesture();
 });
+transformControls.addEventListener('objectChange', applyGizmoDelta);
+transformControls.addEventListener('mouseUp', endGizmoGesture);
 transformControls.addEventListener('dragging-changed',event=>{controls.enabled=!event.value && S.mode==='orbit';});
 
 let _lidarPreviewObject = null;
@@ -3316,7 +3386,7 @@ function applyBrush(cx, cy) {
 
 function transformSelection(mode, dx, dy, redraw = true) {
   if (!S.positions || !S.alive) return;
-  // Fixed pivot for the whole gesture (recomputing centroid every move causes non-rigid drift)
+  // Fixed pivot + start positions for the whole gesture (absolute apply — no snap-back)
   if (!_xformPivot || !_xformIndices?.length) {
     const indices = [];
     let cx = 0, cy = 0, cz = 0;
@@ -3330,6 +3400,14 @@ function transformSelection(mode, dx, dy, redraw = true) {
     if (!indices.length) return;
     _xformIndices = indices;
     _xformPivot = new THREE.Vector3(cx / indices.length, cy / indices.length, cz / indices.length);
+    _xformStartPos = new Float32Array(indices.length * 3);
+    for (let k = 0; k < indices.length; k++) {
+      const i = indices[k];
+      _xformStartPos[k * 3] = S.positions[i * 3];
+      _xformStartPos[k * 3 + 1] = S.positions[i * 3 + 1];
+      _xformStartPos[k * 3 + 2] = S.positions[i * 3 + 2];
+    }
+    _xformAccum = { x: 0, y: 0, z: 0, angle: 0, factor: 1 };
   }
   const indices = _xformIndices;
   const pivot = _xformPivot;
@@ -3339,12 +3417,25 @@ function transformSelection(mode, dx, dy, redraw = true) {
     const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
     const up = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
     const delta = right.multiplyScalar(dx * unitsPerPixel).addScaledVector(up, -dy * unitsPerPixel);
-    for (const i of indices) {
-      S.positions[i * 3] += delta.x;
-      S.positions[i * 3 + 1] += delta.y;
-      S.positions[i * 3 + 2] += delta.z;
+    _xformAccum.x += delta.x; _xformAccum.y += delta.y; _xformAccum.z += delta.z;
+    for (let k = 0; k < indices.length; k++) {
+      const i = indices[k];
+      S.positions[i * 3] = _xformStartPos[k * 3] + _xformAccum.x;
+      S.positions[i * 3 + 1] = _xformStartPos[k * 3 + 1] + _xformAccum.y;
+      S.positions[i * 3 + 2] = _xformStartPos[k * 3 + 2] + _xformAccum.z;
     }
-    pivot.add(delta);
+    pivot.set(
+      _xformStartPos[0] + _xformAccum.x, // will fix centroid below
+      0, 0
+    );
+    // recompute pivot display from accum
+    let sx=0,sy=0,sz=0;
+    for (let k = 0; k < indices.length; k++) {
+      sx += _xformStartPos[k*3] + _xformAccum.x;
+      sy += _xformStartPos[k*3+1] + _xformAccum.y;
+      sz += _xformStartPos[k*3+2] + _xformAccum.z;
+    }
+    pivot.set(sx/indices.length, sy/indices.length, sz/indices.length);
   } else if (mode === 'scale-tool') {
     const factor = Math.exp(-dy * 0.01);
     for (const i of indices) {
@@ -3389,6 +3480,8 @@ function transformSelection(mode, dx, dy, redraw = true) {
   if (redraw) { window.FumocaGaussianRenderer?.invalidateSort(); rebuildGeometry(); }
 }
 let _xformPivot = null;
+let _xformStartPos = null;
+let _xformAccum = null;
 let _xformIndices = null;
 
 
@@ -4134,7 +4227,7 @@ window.addEventListener('pointerup', e => {
   }
   if (S.mode === 'lasso' && S.lassoPoints.length >= 3) selectByLasso(S.lassoPoints);
   if (['box','sphere','lasso'].includes(S.mode)) syncTransformGizmo();
-  if (['move','scale-tool','rotate'].includes(S.mode)) { window.FumocaGaussianRenderer?.invalidateSort(); rebuildGeometry(); syncTransformGizmo(); captureGizmoTransform(); _xformIndices = null; _xformPivot = null; }
+  if (['move','scale-tool','rotate'].includes(S.mode)) { window.FumocaGaussianRenderer?.invalidateSort(); rebuildGeometry(); syncTransformGizmo(); captureGizmoTransform(); _xformIndices = null; _xformPivot = null; _xformStartPos = null; _xformAccum = null; }
   _xformPivot = null; _xformIndices = null;
   S.dragging = false; S.dragStart = null; S.dragCurrent = null; S.lassoPoints = [];
   renderLasso();
