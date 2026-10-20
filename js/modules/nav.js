@@ -18,7 +18,9 @@
 (function () {
   'use strict';
 
-  const CURRENT = (location.pathname.split('/').pop() || 'index.html').toLowerCase();
+  const _pathTail = (location.pathname.split('/').filter(Boolean).pop() || 'index.html').toLowerCase();
+  const CURRENT = _pathTail.endsWith('.html') ? _pathTail : (_pathTail + '.html');
+  const CURRENT_BARE = _pathTail.replace(/\.html$/, '');
 
   // Single source of truth for the whole app's navigation.
   const MAIN_ITEMS = [
@@ -31,7 +33,8 @@
 
   const STUDIO_ITEMS = [
     { href: 'upload.html', icon: '🧊', label: 'New Capture', match: [] },
-    { href: 'image-to-splat.html', icon: '🧭', label: 'Image → Splat', match: ['image-to-splat.html'] },
+    { href: 'image-to-splat.html', icon: '🧭', label: 'Image → Splat', match: ['image-to-splat.html', 'image-to-splat'] },
+    { href: 'alignment.html', icon: '📐', label: 'Alignment', match: ['alignment.html', 'alignment'] },
     { href: 'media-edit.html', icon: '🎬', label: 'Video / Photo', match: ['media-edit.html'] },
     { href: 'edit.html', icon: '✏️', label: 'Editor', match: ['edit.html'] }
   ];
@@ -46,7 +49,11 @@
   ];
 
   function isActive(item) {
-    return item.match.includes(CURRENT);
+    if (!item.match || !item.match.length) return false;
+    return item.match.some((m) => {
+      const key = String(m).toLowerCase();
+      return key === CURRENT || key === CURRENT_BARE || key + '.html' === CURRENT;
+    });
   }
 
   /*function linkHTML(item, extraClass) {

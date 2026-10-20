@@ -58,3 +58,11 @@
 .align-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .align-video-panel { margin-top: 10px; padding: 10px; border-radius: 12px; border: 1px solid rgba(255,255,255,.08); }
 .align-video-panel video { width: 100%; max-height: 160px; border-radius: 8px; background: #000; }
+
+/* Visibility / layout safety */
+.align-body.fnav-has-nav .align-page,
+body.fnav-has-nav .align-page { position: relative; z-index: 1; }
+.align-page { min-height: 70vh; }
+.align-drop { min-height: 140px !important; }
+.align-card { display: block !important; }
+.align-layout { display: grid !important; }
