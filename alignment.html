@@ -18,17 +18,17 @@
   <main class="align-page">
     <header class="align-hero">
       <div>
-        <p class="align-eyebrow">Alignment · frames · poses · path — no splats here</p>
-        <h1>Align frames. Build the flight path. Then splat.</h1>
+        <p class="align-eyebrow">Alignment · frames · path · export — no splats here</p>
+        <h1>Align frames. Walk the path. Export for any splat app.</h1>
         <p class="align-lede">
-          Import a photo set or turntable extract. Order and enable frames, place control points,
-          generate a camera path. Export an aligned package for the splat worker — reconstruction stays offline until you send it.
+          Import orbit or turntable frames, scrub the flight path, place control points,
+          then export packages other tools understand (COLMAP-style, Nerfstudio transforms, plain sequence).
         </p>
         <div class="align-pills">
-          <span>Frame manager</span>
+          <span>Frame scrubber</span>
+          <span>Path walk</span>
           <span>Control points</span>
-          <span>Flight path</span>
-          <span>Pose export</span>
+          <span>Multi-format export</span>
           <span>Splat later</span>
         </div>
       </div>
@@ -37,17 +37,46 @@
 
     <div class="align-banner">
       <strong>Alignment only</strong>
-      <span>No Gaussian training on this page. Output is frames + cameras + path for a worker.</span>
+      <span>Preview the path and frames here. Train / splat in FUMOCA worker or external apps after export.</span>
     </div>
 
+    <!-- ALIGNED VIEWER -->
+    <section class="align-card align-viewer-card">
+      <div class="align-card-head">
+        <span class="align-step">00</span>
+        <div>
+          <h2>Aligned view — walk the path</h2>
+          <p>Step through enabled frames in path order. Active camera is highlighted on the orbit.</p>
+        </div>
+      </div>
+      <div class="align-viewer-grid">
+        <div class="align-viewer-main">
+          <canvas id="alignViewCanvas" width="960" height="540"></canvas>
+          <div class="align-viewer-overlay" id="alignViewMeta">No frames — drop images below</div>
+        </div>
+        <div class="align-viewer-side">
+          <canvas id="alignPathCanvas" width="320" height="320"></canvas>
+          <div class="align-transport">
+            <button type="button" class="align-secondary" id="alignPrev" title="Previous (←)">◀</button>
+            <button type="button" class="align-primary" id="alignPlay" title="Play path">Play</button>
+            <button type="button" class="align-secondary" id="alignNext" title="Next (→)">▶</button>
+          </div>
+          <label class="align-scrub-label">Frame <output id="alignScrubOut">0 / 0</output>
+            <input type="range" id="alignScrub" min="0" max="0" value="0">
+          </label>
+          <p class="align-note" id="alignPathNote">Enable frames to build a path.</p>
+        </div>
+      </div>
+      <div class="align-filmstrip" id="alignFilmstrip"></div>
+    </section>
+
     <div class="align-layout">
-      <!-- Inputs -->
       <section class="align-card align-inputs">
         <div class="align-card-head">
           <span class="align-step">01</span>
           <div>
             <h2>Frames</h2>
-            <p>Images or video → frames. Enable only what should align.</p>
+            <p>Images or video → frames. Thin dense captures with keep 1/N.</p>
           </div>
         </div>
         <div class="align-drop" id="alignDrop" tabindex="0">
@@ -71,23 +100,23 @@
         </div>
         <div class="align-frame-toolbar">
           <button type="button" class="align-secondary" id="alignEnableAll">Enable all</button>
-          <button type="button" class="align-secondary" id="alignDisableWeak">Disable every Nth</button>
+          <button type="button" class="align-secondary" id="alignDisableWeak">Keep every Nth</button>
           <select id="alignNth">
             <option value="2">keep 1/2</option>
             <option value="3" selected>keep 1/3</option>
             <option value="4">keep 1/4</option>
+            <option value="5">keep 1/5</option>
           </select>
         </div>
         <ul id="alignFrameList" class="align-frame-list"></ul>
       </section>
 
-      <!-- 2D + control points -->
       <section class="align-card align-preview">
         <div class="align-card-head">
           <span class="align-step">02</span>
           <div>
-            <h2>2D frame + control points</h2>
-            <p>Click to place alignment points on the active frame. Same id links across frames later.</p>
+            <h2>Control points</h2>
+            <p>Click the image to place points. Reuse the same id on other frames to link them.</p>
           </div>
         </div>
         <div class="align-canvas-wrap">
@@ -95,64 +124,65 @@
         </div>
         <div class="align-cp-bar">
           <label>Point id
-            <input type="text" id="alignCpId" placeholder="e.g. cp_nose or cp_1" value="cp_1">
+            <input type="text" id="alignCpId" placeholder="cp_1" value="cp_1">
           </label>
           <button type="button" class="align-secondary" id="alignCpClear">Clear points on frame</button>
           <button type="button" class="align-secondary" id="alignCpNextId">Next id</button>
         </div>
         <ul id="alignCpList" class="align-cp-list"></ul>
       </section>
-
-      <!-- Path 3D -->
-      <section class="align-card align-path">
-        <div class="align-card-head">
-          <span class="align-step">03</span>
-          <div>
-            <h2>Flight path</h2>
-            <p>Cameras on an orbit/trajectory from enabled frames. Refine after real SfM later.</p>
-          </div>
-        </div>
-        <canvas id="alignPathCanvas" width="640" height="360"></canvas>
-        <div class="align-path-controls">
-          <label>Path type
-            <select id="alignPathType">
-              <option value="orbit">Orbit (yaw from order)</option>
-              <option value="arc">Front arc (−90°…+90°)</option>
-              <option value="line">Line sweep</option>
-            </select>
-          </label>
-          <label>Radius <output id="alignRadiusOut">2.5</output>
-            <input type="range" id="alignRadius" min="0.5" max="12" step="0.1" value="2.5">
-          </label>
-          <label>Elevation ° <output id="alignElevOut">10</output>
-            <input type="range" id="alignElev" min="-20" max="45" value="10">
-          </label>
-          <button type="button" class="align-primary" id="alignRebuildPath">Rebuild path</button>
-        </div>
-        <p class="align-note" id="alignPathNote">Enable frames and rebuild path. Poses are provisional until feature alignment runs on a worker.</p>
-      </section>
     </div>
+
+    <section class="align-card">
+      <div class="align-card-head">
+        <span class="align-step">03</span>
+        <div>
+          <h2>Path settings</h2>
+          <p>Orbit / arc / line priors — structured poses for export and worker refine.</p>
+        </div>
+      </div>
+      <div class="align-path-controls">
+        <label>Path type
+          <select id="alignPathType">
+            <option value="orbit">Orbit (full 360°)</option>
+            <option value="arc">Front arc (−90°…+90°)</option>
+            <option value="line">Line sweep</option>
+          </select>
+        </label>
+        <label>Radius <output id="alignRadiusOut">2.5</output>
+          <input type="range" id="alignRadius" min="0.5" max="12" step="0.1" value="2.5">
+        </label>
+        <label>Elevation ° <output id="alignElevOut">10</output>
+          <input type="range" id="alignElev" min="-20" max="45" value="10">
+        </label>
+        <button type="button" class="align-primary" id="alignRebuildPath">Rebuild path</button>
+      </div>
+    </section>
 
     <section class="align-card">
       <div class="align-card-head">
         <span class="align-step">04</span>
         <div>
-          <h2>Export aligned package</h2>
-          <p>Frames + cameras.json + path — ready for splat training after true align on worker.</p>
+          <h2>Export for splat apps</h2>
+          <p>Pick a format other tools can ingest. No Gaussian file is produced here.</p>
         </div>
       </div>
       <div class="align-meta">
-        <label>Project name <input type="text" id="alignProjectName" placeholder="e.g. cream-jar-orbit"></label>
+        <label>Project name <input type="text" id="alignProjectName" placeholder="e.g. shoe-orbit"></label>
         <label>Notes <input type="text" id="alignNotes" placeholder="capture notes"></label>
         <label>Scale (cm, optional) <input type="number" id="alignScale" min="0" step="0.1" placeholder="known length"></label>
       </div>
-      <div class="align-actions">
-        <button type="button" class="align-primary" id="alignExportZip" disabled>Export package (.zip)</button>
-        <button type="button" class="align-secondary" id="alignExportJson" disabled>Export cameras.json</button>
+      <div class="align-export-grid">
+        <button type="button" class="align-primary" id="alignExportZip" disabled>FUMOCA package (.zip)</button>
+        <button type="button" class="align-secondary" id="alignExportNerf" disabled>Nerfstudio transforms.json + images</button>
+        <button type="button" class="align-secondary" id="alignExportColmap" disabled>COLMAP-style cameras + images</button>
+        <button type="button" class="align-secondary" id="alignExportSeq" disabled>Image sequence only</button>
+        <button type="button" class="align-secondary" id="alignExportJson" disabled>cameras.json only</button>
         <button type="button" class="align-secondary" id="alignSaveLocal" disabled>Save draft</button>
       </div>
       <p class="align-disclaimer">
-        Poses from path type are a structured prior for the worker. Full photogrammetric alignment (feature match / bundle adjust) can refine this package server-side without changing the export schema.
+        Path poses are priors (ordered orbit/arc). RealityScan-class bundle adjust can refine externally;
+        the same frame set + transforms feed Gaussian / NeRF trainers.
       </p>
     </section>
   </main>

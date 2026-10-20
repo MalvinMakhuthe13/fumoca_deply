@@ -66,3 +66,24 @@ body.fnav-has-nav .align-page { position: relative; z-index: 1; }
 .align-drop { min-height: 140px !important; }
 .align-card { display: block !important; }
 .align-layout { display: grid !important; }
+
+.align-viewer-card { margin-bottom: 18px; }
+.align-viewer-grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(220px, 0.7fr); gap: 14px; }
+@media (max-width: 900px) { .align-viewer-grid { grid-template-columns: 1fr; } }
+.align-viewer-main { position: relative; border-radius: 14px; overflow: hidden; border: 1px solid rgba(255,255,255,.1); background: #05080f; }
+#alignViewCanvas { width: 100%; height: auto; display: block; background: #05080f; }
+.align-viewer-overlay { position: absolute; left: 12px; bottom: 12px; right: 12px; font-size: 12px; color: #e8f0fa; background: rgba(0,0,0,.55); padding: 8px 10px; border-radius: 8px; pointer-events: none; }
+.align-viewer-side { display: flex; flex-direction: column; gap: 10px; }
+#alignPathCanvas { width: 100%; height: auto; border-radius: 12px; border: 1px solid rgba(255,255,255,.1); background: #0a0e16; }
+.align-transport { display: flex; gap: 8px; justify-content: center; }
+.align-transport .align-primary { min-width: 88px; }
+.align-scrub-label { font-size: 12px; color: #9ab; display: grid; gap: 4px; }
+.align-scrub-label input[type=range] { width: 100%; }
+.align-filmstrip { display: flex; gap: 6px; overflow-x: auto; padding: 12px 2px 4px; scroll-snap-type: x mandatory; }
+.align-filmstrip button { flex: 0 0 auto; width: 72px; padding: 0; border: 2px solid transparent; border-radius: 8px; background: #0a0e16; cursor: pointer; scroll-snap-align: start; overflow: hidden; }
+.align-filmstrip button.is-active { border-color: #c8ff00; }
+.align-filmstrip button.is-off { opacity: .35; }
+.align-filmstrip img { width: 72px; height: 48px; object-fit: cover; display: block; }
+.align-filmstrip span { display: block; font-size: 9px; color: #8fa6be; text-align: center; padding: 2px; }
+.align-export-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; }
+.align-export-grid .align-primary, .align-export-grid .align-secondary { width: 100%; text-align: center; }
