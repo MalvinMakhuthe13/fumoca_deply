@@ -1923,7 +1923,9 @@ function syncTransformGizmo() {
   transformControls.attach(transformTarget);
   const mode = S.mode === 'move' ? 'translate' : S.mode === 'rotate' ? 'rotate' : 'scale';
   transformControls.setMode(mode);
-  transformControls.enabled = true;
+  // Move uses screen-space free-drag (reliable bake). Gizmo is a pivot marker only.
+  // Rotate/scale still use TransformControls handles.
+  transformControls.enabled = (S.mode === 'rotate' || S.mode === 'scale-tool');
   transformGizmo.visible = true;
   _syncViewportHud();
 }
@@ -2085,6 +2087,44 @@ function applyGizmoDelta() {
   if (sizeAttr) sizeAttr.needsUpdate = true;
   if (rotationAttr) rotationAttr.needsUpdate = true;
   if (S.points?.geometry) S.points.geometry.boundingSphere = null;
+}
+
+
+function _pokePositionAttribute() {
+  // Push S.positions into the live GPU buffer without full rebuild (smooth drag).
+  if (!S.positions || !S.alive) return;
+  const posAttr = S.points?.geometry?.getAttribute('position');
+  const srcIdx = S.points?.geometry?.getAttribute('sourceIndex');
+  if (!posAttr) return;
+  const arr = posAttr.array;
+  const n = posAttr.count;
+  if (srcIdx) {
+    for (let o = 0; o < n; o++) {
+      const i = srcIdx.array[o];
+      arr[o * 3] = S.positions[i * 3];
+      arr[o * 3 + 1] = S.positions[i * 3 + 1];
+      arr[o * 3 + 2] = S.positions[i * 3 + 2];
+    }
+  } else if (_sourceToRender) {
+    for (let i = 0; i < S.alive.length; i++) {
+      const o = _sourceToRender[i];
+      if (o === undefined || o < 0) continue;
+      arr[o * 3] = S.positions[i * 3];
+      arr[o * 3 + 1] = S.positions[i * 3 + 1];
+      arr[o * 3 + 2] = S.positions[i * 3 + 2];
+    }
+  } else {
+    // 1:1 layout fallback
+    const m = Math.min(n, S.alive.length);
+    for (let i = 0; i < m; i++) {
+      arr[i * 3] = S.positions[i * 3];
+      arr[i * 3 + 1] = S.positions[i * 3 + 1];
+      arr[i * 3 + 2] = S.positions[i * 3 + 2];
+    }
+  }
+  posAttr.needsUpdate = true;
+  if (S.points?.geometry) S.points.geometry.boundingSphere = null;
+  window.FumocaGaussianRenderer?.invalidateSort?.();
 }
 
 function endGizmoGesture() {
@@ -3436,6 +3476,7 @@ function transformSelection(mode, dx, dy, redraw = true) {
       sz += _xformStartPos[k*3+2] + _xformAccum.z;
     }
     pivot.set(sx/indices.length, sy/indices.length, sz/indices.length);
+    _pokePositionAttribute();
   } else if (mode === 'scale-tool') {
     const factor = Math.exp(-dy * 0.01);
     for (const i of indices) {
@@ -4124,7 +4165,10 @@ renderer.domElement.addEventListener('pointerdown', e => {
     else {const start=S.measurementStart;S.measurements.push({a:start,b:endpoint});S.measurementStart=null;renderMeasurementList();setStatus(`Measured ${_measureLabel(_measurementPosition(start).distanceTo(_measurementPosition(endpoint)))}`,'ok');}
     renderMeasurementOverlay();return;
   }
-  if (_gizmoGesture || transformControls.enabled && ['move','scale-tool','rotate'].includes(S.mode)) return;
+  // Let TransformControls handle the event when the pointer is on the gizmo.
+  // Do NOT block free-drag move on the cloud — that was leaving the model "stuck"
+  // when objectChange did not fire. Only skip if a gizmo drag already started.
+  if (_gizmoGesture) return;
   e.stopPropagation();
   _brushActive = true;
   const {x, y} = _vpCoords(e);
@@ -4132,7 +4176,17 @@ renderer.domElement.addEventListener('pointerdown', e => {
   if (S.mode === 'lasso') S.lassoPoints = [{ x, y }];
   if (S.mode === 'magic') { window._smartSelectPending = true; _brushActive = false; S.dragging = false; return; }
   if (['move','scale-tool','rotate'].includes(S.mode)) {
-    if (!S.selected?.some(Boolean)) { showToast('Select points first', 'Use box, sphere, or lasso select before transforming.', 'warn'); S.dragging = false; return; }
+    if (!selectedPointCount()) {
+      // Auto-select whole live cloud so Move is never a no-op
+      for (let i = 0; i < (S.alive?.length || 0); i++) {
+        if (S.alive[i] && !S.layerHidden?.[i]) S.selected[i] = 1;
+      }
+      if (!selectedPointCount()) {
+        showToast('Nothing to move', 'Load a splat first.', 'warn');
+        S.dragging = false; return;
+      }
+      setStatus(`Auto-selected ${selectedPointCount()} points for ${S.mode}`, 'ok');
+    }
     pushHistory(`${S.mode} selection`);
   }
   if (S.mode === 'brush-erase' || S.mode === 'brush-select' || S.mode === 'paint' || S.mode === 'smear' || S.mode === 'sphere') {
@@ -4157,7 +4211,11 @@ window.addEventListener('pointermove', e => {
     ring.style.width = d + 'px'; ring.style.height = d + 'px';
     ring.style.display = 'block';
   } else { ring.style.display = 'none'; }
-  if (_gizmoGesture) return;
+  if (_gizmoGesture) {
+    // Poll gizmo target every move so we are not solely dependent on objectChange events.
+    applyGizmoDelta();
+    return;
+  }
   if (!S.dragging) return;
   const {x, y} = _vpCoords(e);
   S.dragCurrent = { x, y };
@@ -4167,7 +4225,11 @@ window.addEventListener('pointermove', e => {
   }
   if (['move','scale-tool','rotate'].includes(S.mode) && S.dragStart) {
     const dx=x-S.dragStart.x, dy=y-S.dragStart.y;
-    if (dx || dy) { transformSelection(S.mode,dx,dy,false); S.dragStart={x,y}; }
+    if (dx || dy) {
+      transformSelection(S.mode, dx, dy, false);
+      S.dragStart = { x, y };
+      _pokePositionAttribute();
+    }
   }
   if ((S.mode === 'pan' || S.mode === 'zoom-tool') && S.dragStart) {
     const dx=x-S.dragStart.x,dy=y-S.dragStart.y;
