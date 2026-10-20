@@ -11,180 +11,153 @@
   <link rel="stylesheet" href="css/alignment.css">
   <script src="config.js"></script>
   <script src="js/modules/nav.js" defer></script>
-  <script src="js/modules/alignment-studio.js" defer></script>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+    }
+  }
+  </script>
+  <script type="module" src="js/modules/alignment-studio.js"></script>
 </head>
 <body class="dash-body align-body">
   <div id="nav-mount"></div>
   <main class="align-page">
-    <header class="align-hero">
-      <div>
-        <p class="align-eyebrow">Alignment · frames · path · export — no splats here</p>
-        <h1>Align frames. Walk the path. Export for any splat app.</h1>
-        <p class="align-lede">
-          Import orbit or turntable frames, scrub the flight path, place control points,
-          then export packages other tools understand (COLMAP-style, Nerfstudio transforms, plain sequence).
-        </p>
-        <div class="align-pills">
-          <span>Frame scrubber</span>
-          <span>Path walk</span>
-          <span>Control points</span>
-          <span>Multi-format export</span>
-          <span>Splat later</span>
+    <header class="align-topbar">
+      <div class="align-topbar-left">
+        <span class="align-logo">ALIGN</span>
+        <div>
+          <h1>Alignment Studio</h1>
+          <p>3D path · frames · control points · export — no splat training here</p>
         </div>
       </div>
-      <div class="align-hero-badge" aria-hidden="true">ALIGN</div>
+      <div class="align-topbar-actions">
+        <button type="button" class="align-secondary" id="alignAddMore">+ Add frames</button>
+        <button type="button" class="align-secondary" id="alignRebuildPath">Rebuild path</button>
+        <button type="button" class="align-primary" id="alignExportZip" disabled>Export package</button>
+      </div>
     </header>
 
-    <div class="align-banner">
-      <strong>Alignment only</strong>
-      <span>Preview the path and frames here. Train / splat in FUMOCA worker or external apps after export.</span>
-    </div>
-
-    <!-- ALIGNED VIEWER -->
-    <section class="align-card align-viewer-card">
-      <div class="align-card-head">
-        <span class="align-step">00</span>
-        <div>
-          <h2>Aligned view — walk the path</h2>
-          <p>Step through enabled frames in path order. Active camera is highlighted on the orbit.</p>
-        </div>
-      </div>
-      <div class="align-viewer-grid">
-        <div class="align-viewer-main">
-          <canvas id="alignViewCanvas" width="960" height="540"></canvas>
-          <div class="align-viewer-overlay" id="alignViewMeta">No frames — drop images below</div>
-        </div>
-        <div class="align-viewer-side">
-          <canvas id="alignPathCanvas" width="320" height="320"></canvas>
-          <div class="align-transport">
-            <button type="button" class="align-secondary" id="alignPrev" title="Previous (←)">◀</button>
-            <button type="button" class="align-primary" id="alignPlay" title="Play path">Play</button>
-            <button type="button" class="align-secondary" id="alignNext" title="Next (→)">▶</button>
+    <div class="align-workspace">
+      <!-- LEFT: inputs -->
+      <aside class="align-sidebar">
+        <div class="align-side-block">
+          <div class="align-side-title">Inputs <span id="alignFileCount">0</span></div>
+          <div class="align-drop" id="alignDrop" tabindex="0">
+            <input type="file" id="alignFiles" accept="image/*,video/*" multiple hidden>
+            <label for="alignFiles" class="align-drop-label">
+              <strong>Drop images / video</strong>
+              <small>or click to browse</small>
+            </label>
           </div>
+          <div class="align-side-row">
+            <button type="button" class="align-secondary compact" id="alignEnableAll">All on</button>
+            <button type="button" class="align-secondary compact" id="alignDisableWeak">Keep 1/N</button>
+            <select id="alignNth" class="align-select compact">
+              <option value="2">1/2</option>
+              <option value="3" selected>1/3</option>
+              <option value="4">1/4</option>
+              <option value="5">1/5</option>
+            </select>
+            <button type="button" class="align-secondary compact" id="alignClear" disabled>Clear</button>
+          </div>
+          <div class="align-video-panel" id="alignVideoPanel" hidden>
+            <video id="alignVideo" playsinline muted controls></video>
+            <label class="align-range-label">Frames <output id="alignFrameOut">48</output>
+              <input type="range" id="alignFrameCount" min="12" max="180" value="48">
+            </label>
+            <button type="button" class="align-primary compact" id="alignExtract">Extract</button>
+          </div>
+          <ul id="alignFrameList" class="align-frame-list"></ul>
+        </div>
+      </aside>
+
+      <!-- CENTER: 3D + 2D -->
+      <section class="align-stage">
+        <div class="align-pane-tabs">
+          <button type="button" class="align-tab is-active" data-pane="3d">Scene 3D</button>
+          <button type="button" class="align-tab" data-pane="split">Split</button>
+          <button type="button" class="align-tab" data-pane="2d">Image 2D</button>
+        </div>
+        <div class="align-stage-body" data-layout="3d" id="alignStageBody">
+          <div class="align-viewport3d" id="alignViewport3d">
+            <div id="alignThreeHost" class="align-three-host"></div>
+            <div class="align-viewport-hud">
+              <span id="alignHudCameras">0 cameras</span>
+              <span id="alignHudMode">Orbit view · drag to look · scroll zoom</span>
+            </div>
+            <div class="align-viewport-tools">
+              <button type="button" class="align-tool" id="alignViewReset" title="Frame all">⌂</button>
+              <button type="button" class="align-tool" id="alignViewTop" title="Top">T</button>
+              <button type="button" class="align-tool" id="alignToggleFrustums" title="Frustums">▣</button>
+              <button type="button" class="align-tool" id="alignToggleCloud" title="Proxy cloud">散</button>
+            </div>
+          </div>
+          <div class="align-viewport2d">
+            <canvas id="alignViewCanvas" width="960" height="540"></canvas>
+            <div class="align-2d-meta" id="alignViewMeta">No frame selected</div>
+          </div>
+        </div>
+        <div class="align-transport-bar">
+          <button type="button" class="align-secondary" id="alignPrev">◀</button>
+          <button type="button" class="align-primary" id="alignPlay">Play path</button>
+          <button type="button" class="align-secondary" id="alignNext">▶</button>
           <label class="align-scrub-label">Frame <output id="alignScrubOut">0 / 0</output>
             <input type="range" id="alignScrub" min="0" max="0" value="0">
           </label>
-          <p class="align-note" id="alignPathNote">Enable frames to build a path.</p>
         </div>
-      </div>
-      <div class="align-filmstrip" id="alignFilmstrip"></div>
-    </section>
-
-    <div class="align-layout">
-      <section class="align-card align-inputs">
-        <div class="align-card-head">
-          <span class="align-step">01</span>
-          <div>
-            <h2>Frames</h2>
-            <p>Images or video → frames. Thin dense captures with keep 1/N.</p>
-          </div>
-        </div>
-        <div class="align-drop" id="alignDrop" tabindex="0">
-          <input type="file" id="alignFiles" accept="image/*,video/*" multiple hidden>
-          <label for="alignFiles" class="align-drop-label">
-            <span class="align-drop-icon">+</span>
-            <strong>DROP IMAGES OR VIDEO</strong>
-            <small>JPG PNG WEBP · MP4 WEBM · multi-select</small>
-          </label>
-        </div>
-        <div class="align-file-bar">
-          <span id="alignFileCount">0 frames</span>
-          <button type="button" class="align-secondary" id="alignClear" disabled>Clear</button>
-        </div>
-        <div class="align-video-panel" id="alignVideoPanel" hidden>
-          <video id="alignVideo" playsinline muted controls></video>
-          <label>Extract frames <output id="alignFrameOut">36</output>
-            <input type="range" id="alignFrameCount" min="12" max="120" value="36">
-          </label>
-          <button type="button" class="align-primary" id="alignExtract">Extract frames</button>
-        </div>
-        <div class="align-frame-toolbar">
-          <button type="button" class="align-secondary" id="alignEnableAll">Enable all</button>
-          <button type="button" class="align-secondary" id="alignDisableWeak">Keep every Nth</button>
-          <select id="alignNth">
-            <option value="2">keep 1/2</option>
-            <option value="3" selected>keep 1/3</option>
-            <option value="4">keep 1/4</option>
-            <option value="5">keep 1/5</option>
-          </select>
-        </div>
-        <ul id="alignFrameList" class="align-frame-list"></ul>
+        <div class="align-filmstrip" id="alignFilmstrip"></div>
       </section>
 
-      <section class="align-card align-preview">
-        <div class="align-card-head">
-          <span class="align-step">02</span>
-          <div>
-            <h2>Control points</h2>
-            <p>Click the image to place points. Reuse the same id on other frames to link them.</p>
+      <!-- RIGHT: path + CP + export -->
+      <aside class="align-inspector">
+        <div class="align-side-block">
+          <div class="align-side-title">Path</div>
+          <label class="align-field">Type
+            <select id="alignPathType" class="align-select">
+              <option value="orbit">Orbit 360°</option>
+              <option value="arc">Front arc</option>
+              <option value="line">Line sweep</option>
+            </select>
+          </label>
+          <label class="align-field">Radius <output id="alignRadiusOut">2.5</output>
+            <input type="range" id="alignRadius" min="0.5" max="12" step="0.1" value="2.5">
+          </label>
+          <label class="align-field">Elevation ° <output id="alignElevOut">12</output>
+            <input type="range" id="alignElev" min="-25" max="50" value="12">
+          </label>
+          <label class="align-field">FOV prior ° <output id="alignFovOut">50</output>
+            <input type="range" id="alignFov" min="30" max="90" value="50">
+          </label>
+          <p class="align-note" id="alignPathNote">Drop frames to generate cameras on a path.</p>
+        </div>
+        <div class="align-side-block">
+          <div class="align-side-title">Control points</div>
+          <canvas id="alignFrameCanvas" width="400" height="260"></canvas>
+          <div class="align-cp-bar">
+            <input type="text" id="alignCpId" value="cp_1" placeholder="point id">
+            <button type="button" class="align-secondary compact" id="alignCpNextId">Next</button>
+            <button type="button" class="align-secondary compact" id="alignCpClear">Clear</button>
+          </div>
+          <ul id="alignCpList" class="align-cp-list"></ul>
+        </div>
+        <div class="align-side-block">
+          <div class="align-side-title">Export</div>
+          <input type="text" id="alignProjectName" class="align-input" placeholder="Project name">
+          <input type="text" id="alignNotes" class="align-input" placeholder="Notes">
+          <input type="number" id="alignScale" class="align-input" placeholder="Scale cm (optional)" min="0" step="0.1">
+          <div class="align-export-stack">
+            <button type="button" class="align-primary" id="alignExportZip2" disabled>FUMOCA package</button>
+            <button type="button" class="align-secondary" id="alignExportNerf" disabled>Nerfstudio ZIP</button>
+            <button type="button" class="align-secondary" id="alignExportColmap" disabled>COLMAP-style ZIP</button>
+            <button type="button" class="align-secondary" id="alignExportSeq" disabled>Images only</button>
+            <button type="button" class="align-secondary" id="alignExportJson" disabled>cameras.json</button>
+            <button type="button" class="align-secondary" id="alignSaveLocal" disabled>Save draft</button>
           </div>
         </div>
-        <div class="align-canvas-wrap">
-          <canvas id="alignFrameCanvas" width="800" height="500"></canvas>
-        </div>
-        <div class="align-cp-bar">
-          <label>Point id
-            <input type="text" id="alignCpId" placeholder="cp_1" value="cp_1">
-          </label>
-          <button type="button" class="align-secondary" id="alignCpClear">Clear points on frame</button>
-          <button type="button" class="align-secondary" id="alignCpNextId">Next id</button>
-        </div>
-        <ul id="alignCpList" class="align-cp-list"></ul>
-      </section>
+      </aside>
     </div>
-
-    <section class="align-card">
-      <div class="align-card-head">
-        <span class="align-step">03</span>
-        <div>
-          <h2>Path settings</h2>
-          <p>Orbit / arc / line priors — structured poses for export and worker refine.</p>
-        </div>
-      </div>
-      <div class="align-path-controls">
-        <label>Path type
-          <select id="alignPathType">
-            <option value="orbit">Orbit (full 360°)</option>
-            <option value="arc">Front arc (−90°…+90°)</option>
-            <option value="line">Line sweep</option>
-          </select>
-        </label>
-        <label>Radius <output id="alignRadiusOut">2.5</output>
-          <input type="range" id="alignRadius" min="0.5" max="12" step="0.1" value="2.5">
-        </label>
-        <label>Elevation ° <output id="alignElevOut">10</output>
-          <input type="range" id="alignElev" min="-20" max="45" value="10">
-        </label>
-        <button type="button" class="align-primary" id="alignRebuildPath">Rebuild path</button>
-      </div>
-    </section>
-
-    <section class="align-card">
-      <div class="align-card-head">
-        <span class="align-step">04</span>
-        <div>
-          <h2>Export for splat apps</h2>
-          <p>Pick a format other tools can ingest. No Gaussian file is produced here.</p>
-        </div>
-      </div>
-      <div class="align-meta">
-        <label>Project name <input type="text" id="alignProjectName" placeholder="e.g. shoe-orbit"></label>
-        <label>Notes <input type="text" id="alignNotes" placeholder="capture notes"></label>
-        <label>Scale (cm, optional) <input type="number" id="alignScale" min="0" step="0.1" placeholder="known length"></label>
-      </div>
-      <div class="align-export-grid">
-        <button type="button" class="align-primary" id="alignExportZip" disabled>FUMOCA package (.zip)</button>
-        <button type="button" class="align-secondary" id="alignExportNerf" disabled>Nerfstudio transforms.json + images</button>
-        <button type="button" class="align-secondary" id="alignExportColmap" disabled>COLMAP-style cameras + images</button>
-        <button type="button" class="align-secondary" id="alignExportSeq" disabled>Image sequence only</button>
-        <button type="button" class="align-secondary" id="alignExportJson" disabled>cameras.json only</button>
-        <button type="button" class="align-secondary" id="alignSaveLocal" disabled>Save draft</button>
-      </div>
-      <p class="align-disclaimer">
-        Path poses are priors (ordered orbit/arc). RealityScan-class bundle adjust can refine externally;
-        the same frame set + transforms feed Gaussian / NeRF trainers.
-      </p>
-    </section>
   </main>
 </body>
 </html>
