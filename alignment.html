@@ -133,6 +133,17 @@
           <p class="align-note" id="alignPathNote">Drop frames to generate cameras on a path.</p>
         </div>
         <div class="align-side-block">
+          <div class="align-side-title">Sparse cloud <span id="alignSparseCount">proxy</span></div>
+          <p class="align-note">Real product shape comes from SfM (COLMAP worker) or imported sparse files — not the orbit prior.</p>
+          <input type="file" id="alignSparseFile" accept=".json,.txt,.bin" hidden>
+          <div class="align-side-row">
+            <button type="button" class="align-secondary compact" id="alignSparseImport">Import sparse</button>
+            <button type="button" class="align-secondary compact" id="alignSparseClear">Clear sparse</button>
+          </div>
+          <button type="button" class="align-primary compact" id="alignSparseTrain" style="width:100%;margin-top:6px">Train sparse (worker)</button>
+          <p class="align-note" id="alignSparseNote">Import points3D.txt / sparse.json, or run worker after export.</p>
+        </div>
+        <div class="align-side-block">
           <div class="align-side-title">Control points</div>
           <canvas id="alignFrameCanvas" width="400" height="260"></canvas>
           <div class="align-cp-bar">

@@ -21,6 +21,9 @@ let cpSeq = 1;
 let playTimer = null;
 let showFrustums = true;
 let showCloud = true;
+/** @type {{x:number,y:number,z:number,r?:number,g?:number,b?:number}[]|null} */
+let sparsePoints = null;
+let sparseMeta = null;
 
 /* ── Three.js scene ─────────────────────────────────────── */
 const host = $('alignThreeHost');
@@ -99,37 +102,90 @@ function clearPathVisuals() {
   cameraMeshes = [];
 }
 
+function fitSparseToView(points) {
+  if (!points?.length) return points;
+  let minX = Infinity, minY = Infinity, minZ = Infinity;
+  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+  for (const p of points) {
+    minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+    minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
+    minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z);
+  }
+  const cx = (minX + maxX) / 2;
+  const cy = (minY + maxY) / 2;
+  const cz = (minZ + maxZ) / 2;
+  const span = Math.max(maxX - minX, maxY - minY, maxZ - minZ, 1e-6);
+  const scale = 1.6 / span;
+  return points.map((p) => ({
+    x: (p.x - cx) * scale,
+    y: (p.y - cy) * scale,
+    z: (p.z - cz) * scale,
+    r: p.r, g: p.g, b: p.b,
+  }));
+}
+
 function buildProxyCloud() {
   while (cloudGroup.children.length) {
     const o = cloudGroup.children.pop();
     o.geometry?.dispose?.();
     o.material?.dispose?.();
   }
-  if (!showCloud || !cameras.length) return;
-  const n = Math.min(2500, 400 + cameras.length * 8);
+  if (!showCloud) return;
+
+  // Real SfM sparse wins over orbit proxy
+  if (sparsePoints?.length) {
+    const pts = sparsePoints;
+    const n = pts.length;
+    const pos = new Float32Array(n * 3);
+    const col = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      pos[i * 3] = pts[i].x;
+      pos[i * 3 + 1] = pts[i].y;
+      pos[i * 3 + 2] = pts[i].z;
+      col[i * 3] = pts[i].r ?? 0.75;
+      col[i * 3 + 1] = pts[i].g ?? 0.8;
+      col[i * 3 + 2] = pts[i].b ?? 0.85;
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    cloudGroup.add(
+      new THREE.Points(
+        geo,
+        new THREE.PointsMaterial({ size: 0.025, vertexColors: true, transparent: true, opacity: 0.95, sizeAttenuation: true })
+      )
+    );
+    if ($('alignSparseCount')) $('alignSparseCount').textContent = `${n.toLocaleString()} pts`;
+    // Fit subject box roughly to cloud
+    subjectGroup.scale.set(1, 1, 1);
+    return;
+  }
+
+  if (!cameras.length) return;
+  // Proxy only when no real sparse
+  const n = Math.min(1800, 300 + cameras.length * 6);
   const pos = new Float32Array(n * 3);
   const col = new Float32Array(n * 3);
   for (let i = 0; i < n; i++) {
-    // cluster inside subject bbox + a bit of volume
     const x = (Math.random() - 0.5) * 1.1;
     const y = Math.random() * 0.7;
     const z = (Math.random() - 0.5) * 0.95;
-    pos[i * 3] = x;
-    pos[i * 3 + 1] = y;
-    pos[i * 3 + 2] = z;
+    pos[i * 3] = x; pos[i * 3 + 1] = y; pos[i * 3 + 2] = z;
     const t = Math.random();
-    col[i * 3] = 0.4 + t * 0.5;
-    col[i * 3 + 1] = 0.55 + t * 0.4;
-    col[i * 3 + 2] = 0.65 + t * 0.3;
+    col[i * 3] = 0.35 + t * 0.3;
+    col[i * 3 + 1] = 0.4 + t * 0.25;
+    col[i * 3 + 2] = 0.5 + t * 0.3;
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  const pts = new THREE.Points(
-    geo,
-    new THREE.PointsMaterial({ size: 0.03, vertexColors: true, transparent: true, opacity: 0.85 })
+  cloudGroup.add(
+    new THREE.Points(
+      geo,
+      new THREE.PointsMaterial({ size: 0.03, vertexColors: true, transparent: true, opacity: 0.55 })
+    )
   );
-  cloudGroup.add(pts);
+  if ($('alignSparseCount')) $('alignSparseCount').textContent = 'proxy';
 }
 
 function makeFrustum(fovDeg, aspect = 1.4, depth = 0.55) {
@@ -430,6 +486,98 @@ $('alignCpNextId')?.addEventListener('click', () => {
   if ($('alignCpId')) $('alignCpId').value = `cp_${cpSeq}`;
 });
 
+
+function parsePoints3DTxt(text) {
+  const points = [];
+  for (const line of text.split(/\r?\n/)) {
+    const s = line.trim();
+    if (!s || s.startsWith('#')) continue;
+    const p = s.split(/\s+/);
+    if (p.length < 7) continue;
+    const x = Number(p[1]), y = Number(p[2]), z = Number(p[3]);
+    const r = Number(p[4]) / 255, g = Number(p[5]) / 255, b = Number(p[6]) / 255;
+    if (![x, y, z].every(Number.isFinite)) continue;
+    points.push({ x, y, z, r, g, b });
+  }
+  return points;
+}
+
+function setSparsePoints(points, meta) {
+  sparsePoints = fitSparseToView(points);
+  sparseMeta = meta || null;
+  buildProxyCloud();
+  if ($('alignSparseNote')) {
+    $('alignSparseNote').textContent = sparsePoints?.length
+      ? `Loaded ${sparsePoints.length.toLocaleString()} SfM points${meta?.source ? ' · ' + meta.source : ''}. Product shape from real triangulation.`
+      : 'No points in file.';
+  }
+  // Frame the cloud
+  if (sparsePoints?.length) {
+    camera3d.position.set(3.2, 2.4, 3.8);
+    controls.target.set(0, 0.2, 0);
+    controls.update();
+  }
+}
+
+async function loadSparseFile(file) {
+  const name = (file.name || '').toLowerCase();
+  const text = await file.text();
+  if (name.endsWith('.json') || text.trim().startsWith('{')) {
+    const data = JSON.parse(text);
+    const pts = data.points || data.sparse?.points || [];
+    if (!pts.length) throw new Error('JSON has no points[]');
+    const mapped = pts.map((p) => ({
+      x: p.x ?? p[0],
+      y: p.y ?? p[1],
+      z: p.z ?? p[2],
+      r: p.r ?? p.red ?? 0.8,
+      g: p.g ?? p.green ?? 0.8,
+      b: p.b ?? p.blue ?? 0.85,
+    }));
+    setSparsePoints(mapped, data.meta || { source: 'json' });
+    return;
+  }
+  // COLMAP points3D.txt
+  const pts = parsePoints3DTxt(text);
+  if (!pts.length) throw new Error('No points parsed (need COLMAP points3D.txt)');
+  setSparsePoints(pts, { source: 'colmap_points3D.txt' });
+}
+
+$('alignSparseImport')?.addEventListener('click', () => $('alignSparseFile')?.click());
+$('alignSparseFile')?.addEventListener('change', async () => {
+  const f = $('alignSparseFile')?.files?.[0];
+  if (!f) return;
+  try {
+    await loadSparseFile(f);
+  } catch (e) {
+    alert('Sparse import failed: ' + (e.message || e));
+  }
+  $('alignSparseFile').value = '';
+});
+$('alignSparseClear')?.addEventListener('click', () => {
+  sparsePoints = null;
+  sparseMeta = null;
+  buildProxyCloud();
+  if ($('alignSparseNote')) {
+    $('alignSparseNote').textContent = 'Import points3D.txt / sparse.json, or run worker after export.';
+  }
+  if ($('alignSparseCount')) $('alignSparseCount').textContent = 'proxy';
+});
+$('alignSparseTrain')?.addEventListener('click', () => {
+  const endpoint = window.FUMOCA_SPARSE_WORKER_URL || window.FUMOCA_CONFIG?.sparseWorkerUrl || '';
+  if (!endpoint) {
+    alert(
+      'Real sparse training runs on a COLMAP worker (not in the browser).\\n\\n' +
+        '1) Export FUMOCA package (images)\\n' +
+        '2) On a machine with COLMAP: python worker/colmap_sparse.py --images images --out sparse_out\\n' +
+        '3) Import sparse_out/sparse.json here\\n\\n' +
+        'Optional: set window.FUMOCA_SPARSE_WORKER_URL to your API to enable one-click train.'
+    );
+    return;
+  }
+  alert('Worker URL is set. Wire multipart upload of the alignment ZIP to: ' + endpoint);
+});
+
 function rebuildPath() {
   const type = $('alignPathType')?.value || 'orbit';
   const radius = Number($('alignRadius')?.value || 2.5);
@@ -543,8 +691,11 @@ function projectPayload() {
       fov_deg: Number($('alignFov')?.value || 50),
       keyframes: cameras.map((c) => c.frame_id),
     },
+    sparse: sparsePoints
+      ? { count: sparsePoints.length, meta: sparseMeta }
+      : null,
     provenance: {
-      client: 'fumoca-alignment-studio-v3',
+      client: 'fumoca-alignment-studio-v4',
       poses: 'path_prior',
       splat: false,
       viewer: 'threejs_interactive',
