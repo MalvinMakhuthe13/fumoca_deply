@@ -1,0 +1,60 @@
+
+.align-body { background: #080b12; color: #e8f0fa; }
+.align-page { max-width: 1200px; margin: 0 auto; padding: 24px 18px 80px; }
+.align-hero { display: flex; justify-content: space-between; gap: 20px; align-items: flex-start; margin-bottom: 18px; }
+.align-eyebrow { font-size: 12px; color: #8fa6be; text-transform: uppercase; letter-spacing: .06em; margin: 0 0 8px; }
+.align-hero h1 { font-size: clamp(1.4rem, 3vw, 1.9rem); margin: 0 0 10px; line-height: 1.25; }
+.align-lede { color: #9ab; font-size: 14px; line-height: 1.5; max-width: 52ch; margin: 0 0 12px; }
+.align-pills { display: flex; flex-wrap: wrap; gap: 8px; }
+.align-pills span { font-size: 11px; padding: 4px 10px; border-radius: 999px; border: 1px solid rgba(120,200,255,.25); color: #b7d4ef; background: rgba(40,90,140,.15); }
+.align-hero-badge { width: 64px; height: 64px; border-radius: 16px; display: grid; place-items: center; font-weight: 800; font-size: 11px; letter-spacing: .04em; background: linear-gradient(135deg, rgba(200,255,0,.2), rgba(80,160,255,.25)); border: 1px solid rgba(200,255,0,.35); color: #c8ff00; }
+.align-banner { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; padding: 12px 14px; border-radius: 12px; border: 1px solid rgba(200,255,0,.2); background: rgba(200,255,0,.06); margin-bottom: 18px; font-size: 13px; }
+.align-banner strong { color: #c8ff00; }
+.align-layout { display: grid; grid-template-columns: minmax(240px, 0.9fr) minmax(0, 1.2fr); gap: 16px; }
+@media (max-width: 960px) { .align-layout { grid-template-columns: 1fr; } }
+.align-path { grid-column: 1 / -1; }
+.align-card { border: 1px solid rgba(255,255,255,.08); border-radius: 16px; background: rgba(12,16,24,.9); padding: 16px; margin-bottom: 16px; }
+.align-card-head { display: flex; gap: 12px; margin-bottom: 12px; }
+.align-step { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; font-size: 11px; font-weight: 700; background: rgba(86,180,255,.15); color: #7ec8ff; flex-shrink: 0; }
+.align-card-head h2 { margin: 0; font-size: 15px; }
+.align-card-head p { margin: 2px 0 0; font-size: 12px; color: #8fa6be; }
+.align-drop { min-height: 120px; border: 1px dashed rgba(83,166,255,.5); border-radius: 14px; background: linear-gradient(135deg, rgba(22,112,204,.1), rgba(11,20,32,.35)); display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.align-drop.is-drag { border-color: #56b4ff; background: rgba(20,132,255,.18); }
+.align-drop-label { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 20px; cursor: pointer; text-align: center; }
+.align-drop-icon { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; background: rgba(35,151,255,.15); color: #70c0ff; font-size: 24px; }
+.align-drop strong { font-size: 13px; }
+.align-drop small { font-size: 11px; color: #91a6be; }
+.align-file-bar { display: flex; justify-content: space-between; align-items: center; margin: 10px 0; font-size: 12px; color: #9ab; }
+.align-primary, .align-secondary { border-radius: 10px; padding: 8px 14px; font-size: 12px; font-weight: 600; cursor: pointer; border: 1px solid transparent; }
+.align-primary { background: #c8ff00; color: #111; border-color: #c8ff00; }
+.align-primary:disabled { opacity: .4; cursor: not-allowed; }
+.align-secondary { background: rgba(255,255,255,.05); color: #d0dceb; border-color: rgba(255,255,255,.12); }
+.align-secondary:disabled { opacity: .4; cursor: not-allowed; }
+.align-frame-list { list-style: none; margin: 0; padding: 0; max-height: 320px; overflow: auto; }
+.align-frame-list li { display: grid; grid-template-columns: 48px 1fr auto; gap: 8px; align-items: center; padding: 6px; border-radius: 10px; border: 1px solid transparent; cursor: pointer; font-size: 11px; }
+.align-frame-list li:hover { background: rgba(255,255,255,.04); }
+.align-frame-list li.is-active { border-color: rgba(200,255,0,.4); background: rgba(200,255,0,.06); }
+.align-frame-list li.is-off { opacity: .45; }
+.align-frame-list img { width: 48px; height: 36px; object-fit: cover; border-radius: 6px; background: #0a0e16; }
+.align-frame-list .meta { color: #9ab; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.align-frame-toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; align-items: center; }
+.align-frame-toolbar select { background: #0d1420; color: #e8f0fa; border: 1px solid rgba(255,255,255,.12); border-radius: 8px; padding: 6px; font-size: 12px; }
+.align-canvas-wrap { border-radius: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,.1); background: #0a0e16; }
+#alignFrameCanvas, #alignPathCanvas { width: 100%; height: auto; display: block; cursor: crosshair; }
+#alignPathCanvas { cursor: default; }
+.align-cp-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; align-items: end; }
+.align-cp-bar label { font-size: 11px; color: #9ab; display: flex; flex-direction: column; gap: 4px; }
+.align-cp-bar input { padding: 6px 8px; border-radius: 8px; border: 1px solid rgba(255,255,255,.12); background: #0d1420; color: #e8f0fa; }
+.align-cp-list { list-style: none; padding: 0; margin: 10px 0 0; font-size: 11px; color: #c5d4e6; max-height: 120px; overflow: auto; }
+.align-cp-list li { padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,.06); }
+.align-path-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin-top: 12px; }
+.align-path-controls label { font-size: 12px; color: #9ab; display: grid; gap: 4px; }
+.align-path-controls input[type=range] { width: 100%; }
+.align-path-controls select { padding: 6px; border-radius: 8px; background: #0d1420; color: #e8f0fa; border: 1px solid rgba(255,255,255,.12); }
+.align-note, .align-disclaimer { font-size: 12px; color: #8fa6be; line-height: 1.45; margin-top: 10px; }
+.align-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-bottom: 12px; }
+.align-meta label { font-size: 12px; color: #9ab; display: flex; flex-direction: column; gap: 4px; }
+.align-meta input { padding: 8px; border-radius: 8px; border: 1px solid rgba(255,255,255,.12); background: #0d1420; color: #e8f0fa; }
+.align-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.align-video-panel { margin-top: 10px; padding: 10px; border-radius: 12px; border: 1px solid rgba(255,255,255,.08); }
+.align-video-panel video { width: 100%; max-height: 160px; border-radius: 8px; background: #000; }
