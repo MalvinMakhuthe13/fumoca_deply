@@ -636,7 +636,7 @@ input[type=range].amber::-webkit-slider-thumb{background:var(--amber);box-shadow
     <button class="tool-btn" id="toolBrushSelect" title="Brush Select (S)">🎯</button>
     <button class="tool-btn" id="toolPaint" title="Paint Color (P)">🎨</button>
     <button class="tool-btn" id="toolSmear" title="Smear / Blur (F)">💧</button>
-    <button class="tool-btn" id="toolFill" title="Fill gaps (I) — densify with matching colour">🧴</button>
+    <button class="tool-btn" id="toolFill" title="Fill gaps (I) — densify / collect from image">🧴</button>
   </div>
   <div class="tool-group">
     <span class="tool-group-label">Transform</span>
@@ -752,6 +752,39 @@ input[type=range].amber::-webkit-slider-thumb{background:var(--amber);box-shadow
               <option>Saturation</option>
             </select>
           </div>
+        </div>
+      </div>
+
+      <!-- GAP FILL / COLLECT FROM IMAGE -->
+      <div class="section" id="sec-gapfill">
+        <div class="sec-head"><span class="sec-label">🧴 Fill gaps · Collect from image</span><span class="sec-badge">CPU</span></div>
+        <div class="sec-body">
+          <div class="hint">Heal holes without re-capturing. Neighbours match local splat colour; add a photo to paint real surface colour (e.g. bonnet).</div>
+          <div class="ctrl-row"><span class="ctrl-label">Colour source</span></div>
+          <select id="fillColourMode" style="width:100%;padding:6px 8px;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text);font:inherit;font-size:11px;margin-bottom:8px">
+            <option value="neighbours">Neighbours only (heal)</option>
+            <option value="hybrid" selected>Hybrid (photo + neighbours)</option>
+            <option value="image">Photo only</option>
+          </select>
+          <div class="ctrl-row"><span class="ctrl-label">Density</span><span class="ctrl-val" id="fillDensityVal">1.0×</span></div>
+          <input type="range" id="fillDensity" min="40" max="200" value="100">
+          <div class="hint" style="margin-top:8px">Reference photo (optional)</div>
+          <input type="file" id="fillImageFile" accept="image/*" style="display:none">
+          <button type="button" class="ac-btn lime full" id="fillImagePickBtn">📁 Load reference image</button>
+          <div class="hint" id="fillImageName" style="margin-top:6px">No image — using neighbours</div>
+          <div class="ctrl-row" style="margin-top:8px"><span class="ctrl-label">Image overlay</span><span class="ctrl-val" id="fillOverlayVal">45%</span></div>
+          <input type="range" id="fillOverlay" min="0" max="80" value="45">
+          <div class="ctrl-row"><span class="ctrl-label">Align X</span></div>
+          <input type="range" id="fillOffX" min="-200" max="200" value="0">
+          <div class="ctrl-row"><span class="ctrl-label">Align Y</span></div>
+          <input type="range" id="fillOffY" min="-200" max="200" value="0">
+          <div class="ctrl-row"><span class="ctrl-label">Image scale</span><span class="ctrl-val" id="fillImgScaleVal">1.00×</span></div>
+          <input type="range" id="fillImgScale" min="50" max="200" value="100">
+          <label style="display:flex;align-items:center;gap:8px;margin:8px 0;font-size:12px;color:rgba(255,255,255,.7)">
+            <input type="checkbox" id="fillShowOverlay" checked> Show photo overlay while filling
+          </label>
+          <button type="button" class="ac-btn cyan full" id="fillActivateBtn">Activate Fill brush (I)</button>
+          <button type="button" class="ac-btn full" id="fillClearImgBtn" style="margin-top:6px">Clear reference image</button>
         </div>
       </div>
 
@@ -3374,153 +3407,15 @@ function selectByLasso(pts) {
   rebuildGeometry(); syncTransformGizmo(); setStatus(`Selected ${fmt(hits)} points`);
 }
 
-
-/** CPU gap-fill: sample nearby points' colour/depth and insert matching splats under the brush. */
-function _gapFillBrushStroke(cx, cy, W, H, r2) {
-  if (!S.positions || !S.alive) return;
-  const n = S.alive.length;
-  const samples = []; // {x,y,z,r,g,b,sc, depth, sx, sy}
-  const proj = new THREE.Vector3();
-  const view = new THREE.Vector3();
-  let frontDepth = Infinity;
-  for (let i = 0; i < n; i++) {
-    if (!S.alive[i]) continue;
-    const x = S.positions[i * 3], y = S.positions[i * 3 + 1], z = S.positions[i * 3 + 2];
-    view.set(x, y, z);
-    const depth = -view.applyMatrix4(camera.matrixWorldInverse).z;
-    if (depth <= 0) continue;
-    proj.set(x, y, z).project(camera);
-    const sx = (proj.x * 0.5 + 0.5) * W;
-    const sy = (-proj.y * 0.5 + 0.5) * H;
-    const dx = sx - cx, dy = sy - cy;
-    if (dx * dx + dy * dy > r2 * 2.25) continue; // slightly larger sample ring
-    const src = S.paintColors || S.colors;
-    const r = src ? src[i * 3] : 0.7;
-    const g = src ? src[i * 3 + 1] : 0.7;
-    const b = src ? src[i * 3 + 2] : 0.7;
-    const sc = S.scale ? (S.scale[i] || 0.01) : 0.01;
-    samples.push({ x, y, z, r, g, b, sc, depth, sx, sy });
-    if (dx * dx + dy * dy <= r2 && depth < frontDepth) frontDepth = depth;
-  }
-  if (samples.length < 3 || !Number.isFinite(frontDepth)) {
-    setStatus?.('Fill: paint over existing surface first so colour can match', 'warn');
-    return;
-  }
-  // Prefer samples near front surface
-  const depthTol = Math.max(frontDepth * 0.08, 1e-3);
-  const near = samples.filter((s) => Math.abs(s.depth - frontDepth) <= depthTol * 2);
-  const pool = near.length >= 3 ? near : samples;
-
-  // How many points to add this stroke (density based on brush size, capped)
-  const targetAdd = Math.min(120, Math.max(12, Math.round((S.brushSize / 18) * (S.brushStrength || 1) * 28)));
-  const worldPerPixel = 2 * frontDepth * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / Math.max(1, H);
-  const radiusWorld = worldPerPixel * S.brushSize;
-
-  // Unproject brush center to world at frontDepth
-  const ndcX = (cx / W) * 2 - 1;
-  const ndcY = -(cy / H) * 2 + 1;
-  const center = new THREE.Vector3(ndcX, ndcY, 0.5).unproject(camera);
-  const camPos = camera.position.clone();
-  const dir = center.sub(camPos).normalize();
-  const hit = camPos.clone().add(dir.multiplyScalar(frontDepth / Math.max(0.001, dir.dot(new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion)) || dir.length())));
-  // More stable: use average of pool positions weighted by screen proximity
-  let wx = 0, wy = 0, wz = 0, wr = 0, wg = 0, wb = 0, wsc = 0, wsum = 0;
-  for (const s of pool) {
-    const d2 = (s.sx - cx) * (s.sx - cx) + (s.sy - cy) * (s.sy - cy);
-    const w = 1 / (1 + d2 / Math.max(1, r2));
-    wx += s.x * w; wy += s.y * w; wz += s.z * w;
-    wr += s.r * w; wg += s.g * w; wb += s.b * w;
-    wsc += s.sc * w;
-    wsum += w;
-  }
-  wx /= wsum; wy /= wsum; wz /= wsum;
-  wr /= wsum; wg /= wsum; wb /= wsum;
-  wsc /= wsum;
-
-  // Camera right/up for local tangent plane jitter
-  const right = new THREE.Vector3();
-  const up = new THREE.Vector3();
-  camera.matrixWorld.extractBasis(right, up, new THREE.Vector3());
-  right.normalize();
-  up.normalize();
-
-  const addPos = new Float32Array(targetAdd * 3);
-  const addCol = new Float32Array(targetAdd * 3);
-  const addSc = new Float32Array(targetAdd);
-  const addOp = new Float32Array(targetAdd);
-  for (let k = 0; k < targetAdd; k++) {
-    // Disk sample in brush
-    const ang = Math.random() * Math.PI * 2;
-    const rad = Math.sqrt(Math.random()) * radiusWorld * 0.92;
-    const ox = right.x * Math.cos(ang) * rad + up.x * Math.sin(ang) * rad;
-    const oy = right.y * Math.cos(ang) * rad + up.y * Math.sin(ang) * rad;
-    const oz = right.z * Math.cos(ang) * rad + up.z * Math.sin(ang) * rad;
-    // Slight normal offset toward camera so fill sits on front
-    const toCam = camPos.clone().sub(new THREE.Vector3(wx, wy, wz)).normalize();
-    const nudge = (Math.random() - 0.3) * radiusWorld * 0.15;
-    addPos[k * 3] = wx + ox + toCam.x * nudge;
-    addPos[k * 3 + 1] = wy + oy + toCam.y * nudge;
-    addPos[k * 3 + 2] = wz + oz + toCam.z * nudge;
-    // Colour: blend local average with a random neighbour for texture
-    const nb = pool[(Math.random() * pool.length) | 0];
-    const tcol = 0.55 + Math.random() * 0.35;
-    addCol[k * 3] = wr * tcol + nb.r * (1 - tcol);
-    addCol[k * 3 + 1] = wg * tcol + nb.g * (1 - tcol);
-    addCol[k * 3 + 2] = wb * tcol + nb.b * (1 - tcol);
-    addSc[k] = Math.max(1e-4, wsc * (0.85 + Math.random() * 0.35));
-    addOp[k] = 0.9;
-  }
-
-  _appendPointsToStudio(addPos, addCol, addSc, addOp);
-  rebuildGeometry();
-  setStatus?.(`Fill: +${targetAdd} points (matched colour)`, 'ok');
-}
-
-function _appendPointsToStudio(addPos, addCol, addSc, addOp) {
-  const added = addPos.length / 3;
-  if (!added) return;
-  const oldCount = S.alive?.length || 0;
-  const join = (a, b) => {
-    const out = new Float32Array((a?.length || 0) + b.length);
-    if (a) out.set(a);
-    out.set(b, a?.length || 0);
-    return out;
-  };
-  S.positions = join(S.positions, addPos);
-  S.colors = join(S.colors || new Float32Array(oldCount * 3), addCol);
-  if (S.paintColors) S.paintColors = join(S.paintColors, addCol);
-  else {
-    // keep paintColors in sync for later paint tools
-    const pc = new Float32Array((oldCount + added) * 3);
-    if (S.colors && oldCount) pc.set(S.colors.subarray(0, oldCount * 3));
-    pc.set(addCol, oldCount * 3);
-    S.paintColors = pc;
-  }
-  if (S.scale) S.scale = join(S.scale, addSc);
-  else S.scale = join(new Float32Array(oldCount).fill(0.01), addSc);
-  if (S.opacity) S.opacity = join(S.opacity, addOp);
-  const alive = new Uint8Array(oldCount + added);
-  if (S.alive) alive.set(S.alive);
-  alive.fill(1, oldCount);
-  S.alive = alive;
-  const selected = new Uint8Array(oldCount + added);
-  if (S.selected) selected.set(S.selected);
-  S.selected = selected;
-  // Invalidate binary source — edited as PLY-style arrays
-  if (S.fileType !== 'ply') {
-    S.fileType = 'ply';
-    S.sourceBuffer = null;
-  }
-}
-
-
 function applyBrush(cx, cy) {
   if (!S.positions) return;
   const vp = document.getElementById('viewport');
   const W = vp.clientWidth, H = vp.clientHeight;
   const r2 = S.brushSize * S.brushSize;
   if (S.mode === 'fill') {
-    _gapFillBrushStroke(cx, cy, W, H, r2);
+    if (window.FumocaGapFill?.fillStroke) {
+      window.FumocaGapFill.fillStroke(cx, cy, W, H, S.brushSize);
+    }
     return;
   }
   if (S.mode === 'smear') {
@@ -4491,6 +4386,56 @@ function onResize() {
   renderMeasurementOverlay();
 }
 
+
+// ── Gap fill / collect from image UI ─────────────────────────────
+(function setupGapFillUI() {
+  const $id = (id) => document.getElementById(id);
+  const syncFillState = () => {
+    const GF = window.FumocaGapFill;
+    if (!GF) return;
+    const mode = $id('fillColourMode')?.value || 'hybrid';
+    GF.setColourMode(mode);
+    const dens = (Number($id('fillDensity')?.value) || 100) / 100;
+    GF.setDensity(dens);
+    if ($id('fillDensityVal')) $id('fillDensityVal').textContent = dens.toFixed(1) + '×';
+    GF.state.opacity = (Number($id('fillOverlay')?.value) || 45) / 100;
+    if ($id('fillOverlayVal')) $id('fillOverlayVal').textContent = Math.round(GF.state.opacity * 100) + '%';
+    GF.state.offsetX = Number($id('fillOffX')?.value) || 0;
+    GF.state.offsetY = Number($id('fillOffY')?.value) || 0;
+    GF.state.scale = (Number($id('fillImgScale')?.value) || 100) / 100;
+    if ($id('fillImgScaleVal')) $id('fillImgScaleVal').textContent = GF.state.scale.toFixed(2) + '×';
+    GF.state.showOverlay = $id('fillShowOverlay')?.checked !== false;
+  };
+  ['fillColourMode','fillDensity','fillOverlay','fillOffX','fillOffY','fillImgScale','fillShowOverlay'].forEach((id) => {
+    $id(id)?.addEventListener('input', syncFillState);
+    $id(id)?.addEventListener('change', syncFillState);
+  });
+  $id('fillImagePickBtn')?.addEventListener('click', () => $id('fillImageFile')?.click());
+  $id('fillImageFile')?.addEventListener('change', async (e) => {
+    const f = e.target.files?.[0];
+    if (!f || !window.FumocaGapFill) return;
+    try {
+      await window.FumocaGapFill.loadImageFromFile(f);
+      if ($id('fillImageName')) $id('fillImageName').textContent = f.name + ' · align overlay, then Fill brush';
+      setStatus('Reference image loaded — activate Fill (I) and paint gaps', 'ok');
+      syncFillState();
+    } catch (err) {
+      setStatus(err.message || 'Image load failed', 'warn');
+    }
+  });
+  $id('fillClearImgBtn')?.addEventListener('click', () => {
+    window.FumocaGapFill?.clearImage();
+    if ($id('fillImageName')) $id('fillImageName').textContent = 'No image — using neighbours';
+    setStatus('Reference image cleared', 'ok');
+  });
+  $id('fillActivateBtn')?.addEventListener('click', () => {
+    setMode('fill');
+    syncFillState();
+    setStatus('Fill brush active — stroke over gaps', 'ok');
+  });
+  syncFillState();
+})();
+
 // ─── ANIMATE ────────────────────────────────────────────────────────────────
 let _lastViewportRender = 0;
 function animate(now = performance.now()) {
@@ -4501,6 +4446,28 @@ function animate(now = performance.now()) {
   _lastViewportRender = now;
   controls.update();
   renderer.render(scene, camera);
+  // Reference photo overlay for Fill / collect-from-image
+  try {
+    const GF = window.FumocaGapFill;
+    if (GF?.state?.showOverlay && GF.state.image && S.mode === 'fill') {
+      let ov = document.getElementById('fillImageOverlay');
+      if (!ov) {
+        ov = document.createElement('canvas');
+        ov.id = 'fillImageOverlay';
+        ov.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:6;';
+        document.getElementById('viewport')?.appendChild(ov);
+      }
+      const vp = document.getElementById('viewport');
+      const w = vp?.clientWidth || 0, h = vp?.clientHeight || 0;
+      if (w && h && (ov.width !== w || ov.height !== h)) { ov.width = w; ov.height = h; }
+      const ctx = ov.getContext('2d');
+      ctx.clearRect(0, 0, ov.width, ov.height);
+      GF.drawOverlay(ctx, ov.width, ov.height);
+    } else {
+      const ov = document.getElementById('fillImageOverlay');
+      if (ov) ov.getContext('2d').clearRect(0, 0, ov.width, ov.height);
+    }
+  } catch (_) {}
 }
 animate();
 
@@ -5783,7 +5750,7 @@ window.addEventListener('keydown', e => {
   if (e.key === 'Escape') { clearSelection(); S.lassoPoints = []; renderLasso(); return; }
   const keyMap = { b: 'orbit', h: 'pan', z: 'zoom-tool', x: 'box', l: 'lasso', m: 'magic', e: 'brush-erase', s: 'brush-select', p: 'paint', v: 'move', r: 'rotate' };
   if (keyMap[e.key.toLowerCase()]) setMode(keyMap[e.key.toLowerCase()]);
-  if (e.key.toLowerCase() === 'i') { setMode('fill'); setStatus?.('Fill gaps brush — paint holes to densify', 'ok'); }
+  if (e.key.toLowerCase() === 'i') { setMode('fill'); setStatus('Fill gaps — paint holes; load a photo to match real colour', 'ok'); }
   if (e.key.toLowerCase() === 'g') setDisplayMode(S.displayMode === 'blob' ? 'dot' : 'blob');
   if (e.key.toLowerCase() === 'd') setDisplayMode('dot');
   if (e.key === '[') { S.brushSize = Math.max(4, S.brushSize - 4); $('brushSize').value = S.brushSize; $('brushSizeVal').textContent = S.brushSize + 'px'; }
@@ -5929,6 +5896,7 @@ animBg();
 <script type="module" src="js/modules/publish-to-fumoca.js"></script>
 <script type="module" src="js/modules/gaussian-renderer.js"></script>
 <script type="module" src="js/modules/smart-select.js"></script>
+<script src="js/modules/gap-fill-engine.js"></script>
 <script type="module" src="js/modules/sound-engine.js"></script>
 <script type="module" src="js/modules/splat-music-share.js"></script>
 <script type="module" src="js/modules/hotspot-pro.js"></script>
