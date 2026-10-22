@@ -1644,7 +1644,7 @@ async function mountInteractiveViewer(forceReload = false) {
       sharedMemoryForWorkers: false,
       antialiased: true,
       selfDrivenMode: true,
-      useBuiltInControls: true,
+      useBuiltInControls: false, // FUMOCA owns trackball for full omni tumble
       ignoreDevicePixelRatio: false,
       dynamicScene: false,
     });
@@ -1713,7 +1713,7 @@ async function mountInteractiveViewer(forceReload = false) {
         }
         // Expose camera and controls for AutoFix camera fit and shim population
 const cam      = viewerInstance.camera;
-let controls = viewerInstance.controls || viewerInstance.orbitControls;
+let controls = viewerInstance.controls || viewerInstance.orbitControls || null;
 
 if (cam) window._fumocaViewerCamera = cam;
 
@@ -1722,8 +1722,7 @@ if (cam) window._fumocaViewerCamera = cam;
 // Full 360 around subject, framed on load, no drift off-screen, no auto-spin
 // =============================================================================
 
-if (controls) {
-  window._fumocaViewerControls = controls;
+if (cam) {
   try { document.body.classList.add('product-free-orbit'); } catch (_) {}
 
   const fitSubjectInView = () => {
@@ -1779,12 +1778,13 @@ if (controls) {
       const prevTarget = controls.target?.clone?.() || null;
       try { controls.dispose?.(); } catch (_) {}
       const tb = new TrackballControls(cam, el);
-      tb.rotateSpeed = 2.2;
+      tb.rotateSpeed = 3.0;
       tb.zoomSpeed = 1.3;
       tb.panSpeed = 0.0;
       tb.noPan = true;
+tb.noRoll = false;
       tb.staticMoving = false;
-      tb.dynamicDampingFactor = 0.12;
+      tb.dynamicDampingFactor = 0.08;
       if (prevTarget) tb.target.copy(prevTarget);
       tb.update();
       viewerInstance.controls = tb;
