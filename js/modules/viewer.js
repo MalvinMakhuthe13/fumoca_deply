@@ -1728,47 +1728,50 @@ if (controls) {
   const fitSubjectInView = () => {
     try {
       const pos = activeGaussianPositions;
+      if (!pos || pos.length < 24 || !cam?.position || !controls?.target) return;
+
       let cx = 0, cy = 0, cz = 0, n = 0;
       let minX = Infinity, minY = Infinity, minZ = Infinity;
       let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
-      if (pos && pos.length >= 3) {
-        const count = Math.floor(pos.length / 3);
-        const step = Math.max(1, Math.floor(count / 25000));
-        for (let i = 0; i < count; i += step) {
-          const x = pos[i * 3], y = pos[i * 3 + 1], z = pos[i * 3 + 2];
-          if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) continue;
-          cx += x; cy += y; cz += z; n++;
-          if (x < minX) minX = x; if (y < minY) minY = y; if (z < minZ) minZ = z;
-          if (x > maxX) maxX = x; if (y > maxY) maxY = y; if (z > maxZ) maxZ = z;
-        }
+      const count = Math.floor(pos.length / 3);
+      const step = Math.max(1, Math.floor(count / 25000));
+      for (let i = 0; i < count; i += step) {
+        const x = pos[i * 3], y = pos[i * 3 + 1], z = pos[i * 3 + 2];
+        if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) continue;
+        cx += x; cy += y; cz += z; n++;
+        if (x < minX) minX = x; if (y < minY) minY = y; if (z < minZ) minZ = z;
+        if (x > maxX) maxX = x; if (y > maxY) maxY = y; if (z > maxZ) maxZ = z;
       }
-      if (n < 8) {
-        if (controls.target?.set) controls.target.set(0, 0, 0);
-        if (cam?.position) {
-          const d = Math.max(1.5, cam.position.length() || 3);
-          cam.position.set(0, d * 0.35, d);
-        }
-      } else {
-        cx /= n; cy /= n; cz /= n;
-        const dx = maxX - minX, dy = maxY - minY, dz = maxZ - minZ;
-        const radius = Math.max(0.15, 0.5 * Math.sqrt(dx * dx + dy * dy + dz * dz));
-        if (controls.target?.set) controls.target.set(cx, cy, cz);
-        const dist = Math.max(radius * 2.4, 0.8);
-        if (cam?.position) {
-          cam.position.set(cx, cy + radius * 0.25, cz + dist);
-          if (typeof cam.lookAt === 'function') cam.lookAt(cx, cy, cz);
-          if (typeof cam.updateProjectionMatrix === 'function') cam.updateProjectionMatrix();
-        }
-        if ('minDistance' in controls) controls.minDistance = Math.max(radius * 0.35, 0.05);
-        if ('maxDistance' in controls) controls.maxDistance = Math.max(radius * 12, dist * 3);
+      if (n < 8) return;
+
+      cx /= n; cy /= n; cz /= n;
+      const dx = maxX - minX, dy = maxY - minY, dz = maxZ - minZ;
+      const radius = Math.max(0.15, 0.5 * Math.sqrt(dx * dx + dy * dy + dz * dz));
+      const idealDist = Math.max(radius * 2.6, 1.0);
+
+      controls.target.set(cx, cy, cz);
+
+      const px = cam.position.x, py = cam.position.y, pz = cam.position.z;
+      let ox = px - cx, oy = py - cy, oz = pz - cz;
+      let olen = Math.sqrt(ox * ox + oy * oy + oz * oz);
+      if (!Number.isFinite(olen) || olen < 1e-4) {
+        ox = 0; oy = radius * 0.2; oz = idealDist; olen = idealDist;
       }
+      const scale = idealDist / olen;
+      cam.position.set(cx + ox * scale, cy + oy * scale, cz + oz * scale);
+      if (typeof cam.lookAt === 'function') cam.lookAt(cx, cy, cz);
+      if (typeof cam.updateMatrixWorld === 'function') cam.updateMatrixWorld(true);
+      if (typeof cam.updateProjectionMatrix === 'function') cam.updateProjectionMatrix();
+
+      if ('minDistance' in controls) controls.minDistance = Math.max(radius * 0.4, 0.08);
+      if ('maxDistance' in controls) controls.maxDistance = Math.max(radius * 14, idealDist * 4);
+
       if (typeof controls.update === 'function') controls.update();
-      console.log('%c[FUMOCA] Subject framed in view', 'color:#c8ff00', { n, target: controls.target });
+      console.log('%c[FUMOCA] Subject framed in view', 'color:#c8ff00', { n, radius, idealDist, target: [cx, cy, cz] });
     } catch (e) {
       console.warn('[FUMOCA] fitSubjectInView failed', e);
     }
   };
-
   controls.enabled = true;
   controls.enableRotate = true;
   controls.enableZoom = true;
@@ -1787,9 +1790,9 @@ if (controls) {
   controls.autoRotate = false;
   controls.autoRotateSpeed = 0;
 
-  fitSubjectInView();
-  setTimeout(fitSubjectInView, 600);
-  setTimeout(fitSubjectInView, 1600);
+  setTimeout(fitSubjectInView, 200);
+  setTimeout(fitSubjectInView, 800);
+  setTimeout(fitSubjectInView, 2000);
 
   if (!window._fumocaOrbitDampRaf) {
     const tick = () => {
