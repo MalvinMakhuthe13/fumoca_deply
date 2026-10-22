@@ -245,30 +245,34 @@ export function pickFromDevice(opts = {}) {
 }
 
 function mountStudioUpload() {
+  const present = document.getElementById('fumocaPresentBar');
+  // Re-home into present bar when it appears later
+  if (studioBar && present && studioBar.parentElement !== present) {
+    present.appendChild(studioBar);
+    studioBar.style.cssText = '';
+    return;
+  }
   if (studioBar) return;
-  const host =
-    document.getElementById('fumocaPresentBar') ||
-    document.getElementById('stage') ||
-    document.getElementById('viewport') ||
-    document.body;
 
   studioBar = document.createElement('div');
   studioBar.id = 'fumocaReviewStudio';
   studioBar.innerHTML = `
-    <div class="fp-card" style="background:rgba(8,10,14,.92);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:10px 12px;margin-top:8px;max-width:280px;font-family:Inter,system-ui,sans-serif">
-      <div style="font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,.45);margin-bottom:8px">Review video</div>
-      <div style="display:flex;flex-wrap:wrap;gap:6px">
-        <button type="button" id="rvPickBtn" style="padding:7px 11px;border-radius:8px;border:none;background:#c8ff00;color:#0a0c10;font:600 11px Inter,system-ui;cursor:pointer">Upload from device</button>
+    <div class="fp-card">
+      <div class="fp-title" style="font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,.45);margin:0 0 8px">Review video</div>
+      <div class="fp-row" style="display:flex;flex-wrap:wrap;gap:6px">
+        <button type="button" id="rvPickBtn" class="primary" style="padding:7px 11px;border-radius:8px;border:none;background:#c8ff00;color:#0a0c10;font:600 11px Inter,system-ui;cursor:pointer">Upload from device</button>
         <button type="button" id="rvUrlBtn" style="padding:7px 11px;border-radius:8px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:#e8e8e8;font:600 11px Inter,system-ui;cursor:pointer">Paste URL</button>
         <button type="button" id="rvClearBtn" style="padding:7px 11px;border-radius:8px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:#e8e8e8;font:600 11px Inter,system-ui;cursor:pointer">Clear</button>
       </div>
-      <div id="rvUploadStatus" style="margin-top:8px;font-size:10px;color:rgba(255,255,255,.4);line-height:1.35">MP4 / WebM from phone or PC</div>
+      <div id="rvUploadStatus" style="margin-top:8px;font-size:10px;color:rgba(255,255,255,.4);line-height:1.35">MP4 / WebM · use Stack for side-by-side edit</div>
     </div>
   `;
-  // Prefer under present bar
-  if (host.id === 'fumocaPresentBar') host.appendChild(studioBar);
-  else {
-    studioBar.style.cssText = 'position:absolute;left:12px;bottom:160px;z-index:43;pointer-events:auto';
+
+  if (present) {
+    present.appendChild(studioBar);
+  } else {
+    const host = document.getElementById('stage') || document.getElementById('viewport') || document.body;
+    studioBar.style.cssText = 'position:absolute;left:12px;bottom:72px;z-index:43;pointer-events:auto;max-width:260px';
     host.appendChild(studioBar);
   }
 
@@ -306,8 +310,9 @@ export function initReviewVideo(opts = {}) {
   if (opts.studio !== false && (isEditor() || opts.studio === true)) {
     const tryMount = () => mountStudioUpload();
     tryMount();
-    setTimeout(tryMount, 800);
-    setTimeout(tryMount, 2000);
+    setTimeout(tryMount, 600);
+    setTimeout(tryMount, 1500);
+    setTimeout(tryMount, 3000);
   }
 
   window.FumocaReviewVideo = {
