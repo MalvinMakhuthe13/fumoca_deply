@@ -230,12 +230,25 @@ function onSave() {
 }
 
 function getViewerCanvas() {
-  return (
+  // Prefer the real THREE WebGL canvas in Studio (#viewport)
+  const gl =
+    window._fumocaGlRenderer?.domElement ||
+    window.renderer?.domElement ||
+    document.querySelector('#viewport canvas') ||
     document.querySelector('#viewer canvas') ||
-    document.querySelector('canvas.viewer') ||
-    document.querySelector('canvas') ||
-    window._fumocaViewer?.renderer?.domElement
-  );
+    document.querySelector('canvas');
+  return gl || null;
+}
+
+function forceRenderFrame() {
+  try {
+    const r = window._fumocaGlRenderer || window.renderer;
+    const s = window._fumocaScene || window.scene;
+    const c = window._fumocaCamera || window.camera;
+    const o = window._fumocaOrbitControls || window.controls;
+    if (o) o.update();
+    if (r && s && c) r.render(s, c);
+  } catch (_) {}
 }
 
 async function recordStatusVideo() {
@@ -245,51 +258,96 @@ async function recordStatusVideo() {
     $('svStatus').textContent = 'No viewer canvas';
     return;
   }
+  // WebGL must keep the buffer for drawImage (set in edit.html)
+  try {
+    const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+    // cannot change preserveDrawingBuffer after creation — relies on renderer flag
+  } catch (_) {}
+
   const seconds = Number($('svDur')?.value) || 8;
   const mixMusic = $('svMixMusic')?.checked !== false;
   const cfg = readMusicForm();
   $('svRecordBtn').disabled = true;
-  $('svStatus').textContent = `Recording ${seconds}s (9:16)…`;
+  $('svStatus').textContent = `Recording ${seconds}s (9:16)… keep this tab visible`;
   status('Recording status video…', 'busy');
 
-  // Compose 9:16 offscreen canvas
+  // Ensure at least one painted frame exists
+  forceRenderFrame();
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+
   const W = 1080;
   const H = 1920;
   const out = document.createElement('canvas');
   out.width = W;
   out.height = H;
-  const ctx = out.getContext('2d');
+  const ctx = out.getContext('2d', { alpha: false });
+
+  // Auto-orbit during capture
+  const controls = window._fumocaOrbitControls || window.controls;
+  const prevAuto = controls?.autoRotate;
+  const prevSpeed = controls?.autoRotateSpeed;
+  if (controls) {
+    controls.autoRotate = true;
+    controls.autoRotateSpeed = 4.0;
+  }
+
   let raf = 0;
+  let framesDrawn = 0;
   const draw = () => {
+    forceRenderFrame();
     ctx.fillStyle = '#05070b';
     ctx.fillRect(0, 0, W, H);
-    const cw = canvas.width || canvas.clientWidth;
-    const ch = canvas.height || canvas.clientHeight;
-    if (cw && ch) {
-      const scale = Math.max(W / cw, H / ch);
-      const dw = cw * scale;
-      const dh = ch * scale;
-      ctx.drawImage(canvas, (W - dw) / 2, (H - dh) / 2, dw, dh);
+    const cw = canvas.width;
+    const ch = canvas.height;
+    if (cw > 0 && ch > 0) {
+      // object-fit: cover into 9:16
+      const srcRatio = cw / ch;
+      const dstRatio = W / H;
+      let sx = 0, sy = 0, sW = cw, sH = ch;
+      if (srcRatio > dstRatio) {
+        sW = ch * dstRatio;
+        sx = (cw - sW) / 2;
+      } else {
+        sH = cw / dstRatio;
+        sy = (ch - sH) / 2;
+      }
+      try {
+        ctx.drawImage(canvas, sx, sy, sW, sH, 0, 0, W, H);
+        framesDrawn++;
+      } catch (e) {
+        console.warn('[StatusVideo] drawImage', e);
+      }
     }
-    ctx.fillStyle = 'rgba(0,0,0,.45)';
-    ctx.fillRect(0, H - 120, W, 120);
+    // Branding strip
+    const stripH = 120;
+    const g = ctx.createLinearGradient(0, H - stripH, 0, H);
+    g.addColorStop(0, 'rgba(0,0,0,0)');
+    g.addColorStop(1, 'rgba(0,0,0,0.88)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, H - stripH, W, stripH);
     ctx.fillStyle = '#c8ff00';
     ctx.font = 'bold 36px system-ui,sans-serif';
+    ctx.textAlign = 'left';
     ctx.fillText('FUMOCA', 48, H - 56);
-    ctx.fillStyle = 'rgba(255,255,255,.75)';
+    ctx.fillStyle = 'rgba(255,255,255,.8)';
     ctx.font = '24px system-ui,sans-serif';
     ctx.fillText('View in 3D · fumoca.co.za', 48, H - 24);
     raf = requestAnimationFrame(draw);
   };
   draw();
 
-  // Optional orbit
-  try {
-    window._fumocaOrbit?.(true);
-  } catch (_) {}
+  // Warm up a few frames before MediaRecorder starts
+  await new Promise((r) => setTimeout(r, 400));
 
-  const stream = out.captureStream(30);
-  // Mix audio if possible
+  let stream;
+  try {
+    stream = out.captureStream(30);
+  } catch (e) {
+    // Fallback: capture WebGL canvas directly (may not be 9:16)
+    console.warn('[StatusVideo] compositor stream failed, using GL canvas', e);
+    stream = canvas.captureStream(30);
+  }
+
   let audioCtx = null;
   try {
     if (mixMusic && cfg.url && window.AudioContext) {
@@ -298,38 +356,37 @@ async function recordStatusVideo() {
       const audio = new Audio(cfg.url);
       audio.crossOrigin = 'anonymous';
       audio.loop = true;
-      audio.volume = cfg.volume;
-      const start = cfg.trimStart || 0;
       await new Promise((res) => {
         audio.addEventListener('loadeddata', res, { once: true });
         audio.load();
-        setTimeout(res, 2000);
+        setTimeout(res, 1500);
       });
       try {
-        audio.currentTime = start;
+        audio.currentTime = cfg.trimStart || 0;
       } catch (_) {}
       const src = audioCtx.createMediaElementSource(audio);
       const gain = audioCtx.createGain();
-      gain.gain.value = cfg.volume;
+      gain.gain.value = cfg.volume ?? 0.35;
       src.connect(gain);
       gain.connect(dest);
       gain.connect(audioCtx.destination);
       await audio.play().catch(() => {});
-      dest.stream.getAudioTracks().forEach((t) => stream.addTrack(t));
-      // stop audio later
+      dest.stream.getAudioTracks().forEach((tr) => stream.addTrack(tr));
       stream._fumocaAudio = audio;
     }
   } catch (e) {
-    console.warn('[MusicShare] audio mix skip', e);
+    console.warn('[StatusVideo] audio mix skip', e);
   }
 
   const mime = MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')
     ? 'video/webm;codecs=vp9,opus'
     : MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')
       ? 'video/webm;codecs=vp8,opus'
-      : 'video/webm';
+      : MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
+        ? 'video/webm;codecs=vp9'
+        : 'video/webm';
   const chunks = [];
-  const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 6_000_000 });
+  const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 8_000_000 });
   rec.ondataavailable = (e) => {
     if (e.data?.size) chunks.push(e.data);
   };
@@ -348,18 +405,28 @@ async function recordStatusVideo() {
   });
 
   cancelAnimationFrame(raf);
-  try {
-    window._fumocaOrbit?.(false);
-  } catch (_) {}
+  if (controls) {
+    controls.autoRotate = prevAuto || false;
+    if (prevSpeed != null) controls.autoRotateSpeed = prevSpeed;
+  }
   try {
     stream._fumocaAudio?.pause();
   } catch (_) {}
   try {
     audioCtx?.close();
   } catch (_) {}
-  stream.getTracks().forEach((t) => t.stop());
+  try {
+    stream.getTracks().forEach((tr) => tr.stop());
+  } catch (_) {}
 
-  const blobUrl = URL.createObjectURL(blob);
+  if (framesDrawn < 5) {
+    $('svStatus').textContent = 'Capture may be blank — keep the Studio tab visible and try again';
+    status('Few frames captured', 'warn');
+  }
+
+  console.log('[StatusVideo] framesDrawn=', framesDrawn, 'blobMB=', (blob.size / 1e6).toFixed(2));
+
+const blobUrl = URL.createObjectURL(blob);
   const vid = $('svPreview');
   if (vid) {
     vid.src = blobUrl;

@@ -1683,7 +1683,7 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(60, 1, 0.001, 2000);
 camera.position.set(0, 2.5, 4.5);
 camera.lookAt(0, 0, 0);
-const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance', preserveDrawingBuffer: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 renderer.setClearColor(0x000000, 0);
 
@@ -1731,6 +1731,12 @@ controls.addEventListener('change', () => {
 // causing all dependent modules to receive undefined. Fixed in v76.
 window._fumocaOrbitControls  = controls;
 window._fumocaCamera         = camera;
+window._fumocaScene          = scene;
+window._fumocaGlRenderer     = renderer;  // real THREE.WebGLRenderer (status video capture)
+window.renderer = renderer;
+window.camera = camera;
+window.scene = scene;
+window.controls = controls;
 // Expose for auto-fix.js and other modules
 window._fumocaViewerCamera = camera;
 window._fumocaViewerControls = controls;
