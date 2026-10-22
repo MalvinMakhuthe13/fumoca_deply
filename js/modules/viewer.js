@@ -1,4 +1,4 @@
-﻿import r2 from '../r2Client.js';
+import r2 from '../r2Client.js';
 import * as Gaussiannif_files3D from 'https://cdn.jsdelivr.net/npm/@mkkellogg/gaussian-splats-3d@0.4.7/build/gaussian-splats-3d.module.js';
 import * as THREE from 'three';
 import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
@@ -1718,265 +1718,56 @@ if (cam) window._fumocaViewerCamera = cam;
 
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // FUMOCA PUBLIC PRODUCT VIEWER CONTROLS
-// Premium orbit / zoom / pan experience
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Editor-style: object is the focus, drag to rotate â€” NO auto-spin on load
+// =============================================================================
 
 if (controls) {
   window._fumocaViewerControls = controls;
   try { document.body.classList.add('product-free-orbit'); } catch (_) {}
 
+  controls.enabled = true;
   controls.enableRotate = true;
   controls.enableZoom = true;
-  controls.enablePan = false; // product feel: spin object, no sliding away
+  controls.enablePan = false;
 
   controls.enableDamping = true;
-  // Low damping = longer coast after flick (free / loose spin)
-  controls.dampingFactor = 0.028;
-  controls.rotateSpeed = 1.15;
-  controls.zoomSpeed = 1.05;
+  controls.dampingFactor = 0.08;
+  controls.rotateSpeed = 0.85;
+  controls.zoomSpeed = 1.0;
 
-  // Full spherical flip (top + bottom)
-  controls.minPolarAngle = 0;
-  controls.maxPolarAngle = Math.PI;
-
-  // Unlimited horizontal rotation
+  controls.minPolarAngle = 0.05;
+  controls.maxPolarAngle = Math.PI - 0.05;
   controls.minAzimuthAngle = -Infinity;
   controls.maxAzimuthAngle = Infinity;
 
-  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  // FUMOCA cinematic state
-  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  controls.autoRotate = false;
+  controls.autoRotateSpeed = 0;
 
-  let fumocaIdle = true;
-  let fumocaIdleTimer = null;
-  let fumocaHeroState = null;
-  let fumocaLastPointerUp = 0;
-  let fumocaIdleFrame = null;
+  try {
+    if (controls.target && typeof controls.target.set === 'function') {
+      if (!Number.isFinite(controls.target.x)) controls.target.set(0, 0, 0);
+    }
+  } catch (_) {}
 
-  const fumocaCanvas = controls.domElement;
+  if (typeof controls.update === 'function') controls.update();
 
-  // Save the actual camera/target state.
-  // We do this ourselves instead of relying on OrbitControls
-  // saveState(), because AutoFix may subsequently reposition
-  // the Gaussian camera.
-  const captureHeroState = () => {
-    if (!controls.object || !controls.target) return;
-
-    fumocaHeroState = {
-      position: controls.object.position.clone(),
-      target: controls.target.clone(),
-      zoom: controls.object.zoom
+  if (!window._fumocaOrbitDampRaf) {
+    const tick = () => {
+      try {
+        if (controls.autoRotate) controls.autoRotate = false;
+        if (typeof controls.update === 'function') controls.update();
+      } catch (_) {}
+      window._fumocaOrbitDampRaf = requestAnimationFrame(tick);
     };
-
-    console.log('[FUMOCA] Hero camera state captured', fumocaHeroState);
-  };
-
-  const restoreHeroState = () => {
-    if (!fumocaHeroState || !controls.object || !controls.target) {
-      console.warn('[FUMOCA] Hero state is not available yet');
-      return;
-    }
-
-    controls.autoRotate = false;
-    fumocaIdle = false;
-
-    controls.object.position.copy(fumocaHeroState.position);
-    controls.target.copy(fumocaHeroState.target);
-
-    if (typeof fumocaHeroState.zoom === 'number') {
-      controls.object.zoom = fumocaHeroState.zoom;
-      controls.object.updateProjectionMatrix();
-    }
-
-    if (typeof controls.clearDampedRotation === 'function') {
-      controls.clearDampedRotation();
-    }
-
-    if (typeof controls.clearDampedPan === 'function') {
-      controls.clearDampedPan();
-    }
-
-    if (typeof controls.update === 'function') {
-      controls.update();
-    }
-
-    console.log('[FUMOCA] Returned to hero camera');
-
-    scheduleIdleOrbit();
-  };
-
-  const stopIdleOrbit = () => {
-    fumocaIdle = false;
-    controls.autoRotate = false;
-
-    if (fumocaIdleTimer) {
-      clearTimeout(fumocaIdleTimer);
-      fumocaIdleTimer = null;
-    }
-
-    if (fumocaIdleFrame !== null) {
-      cancelAnimationFrame(fumocaIdleFrame);
-      fumocaIdleFrame = null;
-    }
-  };
-
-  const runIdleOrbitFrame = () => {
-    if (!fumocaIdle || !controls.autoRotate) {
-      fumocaIdleFrame = null;
-      return;
-    }
-
-    if (typeof controls.update === 'function') {
-      controls.update();
-    }
-
-    fumocaIdleFrame = requestAnimationFrame(runIdleOrbitFrame);
-  };
-
-  const startIdleOrbit = () => {
-    fumocaIdle = true;
-    controls.autoRotate = true;
-    controls.autoRotateSpeed = 1.0;
-
-    if (typeof controls.update === 'function') {
-      controls.update();
-    }
-
-    if (fumocaIdleFrame === null) {
-      fumocaIdleFrame = requestAnimationFrame(runIdleOrbitFrame);
-    }
-
-    console.log('[FUMOCA] Idle orbit resumed', {
-      autoRotate: controls.autoRotate,
-      autoRotateSpeed: controls.autoRotateSpeed
-    });
-  };
-
-  const scheduleIdleOrbit = () => {
-    if (fumocaIdleTimer) {
-      clearTimeout(fumocaIdleTimer);
-    }
-
-    fumocaIdleTimer = setTimeout(() => {
-      startIdleOrbit();
-    }, 4500);
-  };
-
-  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  // Capture the final hero camera AFTER the viewer has finished
-  // its initial fitting.
-  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
-const beginFumocaCinematic = () => {
-  captureHeroState();
-
-  const hint = document.getElementById('hint');
-
-  if (hint) {
-    // Product mode: no on-screen control chrome / drag hints
-    hint.textContent = '';
-    hint.classList.add('hidden');
-
-    setTimeout(() => {
-      hint.classList.add('hidden');
-    }, 4200);
+    window._fumocaOrbitDampRaf = requestAnimationFrame(tick);
   }
-
-  // Give the Gaussian viewer time to finish its initial camera fitting.
-  // Then start the actual FUMOCA idle-orbit loop.
-  setTimeout(() => {
-    if (!controls || !controls.object) {
-      console.warn('[FUMOCA] Cinematic start skipped — controls not ready');
-      return;
-    }
-
-    controls.enabled = true;
-    controls.enableRotate = true;
-    controls.enableZoom = true;
-    controls.enablePan = true;
-
-    console.log('[FUMOCA] Starting idle orbit loop');
-
-    startIdleOrbit();
-  }, 2500);
-};
-
-// Start cinematic mode only once.
-let fumocaCinematicStarted = false;
-
-const startFumocaCinematicOnce = () => {
-  if (fumocaCinematicStarted) return;
-
-  if (!controls || !controls.object) {
-    return;
-  }
-
-  fumocaCinematicStarted = true;
-  beginFumocaCinematic();
-};
-
-if (window._fumocaViewerCamera && window._fumocaViewerControls) {
-  startFumocaCinematicOnce();
-} else {
-  window.addEventListener('fumoca:viewerReady', startFumocaCinematicOnce, { once: true });
-}
-
-
-  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  // User interaction
-  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
-  if (fumocaCanvas) {
-    fumocaCanvas.addEventListener('pointerdown', () => {
-      stopIdleOrbit();
-    }, { passive: true });
-
-    fumocaCanvas.addEventListener('wheel', () => {
-      stopIdleOrbit();
-      scheduleIdleOrbit();
-    }, { passive: true });
-
-    fumocaCanvas.addEventListener('pointerup', () => {
-      const now = performance.now();
-      const delta = now - fumocaLastPointerUp;
-
-      // Double-click / double-tap.
-      if (delta > 0 && delta < 320) {
-        restoreHeroState();
-      } else {
-        scheduleIdleOrbit();
-      }
-
-      fumocaLastPointerUp = now;
-    }, { passive: true });
-
-    fumocaCanvas.addEventListener('pointercancel', () => {
-      scheduleIdleOrbit();
-    }, { passive: true });
-  }
-
-  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  // Cinematic idle orbit
-  //
-  // We deliberately rotate the existing OrbitControls rather
-  // than introducing another camera/controller.
-  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
-
 
   console.log(
-    '%c[FUMOCA] Premium orbit controls enabled',
+    '%c[FUMOCA] Editor-style orbit (object focus, no auto-spin)',
     'color:#c8ff00;font-weight:800',
-    {
-      fullVerticalOrbit: true,
-      fullHorizontalOrbit: true,
-      idleOrbit: true,
-      idleSpeed: 0.08,
-      damping: controls.dampingFactor
-    }
+    { autoRotate: false, rotateSpeed: controls.rotateSpeed, damping: controls.dampingFactor }
   );
 }
-
 window._fumocaRenderer = {
   getPositions: () => activeGaussianPositions,
   camera: cam,
