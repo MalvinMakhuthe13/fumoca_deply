@@ -1718,12 +1718,56 @@ if (cam) window._fumocaViewerCamera = cam;
 
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // FUMOCA PUBLIC PRODUCT VIEWER CONTROLS
-// Editor-style: object is the focus, drag to rotate â€” NO auto-spin on load
+// Full 360 around subject, framed on load, no drift off-screen, no auto-spin
 // =============================================================================
 
 if (controls) {
   window._fumocaViewerControls = controls;
   try { document.body.classList.add('product-free-orbit'); } catch (_) {}
+
+  const fitSubjectInView = () => {
+    try {
+      const pos = activeGaussianPositions;
+      let cx = 0, cy = 0, cz = 0, n = 0;
+      let minX = Infinity, minY = Infinity, minZ = Infinity;
+      let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+      if (pos && pos.length >= 3) {
+        const count = Math.floor(pos.length / 3);
+        const step = Math.max(1, Math.floor(count / 25000));
+        for (let i = 0; i < count; i += step) {
+          const x = pos[i * 3], y = pos[i * 3 + 1], z = pos[i * 3 + 2];
+          if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) continue;
+          cx += x; cy += y; cz += z; n++;
+          if (x < minX) minX = x; if (y < minY) minY = y; if (z < minZ) minZ = z;
+          if (x > maxX) maxX = x; if (y > maxY) maxY = y; if (z > maxZ) maxZ = z;
+        }
+      }
+      if (n < 8) {
+        if (controls.target?.set) controls.target.set(0, 0, 0);
+        if (cam?.position) {
+          const d = Math.max(1.5, cam.position.length() || 3);
+          cam.position.set(0, d * 0.35, d);
+        }
+      } else {
+        cx /= n; cy /= n; cz /= n;
+        const dx = maxX - minX, dy = maxY - minY, dz = maxZ - minZ;
+        const radius = Math.max(0.15, 0.5 * Math.sqrt(dx * dx + dy * dy + dz * dz));
+        if (controls.target?.set) controls.target.set(cx, cy, cz);
+        const dist = Math.max(radius * 2.4, 0.8);
+        if (cam?.position) {
+          cam.position.set(cx, cy + radius * 0.25, cz + dist);
+          if (typeof cam.lookAt === 'function') cam.lookAt(cx, cy, cz);
+          if (typeof cam.updateProjectionMatrix === 'function') cam.updateProjectionMatrix();
+        }
+        if ('minDistance' in controls) controls.minDistance = Math.max(radius * 0.35, 0.05);
+        if ('maxDistance' in controls) controls.maxDistance = Math.max(radius * 12, dist * 3);
+      }
+      if (typeof controls.update === 'function') controls.update();
+      console.log('%c[FUMOCA] Subject framed in view', 'color:#c8ff00', { n, target: controls.target });
+    } catch (e) {
+      console.warn('[FUMOCA] fitSubjectInView failed', e);
+    }
+  };
 
   controls.enabled = true;
   controls.enableRotate = true;
@@ -1732,29 +1776,26 @@ if (controls) {
 
   controls.enableDamping = true;
   controls.dampingFactor = 0.08;
-  controls.rotateSpeed = 0.85;
+  controls.rotateSpeed = 1.0;
   controls.zoomSpeed = 1.0;
 
-  controls.minPolarAngle = 0.05;
-  controls.maxPolarAngle = Math.PI - 0.05;
+  controls.minPolarAngle = 0;
+  controls.maxPolarAngle = Math.PI;
   controls.minAzimuthAngle = -Infinity;
   controls.maxAzimuthAngle = Infinity;
 
   controls.autoRotate = false;
   controls.autoRotateSpeed = 0;
 
-  try {
-    if (controls.target && typeof controls.target.set === 'function') {
-      if (!Number.isFinite(controls.target.x)) controls.target.set(0, 0, 0);
-    }
-  } catch (_) {}
-
-  if (typeof controls.update === 'function') controls.update();
+  fitSubjectInView();
+  setTimeout(fitSubjectInView, 600);
+  setTimeout(fitSubjectInView, 1600);
 
   if (!window._fumocaOrbitDampRaf) {
     const tick = () => {
       try {
         if (controls.autoRotate) controls.autoRotate = false;
+        if (controls.enablePan) controls.enablePan = false;
         if (typeof controls.update === 'function') controls.update();
       } catch (_) {}
       window._fumocaOrbitDampRaf = requestAnimationFrame(tick);
@@ -1763,9 +1804,9 @@ if (controls) {
   }
 
   console.log(
-    '%c[FUMOCA] Editor-style orbit (object focus, no auto-spin)',
+    '%c[FUMOCA] Full 360 orbit locked to subject (no drift, no auto-spin)',
     'color:#c8ff00;font-weight:800',
-    { autoRotate: false, rotateSpeed: controls.rotateSpeed, damping: controls.dampingFactor }
+    { autoRotate: false, pan: false, polar: [0, Math.PI] }
   );
 }
 window._fumocaRenderer = {
