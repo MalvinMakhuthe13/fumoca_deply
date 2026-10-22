@@ -197,7 +197,7 @@ const FumocaGaussianRenderer = (() => {
       vertexShader:   VERT,
       fragmentShader: FRAG,
       transparent:    true,
-      depthWrite:     false,
+      depthWrite:     true,  // solid shell while editing (reduces x-ray melt)
       depthTest:      true,
       blending:       T.NormalBlending,
       vertexColors:   false,
@@ -252,10 +252,10 @@ const FumocaGaussianRenderer = (() => {
         b = Math.max(0, Math.min(1, b - wb * 0.06));
       }
       col[idx*3]   = r;  col[idx*3+1] = g;  col[idx*3+2] = b;
-      sizes[idx]    = (S.scale?.[i] || 0.015) * (S.ptScale || 1.0);
-      for (let c = 0; c < 3; c++) scaleXYZ[idx*3+c] = S.scaleXYZ?.[i*3+c] || S.scale?.[i] || 0.015;
+      sizes[idx]    = Math.min(0.04, (S.scale?.[i] || 0.006) * (S.ptScale || 1.0));
+      for (let c = 0; c < 3; c++) scaleXYZ[idx*3+c] = Math.min(0.025, S.scaleXYZ?.[i*3+c] || S.scale?.[i] || 0.006);
       for (let c = 0; c < 4; c++) rotation[idx*4+c] = S.rotation?.[i*4+c] ?? (c === 0 ? 1 : 0);
-      opacities[idx]= S.opacity?.[i] ?? 1.0;
+      opacities[idx]= Math.max(0.85, S.opacity?.[i] ?? 1.0);
       selected[idx] = S.selected?.[i] ? 1.0 : 0.0;
       idx++;
     }
@@ -343,7 +343,7 @@ const FumocaGaussianRenderer = (() => {
   let _lastSortEye   = [Infinity,Infinity,Infinity];
   let _lastSortDirection = [0,0,-1];
   let _currentIndices= null;
-  const SORT_MOVE_THRESHOLD = 0.015;
+  const SORT_MOVE_THRESHOLD = 0.03;
 
   function _getSortWorker() {
     if (_sortWorker) return _sortWorker;
@@ -360,20 +360,13 @@ const FumocaGaussianRenderer = (() => {
    * @param onSorted  callback(Uint32Array indices) — update geometry on main thread
    * @param sceneSize used for threshold
    */
-  let _sortQueued = null; // {positions,N,eye,onSorted,sceneSize,direction} if moved while pending
-
   function requestDepthSort(positions, N, eye, onSorted, sceneSize=5, direction=[0,0,-1]) {
     if (!positions || N < 2) return;
     const dx=eye[0]-_lastSortEye[0], dy=eye[1]-_lastSortEye[1], dz=eye[2]-_lastSortEye[2];
     const moved = Math.sqrt(dx*dx+dy*dy+dz*dz);
     const facing = direction[0]*_lastSortDirection[0] + direction[1]*_lastSortDirection[1] + direction[2]*_lastSortDirection[2];
-    // More sensitive: re-sort on smaller moves / turns so orbit stays solid
-    if (moved < sceneSize * SORT_MOVE_THRESHOLD * 0.35 && facing > 0.995 && _currentIndices?.length === N) return;
-    if (_sortPending) {
-      // Queue latest camera — apply as soon as current sort finishes
-      _sortQueued = { positions, N, eye: [...eye], onSorted, sceneSize, direction: [...direction] };
-      return;
-    }
+    if (moved < sceneSize * SORT_MOVE_THRESHOLD && facing > 0.999 && _currentIndices?.length === N) return; // not moved enough
+    if (_sortPending) return;
     _sortPending   = true;
     _lastSortEye   = [...eye];
     _lastSortDirection = [...direction];
@@ -384,12 +377,7 @@ const FumocaGaussianRenderer = (() => {
     w.onmessage = (e) => {
       _sortPending    = false;
       _currentIndices = e.data.indices;
-      try { onSorted(_currentIndices); } catch (err) { console.warn(err); }
-      if (_sortQueued) {
-        const q = _sortQueued;
-        _sortQueued = null;
-        requestDepthSort(q.positions, q.N, q.eye, q.onSorted, q.sceneSize, q.direction);
-      }
+      onSorted(_currentIndices);
     };
     w.postMessage({ pos: posCopy, eye, direction, N }, [posCopy.buffer]);
   }
@@ -428,10 +416,10 @@ const FumocaGaussianRenderer = (() => {
       let b=pc&&pc[i*3+2]>=0?pc[i*3+2]:S.colors[i*3+2];
       if(S.whiteBalance){const wb=S.whiteBalance/100;r=Math.max(0,Math.min(1,r+wb*0.06));b=Math.max(0,Math.min(1,b-wb*0.06));}
       col[out*3]=r; col[out*3+1]=g; col[out*3+2]=b;
-      sizes[out]=( S.scale?.[i]||0.015)*(S.ptScale||1.0);
-      for (let c=0;c<3;c++) scaleXYZ[out*3+c]=S.scaleXYZ?.[i*3+c]||S.scale?.[i]||0.015;
+      sizes[out]=Math.min(0.04,( S.scale?.[i]||0.006)*(S.ptScale||1.0));
+      for (let c=0;c<3;c++) scaleXYZ[out*3+c]=Math.min(0.025,S.scaleXYZ?.[i*3+c]||S.scale?.[i]||0.006);
       for (let c=0;c<4;c++) rotation[out*4+c]=S.rotation?.[i*4+c]??(c===0?1:0);
-      opacities[out]=S.opacity?.[i]??1.0;
+      opacities[out]=Math.max(0.85,S.opacity?.[i]??1.0);
       selected[out]=S.selected?.[i]?1.0:0.0;
       const sc=S.scale?.[i]||0.015;
       sharpness[out]=Math.max(0,Math.min(1,1.0-Math.min(sc/0.08,1.0)));

@@ -764,8 +764,8 @@ input[type=range].amber::-webkit-slider-thumb{background:var(--amber);box-shadow
           <div class="hint">Heal holes without re-capturing. Neighbours match local splat colour; add a photo to paint real surface colour (e.g. bonnet).</div>
           <div class="ctrl-row"><span class="ctrl-label">Colour source</span></div>
           <select id="fillColourMode" style="width:100%;padding:6px 8px;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text);font:inherit;font-size:11px;margin-bottom:8px">
-            <option value="neighbours">Neighbours only (heal)</option>
-            <option value="hybrid" selected>Hybrid (photo + neighbours)</option>
+            <option value="neighbours" selected>Neighbours only (heal)</option>
+            <option value="hybrid">Hybrid (photo + neighbours)</option>
             <option value="image">Photo only</option>
           </select>
           <div class="ctrl-row"><span class="ctrl-label">Density</span><span class="ctrl-val" id="fillDensityVal">1.0×</span></div>
@@ -1752,34 +1752,14 @@ transformControls.setSize(0.85);
 const transformTarget = new THREE.Object3D();
 scene.add(transformTarget);
 let _shViewColorTimer = null;
-let _sortRaf = null;
-let _sortWhileOrbiting = false;
-let _lastOrbitEye = null;
-// Keep depth-sort fresh WHILE orbiting so the car does not "melt" until you stop.
-function _scheduleGaussianSort(immediate = false) {
-  if (!window.FumocaGaussianRenderer?.isEnabled()) return;
-  if (immediate) {
-    if (S?.shCoefficients) window.FumocaGaussianRenderer.updateViewColors?.(S, camera);
-    _requestGaussianDepthSort();
-    return;
-  }
-  if (_sortRaf) return;
-  _sortRaf = requestAnimationFrame(() => {
-    _sortRaf = null;
-    if (S?.shCoefficients) window.FumocaGaussianRenderer.updateViewColors?.(S, camera);
-    _requestGaussianDepthSort();
-  });
-}
-controls.addEventListener('start', () => { _sortWhileOrbiting = true; });
-controls.addEventListener('end', () => {
-  _sortWhileOrbiting = false;
-  // Final high-quality sort + SH when damping settles
-  clearTimeout(_shViewColorTimer);
-  _shViewColorTimer = setTimeout(() => _scheduleGaussianSort(true), 40);
-});
 controls.addEventListener('change', () => {
   if (!window.FumocaGaussianRenderer?.isEnabled()) return;
-  _scheduleGaussianSort(false);
+  clearTimeout(_shViewColorTimer);
+  _shViewColorTimer = setTimeout(() => {
+    const gr = window.FumocaGaussianRenderer;
+    if (S?.shCoefficients) gr?.updateViewColors(S, camera);
+    _requestGaussianDepthSort();
+  }, 180);
 });
 
 // ─── EXPOSE CAMERA/CONTROLS/RENDERER GLOBALS (must be after declarations) ───
@@ -2625,8 +2605,8 @@ function parsePLY(buffer) {
   const positions = new Float32Array(posAttr.array);
   const colors    = new Float32Array(count * 3);
   const opacity   = new Float32Array(count).fill(1);
-  const scale     = new Float32Array(count).fill(0.012);
-  const scaleXYZ  = new Float32Array(count * 3).fill(0.012);
+  const scale     = new Float32Array(count).fill(0.006);
+  const scaleXYZ  = new Float32Array(count * 3).fill(0.006);
   const rotation  = new Float32Array(count * 4);
   for (let i = 0; i < count; i++) rotation[i * 4] = 1;
 
@@ -2989,7 +2969,26 @@ async function loadFile(file, urlOverride) {
 }
 
 // ─── GEOMETRY REBUILD ────────────────────────────────────────────────────────
+
+/** PLY point clouds in Photoreal mode look x-ray/melted if scales are large. Tighten for solid look. */
+function _tightenPlyScalesForSolidView() {
+  if (!S?.scale || S.fileType !== 'ply') return;
+  // Only auto-tighten if values look like defaults / oversized for a car-sized scene
+  let maxSc = 0;
+  for (let i = 0; i < Math.min(S.scale.length, 5000); i++) if (S.alive?.[i] !== 0) maxSc = Math.max(maxSc, S.scale[i] || 0);
+  if (maxSc > 0.025) {
+    for (let i = 0; i < S.scale.length; i++) {
+      S.scale[i] = Math.min(S.scale[i] || 0.006, 0.012);
+      if (S.scaleXYZ) {
+        S.scaleXYZ[i * 3] = S.scaleXYZ[i * 3 + 1] = S.scaleXYZ[i * 3 + 2] = S.scale[i];
+      }
+    }
+  }
+}
+
 function rebuildGeometry() {
+  if (S.fileType === 'ply' && window.FumocaGaussianRenderer?.isEnabled()) _tightenPlyScalesForSolidView();
+
   window.rebuildGeometry = rebuildGeometry; // keep window ref up to date
   // Invalidate hotspot point cloud cache so anchors use fresh edited positions
   if (window.FumocaHotspotProCache !== undefined) {
@@ -4475,15 +4474,6 @@ function animate(now = performance.now()) {
   if (now - _lastViewportRender < frameInterval) return;
   _lastViewportRender = now;
   controls.update();
-  // Continuous depth-sort while camera is moving (damping counts as moving)
-  if (window.FumocaGaussianRenderer?.isEnabled() && (_sortWhileOrbiting || controls.enableDamping)) {
-    const eye = camera.position;
-    if (!_lastOrbitEye) _lastOrbitEye = eye.clone();
-    if (eye.distanceToSquared(_lastOrbitEye) > 1e-6) {
-      _lastOrbitEye.copy(eye);
-      _scheduleGaussianSort(false);
-    }
-  }
   renderer.render(scene, camera);
   // Reference photo overlay for Fill / collect-from-image
   try {
