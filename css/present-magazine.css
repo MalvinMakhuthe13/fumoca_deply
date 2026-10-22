@@ -1,8 +1,7 @@
-/* FUMOCA Present — magazine text + Matterport-style nav */
+/* FUMOCA Present — clean magazine text + Matterport nav */
 
 @import url('https://fonts.googleapis.com/css2?family=Anton&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600;700;800&display=swap');
 
-/* ── Magazine text layer ───────────────────────────────────────── */
 .mt-layer {
   position: absolute;
   inset: 0;
@@ -15,48 +14,54 @@
   position: absolute;
   pointer-events: none;
   will-change: left, top, transform, opacity;
+  max-width: min(42vw, 520px);
 }
 
 .mt-item.mt-cover {
   font-family: 'Anton', Impact, sans-serif;
-  letter-spacing: 0.02em;
-  line-height: 0.9;
+  letter-spacing: 0.01em;
+  line-height: 0.88;
   text-transform: uppercase;
+  text-shadow: 0 2px 4px rgba(0,0,0,.5), 0 8px 32px rgba(0,0,0,.45);
 }
 
 .mt-item.mt-masthead {
   font-family: 'Anton', Impact, sans-serif;
-  line-height: 0.95;
+  line-height: 0.92;
+  text-shadow: 0 4px 24px rgba(0,0,0,.55);
 }
 
 .mt-item.mt-kicker {
   font-family: 'IBM Plex Mono', monospace;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
+  text-shadow: 0 1px 8px rgba(0,0,0,.6);
 }
 
 .mt-item.mt-deck {
   font-family: 'Inter', system-ui, sans-serif;
   font-weight: 500;
   white-space: normal;
-  max-width: 36ch;
+  max-width: 28ch;
+  line-height: 1.35;
+  text-shadow: 0 1px 12px rgba(0,0,0,.55);
 }
 
 .mt-item.mt-badge {
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: 'Inter', system-ui, sans-serif !important;
   font-size: 11px !important;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  padding: 6px 12px;
+  font-weight: 700 !important;
+  letter-spacing: 0.14em !important;
+  text-transform: uppercase !important;
+  padding: 6px 11px;
   border-radius: 999px;
-  background: rgba(0, 0, 0, 0.55);
-  border: 1px solid rgba(200, 255, 0, 0.35);
+  background: rgba(0,0,0,.55);
+  border: 1px solid rgba(200,255,0,.4);
   color: #c8ff00 !important;
   text-shadow: none !important;
+  max-width: none;
 }
 
-/* ── Matterport-style nav stops ────────────────────────────────── */
 .pn-layer {
   position: absolute;
   inset: 0;
@@ -76,49 +81,45 @@
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  transition: opacity 0.2s ease, transform 0.25s ease;
-  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.45));
+  transition: opacity .2s ease;
+  filter: drop-shadow(0 4px 12px rgba(0,0,0,.45));
 }
 
 .pn-disc {
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   border-radius: 999px;
   display: grid;
   place-items: center;
-  font: 700 12px/1 'Inter', system-ui, sans-serif;
+  font: 700 11px/1 'Inter', system-ui, sans-serif;
   color: #0a0c10;
   background: #fff;
-  border: 2px solid rgba(255, 255, 255, 0.95);
-  box-shadow:
-    0 0 0 3px rgba(0, 0, 0, 0.25),
-    0 0 20px rgba(200, 255, 0, 0.15);
-  transition: transform 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+  border: 2px solid rgba(255,255,255,.95);
+  box-shadow: 0 0 0 3px rgba(0,0,0,.22);
+  transition: transform .2s ease, background .2s ease, box-shadow .2s ease;
 }
 
 .pn-stop:hover .pn-disc,
 .pn-stop.active .pn-disc {
   background: #c8ff00;
-  transform: scale(1.12);
-  box-shadow:
-    0 0 0 4px rgba(200, 255, 0, 0.25),
-    0 0 28px rgba(200, 255, 0, 0.4);
+  transform: scale(1.1);
+  box-shadow: 0 0 0 4px rgba(200,255,0,.22), 0 0 22px rgba(200,255,0,.35);
 }
 
 .pn-label {
-  max-width: 140px;
-  padding: 5px 10px;
-  border-radius: 8px;
-  background: rgba(8, 10, 14, 0.88);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  max-width: 120px;
+  padding: 4px 9px;
+  border-radius: 7px;
+  background: rgba(8,10,14,.9);
+  border: 1px solid rgba(255,255,255,.1);
   color: #f2efe6;
-  font: 600 11px/1.2 'Inter', system-ui, sans-serif;
+  font: 600 10px/1.2 'Inter', system-ui, sans-serif;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   opacity: 0;
-  transform: translateY(4px);
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  transform: translateY(3px);
+  transition: opacity .18s ease, transform .18s ease;
   pointer-events: none;
 }
 
@@ -128,44 +129,74 @@
   transform: translateY(0);
 }
 
-.pn-stop.pn-pulse .pn-disc {
-  animation: pnPulse 0.7s ease;
-}
+.pn-stop.pn-pulse .pn-disc { animation: pnPulse .65s ease; }
 
 @keyframes pnPulse {
   0% { transform: scale(1); }
-  40% { transform: scale(1.28); }
-  100% { transform: scale(1.12); }
+  40% { transform: scale(1.22); }
+  100% { transform: scale(1.1); }
 }
 
-/* Present panel helpers (optional UI chrome) */
-.present-mag-tools {
+/* Clean Present toolbar — left side, above timeline */
+#fumocaPresentBar {
+  position: absolute;
+  left: 12px;
+  bottom: 88px;
+  z-index: 42;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 280px;
+  pointer-events: auto;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+#fumocaPresentBar .fp-card {
+  background: rgba(8,10,14,.92);
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 12px;
+  padding: 10px 12px;
+  backdrop-filter: blur(16px);
+  box-shadow: 0 8px 28px rgba(0,0,0,.4);
+}
+
+#fumocaPresentBar .fp-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,.45);
+  margin: 0 0 8px;
+}
+
+#fumocaPresentBar .fp-row {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 8px;
 }
 
-.present-mag-tools button {
-  flex: 1 1 auto;
-  min-width: 72px;
-  padding: 8px 10px;
+#fumocaPresentBar button {
+  flex: 0 0 auto;
+  padding: 7px 11px;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.06);
-  color: #f0f0f0;
+  border: 1px solid rgba(255,255,255,.1);
+  background: rgba(255,255,255,.06);
+  color: #e8e8e8;
   font: 600 11px/1 'Inter', system-ui, sans-serif;
   cursor: pointer;
 }
 
-.present-mag-tools button:hover {
-  background: rgba(200, 255, 0, 0.12);
-  border-color: rgba(200, 255, 0, 0.35);
+#fumocaPresentBar button:hover {
+  background: rgba(200,255,0,.12);
+  border-color: rgba(200,255,0,.35);
   color: #c8ff00;
 }
 
-.present-mag-tools button.primary {
+#fumocaPresentBar button.primary {
   background: #c8ff00;
   color: #0a0c10;
   border-color: transparent;
 }
+
+/* Hide old tools jammed into timeline */
+.present-mag-tools { display: none !important; }
