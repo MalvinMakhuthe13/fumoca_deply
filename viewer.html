@@ -238,6 +238,18 @@
   #hint { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); z-index:10; background:var(--glass); border:1px solid var(--border); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); border-radius:100px; padding:8px 20px; font-size:12px; color:rgba(255,255,255,.52); letter-spacing:.05em; pointer-events:none; transition:opacity 1s ease; }
   #hint.hidden { opacity:0; }
 
+  /* Product free-orbit: no control chrome on screen */
+  body.product-free-orbit #hint,
+  body.product-free-orbit #fumocFAB,
+  body.product-free-orbit #bottomBar,
+  body.product-free-orbit .viewer-controls,
+  body.product-free-orbit .orbit-hint {
+    opacity: 0 !important;
+    pointer-events: none !important;
+    visibility: hidden !important;
+  }
+
+
   /* ── PANEL BASE ── */
   #studioPanel,#editPanel {
     position:fixed; right:16px; top:92px; z-index:10; width:min(380px,calc(100vw - 32px));

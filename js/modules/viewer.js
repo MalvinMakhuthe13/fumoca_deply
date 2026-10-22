@@ -1287,8 +1287,10 @@ function mountMeshViewer(mesh, calibration) {
   Object.assign(_meshRenderer.domElement.style, { position: 'absolute', inset: '0', width: '100%', height: '100%', zIndex: '3' });
   container.appendChild(_meshRenderer.domElement);
   _meshControls = new OrbitControls(_meshCamera, _meshRenderer.domElement);
-  _meshControls.enableDamping = true; _meshControls.dampingFactor = 0.07;
-  _meshControls.rotateSpeed = 0.55; _meshControls.zoomSpeed = 1.1;
+  _meshControls.enableDamping = true; _meshControls.dampingFactor = 0.028;
+  _meshControls.rotateSpeed = 1.15; _meshControls.zoomSpeed = 1.05;
+  _meshControls.enablePan = false;
+  _meshControls.minPolarAngle = 0; _meshControls.maxPolarAngle = Math.PI;
   geo.computeBoundingSphere();
   const r = geo.boundingSphere.radius || 1;
   const c = geo.boundingSphere.center;
@@ -1394,8 +1396,10 @@ async function mountPlyViewer(url) {
   Object.assign(_plyRenderer.domElement.style, { position:'absolute', inset:'0', width:'100%', height:'100%', zIndex:'2' });
   container.appendChild(_plyRenderer.domElement);
   _plyControls = new OrbitControls(_plyCamera, _plyRenderer.domElement);
-  _plyControls.enableDamping = true; _plyControls.dampingFactor = 0.07;
-  _plyControls.rotateSpeed = 0.55; _plyControls.zoomSpeed = 1.1;
+  _plyControls.enableDamping = true; _plyControls.dampingFactor = 0.028;
+  _plyControls.rotateSpeed = 1.15; _plyControls.zoomSpeed = 1.05;
+  _plyControls.enablePan = false;
+  _plyControls.minPolarAngle = 0; _plyControls.maxPolarAngle = Math.PI;
   setLoading('Loading point cloudâ€¦');
   try {
     // Fetch manually so PLYLoader.parse() can access ALL attributes including f_dc_*
@@ -1719,19 +1723,23 @@ if (cam) window._fumocaViewerCamera = cam;
 
 if (controls) {
   window._fumocaViewerControls = controls;
+  try { document.body.classList.add('product-free-orbit'); } catch (_) {}
 
   controls.enableRotate = true;
   controls.enableZoom = true;
-  controls.enablePan = true;
+  controls.enablePan = false; // product feel: spin object, no sliding away
 
   controls.enableDamping = true;
-  controls.dampingFactor = 0.05;
+  // Low damping = longer coast after flick (free / loose spin)
+  controls.dampingFactor = 0.028;
+  controls.rotateSpeed = 1.15;
+  controls.zoomSpeed = 1.05;
 
-  // Full spherical inspection.
-  controls.minPolarAngle = 0.001;
-  controls.maxPolarAngle = Math.PI - 0.001;
+  // Full spherical flip (top + bottom)
+  controls.minPolarAngle = 0;
+  controls.maxPolarAngle = Math.PI;
 
-  // Unlimited horizontal rotation.
+  // Unlimited horizontal rotation
   controls.minAzimuthAngle = -Infinity;
   controls.maxAzimuthAngle = Infinity;
 
@@ -1865,8 +1873,9 @@ const beginFumocaCinematic = () => {
   const hint = document.getElementById('hint');
 
   if (hint) {
-    hint.textContent = 'Drag to explore';
-    hint.classList.remove('hidden');
+    // Product mode: no on-screen control chrome / drag hints
+    hint.textContent = '';
+    hint.classList.add('hidden');
 
     setTimeout(() => {
       hint.classList.add('hidden');
