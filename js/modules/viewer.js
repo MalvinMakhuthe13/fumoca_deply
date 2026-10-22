@@ -3,6 +3,7 @@ import * as Gaussiannif_files3D from 'https://cdn.jsdelivr.net/npm/@mkkellogg/ga
 import * as THREE from 'three';
 import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { TrackballControls } from 'three/addons/controls/TrackballControls.js';
 import { supabase } from '../supabaseClient.js';
 import { triggerRevealForViewer } from './reveal-hook.js';
 import FumocDecoder from './fumoc-decoder.js';
@@ -1712,7 +1713,7 @@ async function mountInteractiveViewer(forceReload = false) {
         }
         // Expose camera and controls for AutoFix camera fit and shim population
 const cam      = viewerInstance.camera;
-const controls = viewerInstance.controls || viewerInstance.orbitControls;
+let controls = viewerInstance.controls || viewerInstance.orbitControls;
 
 if (cam) window._fumocaViewerCamera = cam;
 
@@ -1772,23 +1773,49 @@ if (controls) {
       console.warn('[FUMOCA] fitSubjectInView failed', e);
     }
   };
+  try {
+    const el = controls.domElement || viewerInstance?.renderer?.domElement || stageHost || stageEl;
+    if (el && cam && typeof TrackballControls === 'function') {
+      const prevTarget = controls.target?.clone?.() || null;
+      try { controls.dispose?.(); } catch (_) {}
+      const tb = new TrackballControls(cam, el);
+      tb.rotateSpeed = 2.2;
+      tb.zoomSpeed = 1.3;
+      tb.panSpeed = 0.0;
+      tb.noPan = true;
+      tb.staticMoving = false;
+      tb.dynamicDampingFactor = 0.12;
+      if (prevTarget) tb.target.copy(prevTarget);
+      tb.update();
+      viewerInstance.controls = tb;
+      if (viewerInstance.orbitControls) viewerInstance.orbitControls = tb;
+      window._fumocaViewerControls = tb;
+      controls = tb;
+      console.log('%c[FUMOCA] Trackball free-tumble enabled', 'color:#c8ff00;font-weight:800');
+    }
+  } catch (e) {
+    console.warn('[FUMOCA] Trackball swap failed, using free orbit', e);
+  }
+
   controls.enabled = true;
-  controls.enableRotate = true;
-  controls.enableZoom = true;
-  controls.enablePan = false;
+  if ('enableRotate' in controls) controls.enableRotate = true;
+  if ('enableZoom' in controls) controls.enableZoom = true;
+  if ('enablePan' in controls) controls.enablePan = false;
+  if ('noPan' in controls) controls.noPan = true;
 
-  controls.enableDamping = true;
-  controls.dampingFactor = 0.08;
-  controls.rotateSpeed = 1.0;
-  controls.zoomSpeed = 1.0;
+  if ('enableDamping' in controls) controls.enableDamping = true;
+  if ('dampingFactor' in controls) controls.dampingFactor = 0.04;
+  if ('dynamicDampingFactor' in controls) controls.dynamicDampingFactor = 0.12;
+  if ('rotateSpeed' in controls) controls.rotateSpeed = 2.0;
+  if ('zoomSpeed' in controls) controls.zoomSpeed = 1.2;
 
-  controls.minPolarAngle = 0;
-  controls.maxPolarAngle = Math.PI;
-  controls.minAzimuthAngle = -Infinity;
-  controls.maxAzimuthAngle = Infinity;
+  if ('minPolarAngle' in controls) controls.minPolarAngle = 0;
+  if ('maxPolarAngle' in controls) controls.maxPolarAngle = Math.PI;
+  if ('minAzimuthAngle' in controls) controls.minAzimuthAngle = -Infinity;
+  if ('maxAzimuthAngle' in controls) controls.maxAzimuthAngle = Infinity;
 
-  controls.autoRotate = false;
-  controls.autoRotateSpeed = 0;
+  if ('autoRotate' in controls) controls.autoRotate = false;
+  if ('autoRotateSpeed' in controls) controls.autoRotateSpeed = 0;
 
   setTimeout(fitSubjectInView, 200);
   setTimeout(fitSubjectInView, 800);
