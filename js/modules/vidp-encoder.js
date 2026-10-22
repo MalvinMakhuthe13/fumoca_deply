@@ -132,7 +132,7 @@ export const VidpEncoder = (() => {
       const theta = startTheta + sweepAngle * eased;
       const phi = elevationWave
         ? Math.PI / 2 - Math.sin(t * Math.PI) * 0.12
-        : Math.PI / 2;
+        : (Math.PI / 2 - 0.35);
       return { theta, phi, t };
     }
 
@@ -161,7 +161,7 @@ export const VidpEncoder = (() => {
           const dx = cam.position.x - tx;
           const dy = cam.position.y - ty;
           const dz = cam.position.z - tz;
-          lockedRadius = Math.max(0.35, Math.sqrt(dx*dx + dy*dy + dz*dz) || 2.5);
+          lockedRadius = Math.max(1.2, Math.sqrt(dx*dx + dy*dy + dz*dz) * 1.15 || 3.2);
         }
         const r = lockedRadius;
         const x = tx + r * Math.sin(phi) * Math.sin(theta);
@@ -215,7 +215,7 @@ export const VidpEncoder = (() => {
   async function record(opts = {}) {
     const {
       duration    = 6,
-      fps         = 30,
+      fps         = 24,
       width       = 720,
       height      = 1280,
       quality     = 'medium',
@@ -286,27 +286,23 @@ export const VidpEncoder = (() => {
       function renderFrame(now) {
         const { theta, phi, t } = driver.tick(now);
         driver.applyToRenderer(theta, phi);
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
+        const settle = (n, cb) => { if (n <= 0) return cb(); requestAnimationFrame(() => settle(n - 1, cb)); };
+        settle(3, () => {
+            try { window.viewerInstance?.forceRender?.(); window.viewerInstance?.render?.(); } catch (_) {}
             drawFrame();
             onFrame?.(t);
             frameNum++;
             const pct = 5 + Math.round(t * 80);
-            if (frameNum % 10 === 0) onProgress?.(pct, "Recording... " + Math.round(t*100) + "%");
+            if (frameNum % 8 === 0) onProgress?.(pct, "Recording... " + Math.round(t * 100) + "%");
             if (t >= 1) {
               setTimeout(() => {
                 try { driver.unlockControls?.(); } catch (_) {}
                 recorder.stop();
-              }, 400);
+              }, 500);
             } else {
               requestAnimationFrame(renderFrame);
             }
-          });
-        });
-      }
-
-      requestAnimationFrame(renderFrame);    });
-  }
+        });  }
 
   // ── Build VIDP section bytes ─────────────────────────────────────────────
   function buildVidpSection(videoBytes, meta) {
