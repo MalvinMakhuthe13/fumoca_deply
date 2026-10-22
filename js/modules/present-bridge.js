@@ -1,12 +1,10 @@
 /**
- * FUMOCA Present Bridge — clean toolbar (not jammed into timeline)
+ * FUMOCA Present Bridge (studio) — toolbar + share link with present payload
  */
-
 import {
   initMagazineText, addText, applyPreset, clearText,
   exportAll as exportMagazine, importAll as importMagazine, setEditable as setMagEditable,
 } from './present-magazine-text.js';
-
 import {
   initPresentNav, setNavStops, addNavStop, flyToStop,
   stopsFromHotspots, exportStops, importStops,
@@ -24,7 +22,9 @@ function loadLocal(splatId) {
 function saveLocal(splatId, data) {
   try {
     const all = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-    all[splatId || 'default'] = data;
+    const id = splatId || 'default';
+    all[id] = data;
+    all.default = data;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
   } catch (_) {}
 }
@@ -34,23 +34,63 @@ function currentSplatId() {
     window._fumocaCurrentSplatId ||
     window._fumocaCurrentRecord?.id ||
     new URLSearchParams(location.search).get('splatId') ||
+    new URLSearchParams(location.search).get('nifId') ||
     'default'
   );
 }
 
-function persist() {
-  saveLocal(currentSplatId(), {
+function payload() {
+  return {
     magazine: exportMagazine(),
     nav: exportStops(),
     updatedAt: Date.now(),
-  });
+  };
+}
+
+function persist() {
+  const data = payload();
+  saveLocal(currentSplatId(), data);
+  window.__FUMOCA_PRESENT__ = data;
+  // Attach to record meta so publish paths can pick it up if they serialize metadata
+  try {
+    const rec = window._fumocaCurrentRecord;
+    if (rec) {
+      rec.meta = rec.meta || {};
+      rec.metadata = rec.metadata || {};
+      rec.meta.present = data;
+      rec.metadata.present = data;
+    }
+  } catch (_) {}
+}
+
+function presentQueryParam() {
+  const json = JSON.stringify(payload());
+  // base64url
+  const b64 = btoa(unescape(encodeURIComponent(json)));
+  return b64;
+}
+
+function copyViewerLink() {
+  persist();
+  const id = currentSplatId();
+  const present = presentQueryParam();
+  // Prefer existing share URL if host set one
+  let base = window._fumocaShareUrl || '';
+  if (!base) {
+    base = `${location.origin}/viewer?nifId=${encodeURIComponent(id === 'default' ? '' : id)}`;
+  }
+  const url = new URL(base, location.origin);
+  url.searchParams.set('present', present);
+  const str = url.toString();
+  navigator.clipboard?.writeText(str).then(
+    () => alert('Viewer link with cover text copied.\n\nOpen it in a new tab to see magazine text on the public viewer.'),
+    () => prompt('Copy this viewer link:', str)
+  );
 }
 
 function mountToolbar() {
-  // Remove any old messy injectors
   document.querySelectorAll('.present-mag-tools').forEach((el) => el.remove());
-  const old = document.getElementById('fumocaPresentBar');
-  if (old) old.remove();
+  document.getElementById('fumocaPresentBar')?.remove();
 
   const stage =
     document.getElementById('stage') ||
@@ -72,12 +112,13 @@ function mountToolbar() {
       </div>
     </div>
     <div class="fp-card">
-      <div class="fp-title">Nav · Matterport style</div>
+      <div class="fp-title">Nav · share</div>
       <div class="fp-row">
         <button type="button" data-act="add-nav">+ Nav stop</button>
         <button type="button" data-act="from-hs">From hotspots</button>
         <button type="button" data-act="add-title">+ Custom text</button>
         <button type="button" class="primary" data-act="save">Save</button>
+        <button type="button" class="primary" data-act="copy-link">Copy viewer link</button>
       </div>
     </div>
   `;
@@ -100,12 +141,11 @@ function mountToolbar() {
       const hs = window._fumocaHotspots?.slice?.(-1)?.[0];
       if (hs && Number.isFinite(hs.wx)) {
         addNavStop({ label: hs.title || 'View', wx: hs.wx, wy: hs.wy, wz: hs.wz, zoom: 1.4 });
-      } else {
-        addNavStop({ label: 'View', sx: 50, sy: 50, zoom: 1.25 });
-      }
+      } else addNavStop({ label: 'View', sx: 50, sy: 50, zoom: 1.25 });
     }
     if (act === 'from-hs') setNavStops(stopsFromHotspots(window._fumocaHotspots || []));
     if (act === 'save') persist();
+    if (act === 'copy-link') copyViewerLink();
     persist();
   });
 }
@@ -134,7 +174,7 @@ export function initPresentBridge(opts = {}) {
 
   window.FumocaPresent = {
     save: persist,
-    load: () => loadLocal(currentSplatId()),
+    copyViewerLink,
     applyPreset, addText, clearText, addNavStop, setNavStops, flyToStop,
     exportMagazine, exportStops,
   };
