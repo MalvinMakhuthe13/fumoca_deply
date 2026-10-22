@@ -106,7 +106,9 @@ function buildPanelHTML() {
     <div class="sec-head"><span class="sec-label">🎵 Scene music</span><span class="sec-badge">SPLAT</span></div>
     <div class="sec-body">
       <div class="hint">Background track while people view or share this splat. Trim the section you want; it loops in the viewer.</div>
-      <input type="file" id="smFile" accept="audio/*,.mp3,.m4a,.wav,.ogg" style="width:100%;margin:8px 0;color:#fff;font-size:12px">
+      <input type="file" id="smFile" accept="audio/*,.mp3,.m4a,.wav,.ogg" style="display:none">
+      <button type="button" class="ac-btn lime full" id="smPickBtn" style="margin:8px 0">📁 Choose MP3 / audio file</button>
+      <div class="hint" id="smFileName" style="margin-bottom:6px">No file chosen</div>
       <input type="url" id="smUrl" placeholder="Or paste https://…/track.mp3"
         style="width:100%;padding:8px;border-radius:8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#fff;margin-bottom:8px">
       <div class="ctrl-row"><span class="ctrl-label">Volume</span><span class="ctrl-val" id="smVolVal">35%</span></div>
@@ -149,22 +151,37 @@ function buildPanelHTML() {
 
 async function onUploadFile(file) {
   if (!file) return;
-  status('Uploading music…', 'busy');
-  $('smStatus').textContent = 'Uploading…';
+  const nameEl = $('smFileName');
+  if (nameEl) nameEl.textContent = file.name + ' · ' + (file.size / 1e6).toFixed(2) + ' MB';
+  // Local preview immediately (works even if R2 upload fails)
+  const localUrl = URL.createObjectURL(file);
+  window._fumocaLocalMusicBlob = file;
+  window._fumocaLocalMusicUrl = localUrl;
+  $('smUrl').value = localUrl;
+  status('Loading track…', 'busy');
+  $('smStatus').textContent = 'Loading local file…';
+  const a = new Audio(localUrl);
+  a.addEventListener('loadedmetadata', () => {
+    $('smStatus').textContent = `Ready · ${a.duration.toFixed(1)}s — Preview, trim, then Save`;
+    status('Track ready — Preview then Save', 'ok');
+  });
+  // Try permanent R2 upload in background
   try {
+    $('smStatus').textContent = 'Uploading to storage…';
     const res = await uploadAudioToR2(file);
     const url = res?.publicUrl || res?.url || res;
-    if (!url || typeof url !== 'string') throw new Error('Upload returned no URL');
-    $('smUrl').value = url;
-    // Probe duration for trim max hint
-    const a = new Audio(url);
-    a.addEventListener('loadedmetadata', () => {
-      $('smStatus').textContent = `Loaded · ${a.duration.toFixed(1)}s — set trim if needed, then Save`;
-    });
-    status('Music uploaded', 'ok');
+    if (url && typeof url === 'string' && !url.startsWith('blob:')) {
+      $('smUrl').value = url;
+      $('smStatus').textContent = 'Uploaded ✓ — Preview, trim, then Save music on splat';
+      status('Music uploaded', 'ok');
+    } else if (url && typeof url === 'string') {
+      $('smUrl').value = url;
+      $('smStatus').textContent = 'Local only — Save works for this session; Publish needs R2 URL';
+    }
   } catch (e) {
-    $('smStatus').textContent = e.message || String(e);
-    status(e.message || 'Upload failed', 'warn');
+    console.warn('[MusicShare] R2 upload', e);
+    $('smStatus').textContent = 'Local preview OK — Save for this session. For public viewers, host the MP3 and paste a https://…/file.mp3 URL.';
+    status('Using local file (upload helper missing)', 'warn');
   }
 }
 
@@ -464,6 +481,7 @@ export function mountSplatMusicShare(root) {
   $('svDur')?.addEventListener('input', () => {
     $('svDurVal').textContent = `${$('svDur').value}s`;
   });
+  $('smPickBtn')?.addEventListener('click', () => $('smFile')?.click());
   $('smFile')?.addEventListener('change', (e) => onUploadFile(e.target.files?.[0]));
   $('smPreviewBtn')?.addEventListener('click', () => onPreview());
   $('smStopBtn')?.addEventListener('click', () => onStop());
