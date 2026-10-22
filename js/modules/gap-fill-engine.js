@@ -161,7 +161,7 @@
       const depth = -view.applyMatrix4(camera.matrixWorldInverse).z;
       if (!(depth > 0) || !Number.isFinite(depth)) continue;
       proj.set(x, y, z).project(camera);
-      if (Math.abs(proj.z) > 1) continue; // behind near/far
+      if (Math.abs(proj.z) > 1) continue;
       const sx = (proj.x * 0.5 + 0.5) * viewW;
       const sy = (-proj.y * 0.5 + 0.5) * viewH;
       const dx = sx - cx, dy = sy - cy;
@@ -176,41 +176,84 @@
       if (depth < frontDepth) frontDepth = depth;
     }
 
-    if (samples.length < 1 || !Number.isFinite(frontDepth)) {
+    if (samples.length < 3 || !Number.isFinite(frontDepth)) {
       setStatus('Fill: put the lime ring ON the car surface, then drag', 'warn');
       return 0;
     }
 
-    // Front band — but never empty
-    const depthTol = Math.max(frontDepth * 0.06, 1e-4);
+    // Front surface band only
+    const depthTol = Math.max(frontDepth * 0.05, 1e-4);
     let pool = samples.filter((s) => s.depth <= frontDepth + depthTol);
-    if (pool.length < 1) pool = samples;
+    if (pool.length < 3) pool = samples.slice();
     pool.sort((a, b) => a.d2 - b.d2);
-    pool = pool.slice(0, Math.min(32, pool.length));
+    pool = pool.slice(0, Math.min(40, pool.length));
+
+    // --- Local surface frame (PCA-ish): centroid + two tangent axes in the point cloud ---
+    let cxw = 0, cyw = 0, czw = 0;
+    for (const s of pool) { cxw += s.x; cyw += s.y; czw += s.z; }
+    cxw /= pool.length; cyw /= pool.length; czw /= pool.length;
+
+    // Covariance (symmetric 3x3)
+    let xx = 0, xy = 0, xz = 0, yy = 0, yz = 0, zz = 0;
+    for (const s of pool) {
+      const dx = s.x - cxw, dy = s.y - cyw, dz = s.z - czw;
+      xx += dx * dx; xy += dx * dy; xz += dx * dz;
+      yy += dy * dy; yz += dy * dz; zz += dz * dz;
+    }
+    // Approximate normal = smallest eigenvector via cross of two dominant spread directions
+    // Use camera-facing heuristic: normal should point somewhat toward camera
+    const camPos = camera.position;
+    // Build tangent basis from camera right/up projected onto plane perpendicular to view-to-centroid
+    const toCam = new THREE.Vector3(camPos.x - cxw, camPos.y - cyw, camPos.z - czw).normalize();
+    // Prefer data-driven normal: normal ~ direction of least variance using power iteration on adj
+    // Simple: normal = normalize(cross of two vectors from centroid to farthest samples in pool)
+    let bestA = pool[0], bestB = pool[1], bestArea = -1;
+    for (let i = 0; i < pool.length; i++) {
+      for (let j = i + 1; j < pool.length; j++) {
+        const ax = pool[i].x - cxw, ay = pool[i].y - cyw, az = pool[i].z - czw;
+        const bx = pool[j].x - cxw, by = pool[j].y - cyw, bz = pool[j].z - czw;
+        const cxv = ay * bz - az * by, cyv = az * bx - ax * bz, czv = ax * by - ay * bx;
+        const area = cxv * cxv + cyv * cyv + czv * czv;
+        if (area > bestArea) { bestArea = area; bestA = pool[i]; bestB = pool[j]; }
+      }
+    }
+    const t1 = new THREE.Vector3(bestA.x - cxw, bestA.y - cyw, bestA.z - czw);
+    const t2 = new THREE.Vector3(bestB.x - cxw, bestB.y - cyw, bestB.z - czw);
+    let normal = new THREE.Vector3().crossVectors(t1, t2);
+    if (normal.lengthSq() < 1e-12) normal.copy(toCam);
+    else normal.normalize();
+    // Flip normal to face camera
+    if (normal.dot(toCam) < 0) normal.negate();
+
+    // Orthonormal tangent basis on the surface
+    let right = new THREE.Vector3().crossVectors(normal, new THREE.Vector3(0, 1, 0));
+    if (right.lengthSq() < 1e-8) right.crossVectors(normal, new THREE.Vector3(1, 0, 0));
+    right.normalize();
+    const up = new THREE.Vector3().crossVectors(normal, right).normalize();
+
+    // Surface radius from neighbour spread (not screen disk floating in air)
+    let maxR = 0;
+    for (const s of pool) {
+      const dx = s.x - cxw, dy = s.y - cyw, dz = s.z - czw;
+      // distance in plane
+      const px = dx * right.x + dy * right.y + dz * right.z;
+      const py = dx * up.x + dy * up.y + dz * up.z;
+      maxR = Math.max(maxR, Math.sqrt(px * px + py * py));
+    }
+    const worldPerPixel =
+      (2 * frontDepth * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))) / Math.max(1, viewH);
+    const brushWorld = worldPerPixel * brushRadiusPx;
+    const radiusWorld = Math.min(Math.max(maxR * 1.05, brushWorld * 0.35), brushWorld * 0.95);
 
     const baseR = median(pool.map((s) => s.r));
     const baseG = median(pool.map((s) => s.g));
     const baseB = median(pool.map((s) => s.b));
-
-    let wx = 0, wy = 0, wz = 0, wsc = 0, wsum = 0;
-    for (const s of pool) {
-      const w = 1 / (1 + s.d2 / Math.max(1, r2));
-      wx += s.x * w; wy += s.y * w; wz += s.z * w;
-      wsc += s.sc * w; wsum += w;
-    }
-    wx /= wsum; wy /= wsum; wz /= wsum; wsc /= wsum;
+    let wsc = 0;
+    for (const s of pool) wsc += s.sc;
+    wsc /= pool.length;
 
     const density = Math.max(0.5, Math.min(3, FillState.density || 1.2));
-    const targetAdd = Math.min(180, Math.max(20, Math.round((brushRadiusPx / 14) * density * 36)));
-    const worldPerPixel =
-      (2 * frontDepth * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))) / Math.max(1, viewH);
-    const radiusWorld = worldPerPixel * brushRadiusPx * 0.9;
-
-    const right = new THREE.Vector3(), up = new THREE.Vector3();
-    camera.matrixWorld.extractBasis(right, up, new THREE.Vector3());
-    right.normalize(); up.normalize();
-    const camPos = camera.position.clone();
-    const toCam = camPos.clone().sub(new THREE.Vector3(wx, wy, wz)).normalize();
+    const targetAdd = Math.min(140, Math.max(16, Math.round((brushRadiusPx / 14) * density * 30)));
 
     const addPos = new Float32Array(targetAdd * 3);
     const addCol = new Float32Array(targetAdd * 3);
@@ -220,21 +263,42 @@
     let usedImage = 0;
 
     for (let k = 0; k < targetAdd; k++) {
+      // Sample in the SURFACE plane (not camera plane) — points stay on the body
       const ang = Math.random() * Math.PI * 2;
       const rad = Math.sqrt(Math.random()) * radiusWorld;
-      const ox = right.x * Math.cos(ang) * rad + up.x * Math.sin(ang) * rad;
-      const oy = right.y * Math.cos(ang) * rad + up.y * Math.sin(ang) * rad;
-      const oz = right.z * Math.cos(ang) * rad + up.z * Math.sin(ang) * rad;
-      // Slightly toward camera so points sit on front shell, not buried
-      const nudge = worldPerPixel * (0.5 + Math.random());
-      const px = wx + ox + toCam.x * nudge;
-      const py = wy + oy + toCam.y * nudge;
-      const pz = wz + oz + toCam.z * nudge;
+      let px = cxw + right.x * Math.cos(ang) * rad + up.x * Math.sin(ang) * rad;
+      let py = cyw + right.y * Math.cos(ang) * rad + up.y * Math.sin(ang) * rad;
+      let pz = czw + right.z * Math.cos(ang) * rad + up.z * Math.sin(ang) * rad;
+
+      // Project onto plane through centroid with estimated normal (kills floaters)
+      const vx = px - cxw, vy = py - cyw, vz = pz - czw;
+      const dist = vx * normal.x + vy * normal.y + vz * normal.z;
+      px -= normal.x * dist;
+      py -= normal.y * dist;
+      pz -= normal.z * dist;
+
+      // Tiny noise along normal (half toward outside only) — stay glued
+      const micro = (Math.random() - 0.15) * worldPerPixel * 0.25;
+      px += normal.x * micro;
+      py += normal.y * micro;
+      pz += normal.z * micro;
+
+      // Snap toward nearest neighbour to reduce gaps off the mesh
+      let nearest = pool[0], bestD = Infinity;
+      for (const s of pool) {
+        const ddx = s.x - px, ddy = s.y - py, ddz = s.z - pz;
+        const d = ddx * ddx + ddy * ddy + ddz * ddz;
+        if (d < bestD) { bestD = d; nearest = s; }
+      }
+      // Blend 15% toward nearest surface point
+      px = px * 0.85 + nearest.x * 0.15;
+      py = py * 0.85 + nearest.y * 0.15;
+      pz = pz * 0.85 + nearest.z * 0.15;
+
       addPos[k * 3] = px; addPos[k * 3 + 1] = py; addPos[k * 3 + 2] = pz;
 
-      const j = (Math.random() - 0.5) * 0.03;
+      const j = (Math.random() - 0.5) * 0.025;
       let cr = baseR + j, cg = baseG + j, cb = baseB + j;
-
       if (mode !== 'neighbours' && FillState.imageCtx) {
         proj.set(px, py, pz).project(camera);
         const sx = (proj.x * 0.5 + 0.5) * viewW;
@@ -249,7 +313,8 @@
       addCol[k * 3] = Math.min(1, Math.max(0, cr));
       addCol[k * 3 + 1] = Math.min(1, Math.max(0, cg));
       addCol[k * 3 + 2] = Math.min(1, Math.max(0, cb));
-      addSc[k] = Math.max(0.004, Math.min(0.03, wsc * (0.95 + Math.random() * 0.1)));
+      // Match local scale — avoid giant detached blobs
+      addSc[k] = Math.max(0.003, Math.min(0.02, wsc * (0.9 + Math.random() * 0.15)));
       addOp[k] = 1;
     }
 
@@ -261,9 +326,8 @@
     } catch (e) {
       console.warn('[GapFill] rebuild', e);
     }
-    const after = S.alive.length;
-    setStatus(`Fill OK +${added} points (${before} → ${after})${usedImage ? ' · photo tint' : ''}`, 'ok');
-    console.log('[GapFill] added', added, 'total', after);
+    setStatus(`Fill OK +${added} on surface (${before} → ${S.alive.length})`, 'ok');
+    console.log('[GapFill] surface-snap added', added);
     return added;
   }
 
