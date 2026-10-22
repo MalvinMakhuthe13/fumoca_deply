@@ -1,0 +1,229 @@
+/* FUMOCA Review Video v2 — visible layouts, orbit stays free */
+
+:root {
+  --rv-bar-h: 56px;
+}
+
+/* Layout host wraps page content modes */
+body.rv-active #fumocaReviewRoot { display: block; }
+
+#fumocaReviewRoot {
+  position: fixed;
+  z-index: 1;
+  pointer-events: none;
+  overflow: hidden;
+  background: #05070b;
+}
+
+#fumocaReviewRoot video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: #000;
+  display: block;
+  pointer-events: none;
+}
+
+/* ── Layout modes ─────────────────────────────────────────── */
+
+/* Full background — bright, splat floating on top */
+#fumocaReviewRoot.layout-bg {
+  inset: 0;
+}
+#fumocaReviewRoot.layout-bg video {
+  opacity: 0.88;
+  filter: none;
+}
+body.rv-layout-bg #viewerShell,
+body.rv-layout-bg #stageHost,
+body.rv-layout-bg #stage {
+  background: transparent !important;
+}
+
+/* Large PIP — clear, readable */
+#fumocaReviewRoot.layout-pip {
+  inset: auto;
+  right: 16px;
+  bottom: calc(var(--rv-bar-h) + 24px);
+  width: min(48vw, 420px);
+  height: auto;
+  aspect-ratio: 16 / 9;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,.18);
+  box-shadow: 0 16px 48px rgba(0,0,0,.55);
+  z-index: 25;
+  pointer-events: none;
+}
+#fumocaReviewRoot.layout-pip video {
+  opacity: 1;
+  border-radius: 16px;
+  pointer-events: auto; /* click to play/pause on video */
+}
+
+/* Split horizontal: video left | 3D right */
+#fumocaReviewRoot.layout-split {
+  top: 0; left: 0; bottom: var(--rv-bar-h);
+  width: 46vw;
+  border-right: 1px solid rgba(255,255,255,.1);
+}
+#fumocaReviewRoot.layout-split video {
+  opacity: 1;
+  object-fit: contain;
+  background: #0a0c10;
+}
+body.rv-layout-split #viewerShell,
+body.rv-layout-split #stageHost {
+  left: 46vw !important;
+  width: 54vw !important;
+  right: 0 !important;
+}
+
+/* Split vertical: video top | 3D bottom */
+#fumocaReviewRoot.layout-stack {
+  top: 0; left: 0; right: 0;
+  height: 38vh;
+  border-bottom: 1px solid rgba(255,255,255,.1);
+}
+#fumocaReviewRoot.layout-stack video {
+  opacity: 1;
+  object-fit: contain;
+  background: #0a0c10;
+}
+body.rv-layout-stack #viewerShell,
+body.rv-layout-stack #stageHost {
+  top: 38vh !important;
+  height: calc(62vh - var(--rv-bar-h)) !important;
+}
+
+/* Cinema: video dominant, 3D as floating card */
+#fumocaReviewRoot.layout-cinema {
+  inset: 0;
+  bottom: var(--rv-bar-h);
+}
+#fumocaReviewRoot.layout-cinema video {
+  opacity: 1;
+  object-fit: contain;
+  background: #000;
+}
+body.rv-layout-cinema #viewerShell,
+body.rv-layout-cinema #stageHost {
+  position: fixed !important;
+  right: 16px;
+  bottom: calc(var(--rv-bar-h) + 16px);
+  width: min(40vw, 380px) !important;
+  height: min(32vh, 240px) !important;
+  left: auto !important;
+  top: auto !important;
+  border-radius: 14px;
+  border: 1px solid rgba(200,255,0,.25);
+  box-shadow: 0 12px 40px rgba(0,0,0,.5);
+  overflow: hidden;
+  z-index: 20;
+}
+
+#fumocaReviewRoot.layout-hidden {
+  display: none !important;
+}
+
+/* 3D always interactive above video (except cinema card already high) */
+#viewerShell, #stageHost, #stage, #hotspotLayer {
+  position: relative;
+  z-index: 2;
+}
+
+/* ── Control bar ──────────────────────────────────────────── */
+#fumocaReviewControls {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  height: var(--rv-bar-h);
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  background: rgba(6, 8, 12, 0.94);
+  border-top: 1px solid rgba(255,255,255,.1);
+  backdrop-filter: blur(16px);
+  pointer-events: auto;
+  font-family: Inter, system-ui, sans-serif;
+}
+
+#fumocaReviewControls .rv-brand {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: #c8ff00;
+  margin-right: 6px;
+  white-space: nowrap;
+}
+
+#fumocaReviewControls button {
+  border: 1px solid rgba(255,255,255,.1);
+  background: rgba(255,255,255,.06);
+  color: #eee;
+  height: 34px;
+  min-width: 34px;
+  padding: 0 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+#fumocaReviewControls button:hover {
+  border-color: rgba(200,255,0,.35);
+  color: #c8ff00;
+  background: rgba(200,255,0,.1);
+}
+#fumocaReviewControls button.primary {
+  background: #c8ff00;
+  color: #0a0c10;
+  border-color: transparent;
+}
+#fumocaReviewControls button.active {
+  border-color: #c8ff00;
+  color: #c8ff00;
+}
+
+#fumocaReviewControls .rv-time {
+  font-size: 11px;
+  color: rgba(255,255,255,.5);
+  min-width: 78px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+#fumocaReviewControls input[type="range"] {
+  flex: 1 1 80px;
+  min-width: 60px;
+  max-width: 220px;
+  accent-color: #c8ff00;
+}
+
+#fumocaReviewControls .rv-layouts {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+@media (max-width: 700px) {
+  #fumocaReviewRoot.layout-pip {
+    width: min(78vw, 260px);
+  }
+  #fumocaReviewRoot.layout-split {
+    width: 100%;
+    height: 32vh;
+    bottom: auto;
+    border-right: none;
+    border-bottom: 1px solid rgba(255,255,255,.1);
+  }
+  body.rv-layout-split #viewerShell,
+  body.rv-layout-split #stageHost {
+    left: 0 !important;
+    width: 100% !important;
+    top: 32vh !important;
+    height: calc(68vh - var(--rv-bar-h)) !important;
+  }
+  #fumocaReviewControls .rv-layouts button { padding: 0 6px; font-size: 10px; }
+}
