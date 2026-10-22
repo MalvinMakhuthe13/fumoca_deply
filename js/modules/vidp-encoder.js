@@ -115,64 +115,87 @@ export const VidpEncoder = (() => {
   // the GaussianSplats3D viewer instance.
   function buildOrbitalDriver(durationMs, opts = {}) {
     const startTheta = opts.startTheta ?? Math.PI * 0.25;
-    const sweepAngle = opts.sweepAngle ?? (Math.PI * 1.8); // 324° sweep
-    const elevationWave = opts.elevationWave ?? true;
+    const sweepAngle = opts.sweepAngle ?? (Math.PI * 2);
+    const elevationWave = opts.elevationWave ?? false;
     let startTime = null;
+    let lockedRadius = null;
+
+    function smoothstep(t) {
+      const x = Math.min(1, Math.max(0, t));
+      return x * x * (3 - 2 * x);
+    }
 
     function tick(now) {
       if (!startTime) startTime = now;
       const t = Math.min(1, (now - startTime) / durationMs);
-      // Ease in/out
-      const eased = t < 0.5 ? 2*t*t : -1 + (4 - 2*t)*t;
+      const eased = smoothstep(t);
       const theta = startTheta + sweepAngle * eased;
-      // Gentle elevation wave
       const phi = elevationWave
-        ? Math.PI/2 - Math.sin(t * Math.PI) * 0.28
-        : Math.PI/2;
+        ? Math.PI / 2 - Math.sin(t * Math.PI) * 0.12
+        : Math.PI / 2;
       return { theta, phi, t };
     }
 
     function applyToRenderer(theta, phi) {
-      // Try standalone fumoc-player renderer
       if (window._fumocPlayerRenderer) {
         window._fumocPlayerRenderer._theta = theta;
         window._fumocPlayerRenderer._phi   = phi;
         window._fumocPlayerRenderer._updateEye();
         return true;
       }
-      // Try FumocaGaussianRenderer exposed controls
-      if (window._fumocaViewerControls) {
-        const ctrl = window._fumocaViewerControls;
-        // OrbitControls: set spherical coords
-        if (ctrl.setAzimuthalAngle && ctrl.setPolarAngle) {
-          ctrl.setAzimuthalAngle(theta);
-          ctrl.setPolarAngle(phi);
-          ctrl.update?.();
-          return true;
+
+      const cam = window._fumocaViewerCamera
+        || window.viewerInstance?.camera
+        || null;
+      const ctrl = window._fumocaViewerControls
+        || window.viewerInstance?.controls
+        || window.viewerInstance?.orbitControls
+        || null;
+
+      if (cam && cam.position) {
+        const target = (ctrl && ctrl.target)
+          ? ctrl.target
+          : { x: 0, y: 0, z: 0 };
+        const tx = target.x || 0, ty = target.y || 0, tz = target.z || 0;
+        if (lockedRadius == null) {
+          const dx = cam.position.x - tx;
+          const dy = cam.position.y - ty;
+          const dz = cam.position.z - tz;
+          lockedRadius = Math.max(0.35, Math.sqrt(dx*dx + dy*dy + dz*dz) || 2.5);
         }
-        // GaussianSplats3D viewer — set theta/phi directly
-        if (typeof ctrl.theta !== 'undefined') {
-          ctrl.theta = theta;
-          ctrl.phi   = phi;
-          return true;
+        const r = lockedRadius;
+        const x = tx + r * Math.sin(phi) * Math.sin(theta);
+        const y = ty + r * Math.cos(phi);
+        const z = tz + r * Math.sin(phi) * Math.cos(theta);
+        cam.position.set(x, y, z);
+        if (typeof cam.lookAt === 'function') cam.lookAt(tx, ty, tz);
+        if (typeof cam.updateMatrixWorld === 'function') cam.updateMatrixWorld(true);
+        if (ctrl) {
+          if (ctrl.target && typeof ctrl.target.set === 'function') ctrl.target.set(tx, ty, tz);
+          if ('enabled' in ctrl) ctrl.enabled = false;
+          try { ctrl.update?.(); } catch (_) {}
         }
+        return true;
       }
-      // Try GaussianSplats3D viewer instance
-      if (window.viewerInstance?.orbitControls) {
-        const oc = window.viewerInstance.orbitControls;
-        if (oc.setAzimuthalAngle) {
-          oc.setAzimuthalAngle(theta);
-          oc.setPolarAngle(phi);
-          oc.update?.();
-          return true;
-        }
+
+      if (ctrl?.setAzimuthalAngle && ctrl?.setPolarAngle) {
+        ctrl.setAzimuthalAngle(theta);
+        ctrl.setPolarAngle(phi);
+        ctrl.update?.();
+        return true;
       }
       return false;
     }
 
-    return { tick, applyToRenderer };
-  }
+    function unlockControls() {
+      const ctrl = window._fumocaViewerControls
+        || window.viewerInstance?.controls
+        || null;
+      if (ctrl && 'enabled' in ctrl) ctrl.enabled = true;
+    }
 
+    return { tick, applyToRenderer, unlockControls };
+  }
   // ── Main record function ─────────────────────────────────────────────────
   /**
    * Record an orbital fly-around and return VIDP section bytes.
@@ -255,7 +278,7 @@ export const VidpEncoder = (() => {
         } catch (e) { reject(e); }
       };
 
-      recorder.start(200); // 200ms chunks for smooth progress
+      recorder.start(100); // smaller chunks, steadier bitrate
 
       let frameNum  = 0;
       const totalFrames = Math.ceil(durationMs / (1000 / fps));
@@ -263,23 +286,26 @@ export const VidpEncoder = (() => {
       function renderFrame(now) {
         const { theta, phi, t } = driver.tick(now);
         driver.applyToRenderer(theta, phi);
-        drawFrame();
-        onFrame?.(t);
-
-        frameNum++;
-        const pct = 5 + Math.round(t * 80);
-        if (frameNum % 15 === 0) onProgress?.(pct, `Recording… ${Math.round(t*100)}%`);
-
-        if (t >= 1) {
-          // Hold last frame for 0.5s then stop
-          setTimeout(() => recorder.stop(), 500);
-        } else {
-          requestAnimationFrame(renderFrame);
-        }
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            drawFrame();
+            onFrame?.(t);
+            frameNum++;
+            const pct = 5 + Math.round(t * 80);
+            if (frameNum % 10 === 0) onProgress?.(pct, "Recording... " + Math.round(t*100) + "%");
+            if (t >= 1) {
+              setTimeout(() => {
+                try { driver.unlockControls?.(); } catch (_) {}
+                recorder.stop();
+              }, 400);
+            } else {
+              requestAnimationFrame(renderFrame);
+            }
+          });
+        });
       }
 
-      requestAnimationFrame(renderFrame);
-    });
+      requestAnimationFrame(renderFrame);    });
   }
 
   // ── Build VIDP section bytes ─────────────────────────────────────────────
