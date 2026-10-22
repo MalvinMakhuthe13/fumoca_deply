@@ -1,5 +1,8 @@
 /**
- * FUMOCA Gap Fill Engine v2 — solid surface colour matching
+ * FUMOCA Gap Fill Engine v3
+ * - Honours paintColors sentinel (-1 = use source S.colors)
+ * - Front-surface densify with median body colour
+ * - Guaranteed rebuild + status feedback
  */
 (function (global) {
   'use strict';
@@ -7,8 +10,9 @@
   const FillState = {
     image: null, imageCanvas: null, imageCtx: null, imageUrl: null,
     offsetX: 0, offsetY: 0, scale: 1, opacity: 0.45,
-    colourMode: 'neighbours', // default neighbours — most reliable match
-    density: 1, showOverlay: true,
+    colourMode: 'neighbours',
+    density: 1.2,
+    showOverlay: true,
   };
 
   function getS() { return global.S || null; }
@@ -17,6 +21,22 @@
     if (typeof global.setStatus === 'function') global.setStatus(msg, kind);
     const el = document.getElementById('statusText');
     if (el) el.textContent = msg;
+  }
+
+  /** Resolve display RGB for point i — never trust -1 paint sentinel as colour */
+  function pointColour(S, i) {
+    const pc = S.paintColors;
+    if (pc && pc[i * 3] >= 0 && pc[i * 3 + 1] >= 0 && pc[i * 3 + 2] >= 0) {
+      return [pc[i * 3], pc[i * 3 + 1], pc[i * 3 + 2]];
+    }
+    if (S.colors && S.colors.length >= (i + 1) * 3) {
+      return [
+        Math.max(0, S.colors[i * 3] || 0),
+        Math.max(0, S.colors[i * 3 + 1] || 0),
+        Math.max(0, S.colors[i * 3 + 2] || 0),
+      ];
+    }
+    return [0.75, 0.75, 0.75];
   }
 
   function loadImageFromFile(file) {
@@ -58,7 +78,7 @@
     } catch { return null; }
   }
 
-  function median3(arr) {
+  function median(arr) {
     const a = arr.slice().sort((x, y) => x - y);
     const m = (a.length - 1) / 2;
     return a.length % 2 ? a[m | 0] : 0.5 * (a[m | 0] + a[(m + 0.5) | 0]);
@@ -78,23 +98,27 @@
     };
     S.positions = join(S.positions, addPos);
     S.colors = join(S.colors || new Float32Array(oldCount * 3), addCol);
-    if (S.paintColors) S.paintColors = join(S.paintColors, addCol);
-    else {
+    // paintColors: -1 means "use source"; new points get real colours (>=0)
+    if (S.paintColors) {
       const pc = new Float32Array((oldCount + added) * 3);
-      if (oldCount && S.colors) pc.set(S.colors.subarray(0, oldCount * 3));
+      pc.set(S.paintColors);
+      pc.set(addCol, oldCount * 3);
+      S.paintColors = pc;
+    } else {
+      const pc = new Float32Array((oldCount + added) * 3);
+      for (let i = 0; i < oldCount * 3; i++) pc[i] = -1;
       pc.set(addCol, oldCount * 3);
       S.paintColors = pc;
     }
     if (S.scale) S.scale = join(S.scale, addSc);
-    else S.scale = join(new Float32Array(oldCount).fill(0.008), addSc);
+    else S.scale = join(new Float32Array(oldCount).fill(0.012), addSc);
     if (S.scaleXYZ) {
-      const xyz = new Float32Array(addSc.length * 3);
-      for (let i = 0; i < addSc.length; i++) {
-        xyz[i * 3] = xyz[i * 3 + 1] = xyz[i * 3 + 2] = addSc[i];
-      }
+      const xyz = new Float32Array(added * 3);
+      for (let i = 0; i < added; i++) xyz[i * 3] = xyz[i * 3 + 1] = xyz[i * 3 + 2] = addSc[i];
       S.scaleXYZ = join(S.scaleXYZ, xyz);
     }
     if (S.opacity) S.opacity = join(S.opacity, addOp);
+    else S.opacity = join(new Float32Array(oldCount).fill(1), addOp);
     const alive = new Uint8Array(oldCount + added);
     if (S.alive) alive.set(S.alive);
     alive.fill(1, oldCount);
@@ -102,6 +126,15 @@
     const selected = new Uint8Array(oldCount + added);
     if (S.selected) selected.set(S.selected);
     S.selected = selected;
+    // Optional SH / rotation pads so geometry builders don't crash
+    if (S.rotation) {
+      const rot = new Float32Array((oldCount + added) * 4);
+      rot.set(S.rotation);
+      for (let i = oldCount; i < oldCount + added; i++) {
+        rot[i * 4 + 3] = 1; // identity quat w
+      }
+      S.rotation = rot;
+    }
     if (S.fileType !== 'ply') { S.fileType = 'ply'; S.sourceBuffer = null; }
     return added;
   }
@@ -111,82 +144,67 @@
     const camera = getCamera();
     const THREE = global.THREE;
     if (!S?.positions || !S.alive || !camera || !THREE) {
-      setStatus('Load a splat first', 'warn');
+      setStatus('Fill: load a splat first', 'warn');
       return 0;
     }
-    const r2 = brushRadiusPx * brushRadiusPx;
+    const r2 = Math.max(8, brushRadiusPx) * Math.max(8, brushRadiusPx);
     const n = S.alive.length;
     const samples = [];
     const proj = new THREE.Vector3();
     const view = new THREE.Vector3();
     let frontDepth = Infinity;
 
-    // Only points strictly under the brush (not a wide ring)
     for (let i = 0; i < n; i++) {
       if (!S.alive[i]) continue;
       const x = S.positions[i * 3], y = S.positions[i * 3 + 1], z = S.positions[i * 3 + 2];
       view.set(x, y, z);
       const depth = -view.applyMatrix4(camera.matrixWorldInverse).z;
-      if (depth <= 0) continue;
+      if (!(depth > 0) || !Number.isFinite(depth)) continue;
       proj.set(x, y, z).project(camera);
+      if (Math.abs(proj.z) > 1) continue; // behind near/far
       const sx = (proj.x * 0.5 + 0.5) * viewW;
       const sy = (-proj.y * 0.5 + 0.5) * viewH;
       const dx = sx - cx, dy = sy - cy;
-      if (dx * dx + dy * dy > r2) continue;
-      const src = S.paintColors || S.colors;
-      let r = src ? src[i * 3] : 0.7, g = src ? src[i * 3 + 1] : 0.7, b = src ? src[i * 3 + 2] : 0.7;
-      // skip near-black / pure garbage samples
-      if (r + g + b < 0.08) continue;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > r2) continue;
+      const [r, g, b] = pointColour(S, i);
       samples.push({
         x, y, z, r, g, b,
-        sc: S.scale ? (S.scale[i] || 0.008) : 0.008,
-        depth, sx, sy,
-        d2: dx * dx + dy * dy,
+        sc: S.scale ? (S.scale[i] || 0.012) : 0.012,
+        depth, sx, sy, d2,
       });
       if (depth < frontDepth) frontDepth = depth;
     }
 
-    if (samples.length < 2 || !Number.isFinite(frontDepth)) {
-      setStatus('Fill: paint on the visible surface (not empty sky)', 'warn');
+    if (samples.length < 1 || !Number.isFinite(frontDepth)) {
+      setStatus('Fill: put the lime ring ON the car surface, then drag', 'warn');
       return 0;
     }
 
-    // Front surface only — tight depth band (kills interior rainbow points)
-    const depthTol = Math.max(frontDepth * 0.04, 1e-4);
+    // Front band — but never empty
+    const depthTol = Math.max(frontDepth * 0.06, 1e-4);
     let pool = samples.filter((s) => s.depth <= frontDepth + depthTol);
-    if (pool.length < 2) pool = samples.filter((s) => s.depth <= frontDepth + depthTol * 3);
-    if (pool.length < 2) pool = samples;
-    // Prefer closest to cursor
+    if (pool.length < 1) pool = samples;
     pool.sort((a, b) => a.d2 - b.d2);
-    pool = pool.slice(0, Math.min(24, pool.length));
+    pool = pool.slice(0, Math.min(32, pool.length));
 
-    // Median colour = stable match to body paint (not average of interior junk)
-    const medR = median3(pool.map((s) => s.r));
-    const medG = median3(pool.map((s) => s.g));
-    const medB = median3(pool.map((s) => s.b));
-    // Drop outliers far from median (internal multi-colour noise)
-    const clean = pool.filter((s) => {
-      const dr = s.r - medR, dg = s.g - medG, db = s.b - medB;
-      return dr * dr + dg * dg + db * db < 0.12; // ~0.35 RGB distance
-    });
-    const use = clean.length >= 2 ? clean : pool;
+    const baseR = median(pool.map((s) => s.r));
+    const baseG = median(pool.map((s) => s.g));
+    const baseB = median(pool.map((s) => s.b));
 
     let wx = 0, wy = 0, wz = 0, wsc = 0, wsum = 0;
-    for (const s of use) {
+    for (const s of pool) {
       const w = 1 / (1 + s.d2 / Math.max(1, r2));
       wx += s.x * w; wy += s.y * w; wz += s.z * w;
       wsc += s.sc * w; wsum += w;
     }
     wx /= wsum; wy /= wsum; wz /= wsum; wsc /= wsum;
-    const baseR = median3(use.map((s) => s.r));
-    const baseG = median3(use.map((s) => s.g));
-    const baseB = median3(use.map((s) => s.b));
 
-    const density = Math.max(0.4, Math.min(2.5, FillState.density || 1));
-    const targetAdd = Math.min(100, Math.max(8, Math.round((brushRadiusPx / 18) * density * 24)));
+    const density = Math.max(0.5, Math.min(3, FillState.density || 1.2));
+    const targetAdd = Math.min(180, Math.max(20, Math.round((brushRadiusPx / 14) * density * 36)));
     const worldPerPixel =
       (2 * frontDepth * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))) / Math.max(1, viewH);
-    const radiusWorld = worldPerPixel * brushRadiusPx * 0.85;
+    const radiusWorld = worldPerPixel * brushRadiusPx * 0.9;
 
     const right = new THREE.Vector3(), up = new THREE.Vector3();
     camera.matrixWorld.extractBasis(right, up, new THREE.Vector3());
@@ -207,14 +225,14 @@
       const ox = right.x * Math.cos(ang) * rad + up.x * Math.sin(ang) * rad;
       const oy = right.y * Math.cos(ang) * rad + up.y * Math.sin(ang) * rad;
       const oz = right.z * Math.cos(ang) * rad + up.z * Math.sin(ang) * rad;
-      const nudge = (Math.random() - 0.2) * radiusWorld * 0.06;
+      // Slightly toward camera so points sit on front shell, not buried
+      const nudge = worldPerPixel * (0.5 + Math.random());
       const px = wx + ox + toCam.x * nudge;
       const py = wy + oy + toCam.y * nudge;
       const pz = wz + oz + toCam.z * nudge;
       addPos[k * 3] = px; addPos[k * 3 + 1] = py; addPos[k * 3 + 2] = pz;
 
-      // Tiny variation around median surface colour (not random interior)
-      const j = (Math.random() - 0.5) * 0.04;
+      const j = (Math.random() - 0.5) * 0.03;
       let cr = baseR + j, cg = baseG + j, cb = baseB + j;
 
       if (mode !== 'neighbours' && FillState.imageCtx) {
@@ -225,20 +243,27 @@
         if (ic && ic.a > 0.1) {
           usedImage++;
           if (mode === 'image') { cr = ic.r; cg = ic.g; cb = ic.b; }
-          else { cr = ic.r * 0.8 + cr * 0.2; cg = ic.g * 0.8 + cg * 0.2; cb = ic.b * 0.8 + cb * 0.2; }
+          else { cr = ic.r * 0.75 + cr * 0.25; cg = ic.g * 0.75 + cg * 0.25; cb = ic.b * 0.75 + cb * 0.25; }
         }
       }
       addCol[k * 3] = Math.min(1, Math.max(0, cr));
       addCol[k * 3 + 1] = Math.min(1, Math.max(0, cg));
       addCol[k * 3 + 2] = Math.min(1, Math.max(0, cb));
-      // Tight scale — avoids new "soap bubble" blobs
-      addSc[k] = Math.max(1e-4, Math.min(0.02, wsc * (0.9 + Math.random() * 0.15)));
+      addSc[k] = Math.max(0.004, Math.min(0.03, wsc * (0.95 + Math.random() * 0.1)));
       addOp[k] = 1;
     }
 
+    const before = S.alive.length;
     const added = appendPoints(addPos, addCol, addSc, addOp);
-    if (typeof global.rebuildGeometry === 'function') global.rebuildGeometry();
-    setStatus(`Fill +${added} · surface colour matched${usedImage ? ' (+photo)' : ''}`, 'ok');
+    try {
+      if (typeof global.rebuildGeometry === 'function') global.rebuildGeometry();
+      window.FumocaGaussianRenderer?.invalidateSort?.();
+    } catch (e) {
+      console.warn('[GapFill] rebuild', e);
+    }
+    const after = S.alive.length;
+    setStatus(`Fill OK +${added} points (${before} → ${after})${usedImage ? ' · photo tint' : ''}`, 'ok');
+    console.log('[GapFill] added', added, 'total', after);
     return added;
   }
 
@@ -261,8 +286,9 @@
   }
 
   global.FumocaGapFill = {
-    state: FillState, loadImageFromFile, clearImage, fillStroke, drawOverlay,
+    state: FillState, loadImageFromFile, clearImage, fillStroke, drawOverlay, pointColour,
     setColourMode(m) { FillState.colourMode = m; },
     setDensity(d) { FillState.density = d; },
   };
+  console.log('[GapFill] engine v3 ready');
 })(typeof window !== 'undefined' ? window : globalThis);

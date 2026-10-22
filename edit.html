@@ -3418,7 +3418,13 @@ function applyBrush(cx, cy) {
   const r2 = S.brushSize * S.brushSize;
   if (S.mode === 'fill') {
     if (window.FumocaGapFill?.fillStroke) {
-      window.FumocaGapFill.fillStroke(cx, cy, W, H, S.brushSize);
+      const n = window.FumocaGapFill.fillStroke(cx, cy, W, H, Math.max(S.brushSize || 28, 16));
+      if (!n) {
+        // soft fallback: still try once with larger brush
+        window.FumocaGapFill.fillStroke(cx, cy, W, H, Math.max((S.brushSize || 28) * 1.5, 24));
+      }
+    } else {
+      setStatus('Fill engine not loaded — hard-refresh (Ctrl+Shift+R)', 'warn');
     }
     return;
   }
@@ -4443,7 +4449,7 @@ function onResize() {
       ring.className = 'fill';
       ring.style.display = 'block';
     }
-    setStatus('Fill brush active — move over the splat; lime ring = brush size', 'ok');
+    setStatus('Fill brush active — drag ON the car. Tip: raise Point scale if gaps are hard to see', 'ok');
   });
   syncFillState();
 })();
