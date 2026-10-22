@@ -2605,8 +2605,8 @@ function parsePLY(buffer) {
   const positions = new Float32Array(posAttr.array);
   const colors    = new Float32Array(count * 3);
   const opacity   = new Float32Array(count).fill(1);
-  const scale     = new Float32Array(count).fill(0.006);
-  const scaleXYZ  = new Float32Array(count * 3).fill(0.006);
+  const scale     = new Float32Array(count).fill(0.012);
+  const scaleXYZ  = new Float32Array(count * 3).fill(0.012);
   const rotation  = new Float32Array(count * 4);
   for (let i = 0; i < count; i++) rotation[i * 4] = 1;
 
@@ -2970,24 +2970,7 @@ async function loadFile(file, urlOverride) {
 
 // ─── GEOMETRY REBUILD ────────────────────────────────────────────────────────
 
-/** PLY point clouds in Photoreal mode look x-ray/melted if scales are large. Tighten for solid look. */
-function _tightenPlyScalesForSolidView() {
-  if (!S?.scale || S.fileType !== 'ply') return;
-  // Only auto-tighten if values look like defaults / oversized for a car-sized scene
-  let maxSc = 0;
-  for (let i = 0; i < Math.min(S.scale.length, 5000); i++) if (S.alive?.[i] !== 0) maxSc = Math.max(maxSc, S.scale[i] || 0);
-  if (maxSc > 0.025) {
-    for (let i = 0; i < S.scale.length; i++) {
-      S.scale[i] = Math.min(S.scale[i] || 0.006, 0.012);
-      if (S.scaleXYZ) {
-        S.scaleXYZ[i * 3] = S.scaleXYZ[i * 3 + 1] = S.scaleXYZ[i * 3 + 2] = S.scale[i];
-      }
-    }
-  }
-}
-
 function rebuildGeometry() {
-  if (S.fileType === 'ply' && window.FumocaGaussianRenderer?.isEnabled()) _tightenPlyScalesForSolidView();
 
   window.rebuildGeometry = rebuildGeometry; // keep window ref up to date
   // Invalidate hotspot point cloud cache so anchors use fresh edited positions

@@ -197,7 +197,7 @@ const FumocaGaussianRenderer = (() => {
       vertexShader:   VERT,
       fragmentShader: FRAG,
       transparent:    true,
-      depthWrite:     true,  // solid shell while editing (reduces x-ray melt)
+      depthWrite:     false, // soft Gaussian blending (true = blobby hard shell)
       depthTest:      true,
       blending:       T.NormalBlending,
       vertexColors:   false,
@@ -252,10 +252,10 @@ const FumocaGaussianRenderer = (() => {
         b = Math.max(0, Math.min(1, b - wb * 0.06));
       }
       col[idx*3]   = r;  col[idx*3+1] = g;  col[idx*3+2] = b;
-      sizes[idx]    = Math.min(0.04, (S.scale?.[i] || 0.006) * (S.ptScale || 1.0));
-      for (let c = 0; c < 3; c++) scaleXYZ[idx*3+c] = Math.min(0.025, S.scaleXYZ?.[i*3+c] || S.scale?.[i] || 0.006);
+      sizes[idx]    = (S.scale?.[i] || 0.012) * (S.ptScale || 1.0);
+      for (let c = 0; c < 3; c++) scaleXYZ[idx*3+c] = S.scaleXYZ?.[i*3+c] || S.scale?.[i] || 0.012;
       for (let c = 0; c < 4; c++) rotation[idx*4+c] = S.rotation?.[i*4+c] ?? (c === 0 ? 1 : 0);
-      opacities[idx]= Math.max(0.85, S.opacity?.[i] ?? 1.0);
+      opacities[idx]= S.opacity?.[i] ?? 1.0;
       selected[idx] = S.selected?.[i] ? 1.0 : 0.0;
       idx++;
     }
@@ -416,10 +416,10 @@ const FumocaGaussianRenderer = (() => {
       let b=pc&&pc[i*3+2]>=0?pc[i*3+2]:S.colors[i*3+2];
       if(S.whiteBalance){const wb=S.whiteBalance/100;r=Math.max(0,Math.min(1,r+wb*0.06));b=Math.max(0,Math.min(1,b-wb*0.06));}
       col[out*3]=r; col[out*3+1]=g; col[out*3+2]=b;
-      sizes[out]=Math.min(0.04,( S.scale?.[i]||0.006)*(S.ptScale||1.0));
-      for (let c=0;c<3;c++) scaleXYZ[out*3+c]=Math.min(0.025,S.scaleXYZ?.[i*3+c]||S.scale?.[i]||0.006);
+      sizes[out]=( S.scale?.[i]||0.012)*(S.ptScale||1.0);
+      for (let c=0;c<3;c++) scaleXYZ[out*3+c]=S.scaleXYZ?.[i*3+c]||S.scale?.[i]||0.012;
       for (let c=0;c<4;c++) rotation[out*4+c]=S.rotation?.[i*4+c]??(c===0?1:0);
-      opacities[out]=Math.max(0.85,S.opacity?.[i]??1.0);
+      opacities[out]=S.opacity?.[i]??1.0;
       selected[out]=S.selected?.[i]?1.0:0.0;
       const sc=S.scale?.[i]||0.015;
       sharpness[out]=Math.max(0,Math.min(1,1.0-Math.min(sc/0.08,1.0)));
