@@ -227,7 +227,7 @@ export function pickFromDevice(opts = {}) {
     }
     objectUrl = URL.createObjectURL(file);
     setReviewVideo(objectUrl, {
-      layout: opts.layout || layout || 'stack',
+      layout: opts.layout || layout || 'pip',
       autoplay: opts.autoplay !== false,
     });
     // Studio status
@@ -276,10 +276,10 @@ function mountStudioUpload() {
     host.appendChild(studioBar);
   }
 
-  studioBar.querySelector('#rvPickBtn')?.addEventListener('click', () => pickFromDevice({ layout: 'stack' }));
+  studioBar.querySelector('#rvPickBtn')?.addEventListener('click', () => pickFromDevice({ layout: 'pip' }));
   studioBar.querySelector('#rvUrlBtn')?.addEventListener('click', () => {
     const u = prompt('Direct MP4 URL (https://…mp4)', 'https://');
-    if (u && u.startsWith('http')) setReviewVideo(u, { layout: 'stack' });
+    if (u && u.startsWith('http')) setReviewVideo(u, { layout: 'pip' });
   });
   studioBar.querySelector('#rvClearBtn')?.addEventListener('click', () => {
     if (objectUrl) {
