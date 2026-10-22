@@ -1647,20 +1647,14 @@ async function mountInteractiveViewer(forceReload = false) {
       useBuiltInControls: false, // FUMOCA owns trackball for full omni tumble
       ignoreDevicePixelRatio: false,
       dynamicScene: false,
-      // FUMOCA smooth product look
-      gpuAcceleratedSort: true,
-      integerBasedSort: false,
-      halfPrecisionCovariancesOnGPU: false,
     });
     const _activeUrl = getActivenifUrl();
     // For blob URLs, Gaussiannif_files3D can't infer format from URL â€” pass it explicitly
     const _sceneOpts = {
       showLoadingUI: false,
-      // Full quality first — progressiveLoad leaves sparse "blob" LODs on slow links
-      progressiveLoad: false,
-      // Keep small Gaussians (high threshold strips body detail → point cloud look)
-      splatAlphaRemovalThreshold: Math.min(2, Number(studioState.cleanup || 1)),
-      sphericalHarmonicsDegree: 2,
+      progressiveLoad: true,
+      // Keep nearly all Gaussians (high values strip body → empty/black)
+      splatAlphaRemovalThreshold: 1,
     };
 
     if (String(_activeUrl).startsWith('blob:')) {

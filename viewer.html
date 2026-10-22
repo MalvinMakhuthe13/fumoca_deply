@@ -1723,6 +1723,8 @@ ensureServiceWorker();
 import { SoundEngine } from './js/modules/sound-engine.js';
 
 let _se = null;
+let _ambientTrimStart = 0;
+let _ambientTrimEnd = null;
 let _ambientUrl = null;
 let _ambientVol = 0.35;
 let _ambientLoop = true;
