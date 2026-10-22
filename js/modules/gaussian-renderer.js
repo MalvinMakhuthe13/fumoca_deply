@@ -343,7 +343,7 @@ const FumocaGaussianRenderer = (() => {
   let _lastSortEye   = [Infinity,Infinity,Infinity];
   let _lastSortDirection = [0,0,-1];
   let _currentIndices= null;
-  const SORT_MOVE_THRESHOLD = 0.03;
+  const SORT_MOVE_THRESHOLD = 0.015;
 
   function _getSortWorker() {
     if (_sortWorker) return _sortWorker;
@@ -360,13 +360,20 @@ const FumocaGaussianRenderer = (() => {
    * @param onSorted  callback(Uint32Array indices) — update geometry on main thread
    * @param sceneSize used for threshold
    */
+  let _sortQueued = null; // {positions,N,eye,onSorted,sceneSize,direction} if moved while pending
+
   function requestDepthSort(positions, N, eye, onSorted, sceneSize=5, direction=[0,0,-1]) {
     if (!positions || N < 2) return;
     const dx=eye[0]-_lastSortEye[0], dy=eye[1]-_lastSortEye[1], dz=eye[2]-_lastSortEye[2];
     const moved = Math.sqrt(dx*dx+dy*dy+dz*dz);
     const facing = direction[0]*_lastSortDirection[0] + direction[1]*_lastSortDirection[1] + direction[2]*_lastSortDirection[2];
-    if (moved < sceneSize * SORT_MOVE_THRESHOLD && facing > 0.999 && _currentIndices?.length === N) return; // not moved enough
-    if (_sortPending) return;
+    // More sensitive: re-sort on smaller moves / turns so orbit stays solid
+    if (moved < sceneSize * SORT_MOVE_THRESHOLD * 0.35 && facing > 0.995 && _currentIndices?.length === N) return;
+    if (_sortPending) {
+      // Queue latest camera — apply as soon as current sort finishes
+      _sortQueued = { positions, N, eye: [...eye], onSorted, sceneSize, direction: [...direction] };
+      return;
+    }
     _sortPending   = true;
     _lastSortEye   = [...eye];
     _lastSortDirection = [...direction];
@@ -377,7 +384,12 @@ const FumocaGaussianRenderer = (() => {
     w.onmessage = (e) => {
       _sortPending    = false;
       _currentIndices = e.data.indices;
-      onSorted(_currentIndices);
+      try { onSorted(_currentIndices); } catch (err) { console.warn(err); }
+      if (_sortQueued) {
+        const q = _sortQueued;
+        _sortQueued = null;
+        requestDepthSort(q.positions, q.N, q.eye, q.onSorted, q.sceneSize, q.direction);
+      }
     };
     w.postMessage({ pos: posCopy, eye, direction, N }, [posCopy.buffer]);
   }

@@ -1752,14 +1752,34 @@ transformControls.setSize(0.85);
 const transformTarget = new THREE.Object3D();
 scene.add(transformTarget);
 let _shViewColorTimer = null;
+let _sortRaf = null;
+let _sortWhileOrbiting = false;
+let _lastOrbitEye = null;
+// Keep depth-sort fresh WHILE orbiting so the car does not "melt" until you stop.
+function _scheduleGaussianSort(immediate = false) {
+  if (!window.FumocaGaussianRenderer?.isEnabled()) return;
+  if (immediate) {
+    if (S?.shCoefficients) window.FumocaGaussianRenderer.updateViewColors?.(S, camera);
+    _requestGaussianDepthSort();
+    return;
+  }
+  if (_sortRaf) return;
+  _sortRaf = requestAnimationFrame(() => {
+    _sortRaf = null;
+    if (S?.shCoefficients) window.FumocaGaussianRenderer.updateViewColors?.(S, camera);
+    _requestGaussianDepthSort();
+  });
+}
+controls.addEventListener('start', () => { _sortWhileOrbiting = true; });
+controls.addEventListener('end', () => {
+  _sortWhileOrbiting = false;
+  // Final high-quality sort + SH when damping settles
+  clearTimeout(_shViewColorTimer);
+  _shViewColorTimer = setTimeout(() => _scheduleGaussianSort(true), 40);
+});
 controls.addEventListener('change', () => {
   if (!window.FumocaGaussianRenderer?.isEnabled()) return;
-  clearTimeout(_shViewColorTimer);
-  _shViewColorTimer = setTimeout(() => {
-    const gr = window.FumocaGaussianRenderer;
-    if (S?.shCoefficients) gr?.updateViewColors(S, camera);
-    _requestGaussianDepthSort();
-  }, 180);
+  _scheduleGaussianSort(false);
 });
 
 // ─── EXPOSE CAMERA/CONTROLS/RENDERER GLOBALS (must be after declarations) ───
@@ -4455,6 +4475,15 @@ function animate(now = performance.now()) {
   if (now - _lastViewportRender < frameInterval) return;
   _lastViewportRender = now;
   controls.update();
+  // Continuous depth-sort while camera is moving (damping counts as moving)
+  if (window.FumocaGaussianRenderer?.isEnabled() && (_sortWhileOrbiting || controls.enableDamping)) {
+    const eye = camera.position;
+    if (!_lastOrbitEye) _lastOrbitEye = eye.clone();
+    if (eye.distanceToSquared(_lastOrbitEye) > 1e-6) {
+      _lastOrbitEye.copy(eye);
+      _scheduleGaussianSort(false);
+    }
+  }
   renderer.render(scene, camera);
   // Reference photo overlay for Fill / collect-from-image
   try {
