@@ -612,7 +612,7 @@ async function init() {
   await loadFeed();
 }
 
-init();
+init().catch(e => { console.error('[FUMOCA feed init failed]', e); const g=document.getElementById('feedGrid'); if(g) g.innerHTML='<div class="feed-status"><strong>Failed to load</strong>'+String(e&&e.message||e)+'</div>'; });
 
 // ─── v60: Live Edit from Feed ─────────────────────────────────────────────────
 window.editLiveFromFeed = async function(nifId, mediaType) {

@@ -385,30 +385,39 @@ function showToast(msg,isErr=false){
 
 // ─── STORIES ────────────────────────────────────────────────────────────────
 async function loadStories(){
-  // v60: real splats only — no fake seen/unseen state, no animated rings on placeholder data
+  // Stories strip: nif_files only (no profiles embed, no splat_url â€” those caused HTTP 400)
   const row=document.getElementById('storiesRow');
+  if(!row)return;
   try{
-    const {data}=await supabase.from('nif_files')
-      .select('id,title,thumbnail_url,splat_url,output_url,profiles(username,avatar_url)')
-      .in('status',['done','ready','published','complete','completed'])
-      .not('splat_url','is',null).order('created_at',{ascending:false}).limit(14);
+    const {data,error}=await supabase.from('nif_files')
+      .select('id,title,user_id,r2_key,thumbnail_url,meta')
+      .eq('is_public',true)
+      .order('created_at',{ascending:false})
+      .limit(14);
+    if(error){console.warn('[Feed stories]',error);return;}
     if(!data?.length)return;
+    const uids=[...new Set(data.map(s=>s.user_id).filter(Boolean))];
+    let byUser={};
+    if(uids.length){
+      const {data:profs}=await supabase.from('profiles').select('id,username,avatar_url').in('id',uids);
+      (profs||[]).forEach(p=>{byUser[p.id]=p;});
+    }
     data.forEach(s=>{
-      const username=s.profiles?.username||'Creator';
+      const prof=byUser[s.user_id]||{};
+      const username=prof.username||'Creator';
       const item=document.createElement('div');item.className='story-item';
-      const av=s.profiles?.avatar_url;
-      // No fake seen/unseen ring animation — just show real avatar/initial
+      const av=prof.avatar_url;
       item.innerHTML=`<div class="story-ring-plain"><div class="story-ring-inner">${av?`<img src="${escH(av)}" onerror="this.style.display='none'">`:`${escH(username.charAt(0).toUpperCase())}`}</div></div><span class="story-label">${escH(username.slice(0,10))}</span>`;
-      const url=s.splat_url||s.output_url;
       item.addEventListener('click',()=>{
-        if(url)window.location.href=`viewer.html?file=${encodeURIComponent(url)}&title=${encodeURIComponent(s.title||'')}&splatId=${s.id}`;
+        const p=new URLSearchParams();
+        p.set('nifId',s.id);
+        if(s.r2_key) p.set('file', `https://fumoca-r2.ntuthukochildofkrist.workers.dev/file/${encodeURIComponent(s.r2_key)}?bucket=nif-files`);
+        window.location.href=`viewer.html?${p.toString()}`;
       });
       row.appendChild(item);
     });
-  }catch(_){}
+  }catch(e){console.warn('[Feed stories]',e);}
 }
-
-// ─── ENHANCE POSTS ───────────────────────────────────────────────────────────
 function injectReactions(post){
   // v60: no fake counts — show real reactions from DB or blank (naturally grows)
   if(post.querySelector('.reactions-bar'))return;
@@ -439,12 +448,12 @@ function injectReactions(post){
       // Persist to Supabase if available
       if(splatId && window._fumocaSupabase){
         const sb = window._fumocaSupabase;
-        const {data} = await sb.from('nif_files').select('metadata').eq('id',splatId).single().catch(()=>({data:null}));
+        const {data} = await sb.from('nif_files').select('meta').eq('id',splatId).single().catch(()=>({data:null}));
         if(data){
           const meta = data.metadata||{};
           const reactions = meta.reactions||{};
           reactions[em] = Math.max(0,(reactions[em]||0)+(wasActive?-1:1));
-          await sb.from('nif_files').update({metadata:{...meta,reactions}}).eq('id',splatId).catch(()=>{});
+          await sb.from('nif_files').update({meta:{...meta,reactions}}).eq('id',splatId).catch(()=>{});
         }
       }
     });
