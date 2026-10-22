@@ -1772,50 +1772,62 @@ if (cam) {
       console.warn('[FUMOCA] fitSubjectInView failed', e);
     }
   };
+  // Create Trackball even when library controls are null (built-in orbit OFF)
   try {
-    const el = controls.domElement || viewerInstance?.renderer?.domElement || stageHost || stageEl;
-    if (el && cam && typeof TrackballControls === 'function') {
-      const prevTarget = controls.target?.clone?.() || null;
-      try { controls.dispose?.(); } catch (_) {}
-      const tb = new TrackballControls(cam, el);
-      tb.rotateSpeed = 3.0;
-      tb.zoomSpeed = 1.3;
-      tb.panSpeed = 0.0;
-      tb.noPan = true;
-tb.noRoll = false;
-      tb.staticMoving = false;
-      tb.dynamicDampingFactor = 0.08;
-      if (prevTarget) tb.target.copy(prevTarget);
-      tb.update();
-      viewerInstance.controls = tb;
-      if (viewerInstance.orbitControls) viewerInstance.orbitControls = tb;
-      window._fumocaViewerControls = tb;
-      controls = tb;
-      console.log('%c[FUMOCA] Trackball free-tumble enabled', 'color:#c8ff00;font-weight:800');
-    }
+    const el =
+      (controls && controls.domElement) ||
+      viewerInstance?.renderer?.domElement ||
+      stageHost ||
+      stageEl ||
+      document.getElementById('stageHost') ||
+      document.getElementById('stage');
+    if (!el) throw new Error('No DOM element for TrackballControls');
+    if (!cam) throw new Error('No camera for TrackballControls');
+    if (typeof TrackballControls !== 'function') throw new Error('TrackballControls not loaded');
+
+    const prevTarget = controls?.target?.clone?.() || null;
+    try { controls?.dispose?.(); } catch (_) {}
+
+    const tb = new TrackballControls(cam, el);
+    tb.rotateSpeed = 3.0;
+    tb.zoomSpeed = 1.4;
+    tb.panSpeed = 0.0;
+    tb.noPan = true;
+    tb.noRoll = false;
+    tb.staticMoving = false;
+    tb.dynamicDampingFactor = 0.08;
+    if (prevTarget) tb.target.copy(prevTarget);
+    else tb.target.set(0, 0, 0);
+    tb.handleResize?.();
+    tb.update();
+
+    viewerInstance.controls = tb;
+    try { viewerInstance.orbitControls = tb; } catch (_) {}
+    window._fumocaViewerControls = tb;
+    controls = tb;
+    console.log('%c[FUMOCA] Trackball omni ready', 'color:#c8ff00;font-weight:800');
   } catch (e) {
-    console.warn('[FUMOCA] Trackball swap failed, using free orbit', e);
+    console.warn('[FUMOCA] Trackball setup failed', e);
   }
 
-  controls.enabled = true;
-  if ('enableRotate' in controls) controls.enableRotate = true;
-  if ('enableZoom' in controls) controls.enableZoom = true;
-  if ('enablePan' in controls) controls.enablePan = false;
-  if ('noPan' in controls) controls.noPan = true;
-
-  if ('enableDamping' in controls) controls.enableDamping = true;
-  if ('dampingFactor' in controls) controls.dampingFactor = 0.04;
-  if ('dynamicDampingFactor' in controls) controls.dynamicDampingFactor = 0.12;
-  if ('rotateSpeed' in controls) controls.rotateSpeed = 2.0;
-  if ('zoomSpeed' in controls) controls.zoomSpeed = 1.2;
-
-  if ('minPolarAngle' in controls) controls.minPolarAngle = 0;
-  if ('maxPolarAngle' in controls) controls.maxPolarAngle = Math.PI;
-  if ('minAzimuthAngle' in controls) controls.minAzimuthAngle = -Infinity;
-  if ('maxAzimuthAngle' in controls) controls.maxAzimuthAngle = Infinity;
-
-  if ('autoRotate' in controls) controls.autoRotate = false;
-  if ('autoRotateSpeed' in controls) controls.autoRotateSpeed = 0;
+  if (controls) {
+    if ('enabled' in controls) controls.enabled = true;
+    if ('enableRotate' in controls) controls.enableRotate = true;
+    if ('enableZoom' in controls) controls.enableZoom = true;
+    if ('enablePan' in controls) controls.enablePan = false;
+    if ('noPan' in controls) controls.noPan = true;
+    if ('enableDamping' in controls) controls.enableDamping = true;
+    if ('dampingFactor' in controls) controls.dampingFactor = 0.04;
+    if ('dynamicDampingFactor' in controls) controls.dynamicDampingFactor = 0.08;
+    if ('rotateSpeed' in controls) controls.rotateSpeed = 3.0;
+    if ('zoomSpeed' in controls) controls.zoomSpeed = 1.4;
+    if ('minPolarAngle' in controls) controls.minPolarAngle = 0;
+    if ('maxPolarAngle' in controls) controls.maxPolarAngle = Math.PI;
+    if ('minAzimuthAngle' in controls) controls.minAzimuthAngle = -Infinity;
+    if ('maxAzimuthAngle' in controls) controls.maxAzimuthAngle = Infinity;
+    if ('autoRotate' in controls) controls.autoRotate = false;
+    if ('autoRotateSpeed' in controls) controls.autoRotateSpeed = 0;
+  }
 
   setTimeout(fitSubjectInView, 200);
   setTimeout(fitSubjectInView, 800);
