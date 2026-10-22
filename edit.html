@@ -54,6 +54,8 @@ html,body{width:100%;height:100%;overflow:hidden;background:var(--void);color:va
   border:1.5px solid rgba(212,255,0,.7);box-shadow:0 0 12px rgba(212,255,0,.25),inset 0 0 6px rgba(212,255,0,.06);
   transition:width .1s,height .1s}
 #brushRing.erase{border-color:rgba(255,61,113,.7);box-shadow:0 0 12px rgba(255,61,113,.25)}
+#brushRing.fill{border-color:rgba(200,255,0,.95);box-shadow:0 0 16px rgba(200,255,0,.45);border-width:2px}
+#brushRing{border:1.5px solid rgba(212,255,0,.75);box-shadow:0 0 10px rgba(212,255,0,.2)}
 
 /* ─── TOPBAR ─── */
 #topbar{
@@ -636,7 +638,7 @@ input[type=range].amber::-webkit-slider-thumb{background:var(--amber);box-shadow
     <button class="tool-btn" id="toolBrushSelect" title="Brush Select (S)">🎯</button>
     <button class="tool-btn" id="toolPaint" title="Paint Color (P)">🎨</button>
     <button class="tool-btn" id="toolSmear" title="Smear / Blur (F)">💧</button>
-    <button class="tool-btn" id="toolFill" title="Fill gaps (I) — densify / collect from image">🧴</button>
+    <button class="tool-btn" id="toolFill" title="Fill gaps (I) — densify / collect from image" style="min-width:52px;font-size:10px;font-weight:700;color:#c8ff00">🧴 Fill</button>
   </div>
   <div class="tool-group">
     <span class="tool-group-label">Transform</span>
@@ -4033,7 +4035,7 @@ function setMode(mode) {
   const ring = $('brushRing');
   if (mode.includes('brush') || mode === 'paint' || mode === 'sphere' || mode === 'smear' || mode === 'fill') {
     ring.style.display = 'block';
-    ring.className = mode === 'brush-erase' ? 'erase' : '';
+    ring.className = mode === 'brush-erase' ? 'erase' : (mode === 'fill' ? 'fill' : '');
   } else { ring.style.display = 'none'; }
   setStatus(`Mode: ${mode.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}`);
   syncTransformGizmo();
@@ -4283,7 +4285,7 @@ renderer.domElement.addEventListener('pointerdown', e => {
 });
 window.addEventListener('pointermove', e => {
   const ring = $('brushRing');
-  if (S.mode.includes('brush') || S.mode === 'paint' || S.mode === 'sphere' || S.mode === 'smear') {
+  if (S.mode.includes('brush') || S.mode === 'paint' || S.mode === 'sphere' || S.mode === 'smear' || S.mode === 'fill') {
     ring.style.left = e.clientX + 'px'; ring.style.top = e.clientY + 'px';
     const d = S.brushSize * 2;
     ring.style.width = d + 'px'; ring.style.height = d + 'px';
@@ -4431,7 +4433,15 @@ function onResize() {
   $id('fillActivateBtn')?.addEventListener('click', () => {
     setMode('fill');
     syncFillState();
-    setStatus('Fill brush active — stroke over gaps', 'ok');
+    const ring = document.getElementById('brushRing');
+    if (ring) {
+      const d = (window.S?.brushSize || 28) * 2;
+      ring.style.width = d + 'px';
+      ring.style.height = d + 'px';
+      ring.className = 'fill';
+      ring.style.display = 'block';
+    }
+    setStatus('Fill brush active — move over the splat; lime ring = brush size', 'ok');
   });
   syncFillState();
 })();
