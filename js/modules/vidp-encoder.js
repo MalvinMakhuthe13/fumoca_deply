@@ -278,33 +278,52 @@ export const VidpEncoder = (() => {
         } catch (e) { reject(e); }
       };
 
-      recorder.start(100); // smaller chunks, steadier bitrate
+      // Discrete stepped orbit: MOVE -> HOLD -> CAPTURE (no motion smear)
+      recorder.start(250);
 
-      let frameNum  = 0;
-      const totalFrames = Math.ceil(durationMs / (1000 / fps));
+      const totalFrames = Math.max(24, Math.round(duration * fps));
+      const holdMs = Math.max(40, Math.floor(1000 / fps) - 10);
 
-      function renderFrame(now) {
-        const { theta, phi, t } = driver.tick(now);
-        driver.applyToRenderer(theta, phi);
-        const settle = (n, cb) => { if (n <= 0) return cb(); requestAnimationFrame(() => settle(n - 1, cb)); };
-        settle(3, () => {
-            try { window.viewerInstance?.forceRender?.(); window.viewerInstance?.render?.(); } catch (_) {}
+      const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+      const waitFrames = (n) => new Promise((r) => {
+        const step = () => { n -= 1; if (n <= 0) r(); else requestAnimationFrame(step); };
+        requestAnimationFrame(step);
+      });
+
+      (async () => {
+        try {
+          for (let i = 0; i < totalFrames; i++) {
+            const t = totalFrames <= 1 ? 1 : i / (totalFrames - 1);
+            const eased = t * t * (3 - 2 * t);
+            const theta = (Math.PI * 0.25) + sweepAngle * eased;
+            const phi = Math.PI / 2 - 0.35;
+
+            driver.applyToRenderer(theta, phi);
+            await waitFrames(4);
+            try {
+              window.viewerInstance?.forceRender?.();
+              window.viewerInstance?.render?.();
+            } catch (_) {}
+            await waitFrames(2);
             drawFrame();
             onFrame?.(t);
-            frameNum++;
-            const pct = 5 + Math.round(t * 80);
-            if (frameNum % 8 === 0) onProgress?.(pct, "Recording... " + Math.round(t * 100) + "%");
-            if (t >= 1) {
-              setTimeout(() => {
-                try { driver.unlockControls?.(); } catch (_) {}
-                recorder.stop();
-              }, 500);
-            } else {
-              requestAnimationFrame(renderFrame);
-            }
-        });  }
 
-  // ── Build VIDP section bytes ─────────────────────────────────────────────
+            if (i % 6 === 0) {
+              onProgress?.(5 + Math.round(t * 80), "Recording... " + Math.round(t * 100) + "%");
+            }
+            await wait(holdMs);
+          }
+
+          await wait(400);
+          try { driver.unlockControls?.(); } catch (_) {}
+          recorder.stop();
+        } catch (e) {
+          try { driver.unlockControls?.(); } catch (_) {}
+          reject(e);
+        }
+      })();
+    });
+  }
   function buildVidpSection(videoBytes, meta) {
     // VIDP section: JSON meta header + raw video bytes
     // Decoder checks for meta to understand codec/dimensions
