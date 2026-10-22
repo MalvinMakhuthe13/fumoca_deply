@@ -83,6 +83,11 @@ export const VidpEncoder = (() => {
     const ctx = composite.getContext('2d');
 
     function drawFrame() {
+      // CRITICAL: clear first. Gaussian/WebGL canvas is often transparent;
+      // without a clear, each orbit angle stacks = solid-of-revolution smear.
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.fillStyle = '#000000';
+      ctx.fillRect(0, 0, W, H);
       // Draw viewer frame
       ctx.drawImage(sourceCanvas, 0, 0, W, H);
 
