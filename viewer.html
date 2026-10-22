@@ -1765,9 +1765,11 @@ window.addEventListener('fumoca:recordLoaded', (e) => {
   const record = e.detail || window._fumocaCurrentRecord;
   if (!record) return;
 
-  _ambientUrl  = record.ambient_audio_url  || null;
-  _ambientVol  = record.ambient_audio_volume != null ? record.ambient_audio_volume : 0.35;
-  _ambientLoop = record.ambient_audio_loop  != null ? record.ambient_audio_loop  : true;
+  _ambientUrl  = record.ambient_audio_url  || record.meta?.sceneAudio?.bed?.url || null;
+  _ambientVol  = record.ambient_audio_volume != null ? record.ambient_audio_volume : (record.meta?.sceneAudio?.bed?.volume ?? 0.35);
+  _ambientLoop = record.ambient_audio_loop  != null ? record.ambient_audio_loop  : (record.meta?.sceneAudio?.bed?.loop !== false);
+  _ambientTrimStart = record.ambient_audio_trim_start ?? record.meta?.sceneAudio?.bed?.trimStart ?? 0;
+  _ambientTrimEnd = record.ambient_audio_trim_end ?? record.meta?.sceneAudio?.bed?.trimEnd ?? null;
 
   if (soundBtn) {
     soundBtn.style.display = _ambientUrl ? '' : 'none';

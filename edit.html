@@ -674,7 +674,7 @@ input[type=range].amber::-webkit-slider-thumb{background:var(--amber);box-shadow
       <div class="ptab" data-tab="transform">Transform</div>
       <div class="ptab" data-tab="clean">Clean</div>
       <div class="ptab" data-tab="mesh">Mesh</div>
-      <div class="ptab" data-tab="present">Present</div>
+      <div class="ptab" data-tab="present">Present · Music</div>
       <div class="ptab" data-tab="import">Import</div>
       <div class="ptab" data-tab="layers">Layers</div>
     </div>
@@ -5778,6 +5778,7 @@ animBg();
 <script type="module" src="js/modules/gaussian-renderer.js"></script>
 <script type="module" src="js/modules/smart-select.js"></script>
 <script type="module" src="js/modules/sound-engine.js"></script>
+<script type="module" src="js/modules/splat-music-share.js"></script>
 <script type="module" src="js/modules/hotspot-pro.js"></script>
 
 <!-- ═══════════════════════════════════════════════════════════════
@@ -6732,25 +6733,14 @@ if (!window._fumocaBooted) {
       }
     });
   }
-  const audioRoot = document.getElementById('studioAudioRoot');
-  if (audioRoot) {
-    audioRoot.innerHTML = `
-      <div class="section">
-        <div class="sec-head"><span class="sec-label">Scene music</span></div>
-        <div class="sec-body">
-          <div class="hint">Attach a loop for showroom / ad mood. Stored on metadata.sceneAudio when you publish.</div>
-          <input type="url" id="audioBedUrl" placeholder="https://…/music.mp3"
-            style="width:100%;padding:8px;border-radius:8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#fff;margin-bottom:8px">
-          <button type="button" class="ac-btn full" id="audioSaveBtn">Set scene bed URL</button>
-        </div>
-      </div>`;
-    document.getElementById('audioSaveBtn')?.addEventListener('click', () => {
-      const url = document.getElementById('audioBedUrl')?.value?.trim();
-      if (!url) { status('Paste an audio URL'); return; }
-      window._fumocaSceneAudio = { bed: { url, volume: 0.35, loop: true }, mutedDefault: true };
-      status('Scene music set — include in publish metadata');
-    });
-  }
+  // Scene music (upload + trim) + status video share (WhatsApp / Stories)
+  try {
+    if (window.FUMOCA_SplatMusicShare?.installSplatMusicShare) {
+      window.FUMOCA_SplatMusicShare.installSplatMusicShare();
+    } else {
+      import('./js/modules/splat-music-share.js').then((m) => m.installSplatMusicShare()).catch((e) => console.warn('[Studio] music-share', e));
+    }
+  } catch (e) { console.warn('[Studio] music-share', e); }
 
   // Walkthrough (Matterport-style outside → inside)
   if (interactRoot) {
