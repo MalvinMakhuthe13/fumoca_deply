@@ -220,7 +220,7 @@ export const VidpEncoder = (() => {
   async function record(opts = {}) {
     const {
       duration    = 6,
-      fps         = 24,
+      fps         = 30,
       width       = 720,
       height      = 1280,
       quality     = 'medium',
@@ -283,50 +283,45 @@ export const VidpEncoder = (() => {
         } catch (e) { reject(e); }
       };
 
-      // Discrete stepped orbit: MOVE -> HOLD -> CAPTURE (no motion smear)
-      recorder.start(250);
+      // Smooth real-time orbit. Canvas clear each frame (no stack smear).
+      recorder.start(100);
 
-      const totalFrames = Math.max(24, Math.round(duration * fps));
-      const holdMs = Math.max(40, Math.floor(1000 / fps) - 10);
+      const durationMs = duration * 1000;
+      let startTime = null;
+      let lastProgress = 0;
 
-      const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-      const waitFrames = (n) => new Promise((r) => {
-        const step = () => { n -= 1; if (n <= 0) r(); else requestAnimationFrame(step); };
-        requestAnimationFrame(step);
-      });
+      function tick(now) {
+        if (startTime == null) startTime = now;
+        const elapsed = now - startTime;
+        const t = Math.min(1, elapsed / durationMs);
+        const eased = t * t * (3 - 2 * t);
+        const theta = (Math.PI * 0.25) + sweepAngle * eased;
+        const phi = Math.PI / 2 - 0.35;
 
-      (async () => {
+        driver.applyToRenderer(theta, phi);
         try {
-          for (let i = 0; i < totalFrames; i++) {
-            const t = totalFrames <= 1 ? 1 : i / (totalFrames - 1);
-            const eased = t * t * (3 - 2 * t);
-            const theta = (Math.PI * 0.25) + sweepAngle * eased;
-            const phi = Math.PI / 2 - 0.35;
+          window.viewerInstance?.forceRender?.();
+          window.viewerInstance?.render?.();
+        } catch (_) {}
+        drawFrame();
+        onFrame?.(t);
 
-            driver.applyToRenderer(theta, phi);
-            await waitFrames(4);
-            try {
-              window.viewerInstance?.forceRender?.();
-              window.viewerInstance?.render?.();
-            } catch (_) {}
-            await waitFrames(2);
-            drawFrame();
-            onFrame?.(t);
-
-            if (i % 6 === 0) {
-              onProgress?.(5 + Math.round(t * 80), "Recording... " + Math.round(t * 100) + "%");
-            }
-            await wait(holdMs);
-          }
-
-          await wait(400);
-          try { driver.unlockControls?.(); } catch (_) {}
-          recorder.stop();
-        } catch (e) {
-          try { driver.unlockControls?.(); } catch (_) {}
-          reject(e);
+        if (t - lastProgress >= 0.08 || t >= 1) {
+          lastProgress = t;
+          onProgress?.(5 + Math.round(t * 80), "Recording... " + Math.round(t * 100) + "%");
         }
-      })();
+
+        if (t < 1) {
+          requestAnimationFrame(tick);
+        } else {
+          setTimeout(() => {
+            try { driver.unlockControls?.(); } catch (_) {}
+            recorder.stop();
+          }, 280);
+        }
+      }
+
+      requestAnimationFrame(tick);
     });
   }
   function buildVidpSection(videoBytes, meta) {
