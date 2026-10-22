@@ -1,7 +1,6 @@
 /**
- * FUMOCA Review Video v2
- * Visible layouts: PIP | BG | Split | Stack | Cinema | Off
- * 3D orbit never blocked by video (except intentional PIP tap).
+ * FUMOCA Review Video v2.1
+ * Viewer + Editor: layouts + from-device upload
  */
 const STORAGE = 'fumoca_review_video_v2';
 const LAYOUTS = ['pip', 'bg', 'split', 'stack', 'cinema', 'hidden'];
@@ -11,17 +10,32 @@ let root = null;
 let controls = null;
 let layout = 'pip';
 let src = null;
+let objectUrl = null; // local file blob URL
 let raf = 0;
+let studioBar = null;
+
+function isEditor() {
+  return /\/edit/i.test(location.pathname) || document.body?.classList?.contains('editor');
+}
 
 function idKey() {
   const q = new URLSearchParams(location.search);
-  return q.get('nifId') || q.get('splatId') || q.get('id') || 'default';
+  return (
+    q.get('nifId') ||
+    q.get('splatId') ||
+    q.get('id') ||
+    window._fumocaCurrentSplatId ||
+    window._fumocaCurrentRecord?.id ||
+    'default'
+  );
 }
 
 function loadSaved() {
   try {
     return JSON.parse(localStorage.getItem(STORAGE) || '{}')[idKey()] || null;
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
 function saveSaved(data) {
@@ -41,14 +55,17 @@ function resolveSrc() {
   if (meta.reviewVideo?.url) return meta.reviewVideo.url;
   if (meta.review_video_url) return meta.review_video_url;
   if (rec?.review_video_url) return rec.review_video_url;
-  return loadSaved()?.url || null;
+  const saved = loadSaved();
+  // blob: only valid this session — skip if stale
+  if (saved?.url && !String(saved.url).startsWith('blob:')) return saved.url;
+  return null;
 }
 
 function ensureCss() {
   if (document.querySelector('link[href*="review-video.css"]')) return;
   const link = document.createElement('link');
   link.rel = 'stylesheet';
-  link.href = '/css/review-video.css';
+  link.href = 'css/review-video.css';
   document.head.appendChild(link);
 }
 
@@ -75,12 +92,12 @@ function ensureDom() {
     <span class="rv-time">0:00 / 0:00</span>
     <button type="button" data-act="mute">🔊</button>
     <div class="rv-layouts">
-      <button type="button" data-layout="pip" title="Picture in picture">PIP</button>
-      <button type="button" data-layout="bg" title="Bright background">BG</button>
-      <button type="button" data-layout="split" title="Video | 3D side by side">Split</button>
-      <button type="button" data-layout="stack" title="Video above 3D">Stack</button>
-      <button type="button" data-layout="cinema" title="Video main, 3D card">Cinema</button>
-      <button type="button" data-layout="hidden" title="Hide video">Off</button>
+      <button type="button" data-layout="pip">PIP</button>
+      <button type="button" data-layout="bg">BG</button>
+      <button type="button" data-layout="split">Split</button>
+      <button type="button" data-layout="stack">Stack</button>
+      <button type="button" data-layout="cinema">Cinema</button>
+      <button type="button" data-layout="hidden">Off</button>
     </div>
   `;
   document.body.appendChild(controls);
@@ -91,7 +108,6 @@ function ensureDom() {
     controls.addEventListener(ev, (e) => e.stopPropagation(), { passive: true });
   });
 
-  // Tap PIP video toggles play
   video.addEventListener('click', (e) => {
     if (layout !== 'pip') return;
     e.stopPropagation();
@@ -135,15 +151,15 @@ function setLayout(next) {
   layout = next;
   root.className = 'layout-' + layout;
   clearBodyLayoutClasses();
-  if (layout !== 'hidden') {
+  if (layout !== 'hidden' && src) {
     document.body.classList.add('rv-active', 'rv-layout-' + layout);
   }
   controls.querySelectorAll('[data-layout]').forEach((b) => {
     b.classList.toggle('active', b.dataset.layout === layout);
   });
   video.style.pointerEvents = layout === 'pip' ? 'auto' : 'none';
-  saveSaved({ url: src, layout });
-  // Nudge resize so Three/GS3D pick new canvas size
+  if (src && !String(src).startsWith('blob:')) saveSaved({ url: src, layout });
+  else saveSaved({ layout, url: src && !String(src).startsWith('blob:') ? src : undefined });
   setTimeout(() => window.dispatchEvent(new Event('resize')), 50);
 }
 
@@ -189,8 +205,87 @@ export function setReviewVideo(url, opts = {}) {
     video.muted = true;
     video.play().catch(() => {});
   }
-  saveSaved({ url: src, layout });
+  if (!String(src).startsWith('blob:')) saveSaved({ url: src, layout });
   if (!raf) raf = requestAnimationFrame(tick);
+}
+
+/** Pick MP4/WebM from device — works in Editor & Viewer */
+export function pickFromDevice(opts = {}) {
+  ensureCss();
+  ensureDom();
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'video/mp4,video/webm,video/quicktime,video/*';
+  input.style.display = 'none';
+  document.body.appendChild(input);
+  input.addEventListener('change', () => {
+    const file = input.files?.[0];
+    input.remove();
+    if (!file) return;
+    if (objectUrl) {
+      try { URL.revokeObjectURL(objectUrl); } catch (_) {}
+    }
+    objectUrl = URL.createObjectURL(file);
+    setReviewVideo(objectUrl, {
+      layout: opts.layout || layout || 'stack',
+      autoplay: opts.autoplay !== false,
+    });
+    // Studio status
+    const status = document.getElementById('rvUploadStatus');
+    if (status) {
+      status.textContent = file.name + ' · this session only (upload to CDN to share)';
+    }
+    window.dispatchEvent(
+      new CustomEvent('fumoca:reviewVideoLocal', {
+        detail: { name: file.name, size: file.size, type: file.type },
+      })
+    );
+  });
+  input.click();
+}
+
+function mountStudioUpload() {
+  if (studioBar) return;
+  const host =
+    document.getElementById('fumocaPresentBar') ||
+    document.getElementById('stage') ||
+    document.getElementById('viewport') ||
+    document.body;
+
+  studioBar = document.createElement('div');
+  studioBar.id = 'fumocaReviewStudio';
+  studioBar.innerHTML = `
+    <div class="fp-card" style="background:rgba(8,10,14,.92);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:10px 12px;margin-top:8px;max-width:280px;font-family:Inter,system-ui,sans-serif">
+      <div style="font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,.45);margin-bottom:8px">Review video</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        <button type="button" id="rvPickBtn" style="padding:7px 11px;border-radius:8px;border:none;background:#c8ff00;color:#0a0c10;font:600 11px Inter,system-ui;cursor:pointer">Upload from device</button>
+        <button type="button" id="rvUrlBtn" style="padding:7px 11px;border-radius:8px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:#e8e8e8;font:600 11px Inter,system-ui;cursor:pointer">Paste URL</button>
+        <button type="button" id="rvClearBtn" style="padding:7px 11px;border-radius:8px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:#e8e8e8;font:600 11px Inter,system-ui;cursor:pointer">Clear</button>
+      </div>
+      <div id="rvUploadStatus" style="margin-top:8px;font-size:10px;color:rgba(255,255,255,.4);line-height:1.35">MP4 / WebM from phone or PC</div>
+    </div>
+  `;
+  // Prefer under present bar
+  if (host.id === 'fumocaPresentBar') host.appendChild(studioBar);
+  else {
+    studioBar.style.cssText = 'position:absolute;left:12px;bottom:160px;z-index:43;pointer-events:auto';
+    host.appendChild(studioBar);
+  }
+
+  studioBar.querySelector('#rvPickBtn')?.addEventListener('click', () => pickFromDevice({ layout: 'stack' }));
+  studioBar.querySelector('#rvUrlBtn')?.addEventListener('click', () => {
+    const u = prompt('Direct MP4 URL (https://…mp4)', 'https://');
+    if (u && u.startsWith('http')) setReviewVideo(u, { layout: 'stack' });
+  });
+  studioBar.querySelector('#rvClearBtn')?.addEventListener('click', () => {
+    if (objectUrl) {
+      try { URL.revokeObjectURL(objectUrl); } catch (_) {}
+      objectUrl = null;
+    }
+    setReviewVideo(null);
+    const status = document.getElementById('rvUploadStatus');
+    if (status) status.textContent = 'Cleared';
+  });
 }
 
 export function initReviewVideo(opts = {}) {
@@ -200,16 +295,25 @@ export function initReviewVideo(opts = {}) {
   if (saved?.layout) layout = saved.layout;
   const url = resolveSrc();
   if (url) setReviewVideo(url, { layout, autoplay: !!opts.autoplay });
-  else controls.style.display = 'none';
+  else if (controls) controls.style.display = 'none';
 
   window.addEventListener('fumoca:recordLoaded', () => {
     const u = resolveSrc();
     if (u) setReviewVideo(u, { layout });
   });
 
+  // Editor: upload card
+  if (opts.studio !== false && (isEditor() || opts.studio === true)) {
+    const tryMount = () => mountStudioUpload();
+    tryMount();
+    setTimeout(tryMount, 800);
+    setTimeout(tryMount, 2000);
+  }
+
   window.FumocaReviewVideo = {
     set: setReviewVideo,
     setLayout,
+    pickFromDevice,
     play: () => video?.play(),
     pause: () => video?.pause(),
     getSrc: () => src,
@@ -220,10 +324,12 @@ export function initReviewVideo(opts = {}) {
 
 if (typeof window !== 'undefined') {
   const boot = () => {
-    try { initReviewVideo({ autoplay: false }); } catch (e) {
+    try {
+      initReviewVideo({ autoplay: false, studio: true });
+    } catch (e) {
       console.warn('[review-video]', e);
     }
   };
-  if (document.readyState === 'complete') setTimeout(boot, 450);
-  else window.addEventListener('load', () => setTimeout(boot, 450));
+  if (document.readyState === 'complete') setTimeout(boot, 500);
+  else window.addEventListener('load', () => setTimeout(boot, 500));
 }
