@@ -501,7 +501,7 @@ async function fetchFeedNifs() {
       .from('reconstruction_jobs')
       .select('id,status,progress,error_message')
       .in('id', jobIds);
-    if (jobsError) throw jobsError;
+    if (jobsError) { console.warn('[FUMOCA feed] reconstruction_jobs lookup failed', jobsError); }
     const byId = new Map((jobs || []).map(job => [job.id, job]));
     for (const row of rows) {
       const jobId = row.job_id || row.id;
