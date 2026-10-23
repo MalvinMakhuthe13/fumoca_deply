@@ -3,7 +3,7 @@
  * Viewer + Editor: layouts + from-device upload
  */
 const STORAGE = 'fumoca_review_video_v2';
-const LAYOUTS = ['pip', 'bg', 'split', 'stack', 'cinema', 'hidden'];
+const LAYOUTS = ['pip', 'bg', 'split', 'stack', 'full', 'cinema', 'hidden'];
 
 let video = null;
 let root = null;
@@ -65,7 +65,7 @@ function ensureCss() {
   if (document.querySelector('link[href*="review-video.css"]')) return;
   const link = document.createElement('link');
   link.rel = 'stylesheet';
-  link.href = 'css/review-video.css';
+  link.href = 'css/present-unified.css';
   document.head.appendChild(link);
 }
 
@@ -93,10 +93,11 @@ function ensureDom() {
     <button type="button" data-act="mute">🔊</button>
     <div class="rv-layouts">
       <button type="button" data-layout="pip">PIP</button>
-      <button type="button" data-layout="bg">BG</button>
-      <button type="button" data-layout="split">Split</button>
       <button type="button" data-layout="stack">Stack</button>
+      <button type="button" data-layout="split">Split</button>
+      <button type="button" data-layout="full">Full</button>
       <button type="button" data-layout="cinema">Cinema</button>
+      <button type="button" data-layout="bg">BG</button>
       <button type="button" data-layout="hidden">Off</button>
     </div>
   `;
@@ -276,10 +277,10 @@ function mountStudioUpload() {
     host.appendChild(studioBar);
   }
 
-  studioBar.querySelector('#rvPickBtn')?.addEventListener('click', () => pickFromDevice({ layout: 'pip' }));
+  studioBar.querySelector('#rvPickBtn')?.addEventListener('click', () => pickFromDevice({ layout: 'stack' }));
   studioBar.querySelector('#rvUrlBtn')?.addEventListener('click', () => {
     const u = prompt('Direct MP4 URL (https://…mp4)', 'https://');
-    if (u && u.startsWith('http')) setReviewVideo(u, { layout: 'pip' });
+    if (u && u.startsWith('http')) setReviewVideo(u, { layout: 'stack' });
   });
   studioBar.querySelector('#rvClearBtn')?.addEventListener('click', () => {
     if (objectUrl) {
@@ -296,7 +297,9 @@ export function initReviewVideo(opts = {}) {
   ensureCss();
   ensureDom();
   const saved = loadSaved();
-  if (saved?.layout) layout = saved.layout;
+  const qLayout = new URLSearchParams(location.search).get('rvLayout');
+  if (qLayout) layout = qLayout;
+  else if (saved?.layout) layout = saved.layout;
   const url = resolveSrc();
   if (url) setReviewVideo(url, { layout, autoplay: !!opts.autoplay });
   else if (controls) controls.style.display = 'none';
@@ -307,7 +310,7 @@ export function initReviewVideo(opts = {}) {
   });
 
   // Editor: upload card
-  if (opts.studio !== false && (isEditor() || opts.studio === true)) {
+  if (opts.studio === true) {
     const tryMount = () => mountStudioUpload();
     tryMount();
     setTimeout(tryMount, 600);
@@ -330,7 +333,7 @@ export function initReviewVideo(opts = {}) {
 if (typeof window !== 'undefined') {
   const boot = () => {
     try {
-      initReviewVideo({ autoplay: false, studio: true });
+      initReviewVideo({ autoplay: false, studio: false });
     } catch (e) {
       console.warn('[review-video]', e);
     }

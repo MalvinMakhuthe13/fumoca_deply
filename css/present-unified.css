@@ -1,0 +1,405 @@
+/* FUMOCA Present Unified — tab panel + equal stack + full video */
+
+@import url('https://fonts.googleapis.com/css2?family=Anton&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600;700;800&display=swap');
+
+:root {
+  --rv-bar-h: 48px;
+  --rv-equal: 50%;
+}
+
+/* ── Hide old floating present bar (we use Present tab) ───── */
+#fumocaPresentBar { display: none !important; }
+
+/* ── Present tab inner panel ──────────────────────────────── */
+#fumocaPresentTabPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 0 16px;
+  font-family: Inter, system-ui, sans-serif;
+  color: #e8e8e8;
+}
+#fumocaPresentTabPanel .ptp-section {
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 12px;
+  padding: 12px;
+}
+#fumocaPresentTabPanel .ptp-title {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,.4);
+  margin: 0 0 10px;
+}
+#fumocaPresentTabPanel .ptp-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+#fumocaPresentTabPanel button {
+  border: 1px solid rgba(255,255,255,.1);
+  background: rgba(255,255,255,.06);
+  color: #e8e8e8;
+  padding: 8px 11px;
+  border-radius: 8px;
+  font: 600 11px/1 Inter, system-ui, sans-serif;
+  cursor: pointer;
+}
+#fumocaPresentTabPanel button:hover {
+  border-color: rgba(200,255,0,.35);
+  color: #c8ff00;
+  background: rgba(200,255,0,.08);
+}
+#fumocaPresentTabPanel button.primary {
+  background: #c8ff00;
+  color: #0a0c10;
+  border-color: transparent;
+}
+#fumocaPresentTabPanel button.active {
+  border-color: #c8ff00;
+  color: #c8ff00;
+}
+#fumocaPresentTabPanel .ptp-hint {
+  margin-top: 8px;
+  font-size: 10px;
+  color: rgba(255,255,255,.35);
+  line-height: 1.4;
+}
+#fumocaPresentTabPanel .ptp-status {
+  margin-top: 8px;
+  font-size: 10px;
+  color: rgba(200,255,0,.7);
+  line-height: 1.35;
+  word-break: break-all;
+}
+
+/* ── Magazine text overlays ───────────────────────────────── */
+.mt-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 18;
+  pointer-events: none;
+  overflow: hidden;
+}
+.mt-item {
+  position: absolute;
+  pointer-events: none;
+  max-width: min(42vw, 520px);
+}
+.mt-item.mt-cover {
+  font-family: Anton, Impact, sans-serif;
+  letter-spacing: .01em;
+  line-height: .88;
+  text-transform: uppercase;
+  text-shadow: 0 2px 4px rgba(0,0,0,.5), 0 8px 32px rgba(0,0,0,.45);
+}
+.mt-item.mt-masthead {
+  font-family: Anton, Impact, sans-serif;
+  line-height: .92;
+  text-shadow: 0 4px 24px rgba(0,0,0,.55);
+}
+.mt-item.mt-kicker {
+  font-family: 'IBM Plex Mono', monospace;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+.mt-item.mt-deck {
+  font-family: Inter, system-ui, sans-serif;
+  font-weight: 500;
+  white-space: normal;
+  max-width: 28ch;
+  line-height: 1.35;
+}
+.mt-item.mt-badge {
+  font-family: Inter, system-ui, sans-serif !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  letter-spacing: .14em !important;
+  text-transform: uppercase !important;
+  padding: 6px 11px;
+  border-radius: 999px;
+  background: rgba(0,0,0,.55);
+  border: 1px solid rgba(200,255,0,.4);
+  color: #c8ff00 !important;
+  text-shadow: none !important;
+}
+
+/* ── Review video layouts ─────────────────────────────────── */
+#fumocaReviewRoot {
+  position: fixed;
+  z-index: 6;
+  pointer-events: none;
+  overflow: hidden;
+  background: transparent;
+}
+#fumocaReviewRoot video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: #000;
+  pointer-events: none;
+}
+
+/* PIP */
+#fumocaReviewRoot.layout-pip {
+  inset: auto;
+  right: 16px;
+  bottom: calc(var(--rv-bar-h) + 16px);
+  width: min(300px, 30vw);
+  aspect-ratio: 16/9;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,.12);
+  box-shadow: 0 12px 36px rgba(0,0,0,.5);
+  z-index: 30;
+  background: #000;
+}
+#fumocaReviewRoot.layout-pip video {
+  opacity: 1;
+  border-radius: 11px;
+  pointer-events: auto;
+}
+
+/* STACK — equal 50/50 */
+#fumocaReviewRoot.layout-stack {
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--rv-equal);
+  background: #05070b;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#fumocaReviewRoot.layout-stack video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  opacity: 1;
+  background: #000;
+}
+body.rv-layout-stack #viewerShell,
+body.rv-layout-stack #stageHost,
+body.rv-layout-stack #stage {
+  top: 50% !important;
+  height: 50% !important;
+  bottom: 0 !important;
+}
+
+/* Editor: account for top chrome ~100px — use flex-style via calc */
+body.editor.rv-layout-stack #fumocaReviewRoot.layout-stack,
+body.rv-layout-stack.studio #fumocaReviewRoot.layout-stack {
+  top: 96px;
+  height: calc((100vh - 96px - var(--rv-bar-h)) / 2);
+}
+body.editor.rv-layout-stack #viewerShell,
+body.editor.rv-layout-stack #stageHost,
+body.editor.rv-layout-stack #stage,
+body.rv-layout-stack.studio #viewerShell,
+body.rv-layout-stack.studio #stageHost {
+  top: calc(96px + (100vh - 96px - var(--rv-bar-h)) / 2) !important;
+  height: calc((100vh - 96px - var(--rv-bar-h)) / 2) !important;
+}
+
+/* SPLIT — equal left/right, video full of its pane (no side chrome inside video) */
+#fumocaReviewRoot.layout-split {
+  top: 0;
+  left: 0;
+  bottom: var(--rv-bar-h);
+  width: 50%;
+  background: #000;
+  border-right: 1px solid rgba(255,255,255,.08);
+  z-index: 6;
+}
+#fumocaReviewRoot.layout-split video {
+  object-fit: contain;
+  opacity: 1;
+  width: 100%;
+  height: 100%;
+}
+body.rv-layout-split #viewerShell,
+body.rv-layout-split #stageHost {
+  left: 50% !important;
+  width: 50% !important;
+  right: 0 !important;
+}
+body.editor.rv-layout-split #fumocaReviewRoot.layout-split,
+body.rv-layout-split.studio #fumocaReviewRoot.layout-split {
+  top: 96px;
+}
+body.editor.rv-layout-split #viewerShell,
+body.editor.rv-layout-split #stageHost {
+  top: 96px !important;
+  height: calc(100vh - 96px - var(--rv-bar-h)) !important;
+}
+
+/* FULL — video only, immersive (hide side chrome feel) */
+#fumocaReviewRoot.layout-full {
+  inset: 0;
+  bottom: var(--rv-bar-h);
+  z-index: 40;
+  background: #000;
+  pointer-events: auto;
+}
+#fumocaReviewRoot.layout-full video {
+  object-fit: contain;
+  opacity: 1;
+  pointer-events: auto;
+}
+body.rv-layout-full #viewerShell,
+body.rv-layout-full #stageHost,
+body.rv-layout-full #stage {
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+/* BG subtle */
+#fumocaReviewRoot.layout-bg {
+  inset: 0;
+  bottom: var(--rv-bar-h);
+  z-index: 1;
+}
+#fumocaReviewRoot.layout-bg video {
+  opacity: 0.4;
+  object-fit: cover;
+}
+body.rv-layout-bg #viewerShell,
+body.rv-layout-bg #stageHost {
+  background: transparent !important;
+}
+
+/* Cinema */
+#fumocaReviewRoot.layout-cinema {
+  top: 96px;
+  left: 0;
+  right: 0;
+  bottom: var(--rv-bar-h);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #05070b;
+  z-index: 5;
+}
+#fumocaReviewRoot.layout-cinema video {
+  width: min(80vw, 960px);
+  height: auto;
+  max-height: calc(100% - 24px);
+  aspect-ratio: 16/9;
+  object-fit: contain;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,.1);
+  opacity: 1;
+}
+body.rv-layout-cinema #viewerShell,
+body.rv-layout-cinema #stageHost {
+  position: fixed !important;
+  right: 16px;
+  bottom: calc(var(--rv-bar-h) + 16px);
+  width: min(260px, 26vw) !important;
+  height: min(150px, 20vh) !important;
+  left: auto !important;
+  top: auto !important;
+  border-radius: 12px;
+  border: 1px solid rgba(200,255,0,.22);
+  overflow: hidden;
+  z-index: 25;
+}
+
+#fumocaReviewRoot.layout-hidden { display: none !important; }
+
+/* Transport pill */
+#fumocaReviewControls {
+  position: fixed;
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
+  z-index: 55;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 44px;
+  padding: 0 10px 0 14px;
+  border-radius: 999px;
+  background: rgba(8,10,14,.94);
+  border: 1px solid rgba(255,255,255,.1);
+  backdrop-filter: blur(16px);
+  box-shadow: 0 8px 28px rgba(0,0,0,.45);
+  pointer-events: auto;
+  font-family: Inter, system-ui, sans-serif;
+}
+#fumocaReviewControls .rv-brand {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: #c8ff00;
+}
+#fumocaReviewControls button {
+  border: none;
+  background: transparent;
+  color: rgba(255,255,255,.75);
+  height: 30px;
+  min-width: 28px;
+  padding: 0 7px;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+}
+#fumocaReviewControls button:hover { color: #c8ff00; background: rgba(200,255,0,.1); }
+#fumocaReviewControls button.primary { background: #c8ff00; color: #0a0c10; padding: 0 11px; }
+#fumocaReviewControls button.active { color: #c8ff00; background: rgba(200,255,0,.12); }
+#fumocaReviewControls .rv-time {
+  font-size: 10px;
+  color: rgba(255,255,255,.45);
+  min-width: 64px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+#fumocaReviewControls input[type="range"] {
+  width: 90px;
+  accent-color: #c8ff00;
+}
+#fumocaReviewControls .rv-layouts {
+  display: flex;
+  gap: 2px;
+  margin-left: 4px;
+  padding-left: 8px;
+  border-left: 1px solid rgba(255,255,255,.08);
+}
+
+/* Viewer public: no editor chrome offset */
+body:not(.editor):not(.studio).rv-layout-stack #fumocaReviewRoot.layout-stack {
+  top: 52px;
+  height: calc((100vh - 52px) / 2);
+}
+body:not(.editor):not(.studio).rv-layout-stack #viewerShell,
+body:not(.editor):not(.studio).rv-layout-stack #stageHost {
+  top: calc(52px + (100vh - 52px) / 2) !important;
+  height: calc((100vh - 52px) / 2) !important;
+}
+
+@media (max-width: 700px) {
+  #fumocaReviewRoot.layout-pip { width: min(200px, 55vw); }
+  #fumocaReviewControls input[type="range"] { width: 56px; }
+  /* Mobile stack still equal */
+  body.rv-layout-split #fumocaReviewRoot.layout-split {
+    width: 100%;
+    height: 42%;
+    top: 52px;
+    bottom: auto;
+    border-right: none;
+    border-bottom: 1px solid rgba(255,255,255,.08);
+  }
+  body.rv-layout-split #viewerShell,
+  body.rv-layout-split #stageHost {
+    left: 0 !important;
+    width: 100% !important;
+    top: calc(52px + 42%) !important;
+    height: calc(58% - 52px) !important;
+  }
+}
