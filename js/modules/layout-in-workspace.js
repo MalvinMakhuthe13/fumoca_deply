@@ -1,83 +1,97 @@
 /**
- * RealityScan-style multi-pane workspace.
- * Video and splat are real grid cells that share the space.
- * Not overlays. PIP is a free panel you can drag.
+ * Layouts enforced with inline styles so nothing can override them.
+ * PIP is draggable.
  */
 (function () {
-  function vp() { return document.getElementById('viewport') || document.getElementById('stage'); }
+  let layout = 'off';
 
-  function setup() {
-    const host = vp();
-    if (!host || host.dataset.panes) return host;
-    host.dataset.panes = '1';
-    host.classList.add('fvp-host');
+  function host() { return document.getElementById('viewport') || document.getElementById('stage'); }
 
-    // Video pane — a real section, sibling of the canvas
-    let pane = document.getElementById('fumocaVideoPane');
-    if (!pane) {
-      pane = document.createElement('div');
-      pane.id = 'fumocaVideoPane';
-      pane.innerHTML = '<div class="fvp-label">VIDEO</div><div class="fvp-empty">Upload a video in Present</div>';
-      host.insertBefore(pane, host.firstChild);
+  function pane() {
+    const h = host();
+    if (!h) return null;
+    let p = document.getElementById('fumocaVideoPane');
+    if (!p) {
+      p = document.createElement('div');
+      p.id = 'fumocaVideoPane';
+      p.innerHTML = '<div class="fvp-label">VIDEO</div><div class="fvp-empty">Upload a video</div>';
+      h.appendChild(p);
     }
-
-    // Park the review root inside the pane
     const root = document.getElementById('fumocaReviewRoot');
-    if (root && root.parentElement !== pane) pane.appendChild(root);
-    const controls = document.getElementById('fumocaReviewControls');
-    if (controls && root && controls.parentElement !== root) root.appendChild(controls);
-
-    makeDraggable(pane);
-    return host;
+    if (root && root.parentElement !== p) p.appendChild(root);
+    const c = document.getElementById('fumocaReviewControls');
+    if (c && root && c.parentElement !== root) root.appendChild(c);
+    return p;
   }
 
-  function makeDraggable(pane) {
-    if (pane.dataset.drag) return;
-    pane.dataset.drag = '1';
-    let on = false, sx = 0, sy = 0, ox = 0, oy = 0;
-    pane.addEventListener('pointerdown', (e) => {
-      if (pane.dataset.layout !== 'pip') return;
-      if (e.target.closest('button, input, video')) return;
-      on = true;
-      const r = pane.getBoundingClientRect();
-      const p = pane.parentElement.getBoundingClientRect();
-      sx = e.clientX; sy = e.clientY;
-      ox = r.left - p.left; oy = r.top - p.top;
-      pane.setPointerCapture(e.pointerId);
-    });
-    pane.addEventListener('pointermove', (e) => {
-      if (!on) return;
-      const p = pane.parentElement.getBoundingClientRect();
-      let x = Math.max(0, Math.min(ox + e.clientX - sx, p.width - pane.offsetWidth));
-      let y = Math.max(0, Math.min(oy + e.clientY - sy, p.height - pane.offsetHeight));
-      pane.style.left = x + 'px';
-      pane.style.top = y + 'px';
-    });
-    pane.addEventListener('pointerup', () => { on = false; });
+  function apply() {
+    const h = host();
+    const p = pane();
+    const canvas = document.getElementById('viewportCanvas');
+    if (!h || !p) return;
+
+    // Reset
+    p.style.cssText = '';
+    if (canvas) canvas.style.cssText = '';
+
+    if (layout === 'off') {
+      p.style.display = 'none';
+      return;
+    }
+
+    const base = 'position:absolute;background:#05070b;overflow:hidden;z-index:6;border:0;';
+
+    if (layout === 'stack') {
+      p.style.cssText = base + 'top:0;left:0;right:0;width:100%;height:50%;border-bottom:3px solid #c8ff00;';
+      if (canvas) canvas.style.cssText = 'position:absolute;top:50%;left:0;width:100%;height:50%;';
+    } else if (layout === 'split') {
+      p.style.cssText = base + 'top:0;left:0;bottom:0;width:50%;height:100%;border-right:3px solid #c8ff00;';
+      if (canvas) canvas.style.cssText = 'position:absolute;top:0;left:50%;width:50%;height:100%;';
+    } else if (layout === 'pip') {
+      p.style.cssText = base + 'right:16px;bottom:16px;width:300px;height:170px;border-radius:12px;border:2px solid #c8ff00;cursor:grab;z-index:20;box-shadow:0 12px 36px rgba(0,0,0,.6);';
+      if (canvas) canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;';
+    } else if (layout === 'full' || layout === 'cinema') {
+      p.style.cssText = base + 'inset:0;width:100%;height:100%;z-index:8;';
+      if (canvas) canvas.style.visibility = 'hidden';
+    } else if (layout === 'bg') {
+      p.style.cssText = base + 'inset:0;width:100%;height:100%;z-index:1;opacity:.8;';
+    }
+    p.style.display = 'block';
   }
 
   function setLayout(name) {
-    const host = setup();
-    if (!host) return;
-    const pane = document.getElementById('fumocaVideoPane');
-    const layout = (name === 'off' || name === 'hidden') ? 'off' : name;
-    host.dataset.layout = layout;
-    if (pane) {
-      pane.dataset.layout = layout;
-      if (layout !== 'pip') { pane.style.left = ''; pane.style.top = ''; }
-    }
-    document.body.dataset.fvp = layout;
+    layout = (name === 'hidden') ? 'off' : name;
+    apply();
     try { window.FumocaReviewVideo?.setLayout?.(layout === 'off' ? 'hidden' : layout); } catch (_) {}
-    // Force the WebGL canvas to refit its new cell
-    setTimeout(() => {
-      window.dispatchEvent(new Event('resize'));
-      const c = document.getElementById('viewportCanvas');
-      if (c && window._fumocaRenderer) {
-        try { window._fumocaRenderer.setSize(c.clientWidth, c.clientHeight, false); } catch (_) {}
-      }
-    }, 80);
-    console.log('[FUMOCA] section layout →', layout);
+    setTimeout(() => window.dispatchEvent(new Event('resize')), 60);
+    console.log('[FUMOCA] layout', layout);
   }
+
+  // PIP drag
+  document.addEventListener('pointerdown', (e) => {
+    const p = document.getElementById('fumocaVideoPane');
+    if (!p || layout !== 'pip' || !p.contains(e.target)) return;
+    if (e.target.closest('button, input, video')) return;
+    const parent = p.parentElement.getBoundingClientRect();
+    const start = { x: e.clientX, y: e.clientY, l: p.offsetLeft, t: p.offsetTop };
+    p.setPointerCapture(e.pointerId);
+    function move(ev) {
+      let x = start.l + ev.clientX - start.x;
+      let y = start.t + ev.clientY - start.y;
+      x = Math.max(0, Math.min(x, parent.width - p.offsetWidth));
+      y = Math.max(0, Math.min(y, parent.height - p.offsetHeight));
+      p.style.left = x + 'px';
+      p.style.top = y + 'px';
+      p.style.right = 'auto';
+      p.style.bottom = 'auto';
+    }
+    function up() {
+      document.removeEventListener('pointermove', move);
+      document.removeEventListener('pointerup', up);
+    }
+    document.addEventListener('pointermove', move);
+    document.addEventListener('pointerup', up);
+  });
 
   document.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-layout]');
@@ -86,7 +100,7 @@
     document.querySelectorAll('[data-layout]').forEach((b) => b.classList.toggle('active', b === btn));
   });
 
-  window.addEventListener('load', () => setTimeout(setup, 200));
-  setInterval(setup, 2000);
+  window.addEventListener('load', () => setTimeout(apply, 300));
+  setInterval(() => { if (layout !== 'off') apply(); }, 2000);
   window.fumocaSetLayout = setLayout;
 })();
