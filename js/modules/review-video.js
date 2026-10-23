@@ -297,13 +297,35 @@ function restoreViewerStage() {
   const work = document.getElementById('fumocaWork');
   if (stage && stageHost && stageHost.parentElement !== stage) stage.appendChild(stageHost);
   if (stageHost) {
-    stageHost.style.setProperty('position', 'absolute', 'important');
-    stageHost.style.setProperty('inset', '0', 'important');
-    stageHost.style.setProperty('width', '100%', 'important');
-    stageHost.style.setProperty('height', '100%', 'important');
-    stageHost.style.setProperty('display', 'block', 'important');
+    ['position', 'inset', 'left', 'top', 'right', 'bottom', 'width', 'height', 'display'].forEach((prop) => stageHost.style.removeProperty(prop));
   }
-  if (work) work.style.setProperty('display', 'none', 'important');
+  if (work) {
+    work.style.setProperty('display', 'none', 'important');
+    work.style.setProperty('pointer-events', 'none', 'important');
+  }
+  if (stage) stage.classList.remove('rv-split', 'rv-stack', 'rv-full', 'rv-pip', 'rv-bg', 'rv-cinema');
+}
+
+function placeViewerVideo(stage, mode) {
+  if (!root || !stage) return;
+  if (root.parentElement !== stage) stage.appendChild(root);
+  root.style.setProperty('position', 'absolute', 'important');
+  root.style.setProperty('z-index', '4', 'important');
+  root.style.setProperty('margin', '0', 'important');
+  root.style.setProperty('overflow', 'hidden', 'important');
+  root.style.setProperty('background', '#05070b', 'important');
+  const boxes = {
+    split: { left: '0', top: '0', width: '50%', height: '100%', right: 'auto', bottom: 'auto' },
+    stack: { left: '0', top: '0', width: '100%', height: '50%', right: 'auto', bottom: 'auto' },
+    pip: { left: 'auto', top: 'auto', right: '16px', bottom: '16px', width: '300px', height: '170px' },
+    full: { left: '0', top: '0', width: '100%', height: '100%', right: 'auto', bottom: 'auto' },
+    cinema: { left: '0', top: '0', width: '100%', height: '100%', right: 'auto', bottom: 'auto' },
+    bg: { left: '0', top: '0', width: '100%', height: '100%', right: 'auto', bottom: 'auto' },
+  };
+  const box = boxes[mode] || boxes.split;
+  Object.entries(box).forEach(([k, v]) => root.style.setProperty(k, v, 'important'));
+  stage.classList.remove('rv-split', 'rv-stack', 'rv-full', 'rv-pip', 'rv-bg', 'rv-cinema');
+  stage.classList.add('rv-' + mode);
 }
 
 function applyFrame() {
@@ -312,17 +334,39 @@ function applyFrame() {
   if (!host) return;
   const viewerPage = host.id === 'stage';
   const showMix = !!src && layout !== 'hidden';
-  const work = workEl(host);
 
-  if (viewerPage && !showMix) {
-    restoreViewerStage();
-    root.style.display = 'none';
+  if (viewerPage) {
+    const stageHost = document.getElementById('stageHost');
+    if (stageHost && stageHost.parentElement !== host) host.appendChild(stageHost);
+    if (!showMix) {
+      restoreViewerStage();
+      root.style.setProperty('display', 'none', 'important');
+    } else {
+      const work = document.getElementById('fumocaWork');
+      if (work) work.style.setProperty('display', 'none', 'important');
+      placeViewerVideo(host, layout);
+      root.style.setProperty('display', 'block', 'important');
+    }
+    const shell = document.getElementById('fumoca-video-shell');
+    if (shell) shell.style.setProperty('display', 'none', 'important');
+    empty.style.display = src ? 'none' : 'flex';
+    video.style.display = src ? 'block' : 'none';
+    video.style.setProperty('position', 'absolute', 'important');
+    video.style.setProperty('inset', '0', 'important');
+    video.style.setProperty('width', '100%', 'important');
+    video.style.setProperty('height', '100%', 'important');
+    video.style.setProperty('object-fit', 'contain', 'important');
+    controls.style.display = showMix ? 'flex' : 'none';
+    controls.querySelectorAll('[data-layout]').forEach((b) => b.classList.toggle('active', b.dataset.layout === layout));
     fitting = true;
     requestAnimationFrame(() => { pokeViewer(); fitting = false; });
+    setTimeout(pokeViewer, 400);
+    setTimeout(pokeViewer, 1200);
     return;
   }
 
-  const pane = viewerPage ? document.getElementById('stageHost') : splatPane(host);
+  const work = workEl(host);
+  const pane = splatPane(host);
   if (root.parentElement !== work) work.appendChild(root);
   if (pane && pane.parentElement !== work) work.appendChild(pane);
   if (pane && root.nextSibling !== pane) work.insertBefore(root, pane);
@@ -335,10 +379,8 @@ function applyFrame() {
   root.className = 'layout-' + layout;
   root.style.display = layout === 'hidden' ? 'none' : 'block';
   if (layout !== 'pip') {
-    ['left', 'top', 'right', 'bottom'].forEach((p) => root.style.removeProperty(p));
+    ['left', 'top', 'right', 'bottom'].forEach((prop) => root.style.removeProperty(prop));
   }
-  const shell = document.getElementById('fumoca-video-shell');
-  if (shell) shell.style.setProperty('display', 'none', 'important');
   empty.style.display = src ? 'none' : 'flex';
   video.style.display = src ? 'block' : 'none';
   video.style.setProperty('position', 'absolute', 'important');
@@ -346,16 +388,11 @@ function applyFrame() {
   video.style.setProperty('width', '100%', 'important');
   video.style.setProperty('height', '100%', 'important');
   video.style.setProperty('object-fit', 'contain', 'important');
-  const box = host.getBoundingClientRect();
-  const W = Math.max(host.clientWidth, box.width, 2);
-  const H = Math.max(host.clientHeight, box.height, 2);
-  work.style.setProperty('position', 'absolute', 'important');
-  work.style.setProperty('inset', '0', 'important');
-  work.style.setProperty('width', W + 'px', 'important');
-  work.style.setProperty('height', H + 'px', 'important');
-  work.style.setProperty('overflow', 'hidden', 'important');
   if (layout === 'split' || layout === 'stack') {
     work.style.setProperty('display', 'grid', 'important');
+    work.style.setProperty('position', 'absolute', 'important');
+    work.style.setProperty('inset', '0', 'important');
+    work.style.setProperty('overflow', 'hidden', 'important');
     if (layout === 'split') {
       work.style.setProperty('grid-template-columns', 'minmax(0,1fr) minmax(0,1fr)', 'important');
       work.style.setProperty('grid-template-rows', 'minmax(0,1fr)', 'important');
@@ -363,18 +400,14 @@ function applyFrame() {
       work.style.setProperty('grid-template-columns', 'minmax(0,1fr)', 'important');
       work.style.setProperty('grid-template-rows', 'minmax(0,1fr) minmax(0,1fr)', 'important');
     }
-    const pw = layout === 'split' ? Math.floor(W / 2) : W;
-    const ph = layout === 'stack' ? Math.floor(H / 2) : H;
     [root, pane].forEach((el) => {
       if (!el) return;
       el.style.setProperty('position', 'relative', 'important');
-      el.style.setProperty('display', 'block', 'important');
-      el.style.setProperty('width', pw + 'px', 'important');
-      el.style.setProperty('height', ph + 'px', 'important');
+      el.style.setProperty('width', '100%', 'important');
+      el.style.setProperty('height', '100%', 'important');
       el.style.setProperty('min-width', '0', 'important');
       el.style.setProperty('min-height', '0', 'important');
       el.style.setProperty('overflow', 'hidden', 'important');
-      el.style.setProperty('inset', 'auto', 'important');
     });
   }
   controls.style.display = layout === 'hidden' ? 'none' : 'flex';
