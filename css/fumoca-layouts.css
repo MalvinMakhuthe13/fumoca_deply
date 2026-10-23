@@ -7,10 +7,9 @@
   isolation: isolate;
 }
 /* Hide review root until it is inside the workspace */
-#fumocaReviewRoot:not(#viewport #fumocaReviewRoot) {
+/* Editor only: hide root until it is inside the workspace */
+body:has(#viewport) #fumocaReviewRoot:not(#viewport #fumocaReviewRoot) {
   display: none !important;
-  visibility: hidden !important;
-  pointer-events: none !important;
 }
 /* FUMOCA layouts v3 — splits stay in center workspace only */
 
@@ -70,7 +69,7 @@ body.present-active .mt-item { display: block !important; }
 }
 
 /* If it somehow escapes, hide it so it cannot cover panels */
-body > #fumocaReviewRoot { display: none !important; }
+body:has(#viewport) > #fumocaReviewRoot { display: none !important; }
 
 /* Stack — top half of workspace */
 #viewport > #fumocaReviewRoot.layout-stack {
@@ -118,7 +117,7 @@ body.rv-layout-full #viewportCanvas { visibility: hidden; }
   border-radius: 12px !important;
   padding: 6px 10px !important;
 }
-body > #fumocaReviewControls { display: none !important; }
+body:has(#viewport) > #fumocaReviewControls { display: none !important; }
 
 /* Play/pause lives ON the video pane */
 #fumocaReviewRoot {
@@ -153,4 +152,79 @@ body > #fumocaReviewControls { display: none !important; }
   display: flex !important;
   gap: 4px !important;
   margin-left: auto !important;
+}
+
+
+/* ── VIEWER: full-screen layouts, controls on the video ── */
+body:not(:has(#viewport)) #fumocaReviewRoot {
+  position: fixed !important;
+  z-index: 6 !important;
+  overflow: hidden !important;
+  background: #000 !important;
+}
+body:not(:has(#viewport)) #fumocaReviewRoot > #fumocaReviewControls {
+  position: absolute !important;
+  left: 8px !important; right: 8px !important; bottom: 8px !important;
+  z-index: 5 !important;
+  display: flex !important; flex-wrap: wrap; gap: 6px; align-items: center;
+  background: rgba(0,0,0,.72) !important;
+  border-radius: 10px !important;
+  padding: 6px 8px !important;
+}
+body:not(:has(#viewport)).rv-layout-stack #fumocaReviewRoot.layout-stack {
+  top: 0; left: 0; right: 0; height: 50vh; width: auto;
+}
+body:not(:has(#viewport)).rv-layout-stack #stage,
+body:not(:has(#viewport)).rv-layout-stack #stageHost {
+  top: 50vh !important; height: 50vh !important; left: 0 !important; width: 100% !important;
+}
+body:not(:has(#viewport)).rv-layout-split #fumocaReviewRoot.layout-split {
+  top: 0; left: 0; width: 50vw; height: 100vh; bottom: 0;
+}
+body:not(:has(#viewport)).rv-layout-split #stage,
+body:not(:has(#viewport)).rv-layout-split #stageHost {
+  left: 50vw !important; width: 50vw !important; top: 0 !important; height: 100vh !important;
+}
+body:not(:has(#viewport)).rv-layout-pip #fumocaReviewRoot.layout-pip {
+  top: auto; left: auto; right: 16px; bottom: 72px;
+  width: min(300px, 40vw); height: auto; aspect-ratio: 16/9; z-index: 30;
+}
+body:not(:has(#viewport)).rv-layout-full #fumocaReviewRoot.layout-full {
+  inset: 0; width: 100%; height: 100%; z-index: 20;
+}
+body:not(:has(#viewport)).rv-layout-full #stage { visibility: hidden; }
+
+/* ── Phone orientation ──
+   Portrait  = vertical  → stack (video top, splat bottom)
+   Landscape = horizontal → split (video left, splat right)
+   Only in the viewer (no #viewport). Editor keeps the chosen layout. */
+
+@media (orientation: portrait) and (max-width: 900px) {
+  body:not(:has(#viewport)).rv-layout-stack #fumocaReviewRoot.layout-stack,
+  body:not(:has(#viewport)).rv-layout-split #fumocaReviewRoot.layout-split {
+    top: 0 !important; left: 0 !important; right: 0 !important;
+    width: 100% !important; height: 50vh !important; bottom: auto !important;
+  }
+  body:not(:has(#viewport)).rv-layout-stack #stage,
+  body:not(:has(#viewport)).rv-layout-stack #stageHost,
+  body:not(:has(#viewport)).rv-layout-split #stage,
+  body:not(:has(#viewport)).rv-layout-split #stageHost {
+    top: 50vh !important; left: 0 !important;
+    width: 100% !important; height: 50vh !important;
+  }
+}
+
+@media (orientation: landscape) and (max-height: 500px) {
+  body:not(:has(#viewport)).rv-layout-stack #fumocaReviewRoot.layout-stack,
+  body:not(:has(#viewport)).rv-layout-split #fumocaReviewRoot.layout-split {
+    top: 0 !important; left: 0 !important; bottom: 0 !important;
+    width: 50vw !important; height: 100vh !important; right: auto !important;
+  }
+  body:not(:has(#viewport)).rv-layout-stack #stage,
+  body:not(:has(#viewport)).rv-layout-stack #stageHost,
+  body:not(:has(#viewport)).rv-layout-split #stage,
+  body:not(:has(#viewport)).rv-layout-split #stageHost {
+    left: 50vw !important; top: 0 !important;
+    width: 50vw !important; height: 100vh !important;
+  }
 }
