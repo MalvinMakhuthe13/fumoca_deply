@@ -299,7 +299,14 @@ export function encodeNif(opts = {}) {
     writer.add(CHUNK.LIDAR_ATTR, attrBytes, CODEC.RAW);
   }
 
-  writer.add(CHUNK.META, encodeMetaChunk(opts.meta ?? {}).data, CODEC.RAW);
+  const meta = { ...(opts.meta || {}) };
+  // A .nif can carry the paired review video, not only the splat.
+  // { reviewVideo: { url, layout, kind: 'splat-video' } }
+  if (!meta.reviewVideo && typeof window !== 'undefined') {
+    const live = window.FumocaReviewVideo?.meta?.();
+    if (live?.url) meta.reviewVideo = live;
+  }
+  writer.add(CHUNK.META, encodeMetaChunk(meta).data, CODEC.RAW);
 
   if (opts.thumbnailBytes) {
     writer.chunks.push(encodeThumbnailChunk(opts.thumbnailBytes));

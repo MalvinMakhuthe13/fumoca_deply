@@ -207,7 +207,7 @@
 <!-- Editor root (NIFPresentationEditor mounts here) -->
 <div id="editor-root" class="hidden"></div>
 
-<script src="../config.js"></script>
+<script src="../../config.js"></script>
 <script type="module">
   // ─── Config ────────────────────────────────────────────────────────────────
   const cfg          = window.NIF_CONFIG ?? {};
@@ -219,7 +219,7 @@
   let _sceneEditorModule = null;
   async function loadSceneEditor(container, renderer, gaussians, nifId, token) {
     if (!_sceneEditorModule) {
-      _sceneEditorModule = await import('/editor/NIFSceneEditor.js');
+      _sceneEditorModule = await import('./NIFSceneEditor.js');
     }
     return _sceneEditorModule.mountNIFSceneEditor(container, renderer, gaussians, nifId, token, API);
   }
@@ -365,7 +365,7 @@
     editorRoot.classList.remove('hidden');
 
     try {
-      const { NIFPresentationEditor } = await import('/editor/NIFPresentationEditor.js');
+      const { NIFPresentationEditor } = await import('./NIFPresentationEditor.js');
 
       const editor = new NIFPresentationEditor(editorRoot, {
         nifId:   id,

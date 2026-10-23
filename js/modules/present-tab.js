@@ -154,7 +154,7 @@ function mountPanel() {
         <button type="button" data-layout="bg">BG</button>
         <button type="button" data-layout="hidden">Off</button>
       </div>
-      <div class="ptp-status" id="ptpVidStatus">Stack / Split = equal space. Full = video only.</div>
+      <div class="ptp-status" id="ptpVidStatus">Split and Stack share the workspace. Play sits on the video.</div>
     </div>
   `;
 

@@ -1,41 +1,76 @@
 /**
- * FUMOCA Review Video v2.1
- * Viewer + Editor: layouts + from-device upload
+ * FUMOCA Review Video
+ * One player for editor and viewer.
+ * Stack / Split are real halves of the workspace. PIP can be dragged.
+ * A device upload plays immediately, then is stored and written onto the NIF record
+ * so the public viewer opens the same video + splat mix.
  */
-const STORAGE = 'fumoca_review_video_v2';
+import { r2 } from '../r2Client.js';
+
+const STORAGE = 'fumoca_review_video_v3';
+const BUCKET = 'nif-videos';
 const LAYOUTS = ['pip', 'bg', 'split', 'stack', 'full', 'cinema', 'hidden'];
 
 let video = null;
 let root = null;
 let controls = null;
-let layout = 'pip';
+let empty = null;
+let layout = 'split';
 let src = null;
-let objectUrl = null; // local file blob URL
+let objectUrl = null;
 let raf = 0;
-let studioBar = null;
+let drag = null;
+let fitting = false;
 
-function isEditor() {
-  return /\/edit/i.test(location.pathname) || document.body?.classList?.contains('editor');
+export function layoutFrame(name) {
+  if (name === 'stack') {
+    return {
+      video: { top: '0', left: '0', width: '100%', height: '50%', right: 'auto', bottom: 'auto' },
+      canvas: { top: '50%', left: '0', width: '100%', height: '50%', right: 'auto', bottom: 'auto' },
+    };
+  }
+  if (name === 'split') {
+    return {
+      video: { top: '0', left: '0', width: '50%', height: '100%', right: 'auto', bottom: 'auto' },
+      canvas: { top: '0', left: '50%', width: '50%', height: '100%', right: 'auto', bottom: 'auto' },
+    };
+  }
+  if (name === 'pip') {
+    return {
+      video: { top: 'auto', left: 'auto', right: '16px', bottom: '16px', width: '300px', height: '170px' },
+      canvas: null,
+    };
+  }
+  if (name === 'cinema') {
+    return {
+      video: { top: '0', left: '0', width: '100%', height: '100%', right: 'auto', bottom: 'auto' },
+      canvas: { top: 'auto', left: 'auto', right: '16px', bottom: '16px', width: '280px', height: '158px' },
+    };
+  }
+  if (name === 'full') {
+    return {
+      video: { top: '0', left: '0', width: '100%', height: '100%', right: 'auto', bottom: 'auto' },
+      canvas: { hidden: true },
+    };
+  }
+  if (name === 'bg') {
+    return {
+      video: { top: '0', left: '0', width: '100%', height: '100%', right: 'auto', bottom: 'auto' },
+      canvas: null,
+    };
+  }
+  return { video: null, canvas: null };
 }
 
 function idKey() {
   const q = new URLSearchParams(location.search);
-  return (
-    q.get('nifId') ||
-    q.get('splatId') ||
-    q.get('id') ||
-    window._fumocaCurrentSplatId ||
-    window._fumocaCurrentRecord?.id ||
-    'default'
-  );
+  return q.get('nifId') || q.get('splatId') || q.get('id') ||
+    window._fumocaCurrentSplatId || window._fumocaCurrentRecord?.id || 'default';
 }
 
 function loadSaved() {
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE) || '{}')[idKey()] || null;
-  } catch {
-    return null;
-  }
+  try { return JSON.parse(localStorage.getItem(STORAGE) || '{}')[idKey()] || null; }
+  catch { return null; }
 }
 
 function saveSaved(data) {
@@ -46,94 +81,172 @@ function saveSaved(data) {
   } catch (_) {}
 }
 
+function httpUrl(url) {
+  return !!url && /^https?:\/\//i.test(url);
+}
+
 function resolveSrc() {
   const q = new URLSearchParams(location.search);
   const fromQ = q.get('review') || q.get('video') || q.get('reviewVideo');
-  if (fromQ) return fromQ;
+  if (httpUrl(fromQ)) return fromQ;
+  const opened = window._fumocaOpenedMeta;
+  if (httpUrl(opened?.reviewVideo?.url)) return opened.reviewVideo.url;
   const rec = window._fumocaCurrentRecord;
   const meta = rec?.meta || rec?.metadata || {};
-  if (meta.reviewVideo?.url) return meta.reviewVideo.url;
-  if (meta.review_video_url) return meta.review_video_url;
-  if (rec?.review_video_url) return rec.review_video_url;
+  if (httpUrl(meta.reviewVideo?.url)) return meta.reviewVideo.url;
+  if (httpUrl(meta.review_video_url)) return meta.review_video_url;
+  if (httpUrl(rec?.review_video_url)) return rec.review_video_url;
   const saved = loadSaved();
-  // blob: only valid this session — skip if stale
-  if (saved?.url && !String(saved.url).startsWith('blob:')) return saved.url;
+  if (httpUrl(saved?.url)) return saved.url;
   return null;
 }
 
-function ensureCss() {
-  if (document.querySelector('link[href*="review-video.css"]')) return;
-  const link = document.createElement('link');
-  link.rel = 'stylesheet';
-  link.href = 'css/present-unified.css';
-  document.head.appendChild(link);
+const GRID = {
+  stack: 'rv-grid-stack',
+  split: 'rv-grid-split',
+  pip: 'rv-grid-pip',
+  full: 'rv-grid-full',
+  cinema: 'rv-grid-cinema',
+  bg: 'rv-grid-bg',
+  hidden: 'rv-grid-off',
+};
+
+function workspace() {
+  return document.getElementById('viewport') || document.getElementById('stage') || document.getElementById('stageHost');
+}
+
+function workEl(host) {
+  let work = document.getElementById('fumocaWork');
+  if (!work) {
+    work = document.createElement('div');
+    work.id = 'fumocaWork';
+    work.className = 'rv-grid-off';
+    host.appendChild(work);
+  }
+  return work;
+}
+
+function realCanvas() {
+  const gl = window._fumocaGlRenderer?.domElement;
+  if (gl?.tagName === 'CANVAS') return gl;
+  return document.querySelector('#stageHost canvas, #fumocaSplatPane canvas');
+}
+
+function splatPane(host) {
+  if (host?.id === 'stage' || document.getElementById('stageHost')) {
+    const stage = document.getElementById('stageHost');
+    if (stage && host?.id !== 'viewport') return stage;
+  }
+  const work = workEl(host);
+  let pane = document.getElementById('fumocaSplatPane');
+  if (!pane) {
+    pane = document.createElement('div');
+    pane.id = 'fumocaSplatPane';
+    work.appendChild(pane);
+  }
+  const canvas = realCanvas();
+  if (canvas && canvas.parentElement !== pane) pane.appendChild(canvas);
+  const decoy = document.getElementById('viewportCanvas');
+  if (decoy) decoy.style.display = 'none';
+  return pane;
+}
+
+function fitRenderer() {
+  const pane = document.getElementById('fumocaSplatPane') || document.getElementById('stageHost');
+  if (!pane || pane.clientWidth < 2 || pane.clientHeight < 2) return;
+  const renderer = window._fumocaGlRenderer;
+  const camera = window._fumocaCamera;
+  if (renderer && camera) {
+    const W = pane.clientWidth;
+    const H = pane.clientHeight;
+    camera.aspect = W / H;
+    camera.updateProjectionMatrix();
+    renderer.setSize(W, H, false);
+    window.FumocaGaussianRenderer?.setViewport?.(W, H);
+  }
+}
+
+function toast(msg) {
+  let t = document.getElementById('rvToast');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = 'rvToast';
+    document.body.appendChild(t);
+  }
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._h);
+  t._h = setTimeout(() => t.classList.remove('show'), 4200);
 }
 
 function ensureDom() {
   if (root) return;
+  const host = workspace() || document.body;
+  if (host !== document.body) host.style.position = host.style.position || 'relative';
   root = document.createElement('div');
   root.id = 'fumocaReviewRoot';
+  root.className = 'layout-hidden';
+  empty = document.createElement('div');
+  empty.className = 'rv-empty';
+  empty.textContent = 'Upload a video in Present';
   video = document.createElement('video');
   video.playsInline = true;
   video.setAttribute('playsinline', '');
+  video.loop = true;
   video.preload = 'auto';
-  video.controls = false;
-  root.appendChild(video);
-  document.body.insertBefore(root, document.body.firstChild);
-
   controls = document.createElement('div');
   controls.id = 'fumocaReviewControls';
   controls.innerHTML = `
-    <span class="rv-brand">Review</span>
-    <button type="button" data-act="play" class="primary">▶ Play</button>
-    <button type="button" data-act="back">−10</button>
+    <button type="button" data-act="play" class="primary">Play</button>
+    <button type="button" data-act="back">-10</button>
     <button type="button" data-act="fwd">+10</button>
     <input type="range" data-act="seek" min="0" max="1000" value="0" />
-    <span class="rv-time">0:00 / 0:00</span>
-    <button type="button" data-act="mute">🔊</button>
-    <div class="rv-layouts">
-      <button type="button" data-layout="pip">PIP</button>
+    <span class="rv-time">0:00</span>
+    <button type="button" data-act="mute">Mute</button>
+    <span class="rv-layouts">
       <button type="button" data-layout="stack">Stack</button>
       <button type="button" data-layout="split">Split</button>
+      <button type="button" data-layout="pip">PIP</button>
       <button type="button" data-layout="full">Full</button>
       <button type="button" data-layout="cinema">Cinema</button>
       <button type="button" data-layout="bg">BG</button>
       <button type="button" data-layout="hidden">Off</button>
-    </div>
+    </span>
   `;
-  document.body.appendChild(controls);
-
+  root.append(empty, video, controls);
+  const work = workEl(host);
+  work.appendChild(root);
+  splatPane(host);
+  if (document.getElementById('fumocaSplatPane')?.parentElement !== work) {
+    const pane = document.getElementById('fumocaSplatPane');
+    if (pane) work.appendChild(pane);
+  }
+  const stage = document.getElementById('stageHost');
+  if (stage && host.id !== 'viewport' && stage.parentElement !== work) work.appendChild(stage);
   controls.addEventListener('click', onClick);
-  controls.querySelector('[data-act="seek"]')?.addEventListener('input', onSeek);
-  ['pointerdown', 'pointermove', 'wheel', 'touchstart'].forEach((ev) => {
-    controls.addEventListener(ev, (e) => e.stopPropagation(), { passive: true });
-  });
-
-  video.addEventListener('click', (e) => {
-    if (layout !== 'pip') return;
-    e.stopPropagation();
-    if (video.paused) video.play().catch(() => {});
-    else video.pause();
-  });
+  controls.querySelector('[data-act="seek"]').addEventListener('input', onSeek);
+  controls.addEventListener('pointerdown', (e) => e.stopPropagation());
+  root.addEventListener('pointerdown', onDragStart);
+  window.addEventListener('pointermove', onDragMove);
+  window.addEventListener('pointerup', () => { drag = null; });
+  window.addEventListener('resize', () => { if (!fitting) applyFrame(); });
 }
 
 function fmt(t) {
   if (!Number.isFinite(t) || t < 0) return '0:00';
-  const m = Math.floor(t / 60);
-  const s = Math.floor(t % 60);
-  return `${m}:${String(s).padStart(2, '0')}`;
+  return `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
 }
 
 function tick() {
   if (!video || !controls) return;
   const seek = controls.querySelector('[data-act="seek"]');
   const time = controls.querySelector('.rv-time');
-  if (video.duration && seek) {
+  if (video.duration && seek && document.activeElement !== seek) {
     seek.value = String(Math.round((video.currentTime / video.duration) * 1000));
   }
   if (time) time.textContent = `${fmt(video.currentTime)} / ${fmt(video.duration || 0)}`;
   const playBtn = controls.querySelector('[data-act="play"]');
-  if (playBtn) playBtn.textContent = video.paused ? '▶ Play' : '❚❚ Pause';
+  if (playBtn) playBtn.textContent = video.paused ? 'Play' : 'Pause';
   raf = requestAnimationFrame(tick);
 }
 
@@ -142,26 +255,71 @@ function onSeek(e) {
   video.currentTime = (Number(e.target.value) / 1000) * video.duration;
 }
 
-function clearBodyLayoutClasses() {
-  LAYOUTS.forEach((l) => document.body.classList.remove('rv-layout-' + l));
-  document.body.classList.remove('rv-active');
+function onDragStart(e) {
+  if (layout !== 'pip' || e.target.closest('button, input')) return;
+  const work = document.getElementById('fumocaWork');
+  if (!work) return;
+  const hr = work.getBoundingClientRect();
+  const rr = root.getBoundingClientRect();
+  drag = { x: e.clientX, y: e.clientY, l: rr.left - hr.left, t: rr.top - hr.top };
+  root.setPointerCapture?.(e.pointerId);
+}
+
+function onDragMove(e) {
+  if (!drag || layout !== 'pip') return;
+  const work = document.getElementById('fumocaWork');
+  if (!work) return;
+  const hr = work.getBoundingClientRect();
+  let x = drag.l + e.clientX - drag.x;
+  let y = drag.t + e.clientY - drag.y;
+  x = Math.max(8, Math.min(x, hr.width - root.offsetWidth - 8));
+  y = Math.max(8, Math.min(y, hr.height - root.offsetHeight - 8));
+  root.style.setProperty('left', x + 'px', 'important');
+  root.style.setProperty('top', y + 'px', 'important');
+  root.style.setProperty('right', 'auto', 'important');
+  root.style.setProperty('bottom', 'auto', 'important');
+}
+
+function applyFrame() {
+  if (!root) return;
+  const host = workspace();
+  if (!host) return;
+  const work = workEl(host);
+  const pane = splatPane(host);
+  if (root.parentElement !== work) work.appendChild(root);
+  if (pane && pane.parentElement !== work) work.appendChild(pane);
+  if (pane) work.insertBefore(root, pane);
+  Object.values(GRID).forEach((name) => work.classList.remove(name));
+  work.classList.add(GRID[layout] || GRID.hidden);
+  host.classList.toggle('rv-split', layout === 'split');
+  host.classList.toggle('rv-stack', layout === 'stack');
+  host.classList.toggle('rv-full', layout === 'full');
+  root.className = 'layout-' + layout;
+  root.style.display = layout === 'hidden' ? 'none' : 'flex';
+  if (layout !== 'pip') {
+    root.style.removeProperty('left');
+    root.style.removeProperty('top');
+  }
+  empty.style.display = src ? 'none' : 'flex';
+  video.style.display = src ? 'block' : 'none';
+  controls.style.display = layout === 'hidden' ? 'none' : 'flex';
+  controls.querySelectorAll('[data-layout]').forEach((b) => b.classList.toggle('active', b.dataset.layout === layout));
+  fitting = true;
+  requestAnimationFrame(() => {
+    fitRenderer();
+    window.dispatchEvent(new Event('resize'));
+    fitting = false;
+  });
 }
 
 function setLayout(next) {
-  if (!LAYOUTS.includes(next)) next = 'pip';
+  if (!LAYOUTS.includes(next)) next = 'split';
   layout = next;
-  root.className = 'layout-' + layout;
-  clearBodyLayoutClasses();
-  if (layout !== 'hidden' && src) {
-    document.body.classList.add('rv-active', 'rv-layout-' + layout);
-  }
-  controls.querySelectorAll('[data-layout]').forEach((b) => {
-    b.classList.toggle('active', b.dataset.layout === layout);
-  });
-  video.style.pointerEvents = layout === 'pip' ? 'auto' : 'none';
-  if (src && !String(src).startsWith('blob:')) saveSaved({ url: src, layout });
-  else saveSaved({ layout, url: src && !String(src).startsWith('blob:') ? src : undefined });
-  setTimeout(() => window.dispatchEvent(new Event('resize')), 50);
+  ensureDom();
+  applyFrame();
+  const saved = loadSaved() || {};
+  saveSaved({ url: httpUrl(src) ? src : saved.url, layout });
+  if (httpUrl(src)) persistRecord(src, layout);
 }
 
 function onClick(e) {
@@ -178,145 +336,129 @@ function onClick(e) {
   e.stopPropagation();
   const act = btn.dataset.act;
   if (act === 'play') {
+    if (!src) return;
     if (video.paused) video.play().catch(() => {});
     else video.pause();
-  }
-  if (act === 'back') video.currentTime = Math.max(0, video.currentTime - 10);
-  if (act === 'fwd') video.currentTime = Math.min(video.duration || 0, video.currentTime + 10);
-  if (act === 'mute') {
+  } else if (act === 'back') video.currentTime = Math.max(0, video.currentTime - 10);
+  else if (act === 'fwd') video.currentTime = Math.min(video.duration || 0, video.currentTime + 10);
+  else if (act === 'mute') {
     video.muted = !video.muted;
-    btn.textContent = video.muted ? '🔇' : '🔊';
+    btn.textContent = video.muted ? 'Muted' : 'Mute';
+  }
+}
+
+async function persistRecord(url, nextLayout) {
+  const reviewVideo = { url, layout: nextLayout || layout, kind: 'splat-video', savedAt: Date.now() };
+  if (window._fumocaOpenedMeta) window._fumocaOpenedMeta.reviewVideo = reviewVideo;
+  const rec = window._fumocaCurrentRecord;
+  if (rec) {
+    rec.meta = { ...(rec.meta || {}), reviewVideo };
+    rec.metadata = { ...(rec.metadata || {}), reviewVideo };
+  }
+  const id = idKey();
+  const sb = window.supabase;
+  if (!id || id === 'default' || !sb?.from) return;
+  try {
+    const { data, error: readErr } = await sb.from('nif_files').select('meta').eq('id', id).maybeSingle();
+    if (readErr) throw readErr;
+    const meta = { ...(data?.meta || {}), reviewVideo };
+    const { error } = await sb.from('nif_files').update({ meta }).eq('id', id);
+    if (error) throw error;
+    console.info('[review-video] saved with splat', id);
+  } catch (err) {
+    console.warn('[review-video] record save failed', err?.message || err);
   }
 }
 
 export function setReviewVideo(url, opts = {}) {
-  ensureCss();
   ensureDom();
   src = url || null;
+  if (opts.layout && LAYOUTS.includes(opts.layout)) layout = opts.layout;
   if (!src) {
-    setLayout('hidden');
-    controls.style.display = 'none';
+    video.removeAttribute('src');
+    try { video.load(); } catch (_) {}
+    layout = 'hidden';
+    applyFrame();
     return;
   }
   controls.style.display = 'flex';
-  video.src = src;
-  video.load();
-  setLayout(opts.layout || layout || 'pip');
-  if (opts.autoplay) {
+  if (video.src !== src) {
+    video.src = src;
+    video.load();
+  }
+  applyFrame();
+  if (opts.autoplay !== false) {
     video.muted = true;
     video.play().catch(() => {});
   }
-  if (!String(src).startsWith('blob:')) saveSaved({ url: src, layout });
+  if (httpUrl(src)) {
+    saveSaved({ url: src, layout });
+    persistRecord(src, layout);
+  }
   if (!raf) raf = requestAnimationFrame(tick);
 }
 
-/** Pick MP4/WebM from device — works in Editor & Viewer */
 export function pickFromDevice(opts = {}) {
-  ensureCss();
   ensureDom();
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = 'video/mp4,video/webm,video/quicktime,video/*';
-  input.style.display = 'none';
-  document.body.appendChild(input);
-  input.addEventListener('change', () => {
+  input.addEventListener('change', async () => {
     const file = input.files?.[0];
     input.remove();
     if (!file) return;
-    if (objectUrl) {
-      try { URL.revokeObjectURL(objectUrl); } catch (_) {}
-    }
+    if (objectUrl) URL.revokeObjectURL(objectUrl);
     objectUrl = URL.createObjectURL(file);
-    setReviewVideo(objectUrl, {
-      layout: opts.layout || layout || 'pip',
-      autoplay: opts.autoplay !== false,
-    });
-    // Studio status
-    const status = document.getElementById('rvUploadStatus');
-    if (status) {
-      status.textContent = file.name + ' · this session only (upload to CDN to share)';
+    setReviewVideo(objectUrl, { layout: opts.layout || layout || 'split', autoplay: true });
+    const status = document.getElementById('ptpVidStatus') || document.getElementById('rvUploadStatus');
+    if (status) status.textContent = file.name + ' · uploading so the viewer keeps it';
+    toast('Uploading video…');
+    try {
+      const key = `review/${Date.now()}_${file.name.replace(/[^\w.\-]+/g, '_')}`;
+      const res = await r2.from(BUCKET).upload(key, file, { contentType: file.type || 'video/mp4' });
+      if (res?.error || !res?.publicUrl) throw res?.error || new Error('no public url');
+      setReviewVideo(res.publicUrl, { layout: layout || 'split', autoplay: true });
+      if (status) status.textContent = 'Saved with this splat. Open the viewer to see both.';
+      toast('Saved. The viewer will play this with the splat.');
+      window.dispatchEvent(new CustomEvent('fumoca:reviewVideoLocal', { detail: { name: file.name, url: res.publicUrl } }));
+    } catch (err) {
+      console.warn('[review-video] upload', err);
+      if (status) status.textContent = file.name + ' · plays here only. Sign in and retry to keep it.';
+      toast('Playing here. Sign in, then upload again so the viewer keeps it.');
     }
-    window.dispatchEvent(
-      new CustomEvent('fumoca:reviewVideoLocal', {
-        detail: { name: file.name, size: file.size, type: file.type },
-      })
-    );
   });
   input.click();
 }
 
-function mountStudioUpload() {
-  const present = document.getElementById('fumocaPresentBar');
-  // Re-home into present bar when it appears later
-  if (studioBar && present && studioBar.parentElement !== present) {
-    present.appendChild(studioBar);
-    studioBar.style.cssText = '';
-    return;
-  }
-  if (studioBar) return;
-
-  studioBar = document.createElement('div');
-  studioBar.id = 'fumocaReviewStudio';
-  studioBar.innerHTML = `
-    <div class="fp-card">
-      <div class="fp-title" style="font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,.45);margin:0 0 8px">Review video</div>
-      <div class="fp-row" style="display:flex;flex-wrap:wrap;gap:6px">
-        <button type="button" id="rvPickBtn" class="primary" style="padding:7px 11px;border-radius:8px;border:none;background:#c8ff00;color:#0a0c10;font:600 11px Inter,system-ui;cursor:pointer">Upload from device</button>
-        <button type="button" id="rvUrlBtn" style="padding:7px 11px;border-radius:8px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:#e8e8e8;font:600 11px Inter,system-ui;cursor:pointer">Paste URL</button>
-        <button type="button" id="rvClearBtn" style="padding:7px 11px;border-radius:8px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:#e8e8e8;font:600 11px Inter,system-ui;cursor:pointer">Clear</button>
-      </div>
-      <div id="rvUploadStatus" style="margin-top:8px;font-size:10px;color:rgba(255,255,255,.4);line-height:1.35">MP4 / WebM · use Stack for side-by-side edit</div>
-    </div>
-  `;
-
-  if (present) {
-    present.appendChild(studioBar);
-  } else {
-    const host = document.getElementById('stage') || document.getElementById('viewport') || document.body;
-    studioBar.style.cssText = 'position:absolute;left:12px;bottom:72px;z-index:43;pointer-events:auto;max-width:260px';
-    host.appendChild(studioBar);
-  }
-
-  studioBar.querySelector('#rvPickBtn')?.addEventListener('click', () => pickFromDevice({ layout: 'stack' }));
-  studioBar.querySelector('#rvUrlBtn')?.addEventListener('click', () => {
-    const u = prompt('Direct MP4 URL (https://…mp4)', 'https://');
-    if (u && u.startsWith('http')) setReviewVideo(u, { layout: 'stack' });
-  });
-  studioBar.querySelector('#rvClearBtn')?.addEventListener('click', () => {
-    if (objectUrl) {
-      try { URL.revokeObjectURL(objectUrl); } catch (_) {}
-      objectUrl = null;
-    }
-    setReviewVideo(null);
-    const status = document.getElementById('rvUploadStatus');
-    if (status) status.textContent = 'Cleared';
-  });
+export function currentReviewMeta() {
+  return httpUrl(src) ? { url: src, layout, kind: 'splat-video' } : null;
 }
 
-export function initReviewVideo(opts = {}) {
-  ensureCss();
+export function initReviewVideo() {
+  if (window.__fumocaReviewBooted) return window.FumocaReviewVideo;
+  window.__fumocaReviewBooted = true;
   ensureDom();
   const saved = loadSaved();
   const qLayout = new URLSearchParams(location.search).get('rvLayout');
-  if (qLayout) layout = qLayout;
-  else if (saved?.layout) layout = saved.layout;
+  if (LAYOUTS.includes(qLayout)) layout = qLayout;
+  else if (LAYOUTS.includes(saved?.layout)) layout = saved.layout;
+  else if (LAYOUTS.includes(window._fumocaOpenedMeta?.reviewVideo?.layout)) layout = window._fumocaOpenedMeta.reviewVideo.layout;
   const url = resolveSrc();
-  if (url) setReviewVideo(url, { layout, autoplay: !!opts.autoplay });
-  else if (controls) controls.style.display = 'none';
-
-  window.addEventListener('fumoca:recordLoaded', () => {
-    const u = resolveSrc();
-    if (u) setReviewVideo(u, { layout });
-  });
-
-  // Editor: upload card
-  if (opts.studio === true) {
-    const tryMount = () => mountStudioUpload();
-    tryMount();
-    setTimeout(tryMount, 600);
-    setTimeout(tryMount, 1500);
-    setTimeout(tryMount, 3000);
+  if (url) setReviewVideo(url, { layout, autoplay: true });
+  else {
+    layout = 'hidden';
+    applyFrame();
   }
+
+  const adopt = () => {
+    const u = resolveSrc();
+    if (u && u !== src) setReviewVideo(u, { layout, autoplay: true });
+  };
+  window.addEventListener('fumoca:recordLoaded', adopt);
+  window.addEventListener('fumoca:nifMeta', (ev) => {
+    const review = ev.detail?.reviewVideo;
+    if (httpUrl(review?.url)) setReviewVideo(review.url, { layout: review.layout || layout, autoplay: true });
+  });
 
   window.FumocaReviewVideo = {
     set: setReviewVideo,
@@ -326,18 +468,13 @@ export function initReviewVideo(opts = {}) {
     pause: () => video?.pause(),
     getSrc: () => src,
     getLayout: () => layout,
+    meta: currentReviewMeta,
   };
   return window.FumocaReviewVideo;
 }
 
 if (typeof window !== 'undefined') {
-  const boot = () => {
-    try {
-      initReviewVideo({ autoplay: false, studio: false });
-    } catch (e) {
-      console.warn('[review-video]', e);
-    }
-  };
-  if (document.readyState === 'complete') setTimeout(boot, 500);
-  else window.addEventListener('load', () => setTimeout(boot, 500));
+  const boot = () => { try { initReviewVideo(); } catch (e) { console.warn('[review-video]', e); } };
+  if (document.readyState === 'complete') setTimeout(boot, 300);
+  else window.addEventListener('load', () => setTimeout(boot, 300));
 }

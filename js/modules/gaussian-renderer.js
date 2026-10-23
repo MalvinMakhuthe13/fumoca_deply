@@ -88,17 +88,17 @@ const FRAG = `
     float cxx = vCov2D.x, cxy = vCov2D.y, cyy = vCov2D.z;
     float determinant = max(cxx*cyy-cxy*cxy, 1e-5);
     float mahalanobis = max(0.0, (cyy*pixelOffset.x*pixelOffset.x - 2.0*cxy*pixelOffset.x*pixelOffset.y + cxx*pixelOffset.y*pixelOffset.y) / determinant);
-    float gaussFall = exp(-0.5 * mahalanobis);
+    float gaussFall = exp(-0.68 * mahalanobis);
     float r2 = dot(gl_PointCoord - 0.5, gl_PointCoord - 0.5);
 
     // Hard dot for point-cloud phase
     float hardDot = step(r2, 0.08);
 
     float shape = mix(hardDot, gaussFall, uTransition);
-    if (shape < 0.004) discard;
+    if (shape < 0.018) discard;
 
-    float alpha = vOpacity * shape * mix(0.88, 1.0, uTransition);
-    if (alpha < 0.004) discard;
+    float alpha = vOpacity * shape * mix(0.94, 1.0, uTransition);
+    if (alpha < 0.02) discard;
 
     vec3 col = vColor;
 
@@ -180,7 +180,7 @@ const FumocaGaussianRenderer = (() => {
     return _shOut;
   }
 
-  function buildMaterial(ptScale = 1.0, brightness = 1.0) {
+  function buildMaterial(ptScale = 1.0, brightness = 0.96) {
     const T = window.THREE;
     if (!T) { console.warn('[GaussianRenderer] THREE not available'); return null; }
     _material = new T.ShaderMaterial({
@@ -189,9 +189,9 @@ const FumocaGaussianRenderer = (() => {
         uBrightness: { value: brightness },
         uTransition: { value: _transition },
         uTime:       { value: 0 },
-        uContrast:   { value: 1.0 },
-        uSaturation: { value: 1.0 },
-        uSharpness:  { value: 0.72 },   // tighter gaussian sigma
+        uContrast:   { value: 1.08 },
+        uSaturation: { value: 1.14 },
+        uSharpness:  { value: 0.9 },   // tighter gaussian so the subject reads solid
         uViewport:   { value: new T.Vector2(document.getElementById('viewport')?.clientWidth || window.innerWidth, document.getElementById('viewport')?.clientHeight || window.innerHeight) },
       },
       vertexShader:   VERT,

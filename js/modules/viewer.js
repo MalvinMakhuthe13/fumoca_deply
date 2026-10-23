@@ -2103,6 +2103,13 @@ async function boot() {
       window._fumocaTourStops   = meta.tourStops  || [];
       window._fumocaHotspots    = meta.hotspots   || [];
       window._fumocaOpenedMeta  = meta;
+      if (meta?.reviewVideo?.url) {
+        window.FumocaReviewVideo?.set?.(meta.reviewVideo.url, {
+          layout: meta.reviewVideo.layout || 'split',
+          autoplay: true,
+        });
+      }
+      window.dispatchEvent(new CustomEvent('fumoca:nifMeta', { detail: meta }));
       console.log(`[Viewer] .nif decoded â†’ ${gaussians.count.toLocaleString()} gaussians`);
     } catch (err) {
       showError('Failed to decode .nif file: ' + err.message);
