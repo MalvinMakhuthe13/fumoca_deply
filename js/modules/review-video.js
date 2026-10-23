@@ -216,13 +216,7 @@ function ensureDom() {
   root.append(empty, video, controls);
   const work = workEl(host);
   work.appendChild(root);
-  splatPane(host);
-  if (document.getElementById('fumocaSplatPane')?.parentElement !== work) {
-    const pane = document.getElementById('fumocaSplatPane');
-    if (pane) work.appendChild(pane);
-  }
-  const stage = document.getElementById('stageHost');
-  if (stage && host.id !== 'viewport' && stage.parentElement !== work) work.appendChild(stage);
+  if (host.id === 'viewport') splatPane(host);
   controls.addEventListener('click', onClick);
   controls.querySelector('[data-act="seek"]').addEventListener('input', onSeek);
   controls.addEventListener('pointerdown', (e) => e.stopPropagation());
@@ -280,15 +274,59 @@ function onDragMove(e) {
   root.style.setProperty('bottom', 'auto', 'important');
 }
 
+function pokeViewer() {
+  const pane = document.getElementById('stageHost') || document.getElementById('fumocaSplatPane');
+  const w = pane?.clientWidth || 0;
+  const h = pane?.clientHeight || 0;
+  const canvas = pane?.querySelector?.('canvas');
+  if (canvas) {
+    canvas.style.setProperty('display', 'block', 'important');
+    canvas.style.setProperty('width', '100%', 'important');
+    canvas.style.setProperty('height', '100%', 'important');
+  }
+  const viewer = window._fumocaViewerInstance;
+  try { viewer?.renderer?.setSize?.(w, h, false); } catch (_) {}
+  try { viewer?.forceRenderNextFrame?.(); } catch (_) {}
+  try { window._fumocaViewerControls?.handleResize?.(); } catch (_) {}
+  window.dispatchEvent(new Event('resize'));
+}
+
+function restoreViewerStage() {
+  const stage = document.getElementById('stage');
+  const stageHost = document.getElementById('stageHost');
+  const work = document.getElementById('fumocaWork');
+  if (stage && stageHost && stageHost.parentElement !== stage) stage.appendChild(stageHost);
+  if (stageHost) {
+    stageHost.style.setProperty('position', 'absolute', 'important');
+    stageHost.style.setProperty('inset', '0', 'important');
+    stageHost.style.setProperty('width', '100%', 'important');
+    stageHost.style.setProperty('height', '100%', 'important');
+    stageHost.style.setProperty('display', 'block', 'important');
+  }
+  if (work) work.style.setProperty('display', 'none', 'important');
+}
+
 function applyFrame() {
   if (!root) return;
   const host = workspace();
   if (!host) return;
+  const viewerPage = host.id === 'stage';
+  const showMix = !!src && layout !== 'hidden';
   const work = workEl(host);
-  const pane = splatPane(host);
+
+  if (viewerPage && !showMix) {
+    restoreViewerStage();
+    root.style.display = 'none';
+    fitting = true;
+    requestAnimationFrame(() => { pokeViewer(); fitting = false; });
+    return;
+  }
+
+  const pane = viewerPage ? document.getElementById('stageHost') : splatPane(host);
   if (root.parentElement !== work) work.appendChild(root);
   if (pane && pane.parentElement !== work) work.appendChild(pane);
-  if (pane) work.insertBefore(root, pane);
+  if (pane && root.nextSibling !== pane) work.insertBefore(root, pane);
+  work.style.setProperty('display', 'block', 'important');
   Object.values(GRID).forEach((name) => work.classList.remove(name));
   work.classList.add(GRID[layout] || GRID.hidden);
   host.classList.toggle('rv-split', layout === 'split');
@@ -297,10 +335,10 @@ function applyFrame() {
   root.className = 'layout-' + layout;
   root.style.display = layout === 'hidden' ? 'none' : 'block';
   if (layout !== 'pip') {
-    ['left', 'top', 'right', 'bottom', 'width', 'height'].forEach((p) => root.style.removeProperty(p));
+    ['left', 'top', 'right', 'bottom'].forEach((p) => root.style.removeProperty(p));
   }
   const shell = document.getElementById('fumoca-video-shell');
-  if (shell) shell.style.setProperty('display', layout === 'full' ? 'flex' : 'none', 'important');
+  if (shell) shell.style.setProperty('display', 'none', 'important');
   empty.style.display = src ? 'none' : 'flex';
   video.style.display = src ? 'block' : 'none';
   video.style.setProperty('position', 'absolute', 'important');
@@ -308,11 +346,16 @@ function applyFrame() {
   video.style.setProperty('width', '100%', 'important');
   video.style.setProperty('height', '100%', 'important');
   video.style.setProperty('object-fit', 'contain', 'important');
+  const box = host.getBoundingClientRect();
+  const W = Math.max(host.clientWidth, box.width, 2);
+  const H = Math.max(host.clientHeight, box.height, 2);
+  work.style.setProperty('position', 'absolute', 'important');
+  work.style.setProperty('inset', '0', 'important');
+  work.style.setProperty('width', W + 'px', 'important');
+  work.style.setProperty('height', H + 'px', 'important');
+  work.style.setProperty('overflow', 'hidden', 'important');
   if (layout === 'split' || layout === 'stack') {
     work.style.setProperty('display', 'grid', 'important');
-    work.style.setProperty('overflow', 'hidden', 'important');
-    work.style.setProperty('position', 'absolute', 'important');
-    work.style.setProperty('inset', '0', 'important');
     if (layout === 'split') {
       work.style.setProperty('grid-template-columns', 'minmax(0,1fr) minmax(0,1fr)', 'important');
       work.style.setProperty('grid-template-rows', 'minmax(0,1fr)', 'important');
@@ -320,27 +363,26 @@ function applyFrame() {
       work.style.setProperty('grid-template-columns', 'minmax(0,1fr)', 'important');
       work.style.setProperty('grid-template-rows', 'minmax(0,1fr) minmax(0,1fr)', 'important');
     }
+    const pw = layout === 'split' ? Math.floor(W / 2) : W;
+    const ph = layout === 'stack' ? Math.floor(H / 2) : H;
     [root, pane].forEach((el) => {
       if (!el) return;
       el.style.setProperty('position', 'relative', 'important');
-      el.style.setProperty('width', '100%', 'important');
-      el.style.setProperty('height', '100%', 'important');
+      el.style.setProperty('display', 'block', 'important');
+      el.style.setProperty('width', pw + 'px', 'important');
+      el.style.setProperty('height', ph + 'px', 'important');
       el.style.setProperty('min-width', '0', 'important');
       el.style.setProperty('min-height', '0', 'important');
-      el.style.setProperty('max-width', '100%', 'important');
-      el.style.setProperty('max-height', '100%', 'important');
       el.style.setProperty('overflow', 'hidden', 'important');
       el.style.setProperty('inset', 'auto', 'important');
     });
   }
-  empty.style.display = src ? 'none' : 'flex';
-  video.style.display = src ? 'block' : 'none';
   controls.style.display = layout === 'hidden' ? 'none' : 'flex';
   controls.querySelectorAll('[data-layout]').forEach((b) => b.classList.toggle('active', b.dataset.layout === layout));
   fitting = true;
   requestAnimationFrame(() => {
     fitRenderer();
-    window.dispatchEvent(new Event('resize'));
+    pokeViewer();
     fitting = false;
   });
 }

@@ -1,5 +1,12 @@
 /* Workspace sections. The video never covers the side panels or the transform HUD. */
 
+#stage > #stageHost {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  display: block !important;
+}
 #fumocaWork {
   position: absolute !important;
   inset: 0 !important;
