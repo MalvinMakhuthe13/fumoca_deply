@@ -1,69 +1,77 @@
-/* Safe layouts — no canvas move, no centered black box */
+/* Visible section layouts — click and the workspace divides */
 
-#fumocaPresentDock, #fumocaSections, #fumocaVideoSection { display: none !important; }
+#fumocaPresentDock { display: none !important; }
+#panelLeft { z-index: 40 !important; position: relative !important; background: #07090e !important; }
 
-/* Left panel always on top and solid */
-#panelLeft {
-  z-index: 40 !important;
-  position: relative !important;
-  background: #07090e !important;
-  width: var(--panel-l, 280px) !important;
-  min-width: 240px !important;
-}
-
-/* Video root: only inside the workspace, never fixed to the window */
 #viewport { position: relative !important; }
-#viewport > #fumocaReviewRoot {
-  position: absolute !important;
-  z-index: 5 !important;
-  background: #000 !important;
-  overflow: hidden !important;
-}
-#viewport > #fumocaReviewRoot video {
-  width: 100%; height: 100%; object-fit: contain; background: #000; display: block;
-}
-/* Anything outside the workspace is hidden so it cannot cover panels */
-body > #fumocaReviewRoot { display: none !important; }
 
-/* STACK — top half of the workspace only */
-#viewport > #fumocaReviewRoot.layout-stack {
-  top: 0; left: 0; right: 0; height: 50%; width: auto;
-  border-bottom: 2px solid rgba(200,255,0,.3);
+#fumocaVideoPane {
+  position: absolute;
+  z-index: 6;
+  background: #000;
+  display: none;
+  overflow: hidden;
 }
-body.rv-layout-stack #viewportCanvas {
+#fumocaVideoPane .fvp-empty {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  color: rgba(255,255,255,.4); font: 600 13px system-ui;
+  pointer-events: none;
+}
+#fumocaVideoPane #fumocaReviewRoot {
+  position: absolute !important; inset: 0 !important;
+  width: 100% !important; height: 100% !important;
+  background: #000 !important;
+}
+#fumocaVideoPane video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+
+/* STACK */
+#fumocaVideoPane[data-layout="stack"] {
+  display: block; top: 0; left: 0; right: 0; height: 50%;
+  border-bottom: 2px solid rgba(200,255,0,.35);
+}
+body[data-fvp="stack"] #viewportCanvas {
   top: 50% !important; height: 50% !important; left: 0 !important; width: 100% !important;
 }
 
-/* SPLIT — left half of the workspace only */
-#viewport > #fumocaReviewRoot.layout-split {
-  top: 0; left: 0; bottom: 0; width: 50%; height: auto;
-  border-right: 2px solid rgba(200,255,0,.3);
+/* SPLIT */
+#fumocaVideoPane[data-layout="split"] {
+  display: block; top: 0; left: 0; bottom: 0; width: 50%;
+  border-right: 2px solid rgba(200,255,0,.35);
 }
-body.rv-layout-split #viewportCanvas {
+body[data-fvp="split"] #viewportCanvas {
   left: 50% !important; width: 50% !important; top: 0 !important; height: 100% !important;
 }
 
-/* PIP — small corner box */
-#viewport > #fumocaReviewRoot.layout-pip {
-  top: auto; left: auto; right: 12px; bottom: 12px;
+/* PIP */
+#fumocaVideoPane[data-layout="pip"] {
+  display: block; top: auto; left: auto; right: 12px; bottom: 12px;
   width: 260px; height: 146px; border-radius: 10px;
   box-shadow: 0 8px 24px rgba(0,0,0,.5); z-index: 12;
 }
-body.rv-layout-pip #viewportCanvas { inset: 0 !important; width: 100% !important; height: 100% !important; }
+body[data-fvp="pip"] #viewportCanvas { inset: 0 !important; width: 100% !important; height: 100% !important; }
 
-/* FULL — fills workspace only */
-#viewport > #fumocaReviewRoot.layout-full { inset: 0; width: 100%; height: 100%; z-index: 8; }
-body.rv-layout-full #viewportCanvas { visibility: hidden; }
+/* FULL */
+#fumocaVideoPane[data-layout="full"],
+#fumocaVideoPane[data-layout="cinema"] {
+  display: block; inset: 0; width: 100%; height: 100%; z-index: 8;
+}
+body[data-fvp="full"] #viewportCanvas,
+body[data-fvp="cinema"] #viewportCanvas { visibility: hidden; }
 
-/* Off — nothing */
-#viewport > #fumocaReviewRoot.layout-hidden,
-#fumocaReviewRoot.layout-hidden { display: none !important; }
-body.rv-layout-hidden #viewportCanvas,
-#viewportCanvas { inset: 0; width: 100%; height: 100%; visibility: visible; }
+/* BG */
+#fumocaVideoPane[data-layout="bg"] {
+  display: block; inset: 0; width: 100%; height: 100%; z-index: 1; opacity: .8;
+}
+
+/* OFF */
+#fumocaVideoPane[data-layout="off"] { display: none !important; }
+body[data-fvp="off"] #viewportCanvas,
+#viewportCanvas { visibility: visible; }
 
 /* Controls on the video */
 #fumocaReviewRoot > #fumocaReviewControls {
-  position: absolute; left: 6px; right: 6px; bottom: 6px; z-index: 6;
+  position: absolute; left: 6px; right: 6px; bottom: 6px; z-index: 7;
   display: flex; flex-wrap: wrap; gap: 4px; align-items: center;
   background: rgba(0,0,0,.7); border-radius: 8px; padding: 5px 7px;
 }
