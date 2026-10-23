@@ -743,38 +743,13 @@ function showFlatMedia(kind, url) {
   try { document.body.classList.add('media-flat'); } catch (_) {}
   console.log('[FUMOCA] Flat media ready:', kind, url);
 }
-function _isVideoUrl(url) { return detectMediaKind(url) === 'video'; }
-function _isImageUrl(url) { return detectMediaKind(url) === 'image'; }
-function showFlatMedia(kind, url) {
-  const host = document.getElementById('stageHost');
-  const stage = document.getElementById('stage');
-  if (!stage) return;
-  stage.querySelectorAll('#stageMediaVideo, #stageMediaImage').forEach(n => n.remove());
-  if (host) host.style.display = 'none';
-  if (kind === 'video') {
-    const v = document.createElement('video');
-    v.id = 'stageMediaVideo';
-    v.src = url;
-    v.controls = true;
-    v.playsInline = true;
-    v.autoplay = true;
-    v.loop = true;
-    v.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000;z-index:1;';
-    stage.appendChild(v);
-    v.play().catch(() => {});
-  } else {
-    const img = document.createElement('img');
-    img.id = 'stageMediaImage';
-    img.src = url;
-    img.alt = 'Capture';
-    img.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000;z-index:1;';
-    stage.appendChild(img);
-  }
-  try { document.getElementById('loadingOverlay').style.display = 'none'; } catch (_) {}
-  try { document.body.classList.add('media-flat'); } catch (_) {}
-  console.log('[FUMOCA] Flat media ready:', kind, url);
-}
 // Returns url only if Gaussiannif_files3D can render it â€” strips .ply URLs completely
+function isnifUrl(url) {
+  const k = detectMediaKind(url);
+  return k === 'nif' || k === 'ply' || k === 'splat' || String(url || '').startsWith('blob:');
+}
+function _isNifUrl(url) { return detectMediaKind(url) === 'nif'; }
+
 function _validnifUrl(url) {
   if (!url) return '';
   // Accept .ply, .nif, .knif â€” we handle .ply ourselves via Three.js
