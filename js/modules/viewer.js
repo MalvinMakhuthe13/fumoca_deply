@@ -695,8 +695,155 @@ function renderTrustBadges(calibration, verification) {
     }
   }
 }
-function isnifUrl(url) { const clean = String(url || '').split('?')[0].toLowerCase(); return clean.startsWith('blob:') || clean.endsWith('.ply') || clean.endsWith('.nif') || clean.endsWith('.knif') || clean.endsWith('.nif'); }
-function _isNifUrl(url) { return String(url || '').split('?')[0].toLowerCase().endsWith('.nif'); }
+function _urlPath(url) {
+  return String(url || '').split('?')[0].toLowerCase();
+}
+function detectMediaKind(url, blobType) {
+  const clean = _urlPath(url);
+  const bt = String(blobType || '').toLowerCase();
+  if (bt === 'video' || /\.(mp4|webm|mov|m4v)$/.test(clean)) return 'video';
+  if (bt === 'image' || /\.(jpe?g|png|webp|gif|bmp|avif)$/.test(clean)) return 'image';
+  if (bt === 'nif' || clean.endsWith('.nif') || clean.endsWith('.knif')) return 'nif';
+  if (bt === 'ply' || clean.endsWith('.ply')) return 'ply';
+  if (bt === 'splat' || /\.(splat|ksplat|spz)$/.test(clean)) return 'splat';
+  if (clean.startsWith('blob:')) return bt || 'splat';
+  if (clean.includes('.nif')) return 'nif';
+  if (clean.includes('.splat')) return 'splat';
+  if (clean.includes('.ply')) return 'ply';
+  return 'unknown';
+}
+function _urlPath(url) {
+  return String(url || '').split('?')[0].toLowerCase();
+}
+function detectMediaKind(url, blobType) {
+  const clean = _urlPath(url);
+  const bt = String(blobType || '').toLowerCase();
+  if (bt === 'video' || /\.(mp4|webm|mov|m4v)$/.test(clean)) return 'video';
+  if (bt === 'image' || /\.(jpe?g|png|webp|gif|bmp|avif)$/.test(clean)) return 'image';
+  if (bt === 'nif' || clean.endsWith('.nif') || clean.endsWith('.knif')) return 'nif';
+  if (bt === 'ply' || clean.endsWith('.ply')) return 'ply';
+  if (bt === 'splat' || /\.(splat|ksplat|spz)$/.test(clean)) return 'splat';
+  if (clean.startsWith('blob:')) return bt || 'splat';
+  if (clean.includes('.nif')) return 'nif';
+  if (clean.includes('.splat')) return 'splat';
+  if (clean.includes('.ply')) return 'ply';
+  return 'unknown';
+}
+function _urlPath(url) {
+  return String(url || '').split('?')[0].toLowerCase();
+}
+function detectMediaKind(url, blobType) {
+  const clean = _urlPath(url);
+  const bt = String(blobType || '').toLowerCase();
+  if (bt === 'video' || /\.(mp4|webm|mov|m4v)$/.test(clean)) return 'video';
+  if (bt === 'image' || /\.(jpe?g|png|webp|gif|bmp|avif)$/.test(clean)) return 'image';
+  if (bt === 'nif' || clean.endsWith('.nif') || clean.endsWith('.knif')) return 'nif';
+  if (bt === 'ply' || clean.endsWith('.ply')) return 'ply';
+  if (bt === 'splat' || /\.(splat|ksplat|spz)$/.test(clean)) return 'splat';
+  if (clean.startsWith('blob:')) return bt || 'splat';
+  if (clean.includes('.nif')) return 'nif';
+  if (clean.includes('.splat')) return 'splat';
+  if (clean.includes('.ply')) return 'ply';
+  return 'unknown';
+}
+function isnifUrl(url) {
+  const k = detectMediaKind(url);
+  return k === 'nif' || k === 'ply' || k === 'splat' || String(url || '').startsWith('blob:');
+}
+function _isNifUrl(url) { return detectMediaKind(url) === 'nif'; }
+function _isVideoUrl(url) { return detectMediaKind(url) === 'video'; }
+function _isImageUrl(url) { return detectMediaKind(url) === 'image'; }
+function showFlatMedia(kind, url) {
+  const host = document.getElementById('stageHost');
+  const stage = document.getElementById('stage');
+  if (!stage) return;
+  stage.querySelectorAll('#stageMediaVideo, #stageMediaImage').forEach(n => n.remove());
+  if (host) host.style.display = 'none';
+  if (kind === 'video') {
+    const v = document.createElement('video');
+    v.id = 'stageMediaVideo';
+    v.src = url;
+    v.controls = true;
+    v.playsInline = true;
+    v.autoplay = true;
+    v.loop = true;
+    v.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000;z-index:1;';
+    stage.appendChild(v);
+    v.play().catch(() => {});
+  } else {
+    const img = document.createElement('img');
+    img.id = 'stageMediaImage';
+    img.src = url;
+    img.alt = 'Capture';
+    img.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000;z-index:1;';
+    stage.appendChild(img);
+  }
+  try { document.getElementById('loadingOverlay').style.display = 'none'; } catch (_) {}
+  try { document.body.classList.add('media-flat'); } catch (_) {}
+  console.log('[FUMOCA] Flat media ready:', kind, url);
+}
+function _isVideoUrl(url) { return detectMediaKind(url) === 'video'; }
+function _isImageUrl(url) { return detectMediaKind(url) === 'image'; }
+function showFlatMedia(kind, url) {
+  const host = document.getElementById('stageHost');
+  const stage = document.getElementById('stage');
+  if (!stage) return;
+  stage.querySelectorAll('#stageMediaVideo, #stageMediaImage').forEach(n => n.remove());
+  if (host) host.style.display = 'none';
+  if (kind === 'video') {
+    const v = document.createElement('video');
+    v.id = 'stageMediaVideo';
+    v.src = url;
+    v.controls = true;
+    v.playsInline = true;
+    v.autoplay = true;
+    v.loop = true;
+    v.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000;z-index:1;';
+    stage.appendChild(v);
+    v.play().catch(() => {});
+  } else {
+    const img = document.createElement('img');
+    img.id = 'stageMediaImage';
+    img.src = url;
+    img.alt = 'Capture';
+    img.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000;z-index:1;';
+    stage.appendChild(img);
+  }
+  try { document.getElementById('loadingOverlay').style.display = 'none'; } catch (_) {}
+  try { document.body.classList.add('media-flat'); } catch (_) {}
+  console.log('[FUMOCA] Flat media ready:', kind, url);
+}
+function _isVideoUrl(url) { return detectMediaKind(url) === 'video'; }
+function _isImageUrl(url) { return detectMediaKind(url) === 'image'; }
+function showFlatMedia(kind, url) {
+  const host = document.getElementById('stageHost');
+  const stage = document.getElementById('stage');
+  if (!stage) return;
+  stage.querySelectorAll('#stageMediaVideo, #stageMediaImage').forEach(n => n.remove());
+  if (host) host.style.display = 'none';
+  if (kind === 'video') {
+    const v = document.createElement('video');
+    v.id = 'stageMediaVideo';
+    v.src = url;
+    v.controls = true;
+    v.playsInline = true;
+    v.autoplay = true;
+    v.loop = true;
+    v.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000;z-index:1;';
+    stage.appendChild(v);
+    v.play().catch(() => {});
+  } else {
+    const img = document.createElement('img');
+    img.id = 'stageMediaImage';
+    img.src = url;
+    img.alt = 'Capture';
+    img.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000;z-index:1;';
+    stage.appendChild(img);
+  }
+  try { document.getElementById('loadingOverlay').style.display = 'none'; } catch (_) {}
+  try { document.body.classList.add('media-flat'); } catch (_) {}
+  console.log('[FUMOCA] Flat media ready:', kind, url);
+}
 // Returns url only if Gaussiannif_files3D can render it â€” strips .ply URLs completely
 function _validnifUrl(url) {
   if (!url) return '';
@@ -1982,15 +2129,23 @@ async function boot() {
     }
     return;
   }
-  if (!isnifUrl(fileUrl)) {
-    showError(`Unrecognised file type: ${fileUrl.split('?')[0].split('/').pop()}`);
+    const _blobType = sessionStorage.getItem('fumoc_pending_nif_type');
+  if (_blobType) sessionStorage.removeItem('fumoc_pending_nif_type');
+  const mediaKind = detectMediaKind(fileUrl, _blobType);
+
+  if (mediaKind === 'video' || mediaKind === 'image') {
+    setLoading(mediaKind === 'video' ? 'Loading video...' : 'Loading image...');
+    showFlatMedia(mediaKind, fileUrl);
+    if ((previewVideoUrl || thumbnailUrl) && autoplayPreview) openPreview(mediaKind === 'video' ? 'video' : 'nif');
+    return;
+  }
+
+  if (!isnifUrl(fileUrl) && mediaKind === 'unknown') {
+    showError('Unrecognised file type: ' + fileUrl.split('?')[0].split('/').pop() + ' â€” Supported: .nif .splat .ply .mp4 .webm .jpg .png .webp');
     return;
   }
   if ((previewVideoUrl || thumbnailUrl) && autoplayPreview) openPreview('nif');
-  // Route PLY files to THREE.js viewer; .nif/.knif to Gaussiannif_files3D
-  // Check type hint from open.html (blob URLs have no extension)
-  const _blobType = sessionStorage.getItem('fumoc_pending_nif_type');
-  if (_blobType) sessionStorage.removeItem('fumoc_pending_nif_type');
+  // Route PLY / .splat / .nif to 3D path
   if (_isNifUrl(fileUrl) || (_blobType === 'nif' && fileUrl.startsWith('blob:'))) {
     // .nif is the native format â€” decode its KEYFRAME_GEO chunk and hand the
     // gaussian data to the existing Gaussiannif_files3D renderer for full
