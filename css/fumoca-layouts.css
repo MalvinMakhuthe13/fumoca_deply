@@ -28,3 +28,37 @@
   background: #c8ff00; color: #0a0c10; border: none; border-radius: 6px;
   padding: 6px 12px; font-weight: 700; cursor: pointer;
 }
+
+/* Kill the old fixed-size review styles */
+#fumocaReviewRoot {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  max-height: none !important;
+  transform: none !important;
+  margin: 0 !important;
+}
+#fumocaReviewRoot.layout-stack,
+#fumocaReviewRoot.layout-split,
+#fumocaReviewRoot.layout-pip,
+#fumocaReviewRoot.layout-full,
+#fumocaReviewRoot.layout-cinema,
+#fumocaReviewRoot.layout-bg {
+  position: absolute !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important;
+}
+#fumocaReviewRoot video,
+#fumocaReviewRoot.layout-stack video,
+#fumocaReviewRoot.layout-split video,
+#fumocaReviewRoot.layout-cinema video {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  max-height: none !important;
+  object-fit: contain !important;
+}
