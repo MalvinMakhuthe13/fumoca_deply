@@ -1,0 +1,10 @@
+.anim-studio { padding: 12px; color: #e8e8e8; font: 13px/1.4 system-ui, sans-serif; }
+.anim-head { font-weight: 700; font-size: 14px; margin-bottom: 6px; }
+.anim-note { opacity: .7; font-size: 11px; margin: 0 0 10px; }
+.anim-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.anim-list li { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; background: rgba(255,255,255,.04); }
+.anim-play { width: 28px; height: 28px; border-radius: 6px; border: 1px solid rgba(200,255,0,.4); background: rgba(200,255,0,.12); color: #c8ff00; cursor: pointer; }
+.anim-list em { margin-left: auto; opacity: .5; font-style: normal; font-size: 10px; }
+.anim-add { margin-top: 10px; width: 100%; padding: 8px; border-radius: 8px; border: 1px dashed rgba(255,255,255,.2); background: transparent; color: #c8ff00; cursor: pointer; }
+body[data-glow="warm"] #stage { filter: brightness(1.15) saturate(1.1); }
+body[data-glow="cool"] #stage { filter: brightness(1.08) hue-rotate(-10deg); }

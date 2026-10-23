@@ -12,6 +12,7 @@
 <link rel="stylesheet" href="css/present-magazine.css"/>
 <link rel="stylesheet" href="css/review-video.css"/>
 <link rel="stylesheet" href="css/present-unified.css"/>
+<link rel="stylesheet" href="css/anim-studio.css"/>
 <script type="module" src="js/modules/review-video.js"></script>
 <script type="module" src="js/modules/present-tab.js"></script>
 <script type="module" src="js/modules/review-video.js"></script>
@@ -5997,6 +5998,11 @@ animBg();
 <script type="module" src="js/modules/splat-music-share.js"></script>
 <script type="module" src="js/modules/hotspot-pro.js"></script>
 <script type="module" src="js/modules/present-bridge.js"></script>
+<script type="module">
+  import { mountAnimPanel } from './js/modules/anim-studio.js';
+  const el = document.getElementById('animStudioMount');
+  if (el) mountAnimPanel(el);
+</script>
 
 
 <!-- ═══════════════════════════════════════════════════════════════
