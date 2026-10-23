@@ -74,6 +74,7 @@ const VideoInteractive = (() => {
 
   // ── Build video player UI ──────────────────────────────────────────────────
   function _showVideoMode(videoUrl, meta) {
+    if (window.FumocaReviewVideo || document.getElementById('fumocaReviewRoot')) return;
     // Remove existing if any
     document.getElementById('fumoca-video-shell')?.remove();
 

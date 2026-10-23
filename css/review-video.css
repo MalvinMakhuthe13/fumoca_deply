@@ -1,11 +1,51 @@
 /* Workspace sections. The video never covers the side panels or the transform HUD. */
 
 #fumocaWork {
-  position: absolute;
-  inset: 0;
+  position: absolute !important;
+  inset: 0 !important;
   z-index: 1;
   min-width: 0;
   min-height: 0;
+  overflow: hidden !important;
+}
+#fumocaWork.rv-grid-split,
+#fumocaWork.rv-grid-stack {
+  display: grid !important;
+}
+#fumocaWork.rv-grid-split {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
+  grid-template-rows: minmax(0, 1fr) !important;
+}
+#fumocaWork.rv-grid-stack {
+  grid-template-columns: minmax(0, 1fr) !important;
+  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr) !important;
+}
+#fumocaWork.rv-grid-split > #fumocaReviewRoot,
+#fumocaWork.rv-grid-stack > #fumocaReviewRoot,
+#fumocaWork.rv-grid-split > #fumocaSplatPane,
+#fumocaWork.rv-grid-stack > #fumocaSplatPane,
+#fumocaWork.rv-grid-split > #stageHost,
+#fumocaWork.rv-grid-stack > #stageHost {
+  position: relative !important;
+  inset: auto !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100% !important;
+  max-height: 100% !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  transform: none !important;
+  margin: 0 !important;
+}
+#fumocaReviewRoot video {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100% !important;
+  max-height: 100% !important;
+  object-fit: contain !important;
 }
 #fumocaWork.rv-grid-off { display: block; }
 #fumocaWork.rv-grid-split {
@@ -64,16 +104,12 @@
 #viewportCanvas { display: none !important; }
 
 #fumocaReviewRoot {
-  display: flex;
-  overflow: hidden;
+  display: block;
+  overflow: hidden !important;
   background: #05070b;
   z-index: 4;
-}
-#fumocaReviewRoot video {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  background: #000;
+  min-width: 0;
+  min-height: 0;
 }
 #fumocaReviewRoot .rv-empty {
   position: absolute;

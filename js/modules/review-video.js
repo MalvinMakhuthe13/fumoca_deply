@@ -295,10 +295,43 @@ function applyFrame() {
   host.classList.toggle('rv-stack', layout === 'stack');
   host.classList.toggle('rv-full', layout === 'full');
   root.className = 'layout-' + layout;
-  root.style.display = layout === 'hidden' ? 'none' : 'flex';
+  root.style.display = layout === 'hidden' ? 'none' : 'block';
   if (layout !== 'pip') {
-    root.style.removeProperty('left');
-    root.style.removeProperty('top');
+    ['left', 'top', 'right', 'bottom', 'width', 'height'].forEach((p) => root.style.removeProperty(p));
+  }
+  const shell = document.getElementById('fumoca-video-shell');
+  if (shell) shell.style.setProperty('display', layout === 'full' ? 'flex' : 'none', 'important');
+  empty.style.display = src ? 'none' : 'flex';
+  video.style.display = src ? 'block' : 'none';
+  video.style.setProperty('position', 'absolute', 'important');
+  video.style.setProperty('inset', '0', 'important');
+  video.style.setProperty('width', '100%', 'important');
+  video.style.setProperty('height', '100%', 'important');
+  video.style.setProperty('object-fit', 'contain', 'important');
+  if (layout === 'split' || layout === 'stack') {
+    work.style.setProperty('display', 'grid', 'important');
+    work.style.setProperty('overflow', 'hidden', 'important');
+    work.style.setProperty('position', 'absolute', 'important');
+    work.style.setProperty('inset', '0', 'important');
+    if (layout === 'split') {
+      work.style.setProperty('grid-template-columns', 'minmax(0,1fr) minmax(0,1fr)', 'important');
+      work.style.setProperty('grid-template-rows', 'minmax(0,1fr)', 'important');
+    } else {
+      work.style.setProperty('grid-template-columns', 'minmax(0,1fr)', 'important');
+      work.style.setProperty('grid-template-rows', 'minmax(0,1fr) minmax(0,1fr)', 'important');
+    }
+    [root, pane].forEach((el) => {
+      if (!el) return;
+      el.style.setProperty('position', 'relative', 'important');
+      el.style.setProperty('width', '100%', 'important');
+      el.style.setProperty('height', '100%', 'important');
+      el.style.setProperty('min-width', '0', 'important');
+      el.style.setProperty('min-height', '0', 'important');
+      el.style.setProperty('max-width', '100%', 'important');
+      el.style.setProperty('max-height', '100%', 'important');
+      el.style.setProperty('overflow', 'hidden', 'important');
+      el.style.setProperty('inset', 'auto', 'important');
+    });
   }
   empty.style.display = src ? 'none' : 'flex';
   video.style.display = src ? 'block' : 'none';
