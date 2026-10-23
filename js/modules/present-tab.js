@@ -99,31 +99,16 @@ function copyViewerLink() {
 }
 
 function findPresentHost() {
-  // Prefer visible Present tab content region
-  const candidates = [
-    document.querySelector('[data-panel="present"]'),
-    document.querySelector('#presentPanel'),
-    document.querySelector('.panel-present'),
-    document.querySelector('[data-tab="present"]'),
-    ...Array.from(document.querySelectorAll('aside, .sidebar, .left-panel, #leftPanel')).flatMap((el) =>
-      Array.from(el.querySelectorAll('[class*="present"], [id*="present"]'))
-    ),
-  ].filter(Boolean);
+  // Always live inside the Present tab body. Never float on the canvas.
+  const tab = document.getElementById('tab-present');
+  if (tab) return tab;
+  return document.getElementById('panelLeft') || document.body;
+}
 
-  for (const el of candidates) {
-    if (el && el.offsetParent !== null) return el;
-  }
-
-  // Fallback: create dock under left column
-  let dock = document.getElementById('fumocaPresentDock');
-  if (!dock) {
-    dock = document.createElement('div');
-    dock.id = 'fumocaPresentDock';
-    dock.style.cssText = 'position:absolute;left:12px;top:120px;width:260px;z-index:35;max-height:calc(100vh - 180px);overflow:auto;pointer-events:auto';
-    const stage = document.getElementById('stage') || document.getElementById('viewport') || document.body;
-    stage.appendChild(dock);
-  }
-  return dock;
+function syncPresentActive() {
+  const tab = document.getElementById('tab-present');
+  const open = tab && tab.style.display !== 'none';
+  document.body.classList.toggle('present-active', !!open);
 }
 
 function mountPanel() {
@@ -175,6 +160,7 @@ function mountPanel() {
 
   const host = findPresentHost();
   host.appendChild(panel);
+  syncPresentActive();
 
   panel.addEventListener('click', (e) => {
     const layoutBtn = e.target.closest('[data-layout]');
@@ -260,6 +246,7 @@ export function initPresentTab() {
     const label = (t.textContent || '').toLowerCase();
     if (label.includes('present') || t.getAttribute('data-tab') === 'present') {
       setTimeout(tryMount, 100);
+      setTimeout(syncPresentActive, 120);
     }
   });
 

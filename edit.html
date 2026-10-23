@@ -13,9 +13,13 @@
 <link rel="stylesheet" href="css/review-video.css"/>
 <link rel="stylesheet" href="css/present-unified.css"/>
 <link rel="stylesheet" href="css/anim-studio.css"/>
+<link rel="stylesheet" href="css/fumoca-layouts.css"/>
+<link rel="stylesheet" href="css/anim-studio.css"/>
+<script type="module" src="js/modules/anim-studio.js"></script>
 <script type="module" src="js/modules/review-video.js"></script>
 <script type="module" src="js/modules/present-tab.js"></script>
 <script type="module" src="js/modules/review-video.js"></script>
+
 <style>
 /* ═══════════════════════════════════════════════════════
    FUMOCA STUDIO — DESIGN SYSTEM
@@ -1578,6 +1582,8 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
           <button class="ac-btn full" id="exportPlyBtn" disabled>📦 Export .ply (w/ colors)</button>
           <button class="ac-btn violet full" id="saveSupabaseBtn" disabled>☁ Save to Supabase</button>
         </div>
+                    <div id="studioAudioRoot" style="margin-top:12px"></div>
+                         <div id="animStudioMount" style="margin-top:16px"></div>
       </div>
 
       <div class="section">
@@ -5998,11 +6004,6 @@ animBg();
 <script type="module" src="js/modules/splat-music-share.js"></script>
 <script type="module" src="js/modules/hotspot-pro.js"></script>
 <script type="module" src="js/modules/present-bridge.js"></script>
-<script type="module">
-  import { mountAnimPanel } from './js/modules/anim-studio.js';
-  const el = document.getElementById('animStudioMount');
-  if (el) mountAnimPanel(el);
-</script>
 
 
 <!-- ═══════════════════════════════════════════════════════════════
