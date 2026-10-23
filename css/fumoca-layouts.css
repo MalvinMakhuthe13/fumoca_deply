@@ -119,3 +119,38 @@ body.rv-layout-full #viewportCanvas { visibility: hidden; }
   padding: 6px 10px !important;
 }
 body > #fumocaReviewControls { display: none !important; }
+
+/* Play/pause lives ON the video pane */
+#fumocaReviewRoot {
+  position: relative !important;
+}
+#fumocaReviewRoot > #fumocaReviewControls {
+  position: absolute !important;
+  left: 8px !important;
+  right: 8px !important;
+  bottom: 8px !important;
+  transform: none !important;
+  z-index: 5 !important;
+  display: flex !important;
+  flex-wrap: wrap !important;
+  align-items: center !important;
+  gap: 6px !important;
+  background: rgba(0,0,0,.72) !important;
+  border-radius: 10px !important;
+  padding: 6px 8px !important;
+  pointer-events: auto !important;
+}
+#fumocaReviewRoot > #fumocaReviewControls button[data-act="play"] {
+  background: #c8ff00 !important;
+  color: #0a0c10 !important;
+  border: none !important;
+  border-radius: 6px !important;
+  padding: 6px 12px !important;
+  font-weight: 700 !important;
+  cursor: pointer !important;
+}
+#fumocaReviewRoot > #fumocaReviewControls .rv-layouts {
+  display: flex !important;
+  gap: 4px !important;
+  margin-left: auto !important;
+}
