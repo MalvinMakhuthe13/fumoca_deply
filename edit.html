@@ -594,6 +594,27 @@ input[type=range].amber::-webkit-slider-thumb{background:var(--amber);box-shadow
   pointer-events: none;
 }
 #shell { bottom: 0 !important; }
+
+/* editor-breathe-2026 */
+:root {
+  --panel-l: 260px !important;
+  --panel-r: 240px !important;
+  --topbar-h: 48px !important;
+  --toolbar-h: 40px !important;
+  --timeline-h: 0px !important;
+}
+#topbar { background: rgba(6,8,12,.8) !important; border-bottom: 1px solid rgba(255,255,255,.05) !important; }
+#toolbar { background: rgba(8,10,14,.75) !important; border-bottom: 1px solid rgba(255,255,255,.04) !important; }
+.tool-btn { width: 32px !important; height: 32px !important; border-radius: 8px !important; background: transparent !important; border: 1px solid transparent !important; }
+.tool-btn:hover { background: rgba(255,255,255,.06) !important; }
+.tool-btn.active-lime, .tool-btn.active { background: rgba(200,255,0,.12) !important; color: #c8ff00 !important; }
+#panelLeft, #panelRight { background: rgba(7,9,14,.94) !important; border-color: rgba(255,255,255,.05) !important; }
+#timeline { height: 0 !important; min-height: 0 !important; overflow: hidden !important; opacity: 0; pointer-events: none; }
+#shell { bottom: 0 !important; }
+body.rv-layout-stack #fumocaReviewRoot.layout-stack,
+body.rv-layout-split #fumocaReviewRoot.layout-split { background: transparent !important; }
+body.rv-layout-stack #fumocaReviewRoot.layout-stack video,
+body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px !important; box-shadow: 0 6px 24px rgba(0,0,0,.35) !important; }
 </style>
 </head>
 <body data-nav="none">

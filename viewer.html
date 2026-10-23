@@ -657,10 +657,29 @@
     }
   }
 
+
+  /* viewer-clean-2026 */
+  #topbar {
+    background: rgba(8,10,14,.45) !important;
+    border: 1px solid rgba(255,255,255,.06) !important;
+    backdrop-filter: blur(14px) !important;
+  }
+  #splatTitle:empty { display: none !important; }
   body.media-flat #stageHost { display: none !important; }
   #stageMediaVideo, #stageMediaImage {
     position: absolute; inset: 0; width: 100%; height: 100%;
     object-fit: contain; background: #000; z-index: 1;
+  }
+  #fumocaReviewRoot.layout-stack,
+  #fumocaReviewRoot.layout-split {
+    background: transparent !important;
+    border: none !important;
+  }
+  #fumocaReviewRoot.layout-stack video,
+  #fumocaReviewRoot.layout-split video {
+    background: #000 !important;
+    border-radius: 12px !important;
+    box-shadow: 0 8px 32px rgba(0,0,0,.4) !important;
   }
 </style>
 <link rel="stylesheet" href="css/present-magazine.css"/>
@@ -2000,10 +2019,29 @@ window.addEventListener('keydown', e => {
       animation:fumocSpin .8s linear infinite;"></div>
     <div id="fumocLoadMsg" style="font-size:13px;color:rgba(255,255,255,.5);">Loading…</div>
     <style>@keyframes fumocSpin{to{transform:rotate(360deg)}}
+
+  /* viewer-clean-2026 */
+  #topbar {
+    background: rgba(8,10,14,.45) !important;
+    border: 1px solid rgba(255,255,255,.06) !important;
+    backdrop-filter: blur(14px) !important;
+  }
+  #splatTitle:empty { display: none !important; }
   body.media-flat #stageHost { display: none !important; }
   #stageMediaVideo, #stageMediaImage {
     position: absolute; inset: 0; width: 100%; height: 100%;
     object-fit: contain; background: #000; z-index: 1;
+  }
+  #fumocaReviewRoot.layout-stack,
+  #fumocaReviewRoot.layout-split {
+    background: transparent !important;
+    border: none !important;
+  }
+  #fumocaReviewRoot.layout-stack video,
+  #fumocaReviewRoot.layout-split video {
+    background: #000 !important;
+    border-radius: 12px !important;
+    box-shadow: 0 8px 32px rgba(0,0,0,.4) !important;
   }
 </style>
   `;
