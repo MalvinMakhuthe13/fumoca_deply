@@ -1,26 +1,28 @@
-/* FUMOCA layouts — clean Present tab + Stack/Split/PIP/Full
-   Drop-in. Beats floating docks and cramped panels. */
+/* FUMOCA layouts v2
+   - Present panel stays in the tab (no floating black card)
+   - Review video splits ONLY inside the center workspace (#viewport)
+   - Side panels, topbar, toolbar stay fully visible
+*/
 
-/* ── Kill floating docks that overlap the canvas ── */
+/* Kill floating docks that cover options */
 #fumocaPresentDock,
-#fumocaReviewStudio[style*="position:absolute"] {
+body #fumocaReviewStudio[style*="position:absolute"] {
   display: none !important;
 }
 
-/* ── Present tab: full options, nothing hidden, scrolls inside panel ── */
+/* Present tab: all options, scrolls inside the left panel */
 #tab-present {
   overflow-y: auto !important;
-  max-height: calc(100vh - 140px) !important;
-  padding-bottom: 24px !important;
+  max-height: calc(100vh - 160px) !important;
+  padding-bottom: 20px !important;
 }
 #fumocaPresentTabPanel {
   width: 100% !important;
-  box-sizing: border-box !important;
   position: static !important;
   background: transparent !important;
 }
 #fumocaPresentTabPanel .ptp-section {
-  margin: 0 0 12px !important;
+  margin: 0 0 10px !important;
   padding: 10px !important;
   border: 1px solid rgba(255,255,255,.06) !important;
   border-radius: 10px !important;
@@ -44,136 +46,137 @@
   background: rgba(255,255,255,.05) !important;
   color: #e8e8e8 !important;
   cursor: pointer !important;
-  white-space: nowrap !important;
 }
-#fumocaPresentTabPanel button.primary,
-#fumocaPresentTabPanel button[data-act="copy"] {
+#fumocaPresentTabPanel button.primary {
   background: #c8ff00 !important;
   color: #0a0c10 !important;
   border-color: #c8ff00 !important;
 }
-#fumocaPresentTabPanel .ptp-hint,
-#fumocaPresentTabPanel .ptp-status {
-  font-size: 10px !important;
-  opacity: .65 !important;
-  margin-top: 6px !important;
-}
 
-/* ── Magazine text only when Present is open ── */
-#magazineTextLayer, .mt-layer, .mt-item {
-  display: none !important;
-}
+/* Magazine text only when Present tab is open */
+#magazineTextLayer, .mt-layer, .mt-item { display: none !important; }
 body.present-active #magazineTextLayer,
-body.present-active .mt-layer,
-body.present-active .mt-item {
-  display: block !important;
-}
+body.present-active .mt-item { display: block !important; }
 
-/* ── Review root base ── */
-#fumocaReviewRoot {
-  position: fixed !important;
-  z-index: 6 !important;
+/* ── EDITOR: review video lives INSIDE the center workspace ── */
+body:has(#shell) #fumocaReviewRoot {
+  position: absolute !important;
+  z-index: 8 !important;
   overflow: hidden !important;
   background: #000 !important;
-  border-radius: 12px !important;
+  border-radius: 10px !important;
 }
-#fumocaReviewRoot video {
+body:has(#shell) #fumocaReviewRoot video {
   width: 100% !important;
   height: 100% !important;
   object-fit: contain !important;
   background: #000 !important;
 }
 
-/* STACK — video top half, splat bottom half (equal) */
-body.rv-layout-stack #fumocaReviewRoot.layout-stack {
-  top: 0 !important;
-  left: 0 !important;
-  right: 0 !important;
-  height: 50vh !important;
-  border-radius: 0 !important;
-  border-bottom: 1px solid rgba(255,255,255,.08) !important;
+/* Stack — video top half of workspace, splat bottom half */
+body:has(#shell).rv-layout-stack #fumocaReviewRoot.layout-stack {
+  top: 8px !important;
+  left: 8px !important;
+  right: 8px !important;
+  width: auto !important;
+  height: calc(50% - 12px) !important;
+  border-radius: 10px !important;
 }
-body.rv-layout-stack #stage,
-body.rv-layout-stack #stageHost,
-body.rv-layout-stack #viewerShell,
-body.rv-layout-stack #shell {
-  top: 50vh !important;
-  height: 50vh !important;
-  bottom: auto !important;
+body:has(#shell).rv-layout-stack #viewportCanvas,
+body:has(#shell).rv-layout-stack #stageHost {
+  top: 50% !important;
+  height: 50% !important;
+  left: 0 !important;
+  width: 100% !important;
 }
 
-/* SPLIT — video left half, splat right half (equal) */
-body.rv-layout-split #fumocaReviewRoot.layout-split {
-  top: 0 !important;
-  left: 0 !important;
-  width: 50vw !important;
-  height: 100vh !important;
-  bottom: 0 !important;
-  border-radius: 0 !important;
-  border-right: 1px solid rgba(255,255,255,.08) !important;
-}
-body.rv-layout-split #stage,
-body.rv-layout-split #stageHost,
-body.rv-layout-split #viewerShell,
-body.rv-layout-split #shell {
-  left: 50vw !important;
-  width: 50vw !important;
-  top: 0 !important;
-  height: 100vh !important;
-}
-
-/* PIP — 3D main, video in corner */
-body.rv-layout-pip #fumocaReviewRoot.layout-pip {
-  inset: auto !important;
-  right: 16px !important;
-  bottom: 72px !important;
-  width: min(320px, 36vw) !important;
-  aspect-ratio: 16/9 !important;
+/* Split — video left half of workspace, splat right half */
+body:has(#shell).rv-layout-split #fumocaReviewRoot.layout-split {
+  top: 8px !important;
+  left: 8px !important;
+  bottom: 8px !important;
+  width: calc(50% - 12px) !important;
   height: auto !important;
-  border-radius: 12px !important;
-  box-shadow: 0 12px 40px rgba(0,0,0,.55) !important;
-  z-index: 30 !important;
+  border-radius: 10px !important;
 }
-body.rv-layout-pip #stage,
-body.rv-layout-pip #stageHost {
-  inset: 0 !important;
-  width: 100% !important;
+body:has(#shell).rv-layout-split #viewportCanvas,
+body:has(#shell).rv-layout-split #stageHost {
+  left: 50% !important;
+  width: 50% !important;
+  top: 0 !important;
   height: 100% !important;
 }
 
-/* FULL — video immersive, splat hidden */
-body.rv-layout-full #fumocaReviewRoot.layout-full {
-  inset: 0 !important;
-  width: 100% !important;
-  height: 100% !important;
-  border-radius: 0 !important;
+/* PIP — video in corner of workspace, splat full center */
+body:has(#shell).rv-layout-pip #fumocaReviewRoot.layout-pip {
+  top: auto !important;
+  left: auto !important;
+  right: 12px !important;
+  bottom: 12px !important;
+  width: min(280px, 42%) !important;
+  height: auto !important;
+  aspect-ratio: 16/9 !important;
+  border-radius: 12px !important;
+  box-shadow: 0 10px 32px rgba(0,0,0,.5) !important;
   z-index: 20 !important;
 }
-body.rv-layout-full #stage,
-body.rv-layout-full #stageHost {
+body:has(#shell).rv-layout-pip #viewportCanvas,
+body:has(#shell).rv-layout-pip #stageHost {
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* Full — video fills workspace only (panels stay) */
+body:has(#shell).rv-layout-full #fumocaReviewRoot.layout-full {
+  inset: 8px !important;
+  width: auto !important;
+  height: auto !important;
+  border-radius: 10px !important;
+  z-index: 15 !important;
+}
+body:has(#shell).rv-layout-full #viewportCanvas {
   visibility: hidden !important;
 }
 
-/* Hidden — splat only */
-body.rv-layout-hidden #fumocaReviewRoot,
-#fumocaReviewRoot.layout-hidden {
+/* Off — splat only, centered as normal */
+body:has(#shell).rv-layout-hidden #fumocaReviewRoot,
+body:has(#shell) #fumocaReviewRoot.layout-hidden {
   display: none !important;
 }
+body:has(#shell).rv-layout-hidden #viewportCanvas,
+body:has(#shell) #viewportCanvas {
+  inset: 0;
+}
 
-/* Controls bar — compact, not covering options */
-#fumocaReviewControls {
-  z-index: 40 !important;
-  background: rgba(8,10,14,.85) !important;
-  backdrop-filter: blur(10px) !important;
+/* Controls stay out of the way, bottom of workspace */
+body:has(#shell) #fumocaReviewControls {
+  position: absolute !important;
+  left: 50% !important;
+  bottom: 12px !important;
+  transform: translateX(-50%) !important;
+  z-index: 25 !important;
+  background: rgba(8,10,14,.8) !important;
   border-radius: 12px !important;
   padding: 6px 10px !important;
 }
 
-/* Viewer topbar stays a pill */
-#topbar {
-  background: rgba(8,10,14,.5) !important;
-  border-radius: 999px !important;
+/* ── VIEWER (no #shell): full-screen layouts are fine ── */
+body:not(:has(#shell)).rv-layout-stack #fumocaReviewRoot.layout-stack {
+  top: 0; left: 0; right: 0; height: 50vh; border-radius: 0;
 }
-#thumbDockImg, #thumbDock img {
-  display: none !important;
+body:not(:has(#shell)).rv-layout-stack #stage,
+body:not(:has(#shell)).rv-layout-stack #stageHost {
+  top: 50vh; height: 50vh;
 }
+body:not(:has(#shell)).rv-layout-split #fumocaReviewRoot.layout-split {
+  top: 0; left: 0; width: 50vw; height: 100vh; border-radius: 0;
+}
+body:not(:has(#shell)).rv-layout-split #stage,
+body:not(:has(#shell)).rv-layout-split #stageHost {
+  left: 50vw; width: 50vw; height: 100vh;
+}
+
+/* Topbar pill, no black thumb */
+#topbar { background: rgba(8,10,14,.5) !important; border-radius: 999px !important; }
+#thumbDockImg, #thumbDock img { display: none !important; }
