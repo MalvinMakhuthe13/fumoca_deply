@@ -1,56 +1,60 @@
 /**
- * True section layouts — video and splat share the workspace, no overlay.
- * PIP is draggable. Works in editor (#viewport) and viewer (#stage).
+ * True section layouts like RealityScan.
+ * Stack = workspace splits top/bottom. Split = left/right.
+ * Video and splat are siblings in separate sections, never overlays.
  */
 (function () {
-  function host() {
-    return document.getElementById('viewport') || document.getElementById('stage') || document.body;
+  function ensureSections() {
+    const vp = document.getElementById('viewport') || document.getElementById('stage');
+    if (!vp) return null;
+    let wrap = document.getElementById('fumocaSections');
+    if (!wrap) {
+      wrap = document.createElement('div');
+      wrap.id = 'fumocaSections';
+      // Move existing canvas/stageHost into the splat section
+      const splat = document.createElement('div');
+      splat.id = 'fumocaSplatSection';
+      const vid = document.createElement('div');
+      vid.id = 'fumocaVideoSection';
+      // Keep canvas and stageHost inside splat section
+      const canvas = document.getElementById('viewportCanvas');
+      const stageHost = document.getElementById('stageHost');
+      if (canvas) splat.appendChild(canvas);
+      if (stageHost) splat.appendChild(stageHost);
+      wrap.appendChild(vid);
+      wrap.appendChild(splat);
+      vp.appendChild(wrap);
+    }
+    return wrap;
   }
 
-  function park() {
+  function apply(layout) {
+    const wrap = ensureSections();
+    if (!wrap) return;
     const root = document.getElementById('fumocaReviewRoot');
+    const vid = document.getElementById('fumocaVideoSection');
     const controls = document.getElementById('fumocaReviewControls');
-    if (!root) return;
-    const h = host();
-    if (root.parentElement !== h) h.appendChild(root);
-    if (controls && controls.parentElement !== root) root.appendChild(controls);
-    makePipDraggable(root);
-    const dock = document.getElementById('fumocaPresentDock');
-    if (dock) dock.remove();
+    wrap.dataset.layout = layout || 'off';
+    if (root && vid && root.parentElement !== vid) vid.appendChild(root);
+    if (controls && root && controls.parentElement !== root) root.appendChild(controls);
+    // Resize the WebGL canvas after the section changes
+    setTimeout(() => window.dispatchEvent(new Event('resize')), 60);
   }
 
-  function makePipDraggable(root) {
-    if (root.dataset.dragReady) return;
-    root.dataset.dragReady = '1';
-    let dragging = false, sx = 0, sy = 0, ox = 0, oy = 0;
-    root.addEventListener('pointerdown', (e) => {
-      if (!root.classList.contains('layout-pip')) return;
-      if (e.target.closest('button, input')) return;
-      dragging = true;
-      const r = root.getBoundingClientRect();
-      const p = root.parentElement.getBoundingClientRect();
-      sx = e.clientX; sy = e.clientY;
-      ox = r.left - p.left; oy = r.top - p.top;
-      root.setPointerCapture(e.pointerId);
-    });
-    root.addEventListener('pointermove', (e) => {
-      if (!dragging) return;
-      const p = root.parentElement.getBoundingClientRect();
-      let x = ox + (e.clientX - sx);
-      let y = oy + (e.clientY - sy);
-      x = Math.max(0, Math.min(x, p.width - root.offsetWidth));
-      y = Math.max(0, Math.min(y, p.height - root.offsetHeight));
-      root.style.left = x + 'px';
-      root.style.top = y + 'px';
-      root.style.right = 'auto';
-      root.style.bottom = 'auto';
-    });
-    root.addEventListener('pointerup', () => { dragging = false; });
+  function watch() {
+    const body = document.body.className;
+    let layout = 'off';
+    if (body.includes('rv-layout-stack')) layout = 'stack';
+    else if (body.includes('rv-layout-split')) layout = 'split';
+    else if (body.includes('rv-layout-pip')) layout = 'pip';
+    else if (body.includes('rv-layout-full')) layout = 'full';
+    else if (body.includes('rv-layout-bg')) layout = 'bg';
+    apply(layout);
   }
 
-  const obs = new MutationObserver(park);
-  obs.observe(document.documentElement, { childList: true, subtree: true });
-  window.addEventListener('load', () => setTimeout(park, 100));
-  setInterval(park, 1000);
-  park();
+  const obs = new MutationObserver(watch);
+  obs.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+  window.addEventListener('load', () => setTimeout(watch, 200));
+  setInterval(watch, 1200);
+  watch();
 })();

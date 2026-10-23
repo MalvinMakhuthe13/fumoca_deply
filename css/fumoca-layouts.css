@@ -1,104 +1,121 @@
-/* True section layouts — video and splat share space, no overlay */
+/* RealityScan-style sections — video and splat are siblings, not overlays */
 
 #fumocaPresentDock { display: none !important; }
 
-/* Host must be the positioning context */
-#viewport, #stage { position: relative !important; overflow: hidden !important; }
+#viewport, #stage { position: relative !important; }
 
-/* Review root base — absolute inside the host, never covering panels */
-#fumocaReviewRoot {
+#fumocaSections {
   position: absolute !important;
-  z-index: 4 !important;
+  inset: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+#fumocaSections[data-layout="split"] { flex-direction: row !important; }
+
+#fumocaVideoSection, #fumocaSplatSection {
+  position: relative !important;
   overflow: hidden !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+}
+#fumocaSplatSection { flex: 1 1 auto !important; background: transparent !important; }
+#fumocaSplatSection canvas,
+#fumocaSplatSection #stageHost,
+#fumocaSplatSection #viewportCanvas {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* Off / no video — video section collapses, splat fills */
+#fumocaSections[data-layout="off"] #fumocaVideoSection,
+#fumocaSections:not([data-layout]) #fumocaVideoSection {
+  display: none !important;
+}
+#fumocaSections[data-layout="off"] #fumocaSplatSection { flex: 1 1 100% !important; }
+
+/* STACK — equal top/bottom */
+#fumocaSections[data-layout="stack"] { flex-direction: column !important; }
+#fumocaSections[data-layout="stack"] #fumocaVideoSection,
+#fumocaSections[data-layout="stack"] #fumocaSplatSection {
+  flex: 1 1 50% !important;
+  height: 50% !important;
+  width: 100% !important;
+}
+#fumocaSections[data-layout="stack"] #fumocaVideoSection {
+  border-bottom: 2px solid rgba(200,255,0,.25) !important;
+}
+
+/* SPLIT — equal left/right */
+#fumocaSections[data-layout="split"] { flex-direction: row !important; }
+#fumocaSections[data-layout="split"] #fumocaVideoSection,
+#fumocaSections[data-layout="split"] #fumocaSplatSection {
+  flex: 1 1 50% !important;
+  width: 50% !important;
+  height: 100% !important;
+}
+#fumocaSections[data-layout="split"] #fumocaVideoSection {
+  border-right: 2px solid rgba(200,255,0,.25) !important;
+}
+
+/* Video fills its section */
+#fumocaVideoSection #fumocaReviewRoot {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
   background: #000 !important;
   border-radius: 0 !important;
+  z-index: 2 !important;
 }
-#fumocaReviewRoot video {
+#fumocaVideoSection #fumocaReviewRoot video {
   width: 100% !important; height: 100% !important;
   object-fit: contain !important; background: #000 !important;
-  display: block !important;
 }
 
-/* STACK — top half video, bottom half splat. No overlap. */
-#fumocaReviewRoot.layout-stack {
-  top: 0 !important; left: 0 !important; right: 0 !important;
-  width: 100% !important; height: 50% !important; bottom: auto !important;
-  border-bottom: 1px solid rgba(255,255,255,.1) !important;
-}
-body.rv-layout-stack #viewportCanvas,
-body.rv-layout-stack #stageHost,
-body.rv-layout-stack canvas {
+/* PIP — video section is a small floating box, splat fills */
+#fumocaSections[data-layout="pip"] #fumocaVideoSection {
   position: absolute !important;
-  top: 50% !important; left: 0 !important;
-  width: 100% !important; height: 50% !important;
-}
-
-/* SPLIT — left half video, right half splat. No overlap. */
-#fumocaReviewRoot.layout-split {
-  top: 0 !important; left: 0 !important; bottom: 0 !important;
-  width: 50% !important; height: 100% !important; right: auto !important;
-  border-right: 1px solid rgba(255,255,255,.1) !important;
-}
-body.rv-layout-split #viewportCanvas,
-body.rv-layout-split #stageHost,
-body.rv-layout-split canvas {
-  position: absolute !important;
-  left: 50% !important; top: 0 !important;
-  width: 50% !important; height: 100% !important;
-}
-
-/* PIP — small, draggable, does not cover the workspace */
-#fumocaReviewRoot.layout-pip {
-  top: auto !important; left: auto !important;
   right: 12px !important; bottom: 12px !important;
   width: 280px !important; height: 158px !important;
-  border-radius: 10px !important;
-  box-shadow: 0 8px 28px rgba(0,0,0,.55) !important;
+  flex: none !important;
   z-index: 20 !important;
+  border-radius: 10px !important;
+  overflow: hidden !important;
+  box-shadow: 0 8px 28px rgba(0,0,0,.55) !important;
   cursor: grab !important;
   border: 1px solid rgba(255,255,255,.15) !important;
 }
-#fumocaReviewRoot.layout-pip:active { cursor: grabbing !important; }
-body.rv-layout-pip #viewportCanvas,
-body.rv-layout-pip #stageHost,
-body.rv-layout-pip canvas {
+#fumocaSections[data-layout="pip"] #fumocaSplatSection {
+  flex: 1 1 100% !important; width: 100% !important; height: 100% !important;
+}
+
+/* FULL — video fills, splat hidden */
+#fumocaSections[data-layout="full"] #fumocaVideoSection {
+  flex: 1 1 100% !important; width: 100% !important; height: 100% !important;
+}
+#fumocaSections[data-layout="full"] #fumocaSplatSection { display: none !important; }
+
+/* BG — video behind splat */
+#fumocaSections[data-layout="bg"] #fumocaVideoSection {
   position: absolute !important; inset: 0 !important;
-  width: 100% !important; height: 100% !important;
+  width: 100% !important; height: 100% !important; z-index: 1 !important;
+}
+#fumocaSections[data-layout="bg"] #fumocaSplatSection {
+  position: absolute !important; inset: 0 !important; z-index: 2 !important;
+  background: transparent !important;
 }
 
-/* FULL — video fills the workspace only */
-#fumocaReviewRoot.layout-full {
-  inset: 0 !important; width: 100% !important; height: 100% !important; z-index: 8 !important;
-}
-body.rv-layout-full #viewportCanvas,
-body.rv-layout-full canvas { visibility: hidden !important; }
-
-/* BG — video behind the splat (splat stays interactive on top) */
-#fumocaReviewRoot.layout-bg {
-  inset: 0 !important; width: 100% !important; height: 100% !important;
-  z-index: 1 !important; opacity: .85 !important;
-}
-body.rv-layout-bg #viewportCanvas,
-body.rv-layout-bg canvas { z-index: 2 !important; }
-
-/* Off */
-#fumocaReviewRoot.layout-hidden { display: none !important; }
-body.rv-layout-hidden #viewportCanvas,
-body.rv-layout-hidden canvas {
-  position: absolute !important; inset: 0 !important;
-  width: 100% !important; height: 100% !important; visibility: visible !important;
-}
-
-/* Controls ON the video */
+/* Controls on the video */
 #fumocaReviewRoot > #fumocaReviewControls {
   position: absolute !important;
   left: 6px !important; right: 6px !important; bottom: 6px !important;
-  z-index: 6 !important;
+  z-index: 5 !important;
   display: flex !important; flex-wrap: wrap; gap: 4px; align-items: center;
   background: rgba(0,0,0,.7) !important;
   border-radius: 8px !important;
   padding: 5px 7px !important;
-  pointer-events: auto !important;
 }
 #fumocaReviewRoot > #fumocaReviewControls button[data-act="play"] {
   background: #c8ff00 !important; color: #0a0c10 !important;
@@ -106,27 +123,5 @@ body.rv-layout-hidden canvas {
   padding: 5px 10px !important; font-weight: 700 !important; cursor: pointer !important;
 }
 
-/* Phone orientation — viewer only */
-@media (orientation: portrait) and (max-width: 900px) {
-  body:not(:has(#viewport)) #fumocaReviewRoot.layout-stack,
-  body:not(:has(#viewport)) #fumocaReviewRoot.layout-split {
-    top: 0 !important; left: 0 !important; width: 100% !important; height: 50% !important;
-  }
-  body:not(:has(#viewport)).rv-layout-stack #stageHost,
-  body:not(:has(#viewport)).rv-layout-split #stageHost {
-    top: 50% !important; left: 0 !important; width: 100% !important; height: 50% !important;
-  }
-}
-@media (orientation: landscape) and (max-height: 500px) {
-  body:not(:has(#viewport)) #fumocaReviewRoot.layout-stack,
-  body:not(:has(#viewport)) #fumocaReviewRoot.layout-split {
-    top: 0 !important; left: 0 !important; width: 50% !important; height: 100% !important;
-  }
-  body:not(:has(#viewport)).rv-layout-stack #stageHost,
-  body:not(:has(#viewport)).rv-layout-split #stageHost {
-    left: 50% !important; top: 0 !important; width: 50% !important; height: 100% !important;
-  }
-}
-
-/* Left panel stays above everything */
+/* Left panel stays on top */
 #panelLeft { z-index: 30 !important; position: relative !important; background: #07090e !important; }
