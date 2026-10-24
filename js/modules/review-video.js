@@ -182,7 +182,16 @@ function toast(msg) {
 function ensureDom() {
   if (root) return;
   const host = workspace() || document.body;
-  if (host !== document.body) host.style.position = host.style.position || 'relative';
+  const stage = document.getElementById('stage');
+  if (stage) {
+    stage.style.position = 'fixed';
+    stage.style.inset = '0';
+    stage.style.width = '100%';
+    stage.style.height = '100%';
+  }
+  if (host !== document.body && host.id !== 'stage' && host.id !== 'viewerShell') {
+    host.style.position = host.style.position || 'relative';
+  }
   root = document.createElement('div');
   root.id = 'fumocaReviewRoot';
   root.className = 'layout-hidden';
