@@ -420,15 +420,20 @@ function applyFrame() {
   host.classList.toggle('rv-full', layout === 'full');
   root.className = 'layout-' + layout;
   root.style.display = 'block';
-  if (layout !== 'pip') {
-    ['left', 'top', 'right', 'bottom'].forEach((prop) => root.style.removeProperty(prop));
-  }
+  // PIP chrome must not leak into Stack, Split, Full or BG.
+  ['position', 'left', 'top', 'right', 'bottom', 'width', 'height', 'max-width', 'max-height', 'z-index', 'border', 'border-radius', 'box-shadow', 'cursor'].forEach((prop) => {
+    root.style.removeProperty(prop);
+    if (pane) pane.style.removeProperty(prop);
+  });
+  ['max-width', 'max-height'].forEach((prop) => video.style.removeProperty(prop));
   empty.style.display = 'none';
   video.style.display = 'block';
   video.style.setProperty('position', 'absolute', 'important');
   video.style.setProperty('inset', '0', 'important');
   video.style.setProperty('width', '100%', 'important');
   video.style.setProperty('height', '100%', 'important');
+  video.style.setProperty('max-width', 'none', 'important');
+  video.style.setProperty('max-height', 'none', 'important');
   video.style.setProperty('object-fit', 'contain', 'important');
   work.style.setProperty('position', 'absolute', 'important');
   work.style.setProperty('inset', '0', 'important');
@@ -460,24 +465,22 @@ function applyFrame() {
       pane.style.setProperty('width', '100%', 'important');
       pane.style.setProperty('height', '100%', 'important');
     }
-    // Fixed, not absolute: a parent grid was stretching this to the whole workspace.
-    root.style.setProperty('position', 'fixed', 'important');
+    // Small window only while PIP is the active layout. Absolute inside the workspace, not the whole app.
+    root.style.setProperty('position', 'absolute', 'important');
     root.style.setProperty('left', 'auto', 'important');
     root.style.setProperty('top', 'auto', 'important');
-    root.style.setProperty('right', '24px', 'important');
-    root.style.setProperty('bottom', '88px', 'important');
+    root.style.setProperty('right', '16px', 'important');
+    root.style.setProperty('bottom', '16px', 'important');
     root.style.setProperty('width', '280px', 'important');
     root.style.setProperty('height', '158px', 'important');
     root.style.setProperty('max-width', '280px', 'important');
     root.style.setProperty('max-height', '158px', 'important');
-    root.style.setProperty('z-index', '80', 'important');
+    root.style.setProperty('z-index', '30', 'important');
     root.style.setProperty('border-radius', '12px', 'important');
     root.style.setProperty('overflow', 'hidden', 'important');
     root.style.setProperty('border', '2px solid #c8ff00', 'important');
     root.style.setProperty('box-shadow', '0 12px 32px rgba(0,0,0,.55)', 'important');
     root.style.setProperty('cursor', 'grab', 'important');
-    video.style.setProperty('max-width', '280px', 'important');
-    video.style.setProperty('max-height', '158px', 'important');
   } else if (layout === 'cinema') {
     work.style.setProperty('display', 'block', 'important');
     root.style.setProperty('position', 'absolute', 'important');

@@ -148,18 +148,17 @@
 #fumocaWork.rv-grid-split > #fumocaReviewRoot { border-right: 2px solid #c8ff00; }
 #fumocaWork.rv-grid-stack > #fumocaReviewRoot { border-bottom: 2px solid #c8ff00; }
 
-#fumocaWork.rv-grid-pip > #fumocaReviewRoot,
-#fumocaReviewRoot.layout-pip {
-  position: fixed !important;
+#fumocaWork.rv-grid-pip > #fumocaReviewRoot {
+  position: absolute !important;
   width: 280px !important;
   height: 158px !important;
   max-width: 280px !important;
   max-height: 158px !important;
-  right: 24px !important;
-  bottom: 88px !important;
+  right: 16px !important;
+  bottom: 16px !important;
   left: auto !important;
   top: auto !important;
-  z-index: 80 !important;
+  z-index: 30 !important;
   border-radius: 12px;
   border: 2px solid #c8ff00;
   box-shadow: 0 12px 32px rgba(0,0,0,.55);
