@@ -93,21 +93,65 @@ function splatRowsToGeometry(sourceBuffer, aliveIndices, rowSize = 32) {
  * @param {Float32Array} colors01    n × 3, each channel 0–1
  * @param {Float32Array} opacities01 n, 0–1
  */
+function sceneRadiusOf(data, count, stride) {
+  let minX = Infinity, minY = Infinity, minZ = Infinity;
+  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+  const step = Math.max(1, stride | 0);
+  for (let i = 0; i < count; i += step) {
+    const o = i * FLOATS_PER_POINT;
+    const x = data[o], y = data[o + 1], z = data[o + 2];
+    if (x < minX) minX = x; if (x > maxX) maxX = x;
+    if (y < minY) minY = y; if (y > maxY) maxY = y;
+    if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+  }
+  if (!Number.isFinite(minX)) return 1;
+  return Math.max(0.05, 0.5 * Math.hypot(maxX - minX, maxY - minY, maxZ - minZ));
+}
+
+function solidSplatScale(radius, count) {
+  return Math.max(radius * 3 / Math.sqrt(Math.max(count, 1)), radius * 0.008, 0.004);
+}
+
+// Point clouds stored with a fixed 1 cm scale disappear in the Gaussian viewer.
+// Only grow scales that are far below the scene's point spacing. Real splats stay as they are.
+function scaleBoost(data, count) {
+  if (!count) return 1;
+  const step = Math.max(1, Math.floor(count / 20000));
+  let sum = 0, n = 0;
+  for (let i = 0; i < count; i += step) {
+    sum += Math.exp(data[i * FLOATS_PER_POINT + 3]);
+    n++;
+  }
+  const mean = n ? sum / n : 0.01;
+  const radius = sceneRadiusOf(data, count, step);
+  const target = solidSplatScale(radius, count);
+  if (!(mean > 0) || mean >= target * 0.65) return 1;
+  return Math.min(target / mean, 80);
+}
 function plyPointsToGeometry(positions, colors01, opacities01) {
   const count = opacities01.length;
   const out   = new Float32Array(count * FLOATS_PER_POINT);
-  // No real scale/rotation data for plain point clouds — encode as small
-  // isotropic spheres (identity quaternion) so the same renderer path works.
-  const ISO_LOG_SCALE = Math.log(0.01);
+  let minX = Infinity, minY = Infinity, minZ = Infinity;
+  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+  for (let i = 0; i < count; i++) {
+    const x = positions[i * 3], y = positions[i * 3 + 1], z = positions[i * 3 + 2];
+    if (x < minX) minX = x; if (x > maxX) maxX = x;
+    if (y < minY) minY = y; if (y > maxY) maxY = y;
+    if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+  }
+  const radius = Number.isFinite(minX)
+    ? Math.max(0.05, 0.5 * Math.hypot(maxX - minX, maxY - minY, maxZ - minZ))
+    : 1;
+  const isoLog = Math.log(solidSplatScale(radius, count));
 
   for (let i = 0; i < count; i++) {
     const o = i * FLOATS_PER_POINT;
     out[o + 0] = positions[i * 3 + 0];
     out[o + 1] = positions[i * 3 + 1];
     out[o + 2] = positions[i * 3 + 2];
-    out[o + 3] = ISO_LOG_SCALE;
-    out[o + 4] = ISO_LOG_SCALE;
-    out[o + 5] = ISO_LOG_SCALE;
+    out[o + 3] = isoLog;
+    out[o + 4] = isoLog;
+    out[o + 5] = isoLog;
     out[o + 6] = 1; out[o + 7] = 0; out[o + 8] = 0; out[o + 9] = 0; // identity quat
     out[o + 10] = logit(opacities01[i]);
     out[o + 11] = logit(colors01[i * 3 + 0]);
@@ -594,6 +638,7 @@ export function geometryToSplatRows(gaussians) {
   const rowSize = 32;
   const out = new Uint8Array(count * rowSize);
   const dv  = new DataView(out.buffer);
+  const boost = scaleBoost(data, count);
 
   for (let i = 0; i < count; i++) {
     const o = i * FLOATS_PER_POINT;
@@ -603,9 +648,9 @@ export function geometryToSplatRows(gaussians) {
     dv.setFloat32(base + 4, data[o+1], true);
     dv.setFloat32(base + 8, data[o+2], true);
 
-    dv.setFloat32(base + 12, Math.exp(data[o+3]), true);
-    dv.setFloat32(base + 16, Math.exp(data[o+4]), true);
-    dv.setFloat32(base + 20, Math.exp(data[o+5]), true);
+    dv.setFloat32(base + 12, Math.exp(data[o+3]) * boost, true);
+    dv.setFloat32(base + 16, Math.exp(data[o+4]) * boost, true);
+    dv.setFloat32(base + 20, Math.exp(data[o+5]) * boost, true);
 
     // Re-quantise quaternion (canonical is already-normalised float wxyz)
     const clamp255 = v => Math.max(0, Math.min(255, Math.round(v)));

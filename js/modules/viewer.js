@@ -1715,6 +1715,18 @@ async function mountInteractiveViewer(forceReload = false) {
     }
     await viewerInstance.addSplatScene(_activeUrl, _sceneOpts);
     viewerInstance.start();
+    try {
+      const host = stageHost || stageEl;
+      const w = host?.clientWidth || window.innerWidth;
+      const h = host?.clientHeight || window.innerHeight;
+      if (w > 2 && h > 2) viewerInstance.renderer?.setSize?.(w, h, false);
+      const canvas = host?.querySelector?.('canvas');
+      if (canvas) {
+        canvas.style.setProperty('display', 'block', 'important');
+        canvas.style.setProperty('width', '100%', 'important');
+        canvas.style.setProperty('height', '100%', 'important');
+      }
+    } catch (_) {}
     hideLoading();
     hideStageFreeze(forceReload ? 220 : 90);
     rendererPreviewPending = false;
