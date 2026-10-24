@@ -23,5 +23,8 @@
     [500, 1500, 3500].forEach((t) => setTimeout(boost, t));
   }
   window.FumocaViewerQualityBoost = { boost, schedule };
-  // Do not recolor or refilter the splat on load. That wash hid the product.
+  window.addEventListener("fumoca:viewerReady", schedule);
+  window.addEventListener("fumoca:splatLoaded", schedule);
+  if (document.readyState === "complete") schedule();
+  else window.addEventListener("load", schedule);
 })();
