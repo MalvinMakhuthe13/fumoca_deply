@@ -112,21 +112,34 @@ function solidSplatScale(radius, count) {
   return Math.max(radius * 3 / Math.sqrt(Math.max(count, 1)), radius * 0.008, 0.004);
 }
 
-// Point clouds stored with a fixed 1 cm scale disappear in the Gaussian viewer.
-// Only grow scales that are far below the scene's point spacing. Real splats stay as they are.
+// A point cloud stored at one identical tiny size needs a fill so it stays visible.
+// A real gaussian splat already has mixed, stretched sizes. Never enlarge those.
 function scaleBoost(data, count) {
   if (!count) return 1;
-  const step = Math.max(1, Math.floor(count / 20000));
-  let sum = 0, n = 0;
+  const step = Math.max(1, Math.floor(count / 8000));
+  let min = Infinity, max = 0, sum = 0, n = 0, stretched = 0;
   for (let i = 0; i < count; i += step) {
-    sum += Math.exp(data[i * FLOATS_PER_POINT + 3]);
+    const o = i * FLOATS_PER_POINT;
+    const sx = Math.exp(data[o + 3]);
+    const sy = Math.exp(data[o + 4]);
+    const sz = Math.exp(data[o + 5]);
+    const s = (sx + sy + sz) / 3;
+    if (!(s > 0) || !Number.isFinite(s)) continue;
+    if (s < min) min = s;
+    if (s > max) max = s;
+    const hi = Math.max(sx, sy, sz);
+    const lo = Math.max(1e-8, Math.min(sx, sy, sz));
+    if (hi > lo * 1.25) stretched++;
+    sum += s;
     n++;
   }
-  const mean = n ? sum / n : 0.01;
+  if (!n) return 1;
+  if (stretched > n * 0.15 || max > min * 1.4) return 1;
+  const mean = sum / n;
   const radius = sceneRadiusOf(data, count, step);
   const target = solidSplatScale(radius, count);
   if (!(mean > 0) || mean >= target * 0.65) return 1;
-  return Math.min(target / mean, 80);
+  return Math.min(target / mean, 12);
 }
 function plyPointsToGeometry(positions, colors01, opacities01) {
   const count = opacities01.length;
