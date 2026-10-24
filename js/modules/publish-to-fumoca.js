@@ -185,6 +185,10 @@ const FumocaPublish = (() => {
     };
     if (title) payload.title = title;
     if (description) payload.description = description;
+    const review = window.FumocaReviewVideo?.meta?.();
+    if (review?.url) {
+      payload.meta = { ...(rec?.meta || rec?.metadata || {}), reviewVideo: review };
+    }
 
     let finalId = splatId;
     if (splatId) {

@@ -358,12 +358,55 @@ function placeViewerVideo(stage, mode) {
   stage.classList.add('rv-' + mode);
 }
 
+function showViewerBar(on) {
+  if (!document.getElementById('stage')) return;
+  let bar = document.getElementById('fumocaReviewBar');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'fumocaReviewBar';
+    bar.innerHTML = `
+      <span>Review</span>
+      <button type="button" data-layout="pip">PIP</button>
+      <button type="button" data-layout="stack">Stack</button>
+      <button type="button" data-layout="split">Split</button>
+      <button type="button" data-layout="full">Full</button>
+      <button type="button" data-layout="cinema">Cinema</button>
+      <button type="button" data-layout="bg">BG</button>
+      <button type="button" data-layout="hidden">Off</button>
+    `;
+    bar.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-layout]');
+      if (!btn) return;
+      setLayout(btn.dataset.layout);
+    });
+    document.body.appendChild(bar);
+  }
+  bar.style.display = on ? 'flex' : 'none';
+  bar.querySelectorAll('[data-layout]').forEach((b) => b.classList.toggle('active', b.dataset.layout === layout));
+}
+
 function applyFrame() {
   if (!root) return;
   const host = workspace();
   if (!host) return;
   const showMix = !!src && layout !== 'hidden';
   const stageHost = document.getElementById('stageHost');
+
+  if (src && layout === 'hidden') {
+    // Off hides the picture and keeps the reviewer audio.
+    restoreViewerStage();
+    releaseEditorCanvas();
+    root.style.setProperty('display', 'none', 'important');
+    if (controls) controls.style.display = 'none';
+    if (empty) empty.style.display = 'none';
+    if (video) {
+      video.style.display = 'none';
+      video.muted = false;
+      video.play().catch(() => {});
+    }
+    showViewerBar(true);
+    return;
+  }
 
   if (!showMix) {
     restoreViewerStage();
@@ -372,6 +415,7 @@ function applyFrame() {
     if (controls) controls.style.display = 'none';
     if (empty) empty.style.display = 'none';
     if (video) video.style.display = 'none';
+    showViewerBar(false);
     return;
   }
 
@@ -397,6 +441,7 @@ function applyFrame() {
     video.style.setProperty('object-fit', 'contain', 'important');
     controls.style.display = 'flex';
     controls.querySelectorAll('[data-layout]').forEach((b) => b.classList.toggle('active', b.dataset.layout === layout));
+    showViewerBar(true);
     fitting = true;
     requestAnimationFrame(() => { pokeViewer(); fitting = false; });
     setTimeout(pokeViewer, 400);

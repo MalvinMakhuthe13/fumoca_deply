@@ -1016,6 +1016,10 @@ function configurePreview(record) {
   window._fumocaThumbnailUrl = thumbnailUrl || '';
   window._fumocaPublicTeaserUrl = resolvePublicTeaserUrl(record);
   applyThumbnailSurfaces();
+  const review = (record?.meta || record?.metadata || {}).reviewVideo;
+  if (review?.url && window.FumocaReviewVideo?.set) {
+    window.FumocaReviewVideo.set(review.url, { layout: review.layout || 'split', autoplay: true });
+  }
   if (previewVideoUrl) {
     previewVideo.src = previewVideoUrl;
     previewVideo.poster = thumbnailUrl || '';
