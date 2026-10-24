@@ -460,17 +460,24 @@ function applyFrame() {
       pane.style.setProperty('width', '100%', 'important');
       pane.style.setProperty('height', '100%', 'important');
     }
-    root.style.setProperty('position', 'absolute', 'important');
+    // Fixed, not absolute: a parent grid was stretching this to the whole workspace.
+    root.style.setProperty('position', 'fixed', 'important');
     root.style.setProperty('left', 'auto', 'important');
     root.style.setProperty('top', 'auto', 'important');
-    root.style.setProperty('right', '16px', 'important');
-    root.style.setProperty('bottom', '16px', 'important');
+    root.style.setProperty('right', '24px', 'important');
+    root.style.setProperty('bottom', '88px', 'important');
     root.style.setProperty('width', '280px', 'important');
     root.style.setProperty('height', '158px', 'important');
-    root.style.setProperty('z-index', '30', 'important');
+    root.style.setProperty('max-width', '280px', 'important');
+    root.style.setProperty('max-height', '158px', 'important');
+    root.style.setProperty('z-index', '80', 'important');
     root.style.setProperty('border-radius', '12px', 'important');
     root.style.setProperty('overflow', 'hidden', 'important');
+    root.style.setProperty('border', '2px solid #c8ff00', 'important');
+    root.style.setProperty('box-shadow', '0 12px 32px rgba(0,0,0,.55)', 'important');
     root.style.setProperty('cursor', 'grab', 'important');
+    video.style.setProperty('max-width', '280px', 'important');
+    video.style.setProperty('max-height', '158px', 'important');
   } else if (layout === 'cinema') {
     work.style.setProperty('display', 'block', 'important');
     root.style.setProperty('position', 'absolute', 'important');
