@@ -1681,6 +1681,110 @@ async function mountPlyViewer(url) {
     showError('Failed to load PLY: ' + e.message);
   }
 }
+function mountDecodedCloud(g) {
+  destroyPlyViewer();
+  const container = stageHost || stageEl;
+  const N = g.N | 0;
+  const positions = new Float32Array(N * 3);
+  const colors = new Float32Array(N * 3);
+  const opacities = new Float32Array(N);
+  const sizes = new Float32Array(N);
+  let minX = Infinity, minY = Infinity, minZ = Infinity;
+  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+  for (let i = 0; i < N; i++) {
+    const x = g.posX[i], y = g.posY[i], z = g.posZ[i];
+    positions[i * 3] = x; positions[i * 3 + 1] = y; positions[i * 3 + 2] = z;
+    if (x < minX) minX = x; if (x > maxX) maxX = x;
+    if (y < minY) minY = y; if (y > maxY) maxY = y;
+    if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+    colors[i * 3] = (g.colR[i] || 0) / 255;
+    colors[i * 3 + 1] = (g.colG[i] || 0) / 255;
+    colors[i * 3 + 2] = (g.colB[i] || 0) / 255;
+    opacities[i] = Math.max(0.45, (g.colA[i] || 255) / 255);
+    sizes[i] = ((g.sclX?.[i] || 0) + (g.sclY?.[i] || 0) + (g.sclZ?.[i] || 0)) / 3 || 1;
+  }
+  activeGaussianPositions = positions;
+  const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2, cz = (minZ + maxZ) / 2;
+  const radius = Math.max(0.2, 0.5 * Math.hypot(maxX - minX, maxY - minY, maxZ - minZ));
+  _plyScene = new THREE.Scene();
+  _plyCamera = new THREE.PerspectiveCamera(50, 1, Math.max(0.01, radius / 200), radius * 80);
+  _plyCamera.up.set(0, 1, 0);
+  _plyRenderer = new THREE.WebGLRenderer({ antialias: false, alpha: false, powerPreference: 'high-performance' });
+  _plyRenderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  _plyRenderer.setClearColor(0x07090d, 1);
+  Object.assign(_plyRenderer.domElement.style, {
+    position: 'absolute', inset: '0', width: '100%', height: '100%', zIndex: '2', display: 'block',
+  });
+  container.appendChild(_plyRenderer.domElement);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geo.setAttribute('aOpacity', new THREE.BufferAttribute(opacities, 1));
+  geo.setAttribute('aSize', new THREE.BufferAttribute(sizes, 1));
+  const mat = new THREE.ShaderMaterial({
+    uniforms: { uBaseSize: { value: radius * 1.1 }, uBrightness: { value: 1.25 } },
+    vertexShader: `
+      attribute vec3 color; attribute float aOpacity; attribute float aSize;
+      varying vec3 vColor; varying float vAlpha;
+      uniform float uBaseSize; uniform float uBrightness;
+      void main() {
+        vColor = clamp(color * uBrightness, 0.0, 1.0);
+        vAlpha = clamp(aOpacity, 0.0, 1.0);
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        float dist = max(0.15, -mv.z);
+        gl_PointSize = clamp(uBaseSize * (0.55 + aSize) / dist * 90.0, 2.5, 64.0);
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: `
+      varying vec3 vColor; varying float vAlpha;
+      void main() {
+        vec2 uv = gl_PointCoord - 0.5;
+        float r2 = dot(uv, uv);
+        if (r2 > 0.25) discard;
+        float a = exp(-6.0 * r2) * vAlpha;
+        if (a < 0.02) discard;
+        gl_FragColor = vec4(vColor, a);
+      }`,
+    transparent: true, depthWrite: false,
+  });
+  _plyScene.add(new THREE.Points(geo, mat));
+  _plyCamera.position.set(cx, cy + radius * 0.35, cz + radius * 2.3);
+  _plyCamera.lookAt(cx, cy, cz);
+  _plyControls = new TrackballControls(_plyCamera, _plyRenderer.domElement);
+  _plyControls.rotateSpeed = 2.4;
+  _plyControls.zoomSpeed = 1.3;
+  _plyControls.panSpeed = 0;
+  _plyControls.noPan = true;
+  _plyControls.noRoll = false;
+  _plyControls.staticMoving = false;
+  _plyControls.dynamicDampingFactor = 0.12;
+  _plyControls.target.set(cx, cy, cz);
+  _plyControls.update();
+  const resize = () => {
+    const w = container.clientWidth || stageEl?.clientWidth || window.innerWidth;
+    const h = container.clientHeight || stageEl?.clientHeight || window.innerHeight;
+    if (w < 2 || h < 2) return;
+    _plyCamera.aspect = w / h;
+    _plyCamera.updateProjectionMatrix();
+    _plyRenderer.setSize(w, h, false);
+  };
+  resize();
+  if (typeof ResizeObserver !== 'undefined') new ResizeObserver(resize).observe(stageEl || container);
+  window.addEventListener('resize', resize);
+  const loop = () => {
+    _plyFrame = requestAnimationFrame(loop);
+    _plyControls.update();
+    _plyRenderer.render(_plyScene, _plyCamera);
+  };
+  loop();
+  hideLoading();
+  window._fumocaViewerCamera = _plyCamera;
+  window._fumocaViewerControls = _plyControls;
+  window.dispatchEvent(new CustomEvent('fumoca:viewerReady', {
+    detail: { camera: _plyCamera, controls: _plyControls, gaussians: g },
+  }));
+  console.log('%c[FUMOCA] Point cloud on screen', 'color:#c8ff00;font-weight:800', { N, radius });
+}
 async function mountInteractiveViewer(forceReload = false) {
   const activeUrl = getActivenifUrl();
   if ((!forceReload && viewerInstance) || !activeUrl) return;
@@ -2147,6 +2251,13 @@ async function boot() {
   }
   if (_isPlyUrl(fileUrl) && _blobType !== 'nif') {
     await mountPlyViewer(fileUrl);
+  } else if (window._fumocaCurrentGaussians?.N > 0) {
+    mountDecodedCloud(window._fumocaCurrentGaussians);
+    if (window._fumocaDecodedMesh?.nVerts > 0) {
+      mountMeshViewer(window._fumocaDecodedMesh, window._fumocaCalibration);
+    } else {
+      destroyMeshViewer();
+    }
   } else {
     await mountInteractiveViewer();
     // Mesh overlay goes on top of the splat renderer once it's mounted, not
