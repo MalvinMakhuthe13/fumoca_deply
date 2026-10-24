@@ -46,3 +46,26 @@ if (cloudScale > 0.01 * 12.1) {
 }
 
 console.log('viewer scale ok', { realScale, cloudScale });
+
+import { encodeNif, decodeNif } from '../js/modules/nif-format.js';
+
+const n = 8;
+const positions = new Float32Array(n * 3);
+const colors01 = new Float32Array(n * 3).fill(0.5);
+const opacities01 = new Float32Array(n).fill(0.8);
+const scalesLinear = new Float32Array(n * 3);
+const quats = new Float32Array(n * 4);
+for (let i = 0; i < n; i++) {
+  positions[i * 3] = i;
+  scalesLinear[i * 3] = 0.01 + i * 0.004;
+  scalesLinear[i * 3 + 1] = 0.02;
+  scalesLinear[i * 3 + 2] = 0.006;
+  quats[i * 4] = 1;
+}
+const encoded = encodeNif({ positions, colors01, opacities01, scalesLinear, quats, meta: { title: 'scale-keep' }, compressed: false });
+const back = await decodeNif(encoded);
+const got = Math.exp(back.gaussians.data[3]);
+if (Math.abs(got - 0.01) > 0.001) throw new Error('published scale was replaced: ' + got);
+const gotY = Math.exp(back.gaussians.data[4]);
+if (Math.abs(gotY - 0.02) > 0.001) throw new Error('anisotropic scale was flattened: ' + gotY);
+console.log('publish keeps gaussian sizes', { got, gotY });

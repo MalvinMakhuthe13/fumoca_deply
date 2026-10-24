@@ -73,13 +73,16 @@ const FumocaPublish = (() => {
     const meta = { title: title || S.fileName || 'Untitled', description: description || '' };
     const { vertical, passthroughChunks } = await _loadOriginalForPassthrough();
 
-    // PLY source: isotropic point cloud (no per-point scale/rotation)
+    // PLY source. A gaussian PLY already has per-point size and rotation in
+    // the editor. Keep those. Only a plain point cloud gets one shared size.
     if (S.fileType === 'ply') {
       const alive = [];
       for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) alive.push(i);
       const positions   = new Float32Array(alive.length * 3);
       const colors01    = new Float32Array(alive.length * 3);
       const opacities01 = new Float32Array(alive.length);
+      const scalesLinear = S.scaleXYZ ? new Float32Array(alive.length * 3) : null;
+      const quats = S.rotation ? new Float32Array(alive.length * 4) : null;
       alive.forEach((i, row) => {
         const pc = S.paintColors;
         const r = pc && pc[i*3]   >= 0 ? pc[i*3]   : S.colors[i*3];
@@ -90,8 +93,20 @@ const FumocaPublish = (() => {
         positions[row*3+2] = S.positions[i*3+2];
         colors01[row*3]   = r; colors01[row*3+1] = g; colors01[row*3+2] = b;
         opacities01[row]  = S.opacity[i];
+        const fallback = S.scale?.[i] || 0.01;
+        if (scalesLinear) {
+          scalesLinear[row*3]   = S.scaleXYZ[i*3]   || fallback;
+          scalesLinear[row*3+1] = S.scaleXYZ[i*3+1] || fallback;
+          scalesLinear[row*3+2] = S.scaleXYZ[i*3+2] || fallback;
+        }
+        if (quats) {
+          quats[row*4]   = S.rotation[i*4]   ?? 1;
+          quats[row*4+1] = S.rotation[i*4+1] ?? 0;
+          quats[row*4+2] = S.rotation[i*4+2] ?? 0;
+          quats[row*4+3] = S.rotation[i*4+3] ?? 0;
+        }
       });
-      const buf = encodeNif({ positions, colors01, opacities01, meta, vertical, passthroughChunks });
+      const buf = encodeNif({ positions, colors01, opacities01, scalesLinear, quats, meta, vertical, passthroughChunks });
       return new Blob([buf], { type: 'application/octet-stream' });
     }
 

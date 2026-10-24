@@ -141,7 +141,7 @@ function scaleBoost(data, count) {
   if (!(mean > 0) || mean >= target * 0.65) return 1;
   return Math.min(target / mean, 12);
 }
-function plyPointsToGeometry(positions, colors01, opacities01) {
+function plyPointsToGeometry(positions, colors01, opacities01, scalesLinear = null, quats = null) {
   const count = opacities01.length;
   const out   = new Float32Array(count * FLOATS_PER_POINT);
   let minX = Infinity, minY = Infinity, minZ = Infinity;
@@ -156,16 +156,30 @@ function plyPointsToGeometry(positions, colors01, opacities01) {
     ? Math.max(0.05, 0.5 * Math.hypot(maxX - minX, maxY - minY, maxZ - minZ))
     : 1;
   const isoLog = Math.log(solidSplatScale(radius, count));
+  const hasScales = scalesLinear && scalesLinear.length >= count * 3;
+  const hasQuats = quats && quats.length >= count * 4;
 
   for (let i = 0; i < count; i++) {
     const o = i * FLOATS_PER_POINT;
     out[o + 0] = positions[i * 3 + 0];
     out[o + 1] = positions[i * 3 + 1];
     out[o + 2] = positions[i * 3 + 2];
-    out[o + 3] = isoLog;
-    out[o + 4] = isoLog;
-    out[o + 5] = isoLog;
-    out[o + 6] = 1; out[o + 7] = 0; out[o + 8] = 0; out[o + 9] = 0; // identity quat
+    if (hasScales) {
+      out[o + 3] = Math.log(Math.max(scalesLinear[i * 3], 1e-6));
+      out[o + 4] = Math.log(Math.max(scalesLinear[i * 3 + 1], 1e-6));
+      out[o + 5] = Math.log(Math.max(scalesLinear[i * 3 + 2], 1e-6));
+    } else {
+      out[o + 3] = isoLog;
+      out[o + 4] = isoLog;
+      out[o + 5] = isoLog;
+    }
+    if (hasQuats) {
+      const qw = quats[i * 4], qx = quats[i * 4 + 1], qy = quats[i * 4 + 2], qz = quats[i * 4 + 3];
+      const qlen = Math.hypot(qw, qx, qy, qz) || 1;
+      out[o + 6] = qw / qlen; out[o + 7] = qx / qlen; out[o + 8] = qy / qlen; out[o + 9] = qz / qlen;
+    } else {
+      out[o + 6] = 1; out[o + 7] = 0; out[o + 8] = 0; out[o + 9] = 0;
+    }
     out[o + 10] = logit(opacities01[i]);
     out[o + 11] = logit(colors01[i * 3 + 0]);
     out[o + 12] = logit(colors01[i * 3 + 1]);
@@ -249,7 +263,7 @@ export function encodeGeometryOnly(opts = {}) {
     geoData = splatRowsToGeometry(opts.sourceBuffer, opts.aliveIndices, opts.rowSize ?? 32);
     count   = opts.aliveIndices.length;
   } else if (opts.positions && opts.colors01 && opts.opacities01) {
-    geoData = plyPointsToGeometry(opts.positions, opts.colors01, opts.opacities01);
+    geoData = plyPointsToGeometry(opts.positions, opts.colors01, opts.opacities01, opts.scalesLinear, opts.quats);
     count   = opts.opacities01.length;
   } else {
     throw new Error('[nif-format] encodeGeometryOnly: no geometry source provided');
@@ -282,7 +296,7 @@ export function encodeNif(opts = {}) {
     geoData = splatRowsToGeometry(opts.sourceBuffer, opts.aliveIndices, opts.rowSize ?? 32);
     count   = opts.aliveIndices.length;
   } else if (opts.positions && opts.colors01 && opts.opacities01) {
-    geoData = plyPointsToGeometry(opts.positions, opts.colors01, opts.opacities01);
+    geoData = plyPointsToGeometry(opts.positions, opts.colors01, opts.opacities01, opts.scalesLinear, opts.quats);
     count   = opts.opacities01.length;
   } else {
     throw new Error('[nif-format] encodeNif: no geometry source provided');
