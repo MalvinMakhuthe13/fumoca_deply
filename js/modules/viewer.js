@@ -7,7 +7,7 @@ import { TrackballControls } from 'three/addons/controls/TrackballControls.js';
 import { supabase } from '../supabaseClient.js';
 import { triggerRevealForViewer } from './reveal-hook.js';
 import FumocDecoder from './fumoc-decoder.js';
-import { decodeNif, geometryToSplatRows } from './nif-format.js?v=20261024-solid';
+import { decodeNif, geometryToSplatRows } from './nif-format.js?v=20261024-realscale';
 import { chooseRenderMode, solidPointScale } from './industry-math.js';
 window._fumocaSupabase = window._fumocaSupabase || supabase;
 const stageEl = document.getElementById('stage');
@@ -2020,9 +2020,11 @@ if (cam) {
     if ('autoRotateSpeed' in controls) controls.autoRotateSpeed = 0;
   }
 
-  setTimeout(fitSubjectInView, 200);
-  setTimeout(fitSubjectInView, 800);
-  setTimeout(fitSubjectInView, 2000);
+  let userAimed = false;
+  const aimEl = stageHost || stageEl || document.getElementById('stageHost') || document.getElementById('stage');
+  aimEl?.addEventListener('pointerdown', () => { userAimed = true; }, { capture: true, once: true });
+  setTimeout(fitSubjectInView, 250);
+  setTimeout(() => { if (!userAimed) fitSubjectInView(); }, 900);
 
   if (!window._fumocaOrbitDampRaf) {
     const tick = () => {

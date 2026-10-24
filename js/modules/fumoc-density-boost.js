@@ -41,7 +41,7 @@ const _state = {
   centroid:         { x: 0, y: 0, z: 0 },
   refDistance:      5.0,          // auto-calibrated from scene size
   baseScale:        1.0,          // user's preferred base scale
-  maxBoost:         2.5,          // maximum multiplier at point-blank range
+  maxBoost:         1.0,          // do not enlarge a real splat while orbiting
   rampStart:        0.6,          // boost begins at 60% of refDistance
   smoothedBoost:    1.0,          // running average for smooth transitions
   smoothFactor:     0.18,         // 0=no smoothing, 1=instant
