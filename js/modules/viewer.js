@@ -1186,7 +1186,7 @@ function applyStageFilters() {
   const scale = Number(studioState.scale || 100) / 100;
   const kernelCenter = (5 + (sharpness / 100) * 4).toFixed(2);
   sharpenKernel.setAttribute('kernelMatrix', `0 -1 0 -1 ${kernelCenter} -1 0 -1 0`);
-  stageEl.style.filter = `url(#nif_filesharpen) contrast(${(1 + (presence - 1) * 0.8).toFixed(2)}) saturate(${(1 + (presence - 1) * 0.7).toFixed(2)}) brightness(${(1 + (presence - 1) * 0.18).toFixed(2)})`;
+  stageEl.style.filter = `url(#splatSharpen) contrast(${(1 + (presence - 1) * 0.8).toFixed(2)}) saturate(${(1 + (presence - 1) * 0.7).toFixed(2)}) brightness(${(1 + (presence - 1) * 0.18).toFixed(2)})`;
   document.documentElement.style.setProperty('--focus-size', `${focus}%`);
   document.documentElement.style.setProperty('--focus-x', `${focusX}%`);
   document.documentElement.style.setProperty('--focus-y', `${focusY}%`);
