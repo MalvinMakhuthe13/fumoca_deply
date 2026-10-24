@@ -36,7 +36,9 @@ if not os.path.isdir("/kaggle/working/fumoca"):
 # === Cell 3 — lean bootstrap (no rembg/SAM required for Quick path) ===
 CELL_3 = r'''
 import subprocess, sys
-pkgs = ["boto3", "botocore", "requests", "Pillow", "numpy", "supabase", "httpx==0.28.1"]
+pkgs = ["boto3", "botocore", "requests", "supabase", "httpx==0.28.1"]
+# Do not pip install numpy or Pillow here. Upgrading them on Kaggle breaks
+# the image stack and the worker dies inside the mask.
 for p in pkgs:
     subprocess.run([sys.executable, "-m", "pip", "install", "-q", p], check=False)
 print("lean bootstrap OK")

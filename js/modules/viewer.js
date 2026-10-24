@@ -8,6 +8,7 @@ import { supabase } from '../supabaseClient.js';
 import { triggerRevealForViewer } from './reveal-hook.js';
 import FumocDecoder from './fumoc-decoder.js';
 import { decodeNif, geometryToSplatRows } from './nif-format.js?v=20261024-solid';
+import { chooseRenderMode, solidPointScale } from './industry-math.js';
 window._fumocaSupabase = window._fumocaSupabase || supabase;
 const stageEl = document.getElementById('stage');
 let stageHost = document.getElementById('stageHost');
@@ -740,7 +741,7 @@ function showFlatMedia(kind, url) {
     stage.appendChild(img);
   }
   try { document.getElementById('loadingOverlay').style.display = 'none'; } catch (_) {}
-  try { document.body.classList.add('media-flat'); } catch (_) {}
+  try { document.body.classList.remove('media-flat'); } catch (_) {}
   console.log('[FUMOCA] Flat media ready:', kind, url);
 }
 // Returns url only if Gaussiannif_files3D can render it â€” strips .ply URLs completely
@@ -779,7 +780,18 @@ function resolvenifUrl(record) {
   }
   return '';
 }
-function resolvePreviewVideo(record) { return record ? firstNonEmpty(record.preview_video_url, record.teaser_video_url, record.video_url) : ''; }
+function resolvePreviewVideo(record) {
+  if (!record) return '';
+  const meta = record.meta || record.metadata || {};
+  return firstNonEmpty(
+    record.preview_video_url,
+    record.teaser_video_url,
+    record.video_url,
+    meta.reviewVideo?.url,
+    meta.review_video_url,
+    record.review_video_url
+  );
+}
 function resolveThumbnail(record) {
   if (!record) return '';
   const thumbKey = record.meta?.thumbnail_r2_key;
@@ -1689,6 +1701,7 @@ function mountDecodedCloud(g) {
   const colors = new Float32Array(N * 3);
   const opacities = new Float32Array(N);
   const sizes = new Float32Array(N);
+  const pointScale = solidPointScale(g);
   let minX = Infinity, minY = Infinity, minZ = Infinity;
   let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
   for (let i = 0; i < N; i++) {
@@ -1701,11 +1714,16 @@ function mountDecodedCloud(g) {
     colors[i * 3 + 1] = (g.colG[i] || 0) / 255;
     colors[i * 3 + 2] = (g.colB[i] || 0) / 255;
     opacities[i] = Math.max(0.45, (g.colA[i] || 255) / 255);
-    sizes[i] = ((g.sclX?.[i] || 0) + (g.sclY?.[i] || 0) + (g.sclZ?.[i] || 0)) / 3 || 1;
+    const meanS = ((g.sclX?.[i] || 0) + (g.sclY?.[i] || 0) + (g.sclZ?.[i] || 0)) / 3;
+    sizes[i] = Math.max(meanS, pointScale);
   }
   activeGaussianPositions = positions;
   const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2, cz = (minZ + maxZ) / 2;
   const radius = Math.max(0.2, 0.5 * Math.hypot(maxX - minX, maxY - minY, maxZ - minZ));
+  container.style.setProperty('display', 'block', 'important');
+  container.style.setProperty('visibility', 'visible', 'important');
+  container.style.setProperty('opacity', '1', 'important');
+  document.body?.classList.remove('media-flat');
   _plyScene = new THREE.Scene();
   _plyCamera = new THREE.PerspectiveCamera(50, 1, Math.max(0.01, radius / 200), radius * 80);
   _plyCamera.up.set(0, 1, 0);
@@ -1721,8 +1739,9 @@ function mountDecodedCloud(g) {
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   geo.setAttribute('aOpacity', new THREE.BufferAttribute(opacities, 1));
   geo.setAttribute('aSize', new THREE.BufferAttribute(sizes, 1));
+  window._fumocaPointGeometry = geo;
   const mat = new THREE.ShaderMaterial({
-    uniforms: { uBaseSize: { value: radius * 1.1 }, uBrightness: { value: 1.25 } },
+    uniforms: { uBaseSize: { value: Math.max(radius * 0.55, pointScale * 40) }, uBrightness: { value: 1.15 } },
     vertexShader: `
       attribute vec3 color; attribute float aOpacity; attribute float aSize;
       varying vec3 vColor; varying float vAlpha;
@@ -1732,7 +1751,7 @@ function mountDecodedCloud(g) {
         vAlpha = clamp(aOpacity, 0.0, 1.0);
         vec4 mv = modelViewMatrix * vec4(position, 1.0);
         float dist = max(0.15, -mv.z);
-        gl_PointSize = clamp(uBaseSize * (0.55 + aSize) / dist * 90.0, 2.5, 64.0);
+        gl_PointSize = clamp(uBaseSize * (0.85 + aSize) / dist * 42.0, 3.0, 96.0);
         gl_Position = projectionMatrix * mv;
       }`,
     fragmentShader: `
@@ -1741,13 +1760,16 @@ function mountDecodedCloud(g) {
         vec2 uv = gl_PointCoord - 0.5;
         float r2 = dot(uv, uv);
         if (r2 > 0.25) discard;
-        float a = exp(-6.0 * r2) * vAlpha;
-        if (a < 0.02) discard;
-        gl_FragColor = vec4(vColor, a);
+        float a = exp(-8.0 * r2) * vAlpha;
+        if (a < 0.04) discard;
+        gl_FragColor = vec4(vColor, max(a, 0.85));
       }`,
-    transparent: true, depthWrite: false,
+    transparent: false, depthWrite: true, depthTest: true,
   });
   _plyScene.add(new THREE.Points(geo, mat));
+  window._fumocaPointMaterial = mat;
+  window._fumocaPointBase = mat.uniforms.uBaseSize.value;
+  window._fumocaViewerRenderer = _plyRenderer;
   _plyCamera.position.set(cx, cy + radius * 0.35, cz + radius * 2.3);
   _plyCamera.lookAt(cx, cy, cz);
   _plyControls = new TrackballControls(_plyCamera, _plyRenderer.domElement);
@@ -2123,6 +2145,7 @@ async function boot() {
   applyHeader(currentRecord);
   if (!fileUrl && currentRecord) fileUrl = resolvenifUrl(currentRecord);
   console.log('[Viewer] Final fileUrl:', fileUrl || '(empty â€” no renderable file found)');
+  window._fumocaCurrentRecord = currentRecord;
   configurePreview(currentRecord);
   await detectManagePermission();
   window.dispatchEvent(new CustomEvent('fumoca:recordLoaded', { detail: currentRecord || null }));
@@ -2249,9 +2272,13 @@ async function boot() {
       return;
     }
   }
-  if (_isPlyUrl(fileUrl) && _blobType !== 'nif') {
+  if (_isPlyUrl(fileUrl) && _blobType !== 'nif' && !(window._fumocaCurrentGaussians?.N > 0)) {
     await mountPlyViewer(fileUrl);
   } else if (window._fumocaCurrentGaussians?.N > 0) {
+    // A decoded NIF is drawn as solid points. The Gaussian viewer was
+    // loading these rows and leaving the stage black.
+    document.body?.classList.remove('media-flat');
+    console.log('[FUMOCA] Drawing ' + window._fumocaCurrentGaussians.N + ' points from the NIF');
     mountDecodedCloud(window._fumocaCurrentGaussians);
     if (window._fumocaDecodedMesh?.nVerts > 0) {
       mountMeshViewer(window._fumocaDecodedMesh, window._fumocaCalibration);

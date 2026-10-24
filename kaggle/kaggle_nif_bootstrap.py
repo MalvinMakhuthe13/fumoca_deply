@@ -24,18 +24,18 @@ run(["python", "-m", "pip", "install", "-U", "pip", "setuptools", "wheel"])
 # Mirrors engine-next/reconstruction/requirements.txt — installed explicitly
 # (rather than `pip install -r requirements.txt`) so a single bad line
 # doesn't abort every other install on a fresh Kaggle container.
+# Do not upgrade numpy or Pillow. Kaggle ships them as a pair. A newer numpy
+# breaks Pillow (`_center`, `_Ink`) and then every mask and frame read dies.
 PACKAGES = [
     "gsplat>=1.0.0",
     "huggingface-hub>=0.23.0",
-    "rembg[gpu]>=2.0.57",
+    "rembg>=2.0.57",
     "boto3>=1.34.0",
     "botocore>=1.34.0",
     "requests>=2.31.0",
-    "Pillow>=10.0.0",
     "imageio[ffmpeg]>=2.33.0",
     "supabase>=2.4.0",
     "httpx==0.28.1",
-    "numpy>=1.24.0",
     "scipy>=1.11.0",
     "trimesh>=4.0.0",
     "scikit-image>=0.21.0",
@@ -57,9 +57,16 @@ except subprocess.CalledProcessError:
     print("[BOOT] SAM2 install failed — pipeline will fall back to single-segment mode.")
 
 if shutil.which("colmap") is None:
-    print("[BOOT] WARNING: colmap binary not found on PATH. Camera pose estimation "
-          "will fall back to synthetic poses (lower quality). Install COLMAP or set "
-          "COLMAP_BIN to a working binary if you need real multi-view reconstruction.")
+    print("[BOOT] colmap not on PATH — trying apt-get install colmap", flush=True)
+    apt = subprocess.run(["apt-get", "update"], capture_output=True, text=True)
+    inst = subprocess.run(["apt-get", "install", "-y", "colmap"], capture_output=True, text=True)
+    if inst.returncode != 0 or shutil.which("colmap") is None:
+        print("[BOOT] COLMAP still missing. The job will not die: poses fall back to an orbit")
+        print("[BOOT] and the NIF is marked as that. Quality will be lower until colmap exists.")
+        if apt.returncode != 0:
+            print(apt.stderr[-400:])
+    else:
+        print("[BOOT] colmap installed", flush=True)
 
 if shutil.which("ffmpeg") is None:
     print("[BOOT] WARNING: ffmpeg not found on PATH. Proxy video encoding will fail.")

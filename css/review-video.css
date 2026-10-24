@@ -1,7 +1,7 @@
 /* Workspace sections. The video never covers the side panels or the transform HUD. */
 
-/* Viewer: never reparent the WebGL canvas. Only the video pane moves. */
-#stage > #fumocaWork { display: none !important; pointer-events: none; }
+/* A video mix must not cover the editor when there is no video. */
+#stage > #fumocaWork.rv-grid-off { display: none !important; pointer-events: none; }
 #stage > #stageHost {
   display: block !important;
   pointer-events: auto;

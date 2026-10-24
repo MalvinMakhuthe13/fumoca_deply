@@ -1596,6 +1596,11 @@ class ReconstructionWorker:
             self._tick('processing', 25)
             ref_frame = frames[0]
             depth_maps, is_metric_depth = estimate_depth(frames, vertical)
+            try:
+                from angle_fill import fill_missing_angles
+                frames, depth_maps = fill_missing_angles(frames, depth_maps)
+            except Exception as e:
+                print(f'[NIF] Angle fill skipped ({e})')
             depth_map  = depth_maps[0]  # (H, W) float32 — reference frame
 
             # ── Scale calibration — determines whether/how reconstruction-
@@ -1993,9 +1998,9 @@ class ReconstructionWorker:
                 shutil.copy(img, out_dir / f'frame_{i:05d}.jpg')
 
         elif mode in ('image', 'photo'):
-            # Single image — duplicate to create minimal multi-view illusion
-            shutil.copy(src, out_dir / 'frame_00001.jpg')
-            shutil.copy(src, out_dir / 'frame_00002.jpg')
+            # One real photo. Angle fill (later) warps side views from its depth.
+            # Copying the same file twice used to pretend there were two cameras.
+            shutil.copy(src, out_dir / 'frame_00000.jpg')
             fps = 1
 
         else:
@@ -2150,7 +2155,12 @@ class ReconstructionWorker:
             return frames
 
         MIN_KEEP = max(3, int(os.environ.get('FUMOCA_MIN_USEFUL_FRAMES', '12')))
-        ANGLE_THRESHOLD_DEG = float(os.environ.get('FUMOCA_VIEWPOINT_ANGLE_DEG', '8.0'))
+        # 4° keeps the angles a slow pan actually filmed. 8° was dropping
+        # every other step of a normal walkaround. A sideways slide with
+        # almost no turn is also a new view — median match shift catches it.
+        ANGLE_THRESHOLD_DEG = float(os.environ.get('FUMOCA_VIEWPOINT_ANGLE_DEG', '4.0'))
+        SHIFT_PX = float(os.environ.get('FUMOCA_VIEWPOINT_SHIFT_PX', '14'))
+        MAX_KEEP = int(os.environ.get('FUMOCA_MAX_VIEWPOINTS', '120'))
         MIN_MATCHES = 20
 
         H, W = frames[0].shape[:2]
@@ -2160,9 +2170,8 @@ class ReconstructionWorker:
         orb = cv2.ORB_create(nfeatures=800)
         bf  = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
 
-        def relative_angle_deg(img_a, img_b):
-            """Rotation angle (degrees) between two frames via ORB matches
-            + essential matrix, or None if it can't be estimated reliably."""
+        def relative_motion(img_a, img_b):
+            """(rotation degrees, median pixel shift) or None if the pair is too weak."""
             ga = cv2.cvtColor(img_a, cv2.COLOR_RGB2GRAY)
             gb = cv2.cvtColor(img_b, cv2.COLOR_RGB2GRAY)
             kp1, des1 = orb.detectAndCompute(ga, None)
@@ -2178,23 +2187,28 @@ class ReconstructionWorker:
                                             prob=0.999, threshold=1.0)
             if E is None or E.shape != (3, 3):
                 return None
-            _, R, _t, _mask = cv2.recoverPose(E, pts1, pts2, K)
-            # Rotation angle from R via the standard trace formula.
-            cos_angle = (np.trace(R) - 1.0) / 2.0
-            cos_angle = np.clip(cos_angle, -1.0, 1.0)
-            return float(np.degrees(np.arccos(cos_angle)))
+            _, R, _t, pose_mask = cv2.recoverPose(E, pts1, pts2, K)
+            cos_angle = np.clip((np.trace(R) - 1.0) / 2.0, -1.0, 1.0)
+            angle = float(np.degrees(np.arccos(cos_angle)))
+            inl = pose_mask.ravel().astype(bool) if pose_mask is not None else np.ones(len(pts1), dtype=bool)
+            if int(inl.sum()) < 8:
+                shift = 0.0
+            else:
+                shift = float(np.median(np.linalg.norm(pts1[inl] - pts2[inl], axis=1)))
+            return angle, shift
 
         kept_idxs = [0]
         last_kept_frame = frames[0]
         uncertain_count = 0
         for i in range(1, len(frames) - 1):
-            angle = relative_angle_deg(last_kept_frame, frames[i])
-            if angle is None:
+            motion = relative_motion(last_kept_frame, frames[i])
+            if motion is None:
                 kept_idxs.append(i)  # can't measure — keep, safe default
                 last_kept_frame = frames[i]
                 uncertain_count += 1
                 continue
-            if angle >= ANGLE_THRESHOLD_DEG:
+            angle, shift = motion
+            if angle >= ANGLE_THRESHOLD_DEG or shift >= SHIFT_PX:
                 kept_idxs.append(i)
                 last_kept_frame = frames[i]
         kept_idxs.append(len(frames) - 1)
@@ -2204,8 +2218,11 @@ class ReconstructionWorker:
             kept_idxs = sorted(set(int(i * stride) for i in range(MIN_KEEP)) | {0, len(frames) - 1})
 
         covered = [frames[i] for i in sorted(set(kept_idxs))]
+        if len(covered) > MAX_KEEP:
+            pick = [int(round(i * (len(covered) - 1) / (MAX_KEEP - 1))) for i in range(MAX_KEEP)]
+            covered = [covered[i] for i in pick]
         print(f'[NIF] Viewpoint coverage filter: {len(frames)} → {len(covered)} frames '
-              f'(kept where relative rotation ≥{ANGLE_THRESHOLD_DEG}° since last keyframe, '
+              f'(kept on turn ≥{ANGLE_THRESHOLD_DEG}° or slide ≥{SHIFT_PX}px, '
               f'{uncertain_count} pairs unmeasurable and kept by default)')
         return covered
 
@@ -2364,7 +2381,8 @@ class ReconstructionWorker:
 
         img_dir = self.tmp / 'frames'
         col_dir = self.tmp / 'colmap'
-        col_dir.mkdir()
+        col_dir.mkdir(exist_ok=True)
+        self._sync_frames_to_disk(frames, img_dir)
 
         # Run COLMAP explicitly instead of automatic_reconstructor.
         #
@@ -2386,11 +2404,18 @@ class ReconstructionWorker:
 
         def _run_colmap(args, stage):
             print(f'[NIF] COLMAP {stage}...')
-            result = subprocess.run(
-                ['colmap'] + args,
-                capture_output=True,
-                text=True,
-            )
+            if shutil.which('colmap') is None and not os.environ.get('COLMAP_BIN'):
+                print('[NIF] COLMAP is not installed — angles will be measured from the frames instead')
+                return False
+            try:
+                result = subprocess.run(
+                    [os.environ.get('COLMAP_BIN', 'colmap')] + args,
+                    capture_output=True,
+                    text=True,
+                )
+            except (FileNotFoundError, OSError) as e:
+                print(f'[NIF] COLMAP could not start ({e}) — orbit fallback, job continues')
+                return False
             if result.returncode != 0:
                 print(
                     f'[NIF] COLMAP {stage} failed '
@@ -2403,6 +2428,14 @@ class ReconstructionWorker:
                 return False
             return True
 
+        def _give_up(reason):
+            chained = self._chain_camera_angles(frames)
+            if chained is not None:
+                print(f'[NIF] COLMAP did not produce a model ({reason}) — using the angles measured between the frames')
+                return chained, 'opencv_angles', None
+            print(f'[NIF] Could not measure angles ({reason}) — orbit fallback, job continues')
+            return self._synthetic_poses(len(frames)), reason, None
+
         # GPU SIFT extraction with one shared camera model.
         if not _run_colmap([
             'feature_extractor',
@@ -2411,7 +2444,7 @@ class ReconstructionWorker:
             '--ImageReader.single_camera', '1',
             '--SiftExtraction.use_gpu', '0',
         ], 'feature extraction'):
-            return self._synthetic_poses(len(frames)), 'synthetic_colmap_failed', None
+            return _give_up('synthetic_colmap_failed')
 
         # Sequential matching for video frames.
         if not _run_colmap([
@@ -2420,7 +2453,7 @@ class ReconstructionWorker:
             '--SequentialMatching.overlap', '10',
             '--SiftMatching.use_gpu', '0',
         ], 'sequential matching'):
-            return self._synthetic_poses(len(frames)), 'synthetic_colmap_failed', None
+            return _give_up('synthetic_colmap_failed')
 
         # Mapper creates the actual SfM cameras and triangulated geometry.
         # Two-view tracks are retained because they can be useful for
@@ -2433,11 +2466,11 @@ class ReconstructionWorker:
             '--Mapper.tri_ignore_two_view_track', '0',
             '--Mapper.multiple_models', '0',
         ], 'mapping'):
-            return self._synthetic_poses(len(frames)), 'synthetic_colmap_failed', None
+            return _give_up('synthetic_colmap_failed')
 
         if not (sparse_dir / '0').exists():
             print('[NIF] COLMAP mapper completed without a sparse/0 model')
-            return self._synthetic_poses(len(frames)), 'synthetic_colmap_failed', None
+            return _give_up('synthetic_colmap_failed')
 
         # Record basic reconstruction statistics before parsing the binary
         # model. These metrics make the real SfM result observable in worker
@@ -2480,7 +2513,7 @@ class ReconstructionWorker:
         poses = aligned_poses
 
         if len(poses) < 2:
-            return self._synthetic_poses(len(frames)), 'synthetic_colmap_insufficient_poses', None
+            return _give_up('synthetic_colmap_insufficient_poses')
 
         # Parse COLMAP's sparse 3D point cloud (points3D.bin) — this is what
         # lets Gaussian training start from real observed geometry instead of
@@ -2499,6 +2532,85 @@ class ReconstructionWorker:
 
         print(f'[NIF] {len(poses)} poses estimated via COLMAP SfM — real multi-view reconstruction')
         return poses, 'colmap', sparse_points
+
+    def _chain_camera_angles(self, frames: list):
+        """Cameras from the photos themselves, when COLMAP is missing or fails.
+
+        Each step is the rotation and unit step recovered from the essential
+        matrix of that pair. A pair that will not match holds the previous
+        camera instead of inventing a circle. Returns None if too few pairs
+        actually matched — then the caller may still use an orbit.
+        """
+        try:
+            import cv2
+        except ImportError:
+            print('[NIF] OpenCV is not installed — cannot measure angles between frames')
+            return None
+        n = len(frames)
+        if n < 3:
+            return None
+        H, W = frames[0].shape[:2]
+        fx = fy = max(H, W) * 0.8
+        K = np.array([[fx, 0, W / 2], [0, fy, H / 2], [0, 0, 1]], dtype=np.float64)
+        orb = cv2.ORB_create(nfeatures=1200)
+        bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+
+        def step(a, b):
+            ga = cv2.cvtColor(a, cv2.COLOR_RGB2GRAY)
+            gb = cv2.cvtColor(b, cv2.COLOR_RGB2GRAY)
+            kp1, des1 = orb.detectAndCompute(ga, None)
+            kp2, des2 = orb.detectAndCompute(gb, None)
+            if des1 is None or des2 is None or len(kp1) < 20 or len(kp2) < 20:
+                return None
+            matches = sorted(bf.match(des1, des2), key=lambda m: m.distance)[:400]
+            if len(matches) < 20:
+                return None
+            pts1 = np.float32([kp1[m.queryIdx].pt for m in matches])
+            pts2 = np.float32([kp2[m.trainIdx].pt for m in matches])
+            E, _mask = cv2.findEssentialMat(pts1, pts2, K, method=cv2.RANSAC, prob=0.999, threshold=1.0)
+            if E is None or E.shape != (3, 3):
+                return None
+            _n, R, t, _ = cv2.recoverPose(E, pts1, pts2, K)
+            return R.astype(np.float64), t.reshape(3).astype(np.float64)
+
+        c2w = [np.eye(4)]
+        linked = 0
+        for i in range(n - 1):
+            rel = step(frames[i], frames[i + 1])
+            if rel is None:
+                c2w.append(c2w[-1].copy())
+                continue
+            R, t = rel
+            T = np.eye(4)
+            T[:3, :3] = R
+            T[:3, 3] = t * 0.15
+            c2w.append(c2w[-1] @ np.linalg.inv(T))
+            linked += 1
+        if linked < max(2, n // 5):
+            print(f'[NIF] Only {linked} of {n - 1} frame pairs had a measurable camera step')
+            return None
+        poses = []
+        for M in c2w:
+            w2c = np.linalg.inv(M)
+            poses.append(torch.tensor(w2c, dtype=torch.float32))
+        print(f'[NIF] {linked} camera steps measured from the frames (not a guessed circle)')
+        return poses
+
+    def _sync_frames_to_disk(self, frames: list, img_dir: Path):
+        """COLMAP reads whatever jpgs are in the folder, not the filtered list.
+
+        The usefulness filter used to drop frames in memory and leave the old
+        files on disk, so pose 0 was wired to the wrong photo. Rewrite the
+        folder from the list that will actually be trained.
+        """
+        img_dir.mkdir(exist_ok=True)
+        for old in img_dir.glob('*.jpg'):
+            old.unlink()
+        for i, frame in enumerate(frames):
+            Image.fromarray(np.asarray(frame).astype(np.uint8)).save(
+                img_dir / f'frame_{i:05d}.jpg', quality=92,
+            )
+        print(f'[NIF] {len(frames)} frames on disk match the list COLMAP and training will use')
 
     def _synthetic_poses(self, n: int) -> list:
         """
@@ -2645,10 +2757,14 @@ class ReconstructionWorker:
         # ships a depth-based pseudo-3D result in this case (see
         # _synthetic_poses' docstring) rather than failing the whole job —
         # this keeps that behavior but stops paying full price for it.
-        if pose_source != 'colmap':
+        if pose_source.startswith('synthetic'):
             ITERS = max(int(ITERS * 0.4), 200)
-            print(f'[NIF] pose_source={pose_source} (not real multi-view geometry) — '
-                  f'reducing training budget to {ITERS} iterations instead of full budget')
+            print(f'[NIF] pose_source={pose_source} (guessed orbit, not the filmed cameras) — '
+                  f'reducing training budget to {ITERS} iterations')
+        elif pose_source != 'colmap':
+            ITERS = max(int(ITERS * 0.7), 400)
+            print(f'[NIF] pose_source={pose_source} (cameras measured from the frames, not bundle-adjusted) — '
+                  f'training {ITERS} iterations')
         DENSIFY_EVERY    = 300   # densify at step 300, 600, 900, 1200
         DENSIFY_UNTIL    = 1500  # stop densifying past this point
         DENSIFY_GRAD_THR = 0.0002  # position gradient threshold for splitting

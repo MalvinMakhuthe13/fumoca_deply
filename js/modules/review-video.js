@@ -291,6 +291,13 @@ function pokeViewer() {
   window.dispatchEvent(new Event('resize'));
 }
 
+function releaseEditorCanvas() {
+  const host = document.getElementById('viewport');
+  const pane = document.getElementById('fumocaSplatPane');
+  const canvas = realCanvas();
+  if (host && canvas && pane && canvas.parentElement === pane) host.appendChild(canvas);
+}
+
 function restoreViewerStage() {
   const stage = document.getElementById('stage');
   const stageHost = document.getElementById('stageHost');
@@ -298,8 +305,11 @@ function restoreViewerStage() {
   if (stage && stageHost && stageHost.parentElement !== stage) stage.appendChild(stageHost);
   if (stageHost) {
     ['position', 'inset', 'left', 'top', 'right', 'bottom', 'width', 'height', 'display'].forEach((prop) => stageHost.style.removeProperty(prop));
+    stageHost.style.setProperty('display', 'block', 'important');
+    stageHost.style.setProperty('visibility', 'visible', 'important');
   }
   if (work) {
+    work.className = 'rv-grid-off';
     work.style.setProperty('display', 'none', 'important');
     work.style.setProperty('pointer-events', 'none', 'important');
   }
@@ -317,7 +327,7 @@ function placeViewerVideo(stage, mode) {
   const boxes = {
     split: { left: '0', top: '0', width: '50%', height: '100%', right: 'auto', bottom: 'auto' },
     stack: { left: '0', top: '0', width: '100%', height: '50%', right: 'auto', bottom: 'auto' },
-    pip: { left: 'auto', top: 'auto', right: '16px', bottom: '16px', width: '300px', height: '170px' },
+    pip: { left: 'auto', top: 'auto', right: '16px', bottom: '72px', width: '200px', height: '112px' },
     full: { left: '0', top: '0', width: '100%', height: '100%', right: 'auto', bottom: 'auto' },
     cinema: { left: '0', top: '0', width: '100%', height: '100%', right: 'auto', bottom: 'auto' },
     bg: { left: '0', top: '0', width: '100%', height: '100%', right: 'auto', bottom: 'auto' },
@@ -332,31 +342,40 @@ function applyFrame() {
   if (!root) return;
   const host = workspace();
   if (!host) return;
-  const viewerPage = host.id === 'stage';
   const showMix = !!src && layout !== 'hidden';
+  const stageHost = document.getElementById('stageHost');
 
-  if (viewerPage) {
-    const stageHost = document.getElementById('stageHost');
+  if (!showMix) {
+    restoreViewerStage();
+    releaseEditorCanvas();
+    root.style.setProperty('display', 'none', 'important');
+    if (controls) controls.style.display = 'none';
+    if (empty) empty.style.display = 'none';
+    if (video) video.style.display = 'none';
+    return;
+  }
+
+  if (host.id === 'stage') {
     if (stageHost && stageHost.parentElement !== host) host.appendChild(stageHost);
-    if (!showMix) {
-      restoreViewerStage();
-      root.style.setProperty('display', 'none', 'important');
-    } else {
-      const work = document.getElementById('fumocaWork');
-      if (work) work.style.setProperty('display', 'none', 'important');
-      placeViewerVideo(host, layout);
-      root.style.setProperty('display', 'block', 'important');
+    if (stageHost) {
+      stageHost.style.setProperty('display', layout === 'full' ? 'none' : 'block', 'important');
+      stageHost.style.setProperty('visibility', 'visible', 'important');
+      stageHost.style.setProperty('opacity', '1', 'important');
     }
+    const work = document.getElementById('fumocaWork');
+    if (work && work.parentElement === host) work.style.setProperty('display', 'none', 'important');
+    placeViewerVideo(host, layout);
+    root.style.setProperty('display', 'block', 'important');
     const shell = document.getElementById('fumoca-video-shell');
     if (shell) shell.style.setProperty('display', 'none', 'important');
-    empty.style.display = src ? 'none' : 'flex';
-    video.style.display = src ? 'block' : 'none';
+    empty.style.display = 'none';
+    video.style.display = 'block';
     video.style.setProperty('position', 'absolute', 'important');
     video.style.setProperty('inset', '0', 'important');
     video.style.setProperty('width', '100%', 'important');
     video.style.setProperty('height', '100%', 'important');
     video.style.setProperty('object-fit', 'contain', 'important');
-    controls.style.display = showMix ? 'flex' : 'none';
+    controls.style.display = 'flex';
     controls.querySelectorAll('[data-layout]').forEach((b) => b.classList.toggle('active', b.dataset.layout === layout));
     fitting = true;
     requestAnimationFrame(() => { pokeViewer(); fitting = false; });
@@ -371,18 +390,21 @@ function applyFrame() {
   if (pane && pane.parentElement !== work) work.appendChild(pane);
   if (pane && root.nextSibling !== pane) work.insertBefore(root, pane);
   work.style.setProperty('display', 'block', 'important');
+  work.style.setProperty('pointer-events', 'none', 'important');
+  root.style.setProperty('pointer-events', 'auto', 'important');
+  if (pane) pane.style.setProperty('pointer-events', 'auto', 'important');
   Object.values(GRID).forEach((name) => work.classList.remove(name));
   work.classList.add(GRID[layout] || GRID.hidden);
   host.classList.toggle('rv-split', layout === 'split');
   host.classList.toggle('rv-stack', layout === 'stack');
   host.classList.toggle('rv-full', layout === 'full');
   root.className = 'layout-' + layout;
-  root.style.display = layout === 'hidden' ? 'none' : 'block';
+  root.style.display = 'block';
   if (layout !== 'pip') {
     ['left', 'top', 'right', 'bottom'].forEach((prop) => root.style.removeProperty(prop));
   }
-  empty.style.display = src ? 'none' : 'flex';
-  video.style.display = src ? 'block' : 'none';
+  empty.style.display = 'none';
+  video.style.display = 'block';
   video.style.setProperty('position', 'absolute', 'important');
   video.style.setProperty('inset', '0', 'important');
   video.style.setProperty('width', '100%', 'important');
@@ -403,6 +425,7 @@ function applyFrame() {
     [root, pane].forEach((el) => {
       if (!el) return;
       el.style.setProperty('position', 'relative', 'important');
+      el.style.setProperty('inset', 'auto', 'important');
       el.style.setProperty('width', '100%', 'important');
       el.style.setProperty('height', '100%', 'important');
       el.style.setProperty('min-width', '0', 'important');
@@ -410,7 +433,7 @@ function applyFrame() {
       el.style.setProperty('overflow', 'hidden', 'important');
     });
   }
-  controls.style.display = layout === 'hidden' ? 'none' : 'flex';
+  controls.style.display = 'flex';
   controls.querySelectorAll('[data-layout]').forEach((b) => b.classList.toggle('active', b.dataset.layout === layout));
   fitting = true;
   requestAnimationFrame(() => {
