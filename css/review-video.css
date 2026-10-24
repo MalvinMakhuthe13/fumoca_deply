@@ -1,9 +1,13 @@
 /* Workspace sections. The video never covers the side panels or the transform HUD. */
 
 /* Viewer: never reparent the WebGL canvas. Only the video pane moves. */
-#stage > #stageHost,
 #stage > #fumocaWork { display: none !important; pointer-events: none; }
-#stage > #stageHost { pointer-events: auto; }
+#stage > #stageHost {
+  display: block !important;
+  pointer-events: auto;
+  position: absolute !important;
+  inset: 0 !important;
+}
 #stage.rv-split > #stageHost {
   left: 50% !important;
   top: 0 !important;
