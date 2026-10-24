@@ -165,7 +165,14 @@ function mountPanel() {
   panel.addEventListener('click', (e) => {
     const layoutBtn = e.target.closest('[data-layout]');
     if (layoutBtn) {
-      window.FumocaReviewVideo?.setLayout?.(layoutBtn.dataset.layout);
+      if (!window.FumocaReviewVideo?.setLayout) {
+        alert('Review video is not ready. Hard-refresh the editor, then try again.');
+        return;
+      }
+      if (!window.FumocaReviewVideo.getSrc?.()) {
+        alert('Upload a video first. Then Stack, Split, PIP and the rest will place it beside the splat.');
+      }
+      window.FumocaReviewVideo.setLayout(layoutBtn.dataset.layout);
       panel.querySelectorAll('[data-layout]').forEach((b) =>
         b.classList.toggle('active', b === layoutBtn)
       );
@@ -192,7 +199,13 @@ function mountPanel() {
       alert('Present saved for this asset (text + nav). Use Copy viewer link to keep text on the public page.');
     }
     if (act === 'copy') copyViewerLink();
-    if (act === 'pick') window.FumocaReviewVideo?.pickFromDevice?.({ layout: 'stack' });
+    if (act === 'pick') {
+      if (!window.FumocaReviewVideo?.pickFromDevice) {
+        alert('Review video is not ready. Hard-refresh the editor, then try again.');
+        return;
+      }
+      window.FumocaReviewVideo.pickFromDevice({ layout: 'stack' });
+    }
     if (act === 'url') {
       const u = prompt('Direct MP4 URL', 'https://');
       if (u?.startsWith('http')) window.FumocaReviewVideo?.set?.(u, { layout: 'stack' });

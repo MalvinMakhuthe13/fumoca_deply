@@ -129,7 +129,8 @@ function workEl(host) {
 function realCanvas() {
   const gl = window._fumocaGlRenderer?.domElement;
   if (gl?.tagName === 'CANVAS') return gl;
-  return document.querySelector('#stageHost canvas, #fumocaSplatPane canvas');
+  return document.getElementById('viewportCanvas')
+    || document.querySelector('#stageHost canvas, #fumocaSplatPane canvas');
 }
 
 function splatPane(host) {
@@ -146,8 +147,11 @@ function splatPane(host) {
   }
   const canvas = realCanvas();
   if (canvas && canvas.parentElement !== pane) pane.appendChild(canvas);
-  const decoy = document.getElementById('viewportCanvas');
-  if (decoy) decoy.style.display = 'none';
+  if (canvas) {
+    canvas.style.setProperty('display', 'block', 'important');
+    canvas.style.setProperty('width', '100%', 'important');
+    canvas.style.setProperty('height', '100%', 'important');
+  }
   return pane;
 }
 
@@ -305,6 +309,13 @@ function releaseEditorCanvas() {
   const pane = document.getElementById('fumocaSplatPane');
   const canvas = realCanvas();
   if (host && canvas && pane && canvas.parentElement === pane) host.appendChild(canvas);
+  if (canvas) {
+    canvas.style.setProperty('display', 'block', 'important');
+    canvas.style.setProperty('width', '100%', 'important');
+    canvas.style.setProperty('height', '100%', 'important');
+  }
+  const work = document.getElementById('fumocaWork');
+  if (work) work.style.setProperty('display', 'none', 'important');
 }
 
 function restoreViewerStage() {
