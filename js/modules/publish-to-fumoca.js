@@ -66,11 +66,12 @@ const FumocaPublish = (() => {
   }
 
   // ── Collect current edit state, encode as a real .nif ─────────────────────
-  async function _buildNifBlob({ title, description } = {}) {
+  async function _buildNifBlob({ title, description, reviewVideo } = {}) {
     const S = window.S;
     if (!S?.alive) throw new Error('No splat loaded');
 
     const meta = { title: title || S.fileName || 'Untitled', description: description || '' };
+    if (reviewVideo?.url) meta.reviewVideo = reviewVideo;
     const { vertical, passthroughChunks } = await _loadOriginalForPassthrough();
 
     // PLY source. A gaussian PLY already has per-point size and rotation in
@@ -149,9 +150,16 @@ const FumocaPublish = (() => {
     const aliveCount = Array.from(S.alive).filter(Boolean).length;
 
     onProgress?.('Preparing splat…', 10);
+    let review = null;
+    try {
+      review = await window.FumocaReviewVideo?.ensurePublic?.();
+    } catch (err) {
+      console.warn('[Publish] review video upload failed', err);
+    }
+    if (!review) review = window.FumocaReviewVideo?.meta?.() || null;
 
     // 1. Build a genuine .nif blob (no .fumoc, no bare .splat/.ply)
-    const blob = await _buildNifBlob({ title, description });
+    const blob = await _buildNifBlob({ title, description, reviewVideo: review });
     onProgress?.('Uploading…', 20);
 
     // 2. Upload to storage
@@ -185,7 +193,6 @@ const FumocaPublish = (() => {
     };
     if (title) payload.title = title;
     if (description) payload.description = description;
-    const review = window.FumocaReviewVideo?.meta?.();
     if (review?.url) {
       payload.meta = { ...(rec?.meta || rec?.metadata || {}), reviewVideo: review };
     }

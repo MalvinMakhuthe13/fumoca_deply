@@ -1017,9 +1017,16 @@ function configurePreview(record) {
   window._fumocaPublicTeaserUrl = resolvePublicTeaserUrl(record);
   applyThumbnailSurfaces();
   const review = (record?.meta || record?.metadata || {}).reviewVideo;
-  if (review?.url && window.FumocaReviewVideo?.set) {
-    window.FumocaReviewVideo.set(review.url, { layout: review.layout || 'split', autoplay: true });
-  }
+  window._fumocaPendingReview = review?.url ? review : window._fumocaPendingReview;
+  const applyReview = () => {
+    const pending = window._fumocaPendingReview;
+    if (pending?.url && window.FumocaReviewVideo?.set) {
+      window.FumocaReviewVideo.set(pending.url, { layout: pending.layout || 'split', autoplay: true });
+    }
+  };
+  applyReview();
+  setTimeout(applyReview, 600);
+  setTimeout(applyReview, 1600);
   if (previewVideoUrl) {
     previewVideo.src = previewVideoUrl;
     previewVideo.poster = thumbnailUrl || '';

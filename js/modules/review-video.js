@@ -13,6 +13,7 @@ const LAYOUTS = ['pip', 'bg', 'split', 'stack', 'full', 'cinema', 'hidden'];
 
 let video = null;
 let root = null;
+let pendingFile = null;
 let controls = null;
 let empty = null;
 let layout = 'split';
@@ -660,6 +661,7 @@ export function pickFromDevice(opts = {}) {
     const file = input.files?.[0];
     input.remove();
     if (!file) return;
+    pendingFile = file;
     if (objectUrl) URL.revokeObjectURL(objectUrl);
     objectUrl = URL.createObjectURL(file);
     setReviewVideo(objectUrl, { layout: opts.layout || layout || 'split', autoplay: true });
@@ -685,6 +687,16 @@ export function pickFromDevice(opts = {}) {
 
 export function currentReviewMeta() {
   return httpUrl(src) ? { url: src, layout, kind: 'splat-video' } : null;
+}
+
+export async function ensurePublic() {
+  if (httpUrl(src)) return currentReviewMeta();
+  if (!pendingFile) return null;
+  const key = `review/${Date.now()}_${pendingFile.name.replace(/[^\w.\-]+/g, '_')}`;
+  const res = await r2.from(BUCKET).upload(key, pendingFile, { contentType: pendingFile.type || 'video/mp4' });
+  if (res?.error || !res?.publicUrl) throw res?.error || new Error('review video upload failed');
+  setReviewVideo(res.publicUrl, { layout: layout || 'split', autoplay: true });
+  return currentReviewMeta();
 }
 
 export function initReviewVideo() {
@@ -722,6 +734,7 @@ export function initReviewVideo() {
     getSrc: () => src,
     getLayout: () => layout,
     meta: currentReviewMeta,
+    ensurePublic,
   };
   return window.FumocaReviewVideo;
 }
