@@ -1807,9 +1807,12 @@ function mountDecodedCloud(g) {
   }));
   console.log('%c[FUMOCA] Point cloud on screen', 'color:#c8ff00;font-weight:800', { N, radius });
 }
+let _mountingViewer = false;
 async function mountInteractiveViewer(forceReload = false) {
   const activeUrl = getActivenifUrl();
+  if (_mountingViewer) return;
   if ((!forceReload && viewerInstance) || !activeUrl) return;
+  _mountingViewer = true;
   if (forceReload) { rendererPreviewPending = true; showStageFreeze(); _fumocaShowPipelineIllusion('Applying editsâ€¦', 1680); }
   if (forceReload) await destroyViewer();
   setLoading(forceReload ? 'Refreshing cleanupâ€¦' : 'Loading interactive nifâ€¦');
@@ -1820,10 +1823,11 @@ async function mountInteractiveViewer(forceReload = false) {
       initialCameraPosition: [0, 1, 4],
       initialCameraLookAt: [0, 0, 0],
       sharedMemoryForWorkers: false,
-      antialiased: true,
+      antialiased: false,
       selfDrivenMode: true,
       useBuiltInControls: false, // FUMOCA owns trackball for full omni tumble
-      ignoreDevicePixelRatio: false,
+      ignoreDevicePixelRatio: true,
+      halfPrecisionCovariancesOnGPU: true,
       dynamicScene: false,
     });
     const _activeUrl = getActivenifUrl();
@@ -2050,6 +2054,7 @@ window._fumocaRenderer = {
   controls: controls,
 };
         // Fire fumoca:viewerReady â€” triggers AutoFix camera fit and shim population
+        window._fumocaViewerReadySent = true;
         window.dispatchEvent(new CustomEvent('fumoca:viewerReady', {
           detail: {
             viewer:    viewerInstance,
@@ -2074,15 +2079,16 @@ window._fumocaRenderer = {
     // Blob preview loads can fail because the viewer library infers format from the URL string.
     // Fall back gracefully to the original viewer instead of leaving edit mode looking dead.
     if (String(activeUrl).startsWith('blob:') && /File format not supported/i.test(msg)) {
-      try {
-        rendererPreviewSeq += 1;
-        _fumocaClearRendererPreview();
-        showError('Live renderer preview is limited on this viewer build. Edit overlay remains active; save a variant to apply the cleaned nif.');
-        await mountInteractiveViewer(true);
-        return;
-      } catch (_) {}
+      rendererPreviewSeq += 1;
+      _fumocaClearRendererPreview();
+      showError('This preview could not be drawn. Save the NIF and open it again.');
+    } else if (/WebGL|context/i.test(msg)) {
+      showError('The 3D view could not start. Close the developer tools, then open this link in a normal window.');
+    } else {
+      showError(`Failed to load nif: ${msg}`);
     }
-    showError(`Failed to load nif: ${msg}`);
+  } finally {
+    _mountingViewer = false;
   }
 }
 function activatePreset(name) {
@@ -2278,13 +2284,12 @@ async function boot() {
     await mountPlyViewer(fileUrl);
   } else {
     await mountInteractiveViewer();
-    // Mesh overlay goes on top of the splat renderer once it's mounted, not
-    // before â€” mountInteractiveViewer owns stageHost/container setup, and
-    // mounting the mesh canvas first would have it torn down along with it.
-    if (window._fumocaDecodedMesh?.nVerts > 0) {
+    // A second WebGL canvas on top of the splat is what loses the graphics
+    // context. The solid mesh stays available, but only when asked for.
+    if (new URLSearchParams(location.search).get('mesh') === '1' && window._fumocaDecodedMesh?.nVerts > 0) {
       mountMeshViewer(window._fumocaDecodedMesh, window._fumocaCalibration);
     } else {
-      destroyMeshViewer();  // clears any leftover toggle/canvas from a previously-viewed file
+      destroyMeshViewer();
     }
   }
 }
@@ -2711,7 +2716,8 @@ function _fumocaExposeViewerBridge() {
       record: currentRecord || null,
     };
     const ready = !!(viewerInstance && (window._fumocaViewerCamera || window._fumocaViewerControls));
-    if (ready) {
+    if (ready && !window._fumocaViewerReadySent) {
+      window._fumocaViewerReadySent = true;
       window.dispatchEvent(new CustomEvent('fumoca:viewerReady', {
         detail: {
           viewer: viewerInstance,
@@ -3033,7 +3039,9 @@ function _fumocaPreviewStorageKey() {
 }
 function _fumocaShouldAutoCapture() {
   const q = new URLSearchParams(location.search);
-  if (q.get('autocap') === '0') return false;
+  // Recording the canvas on open is what makes Chrome kill the 3D view.
+  // A teaser is recorded only when the link explicitly asks for it.
+  if (q.get('autocap') !== '1') return false;
   if (!_fumocaSupportsAutoCapture()) return false;
   if (!window._fumocaPermissions?.canManage) return false;
   if (previewVideoUrl) return false;
