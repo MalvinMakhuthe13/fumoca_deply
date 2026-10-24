@@ -2272,19 +2272,8 @@ async function boot() {
       return;
     }
   }
-  if (_isPlyUrl(fileUrl) && _blobType !== 'nif' && !(window._fumocaCurrentGaussians?.N > 0)) {
+  if (_isPlyUrl(fileUrl) && _blobType !== 'nif') {
     await mountPlyViewer(fileUrl);
-  } else if (window._fumocaCurrentGaussians?.N > 0) {
-    // A decoded NIF is drawn as solid points. The Gaussian viewer was
-    // loading these rows and leaving the stage black.
-    document.body?.classList.remove('media-flat');
-    console.log('[FUMOCA] Drawing ' + window._fumocaCurrentGaussians.N + ' points from the NIF');
-    mountDecodedCloud(window._fumocaCurrentGaussians);
-    if (window._fumocaDecodedMesh?.nVerts > 0) {
-      mountMeshViewer(window._fumocaDecodedMesh, window._fumocaCalibration);
-    } else {
-      destroyMeshViewer();
-    }
   } else {
     await mountInteractiveViewer();
     // Mesh overlay goes on top of the splat renderer once it's mounted, not
