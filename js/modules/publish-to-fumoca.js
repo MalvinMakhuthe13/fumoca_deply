@@ -149,14 +149,21 @@ const FumocaPublish = (() => {
     const splatId = rec?.id || new URLSearchParams(location.search).get('splatId');
     const aliveCount = Array.from(S.alive).filter(Boolean).length;
 
-    onProgress?.('Preparing splat…', 10);
+    onProgress?.('Uploading review video…', 8);
     let review = null;
+    const hasLocalReview = !!(window._fumocaReviewFile || (window.FumocaReviewVideo?.getSrc?.() || '').startsWith('blob:'));
     try {
       review = await window.FumocaReviewVideo?.ensurePublic?.();
     } catch (err) {
       console.warn('[Publish] review video upload failed', err);
+      if (hasLocalReview) throw new Error('Review video did not upload. Keep this tab open and publish again.');
     }
     if (!review) review = window.FumocaReviewVideo?.meta?.() || null;
+    if (hasLocalReview && !review?.url) {
+      throw new Error('Review video is still only on this device. Upload it again, then publish.');
+    }
+    if (review?.url) console.info('[Publish] review video attached', review.url);
+    onProgress?.('Preparing splat…', 12);
 
     // 1. Build a genuine .nif blob (no .fumoc, no bare .splat/.ply)
     const blob = await _buildNifBlob({ title, description, reviewVideo: review });

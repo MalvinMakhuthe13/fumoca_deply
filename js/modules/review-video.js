@@ -662,6 +662,7 @@ export function pickFromDevice(opts = {}) {
     input.remove();
     if (!file) return;
     pendingFile = file;
+    window._fumocaReviewFile = file;
     if (objectUrl) URL.revokeObjectURL(objectUrl);
     objectUrl = URL.createObjectURL(file);
     setReviewVideo(objectUrl, { layout: opts.layout || layout || 'split', autoplay: true });
@@ -691,10 +692,11 @@ export function currentReviewMeta() {
 
 export async function ensurePublic() {
   if (httpUrl(src)) return currentReviewMeta();
-  if (!pendingFile) return null;
-  const key = `review/${Date.now()}_${pendingFile.name.replace(/[^\w.\-]+/g, '_')}`;
-  const res = await r2.from(BUCKET).upload(key, pendingFile, { contentType: pendingFile.type || 'video/mp4' });
-  if (res?.error || !res?.publicUrl) throw res?.error || new Error('review video upload failed');
+  const file = pendingFile || window._fumocaReviewFile || null;
+  if (!file) return null;
+  const key = `review/${Date.now()}_${file.name.replace(/[^\w.\-]+/g, '_')}`;
+  const res = await r2.from(BUCKET).upload(key, file, { contentType: file.type || 'video/mp4' });
+  if (res?.error || !res?.publicUrl) throw res?.error || new Error(res?.error?.message || 'review video upload failed');
   setReviewVideo(res.publicUrl, { layout: layout || 'split', autoplay: true });
   return currentReviewMeta();
 }
