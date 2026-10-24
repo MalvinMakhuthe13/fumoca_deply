@@ -430,11 +430,11 @@ function applyFrame() {
   video.style.setProperty('width', '100%', 'important');
   video.style.setProperty('height', '100%', 'important');
   video.style.setProperty('object-fit', 'contain', 'important');
+  work.style.setProperty('position', 'absolute', 'important');
+  work.style.setProperty('inset', '0', 'important');
+  work.style.setProperty('overflow', 'hidden', 'important');
   if (layout === 'split' || layout === 'stack') {
     work.style.setProperty('display', 'grid', 'important');
-    work.style.setProperty('position', 'absolute', 'important');
-    work.style.setProperty('inset', '0', 'important');
-    work.style.setProperty('overflow', 'hidden', 'important');
     if (layout === 'split') {
       work.style.setProperty('grid-template-columns', 'minmax(0,1fr) minmax(0,1fr)', 'important');
       work.style.setProperty('grid-template-rows', 'minmax(0,1fr)', 'important');
@@ -452,6 +452,53 @@ function applyFrame() {
       el.style.setProperty('min-height', '0', 'important');
       el.style.setProperty('overflow', 'hidden', 'important');
     });
+  } else if (layout === 'pip') {
+    work.style.setProperty('display', 'block', 'important');
+    if (pane) {
+      pane.style.setProperty('position', 'absolute', 'important');
+      pane.style.setProperty('inset', '0', 'important');
+      pane.style.setProperty('width', '100%', 'important');
+      pane.style.setProperty('height', '100%', 'important');
+    }
+    root.style.setProperty('position', 'absolute', 'important');
+    root.style.setProperty('left', 'auto', 'important');
+    root.style.setProperty('top', 'auto', 'important');
+    root.style.setProperty('right', '16px', 'important');
+    root.style.setProperty('bottom', '16px', 'important');
+    root.style.setProperty('width', '280px', 'important');
+    root.style.setProperty('height', '158px', 'important');
+    root.style.setProperty('z-index', '30', 'important');
+    root.style.setProperty('border-radius', '12px', 'important');
+    root.style.setProperty('overflow', 'hidden', 'important');
+    root.style.setProperty('cursor', 'grab', 'important');
+  } else if (layout === 'cinema') {
+    work.style.setProperty('display', 'block', 'important');
+    root.style.setProperty('position', 'absolute', 'important');
+    root.style.setProperty('inset', '0', 'important');
+    root.style.setProperty('width', '100%', 'important');
+    root.style.setProperty('height', '100%', 'important');
+    if (pane) {
+      pane.style.setProperty('position', 'absolute', 'important');
+      pane.style.setProperty('left', 'auto', 'important');
+      pane.style.setProperty('top', 'auto', 'important');
+      pane.style.setProperty('right', '16px', 'important');
+      pane.style.setProperty('bottom', '16px', 'important');
+      pane.style.setProperty('width', '280px', 'important');
+      pane.style.setProperty('height', '158px', 'important');
+      pane.style.setProperty('z-index', '30', 'important');
+    }
+  } else {
+    work.style.setProperty('display', 'block', 'important');
+    if (pane && layout !== 'full') {
+      pane.style.setProperty('position', 'absolute', 'important');
+      pane.style.setProperty('inset', '0', 'important');
+      pane.style.setProperty('width', '100%', 'important');
+      pane.style.setProperty('height', '100%', 'important');
+    }
+    root.style.setProperty('position', 'absolute', 'important');
+    root.style.setProperty('inset', '0', 'important');
+    root.style.setProperty('width', '100%', 'important');
+    root.style.setProperty('height', '100%', 'important');
   }
   controls.style.display = 'flex';
   controls.querySelectorAll('[data-layout]').forEach((b) => b.classList.toggle('active', b.dataset.layout === layout));
