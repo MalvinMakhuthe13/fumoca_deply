@@ -413,7 +413,7 @@ function placeViewerVideo(stage, mode) {
   Object.entries(box).forEach(([k, v]) => root.style.setProperty(k, v, 'important'));
 }
 
-function showViewerBar(on) {
+function showViewerBar(on, compact) {
   if (!document.getElementById('stage')) return;
   if (!src) on = false;
   let bar = document.getElementById('fumocaReviewBar');
@@ -433,11 +433,18 @@ function showViewerBar(on) {
     bar.addEventListener('click', (e) => {
       const btn = e.target.closest('[data-layout]');
       if (!btn) return;
-      setLayout(btn.dataset.layout);
+      const next = bar.dataset.compact === '1' ? 'split' : btn.dataset.layout;
+      setLayout(next);
     });
     document.body.appendChild(bar);
   }
-  bar.style.display = on ? 'flex' : 'none';
+  bar.dataset.compact = compact ? '1' : '';
+  bar.style.display = on || compact ? 'flex' : 'none';
+  bar.querySelectorAll('button').forEach((b) => {
+    b.style.display = compact && b.dataset.layout !== 'pip' ? 'none' : '';
+  });
+  const label = bar.querySelector('span');
+  if (label) label.textContent = compact ? 'Review' : 'Review';
   bar.querySelectorAll('[data-layout]').forEach((b) => b.classList.toggle('active', b.dataset.layout === layout));
 }
 
@@ -464,7 +471,7 @@ function applyFrame() {
         video.muted = true;
       }
     }
-    showViewerBar(layout === 'hide');
+    showViewerBar(layout === 'hide', layout === 'hidden');
     return;
   }
 
