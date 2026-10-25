@@ -38,7 +38,7 @@ const CaptureUI = (() => {
       </div>
 
       <div class="cap-body">
-        <div class="cap-preview" id="capPreviewWrap" style="display:none;">
+        <div class="cap-preview" id="capPreviewWrap">
           <video id="capVideoEl" controls playsinline loop style="width:100%;border-radius:12px;background:#000;display:block;max-height:220px;"></video>
         </div>
 
