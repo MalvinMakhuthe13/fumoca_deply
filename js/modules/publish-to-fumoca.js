@@ -66,7 +66,7 @@ const FumocaPublish = (() => {
   }
 
   // ── Collect current edit state, encode as a real .nif ─────────────────────
-  async function _buildNifBlob({ title, description, reviewVideo } = {}) {
+  async function _buildNifBlob({ title, description, reviewVideo, skipLiveReview } = {}) {
     const S = window.S;
     if (!S?.alive) throw new Error('No splat loaded');
 
@@ -107,7 +107,7 @@ const FumocaPublish = (() => {
           quats[row*4+3] = S.rotation[i*4+3] ?? 0;
         }
       });
-      const buf = encodeNif({ positions, colors01, opacities01, scalesLinear, quats, meta, vertical, passthroughChunks });
+      const buf = encodeNif({ positions, colors01, opacities01, scalesLinear, quats, meta, vertical, passthroughChunks, skipLiveReview: !!skipLiveReview });
       return new Blob([buf], { type: 'application/octet-stream' });
     }
 
@@ -122,6 +122,7 @@ const FumocaPublish = (() => {
       meta,
       vertical,
       passthroughChunks,
+      skipLiveReview: !!skipLiveReview,
     });
     return new Blob([buf], { type: 'application/octet-stream' });
   }

@@ -102,11 +102,9 @@ function attachedReview(value) {
 
 function resolveSrc() {
   if (!onViewer()) return null;
-  const opened = window._fumocaOpenedMeta;
-  const fromNif = attachedReview(opened?.reviewVideo);
-  if (fromNif) return fromNif;
   const rec = window._fumocaCurrentRecord;
   const meta = rec?.meta || rec?.metadata || {};
+  if (!meta.includeReview) return null;
   return attachedReview(meta.reviewVideo);
 }
 
@@ -821,15 +819,11 @@ export function initReviewVideo() {
     else setReviewVideo(null);
   };
   window.addEventListener('fumoca:recordLoaded', adopt);
-  window.addEventListener('fumoca:nifMeta', (ev) => {
+  window.addEventListener('fumoca:nifMeta', () => {
     if (!onViewer()) return;
-    const review = ev.detail?.reviewVideo;
-    if (attachedReview(review)) setReviewVideo(review.url, { layout: review.layout || 'split', autoplay: true });
-    else {
-      const u = resolveSrc();
-      if (u) setReviewVideo(u, { autoplay: true });
-      else setReviewVideo(null);
-    }
+    const u = resolveSrc();
+    if (u) setReviewVideo(u, { autoplay: true });
+    else setReviewVideo(null);
   });
 
   window.FumocaReviewVideo = {
