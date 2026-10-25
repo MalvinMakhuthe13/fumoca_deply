@@ -200,11 +200,16 @@ const FumocaPublish = (() => {
     };
     if (title) payload.title = title;
     if (description) payload.description = description;
-    if (review?.url) {
-      payload.meta = { ...(rec?.meta || rec?.metadata || {}), reviewVideo: review };
+    if (review?.url && review.explicit) {
+      payload.meta = { ...(rec?.meta || rec?.metadata || {}), reviewVideo: { ...review, explicit: true } };
+    } else {
+      const cleaned = { ...(rec?.meta || rec?.metadata || {}) };
+      delete cleaned.reviewVideo;
+      payload.meta = cleaned;
     }
 
     let finalId = splatId;
+    if (payload.meta?.reviewVideo) payload.meta.reviewVideo.boundId = splatId || null;
     if (splatId) {
       const { error } = await sb.from('nif_files').update(payload).eq('id', splatId);
       if (error) console.warn('[Publish] DB update failed:', error.message);
@@ -217,7 +222,13 @@ const FumocaPublish = (() => {
         title: title || S.fileName || 'Untitled Splat',
         created_at: new Date().toISOString(),
       }).select().single();
-      if (!error && newRec) finalId = newRec.id;
+      if (!error && newRec) {
+        finalId = newRec.id;
+        if (payload.meta?.reviewVideo) {
+          payload.meta.reviewVideo.boundId = newRec.id;
+          await sb.from('nif_files').update({ meta: payload.meta }).eq('id', newRec.id);
+        }
+      }
     }
 
     onProgress?.('Published!', 100);
