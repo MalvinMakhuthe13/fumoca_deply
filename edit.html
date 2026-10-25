@@ -10,12 +10,12 @@
 <script src="config.js"></script>
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160/examples/jsm/"}}</script>
 <link rel="stylesheet" href="css/present-magazine.css"/>
-<link rel="stylesheet" href="css/review-video.css?v=20261025-splatbg"/>
+<link rel="stylesheet" href="css/review-video.css?v=20261025-splatbg2"/>
 <link rel="stylesheet" href="css/present-unified.css"/>
 <link rel="stylesheet" href="css/anim-studio.css"/>
 <link rel="stylesheet" href="css/fumoca-layouts.css"/>
 <script type="module" src="js/modules/anim-studio.js"></script>
-<script type="module" src="js/modules/review-video.js?v=20261025-splatbg"></script>
+<script type="module" src="js/modules/review-video.js?v=20261025-splatbg2"></script>
 <script type="module" src="js/modules/present-tab.js?v=20261024-editorfix"></script>
 
 <style>
@@ -3923,11 +3923,14 @@ function applySplatBackground() {
     const el = document.getElementById(id);
     if (!el) return;
     el.style.setProperty('background', css, 'important');
+    el.style.setProperty('background-color', 'transparent', 'important');
   });
   const scene = window._fumocaScene || window.scene;
-  if (scene && window.THREE) {
-    if (S.bgType === 'transparent') scene.background = null;
-    else scene.background = new THREE.Color(S.bgType === 'white' ? 0xf5f5f5 : 0x030a10);
+  if (scene) scene.background = null;
+  const renderer = window._fumocaGlRenderer;
+  if (renderer) {
+    renderer.setClearColor(0x000000, 0);
+    if (renderer.domElement) renderer.domElement.style.setProperty('background', 'transparent', 'important');
   }
 }
 function drawBackground() {
@@ -6031,7 +6034,7 @@ animBg();
 <script type="module" src="js/modules/studio-timeline.js"></script>
 <script type="module" src="js/modules/ply-validator.js"></script>
 <script type="module" src="js/modules/camera-view.js"></script>
-<script type="module" src="js/modules/publish-to-fumoca.js?v=20261025-splatbg2"></script>
+<script type="module" src="js/modules/publish-to-fumoca.js?v=20261025-splatbg22"></script>
 <script type="module" src="js/modules/gaussian-renderer.js"></script>
 <script type="module" src="js/modules/smart-select.js"></script>
 <script src="js/modules/gap-fill-engine.js"></script>
