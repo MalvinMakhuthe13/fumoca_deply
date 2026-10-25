@@ -310,12 +310,14 @@
 
 #fumocaReviewRoot .rv-resize {
   position: absolute;
-  right: 0;
-  bottom: 0;
-  width: 18px;
-  height: 18px;
+  right: 4px;
+  bottom: 4px;
+  width: 28px;
+  height: 28px;
   cursor: nwse-resize;
-  z-index: 9;
-  background: linear-gradient(135deg, transparent 50%, #c8ff00 50%);
+  z-index: 30;
+  pointer-events: auto;
+  touch-action: none;
+  background: linear-gradient(135deg, transparent 45%, #c8ff00 45%);
+  border-bottom-right-radius: 8px;
 }
-#fumocaReviewRoot:not(.layout-pip) .rv-resize { display: none; }

@@ -311,7 +311,6 @@ function onResizeStart(e) {
   const hr = host.getBoundingClientRect();
   const rr = root.getBoundingClientRect();
   drag = { mode: 'resize', x: e.clientX, y: e.clientY, l: rr.left - hr.left, t: rr.top - hr.top, w: rr.width, h: rr.height };
-  e.currentTarget.setPointerCapture?.(e.pointerId);
 }
 
 function onDragMove(e) {
@@ -489,9 +488,12 @@ function applyFrame() {
     video.style.setProperty('width', '100%', 'important');
     video.style.setProperty('height', '100%', 'important');
     video.style.setProperty('object-fit', 'contain', 'important');
+    root.className = 'layout-' + layout;
     controls.style.display = 'flex';
     controls.querySelectorAll('[data-layout]').forEach((b) => b.classList.toggle('active', b.dataset.layout === layout));
     showViewerBar(true);
+    const grip = root.querySelector('.rv-resize');
+    if (grip) grip.style.display = layout === 'pip' ? 'block' : 'none';
     fitting = true;
     requestAnimationFrame(() => { pokeViewer(); fitting = false; });
     setTimeout(pokeViewer, 400);
@@ -607,6 +609,8 @@ function applyFrame() {
   }
   controls.style.display = 'flex';
   controls.querySelectorAll('[data-layout]').forEach((b) => b.classList.toggle('active', b.dataset.layout === layout));
+  const grip = root.querySelector('.rv-resize');
+  if (grip) grip.style.display = layout === 'pip' ? 'block' : 'none';
   fitting = true;
   requestAnimationFrame(() => {
     fitRenderer();
