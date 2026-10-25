@@ -267,6 +267,28 @@ const CaptureUI = (() => {
     if (statusEl) statusEl.textContent = msg;
   }
 
+  function playLoadReveal() {
+    const canvas = window._fumocaCaptureCanvas
+      || window._fumocaViewerInstance?.renderer?.domElement
+      || document.querySelector('#stageHost canvas')
+      || document.querySelector('canvas');
+    const material = window.__fumocaViewerMaterial || window._fumocaPointMaterial;
+    if (material?.uniforms) {
+      window.FumocaGaussianRenderer?.playReveal?.(3200);
+    }
+    if (!canvas) return;
+    canvas.style.transition = 'none';
+    canvas.style.filter = 'blur(28px) contrast(1.3) saturate(1.35)';
+    canvas.style.transform = 'scale(1.16)';
+    canvas.style.opacity = '0.35';
+    requestAnimationFrame(() => {
+      canvas.style.transition = 'filter 3.2s ease, transform 3.2s ease, opacity 1.1s ease';
+      canvas.style.filter = 'none';
+      canvas.style.transform = 'scale(1)';
+      canvas.style.opacity = '1';
+    });
+  }
+
   async function toggleRecord() {
     if (SplatCapture.isRecording) {
       SplatCapture.stop();
@@ -274,6 +296,7 @@ const CaptureUI = (() => {
     }
     const duration = Number(durationSelect?.value || 6000);
     const fps = Number(fpsSelect?.value || 30);
+    playLoadReveal();
     try {
       await SplatCapture.start({ duration, fps });
     } catch (err) {
