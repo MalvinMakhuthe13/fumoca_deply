@@ -78,6 +78,12 @@
     .vehicle-line { font-size: 17px; font-weight: 800; letter-spacing: -0.01em; }
     .brand-line { font-size: 12px; color: rgba(255,255,255,.6); margin-top: 2px; }
 
+    /* Embedded mode: let the host website own the surrounding experience. */
+    body.fumoca-embed-mode .action-strip,
+    body.fumoca-embed-mode .top-info,
+    body.fumoca-embed-mode #splashBrand { display: none !important; }
+    body.fumoca-embed-mode #viewerFrame { background: transparent; }
+
     /* Bottom action strip — one-tap share actions */
     .action-strip {
       position: fixed; bottom: 0; left: 0; right: 0;
@@ -260,6 +266,9 @@
   const quoteUrl = params.get('quote_url') || '';   // dealership's lead-capture URL
   const quotePhone = params.get('quote_phone') || '';  // dealership phone (tel: link)
   const revealDuration = params.get('reveal_duration') || '4200';
+  // Embedded showrooms should display only the 3D scene, not listing/share/quote chrome.
+  const embedded = params.get('embed') === '1' || window.self !== window.top;
+  if (embedded) document.body.classList.add('fumoca-embed-mode');
 
   document.getElementById('splashBrand').textContent = brand;
   document.getElementById('splashVehicle').textContent = vehicle;
@@ -276,7 +285,7 @@
     document.getElementById('splashVehicle').textContent = 'No splatId provided in URL.';
   } else {
     // Point the iframe at the existing viewer with reveal tuned for this listing.
-    const viewerUrl = `viewer.html?v=914a9a2&splatId=${encodeURIComponent(splatId)}&reveal_duration=${encodeURIComponent(revealDuration)}`;
+    const viewerUrl = `viewer.html?v=914a9a2&splatId=${encodeURIComponent(splatId)}&reveal_duration=${encodeURIComponent(revealDuration)}${embedded ? '&embed=1' : ''}`;
     const frame = document.getElementById('viewerFrame');
     frame.src = viewerUrl;
     // Hide splash when the iframe tells us it's ready, or after a safety

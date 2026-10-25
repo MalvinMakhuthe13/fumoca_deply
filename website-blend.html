@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FUMOCA Website Blend</title>
+<meta name="description" content="Configure a FUMOCA 3D embed for your website.">
+<style>
+:root{color-scheme:dark;--bg:#090b10;--panel:#111722;--line:#293448;--muted:#a8b4c8;--lime:#c8ff00;--blue:#5a83ff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:#f5f7fb;font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
+header{padding:18px max(22px,calc((100vw - 1180px)/2));border-bottom:1px solid var(--line);position:sticky;top:0;background:#090b10ee;backdrop-filter:blur(14px);z-index:5}
+.brand{font-weight:800;letter-spacing:.02em}.brand span{color:var(--lime)}
+main{max-width:1180px;margin:30px auto;padding:0 20px}.intro{margin-bottom:24px}.intro h1{font-size:clamp(30px,4vw,48px);line-height:1.05;margin:0 0 12px}.intro p{color:var(--muted);max-width:760px;margin:0}
+.layout{display:grid;grid-template-columns:minmax(280px,.85fr) minmax(0,1.15fr);gap:20px;align-items:start}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:20px;min-width:0}.panel h2{font-size:18px;margin:0 0 18px}
+label{display:block;font-size:13px;font-weight:700;margin:15px 0 6px}input,select{width:100%;padding:11px 12px;border:1px solid #344158;border-radius:9px;background:#080c13;color:#fff;font:inherit}
+.help{font-size:12px;color:var(--muted);margin:6px 0 0}.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+button{cursor:pointer;border:0;border-radius:10px;padding:12px 15px;font-weight:800;font-size:14px;background:var(--lime);color:#11160a}button.secondary{background:#202a3b;color:#fff;border:1px solid #344158}button:disabled{opacity:.55;cursor:not-allowed}
+.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}
+.preview-shell{border:1px solid var(--line);border-radius:14px;overflow:hidden;background:#07090d}
+.preview-top{padding:12px 15px;border-bottom:1px solid var(--line);font-size:13px;color:var(--muted);display:flex;justify-content:space-between;gap:12px}
+iframe{display:block;width:100%;height:460px;border:0;background:#080a0e}
+.code-title{margin:22px 0 8px;font-weight:800}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#070a10;border:1px solid var(--line);border-radius:10px;padding:14px;color:#d8e3f7;font:12px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace;min-height:100px}
+.notice{border:1px solid #66522b;background:#241d10;color:#f6dfaa;border-radius:10px;padding:12px 14px;font-size:13px;margin-top:16px}
+.status{font-size:12px;color:var(--muted);margin-top:8px;min-height:18px}
+@media(max-width:850px){.layout{grid-template-columns:1fr}iframe{height:420px}header{position:static}}
+</style>
+</head>
+<body>
+<header><div class="brand"><span>F</span> FUMOCA <span style="color:#a8b4c8;font-weight:500">/ Website Blend</span></div></header>
+<main>
+<section class="intro"><h1>Bring your 3D upload into the page.</h1><p>Build an embed snippet for FUMOCA-hosted splats and NIF-backed scenes. Use the same record ID produced by FUMOCA uploads, including assets created from photo/video reconstruction. Preview the existing showroom and copy the iframe into your website.</p></section>
+<div class="layout">
+<section class="panel">
+<h2>Embed settings</h2>
+<label for="assetId">FUMOCA asset / record ID</label>
+<input id="assetId" autocomplete="off" placeholder="Paste the uploaded asset UUID">
+<p class="help">Use the record ID from the FUMOCA upload or asset details. Do not paste a private storage key or secret URL.</p>
+<label for="labelText">Accessible title</label><input id="labelText" value="FUMOCA interactive 3D scene">
+<div class="row">
+<div><label for="height">Viewer height</label><select id="height"><option value="480">480 px</option><option value="640" selected>640 px</option><option value="760">760 px</option><option value="100vh">Full viewport</option></select></div>
+<div><label for="radius">Corner radius</label><select id="radius"><option value="0">Square</option><option value="8">8 px</option><option value="16" selected>16 px</option><option value="24">24 px</option></select></div>
+</div>
+<label for="fit">Embed layout</label><select id="fit"><option value="responsive" selected>Responsive — fill parent width</option><option value="fixed">Fixed maximum width (960 px)</option></select>
+<label for="surface">Website surface (container only)</label><select id="surface"><option value="#080a0e" selected>Dark</option><option value="#f4f6f8">Light</option><option value="#ffffff">White</option></select>
+<div class="notice"><strong>Transparency status:</strong> this builder currently embeds the existing showroom, which uses its own viewer background. The embed mode hides FUMOCA's showroom action buttons and viewer menus. True transparent pixels behind the 3D object are a separate renderer-level feature and are not enabled by this setting.</div>
+<div class="actions"><button id="update">Update preview</button><button id="copy" class="secondary">Copy embed code</button></div>
+<div class="status" id="status" role="status" aria-live="polite"></div>
+</section>
+<section class="panel">
+<h2>Live preview</h2>
+<div class="preview-shell" id="previewShell">
+<div class="preview-top"><span>FUMOCA showroom</span><span id="previewMode">Responsive embed</span></div>
+<iframe id="preview" title="FUMOCA interactive 3D preview" loading="lazy" allow="fullscreen; autoplay" allowfullscreen></iframe>
+</div>
+<div class="code-title">Copy this into your website</div>
+<pre id="snippet"></pre>
+<p class="help">The generated iframe is intended for a normal hosted HTTPS page. Test it on your actual site before sharing it with customers.</p>
+</section>
+</div>
+</main>
+<script>
+(function(){
+ const $=id=>document.getElementById(id);
+ const safeTitle=()=>String($('labelText').value||'FUMOCA interactive 3D scene').replace(/[<>\r\n]/g,'').trim().slice(0,120)||'FUMOCA interactive 3D scene';
+ function build(){
+   const id=$('assetId').value.trim();
+   const height=$('height').value;
+   const radius=Math.max(0,Math.min(32,Number($('radius').value)||0));
+   const fixed=$('fit').value==='fixed';
+   const surface=$('surface').value;
+   const shell=$('previewShell');
+   shell.style.background=surface;
+   $('previewMode').textContent=fixed?'Max width 960 px':'Responsive embed';
+   $('previewShell').style.maxWidth=fixed?'960px':'none';
+   const h=height==='100vh'?'100vh':height+'px';
+   const style='display:block;width:100%;height:'+h+';border:0;border-radius:'+radius+'px;background:'+surface+';';
+   let src='https://fumoca.co.za/showroom';
+   if(id) src+='?splatId='+encodeURIComponent(id)+'&embed=1';
+   const title=safeTitle().replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+   const snippet='<iframe\n  src="'+src+'"\n  title="'+title+'"\n  style="'+style+'"\n  allow="fullscreen; autoplay"\n  allowfullscreen\n  loading="lazy">\n</iframe>';
+   $('snippet').textContent=snippet;
+   const frame=$('preview');
+   if(id){
+     if(frame.src!==src) frame.src=src;
+     $('status').textContent='Preview URL prepared for asset '+id+'.';
+   }else{
+     frame.removeAttribute('src');
+     $('status').textContent='Paste an asset ID to load a live preview. The snippet currently points to the showroom route.';
+   }
+ }
+ $('update').addEventListener('click',build);
+ $('copy').addEventListener('click',async()=>{
+   const value=$('snippet').textContent;
+   try{await navigator.clipboard.writeText(value);$('status').textContent='Embed code copied.';}
+   catch(e){const range=document.createRange();range.selectNodeContents($('snippet'));const sel=getSelection();sel.removeAllRanges();sel.addRange(range);$('status').textContent='Clipboard permission unavailable. The code is selected; copy it manually.';}
+ });
+ ['height','radius','fit','surface','labelText'].forEach(id=>$(id).addEventListener('change',build));
+ $('assetId').addEventListener('keydown',e=>{if(e.key==='Enter')build()});
+ build();
+})();
+</script>
+</body>
+</html>

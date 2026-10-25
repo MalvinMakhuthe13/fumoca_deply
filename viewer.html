@@ -688,10 +688,21 @@
     border-radius: 12px !important;
     box-shadow: 0 8px 32px rgba(0,0,0,.4) !important;
   }
+/* Embedded mode: hide FUMOCA UI chrome so the host page owns the experience. */
+body.fumoca-embed-mode #menuBtn,
+body.fumoca-embed-mode #fumocFAB,
+body.fumoca-embed-mode #uiRevealBtn,
+body.fumoca-embed-mode #fumocMenu,
+body.fumoca-embed-mode #editModeBadge,
+body.fumoca-embed-mode #topbar,
+body.fumoca-embed-mode #bottomBar,
+body.fumoca-embed-mode .bottom-bar,
+body.fumoca-embed-mode .topbar { display:none !important; }
 </style>
 <link rel="stylesheet" href="css/present-magazine.css"/>
 </head>
 <body data-nav="none">
+<script>if(new URLSearchParams(location.search).get("embed")==="1")document.body.classList.add("fumoca-embed-mode");</script>
 
 <svg id="hiddenSvgFilters" aria-hidden="true" focusable="false">
   <defs>
