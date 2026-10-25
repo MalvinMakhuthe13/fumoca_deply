@@ -1637,7 +1637,7 @@ document.getElementById('teaserBtn')?.addEventListener('click', async () => {
 
     const support = isRecordingSupported();
     if (!support.supported) {
-      alert(support.reason);
+      return;
       return;
     }
 
@@ -1648,15 +1648,12 @@ document.getElementById('teaserBtn')?.addEventListener('click', async () => {
                 || document.querySelector('#stage canvas')
                 || document.querySelector('canvas');
     if (!canvas) {
-      alert('Viewer canvas not ready — try again in a moment.');
+      return;
       return;
     }
 
     const material = window.__fumocaViewerMaterial;
-    if (!material) {
-      alert('Cinematic reveal not initialized — please reload the page and try again.');
-      return;
-    }
+    if (!material) return;
 
     // Read the vehicle title from the loaded record so the CTA overlay
     // feels like a real listing, not a generic "FUMOCA" watermark.
