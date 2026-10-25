@@ -1516,6 +1516,8 @@ async function mountPlyViewer(url) {
     });
     viewerInstance.start();
     window._fumocaViewerInstance = viewerInstance;
+    window._fumocaViewerCamera = viewerInstance.camera;
+    window._fumocaViewerControls = viewerInstance.controls;
     const canvas = viewerInstance.renderer?.domElement || host.querySelector('canvas');
     if (canvas) {
       canvas.style.setProperty('display', 'block', 'important');
@@ -1523,11 +1525,13 @@ async function mountPlyViewer(url) {
       canvas.style.setProperty('height', '100%', 'important');
       window._fumocaCaptureCanvas = canvas;
     }
+    const activeViewer = viewerInstance;
     const resize = () => {
-      if (!viewerInstance) return;
+      // Ignore resize events left behind by an earlier viewer instance.
+      if (viewerInstance !== activeViewer) return;
       const w = host?.clientWidth || window.innerWidth;
       const h = host?.clientHeight || window.innerHeight;
-      if (w > 2 && h > 2) viewerInstance.renderer?.setSize?.(w, h, false);
+      if (w > 2 && h > 2) activeViewer.renderer?.setSize?.(w, h, false);
     };
     resize();
     window.addEventListener('resize', resize);
