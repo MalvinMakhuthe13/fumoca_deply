@@ -42,7 +42,7 @@ function _viewerUrl(splatId, params = {}) {
 }
 
 function _showroomUrl(splatId, params = {}) {
-  const url = new URL(`${FUMOC_BASE}/showroom.html`);
+  const url = new URL(`${FUMOC_BASE}/showroom`);
   url.searchParams.set('splatId', splatId);
   Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
   return url.toString();

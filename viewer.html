@@ -1982,7 +1982,7 @@ document.getElementById('fmenuEmbedRow')?.addEventListener('click', () => {
   window._fumocaCloseMenu?.();
   const params = new URLSearchParams(location.search);
   const id = params.get('nifId') || params.get('splatId') || params.get('id') || window._fumocaCurrentRecord?.id || '';
-  const url = location.origin + '/showroom.html?splatId=' + encodeURIComponent(id);
+  const url = location.origin + '/showroom?splatId=' + encodeURIComponent(id);
   const snippet = '<iframe src="' + url + '" style="width:100%;height:640px;border:0;border-radius:16px" allow="fullscreen" loading="lazy"></iframe>';
   navigator.clipboard?.writeText(snippet);
 });
