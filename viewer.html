@@ -158,10 +158,13 @@
   /* topActions hidden — all moved to hamburger menu */
   #topActions { display:none; }
   /* Hamburger menu button */
+  #menuBtn, #fourDBtn, #bb4DBtn, #fumocFAB {
+    display: none !important;
+  }
   #menuBtn {
     width:36px; height:36px; border-radius:999px; border:none; cursor:pointer;
     background:rgba(255,255,255,.1); color:#fff; font-size:18px;
-    display:flex; align-items:center; justify-content:center; flex-shrink:0;
+    align-items:center; justify-content:center; flex-shrink:0;
     transition:background .15s;
   }
   #menuBtn:hover { background:rgba(255,255,255,.2); }
@@ -1528,7 +1531,7 @@ window.addEventListener('fumoca:permissionsReady', (e) => {
 window.addEventListener('fumoca:permissionsUpdated', (e) => {
   const btn = document.getElementById('captureToggleBtn');
   if (!btn) return;
-  btn.style.display = e.detail?.canManage ? '' : 'none';
+  btn.style.display = 'none';
 });
 
 // Wire 4D Capture button — owner/admin only
@@ -1545,7 +1548,7 @@ window.addEventListener('fumoca:permissionsReady', (e) => {
 });
 window.addEventListener('fumoca:permissionsUpdated', (e) => {
   const btn = document.getElementById('fourDBtn');
-  if (btn) btn.style.display = e.detail?.canManage ? '' : 'none';
+  if (btn) btn.style.display = 'none';
 });
 
 // Init 4D Capture + Motion States when record loads
@@ -1564,7 +1567,7 @@ window.addEventListener('fumoca:recordLoaded', (e) => {
     window.Fumoca4D.init(record, window._fumocaRenderer || window._fumocaViewer)
       .then(active => {
         const btn = document.getElementById('fourDBtn');
-        if (btn) { btn.style.display = ''; btn.textContent = active ? '⏳ 4D ON' : '⏳ 4D'; }
+        if (btn) { btn.style.display = 'none'; }
       });
   }
 });
