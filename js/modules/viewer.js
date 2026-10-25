@@ -1705,8 +1705,8 @@ async function mountPlyViewer(url) {
     _plyCamera.position.set(c.x, c.y - r * 0.25, c.z + r * 2.4);
     _plyCamera.lookAt(c.x, c.y, c.z);
     _plyControls.target.set(c.x, c.y, c.z);
-    _plyControls.minDistance = r * 0.05;
-    _plyControls.maxDistance = r * 14;
+    _plyControls.minDistance = Math.max(r * 0.002, 0.0001);
+    _plyControls.maxDistance = r * 40;
     _plyControls.update();
     hideLoading();
     // v78 â€” cinematic dotsâ†’nif_files reveal (per-embed via ?reveal_duration=, etc)
@@ -2001,8 +2001,14 @@ if (cam) {
       if (typeof cam.updateMatrixWorld === 'function') cam.updateMatrixWorld(true);
       if (typeof cam.updateProjectionMatrix === 'function') cam.updateProjectionMatrix();
 
-      if ('minDistance' in controls) controls.minDistance = Math.max(radius * 0.4, 0.08);
-      if ('maxDistance' in controls) controls.maxDistance = Math.max(radius * 14, idealDist * 4);
+      if ('minDistance' in controls) controls.minDistance = Math.max(radius * 0.002, 0.0001);
+      if ('maxDistance' in controls) controls.maxDistance = Math.max(radius * 40, idealDist * 12);
+      try {
+        if (cam && cam.near != null) {
+          cam.near = Math.min(Number(cam.near) || 0.1, 0.005);
+          if (typeof cam.updateProjectionMatrix === 'function') cam.updateProjectionMatrix();
+         }
+     } catch (_) {}
 
       if (typeof controls.update === 'function') controls.update();
       console.log('%c[FUMOCA] Subject framed in view', 'color:#c8ff00', { n, radius, idealDist, target: [cx, cy, cz] });
@@ -2027,6 +2033,10 @@ if (cam) {
     try { controls?.dispose?.(); } catch (_) {}
 
     const tb = new TrackballControls(cam, el);
+    tb.minDistance = 0.0001;
+    tb.maxDistance = 1e6;
+    tb.noZoom = false;
+    tb.zoomSpeed = 1.8;
     tb.rotateSpeed = 3.0;
     tb.zoomSpeed = 1.4;
     tb.panSpeed = 0.0;
