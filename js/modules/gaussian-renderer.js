@@ -203,6 +203,7 @@ const FumocaGaussianRenderer = (() => {
       vertexColors:   false,
     });
     _tickTime();
+    window.__fumocaViewerMaterial = _material;
     return _material;
   }
 
@@ -547,7 +548,8 @@ const FumocaGaussianRenderer = (() => {
     if (_material?.uniforms?.uViewport) _material.uniforms.uViewport.value.set(Math.max(1, width), Math.max(1, height));
   }
 
-  return { buildMaterial, buildGeometry, buildSortedGeometry, requestDepthSort, getSortIndices, invalidateSort, updateViewColors, setViewport, enable, disable, isEnabled, getTransition, playReveal, playDissolve, socialReveal, setQuality, getQuality };
+  function getMaterial() { return _material; }
+  return { buildMaterial, buildGeometry, buildSortedGeometry, requestDepthSort, getSortIndices, invalidateSort, updateViewColors, setViewport, enable, disable, isEnabled, getTransition, playReveal, playDissolve, socialReveal, setQuality, getQuality, getMaterial };
 })();
 
 window.FumocaGaussianRenderer = FumocaGaussianRenderer;

@@ -1806,6 +1806,7 @@ function mountDecodedCloud(g) {
   });
   _plyScene.add(new THREE.Points(geo, mat));
   window._fumocaPointMaterial = mat;
+  window.__fumocaViewerMaterial = mat;
   window._fumocaPointBase = mat.uniforms.uBaseSize.value;
   window._fumocaViewerRenderer = _plyRenderer;
   _plyCamera.position.set(cx, cy + radius * 0.35, cz + radius * 2.3);
