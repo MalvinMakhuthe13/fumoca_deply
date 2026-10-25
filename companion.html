@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>FUMOCA Companion</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, sans-serif; background: #0b1020; color: #e8eefc; }
+    header { display: flex; align-items: center; gap: 10px; padding: 18px 24px; }
+    .mark { width: 28px; height: 28px; border-radius: 8px; background: #5b5cff; display: grid; place-items: center; font-weight: 800; }
+    h1 { margin: 8px 24px 4px; font-size: 28px; }
+    p.lead { margin: 0 24px 18px; color: #9aa6c3; }
+    .grid { display: grid; grid-template-columns: 1.1fr .9fr; gap: 16px; padding: 0 24px 24px; }
+    .card { background: #12182b; border: 1px solid #24304d; border-radius: 16px; overflow: hidden; }
+    .card h2 { margin: 0; padding: 14px 16px; font-size: 15px; border-bottom: 1px solid #24304d; }
+    iframe, .video { width: 100%; height: 520px; border: 0; background: #000; display: block; }
+    .video { display: grid; place-items: center; color: #9aa6c3; }
+    @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } iframe, .video { height: 360px; } }
+  </style>
+</head>
+<body>
+  <header><div class="mark">F</div><strong>FUMOCA</strong> Companion</header>
+  <h1>Keep the video. Open the 3D world.</h1>
+  <p class="lead">A live page with your FUMOCA showroom embedded beside the video.</p>
+  <div class="grid">
+    <section class="card">
+      <h2>Video player</h2>
+      <div class="video">Example review</div>
+    </section>
+    <section class="card">
+      <h2>Interactive 3D showroom</h2>
+      <iframe src="https://fumoca.co.za/showroom?splatId=78dd7c03-4eda-4a8a-a37f-9a00a7013385" allow="fullscreen" loading="lazy"></iframe>
+    </section>
+  </div>
+</body>
+</html>
