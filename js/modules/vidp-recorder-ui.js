@@ -90,6 +90,7 @@ const VidpRecorderUI = (() => {
   function _buildButton() {
     if (document.getElementById('vidp-rec-btn')) return;
     const btn = document.createElement('button');
+    if (/\/viewer(?:\.html)?$/i.test(location.pathname) || document.getElementById('stage')) return;
     btn.id = 'vidp-rec-btn';
     btn.innerHTML = '<div class="rec-dot"></div> Record Video Preview';
     btn.addEventListener('click', _togglePanel);

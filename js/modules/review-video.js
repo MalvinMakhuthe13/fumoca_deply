@@ -415,6 +415,7 @@ function placeViewerVideo(stage, mode) {
 
 function showViewerBar(on) {
   if (!document.getElementById('stage')) return;
+  if (!src) on = false;
   let bar = document.getElementById('fumocaReviewBar');
   if (!bar) {
     bar = document.createElement('div');
@@ -463,7 +464,7 @@ function applyFrame() {
         video.muted = true;
       }
     }
-    showViewerBar(true);
+    showViewerBar(layout === 'hide');
     return;
   }
 
