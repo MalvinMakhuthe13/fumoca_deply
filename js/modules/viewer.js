@@ -1400,8 +1400,8 @@ function mountMeshViewer(mesh, calibration) {
   _meshCamera.position.set(c.x, c.y - r * 0.25, c.z + r * 2.4);
   _meshCamera.lookAt(c.x, c.y, c.z);
   _meshControls.target.set(c.x, c.y, c.z);
-  _meshControls.minDistance = r * 0.05;
-  _meshControls.maxDistance = r * 14;
+  _meshControls.minDistance = Math.max(r * 0.008, 0.0005);
+  _meshControls.maxDistance = r * 24;
   _meshControls.update();
   window.addEventListener('resize', () => {
     if (!_meshRenderer) return;
