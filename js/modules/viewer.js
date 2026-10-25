@@ -1017,7 +1017,7 @@ function configurePreview(record) {
   window._fumocaPublicTeaserUrl = resolvePublicTeaserUrl(record);
   applyThumbnailSurfaces();
   const review = (record?.meta || record?.metadata || {}).reviewVideo;
-  window._fumocaPendingReview = review?.url ? review : window._fumocaPendingReview;
+  window._fumocaPendingReview = review?.url ? review : null;
   if (review?.url) {
     let preload = document.getElementById('fumocaReviewPreload');
     if (!preload) {
@@ -1031,9 +1031,9 @@ function configurePreview(record) {
   }
   const applyReview = () => {
     const pending = window._fumocaPendingReview;
-    if (pending?.url && window.FumocaReviewVideo?.set) {
-      window.FumocaReviewVideo.set(pending.url, { layout: pending.layout || 'split', autoplay: true });
-    }
+    if (!window.FumocaReviewVideo?.set) return;
+    if (pending?.url) window.FumocaReviewVideo.set(pending.url, { layout: pending.layout || 'split', autoplay: true });
+    else window.FumocaReviewVideo.set(null);
   };
   applyReview();
   setTimeout(applyReview, 600);

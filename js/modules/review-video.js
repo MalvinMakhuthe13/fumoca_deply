@@ -782,9 +782,10 @@ export function initReviewVideo() {
   }
 
   const adopt = () => {
+    if (!onViewer()) return;
     const u = resolveSrc();
-    if (u && u !== src) setReviewVideo(u, { layout, autoplay: true });
-    else if (onViewer() && !u && src) setReviewVideo(null);
+    if (u) setReviewVideo(u, { layout, autoplay: true });
+    else setReviewVideo(null);
   };
   window.addEventListener('fumoca:recordLoaded', adopt);
   window.addEventListener('fumoca:nifMeta', (ev) => {
