@@ -68,9 +68,6 @@ const CaptureUI = (() => {
         </div>
 
         <div class="cap-actions">
-          <button class="cap-btn cap-btn-record" id="capTeaserBtn" title="Record the splat reveal teaser">
-            🎥 Teaser
-          </button>
           <button class="cap-btn cap-btn-record" id="capRecordBtn" title="Start recording the live viewer">
             <span class="cap-rec-dot"></span>
             Record
@@ -244,18 +241,9 @@ const CaptureUI = (() => {
       panel.querySelector('#capProgress').style.display = 'none';
 
       if (videoUrl && videoEl) {
-        videoEl.pause();
-        videoEl.removeAttribute('src');
-        videoEl.load();
         videoEl.src = videoUrl;
-        videoEl.muted = true;
-        videoEl.loop = true;
-        videoEl.controls = true;
         previewWrap.style.display = 'block';
-        const play = () => videoEl.play().catch(() => {});
-        videoEl.onloadedmetadata = play;
-        videoEl.oncanplay = play;
-        setTimeout(play, 200);
+        videoEl.play().catch(() => {});
       }
       panel.querySelector('#capPostActions').style.display = 'grid';
     });
@@ -276,29 +264,6 @@ const CaptureUI = (() => {
     if (statusEl) statusEl.textContent = msg;
   }
 
-  function playLoadReveal() {
-    return;
-    const canvas = window._fumocaCaptureCanvas
-      || window._fumocaViewerInstance?.renderer?.domElement
-      || document.querySelector('#stageHost canvas')
-      || document.querySelector('canvas');
-    const material = window.__fumocaViewerMaterial || window._fumocaPointMaterial;
-    if (material?.uniforms) {
-      window.FumocaGaussianRenderer?.playReveal?.(3200);
-    }
-    if (!canvas) return;
-    canvas.style.transition = 'none';
-    canvas.style.filter = 'blur(28px) contrast(1.3) saturate(1.35)';
-    canvas.style.transform = 'scale(1.16)';
-    canvas.style.opacity = '0.35';
-    requestAnimationFrame(() => {
-      canvas.style.transition = 'filter 3.2s ease, transform 3.2s ease, opacity 1.1s ease';
-      canvas.style.filter = 'none';
-      canvas.style.transform = 'scale(1)';
-      canvas.style.opacity = '1';
-    });
-  }
-
   async function toggleRecord() {
     if (SplatCapture.isRecording) {
       SplatCapture.stop();
@@ -306,7 +271,6 @@ const CaptureUI = (() => {
     }
     const duration = Number(durationSelect?.value || 6000);
     const fps = Number(fpsSelect?.value || 30);
-    playLoadReveal();
     try {
       await SplatCapture.start({ duration, fps });
     } catch (err) {

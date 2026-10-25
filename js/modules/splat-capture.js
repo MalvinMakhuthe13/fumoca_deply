@@ -100,23 +100,6 @@ const SplatCapture = (() => {
       emit('fumoca:captureError', { error: 'No canvas found to capture.' });
       return Promise.reject(new Error('No canvas found'));
     }
-    canvas.style.filter = 'none';
-    canvas.style.transform = 'none';
-    canvas.style.opacity = '1';
-
-    const mesh = window._fumocaViewerInstance?.splatMesh
-      || window._fumocaViewerInstance?.nifMesh;
-    const revealMs = 2800;
-    const revealStart = performance.now();
-    let raf = 0;
-    const reveal = () => {
-      const t = Math.min(1, (performance.now() - revealStart) / revealMs);
-      const ease = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-      if (mesh?.scale) mesh.scale.setScalar(0.72 + ease * 0.28);
-      if (mesh?.material) mesh.material.opacity = 0.25 + ease * 0.75;
-      if (t < 1 && recorder?.state === 'recording') raf = requestAnimationFrame(reveal);
-      else if (mesh?.scale) mesh.scale.setScalar(1);
-    };
 
     const mimeType = bestMimeType();
     let stream;
@@ -126,7 +109,6 @@ const SplatCapture = (() => {
       emit('fumoca:captureError', { error: err.message });
       return Promise.reject(err);
     }
-    reveal();
 
     chunks = [];
     thumbnailDataUrl = null;
@@ -151,7 +133,6 @@ const SplatCapture = (() => {
       const duration = Date.now() - startTime;
       const frameCount = Math.round(duration / 1000 * _options.fps);
       clearInterval(progressTimer);
-      cancelAnimationFrame(raf);
       emit('fumoca:captureStopped', { videoUrl, videoBlob: blob, duration, frames: frameCount });
       emit('fumoca:captureReady', {
         videoUrl,
@@ -201,7 +182,6 @@ const SplatCapture = (() => {
       if (recorder.state === 'recording') recorder.stop();
     } catch (_) {}
     clearInterval(progressTimer);
-      cancelAnimationFrame(raf);
   }
 
   /** Capture a single PNG frame */
