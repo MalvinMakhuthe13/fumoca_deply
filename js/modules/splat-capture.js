@@ -100,10 +100,28 @@ const SplatCapture = (() => {
       emit('fumoca:captureError', { error: 'No canvas found to capture.' });
       return Promise.reject(new Error('No canvas found'));
     }
+    source.style.filter = 'none';
+    source.style.transform = 'none';
+    source.style.opacity = '1';
+
+    const mimeType = bestMimeType();
+    let raw;
+    try {
+      raw = source.captureStream(_options.fps);
+    } catch (err) {
+      emit('fumoca:captureError', { error: err.message });
+      return Promise.reject(err);
+    }
+
+    const live = document.createElement('video');
+    live.muted = true;
+    live.playsInline = true;
+    live.srcObject = raw;
+    await live.play().catch(() => {});
 
     const canvas = document.createElement('canvas');
-    canvas.width = source.width || source.clientWidth || 1280;
-    canvas.height = source.height || source.clientHeight || 720;
+    canvas.width = source.width || 1280;
+    canvas.height = source.height || 720;
     const ctx = canvas.getContext('2d');
     const revealMs = 3200;
     const started = performance.now();
@@ -111,25 +129,25 @@ const SplatCapture = (() => {
     const paint = () => {
       const t = Math.min(1, (performance.now() - started) / revealMs);
       const ease = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-      const blur = (1 - ease) * 28;
-      const scale = 1.16 - ease * 0.16;
+      const blur = (1 - ease) * 22;
+      const scale = 1.12 - ease * 0.12;
       ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.filter = blur > 0.4 ? `blur(${blur.toFixed(1)}px) contrast(${(1.3 - ease * 0.3).toFixed(2)}) saturate(${(1.35 - ease * 0.35).toFixed(2)})` : 'none';
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.filter = blur > 0.4 ? `blur(${blur.toFixed(1)}px)` : 'none';
       const dw = canvas.width * scale;
       const dh = canvas.height * scale;
-      ctx.globalAlpha = 0.35 + ease * 0.65;
-      ctx.drawImage(source, (canvas.width - dw) / 2, (canvas.height - dh) / 2, dw, dh);
-      ctx.globalAlpha = 1;
+      if (live.readyState >= 2) {
+        ctx.drawImage(live, (canvas.width - dw) / 2, (canvas.height - dh) / 2, dw, dh);
+      }
       ctx.filter = 'none';
       if (recorder && recorder.state === 'recording') raf = requestAnimationFrame(paint);
     };
-    paint();
 
-    const mimeType = bestMimeType();
     let stream;
     try {
       stream = canvas.captureStream(_options.fps);
+      paint();
     } catch (err) {
       emit('fumoca:captureError', { error: err.message });
       return Promise.reject(err);

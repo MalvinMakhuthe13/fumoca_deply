@@ -245,8 +245,9 @@ const CaptureUI = (() => {
 
       if (videoUrl && videoEl) {
         videoEl.src = videoUrl;
+        videoEl.muted = true;
         previewWrap.style.display = 'block';
-        videoEl.play().catch(() => {});
+        videoEl.onloadeddata = () => videoEl.play().catch(() => {});
       }
       panel.querySelector('#capPostActions').style.display = 'grid';
     });
@@ -268,6 +269,7 @@ const CaptureUI = (() => {
   }
 
   function playLoadReveal() {
+    return;
     const canvas = window._fumocaCaptureCanvas
       || window._fumocaViewerInstance?.renderer?.domElement
       || document.querySelector('#stageHost canvas')
