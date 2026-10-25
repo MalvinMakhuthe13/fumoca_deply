@@ -10,12 +10,12 @@
 <script src="config.js"></script>
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160/examples/jsm/"}}</script>
 <link rel="stylesheet" href="css/present-magazine.css"/>
-<link rel="stylesheet" href="css/review-video.css?v=20261025-bgimg"/>
+<link rel="stylesheet" href="css/review-video.css?v=20261025-bglayer"/>
 <link rel="stylesheet" href="css/present-unified.css"/>
 <link rel="stylesheet" href="css/anim-studio.css"/>
 <link rel="stylesheet" href="css/fumoca-layouts.css"/>
 <script type="module" src="js/modules/anim-studio.js"></script>
-<script type="module" src="js/modules/review-video.js?v=20261025-bgimg"></script>
+<script type="module" src="js/modules/review-video.js?v=20261025-bglayer"></script>
 <script type="module" src="js/modules/present-tab.js?v=20261024-editorfix"></script>
 
 <style>
@@ -3917,6 +3917,18 @@ const BG_CSS = {
   white: '#f5f5f5',
   custom: 'linear-gradient(135deg,#111,#000)',
 };
+function bgLayer(host) {
+  if (!host) return null;
+  let layer = host.querySelector(':scope > .fumoca-bg-layer');
+  if (!layer) {
+    layer = document.createElement('div');
+    layer.className = 'fumoca-bg-layer';
+    layer.style.cssText = 'position:absolute;inset:0;z-index:0;pointer-events:none;';
+    host.insertBefore(layer, host.firstChild);
+    if (getComputedStyle(host).position === 'static') host.style.position = 'relative';
+  }
+  return layer;
+}
 function applySplatBackground() {
   const fit = document.getElementById('bgImageFit')?.value || 'contain';
   const size = fit === 'cover' ? 'cover' : fit === 'native' ? 'auto' : 'contain';
@@ -3924,17 +3936,20 @@ function applySplatBackground() {
   const css = S.bgImageUrl
     ? `url("${S.bgImageUrl}") center / ${size} no-repeat`
     : (BG_CSS[S.bgType] || 'transparent');
-  ['viewport', 'fumocaSplatPane', 'fumocaWork'].forEach((id) => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.style.setProperty('background', css, 'important');
-    el.style.setProperty('background-color', 'transparent', 'important');
-    el.style.setProperty('opacity', '1', 'important');
+  ['viewport', 'fumocaSplatPane'].forEach((id) => {
+    const host = document.getElementById(id);
+    if (!host) return;
+    host.style.setProperty('background', 'transparent', 'important');
+    host.style.removeProperty('filter');
+    const layer = bgLayer(host);
+    if (!layer) return;
+    layer.style.setProperty('background', css, 'important');
+    layer.style.setProperty('opacity', String(S.bgOpacity ?? 1), 'important');
     if (S.bgImageUrl) {
-      el.style.setProperty('background-size', scale === 1 ? size : `${Math.round(scale * 100)}%`, 'important');
-      el.style.setProperty('filter', S.bgBlur ? `blur(${S.bgBlur}px)` : 'none', 'important');
+      layer.style.setProperty('background-size', scale === 1 ? size : `${Math.round(scale * 100)}%`, 'important');
+      layer.style.setProperty('filter', S.bgBlur ? `blur(${S.bgBlur}px)` : 'none', 'important');
     } else {
-      el.style.removeProperty('filter');
+      layer.style.removeProperty('filter');
     }
   });
   const scene = window._fumocaScene || window.scene;
@@ -3942,7 +3957,11 @@ function applySplatBackground() {
   const renderer = window._fumocaGlRenderer;
   if (renderer) {
     renderer.setClearColor(0x000000, 0);
-    if (renderer.domElement) renderer.domElement.style.setProperty('background', 'transparent', 'important');
+    if (renderer.domElement) {
+      renderer.domElement.style.setProperty('background', 'transparent', 'important');
+      renderer.domElement.style.setProperty('position', 'relative', 'important');
+      renderer.domElement.style.setProperty('z-index', '1', 'important');
+    }
   }
 }
 function drawBackground() {
@@ -6046,7 +6065,7 @@ animBg();
 <script type="module" src="js/modules/studio-timeline.js"></script>
 <script type="module" src="js/modules/ply-validator.js"></script>
 <script type="module" src="js/modules/camera-view.js"></script>
-<script type="module" src="js/modules/publish-to-fumoca.js?v=20261025-bgimg2"></script>
+<script type="module" src="js/modules/publish-to-fumoca.js?v=20261025-bglayer2"></script>
 <script type="module" src="js/modules/gaussian-renderer.js"></script>
 <script type="module" src="js/modules/smart-select.js"></script>
 <script src="js/modules/gap-fill-engine.js"></script>
