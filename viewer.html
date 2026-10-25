@@ -30,7 +30,7 @@
 <link rel="stylesheet" href="css/fumoca-layouts.css"/>
 <link rel="stylesheet" href="css/anim-studio.css"/>
 
-<script type="module" src="js/modules/review-video.js?v=20261025-choice2"></script>
+<script type="module" src="js/modules/review-video.js?v=20261025-embedcolor"></script>
 <script type="module" src="js/modules/present-viewer.js"></script>
 <script src="config.js"></script>
 <script type="importmap">
@@ -827,7 +827,11 @@
     <div class="fmenu-section">
       <div class="fmenu-row neon" onclick="window._fumocaCloseMenu();window._fumocaOpenSharePanel()">
         <span class="fmenu-icon">🌐</span>
-        <div class="fmenu-text"><div class="fmenu-name">Share</div><div class="fmenu-sub">WhatsApp, Instagram, LinkedIn, QR code, embed</div></div>
+        <div class="fmenu-text"><div class="fmenu-name">Share</div><div class="fmenu-sub">WhatsApp, Instagram, LinkedIn, QR code</div></div>
+      </div>
+      <div class="fmenu-row neon" id="fmenuEmbedRow">
+        <span class="fmenu-icon">⧉</span>
+        <div class="fmenu-text"><div class="fmenu-name">Embed</div><div class="fmenu-sub">Copy an iframe for a site or post</div></div>
       </div>
       <div class="fmenu-row neon" onclick="window._fumocaCloseMenu();window.FumocExportUI?.open()">
         <span class="fmenu-icon">⬇</span>
@@ -1332,7 +1336,7 @@
   </div>
 </div>
 
-<script type="module" src="js/modules/viewer.js?v=20261025-choice2"></script>
+<script type="module" src="js/modules/viewer.js?v=20261025-embedcolor"></script>
 <script type="module" src="js/modules/sound-engine.js"></script>
 <script type="module" src="js/modules/edit-engine.js"></script>
 <script type="module" src="js/modules/camera-engine.js"></script>
@@ -1971,6 +1975,12 @@ document.addEventListener('pointerdown', () => {
 
 <script type="module">
 // v80: Share button wiring
+document.getElementById('fmenuEmbedRow')?.addEventListener('click', () => {
+  window._fumocaCloseMenu?.();
+  const url = location.href + (location.search ? '&' : '?') + 'embed=1';
+  const snippet = '<iframe src="' + url + '" style="width:100%;height:640px;border:0;border-radius:16px" allow="fullscreen" loading="lazy"></iframe>';
+  navigator.clipboard?.writeText(snippet);
+});
 document.getElementById('fumocShareBtn')?.addEventListener('click', async () => {
   const record = window._fumocaCurrentRecord;
   if (!record || !window.FumocSocialHub) return;
@@ -2326,7 +2336,7 @@ window.addEventListener('fumoca:subjectIsolated', async e => {
   import { VidpEncoder }    from './js/modules/vidp-encoder.js';
   import VideoInteractive   from './js/modules/video-interactive.js';
   import HotspotVideoEditor from './js/modules/hotspot-video-editor.js';
-  import VidpRecorderUI     from './js/modules/vidp-recorder-ui.js?v=20261025-choice2';
+  import VidpRecorderUI     from './js/modules/vidp-recorder-ui.js?v=20261025-embedcolor';
 
   // Expose globally for cross-module access
   window.VidpEncoder        = VidpEncoder;

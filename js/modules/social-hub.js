@@ -352,6 +352,7 @@ function buildSharePanel(record, options = {}) {
           <div class="fsp-chip" data-share="sms"><span class="fsp-emoji">📱</span>SMS</div>
           <div class="fsp-chip" data-share="email"><span class="fsp-emoji">📧</span>Email</div>
           ${navigator.share ? `<div class="fsp-chip" data-share="native"><span class="fsp-emoji">🔗</span>More…</div>` : ''}
+          <div class="fsp-chip" data-share="embed"><span class="fsp-emoji">⧉</span>Embed</div>
         </div>
       </div>
 
@@ -417,6 +418,14 @@ function buildSharePanel(record, options = {}) {
       else if (ch === 'sms') target = smsShare(record);
       else if (ch === 'email') target = emailShare(record);
       else if (ch === 'native') { nativeShare(record); return; }
+      else if (ch === 'embed') {
+        const url = _viewerUrl(record.id, { embed: '1' });
+        const snippet = `<iframe src="${url}" style="width:100%;height:640px;border:0;border-radius:16px" allow="fullscreen" loading="lazy"></iframe>`;
+        navigator.clipboard?.writeText(snippet).catch(() => {});
+        const mark = chip.querySelector('.fsp-emoji');
+        if (mark) mark.textContent = '✓';
+        return;
+      }
       if (target?.url) window.open(target.url, '_blank', 'noopener');
     });
   });

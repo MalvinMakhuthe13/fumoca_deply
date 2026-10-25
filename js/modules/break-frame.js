@@ -557,6 +557,15 @@ export function mountBreakFrameUI(container, { onStatus } = {}) {
     photo: photoImg,
   });
 
+  container.querySelector('#bfDepthText')?.addEventListener('change', (e) => {
+    const text = e.target.value || '';
+    const rec = window._fumocaCurrentRecord;
+    if (rec) {
+      rec.meta = { ...(rec.meta || {}), depthText: text };
+      window._fumocaCurrentRecord = rec;
+    }
+    window._fumocaDepthText = text;
+  });
   container.querySelector('#bfOverflow')?.addEventListener('input', (e) => {
     const el = container.querySelector('#bfOverflowVal');
     if (el) el.textContent = e.target.value + '%';

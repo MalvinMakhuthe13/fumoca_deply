@@ -10,12 +10,12 @@
 <script src="config.js"></script>
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160/examples/jsm/"}}</script>
 <link rel="stylesheet" href="css/present-magazine.css"/>
-<link rel="stylesheet" href="css/review-video.css?v=20261025-choice2"/>
+<link rel="stylesheet" href="css/review-video.css?v=20261025-embedcolor"/>
 <link rel="stylesheet" href="css/present-unified.css"/>
 <link rel="stylesheet" href="css/anim-studio.css"/>
 <link rel="stylesheet" href="css/fumoca-layouts.css"/>
 <script type="module" src="js/modules/anim-studio.js"></script>
-<script type="module" src="js/modules/review-video.js?v=20261025-choice2"></script>
+<script type="module" src="js/modules/review-video.js?v=20261025-embedcolor"></script>
 <script type="module" src="js/modules/present-tab.js?v=20261024-editorfix"></script>
 
 <style>
@@ -452,6 +452,7 @@ input[type=range].amber::-webkit-slider-thumb{background:var(--amber);box-shadow
 
 /* ─── BG PREVIEW CANVAS ─── */
 #bgPreviewCanvas{position:absolute;inset:0;z-index:0;pointer-events:none}
+#viewport canvas{background:transparent !important}
 
 /* ─── PANEL COLLAPSE BUTTONS ─── */
 .panel-toggle{
@@ -4710,6 +4711,11 @@ colorAdjIds.forEach((id, i) => {
     if (id === 'adjTint') S.tint = v;
     if (id === 'adjHue') S.hueShift = v;
     drawToneCurve();
+    window.FumocaGaussianRenderer?.setQuality?.({
+      brightness: 1 + (S.exposure || 0) / 100,
+      contrast: 1 + (S.contrast || 0) / 100,
+      saturation: 1 + (S.saturation || 0) / 100,
+    });
     rebuildGeometry();
   });
 });
@@ -5997,7 +6003,7 @@ animBg();
 <script type="module" src="js/modules/studio-timeline.js"></script>
 <script type="module" src="js/modules/ply-validator.js"></script>
 <script type="module" src="js/modules/camera-view.js"></script>
-<script type="module" src="js/modules/publish-to-fumoca.js?v=20261025-choice22"></script>
+<script type="module" src="js/modules/publish-to-fumoca.js?v=20261025-embedcolor2"></script>
 <script type="module" src="js/modules/gaussian-renderer.js"></script>
 <script type="module" src="js/modules/smart-select.js"></script>
 <script src="js/modules/gap-fill-engine.js"></script>

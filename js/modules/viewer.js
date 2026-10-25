@@ -1009,6 +1009,21 @@ function applyThumbnailSurfaces() {
   previewPoster.classList.remove('hidden');
   syntheticTeaser.style.backgroundImage = `url('${thumbnailUrl.replace(/'/g, "%27")}')`;
 }
+
+function mountDepthText(record) {
+  document.getElementById('fumocaDepthText')?.remove();
+  const text = record?.meta?.depthText || record?.metadata?.depthText || '';
+  if (!text) return;
+  const stage = document.getElementById('stage');
+  if (!stage) return;
+  const el = document.createElement('div');
+  el.id = 'fumocaDepthText';
+  el.textContent = text;
+  el.style.cssText = 'position:absolute;inset:0;z-index:1;display:flex;align-items:center;justify-content:center;pointer-events:none;font:800 18vw/1 system-ui;color:rgba(255,255,255,.86);letter-spacing:-.04em;text-align:center;padding:8vh';
+  const host = document.getElementById('stageHost') || stage.firstChild;
+  stage.insertBefore(el, host || null);
+}
+
 function configurePreview(record) {
   previewVideoUrl = previewVideoUrl || resolvePreviewVideo(record);
   thumbnailUrl = thumbnailUrl || resolveThumbnail(record);
@@ -2170,6 +2185,8 @@ async function boot() {
   console.log('[Viewer] Final fileUrl:', fileUrl || '(empty â€” no renderable file found)');
   window._fumocaCurrentRecord = currentRecord;
   configurePreview(currentRecord);
+  mountDepthText(currentRecord);
+
   await detectManagePermission();
   window.dispatchEvent(new CustomEvent('fumoca:recordLoaded', { detail: currentRecord || null }));
   loadHotspots();
