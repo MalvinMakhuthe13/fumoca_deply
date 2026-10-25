@@ -787,7 +787,7 @@ function resolvePreviewVideo(record) {
     record.preview_video_url,
     record.teaser_video_url,
     record.video_url,
-    meta.reviewVideo?.url,
+    meta.reviewVideo?.explicit ? meta.reviewVideo.url : '',
     meta.review_video_url,
     record.review_video_url
   );
@@ -3128,10 +3128,9 @@ async function _fumocaAutoGeneratePreviewVideo() {
   return false;
 }
 window.addEventListener('fumoca:viewerReady', () => {
-  setTimeout(() => { _fumocaAutoGeneratePreviewVideo(); }, 1400);
-});
-window.addEventListener('fumoca:permissionsUpdated', () => {
-  setTimeout(() => { _fumocaAutoGeneratePreviewVideo(); }, 400);
+  if (new URLSearchParams(location.search).get('autocap') === '1') {
+    setTimeout(() => { _fumocaAutoGeneratePreviewVideo(); }, 1400);
+  }
 });
 window.addEventListener('fumoca:captureUploaded', (e) => {
   const url = e?.detail?.publicUrl;

@@ -817,7 +817,8 @@ export function initReviewVideo() {
   window.addEventListener('fumoca:recordLoaded', adopt);
   window.addEventListener('fumoca:nifMeta', (ev) => {
     const review = ev.detail?.reviewVideo;
-    if (httpUrl(review?.url)) setReviewVideo(review.url, { layout: review.layout || layout, autoplay: true });
+    if (review?.explicit && httpUrl(review.url)) setReviewVideo(review.url, { layout: review.layout || layout, autoplay: true });
+    else if (onViewer()) setReviewVideo(null);
   });
 
   window.FumocaReviewVideo = {
