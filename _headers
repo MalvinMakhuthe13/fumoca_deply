@@ -3,7 +3,7 @@
 
 /*
   X-Content-Type-Options: nosniff
-  X-Frame-Options: SAMEORIGIN
+  Content-Security-Policy: frame-ancestors 'self'
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=()
 
@@ -37,3 +37,16 @@
 
 /viewer
   Cache-Control: no-cache
+
+/viewer
+  Content-Security-Policy: frame-ancestors *
+  Cache-Control: no-cache
+
+/viewer.html
+  Content-Security-Policy: frame-ancestors *
+
+/embed
+  Content-Security-Policy: frame-ancestors *
+
+/embed/*
+  Content-Security-Policy: frame-ancestors *
