@@ -711,6 +711,7 @@
 </svg>
 
 <!-- SPLAT VIEWER SHELL -->
+<button id="fumocaTeaserBtn" type="button" title="Capture teaser" style="position:fixed;bottom:24px;left:24px;z-index:40;background:rgba(7,10,16,.9);border:1px solid rgba(200,255,0,.4);color:#c8ff00;border-radius:14px;padding:10px 16px;font-size:13px;font-weight:700;cursor:pointer">🎥 Teaser</button>
 <div id="viewerShell">
   <div id="heroBackdrop"></div>
   <div id="stage"><div id="stageHost"></div></div>
@@ -772,8 +773,7 @@
   <button id="fumocExportBtn"   style="display:none;"></button>
   <button id="applyStudioBtn"   style="display:none;"></button>
   <!-- Hamburger -->
-  <button id="fumocaTeaserBtn" type="button" title="Capture teaser" style="position:fixed;bottom:24px;left:24px;z-index:12;background:rgba(7,10,16,.85);border:1px solid rgba(200,255,0,.35);color:#c8ff00;border-radius:14px;padding:9px 14px;font-size:12px;font-weight:700;cursor:pointer">🎥 Teaser</button>
-  <button id="menuBtn" onclick="window._fumocaOpenMenu()" aria-label="Menu">☰</button>
+    <button id="menuBtn" onclick="window._fumocaOpenMenu()" aria-label="Menu">☰</button>
 </div>
 
 <!-- FAB — floating action button (share/export quick access) -->
@@ -2590,10 +2590,13 @@ document.getElementById('fumocaTeaserBtn')?.addEventListener('click', async () =
     const { recordTeaser, downloadBlob } = await import('./js/modules/social-recorder.js');
     const { runRevealSequence, readRevealConfig, attachRevealToMaterial } = await import('./js/modules/cinematic-reveal.js');
     const inst = window._fumocaViewerInstance;
+    const all = [...document.querySelectorAll('canvas')];
+    const biggest = all.sort((a, b) => (b.width * b.height) - (a.width * a.height))[0];
     const canvas = window._fumocaCaptureCanvas
       || inst?.renderer?.domElement
       || document.querySelector('#stageHost canvas')
       || document.querySelector('#stage canvas')
+      || biggest
       || document.querySelector('canvas');
     const material = window.__fumocaViewerMaterial
       || window._fumocaPointMaterial

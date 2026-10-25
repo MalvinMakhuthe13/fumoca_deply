@@ -1880,6 +1880,9 @@ async function mountInteractiveViewer(forceReload = false) {
     }
     await viewerInstance.addSplatScene(_activeUrl, _sceneOpts);
     viewerInstance.start();
+    window._fumocaViewerInstance = viewerInstance;
+    const _liveCanvas = viewerInstance.renderer?.domElement;
+    if (_liveCanvas) window._fumocaCaptureCanvas = _liveCanvas;
     try {
       const host = stageHost || stageEl;
       const w = host?.clientWidth || window.innerWidth;
