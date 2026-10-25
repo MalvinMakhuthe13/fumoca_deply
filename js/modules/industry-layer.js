@@ -342,6 +342,7 @@ function bNote(root, text) {
 }
 
 function mount() {
+  if (/viewer/i.test(location.pathname)) return;
   if (!document.querySelector('link[data-fumoca-industry]')) {
     const link = document.createElement('link');
     link.rel = 'stylesheet';
