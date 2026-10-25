@@ -375,7 +375,7 @@ export function encodeNif(opts = {}) {
   // { reviewVideo: { url, layout, kind: 'splat-video' } }
   if (!meta.reviewVideo && typeof window !== 'undefined') {
     const live = window.FumocaReviewVideo?.meta?.();
-    if (live?.url) meta.reviewVideo = live;
+    if (live?.explicit && live.url) meta.reviewVideo = live;
   }
   writer.add(CHUNK.META, encodeMetaChunk(meta).data, CODEC.RAW);
 

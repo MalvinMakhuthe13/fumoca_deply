@@ -1017,7 +1017,7 @@ function configurePreview(record) {
   window._fumocaPublicTeaserUrl = resolvePublicTeaserUrl(record);
   applyThumbnailSurfaces();
   const review = (record?.meta || record?.metadata || {}).reviewVideo;
-  window._fumocaPendingReview = review?.url ? review : null;
+  window._fumocaPendingReview = review?.explicit && review?.url ? review : null;
   if (review?.url) {
     let preload = document.getElementById('fumocaReviewPreload');
     if (!preload) {
@@ -2264,7 +2264,7 @@ async function boot() {
       window._fumocaTourStops   = meta.tourStops  || [];
       window._fumocaHotspots    = meta.hotspots   || [];
       window._fumocaOpenedMeta  = meta;
-      if (meta?.reviewVideo?.url) {
+      if (meta?.reviewVideo?.explicit && meta?.reviewVideo?.url) {
         window.FumocaReviewVideo?.set?.(meta.reviewVideo.url, {
           layout: meta.reviewVideo.layout || 'split',
           autoplay: true,

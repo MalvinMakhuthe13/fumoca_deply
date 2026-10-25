@@ -14,6 +14,7 @@ const LAYOUTS = ['pip', 'bg', 'split', 'stack', 'full', 'cinema', 'hide', 'hidde
 let video = null;
 let root = null;
 let pendingFile = null;
+let sessionReview = false;
 let controls = null;
 let empty = null;
 let layout = 'split';
@@ -91,21 +92,22 @@ function onViewer() {
   return !!document.getElementById('stage') || /\/viewer(?:\.html)?$/i.test(location.pathname);
 }
 
+function explicitReview(value) {
+  return value?.explicit === true && httpUrl(value.url) ? value.url : null;
+}
+
 function resolveSrc() {
   const q = new URLSearchParams(location.search);
   const fromQ = q.get('review') || q.get('reviewVideo');
   if (httpUrl(fromQ)) return fromQ;
   const opened = window._fumocaOpenedMeta;
-  if (httpUrl(opened?.reviewVideo?.url)) return opened.reviewVideo.url;
+  const fromNif = explicitReview(opened?.reviewVideo);
+  if (fromNif) return fromNif;
   const rec = window._fumocaCurrentRecord;
   const meta = rec?.meta || rec?.metadata || {};
-  if (httpUrl(meta.reviewVideo?.url)) return meta.reviewVideo.url;
-  if (httpUrl(meta.review_video_url)) return meta.review_video_url;
-  if (httpUrl(rec?.review_video_url)) return rec.review_video_url;
-  // A saved review belongs to another file. Do not show it on a plain NIF.
+  const fromRecord = explicitReview(meta.reviewVideo);
+  if (fromRecord) return fromRecord;
   if (onViewer()) return null;
-  const saved = loadSaved();
-  if (httpUrl(saved?.url)) return saved.url;
   return null;
 }
 
@@ -684,7 +686,7 @@ function onClick(e) {
 }
 
 async function persistRecord(url, nextLayout) {
-  const reviewVideo = { url, layout: nextLayout || layout, kind: 'splat-video', savedAt: Date.now() };
+  const reviewVideo = { url, layout: nextLayout || layout, kind: 'splat-video', explicit: true, savedAt: Date.now() };
   if (window._fumocaOpenedMeta) window._fumocaOpenedMeta.reviewVideo = reviewVideo;
   const rec = window._fumocaCurrentRecord;
   if (rec) {
@@ -732,7 +734,7 @@ export function setReviewVideo(url, opts = {}) {
     video.muted = true;
     video.play().catch(() => {});
   }
-  if (httpUrl(src)) {
+  if (sessionReview && httpUrl(src)) {
     saveSaved({ url: src, layout });
     persistRecord(src, layout);
   }
@@ -750,6 +752,7 @@ export function pickFromDevice(opts = {}) {
     if (!file) return;
     pendingFile = file;
     window._fumocaReviewFile = file;
+    sessionReview = true;
     if (objectUrl) URL.revokeObjectURL(objectUrl);
     objectUrl = URL.createObjectURL(file);
     setReviewVideo(objectUrl, { layout: opts.layout || layout || 'split', autoplay: true });
@@ -774,7 +777,8 @@ export function pickFromDevice(opts = {}) {
 }
 
 export function currentReviewMeta() {
-  return httpUrl(src) ? { url: src, layout, kind: 'splat-video' } : null;
+  if (!sessionReview || !httpUrl(src)) return null;
+  return { url: src, layout, kind: 'splat-video', explicit: true };
 }
 
 export async function ensurePublic() {
