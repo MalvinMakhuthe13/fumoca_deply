@@ -1017,8 +1017,7 @@ function configurePreview(record) {
   window._fumocaPublicTeaserUrl = resolvePublicTeaserUrl(record);
   applyThumbnailSurfaces();
   const review = (record?.meta || record?.metadata || {}).reviewVideo;
-  const bound = review?.explicit && review?.boundId && review.boundId === record?.id;
-  window._fumocaPendingReview = bound ? review : null;
+  window._fumocaPendingReview = review?.url ? review : null;
   if (review?.url) {
     let preload = document.getElementById('fumocaReviewPreload');
     if (!preload) {
@@ -2265,15 +2264,11 @@ async function boot() {
       window._fumocaTourStops   = meta.tourStops  || [];
       window._fumocaHotspots    = meta.hotspots   || [];
       window._fumocaOpenedMeta  = meta;
-      const boundReview = meta?.reviewVideo;
-      const recordId = currentRecord?.id || nifId;
-      if (boundReview?.explicit && boundReview?.boundId === recordId && boundReview?.url) {
-        window.FumocaReviewVideo?.set?.(boundReview.url, {
-          layout: boundReview.layout || 'split',
+      if (meta?.reviewVideo?.url) {
+        window.FumocaReviewVideo?.set?.(meta.reviewVideo.url, {
+          layout: meta.reviewVideo.layout || 'split',
           autoplay: true,
         });
-      } else {
-        window.FumocaReviewVideo?.set?.(null);
       }
       window.dispatchEvent(new CustomEvent('fumoca:nifMeta', { detail: meta }));
       console.log(`[Viewer] .nif decoded â†’ ${gaussians.count.toLocaleString()} gaussians`);

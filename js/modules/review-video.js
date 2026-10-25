@@ -96,19 +96,18 @@ function explicitReview(value) {
   return value?.explicit === true && httpUrl(value.url) ? value.url : null;
 }
 
-function boundReview(value, id) {
-  if (!value?.explicit || !httpUrl(value.url) || !id) return null;
-  return value.boundId === id ? value.url : null;
+function attachedReview(value) {
+  return httpUrl(value?.url) ? value.url : null;
 }
 
 function resolveSrc() {
-  if (onViewer()) {
-    const rec = window._fumocaCurrentRecord;
-    const id = rec?.id || new URLSearchParams(location.search).get('nifId') || '';
-    const meta = rec?.meta || rec?.metadata || {};
-    return boundReview(meta.reviewVideo, id);
-  }
-  return null;
+  if (!onViewer()) return null;
+  const opened = window._fumocaOpenedMeta;
+  const fromNif = attachedReview(opened?.reviewVideo);
+  if (fromNif) return fromNif;
+  const rec = window._fumocaCurrentRecord;
+  const meta = rec?.meta || rec?.metadata || {};
+  return attachedReview(meta.reviewVideo);
 }
 
 const GRID = {
@@ -822,8 +821,11 @@ export function initReviewVideo() {
     else setReviewVideo(null);
   };
   window.addEventListener('fumoca:recordLoaded', adopt);
-  window.addEventListener('fumoca:nifMeta', () => {
-    if (onViewer()) {
+  window.addEventListener('fumoca:nifMeta', (ev) => {
+    if (!onViewer()) return;
+    const review = ev.detail?.reviewVideo;
+    if (attachedReview(review)) setReviewVideo(review.url, { layout: review.layout || 'split', autoplay: true });
+    else {
       const u = resolveSrc();
       if (u) setReviewVideo(u, { autoplay: true });
       else setReviewVideo(null);
