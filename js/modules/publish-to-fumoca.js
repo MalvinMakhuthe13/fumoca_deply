@@ -127,7 +127,7 @@ const FumocaPublish = (() => {
   }
 
   // ── Main publish function ─────────────────────────────
-  async function publish({ title, description, visibility = 'public', onProgress } = {}) {
+  async function publish({ title, description, visibility = 'public', includeReview = false, onProgress } = {}) {
     // Try every possible location for the Supabase client
     let sb = window._fumocaSupabase || window.supabase;
     if (!sb) {
@@ -149,24 +149,23 @@ const FumocaPublish = (() => {
     const splatId = rec?.id || new URLSearchParams(location.search).get('splatId');
     const aliveCount = Array.from(S.alive).filter(Boolean).length;
 
-    onProgress?.('Uploading review video…', 8);
+    onProgress?.(includeReview ? 'Uploading review video…' : 'Publishing without video…', 8);
     let review = null;
-    const hasLocalReview = !!(window._fumocaReviewFile || (window.FumocaReviewVideo?.getSrc?.() || '').startsWith('blob:'));
-    try {
-      review = await window.FumocaReviewVideo?.ensurePublic?.();
-    } catch (err) {
-      console.warn('[Publish] review video upload failed', err);
-      if (hasLocalReview) throw new Error('Review video did not upload. Keep this tab open and publish again.');
+    if (includeReview) {
+      const hasLocalReview = !!(window._fumocaReviewFile || (window.FumocaReviewVideo?.getSrc?.() || '').startsWith('blob:'));
+      try {
+        review = await window.FumocaReviewVideo?.ensurePublic?.();
+      } catch (err) {
+        console.warn('[Publish] review video upload failed', err);
+        if (hasLocalReview) throw new Error('Review video did not upload. Keep this tab open and publish again.');
+      }
+      if (!review) review = window.FumocaReviewVideo?.meta?.() || null;
+      if (!review?.url) throw new Error('Choose With video only after uploading a review, or publish Without video.');
+      review = { ...review, include: true };
+      console.info('[Publish] review video attached', review.url);
     }
-    if (!review) review = window.FumocaReviewVideo?.meta?.() || null;
-    if (hasLocalReview && !review?.url) {
-      throw new Error('Review video is still only on this device. Upload it again, then publish.');
-    }
-    if (review?.url) console.info('[Publish] review video attached', review.url);
     onProgress?.('Preparing splat…', 12);
-
-    // 1. Build a genuine .nif blob (no .fumoc, no bare .splat/.ply)
-    const blob = await _buildNifBlob({ title, description, reviewVideo: review });
+    const blob = await _buildNifBlob({ title, description, reviewVideo: includeReview ? review : null, skipLiveReview: !includeReview });
     onProgress?.('Uploading…', 20);
 
     // 2. Upload to storage
@@ -200,11 +199,12 @@ const FumocaPublish = (() => {
     };
     if (title) payload.title = title;
     if (description) payload.description = description;
-    if (review?.url && review.explicit) {
-      payload.meta = { ...(rec?.meta || rec?.metadata || {}), reviewVideo: { ...review, explicit: true } };
+    if (includeReview && review?.url) {
+      payload.meta = { ...(rec?.meta || rec?.metadata || {}), includeReview: true, reviewVideo: { ...review, include: true } };
     } else {
       const cleaned = { ...(rec?.meta || rec?.metadata || {}) };
       delete cleaned.reviewVideo;
+      cleaned.includeReview = false;
       payload.meta = cleaned;
     }
 
@@ -283,6 +283,16 @@ const FumocaPublish = (() => {
                      background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#ccc;">🔒 Private</button>
           </div>
 
+          <div class="ctrl-row" style="margin-bottom:6px;">
+            <span class="ctrl-label">Review video</span>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px;" id="pubReviewGrid">
+            <button type="button" class="pub-review-btn active" data-review="without"
+              style="padding:8px 4px;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;background:rgba(200,255,0,.14);border:1px solid rgba(200,255,0,.4);color:#c8ff00;">Without video</button>
+            <button type="button" class="pub-review-btn" data-review="with"
+              style="padding:8px 4px;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#ccc;">With video</button>
+          </div>
+
           <div id="pubProgress" style="display:none;margin-bottom:10px;">
             <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:4px;">
               <span id="pubProgressLabel">Preparing…</span>
@@ -304,6 +314,20 @@ const FumocaPublish = (() => {
                background:rgba(200,255,0,.08);border:1px solid rgba(200,255,0,.3);font-size:12px;"></div>
         </div>
       </div>`;
+    el.querySelectorAll('.pub-review-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        el.querySelectorAll('.pub-review-btn').forEach((b) => {
+          b.classList.remove('active');
+          b.style.background = 'rgba(255,255,255,.05)';
+          b.style.borderColor = 'rgba(255,255,255,.1)';
+          b.style.color = '#ccc';
+        });
+        btn.classList.add('active');
+        btn.style.background = 'rgba(200,255,0,.14)';
+        btn.style.borderColor = 'rgba(200,255,0,.4)';
+        btn.style.color = '#c8ff00';
+      });
+    });
   }
 
   // ── Handle the publish button click ──────────────────
@@ -314,6 +338,7 @@ const FumocaPublish = (() => {
     const title = document.getElementById('pubTitle')?.value?.trim();
     const visBtn = document.querySelector('.pub-vis-btn.active');
     const visibility = visBtn?.dataset.vis || 'public';
+    const includeReview = document.querySelector('.pub-review-btn.active')?.dataset.review === 'with';
 
     if (btn) { btn.disabled = true; btn.textContent = '⏳ Publishing…'; }
     if (progress) progress.style.display = 'block';
@@ -323,6 +348,7 @@ const FumocaPublish = (() => {
       const out = await publish({
         title,
         visibility,
+        includeReview,
         onProgress: (label, pct) => {
           const lbl = document.getElementById('pubProgressLabel');
           const p = document.getElementById('pubProgressPct');

@@ -373,7 +373,7 @@ export function encodeNif(opts = {}) {
   const meta = { ...(opts.meta || {}) };
   // A .nif can carry the paired review video, not only the splat.
   // { reviewVideo: { url, layout, kind: 'splat-video' } }
-  if (!meta.reviewVideo && typeof window !== 'undefined') {
+  if (!opts.skipLiveReview && !meta.reviewVideo && typeof window !== 'undefined') {
     const live = window.FumocaReviewVideo?.meta?.();
     if (live?.explicit && live.url) meta.reviewVideo = live;
   }
