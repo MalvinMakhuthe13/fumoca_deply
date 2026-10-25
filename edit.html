@@ -10,12 +10,12 @@
 <script src="config.js"></script>
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160/examples/jsm/"}}</script>
 <link rel="stylesheet" href="css/present-magazine.css"/>
-<link rel="stylesheet" href="css/review-video.css?v=20261025-embedcolor"/>
+<link rel="stylesheet" href="css/review-video.css?v=20261025-splatbg"/>
 <link rel="stylesheet" href="css/present-unified.css"/>
 <link rel="stylesheet" href="css/anim-studio.css"/>
 <link rel="stylesheet" href="css/fumoca-layouts.css"/>
 <script type="module" src="js/modules/anim-studio.js"></script>
-<script type="module" src="js/modules/review-video.js?v=20261025-embedcolor"></script>
+<script type="module" src="js/modules/review-video.js?v=20261025-splatbg"></script>
 <script type="module" src="js/modules/present-tab.js?v=20261024-editorfix"></script>
 
 <style>
@@ -3903,7 +3903,35 @@ function resizeBgCanvas() {
   drawBackground();
 }
 
+const BG_CSS = {
+  transparent: 'transparent',
+  solid: '#111111',
+  'gradient-radial': 'radial-gradient(circle,#1a2a3a,#000)',
+  'gradient-linear': 'linear-gradient(135deg,#0d1b2a,#1a0d2e)',
+  studio: 'radial-gradient(ellipse at 30% 30%,#1e1e1e,#000)',
+  'neon-dark': 'radial-gradient(ellipse,rgba(212,255,0,.15) 0%,#040508 55%)',
+  'purple-haze': 'radial-gradient(ellipse at 40% 60%,rgba(139,92,246,.3),#060310 60%)',
+  ocean: 'radial-gradient(ellipse,rgba(0,200,255,.2) 0%,#030a10 55%)',
+  sunset: 'linear-gradient(160deg,#1a0510,#3a1210,#2a0d00)',
+  arctic: 'radial-gradient(ellipse,rgba(180,240,255,.2),#0a0f14)',
+  white: '#f5f5f5',
+  custom: 'linear-gradient(135deg,#111,#000)',
+};
+function applySplatBackground() {
+  const css = BG_CSS[S.bgType] || 'transparent';
+  ['viewport', 'fumocaSplatPane', 'fumocaWork'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.style.setProperty('background', css, 'important');
+  });
+  const scene = window._fumocaScene || window.scene;
+  if (scene && window.THREE) {
+    if (S.bgType === 'transparent') scene.background = null;
+    else scene.background = new THREE.Color(S.bgType === 'white' ? 0xf5f5f5 : 0x030a10);
+  }
+}
 function drawBackground() {
+  applySplatBackground();
   const W = bgCanvas.width, H = bgCanvas.height;
   bgCtx.clearRect(0, 0, W, H);
   const bt = S.bgType;
@@ -6003,7 +6031,7 @@ animBg();
 <script type="module" src="js/modules/studio-timeline.js"></script>
 <script type="module" src="js/modules/ply-validator.js"></script>
 <script type="module" src="js/modules/camera-view.js"></script>
-<script type="module" src="js/modules/publish-to-fumoca.js?v=20261025-embedcolor2"></script>
+<script type="module" src="js/modules/publish-to-fumoca.js?v=20261025-splatbg2"></script>
 <script type="module" src="js/modules/gaussian-renderer.js"></script>
 <script type="module" src="js/modules/smart-select.js"></script>
 <script src="js/modules/gap-fill-engine.js"></script>
