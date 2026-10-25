@@ -419,7 +419,7 @@ function buildSharePanel(record, options = {}) {
       else if (ch === 'email') target = emailShare(record);
       else if (ch === 'native') { nativeShare(record); return; }
       else if (ch === 'embed') {
-        const url = _viewerUrl(record.id, { embed: '1' });
+        const url = _showroomUrl(record.id);
         const snippet = `<iframe src="${url}" style="width:100%;height:640px;border:0;border-radius:16px" allow="fullscreen" loading="lazy"></iframe>`;
         navigator.clipboard?.writeText(snippet).catch(() => {});
         const mark = chip.querySelector('.fsp-emoji');

@@ -50,3 +50,9 @@
 
 /embed/*
   Content-Security-Policy: frame-ancestors *
+
+/showroom
+  Content-Security-Policy: frame-ancestors *
+
+/showroom.html
+  Content-Security-Policy: frame-ancestors *
