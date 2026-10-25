@@ -2582,7 +2582,41 @@ window.addEventListener('fumoca:recordLoaded', e => {
 
 
 <script>
-document.getElementById('fumocaTeaserBtn')?.addEventListener('click', () => {
-  document.getElementById('teaserBtn')?.click();
+document.getElementById('fumocaTeaserBtn')?.addEventListener('click', async () => {
+  const btn = document.getElementById('fumocaTeaserBtn');
+  if (btn?.dataset.busy === '1') return;
+  if (btn) { btn.dataset.busy = '1'; btn.textContent = 'Recording…'; }
+  try {
+    const { recordTeaser, downloadBlob } = await import('./js/modules/social-recorder.js');
+    const { runRevealSequence, readRevealConfig, attachRevealToMaterial } = await import('./js/modules/cinematic-reveal.js');
+    const canvas = document.querySelector('#stageHost canvas')
+      || document.querySelector('#stage canvas')
+      || document.querySelector('canvas');
+    const material = window.__fumocaViewerMaterial
+      || window._fumocaPointMaterial
+      || window.FumocaGaussianRenderer?.getMaterial?.()
+      || window.S?.points?.material;
+    if (!canvas || !material) {
+      if (btn) btn.textContent = 'Not ready';
+      setTimeout(() => { if (btn) { btn.textContent = '🎥 Teaser'; btn.dataset.busy = ''; } }, 1200);
+      return;
+    }
+    window.__fumocaViewerMaterial = material;
+    attachRevealToMaterial?.(material);
+    const rec = window._fumocaCurrentRecord;
+    const { blob } = await recordTeaser({
+      sourceCanvas: canvas,
+      aspect: 'vertical',
+      branding: { text: rec?.metadata?.brand || 'FUMOCA', cta: rec?.title || 'View in 3D' },
+      fps: 30,
+      triggerReveal: () => runRevealSequence({ material, config: readRevealConfig() }),
+    });
+    downloadBlob(blob, (rec?.title || 'fumoca-teaser') + '.webm');
+    if (btn) btn.textContent = 'Saved';
+  } catch (err) {
+    console.warn('[teaser]', err);
+    if (btn) btn.textContent = 'Failed';
+  }
+  setTimeout(() => { if (btn) { btn.textContent = '🎥 Teaser'; btn.dataset.busy = ''; } }, 1600);
 });
 </script>
