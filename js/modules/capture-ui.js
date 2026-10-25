@@ -244,10 +244,18 @@ const CaptureUI = (() => {
       panel.querySelector('#capProgress').style.display = 'none';
 
       if (videoUrl && videoEl) {
+        videoEl.pause();
+        videoEl.removeAttribute('src');
+        videoEl.load();
         videoEl.src = videoUrl;
         videoEl.muted = true;
+        videoEl.loop = true;
+        videoEl.controls = true;
         previewWrap.style.display = 'block';
-        videoEl.onloadeddata = () => videoEl.play().catch(() => {});
+        const play = () => videoEl.play().catch(() => {});
+        videoEl.onloadedmetadata = play;
+        videoEl.oncanplay = play;
+        setTimeout(play, 200);
       }
       panel.querySelector('#capPostActions').style.display = 'grid';
     });

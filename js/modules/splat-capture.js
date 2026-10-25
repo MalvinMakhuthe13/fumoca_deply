@@ -95,63 +95,38 @@ const SplatCapture = (() => {
       ...opts,
     };
 
-    const source = findCanvas();
-    if (!source) {
+    const canvas = findCanvas();
+    if (!canvas) {
       emit('fumoca:captureError', { error: 'No canvas found to capture.' });
       return Promise.reject(new Error('No canvas found'));
     }
-    source.style.filter = 'none';
-    source.style.transform = 'none';
-    source.style.opacity = '1';
+    canvas.style.filter = 'none';
+    canvas.style.transform = 'none';
+    canvas.style.opacity = '1';
 
-    const mimeType = bestMimeType();
-    let raw;
-    try {
-      raw = source.captureStream(_options.fps);
-    } catch (err) {
-      emit('fumoca:captureError', { error: err.message });
-      return Promise.reject(err);
-    }
-
-    const live = document.createElement('video');
-    live.muted = true;
-    live.playsInline = true;
-    live.srcObject = raw;
-    await live.play().catch(() => {});
-
-    const canvas = document.createElement('canvas');
-    canvas.width = source.width || 1280;
-    canvas.height = source.height || 720;
-    const ctx = canvas.getContext('2d');
-    const revealMs = 3200;
-    const started = performance.now();
+    const mesh = window._fumocaViewerInstance?.splatMesh
+      || window._fumocaViewerInstance?.nifMesh;
+    const revealMs = 2800;
+    const revealStart = performance.now();
     let raf = 0;
-    const paint = () => {
-      const t = Math.min(1, (performance.now() - started) / revealMs);
+    const reveal = () => {
+      const t = Math.min(1, (performance.now() - revealStart) / revealMs);
       const ease = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-      const blur = (1 - ease) * 22;
-      const scale = 1.12 - ease * 0.12;
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.fillStyle = '#000';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.filter = blur > 0.4 ? `blur(${blur.toFixed(1)}px)` : 'none';
-      const dw = canvas.width * scale;
-      const dh = canvas.height * scale;
-      if (live.readyState >= 2) {
-        ctx.drawImage(live, (canvas.width - dw) / 2, (canvas.height - dh) / 2, dw, dh);
-      }
-      ctx.filter = 'none';
-      if (recorder && recorder.state === 'recording') raf = requestAnimationFrame(paint);
+      if (mesh?.scale) mesh.scale.setScalar(0.72 + ease * 0.28);
+      if (mesh?.material) mesh.material.opacity = 0.25 + ease * 0.75;
+      if (t < 1 && recorder?.state === 'recording') raf = requestAnimationFrame(reveal);
+      else if (mesh?.scale) mesh.scale.setScalar(1);
     };
 
+    const mimeType = bestMimeType();
     let stream;
     try {
       stream = canvas.captureStream(_options.fps);
-      paint();
     } catch (err) {
       emit('fumoca:captureError', { error: err.message });
       return Promise.reject(err);
     }
+    reveal();
 
     chunks = [];
     thumbnailDataUrl = null;
