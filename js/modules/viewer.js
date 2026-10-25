@@ -1885,12 +1885,17 @@ async function mountInteractiveViewer(forceReload = false) {
       const w = host?.clientWidth || window.innerWidth;
       const h = host?.clientHeight || window.innerHeight;
       if (w > 2 && h > 2) viewerInstance.renderer?.setSize?.(w, h, false);
-      const canvas = host?.querySelector?.('canvas');
+      const canvas = viewerInstance.renderer?.domElement || host?.querySelector?.('canvas');
       if (canvas) {
         canvas.style.setProperty('display', 'block', 'important');
         canvas.style.setProperty('width', '100%', 'important');
         canvas.style.setProperty('height', '100%', 'important');
+        window._fumocaCaptureCanvas = canvas;
       }
+      window._fumocaViewerInstance = viewerInstance;
+      const mesh = viewerInstance.splatMesh || viewerInstance.nifMesh || viewerInstance.getSplatMesh?.();
+      const mat = mesh?.material || viewerInstance.material;
+      if (mat) window.__fumocaViewerMaterial = mat;
     } catch (_) {}
     hideLoading();
     hideStageFreeze(forceReload ? 220 : 90);

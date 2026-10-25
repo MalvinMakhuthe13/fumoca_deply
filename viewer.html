@@ -2589,27 +2589,58 @@ document.getElementById('fumocaTeaserBtn')?.addEventListener('click', async () =
   try {
     const { recordTeaser, downloadBlob } = await import('./js/modules/social-recorder.js');
     const { runRevealSequence, readRevealConfig, attachRevealToMaterial } = await import('./js/modules/cinematic-reveal.js');
-    const canvas = document.querySelector('#stageHost canvas')
+    const inst = window._fumocaViewerInstance;
+    const canvas = window._fumocaCaptureCanvas
+      || inst?.renderer?.domElement
+      || document.querySelector('#stageHost canvas')
       || document.querySelector('#stage canvas')
       || document.querySelector('canvas');
     const material = window.__fumocaViewerMaterial
       || window._fumocaPointMaterial
+      || inst?.splatMesh?.material
+      || inst?.nifMesh?.material
       || window.FumocaGaussianRenderer?.getMaterial?.()
       || window.S?.points?.material;
-    if (!canvas || !material) {
+    if (!canvas) {
       if (btn) btn.textContent = 'Not ready';
       setTimeout(() => { if (btn) { btn.textContent = '🎥 Teaser'; btn.dataset.busy = ''; } }, 1200);
       return;
     }
-    window.__fumocaViewerMaterial = material;
-    attachRevealToMaterial?.(material);
+    if (material) {
+      window.__fumocaViewerMaterial = material;
+      attachRevealToMaterial?.(material);
+    }
     const rec = window._fumocaCurrentRecord;
     const { blob } = await recordTeaser({
       sourceCanvas: canvas,
       aspect: 'vertical',
       branding: { text: rec?.metadata?.brand || 'FUMOCA', cta: rec?.title || 'View in 3D' },
       fps: 30,
-      triggerReveal: () => runRevealSequence({ material, config: readRevealConfig() }),
+      triggerReveal: async () => {
+        if (material) await runRevealSequence({ material, config: readRevealConfig() });
+        const cam = inst?.camera || window._fumocaViewerCamera;
+        const controls = inst?.controls;
+        if (cam?.position) {
+          const start = cam.position.clone();
+          const t0 = performance.now();
+          await new Promise((done) => {
+            const step = (now) => {
+              const t = Math.min(1, (now - t0) / 2800);
+              const a = t * Math.PI * 0.7;
+              cam.position.set(
+                start.x * Math.cos(a) - start.z * Math.sin(a),
+                start.y,
+                start.x * Math.sin(a) + start.z * Math.cos(a)
+              );
+              controls?.target && cam.lookAt(controls.target);
+              controls?.update?.();
+              if (t < 1) requestAnimationFrame(step);
+              else done();
+            };
+            requestAnimationFrame(step);
+          });
+        }
+      },
     });
     downloadBlob(blob, (rec?.title || 'fumoca-teaser') + '.webm');
     if (btn) btn.textContent = 'Saved';
