@@ -95,11 +95,36 @@ const SplatCapture = (() => {
       ...opts,
     };
 
-    const canvas = findCanvas();
-    if (!canvas) {
+    const source = findCanvas();
+    if (!source) {
       emit('fumoca:captureError', { error: 'No canvas found to capture.' });
       return Promise.reject(new Error('No canvas found'));
     }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = source.width || source.clientWidth || 1280;
+    canvas.height = source.height || source.clientHeight || 720;
+    const ctx = canvas.getContext('2d');
+    const revealMs = 3200;
+    const started = performance.now();
+    let raf = 0;
+    const paint = () => {
+      const t = Math.min(1, (performance.now() - started) / revealMs);
+      const ease = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+      const blur = (1 - ease) * 28;
+      const scale = 1.16 - ease * 0.16;
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.filter = blur > 0.4 ? `blur(${blur.toFixed(1)}px) contrast(${(1.3 - ease * 0.3).toFixed(2)}) saturate(${(1.35 - ease * 0.35).toFixed(2)})` : 'none';
+      const dw = canvas.width * scale;
+      const dh = canvas.height * scale;
+      ctx.globalAlpha = 0.35 + ease * 0.65;
+      ctx.drawImage(source, (canvas.width - dw) / 2, (canvas.height - dh) / 2, dw, dh);
+      ctx.globalAlpha = 1;
+      ctx.filter = 'none';
+      if (recorder && recorder.state === 'recording') raf = requestAnimationFrame(paint);
+    };
+    paint();
 
     const mimeType = bestMimeType();
     let stream;
@@ -133,6 +158,7 @@ const SplatCapture = (() => {
       const duration = Date.now() - startTime;
       const frameCount = Math.round(duration / 1000 * _options.fps);
       clearInterval(progressTimer);
+      cancelAnimationFrame(raf);
       emit('fumoca:captureStopped', { videoUrl, videoBlob: blob, duration, frames: frameCount });
       emit('fumoca:captureReady', {
         videoUrl,
@@ -182,6 +208,7 @@ const SplatCapture = (() => {
       if (recorder.state === 'recording') recorder.stop();
     } catch (_) {}
     clearInterval(progressTimer);
+      cancelAnimationFrame(raf);
   }
 
   /** Capture a single PNG frame */
