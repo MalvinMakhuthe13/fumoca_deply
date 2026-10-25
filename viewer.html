@@ -522,8 +522,7 @@
      action bar on small screens. Nothing blocks the view.
      ═══════════════════════════════════════════════════════════════ */
 
-  /* ── Auto-hide shell: fades when .ui-idle is on <body>
-<script>if(new URLSearchParams(location.search).get("embed")==="1")document.body.classList.add("fumoca-embed-mode");</script> ── */
+  /* ── Auto-hide shell: fades when .ui-idle is on <body> ── */
   body.ui-idle #topbar,
   body.ui-idle #hint,
   body.ui-idle #bottomBar { opacity: 0; pointer-events: none; }
@@ -703,6 +702,7 @@ body.fumoca-embed-mode .topbar { display:none !important; }
 <link rel="stylesheet" href="css/present-magazine.css"/>
 </head>
 <body data-nav="none">
+<script>if(new URLSearchParams(location.search).get("embed")==="1")document.body.classList.add("fumoca-embed-mode");</script>
 
 <svg id="hiddenSvgFilters" aria-hidden="true" focusable="false">
   <defs>
