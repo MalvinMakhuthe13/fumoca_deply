@@ -1485,366 +1485,72 @@ function destroyPlyViewer() {
   _plyScene = _plyCamera = _plyControls = null;
 }
 async function mountPlyViewer(url) {
+  // Use the same production Gaussian renderer as the NIF path. The former
+  // Three.js point-sprite implementation averaged scale XYZ, ignored each
+  // quaternion, and did not depth-sort transparent splats; that was not a
+  // faithful renderer for standard 3DGS PLY files.
   destroyPlyViewer();
-  const container = stageHost || stageEl;
-  _plyScene = new THREE.Scene();
-  _plyCamera = new THREE.PerspectiveCamera(55, container.clientWidth / container.clientHeight, 0.001, 2000);
-  // nerfstudio/COLMAP uses OpenCV convention: Y is DOWN, Z into scene.
-  // Match the Gaussiannif_files3D cameraUp of [0,-1,-0.6] so nif_files sit upright.
-  _plyCamera.up.set(0, -1, -0.6).normalize();
-  _plyRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
-  _plyRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  _plyRenderer.setSize(container.clientWidth, container.clientHeight);
-  _plyRenderer.setClearColor(0x000000, 0);
-  Object.assign(_plyRenderer.domElement.style, { position:'absolute', inset:'0', width:'100%', height:'100%', zIndex:'2' });
-  container.appendChild(_plyRenderer.domElement);
-  _plyControls = new OrbitControls(_plyCamera, _plyRenderer.domElement);
-  _plyControls.enableDamping = true; _plyControls.dampingFactor = 0.028;
-  _plyControls.rotateSpeed = 1.15; _plyControls.zoomSpeed = 1.05;
-  _plyControls.enablePan = false;
-  _plyControls.minPolarAngle = 0; _plyControls.maxPolarAngle = Math.PI;
-  setLoading('Loading point cloudâ€¦');
+  destroyMeshViewer();
+  await destroyViewer();
+  setLoading('Loading Gaussian splat…');
   try {
-    // Fetch manually so PLYLoader.parse() can access ALL attributes including f_dc_*
-    const resp = await fetch(url);
-    if (!resp.ok) throw new Error('fetch for "' + url + '" responded with ' + resp.status + ':');
-    const buffer = await resp.arrayBuffer();
-    const geo = new PLYLoader().parse(buffer);
-    const posAttr = geo.getAttribute('position');
-    if (!posAttr) throw new Error('PLY has no position attribute');
-    activeGaussianPositions = posAttr.array;
-    const count = posAttr.count;
-    const colors = new Float32Array(count * 3);
-    const intensityAttr = geo.getAttribute('intensity');
-    const classificationAttr = geo.getAttribute('classification');
-    const returnAttr = geo.getAttribute('return_number') || geo.getAttribute('returnNumber');
-    // Try colour sources in priority order
-    const fdc0 = geo.getAttribute('f_dc_0');
-    const fdc1 = geo.getAttribute('f_dc_1');
-    const fdc2 = geo.getAttribute('f_dc_2');
-    const colAttr = geo.getAttribute('color');
-    const rAttr = geo.getAttribute('red') || geo.getAttribute('diffuse_red');
-    const gAttr = geo.getAttribute('green') || geo.getAttribute('diffuse_green');
-    const bAttr = geo.getAttribute('blue') || geo.getAttribute('diffuse_blue');
-    if (fdc0 && fdc1 && fdc2) {
-      // nerfstudio/gnif: SH DC band â†’ sigmoid colour
-      const SH = 0.28209479177387814;
-      for (let i = 0; i < count; i++) {
-        colors[i*3]   = Math.max(0, Math.min(1, SH * fdc0.array[i] + 0.5));
-        colors[i*3+1] = Math.max(0, Math.min(1, SH * fdc1.array[i] + 0.5));
-        colors[i*3+2] = Math.max(0, Math.min(1, SH * fdc2.array[i] + 0.5));
-      }
-    } else if (colAttr) {
-      const arr = colAttr.array;
-      let maxVal = 0;
-      for (let i = 0; i < Math.min(arr.length, 600); i++) maxVal = Math.max(maxVal, arr[i]);
-      const scale = maxVal > 1.5 ? 1/255 : 1;
-      for (let i = 0; i < count * 3; i++) colors[i] = arr[i] * scale;
-    } else if (rAttr && gAttr && bAttr) {
-      let maxVal = 0;
-      for (let i = 0; i < Math.min(rAttr.array.length, 300); i++)
-        maxVal = Math.max(maxVal, rAttr.array[i], gAttr.array[i], bAttr.array[i]);
-      const scale = maxVal > 1.5 ? 1/255 : 1;
-      for (let i = 0; i < count; i++) {
-        colors[i*3]   = rAttr.array[i] * scale;
-        colors[i*3+1] = gAttr.array[i] * scale;
-        colors[i*3+2] = bAttr.array[i] * scale;
-      }
-    } else {
-      // No colour data â€” warm grey (not white)
-      for (let i = 0; i < count; i++) { colors[i*3]=0.65; colors[i*3+1]=0.60; colors[i*3+2]=0.55; }
-    }
-    const sourceColors = colors.slice();
-    // â”€â”€ Per-point opacity (sigmoid-decoded from log-odds if present) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    const opacities = new Float32Array(count);
-    const opAttr = geo.getAttribute('opacity');
-    if (opAttr) {
-      for (let i = 0; i < count; i++) {
-        const v = opAttr.array[i];
-        opacities[i] = Number.isFinite(v) ? 1.0 / (1.0 + Math.exp(-v)) : 1.0;
-      }
-    } else {
-      opacities.fill(1.0);
-    }
-    // â”€â”€ Per-point size: scale_* from 3DGS are log-scale world units â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    // exp-decoded they are tiny (0.001â€“0.15). Use scene radius to compute a
-    // sensible base size so nif_files are always visible, with scale as a soft multiplier.
-    const sizes = new Float32Array(count);
-    const sc0 = geo.getAttribute('scale_0');
-    const sc1 = geo.getAttribute('scale_1');
-    const sc2 = geo.getAttribute('scale_2');
-    // We don't know the radius yet (computed after), so store raw for now;
-    // we'll rescale below after boundingSphere is computed.
-    if (sc0 && sc1 && sc2) {
-      for (let i = 0; i < count; i++) {
-        const sx = Math.exp(Math.max(-10, Math.min(2, sc0.array[i])));
-        const sy = Math.exp(Math.max(-10, Math.min(2, sc1.array[i])));
-        const sz = Math.exp(Math.max(-10, Math.min(2, sc2.array[i])));
-        sizes[i] = (sx + sy + sz) / 3;
-      }
-    } else {
-      sizes.fill(0); // will be set to radius-based default below
-    }
-    // Debug: log what attributes are present so we can confirm colour source
-    console.log('%c[FUMOCA PLY attrs]', 'color:#c8ff00;font-weight:800',
-      /*[...geo.attributes].map ? 'n/a' :*/
-      Object.keys(geo.attributes).join(', '));
-    geo.setAttribute('color',    new THREE.BufferAttribute(colors, 3));
-    if (intensityAttr || classificationAttr || returnAttr) {
-      const control = document.createElement('select');
-      control.setAttribute('aria-label', 'LiDAR point color display');
-      Object.assign(control.style, {
-        position: 'absolute', top: '54px', right: '12px', zIndex: '4',
-        padding: '7px 10px', borderRadius: '9px', border: '1px solid rgba(255,255,255,.24)',
-        background: 'rgba(0,0,0,.68)', color: '#fff', font: '600 12px system-ui,sans-serif',
-      });
-      const modes = [['rgb', 'Source color'], ['intensity', 'Intensity'], ['classification', 'Classification'], ['return', 'Return number']];
-      for (const [mode, label] of modes) {
-        if (mode === 'intensity' && !intensityAttr || mode === 'classification' && !classificationAttr || mode === 'return' && !returnAttr) continue;
-        const option = document.createElement('option'); option.value = mode; option.textContent = label; control.append(option);
-      }
-      if (!colAttr && !rAttr && intensityAttr) control.value = 'intensity';
-      const classPalette = [[.5,.5,.5],[.75,.72,.58],[.44,.35,.2],[.48,.72,.25],[.28,.62,.19],[.13,.42,.12],[.85,.28,.16],[.66,.52,.28],[.62,.42,.25],[.12,.42,.9],[.8,.72,.52],[.62,.62,.62]];
-      const returnPalette = [[.1,.1,.1],[.1,.55,1],[.1,.9,.6],[1,.7,.1],[1,.2,.15]];
-      control.addEventListener('change', () => {
-        const mode = control.value;
-        let intensityMin = 0, intensityMax = 1;
-        if (mode === 'intensity' && intensityAttr) {
-          intensityMin = Infinity; intensityMax = -Infinity;
-          for (let i = 0; i < count; i++) { intensityMin = Math.min(intensityMin, intensityAttr.array[i]); intensityMax = Math.max(intensityMax, intensityAttr.array[i]); }
-          if (intensityMax <= 1) intensityMin = 0;
-          if (intensityMax === intensityMin) intensityMax = intensityMin + 1;
-        }
-        for (let i = 0; i < count; i++) {
-          const p = i * 3;
-          if (mode === 'intensity' && intensityAttr) {
-            const raw = Number(intensityAttr.array[i]) || 0;
-            const t = Math.max(0, Math.min(1, (raw - intensityMin) / (intensityMax - intensityMin)));
-            colors[p] = t; colors[p+1] = Math.min(1, t * 1.8); colors[p+2] = Math.max(0, 1 - t * 1.7);
-          } else if (mode === 'classification' && classificationAttr) {
-            const c = classPalette[classificationAttr.array[i] % classPalette.length];
-            colors[p] = c[0]; colors[p+1] = c[1]; colors[p+2] = c[2];
-          } else if (mode === 'return' && returnAttr) {
-            const c = returnPalette[Math.min(returnPalette.length - 1, returnAttr.array[i])];
-            colors[p] = c[0]; colors[p+1] = c[1]; colors[p+2] = c[2];
-          } else {
-            colors[p] = sourceColors[p]; colors[p+1] = sourceColors[p+1]; colors[p+2] = sourceColors[p+2];
-          }
-        }
-        geo.getAttribute('color').needsUpdate = true;
-      });
-      _plyAttributeControl = control;
-      container.appendChild(control);
-      if (control.value !== 'rgb') control.dispatchEvent(new Event('change'));
-    }
-    geo.setAttribute('aOpacity', new THREE.BufferAttribute(opacities, 1));
-    geo.setAttribute('aSize',    new THREE.BufferAttribute(sizes, 1));
-    // â”€â”€ Photoreal Gaussian nif shader â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    const mat = new THREE.ShaderMaterial({
-      uniforms: {
-        uBaseSize:   { value: 1.0 },   // set after boundingSphere below
-        uBrightness: { value: 1.3 },
-      },
-      vertexShader: /* glsl */`
-        attribute vec3  color;
-        attribute float aOpacity;
-        attribute float aSize;
-        varying vec3  vColor;
-        varying float vAlpha;
-        uniform float uBaseSize;
-        uniform float uBrightness;
-        void main() {
-          vColor = clamp(color * uBrightness, 0.0, 1.0);
-          vAlpha = clamp(aOpacity, 0.0, 1.0);
-          vec4 mv   = modelViewMatrix * vec4(position, 1.0);
-          float dist = max(0.1, -mv.z);
-          // aSize is the normalised per-point multiplier (0â€“1 range after rescaling).
-          // uBaseSize encodes the scene-radius-relative nif diameter in pixels.
-          float sz = uBaseSize * (0.4 + aSize * 0.6);
-          gl_PointSize = clamp(sz / dist * 80.0, 1.5, 60.0);
-          gl_Position  = projectionMatrix * mv;
-        }`,
-      fragmentShader: /* glsl */`
-        varying vec3  vColor;
-        varying float vAlpha;
-        void main() {
-          vec2  uv = gl_PointCoord - 0.5;
-          float r2 = dot(uv, uv);
-          if (r2 > 0.25) discard;
-          // Gaussian falloff gives smooth nif discs
-          float a = exp(-7.0 * r2) * vAlpha;
-          if (a < 0.006) discard;
-          gl_FragColor = vec4(vColor, a);
-        }`,
-      transparent: true,
-      depthWrite:  false,
-      depthTest:   true,
-      blending:    THREE.NormalBlending,
-      vertexColors: false,
+    const host = stageHost || stageEl;
+    viewerInstance = new Gaussiannif_files3D.Viewer({
+      rootElement: host,
+      cameraUp: [0, -1, -0.6],
+      initialCameraPosition: [0, 1, 4],
+      initialCameraLookAt: [0, 0, 0],
+      sharedMemoryForWorkers: false,
+      antialiased: true,
+      selfDrivenMode: true,
+      useBuiltInControls: true,
+      ignoreDevicePixelRatio: false,
+      dynamicScene: false,
+      sphericalHarmonicsDegree: 2,
+      logLevel: Gaussiannif_files3D.LogLevel?.Warn ?? 1,
     });
-    const pts = new THREE.Points(geo, mat);
-    _plyScene.add(pts);
-    // Auto-fit camera â€” match nerfstudio convention used by Gaussiannif_files3D:
-    // cameraUp=[0,-1,-0.6], initialCameraPosition=[0,1,4], lookAt=[0,0,0]
-    // Offset everything by the bounding center so the subject is centered.
-    geo.computeBoundingSphere();
-    const r = geo.boundingSphere.radius || 1;
-    const c = geo.boundingSphere.center;
-    // Normalise per-point sizes to 0â€“1 range using the median as anchor,
-    // then set uBaseSize so nif_files cover ~0.8% of the scene radius at 1Ã— distance.
-    const sArr = geo.getAttribute('aSize').array;
-    const sorted = Float32Array.from(sArr).sort();
-    const median = sorted[Math.floor(sorted.length * 0.5)] || 1;
-    if (median > 0) {
-      for (let i = 0; i < sArr.length; i++) sArr[i] = Math.min(sArr[i] / (median * 4), 1.0);
-      geo.getAttribute('aSize').needsUpdate = true;
+    const options = {
+      showLoadingUI: false,
+      // Non-progressive loading allows the renderer to optimize splat ordering
+      // before display. This prioritizes final image quality over first-pixel time.
+      progressiveLoad: false,
+      splatAlphaRemovalThreshold: 1,
+      format: Gaussiannif_files3D.SceneFormat?.Ply,
+    };
+    await viewerInstance.addSplatScene(url, options);
+    viewerInstance.start();
+    window._fumocaViewerInstance = viewerInstance;
+    const canvas = viewerInstance.renderer?.domElement || host.querySelector('canvas');
+    if (canvas) {
+      canvas.style.setProperty('display', 'block', 'important');
+      canvas.style.setProperty('width', '100%', 'important');
+      canvas.style.setProperty('height', '100%', 'important');
+      window._fumocaCaptureCanvas = canvas;
     }
-    mat.uniforms.uBaseSize.value = r * 0.9;
-    // Mirror GS3D's default: sit slightly above (in nerfstudio Y-down space, "above" is negative Y)
-    // and back along Z, looking at center
-    _plyCamera.position.set(c.x, c.y - r * 0.25, c.z + r * 2.4);
-    _plyCamera.lookAt(c.x, c.y, c.z);
-    _plyControls.target.set(c.x, c.y, c.z);
-    _plyControls.minDistance = Math.max(r * 0.002, 0.0001);
-    _plyControls.maxDistance = r * 40;
-    _plyControls.update();
+    const w = host?.clientWidth || window.innerWidth;
+    const h = host?.clientHeight || window.innerHeight;
+    if (w > 2 && h > 2) viewerInstance.renderer?.setSize?.(w, h, false);
+    const mesh = viewerInstance.splatMesh || viewerInstance.getSplatMesh?.();
+    if (mesh?.material) window.__fumocaViewerMaterial = mesh.material;
     hideLoading();
-    // v78 â€” cinematic dotsâ†’nif_files reveal (per-embed via ?reveal_duration=, etc)
-    triggerRevealForViewer({ material: mat, pointsMesh: pts });
-    // Expose material for the social-recorder's re-trigger path
-    window.__fumocaViewerMaterial = mat;
-    window.addEventListener('resize', () => {
-      if (!_plyRenderer) return;
-      _plyCamera.aspect = container.clientWidth / container.clientHeight;
-      _plyCamera.updateProjectionMatrix();
-      _plyRenderer.setSize(container.clientWidth, container.clientHeight);
-    });
-    function loop() {
-      _plyFrame = requestAnimationFrame(loop);
-      _plyControls.update();
-      _plyRenderer.render(_plyScene, _plyCamera);
-    }
-    loop();
-    console.log('%c[Viewer] PLY loaded â€” ' + posAttr.count + ' Gaussians', 'color:#c8ff00;font-weight:800');
-  } catch(e) {
+    applyStageFilters();
+    window.dispatchEvent(new CustomEvent('fumoca:viewerReady', {
+      detail: { camera: viewerInstance.camera, controls: viewerInstance.controls, gaussians: mesh?.getSplatCount?.() ?? null },
+    }));
+    window.dispatchEvent(new CustomEvent('fumoca:splatLoaded', { detail: { format: 'ply' } }));
+    console.log('[FUMOCA] Native Gaussian PLY renderer loaded', { url, format: 'ply' });
+  } catch (error) {
+    const failedInstance = viewerInstance;
+    viewerInstance = null;
+    try { failedInstance?.stop?.(); } catch (_) {}
+    try { await failedInstance?.dispose?.(); } catch (_) {}
+    try { failedInstance?.renderer?.domElement?.remove?.(); } catch (_) {}
     hideLoading();
-    showError('Failed to load PLY: ' + e.message);
+    showError('Failed to load Gaussian PLY: ' + (error?.message || error));
+    console.error('[FUMOCA] Gaussian PLY render failed', error);
   }
 }
-function mountDecodedCloud(g) {
-  destroyPlyViewer();
-  const container = stageHost || stageEl;
-  const N = g.N | 0;
-  const positions = new Float32Array(N * 3);
-  const colors = new Float32Array(N * 3);
-  const opacities = new Float32Array(N);
-  const sizes = new Float32Array(N);
-  const pointScale = solidPointScale(g);
-  let minX = Infinity, minY = Infinity, minZ = Infinity;
-  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
-  for (let i = 0; i < N; i++) {
-    const x = g.posX[i], y = g.posY[i], z = g.posZ[i];
-    positions[i * 3] = x; positions[i * 3 + 1] = y; positions[i * 3 + 2] = z;
-    if (x < minX) minX = x; if (x > maxX) maxX = x;
-    if (y < minY) minY = y; if (y > maxY) maxY = y;
-    if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
-    colors[i * 3] = (g.colR[i] || 0) / 255;
-    colors[i * 3 + 1] = (g.colG[i] || 0) / 255;
-    colors[i * 3 + 2] = (g.colB[i] || 0) / 255;
-    opacities[i] = Math.max(0.45, (g.colA[i] || 255) / 255);
-    const meanS = ((g.sclX?.[i] || 0) + (g.sclY?.[i] || 0) + (g.sclZ?.[i] || 0)) / 3;
-    sizes[i] = Math.max(meanS, pointScale);
-  }
-  activeGaussianPositions = positions;
-  const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2, cz = (minZ + maxZ) / 2;
-  const radius = Math.max(0.2, 0.5 * Math.hypot(maxX - minX, maxY - minY, maxZ - minZ));
-  container.style.setProperty('display', 'block', 'important');
-  container.style.setProperty('visibility', 'visible', 'important');
-  container.style.setProperty('opacity', '1', 'important');
-  document.body?.classList.remove('media-flat');
-  _plyScene = new THREE.Scene();
-  _plyCamera = new THREE.PerspectiveCamera(50, 1, Math.max(0.01, radius / 200), radius * 80);
-  _plyCamera.up.set(0, 1, 0);
-  _plyRenderer = new THREE.WebGLRenderer({ antialias: false, alpha: false, powerPreference: 'high-performance' });
-  _plyRenderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-  _plyRenderer.setClearColor(0x07090d, 1);
-  Object.assign(_plyRenderer.domElement.style, {
-    position: 'absolute', inset: '0', width: '100%', height: '100%', zIndex: '2', display: 'block',
-  });
-  container.appendChild(_plyRenderer.domElement);
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  geo.setAttribute('aOpacity', new THREE.BufferAttribute(opacities, 1));
-  geo.setAttribute('aSize', new THREE.BufferAttribute(sizes, 1));
-  window._fumocaPointGeometry = geo;
-  const mat = new THREE.ShaderMaterial({
-    uniforms: { uBaseSize: { value: Math.max(radius * 0.55, pointScale * 40) }, uBrightness: { value: 1.15 } },
-    vertexShader: `
-      attribute vec3 color; attribute float aOpacity; attribute float aSize;
-      varying vec3 vColor; varying float vAlpha;
-      uniform float uBaseSize; uniform float uBrightness;
-      void main() {
-        vColor = clamp(color * uBrightness, 0.0, 1.0);
-        vAlpha = clamp(aOpacity, 0.0, 1.0);
-        vec4 mv = modelViewMatrix * vec4(position, 1.0);
-        float dist = max(0.15, -mv.z);
-        gl_PointSize = clamp(uBaseSize * (0.85 + aSize) / dist * 42.0, 3.0, 96.0);
-        gl_Position = projectionMatrix * mv;
-      }`,
-    fragmentShader: `
-      varying vec3 vColor; varying float vAlpha;
-      void main() {
-        vec2 uv = gl_PointCoord - 0.5;
-        float r2 = dot(uv, uv);
-        if (r2 > 0.25) discard;
-        float a = exp(-8.0 * r2) * vAlpha;
-        if (a < 0.04) discard;
-        gl_FragColor = vec4(vColor, max(a, 0.85));
-      }`,
-    transparent: false, depthWrite: true, depthTest: true,
-  });
-  _plyScene.add(new THREE.Points(geo, mat));
-  window._fumocaPointMaterial = mat;
-  window.__fumocaViewerMaterial = mat;
-  window._fumocaPointBase = mat.uniforms.uBaseSize.value;
-  window._fumocaViewerRenderer = _plyRenderer;
-  _plyCamera.position.set(cx, cy + radius * 0.35, cz + radius * 2.3);
-  _plyCamera.lookAt(cx, cy, cz);
-  _plyControls = new TrackballControls(_plyCamera, _plyRenderer.domElement);
-  _plyControls.rotateSpeed = 2.4;
-  _plyControls.zoomSpeed = 1.3;
-  _plyControls.panSpeed = 0;
-  _plyControls.noPan = true;
-  _plyControls.noRoll = false;
-  _plyControls.staticMoving = false;
-  _plyControls.dynamicDampingFactor = 0.12;
-  _plyControls.target.set(cx, cy, cz);
-  _plyControls.update();
-  const resize = () => {
-    const w = container.clientWidth || stageEl?.clientWidth || window.innerWidth;
-    const h = container.clientHeight || stageEl?.clientHeight || window.innerHeight;
-    if (w < 2 || h < 2) return;
-    _plyCamera.aspect = w / h;
-    _plyCamera.updateProjectionMatrix();
-    _plyRenderer.setSize(w, h, false);
-  };
-  resize();
-  if (typeof ResizeObserver !== 'undefined') new ResizeObserver(resize).observe(stageEl || container);
-  window.addEventListener('resize', resize);
-  const loop = () => {
-    _plyFrame = requestAnimationFrame(loop);
-    _plyControls.update();
-    _plyRenderer.render(_plyScene, _plyCamera);
-  };
-  loop();
-  hideLoading();
-  window._fumocaViewerCamera = _plyCamera;
-  window._fumocaViewerControls = _plyControls;
-  window.dispatchEvent(new CustomEvent('fumoca:viewerReady', {
-    detail: { camera: _plyCamera, controls: _plyControls, gaussians: g },
-  }));
-  console.log('%c[FUMOCA] Point cloud on screen', 'color:#c8ff00;font-weight:800', { N, radius });
+
 }
 async function mountInteractiveViewer(forceReload = false) {
   const activeUrl = getActivenifUrl();
