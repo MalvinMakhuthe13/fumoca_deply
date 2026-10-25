@@ -711,7 +711,6 @@
 </svg>
 
 <!-- SPLAT VIEWER SHELL -->
-<button id="fumocaTeaserBtn" type="button" title="Capture teaser" style="position:fixed;bottom:24px;left:24px;z-index:40;background:rgba(7,10,16,.9);border:1px solid rgba(200,255,0,.4);color:#c8ff00;border-radius:14px;padding:10px 16px;font-size:13px;font-weight:700;cursor:pointer">🎥 Teaser</button>
 <div id="viewerShell">
   <div id="heroBackdrop"></div>
   <div id="stage"><div id="stageHost"></div></div>
@@ -2582,8 +2581,8 @@ window.addEventListener('fumoca:recordLoaded', e => {
 
 
 <script>
-document.getElementById('fumocaTeaserBtn')?.addEventListener('click', async () => {
-  const btn = document.getElementById('fumocaTeaserBtn');
+document.getElementById('capTeaserBtn')?.addEventListener('click', async () => {
+  const btn = document.getElementById('capTeaserBtn');
   if (btn?.dataset.busy === '1') return;
   if (btn) { btn.dataset.busy = '1'; btn.textContent = 'Recording…'; }
   try {

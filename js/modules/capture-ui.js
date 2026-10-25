@@ -68,6 +68,9 @@ const CaptureUI = (() => {
         </div>
 
         <div class="cap-actions">
+          <button class="cap-btn cap-btn-record" id="capTeaserBtn" title="Record the splat reveal teaser">
+            🎥 Teaser
+          </button>
           <button class="cap-btn cap-btn-record" id="capRecordBtn" title="Start recording the live viewer">
             <span class="cap-rec-dot"></span>
             Record
