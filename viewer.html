@@ -2581,7 +2581,8 @@ window.addEventListener('fumoca:recordLoaded', e => {
 
 
 <script>
-document.getElementById('capTeaserBtn')?.addEventListener('click', async () => {
+document.addEventListener('click', async (ev) => {
+  if (ev.target?.id !== 'capTeaserBtn') return;
   const btn = document.getElementById('capTeaserBtn');
   if (btn?.dataset.busy === '1') return;
   if (btn) { btn.dataset.busy = '1'; btn.textContent = 'Recording…'; }
