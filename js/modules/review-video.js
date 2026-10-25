@@ -22,6 +22,7 @@ let objectUrl = null;
 let raf = 0;
 let drag = null;
 let fitting = false;
+let pipState = { x: null, y: null, w: 280, h: 158 };
 
 export function layoutFrame(name) {
   if (name === 'stack') {
@@ -208,6 +209,7 @@ function ensureDom() {
   video.setAttribute('playsinline', '');
   video.loop = true;
   video.preload = 'auto';
+  video.setAttribute('fetchpriority', 'high');
   controls = document.createElement('div');
   controls.id = 'fumocaReviewControls';
   controls.innerHTML = `
@@ -227,7 +229,11 @@ function ensureDom() {
       <button type="button" data-layout="hidden">Off</button>
     </span>
   `;
-  root.append(empty, video, controls);
+  const grip = document.createElement('div');
+  grip.className = 'rv-resize';
+  grip.title = 'Drag corner to resize';
+  root.append(empty, video, controls, grip);
+  grip.addEventListener('pointerdown', onResizeStart);
   const work = workEl(host);
   work.appendChild(root);
   if (host.id === 'viewport') splatPane(host);
@@ -263,29 +269,68 @@ function onSeek(e) {
   video.currentTime = (Number(e.target.value) / 1000) * video.duration;
 }
 
+function pipHost() {
+  return document.getElementById('stage') || document.getElementById('fumocaWork') || document.getElementById('viewport');
+}
+
+function applyPipBox() {
+  if (!root) return;
+  const host = pipHost();
+  const hr = host?.getBoundingClientRect();
+  if (pipState.x == null && hr) {
+    pipState.x = Math.max(8, hr.width - pipState.w - 16);
+    pipState.y = Math.max(8, hr.height - pipState.h - 88);
+  }
+  root.style.setProperty('position', 'absolute', 'important');
+  root.style.setProperty('left', (pipState.x || 16) + 'px', 'important');
+  root.style.setProperty('top', (pipState.y || 16) + 'px', 'important');
+  root.style.setProperty('right', 'auto', 'important');
+  root.style.setProperty('bottom', 'auto', 'important');
+  root.style.setProperty('width', pipState.w + 'px', 'important');
+  root.style.setProperty('height', pipState.h + 'px', 'important');
+  root.style.setProperty('max-width', 'none', 'important');
+  root.style.setProperty('max-height', 'none', 'important');
+}
+
 function onDragStart(e) {
-  if (layout !== 'pip' || e.target.closest('button, input')) return;
-  const work = document.getElementById('fumocaWork');
-  if (!work) return;
-  const hr = work.getBoundingClientRect();
+  if (layout !== 'pip' || e.target.closest('button, input, .rv-resize')) return;
+  const host = pipHost();
+  if (!host || !root) return;
+  const hr = host.getBoundingClientRect();
   const rr = root.getBoundingClientRect();
-  drag = { x: e.clientX, y: e.clientY, l: rr.left - hr.left, t: rr.top - hr.top };
+  drag = { mode: 'move', x: e.clientX, y: e.clientY, l: rr.left - hr.left, t: rr.top - hr.top, w: rr.width, h: rr.height };
   root.setPointerCapture?.(e.pointerId);
+}
+
+function onResizeStart(e) {
+  if (layout !== 'pip') return;
+  e.preventDefault();
+  e.stopPropagation();
+  const host = pipHost();
+  if (!host || !root) return;
+  const hr = host.getBoundingClientRect();
+  const rr = root.getBoundingClientRect();
+  drag = { mode: 'resize', x: e.clientX, y: e.clientY, l: rr.left - hr.left, t: rr.top - hr.top, w: rr.width, h: rr.height };
+  e.currentTarget.setPointerCapture?.(e.pointerId);
 }
 
 function onDragMove(e) {
   if (!drag || layout !== 'pip') return;
-  const work = document.getElementById('fumocaWork');
-  if (!work) return;
-  const hr = work.getBoundingClientRect();
-  let x = drag.l + e.clientX - drag.x;
-  let y = drag.t + e.clientY - drag.y;
-  x = Math.max(8, Math.min(x, hr.width - root.offsetWidth - 8));
-  y = Math.max(8, Math.min(y, hr.height - root.offsetHeight - 8));
-  root.style.setProperty('left', x + 'px', 'important');
-  root.style.setProperty('top', y + 'px', 'important');
-  root.style.setProperty('right', 'auto', 'important');
-  root.style.setProperty('bottom', 'auto', 'important');
+  const host = pipHost();
+  if (!host) return;
+  const hr = host.getBoundingClientRect();
+  if (drag.mode === 'resize') {
+    pipState.w = Math.max(160, Math.min(drag.w + (e.clientX - drag.x), hr.width - drag.l - 8));
+    pipState.h = Math.max(90, Math.min(drag.h + (e.clientY - drag.y), hr.height - drag.t - 8));
+    pipState.x = drag.l;
+    pipState.y = drag.t;
+  } else {
+    pipState.x = Math.max(8, Math.min(drag.l + e.clientX - drag.x, hr.width - root.offsetWidth - 8));
+    pipState.y = Math.max(8, Math.min(drag.t + e.clientY - drag.y, hr.height - root.offsetHeight - 8));
+    pipState.w = root.offsetWidth || pipState.w;
+    pipState.h = root.offsetHeight || pipState.h;
+  }
+  applyPipBox();
 }
 
 function pokeViewer() {
@@ -348,15 +393,19 @@ function placeViewerVideo(stage, mode) {
   const boxes = {
     split: { left: '0', top: '0', width: '50%', height: '100%', right: 'auto', bottom: 'auto' },
     stack: { left: '0', top: '0', width: '100%', height: '50%', right: 'auto', bottom: 'auto' },
-    pip: { left: 'auto', top: 'auto', right: '16px', bottom: '72px', width: '200px', height: '112px' },
+    pip: null,
     full: { left: '0', top: '0', width: '100%', height: '100%', right: 'auto', bottom: 'auto' },
     cinema: { left: '0', top: '0', width: '100%', height: '100%', right: 'auto', bottom: 'auto' },
     bg: { left: '0', top: '0', width: '100%', height: '100%', right: 'auto', bottom: 'auto' },
   };
-  const box = boxes[mode] || boxes.split;
-  Object.entries(box).forEach(([k, v]) => root.style.setProperty(k, v, 'important'));
   stage.classList.remove('rv-split', 'rv-stack', 'rv-full', 'rv-pip', 'rv-bg', 'rv-cinema');
   stage.classList.add('rv-' + mode);
+  if (mode === 'pip') {
+    applyPipBox();
+    return;
+  }
+  const box = boxes[mode] || boxes.split;
+  Object.entries(box).forEach(([k, v]) => root.style.setProperty(k, v, 'important'));
 }
 
 function showViewerBar(on) {
@@ -637,6 +686,7 @@ export function setReviewVideo(url, opts = {}) {
   }
   controls.style.display = 'flex';
   if (video.src !== src) {
+    video.preload = 'auto';
     video.src = src;
     video.load();
   }

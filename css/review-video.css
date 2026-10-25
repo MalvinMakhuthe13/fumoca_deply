@@ -307,3 +307,15 @@
 }
 #stage.rv-bg > #fumocaReviewRoot { opacity: .38; }
 #stage.rv-full > #stageHost { display: none !important; }
+
+#fumocaReviewRoot .rv-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
+  z-index: 9;
+  background: linear-gradient(135deg, transparent 50%, #c8ff00 50%);
+}
+#fumocaReviewRoot:not(.layout-pip) .rv-resize { display: none; }

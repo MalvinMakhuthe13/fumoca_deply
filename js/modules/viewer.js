@@ -1018,6 +1018,17 @@ function configurePreview(record) {
   applyThumbnailSurfaces();
   const review = (record?.meta || record?.metadata || {}).reviewVideo;
   window._fumocaPendingReview = review?.url ? review : window._fumocaPendingReview;
+  if (review?.url) {
+    let preload = document.getElementById('fumocaReviewPreload');
+    if (!preload) {
+      preload = document.createElement('link');
+      preload.id = 'fumocaReviewPreload';
+      preload.rel = 'preload';
+      preload.as = 'video';
+      document.head.appendChild(preload);
+    }
+    if (preload.href !== review.url) preload.href = review.url;
+  }
   const applyReview = () => {
     const pending = window._fumocaPendingReview;
     if (pending?.url && window.FumocaReviewVideo?.set) {
