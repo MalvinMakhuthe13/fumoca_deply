@@ -448,11 +448,22 @@ function showViewerBar(on, compact) {
   bar.querySelectorAll('[data-layout]').forEach((b) => b.classList.toggle('active', b.dataset.layout === layout));
 }
 
+function videoReady() {
+  return !!(video && src && (video.readyState >= 1 || (video.duration && isFinite(video.duration) && video.duration > 0)));
+}
+
 function applyFrame() {
   if (!root) return;
   const host = workspace();
   if (!host) return;
-  const showMix = !!src && layout !== 'hidden';
+  const viewer = host.id === 'stage';
+  if (viewer && src && !videoReady()) {
+    root.style.setProperty('display', 'none', 'important');
+    if (controls) controls.style.display = 'none';
+    showViewerBar(false);
+    return;
+  }
+  const showMix = !!src && layout !== 'hidden' && (!viewer || videoReady());
   const stageHost = document.getElementById('stageHost');
 
   if (src && (layout === 'hidden' || layout === 'hide')) {
@@ -713,6 +724,10 @@ export function setReviewVideo(url, opts = {}) {
     video.load();
   }
   applyFrame();
+  const reveal = () => { if (videoReady()) applyFrame(); };
+  video.addEventListener('loadedmetadata', reveal, { once: true });
+  video.addEventListener('canplay', reveal, { once: true });
+  video.addEventListener('error', () => { src = null; applyFrame(); }, { once: true });
   if (opts.autoplay !== false) {
     video.muted = true;
     video.play().catch(() => {});
