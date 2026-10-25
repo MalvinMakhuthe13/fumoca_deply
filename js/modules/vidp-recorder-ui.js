@@ -388,7 +388,10 @@ const VidpRecorderUI = (() => {
 
     // Show/hide based on viewer ready
     window.addEventListener('fumoca:viewerReady', () => {
-      document.getElementById('vidp-rec-btn').style.display = 'flex';
+      // The viewer intentionally omits this recorder button on viewer pages.
+      // Never dereference a missing button when viewerReady fires.
+      const button = document.getElementById('vidp-rec-btn');
+      if (button) button.style.display = 'flex';
     });
   }
 

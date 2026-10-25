@@ -2014,13 +2014,14 @@ function _syncViewportHud() {
   const hint = $('viewportHudHint');
   if (hint) hint.textContent = !ready ? 'Open a splat to enable viewport tools.' :
     S.mode === 'measure' ? 'Click two points on the model to measure.' :
-    selected ? `Gizmo edits ${fmt(selected)} selected points.` : 'Gizmo edits the whole scene. Select points to edit part.';
+    selected ? `Gizmo edits ${fmt(selected)} selected points.` : 'Select points before moving, rotating, or scaling.';
 }
 function syncTransformGizmo() {
   const count = S.alive?.length || 0;
   const selectedCount = selectedPointCount();
-  // In move/rotate/scale: gizmo targets selected points, or the whole scene if none selected.
-  if (!count || !S.positions || !['move','scale-tool','rotate'].includes(S.mode)) {
+  // Never expose a scene-wide transform gizmo: transforms require an explicit point selection.
+  // Never translate the camera target or whole scene as a fallback when selection is empty.
+  if (!count || !S.positions || !selectedCount || !['move','scale-tool','rotate'].includes(S.mode)) {
     transformControls.detach();
     transformControls.enabled = false;
     transformGizmo.visible = false;
@@ -2028,10 +2029,9 @@ function syncTransformGizmo() {
     return;
   }
   let x=0,y=0,z=0,n=0;
-  const useSelection = selectedCount > 0;
+  const useSelection = true;
   for (let i = 0; i < count; i++) {
-    if (!S.alive[i]) continue;
-    if (useSelection && !S.selected[i]) continue;
+    if (!S.alive[i] || !S.selected[i]) continue;
     x += S.positions[i * 3];
     y += S.positions[i * 3 + 1];
     z += S.positions[i * 3 + 2];
