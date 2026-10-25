@@ -9,7 +9,7 @@ import { r2 } from '../r2Client.js';
 
 const STORAGE = 'fumoca_review_video_v3';
 const BUCKET = 'nif-videos';
-const LAYOUTS = ['pip', 'bg', 'split', 'stack', 'full', 'cinema', 'hidden'];
+const LAYOUTS = ['pip', 'bg', 'split', 'stack', 'full', 'cinema', 'hide', 'hidden'];
 
 let video = null;
 let root = null;
@@ -420,7 +420,7 @@ function showViewerBar(on) {
       <button type="button" data-layout="split">Split</button>
       <button type="button" data-layout="full">Full</button>
       <button type="button" data-layout="cinema">Cinema</button>
-      <button type="button" data-layout="bg">BG</button>
+      <button type="button" data-layout="hide">Hide</button>
       <button type="button" data-layout="hidden">Off</button>
     `;
     bar.addEventListener('click', (e) => {
@@ -441,8 +441,7 @@ function applyFrame() {
   const showMix = !!src && layout !== 'hidden';
   const stageHost = document.getElementById('stageHost');
 
-  if (src && layout === 'hidden') {
-    // Off hides the picture and keeps the reviewer audio.
+  if (src && (layout === 'hidden' || layout === 'hide')) {
     restoreViewerStage();
     releaseEditorCanvas();
     root.style.setProperty('display', 'none', 'important');
@@ -450,8 +449,13 @@ function applyFrame() {
     if (empty) empty.style.display = 'none';
     if (video) {
       video.style.display = 'none';
-      video.muted = false;
-      video.play().catch(() => {});
+      if (layout === 'hide') {
+        video.muted = false;
+        video.play().catch(() => {});
+      } else {
+        video.pause();
+        video.muted = true;
+      }
     }
     showViewerBar(true);
     return;
