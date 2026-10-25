@@ -87,9 +87,13 @@ function httpUrl(url) {
   return !!url && /^https?:\/\//i.test(url);
 }
 
+function onViewer() {
+  return !!document.getElementById('stage') || /\/viewer(?:\.html)?$/i.test(location.pathname);
+}
+
 function resolveSrc() {
   const q = new URLSearchParams(location.search);
-  const fromQ = q.get('review') || q.get('video') || q.get('reviewVideo');
+  const fromQ = q.get('review') || q.get('reviewVideo');
   if (httpUrl(fromQ)) return fromQ;
   const opened = window._fumocaOpenedMeta;
   if (httpUrl(opened?.reviewVideo?.url)) return opened.reviewVideo.url;
@@ -98,6 +102,8 @@ function resolveSrc() {
   if (httpUrl(meta.reviewVideo?.url)) return meta.reviewVideo.url;
   if (httpUrl(meta.review_video_url)) return meta.review_video_url;
   if (httpUrl(rec?.review_video_url)) return rec.review_video_url;
+  // A saved review belongs to another file. Do not show it on a plain NIF.
+  if (onViewer()) return null;
   const saved = loadSaved();
   if (httpUrl(saved?.url)) return saved.url;
   return null;
@@ -778,6 +784,7 @@ export function initReviewVideo() {
   const adopt = () => {
     const u = resolveSrc();
     if (u && u !== src) setReviewVideo(u, { layout, autoplay: true });
+    else if (onViewer() && !u && src) setReviewVideo(null);
   };
   window.addEventListener('fumoca:recordLoaded', adopt);
   window.addEventListener('fumoca:nifMeta', (ev) => {
