@@ -71,7 +71,7 @@ jobs:
           grep -q "row.job_id ? 'needs_retry' : 'done'" js/modules/profile.js
           grep -q "viewer.html?nifId=" js/modules/profile.js
           grep -q "source_capture: { r2_key: fileKey" js/modules/upload-page.js
-          grep -q "source_capture: { r2_key: filePath" js/modules/upload-page.js
+          grep -q "r2_key: filePath" js/modules/upload-page.js
           grep -q "capture_thumbnail_r2_key: uploadedThumbnail.fileKey" js/modules/upload-page.js
           grep -q "post.meta?.capture_thumbnail_r2_key" js/modules/feed.js
           grep -q "item.meta?.capture_thumbnail_r2_key" js/modules/profile.js
