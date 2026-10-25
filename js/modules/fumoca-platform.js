@@ -46,6 +46,10 @@ function applyEmbedMode() {
 }
 
 function updateDock() {
+  document.getElementById('fumocaAdminMenuBtn')?.remove();
+  document.getElementById('fumocaAdminDrawer')?.remove();
+  document.getElementById('fumocaPlatformDock')?.remove();
+  return;
   const dock = ensureDock();
   dock.innerHTML = '';
 
