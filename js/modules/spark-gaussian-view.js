@@ -90,47 +90,64 @@ const SparkGaussianView = (() => {
   function _filterBinaryPlyByAlive(bytes, alive) {
     const src = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
     const headerEnd = (() => {
-      const needle = [101,110,100,95,104,101,97,100,101,114,10]; // end_header\n
-      for (let i = 0; i <= src.length - needle.length; i++) {
-        let ok = true;
-        for (let j = 0; j < needle.length; j++) if (src[i+j] !== needle[j]) { ok = false; break; }
-        if (ok) return i + needle.length;
+      const marker = new TextEncoder().encode('end_header\n');
+      for (let i = 0; i <= src.length - marker.length; i++) {
+        let match = true;
+        for (let j = 0; j < marker.length; j++) {
+          if (src[i + j] !== marker[j]) { match = false; break; }
+        }
+        if (match) return i + marker.length;
       }
       return -1;
     })();
     if (headerEnd < 0) throw new Error('PLY header terminator not found');
+
     const header = new TextDecoder().decode(src.subarray(0, headerEnd));
-    if (!/^format binary_little_endian 1\\.0/m.test(header)) {
+    if (!/^format binary_little_endian 1\.0$/m.test(header)) {
       throw new Error('Safe edit-sync currently requires binary_little_endian PLY');
     }
-    const vertexMatch = header.match(/^element vertex (\\d+)$/m);
+    const vertexMatch = header.match(/^element vertex (\d+)$/m);
     if (!vertexMatch) throw new Error('PLY vertex element not found');
     const vertexCount = Number(vertexMatch[1]);
     if (!alive || alive.length !== vertexCount) {
-      throw new Error(`Safe edit-sync stopped: editor mask length ${alive?.length ?? 'missing'} does not match PLY vertex count ${vertexCount}`);
+      throw new Error(\`Safe edit-sync stopped: editor mask length \${alive?.length ?? 'missing'} does not match PLY vertex count \${vertexCount}\`);
     }
-    const types = { char:1, int8:1, uchar:1, uint8:1, short:2, int16:2, ushort:2, uint16:2, int:4, int32:4, uint:4, uint32:4, float:4, float32:4, double:8, float64:8 };
-    const lines = header.split(/\\r?
-/);
-    let inVertex = false, rowBytes = 0;
-    for (const line of lines) {
+
+    const types = {
+      char: 1, int8: 1, uchar: 1, uint8: 1,
+      short: 2, int16: 2, ushort: 2, uint16: 2,
+      int: 4, int32: 4, uint: 4, uint32: 4,
+      float: 4, float32: 4, double: 8, float64: 8
+    };
+    let inVertex = false;
+    let rowBytes = 0;
+    for (const line of header.split(/\r?\n/)) {
       if (line.startsWith('element ')) {
-        inVertex = /^element vertex \\d+$/.test(line);
+        inVertex = /^element vertex \d+$/.test(line);
         continue;
       }
       if (inVertex && line.startsWith('property ')) {
-        const parts = line.trim().split(/\\s+/);
-        if (parts[1] === 'list') throw new Error('PLY vertex list properties are not supported by safe edit-sync');
+        const parts = line.trim().split(/\s+/);
+        if (parts[1] === 'list') {
+          throw new Error('PLY vertex list properties are not supported by safe edit-sync');
+        }
         const size = types[parts[1]];
         if (!size) throw new Error('Unsupported PLY scalar type: ' + parts[1]);
         rowBytes += size;
       }
     }
-    const expected = headerEnd + vertexCount * rowBytes;
-    if (expected > src.length) throw new Error('PLY vertex data is truncated');
+    if (!rowBytes) throw new Error('No scalar vertex properties found');
+    const dataEnd = headerEnd + vertexCount * rowBytes;
+    if (dataEnd > src.length) throw new Error('PLY vertex data is truncated');
+    // This first prototype deliberately rejects trailing elements rather than
+    // silently dropping face/other element data when rebuilding the file.
+    if (dataEnd !== src.length) {
+      throw new Error('PLY has trailing data/elements; safe edit-sync refuses to rewrite it');
+    }
+
     const kept = [];
     for (let i = 0; i < vertexCount; i++) if (alive[i]) kept.push(i);
-    const newHeader = header.replace(/^element vertex \\d+$/m, 'element vertex ' + kept.length);
+    const newHeader = header.replace(/^element vertex \d+$/m, 'element vertex ' + kept.length);
     const head = new TextEncoder().encode(newHeader);
     const out = new Uint8Array(head.length + kept.length * rowBytes);
     out.set(head, 0);
