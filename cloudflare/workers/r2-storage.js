@@ -55,13 +55,30 @@ const ALLOWED_MIME_TYPES = {
 
 // ── CORS ─────────────────────────────────────────────────────────────────────
 function corsHeaders(origin, allowedOrigin) {
-  const ok = !allowedOrigin || origin === allowedOrigin || allowedOrigin === '*';
-  return {
-    'Access-Control-Allow-Origin': ok ? (origin || '*') : allowedOrigin,
+  const configuredOrigins = String(allowedOrigin || '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+  // Permit the production site and HTTPS Cloudflare Pages previews belonging
+  // to this FUMOCA project. Do not use a broad *.pages.dev wildcard.
+  const isFumocaPagesPreview =
+    /^https:\/\/[a-z0-9-]+\.fumoca-deply\.pages\.dev$/i.test(origin);
+  const ok =
+    !configuredOrigins.length ||
+    configuredOrigins.includes('*') ||
+    configuredOrigins.includes(origin) ||
+    isFumocaPagesPreview;
+
+  const headers = {
     'Access-Control-Allow-Methods': 'GET, PUT, POST, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Fumoca-Secret',
     'Access-Control-Max-Age': '86400',
+    'Vary': 'Origin',
   };
+  // Never echo the production origin for a disallowed request: that creates
+  // a misleading CORS response and can expose authenticated API responses.
+  if (ok) headers['Access-Control-Allow-Origin'] = origin || '*';
+  return headers;
 }
 
 function json(data, status = 200, extraHeaders = {}) {

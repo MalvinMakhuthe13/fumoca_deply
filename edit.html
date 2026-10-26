@@ -3303,6 +3303,11 @@ function rebuildGeometry() {
   const mat = buildMaterial();
   S.points = new THREE.Points(geo, mat);
   scene.add(S.points);
+  // Spark is the visible Gaussian surface; keep the editor point cloud hidden and
+  // mirror selection/deletion/position changes into Spark after every rebuild.
+  if (window.FumocaSparkGaussian?.isEnabled()) {
+    window.FumocaSparkGaussian.refreshEditorState(S);
+  }
   refreshTransformSourceMap();
   if (window.FumocaGaussianRenderer?.isEnabled()) _requestGaussianDepthSort();
   updateStats();

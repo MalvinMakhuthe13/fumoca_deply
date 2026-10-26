@@ -69,7 +69,7 @@ function putWithProgress(uploadUrl, body, contentType, token, onProgress, { isWo
       }
     };
     xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) resolve();
+      if (xhr.status >= 200 && xhr.status < 300) resolve(xhr.responseText || '');
       else reject(new Error(`Upload failed (${xhr.status}): ${xhr.responseText || xhr.statusText}`));
     };
     xhr.onerror = () => reject(new Error(
@@ -413,31 +413,28 @@ function bucketRef(bucketName) {
           };
         }
 
-        // Small file: ask the Worker for a presigned URL and PUT directly to R2.
-        const presignResp = await fetch(`${WORKER_URL}/upload/presign`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ bucket: bucketName, path, contentType }),
-        });
+        // Small file: upload through the authenticated Worker, not directly to
+        // the presigned R2 hostname. Preview deployments use changing Pages
+        // origins, and direct R2 PUTs fail browser CORS preflight on those
+        // origins. The Worker validates the Supabase session and writes to R2.
+        const workerUploadUrl =
+          `${WORKER_URL}/upload/${encodeURIComponent(path)}?bucket=${encodeURIComponent(bucketName)}`;
+        const responseText = await putWithProgress(
+          workerUploadUrl, fileOrBlob, contentType, token, opts.onProgress,
+          { isWorkerUrl: true }
+        );
 
-        const presignText = await presignResp.text();
-        let presignData = null;
-        try { presignData = JSON.parse(presignText); } catch { /* leave null, handled below */ }
-
-        if (!presignResp.ok || !presignData?.uploadUrl) {
-          const msg = presignData?.error || presignText || `Presign request failed (${presignResp.status})`;
-          return { publicUrl: null, fileKey: null, error: new Error(msg) };
+        let uploadData = null;
+        try { uploadData = JSON.parse(responseText || '{}'); } catch { /* handled below */ }
+        if (!uploadData?.ok || !uploadData?.fileKey || !uploadData?.publicUrl) {
+          throw new Error(uploadData?.error || 'Worker upload completed without a valid file record.');
         }
 
-        const { uploadUrl, fileKey, publicUrl } = presignData;
-        const isWorkerUrl = WORKER_URL && uploadUrl.startsWith(WORKER_URL);
-
-        await putWithProgress(uploadUrl, fileOrBlob, contentType, token, opts.onProgress, { isWorkerUrl });
-
-        return { publicUrl, fileKey, error: null };
+        return {
+          publicUrl: uploadData.publicUrl,
+          fileKey: uploadData.fileKey,
+          error: null,
+        };
       } catch (err) {
         return { publicUrl: null, fileKey: null, error: err instanceof Error ? err : new Error(String(err)) };
       }

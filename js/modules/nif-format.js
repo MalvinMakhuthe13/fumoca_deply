@@ -660,12 +660,15 @@ export function gaussiansToRenderArrays(gaussians) {
 // needing to re-point the renderer itself — the .nif file is still the only
 // thing fetched, stored, and exported; this conversion happens in memory only,
 // purely to hand off to the already-working render path.
-export function geometryToSplatRows(gaussians) {
+export function geometryToSplatRows(gaussians, options = {}) {
   const { count, data } = gaussians;
   const rowSize = 32;
   const out = new Uint8Array(count * rowSize);
   const dv  = new DataView(out.buffer);
-  const boost = scaleBoost(data, count);
+  // Published Gaussian splats already contain calibrated anisotropic scales.
+  // Preserve them for fidelity; density boosting is opt-in for sparse point
+  // clouds that specifically need it, never the default for NIF assets.
+  const boost = options.preserveScales ? 1 : scaleBoost(data, count);
 
   for (let i = 0; i < count; i++) {
     const o = i * FLOATS_PER_POINT;
