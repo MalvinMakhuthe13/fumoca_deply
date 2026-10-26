@@ -2177,7 +2177,7 @@ function activatePreset(name) {
 async function _trySparkPublic(bytes, name, url) {
   try {
     if (!window.FumocaSparkViewer?.mount) {
-      await import('./spark-viewer-bridge.js?v=20261027-seamless-overlayfix2').catch(() => null);
+      await import('./spark-viewer-bridge.js?v=20261027-seamless-overlayfix3').catch(() => null);
     }
     const host = stageHost || stageEl || document.getElementById('stageHost') || document.getElementById('stage');
     if (!host || !window.FumocaSparkViewer?.mount) return false;
@@ -2189,10 +2189,19 @@ async function _trySparkPublic(bytes, name, url) {
       hideLoading();
       if (loadingOverlay) {
         loadingOverlay.classList.add('hidden');
-        loadingOverlay.style.opacity = '0';
-        loadingOverlay.style.pointerEvents = 'none';
-        loadingOverlay.style.display = 'none';
+        loadingOverlay.style.setProperty('display', 'none', 'important');
+        loadingOverlay.style.setProperty('visibility', 'hidden', 'important');
+        loadingOverlay.style.setProperty('opacity', '0', 'important');
+        loadingOverlay.style.setProperty('pointer-events', 'none', 'important');
+        // Remove the stale capture loader entirely once Spark is live. This
+        // avoids any later CSS/class rule accidentally covering the canvas.
+        loadingOverlay.remove();
       }
+      console.info('[Viewer] Spark loader dismissed', {
+        overlayPresent: !!document.getElementById('loadingOverlay'),
+        canvasPresent: !!host.querySelector('canvas'),
+        hostSize: [host.clientWidth, host.clientHeight]
+      });
     } catch (_) {}
     try { document.body.classList.remove('media-flat'); } catch (_) {}
     return true;
