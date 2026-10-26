@@ -6,7 +6,6 @@ import r2 from '../r2Client.js';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
-import { SparkRenderer, SplatMesh, SplatFileType } from '@sparkjsdev/spark';
 import { MeshEngine } from './mesh-engine.js';
 import { SoundEngine, buildAmbientPanel } from './sound-engine.js';
 
@@ -231,6 +230,8 @@ async function mountSplatViewer(url) {
 
   let splatRenderer, splatScene, splatCamera, spark, splatMesh;
   try {
+    // Load Spark lazily so a CDN/module failure does not prevent the editor itself from booting.
+    const { SparkRenderer, SplatMesh, SplatFileType } = await import('@sparkjsdev/spark');
     // Spark performs true anisotropic Gaussian projection/sorting/blending.
     // Keep it in a dedicated canvas so the Studio's editable overlay remains independent.
     const host = el.actualSplatHost;
