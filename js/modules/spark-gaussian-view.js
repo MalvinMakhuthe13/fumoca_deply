@@ -110,7 +110,8 @@ const SparkGaussianView = (() => {
       throw new Error(`Safe edit-sync stopped: editor mask length ${alive?.length ?? 'missing'} does not match PLY vertex count ${vertexCount}`);
     }
     const types = { char:1, int8:1, uchar:1, uint8:1, short:2, int16:2, ushort:2, uint16:2, int:4, int32:4, uint:4, uint32:4, float:4, float32:4, double:8, float64:8 };
-    const lines = header.split(/\\r?\\n/);
+    const lines = header.split(/\\r?
+/);
     let inVertex = false, rowBytes = 0;
     for (const line of lines) {
       if (line.startsWith('element ')) {
