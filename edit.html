@@ -2861,8 +2861,8 @@ async function loadFile(file, urlOverride) {
   } else {
     S.fileType = 'ply';
     const header = new TextDecoder().decode(buf.slice(0, Math.min(buf.byteLength, 65536)));
-    S.isGaussianPly = /property\\s+(?:float|double)\\s+f_dc_0\\b/i.test(header)
-      && /property\\s+(?:float|double)\\s+scale_0\\b/i.test(header);
+    S.isGaussianPly = /property\s+(?:float|double)\s+f_dc_0\b/i.test(header)
+      && /property\s+(?:float|double)\s+scale_0\b/i.test(header);
     if (S.isGaussianPly) {
       S.gaussianSourceBytes = buf.slice(0);
       window._fumocaLastGaussianBytes = S.gaussianSourceBytes;
