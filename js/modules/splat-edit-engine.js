@@ -201,10 +201,11 @@ async function loadFile(file, sourceUrl='') {
   const renderUrl=sourceUrl||URL.createObjectURL(file);
   state.splatSourceUrl=renderUrl;
   await mountSplatViewer(renderUrl);
-  // Start in editable blob mode; users can switch to SPLAT to inspect the true render.
-  setDisplayMode(DISP.BLOB);
+  // Start in the native Gaussian renderer for faithful PLY/SPLAT appearance.
+  // The editable BLOB/DOT modes remain available for point selection and cleanup.
+  setDisplayMode(DISP.SPLAT, false);
   setProgress(100);
-  setStatus(`Loaded ${name} — ${fmt(parsed.count)} gaussians. Blob view active. Use Orbit to explore, Brush Erase to clean.`);
+  setStatus(`Loaded ${name} — ${fmt(parsed.count)} gaussians. Native Gaussian view active. Switch to BLOB or DOT for editing and cleanup.`);
   el.dropZone.style.display='none';
 }
 
@@ -273,7 +274,7 @@ async function refreshNativeViewerForEdits() {
   }
 }
 
-function setDisplayMode(mode) {
+function setDisplayMode(mode, refreshNative=true) {
   state.displayMode=mode;
   el.actualSplatHost.style.display = mode===DISP.SPLAT ? 'block' : 'none';
   el.actualSplatHost.style.opacity = mode===DISP.SPLAT ? '1' : '0';
@@ -282,7 +283,7 @@ function setDisplayMode(mode) {
   map[mode]?.classList.add('active');
   el.dispBadge.textContent=mode.toUpperCase();
   rebuildGeometry(false);
-  if (mode===DISP.SPLAT && state.sourceBuffer && state.alive) refreshNativeViewerForEdits();
+  if (refreshNative && mode===DISP.SPLAT && state.sourceBuffer && state.alive) refreshNativeViewerForEdits();
 }
 
 // ── REBUILD GEOMETRY (the render heart) ───────────────────────────────────────
