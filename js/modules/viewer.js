@@ -1859,7 +1859,9 @@ async function mountInteractiveViewer(forceReload = false) {
       initialCameraPosition: [0, 1, 4],
       initialCameraLookAt: [0, 0, 0],
       sharedMemoryForWorkers: false,
-      antialiased: true,
+      // Gaussian splatting is already an analytic reconstruction; MSAA can soften edges.
+      // Match the sharper editor path by disabling WebGL multisample antialiasing.
+      antialiased: false,
       selfDrivenMode: true,
       useBuiltInControls: false, // FUMOCA owns trackball for full omni tumble
       ignoreDevicePixelRatio: false,
