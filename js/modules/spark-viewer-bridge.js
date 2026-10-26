@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 
 const SparkViewerBridge = (() => {
-  let _renderer, _scene, _camera, _spark, _mesh, _controls, _raf, _resize, _focusCenter;
+  let _renderer, _scene, _camera, _spark, _mesh, _controls, _raf, _resize, _focusCenter, _lastProgressLog = -1;
 
   function destroy() {
     if (_raf) cancelAnimationFrame(_raf);
@@ -29,6 +29,7 @@ const SparkViewerBridge = (() => {
   async function mount(hostEl, { fileBytes = null, fileName = 'scene.ply', url = null } = {}) {
     if (!hostEl) throw new Error('SparkViewer: no host');
     destroy();
+    _lastProgressLog = -1;
     const w = Math.max(2, hostEl.clientWidth || window.innerWidth);
     const h = Math.max(2, hostEl.clientHeight || window.innerHeight);
     _renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true, powerPreference: 'high-performance', preserveDrawingBuffer: true });
@@ -54,7 +55,11 @@ const SparkViewerBridge = (() => {
       onProgress: (event) => {
         if (event?.lengthComputable) {
           const pct = Math.round((event.loaded / Math.max(1, event.total)) * 100);
-          console.info('[Viewer] Spark companion download', pct + '%');
+          const bucket = Math.floor(pct / 5) * 5;
+          if (bucket >= _lastProgressLog + 5 || pct === 100) {
+            _lastProgressLog = bucket;
+            console.info('[Viewer] Spark companion download', pct + '%');
+          }
         }
       },
     });
