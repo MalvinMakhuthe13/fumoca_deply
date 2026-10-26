@@ -839,7 +839,7 @@ async function saveToSupabase() {
     if(!record)throw new Error('NIF record was not found; the uploaded derivative was not registered.');
     const meta = {
       ...(record.meta && typeof record.meta === 'object' ? record.meta : {}),
-      cleaned_asset: {
+      [ext === 'splat' ? 'cleaned_splat' : 'cleaned_ply']: {
         r2_key: fileKey, public_url: publicUrl || null,
         gaussian_count: state.alive.reduce((n,v)=>n+(v?1:0),0),
         created_at: new Date().toISOString(), source_format: ext,
