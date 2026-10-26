@@ -6,7 +6,6 @@ import r2 from '../r2Client.js';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
-import * as GS3D from 'https://cdn.jsdelivr.net/npm/@mkkellogg/gaussian-splats-3d@0.4.7/build/gaussian-splats-3d.module.js';
 import { MeshEngine } from './mesh-engine.js';
 import { SoundEngine, buildAmbientPanel } from './sound-engine.js';
 
@@ -115,18 +114,60 @@ function parseSplat(buffer) {
 
 function parsePLY(buffer) {
   const loader=new PLYLoader(), geo=loader.parse(buffer);
-  const pos=geo.getAttribute('position'), col=geo.getAttribute('color');
+  const attr=(name)=>geo.getAttribute(name)?.array||null;
+  const pos=geo.getAttribute('position');
+  if(!pos) throw new Error('PLY has no vertex positions');
   const count=pos.count;
   const positions=new Float32Array(pos.array);
   const colors=new Float32Array(count*3);
-  if (col) colors.set(col.array.slice(0,count*3)); else colors.fill(0.85);
+  const col=geo.getAttribute('color');
+  const dc0=attr('f_dc_0'), dc1=attr('f_dc_1'), dc2=attr('f_dc_2');
+  const hasDc=!!(dc0&&dc1&&dc2);
+  // Graphdeco Gaussian PLY stores DC colour as SH coefficients, not RGB.
+  // Convert DC coefficients using the same constant used by Gaussian splat viewers.
+  if(hasDc) {
+    const C0=0.28209479177387814;
+    for(let i=0;i<count;i++) {
+      colors[i*3]=clamp(0.5+C0*dc0[i],0,1);
+      colors[i*3+1]=clamp(0.5+C0*dc1[i],0,1);
+      colors[i*3+2]=clamp(0.5+C0*dc2[i],0,1);
+    }
+  } else if(col) {
+    // PLYLoader normally normalizes uchar RGB to [0,1], but preserve float RGB
+    // defensively without changing already-normalized values.
+    const a=col.array;
+    let max=0; for(let i=0;i<Math.min(a.length,3000);i++) if(Number.isFinite(a[i])) max=Math.max(max,a[i]);
+    const divisor=max>1.5?255:1;
+    for(let i=0;i<count*3;i++) colors[i]=clamp((Number.isFinite(a[i])?a[i]:0.85)/divisor,0,1);
+  } else colors.fill(0.85);
+
   const opacity=new Float32Array(count); opacity.fill(1);
-  const scale=new Float32Array(count); scale.fill(0.01);
-  if (geo.getAttribute('scale_0')) {
-    const s0=geo.getAttribute('scale_0').array, s1=geo.getAttribute('scale_1').array, s2=geo.getAttribute('scale_2').array;
-    for (let i=0;i<count;i++) scale[i]=(Math.abs(s0[i])+Math.abs(s1[i])+Math.abs(s2[i]))/3;
+  const rawOpacity=attr('opacity');
+  if(rawOpacity) {
+    // Graphdeco stores opacity as logits; standard uchar alpha is already [0,1].
+    let min=Infinity,max=-Infinity;
+    for(let i=0;i<count;i++){const v=rawOpacity[i];if(Number.isFinite(v)){min=Math.min(min,v);max=Math.max(max,v);}}
+    const logits=min<0||max>1;
+    for(let i=0;i<count;i++) {
+      const v=Number.isFinite(rawOpacity[i])?rawOpacity[i]:0;
+      opacity[i]=clamp(logits?1/(1+Math.exp(-Math.max(-30,Math.min(30,v)))):v,0,1);
+    }
   }
-  if (geo.getAttribute('opacity')) { const o=geo.getAttribute('opacity').array; for (let i=0;i<count;i++) opacity[i]=clamp(Number.isFinite(o[i])?o[i]:1,0,1); }
+
+  const scale=new Float32Array(count); scale.fill(0.01);
+  const s0=attr('scale_0'), s1=attr('scale_1'), s2=attr('scale_2');
+  if(s0&&s1&&s2) {
+    // Graphdeco Gaussian PLY stores log-scales. Taking abs(logScale) makes
+    // tiny Gaussians enormous; exponentiate each axis, then use geometric mean
+    // for this editor's single-size preview. Preserve anisotropic source fields
+    // in sourceBuffer for future full Gaussian rendering/export.
+    for(let i=0;i<count;i++) {
+      const x=Math.max(-20,Math.min(20,Number.isFinite(s0[i])?s0[i]:-4));
+      const y=Math.max(-20,Math.min(20,Number.isFinite(s1[i])?s1[i]:-4));
+      const z=Math.max(-20,Math.min(20,Number.isFinite(s2[i])?s2[i]:-4));
+      scale[i]=Math.max(1e-5,Math.min(10,Math.exp((x+y+z)/3)));
+    }
+  }
   return {positions,colors,opacity,scale,count};
 }
 
@@ -154,18 +195,16 @@ async function loadFile(file, sourceUrl='') {
   rebuildGeometry(true);
   fitCamera();
   setProgress(90);
-  if (ext==='splat') {
-    const url=sourceUrl||URL.createObjectURL(file);
-    state.splatSourceUrl=url;
-    await mountSplatViewer(url);
-    // Start in blob mode so they can see structure
-    setDisplayMode(DISP.BLOB);
-  } else {
-    await destroySplatViewer();
-    setDisplayMode(DISP.BLOB);
-  }
+  // Keep a true Gaussian renderer available for both native .splat and Gaussian .ply.
+  // The editable point/blob overlay remains available for selection and cleanup tools.
+  const renderUrl=sourceUrl||URL.createObjectURL(file);
+  state.splatSourceUrl=renderUrl;
+  await mountSplatViewer(renderUrl);
+  // Start in the native Gaussian renderer for faithful PLY/SPLAT appearance.
+  // The editable BLOB/DOT modes remain available for point selection and cleanup.
+  setDisplayMode(DISP.SPLAT, false);
   setProgress(100);
-  setStatus(`Loaded ${name} — ${fmt(parsed.count)} gaussians. Blob view active. Use Orbit to explore, Brush Erase to clean.`);
+  setStatus(`Loaded ${name} — ${fmt(parsed.count)} gaussians. Native Gaussian view active. Switch to BLOB or DOT for editing and cleanup.`);
   el.dropZone.style.display='none';
 }
 
@@ -173,69 +212,158 @@ async function loadFile(file, sourceUrl='') {
 function getViewerCam(v) { return v?.camera||v?.perspectiveCamera||v?.renderer?.camera||v?._camera||null; }
 
 async function destroySplatViewer() {
-  const inst=state.actualSplatViewer; state.actualSplatViewer=null; state.actualSplatCamera=null;
-  if (state.actualSplatIframe) { try{state.actualSplatIframe.remove();}catch(_){} state.actualSplatIframe=null; }
-  if (!inst) { el.actualSplatHost.innerHTML=''; return; }
-  try{inst.stop?.();}catch(_){} try{await inst.dispose?.();}catch(_){} try{inst.renderer?.domElement?.remove?.();}catch(_){}
-  el.actualSplatHost.innerHTML='';
+  const inst = state.actualSplatViewer;
+  state.actualSplatViewer = null;
+  state.actualSplatCamera = null;
+  if (state.actualSplatIframe) {
+    try { state.actualSplatIframe.remove(); } catch (_) {}
+    state.actualSplatIframe = null;
+  }
+  if (inst) {
+    try { inst.stop?.(); } catch (_) {}
+    try { await inst.dispose?.(); } catch (_) {}
+  }
+  el.actualSplatHost.innerHTML = '';
 }
 
 async function mountSplatViewer(url) {
   await destroySplatViewer();
-  if (!url||state.fileType!=='splat') return;
-  // Try iframe first
+  if (!url || !['splat', 'ply'].includes(state.fileType)) return;
+
+  let splatRenderer, splatScene, splatCamera, spark, splatMesh;
   try {
-    const iframe=document.createElement('iframe');
-    const target=new URL('viewer.html',window.location.href);
-    target.searchParams.set('file',url); target.searchParams.set('embed','1');
-    iframe.src=target.toString();
-    Object.assign(iframe.style,{position:'absolute',inset:'0',width:'100%',height:'100%',border:'0',display:'block',background:'transparent'});
-    iframe.setAttribute('aria-hidden','true');
-    el.actualSplatHost.innerHTML='';
-    el.actualSplatHost.appendChild(iframe);
-    state.actualSplatIframe=iframe;
-    state.splatVisible=true;
-    return;
-  } catch(_) {}
-  // Fallback: direct GaussianSplats3D
-  try {
-    const viewer=new GS3D.Viewer({
-      rootElement:el.actualSplatHost, cameraUp:[0,-1,-0.6],
-      initialCameraPosition:[camera.position.x,camera.position.y,camera.position.z],
-      initialCameraLookAt:[controls.target.x,controls.target.y,controls.target.z],
-      sharedMemoryForWorkers:false, antialiased:true, selfDrivenMode:true,
-      useBuiltInControls:false, dynamicScene:false,
+    // Load Spark lazily so a CDN/module failure does not prevent the editor itself from booting.
+    const { SparkRenderer, SplatMesh, SplatFileType } = await import('@sparkjsdev/spark');
+    // Spark performs true anisotropic Gaussian projection/sorting/blending.
+    // Keep it in a dedicated canvas so the Studio's editable overlay remains independent.
+    const host = el.actualSplatHost;
+    const width = Math.max(1, host.clientWidth || window.innerWidth);
+    const height = Math.max(1, host.clientHeight || window.innerHeight);
+    splatRenderer = new THREE.WebGLRenderer({
+      alpha: true,
+      antialias: false,
+      powerPreference: 'high-performance',
+      preserveDrawingBuffer: false,
     });
-    await viewer.addSplatScene(url,{showLoadingUI:false,progressiveLoad:true,splatAlphaRemovalThreshold:1});
-    viewer.start();
-    await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
-    const c=el.actualSplatHost.querySelector('canvas');
-    if (c) Object.assign(c.style,{position:'absolute',inset:'0',width:'100%',height:'100%'});
-    state.actualSplatViewer=viewer; state.actualSplatCamera=getViewerCam(viewer); state.splatVisible=true;
-  } catch(err) { console.warn('[FUMOCA] splat viewer failed',err); }
+    splatRenderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    splatRenderer.setSize(width, height);
+    splatRenderer.setClearColor(0x000000, 0);
+    Object.assign(splatRenderer.domElement.style, {
+      position: 'absolute', inset: '0', width: '100%', height: '100%',
+      display: 'block', pointerEvents: 'none',
+    });
+    host.innerHTML = '';
+    host.appendChild(splatRenderer.domElement);
+
+    splatScene = new THREE.Scene();
+    splatCamera = new THREE.PerspectiveCamera(camera.fov, width / height, camera.near, camera.far);
+    splatCamera.position.copy(camera.position);
+    splatCamera.quaternion.copy(camera.quaternion);
+    splatCamera.updateProjectionMatrix();
+
+    spark = new SparkRenderer({ renderer: splatRenderer });
+    splatScene.add(spark);
+
+    const sourceOptions = { url };
+    if (state.fileType === 'splat') sourceOptions.fileType = SplatFileType.SPLAT;
+    splatMesh = new SplatMesh(sourceOptions);
+    splatScene.add(splatMesh);
+    // Wait until fetch, PLY decoding, and GPU data initialization have completed.
+    await splatMesh.initialized;
+
+    let stopped = false;
+    const syncCamera = () => {
+      if (stopped) return;
+      splatCamera.position.copy(camera.position);
+      splatCamera.quaternion.copy(camera.quaternion);
+      splatCamera.fov = camera.fov;
+      splatCamera.near = camera.near;
+      splatCamera.far = camera.far;
+      splatCamera.aspect = camera.aspect;
+      splatCamera.updateProjectionMatrix();
+    };
+    const renderFrame = () => {
+      if (stopped) return;
+      syncCamera();
+      splatRenderer.render(splatScene, splatCamera);
+    };
+    splatRenderer.setAnimationLoop(renderFrame);
+
+    state.actualSplatCamera = splatCamera;
+    state.actualSplatViewer = {
+      renderer: splatRenderer,
+      spark,
+      scene: splatScene,
+      mesh: splatMesh,
+      stop() {
+        stopped = true;
+        splatRenderer?.setAnimationLoop(null);
+      },
+      async dispose() {
+        try { splatScene?.remove(splatMesh); } catch (_) {}
+        try { splatMesh?.dispose?.(); } catch (_) {}
+        try { spark?.dispose?.(); } catch (_) {}
+        try { splatRenderer?.dispose?.(); } catch (_) {}
+        try { splatRenderer?.forceContextLoss?.(); } catch (_) {}
+        try { splatRenderer?.domElement?.remove?.(); } catch (_) {}
+      },
+    };
+    state.splatVisible = true;
+    console.info('[FUMOCA] Spark Gaussian renderer loaded', {
+      format: state.fileType,
+      splats: splatMesh.numSplats,
+      maxSH: splatMesh.maxSh,
+    });
+  } catch (err) {
+    console.error('[FUMOCA] Spark Gaussian renderer failed', err);
+    try { splatRenderer?.setAnimationLoop(null); } catch (_) {}
+    try { splatMesh?.dispose?.(); } catch (_) {}
+    try { spark?.dispose?.(); } catch (_) {}
+    try { splatRenderer?.dispose?.(); } catch (_) {}
+    try { splatRenderer?.domElement?.remove?.(); } catch (_) {}
+    el.actualSplatHost.innerHTML = '';
+    setStatus('Spark native renderer failed; editable preview remains available. ' + (err?.message || err));
+  }
 }
 
 function syncSplatCamera() {
-  const c=state.actualSplatCamera||getViewerCam(state.actualSplatViewer);
+  const c = state.actualSplatCamera;
   if (!c) return;
-  state.actualSplatCamera=c;
-  c.position.copy(camera.position); c.quaternion.copy(camera.quaternion);
-  c.near=camera.near; c.far=camera.far; c.aspect=camera.aspect;
-  c.updateProjectionMatrix?.();
+  c.position.copy(camera.position);
+  c.quaternion.copy(camera.quaternion);
+  c.fov = camera.fov;
+  c.near = camera.near;
+  c.far = camera.far;
+  c.aspect = camera.aspect;
+  c.updateProjectionMatrix();
 }
 
 // ── DISPLAY MODES ─────────────────────────────────────────────────────────────
-function setDisplayMode(mode) {
+let _editedRenderUrl = '';
+async function refreshNativeViewerForEdits() {
+  try {
+    const editedBuffer = buildEditedSourceBuffer();
+    const nextUrl = URL.createObjectURL(new Blob([editedBuffer], {type:'application/octet-stream'}));
+    await mountSplatViewer(nextUrl);
+    const oldUrl = _editedRenderUrl; _editedRenderUrl = nextUrl;
+    if (oldUrl) URL.revokeObjectURL(oldUrl);
+    setStatus('Native Gaussian view refreshed from current edits.');
+  } catch(err) {
+    console.error('[FUMOCA] Could not refresh native renderer from edits', err);
+    setStatus('Native view refresh failed safely: ' + err.message);
+  }
+}
+
+function setDisplayMode(mode, refreshNative=true) {
   state.displayMode=mode;
-  // Show/hide actual splat viewer
   el.actualSplatHost.style.display = mode===DISP.SPLAT ? 'block' : 'none';
   el.actualSplatHost.style.opacity = mode===DISP.SPLAT ? '1' : '0';
-  // Update button states
   [el.dispSplatBtn,el.dispBlobBtn,el.dispDotBtn,el.dispColorBtn,el.dispOpacBtn,el.dispScaleBtn].forEach(b=>b.classList.remove('active'));
   const map={[DISP.SPLAT]:el.dispSplatBtn,[DISP.BLOB]:el.dispBlobBtn,[DISP.DOT]:el.dispDotBtn,[DISP.COLOR]:el.dispColorBtn,[DISP.OPACITY]:el.dispOpacBtn,[DISP.SCALE]:el.dispScaleBtn};
   map[mode]?.classList.add('active');
   el.dispBadge.textContent=mode.toUpperCase();
   rebuildGeometry(false);
+  if (refreshNative && mode===DISP.SPLAT && state.sourceBuffer && state.alive) refreshNativeViewerForEdits();
 }
 
 // ── REBUILD GEOMETRY (the render heart) ───────────────────────────────────────
@@ -621,6 +749,10 @@ function densityPrune() {
   }
   scored.sort((a,b)=>a[1]-b[1]); // lowest quality first
   const take=Math.max(1,Math.floor(scored.length*(pct/100)));
+  if (!window.confirm('Density Prune will remove ' + fmt(take) + ' of ' + fmt(scored.length) + ' Gaussians from this edit session. It may erase fine edges or details. Continue?')) {
+    setStatus('Density prune cancelled; no points were removed.');
+    return;
+  }
   pushHistory('density prune');
   for(let k=0;k<take;k++){state.alive[scored[k][0]]=0;state.selected[scored[k][0]]=0;}
   rebuildGeometry(); setStatus(`Smart prune removed ${fmt(take)} low-quality gaussians (density+opacity+scale scored).`);
@@ -680,67 +812,130 @@ function autoCleanSubject() {
 }
 
 // ── EXPORT ────────────────────────────────────────────────────────────────────
-function exportCleaned() {
-  if(!state.alive)return;
-  const idx=[]; for(let i=0;i<state.alive.length;i++) if(state.alive[i]) idx.push(i);
-  let blob, name;
-  if(state.fileType==='splat') {
-    const src=new Uint8Array(state.sourceBuffer), out=new Uint8Array(idx.length*state.splatRowSize);
-    idx.forEach((i,row)=>out.set(src.subarray(i*state.splatRowSize,(i+1)*state.splatRowSize),row*state.splatRowSize));
-    blob=new Blob([out],{type:'application/octet-stream'});
-    name=state.fileName.replace(/\.splat$/i,'')+'.cleaned.splat';
-  } else {
-    const lines=['ply','format ascii 1.0',`element vertex ${idx.length}`,'property float x','property float y','property float z','property uchar red','property uchar green','property uchar blue','end_header'];
-    for(const i of idx) {
-      const cx=state.paintColors&&state.paintColors[i*3]>=0?state.paintColors[i*3]:state.colors[i*3];
-      const cy=state.paintColors&&state.paintColors[i*3+1]>=0?state.paintColors[i*3+1]:state.colors[i*3+1];
-      const cz2=state.paintColors&&state.paintColors[i*3+2]>=0?state.paintColors[i*3+2]:state.colors[i*3+2];
-      lines.push(`${state.positions[i*3]} ${state.positions[i*3+1]} ${state.positions[i*3+2]} ${Math.round(clamp(cx,0,1)*255)} ${Math.round(clamp(cy,0,1)*255)} ${Math.round(clamp(cz2,0,1)*255)}`);
-    }
-    blob=new Blob([lines.join('\n')],{type:'text/plain;charset=utf-8'});
-    name=state.fileName.replace(/\.ply$/i,'')+'.cleaned.ply';
+
+// Filter source records without re-serializing Gaussian attributes. This keeps
+// rotations, anisotropic scales, opacity logits and every SH coefficient intact.
+function filterPLYBuffer(buffer, keepIndices) {
+  const bytes = new Uint8Array(buffer);
+  const marker = new TextEncoder().encode('end_header');
+  let markerAt = -1;
+  outer: for (let i = 0; i <= Math.min(bytes.length - marker.length, 1024 * 1024); i++) {
+    for (let j = 0; j < marker.length; j++) if (bytes[i+j] !== marker[j]) continue outer;
+    markerAt = i; break;
   }
-  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();URL.revokeObjectURL(a.href);
-  setStatus(`Exported ${name} — ${fmt(idx.length)} gaussians surviving.`);
+  if (markerAt < 0) throw new Error('PLY header terminator not found');
+  let bodyAt = markerAt + marker.length;
+  if (bytes[bodyAt] === 13) bodyAt++;
+  if (bytes[bodyAt] !== 10) throw new Error('Unsupported PLY header line ending');
+  bodyAt++;
+  const header = new TextDecoder().decode(bytes.subarray(0, bodyAt));
+  const fmt = header.match(/^format\s+(\S+)/m)?.[1];
+  const countMatch = header.match(/^element[ \t]+vertex[ \t]+(\d+)[ \t]*$/m);
+  if (!countMatch) throw new Error('PLY header has no vertex element');
+  const sourceCount = Number(countMatch[1]);
+  if (keepIndices.some(i => !Number.isInteger(i) || i < 0 || i >= sourceCount)) throw new Error('PLY edit index is outside the source vertex range');
+  const updatedHeader = header.replace(/^element[ \t]+vertex[ \t]+\d+[ \t]*$/m, 'element vertex ' + keepIndices.length);
+
+  if (fmt === 'binary_little_endian' || fmt === 'binary_big_endian') {
+    const types = { char:1, int8:1, uchar:1, uint8:1, short:2, int16:2, ushort:2, uint16:2, int:4, int32:4, uint:4, uint32:4, float:4, float32:4, double:8, float64:8 };
+    const lines = header.split(/\r?\n/);
+    let inVertex = false, seenVertex = false, stride = 0;
+    for (const line of lines) {
+      const el = line.match(/^element\s+(\S+)\s+(\d+)/);
+      if (el) { inVertex = el[1] === 'vertex'; if (inVertex) seenVertex = true; else if (!seenVertex) throw new Error('PLY has elements before vertex; refusing unsafe record filtering'); continue; }
+      if (!inVertex || !line.startsWith('property ')) continue;
+      const p = line.match(/^property\s+(\S+)\s+(\S+)/);
+      if (!p || p[1] === 'list' || !types[p[1]]) throw new Error('Unsupported non-scalar PLY vertex property: ' + line);
+      stride += types[p[1]];
+    }
+    if (!stride || bodyAt + sourceCount * stride > bytes.length) throw new Error('PLY vertex data does not match its header');
+    const h = new TextEncoder().encode(updatedHeader);
+    const output = new Uint8Array(h.length + keepIndices.length * stride + (bytes.length - bodyAt - sourceCount * stride));
+    output.set(h, 0);
+    let dst = h.length;
+    for (const i of keepIndices) { output.set(bytes.subarray(bodyAt + i*stride, bodyAt + (i+1)*stride), dst); dst += stride; }
+    output.set(bytes.subarray(bodyAt + sourceCount*stride), dst);
+    return output.buffer;
+  }
+  if (fmt === 'ascii') {
+    const lines = new TextDecoder().decode(bytes.subarray(bodyAt)).split(/\r?\n/);
+    const vertexLines = lines.slice(0, sourceCount);
+    if (vertexLines.length !== sourceCount) throw new Error('ASCII PLY has fewer vertex records than declared');
+    const remainder = lines.slice(sourceCount).join('\n');
+    const newBody = keepIndices.map(i => vertexLines[i]).join('\n') + '\n' + remainder;
+    const h = new TextEncoder().encode(updatedHeader), b = new TextEncoder().encode(newBody);
+    const out = new Uint8Array(h.length + b.length); out.set(h); out.set(b, h.length);
+    return out.buffer;
+  }
+  throw new Error('Unsupported PLY format "' + fmt + '"; source was not modified.');
+}
+
+function buildEditedSourceBuffer() {
+  if (!state.sourceBuffer || !state.alive) throw new Error('No source file is loaded');
+  const keep = [];
+  for (let i=0; i<state.alive.length; i++) if (state.alive[i]) keep.push(i);
+  if (state.fileType === 'ply') {
+    const headerText = new TextDecoder().decode(new Uint8Array(state.sourceBuffer).subarray(0, Math.min(state.sourceBuffer.byteLength, 1024 * 1024)));
+        const declared = Number(headerText.match(/^element[ \t]+vertex[ \t]+(\d+)[ \t]*$/m)?.[1]);
+    if (!Number.isInteger(declared) || declared !== state.alive.length) throw new Error('Source PLY vertex count does not match the editable point count; refusing to export.');
+    return filterPLYBuffer(state.sourceBuffer, keep);
+  }
+  if (state.fileType === 'splat') {
+    const src = new Uint8Array(state.sourceBuffer), rowSize = state.splatRowSize || 32;
+    const out = new Uint8Array(keep.length * rowSize);
+    keep.forEach((i,row) => out.set(src.subarray(i*rowSize,(i+1)*rowSize),row*rowSize));
+    return out.buffer;
+  }
+  throw new Error('Unsupported source format');
+}
+
+function exportCleaned() {
+  if(!state.alive) return;
+  try {
+    const buffer = buildEditedSourceBuffer();
+    const ext = state.fileType === 'ply' ? 'ply' : 'splat';
+    const name = state.fileName.replace(/\.(ply|splat)$/i,'') + '.cleaned.' + ext;
+    const blob = new Blob([buffer], {type:'application/octet-stream'});
+    const url = URL.createObjectURL(blob), a = document.createElement('a');
+    a.href = url; a.download = name; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+    const count = state.alive.reduce((n,v)=>n+(v?1:0),0);
+    setStatus('Exported ' + name + ' — preserved original Gaussian attributes for ' + fmt(count) + ' records.');
+  } catch(err) {
+    console.error('[FUMOCA] source-preserving export failed', err);
+    setStatus('Export stopped to protect the source PLY: ' + err.message);
+  }
 }
 
 async function saveToSupabase() {
   const params=new URLSearchParams(location.search), splatId=params.get('splatId');
   if(!splatId){setStatus('No splatId in URL — open from feed to save.'); return;}
   if(!state.alive){setStatus('No file loaded.'); return;}
-  setStatus('Saving to Supabase…', true);
+  setStatus('Saving cleaned derivative…', true);
   try {
     const {supabase}=await import('../supabaseClient.js');
-    const idx=[]; for(let i=0;i<state.alive.length;i++) if(state.alive[i]) idx.push(i);
-    let blob;
-    if(state.fileType==='splat') {
-      const src=new Uint8Array(state.sourceBuffer),out=new Uint8Array(idx.length*state.splatRowSize);
-      idx.forEach((i,row)=>out.set(src.subarray(i*state.splatRowSize,(i+1)*state.splatRowSize),row*state.splatRowSize));
-      blob=new Blob([out],{type:'application/octet-stream'});
-    }
-    if(!blob){setStatus('Only .splat can be saved back.');return;}
-    const path=`splats/${splatId}/cleaned_${Date.now()}.splat`;
-    const arr=await blob.arrayBuffer();
-    const { publicUrl, fileKey, error } = await r2.from('nif-files').upload(path, new Blob([arr], {type:'application/octet-stream'}), {contentType:'application/octet-stream'});
+    const buffer=buildEditedSourceBuffer(), ext=state.fileType==='ply'?'ply':'splat';
+    const blob=new Blob([buffer],{type:'application/octet-stream'});
+    const path='splats/' + splatId + '/cleaned_' + Date.now() + '.' + ext;
+    const { publicUrl, fileKey, error } = await r2.from('nif-files').upload(path, blob, {contentType:'application/octet-stream'});
     if(error)throw error;
     if(!fileKey)throw new Error('Storage upload returned no file key; refusing to save an unresolvable edit.');
     const { data: record, error: readError } = await supabase.from('nif_files').select('meta').eq('id',splatId).single();
-    if(readError)throw new Error(`Could not load NIF metadata: ${readError.message}`);
+    if(readError)throw new Error('Could not load NIF metadata: ' + readError.message);
     if(!record)throw new Error('NIF record was not found; the uploaded derivative was not registered.');
     const meta = {
       ...(record.meta && typeof record.meta === 'object' ? record.meta : {}),
-      cleaned_splat: {
-        r2_key: fileKey,
-        public_url: publicUrl || null,
-        gaussian_count: idx.length,
-        created_at: new Date().toISOString(),
-        source_format: 'splat',
+      [ext === 'splat' ? 'cleaned_splat' : 'cleaned_ply']: {
+        r2_key: fileKey, public_url: publicUrl || null,
+        gaussian_count: state.alive.reduce((n,v)=>n+(v?1:0),0),
+        created_at: new Date().toISOString(), source_format: ext,
+        preserves_source_attributes: true,
       },
     };
     const { error: updateError } = await supabase.from('nif_files').update({meta}).eq('id',splatId);
-    if(updateError)throw new Error(`Could not register cleaned splat: ${updateError.message}`);
-    setStatus(`Saved cleaned splat derivative (${fmt(idx.length)} Gaussians). Original NIF remains unchanged.`);
-  } catch(err) { setStatus(`Save failed: ${err.message}`); }
+    if(updateError)throw new Error('Could not register cleaned derivative: ' + updateError.message);
+    setStatus('Saved cleaned ' + ext.toUpperCase() + ' derivative. Original NIF remains unchanged.');
+  } catch(err) { setStatus('Save failed: ' + err.message); }
 }
 
 // ── LASSO OVERLAY ─────────────────────────────────────────────────────────────
@@ -978,7 +1173,14 @@ function animate() {
 animate();
 window.addEventListener('resize',()=>{
   camera.aspect=window.innerWidth/window.innerHeight;camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth,window.innerHeight);renderLasso();
+  renderer.setSize(window.innerWidth,window.innerHeight);
+  const nativeRenderer=state.actualSplatViewer?.renderer;
+  if(nativeRenderer){
+    const host=el.actualSplatHost;
+    nativeRenderer.setSize(Math.max(1,host.clientWidth||window.innerWidth),Math.max(1,host.clientHeight||window.innerHeight));
+  }
+  if(state.actualSplatCamera){state.actualSplatCamera.aspect=camera.aspect;state.actualSplatCamera.updateProjectionMatrix();}
+  renderLasso();
 });
 
 // ── RANGE LABEL BINDINGS ──────────────────────────────────────────────────────
