@@ -39,8 +39,8 @@ const SparkViewerBridge = (() => {
     window._fumocaCaptureCanvas = _renderer.domElement;
     _scene = new THREE.Scene();
     _camera = new THREE.PerspectiveCamera(50, w / h, 0.01, 500);
-    _camera.position.set(0, 1.15, 3);
-    _camera.up.set(0, -1, -0.6).normalize();
+    _camera.position.set(0, 0, 3);
+    _camera.up.set(0, 1, 0);
     const { SparkRenderer, SplatMesh } = await import('@sparkjsdev/spark');
     _spark = new SparkRenderer({ renderer: _renderer, premultipliedAlpha: true });
     _scene.add(_spark);
@@ -48,9 +48,36 @@ const SparkViewerBridge = (() => {
     if (url) opts.url = url;
     else if (fileBytes) opts.fileBytes = fileBytes instanceof Uint8Array ? fileBytes : new Uint8Array(fileBytes);
     else throw new Error('SparkViewer needs url or fileBytes');
-    _mesh = new SplatMesh(opts);
+    _mesh = new SplatMesh({
+      ...opts,
+      onProgress: (event) => {
+        if (event?.lengthComputable) {
+          const pct = Math.round((event.loaded / Math.max(1, event.total)) * 100);
+          console.info('[Viewer] Spark companion download', pct + '%');
+        }
+      },
+    });
     _mesh.name = 'fumoca-spark-public';
     _scene.add(_mesh);
+    // Do not report success until Spark has actually fetched, decoded and
+    // initialized the PLY. Previously mount() returned immediately, leaving
+    // a permanent spinner or an empty canvas when loading failed.
+    await _mesh.initialized;
+    if (!_mesh.isInitialized) throw new Error('Spark finished without initializing the Gaussian mesh');
+    const bounds = _mesh.getBoundingBox();
+    if (!bounds.isEmpty()) {
+      const center = bounds.getCenter(new THREE.Vector3());
+      const size = bounds.getSize(new THREE.Vector3());
+      const radius = Math.max(size.x, size.y, size.z) * 0.5 || 1;
+      const distance = Math.max(radius / Math.tan(THREE.MathUtils.degToRad(_camera.fov * 0.5)) * 1.35, 0.1);
+      _camera.position.set(center.x, center.y, center.z + distance);
+      _camera.near = Math.max(distance / 1000, 0.001);
+      _camera.far = Math.max(distance * 100, 100);
+      _camera.updateProjectionMatrix();
+      _camera.lookAt(center);
+      _controls?.target?.copy?.(center);
+    }
+    console.info('[Viewer] Spark Gaussian mesh initialized', { splats: _mesh.numSplats, fileName });
     try {
       const { OrbitControls } = await import('three/addons/controls/OrbitControls.js');
       _controls = new OrbitControls(_camera, _renderer.domElement);
