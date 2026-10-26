@@ -128,11 +128,45 @@ const FumocaAutoFix = (() => {
     return _defaultBounds();
   }
 
+  // Use robust bounds for framing when a few distant background/noise
+  // splats dominate the raw min/max box. Keep the full bounds for ordinary
+  // scenes; only switch when outliers inflate the fitted radius dramatically.
+  function _robustCameraBounds(fallback) {
+    const state = window.S;
+    if (!state?.positions?.length) return fallback;
+    const alive = state.alive;
+    const xs = [], ys = [], zs = [];
+    for (let i = 0; i < state.positions.length / 3; i++) {
+      if (alive?.length && !alive[i]) continue;
+      const x = state.positions[i * 3], y = state.positions[i * 3 + 1], z = state.positions[i * 3 + 2];
+      if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) continue;
+      xs.push(x); ys.push(y); zs.push(z);
+    }
+    if (xs.length < 100) return fallback;
+    const quantile = (values, q) => {
+      values.sort((a, b) => a - b);
+      return values[Math.min(values.length - 1, Math.max(0, Math.floor((values.length - 1) * q)))];
+    };
+    const x0 = quantile(xs, 0.01), x1 = quantile(xs, 0.99);
+    const y0 = quantile(ys, 0.01), y1 = quantile(ys, 0.99);
+    const z0 = quantile(zs, 0.01), z1 = quantile(zs, 0.99);
+    const center = new THREE.Vector3((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+    const size = new THREE.Vector3(x1 - x0, y1 - y0, z1 - z0);
+    const radius = Math.max(size.x, size.y, size.z, 0.2) / 2;
+    if (!Number.isFinite(radius) || radius <= 0) return fallback;
+    if (fallback?.radius && fallback.radius < radius * 3) return fallback;
+    console.info('[AutoFix] Robust camera framing ignored distant outliers', {
+      fullRadius: Number(fallback?.radius?.toFixed?.(2) || 0),
+      robustRadius: Number(radius.toFixed(2))
+    });
+    return { ...fallback, center, size, radius };
+  }
+
   // ── Force fit camera (ignores "already fitted") ───────────────────
   function forceFitCamera(bounds) {
     const cam = _cam();
     const controls = _controls();
-    bounds = bounds || getLiveBounds();
+    bounds = _robustCameraBounds(bounds || getLiveBounds());
     if (!cam || !controls || !bounds?.center) {
       _setStatus('No camera/controls — load a splat first');
       return false;
