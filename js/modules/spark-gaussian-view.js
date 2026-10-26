@@ -110,7 +110,7 @@ const SparkGaussianView = (() => {
     if (!vertexMatch) throw new Error('PLY vertex element not found');
     const vertexCount = Number(vertexMatch[1]);
     if (!alive || alive.length !== vertexCount) {
-      throw new Error(\`Safe edit-sync stopped: editor mask length \${alive?.length ?? 'missing'} does not match PLY vertex count \${vertexCount}\`);
+      throw new Error('Safe edit-sync stopped: editor mask length ' + (alive?.length ?? 'missing') + ' does not match PLY vertex count ' + vertexCount);
     }
 
     const types = {
