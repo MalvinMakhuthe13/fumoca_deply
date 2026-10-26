@@ -2183,20 +2183,9 @@ async function boot() {
     previewVideoUrl = previewVideoUrl || sessionRecord.previewVideo || '';
     fileUrl = fileUrl || _validnifUrl(sessionRecord.file) || '';
   }
-  // Probe fileUrl â€” if storage returns 400/404 it's a ghost file, use DB record
-  // Skip probe for blob: URLs â€” they don't support HEAD requests
-  if (fileUrl && !fileUrl.startsWith('blob:')) {
-    try {
-      const probe = await fetch(fileUrl, { method: 'HEAD' });
-      if (!probe.ok) {
-        console.warn('[Viewer] file= URL returned HTTP', probe.status, 'â€” falling back to DB record');
-        fileUrl = '';
-      }
-    } catch(e) {
-      console.warn('[Viewer] file= URL unreachable â€” falling back to DB record');
-      fileUrl = '';
-    }
-  }
+  // Do not HEAD-probe the file URL: the R2 Worker serves objects with GET,
+  // and a HEAD response may be 404 even when the NIF exists. Let the actual
+  // GET/decode path determine whether the URL is valid.
   // If fileUrl was bad, wipe sessionStorage so the ghost URL can't come back
   if (!fileUrl) {
     try { sessionStorage.removeItem('fumoca:selectedNif'); } catch(_) {}
