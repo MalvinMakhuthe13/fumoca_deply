@@ -209,7 +209,9 @@ async function loadFile(file, sourceUrl='') {
 }
 
 // ── ACTUAL SPLAT VIEWER ───────────────────────────────────────────────────────
-function getViewerCam(v) { return v?.camera||v?.async function destroySplatViewer() {
+function getViewerCam(v) { return v?.camera||v?.perspectiveCamera||v?.renderer?.camera||v?._camera||null; }
+
+async function destroySplatViewer() {
   const inst = state.actualSplatViewer;
   state.actualSplatViewer = null;
   state.actualSplatCamera = null;
