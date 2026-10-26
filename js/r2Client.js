@@ -44,10 +44,41 @@ if (!WORKER_URL) {
 }
 
 async function getAccessToken() {
-  const { data: { session } } = await supabase.auth.getSession();
-  const token = session?.access_token;
-  if (!token) throw new Error('Not signed in — please sign in and try again.');
-  return token;
+  // Studio and the publish panel can initialise Supabase through different
+  // entry points. Prefer the module client, but check the app's shared client
+  // as well before declaring the user signed out.
+  const clients = [
+    supabase,
+    window._fumocaSupabase,
+    window.supabase,
+  ].filter((client, index, all) => client?.auth?.getSession && all.indexOf(client) === index);
+
+  let lastError = null;
+  for (const client of clients) {
+    try {
+      let { data, error } = await client.auth.getSession();
+      if (error) lastError = error;
+      let token = data?.session?.access_token;
+      if (!token && client.auth.refreshSession) {
+        const refreshed = await client.auth.refreshSession();
+        if (!refreshed.error) token = refreshed.data?.session?.access_token;
+        else lastError = refreshed.error;
+      }
+      if (token) return token;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  console.error('[FUMOCA R2] No usable Supabase access token found', {
+    clientsChecked: clients.length,
+    error: lastError?.message || null,
+  });
+  throw new Error(
+    lastError?.message
+      ? 'Could not refresh your sign-in session: ' + lastError.message + '. Please sign in again.'
+      : 'Your sign-in session is missing or expired. Please sign in again, then retry publishing.'
+  );
 }
 
 /** PUT `body` to `uploadUrl` with real progress events. */
