@@ -2174,6 +2174,23 @@ function activatePreset(name) {
   presetButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.preset === name));
   applyStageFilters();
 }
+async function _trySparkPublic(bytes, name, url) {
+  try {
+    if (!window.FumocaSparkViewer?.mount) {
+      await import('./spark-viewer-bridge.js?v=20261027-seamless').catch(() => null);
+    }
+    const host = stageHost || stageEl || document.getElementById('stageHost') || document.getElementById('stage');
+    if (!host || !window.FumocaSparkViewer?.mount) return false;
+    await window.FumocaSparkViewer.mount(host, { fileBytes: bytes || null, fileName: name || 'scene.ply', url: url || null });
+    try { loadingOverlay.style.display = 'none'; } catch (_) {}
+    try { document.body.classList.remove('media-flat'); } catch (_) {}
+    return true;
+  } catch (e) {
+    console.warn('[Viewer] Spark solid failed; retaining legacy renderer', e);
+    return false;
+  }
+}
+
 async function boot() {
   setLoading('Fetching nifâ€¦');
   const sessionRecord = hydrateFromSession();
@@ -2239,6 +2256,25 @@ async function boot() {
     return;
   }
   if ((previewVideoUrl || thumbnailUrl) && autoplayPreview) openPreview('nif');
+  // Published Gaussian PLY companion: render with the same Spark engine as Studio Photoreal.
+  // If it is absent or fails to load, continue through the existing NIF renderer unchanged.
+  const _viewMeta = currentRecord?.meta || currentRecord?.metadata || {};
+  const _viewPlyKey = _viewMeta.view_ply_r2_key;
+  if (_viewPlyKey && typeof r2?.publicUrl === 'function') {
+    const _viewPlyUrl = r2.publicUrl('nif-files', _viewPlyKey);
+    if (_viewPlyUrl) {
+      setLoading('Loading solid Gaussian view…');
+      const _sparkMounted = await _trySparkPublic(null, 'view.ply', _viewPlyUrl);
+      if (_sparkMounted) {
+        console.info('[Viewer] Spark solid — companion PLY', _viewPlyKey);
+        hideLoading();
+        hideStageFreeze(90);
+        await incrementViewCount();
+        return;
+      }
+    }
+  }
+
   // Route PLY / .splat / .nif to 3D path
   if (_isNifUrl(fileUrl) || (_blobType === 'nif' && fileUrl.startsWith('blob:'))) {
     // .nif is the native format â€” decode its KEYFRAME_GEO chunk and hand the
