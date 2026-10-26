@@ -115,18 +115,60 @@ function parseSplat(buffer) {
 
 function parsePLY(buffer) {
   const loader=new PLYLoader(), geo=loader.parse(buffer);
-  const pos=geo.getAttribute('position'), col=geo.getAttribute('color');
+  const attr=(name)=>geo.getAttribute(name)?.array||null;
+  const pos=geo.getAttribute('position');
+  if(!pos) throw new Error('PLY has no vertex positions');
   const count=pos.count;
   const positions=new Float32Array(pos.array);
   const colors=new Float32Array(count*3);
-  if (col) colors.set(col.array.slice(0,count*3)); else colors.fill(0.85);
+  const col=geo.getAttribute('color');
+  const dc0=attr('f_dc_0'), dc1=attr('f_dc_1'), dc2=attr('f_dc_2');
+  const hasDc=!!(dc0&&dc1&&dc2);
+  // Graphdeco Gaussian PLY stores DC colour as SH coefficients, not RGB.
+  // Convert DC coefficients using the same constant used by Gaussian splat viewers.
+  if(hasDc) {
+    const C0=0.28209479177387814;
+    for(let i=0;i<count;i++) {
+      colors[i*3]=clamp(0.5+C0*dc0[i],0,1);
+      colors[i*3+1]=clamp(0.5+C0*dc1[i],0,1);
+      colors[i*3+2]=clamp(0.5+C0*dc2[i],0,1);
+    }
+  } else if(col) {
+    // PLYLoader normally normalizes uchar RGB to [0,1], but preserve float RGB
+    // defensively without changing already-normalized values.
+    const a=col.array;
+    let max=0; for(let i=0;i<Math.min(a.length,3000);i++) if(Number.isFinite(a[i])) max=Math.max(max,a[i]);
+    const divisor=max>1.5?255:1;
+    for(let i=0;i<count*3;i++) colors[i]=clamp((Number.isFinite(a[i])?a[i]:0.85)/divisor,0,1);
+  } else colors.fill(0.85);
+
   const opacity=new Float32Array(count); opacity.fill(1);
-  const scale=new Float32Array(count); scale.fill(0.01);
-  if (geo.getAttribute('scale_0')) {
-    const s0=geo.getAttribute('scale_0').array, s1=geo.getAttribute('scale_1').array, s2=geo.getAttribute('scale_2').array;
-    for (let i=0;i<count;i++) scale[i]=(Math.abs(s0[i])+Math.abs(s1[i])+Math.abs(s2[i]))/3;
+  const rawOpacity=attr('opacity');
+  if(rawOpacity) {
+    // Graphdeco stores opacity as logits; standard uchar alpha is already [0,1].
+    let min=Infinity,max=-Infinity;
+    for(let i=0;i<count;i++){const v=rawOpacity[i];if(Number.isFinite(v)){min=Math.min(min,v);max=Math.max(max,v);}}
+    const logits=min<0||max>1;
+    for(let i=0;i<count;i++) {
+      const v=Number.isFinite(rawOpacity[i])?rawOpacity[i]:0;
+      opacity[i]=clamp(logits?1/(1+Math.exp(-Math.max(-30,Math.min(30,v)))):v,0,1);
+    }
   }
-  if (geo.getAttribute('opacity')) { const o=geo.getAttribute('opacity').array; for (let i=0;i<count;i++) opacity[i]=clamp(Number.isFinite(o[i])?o[i]:1,0,1); }
+
+  const scale=new Float32Array(count); scale.fill(0.01);
+  const s0=attr('scale_0'), s1=attr('scale_1'), s2=attr('scale_2');
+  if(s0&&s1&&s2) {
+    // Graphdeco Gaussian PLY stores log-scales. Taking abs(logScale) makes
+    // tiny Gaussians enormous; exponentiate each axis, then use geometric mean
+    // for this editor's single-size preview. Preserve anisotropic source fields
+    // in sourceBuffer for future full Gaussian rendering/export.
+    for(let i=0;i<count;i++) {
+      const x=Math.max(-20,Math.min(20,Number.isFinite(s0[i])?s0[i]:-4));
+      const y=Math.max(-20,Math.min(20,Number.isFinite(s1[i])?s1[i]:-4));
+      const z=Math.max(-20,Math.min(20,Number.isFinite(s2[i])?s2[i]:-4));
+      scale[i]=Math.max(1e-5,Math.min(10,Math.exp((x+y+z)/3)));
+    }
+  }
   return {positions,colors,opacity,scale,count};
 }
 
