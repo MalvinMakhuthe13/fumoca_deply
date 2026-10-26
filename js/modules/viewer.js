@@ -2182,7 +2182,18 @@ async function _trySparkPublic(bytes, name, url) {
     const host = stageHost || stageEl || document.getElementById('stageHost') || document.getElementById('stage');
     if (!host || !window.FumocaSparkViewer?.mount) return false;
     await window.FumocaSparkViewer.mount(host, { fileBytes: bytes || null, fileName: name || 'scene.ply', url: url || null });
-    try { loadingOverlay.style.display = 'none'; } catch (_) {}
+    // Explicitly dismiss every loading-overlay state. The public Spark path
+    // can complete independently of the legacy NIF boot path, so don't rely
+    // only on the legacy hideLoading() class transition.
+    try {
+      hideLoading();
+      if (loadingOverlay) {
+        loadingOverlay.classList.add('hidden');
+        loadingOverlay.style.opacity = '0';
+        loadingOverlay.style.pointerEvents = 'none';
+        loadingOverlay.style.display = 'none';
+      }
+    } catch (_) {}
     try { document.body.classList.remove('media-flat'); } catch (_) {}
     return true;
   } catch (e) {
@@ -2268,6 +2279,12 @@ async function boot() {
       if (_sparkMounted) {
         console.info('[Viewer] Spark solid — companion PLY', _viewPlyKey);
         hideLoading();
+        if (loadingOverlay) {
+          loadingOverlay.classList.add('hidden');
+          loadingOverlay.style.opacity = '0';
+          loadingOverlay.style.pointerEvents = 'none';
+          loadingOverlay.style.display = 'none';
+        }
         hideStageFreeze(90);
         await incrementViewCount();
         return;
