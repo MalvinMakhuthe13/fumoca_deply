@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 
 const SparkViewerBridge = (() => {
-  let _renderer, _scene, _camera, _spark, _mesh, _controls, _raf, _resize;
+  let _renderer, _scene, _camera, _spark, _mesh, _controls, _raf, _resize, _focusCenter;
 
   function destroy() {
     if (_raf) cancelAnimationFrame(_raf);
@@ -22,6 +22,7 @@ const SparkViewerBridge = (() => {
       _renderer = null;
     }
     _scene = _camera = null;
+    _focusCenter = null;
     window._fumocaSparkPublicActive = false;
   }
 
@@ -67,6 +68,7 @@ const SparkViewerBridge = (() => {
     const bounds = _mesh.getBoundingBox();
     if (!bounds.isEmpty()) {
       const center = bounds.getCenter(new THREE.Vector3());
+      _focusCenter = center.clone();
       const size = bounds.getSize(new THREE.Vector3());
       const radius = Math.max(size.x, size.y, size.z) * 0.5 || 1;
       const distance = Math.max(radius / Math.tan(THREE.MathUtils.degToRad(_camera.fov * 0.5)) * 1.35, 0.1);
@@ -85,7 +87,7 @@ const SparkViewerBridge = (() => {
       _controls.dampingFactor = 0.06;
       _controls.minDistance = 0.04;
       _controls.maxDistance = 100;
-      _controls.target.set(0, 0, 0);
+      _controls.target.copy(_focusCenter || new THREE.Vector3(0, 0, 0));
     } catch (e) { console.warn('[Viewer] OrbitControls unavailable', e); }
     _resize = () => {
       if (!_renderer || !_camera) return;
