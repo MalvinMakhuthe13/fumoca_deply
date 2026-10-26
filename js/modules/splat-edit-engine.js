@@ -258,17 +258,31 @@ function syncSplatCamera() {
 }
 
 // ── DISPLAY MODES ─────────────────────────────────────────────────────────────
+let _editedRenderUrl = '';
+async function refreshNativeViewerForEdits() {
+  try {
+    const editedBuffer = buildEditedSourceBuffer();
+    const nextUrl = URL.createObjectURL(new Blob([editedBuffer], {type:'application/octet-stream'}));
+    await mountSplatViewer(nextUrl);
+    const oldUrl = _editedRenderUrl; _editedRenderUrl = nextUrl;
+    if (oldUrl) URL.revokeObjectURL(oldUrl);
+    setStatus('Native Gaussian view refreshed from current edits.');
+  } catch(err) {
+    console.error('[FUMOCA] Could not refresh native renderer from edits', err);
+    setStatus('Native view refresh failed safely: ' + err.message);
+  }
+}
+
 function setDisplayMode(mode) {
   state.displayMode=mode;
-  // Show/hide actual splat viewer
   el.actualSplatHost.style.display = mode===DISP.SPLAT ? 'block' : 'none';
   el.actualSplatHost.style.opacity = mode===DISP.SPLAT ? '1' : '0';
-  // Update button states
   [el.dispSplatBtn,el.dispBlobBtn,el.dispDotBtn,el.dispColorBtn,el.dispOpacBtn,el.dispScaleBtn].forEach(b=>b.classList.remove('active'));
   const map={[DISP.SPLAT]:el.dispSplatBtn,[DISP.BLOB]:el.dispBlobBtn,[DISP.DOT]:el.dispDotBtn,[DISP.COLOR]:el.dispColorBtn,[DISP.OPACITY]:el.dispOpacBtn,[DISP.SCALE]:el.dispScaleBtn};
   map[mode]?.classList.add('active');
   el.dispBadge.textContent=mode.toUpperCase();
   rebuildGeometry(false);
+  if (mode===DISP.SPLAT && state.sourceBuffer && state.alive) refreshNativeViewerForEdits();
 }
 
 // ── REBUILD GEOMETRY (the render heart) ───────────────────────────────────────
@@ -654,6 +668,10 @@ function densityPrune() {
   }
   scored.sort((a,b)=>a[1]-b[1]); // lowest quality first
   const take=Math.max(1,Math.floor(scored.length*(pct/100)));
+  if (!window.confirm('Density Prune will remove ' + fmt(take) + ' of ' + fmt(scored.length) + ' Gaussians from this edit session. It may erase fine edges or details. Continue?')) {
+    setStatus('Density prune cancelled; no points were removed.');
+    return;
+  }
   pushHistory('density prune');
   for(let k=0;k<take;k++){state.alive[scored[k][0]]=0;state.selected[scored[k][0]]=0;}
   rebuildGeometry(); setStatus(`Smart prune removed ${fmt(take)} low-quality gaussians (density+opacity+scale scored).`);
@@ -713,67 +731,125 @@ function autoCleanSubject() {
 }
 
 // ── EXPORT ────────────────────────────────────────────────────────────────────
-function exportCleaned() {
-  if(!state.alive)return;
-  const idx=[]; for(let i=0;i<state.alive.length;i++) if(state.alive[i]) idx.push(i);
-  let blob, name;
-  if(state.fileType==='splat') {
-    const src=new Uint8Array(state.sourceBuffer), out=new Uint8Array(idx.length*state.splatRowSize);
-    idx.forEach((i,row)=>out.set(src.subarray(i*state.splatRowSize,(i+1)*state.splatRowSize),row*state.splatRowSize));
-    blob=new Blob([out],{type:'application/octet-stream'});
-    name=state.fileName.replace(/\.splat$/i,'')+'.cleaned.splat';
-  } else {
-    const lines=['ply','format ascii 1.0',`element vertex ${idx.length}`,'property float x','property float y','property float z','property uchar red','property uchar green','property uchar blue','end_header'];
-    for(const i of idx) {
-      const cx=state.paintColors&&state.paintColors[i*3]>=0?state.paintColors[i*3]:state.colors[i*3];
-      const cy=state.paintColors&&state.paintColors[i*3+1]>=0?state.paintColors[i*3+1]:state.colors[i*3+1];
-      const cz2=state.paintColors&&state.paintColors[i*3+2]>=0?state.paintColors[i*3+2]:state.colors[i*3+2];
-      lines.push(`${state.positions[i*3]} ${state.positions[i*3+1]} ${state.positions[i*3+2]} ${Math.round(clamp(cx,0,1)*255)} ${Math.round(clamp(cy,0,1)*255)} ${Math.round(clamp(cz2,0,1)*255)}`);
-    }
-    blob=new Blob([lines.join('\n')],{type:'text/plain;charset=utf-8'});
-    name=state.fileName.replace(/\.ply$/i,'')+'.cleaned.ply';
+
+// Filter source records without re-serializing Gaussian attributes. This keeps
+// rotations, anisotropic scales, opacity logits and every SH coefficient intact.
+function filterPLYBuffer(buffer, keepIndices) {
+  const bytes = new Uint8Array(buffer);
+  const marker = new TextEncoder().encode('end_header');
+  let markerAt = -1;
+  outer: for (let i = 0; i <= Math.min(bytes.length - marker.length, 1024 * 1024); i++) {
+    for (let j = 0; j < marker.length; j++) if (bytes[i+j] !== marker[j]) continue outer;
+    markerAt = i; break;
   }
-  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();URL.revokeObjectURL(a.href);
-  setStatus(`Exported ${name} — ${fmt(idx.length)} gaussians surviving.`);
+  if (markerAt < 0) throw new Error('PLY header terminator not found');
+  let bodyAt = markerAt + marker.length;
+  if (bytes[bodyAt] === 13) bodyAt++;
+  if (bytes[bodyAt] !== 10) throw new Error('Unsupported PLY header line ending');
+  bodyAt++;
+  const header = new TextDecoder().decode(bytes.subarray(0, bodyAt));
+  const fmt = header.match(/^format\s+(\S+)/m)?.[1];
+  const countMatch = header.match(/^element\s+vertex\s+(\d+)\s*$/m);
+  if (!countMatch) throw new Error('PLY header has no vertex element');
+  const sourceCount = Number(countMatch[1]);
+  if (keepIndices.some(i => !Number.isInteger(i) || i < 0 || i >= sourceCount)) throw new Error('PLY edit index is outside the source vertex range');
+  const updatedHeader = header.replace(/^element\s+vertex\s+\d+\s*$/m, 'element vertex ' + keepIndices.length);
+
+  if (fmt === 'binary_little_endian' || fmt === 'binary_big_endian') {
+    const types = { char:1, int8:1, uchar:1, uint8:1, short:2, int16:2, ushort:2, uint16:2, int:4, int32:4, uint:4, uint32:4, float:4, float32:4, double:8, float64:8 };
+    const lines = header.split(/\r?\n/);
+    let inVertex = false, seenVertex = false, stride = 0;
+    for (const line of lines) {
+      const el = line.match(/^element\s+(\S+)\s+(\d+)/);
+      if (el) { inVertex = el[1] === 'vertex'; if (inVertex) seenVertex = true; else if (!seenVertex) throw new Error('PLY has elements before vertex; refusing unsafe record filtering'); continue; }
+      if (!inVertex || !line.startsWith('property ')) continue;
+      const p = line.match(/^property\s+(\S+)\s+(\S+)/);
+      if (!p || p[1] === 'list' || !types[p[1]]) throw new Error('Unsupported non-scalar PLY vertex property: ' + line);
+      stride += types[p[1]];
+    }
+    if (!stride || bodyAt + sourceCount * stride > bytes.length) throw new Error('PLY vertex data does not match its header');
+    const h = new TextEncoder().encode(updatedHeader);
+    const output = new Uint8Array(h.length + keepIndices.length * stride + (bytes.length - bodyAt - sourceCount * stride));
+    output.set(h, 0);
+    let dst = h.length;
+    for (const i of keepIndices) { output.set(bytes.subarray(bodyAt + i*stride, bodyAt + (i+1)*stride), dst); dst += stride; }
+    output.set(bytes.subarray(bodyAt + sourceCount*stride), dst);
+    return output.buffer;
+  }
+  if (fmt === 'ascii') {
+    const lines = new TextDecoder().decode(bytes.subarray(bodyAt)).split(/\r?\n/);
+    const vertexLines = lines.slice(0, sourceCount);
+    if (vertexLines.length !== sourceCount) throw new Error('ASCII PLY has fewer vertex records than declared');
+    const remainder = lines.slice(sourceCount).join('\n');
+    const newBody = keepIndices.map(i => vertexLines[i]).join('\n') + '\n' + remainder;
+    const h = new TextEncoder().encode(updatedHeader), b = new TextEncoder().encode(newBody);
+    const out = new Uint8Array(h.length + b.length); out.set(h); out.set(b, h.length);
+    return out.buffer;
+  }
+  throw new Error('Unsupported PLY format "' + fmt + '"; source was not modified.');
+}
+
+function buildEditedSourceBuffer() {
+  if (!state.sourceBuffer || !state.alive) throw new Error('No source file is loaded');
+  const keep = [];
+  for (let i=0; i<state.alive.length; i++) if (state.alive[i]) keep.push(i);
+  if (state.fileType === 'ply') return filterPLYBuffer(state.sourceBuffer, keep);
+  if (state.fileType === 'splat') {
+    const src = new Uint8Array(state.sourceBuffer), rowSize = state.splatRowSize || 32;
+    const out = new Uint8Array(keep.length * rowSize);
+    keep.forEach((i,row) => out.set(src.subarray(i*rowSize,(i+1)*rowSize),row*rowSize));
+    return out.buffer;
+  }
+  throw new Error('Unsupported source format');
+}
+
+function exportCleaned() {
+  if(!state.alive) return;
+  try {
+    const buffer = buildEditedSourceBuffer();
+    const ext = state.fileType === 'ply' ? 'ply' : 'splat';
+    const name = state.fileName.replace(/\.(ply|splat)$/i,'') + '.cleaned.' + ext;
+    const blob = new Blob([buffer], {type:'application/octet-stream'});
+    const url = URL.createObjectURL(blob), a = document.createElement('a');
+    a.href = url; a.download = name; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+    const count = state.alive.reduce((n,v)=>n+(v?1:0),0);
+    setStatus('Exported ' + name + ' — preserved original Gaussian attributes for ' + fmt(count) + ' records.');
+  } catch(err) {
+    console.error('[FUMOCA] source-preserving export failed', err);
+    setStatus('Export stopped to protect the source PLY: ' + err.message);
+  }
 }
 
 async function saveToSupabase() {
   const params=new URLSearchParams(location.search), splatId=params.get('splatId');
   if(!splatId){setStatus('No splatId in URL — open from feed to save.'); return;}
   if(!state.alive){setStatus('No file loaded.'); return;}
-  setStatus('Saving to Supabase…', true);
+  setStatus('Saving cleaned derivative…', true);
   try {
     const {supabase}=await import('../supabaseClient.js');
-    const idx=[]; for(let i=0;i<state.alive.length;i++) if(state.alive[i]) idx.push(i);
-    let blob;
-    if(state.fileType==='splat') {
-      const src=new Uint8Array(state.sourceBuffer),out=new Uint8Array(idx.length*state.splatRowSize);
-      idx.forEach((i,row)=>out.set(src.subarray(i*state.splatRowSize,(i+1)*state.splatRowSize),row*state.splatRowSize));
-      blob=new Blob([out],{type:'application/octet-stream'});
-    }
-    if(!blob){setStatus('Only .splat can be saved back.');return;}
-    const path=`splats/${splatId}/cleaned_${Date.now()}.splat`;
-    const arr=await blob.arrayBuffer();
-    const { publicUrl, fileKey, error } = await r2.from('nif-files').upload(path, new Blob([arr], {type:'application/octet-stream'}), {contentType:'application/octet-stream'});
+    const buffer=buildEditedSourceBuffer(), ext=state.fileType==='ply'?'ply':'splat';
+    const blob=new Blob([buffer],{type:'application/octet-stream'});
+    const path='splats/' + splatId + '/cleaned_' + Date.now() + '.' + ext;
+    const { publicUrl, fileKey, error } = await r2.from('nif-files').upload(path, blob, {contentType:'application/octet-stream'});
     if(error)throw error;
     if(!fileKey)throw new Error('Storage upload returned no file key; refusing to save an unresolvable edit.');
     const { data: record, error: readError } = await supabase.from('nif_files').select('meta').eq('id',splatId).single();
-    if(readError)throw new Error(`Could not load NIF metadata: ${readError.message}`);
+    if(readError)throw new Error('Could not load NIF metadata: ' + readError.message);
     if(!record)throw new Error('NIF record was not found; the uploaded derivative was not registered.');
     const meta = {
       ...(record.meta && typeof record.meta === 'object' ? record.meta : {}),
-      cleaned_splat: {
-        r2_key: fileKey,
-        public_url: publicUrl || null,
-        gaussian_count: idx.length,
-        created_at: new Date().toISOString(),
-        source_format: 'splat',
+      cleaned_asset: {
+        r2_key: fileKey, public_url: publicUrl || null,
+        gaussian_count: state.alive.reduce((n,v)=>n+(v?1:0),0),
+        created_at: new Date().toISOString(), source_format: ext,
+        preserves_source_attributes: true,
       },
     };
     const { error: updateError } = await supabase.from('nif_files').update({meta}).eq('id',splatId);
-    if(updateError)throw new Error(`Could not register cleaned splat: ${updateError.message}`);
-    setStatus(`Saved cleaned splat derivative (${fmt(idx.length)} Gaussians). Original NIF remains unchanged.`);
-  } catch(err) { setStatus(`Save failed: ${err.message}`); }
+    if(updateError)throw new Error('Could not register cleaned derivative: ' + updateError.message);
+    setStatus('Saved cleaned ' + ext.toUpperCase() + ' derivative. Original NIF remains unchanged.');
+  } catch(err) { setStatus('Save failed: ' + err.message); }
 }
 
 // ── LASSO OVERLAY ─────────────────────────────────────────────────────────────
