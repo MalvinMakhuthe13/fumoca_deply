@@ -1170,7 +1170,14 @@ function animate() {
 animate();
 window.addEventListener('resize',()=>{
   camera.aspect=window.innerWidth/window.innerHeight;camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth,window.innerHeight);renderLasso();
+  renderer.setSize(window.innerWidth,window.innerHeight);
+  const nativeRenderer=state.actualSplatViewer?.renderer;
+  if(nativeRenderer){
+    const host=el.actualSplatHost;
+    nativeRenderer.setSize(Math.max(1,host.clientWidth||window.innerWidth),Math.max(1,host.clientHeight||window.innerHeight));
+  }
+  if(state.actualSplatCamera){state.actualSplatCamera.aspect=camera.aspect;state.actualSplatCamera.updateProjectionMatrix();}
+  renderLasso();
 });
 
 // ── RANGE LABEL BINDINGS ──────────────────────────────────────────────────────
