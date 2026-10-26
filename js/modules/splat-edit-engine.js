@@ -232,10 +232,13 @@ async function mountSplatViewer(url) {
       initialCameraLookAt:[controls.target.x,controls.target.y,controls.target.z],
       sharedMemoryForWorkers:false, antialiased:true, selfDrivenMode:true,
       useBuiltInControls:false, dynamicScene:false,
-      sphericalHarmonicsDegree:3,
+      // GaussianSplats3D supports SH degrees 0–2; 3 is outside its documented range.
+      sphericalHarmonicsDegree:2,
     });
     const format=state.fileType==='ply' ? GS3D.SceneFormat?.Ply : GS3D.SceneFormat?.Splat;
-    const options={showLoadingUI:false,progressiveLoad:true,splatAlphaRemovalThreshold:1};
+    // Drop only very low-alpha splats to reduce faint reconstruction floaters.
+  // Threshold is on the renderer's 0–255 alpha scale; keep it conservative.
+  const options={showLoadingUI:false,progressiveLoad:true,splatAlphaRemovalThreshold:5};
     if(format!==undefined) options.format=format;
     await viewer.addSplatScene(url,options);
     viewer.start();
