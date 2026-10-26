@@ -749,11 +749,11 @@ function filterPLYBuffer(buffer, keepIndices) {
   bodyAt++;
   const header = new TextDecoder().decode(bytes.subarray(0, bodyAt));
   const fmt = header.match(/^format\s+(\S+)/m)?.[1];
-  const countMatch = header.match(/^element\s+vertex\s+(\d+)\s*$/m);
+  const countMatch = header.match(/^element[ \t]+vertex[ \t]+(\d+)[ \t]*$/m);
   if (!countMatch) throw new Error('PLY header has no vertex element');
   const sourceCount = Number(countMatch[1]);
   if (keepIndices.some(i => !Number.isInteger(i) || i < 0 || i >= sourceCount)) throw new Error('PLY edit index is outside the source vertex range');
-  const updatedHeader = header.replace(/^element\s+vertex\s+\d+\s*$/m, 'element vertex ' + keepIndices.length);
+  const updatedHeader = header.replace(/^element[ \t]+vertex[ \t]+\d+[ \t]*$/m, 'element vertex ' + keepIndices.length);
 
   if (fmt === 'binary_little_endian' || fmt === 'binary_big_endian') {
     const types = { char:1, int8:1, uchar:1, uint8:1, short:2, int16:2, ushort:2, uint16:2, int:4, int32:4, uint:4, uint32:4, float:4, float32:4, double:8, float64:8 };
