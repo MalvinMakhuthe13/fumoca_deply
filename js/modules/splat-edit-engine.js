@@ -793,7 +793,12 @@ function buildEditedSourceBuffer() {
   if (!state.sourceBuffer || !state.alive) throw new Error('No source file is loaded');
   const keep = [];
   for (let i=0; i<state.alive.length; i++) if (state.alive[i]) keep.push(i);
-  if (state.fileType === 'ply') return filterPLYBuffer(state.sourceBuffer, keep);
+  if (state.fileType === 'ply') {
+    const headerText = new TextDecoder().decode(new Uint8Array(state.sourceBuffer).subarray(0, Math.min(state.sourceBuffer.byteLength, 1024 * 1024)));
+    const declared = Number(headerText.match(/^element[ \\t]+vertex[ \\t]+(\\d+)[ \\t]*$/m)?.[1]);
+    if (!Number.isInteger(declared) || declared !== state.alive.length) throw new Error('Source PLY vertex count does not match the editable point count; refusing to export.');
+    return filterPLYBuffer(state.sourceBuffer, keep);
+  }
   if (state.fileType === 'splat') {
     const src = new Uint8Array(state.sourceBuffer), rowSize = state.splatRowSize || 32;
     const out = new Uint8Array(keep.length * rowSize);
