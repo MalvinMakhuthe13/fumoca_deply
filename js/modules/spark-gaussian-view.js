@@ -18,7 +18,17 @@ const SparkGaussianView = (() => {
     const renderer = _renderer(), scene = _scene();
     if (!renderer || !scene) throw new Error('FUMOCA scene/renderer is not ready');
     const { SparkRenderer } = await import('@sparkjsdev/spark');
-    _spark = new SparkRenderer({ renderer, autoUpdate: true });
+    // Fidelity preset tuned for a sharper SuperSplat-like result:
+    // tighter Gaussian cutoff, no added covariance blur, and depth sorting.
+    _spark = new SparkRenderer({
+      renderer,
+      autoUpdate: true,
+      maxStdDev: Math.sqrt(6),
+      preBlurAmount: 0,
+      blurAmount: 0,
+      focalAdjustment: 1.5,
+      sortRadial: false
+    });
     _spark.name = 'fumoca-spark-renderer';
     scene.add(_spark);
     return _spark;
@@ -156,7 +166,7 @@ const SparkGaussianView = (() => {
     const { SplatMesh } = await import('@sparkjsdev/spark');
     if (_mesh) { scene.remove(_mesh); _mesh.dispose?.(); _mesh = null; }
     const fileBytes = bytes instanceof Uint8Array ? new Uint8Array(bytes) : new Uint8Array(bytes.slice ? bytes.slice(0) : bytes);
-    _mesh = new SplatMesh({ fileBytes, fileName, onLoad: () => console.info('[FUMOCA] Spark Gaussian data loaded:', fileName) });
+    _mesh = new SplatMesh({ fileBytes, fileName, enableLod: false, onLoad: () => console.info('[FUMOCA] Spark Gaussian data loaded:', fileName) });
     _mesh.name = 'fumoca-spark-splat';
     scene.add(_mesh);
     if (_mesh.initialized) await _mesh.initialized;
