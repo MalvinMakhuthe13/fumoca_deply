@@ -203,7 +203,9 @@ const SparkGaussianView = (() => {
         console.warn('[FUMOCA] Spark requires original Gaussian PLY or SPLAT bytes.');
         return false;
       }
-      _originalBytes = bytes instanceof Uint8Array ? new Uint8Array(bytes) : new Uint8Array(bytes.slice ? bytes.slice(0) : bytes);\n      _lastAliveSignature = '';\n      await loadFromBytes(bytes, name);
+      _originalBytes = bytes instanceof Uint8Array ? new Uint8Array(bytes) : new Uint8Array(bytes.slice ? bytes.slice(0) : bytes);
+      _lastAliveSignature = '';
+      await loadFromBytes(bytes, name);
       _hideLegacy(true);
       _enabled = true;
       console.info('[FUMOCA] Spark renderer enabled', { fileName: name, bytes: bytes.byteLength ?? bytes.length });
@@ -236,7 +238,10 @@ const SparkGaussianView = (() => {
   function isEnabled() { return _enabled; }
   function isAvailable() { return true; }
 
-  window.addEventListener('fumoca:rebuildGeometry', _scheduleEditorSync);\n  window.addEventListener('fumoca:selectionChanged', _scheduleEditorSync);\n\n  function dispose() {
+  window.addEventListener('fumoca:rebuildGeometry', _scheduleEditorSync);
+  window.addEventListener('fumoca:selectionChanged', _scheduleEditorSync);
+
+  function dispose() {
     disable();
     const scene = _scene();
     if (_spark && scene) {
