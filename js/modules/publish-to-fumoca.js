@@ -240,7 +240,7 @@ const FumocaPublish = (() => {
       publicUrl,
       gaussianCount: aliveCount,
       feedUrl: `feed.html`,
-      viewerUrl: `viewer.html?id=${encodeURIComponent(finalId)}`,
+      viewerUrl: `viewer.html?nifId=${encodeURIComponent(finalId)}`,
     };
   }
 
