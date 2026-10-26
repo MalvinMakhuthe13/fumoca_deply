@@ -8,7 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Oxanium:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <!-- config.js MUST load before any ES modules so window.FUMOCA_CONFIG is set -->
 <script src="config.js"></script>
-<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160/examples/jsm/"}}</script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160/examples/jsm/","@sparkjsdev/spark":"https://sparkjs.dev/releases/spark/2.4.0/spark.module.js"}}</script>
 <link rel="stylesheet" href="css/present-magazine.css"/>
 <link rel="stylesheet" href="css/review-video.css?v=20261025-bglayer"/>
 <link rel="stylesheet" href="css/present-unified.css"/>
@@ -879,27 +879,39 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
           <!-- Photoreal Gaussian shader toggle -->
           <!-- PHOTOREAL TOGGLE + REVEAL CONTROLS -->
           <div id="photorealToggle" style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);margin-bottom:6px;cursor:pointer;user-select:none;"
-               onclick="(function(){
-                 const gr = window.FumocaGaussianRenderer;
-                 if (!gr) { return; }
+               onclick="(async function(){
                  const lbl = document.getElementById('photorealLabel');
                  const tog = document.getElementById('photorealToggle');
                  const revRow = document.getElementById('revealRow');
-                 if (gr.isEnabled()) {
-                   gr.disable();
+                 const spark = window.FumocaSparkGaussian;
+                 const gr = window.FumocaGaussianRenderer;
+                 const on = (spark && spark.isEnabled()) || (gr && gr.isEnabled());
+                 if (on) {
+                   try { spark?.disable(); } catch(e) {}
+                   try { gr?.disable(); } catch(e) {}
                    if(lbl) lbl.textContent='✨ Photoreal: OFF';
                    if(tog) { tog.style.background='rgba(255,255,255,.04)'; tog.style.borderColor='rgba(255,255,255,.1)'; }
                    if(revRow) revRow.style.display='none';
-                 } else {
-                   gr.enable(true);
-                   if(lbl) lbl.textContent='✨ Photoreal: ON  ●';
-                   if(tog) { tog.style.background='rgba(200,255,0,.1)'; tog.style.borderColor='rgba(200,255,0,.4)'; }
-                   if(revRow) revRow.style.display='flex';
-               }
-               if (typeof rebuildGeometry === 'function') rebuildGeometry();
+                   if (typeof rebuildGeometry === 'function') rebuildGeometry();
+                   return;
+                 }
+                 if(lbl) lbl.textContent='✨ Photoreal: loading…';
+                 let sparkOn = false;
+                 if (spark && (window.S?.gaussianSourceBytes || window._fumocaLastGaussianBytes)) {
+                   try { sparkOn = await spark.enable(); } catch(e) { console.warn('[FUMOCA] Spark toggle failed', e); }
+                 }
+                 let legacyOn = false;
+                 if (!sparkOn && gr) {
+                   try { gr.enable(true); legacyOn = !!gr.isEnabled?.(); } catch(e) { console.warn('[FUMOCA] Legacy photoreal failed', e); }
+                 }
+                 const ok = sparkOn || legacyOn;
+                 if(lbl) lbl.textContent = ok ? '✨ Photoreal: ON  ●' : '✨ Photoreal: unavailable';
+                 if(tog) { tog.style.background=ok?'rgba(200,255,0,.1)':'rgba(255,255,255,.04)'; tog.style.borderColor=ok?'rgba(200,255,0,.4)':'rgba(255,255,255,.1)'; }
+                 if(revRow) revRow.style.display = (legacyOn && !sparkOn) ? 'flex' : 'none';
+                 if (!sparkOn && typeof rebuildGeometry === 'function') rebuildGeometry();
                })()">
-            <span id="photorealLabel" style="font-size:12px;font-weight:700;color:#c8ff00;">✨ Photoreal: OFF</span>
-            <span style="font-size:10px;color:rgba(255,255,255,.4);">tap to toggle</span>
+             <span id="photorealLabel" style="font-size:12px;font-weight:700;color:#c8ff00;">✨ Photoreal: OFF</span>
+             <span style="font-size:10px;color:rgba(255,255,255,.4);">tap to toggle</span>
           </div>
           <!-- Reveal / Dissolve controls — shown when photoreal is on -->
           <div id="revealRow" style="display:none;gap:5px;margin-bottom:10px;">
@@ -2809,6 +2821,12 @@ async function loadFile(file, urlOverride) {
   $('compareBtn').disabled = true; $('viewSplit').disabled = true;
   setStatus(`Loading ${file.name}…`, 'busy'); setProgress(10);
   const buf = await file.arrayBuffer(); setProgress(40);
+  // Tear down the previous photoreal layer before switching assets.
+  try { window.FumocaSparkGaussian?.disable(); } catch (_) {}
+  try { window.FumocaGaussianRenderer?.disable?.(); } catch (_) {}
+  S.gaussianSourceBytes = null;
+  S.isGaussianPly = false;
+  window._fumocaLastGaussianBytes = null;
   const extSource = (urlOverride || file.name).split(/[?#]/, 1)[0];
   const ext = extSource.split('.').pop().toLowerCase();
   S.nifMesh = null;
@@ -2835,8 +2853,22 @@ async function loadFile(file, urlOverride) {
     S.lidarClassification = decoded.lidarAttributes?.classification || null;
     S.lidarReturnNumber = decoded.lidarAttributes?.returnNumber || null;
     parsed = parseSplat(rows.buffer);
-  } else if (ext === 'splat') { S.fileType = 'splat'; S.sourceBuffer = buf; parsed = parseSplat(buf); }
-  else { S.fileType = 'ply'; parsed = parsePLY(buf); }
+  } else if (ext === 'splat') {
+    S.fileType = 'splat'; S.sourceBuffer = buf;
+    S.gaussianSourceBytes = buf.slice(0);
+    window._fumocaLastGaussianBytes = S.gaussianSourceBytes;
+    parsed = parseSplat(buf);
+  } else {
+    S.fileType = 'ply';
+    const header = new TextDecoder().decode(buf.slice(0, Math.min(buf.byteLength, 65536)));
+    S.isGaussianPly = /property\\s+(?:float|double)\\s+f_dc_0\\b/i.test(header)
+      && /property\\s+(?:float|double)\\s+scale_0\\b/i.test(header);
+    if (S.isGaussianPly) {
+      S.gaussianSourceBytes = buf.slice(0);
+      window._fumocaLastGaussianBytes = S.gaussianSourceBytes;
+    }
+    parsed = parsePLY(buf);
+  }
   setProgress(70);
   S.fileName = file.name;
   S.positions = parsed.positions; S.colors = parsed.colors;
@@ -3033,21 +3065,35 @@ async function loadFile(file, urlOverride) {
   // Fire event so auto-fix.js and other modules know a file loaded
   window.dispatchEvent(new CustomEvent('fumoca:fileLoaded', { detail: { count: parsed.count } }));
 
-  // Auto-enable photoreal Gaussian mode on first file load + play reveal
-  setTimeout(() => {
+  // Prefer Spark for original Gaussian data, with the existing renderer as fallback.
+  setTimeout(async () => {
+    const spark = window.FumocaSparkGaussian;
     const gr = window.FumocaGaussianRenderer;
-    if (gr && !gr.isEnabled()) {
-      gr.enable(false);  // enable without auto-reveal — we'll trigger it after rebuild
-      rebuildGeometry();
-      setTimeout(() => gr.playReveal(2400), 80);
-      const lbl = document.getElementById('photorealLabel');
-      const tog = document.getElementById('photorealToggle');
-      const revRow = document.getElementById('revealRow');
-      if (lbl) lbl.textContent = '✨ Photoreal: ON  ●';
-      if (tog) { tog.style.background='rgba(200,255,0,.1)'; tog.style.borderColor='rgba(200,255,0,.4)'; }
-      if (revRow) revRow.style.display = 'flex';
+    let sparkOn = false;
+    if (spark && S.gaussianSourceBytes) {
+      try { sparkOn = await spark.enable(); } catch (e) { console.warn('[FUMOCA] Spark auto-enable failed', e); }
     }
-  }, 300);
+    let legacyOn = false;
+    if (!sparkOn && gr && !gr.isEnabled()) {
+      try {
+        gr.enable(false);
+        legacyOn = !!gr.isEnabled?.();
+        if (legacyOn) {
+          rebuildGeometry();
+          setTimeout(() => gr.playReveal?.(2400), 80);
+        }
+      } catch (e) { console.warn('[FUMOCA] Legacy fallback failed', e); }
+    } else if (gr) {
+      legacyOn = !!gr.isEnabled?.();
+    }
+    const ok = sparkOn || legacyOn;
+    const lbl = document.getElementById('photorealLabel');
+    const tog = document.getElementById('photorealToggle');
+    const revRow = document.getElementById('revealRow');
+    if (lbl) lbl.textContent = ok ? '✨ Photoreal: ON  ●' : '✨ Photoreal: OFF';
+    if (tog) { tog.style.background=ok?'rgba(200,255,0,.1)':'rgba(255,255,255,.04)'; tog.style.borderColor=ok?'rgba(200,255,0,.4)':'rgba(255,255,255,.1)'; }
+    if (revRow) revRow.style.display = (legacyOn && !sparkOn) ? 'flex' : 'none';
+  }, 350);
   // The initial Gaussian reveal runs for 2.4s. Capture the comparison source
   // after it completes so the saved baseline contains the full scene.
   _compareCaptureTimer = setTimeout(_captureCompareBaseline, 2900);
@@ -6066,6 +6112,7 @@ animBg();
 <script type="module" src="js/modules/ply-validator.js"></script>
 <script type="module" src="js/modules/camera-view.js"></script>
 <script type="module" src="js/modules/publish-to-fumoca.js?v=20261025-bglayer2"></script>
+<script type="module" src="js/modules/spark-gaussian-view.js?v=20261026-spark-native"></script>
 <script type="module" src="js/modules/gaussian-renderer.js"></script>
 <script type="module" src="js/modules/smart-select.js"></script>
 <script src="js/modules/gap-fill-engine.js"></script>
