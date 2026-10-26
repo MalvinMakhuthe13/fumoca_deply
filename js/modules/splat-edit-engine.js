@@ -196,16 +196,13 @@ async function loadFile(file, sourceUrl='') {
   rebuildGeometry(true);
   fitCamera();
   setProgress(90);
-  if (ext==='splat') {
-    const url=sourceUrl||URL.createObjectURL(file);
-    state.splatSourceUrl=url;
-    await mountSplatViewer(url);
-    // Start in blob mode so they can see structure
-    setDisplayMode(DISP.BLOB);
-  } else {
-    await destroySplatViewer();
-    setDisplayMode(DISP.BLOB);
-  }
+  // Keep a true Gaussian renderer available for both native .splat and Gaussian .ply.
+  // The editable point/blob overlay remains available for selection and cleanup tools.
+  const renderUrl=sourceUrl||URL.createObjectURL(file);
+  state.splatSourceUrl=renderUrl;
+  await mountSplatViewer(renderUrl);
+  // Start in editable blob mode; users can switch to SPLAT to inspect the true render.
+  setDisplayMode(DISP.BLOB);
   setProgress(100);
   setStatus(`Loaded ${name} — ${fmt(parsed.count)} gaussians. Blob view active. Use Orbit to explore, Brush Erase to clean.`);
   el.dropZone.style.display='none';
@@ -224,22 +221,9 @@ async function destroySplatViewer() {
 
 async function mountSplatViewer(url) {
   await destroySplatViewer();
-  if (!url||state.fileType!=='splat') return;
-  // Try iframe first
-  try {
-    const iframe=document.createElement('iframe');
-    const target=new URL('viewer.html',window.location.href);
-    target.searchParams.set('file',url); target.searchParams.set('embed','1');
-    iframe.src=target.toString();
-    Object.assign(iframe.style,{position:'absolute',inset:'0',width:'100%',height:'100%',border:'0',display:'block',background:'transparent'});
-    iframe.setAttribute('aria-hidden','true');
-    el.actualSplatHost.innerHTML='';
-    el.actualSplatHost.appendChild(iframe);
-    state.actualSplatIframe=iframe;
-    state.splatVisible=true;
-    return;
-  } catch(_) {}
-  // Fallback: direct GaussianSplats3D
+  if (!url||!['splat','ply'].includes(state.fileType)) return;
+  // Use the in-page renderer for PLY as well as SPLAT. An iframe infers file type
+  // from its URL and can misclassify blob URLs, so pass the format explicitly.
   try {
     const viewer=new GS3D.Viewer({
       rootElement:el.actualSplatHost, cameraUp:[0,-1,-0.6],
@@ -247,14 +231,21 @@ async function mountSplatViewer(url) {
       initialCameraLookAt:[controls.target.x,controls.target.y,controls.target.z],
       sharedMemoryForWorkers:false, antialiased:true, selfDrivenMode:true,
       useBuiltInControls:false, dynamicScene:false,
+      sphericalHarmonicsDegree:3,
     });
-    await viewer.addSplatScene(url,{showLoadingUI:false,progressiveLoad:true,splatAlphaRemovalThreshold:1});
+    const format=state.fileType==='ply' ? GS3D.SceneFormat?.Ply : GS3D.SceneFormat?.Splat;
+    const options={showLoadingUI:false,progressiveLoad:true,splatAlphaRemovalThreshold:1};
+    if(format!==undefined) options.format=format;
+    await viewer.addSplatScene(url,options);
     viewer.start();
     await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
     const c=el.actualSplatHost.querySelector('canvas');
     if (c) Object.assign(c.style,{position:'absolute',inset:'0',width:'100%',height:'100%'});
     state.actualSplatViewer=viewer; state.actualSplatCamera=getViewerCam(viewer); state.splatVisible=true;
-  } catch(err) { console.warn('[FUMOCA] splat viewer failed',err); }
+  } catch(err) {
+    console.warn('[FUMOCA] native Gaussian renderer failed; keeping editable preview available',err);
+    setStatus('Editable preview loaded; native Gaussian render failed. See browser console for details.');
+  }
 }
 
 function syncSplatCamera() {
