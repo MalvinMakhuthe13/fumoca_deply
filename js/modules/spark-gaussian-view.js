@@ -76,6 +76,8 @@ const SparkGaussianView = (() => {
     });
     _mesh.name = 'fumoca-spark-splat';
     scene.add(_mesh);
+    // Do not hide the editor preview until Spark has finished decoding the file.
+    if (_mesh.initialized) await _mesh.initialized;
     _sourceKey = key;
     return _mesh;
   }
