@@ -113,7 +113,10 @@ const SparkGaussianView = (() => {
     }
     const dataEnd = headerEnd + count * rowBytes;
     if (dataEnd !== src.length) throw new Error('PLY contains trailing elements or unexpected data; safe sync refused');
-    return { src, header, headerEnd, count, rowBytes, xyz };
+    const scaleProps = [0, 1, 2].map(i => properties.find(p => p.name === 'scale_' + i));
+    const rotationProps = [0, 1, 2, 3].map(i => properties.find(p => p.name === 'rot_' + i));
+    const opacityProp = properties.find(p => p.name === 'opacity');
+    return { src, header, headerEnd, count, rowBytes, properties, xyz, scaleProps, rotationProps, opacityProp };
   }
 
   function _stateSignature(state) {
@@ -148,6 +151,33 @@ const SparkGaussianView = (() => {
         const prop = parsed.xyz[axis], value = state.positions[i*3+axis];
         if (!Number.isFinite(value)) throw new Error('Non-finite transformed position at vertex ' + i);
         view[prop.setter](prop.offset, value, true);
+      }
+      // Keep anisotropic Gaussian shape aligned with editor transforms.
+      // PLY scale_* fields are logarithmic; editor scaleXYZ stores linear scales.
+      if (state.scaleXYZ && parsed.scaleProps.every(Boolean)) {
+        for (let axis=0;axis<3;axis++) {
+          const linearScale = state.scaleXYZ[i*3+axis];
+          if (!(linearScale > 0) || !Number.isFinite(linearScale)) throw new Error('Invalid Gaussian scale at vertex ' + i);
+          const prop = parsed.scaleProps[axis];
+          view[prop.setter](prop.offset, Math.log(linearScale), true);
+        }
+      }
+      // FUMOCA stores Gaussian rotations as normalized quaternion w,x,y,z,
+      // matching the standard rot_0..rot_3 property order.
+      if (state.rotation && parsed.rotationProps.every(Boolean)) {
+        let norm = 0;
+        for (let axis=0;axis<4;axis++) norm += state.rotation[i*4+axis] ** 2;
+        norm = Math.sqrt(norm);
+        if (!(norm > 1e-8) || !Number.isFinite(norm)) throw new Error('Invalid Gaussian rotation at vertex ' + i);
+        for (let axis=0;axis<4;axis++) {
+          const prop = parsed.rotationProps[axis];
+          view[prop.setter](prop.offset, state.rotation[i*4+axis] / norm, true);
+        }
+      }
+      if (state.opacity && parsed.opacityProp) {
+        const opacity = Math.max(1e-6, Math.min(1 - 1e-6, state.opacity[i]));
+        const logit = Math.log(opacity / (1 - opacity));
+        view[parsed.opacityProp.setter](parsed.opacityProp.offset, logit, true);
       }
       rows.push(row);
     }
