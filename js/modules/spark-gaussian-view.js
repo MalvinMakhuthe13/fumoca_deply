@@ -44,7 +44,7 @@ const SparkGaussianView = (() => {
       const geometry = new THREE.BufferGeometry();
       geometry.setAttribute('position', new THREE.Float32BufferAttribute([], 3));
       geometry.setAttribute('color', new THREE.Float32BufferAttribute([], 3));
-      const material = new THREE.PointsMaterial({ size: 0.025, sizeAttenuation: true, vertexColors: true, transparent: true, opacity: 1, depthTest: true });
+      const material = new THREE.PointsMaterial({ size: 6, sizeAttenuation: false, vertexColors: true, transparent: true, opacity: 1, depthTest: true });
       _overlay = new THREE.Points(geometry, material);
       _overlay.name = 'fumoca-spark-selection-overlay';
       _overlay.renderOrder = 20;
