@@ -2177,7 +2177,7 @@ function activatePreset(name) {
 async function _trySparkPublic(bytes, name, url) {
   try {
     if (!window.FumocaSparkViewer?.mount) {
-      await import('./spark-viewer-bridge.js?v=20261027-seamless').catch(() => null);
+      await import('./spark-viewer-bridge.js?v=20261027-seamless-overlayfix').catch(() => null);
     }
     const host = stageHost || stageEl || document.getElementById('stageHost') || document.getElementById('stage');
     if (!host || !window.FumocaSparkViewer?.mount) return false;
