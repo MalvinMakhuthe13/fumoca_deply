@@ -26,7 +26,7 @@ const SparkGaussianView = (() => {
       maxStdDev: Math.sqrt(6),
       preBlurAmount: 0,
       blurAmount: 0,
-      focalAdjustment: 2.0,
+      focalAdjustment: 1.5,
       sortRadial: false
     });
     _spark.name = 'fumoca-spark-renderer';
