@@ -152,16 +152,6 @@ const SparkGaussianView = (() => {
         if (!Number.isFinite(value)) throw new Error('Non-finite transformed position at vertex ' + i);
         view[prop.setter](prop.offset, value, true);
       }
-      // Keep anisotropic Gaussian shape aligned with editor transforms.
-      // PLY scale_* fields are logarithmic; editor scaleXYZ stores linear scales.
-      if (state.scaleXYZ && parsed.scaleProps.every(Boolean)) {
-        for (let axis=0;axis<3;axis++) {
-          const linearScale = state.scaleXYZ[i*3+axis];
-          if (!(linearScale > 0) || !Number.isFinite(linearScale)) throw new Error('Invalid Gaussian scale at vertex ' + i);
-          const prop = parsed.scaleProps[axis];
-          view[prop.setter](prop.offset, Math.log(linearScale), true);
-        }
-      }
       // FUMOCA stores Gaussian rotations as normalized quaternion w,x,y,z,
       // matching the standard rot_0..rot_3 property order.
       if (state.rotation && parsed.rotationProps.every(Boolean)) {
@@ -173,11 +163,6 @@ const SparkGaussianView = (() => {
           const prop = parsed.rotationProps[axis];
           view[prop.setter](prop.offset, state.rotation[i*4+axis] / norm, true);
         }
-      }
-      if (state.opacity && parsed.opacityProp) {
-        const opacity = Math.max(1e-6, Math.min(1 - 1e-6, state.opacity[i]));
-        const logit = Math.log(opacity / (1 - opacity));
-        view[parsed.opacityProp.setter](parsed.opacityProp.offset, logit, true);
       }
       rows.push(row);
     }
