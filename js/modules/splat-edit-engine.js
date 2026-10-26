@@ -6,7 +6,7 @@ import r2 from '../r2Client.js';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
-import * as GS3D from 'https://cdn.jsdelivr.net/npm/@mkkellogg/gaussian-splats-3d@0.4.7/build/gaussian-splats-3d.module.js';
+import { SparkRenderer, SplatMesh, SplatFileType } from '@sparkjsdev/spark';
 import { MeshEngine } from './mesh-engine.js';
 import { SoundEngine, buildAmbientPanel } from './sound-engine.js';
 
@@ -210,55 +210,129 @@ async function loadFile(file, sourceUrl='') {
 }
 
 // ── ACTUAL SPLAT VIEWER ───────────────────────────────────────────────────────
-function getViewerCam(v) { return v?.camera||v?.perspectiveCamera||v?.renderer?.camera||v?._camera||null; }
-
-async function destroySplatViewer() {
-  const inst=state.actualSplatViewer; state.actualSplatViewer=null; state.actualSplatCamera=null;
-  if (state.actualSplatIframe) { try{state.actualSplatIframe.remove();}catch(_){} state.actualSplatIframe=null; }
-  if (!inst) { el.actualSplatHost.innerHTML=''; return; }
-  try{inst.stop?.();}catch(_){} try{await inst.dispose?.();}catch(_){} try{inst.renderer?.domElement?.remove?.();}catch(_){}
-  el.actualSplatHost.innerHTML='';
+function getViewerCam(v) { return v?.camera||v?.async function destroySplatViewer() {
+  const inst = state.actualSplatViewer;
+  state.actualSplatViewer = null;
+  state.actualSplatCamera = null;
+  if (state.actualSplatIframe) {
+    try { state.actualSplatIframe.remove(); } catch (_) {}
+    state.actualSplatIframe = null;
+  }
+  if (inst) {
+    try { inst.stop?.(); } catch (_) {}
+    try { await inst.dispose?.(); } catch (_) {}
+  }
+  el.actualSplatHost.innerHTML = '';
 }
 
 async function mountSplatViewer(url) {
   await destroySplatViewer();
-  if (!url||!['splat','ply'].includes(state.fileType)) return;
-  // Use the in-page renderer for PLY as well as SPLAT. An iframe infers file type
-  // from its URL and can misclassify blob URLs, so pass the format explicitly.
+  if (!url || !['splat', 'ply'].includes(state.fileType)) return;
+
+  let splatRenderer, splatScene, splatCamera, spark, splatMesh;
   try {
-    const viewer=new GS3D.Viewer({
-      rootElement:el.actualSplatHost, cameraUp:[0,-1,-0.6],
-      initialCameraPosition:[camera.position.x,camera.position.y,camera.position.z],
-      initialCameraLookAt:[controls.target.x,controls.target.y,controls.target.z],
-      sharedMemoryForWorkers:false, antialiased:true, selfDrivenMode:true,
-      useBuiltInControls:false, dynamicScene:false,
-      // GaussianSplats3D supports SH degrees 0–2; 3 is outside its documented range.
-      sphericalHarmonicsDegree:2,
+    // Spark performs true anisotropic Gaussian projection/sorting/blending.
+    // Keep it in a dedicated canvas so the Studio's editable overlay remains independent.
+    const host = el.actualSplatHost;
+    const width = Math.max(1, host.clientWidth || window.innerWidth);
+    const height = Math.max(1, host.clientHeight || window.innerHeight);
+    splatRenderer = new THREE.WebGLRenderer({
+      alpha: true,
+      antialias: false,
+      powerPreference: 'high-performance',
+      preserveDrawingBuffer: false,
     });
-    const format=state.fileType==='ply' ? GS3D.SceneFormat?.Ply : GS3D.SceneFormat?.Splat;
-    // Drop only very low-alpha splats to reduce faint reconstruction floaters.
-  // Threshold is on the renderer's 0–255 alpha scale; keep it conservative.
-  const options={showLoadingUI:false,progressiveLoad:true,splatAlphaRemovalThreshold:5};
-    if(format!==undefined) options.format=format;
-    await viewer.addSplatScene(url,options);
-    viewer.start();
-    await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
-    const c=el.actualSplatHost.querySelector('canvas');
-    if (c) Object.assign(c.style,{position:'absolute',inset:'0',width:'100%',height:'100%'});
-    state.actualSplatViewer=viewer; state.actualSplatCamera=getViewerCam(viewer); state.splatVisible=true;
-  } catch(err) {
-    console.warn('[FUMOCA] native Gaussian renderer failed; keeping editable preview available',err);
-    setStatus('Editable preview loaded; native Gaussian render failed. See browser console for details.');
+    splatRenderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    splatRenderer.setSize(width, height);
+    splatRenderer.setClearColor(0x000000, 0);
+    Object.assign(splatRenderer.domElement.style, {
+      position: 'absolute', inset: '0', width: '100%', height: '100%',
+      display: 'block', pointerEvents: 'none',
+    });
+    host.innerHTML = '';
+    host.appendChild(splatRenderer.domElement);
+
+    splatScene = new THREE.Scene();
+    splatCamera = new THREE.PerspectiveCamera(camera.fov, width / height, camera.near, camera.far);
+    splatCamera.position.copy(camera.position);
+    splatCamera.quaternion.copy(camera.quaternion);
+    splatCamera.updateProjectionMatrix();
+
+    spark = new SparkRenderer({ renderer: splatRenderer });
+    splatScene.add(spark);
+
+    const sourceOptions = { url };
+    if (state.fileType === 'splat') sourceOptions.fileType = SplatFileType.SPLAT;
+    splatMesh = new SplatMesh(sourceOptions);
+    splatScene.add(splatMesh);
+    // Wait until fetch, PLY decoding, and GPU data initialization have completed.
+    await splatMesh.initialized;
+
+    let stopped = false;
+    const syncCamera = () => {
+      if (stopped) return;
+      splatCamera.position.copy(camera.position);
+      splatCamera.quaternion.copy(camera.quaternion);
+      splatCamera.fov = camera.fov;
+      splatCamera.near = camera.near;
+      splatCamera.far = camera.far;
+      splatCamera.aspect = camera.aspect;
+      splatCamera.updateProjectionMatrix();
+    };
+    const renderFrame = () => {
+      if (stopped) return;
+      syncCamera();
+      splatRenderer.render(splatScene, splatCamera);
+    };
+    splatRenderer.setAnimationLoop(renderFrame);
+
+    state.actualSplatCamera = splatCamera;
+    state.actualSplatViewer = {
+      renderer: splatRenderer,
+      spark,
+      scene: splatScene,
+      mesh: splatMesh,
+      stop() {
+        stopped = true;
+        splatRenderer?.setAnimationLoop(null);
+      },
+      async dispose() {
+        try { splatScene?.remove(splatMesh); } catch (_) {}
+        try { splatMesh?.dispose?.(); } catch (_) {}
+        try { spark?.dispose?.(); } catch (_) {}
+        try { splatRenderer?.dispose?.(); } catch (_) {}
+        try { splatRenderer?.forceContextLoss?.(); } catch (_) {}
+        try { splatRenderer?.domElement?.remove?.(); } catch (_) {}
+      },
+    };
+    state.splatVisible = true;
+    console.info('[FUMOCA] Spark Gaussian renderer loaded', {
+      format: state.fileType,
+      splats: splatMesh.numSplats,
+      maxSH: splatMesh.maxSh,
+    });
+  } catch (err) {
+    console.error('[FUMOCA] Spark Gaussian renderer failed', err);
+    try { splatRenderer?.setAnimationLoop(null); } catch (_) {}
+    try { splatMesh?.dispose?.(); } catch (_) {}
+    try { spark?.dispose?.(); } catch (_) {}
+    try { splatRenderer?.dispose?.(); } catch (_) {}
+    try { splatRenderer?.domElement?.remove?.(); } catch (_) {}
+    el.actualSplatHost.innerHTML = '';
+    setStatus('Spark native renderer failed; editable preview remains available. ' + (err?.message || err));
   }
 }
 
 function syncSplatCamera() {
-  const c=state.actualSplatCamera||getViewerCam(state.actualSplatViewer);
+  const c = state.actualSplatCamera;
   if (!c) return;
-  state.actualSplatCamera=c;
-  c.position.copy(camera.position); c.quaternion.copy(camera.quaternion);
-  c.near=camera.near; c.far=camera.far; c.aspect=camera.aspect;
-  c.updateProjectionMatrix?.();
+  c.position.copy(camera.position);
+  c.quaternion.copy(camera.quaternion);
+  c.fov = camera.fov;
+  c.near = camera.near;
+  c.far = camera.far;
+  c.aspect = camera.aspect;
+  c.updateProjectionMatrix();
 }
 
 // ── DISPLAY MODES ─────────────────────────────────────────────────────────────
