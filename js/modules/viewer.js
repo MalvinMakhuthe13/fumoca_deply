@@ -2177,7 +2177,7 @@ function activatePreset(name) {
 async function _trySparkPublic(bytes, name, url) {
   try {
     if (!window.FumocaSparkViewer?.mount) {
-      await import('./spark-viewer-bridge.js?v=20261027-seamless-overlayfix3').catch(() => null);
+      await import('./spark-viewer-bridge.js?v=20261027-seamless-overlayfix4').catch(() => null);
     }
     const host = stageHost || stageEl || document.getElementById('stageHost') || document.getElementById('stage');
     if (!host || !window.FumocaSparkViewer?.mount) return false;
@@ -2203,7 +2203,21 @@ async function _trySparkPublic(bytes, name, url) {
         hostSize: [host.clientWidth, host.clientHeight]
       });
     } catch (_) {}
-    try { document.body.classList.remove('media-flat'); } catch (_) {}
+    // The page also creates a second v86 overlay (#fumocLoadingOverlay)
+    // at z-index 999, which sits above the canvas and the legacy loader.
+    // Spark success must dismiss both loading systems.
+    try {
+      const secondaryOverlay = window._fumocaLoadingOverlay || document.getElementById('fumocLoadingOverlay');
+      if (secondaryOverlay) {
+        secondaryOverlay.style.setProperty('display', 'none', 'important');
+        secondaryOverlay.style.setProperty('visibility', 'hidden', 'important');
+        secondaryOverlay.style.setProperty('opacity', '0', 'important');
+        secondaryOverlay.style.setProperty('pointer-events', 'none', 'important');
+        secondaryOverlay.remove();
+      }
+      window.dispatchEvent(new CustomEvent('fumoca:viewerReady', { detail: { renderer: 'spark', fileName: name || 'scene.ply' } }));
+      document.body.classList.remove('media-flat');
+    } catch (_) {}
     return true;
   } catch (e) {
     console.warn('[Viewer] Spark solid failed; retaining legacy renderer', e);
