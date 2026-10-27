@@ -265,6 +265,14 @@ const SparkGaussianView = (() => {
     if (_overlay) { try { _scene()?.remove(_overlay); _overlay.geometry?.dispose?.(); _overlay.material?.dispose?.(); } catch (_) {} _overlay = null; }
     if (_mesh) { try { _scene()?.remove(_mesh); _mesh.dispose?.(); } catch (_) {} _mesh = null; }
   }
+  // Export the current edited Gaussian PLY without flattening it to NIF's
+  // 14-float preview representation. This preserves SH coefficients and all
+  // original per-Gaussian attributes while applying positions, rotations and deletions.
+  function exportEditedBytes(state = window.S) {
+    if (!_enabled || !_originalBytes) throw new Error('Spark source is not active');
+    return _makeEditedBytes(state);
+  }
+
   function isEnabled() { return _enabled; }
   function isAvailable() { return true; }
   function dispose() {
@@ -272,7 +280,7 @@ const SparkGaussianView = (() => {
     if (_spark) { try { _scene()?.remove(_spark); _spark.dispose?.(); } catch (_) {} _spark = null; }
   }
 
-  return { enable, disable, isEnabled, isAvailable, loadFromBytes, syncEditorState, refreshEditorState, dispose };
+  return { enable, disable, isEnabled, isAvailable, loadFromBytes, syncEditorState, refreshEditorState, exportEditedBytes, dispose };
 })();
 window.FumocaSparkGaussian = SparkGaussianView;
 export default SparkGaussianView;
