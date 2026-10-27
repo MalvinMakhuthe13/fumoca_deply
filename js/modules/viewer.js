@@ -2076,8 +2076,10 @@ if (cam) {
       if (typeof cam.updateMatrixWorld === 'function') cam.updateMatrixWorld(true);
       if (typeof cam.updateProjectionMatrix === 'function') cam.updateProjectionMatrix();
 
-      if ('minDistance' in controls) controls.minDistance = Math.max(radius * 0.002, 0.0001);
-      if ('maxDistance' in controls) controls.maxDistance = Math.max(radius * 40, idealDist * 12);
+      // Published Spark splats must remain zoomable beyond the default fit range.
+      // Do not let this delayed auto-fit routine reintroduce distance clamps.
+      if ('minDistance' in controls) controls.minDistance = 0;
+      if ('maxDistance' in controls) controls.maxDistance = Infinity;
       try {
         if (cam && cam.near != null) {
           cam.near = Math.min(Number(cam.near) || 0.1, 0.005);
