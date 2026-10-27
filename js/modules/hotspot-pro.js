@@ -1840,10 +1840,13 @@ function attachUi() {
   window.addEventListener('fumoca:permissionsUpdated', (e) => { state.canManage = !!e.detail?.canManage; renderPanel(); });
 
   // Studio uses #viewport; viewer uses #stage / #stageHost. Listen on both + document for place mode.
+  // Prefer the visible public viewer stage. Some viewer pages also retain a
+  // hidden #viewport element for editor compatibility; choosing it first
+  // silently attaches placement listeners to the wrong element.
   const stage =
-    document.getElementById('viewport') ||
-    document.getElementById('stageHost') ||
     document.getElementById('stage') ||
+    document.getElementById('stageHost') ||
+    document.getElementById('viewport') ||
     document.body;
 
   // Track pointer so a drag-to-orbit does not accidentally place a hotspot
@@ -1883,23 +1886,9 @@ function attachUi() {
     cursor.style.left = event.clientX + 'px';
     cursor.style.top = event.clientY + 'px';
   };
-  stage.addEventListener('pointerdown', onPlaceDown);
-  stage.addEventListener('pointerup', onPlaceUp);
-  stage.addEventListener('pointercancel', () => { _placePtr = null; });
-  stage.addEventListener('pointermove', onPlaceMove);
-  // Public viewer canvas is mounted under #stage/#stageHost, unlike Studio's #viewport.
-  const bindPlacementCanvases = () => {
-    document.querySelectorAll('#viewport canvas, #stageHost canvas, #stage canvas').forEach((canvas) => {
-      if (canvas.dataset.fumocaPlacementBound === '1') return;
-      canvas.dataset.fumocaPlacementBound = '1';
-      canvas.addEventListener('pointerdown', onPlaceDown, true);
-      canvas.addEventListener('pointerup', onPlaceUp, true);
-    });
-  };
-  bindPlacementCanvases();
-  window.addEventListener('fumoca:viewerReady', bindPlacementCanvases);
-  window.addEventListener('fumoca:recordLoaded', bindPlacementCanvases);
-  // Capture at document level so UI wrappers cannot swallow clicks first.
+  // Use one capture-phase document handler. Registering the same down/up
+  // callbacks on document, stage and canvas races async placement and can
+  // consume the pointer state before the actual handler processes the click.
   document.addEventListener('pointerdown', (event) => {
     if (!state.placeMode || !event.target?.closest?.('#stage, #stageHost, #viewport')) return;
     onPlaceDown(event);
@@ -1908,6 +1897,8 @@ function attachUi() {
     if (!state.placeMode || !event.target?.closest?.('#stage, #stageHost, #viewport')) return;
     onPlaceUp(event);
   }, true);
+  document.addEventListener('pointercancel', () => { _placePtr = null; }, true);
+  document.addEventListener('pointermove', onPlaceMove, true);
 
   // Shift + double-click still places (power-user shortcut)
   stage?.addEventListener('dblclick', async (event) => {
