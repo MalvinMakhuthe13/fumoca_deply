@@ -1846,6 +1846,71 @@ function mountDecodedCloud(g) {
   }));
   console.log('%c[FUMOCA] Point cloud on screen', 'color:#c8ff00;font-weight:800', { N, radius });
 }
+// High-fidelity published path: render the edited companion Gaussian PLY with
+// Spark, matching the editor renderer instead of flattening NIF geometry to legacy .splat rows.
+let _publishedSparkRenderer = null, _publishedSparkMesh = null;
+async function mountPublishedSparkPly(url) {
+  destroyPlyViewer();
+  const container = stageHost || stageEl;
+  if (!container) throw new Error('Viewer stage is unavailable');
+  const response = await fetch(url);
+  if (!response.ok) throw new Error('Published Gaussian source returned HTTP ' + response.status);
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  const { SplatMesh, SparkRenderer } = await import('@sparkjsdev/spark');
+  _plyScene = new THREE.Scene();
+  _plyCamera = new THREE.PerspectiveCamera(55, Math.max(1, container.clientWidth) / Math.max(1, container.clientHeight), 0.001, 2000);
+  _plyCamera.up.set(0, -1, -0.6).normalize();
+  _plyRenderer = new THREE.WebGLRenderer({ antialias: false, alpha: true, powerPreference: 'high-performance' });
+  _plyRenderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  _plyRenderer.setSize(container.clientWidth || 1, container.clientHeight || 1);
+  _plyRenderer.setClearColor(0x000000, 0);
+  Object.assign(_plyRenderer.domElement.style, { position:'absolute', inset:'0', width:'100%', height:'100%', zIndex:'2' });
+  container.appendChild(_plyRenderer.domElement);
+  _publishedSparkRenderer = new SparkRenderer({
+    renderer: _plyRenderer, autoUpdate: true, maxStdDev: Math.sqrt(6),
+    preBlurAmount: 0, blurAmount: 0, focalAdjustment: 1.5, sortRadial: false
+  });
+  _plyScene.add(_publishedSparkRenderer);
+  _publishedSparkMesh = new SplatMesh({ fileBytes: bytes, fileName: 'published-edited.ply', enableLod: false });
+  _publishedSparkMesh.name = 'fumoca-published-spark-splat';
+  _plyScene.add(_publishedSparkMesh);
+  if (_publishedSparkMesh.initialized) await _publishedSparkMesh.initialized;
+  // Use PLY positions only to calculate a stable framing; Spark handles the actual splat rendering.
+  const parsed = new PLYLoader().parse(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+  const position = parsed.getAttribute('position');
+  if (!position?.count) throw new Error('Published Gaussian PLY has no positions');
+  const bounds = new THREE.Box3().setFromBufferAttribute(position);
+  const center = bounds.getCenter(new THREE.Vector3());
+  const radius = Math.max(bounds.getBoundingSphere(new THREE.Sphere()).radius, 0.01);
+  _plyCamera.position.set(center.x, center.y + radius * 0.35, center.z + radius * 2.3);
+  _plyCamera.lookAt(center);
+  _plyControls = new TrackballControls(_plyCamera, _plyRenderer.domElement);
+  _plyControls.rotateSpeed = 2.4; _plyControls.zoomSpeed = 1.3; _plyControls.panSpeed = 0;
+  _plyControls.noPan = true; _plyControls.noRoll = false; _plyControls.staticMoving = false;
+  _plyControls.dynamicDampingFactor = 0.12; _plyControls.target.copy(center); _plyControls.update();
+  const resize = () => {
+    if (!_plyRenderer || !_plyCamera) return;
+    const w = container.clientWidth || window.innerWidth, h = container.clientHeight || window.innerHeight;
+    if (w < 2 || h < 2) return;
+    _plyCamera.aspect = w / h; _plyCamera.updateProjectionMatrix(); _plyRenderer.setSize(w, h, false);
+  };
+  window.addEventListener('resize', resize);
+  const loop = () => {
+    if (!_plyRenderer || !_publishedSparkRenderer) return;
+    _plyFrame = requestAnimationFrame(loop);
+    _plyControls?.update();
+    _plyRenderer.render(_plyScene, _plyCamera);
+  };
+  loop();
+  window._fumocaPublishedSpark = _publishedSparkRenderer;
+  window._fumocaViewerCamera = _plyCamera;
+  window._fumocaViewerControls = _plyControls;
+  window._fumocaCaptureCanvas = _plyRenderer.domElement;
+  window.__fumocaViewerMaterial = _publishedSparkMesh.material || null;
+  hideLoading();
+  window.dispatchEvent(new CustomEvent('fumoca:viewerReady', { detail: { camera:_plyCamera, controls:_plyControls, gaussianSource:'spark-ply' } }));
+  console.info('[FUMOCA Viewer] Published companion rendered through Spark', { bytes:bytes.byteLength, gaussians:position.count });
+}
 async function mountInteractiveViewer(forceReload = false) {
   const activeUrl = getActivenifUrl();
   if ((!forceReload && viewerInstance) || !activeUrl) return;
@@ -2250,6 +2315,22 @@ async function boot() {
     return;
   }
   if ((previewVideoUrl || thumbnailUrl) && autoplayPreview) openPreview('nif');
+  // New publications carry an edited full-fidelity Gaussian PLY companion.
+  // Prefer Spark for those records; old NIFs remain on the compatible legacy path.
+  const companionKey = currentRecord?.meta?.view_ply_r2_key;
+  if (companionKey && _isNifUrl(fileUrl)) {
+    try {
+      const companionUrl = r2.publicUrl('nif-files', companionKey);
+      if (companionUrl) {
+        setLoading('Loading high-fidelity Spark splat…');
+        await mountPublishedSparkPly(companionUrl);
+        return;
+      }
+    } catch (err) {
+      console.error('[FUMOCA Viewer] Spark companion failed; falling back to NIF renderer:', err);
+      destroyPlyViewer();
+    }
+  }
   // Route PLY / .splat / .nif to 3D path
   if (_isNifUrl(fileUrl) || (_blobType === 'nif' && fileUrl.startsWith('blob:'))) {
     // .nif is the native format â€” decode its KEYFRAME_GEO chunk and hand the
