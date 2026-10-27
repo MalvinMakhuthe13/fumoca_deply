@@ -12,6 +12,8 @@ const SparkViewerBridge = (() => {
     _raf = 0;
     if (_resize) window.removeEventListener('resize', _resize);
     _resize = null;
+    if (window._fumocaViewerControls === _controls) delete window._fumocaViewerControls;
+    if (window._fumocaControls === _controls) delete window._fumocaControls;
     try { _controls?.dispose?.(); } catch (_) {}
     _controls = null;
     if (_mesh && _scene) { try { _scene.remove(_mesh); _mesh.dispose?.(); } catch (_) {} }
@@ -22,6 +24,10 @@ const SparkViewerBridge = (() => {
       try { _renderer.dispose(); _renderer.domElement?.remove(); } catch (_) {}
       _renderer = null;
     }
+    if (window._fumocaViewerCamera === _camera) delete window._fumocaViewerCamera;
+    if (window._fumocaViewerControls === _controls) delete window._fumocaViewerControls;
+    if (window._fumocaCamera === _camera) delete window._fumocaCamera;
+    if (window._fumocaControls === _controls) delete window._fumocaControls;
     _scene = _camera = null;
     _focusCenter = null;
     window._fumocaSparkPublicActive = false;
@@ -213,7 +219,11 @@ const SparkViewerBridge = (() => {
     };
     loop();
 
+    // Publish one stable camera/controls contract for hotspots, tours and viewer tools.
     window._fumocaViewerCamera = _camera;
+    window._fumocaViewerControls = _controls;
+    window._fumocaCamera = _camera;
+    window._fumocaControls = _controls;
     window._fumocaGlRenderer = _renderer;
     window._fumocaSparkPublicActive = true;
     forceHideAllLoaders();
