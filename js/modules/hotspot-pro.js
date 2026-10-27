@@ -628,12 +628,16 @@ function projectWorldToScreen(wx, wy, wz) {
 }
 
 function getRenderPosition(h) {
+  const hasWorldAnchor = [h.wx, h.wy, h.wz].every(v => v != null && Number.isFinite(Number(v)));
   const projected = projectWorldToScreen(h.wx, h.wy, h.wz);
   if (projected && !projected.behind) {
     state.worldProjectionEnabled = true;
     return projected;
   }
-  // Screen-space fallback: interpret x/y as % of the VIEW canvas, not the whole window
+  // A real 3D anchor must never fall back to stale screen percentages when
+  // the camera turns away. Hide it until the anchor is visible again.
+  if (hasWorldAnchor) return { x: -1000, y: -1000, behind: true };
+  // Screen-space fallback is reserved for legacy hotspots without world coordinates.
   const view = _getViewRect();
   const layer = hotspotLayer?.getBoundingClientRect?.();
   if (view && layer && layer.width > 2 && Number.isFinite(+h.x) && Number.isFinite(+h.y)) {
