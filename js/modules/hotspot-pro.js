@@ -1881,9 +1881,27 @@ function attachUi() {
   stage.addEventListener('pointerup', onPlaceUp);
   stage.addEventListener('pointercancel', () => { _placePtr = null; });
   stage.addEventListener('pointermove', onPlaceMove);
-  // Also on canvas directly (OrbitControls target)
-  document.querySelector('#viewport canvas')?.addEventListener('pointerdown', onPlaceDown);
-  document.querySelector('#viewport canvas')?.addEventListener('pointerup', onPlaceUp);
+  // Public viewer canvas is mounted under #stage/#stageHost, unlike Studio's #viewport.
+  const bindPlacementCanvases = () => {
+    document.querySelectorAll('#viewport canvas, #stageHost canvas, #stage canvas').forEach((canvas) => {
+      if (canvas.dataset.fumocaPlacementBound === '1') return;
+      canvas.dataset.fumocaPlacementBound = '1';
+      canvas.addEventListener('pointerdown', onPlaceDown, true);
+      canvas.addEventListener('pointerup', onPlaceUp, true);
+    });
+  };
+  bindPlacementCanvases();
+  window.addEventListener('fumoca:viewerReady', bindPlacementCanvases);
+  window.addEventListener('fumoca:recordLoaded', bindPlacementCanvases);
+  // Capture at document level so UI wrappers cannot swallow clicks first.
+  document.addEventListener('pointerdown', (event) => {
+    if (!state.placeMode || !event.target?.closest?.('#stage, #stageHost, #viewport')) return;
+    onPlaceDown(event);
+  }, true);
+  document.addEventListener('pointerup', (event) => {
+    if (!state.placeMode || !event.target?.closest?.('#stage, #stageHost, #viewport')) return;
+    onPlaceUp(event);
+  }, true);
 
   // Shift + double-click still places (power-user shortcut)
   stage?.addEventListener('dblclick', async (event) => {
