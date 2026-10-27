@@ -607,13 +607,15 @@ function installExploreButton() {
       exploreHotspots(window._fumocaHotspots || []);
       return;
     }
-    if (typeof window._fumocaCaptureHotspotAtView === 'function') {
-      window._fumocaCaptureHotspotAtView();
+    if (typeof window._fumocaEnterPlaceMode === 'function') {
+      window._fumocaEnterPlaceMode();
+    } else if (typeof window._fumocaOpenHotspotsPanel === 'function') {
+      window._fumocaOpenHotspotsPanel();
+      console.warn('[FUMOCA navigation] Use Hotspots Pro → Add hotspot, then click the exact point on the 3D object.');
     } else {
       window.dispatchEvent(new CustomEvent('fumoca:navigationUnavailable', {
-        detail: { reason: 'Create at least two 3D hotspots in the viewer before exploring this scene.' }
+        detail: { reason: 'Hotspots Pro is not ready. Reload the viewer and try again.' }
       }));
-      console.warn('[FUMOCA navigation] Add at least two spatial hotspots before Explore can start.');
     }
   });
   document.body.appendChild(button);
