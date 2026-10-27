@@ -379,7 +379,8 @@ function _asVector3(value) {
 
 function _normalizeStop(stop, index) {
   const rawPosition = stop.worldPos || stop.position ||
-    (Number.isFinite(Number(stop.wx)) && Number.isFinite(Number(stop.wy)) && Number.isFinite(Number(stop.wz))
+    (stop.wx != null && stop.wy != null && stop.wz != null &&
+    Number.isFinite(Number(stop.wx)) && Number.isFinite(Number(stop.wy)) && Number.isFinite(Number(stop.wz))
       ? [Number(stop.wx), Number(stop.wy), Number(stop.wz)] : null);
   const rawLookAt = stop.lookAt || stop.look_at || null;
   return {
@@ -535,7 +536,8 @@ function loadFromHotspots(hotspots) {
   return (Array.isArray(hotspots) ? hotspots : [])
     .filter(h => h && (
       h.worldPos || h.position ||
-      (Number.isFinite(Number(h.wx)) && Number.isFinite(Number(h.wy)) && Number.isFinite(Number(h.wz)))
+      (h.wx != null && h.wy != null && h.wz != null &&
+        Number.isFinite(Number(h.wx)) && Number.isFinite(Number(h.wy)) && Number.isFinite(Number(h.wz)))
     ))
     .map((h, i) => ({
       title:       h.label || h.title || `Point ${i + 1}`,
