@@ -1885,7 +1885,8 @@ async function mountPublishedSparkPly(url) {
   _plyCamera.position.set(center.x, center.y + radius * 0.35, center.z + radius * 2.3);
   _plyCamera.lookAt(center);
   _plyControls = new TrackballControls(_plyCamera, _plyRenderer.domElement);
-  _plyControls.rotateSpeed = 3.15; _plyControls.zoomSpeed = 1.5; _plyControls.panSpeed = 0;
+  _plyControls.rotateSpeed = 3.15; _plyControls.zoomSpeed = 1.3; _plyControls.panSpeed = 0;
+  // Preserve TrackballControls' unbounded zoom range (minDistance=0, maxDistance=Infinity).
   _plyControls.noPan = true; _plyControls.noRoll = false; _plyControls.staticMoving = false;
   // Smooth, low-friction inertia while preserving full 3-axis Trackball rotation.
   _plyControls.dynamicDampingFactor = 0.085;
