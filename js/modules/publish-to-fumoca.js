@@ -189,8 +189,23 @@ const FumocaPublish = (() => {
     // Optional original Gaussian PLY companion for the public Spark renderer.
     // Keep publish successful if a source file was not retained in this session.
     let viewPlyKey = null;
-    const sourcePlyBytes = window.S?.gaussianSourceBytes || window._fumocaLastGaussianBytes || null;
+    let sourcePlyBytes = window.S?.gaussianSourceBytes || window._fumocaLastGaussianBytes || null;
     const sourceName = String(window.S?.fileName || '').toLowerCase();
+
+    // Prefer the edited full-fidelity PLY exported by Spark. The NIF's
+    // KEYFRAME_GEO is a compact preview representation and does not carry SH
+    // colour coefficients; the companion PLY is the viewer's fidelity source.
+    // Export filters deleted Gaussians and applies editor transforms while
+    // preserving all other PLY properties (including f_rest_* SH coefficients).
+    if (window.S?.isGaussianPly && window.FumocaSparkGaussian?.isEnabled?.()) {
+      try {
+        sourcePlyBytes = window.FumocaSparkGaussian.exportEditedBytes(window.S);
+        console.info('[Publish] Using edited full-fidelity Gaussian PLY for Spark viewer:', sourcePlyBytes.byteLength, 'bytes');
+      } catch (err) {
+        console.error('[Publish] Edited Gaussian export failed; refusing a stale companion PLY:', err);
+        throw new Error('Could not export the edited high-fidelity Gaussian source. Nothing was published; please reload the editor and try again.');
+      }
+    }
     if (sourcePlyBytes && (window.S?.isGaussianPly || sourceName.endsWith('.ply') || sourceName.endsWith('.splat'))) {
       try {
         const viewPath = splatId
