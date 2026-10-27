@@ -1766,7 +1766,7 @@ function mountDecodedCloud(g) {
   _plyCamera = new THREE.PerspectiveCamera(50, 1, Math.max(0.01, radius / 200), radius * 80);
   _plyCamera.up.set(0, 1, 0);
   _plyRenderer = new THREE.WebGLRenderer({ antialias: false, alpha: false, powerPreference: 'high-performance' });
-  _plyRenderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5)); // Keep interaction smooth on high-DPI displays.
+  _plyRenderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   _plyRenderer.setClearColor(0x07090d, 1);
   Object.assign(_plyRenderer.domElement.style, {
     position: 'absolute', inset: '0', width: '100%', height: '100%', zIndex: '2', display: 'block',
@@ -1861,7 +1861,7 @@ async function mountPublishedSparkPly(url) {
   _plyCamera = new THREE.PerspectiveCamera(55, Math.max(1, container.clientWidth) / Math.max(1, container.clientHeight), 0.001, 2000);
   _plyCamera.up.set(0, -1, -0.6).normalize();
   _plyRenderer = new THREE.WebGLRenderer({ antialias: false, alpha: true, powerPreference: 'high-performance' });
-  _plyRenderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  _plyRenderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5)); // Keep interaction smooth on high-DPI displays.
   _plyRenderer.setSize(container.clientWidth || 1, container.clientHeight || 1);
   _plyRenderer.setClearColor(0x000000, 0);
   Object.assign(_plyRenderer.domElement.style, { position:'absolute', inset:'0', width:'100%', height:'100%', zIndex:'2' });
