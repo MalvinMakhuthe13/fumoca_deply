@@ -1885,9 +1885,11 @@ async function mountPublishedSparkPly(url) {
   _plyCamera.position.set(center.x, center.y + radius * 0.35, center.z + radius * 2.3);
   _plyCamera.lookAt(center);
   _plyControls = new TrackballControls(_plyCamera, _plyRenderer.domElement);
-  _plyControls.rotateSpeed = 2.4; _plyControls.zoomSpeed = 1.3; _plyControls.panSpeed = 0;
+  _plyControls.rotateSpeed = 3.15; _plyControls.zoomSpeed = 1.5; _plyControls.panSpeed = 0;
   _plyControls.noPan = true; _plyControls.noRoll = false; _plyControls.staticMoving = false;
-  _plyControls.dynamicDampingFactor = 0.12; _plyControls.target.copy(center); _plyControls.update();
+  // Smooth, low-friction inertia while preserving full 3-axis Trackball rotation.
+  _plyControls.dynamicDampingFactor = 0.085;
+  _plyControls.target.copy(center); _plyControls.update();
   const resize = () => {
     if (!_plyRenderer || !_plyCamera) return;
     const w = container.clientWidth || window.innerWidth, h = container.clientHeight || window.innerHeight;
