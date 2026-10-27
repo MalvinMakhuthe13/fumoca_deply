@@ -592,8 +592,8 @@ function installExploreButton() {
   const button = document.createElement('button');
   button.id = 'fumocaExploreSceneButton';
   button.type = 'button';
-  button.textContent = 'Explore scene';
-  button.setAttribute('aria-label', 'Explore this 3D scene using hotspots');
+  button.textContent = 'Add viewpoints';
+  button.setAttribute('aria-label', 'Add 3D viewpoints or explore this scene');
   button.style.cssText = [
     'position:fixed', 'right:18px', 'bottom:22px', 'z-index:190',
     'padding:11px 16px', 'border-radius:999px', 'border:1px solid rgba(255,255,255,.22)',
@@ -601,12 +601,37 @@ function installExploreButton() {
     'color:#fff', 'font:600 13px system-ui,sans-serif', 'cursor:pointer',
     'box-shadow:0 8px 28px rgba(0,0,0,.28)', 'display:none'
   ].join(';');
-  button.addEventListener('click', () => exploreHotspots(window._fumocaHotspots || []));
+  button.addEventListener('click', () => {
+    const stops = loadFromHotspots(window._fumocaHotspots || []);
+    if (stops.length >= 2) {
+      exploreHotspots(window._fumocaHotspots || []);
+      return;
+    }
+    if (typeof window._fumocaCaptureHotspotAtView === 'function') {
+      window._fumocaCaptureHotspotAtView();
+    } else {
+      window.dispatchEvent(new CustomEvent('fumoca:navigationUnavailable', {
+        detail: { reason: 'Create at least two 3D hotspots in the viewer before exploring this scene.' }
+      }));
+      console.warn('[FUMOCA navigation] Add at least two spatial hotspots before Explore can start.');
+    }
+  });
   document.body.appendChild(button);
 
   const refresh = () => {
     const stops = loadFromHotspots(window._fumocaHotspots || []);
-    button.style.display = stops.length >= 2 && !!_getCamera() && !!_getControls() ? 'block' : 'none';
+    const ready = !!_getCamera() && !!_getControls();
+    button.style.display = ready ? 'block' : 'none';
+    if (stops.length >= 2) {
+      button.textContent = 'Explore scene';
+      button.setAttribute('aria-label', 'Explore this 3D scene using hotspots');
+    } else if (stops.length === 1) {
+      button.textContent = 'Add another viewpoint';
+      button.setAttribute('aria-label', 'Add a second 3D viewpoint to enable scene exploration');
+    } else {
+      button.textContent = 'Add viewpoints';
+      button.setAttribute('aria-label', 'Add 3D viewpoints to enable scene exploration');
+    }
   };
   window.addEventListener('fumoca:hotspotsLoaded', refresh);
   window.addEventListener('fumoca:viewerReady', refresh);
