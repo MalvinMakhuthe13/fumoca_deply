@@ -14,6 +14,8 @@ const SparkViewerBridge = (() => {
     _resize = null;
     if (window._fumocaViewerControls === _controls) delete window._fumocaViewerControls;
     if (window._fumocaControls === _controls) delete window._fumocaControls;
+    if (window._fumocaViewerCamera === _camera) delete window._fumocaViewerCamera;
+    if (window._fumocaCamera === _camera) delete window._fumocaCamera;
     try { _controls?.dispose?.(); } catch (_) {}
     _controls = null;
     if (_mesh && _scene) { try { _scene.remove(_mesh); _mesh.dispose?.(); } catch (_) {} }
@@ -24,10 +26,6 @@ const SparkViewerBridge = (() => {
       try { _renderer.dispose(); _renderer.domElement?.remove(); } catch (_) {}
       _renderer = null;
     }
-    if (window._fumocaViewerCamera === _camera) delete window._fumocaViewerCamera;
-    if (window._fumocaViewerControls === _controls) delete window._fumocaViewerControls;
-    if (window._fumocaCamera === _camera) delete window._fumocaCamera;
-    if (window._fumocaControls === _controls) delete window._fumocaControls;
     _scene = _camera = null;
     _focusCenter = null;
     window._fumocaSparkPublicActive = false;
