@@ -36,8 +36,9 @@
 <script type="importmap">
 {
   "imports": {
-    "three": "https://cdn.jsdelivr.net/npm/three@0.160/build/three.module.js",
-    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160/examples/jsm/"
+    "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
+    "@sparkjsdev/spark": "https://sparkjs.dev/releases/spark/2.4.0/spark.module.js"
   }
 }
 </script>
@@ -237,7 +238,7 @@
 
   /* ── LOADING / ERROR ── */
   #loadingOverlay { position:fixed; inset:0; z-index:5; background:var(--black); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px; transition:opacity .5s; }
-  #loadingOverlay.hidden { opacity:0; pointer-events:none; }
+  #loadingOverlay.hidden { display:none !important; visibility:hidden !important; opacity:0 !important; pointer-events:none !important; }
   .spinner { width:38px; height:38px; border:3px solid rgba(200,255,0,.15); border-top-color:var(--neon); border-radius:50%; animation:spin .85s linear infinite; }
   @keyframes spin { to { transform:rotate(360deg); } }
   #loadingText { font-size:12px; color:rgba(255,255,255,.4); letter-spacing:.1em; text-transform:uppercase; }
@@ -1339,7 +1340,7 @@
   </div>
 </div>
 
-<script type="module" src="js/modules/viewer.js?v=20261025-embedcolor"></script>
+<script type="module" src="js/modules/viewer.js?v=20261027-spark-solid-overlayfix4"></script>
 <script type="module" src="js/modules/sound-engine.js"></script>
 <script type="module" src="js/modules/edit-engine.js"></script>
 <script type="module" src="js/modules/camera-engine.js"></script>

@@ -603,7 +603,20 @@ export default {
       const cache = caches.default;
       const cacheKey = new Request(request.url, { method: 'GET' });
       const cached = await cache.match(cacheKey);
-      if (cached) return cached;
+      if (cached) {
+        // The cache key is URL-based, not Origin-based. Rebuild CORS headers
+        // for this request instead of reusing the first visitor's Origin.
+        const cachedHeaders = new Headers(cached.headers);
+        cachedHeaders.delete('Access-Control-Allow-Origin');
+        for (const [name, value] of Object.entries(cors)) {
+          cachedHeaders.set(name, value);
+        }
+        return new Response(cached.body, {
+          status: cached.status,
+          statusText: cached.statusText,
+          headers: cachedHeaders,
+        });
+      }
 
       const r2Bucket = getBucket(bucketParam, env);
       if (!r2Bucket) {
