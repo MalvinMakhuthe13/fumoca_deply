@@ -2174,71 +2174,6 @@ function activatePreset(name) {
   presetButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.preset === name));
   applyStageFilters();
 }
-async function _trySparkPublic(bytes, name, url) {
-  try {
-    if (!window.FumocaSparkViewer?.mount) {
-      await import('./spark-viewer-bridge.js?v=20261027-nifspark').catch(() => null);
-    }
-    const host = stageHost || stageEl || document.getElementById('stageHost') || document.getElementById('stage');
-    if (!host || !window.FumocaSparkViewer?.mount) return false;
-    await window.FumocaSparkViewer.mount(host, { fileBytes: bytes || null, fileName: name || 'scene.ply', url: url || null });
-    try { hideLoading(); } catch (_) {}
-    try { hideStageFreeze?.(0); } catch (_) {}
-    for (const id of ['loadingOverlay', 'fumocLoadingOverlay']) {
-      const el = document.getElementById(id);
-      if (!el) continue;
-      el.classList.add('hidden');
-      el.style.setProperty('display', 'none', 'important');
-      el.style.setProperty('opacity', '0', 'important');
-      el.style.setProperty('visibility', 'hidden', 'important');
-      el.style.setProperty('pointer-events', 'none', 'important');
-    }
-    try { document.body.classList.remove('media-flat', 'is-loading'); } catch (_) {}
-    try { window.FumocaSparkViewer?.refit?.(); } catch (_) {}
-
-    // Explicitly dismiss every loading-overlay state. The public Spark path
-    // can complete independently of the legacy NIF boot path, so don't rely
-    // only on the legacy hideLoading() class transition.
-    try {
-      hideLoading();
-      if (loadingOverlay) {
-        loadingOverlay.classList.add('hidden');
-        loadingOverlay.style.setProperty('display', 'none', 'important');
-        loadingOverlay.style.setProperty('visibility', 'hidden', 'important');
-        loadingOverlay.style.setProperty('opacity', '0', 'important');
-        loadingOverlay.style.setProperty('pointer-events', 'none', 'important');
-        // Remove the stale capture loader entirely once Spark is live. This
-        // avoids any later CSS/class rule accidentally covering the canvas.
-        loadingOverlay.remove();
-      }
-      console.info('[Viewer] Spark loader dismissed', {
-        overlayPresent: !!document.getElementById('loadingOverlay'),
-        canvasPresent: !!host.querySelector('canvas'),
-        hostSize: [host.clientWidth, host.clientHeight]
-      });
-    } catch (_) {}
-    // The page also creates a second v86 overlay (#fumocLoadingOverlay)
-    // at z-index 999, which sits above the canvas and the legacy loader.
-    // Spark success must dismiss both loading systems.
-    try {
-      const secondaryOverlay = window._fumocaLoadingOverlay || document.getElementById('fumocLoadingOverlay');
-      if (secondaryOverlay) {
-        secondaryOverlay.style.setProperty('display', 'none', 'important');
-        secondaryOverlay.style.setProperty('visibility', 'hidden', 'important');
-        secondaryOverlay.style.setProperty('opacity', '0', 'important');
-        secondaryOverlay.style.setProperty('pointer-events', 'none', 'important');
-        secondaryOverlay.remove();
-      }
-      window.dispatchEvent(new CustomEvent('fumoca:viewerReady', { detail: { renderer: 'spark', fileName: name || 'scene.ply' } }));
-      document.body.classList.remove('media-flat');
-    } catch (_) {}
-    return true;
-  } catch (e) {
-    console.warn('[Viewer] Spark solid failed; retaining legacy renderer', e);
-    return false;
-  }
-}
-
 async function boot() {
   setLoading('Fetching nifâ€¦');
   const sessionRecord = hydrateFromSession();
@@ -2248,9 +2183,20 @@ async function boot() {
     previewVideoUrl = previewVideoUrl || sessionRecord.previewVideo || '';
     fileUrl = fileUrl || _validnifUrl(sessionRecord.file) || '';
   }
-  // Do not HEAD-probe the file URL: the R2 Worker serves objects with GET,
-  // and a HEAD response may be 404 even when the NIF exists. Let the actual
-  // GET/decode path determine whether the URL is valid.
+  // Probe fileUrl â€” if storage returns 400/404 it's a ghost file, use DB record
+  // Skip probe for blob: URLs â€” they don't support HEAD requests
+  if (fileUrl && !fileUrl.startsWith('blob:')) {
+    try {
+      const probe = await fetch(fileUrl, { method: 'HEAD' });
+      if (!probe.ok) {
+        console.warn('[Viewer] file= URL returned HTTP', probe.status, 'â€” falling back to DB record');
+        fileUrl = '';
+      }
+    } catch(e) {
+      console.warn('[Viewer] file= URL unreachable â€” falling back to DB record');
+      fileUrl = '';
+    }
+  }
   // If fileUrl was bad, wipe sessionStorage so the ghost URL can't come back
   if (!fileUrl) {
     try { sessionStorage.removeItem('fumoca:selectedNif'); } catch(_) {}
@@ -2304,34 +2250,6 @@ async function boot() {
     return;
   }
   if ((previewVideoUrl || thumbnailUrl) && autoplayPreview) openPreview('nif');
-  // Published Gaussian PLY companion: render with the same Spark engine as Studio Photoreal.
-  // If it is absent or fails to load, continue through the existing NIF renderer unchanged.
-  const _viewMeta = currentRecord?.meta || currentRecord?.metadata || {};
-  const _viewPlyKey = _viewMeta.view_ply_r2_key;
-  if (!_viewPlyKey) {
-    console.warn('[Viewer] No meta.view_ply_r2_key on this NIF — will try Spark on NIF→splat. Re-publish from Studio (signed in, PLY open) for max quality matching Photoreal.');
-  }
-  if (_viewPlyKey && typeof r2?.publicUrl === 'function') {
-    const _viewPlyUrl = r2.publicUrl('nif-files', _viewPlyKey);
-    if (_viewPlyUrl) {
-      setLoading('Loading solid Gaussian view…');
-      const _sparkMounted = await _trySparkPublic(null, 'view.ply', _viewPlyUrl);
-      if (_sparkMounted) {
-        console.info('[Viewer] Spark solid — companion PLY', _viewPlyKey);
-        hideLoading();
-        if (loadingOverlay) {
-          loadingOverlay.classList.add('hidden');
-          loadingOverlay.style.opacity = '0';
-          loadingOverlay.style.pointerEvents = 'none';
-          loadingOverlay.style.display = 'none';
-        }
-        hideStageFreeze(90);
-        await incrementViewCount();
-        return;
-      }
-    }
-  }
-
   // Route PLY / .splat / .nif to 3D path
   if (_isNifUrl(fileUrl) || (_blobType === 'nif' && fileUrl.startsWith('blob:'))) {
     // .nif is the native format â€” decode its KEYFRAME_GEO chunk and hand the
@@ -2378,7 +2296,6 @@ async function boot() {
       window._fumocaDecodedMesh  = mesh;
       renderTrustBadges(calibration, verification);
       const nifBytes = geometryToSplatRows(gaussians, { preserveScales: true });
-      window._fumocaLastNifSplatBytes = nifBytes;
       const nifBlob  = new Blob([nifBytes], { type: 'application/octet-stream' });
       fileUrl = URL.createObjectURL(nifBlob);
       // Mirror the same window globals FumocDecoder.loadIntoViewer exposed,
@@ -2419,30 +2336,16 @@ async function boot() {
     }
   }
   if (_isPlyUrl(fileUrl) && _blobType !== 'nif') {
-    const okPly = await _trySparkPublic(null, 'scene.ply', fileUrl);
-    if (!okPly) await mountPlyViewer(fileUrl);
+    await mountPlyViewer(fileUrl);
   } else {
-    // Prefer Spark for NIF-derived .splat rows so public view is solid even
-    // when companion view_ply was not uploaded for this listing.
-    let okSpark = false;
-    try {
-      const bytes = window._fumocaLastNifSplatBytes
-        || (fileUrl && String(fileUrl).startsWith('blob:')
-          ? new Uint8Array(await (await fetch(fileUrl)).arrayBuffer())
-          : null);
-      if (bytes && bytes.length > 32) {
-        setLoading('Loading solid Gaussian…');
-        okSpark = await _trySparkPublic(bytes, 'from-nif.splat', null);
-        if (okSpark) console.info('[Viewer] Spark solid — from NIF splat rows', bytes.length);
-      }
-    } catch (e) {
-      console.warn('[Viewer] Spark from NIF rows failed', e);
-    }
-    if (!okSpark) await mountInteractiveViewer();
+    await mountInteractiveViewer();
+    // Mesh overlay goes on top of the splat renderer once it's mounted, not
+    // before â€” mountInteractiveViewer owns stageHost/container setup, and
+    // mounting the mesh canvas first would have it torn down along with it.
     if (window._fumocaDecodedMesh?.nVerts > 0) {
       mountMeshViewer(window._fumocaDecodedMesh, window._fumocaCalibration);
     } else {
-      destroyMeshViewer();
+      destroyMeshViewer();  // clears any leftover toggle/canvas from a previously-viewed file
     }
   }
 }
