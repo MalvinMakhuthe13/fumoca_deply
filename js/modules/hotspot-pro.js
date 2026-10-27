@@ -378,10 +378,11 @@ function getStagePercentFromEvent(event) {
   return { x: Math.max(0, Math.min(100, x)), y: Math.max(0, Math.min(100, y)) };
 }
 
-function captureEventHotspotAnchor(event) {
+async function captureEventHotspotAnchor(event) {
   const screen = getStagePercentFromEvent(event);
   const live = getCurrentViewerAnchor();
-  const picked = pickWorldAnchorFromEvent(event);
+  // Surface picking is asynchronous because the point-cloud cache may need loading.
+  const picked = await pickWorldAnchorFromEvent(event);
   return {
     ...live,
     x: screen.x,
@@ -1860,9 +1861,12 @@ function attachUi() {
     event.preventDefault();
     event.stopPropagation();
     const anchor = await captureEventHotspotAnchor(event);
-    // Require a real 3D hit when possible so markers stick to the part
-    if (!Number.isFinite(anchor.wx)) {
-      console.warn('[hotspot-pro] placement had no 3D hit — using screen anchor only');
+    // Do not silently save a guessed camera-target anchor as if it were a surface hit.
+    if (![anchor.wx, anchor.wy, anchor.wz].every(Number.isFinite)) {
+      console.warn('[hotspot-pro] no valid 3D surface position was found; hotspot not saved');
+      const hint = _ensurePlaceHint();
+      hint.textContent = 'Could not find a 3D point here. Try clicking directly on the visible car surface.';
+      return;
     }
     openHotspotEditor({
       ...anchor,
