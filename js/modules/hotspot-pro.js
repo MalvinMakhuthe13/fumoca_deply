@@ -498,6 +498,14 @@ async function _upgradeScreenAnchorsToWorld() {
     window._fumocaHotspots = state.hotspots.slice();
     renderHotspots();
     console.info('[hotspot-pro] upgraded', upgraded, 'screen anchors to 3D');
+    // Notify navigation controls after asynchronous world-anchor recovery finishes.
+    window.dispatchEvent(new CustomEvent('fumoca:hotspotsLoaded', {
+      detail: { count: state.hotspots.length, spatialCount: state.hotspots.filter(h =>
+        Number.isFinite(h.wx) && Number.isFinite(h.wy) && Number.isFinite(h.wz)
+      ).length, upgraded }
+    }));
+  } else {
+    console.info('[hotspot-pro] no screen anchors upgraded; navigation needs authored 3D hotspot coordinates');
   }
 }
 
