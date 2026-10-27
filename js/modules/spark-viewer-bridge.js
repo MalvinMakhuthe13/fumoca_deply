@@ -85,8 +85,9 @@ const SparkViewerBridge = (() => {
     _camera.lookAt(center);
     if (_controls) {
       _controls.target.copy(center);
-      _controls.minDistance = Math.max(radius * 0.05, 0.02);
-      _controls.maxDistance = Math.max(distance * 12, 50);
+      // Preserve unrestricted zoom on published Spark splats.
+      _controls.minDistance = 0;
+      _controls.maxDistance = Infinity;
       _controls.update?.();
     }
     console.info('[Viewer] Spark camera fitted', {
