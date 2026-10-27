@@ -180,24 +180,28 @@ function pickPrecisePointOnSplat(ray, fallbackTarget) {
   const nearest = new THREE.Vector3();
   let bestScore = Infinity;
   let bestDepth = Infinity;
-  // Wider search so door/boot clicks still latch onto the body surface
-  const maxRadius = Math.max(0.25, (cache.boundsRadius || 1) * 0.12);
+  let bestPoint = null;
+  // Tighten the pick corridor: prefer an actual sampled surface point near the click,
+  // not a synthetic point on the camera ray (which can float off the visible splat).
+  const maxRadius = Math.max(0.035, Math.min(0.12, (cache.boundsRadius || 1) * 0.025));
   for (let i = 0; i < pos.length; i += 3) {
     nearest.set(pos[i], pos[i + 1], pos[i + 2]);
-    const depth = ray.direction.dot(nearest.clone().sub(ray.origin));
+    const toPoint = nearest.clone().sub(ray.origin);
+    const depth = ray.direction.dot(toPoint);
     if (depth <= 0) continue;
     const pointOnRay = ray.origin.clone().add(ray.direction.clone().multiplyScalar(depth));
     const dist = pointOnRay.distanceTo(nearest);
     if (dist > maxRadius) continue;
-    const targetPenalty = fallbackTarget ? nearest.distanceTo(fallbackTarget) * 0.06 : 0;
-    const score = dist + targetPenalty + depth * 0.0008;
+    const targetPenalty = fallbackTarget ? nearest.distanceTo(fallbackTarget) * 0.006 : 0;
+    const score = dist + targetPenalty + depth * 0.00008;
     if (score < bestScore || (Math.abs(score - bestScore) < 1e-6 && depth < bestDepth)) {
       bestScore = score;
       bestDepth = depth;
+      bestPoint = nearest.clone();
     }
   }
-  if (!Number.isFinite(bestScore)) return null;
-  return ray.origin.clone().add(ray.direction.clone().multiplyScalar(bestDepth));
+  // Return the actual sampled surface coordinate, not the point on the ray.
+  return bestPoint;
 }
 
 const state = {
