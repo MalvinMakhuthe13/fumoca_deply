@@ -1861,7 +1861,7 @@ async function mountPublishedSparkPly(url) {
   _plyCamera = new THREE.PerspectiveCamera(55, Math.max(1, container.clientWidth) / Math.max(1, container.clientHeight), 0.001, 2000);
   _plyCamera.up.set(0, -1, -0.6).normalize();
   _plyRenderer = new THREE.WebGLRenderer({ antialias: false, alpha: true, powerPreference: 'high-performance' });
-  _plyRenderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5)); // Keep interaction smooth on high-DPI displays.
+  _plyRenderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   _plyRenderer.setSize(container.clientWidth || 1, container.clientHeight || 1);
   _plyRenderer.setClearColor(0x000000, 0);
   Object.assign(_plyRenderer.domElement.style, { position:'absolute', inset:'0', width:'100%', height:'100%', zIndex:'2' });
@@ -1885,11 +1885,9 @@ async function mountPublishedSparkPly(url) {
   _plyCamera.position.set(center.x, center.y + radius * 0.35, center.z + radius * 2.3);
   _plyCamera.lookAt(center);
   _plyControls = new TrackballControls(_plyCamera, _plyRenderer.domElement);
-  _plyControls.rotateSpeed = 2.8; _plyControls.zoomSpeed = 1.45; _plyControls.panSpeed = 0;
-  _plyControls.noPan = true; _plyControls.noRoll = false;
-  // Avoid the delayed, rubber-band feel while dragging the published splat.
-  _plyControls.staticMoving = true;
-  _plyControls.target.copy(center); _plyControls.update();
+  _plyControls.rotateSpeed = 2.4; _plyControls.zoomSpeed = 1.3; _plyControls.panSpeed = 0;
+  _plyControls.noPan = true; _plyControls.noRoll = false; _plyControls.staticMoving = false;
+  _plyControls.dynamicDampingFactor = 0.12; _plyControls.target.copy(center); _plyControls.update();
   const resize = () => {
     if (!_plyRenderer || !_plyCamera) return;
     const w = container.clientWidth || window.innerWidth, h = container.clientHeight || window.innerHeight;
