@@ -723,31 +723,31 @@ function flyToHotspot(h) {
   document.documentElement.style.setProperty('--outer-opacity', '0.32');
   document.documentElement.style.setProperty('--subject-scale', String(Math.max(1, Math.min(1.45, h.zoom || 1.12))));
 
-  try {
-    if (window._fumocaCameraEngine?.flyToHotspot) {
-      const ok = window._fumocaCameraEngine.flyToHotspot(h);
-      if (ok) return;
-    }
-  } catch (err) {
-    console.warn('[hotspot-pro] camera-engine fallback', err);
-  }
-
-  const cam = window._fumocaViewerCamera || window._fumocaViewer?.camera;
-  const controls = window._fumocaViewerControls || window._fumocaViewer?.controls;
-  if (cam && controls && [h.wx, h.wy, h.wz].every(v => Number.isFinite(v))) {
+  // Public Spark viewer: use its live camera directly. The legacy camera engine
+  // can apply a second zoom/focus transform and cause runaway zoom on splat scenes.
+  const cam = window._fumocaViewerCamera || window._fumocaCamera || window._fumocaViewer?.camera;
+  const controls = window._fumocaViewerControls || window._fumocaControls || window._fumocaViewer?.controls;
+  const hasWorldAnchor = [h.wx, h.wy, h.wz].every(v => v != null && Number.isFinite(Number(v)));
+  if (cam && controls && hasWorldAnchor) {
     try {
-      const target = new THREE.Vector3(h.wx, h.wy, h.wz);
+      const target = new THREE.Vector3(Number(h.wx), Number(h.wy), Number(h.wz));
       const startPos = cam.position.clone();
       const startTarget = controls.target?.clone ? controls.target.clone() : new THREE.Vector3();
-      const dir = startPos.clone().sub(startTarget).normalize();
-      const dist = Math.max(0.35, startPos.distanceTo(startTarget) / Math.max(1.02, h.zoom || 1.12));
+      let direction = startPos.clone().sub(startTarget);
+      if (direction.lengthSq() < 1e-8) direction.set(0.65, 0.35, 0.7);
+      direction.normalize();
+      const radius = Math.max(0.4, Number(pointCloudCache.boundsRadius) || 1.5);
+      // A fixed, scene-scaled stand-off distance prevents zoom from accelerating
+      // or dividing an already tiny camera distance toward zero.
+      const zoom = Math.max(1, Math.min(1.8, Number(h.zoom) || 1.12));
+      const standOff = Math.max(radius * 0.22, Math.min(radius * 0.85, radius * (0.78 / zoom)));
       const endTarget = target.clone();
-      const endPos = endTarget.clone().add(dir.multiplyScalar(dist));
+      const endPos = target.clone().add(direction.multiplyScalar(standOff));
       const t0 = performance.now();
-      const duration = 950;
+      const duration = 720;
       const tick = (now) => {
         const p = Math.min(1, (now - t0) / duration);
-        const e = 1 - Math.pow(1 - p, 3);
+        const e = p * p * (3 - 2 * p);
         cam.position.lerpVectors(startPos, endPos, e);
         if (controls.target?.lerpVectors) controls.target.lerpVectors(startTarget, endTarget, e);
         controls.update?.();
@@ -756,20 +756,12 @@ function flyToHotspot(h) {
       requestAnimationFrame(tick);
       return;
     } catch (err) {
-      console.warn('[hotspot-pro] flyTo fallback', err);
+      console.warn('[hotspot-pro] bounded Spark focus failed', err);
     }
   }
-
-  const stageHost = document.getElementById('stageHost') || document.getElementById('stage');
-  if (stageHost) {
-    stageHost.animate(
-      [
-        { transform: 'scale(1) translate3d(0,0,0)' },
-        { transform: `scale(${Math.max(1.02, Math.min(1.18, h.zoom || 1.1))}) translate3d(${(50 - h.x) * 0.18}px, ${(50 - h.y) * 0.18}px, 0)` },
-      ],
-      { duration: 800, easing: 'cubic-bezier(.2,.85,.2,1)', fill: 'forwards' }
-    );
-  }
+  // Never CSS-scale the entire viewer as a fallback: that is not camera focus
+  // and compounds with repeated activations. Keep the existing view unchanged.
+  console.warn('[hotspot-pro] hotspot has no usable world anchor; skipped camera focus', h.id);
 }
 
 function jumpToHotspotById(id) {
