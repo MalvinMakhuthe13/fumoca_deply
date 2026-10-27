@@ -178,8 +178,9 @@ const FumocaAutoFix = (() => {
     const dir = new THREE.Vector3(0.65, 0.35, 0.7).normalize();
     cam.position.copy(center).add(dir.multiplyScalar(dist));
     if (controls.target) controls.target.copy(center);
-    controls.minDistance = radius * 0.15;
-    controls.maxDistance = radius * 12;
+    // Published Gaussian splats must not inherit radius-based zoom clamps.
+    controls.minDistance = 0;
+    controls.maxDistance = Infinity;
     controls.update?.();
     cam.near = Math.max(0.001, radius * 0.001);
     cam.far = Math.max(200, radius * 40);
