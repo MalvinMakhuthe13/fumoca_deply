@@ -47,10 +47,10 @@ let _raf       = null;
 // ── DOM helpers ───────────────────────────────────────────────────────────────
 
 function _getCamera() {
-  return window._fumocaCamera || window._fumocaRenderer?.getThreeJsCamera?.() || null;
+  return window._fumocaCamera || window._fumocaViewerCamera || window._fumocaRenderer?.getThreeJsCamera?.() || null;
 }
 function _getControls() {
-  return window._fumocaControls || window._fumocaRenderer?.getThreeJsOrbitControls?.() || null;
+  return window._fumocaControls || window._fumocaViewerControls || window._fumocaRenderer?.getThreeJsOrbitControls?.() || null;
 }
 
 // ── Bezier camera path ─────────────────────────────────────────────────────────
@@ -369,14 +369,24 @@ function _showWalkHUD() {
 
 // ── Core tour functions ───────────────────────────────────────────────────────
 
+function _asVector3(value) {
+  if (Array.isArray(value) && value.length >= 3) return new THREE.Vector3(Number(value[0]) || 0, Number(value[1]) || 0, Number(value[2]) || 0);
+  if (value && Number.isFinite(Number(value.x)) && Number.isFinite(Number(value.y)) && Number.isFinite(Number(value.z))) {
+    return new THREE.Vector3(Number(value.x), Number(value.y), Number(value.z));
+  }
+  return null;
+}
+
 function _normalizeStop(stop, index) {
+  const rawPosition = stop.worldPos || stop.position ||
+    (Number.isFinite(Number(stop.wx)) && Number.isFinite(Number(stop.wy)) && Number.isFinite(Number(stop.wz))
+      ? [Number(stop.wx), Number(stop.wy), Number(stop.wz)] : null);
+  const rawLookAt = stop.lookAt || stop.look_at || null;
   return {
     title:       stop.title       || stop.label || `Stop ${index + 1}`,
     description: stop.description || stop.desc  || '',
-    position:    stop.position    ? new THREE.Vector3().fromArray(stop.position)
-                                  : null,
-    lookAt:      stop.lookAt      ? new THREE.Vector3().fromArray(stop.lookAt)
-                                  : new THREE.Vector3(0, 0, 0),
+    position:    _asVector3(rawPosition),
+    lookAt:      _asVector3(rawLookAt) || new THREE.Vector3(0, 0, 0),
     duration:    stop.duration    || DEFAULT_DURATION,
     narration:   stop.narration   || stop.description || '',
     zoom:        stop.zoom        || null,
@@ -522,16 +532,35 @@ function goToStop(n) {
  * so existing hotspot data drives a tour without extra authoring.
  */
 function loadFromHotspots(hotspots) {
-  return hotspots
-    .filter(h => h.worldPos || h.position)
+  return (Array.isArray(hotspots) ? hotspots : [])
+    .filter(h => h && (
+      h.worldPos || h.position ||
+      (Number.isFinite(Number(h.wx)) && Number.isFinite(Number(h.wy)) && Number.isFinite(Number(h.wz)))
+    ))
     .map((h, i) => ({
       title:       h.label || h.title || `Point ${i + 1}`,
       description: h.description || '',
-      position:    (h.worldPos || h.position),
-      lookAt:      h.lookAt || [0, 0, 0],
-      duration:    h.tourDuration || DEFAULT_DURATION,
+      position:    h.worldPos || h.position || [Number(h.wx), Number(h.wy), Number(h.wz)],
+      lookAt:      h.lookAt || h.look_at || [0, 0, 0],
+      duration:    Number.isFinite(Number(h.tourDuration)) ? Math.max(10000, Number(h.tourDuration)) : 60000,
       narration:   h.narration || h.description || '',
     }));
+}
+
+// Start an interactive route from existing spatial hotspots without reloading the splat.
+function exploreHotspots(hotspots = window._fumocaHotspots || []) {
+  const stops = loadFromHotspots(hotspots);
+  if (!stops.length) {
+    window.dispatchEvent(new CustomEvent('fumoca:navigationUnavailable', {
+      detail: { reason: 'No hotspots with 3D world coordinates are available yet.' }
+    }));
+    return false;
+  }
+  start(stops, { loop: false });
+  _state.paused = true; // User advances between viewpoints; never auto-walk the scene.
+  clearTimeout(_state.timer);
+  window.dispatchEvent(new CustomEvent('fumoca:navigationStarted', { detail: { count: stops.length } }));
+  return true;
 }
 
 /**
@@ -558,7 +587,7 @@ if (new URLSearchParams(location.search).get('tour') === '1') {
 
 const FumocaTourV80 = {
   start, stop, next, prev, togglePause, goToStop, enterWalk, exitWalk,
-  loadFromHotspots, shareLink, getState,
+  loadFromHotspots, exploreHotspots, shareLink, getState,
 };
 
 window.FumocaTourV80 = FumocaTourV80;
