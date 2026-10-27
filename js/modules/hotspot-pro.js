@@ -501,7 +501,8 @@ async function _upgradeScreenAnchorsToWorld() {
     // Notify navigation controls after asynchronous world-anchor recovery finishes.
     window.dispatchEvent(new CustomEvent('fumoca:hotspotsLoaded', {
       detail: { count: state.hotspots.length, spatialCount: state.hotspots.filter(h =>
-        Number.isFinite(h.wx) && Number.isFinite(h.wy) && Number.isFinite(h.wz)
+        h.wx != null && h.wy != null && h.wz != null &&
+        Number.isFinite(Number(h.wx)) && Number.isFinite(Number(h.wy)) && Number.isFinite(Number(h.wz))
       ).length, upgraded }
     }));
   } else {
