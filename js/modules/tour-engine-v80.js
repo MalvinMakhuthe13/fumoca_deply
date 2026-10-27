@@ -585,6 +585,39 @@ if (new URLSearchParams(location.search).get('tour') === '1') {
   }, { once: true });
 }
 
+function installExploreButton() {
+  if (document.getElementById('fumocaExploreSceneButton')) return;
+  const button = document.createElement('button');
+  button.id = 'fumocaExploreSceneButton';
+  button.type = 'button';
+  button.textContent = 'Explore scene';
+  button.setAttribute('aria-label', 'Explore this 3D scene using hotspots');
+  button.style.cssText = [
+    'position:fixed', 'right:18px', 'bottom:22px', 'z-index:190',
+    'padding:11px 16px', 'border-radius:999px', 'border:1px solid rgba(255,255,255,.22)',
+    'background:rgba(8,10,14,.88)', 'backdrop-filter:blur(14px)',
+    'color:#fff', 'font:600 13px system-ui,sans-serif', 'cursor:pointer',
+    'box-shadow:0 8px 28px rgba(0,0,0,.28)', 'display:none'
+  ].join(';');
+  button.addEventListener('click', () => exploreHotspots(window._fumocaHotspots || []));
+  document.body.appendChild(button);
+
+  const refresh = () => {
+    const stops = loadFromHotspots(window._fumocaHotspots || []);
+    button.style.display = stops.length >= 2 && !!_getCamera() && !!_getControls() ? 'block' : 'none';
+  };
+  window.addEventListener('fumoca:hotspotsLoaded', refresh);
+  window.addEventListener('fumoca:viewerReady', refresh);
+  window.addEventListener('resize', refresh);
+  refresh();
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', installExploreButton, { once: true });
+} else {
+  installExploreButton();
+}
+
 const FumocaTourV80 = {
   start, stop, next, prev, togglePause, goToStop, enterWalk, exitWalk,
   loadFromHotspots, exploreHotspots, shareLink, getState,
