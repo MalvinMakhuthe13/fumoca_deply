@@ -186,6 +186,33 @@ const FumocaPublish = (() => {
 
     if (uploadError) throw new Error('R2 upload failed: ' + uploadError.message);
 
+    // Optional original Gaussian PLY companion for the public Spark renderer.
+    // Keep publish successful if a source file was not retained in this session.
+    let viewPlyKey = null;
+    const sourcePlyBytes = window.S?.gaussianSourceBytes || window._fumocaLastGaussianBytes || null;
+    const sourceName = String(window.S?.fileName || '').toLowerCase();
+    if (sourcePlyBytes && (window.S?.isGaussianPly || sourceName.endsWith('.ply') || sourceName.endsWith('.splat'))) {
+      try {
+        const viewPath = splatId
+          ? `${splatId}/view_${timestamp}.ply`
+          : `new/view_${timestamp}.ply`;
+        const viewBlob = new Blob([sourcePlyBytes], { type: 'application/octet-stream' });
+        const { fileKey: companionKey, error: companionError } = await r2
+          .from('nif-files')
+          .upload(viewPath, viewBlob, { contentType: 'application/octet-stream' });
+        if (!companionError && companionKey) {
+          viewPlyKey = companionKey;
+          console.info('[Publish] Spark companion PLY uploaded:', viewPlyKey);
+        } else {
+          console.warn('[Publish] Companion PLY upload skipped:', companionError?.message || 'no key returned');
+        }
+      } catch (companionErr) {
+        console.warn('[Publish] Companion PLY upload failed; NIF publish continues:', companionErr?.message || companionErr);
+      }
+    } else {
+      console.info('[Publish] No original Gaussian PLY bytes retained; publishing NIF only.');
+    }
+
     onProgress?.('Registering…', 70);
 
     // 4. Update or create the DB record — against nif_files, the real, live
@@ -207,6 +234,14 @@ const FumocaPublish = (() => {
       delete cleaned.reviewVideo;
       cleaned.includeReview = false;
       payload.meta = cleaned;
+    }
+    if (viewPlyKey) {
+      payload.meta = {
+        ...(payload.meta || rec?.meta || rec?.metadata || {}),
+        view_ply_r2_key: viewPlyKey,
+        viewer_engine: 'spark',
+        published_from: 'studio_gaussian',
+      };
     }
 
     let finalId = splatId;

@@ -238,6 +238,10 @@ const SparkGaussianView = (() => {
         return false;
       }
       _originalBytes = bytes instanceof Uint8Array ? new Uint8Array(bytes) : new Uint8Array(bytes.slice ? bytes.slice(0) : bytes);
+      // Preserve the exact original Gaussian source for the publish engine.
+      // This is the high-fidelity PLY/SPLAT, not a re-encoded NIF or edited point array.
+      S.gaussianSourceBytes = new Uint8Array(_originalBytes);
+      window._fumocaLastGaussianBytes = new Uint8Array(_originalBytes);
       _lastFileName = name;
       await loadFromBytes(_originalBytes, name);
       _enabled = true;
