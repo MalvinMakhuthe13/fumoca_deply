@@ -387,9 +387,11 @@ async function captureEventHotspotAnchor(event) {
     ...live,
     x: screen.x,
     y: screen.y,
-    wx: Number.isFinite(picked?.x) ? Number(picked.x) : live.wx,
-    wy: Number.isFinite(picked?.y) ? Number(picked.y) : live.wy,
-    wz: Number.isFinite(picked?.z) ? Number(picked.z) : live.wz,
+    // Only the click's picked surface point is a valid 3D anchor.
+    // Never substitute the camera target, which makes hotspots drift.
+    wx: Number.isFinite(picked?.x) ? Number(picked.x) : null,
+    wy: Number.isFinite(picked?.y) ? Number(picked.y) : null,
+    wz: Number.isFinite(picked?.z) ? Number(picked.z) : null,
   };
 }
 
