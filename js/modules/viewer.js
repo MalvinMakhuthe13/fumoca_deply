@@ -2177,7 +2177,7 @@ function activatePreset(name) {
 async function _trySparkPublic(bytes, name, url) {
   try {
     if (!window.FumocaSparkViewer?.mount) {
-      await import('./spark-viewer-bridge.js?v=20261027-cleanpush').catch(() => null);
+      await import('./spark-viewer-bridge.js?v=20261027-nifspark').catch(() => null);
     }
     const host = stageHost || stageEl || document.getElementById('stageHost') || document.getElementById('stage');
     if (!host || !window.FumocaSparkViewer?.mount) return false;
@@ -2308,6 +2308,9 @@ async function boot() {
   // If it is absent or fails to load, continue through the existing NIF renderer unchanged.
   const _viewMeta = currentRecord?.meta || currentRecord?.metadata || {};
   const _viewPlyKey = _viewMeta.view_ply_r2_key;
+  if (!_viewPlyKey) {
+    console.warn('[Viewer] No meta.view_ply_r2_key on this NIF — will try Spark on NIF→splat. Re-publish from Studio (signed in, PLY open) for max quality matching Photoreal.');
+  }
   if (_viewPlyKey && typeof r2?.publicUrl === 'function') {
     const _viewPlyUrl = r2.publicUrl('nif-files', _viewPlyKey);
     if (_viewPlyUrl) {
@@ -2375,6 +2378,7 @@ async function boot() {
       window._fumocaDecodedMesh  = mesh;
       renderTrustBadges(calibration, verification);
       const nifBytes = geometryToSplatRows(gaussians, { preserveScales: true });
+      window._fumocaLastNifSplatBytes = nifBytes;
       const nifBlob  = new Blob([nifBytes], { type: 'application/octet-stream' });
       fileUrl = URL.createObjectURL(nifBlob);
       // Mirror the same window globals FumocDecoder.loadIntoViewer exposed,
@@ -2415,16 +2419,30 @@ async function boot() {
     }
   }
   if (_isPlyUrl(fileUrl) && _blobType !== 'nif') {
-    await mountPlyViewer(fileUrl);
+    const okPly = await _trySparkPublic(null, 'scene.ply', fileUrl);
+    if (!okPly) await mountPlyViewer(fileUrl);
   } else {
-    await mountInteractiveViewer();
-    // Mesh overlay goes on top of the splat renderer once it's mounted, not
-    // before â€” mountInteractiveViewer owns stageHost/container setup, and
-    // mounting the mesh canvas first would have it torn down along with it.
+    // Prefer Spark for NIF-derived .splat rows so public view is solid even
+    // when companion view_ply was not uploaded for this listing.
+    let okSpark = false;
+    try {
+      const bytes = window._fumocaLastNifSplatBytes
+        || (fileUrl && String(fileUrl).startsWith('blob:')
+          ? new Uint8Array(await (await fetch(fileUrl)).arrayBuffer())
+          : null);
+      if (bytes && bytes.length > 32) {
+        setLoading('Loading solid Gaussian…');
+        okSpark = await _trySparkPublic(bytes, 'from-nif.splat', null);
+        if (okSpark) console.info('[Viewer] Spark solid — from NIF splat rows', bytes.length);
+      }
+    } catch (e) {
+      console.warn('[Viewer] Spark from NIF rows failed', e);
+    }
+    if (!okSpark) await mountInteractiveViewer();
     if (window._fumocaDecodedMesh?.nVerts > 0) {
       mountMeshViewer(window._fumocaDecodedMesh, window._fumocaCalibration);
     } else {
-      destroyMeshViewer();  // clears any leftover toggle/canvas from a previously-viewed file
+      destroyMeshViewer();
     }
   }
 }

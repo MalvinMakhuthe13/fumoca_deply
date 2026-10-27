@@ -1,6 +1,6 @@
 /**
  * Public viewer + showroom: same Spark engine as Studio Photoreal.
- * Loads companion view.ply (or splat bytes) and frames the subject.
+ * Fixes: stuck Loading overlay, camera miss after async PLY init.
  */
 import * as THREE from 'three';
 
@@ -28,7 +28,8 @@ const SparkViewerBridge = (() => {
   }
 
   function forceHideAllLoaders() {
-    for (const id of ['loadingOverlay', 'fumocLoadingOverlay', 'stageFreeze']) {
+    const ids = ['loadingOverlay', 'fumocLoadingOverlay', 'stageFreeze', 'stageFreezeEl'];
+    for (const id of ids) {
       const el = document.getElementById(id);
       if (!el) continue;
       el.classList.add('hidden');
@@ -37,6 +38,15 @@ const SparkViewerBridge = (() => {
       el.style.setProperty('visibility', 'hidden', 'important');
       el.style.setProperty('pointer-events', 'none', 'important');
     }
+    try {
+      document.querySelectorAll('.spinner, #loadingText, #fumocLoadMsg').forEach((n) => {
+        const p = n.closest('#loadingOverlay, #fumocLoadingOverlay');
+        if (p) {
+          p.classList.add('hidden');
+          p.style.setProperty('display', 'none', 'important');
+        }
+      });
+    } catch (_) {}
     try { document.body.classList.remove('media-flat', 'is-loading'); } catch (_) {}
   }
 
@@ -45,12 +55,13 @@ const SparkViewerBridge = (() => {
     let bounds = null;
     try { bounds = _mesh.getBoundingBox?.(); } catch (_) {}
     if (!bounds || bounds.isEmpty?.()) {
+      // Fallback: try sphere
       try {
         const sphere = _mesh.getBoundingSphere?.();
         if (sphere && sphere.radius > 1e-6) {
           bounds = new THREE.Box3().setFromCenterAndSize(
-            sphere.center.clone(),
-            new THREE.Vector3(1, 1, 1).multiplyScalar(sphere.radius * 2),
+            sphere.center,
+            new THREE.Vector3(sphere.radius * 2, sphere.radius * 2, sphere.radius * 2),
           );
         }
       } catch (_) {}
@@ -64,6 +75,7 @@ const SparkViewerBridge = (() => {
     const distance = Math.max((radius / Math.tan(fov * 0.5)) * 1.55, radius * 2.2, 0.15);
 
     _focusCenter = center.clone();
+    // Place camera on a diagonal so thin objects (shoes) aren't edge-on
     const dir = new THREE.Vector3(0.35, 0.25, 1).normalize();
     _camera.up.set(0, 1, 0);
     _camera.position.copy(center).addScaledVector(dir, distance);
@@ -75,7 +87,7 @@ const SparkViewerBridge = (() => {
       _controls.target.copy(center);
       _controls.minDistance = Math.max(radius * 0.05, 0.02);
       _controls.maxDistance = Math.max(distance * 12, 50);
-      try { _controls.update(); } catch (_) {}
+      _controls.update?.();
     }
     console.info('[Viewer] Spark camera fitted', {
       center: center.toArray().map((v) => +v.toFixed(3)),
@@ -89,9 +101,11 @@ const SparkViewerBridge = (() => {
     if (!hostEl) throw new Error('SparkViewer: no host');
     destroy();
     _lastProgressLog = -1;
+
+    // Ensure host can show canvas above any residual overlays
     try {
       hostEl.style.position = hostEl.style.position || 'relative';
-      if (!hostEl.style.zIndex) hostEl.style.zIndex = '2';
+      hostEl.style.zIndex = hostEl.style.zIndex || '2';
     } catch (_) {}
 
     const w = Math.max(2, hostEl.clientWidth || window.innerWidth);
@@ -143,15 +157,18 @@ const SparkViewerBridge = (() => {
     _mesh.name = 'fumoca-spark-public';
     _scene.add(_mesh);
 
+    // Wait until Gaussians are real GPU content
     if (_mesh.initialized) await _mesh.initialized;
     if (_mesh.isInitialized === false) {
       throw new Error('Spark finished without initializing the Gaussian mesh');
     }
+
     console.info('[Viewer] Spark Gaussian mesh initialized', {
       splats: _mesh.numSplats,
       fileName,
     });
 
+    // Controls first, then frame
     try {
       const { OrbitControls } = await import('three/addons/controls/OrbitControls.js');
       _controls = new OrbitControls(_camera, _renderer.domElement);
@@ -163,10 +180,20 @@ const SparkViewerBridge = (() => {
       console.warn('[Viewer] OrbitControls unavailable', e);
     }
 
+    // Fit now + again next frames (bounds sometimes settle after first draw)
     fitCameraToMesh();
-    requestAnimationFrame(() => { fitCameraToMesh(); forceHideAllLoaders(); });
-    setTimeout(() => { fitCameraToMesh(); forceHideAllLoaders(); }, 150);
-    setTimeout(() => { fitCameraToMesh(); forceHideAllLoaders(); }, 500);
+    requestAnimationFrame(() => {
+      fitCameraToMesh();
+      forceHideAllLoaders();
+    });
+    setTimeout(() => {
+      fitCameraToMesh();
+      forceHideAllLoaders();
+    }, 120);
+    setTimeout(() => {
+      fitCameraToMesh();
+      forceHideAllLoaders();
+    }, 400);
 
     _resize = () => {
       if (!_renderer || !_camera || !hostEl) return;
