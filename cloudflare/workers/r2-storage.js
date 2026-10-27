@@ -63,11 +63,17 @@ function corsHeaders(origin, allowedOrigin) {
   // to this FUMOCA project. Do not use a broad *.pages.dev wildcard.
   const isFumocaPagesPreview =
     /^https:\/\/[a-z0-9-]+\.fumoca-deply\.pages\.dev$/i.test(origin);
+  const isLocalDev =
+    /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin);
+  const isFumocaSubdomain =
+    /^https:\/\/[a-z0-9-]+\.fumoca\.co\.za$/i.test(origin);
   const ok =
     !configuredOrigins.length ||
     configuredOrigins.includes('*') ||
     configuredOrigins.includes(origin) ||
-    isFumocaPagesPreview;
+    isFumocaPagesPreview ||
+    isLocalDev ||
+    isFumocaSubdomain;
 
   const headers = {
     'Access-Control-Allow-Methods': 'GET, PUT, POST, DELETE, OPTIONS',

@@ -1,0 +1,13 @@
+FUMOCA — one-shot clean viewer + CORS
+=====================================
+1. Copy all files from this zip into your repo root (same paths).
+2. Commit and push to main.
+3. Wait for Cloudflare Pages Production = green.
+4. Redeploy R2 worker (CORS) if pages.dev still blocked:
+     cd cloudflare/workers
+     npx wrangler deploy
+   (or deploy r2-storage from Cloudflare dashboard)
+5. Test ONLY on: https://fumoca.co.za/viewer?nifId=YOUR_ID
+   Hard refresh: Ctrl+Shift+R
+6. Console should show Spark solid / camera fitted — not only "Trackball omni".
+7. For best quality: Studio sign-in → open clean PLY → Publish again.
