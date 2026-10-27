@@ -607,9 +607,21 @@ export default {
       if (!fileKey) return json({ error: 'Missing key' }, 400, cors);
 
       const cache = caches.default;
+      // Cache the file bytes independent of Origin, but never replay a cached
+      // Access-Control-Allow-Origin value from a different site/preview.
       const cacheKey = new Request(request.url, { method: 'GET' });
       const cached = await cache.match(cacheKey);
-      if (cached) return cached;
+      if (cached) {
+        const headers = new Headers(cached.headers);
+        headers.delete('Access-Control-Allow-Origin');
+        headers.delete('Access-Control-Allow-Credentials');
+        for (const [name, value] of Object.entries(cors)) headers.set(name, value);
+        return new Response(cached.body, {
+          status: cached.status,
+          statusText: cached.statusText,
+          headers,
+        });
+      }
 
       const r2Bucket = getBucket(bucketParam, env);
       if (!r2Bucket) {

@@ -186,31 +186,47 @@ const FumocaPublish = (() => {
 
     if (uploadError) throw new Error('R2 upload failed: ' + uploadError.message);
 
-    // Optional original Gaussian PLY companion for the public Spark renderer.
-    // Keep publish successful if a source file was not retained in this session.
+    // A Gaussian PLY must publish its edited full-fidelity companion. Do not
+    // silently publish a degraded NIF-only result and tell the user it succeeded.
     let viewPlyKey = null;
-    const sourcePlyBytes = window.S?.gaussianSourceBytes || window._fumocaLastGaussianBytes || null;
+    let sourcePlyBytes = window.S?.gaussianSourceBytes || window._fumocaLastGaussianBytes || null;
     const sourceName = String(window.S?.fileName || '').toLowerCase();
-    if (sourcePlyBytes && (window.S?.isGaussianPly || sourceName.endsWith('.ply') || sourceName.endsWith('.splat'))) {
-      try {
-        const viewPath = splatId
-          ? `${splatId}/view_${timestamp}.ply`
-          : `new/view_${timestamp}.ply`;
-        const viewBlob = new Blob([sourcePlyBytes], { type: 'application/octet-stream' });
-        const { fileKey: companionKey, error: companionError } = await r2
-          .from('nif-files')
-          .upload(viewPath, viewBlob, { contentType: 'application/octet-stream' });
-        if (!companionError && companionKey) {
-          viewPlyKey = companionKey;
-          console.info('[Publish] Spark companion PLY uploaded:', viewPlyKey);
-        } else {
-          console.warn('[Publish] Companion PLY upload skipped:', companionError?.message || 'no key returned');
-        }
-      } catch (companionErr) {
-        console.warn('[Publish] Companion PLY upload failed; NIF publish continues:', companionErr?.message || companionErr);
+    const isGaussianPly = !!window.S?.isGaussianPly;
+
+    if (isGaussianPly) {
+      if (!window.FumocaSparkGaussian?.isEnabled?.()) {
+        throw new Error('High-fidelity publish stopped: Spark is not active for this Gaussian PLY. Reopen the Gaussian in Studio, enable the Spark renderer, then publish again. No new NIF record was registered.');
       }
+      try {
+        sourcePlyBytes = window.FumocaSparkGaussian.exportEditedBytes(window.S);
+        if (!(sourcePlyBytes instanceof Uint8Array) || !sourcePlyBytes.byteLength) {
+          throw new Error('Spark returned an empty Gaussian export.');
+        }
+        console.info('[Publish] Edited full-fidelity Gaussian PLY ready for Spark viewer:', sourcePlyBytes.byteLength, 'bytes');
+      } catch (err) {
+        console.error('[Publish] Edited Gaussian export failed; refusing a degraded publish:', err);
+        throw new Error('High-fidelity publish stopped because the edited Gaussian PLY could not be exported. Nothing was registered; reload the editor and try again.');
+      }
+    }
+
+    if (sourcePlyBytes && (isGaussianPly || sourceName.endsWith('.ply') || sourceName.endsWith('.splat'))) {
+      const viewPath = splatId
+        ? `${splatId}/view_${timestamp}.ply`
+        : `new/view_${timestamp}.ply`;
+      const viewBlob = new Blob([sourcePlyBytes], { type: 'application/octet-stream' });
+      const { fileKey: companionKey, error: companionError } = await r2
+        .from('nif-files')
+        .upload(viewPath, viewBlob, { contentType: 'application/octet-stream' });
+      if (companionError || !companionKey) {
+        console.error('[Publish] Companion PLY upload failed; refusing a degraded publish:', companionError?.message || 'no key returned');
+        throw new Error('High-fidelity publish stopped: the Spark companion PLY could not be uploaded. The NIF was uploaded but no new published record was registered. Please retry.');
+      }
+      viewPlyKey = companionKey;
+      console.info('[Publish] Spark companion PLY uploaded:', viewPlyKey);
+    } else if (isGaussianPly) {
+      throw new Error('High-fidelity publish stopped: no Gaussian PLY bytes were available.');
     } else {
-      console.info('[Publish] No original Gaussian PLY bytes retained; publishing NIF only.');
+      console.info('[Publish] No Gaussian PLY companion required; publishing compatible NIF.');
     }
 
     onProgress?.('Registering…', 70);
