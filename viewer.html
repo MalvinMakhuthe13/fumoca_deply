@@ -765,12 +765,30 @@
 
   window.addEventListener('message', (event) => {
     if (event.origin !== location.origin || event.data?.type !== 'fumoca:showroom:capture') return;
-    // Invoke the exact same recorder action as the small in-viewer Capture control,
-    // without relying on a synthetic click on a hidden button.
-    if (typeof window.fumocaCaptureTeaser === 'function') {
-      window.fumocaCaptureTeaser();
-    } else {
-      window.addEventListener('fumoca:teaser-recorder-ready', () => window.fumocaCaptureTeaser?.(), { once: true });
+
+    // The large showroom Capture button must open the same Capture UI as the
+    // small green in-viewer capture control (captureToggleBtn).
+    const openCaptureUI = () => {
+      const captureUI = window._fumocaCaptureUI;
+      if (captureUI && typeof captureUI.toggle === 'function') {
+        captureUI.toggle();
+        return true;
+      }
+      return false;
+    };
+
+    if (!openCaptureUI()) {
+      // Capture UI can initialize after the viewer's first render.
+      let attempts = 0;
+      const retry = window.setInterval(() => {
+        attempts += 1;
+        if (openCaptureUI() || attempts >= 20) {
+          window.clearInterval(retry);
+          if (attempts >= 20 && !window._fumocaCaptureUI) {
+            console.warn('[showroom] Capture UI is not available yet.');
+          }
+        }
+      }, 250);
     }
   });
 })();
