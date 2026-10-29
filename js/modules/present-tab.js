@@ -5,7 +5,7 @@
 import {
   initMagazineText, addText, updateText, removeText, applyPreset, clearText,
   exportAll as exportMagazine, importAll as importMagazine, setEditable as setMagEditable,
-} from './present-magazine-text.js';
+} from './present-magazine-text.js?v=20261029-exactfont1';
 import {
   initPresentNav, setNavStops, addNavStop, removeNavStop, clearNavStops, flyToStop,
   stopsFromHotspots, exportStops, importStops,
