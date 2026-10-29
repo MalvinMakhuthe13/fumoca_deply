@@ -765,17 +765,13 @@
 
   window.addEventListener('message', (event) => {
     if (event.origin !== location.origin || event.data?.type !== 'fumoca:showroom:capture') return;
-    // The legacy teaserBtn opens a preview; it is NOT the recorder.
-    // The actual short-video recorder is delegated through capTeaserBtn.
-    let captureButton = document.getElementById('capTeaserBtn');
-    if (!captureButton) {
-      captureButton = document.createElement('button');
-      captureButton.id = 'capTeaserBtn';
-      captureButton.type = 'button';
-      captureButton.hidden = true;
-      document.body.appendChild(captureButton);
+    // Invoke the exact same recorder action as the small in-viewer Capture control,
+    // without relying on a synthetic click on a hidden button.
+    if (typeof window.fumocaCaptureTeaser === 'function') {
+      window.fumocaCaptureTeaser();
+    } else {
+      window.addEventListener('fumoca:teaser-recorder-ready', () => window.fumocaCaptureTeaser?.(), { once: true });
     }
-    captureButton.click();
   });
 })();
 </script>
@@ -2669,8 +2665,7 @@ window.addEventListener('fumoca:recordLoaded', e => {
 
 
 <script>
-document.addEventListener('click', async (ev) => {
-  if (ev.target?.id !== 'capTeaserBtn') return;
+window.fumocaCaptureTeaser = async () => {
   const btn = document.getElementById('capTeaserBtn');
   if (btn?.dataset.busy === '1') return;
   if (btn) { btn.dataset.busy = '1'; btn.textContent = 'Recording…'; }
@@ -2740,5 +2735,6 @@ document.addEventListener('click', async (ev) => {
     if (btn) btn.textContent = 'Failed';
   }
   setTimeout(() => { if (btn) { btn.textContent = '🎥 Teaser'; btn.dataset.busy = ''; } }, 1600);
-});
+};
+document.dispatchEvent(new Event('fumoca:teaser-recorder-ready'));
 </script>
