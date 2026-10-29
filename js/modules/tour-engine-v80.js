@@ -588,6 +588,7 @@ if (new URLSearchParams(location.search).get('tour') === '1') {
 }
 
 function installExploreButton() {
+  if (new URLSearchParams(location.search).get('showroom') === '1') return;
   if (document.getElementById('fumocaExploreSceneButton')) return;
   const button = document.createElement('button');
   button.id = 'fumocaExploreSceneButton';
