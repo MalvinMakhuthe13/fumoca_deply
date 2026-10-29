@@ -401,6 +401,24 @@
   body.fumoca-edit-locked #editPanel { display:none !important; }
   body.fumoca-edit-locked #editModeBadge { display:none !important; }
 
+  /* SHOWROOM EMBED MODE: keep the 3D scene clean; shell owns the only public actions. */
+  body.fumoca-showroom #topbar,
+  body.fumoca-showroom #fumocFAB,
+  body.fumoca-showroom #fumocMenu,
+  body.fumoca-showroom #fumocSharePanelOverlay,
+  body.fumoca-showroom #hint,
+  body.fumoca-showroom #uiRevealBtn,
+  body.fumoca-showroom #bottomBar,
+  body.fumoca-showroom #captureToggleBtn,
+  body.fumoca-showroom #fourDBtn,
+  body.fumoca-showroom #studioPanel,
+  body.fumoca-showroom #editPanel,
+  body.fumoca-showroom #editModeBadge,
+  body.fumoca-showroom #fumocaPresentTabPanel,
+  body.fumoca-showroom #presentNavLayer,
+  body.fumoca-showroom #magazineTextLayer { display:none !important; }
+  body.fumoca-showroom #viewerShell { inset:0 !important; }
+
   /* ── PUBLIC VIEWER LOCK — hides all admin UI for embed/share links ── */
   body.fumoca-public-viewer #editModeBtn,
   body.fumoca-public-viewer #deleteUploadBtn,
@@ -524,7 +542,19 @@
      action bar on small screens. Nothing blocks the view.
      ═══════════════════════════════════════════════════════════════ */
 
-  /* ── Auto-hide shell: fades when .ui-idle is on <body> ── */
+  /* ── Auto-hide shell: fades when .ui-idle is on <body>
+<script>
+  if (new URLSearchParams(location.search).get('showroom') === '1') {
+    document.body.classList.add('fumoca-showroom');
+  }
+  window.addEventListener('message', (event) => {
+    if (event.origin !== location.origin || event.data?.type !== 'fumoca:showroom:capture') return;
+    try {
+      if (window._fumocaCaptureUI?.toggle) window._fumocaCaptureUI.toggle();
+      else document.getElementById('captureToggleBtn')?.click();
+    } catch (error) { console.warn('[showroom] Capture action unavailable', error); }
+  });
+</script> ── */
   body.ui-idle #topbar,
   body.ui-idle #hint,
   body.ui-idle #bottomBar { opacity: 0; pointer-events: none; }
