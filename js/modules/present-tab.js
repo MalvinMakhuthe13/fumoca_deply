@@ -3,7 +3,7 @@
  * Magazine text · Nav · Review video · Save / share (keeps text for viewer)
  */
 import {
-  initMagazineText, addText, applyPreset, clearText,
+  initMagazineText, addText, updateText, removeText, applyPreset, clearText,
   exportAll as exportMagazine, importAll as importMagazine, setEditable as setMagEditable,
 } from './present-magazine-text.js';
 import {
@@ -128,6 +128,50 @@ function renderNavManager() {
   });
 }
 
+function renderTextManager() {
+  const root = document.getElementById('ptpTextManager');
+  if (!root) return;
+  const items = exportMagazine();
+  root.replaceChildren();
+  if (!items.length) {
+    const hint = document.createElement('div');
+    hint.className = 'ptp-hint';
+    hint.textContent = 'Add a preset or + Custom text to edit its wording, font, size and color here.';
+    root.appendChild(hint);
+    return;
+  }
+  const fonts = [
+    ['cover', 'Impact / Cover'],
+    ['masthead', 'Masthead'],
+    ['deck', 'Clean sans'],
+    ['kicker', 'Mono / Kicker'],
+    ['badge', 'Badge'],
+    ['caption', 'Caption'],
+  ];
+  items.forEach((item, index) => {
+    const card = document.createElement('div');
+    card.className = 'ptp-text-item';
+    const heading = document.createElement('div');
+    heading.className = 'ptp-text-heading';
+    heading.textContent = (index + 1) + '. ' + (item.text || 'Text');
+    const fields = document.createElement('div');
+    fields.className = 'ptp-text-fields';
+    fields.innerHTML = `
+      <label>Text<input data-text-id="${item.id}" data-text-field="text" value="${escapeAttr(item.text || '')}" /></label>
+      <label>Font<select data-text-id="${item.id}" data-text-field="style">${fonts.map(([v, label]) => `<option value="${v}" ${(item.style || 'cover') === v ? 'selected' : ''}>${label}</option>`).join('')}</select></label>
+      <label>Size (px)<input type="number" min="8" max="240" step="1" data-text-id="${item.id}" data-text-field="fontSize" value="${Number(item.fontSize || (item.style === 'cover' ? 64 : item.style === 'masthead' ? 36 : 14))}" /></label>
+      <label>Color<input type="color" data-text-id="${item.id}" data-text-field="color" value="${/^#[0-9a-f]{6}$/i.test(item.color || '') ? item.color : '#F2EFE6'}" /></label>
+      <label>Align<select data-text-id="${item.id}" data-text-field="align"><option value="left" ${(item.align || 'left') === 'left' ? 'selected' : ''}>Left</option><option value="center" ${item.align === 'center' ? 'selected' : ''}>Center</option><option value="right" ${item.align === 'right' ? 'selected' : ''}>Right</option></select></label>
+      <button type="button" data-remove-text="${item.id}" class="ptp-danger">Delete text</button>
+    `;
+    card.append(heading, fields);
+    root.appendChild(card);
+  });
+}
+function escapeAttr(value) {
+  return String(value).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 function mountPanel() {
   let panel = document.getElementById('fumocaPresentTabPanel');
   if (panel) return panel;
@@ -145,7 +189,11 @@ function mountPanel() {
         <button type="button" data-act="clear-text">Clear text</button>
         <button type="button" data-act="add-custom-text" class="primary">+ Custom text</button>
       </div>
-      <div class="ptp-hint">Add custom text, then drag it in the viewport to position it. Text is saved with Copy viewer link.</div>
+      <div class="ptp-hint">Add custom text, then drag it in the viewport to position it. Select text below to change its wording, font, size, color and alignment.</div>
+    </div>
+    <div class="ptp-section">
+      <div class="ptp-title">Text styling · edit each item</div>
+      <div id="ptpTextManager" class="ptp-text-manager"></div>
     </div>
     <div class="ptp-section">
       <div class="ptp-title">Nav · Matterport style</div>
@@ -184,7 +232,22 @@ function mountPanel() {
   host.appendChild(panel);
   syncPresentActive();
 
+  panel.addEventListener('input', (e) => {
+    const field = e.target.closest('[data-text-id][data-text-field]');
+    if (!field) return;
+    const patch = {};
+    patch[field.dataset.textField] = field.dataset.textField === 'fontSize'
+      ? Math.max(8, Math.min(240, Number(field.value) || 14))
+      : field.value;
+    updateText(field.dataset.textId, patch);
+    const heading = field.closest('.ptp-text-item')?.querySelector('.ptp-text-heading');
+    if (heading && field.dataset.textField === 'text') heading.textContent = field.value || 'Text';
+    persist();
+  });
+
   panel.addEventListener('click', (e) => {
+    const removeTextBtn = e.target.closest('button[data-remove-text]');
+    if (removeTextBtn) { removeText(removeTextBtn.dataset.removeText); renderTextManager(); persist(); return; }
     const removeNavBtn = e.target.closest('button[data-remove-nav]');
     if (removeNavBtn) { removeNavStop(removeNavBtn.dataset.removeNav); renderNavManager(); persist(); return; }
     const layoutBtn = e.target.closest('[data-layout]');
@@ -210,10 +273,11 @@ function mountPanel() {
     if (act === '48hours') applyPreset('48hours');
     if (act === 'product') applyPreset('product');
     if (act === 'hero') applyPreset('hero');
-    if (act === 'clear-text') clearText();
+    if (['weekly','48hours','product','hero'].includes(act)) renderTextManager();
+    if (act === 'clear-text') { clearText(); renderTextManager(); }
     if (act === 'add-custom-text') {
       const value = prompt('Text to display in the scene', 'Your text');
-      if (value && value.trim()) addText({ text: value.trim(), style: 'deck', mode: 'locked', sx: 50, sy: 30, fontSize: 24, align: 'center', wrap: true });
+      if (value && value.trim()) { addText({ text: value.trim(), style: 'deck', mode: 'locked', sx: 50, sy: 30, fontSize: 24, align: 'center', wrap: true }); renderTextManager(); }
     }
     if (act === 'clear-nav') {
       if (confirm('Remove all navigation stops for this asset?')) clearNavStops();
@@ -281,7 +345,7 @@ export function initPresentTab() {
   if (saved?.magazine?.length) importMagazine(saved.magazine);
   if (saved?.nav?.length) importStops(saved.nav);
 
-  const tryMount = () => { mountPanel(); renderNavManager(); };
+  const tryMount = () => { mountPanel(); renderNavManager(); renderTextManager(); };
   tryMount();
   [500, 1200, 2500].forEach((t) => setTimeout(tryMount, t));
 
