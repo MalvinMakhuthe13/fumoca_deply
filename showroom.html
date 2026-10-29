@@ -215,9 +215,9 @@
     <span class="icon">↗</span>
     <span>Share</span>
   </button>
-  <button class="action-btn" id="quoteBtn" aria-label="Get a quote">
-    <span class="icon">📩</span>
-    <span>Get quote</span>
+  <button class="action-btn" id="captureBtn" aria-label="Capture">
+    <span class="icon">◉</span>
+    <span>Capture</span>
   </button>
 </div>
 
@@ -276,7 +276,7 @@
     document.getElementById('splashVehicle').textContent = 'No splatId provided in URL.';
   } else {
     // Point the iframe at the existing viewer with reveal tuned for this listing.
-    const viewerUrl = `viewer.html?v=914a9a2&splatId=${encodeURIComponent(splatId)}&reveal_duration=${encodeURIComponent(revealDuration)}`;
+    const viewerUrl = `viewer.html?v=914a9a2&splatId=${encodeURIComponent(splatId)}&reveal_duration=${encodeURIComponent(revealDuration)}&showroom=1`;
     const frame = document.getElementById('viewerFrame');
     frame.src = viewerUrl;
     // Hide splash when the iframe tells us it's ready, or after a safety
@@ -336,16 +336,14 @@
     }
   });
 
-  document.getElementById('quoteBtn').addEventListener('click', () => {
-    if (quoteUrl) {
-      window.open(quoteUrl, '_blank', 'noopener');
-      return;
+  document.getElementById('captureBtn').addEventListener('click', () => {
+    const frame = document.getElementById('viewerFrame');
+    try {
+      frame.contentWindow?.postMessage({ type: 'fumoca:showroom:capture' }, location.origin);
+      toast('Capture controls opened');
+    } catch (_) {
+      toast('Capture is unavailable in this browser.');
     }
-    if (quotePhone) {
-      location.href = `tel:${quotePhone}`;
-      return;
-    }
-    toast('Contact link not configured for this listing.');
   });
 
   // Share sheet handlers
