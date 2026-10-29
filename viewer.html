@@ -545,18 +545,41 @@
 
   /* ── Auto-hide shell: fades when .ui-idle is on <body>
 <script>
-  if (new URLSearchParams(location.search).get('showroom') === '1') {
-    document.body.classList.add('fumoca-showroom');
-  }
+(() => {
+  const params = new URLSearchParams(location.search);
+  if (params.get('showroom') !== '1') return;
+
+  document.body.classList.add('fumoca-showroom');
+
+  // This is a public showroom, not the full owner viewer. Hide controls
+  // even if another module inserts them after the initial page load.
+  const hideViewerControls = () => {
+    const selectors = [
+      '#menuBtn', '#fumocFAB', '#fumocMenu', '#fumocSharePanelOverlay',
+      '#hint', '#uiRevealBtn', '#bottomBar', '#captureToggleBtn', '#fourDBtn',
+      '#studioPanel', '#editPanel', '#editModeBadge', '#bbStudioBtn',
+      '#fumocaPresentTabPanel', '#presentNavLayer', '#magazineTextLayer',
+      '#fumocaExploreSceneButton'
+    ];
+    document.querySelectorAll(selectors.join(',')).forEach((el) => {
+      el.style.setProperty('display', 'none', 'important');
+      el.style.setProperty('visibility', 'hidden', 'important');
+      el.style.setProperty('pointer-events', 'none', 'important');
+    });
+  };
+  hideViewerControls();
+  new MutationObserver(hideViewerControls).observe(document.documentElement, {
+    childList: true, subtree: true
+  });
+
   window.addEventListener('message', (event) => {
     if (event.origin !== location.origin || event.data?.type !== 'fumoca:showroom:capture') return;
-    try {
-      // Use the viewer's existing short-video capture/teaser action.
-      const originalCapture = document.getElementById('teaserBtn');
-      if (originalCapture) originalCapture.click();
-      else console.warn('[showroom] Original teaser capture button is unavailable');
-    } catch (error) { console.warn('[showroom] Capture action unavailable', error); }
+    // Reuse the viewer's existing short-video recording flow.
+    const originalCapture = document.getElementById('teaserBtn');
+    if (originalCapture) originalCapture.click();
+    else console.warn('[showroom] Existing short-video recorder button is unavailable');
   });
+})();
 </script> ── */
   body.ui-idle #topbar,
   body.ui-idle #hint,
