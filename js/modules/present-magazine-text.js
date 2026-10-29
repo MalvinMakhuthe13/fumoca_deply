@@ -72,7 +72,7 @@ function styleFor(item) {
       ? 'none'
       : item.shadow || '0 2px 24px rgba(0,0,0,.55), 0 0 1px rgba(0,0,0,.8)';
   return {
-    fontFamily: FONT_STACK[kind] || FONT_STACK.deck,
+    fontFamily: item.fontFamily || FONT_STACK[kind] || FONT_STACK.deck,
     fontSize: `clamp(${Math.round(size * 0.4)}px, ${size * 0.09}vw, ${size}px)`,
     fontWeight: weight,
     letterSpacing: `${tracking}em`,
@@ -193,6 +193,7 @@ export function addText(partial = {}) {
     sy: partial.sy ?? 28,
     wx: partial.wx, wy: partial.wy, wz: partial.wz,
     fontSize: partial.fontSize,
+    fontFamily: partial.fontFamily,
     color: partial.color,
     opacity: partial.opacity ?? 1,
     align: partial.align || 'left',
@@ -239,7 +240,7 @@ export function importAll(list = []) {
     mode: i.mode || 'locked',
     sx: i.sx ?? 50, sy: i.sy ?? 30,
     wx: i.wx, wy: i.wy, wz: i.wz,
-    fontSize: i.fontSize, color: i.color,
+    fontSize: i.fontSize, fontFamily: i.fontFamily, color: i.color,
     opacity: i.opacity ?? 1, align: i.align,
     maxWidth: i.maxWidth, uppercase: i.uppercase, z: i.z || 0,
   }));
