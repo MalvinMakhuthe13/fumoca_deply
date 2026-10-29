@@ -140,13 +140,18 @@ function renderTextManager() {
     root.appendChild(hint);
     return;
   }
+  const styles = [
+    ['cover', 'Cover'], ['masthead', 'Masthead'], ['deck', 'Clean sans'],
+    ['kicker', 'Mono / Kicker'], ['badge', 'Badge'], ['caption', 'Caption'],
+  ];
   const fonts = [
-    ['cover', 'Impact / Cover'],
-    ['masthead', 'Masthead'],
-    ['deck', 'Clean sans'],
-    ['kicker', 'Mono / Kicker'],
-    ['badge', 'Badge'],
-    ['caption', 'Caption'],
+    ['Anton, Impact, sans-serif', 'Anton / Impact'],
+    ['Inter, system-ui, sans-serif', 'Inter'],
+    ['Arial, Helvetica, sans-serif', 'Arial'],
+    ['Georgia, serif', 'Georgia'],
+    ['"Times New Roman", serif', 'Times New Roman'],
+    ['"IBM Plex Mono", monospace', 'IBM Plex Mono'],
+    ['"Trebuchet MS", sans-serif', 'Trebuchet MS'],
   ];
   items.forEach((item, index) => {
     const card = document.createElement('div');
@@ -158,7 +163,8 @@ function renderTextManager() {
     fields.className = 'ptp-text-fields';
     fields.innerHTML = `
       <label>Text<input data-text-id="${item.id}" data-text-field="text" value="${escapeAttr(item.text || '')}" /></label>
-      <label>Font<select data-text-id="${item.id}" data-text-field="style">${fonts.map(([v, label]) => `<option value="${v}" ${(item.style || 'cover') === v ? 'selected' : ''}>${label}</option>`).join('')}</select></label>
+      <label>Style<select data-text-id="${item.id}" data-text-field="style">${styles.map(([v, label]) => `<option value="${v}" ${(item.style || 'cover') === v ? 'selected' : ''}>${label}</option>`).join('')}</select></label>
+      <label>Font family<select data-text-id="${item.id}" data-text-field="fontFamily">${fonts.map(([v, label]) => `<option value="${escapeAttr(v)}" ${(item.fontFamily || '') === v ? 'selected' : ''}>${label}</option>`).join('')}</select></label>
       <label>Size (px)<input type="number" min="8" max="240" step="1" data-text-id="${item.id}" data-text-field="fontSize" value="${Number(item.fontSize || (item.style === 'cover' ? 64 : item.style === 'masthead' ? 36 : 14))}" /></label>
       <label>Color<input type="color" data-text-id="${item.id}" data-text-field="color" value="${/^#[0-9a-f]{6}$/i.test(item.color || '') ? item.color : '#F2EFE6'}" /></label>
       <label>Align<select data-text-id="${item.id}" data-text-field="align"><option value="left" ${(item.align || 'left') === 'left' ? 'selected' : ''}>Left</option><option value="center" ${item.align === 'center' ? 'selected' : ''}>Center</option><option value="right" ${item.align === 'right' ? 'selected' : ''}>Right</option></select></label>
