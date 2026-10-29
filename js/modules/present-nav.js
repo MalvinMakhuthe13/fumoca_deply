@@ -304,6 +304,23 @@ export function addNavStop(partial = {}) {
   return stop;
 }
 
+export function removeNavStop(id) {
+  const before = stops.length;
+  stops = stops.filter((s) => s.id !== id);
+  if (stops.length === before) return false;
+  if (activeId === id) activeId = null;
+  rebuild();
+  onChange?.(exportStops());
+  return true;
+}
+
+export function clearNavStops() {
+  stops = [];
+  activeId = null;
+  rebuild();
+  onChange?.(exportStops());
+}
+
 export function exportStops() {
   return stops.map((s) => ({ ...s }));
 }
@@ -333,6 +350,8 @@ const api = {
   initPresentNav,
   setNavStops,
   addNavStop,
+  removeNavStop,
+  clearNavStops,
   flyToStop,
   exportStops,
   importStops,
