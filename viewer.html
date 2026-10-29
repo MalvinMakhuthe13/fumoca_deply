@@ -402,6 +402,9 @@
   body.fumoca-edit-locked #editModeBadge { display:none !important; }
 
   /* SHOWROOM EMBED MODE: only the showroom shell owns customer actions. */
+  body.fumoca-showroom #topbar,
+  body.fumoca-showroom #backBtn,
+  body.fumoca-showroom #topActions,
   body.fumoca-showroom #menuBtn,
   body.fumoca-showroom #fumocFAB,
   body.fumoca-showroom #fumocMenu,
@@ -555,6 +558,7 @@
   // even if another module inserts them after the initial page load.
   const hideViewerControls = () => {
     const selectors = [
+      '#topbar', '#backBtn', '#topActions',
       '#menuBtn', '#fumocFAB', '#fumocMenu', '#fumocSharePanelOverlay',
       '#hint', '#uiRevealBtn', '#bottomBar', '#captureToggleBtn', '#fourDBtn',
       '#studioPanel', '#editPanel', '#editModeBadge', '#bbStudioBtn',
