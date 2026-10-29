@@ -401,10 +401,9 @@
   body.fumoca-edit-locked #editPanel { display:none !important; }
   body.fumoca-edit-locked #editModeBadge { display:none !important; }
 
-  /* SHOWROOM EMBED MODE: keep the 3D scene clean; shell owns the only public actions. */
-  body.fumoca-showroom #topbar,
+  /* SHOWROOM EMBED MODE: only the showroom shell owns customer actions. */
+  body.fumoca-showroom #menuBtn,
   body.fumoca-showroom #fumocFAB,
-  body.fumoca-showroom #fumocaExploreSceneButton,
   body.fumoca-showroom #fumocMenu,
   body.fumoca-showroom #fumocSharePanelOverlay,
   body.fumoca-showroom #hint,
@@ -417,7 +416,8 @@
   body.fumoca-showroom #editModeBadge,
   body.fumoca-showroom #fumocaPresentTabPanel,
   body.fumoca-showroom #presentNavLayer,
-  body.fumoca-showroom #magazineTextLayer { display:none !important; }
+  body.fumoca-showroom #magazineTextLayer,
+  body.fumoca-showroom #fumocaExploreSceneButton { display:none !important; }
   body.fumoca-showroom #viewerShell { inset:0 !important; }
 
   /* ── PUBLIC VIEWER LOCK — hides all admin UI for embed/share links ── */
@@ -551,8 +551,10 @@
   window.addEventListener('message', (event) => {
     if (event.origin !== location.origin || event.data?.type !== 'fumoca:showroom:capture') return;
     try {
-      if (window._fumocaCaptureUI?.toggle) window._fumocaCaptureUI.toggle();
-      else document.getElementById('captureToggleBtn')?.click();
+      // Use the viewer's existing short-video capture/teaser action.
+      const originalCapture = document.getElementById('teaserBtn');
+      if (originalCapture) originalCapture.click();
+      else console.warn('[showroom] Original teaser capture button is unavailable');
     } catch (error) { console.warn('[showroom] Capture action unavailable', error); }
   });
 </script> ── */
