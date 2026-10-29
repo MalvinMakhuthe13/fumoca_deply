@@ -113,17 +113,17 @@
   line-height: 1.35;
 }
 .mt-item.mt-badge {
-  font-family: Inter, system-ui, sans-serif !important;
-  font-size: 11px !important;
-  font-weight: 700 !important;
-  letter-spacing: .14em !important;
-  text-transform: uppercase !important;
+  font-family: Inter, system-ui, sans-serif;
+  
+  
+  
+  
   padding: 6px 11px;
   border-radius: 999px;
   background: rgba(0,0,0,.55);
   border: 1px solid rgba(200,255,0,.4);
-  color: #c8ff00 !important;
-  text-shadow: none !important;
+  
+  
 }
 
 /* Review layouts live in css/review-video.css so they cannot cover the workspace. */
