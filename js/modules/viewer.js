@@ -179,11 +179,13 @@ const autoplayPreview = params.get('autoplayPreview') === '1';
 // In all cases: hide ALL admin UI immediately, before auth resolves.
 const _isEmbedParam  = params.get('embed') === '1';
 const _isPublicParam = params.get('public') === '1';
+const _isShowroomParam = params.get('showroom') === '1';
 const _referrerOrigin = (() => {
   try { return document.referrer ? new URL(document.referrer).origin : ''; } catch (_) { return ''; }
 })();
 const _isExternalReferrer = !!(_referrerOrigin && _referrerOrigin !== window.location.origin);
-const IS_PUBLIC_VIEWER = _isEmbedParam || _isPublicParam || _isExternalReferrer;
+// A showroom link is always public, even when opened directly in a new tab.
+const IS_PUBLIC_VIEWER = _isEmbedParam || _isPublicParam || _isShowroomParam || _isExternalReferrer;
 window.IS_PUBLIC_VIEWER = IS_PUBLIC_VIEWER;
 // Return destination for the Back button:
 //   ?back= param > external referrer > history.back()
