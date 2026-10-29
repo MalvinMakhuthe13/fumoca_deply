@@ -7,7 +7,7 @@ import {
   exportAll as exportMagazine, importAll as importMagazine, setEditable as setMagEditable,
 } from './present-magazine-text.js';
 import {
-  initPresentNav, setNavStops, addNavStop, flyToStop,
+  initPresentNav, setNavStops, addNavStop, removeNavStop, clearNavStops, flyToStop,
   stopsFromHotspots, exportStops, importStops,
 } from './present-nav.js';
 
@@ -111,6 +111,23 @@ function syncPresentActive() {
   document.body.classList.toggle('present-active', !!open);
 }
 
+function renderNavManager() {
+  const root = document.getElementById('ptpNavManager');
+  if (!root) return;
+  const stops = exportStops();
+  root.replaceChildren();
+  const heading = document.createElement('div');
+  heading.className = 'ptp-hint';
+  heading.textContent = stops.length ? ('Navigation stops: ' + stops.length + ' · remove any stop below') : 'No navigation stops yet.';
+  root.appendChild(heading);
+  stops.forEach((stop, index) => {
+    const row = document.createElement('div'); row.className = 'ptp-nav-item';
+    const label = document.createElement('span'); label.textContent = (index + 1) + '. ' + (stop.label || 'View'); label.title = stop.id;
+    const remove = document.createElement('button'); remove.type = 'button'; remove.dataset.removeNav = stop.id; remove.textContent = 'Remove';
+    row.append(label, remove); root.appendChild(row);
+  });
+}
+
 function mountPanel() {
   let panel = document.getElementById('fumocaPresentTabPanel');
   if (panel) return panel;
@@ -126,17 +143,22 @@ function mountPanel() {
         <button type="button" data-act="product">Product</button>
         <button type="button" data-act="hero">Hero title</button>
         <button type="button" data-act="clear-text">Clear text</button>
+        <button type="button" data-act="add-custom-text" class="primary">+ Custom text</button>
       </div>
-      <div class="ptp-hint">Text is saved with Copy viewer link so public viewers keep the cover.</div>
+      <div class="ptp-hint">Add custom text, then drag it in the viewport to position it. Text is saved with Copy viewer link.</div>
     </div>
     <div class="ptp-section">
       <div class="ptp-title">Nav · Matterport style</div>
       <div class="ptp-row">
         <button type="button" data-act="add-nav">+ Nav stop</button>
         <button type="button" data-act="from-hs">From hotspots</button>
+        <button type="button" data-act="clear-nav">Clear all stops</button>
         <button type="button" data-act="save" class="primary">Save</button>
         <button type="button" data-act="copy" class="primary">Copy viewer link</button>
       </div>
+    </div>
+    <div class="ptp-section">
+      <div id="ptpNavManager" class="ptp-nav-manager"></div>
     </div>
     <div class="ptp-section">
       <div class="ptp-title">Review video</div>
@@ -163,6 +185,8 @@ function mountPanel() {
   syncPresentActive();
 
   panel.addEventListener('click', (e) => {
+    const removeNavBtn = e.target.closest('button[data-remove-nav]');
+    if (removeNavBtn) { removeNavStop(removeNavBtn.dataset.removeNav); renderNavManager(); persist(); return; }
     const layoutBtn = e.target.closest('[data-layout]');
     if (layoutBtn) {
       if (!window.FumocaReviewVideo?.setLayout) {
@@ -187,6 +211,14 @@ function mountPanel() {
     if (act === 'product') applyPreset('product');
     if (act === 'hero') applyPreset('hero');
     if (act === 'clear-text') clearText();
+    if (act === 'add-custom-text') {
+      const value = prompt('Text to display in the scene', 'Your text');
+      if (value && value.trim()) addText({ text: value.trim(), style: 'deck', mode: 'locked', sx: 50, sy: 30, fontSize: 24, align: 'center', wrap: true });
+    }
+    if (act === 'clear-nav') {
+      if (confirm('Remove all navigation stops for this asset?')) clearNavStops();
+      renderNavManager();
+    }
     if (act === 'add-nav') {
       const hs = window._fumocaHotspots?.slice?.(-1)?.[0];
       if (hs && Number.isFinite(hs.wx)) {
@@ -194,6 +226,7 @@ function mountPanel() {
       } else addNavStop({ label: 'View', sx: 50, sy: 50, zoom: 1.25 });
     }
     if (act === 'from-hs') setNavStops(stopsFromHotspots(window._fumocaHotspots || []));
+    renderNavManager();
     if (act === 'save') {
       persist();
       alert('Present saved for this asset (text + nav). Use Copy viewer link to keep text on the public page.');
@@ -240,7 +273,7 @@ export function initPresentTab() {
   initMagazineText({ editable: true, onChange: () => persist() });
   initPresentNav({
     onArrive: (s) => window.dispatchEvent(new CustomEvent('fumoca:navArrive', { detail: s })),
-    onChange: () => persist(),
+    onChange: () => { renderNavManager(); persist(); },
   });
   setMagEditable(true);
 
@@ -276,6 +309,9 @@ export function initPresentTab() {
     clearText,
     exportMagazine,
     exportStops,
+    addText,
+    removeNavStop,
+    clearNavStops,
   };
 }
 
