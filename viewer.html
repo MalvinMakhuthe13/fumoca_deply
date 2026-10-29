@@ -560,51 +560,7 @@
      ═══════════════════════════════════════════════════════════════ */
 
   /* ── Auto-hide shell: fades when .ui-idle is on <body>
-<script>
-(() => {
-  const params = new URLSearchParams(location.search);
-  if (params.get('showroom') !== '1') return;
-
-  document.body.classList.add('fumoca-showroom');
-
-  // This is a public showroom, not the full owner viewer. Hide controls
-  // even if another module inserts them after the initial page load.
-  const hideViewerControls = () => {
-    const selectors = [
-      '#topbar', '#backBtn', '#topActions',
-      '#menuBtn', '#fumocFAB', '#fumocMenu', '#fumocSharePanelOverlay',
-      '#hint', '#uiRevealBtn', '#bottomBar', '#captureToggleBtn', '#fourDBtn',
-      '#studioPanel', '#editPanel', '#editModeBadge', '#bbStudioBtn',
-      '#fumocaPresentTabPanel', '#presentNavLayer', '#magazineTextLayer',
-      '#fumocaExploreSceneButton'
-    ];
-    document.querySelectorAll(selectors.join(',')).forEach((el) => {
-      el.style.setProperty('display', 'none', 'important');
-      el.style.setProperty('visibility', 'hidden', 'important');
-      el.style.setProperty('pointer-events', 'none', 'important');
-    });
-  };
-  hideViewerControls();
-  new MutationObserver(hideViewerControls).observe(document.documentElement, {
-    childList: true, subtree: true
-  });
-
-  window.addEventListener('message', (event) => {
-    if (event.origin !== location.origin || event.data?.type !== 'fumoca:showroom:capture') return;
-    // The legacy teaserBtn opens a preview; it is NOT the recorder.
-    // The actual short-video recorder is delegated through capTeaserBtn.
-    let captureButton = document.getElementById('capTeaserBtn');
-    if (!captureButton) {
-      captureButton = document.createElement('button');
-      captureButton.id = 'capTeaserBtn';
-      captureButton.type = 'button';
-      captureButton.hidden = true;
-      document.body.appendChild(captureButton);
-    }
-    captureButton.click();
-  });
-})();
-</script> ── */
+ ── */
   body.ui-idle #topbar,
   body.ui-idle #hint,
   body.ui-idle #bottomBar { opacity: 0; pointer-events: none; }
@@ -774,6 +730,56 @@
 <link rel="stylesheet" href="css/present-magazine.css"/>
 </head>
 <body data-nav="none">
+
+<script>
+(() => {
+  const params = new URLSearchParams(location.search);
+  if (params.get('showroom') !== '1') return;
+
+  document.body.classList.add('fumoca-showroom');
+
+  // This is a public showroom, not the full owner viewer. Hide controls
+  // even if another module inserts them after the initial page load.
+  const hideViewerControls = () => {
+    const selectors = [
+      '#topbar', '#backBtn', '#topActions',
+      '#menuBtn', '#fumocFAB', '#fumocMenu', '#fumocSharePanelOverlay',
+      '#hint', '#uiRevealBtn', '#bottomBar', '#captureToggleBtn', '#fourDBtn',
+      '#studioPanel', '#editPanel', '#editModeBadge', '#bbStudioBtn',
+      '#viewerEditLiveBtn', '.viewer-topbar', '#viewerTopbar', '#viewerMenu',
+      '#viewerMenuPanel', '#viewerMenuOverlay', '#toolbar', '#toolbarPanel',
+      '#editToolbar', '#editTools', '#editControls', '#ownerControls',
+      '#fumocaPresentTabPanel', '#presentNavLayer', '#magazineTextLayer',
+      '#fumocaExploreSceneButton', '#capTeaserBtn', '#teaserBtn', '#copyLinkBtn'
+    ];
+    document.querySelectorAll(selectors.join(',')).forEach((el) => {
+      el.style.setProperty('display', 'none', 'important');
+      el.style.setProperty('visibility', 'hidden', 'important');
+      el.style.setProperty('pointer-events', 'none', 'important');
+    });
+  };
+  hideViewerControls();
+  new MutationObserver(hideViewerControls).observe(document.documentElement, {
+    childList: true, subtree: true
+  });
+
+  window.addEventListener('message', (event) => {
+    if (event.origin !== location.origin || event.data?.type !== 'fumoca:showroom:capture') return;
+    // The legacy teaserBtn opens a preview; it is NOT the recorder.
+    // The actual short-video recorder is delegated through capTeaserBtn.
+    let captureButton = document.getElementById('capTeaserBtn');
+    if (!captureButton) {
+      captureButton = document.createElement('button');
+      captureButton.id = 'capTeaserBtn';
+      captureButton.type = 'button';
+      captureButton.hidden = true;
+      document.body.appendChild(captureButton);
+    }
+    captureButton.click();
+  });
+})();
+</script>
+
 
 <svg id="hiddenSvgFilters" aria-hidden="true" focusable="false">
   <defs>
