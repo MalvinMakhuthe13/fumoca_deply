@@ -420,7 +420,20 @@
   body.fumoca-showroom #fumocaPresentTabPanel,
   body.fumoca-showroom #presentNavLayer,
   body.fumoca-showroom #magazineTextLayer,
-  body.fumoca-showroom #fumocaExploreSceneButton { display:none !important; }
+  body.fumoca-showroom #fumocaExploreSceneButton,
+  body.fumoca-showroom #hotspotProPanel,
+  body.fumoca-showroom #hotspotInfoCard,
+  body.fumoca-showroom #fumocaTourHUDv80,
+  body.fumoca-showroom #fumocaWalkHUD,
+  body.fumoca-showroom #fumocInspectHUD,
+  body.fumoca-showroom #fumocVolumeWidget,
+  body.fumoca-showroom #nestedSplatOverlay,
+  body.fumoca-showroom #focusFrame,
+  body.fumoca-showroom #focusOverlay,
+  body.fumoca-showroom #maskLayer,
+  body.fumoca-showroom #lassoLayer,
+  body.fumoca-showroom #editCanvas,
+  body.fumoca-showroom #editSelRect { display:none !important; }
   body.fumoca-showroom #viewerShell { inset:0 !important; }
 
   /* ── PUBLIC VIEWER LOCK — hides all admin UI for embed/share links ── */
@@ -578,10 +591,17 @@
 
   window.addEventListener('message', (event) => {
     if (event.origin !== location.origin || event.data?.type !== 'fumoca:showroom:capture') return;
-    // Reuse the viewer's existing short-video recording flow.
-    const originalCapture = document.getElementById('teaserBtn');
-    if (originalCapture) originalCapture.click();
-    else console.warn('[showroom] Existing short-video recorder button is unavailable');
+    // The legacy teaserBtn opens a preview; it is NOT the recorder.
+    // The actual short-video recorder is delegated through capTeaserBtn.
+    let captureButton = document.getElementById('capTeaserBtn');
+    if (!captureButton) {
+      captureButton = document.createElement('button');
+      captureButton.id = 'capTeaserBtn';
+      captureButton.type = 'button';
+      captureButton.hidden = true;
+      document.body.appendChild(captureButton);
+    }
+    captureButton.click();
   });
 })();
 </script> ── */
