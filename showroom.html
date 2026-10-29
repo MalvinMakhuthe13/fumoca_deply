@@ -340,7 +340,7 @@
     const frame = document.getElementById('viewerFrame');
     try {
       frame.contentWindow?.postMessage({ type: 'fumoca:showroom:capture' }, location.origin);
-      toast('Capture controls opened');
+      toast('Preparing video capture…');
     } catch (_) {
       toast('Capture is unavailable in this browser.');
     }
