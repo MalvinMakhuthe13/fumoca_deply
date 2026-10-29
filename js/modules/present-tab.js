@@ -238,18 +238,26 @@ function mountPanel() {
   host.appendChild(panel);
   syncPresentActive();
 
-  panel.addEventListener('input', (e) => {
-    const field = e.target.closest('[data-text-id][data-text-field]');
-    if (!field) return;
+  const applyTextField = (e) => {
+    const field = e.target.closest?.('[data-text-id][data-text-field]');
+    if (!field || !panel.contains(field)) return;
+    const key = field.dataset.textField;
     const patch = {};
-    patch[field.dataset.textField] = field.dataset.textField === 'fontSize'
-      ? Math.max(8, Math.min(240, Number(field.value) || 14))
-      : field.value;
+    if (key === 'fontSize') patch.fontSize = Math.max(8, Math.min(240, Number(field.value) || 14));
+    else if (key === 'text') patch.text = field.value;
+    else if (key === 'style') patch.style = field.value;
+    else if (key === 'fontFamily') patch.fontFamily = field.value;
+    else if (key === 'color') patch.color = field.value;
+    else if (key === 'align') patch.align = field.value;
+    else return;
     updateText(field.dataset.textId, patch);
     const heading = field.closest('.ptp-text-item')?.querySelector('.ptp-text-heading');
-    if (heading && field.dataset.textField === 'text') heading.textContent = field.value || 'Text';
+    if (heading && key === 'text') heading.textContent = field.value || 'Text';
     persist();
-  });
+  };
+  // Browsers fire input inconsistently for select/color controls; support both.
+  panel.addEventListener('input', applyTextField);
+  panel.addEventListener('change', applyTextField);
 
   panel.addEventListener('click', (e) => {
     const removeTextBtn = e.target.closest('button[data-remove-text]');
