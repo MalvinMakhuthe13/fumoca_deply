@@ -73,7 +73,7 @@ function styleFor(item) {
       : item.shadow || '0 2px 24px rgba(0,0,0,.55), 0 0 1px rgba(0,0,0,.8)';
   return {
     fontFamily: item.fontFamily || FONT_STACK[kind] || FONT_STACK.deck,
-    fontSize: `clamp(${Math.round(size * 0.4)}px, ${size * 0.09}vw, ${size}px)`,
+    fontSize: `${size}px`,
     fontWeight: weight,
     letterSpacing: `${tracking}em`,
     color,
