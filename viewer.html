@@ -2666,7 +2666,14 @@ window.addEventListener('fumoca:recordLoaded', e => {
 
 <script>
 window.fumocaCaptureTeaser = async () => {
-  const btn = document.getElementById('capTeaserBtn');
+  let btn = document.getElementById('capTeaserBtn');
+  if (!btn) {
+    btn = document.createElement('button');
+    btn.id = 'capTeaserBtn';
+    btn.type = 'button';
+    btn.hidden = true;
+    document.body.appendChild(btn);
+  }
   if (btn?.dataset.busy === '1') return;
   if (btn) { btn.dataset.busy = '1'; btn.textContent = 'Recording…'; }
   try {
