@@ -281,7 +281,7 @@ export function initPresentTab() {
   if (saved?.magazine?.length) importMagazine(saved.magazine);
   if (saved?.nav?.length) importStops(saved.nav);
 
-  const tryMount = () => mountPanel();
+  const tryMount = () => { mountPanel(); renderNavManager(); };
   tryMount();
   [500, 1200, 2500].forEach((t) => setTimeout(tryMount, t));
 
