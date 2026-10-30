@@ -6,7 +6,7 @@
 const SparkGaussianView = (() => {
   let _spark = null, _mesh = null, _overlay = null;
   let _enabled = false, _loading = false, _syncQueued = false;
-  let _gesturePreview = false;
+  let _gesturePreview = false, _pendingGestureState = null;
   let _originalBytes = null, _lastStateSignature = '';
   let _lastFileName = 'export.ply';
 
@@ -213,22 +213,45 @@ const SparkGaussianView = (() => {
       _loading = false;
       _hideLegacy();
       _updateSelectionOverlay(state);
+      if (_pendingGestureState) Promise.resolve().then(_flushPendingGesture);
     }
   }
 
   function beginEditorGesture() {
     if (!_enabled) return false;
-    _gesturePreview = true; _hideLegacy(); return true;
+    _pendingGestureState = null;
+    _gesturePreview = true;
+    _hideLegacy();
+    return true;
   }
+
+  async function _flushPendingGesture() {
+    if (!_pendingGestureState || _loading || !_enabled) return false;
+    const state = _pendingGestureState;
+    _pendingGestureState = null;
+    // Keep the live editor geometry visible while Spark rebuilds the edited PLY.
+    const synced = await syncEditorState(state);
+    if (synced) {
+      _gesturePreview = false;
+      _hideLegacy();
+    }
+    return synced;
+  }
+
   function endEditorGesture(state = window.S) {
     if (!_enabled) return false;
-    _gesturePreview = false; _hideLegacy(); refreshEditorState(state); return true;
+    _pendingGestureState = state;
+    if (!_loading) _flushPendingGesture();
+    return true;
   }
 
   function refreshEditorState(state = window.S) {
     if (!_enabled || !state) return;
     _hideLegacy();
     _updateSelectionOverlay(state);
+    // Do not rebuild/reload Spark from intermediate pointer-move states.
+    // The gesture end commits one final state atomically.
+    if (_gesturePreview || _pendingGestureState) return;
     if (_syncQueued) return;
     _syncQueued = true;
     requestAnimationFrame(() => {
@@ -272,6 +295,8 @@ const SparkGaussianView = (() => {
 
   function disable() {
     _enabled = false;
+    _gesturePreview = false;
+    _pendingGestureState = null;
     _hideLegacy();
     if (_overlay) { try { _scene()?.remove(_overlay); _overlay.geometry?.dispose?.(); _overlay.material?.dispose?.(); } catch (_) {} _overlay = null; }
     if (_mesh) { try { _scene()?.remove(_mesh); _mesh.dispose?.(); } catch (_) {} _mesh = null; }
