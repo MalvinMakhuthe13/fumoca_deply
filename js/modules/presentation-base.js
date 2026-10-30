@@ -138,7 +138,9 @@ export class PresentationBase {
 
     this.platform = new THREE.Mesh(geometry, material);
     this.platform.name = 'PresentationPlatform';
-    this.platform.renderOrder = -10;
+    // Keep the platform in the normal opaque 3D pass. A negative renderOrder
+    // forced it behind every splat, making Gaussian points appear to slice through it.
+    this.platform.renderOrder = 0;
     this.platform.position.y = Number(o.platformY) || 0;
     this.platform.castShadow = true;
     this.platform.receiveShadow = true;
@@ -158,7 +160,7 @@ export class PresentationBase {
     this.lightRing.rotation.x = Math.PI / 2;
     this.lightRing.position.y = (Number(o.platformY) || 0) - o.height / 2 - 0.0008;
     this.lightRing.name = 'UndersideLightRing';
-    this.lightRing.renderOrder = -9;
+    this.lightRing.renderOrder = 1;
     this.assembly.add(this.lightRing);
   }
 
@@ -179,7 +181,7 @@ export class PresentationBase {
       const geometry = new THREE.PlaneGeometry(w, h);
       const material = new THREE.MeshBasicMaterial({
         map: texture, transparent: true, alphaTest: 0.015,
-        side: THREE.DoubleSide, depthWrite: true, toneMapped: false
+        side: THREE.DoubleSide, depthTest: true, depthWrite: true, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1
       });
       const mesh = new THREE.Mesh(geometry, material);
       // Plane's +Z normal rotated +90° around X points down (-Y).
@@ -187,7 +189,9 @@ export class PresentationBase {
       mesh.rotation.y = THREE.MathUtils.degToRad(Number(o.logoRotation) || 0);
       mesh.position.y = (Number(o.platformY) || 0) - o.height / 2 - Math.max(0.0005, Number(o.logoOffset) || 0.002);
       mesh.name = 'UndersideBranding';
-      mesh.renderOrder = -8;
+      // Draw the decal after the solid base; its small physical offset keeps it
+      // visible from below without z-fighting against the platform underside.
+      mesh.renderOrder = 2;
       this.logoTexture = texture;
       this.logoMesh = mesh;
       this.assembly.add(mesh);
