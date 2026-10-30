@@ -44,6 +44,7 @@ const SparkGaussianView = (() => {
     const parent = _mesh || _scene();
     if (!parent || !THREE?.BufferGeometry || !THREE?.PointsMaterial || !THREE?.Points ||
         !state?.positions || !state?.alive || !state?.selected) return;
+    parent.updateWorldMatrix?.(true, false);
     const positions = [], colors = [];
     for (let i = 0; i < state.alive.length; i++) {
       if (!state.alive[i] || !state.selected[i] || state.layerHidden?.[i]) continue;
@@ -276,7 +277,7 @@ const SparkGaussianView = (() => {
   function disable() {
     _enabled = false;
     _hideLegacy();
-    if (_overlay) { try { _scene()?.remove(_overlay); _overlay.geometry?.dispose?.(); _overlay.material?.dispose?.(); } catch (_) {} _overlay = null; }
+    if (_overlay) { try { _overlay.parent?.remove(_overlay); _overlay.geometry?.dispose?.(); _overlay.material?.dispose?.(); } catch (_) {} _overlay = null; }
     if (_mesh) { try { _scene()?.remove(_mesh); _mesh.dispose?.(); } catch (_) {} _mesh = null; }
   }
   // Export the current edited Gaussian PLY without flattening it to NIF's
