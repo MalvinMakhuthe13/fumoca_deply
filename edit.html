@@ -3617,7 +3617,7 @@ function selectByLasso(pts, modifiers = {}) {
   let hits=0;
   for(let i=0;i<S.alive.length;i++){
     if(!Number.isFinite(depthByIndex[i]))continue;
-    const proj.set(S.positions[i*3],S.positions[i*3+1],S.positions[i*3+2]).project(camera);
+    proj.set(S.positions[i*3],S.positions[i*3+1],S.positions[i*3+2]).project(camera);
     const sx=(proj.x*.5+.5)*W,sy=(-proj.y*.5+.5)*H;
     const ci=Math.floor(sy/cell)*cols+Math.floor(sx/cell);
     if(depthByIndex[i]>nearest[ci]+depthTolerance)continue;
