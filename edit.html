@@ -3574,29 +3574,60 @@ function selectByBox(x0, y0, x1, y1) {
   rebuildGeometry(); syncTransformGizmo(); setStatus(`Selected ${fmt(hits)} points`);
 }
 
-function selectByLasso(pts) {
-  if (!S.positions || pts.length < 3) return;
-  const vp = document.getElementById('viewport');
-  const W = vp.clientWidth, H = vp.clientHeight;
-  function inPoly(px, py) {
-    let inside = false;
-    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
-      const xi = pts[i].x, yi = pts[i].y, xj = pts[j].x, yj = pts[j].y;
-      if (((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi)) inside = !inside;
+function selectByLasso(pts, modifiers = {}) {
+  if (!S.positions || !S.alive || pts.length < 3) return;
+  const vp=viewport.getBoundingClientRect(),W=Math.max(1,Math.ceil(vp.width)),H=Math.max(1,Math.ceil(vp.height));
+  const additive=!!modifiers.additive,subtract=!!modifiers.subtract;
+  const minX=Math.max(0,Math.floor(Math.min(...pts.map(p=>p.x))));
+  const maxX=Math.min(W-1,Math.ceil(Math.max(...pts.map(p=>p.x))));
+  const minY=Math.max(0,Math.floor(Math.min(...pts.map(p=>p.y))));
+  const maxY=Math.min(H-1,Math.ceil(Math.max(...pts.map(p=>p.y))));
+  if(maxX<minX||maxY<minY)return;
+  function inPoly(px,py){
+    let inside=false;
+    for(let i=0,j=pts.length-1;i<pts.length;j=i++){
+      const xi=pts[i].x,yi=pts[i].y,xj=pts[j].x,yj=pts[j].y;
+      if(((yi>py)!==(yj>py))&&(px<(xj-xi)*(py-yi)/(yj-yi)+xi))inside=!inside;
     }
     return inside;
   }
-  pushHistory('lasso select'); clearSelection();
-  const proj = new THREE.Vector3(); let hits = 0;
-  for (let i = 0; i < S.alive.length; i++) {
-    if (!S.alive[i]) continue;
-    proj.set(S.positions[i * 3], S.positions[i * 3 + 1], S.positions[i * 3 + 2]).project(camera);
-    const sx = (proj.x * 0.5 + 0.5) * W, sy = (-proj.y * 0.5 + 0.5) * H;
-    if (inPoly(sx, sy)) { S.selected[i] = 1; hits++; }
+  // Build a coarse screen-space depth buffer for the lasso footprint.
+  // Only the nearest surface in each small screen cell is selected, avoiding
+  // the old behaviour where the lasso selected front and back surfaces and
+  // the display base behind the hat.
+  const cell=3,cols=Math.max(1,Math.ceil(W/cell)),rows=Math.max(1,Math.ceil(H/cell));
+  const nearest=new Float32Array(cols*rows);nearest.fill(Infinity);
+  const view=new THREE.Vector3(),proj=new THREE.Vector3();
+  const depthByIndex=new Float32Array(S.alive.length);depthByIndex.fill(NaN);
+  for(let i=0;i<S.alive.length;i++){
+    if(!S.alive[i]||S.layerHidden?.[i])continue;
+    view.set(S.positions[i*3],S.positions[i*3+1],S.positions[i*3+2]).applyMatrix4(camera.matrixWorldInverse);
+    if(view.z>=0)continue;
+    proj.set(S.positions[i*3],S.positions[i*3+1],S.positions[i*3+2]).project(camera);
+    if(proj.z < -1 || proj.z > 1)continue;
+    const sx=(proj.x*.5+.5)*W,sy=(-proj.y*.5+.5)*H;
+    if(sx<minX||sx>maxX||sy<minY||sy>maxY||!inPoly(sx,sy))continue;
+    const d=-view.z;depthByIndex[i]=d;
+    const ci=Math.floor(sy/cell)*cols+Math.floor(sx/cell);
+    if(d<nearest[ci])nearest[ci]=d;
   }
-  rebuildGeometry(); syncTransformGizmo(); setStatus(`Selected ${fmt(hits)} points`);
+  const sceneDiagonal=(()=>{let mn=[Infinity,Infinity,Infinity],mx=[-Infinity,-Infinity,-Infinity];for(let i=0;i<S.alive.length;i++)if(S.alive[i])for(let k=0;k<3;k++){const v=S.positions[i*3+k];mn[k]=Math.min(mn[k],v);mx[k]=Math.max(mx[k],v);}return Math.hypot(mx[0]-mn[0],mx[1]-mn[1],mx[2]-mn[2]);})();
+  const depthTolerance=Math.max(sceneDiagonal*.006,1e-5);
+  if(!additive&&!subtract)S.selected.fill(0);
+  let hits=0;
+  for(let i=0;i<S.alive.length;i++){
+    if(!Number.isFinite(depthByIndex[i]))continue;
+    const proj.set(S.positions[i*3],S.positions[i*3+1],S.positions[i*3+2]).project(camera);
+    const sx=(proj.x*.5+.5)*W,sy=(-proj.y*.5+.5)*H;
+    const ci=Math.floor(sy/cell)*cols+Math.floor(sx/cell);
+    if(depthByIndex[i]>nearest[ci]+depthTolerance)continue;
+    if(subtract){if(S.selected[i]){S.selected[i]=0;hits++;}}
+    else if(!S.selected[i]){S.selected[i]=1;hits++;}
+  }
+  renderLayers();rebuildGeometry();refreshTransformSourceMap();syncTransformGizmo();
+  const total=selectedPointCount();
+  setStatus(`Lasso ${subtract?'removed':additive?'added':'selected'} ${fmt(hits)} front-surface points (${fmt(total)} total)`,'ok');
 }
-
 function applyBrush(cx, cy) {
   if (!S.positions) return;
   const vp = document.getElementById('viewport');
@@ -4669,7 +4700,7 @@ window.addEventListener('pointerup', e => {
     for(let i=0;i<S.alive.length;i++) if(S.alive[i]&&!S.selected[i]) S.alive[i]=0;
     S.selected.fill(0); rebuildGeometry(); setStatus('Scene cropped to box selection','ok');
   }
-  if (S.mode === 'lasso' && S.lassoPoints.length >= 3) selectByLasso(S.lassoPoints);
+  if (S.mode === 'lasso' && S.lassoPoints.length >= 3) selectByLasso(S.lassoPoints, { additive: e.shiftKey, subtract: e.altKey });
   if (['box','sphere','lasso'].includes(S.mode)) syncTransformGizmo();
   if (['move','scale-tool','rotate'].includes(S.mode)) { window.FumocaGaussianRenderer?.invalidateSort(); rebuildGeometry(); window.FumocaSparkGaussian?.endEditorGesture?.(S); syncTransformGizmo(); captureGizmoTransform(); _xformIndices = null; _xformPivot = null; _xformStartPos = null; _xformStartScale = null; _xformStartScaleXYZ = null; _xformStartRot = null; _xformAccum = null; }
   _xformPivot = null; _xformIndices = null;
