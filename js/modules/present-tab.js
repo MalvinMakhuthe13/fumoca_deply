@@ -21,6 +21,44 @@ function ensurePresentationBase(){const scene=window._fumocaScene||window.scene;
 function baseFormValues(){const root=document.getElementById('ptpBaseManager');if(!root)return{...baseConfig};const val=k=>root.querySelector('[data-base-field="'+k+'"]')?.value;const num=(k,d)=>Number.isFinite(Number(val(k)))?Number(val(k)):d;return{...baseConfig,shape:val('shape')||baseConfig.shape,material:val('material')||baseConfig.material,width:num('width',baseConfig.width),depth:num('depth',baseConfig.depth),height:num('height',baseConfig.height),gap:num('gap',baseConfig.gap),logoSize:num('logoSize',baseConfig.logoSize),logoRotation:num('logoRotation',baseConfig.logoRotation),logoOffset:Math.max(0.0005,Math.min(0.05,num('logoOffset',baseConfig.logoOffset))),logoPositionX:num('logoPositionX',baseConfig.logoPositionX||0),logoPositionZ:num('logoPositionZ',baseConfig.logoPositionZ||0),showLightRing:root.querySelector('[data-base-field="showLightRing"]')?.checked??baseConfig.showLightRing};}
 function syncBaseForm(){const root=document.getElementById('ptpBaseManager');if(!root)return;Object.entries(baseConfig).forEach(([k,v])=>{const el=root.querySelector('[data-base-field="'+k+'"]');if(!el||k==='logoUrl'||k==='enabled')return;if(el.type==='checkbox')el.checked=!!v;else if(v!=null){const safe=(k==='logoOffset'?Math.max(0.0005,Math.min(0.05,Number(v)||0.002)):v);el.value=String(safe);if(k==='logoOffset')baseConfig.logoOffset=safe;}});const status=root.querySelector('[data-base-status]');if(status)status.textContent=baseConfig.enabled?'Platform active · follows scan in 3D':'No platform in the scene yet';}
 function applyBaseForm(){baseConfig={...baseConfig,...baseFormValues()};const base=ensurePresentationBase();const fitPatch={};if(Number.isFinite(Number(baseConfig.supportY)))fitPatch.platformY=Number(baseConfig.supportY)-Math.max(0,Number(baseConfig.gap)||0)-Math.max(.005,Number(baseConfig.height)||.06)/2;base.update({shape:baseConfig.shape,width:baseConfig.width,depth:baseConfig.depth,height:baseConfig.height,material:baseConfig.material,logoUrl:baseConfig.logoUrl,logoSize:baseConfig.logoSize,logoRotation:baseConfig.logoRotation,logoOffset:baseConfig.logoOffset,logoPositionX:baseConfig.logoPositionX,logoPositionZ:baseConfig.logoPositionZ,showLightRing:baseConfig.showLightRing,customPoints:baseConfig.customPoints,...fitPatch});base.assembly.visible=!!baseConfig.enabled;persist();syncBaseForm();}
+function autoLevelScan(){
+  const S=window.S, THREE=window.THREE;
+  if(!S?.positions?.length||!S.alive?.length||!THREE){alert('Load a splat before levelling it.');return;}
+  const count=Math.min(S.alive.length,Math.floor(S.positions.length/3)), sample=[];
+  let minY=Infinity,maxY=-Infinity;
+  for(let i=0;i<count;i++)if(S.alive[i]){const y=S.positions[i*3+1];if(Number.isFinite(y)){minY=Math.min(minY,y);maxY=Math.max(maxY,y);}}
+  if(!Number.isFinite(minY)||maxY-minY<1e-7){alert('Not enough scan data to estimate a support plane.');return;}
+  // Sample the lowest 18% of the scan: this is usually the table/floor contact region.
+  const cutoff=minY+(maxY-minY)*0.18, stride=Math.max(1,Math.floor(count/80000));
+  let cx=0,cy=0,cz=0,n=0;
+  for(let i=0;i<count;i+=stride)if(S.alive[i]){const x=S.positions[i*3],y=S.positions[i*3+1],z=S.positions[i*3+2];if(y<=cutoff&&Number.isFinite(x+y+z)){sample.push(x,y,z);cx+=x;cy+=y;cz+=z;n++;}}
+  if(n<30){alert('There are too few bottom points to estimate a reliable flat surface.');return;}
+  cx/=n;cy/=n;cz/=n;
+  const a=new Array(9).fill(0);
+  for(let k=0;k<sample.length;k+=3){const x=sample[k]-cx,y=sample[k+1]-cy,z=sample[k+2]-cz;a[0]+=x*x;a[1]+=x*y;a[2]+=x*z;a[4]+=y*y;a[5]+=y*z;a[8]+=z*z;}
+  a[3]=a[1];a[6]=a[2];a[7]=a[5];
+  // Jacobi eigensolver for the symmetric covariance matrix.
+  const m=a.slice(),v=[1,0,0,0,1,0,0,0,1];
+  for(let it=0;it<32;it++){let p=0,q=1;if(Math.abs(m[2])>Math.abs(m[1])){p=0;q=2;}if(Math.abs(m[5])>Math.abs(m[p*3+q])){p=1;q=2;}const pq=m[p*3+q];if(Math.abs(pq)<1e-12)break;const tau=(m[q*3+q]-m[p*3+p])/(2*pq),t=Math.sign(tau||1)/(Math.abs(tau)+Math.sqrt(1+tau*tau)),c=1/Math.sqrt(1+t*t),sn=t*c;
+    const app=m[p*3+p],aqq=m[q*3+q];m[p*3+p]=app-t*pq;m[q*3+q]=aqq+t*pq;m[p*3+q]=m[q*3+p]=0;
+    for(let k=0;k<3;k++)if(k!==p&&k!==q){const mkp=m[k*3+p],mkq=m[k*3+q];m[k*3+p]=m[p*3+k]=c*mkp-sn*mkq;m[k*3+q]=m[q*3+k]=sn*mkp+c*mkq;}
+    for(let k=0;k<3;k++){const vkp=v[k*3+p],vkq=v[k*3+q];v[k*3+p]=c*vkp-sn*vkq;v[k*3+q]=sn*vkp+c*vkq;}
+  }
+  let ei=0;if(m[4]<m[0])ei=1;if(m[8]<m[ei*3+ei])ei=2;
+  const normal=new THREE.Vector3(v[ei],v[3+ei],v[6+ei]).normalize();if(normal.y<0)normal.negate();
+  if(Math.abs(normal.y)>0.9995){showToast?.('Already level','The estimated support plane is already horizontal');return;}
+  const q=new THREE.Quaternion().setFromUnitVectors(normal,new THREE.Vector3(0,1,0));
+  const pivot=new THREE.Vector3(cx,cy,cz),p=new THREE.Vector3();
+  // One-level undo snapshot; source Gaussian arrays are transformed in place.
+  window._fumocaAutoLevelUndo={positions:S.positions.slice(),rotation:S.rotation?.slice?.()||null};
+  for(let i=0;i<count;i++)if(S.alive[i]){p.set(S.positions[i*3],S.positions[i*3+1],S.positions[i*3+2]).sub(pivot).applyQuaternion(q).add(pivot);S.positions[i*3]=p.x;S.positions[i*3+1]=p.y;S.positions[i*3+2]=p.z;
+    if(S.rotation){const old=new THREE.Quaternion(S.rotation[i*4+1],S.rotation[i*4+2],S.rotation[i*4+3],S.rotation[i*4]).premultiply(q).normalize();S.rotation[i*4]=old.w;S.rotation[i*4+1]=old.x;S.rotation[i*4+2]=old.y;S.rotation[i*4+3]=old.z;}}
+  window.rebuildGeometry?.();if(!window.rebuildGeometry&&S.points?.geometry){const attr=S.points.geometry.getAttribute('position');if(attr){for(let i=0;i<attr.count;i++){const src=S.points.geometry.getAttribute('sourceIndex')?.array[i]??i;attr.array.set(S.positions.subarray(src*3,src*3+3),i*3);}attr.needsUpdate=true;}}
+  const b=scanBounds();if(b){baseConfig.supportY=b.minY;const controls=window.controls||window._fumocaControls;if(controls?.target){controls.target.set((b.minX+b.maxX)/2,(b.minY+b.maxY)/2,(b.minZ+b.maxZ)/2);controls.update?.();}}
+  showToast?.('Scan levelled','The estimated bottom plane is now horizontal. Fit the platform to scan next.');
+  persist();
+}
+function undoAutoLevel(){const S=window.S,snap=window._fumocaAutoLevelUndo;if(!S||!snap){alert('No auto-level operation to undo.');return;}S.positions.set(snap.positions);if(snap.rotation&&S.rotation)S.rotation.set(snap.rotation);window._fumocaAutoLevelUndo=null;window.rebuildGeometry?.();persist();showToast?.('Level undone','Original scan orientation restored.');}
 function fitBaseToScan(){const bounds=scanBounds();if(!bounds){alert('Load a splat first. FUMOCA needs scan points to calculate the platform footprint.');return;}baseConfig={...baseConfig,...baseFormValues(),enabled:true};const base=ensurePresentationBase();const fitted=base.fitToBounds(bounds,{padding:0.04,gap:Math.max(0,Number(baseConfig.gap)||0)});baseConfig={...baseConfig,...base.getConfig(),supportY:bounds.minY};baseConfig.width=fitted.width;baseConfig.depth=fitted.depth;base.assembly.visible=true;syncBaseForm();persist();}
 async function loadBaseLogo(file){if(!file||!/^image\/(png|jpeg|webp)$/.test(file.type)){alert('Please choose a PNG, JPG or WebP logo.');return;}try{const bitmap=await createImageBitmap(file),scale=Math.min(1,768/Math.max(bitmap.width,bitmap.height)),canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(bitmap.width*scale));canvas.height=Math.max(1,Math.round(bitmap.height*scale));canvas.getContext('2d').drawImage(bitmap,0,0,canvas.width,canvas.height);bitmap.close?.();let dataUrl=canvas.toDataURL('image/png');if(dataUrl.length>480000){const small=document.createElement('canvas');small.width=Math.round(canvas.width*.65);small.height=Math.round(canvas.height*.65);small.getContext('2d').drawImage(canvas,0,0,small.width,small.height);dataUrl=small.toDataURL('image/png');}if(dataUrl.length>480000)throw new Error('Logo is too large. Please use a smaller transparent PNG.');baseConfig.logoUrl=dataUrl;baseConfig.enabled=true;applyBaseForm();}catch(error){alert(error.message||'Could not load that logo.');}}
 
@@ -202,7 +240,7 @@ function mountPanel() {
   panel.innerHTML = `
         <div class="ptp-section" id="ptpBaseManager">
       <div class="ptp-title">3D presentation platform</div><div class="ptp-hint">Adds a solid platform beneath the scan in the same 3D scene. It follows orbit and zoom without changing Gaussian points.</div>
-      <div class="ptp-row"><button type="button" data-base-act="fit" class="primary">Fit platform to scan</button><button type="button" data-base-act="toggle">Show / hide</button><button type="button" data-base-act="remove" class="ptp-danger">Remove</button></div>
+      <div class="ptp-row"><button type="button" data-base-act="level" class="primary">Auto-level scan</button><button type="button" data-base-act="undo-level">Undo level</button><button type="button" data-base-act="fit" class="primary">Fit platform to scan</button><button type="button" data-base-act="toggle">Show / hide</button><button type="button" data-base-act="remove" class="ptp-danger">Remove</button></div>
       <div class="ptp-base-grid">
         <label>Shape<select data-base-field="shape"><option value="circle">Circle</option><option value="square">Square</option><option value="rectangle">Rectangle</option><option value="custom">Custom outline</option></select></label>
         <label>Material<select data-base-field="material"><option value="wood">Wood</option><option value="black">Black</option><option value="white">White</option><option value="metal">Metal</option><option value="glass">Glass</option></select></label>
@@ -301,6 +339,8 @@ function mountPanel() {
   panel.addEventListener('click', (e) => {
     const baseAction=e.target.closest('[data-base-act]');
     if(baseAction){const action=baseAction.dataset.baseAct;try{
+      if(action==='level')autoLevelScan();
+      if(action==='undo-level')undoAutoLevel();
       if(action==='fit')fitBaseToScan();
       if(action==='draw-shape'){baseDrawing=true;baseDrawPoints=[];baseRoot.querySelector('[data-base-draw]').hidden=false;drawBaseOutline();}
       if(action==='clear-shape'){baseDrawPoints=[];drawBaseOutline();}
