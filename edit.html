@@ -1008,6 +1008,13 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
     <!-- TAB: TRANSFORM -->
     <div class="panel-body" id="tab-transform" style="display:none">
       <div class="hint" style="margin-bottom:8px">Drag Move, Scale, or Rotate in the viewport, or enter exact values below. Scene axes use Y as up.</div>
+      <div class="section" id="actualSplatLevelSection">
+        <div class="sec-head"><span class="sec-label">Actual splat · surface alignment</span><span class="sec-badge">3D DATA</span></div>
+        <div class="sec-body">
+          <button type="button" class="ac-btn lime full" id="transformLevelSplatBtn">⌁ Auto-level loaded splat</button>
+          <div class="hint">Rotates the actual Gaussian point positions and orientations to align the scan's principal up-axis. This is independent of the presentation platform. Undo restores the previous scan.</div>
+        </div>
+      </div>
           <div class="ctrl-row"><span class="ctrl-label">Quick scene orientation (Y is up)</span></div>
           <div class="btn-grid col2" style="margin-bottom:8px">
             <button class="ac-btn" id="orientXPosBtn">Tilt X +90°</button><button class="ac-btn" id="orientXNegBtn">Tilt X −90°</button>
