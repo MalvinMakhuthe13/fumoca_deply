@@ -6,6 +6,7 @@
 const SparkGaussianView = (() => {
   let _spark = null, _mesh = null, _overlay = null;
   let _enabled = false, _loading = false, _syncQueued = false;
+  let _gesturePreview = false;
   let _originalBytes = null, _lastStateSignature = '';
   let _lastFileName = 'export.ply';
 
@@ -36,7 +37,8 @@ const SparkGaussianView = (() => {
 
   function _hideLegacy() {
     const pts = _pointsObject();
-    if (pts) pts.visible = !_enabled;
+    if (pts) pts.visible = !_enabled || _gesturePreview;
+    if (_mesh) _mesh.visible = !_gesturePreview;
   }
 
   function _updateSelectionOverlay(state = window.S) {
@@ -214,6 +216,15 @@ const SparkGaussianView = (() => {
     }
   }
 
+  function beginEditorGesture() {
+    if (!_enabled) return false;
+    _gesturePreview = true; _hideLegacy(); return true;
+  }
+  function endEditorGesture(state = window.S) {
+    if (!_enabled) return false;
+    _gesturePreview = false; _hideLegacy(); refreshEditorState(state); return true;
+  }
+
   function refreshEditorState(state = window.S) {
     if (!_enabled || !state) return;
     _hideLegacy();
@@ -280,7 +291,7 @@ const SparkGaussianView = (() => {
     if (_spark) { try { _scene()?.remove(_spark); _spark.dispose?.(); } catch (_) {} _spark = null; }
   }
 
-  return { enable, disable, isEnabled, isAvailable, loadFromBytes, syncEditorState, refreshEditorState, exportEditedBytes, dispose };
+  return { enable, disable, isEnabled, isAvailable, loadFromBytes, syncEditorState, refreshEditorState, beginEditorGesture, endEditorGesture, exportEditedBytes, dispose };
 })();
 window.FumocaSparkGaussian = SparkGaussianView;
 export default SparkGaussianView;
