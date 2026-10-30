@@ -256,6 +256,7 @@ const SparkGaussianView = (() => {
     _syncQueued = true;
     requestAnimationFrame(() => {
       _syncQueued = false;
+      if (_gesturePreview || _pendingGestureState) return;
       syncEditorState(state);
     });
   }
