@@ -54,7 +54,7 @@ export function fitSelectedSupportPlane(positions, indices, options={}) {
   let normal=normalize([V[0][axis],V[1][axis],V[2][axis]]);
   if(!normal)return null;
   // Orient normal toward the selected region's positive mean offset only for stable output.
-  if(dot(normal,best.normal)<0)normal=normal.map(v=>-v);
+  if(options.orientationPoint){\n    const inward=sub(options.orientationPoint,center);\n    if(dot(normal,inward)>0)normal=normal.map(v=>-v);\n  }else if(dot(normal,best.normal)<0)normal=normal.map(v=>-v);
   const residuals=sample.map(p=>Math.abs(dot(normal,sub(p,center))));
   residuals.sort((a,b)=>a-b);
   return {normal,point:center,offset:-dot(normal,center),inlierCount:sample.length,
