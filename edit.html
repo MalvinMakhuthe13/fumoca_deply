@@ -3485,12 +3485,14 @@ function deleteSelected() {
   showToast('Deleted', `${fmt(del)} points removed`);
 }
 
-function selectSubjectAtScreen(x, y, radius = 28) {
+function selectSubjectAtScreen(x, y, radius = 48) {
   if (!S.positions || !S.alive?.length) return false;
   const vp = document.getElementById('viewport');
   const W = vp.clientWidth, H = vp.clientHeight;
   const ndc = new THREE.Vector3();
   let best = -1, bestDist = radius * radius, bestDepth = Infinity;
+  const projected = new Float32Array(S.alive.length * 3);
+  projected.fill(NaN);
   for (let i = 0; i < S.alive.length; i++) {
     if (!S.alive[i] || S.layerHidden?.[i]) continue;
     ndc.set(S.positions[i*3], S.positions[i*3+1], S.positions[i*3+2]).project(camera);
@@ -3498,34 +3500,45 @@ function selectSubjectAtScreen(x, y, radius = 28) {
     const sx = (ndc.x * 0.5 + 0.5) * W;
     const sy = (-ndc.y * 0.5 + 0.5) * H;
     const dx = sx - x, dy = sy - y, dist = dx*dx + dy*dy;
+    projected[i*3] = sx; projected[i*3+1] = sy; projected[i*3+2] = ndc.z;
     if (dist < bestDist || (dist === bestDist && ndc.z < bestDepth)) {
       best = i; bestDist = dist; bestDepth = ndc.z;
     }
   }
   if (best < 0) return false;
 
-  // Hit in a layer → that subject. Else whole live cloud (single PLY has no layers).
-  const layer = (S.layers || []).find(L => L.visible !== false && L.mask?.[best]);
   S.selected.fill(0);
+  const layer = (S.layers || []).find(L => L.visible !== false && L.mask?.[best]);
+  let hits = 0;
   if (layer) {
     S.activeLayerId = layer.id;
     for (let i = 0; i < S.selected.length; i++) {
-      if (S.alive[i] && layer.mask[i] && !S.layerHidden?.[i]) S.selected[i] = 1;
+      if (S.alive[i] && layer.mask[i] && !S.layerHidden?.[i]) { S.selected[i] = 1; hits++; }
     }
   } else {
+    // A merged single-file splat has no semantic object boundaries. Select a
+    // local, front-depth surface patch around the clicked Gaussian instead of
+    // silently selecting the entire scan (hat + display base + floaters).
     S.activeLayerId = null;
-    for (let i = 0; i < S.selected.length; i++) {
-      if (S.alive[i] && !S.layerHidden?.[i]) S.selected[i] = 1;
+    const depthTolerance = 0.035;
+    const screenRadius = Math.max(24, radius);
+    const r2 = screenRadius * screenRadius;
+    for (let i = 0; i < S.alive.length; i++) {
+      if (!S.alive[i] || S.layerHidden?.[i]) continue;
+      const sx = projected[i*3], sy = projected[i*3+1], depth = projected[i*3+2];
+      if (!Number.isFinite(sx) || Math.abs(depth - bestDepth) > depthTolerance) continue;
+      const dx = sx - x, dy = sy - y;
+      if (dx*dx + dy*dy <= r2) { S.selected[i] = 1; hits++; }
     }
   }
+  if (!hits) { S.selected.fill(0); return false; }
   renderLayers();
   rebuildGeometry();
   refreshTransformSourceMap();
   syncTransformGizmo();
-  setStatus(`Selected subject (${fmt(selectedPointCount())} points)`, 'ok');
+  setStatus(layer ? `Selected layer (${fmt(hits)} points)` : `Selected surface patch (${fmt(hits)} points). Use brush/lasso to extend the subject selection.`, 'ok');
   return true;
 }
-
 function selectByBox(x0, y0, x1, y1) {
   if (!S.positions) return;
   const vp = document.getElementById('viewport');
@@ -4489,17 +4502,11 @@ renderer.domElement.addEventListener('dblclick', e => {
   e.preventDefault();
   e.stopPropagation();
   const { x, y } = _vpCoords(e);
-  if (!selectSubjectAtScreen(x, y, 48)) {
-    S.selected.fill(0);
-    for (let i = 0; i < S.alive.length; i++) {
-      if (S.alive[i] && !S.layerHidden?.[i]) S.selected[i] = 1;
-    }
-    rebuildGeometry();
-    if (typeof refreshTransformSourceMap === 'function') refreshTransformSourceMap();
-    syncTransformGizmo();
-    setStatus(`Double-click: selected whole subject (${fmt(selectedPointCount())} points)`, 'ok');
+  if (!selectSubjectAtScreen(x, y, 72)) {
+    clearSelection();
+    showToast('No subject point at click','Click directly on a visible part of the model. No points were selected.','warn');
   } else {
-    setStatus(`Double-click: selected subject (${fmt(selectedPointCount())} points)`, 'ok');
+    setStatus(`Double-click: selected surface patch (${fmt(selectedPointCount())} points)`, 'ok');
   }
 });
 
@@ -4540,15 +4547,8 @@ renderer.domElement.addEventListener('pointerdown', e => {
   if (S.mode === 'magic') { window._smartSelectPending = true; _brushActive = false; S.dragging = false; return; }
   if (['move','scale-tool','rotate'].includes(S.mode)) {
     if (!selectedPointCount()) {
-      // Auto-select whole live cloud so Move is never a no-op
-      for (let i = 0; i < (S.alive?.length || 0); i++) {
-        if (S.alive[i] && !S.layerHidden?.[i]) S.selected[i] = 1;
-      }
-      if (!selectedPointCount()) {
-        showToast('Nothing to move', 'Load a splat first.', 'warn');
-        S.dragging = false; return;
-      }
-      setStatus(`Auto-selected ${selectedPointCount()} points for ${S.mode}`, 'ok');
+      showToast('Select points first', 'Use click, brush, box or lasso selection before transforming. The whole scene will never be selected automatically.', 'warn');
+      S.dragging = false; return;
     }
     pushHistory(`${S.mode} selection`);
   }
