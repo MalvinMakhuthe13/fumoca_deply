@@ -6,7 +6,7 @@ const state = {
   width: 460, height: 24, edge: 18, offsetY: 0,
   led: true, logoUrl: null, logoSize: 400, logoRotation: 0, logoOffset: -5,
   group: null, top: null, body: null, ring: null, logo: null,
-  texture: null, unit: 1, lastBounds: null, dirty: true, logoDataUrl: null, gestureStart: null, flattenBackup: null
+  texture: null, unit: 1, lastBounds: null, dirty: true, logoDataUrl: null, gestureStart: null, flattenBackup: null, suspendAutoFit: false
 };
 const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
 function boundsFromSplat(){
@@ -88,7 +88,7 @@ function flattenScanToPlatform(){
   if(live<1)throw new Error('There are no live Gaussian points to flatten.');
   state.flattenBackup={alive:S.alive.slice(),positions:S.positions.slice(),scale:S.scale?.slice()||null,scaleXYZ:S.scaleXYZ?.slice()||null,rotation:S.rotation?.slice()||null,opacity:S.opacity?.slice()||null};
   g.updateMatrixWorld(true);
-  const planeLocalY=state.height*state.unit;
+  const thick=Math.max(state.height*state.unit,.006);\n  const edge=clamp(state.edge*state.unit,0,Math.min(state.lastBounds?.size?.[0]||1,state.lastBounds?.size?.[2]||1)*.18);\n  const planeLocalY=thick+Math.min(edge*.42,thick*.22);
   const p=new THREE.Vector3(),normal=new THREE.Vector3(0,1,0).transformDirection(g.matrixWorld).normalize();
   let removed=0,kept=0;
   for(let i=0;i<S.alive.length;i++){
@@ -205,7 +205,7 @@ function renderUI(){
 function boot(){
   if(!window.THREE||!window.scene||!window.S){setTimeout(boot,100);return;}
   addStyles();restore();renderUI();build();
-  window.addEventListener('fumoca:rebuildGeometry',()=>{if(state.group)build();});
+  window.addEventListener('fumoca:rebuildGeometry',()=>{if(state.group&&!state.suspendAutoFit)build();});
   window.addEventListener('fumoca:fileLoaded',()=>{if(state.enabled)build();});
   window.addEventListener('fumoca:splat-loaded',()=>{if(state.enabled)build();});
   console.info('[FUMOCA Platform] ready');
