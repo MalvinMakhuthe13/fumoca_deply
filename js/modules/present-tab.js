@@ -306,7 +306,7 @@ function mountPanel() {
       if(action==='clear-shape'){baseDrawPoints=[];drawBaseOutline();}
       if(action==='finish-shape'){if(baseDrawPoints.length<3)throw new Error('Draw at least three corners for a custom platform.');baseConfig.customPoints=baseDrawPoints.map(p=>({...p}));baseConfig.shape='custom';baseDrawing=false;syncBaseForm();applyBaseForm();baseRoot.querySelector('[data-base-draw]').hidden=true;}
       if(action==='apply')applyBaseForm();
-      if(action==='toggle'){baseConfig={...baseConfig,...baseFormValues(),enabled:!baseConfig.enabled};const base=ensurePresentationBase();base.assembly.visible=baseConfig.enabled;persist();syncBaseForm();}
+      if(action==='toggle'){baseConfig={...baseConfig,...baseFormValues(),enabled:!baseConfig.enabled};applyBaseForm();}
       if(action==='remove'){presentationBase?.dispose();presentationBase=null;presentationBaseScene=null;baseConfig={...BASE_DEFAULTS};syncBaseForm();persist();}
       if(action==='logo')baseRoot.querySelector('[data-base-file]')?.click();
       if(action==='clear-logo'){baseConfig.logoUrl=null;if(presentationBase)presentationBase.setLogo(null);persist();}
