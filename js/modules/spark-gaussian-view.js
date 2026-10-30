@@ -62,7 +62,7 @@ const SparkGaussianView = (() => {
       geometry.setAttribute('position', new THREE.Float32BufferAttribute([], 3));
       geometry.setAttribute('color', new THREE.Float32BufferAttribute([], 3));
       const material = new THREE.PointsMaterial({
-        size: 2.5, sizeAttenuation: true, vertexColors: true,
+        size: 0.02, sizeAttenuation: true, vertexColors: true,
         transparent: true, opacity: 0.92, depthTest: true, depthWrite: false,
         blending: THREE.AdditiveBlending
       });
