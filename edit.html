@@ -3491,52 +3491,63 @@ function selectSubjectAtScreen(x, y, radius = 48) {
   const W = vp.clientWidth, H = vp.clientHeight;
   const ndc = new THREE.Vector3();
   let best = -1, bestDist = radius * radius, bestDepth = Infinity;
-  const projected = new Float32Array(S.alive.length * 3);
-  projected.fill(NaN);
-  for (let i = 0; i < S.alive.length; i++) {
-    if (!S.alive[i] || S.layerHidden?.[i]) continue;
-    ndc.set(S.positions[i*3], S.positions[i*3+1], S.positions[i*3+2]).project(camera);
-    if (ndc.z < -1 || ndc.z > 1) continue;
-    const sx = (ndc.x * 0.5 + 0.5) * W;
-    const sy = (-ndc.y * 0.5 + 0.5) * H;
-    const dx = sx - x, dy = sy - y, dist = dx*dx + dy*dy;
-    projected[i*3] = sx; projected[i*3+1] = sy; projected[i*3+2] = ndc.z;
-    if (dist < bestDist || (dist === bestDist && ndc.z < bestDepth)) {
-      best = i; bestDist = dist; bestDepth = ndc.z;
-    }
+  const visible = [];
+  const min=[Infinity,Infinity,Infinity],max=[-Infinity,-Infinity,-Infinity];
+  for(let i=0;i<S.alive.length;i++){
+    if(!S.alive[i]||S.layerHidden?.[i])continue;
+    const xw=S.positions[i*3],yw=S.positions[i*3+1],zw=S.positions[i*3+2];
+    if(!Number.isFinite(xw)||!Number.isFinite(yw)||!Number.isFinite(zw))continue;
+    min[0]=Math.min(min[0],xw);min[1]=Math.min(min[1],yw);min[2]=Math.min(min[2],zw);
+    max[0]=Math.max(max[0],xw);max[1]=Math.max(max[1],yw);max[2]=Math.max(max[2],zw);
+    ndc.set(xw,yw,zw).project(camera);
+    if(ndc.z < -1 || ndc.z > 1)continue;
+    const sx=(ndc.x*.5+.5)*W,sy=(-ndc.y*.5+.5)*H,dx=sx-x,dy=sy-y,dist=dx*dx+dy*dy;
+    visible.push(i);
+    if(dist<bestDist||(dist===bestDist&&ndc.z<bestDepth)){best=i;bestDist=dist;bestDepth=ndc.z;}
   }
-  if (best < 0) return false;
-
+  if(best<0)return false;
+  const layer=(S.layers||[]).find(L=>L.visible!==false&&L.mask?.[best]);
   S.selected.fill(0);
-  const layer = (S.layers || []).find(L => L.visible !== false && L.mask?.[best]);
-  let hits = 0;
-  if (layer) {
-    S.activeLayerId = layer.id;
-    for (let i = 0; i < S.selected.length; i++) {
-      if (S.alive[i] && layer.mask[i] && !S.layerHidden?.[i]) { S.selected[i] = 1; hits++; }
+  let hits=0;
+  if(layer){
+    S.activeLayerId=layer.id;
+    for(let i=0;i<S.selected.length;i++)if(S.alive[i]&&layer.mask[i]&&!S.layerHidden?.[i]){S.selected[i]=1;hits++;}
+  }else{
+    // Grow a connected 3D region from the clicked Gaussian. A spatial hash
+    // limits neighbour checks; local colour continuity keeps separate objects
+    // (e.g. hat vs. brown display base) from merging into one selection.
+    S.activeLayerId=null;
+    const diagonal=Math.hypot(max[0]-min[0],max[1]-min[1],max[2]-min[2]);
+    const cellSize=Math.max(diagonal*0.0025,1e-6);
+    const neighbourR=cellSize*1.9,neighbourR2=neighbourR*neighbourR;
+    const key=(a,b,c)=>a+','+b+','+c,cells=new Map(),coords=new Map();
+    for(const i of visible){
+      const c=[Math.floor(S.positions[i*3]/cellSize),Math.floor(S.positions[i*3+1]/cellSize),Math.floor(S.positions[i*3+2]/cellSize)];
+      coords.set(i,c);const k=key(...c);if(!cells.has(k))cells.set(k,[]);cells.get(k).push(i);
     }
-  } else {
-    // A merged single-file splat has no semantic object boundaries. Select a
-    // local, front-depth surface patch around the clicked Gaussian instead of
-    // silently selecting the entire scan (hat + display base + floaters).
-    S.activeLayerId = null;
-    const depthTolerance = 0.035;
-    const screenRadius = Math.max(24, radius);
-    const r2 = screenRadius * screenRadius;
-    for (let i = 0; i < S.alive.length; i++) {
-      if (!S.alive[i] || S.layerHidden?.[i]) continue;
-      const sx = projected[i*3], sy = projected[i*3+1], depth = projected[i*3+2];
-      if (!Number.isFinite(sx) || Math.abs(depth - bestDepth) > depthTolerance) continue;
-      const dx = sx - x, dy = sy - y;
-      if (dx*dx + dy*dy <= r2) { S.selected[i] = 1; hits++; }
+    const queue=[best],visited=new Uint8Array(S.alive.length);visited[best]=1;
+    const colourLimit=0.24,maxRegion=60000;
+    for(let head=0;head<queue.length&&queue.length<maxRegion;head++){
+      const i=queue[head],ix=S.positions[i*3],iy=S.positions[i*3+1],iz=S.positions[i*3+2],ci=coords.get(i);
+      S.selected[i]=1;hits++;
+      for(let a=-1;a<=1;a++)for(let b=-1;b<=1;b++)for(let c=-1;c<=1;c++){
+        const bucket=cells.get(key(ci[0]+a,ci[1]+b,ci[2]+c));if(!bucket)continue;
+        for(const j of bucket){
+          if(visited[j])continue;
+          const dx=S.positions[j*3]-ix,dy=S.positions[j*3+1]-iy,dz=S.positions[j*3+2]-iz;
+          if(dx*dx+dy*dy+dz*dz>neighbourR2)continue;
+          const dr=(S.colors?.[i*3]??.5)-(S.colors?.[j*3]??.5);
+          const dg=(S.colors?.[i*3+1]??.5)-(S.colors?.[j*3+1]??.5);
+          const db=(S.colors?.[i*3+2]??.5)-(S.colors?.[j*3+2]??.5);
+          if(Math.hypot(dr,dg,db)>colourLimit)continue;
+          visited[j]=1;queue.push(j);
+        }
+      }
     }
   }
-  if (!hits) { S.selected.fill(0); return false; }
-  renderLayers();
-  rebuildGeometry();
-  refreshTransformSourceMap();
-  syncTransformGizmo();
-  setStatus(layer ? `Selected layer (${fmt(hits)} points)` : `Selected surface patch (${fmt(hits)} points). Use brush/lasso to extend the subject selection.`, 'ok');
+  if(!hits){S.selected.fill(0);return false;}
+  renderLayers();rebuildGeometry();refreshTransformSourceMap();syncTransformGizmo();
+  setStatus(layer?`Selected layer (${fmt(hits)} points)`:`Selected connected region (${fmt(hits)} points). Extend with brush/lasso if needed.`,'ok');
   return true;
 }
 function selectByBox(x0, y0, x1, y1) {
