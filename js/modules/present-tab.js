@@ -146,13 +146,21 @@ function renderImageManager() {
     row.append(anchor,remove);
     const controls=document.createElement('div'); controls.className='ptp-image-fields';
     const widthLabel=document.createElement('label'); widthLabel.textContent='Width';
-    const width=document.createElement('input'); width.type='range'; width.min='1'; width.max='100'; width.step='1'; width.value=String(item.width||18); width.dataset.imageWidth=item.id;
+    const width=document.createElement('input'); width.type='range'; width.min='1'; width.max='200'; width.step='1'; width.value=String(item.width||18); width.dataset.imageWidth=item.id;
     widthLabel.appendChild(width);
+    const customSize=document.createElement('input'); customSize.type='number'; customSize.min='1'; customSize.max='200'; customSize.step='0.5'; customSize.value=String(item.width||18); customSize.dataset.imageWidth=item.id; customSize.setAttribute('aria-label','Custom decal width');
+    const sizeRow=document.createElement('div'); sizeRow.className='ptp-row'; sizeRow.append(width,customSize);
+    const orientationLabel=document.createElement('label'); orientationLabel.textContent='Surface orientation';
+    const orientation=document.createElement('select'); orientation.dataset.imageOrientation=item.id;
+    [['surface','Follow scanned surface'],['bottom','Flat · bottom'],['top','Flat · top'],['front','Flat · front']].forEach(([v,label])=>{const o=document.createElement('option');o.value=v;o.textContent=label;o.selected=(item.orientation||'surface')===v;orientation.appendChild(o);});
+    orientationLabel.appendChild(orientation);
+    const rotationLabel=document.createElement('label'); rotationLabel.textContent='Rotate on surface · '+(Number(item.rotation)||0)+'°';
+    const rotation=document.createElement('input'); rotation.type='range'; rotation.min='-180'; rotation.max='180'; rotation.step='1'; rotation.value=String(Number(item.rotation)||0); rotation.dataset.imageRotation=item.id; rotationLabel.appendChild(rotation);
     const opacityLabel=document.createElement('label'); opacityLabel.textContent='Opacity';
     const opacity=document.createElement('input'); opacity.type='range'; opacity.min='10'; opacity.max='100'; opacity.step='1'; opacity.value=String(Math.round((item.opacity??1)*100)); opacity.dataset.imageOpacity=item.id;
     opacityLabel.appendChild(opacity);
     const mode=document.createElement('div'); mode.className='ptp-image-mode'; mode.textContent=item.mode==='world'?'3D surface decal · attached to the scan':'Screen graphic · fixed to composition';
-    controls.append(widthLabel,opacityLabel,mode);
+    widthLabel.appendChild(sizeRow); controls.append(widthLabel,orientationLabel,rotationLabel,opacityLabel,mode);
     card.append(title,row,controls); root.appendChild(card);
   });
 }
@@ -305,6 +313,10 @@ function mountPanel() {
   panel.addEventListener('input', e => {
     const width=e.target.closest('[data-image-width]');
     if(width){updateImage(width.dataset.imageWidth,{width:Number(width.value)});persist();return;}
+    const orientation=e.target.closest('[data-image-orientation]');
+    if(orientation){updateImage(orientation.dataset.imageOrientation,{orientation:orientation.value});persist();return;}
+    const rotation=e.target.closest('[data-image-rotation]');
+    if(rotation){const label=rotation.closest('label');if(label)label.firstChild.textContent='Rotate on surface · '+rotation.value+'°';updateImage(rotation.dataset.imageRotation,{rotation:Number(rotation.value)});persist();return;}
     const opacity=e.target.closest('[data-image-opacity]');
     if(opacity){updateImage(opacity.dataset.imageOpacity,{opacity:Number(opacity.value)/100});persist();}
   });
