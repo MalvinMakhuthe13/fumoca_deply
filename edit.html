@@ -3598,7 +3598,17 @@ function selectSubjectAtScreen(x, y, radius = 48, additive = false) {
     for(let i=0;i<S.selected.length;i++)if(S.alive[i]&&layer.mask[i]&&!S.layerHidden?.[i]){S.selected[i]=1;hits++;}
   }else{
     S.activeLayerId=null;
-    const min=[Infinity,Infinity,Infinity],max=[-Infinity,-Infinity,-Infinity],visible=[];
+    if(!additive){
+      // A normal click in Navigate mode selects the complete loaded splat,
+      // not a tiny depth-bounded patch around one rendered Gaussian. The
+      // Gaussian ellipsoid overlay is diagnostic only and never participates
+      // in selection or transforms.
+      for(let i=0;i<S.alive.length;i++){
+        if(S.alive[i]&&!S.layerHidden?.[i]){S.selected[i]=1;hits++;}
+      }
+    }else{
+      // Shift-click remains available for adding a local surface patch.
+      const min=[Infinity,Infinity,Infinity],max=[-Infinity,-Infinity,-Infinity],visible=[];
     const viewDepth=new Float32Array(S.alive.length);viewDepth.fill(NaN);
     const v=new THREE.Vector3();
     for(let i=0;i<S.alive.length;i++){
@@ -3644,6 +3654,7 @@ function selectSubjectAtScreen(x, y, radius = 48, additive = false) {
           if(Math.hypot(dr,dg,db)>colourLimit)continue;
           visited[j]=1;queue.push(j);
         }
+      }
       }
     }
   }
@@ -4677,7 +4688,7 @@ renderer.domElement.addEventListener('dblclick', e => {
     clearSelection();
     showToast('No subject point at click','Click directly on a visible part of the model. No points were selected.','warn');
   } else {
-    setStatus(`Double-click: selected surface patch (${fmt(selectedPointCount())} points)`, 'ok');
+    setStatus(`Double-click: selected complete splat (${fmt(selectedPointCount())} points)`, 'ok');
   }
 });
 
