@@ -170,7 +170,7 @@ export function setEditable(v){editing=!!v;rebuild();}
 export function readImageFile(file){
   return new Promise((resolve,reject)=>{
     if(!file||!/^image\/(png|jpeg|webp|svg\+xml)$/.test(file.type)) return reject(new Error('Use PNG, JPG, WebP or SVG.'));
-    if(file.size>MAX_IMAGE_BYTES) return reject(new Error('Image must be 1 MB or smaller for a portable Studio composition.'));
+    if(file.size>MAX_IMAGE_BYTES) return reject(new Error('Image must be 300 KB or smaller for a portable Studio composition.'));
     const reader=new FileReader();
     reader.onload=()=>resolve(String(reader.result));
     reader.onerror=()=>reject(new Error('Could not read that image.'));
