@@ -10,6 +10,7 @@ import {
   initPresentNav, setNavStops, addNavStop, removeNavStop, clearNavStops, flyToStop,
   stopsFromHotspots, exportStops, importStops,
 } from './present-nav.js';
+import { initMagazineImages, addImage, removeImage, updateImage, armWorldPlacement, cancelPlacement, exportAll as exportImages, importAll as importImages, readImageFile } from './present-image-layer.js';
 
 const STORAGE_KEY = 'fumoca_present_v1';
 
@@ -43,6 +44,7 @@ function saveLocal(data) {
 function payload() {
   return {
     magazine: exportMagazine(),
+    images: exportImages(),
     nav: exportStops(),
     reviewLayout: window.FumocaReviewVideo?.getLayout?.() || null,
     reviewUrl: (window.FumocaReviewVideo?.getSrc?.() && !String(window.FumocaReviewVideo.getSrc()).startsWith('blob:'))
@@ -78,6 +80,7 @@ function copyViewerLink() {
   try {
     json = btoa(unescape(encodeURIComponent(JSON.stringify({
       magazine: data.magazine,
+      images: data.images || [],
       nav: data.nav,
       reviewUrl: data.reviewUrl,
       reviewLayout: data.reviewLayout || 'stack',
@@ -125,6 +128,25 @@ function renderNavManager() {
     const label = document.createElement('span'); label.textContent = (index + 1) + '. ' + (stop.label || 'View'); label.title = stop.id;
     const remove = document.createElement('button'); remove.type = 'button'; remove.dataset.removeNav = stop.id; remove.textContent = 'Remove';
     row.append(label, remove); root.appendChild(row);
+  });
+}
+
+function renderImageManager() {
+  const root = document.getElementById('ptpImageManager');
+  if (!root) return;
+  root.replaceChildren();
+  const items = exportImages();
+  if (!items.length) { const hint=document.createElement('div'); hint.className='ptp-hint'; hint.textContent='No image layers yet.'; root.appendChild(hint); return; }
+  items.forEach((item,index) => {
+    const card=document.createElement('div'); card.className='ptp-text-item';
+    const title=document.createElement('div'); title.className='ptp-text-heading'; title.textContent=(index+1)+'. '+(item.name||'Image layer');
+    const row=document.createElement('div'); row.className='ptp-row';
+    const anchor=document.createElement('button'); anchor.type='button'; anchor.dataset.anchorImage=item.id; anchor.textContent=item.mode==='world'?'Re-anchor to splat':'Anchor to splat';
+    const remove=document.createElement('button'); remove.type='button'; remove.dataset.removeImage=item.id; remove.className='ptp-danger'; remove.textContent='Remove';
+    row.append(anchor,remove);
+    const size=document.createElement('label'); size.className='ptp-hint'; size.textContent='Width ';
+    const range=document.createElement('input'); range.type='range'; range.min='5'; range.max='60'; range.value=String(item.width||18); range.dataset.imageWidth=item.id;
+    size.appendChild(range); card.append(title,row,size); root.appendChild(card);
   });
 }
 
@@ -198,6 +220,13 @@ function mountPanel() {
       <div class="ptp-hint">Add custom text, then drag it in the viewport to position it. Select text below to change its wording, font, size, color and alignment.</div>
     </div>
     <div class="ptp-section">
+      <div class="ptp-title">Image & logo layers</div>
+      <div class="ptp-row"><button type="button" data-act="add-image" class="primary">＋ Add logo / image</button><button type="button" data-act="cancel-image">Cancel placement</button></div>
+      <input id="ptpImageFile" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" style="display:none"/>
+      <div class="ptp-hint">Upload a transparent PNG or other image. Drag it into position, or select “Anchor to splat” and click a visible Gaussian point so it follows that 3D location as you orbit.</div>
+      <div id="ptpImageManager"></div>
+    </div>
+    <div class="ptp-section">
       <div class="ptp-title">Text styling · edit each item</div>
       <div id="ptpTextManager" class="ptp-text-manager"></div>
     </div>
@@ -238,6 +267,13 @@ function mountPanel() {
   host.appendChild(panel);
   syncPresentActive();
 
+  const imageInput = panel.querySelector('#ptpImageFile');
+  imageInput?.addEventListener('change', async () => {
+    const file=imageInput.files?.[0]; if(!file)return;
+    try { const src=await readImageFile(file); addImage(src,{name:file.name.replace(/\.[^.]+$/,'')}); renderImageManager(); persist(); }
+    catch(err){ alert(err.message || 'Image upload failed.'); }
+    imageInput.value='';
+  });
   const applyTextField = (e) => {
     const field = e.target.closest?.('[data-text-id][data-text-field]');
     if (!field || !panel.contains(field)) return;
@@ -259,7 +295,16 @@ function mountPanel() {
   panel.addEventListener('input', applyTextField);
   panel.addEventListener('change', applyTextField);
 
+  panel.addEventListener('input', e => {
+    const range=e.target.closest('[data-image-width]');
+    if(range){updateImage(range.dataset.imageWidth,{width:Number(range.value)});persist();}
+  });
   panel.addEventListener('click', (e) => {
+    const anchor=e.target.closest('button[data-anchor-image]');
+    if(anchor){armWorldPlacement(anchor.dataset.anchorImage);alert('Click a visible point on the splat to anchor this image.');return;}
+    const removeImageBtn=e.target.closest('button[data-remove-image]');
+    if(removeImageBtn){removeImage(removeImageBtn.dataset.removeImage);renderImageManager();persist();return;}
+
     const removeTextBtn = e.target.closest('button[data-remove-text]');
     if (removeTextBtn) { removeText(removeTextBtn.dataset.removeText); renderTextManager(); persist(); return; }
     const removeNavBtn = e.target.closest('button[data-remove-nav]');
@@ -283,6 +328,8 @@ function mountPanel() {
     const btn = e.target.closest('button[data-act]');
     if (!btn) return;
     const act = btn.dataset.act;
+    if (act === 'add-image') { imageInput?.click(); return; }
+    if (act === 'cancel-image') { cancelPlacement(); return; }
     if (act === 'weekly') applyPreset('weekly');
     if (act === '48hours') applyPreset('48hours');
     if (act === 'product') applyPreset('product');
@@ -349,6 +396,7 @@ export function initPresentTab() {
   }
 
   initMagazineText({ editable: true, onChange: () => persist() });
+  initMagazineImages({ editable: true, onChange: () => persist() });
   initPresentNav({
     onArrive: (s) => window.dispatchEvent(new CustomEvent('fumoca:navArrive', { detail: s })),
     onChange: () => { renderNavManager(); persist(); },
@@ -357,9 +405,10 @@ export function initPresentTab() {
 
   const saved = loadLocal();
   if (saved?.magazine?.length) importMagazine(saved.magazine);
+  if (saved?.images?.length) importImages(saved.images);
   if (saved?.nav?.length) importStops(saved.nav);
 
-  const tryMount = () => { mountPanel(); renderNavManager(); renderTextManager(); };
+  const tryMount = () => { mountPanel(); renderNavManager(); renderTextManager(); renderImageManager(); };
   tryMount();
   [500, 1200, 2500].forEach((t) => setTimeout(tryMount, t));
 
@@ -386,6 +435,7 @@ export function initPresentTab() {
     applyPreset,
     clearText,
     exportMagazine,
+    exportImages,
     exportStops,
     addText,
     removeNavStop,
