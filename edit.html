@@ -1169,6 +1169,13 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
 
     <!-- TAB: PRESENT (camera paths + break the frame) -->
     <div class="panel-body" id="tab-present" style="display:none">
+      <div class="section" id="presentActualSplatLevel" style="margin-bottom:10px;border-color:rgba(200,255,0,.35)">
+        <div class="sec-head"><span class="sec-label">Actual splat · alignment</span><span class="sec-badge">3D DATA</span></div>
+        <div class="sec-body">
+          <button type="button" class="ac-btn lime full" id="presentLevelLoadedSplatBtn">⌁ Level loaded splat to flat surface</button>
+          <div class="hint">Straightens the loaded Gaussian scan itself. This is separate from the presentation platform. You can still rotate, move and scale the scan in Transform.</div>
+        </div>
+      </div>
       <div class="section" style="margin-bottom:10px;border-color:rgba(212,255,0,.28)">
         <div class="sec-head"><span class="sec-label">Media Studio</span><span class="sec-badge">IMAGE · VIDEO</span></div>
         <div class="hint" style="padding:8px 10px">Create the “subject leaving the screen” image, iPhone-style depth text, or a short escape-loop video here. Adjust the effect in <b>Break the frame</b> below.</div>
