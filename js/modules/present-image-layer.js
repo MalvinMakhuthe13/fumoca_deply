@@ -5,7 +5,7 @@
  */
 import * as THREE from 'three';
 
-let root = null, items = [], editing = false, placingId = null, onChange = null, raf = 0;
+let root = null, items = [], editing = false, placingId = null, draggingPlacement = false, onChange = null, raf = 0;
 const MAX_IMAGE_BYTES = 300 * 1024;
 const MAX_ANCHOR_HIT_PX = 72;
 const uid = () => 'mi_' + Math.random().toString(36).slice(2, 10);
@@ -189,6 +189,33 @@ function syncDecals() {
     } else if(item.decal) disposeDecal(item);
   }
 }
+function applyAnchorToDecal(item,anchor) {
+  Object.assign(item,anchor);
+  if(item.orientation==='bottom'){item.nx=0;item.ny=-1;item.nz=0;}
+  else if(item.orientation==='top'){item.nx=0;item.ny=1;item.nz=0;}
+  else if(item.orientation==='front'){item.nx=0;item.ny=0;item.nz=1;}
+  if(item.decal){
+    const n=orientationNormal(item.orientation,item);
+    item.decal.position.set(item.wx,item.wy,item.wz).addScaledVector(n,Math.max(sceneRadius()*.00035,.00003));
+    item.decal.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),n);
+    item.decal.rotateZ(THREE.MathUtils.degToRad(Number(item.rotation)||0));
+  }
+}
+function movePlacement(e) {
+  if(!draggingPlacement||!placingId)return;
+  const item=items.find(x=>x.id===placingId); if(!item)return;
+  const anchor=nearestGaussian(e); if(!anchor)return;
+  applyAnchorToDecal(item,anchor);
+}
+function finishPlacement() {
+  if(!draggingPlacement)return;
+  draggingPlacement=false;
+  window.removeEventListener('pointermove',movePlacement);
+  window.removeEventListener('pointerup',finishPlacement);
+  const item=items.find(x=>x.id===placingId);
+  placingId=null;host().classList.remove('mi-placing');
+  if(item){notify();window.showToast?.('Decal positioned','Drag placement saved. Use the orientation and rotation controls to fine-tune it.','success');}
+}
 function onPlace(e) {
   if(!placingId||!host().contains(e.target)) return;
   const item=items.find(x=>x.id===placingId);
@@ -201,12 +228,14 @@ function onPlace(e) {
     window.showToast?.('Surface not found',message,'warn');
     e.preventDefault();e.stopPropagation();return;
   }
-  Object.assign(item,anchor,{mode:'world'});
-  if(item.orientation==='bottom'){item.nx=0;item.ny=-1;item.nz=0;} else if(item.orientation==='top'){item.nx=0;item.ny=1;item.nz=0;} else if(item.orientation==='front'){item.nx=0;item.ny=0;item.nz=1;}
+  Object.assign(item,{mode:'world'});
+  applyAnchorToDecal(item,anchor);
   item.worldWidth=decalWidthFor(item);
-  placingId=null;host().classList.remove('mi-placing');
-  rebuild();notify();
-  window.showToast?.('3D decal attached','The image is now a scene object, not a screen overlay.','success');
+  createDecal(item);
+  draggingPlacement=true;
+  window.addEventListener('pointermove',movePlacement);
+  window.addEventListener('pointerup',finishPlacement);
+  window.showToast?.('Drag to position','Move your pointer over the scanned surface, then release to place the decal.','info');
   e.preventDefault();e.stopPropagation();
 }
 function rebuild() {
@@ -237,7 +266,7 @@ export function removeImage(id){const item=items.find(x=>x.id===id);if(item)disp
 export function updateImage(id,patch){const item=items.find(x=>x.id===id);if(!item)return null;const oldRotation=Number(item.rotation)||0;Object.assign(item,patch);if(patch.width!==undefined){const base=Number(item._baseWidthSetting)||18;item.worldWidth=decalWidthFor(item);if(item.decal)item.decal.scale.setScalar(Math.max(.005,Number(item.width)/base));}if(patch.rotation!==undefined&&item.decal)item.decal.rotateZ(THREE.MathUtils.degToRad((Number(item.rotation)||0)-oldRotation));if(patch.opacity!==undefined&&item.decal)item.decal.material.opacity=item.opacity;if(patch.orientation!==undefined&&item.decal){const n=orientationNormal(item.orientation,item);item.nx=n.x;item.ny=n.y;item.nz=n.z;item.decal.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),n);item.decal.rotateZ(THREE.MathUtils.degToRad(Number(item.rotation)||0));}notify();return item;}
 function orientationNormal(mode,item){if(mode==='bottom')return new THREE.Vector3(0,-1,0);if(mode==='top')return new THREE.Vector3(0,1,0);if(mode==='front')return new THREE.Vector3(0,0,1);const n=new THREE.Vector3(item.nx??0,item.ny??0,item.nz??1);return n.lengthSq()<.5?new THREE.Vector3(0,0,1):n.normalize();}
 export function armWorldPlacement(id){if(!items.some(x=>x.id===id))return false;placingId=id;host().classList.add('mi-placing');window.showToast?.('Place 3D decal','Click a visible, reasonably flat area of the scanned subject.','info');return true;}
-export function cancelPlacement(){placingId=null;host().classList.remove('mi-placing');}
+export function cancelPlacement(){draggingPlacement=false;window.removeEventListener('pointermove',movePlacement);window.removeEventListener('pointerup',finishPlacement);placingId=null;host().classList.remove('mi-placing');}
 export function exportAll(){return items.map(({decal,_baseWidthSetting,...x})=>({...x}));}
 export function importAll(list=[]){for(const item of items)disposeDecal(item);items=(Array.isArray(list)?list:[]).filter(x=>typeof x.src==='string'&&x.src.startsWith('data:image/')).map(x=>({...x,id:x.id||uid()}));rebuild();}
 export function setEditable(v){editing=!!v;rebuild();}
