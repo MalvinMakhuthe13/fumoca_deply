@@ -34,9 +34,43 @@ const SparkGaussianView = (() => {
     return _spark;
   }
 
+  const _legacyMaterialState = new WeakMap();
   function _hideLegacy() {
     const pts = _pointsObject();
-    if (pts) pts.visible = !_enabled;
+    if (!pts) return;
+    // Keep the source point cloud in the scene graph: editor raycasters,
+    // measurement tools and picking still need a live THREE.Points target.
+    // Hide only its pixels while Spark is active, not the object itself.
+    pts.visible = true;
+    const materials = Array.isArray(pts.material) ? pts.material : [pts.material];
+    for (const material of materials) {
+      if (!material) continue;
+      if (_enabled) {
+        if (!_legacyMaterialState.has(material)) {
+          _legacyMaterialState.set(material, {
+            colorWrite: material.colorWrite,
+            depthWrite: material.depthWrite,
+            transparent: material.transparent,
+            opacity: material.opacity
+          });
+        }
+        material.colorWrite = false;
+        material.depthWrite = false;
+        material.transparent = true;
+        material.opacity = 0;
+        material.needsUpdate = true;
+      } else {
+        const saved = _legacyMaterialState.get(material);
+        if (saved) {
+          material.colorWrite = saved.colorWrite;
+          material.depthWrite = saved.depthWrite;
+          material.transparent = saved.transparent;
+          material.opacity = saved.opacity;
+          material.needsUpdate = true;
+          _legacyMaterialState.delete(material);
+        }
+      }
+    }
   }
 
   function _updateSelectionOverlay(state = window.S) {
