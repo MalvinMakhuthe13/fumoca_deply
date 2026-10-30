@@ -207,6 +207,13 @@ body.fnav-has-nav #app{margin-left:0}
   </aside>
 </div>
 
+<script>
+window.addEventListener('error', (e) => {
+  const s = document.getElementById('status');
+  if (s) s.textContent = 'Error: ' + (e.message || 'module failed') + ' — hard refresh';
+  console.error(e);
+});
+</script>
 <script type="module" src="js/modules/presentation-platform.js"></script>
 </body>
 </html>
