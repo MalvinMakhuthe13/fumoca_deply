@@ -47,11 +47,10 @@ const SparkGaussianView = (() => {
     // Editor S.positions are already in scene/world coordinates. Keep the
     // overlay in the scene root; parenting it to SplatMesh applies Spark's
     // internal transforms a second time and visibly detaches the highlight.
-    let liveCount = 0, selectedCount = 0;
-    for (let i=0;i<state.alive.length;i++) if(state.alive[i]&&!state.layerHidden?.[i]) { liveCount++; if(state.selected[i]) selectedCount++; }
     const positions = [], colors = [];
-    // Whole-scene selection should not paint a detached-looking yellow cloud over the scan.
-    if (selectedCount === liveCount) { if (_overlay) _overlay.visible = false; return; }
+    // Keep whole-scene and partial selections visible. Coordinates are copied
+    // directly from the editor's source arrays into the scene root, so the
+    // selection follows the same camera/world frame as the rendered splat.
     for (let i = 0; i < state.alive.length; i++) {
       if (!state.alive[i] || !state.selected[i] || state.layerHidden?.[i]) continue;
       positions.push(state.positions[i*3], state.positions[i*3+1], state.positions[i*3+2]);
