@@ -145,6 +145,14 @@ jobs:
         run: |
           node --input-type=module --check < js/modules/auto-level.js
           node --experimental-default-type=module tests/auto-level.test.mjs
+      - name: Guard safe support-plane workflow UI
+        run: |
+          grep -q "fpAnalyseSupport" js/modules/presentation-platform.js
+          grep -q "fpSupportReport" js/modules/presentation-platform.js
+          ! grep -q "fpFlatten" js/modules/presentation-platform.js
+          ! grep -q "fpRestore" js/modules/presentation-platform.js
+          ! grep -q "flattenScanToPlatform" js/modules/presentation-platform.js
+          grep -q "support-preview3" edit.html
       - name: Test non-destructive support-plane analysis
         run: |
           node --input-type=module --check < js/modules/support-plane.js
