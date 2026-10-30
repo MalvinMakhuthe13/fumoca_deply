@@ -29,7 +29,13 @@ function resolvePresent(){
   const q = new URLSearchParams(location.search);
   if (q.get('present')) {
     const d = b64Json(q.get('present'));
-    if (d) return d;
+    if (d) {
+      const saved = window._fumocaCurrentRecord?.meta?.present || window._fumocaCurrentRecord?.metadata?.present;
+      if (d.platformBase && !d.platformBase.logoUrl && saved?.platformBase?.logoUrl) {
+        d.platformBase.logoUrl = saved.platformBase.logoUrl;
+      }
+      return d;
+    }
   }
   if (window.__FUMOCA_PRESENT__) return window.__FUMOCA_PRESENT__;
   const rec = window._fumocaCurrentRecord;
