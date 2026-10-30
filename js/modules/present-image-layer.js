@@ -108,7 +108,7 @@ function nearestGaussian(event) {
   const ny=-((event.clientY-rect.top)/rect.height)*2+1;
   cam.updateMatrixWorld?.(true);
   const alive=cloud.alive;
-  let best=null,bestD=MAX_ANCHOR_HIT_PX*MAX_ANCHOR_HIT_PX;
+  let best=null,bestD=MAX_ANCHOR_HIT_PX*MAX_ANCHOR_HIT_PX,bestDepth=Infinity;
   const projected=new THREE.Vector3();
   const stride=Math.max(1,Math.ceil((positions.length/3)/220000));
   for(let i=0;i<positions.length/3;i+=stride) {
@@ -116,7 +116,11 @@ function nearestGaussian(event) {
     projected.set(positions[i*3],positions[i*3+1],positions[i*3+2]).project(cam);
     if(projected.z < -1 || projected.z > 1) continue;
     const dx=(projected.x-nx)*rect.width*.5,dy=(-projected.y-ny)*rect.height*.5,d=dx*dx+dy*dy;
-    if(d<bestD){bestD=d;best={x:positions[i*3],y:positions[i*3+1],z:positions[i*3+2]};}
+    // Prefer the front-most Gaussian when several layers overlap at almost
+    // the same screen pixel; otherwise rear surfaces can steal the decal.
+    if(d<bestD-64 || (Math.abs(d-bestD)<=64 && projected.z<bestDepth)) {
+      bestD=d;bestDepth=projected.z;best={x:positions[i*3],y:positions[i*3+1],z:positions[i*3+2]};
+    }
   }
   if(!best) return null;
 
