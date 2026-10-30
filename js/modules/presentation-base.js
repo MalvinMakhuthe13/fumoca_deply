@@ -228,6 +228,32 @@ export class PresentationBase {
   }
 
   /**
+   * Fit beneath a point-cloud bounds object { minX, maxX, minY, maxY, minZ, maxZ }.
+   * This is the editor/public-viewer path: it does not reparent or mutate Gaussian data.
+   */
+  fitToBounds(bounds, { padding = 0.04, gap = 0, width = null, depth = null } = {}) {
+    const values = ['minX', 'maxX', 'minY', 'maxY', 'minZ', 'maxZ'];
+    if (!bounds || values.some(key => !Number.isFinite(Number(bounds[key])))) {
+      throw new Error('Valid scan bounds are required to fit the presentation base.');
+    }
+    const scanWidth = Number(bounds.maxX) - Number(bounds.minX);
+    const scanDepth = Number(bounds.maxZ) - Number(bounds.minZ);
+    if (scanWidth <= 0 || scanDepth <= 0) {
+      throw new Error('The scan bounds are too small to fit a platform.');
+    }
+    const nextWidth = Math.max(0.02, width ?? scanWidth + padding * 2);
+    const nextDepth = Math.max(0.02, depth ?? scanDepth + padding * 2);
+    const nextPlatformY = Number(bounds.minY) - gap - this.options.height / 2;
+    this.assembly.position.set(
+      (Number(bounds.minX) + Number(bounds.maxX)) / 2,
+      Number(this.options.positionY) || 0,
+      (Number(bounds.minZ) + Number(bounds.maxZ)) / 2
+    );
+    this.update({ width: nextWidth, depth: nextDepth, platformY: nextPlatformY });
+    return { width: nextWidth, depth: nextDepth, topY: nextPlatformY + this.options.height / 2 };
+  }
+
+  /**
    * Fit the platform beneath an object already parented to this assembly.
    * The object's own transform and geometry are left untouched.
    */
