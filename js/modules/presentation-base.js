@@ -138,6 +138,7 @@ export class PresentationBase {
 
     this.platform = new THREE.Mesh(geometry, material);
     this.platform.name = 'PresentationPlatform';
+    this.platform.renderOrder = -10;
     this.platform.position.y = Number(o.platformY) || 0;
     this.platform.castShadow = true;
     this.platform.receiveShadow = true;
@@ -157,6 +158,7 @@ export class PresentationBase {
     this.lightRing.rotation.x = Math.PI / 2;
     this.lightRing.position.y = (Number(o.platformY) || 0) - o.height / 2 - 0.0008;
     this.lightRing.name = 'UndersideLightRing';
+    this.lightRing.renderOrder = -9;
     this.assembly.add(this.lightRing);
   }
 
@@ -185,7 +187,7 @@ export class PresentationBase {
       mesh.rotation.y = THREE.MathUtils.degToRad(Number(o.logoRotation) || 0);
       mesh.position.y = (Number(o.platformY) || 0) - o.height / 2 - Math.max(0.0005, Number(o.logoOffset) || 0.002);
       mesh.name = 'UndersideBranding';
-      mesh.renderOrder = 2;
+      mesh.renderOrder = -8;
       this.logoTexture = texture;
       this.logoMesh = mesh;
       this.assembly.add(mesh);
