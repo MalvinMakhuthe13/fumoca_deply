@@ -31,8 +31,9 @@ function ensureRoot() {
 }
 function notify() { onChange?.(exportAll()); }
 function stageRect() {
-  const c = document.querySelector('#viewport canvas, #stage canvas, #stageHost canvas');
-  return (c || host()).getBoundingClientRect();
+  // Image positions are percentages of the overlay root, so hit testing must
+  // use that exact same rectangle (not a renderer canvas that may be inset).
+  return ensureRoot().getBoundingClientRect();
 }
 function project(item) {
   const cam = camera();
@@ -110,6 +111,8 @@ function nearestGaussian(event) {
 }
 function onPlace(e) {
   if (!placingId) return;
+  const stage = host();
+  if (!stage.contains(e.target)) return;
   const item = items.find(x=>x.id===placingId);
   if (!item) { placingId=null; return; }
   const anchor = nearestGaussian(e);
@@ -159,8 +162,10 @@ function rebuild() {
 export function initMagazineImages(opts={}) {
   editing=opts.editable !== false; onChange=opts.onChange || null;
   ensureRoot();
-  host().removeEventListener('pointerdown',onPlace,true);
-  host().addEventListener('pointerdown',onPlace,true);
+  // Listen at document capture so viewport overlays / renderer canvases cannot
+  // swallow placement clicks before they reach the viewport container.
+  document.removeEventListener('pointerdown',onPlace,true);
+  document.addEventListener('pointerdown',onPlace,true);
   if(!raf) raf=requestAnimationFrame(tick);
 }
 export function addImage(src, partial={}) {
