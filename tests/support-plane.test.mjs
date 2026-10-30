@@ -10,9 +10,9 @@ for(let a=-20;a<=20;a++)for(let b=-20;b<=20;b++){
  positions.push(...u.map((x,i)=>x*a+v[i]*b+n[i]*noise));
 }
 const selected=Array.from({length:positions.length/3},(_,i)=>i);
-const plane=fitSelectedSupportPlane(new Float32Array(positions),selected);
+const plane=fitSelectedSupportPlane(new Float32Array(positions),selected,{orientationPoint:n.map((x,i)=>x*.5)});
 assert.ok(plane,'selected support plane should be found');
-assert.ok(Math.abs(plane.normal.reduce((sum,x,i)=>sum+x*n[i],0))>.999,'plane normal should match');
+assert.ok(plane.normal.reduce((sum,x,i)=>sum+x*n[i],0)>.999,'support normal must point inward toward object interior');
 assert.ok(plane.inlierRatio>.95,'support region should have high consensus');
 
 // Preview classifies points without mutating either input array.
@@ -20,7 +20,7 @@ const scan=new Float32Array([...positions,...n.map(x=>x*-.2),...n.map(x=>x*.2)])
 const alive=new Uint8Array(scan.length/3);alive.fill(1);
 const before=alive.slice();
 const preview=previewSupportPlaneTrim(scan,alive,plane,{margin:.01,maxTrimRatio:.35});
-assert.ok(preview&&preview.below>=1&&preview.above>=1,'trim preview should identify both sides');
+assert.ok(preview&&preview.below>=1&&preview.above>=1,'trim preview should identify both sides');\nassert.equal(preview.below,1,'exterior underside debris must be classified for removal');\nassert.equal(preview.above,1,'cap interior must be classified for retention');
 assert.deepEqual(alive,before,'preview must not mutate scan state');
 assert.equal(preview.safe,true,'small trim preview should pass safety gate');
 console.log('Support-plane analysis and non-destructive trim preview tests passed.');
