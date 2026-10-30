@@ -41,20 +41,16 @@ const SparkGaussianView = (() => {
 
   function _updateSelectionOverlay(state = window.S) {
     const THREE = window.THREE;
-    const parent = _mesh || _scene();
-    if (!parent || !THREE?.BufferGeometry || !THREE?.PointsMaterial || !THREE?.Points ||
+    const scene = _scene();
+    if (!scene || !THREE?.BufferGeometry || !THREE?.PointsMaterial || !THREE?.Points ||
         !state?.positions || !state?.alive || !state?.selected) return;
-    parent.updateWorldMatrix?.(true, false);
+    // Editor S.positions are already in scene/world coordinates. Keep the
+    // overlay in the scene root; parenting it to SplatMesh applies Spark's
+    // internal transforms a second time and visibly detaches the highlight.
     const positions = [], colors = [];
     for (let i = 0; i < state.alive.length; i++) {
       if (!state.alive[i] || !state.selected[i] || state.layerHidden?.[i]) continue;
-      // Editor positions are in scene coordinates. Convert them into the
-      // Spark splat object's local coordinates before parenting the overlay.
-      const world = new THREE.Vector3(
-        state.positions[i*3], state.positions[i*3+1], state.positions[i*3+2]
-      );
-      parent.worldToLocal(world);
-      positions.push(world.x, world.y, world.z);
+      positions.push(state.positions[i*3], state.positions[i*3+1], state.positions[i*3+2]);
       colors.push(0.78, 1.0, 0.0);
     }
     if (!_overlay) {
@@ -62,18 +58,18 @@ const SparkGaussianView = (() => {
       geometry.setAttribute('position', new THREE.Float32BufferAttribute([], 3));
       geometry.setAttribute('color', new THREE.Float32BufferAttribute([], 3));
       const material = new THREE.PointsMaterial({
-        size: 0.02, sizeAttenuation: true, vertexColors: true,
-        transparent: true, opacity: 0.92, depthTest: true, depthWrite: false,
-        blending: THREE.AdditiveBlending
+        size: 0.012, sizeAttenuation: true, vertexColors: true,
+        transparent: true, opacity: 0.9, depthTest: true, depthWrite: false,
+        blending: THREE.NormalBlending
       });
       _overlay = new THREE.Points(geometry, material);
       _overlay.name = 'fumoca-spark-selection-overlay';
       _overlay.renderOrder = 20;
       _overlay.frustumCulled = false;
-      parent.add(_overlay);
-    } else if (_overlay.parent !== parent) {
+      scene.add(_overlay);
+    } else if (_overlay.parent !== scene) {
       _overlay.parent?.remove(_overlay);
-      parent.add(_overlay);
+      scene.add(_overlay);
     }
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
