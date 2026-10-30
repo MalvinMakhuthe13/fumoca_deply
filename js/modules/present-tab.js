@@ -46,7 +46,7 @@ function autoLevelScan(){
   }
   let ei=0;if(m[4]<m[0])ei=1;if(m[8]<m[ei*3+ei])ei=2;
   const normal=new THREE.Vector3(v[ei],v[3+ei],v[6+ei]).normalize();if(normal.y<0)normal.negate();
-  if(Math.abs(normal.y)>0.9995){showToast?.('Already level','The estimated support plane is already horizontal');return;}
+  if(Math.abs(normal.y)>0.9995){window.showToast?.('Already level','The estimated support plane is already horizontal');return;}
   const q=new THREE.Quaternion().setFromUnitVectors(normal,new THREE.Vector3(0,1,0));
   const pivot=new THREE.Vector3(cx,cy,cz),p=new THREE.Vector3();
   // One-level undo snapshot; source Gaussian arrays are transformed in place.
@@ -55,10 +55,10 @@ function autoLevelScan(){
     if(S.rotation){const old=new THREE.Quaternion(S.rotation[i*4+1],S.rotation[i*4+2],S.rotation[i*4+3],S.rotation[i*4]).premultiply(q).normalize();S.rotation[i*4]=old.w;S.rotation[i*4+1]=old.x;S.rotation[i*4+2]=old.y;S.rotation[i*4+3]=old.z;}}
   window.rebuildGeometry?.();if(!window.rebuildGeometry&&S.points?.geometry){const attr=S.points.geometry.getAttribute('position');if(attr){for(let i=0;i<attr.count;i++){const src=S.points.geometry.getAttribute('sourceIndex')?.array[i]??i;attr.array.set(S.positions.subarray(src*3,src*3+3),i*3);}attr.needsUpdate=true;}}
   const b=scanBounds();if(b){baseConfig.supportY=b.minY;const controls=window.controls||window._fumocaControls;if(controls?.target){controls.target.set((b.minX+b.maxX)/2,(b.minY+b.maxY)/2,(b.minZ+b.maxZ)/2);controls.update?.();}}
-  showToast?.('Scan levelled','The estimated bottom plane is now horizontal. Fit the platform to scan next.');
+  window.showToast?.('Scan levelled','The estimated bottom plane is now horizontal. Fit the platform to scan next.');
   persist();
 }
-function undoAutoLevel(){const S=window.S,snap=window._fumocaAutoLevelUndo;if(!S||!snap){alert('No auto-level operation to undo.');return;}S.positions.set(snap.positions);if(snap.rotation&&S.rotation)S.rotation.set(snap.rotation);window._fumocaAutoLevelUndo=null;window.rebuildGeometry?.();persist();showToast?.('Level undone','Original scan orientation restored.');}
+function undoAutoLevel(){const S=window.S,snap=window._fumocaAutoLevelUndo;if(!S||!snap){alert('No auto-level operation to undo.');return;}S.positions.set(snap.positions);if(snap.rotation&&S.rotation)S.rotation.set(snap.rotation);window._fumocaAutoLevelUndo=null;window.rebuildGeometry?.();persist();window.showToast?.('Level undone','Original scan orientation restored.');}
 function fitBaseToScan(){const bounds=scanBounds();if(!bounds){alert('Load a splat first. FUMOCA needs scan points to calculate the platform footprint.');return;}baseConfig={...baseConfig,...baseFormValues(),enabled:true};const base=ensurePresentationBase();const fitted=base.fitToBounds(bounds,{padding:0.04,gap:Math.max(0,Number(baseConfig.gap)||0)});baseConfig={...baseConfig,...base.getConfig(),supportY:bounds.minY};baseConfig.width=fitted.width;baseConfig.depth=fitted.depth;base.assembly.visible=true;syncBaseForm();persist();}
 async function loadBaseLogo(file){if(!file||!/^image\/(png|jpeg|webp)$/.test(file.type)){alert('Please choose a PNG, JPG or WebP logo.');return;}try{const bitmap=await createImageBitmap(file),scale=Math.min(1,768/Math.max(bitmap.width,bitmap.height)),canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(bitmap.width*scale));canvas.height=Math.max(1,Math.round(bitmap.height*scale));canvas.getContext('2d').drawImage(bitmap,0,0,canvas.width,canvas.height);bitmap.close?.();let dataUrl=canvas.toDataURL('image/png');if(dataUrl.length>480000){const small=document.createElement('canvas');small.width=Math.round(canvas.width*.65);small.height=Math.round(canvas.height*.65);small.getContext('2d').drawImage(canvas,0,0,small.width,small.height);dataUrl=small.toDataURL('image/png');}if(dataUrl.length>480000)throw new Error('Logo is too large. Please use a smaller transparent PNG.');baseConfig.logoUrl=dataUrl;baseConfig.enabled=true;applyBaseForm();}catch(error){alert(error.message||'Could not load that logo.');}}
 
