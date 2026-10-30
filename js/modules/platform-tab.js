@@ -1,6 +1,6 @@
 /**
  * FUMOCA Platform Tab — injected into Studio editor
- * Shares the existing Three.js scene. Platform + splat move together.
+ * Platform is added to the existing scene and can be flipped with the object.
  */
 (function () {
   if (window.__fumocaPlatformInjected) return;
@@ -11,7 +11,7 @@
     const panel = document.getElementById("panelLeft");
     if (!tabs || !panel) return setTimeout(inject, 200);
 
-    if (!document.querySelector("[data-tab=\"platform\"]")) {
+    if (!document.querySelector("[data-tab=\\"platform\\"]")) {
       const tab = document.createElement("div");
       tab.className = "ptab";
       tab.dataset.tab = "platform";
@@ -64,7 +64,7 @@
       });
     });
 
-    let platformMesh = null;
+    let platformGroup = null;
     let logoTexture = null;
     const state = { shape: "circle", width: 0.6, height: 0.08, material: "wood" };
 
@@ -75,26 +75,22 @@
     function makeMat(type) {
       const T = window.THREE || (typeof THREE !== "undefined" ? THREE : null);
       if (!T) return null;
-      if (type === "wood") return new T.MeshStandardMaterial({ color: 0x8B4513, roughness: 0.7 });
-      if (type === "black") return new T.MeshStandardMaterial({ color: 0x111111, roughness: 0.4 });
-      if (type === "white") return new T.MeshStandardMaterial({ color: 0xeeeeee, roughness: 0.5 });
-      if (type === "metal") return new T.MeshStandardMaterial({ color: 0xaaaaaa, roughness: 0.2, metalness: 0.8 });
+      if (type === "wood") return new T.MeshStandardMaterial({ color: 0x8B4513, roughness: 0.65 });
+      if (type === "black") return new T.MeshStandardMaterial({ color: 0x111111, roughness: 0.35 });
+      if (type === "white") return new T.MeshStandardMaterial({ color: 0xeeeeee, roughness: 0.45 });
+      if (type === "metal") return new T.MeshStandardMaterial({ color: 0xaaaaaa, roughness: 0.18, metalness: 0.85 });
       return new T.MeshStandardMaterial({ color: 0x888888 });
     }
 
     function rebuild() {
       const T = window.THREE || (typeof THREE !== "undefined" ? THREE : null);
       const sc = getScene();
-      if (!T || !sc) {
-        console.warn("Platform: scene or THREE not ready");
-        return;
-      }
-      if (platformMesh) {
-        sc.remove(platformMesh);
-        platformMesh.geometry.dispose();
-        if (Array.isArray(platformMesh.material)) platformMesh.material.forEach(m => m.dispose());
-        else platformMesh.material.dispose();
-      }
+      if (!T || !sc) return;
+
+      if (platformGroup) sc.remove(platformGroup);
+      platformGroup = new T.Group();
+      platformGroup.name = "fumoca-platform-group";
+
       const w = state.width, h = state.height;
       let geo;
       if (state.shape === "circle") geo = new T.CylinderGeometry(w / 2, w / 2, h, 48);
@@ -103,16 +99,26 @@
 
       const mat = makeMat(state.material);
       const under = new T.MeshStandardMaterial({
-        color: 0x111111,
+        color: 0x0a0a0a,
         map: logoTexture || null,
-        emissive: logoTexture ? 0x222222 : 0,
+        emissive: logoTexture ? 0xffee88 : 0x222222,
         emissiveMap: logoTexture || null,
-        emissiveIntensity: logoTexture ? 0.5 : 0,
+        emissiveIntensity: logoTexture ? 0.9 : 0.15,
       });
-      platformMesh = new T.Mesh(geo, state.shape === "circle" ? [mat, mat, under] : [mat, mat, mat, mat, mat, under]);
-      platformMesh.position.y = h / 2;
-      platformMesh.name = "fumoca-platform";
-      sc.add(platformMesh);
+      const mesh = new T.Mesh(geo, state.shape === "circle" ? [mat, mat, under] : [mat, mat, mat, mat, mat, under]);
+      mesh.position.y = h / 2;
+      platformGroup.add(mesh);
+
+      // Rim
+      const ring = new T.Mesh(
+        new T.RingGeometry(w * 0.42, w * 0.48, 64),
+        new T.MeshBasicMaterial({ color: 0xffeeaa, transparent: true, opacity: 0.5, side: T.DoubleSide })
+      );
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.y = 0.001;
+      platformGroup.add(ring);
+
+      sc.add(platformGroup);
     }
 
     document.querySelectorAll("#tab-platform .chip").forEach((btn) => {
@@ -143,8 +149,8 @@
     if (apply) apply.onclick = rebuild;
     const flip = document.getElementById("platFlipBtn");
     if (flip) flip.onclick = () => {
-      if (!platformMesh) return;
-      platformMesh.rotation.x = platformMesh.rotation.x === 0 ? Math.PI : 0;
+      if (!platformGroup) return;
+      platformGroup.rotation.x = platformGroup.rotation.x === 0 ? Math.PI : 0;
     };
     const logoIn = document.getElementById("platLogoInput");
     if (logoIn) logoIn.onchange = (e) => {
@@ -167,7 +173,7 @@
     const clear = document.getElementById("platClearLogo");
     if (clear) clear.onclick = () => { logoTexture = null; rebuild(); };
 
-    console.log("[FUMOCA] Platform tab injected into Studio");
+    console.log("[FUMOCA] Platform tab injected");
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", inject);
