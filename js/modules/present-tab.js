@@ -10,7 +10,7 @@ import {
   initPresentNav, setNavStops, addNavStop, removeNavStop, clearNavStops, flyToStop,
   stopsFromHotspots, exportStops, importStops,
 } from './present-nav.js';
-import { initMagazineImages, addImage, removeImage, updateImage, armWorldPlacement, cancelPlacement, exportAll as exportImages, importAll as importImages, readImageFile } from './present-image-layer.js';
+import { initMagazineImages, addImage, removeImage, updateImage, armWorldPlacement, cancelPlacement, exportAll as exportImages, importAll as importImages, readImageFile } from './present-image-layer.js?v=20261030-decal1';
 
 const STORAGE_KEY = 'fumoca_present_v1';
 
