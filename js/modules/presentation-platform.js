@@ -3,7 +3,7 @@ const VERSION = '1.0.0';
 const $ = (id) => document.getElementById(id);
 const state = {
   enabled: true, shape: 'circle', material: 'wood',
-  width: 600, height: 80, edge: 20, offsetY: -120,
+  width: 600, height: 80, edge: 20, offsetY: 0,
   led: true, logoUrl: null, logoSize: 400, logoRotation: 0, logoOffset: -5,
   group: null, top: null, body: null, ring: null, logo: null,
   texture: null, unit: 1, lastBounds: null, dirty: true
@@ -61,13 +61,11 @@ function build(){
   const geo=new T.ExtrudeGeometry(shape,{depth:thick,bevelEnabled:true,bevelSegments:3,steps:1,bevelSize:Math.min(edge*state.unit*.35,thick*.18),bevelThickness:Math.min(edge*state.unit*.35,thick*.18),curveSegments:48});
   geo.rotateX(-Math.PI/2);
   const top=new T.Mesh(geo,materialFor(state.material));top.name='Platform top';top.castShadow=true;top.receiveShadow=true;g.add(top);
-  const bodyGeo=new T.CylinderGeometry(width*.5,width*.5,thick*1.5,96,1,false);
-  if(state.shape!=='circle'&&state.shape!=='square'){
-    bodyGeo.dispose();
-  } else {
-    const body=new T.Mesh(bodyGeo,new T.MeshStandardMaterial({color:0x111318,metalness:.72,roughness:.28}));
-    body.position.y=-thick*.95;body.name='Pedestal body';g.add(body);
-  }
+  const bodyShape=makeShape(width,depth,edge);
+  const bodyGeo=new T.ExtrudeGeometry(bodyShape,{depth:thick*1.5,bevelEnabled:false,curveSegments:48});
+  bodyGeo.rotateX(-Math.PI/2);
+  const body=new T.Mesh(bodyGeo,new T.MeshStandardMaterial({color:0x111318,metalness:.72,roughness:.28}));
+  body.position.y=-thick*1.5;body.name='Pedestal body';g.add(body);
   const ring=new T.Mesh(new T.TorusGeometry(width*.485,Math.max(thick*.035,.003),8,96),new T.MeshBasicMaterial({color:0xffc96b}));
   ring.rotation.x=Math.PI/2;ring.position.y=-thick*.58;ring.name='LED accent ring';ring.visible=state.led;g.add(ring);
   if(state.logoUrl){
@@ -81,7 +79,7 @@ function build(){
       plane.position.set(0,-thick*1.7+state.logoOffset*state.unit,0);plane.name='Underside brand logo';g.add(plane);state.logo=plane;
     };img.src=state.logoUrl;
   }
-  g.position.set(b.center[0],b.min[1]-thick*.02+state.offsetY*state.unit,b.center[2]);
+  g.position.set(b.center[0],b.min[1]-thick+state.offsetY*state.unit,b.center[2]);
   g.visible=state.enabled;
   if(state.group){window.scene.remove(state.group);disposeObject(state.group);}
   state.group=g;state.top=top;state.body=g.getObjectByName('Pedestal body');state.ring=ring;window.scene.add(g);
@@ -124,7 +122,7 @@ function renderUI(){
     <div class="fp-row"><span>Width</span><input id="fpWidth" type="range" min="150" max="1200" value="600"><output id="fpWidthOut">600 mm</output></div>
     <div class="fp-row"><span>Height</span><input id="fpHeight" type="range" min="20" max="240" value="80"><output id="fpHeightOut">80 mm</output></div>
     <div class="fp-row"><span>Edge radius</span><input id="fpEdge" type="range" min="0" max="80" value="20"><output id="fpEdgeOut">20 mm</output></div>
-    <div class="fp-row"><span>Position Y</span><input id="fpOffset" type="range" min="-300" max="100" value="-120"><output id="fpOffsetOut">-120 mm</output></div>
+    <div class="fp-row"><span>Position Y</span><input id="fpOffset" type="range" min="-300" max="100" value="0"><output id="fpOffsetOut">0 mm</output></div>
   </div>
   <div class="fp-section"><div class="fp-title">Material</div><div class="fp-swatches">
     <button class="fp-swatch active" data-material="wood" title="Wood" style="background:repeating-linear-gradient(12deg,#5b2e14,#bd8750 5px,#3b1b0c 9px)"></button>
