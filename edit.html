@@ -4447,6 +4447,17 @@ function _vpCoords(e) {
 }
 
 let _brushActive = false, _brushTimer;
+// A normal click selects the subject when the viewport is in Orbit mode.
+// Orbit dragging remains unchanged: clicks only fire when the pointer is released
+// without a meaningful drag, and the hit test is performed against source points.
+renderer.domElement.addEventListener('click', e => {
+  if (e.detail > 1 || S.mode !== 'orbit' || !S.positions || !S.alive?.length || _gizmoGesture) return;
+  const { x, y } = _vpCoords(e);
+  if (selectSubjectAtScreen(x, y, 48)) {
+    setStatus(`Selected subject (${fmt(selectedPointCount())} points)`, 'ok');
+  }
+});
+
 renderer.domElement.addEventListener('dblclick', e => {
   if (!S.positions || !S.alive?.length) return;
   if (S.mode === 'measure' || S.mode === 'paint' || S.mode === 'brush-erase') return;
