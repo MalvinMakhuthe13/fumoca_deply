@@ -147,7 +147,7 @@ function sceneRadius() {
   for(let i=0;i<p.length/3;i+=step){const x=p[i*3],y=p[i*3+1],z=p[i*3+2];minX=Math.min(minX,x);maxX=Math.max(maxX,x);minY=Math.min(minY,y);maxY=Math.max(maxY,y);minZ=Math.min(minZ,z);maxZ=Math.max(maxZ,z);}
   return Math.max(.001,Math.hypot(maxX-minX,maxY-minY,maxZ-minZ)*.5);
 }
-function decalWidthFor(item) { const pct=THREE.MathUtils.clamp(Number(item.width)||18,1,100); item.width=pct; return sceneRadius()*(pct/100)*.22; }
+function decalWidthFor(item) { const pct=THREE.MathUtils.clamp(Number(item.width)||18,1,1000); item.width=pct; return sceneRadius()*(pct/100)*.22; }
 function createDecal(item) {
   const sc=scene(), cam=camera();
   if(!sc||!cam||item.mode!=='world'||item.decal) return;
@@ -261,7 +261,7 @@ export function addImage(src,partial={}) {
   items.push(item);rebuild();notify();return item;
 }
 export function removeImage(id){const item=items.find(x=>x.id===id);if(item)disposeDecal(item);items=items.filter(x=>x.id!==id);if(placingId===id)cancelPlacement();rebuild();notify();}
-export function updateImage(id,patch){const item=items.find(x=>x.id===id);if(!item)return null;const oldRotation=Number(item.rotation)||0;Object.assign(item,patch);if(patch.width!==undefined){item.width=THREE.MathUtils.clamp(Number(item.width)||18,1,100);item.worldWidth=decalWidthFor(item);if(item.decal)item.decal.scale.setScalar(item.width/Math.max(1,Number(item._baseWidthSetting)||18));}if(patch.rotation!==undefined&&item.decal)item.decal.rotateZ(THREE.MathUtils.degToRad((Number(item.rotation)||0)-oldRotation));if(patch.opacity!==undefined&&item.decal)item.decal.material.opacity=item.opacity;if(patch.orientation!==undefined&&item.decal){item.orientation='surface';const n=orientationNormal(item.orientation,item);item.nx=n.x;item.ny=n.y;item.nz=n.z;item.decal.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),n);item.decal.rotateZ(THREE.MathUtils.degToRad(Number(item.rotation)||0));}notify();return item;}
+export function updateImage(id,patch){const item=items.find(x=>x.id===id);if(!item)return null;const oldRotation=Number(item.rotation)||0;Object.assign(item,patch);if(patch.width!==undefined){item.width=THREE.MathUtils.clamp(Number(item.width)||18,1,1000);item.worldWidth=decalWidthFor(item);if(item.decal)item.decal.scale.setScalar(item.width/Math.max(1,Number(item._baseWidthSetting)||18));}if(patch.rotation!==undefined&&item.decal)item.decal.rotateZ(THREE.MathUtils.degToRad((Number(item.rotation)||0)-oldRotation));if(patch.opacity!==undefined&&item.decal)item.decal.material.opacity=item.opacity;if(patch.orientation!==undefined&&item.decal){item.orientation='surface';const n=orientationNormal(item.orientation,item);item.nx=n.x;item.ny=n.y;item.nz=n.z;item.decal.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),n);item.decal.rotateZ(THREE.MathUtils.degToRad(Number(item.rotation)||0));}notify();return item;}
 function orientationNormal(mode,item){const n=new THREE.Vector3(item.nx??0,item.ny??0,item.nz??1);return n.lengthSq()<.5?new THREE.Vector3(0,0,1):n.normalize();}
 export function armWorldPlacement(id){if(!items.some(x=>x.id===id))return false;placingId=id;host().classList.add('mi-placing');window.showToast?.('Place 3D decal','Click a visible, reasonably flat area of the scanned subject.','info');return true;}
 export function cancelPlacement(){draggingPlacement=false;window.removeEventListener('pointermove',movePlacement);window.removeEventListener('pointerup',finishPlacement);placingId=null;host().classList.remove('mi-placing');}
