@@ -3517,16 +3517,20 @@ function selectSubjectAtScreen(x, y, radius = 48) {
       viewDepth[i]=-v.z;visible.push(i);
     }
     const diagonal=Math.hypot(max[0]-min[0],max[1]-min[1],max[2]-min[2]);
-    const cellSize=Math.max(diagonal*0.002,1e-7);
-    const neighbourR=cellSize*2.15,neighbourR2=neighbourR*neighbourR;
-    const maxDepthStep=Math.max(diagonal*0.018,cellSize*3);
+    // The previous radius was smaller than the actual inter-Gaussian
+    // spacing in ordinary SPLAT captures, so a valid click often selected
+    // exactly one point. Use a scene-relative neighbourhood large enough to
+    // bridge normal sampling gaps, while keeping depth continuity stricter.
+    const cellSize=Math.max(diagonal*0.008,1e-7);
+    const neighbourR=cellSize*1.85,neighbourR2=neighbourR*neighbourR;
+    const maxDepthStep=Math.max(diagonal*0.012,cellSize*1.5);
     const key=(a,b,c)=>a+','+b+','+c,cells=new Map(),coords=new Map();
     for(const i of visible){
       const c=[Math.floor(S.positions[i*3]/cellSize),Math.floor(S.positions[i*3+1]/cellSize),Math.floor(S.positions[i*3+2]/cellSize)];
       coords.set(i,c);const k=key(...c);if(!cells.has(k))cells.set(k,[]);cells.get(k).push(i);
     }
     const queue=[seed],visited=new Uint8Array(S.alive.length);visited[seed]=1;
-    const colourLimit=0.34,maxRegion=Math.min(90000,Math.max(1000,Math.floor(S.alive.length*.72)));
+    const colourLimit=0.42,maxRegion=Math.min(90000,Math.max(1000,Math.floor(S.alive.length*.72)));
     for(let head=0;head<queue.length&&queue.length<maxRegion;head++){
       const i=queue[head],ix=S.positions[i*3],iy=S.positions[i*3+1],iz=S.positions[i*3+2],ci=coords.get(i);
       S.selected[i]=1;hits++;
