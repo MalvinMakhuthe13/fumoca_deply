@@ -131,6 +131,10 @@ jobs:
         run: |
           node --input-type=module --check < js/modules/spark-state-sync.js
           node --experimental-default-type=module tests/spark-state-sync.test.mjs
+      - name: Test binary Gaussian PLY editing and export
+        run: |
+          node --input-type=module --check < js/modules/gaussian-ply-edit.js
+          node --experimental-default-type=module tests/gaussian-ply-edit.test.mjs
       - name: Test PLY conversion fidelity disclosure
         run: |
           node --input-type=module --check < js/modules/ply-conversion-metadata.js
