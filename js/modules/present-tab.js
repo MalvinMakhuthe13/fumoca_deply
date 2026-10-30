@@ -356,7 +356,7 @@ function mountPanel() {
     renderNavManager();
     if (act === 'save') {
       persist();
-      alert('Present saved for this asset (text + nav). Use Copy viewer link to keep text on the public page.');
+      alert('Present saved for this asset (platform + logo + text + navigation). Publish the asset or use Copy viewer link to share the presentation.');
     }
     if (act === 'copy') copyViewerLink();
     if (act === 'pick') {
