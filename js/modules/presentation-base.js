@@ -51,7 +51,7 @@ export class PresentationBase {
     this.options = {
       shape: 'circle', width: 0.6, depth: 0.6, height: 0.08,
       edgeRadius: 0.02, customPoints: null, material: 'wood',
-      positionY: 0, logoUrl: null, logoSize: 0.4,
+      positionY: 0, platformY: 0, logoUrl: null, logoSize: 0.4,
       logoRotation: 0, logoOffset: 0.002, showLightRing: true,
       lightRingColor: 0xffe6a3, lightRingInset: 0.035,
       ...options
@@ -137,6 +137,7 @@ export class PresentationBase {
 
     this.platform = new THREE.Mesh(geometry, material);
     this.platform.name = 'PresentationPlatform';
+    this.platform.position.y = Number(o.platformY) || 0;
     this.platform.castShadow = true;
     this.platform.receiveShadow = true;
     this.assembly.add(this.platform);
@@ -153,7 +154,7 @@ export class PresentationBase {
     });
     this.lightRing = new THREE.Mesh(geometry, material);
     this.lightRing.rotation.x = Math.PI / 2;
-    this.lightRing.position.y = -o.height / 2 - 0.0008;
+    this.lightRing.position.y = (Number(o.platformY) || 0) - o.height / 2 - 0.0008;
     this.lightRing.name = 'UndersideLightRing';
     this.assembly.add(this.lightRing);
   }
@@ -181,7 +182,7 @@ export class PresentationBase {
       // Plane's +Z normal rotated +90° around X points down (-Y).
       mesh.rotation.x = Math.PI / 2;
       mesh.rotation.z = THREE.MathUtils.degToRad(Number(o.logoRotation) || 0);
-      mesh.position.y = -o.height / 2 - Math.max(0.0005, Number(o.logoOffset) || 0.002);
+      mesh.position.y = (Number(o.platformY) || 0) - o.height / 2 - Math.max(0.0005, Number(o.logoOffset) || 0.002);
       mesh.name = 'UndersideBranding';
       mesh.renderOrder = 2;
       this.logoTexture = texture;
@@ -248,11 +249,11 @@ export class PresentationBase {
     const local = new THREE.Box3().setFromPoints(corners);
     const w = width ?? (local.max.x - local.min.x + padding * 2);
     const d = depth ?? (local.max.z - local.min.z + padding * 2);
-    this.options.width = Math.max(0.02, w);
-    this.options.depth = Math.max(0.02, d);
-    this.platform.position.y = local.min.y - gap - this.options.height / 2;
-    this._positionUndersideParts();
-    this._updateGeometryShape();
+    this.update({
+      width: Math.max(0.02, w),
+      depth: Math.max(0.02, d),
+      platformY: local.min.y - gap - this.options.height / 2
+    });
     return { width: this.options.width, depth: this.options.depth, topY: this.platform.position.y + this.options.height / 2 };
   }
 
