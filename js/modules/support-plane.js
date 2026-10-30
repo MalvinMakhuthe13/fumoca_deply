@@ -53,10 +53,11 @@ export function fitSelectedSupportPlane(positions, indices, options={}) {
   let axis=0;if(A[1][1]<A[axis][axis])axis=1;if(A[2][2]<A[axis][axis])axis=2;
   let normal=normalize([V[0][axis],V[1][axis],V[2][axis]]);
   if(!normal)return null;
-  // Orient normal toward the selected region's positive mean offset only for stable output.
+  // The support normal points INTO the object. This makes the retained cap side
+  // positive and the underside/exterior debris side negative for trim preview.
   if(options.orientationPoint){
     const inward=sub(options.orientationPoint,center);
-    if(dot(normal,inward)>0)normal=normal.map(v=>-v);
+    if(dot(normal,inward)<0)normal=normal.map(v=>-v);
   }else if(dot(normal,best.normal)<0)normal=normal.map(v=>-v);
   const residuals=sample.map(p=>Math.abs(dot(normal,sub(p,center))));
   residuals.sort((a,b)=>a-b);
