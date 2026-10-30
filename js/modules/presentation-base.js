@@ -88,6 +88,7 @@ export class PresentationBase {
   }
 
   _build() {
+    this._clearLogo();
     this._disposeObject(this.platform);
     this._disposeObject(this.lightRing);
     this.platform = this.lightRing = null;
