@@ -51,7 +51,7 @@ export class PresentationBase {
     this.options = {
       shape: 'circle', width: 0.6, depth: 0.6, height: 0.08,
       edgeRadius: 0.02, customPoints: null, material: 'wood',
-      positionY: 0, platformY: 0, logoUrl: null, logoSize: 0.4,
+      positionX: 0, positionY: 0, positionZ: 0, platformY: 0, logoUrl: null, logoSize: 0.4,
       logoRotation: 0, logoOffset: 0.002, showLightRing: true,
       lightRingColor: 0xffe6a3, lightRingInset: 0.035,
       ...options
@@ -95,7 +95,7 @@ export class PresentationBase {
     this._createPlatform();
     this._createLightRing();
     this._createLogo();
-    this.assembly.position.y = Number(this.options.positionY) || 0;
+    this.assembly.position.set(Number(this.options.positionX)||0,Number(this.options.positionY)||0,Number(this.options.positionZ)||0);
   }
 
   _createPlatform() {
@@ -244,11 +244,9 @@ export class PresentationBase {
     const nextWidth = Math.max(0.02, width ?? scanWidth + padding * 2);
     const nextDepth = Math.max(0.02, depth ?? scanDepth + padding * 2);
     const nextPlatformY = Number(bounds.minY) - gap - this.options.height / 2;
-    this.assembly.position.set(
-      (Number(bounds.minX) + Number(bounds.maxX)) / 2,
-      Number(this.options.positionY) || 0,
-      (Number(bounds.minZ) + Number(bounds.maxZ)) / 2
-    );
+    this.options.positionX = (Number(bounds.minX) + Number(bounds.maxX)) / 2;
+    this.options.positionZ = (Number(bounds.minZ) + Number(bounds.maxZ)) / 2;
+    this.assembly.position.set(this.options.positionX, Number(this.options.positionY) || 0, this.options.positionZ);
     this.update({ width: nextWidth, depth: nextDepth, platformY: nextPlatformY });
     return { width: nextWidth, depth: nextDepth, topY: nextPlatformY + this.options.height / 2 };
   }
@@ -311,7 +309,7 @@ export class PresentationBase {
       this._clearLogo();
       this._createLogo();
     }
-    if (patch.positionY !== undefined) this.assembly.position.y = Number(patch.positionY) || 0;
+    if (patch.positionX !== undefined || patch.positionY !== undefined || patch.positionZ !== undefined) this.assembly.position.set(Number(this.options.positionX)||0,Number(this.options.positionY)||0,Number(this.options.positionZ)||0);
     return this;
   }
 
