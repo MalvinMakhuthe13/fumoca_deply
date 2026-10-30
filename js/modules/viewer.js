@@ -1767,6 +1767,7 @@ function mountDecodedCloud(g) {
   container.style.setProperty('opacity', '1', 'important');
   document.body?.classList.remove('media-flat');
   _plyScene = new THREE.Scene();
+  window._fumocaViewerScene = _plyScene;
   _plyCamera = new THREE.PerspectiveCamera(50, 1, Math.max(0.01, radius / 200), radius * 80);
   _plyCamera.up.set(0, 1, 0);
   _plyRenderer = new THREE.WebGLRenderer({ antialias: false, alpha: false, powerPreference: 'high-performance' });
@@ -1862,6 +1863,7 @@ async function mountPublishedSparkPly(url) {
   const bytes = new Uint8Array(await response.arrayBuffer());
   const { SplatMesh, SparkRenderer } = await import('@sparkjsdev/spark');
   _plyScene = new THREE.Scene();
+  window._fumocaViewerScene = _plyScene;
   _plyCamera = new THREE.PerspectiveCamera(55, Math.max(1, container.clientWidth) / Math.max(1, container.clientHeight), 0.001, 2000);
   _plyCamera.up.set(0, -1, -0.6).normalize();
   _plyRenderer = new THREE.WebGLRenderer({ antialias: false, alpha: true, powerPreference: 'high-performance' });
