@@ -23,40 +23,50 @@ function syncBaseForm(){const root=document.getElementById('ptpBaseManager');if(
 function applyBaseForm(){baseConfig={...baseConfig,...baseFormValues()};const base=ensurePresentationBase();const fitPatch={};if(Number.isFinite(Number(baseConfig.supportY)))fitPatch.platformY=Number(baseConfig.supportY)-Math.max(0,Number(baseConfig.gap)||0)-Math.max(.005,Number(baseConfig.height)||.06)/2;base.update({shape:baseConfig.shape,width:baseConfig.width,depth:baseConfig.depth,height:baseConfig.height,material:baseConfig.material,logoUrl:baseConfig.logoUrl,logoSize:baseConfig.logoSize,logoRotation:baseConfig.logoRotation,logoOffset:baseConfig.logoOffset,logoPositionX:baseConfig.logoPositionX,logoPositionZ:baseConfig.logoPositionZ,showLightRing:baseConfig.showLightRing,customPoints:baseConfig.customPoints,...fitPatch});base.assembly.visible=!!baseConfig.enabled;persist();syncBaseForm();}
 function autoLevelScan(){
   const S=window.S, THREE=window.THREE;
-  if(!S?.positions?.length||!S.alive?.length||!THREE){alert('Load a splat before levelling it.');return;}
-  const count=Math.min(S.alive.length,Math.floor(S.positions.length/3)), sample=[];
-  let minY=Infinity,maxY=-Infinity;
-  for(let i=0;i<count;i++)if(S.alive[i]){const y=S.positions[i*3+1];if(Number.isFinite(y)){minY=Math.min(minY,y);maxY=Math.max(maxY,y);}}
-  if(!Number.isFinite(minY)||maxY-minY<1e-7){alert('Not enough scan data to estimate a support plane.');return;}
-  // Sample the lowest 18% of the scan: this is usually the table/floor contact region.
-  const cutoff=minY+(maxY-minY)*0.18, stride=Math.max(1,Math.floor(count/80000));
-  let cx=0,cy=0,cz=0,n=0;
-  for(let i=0;i<count;i+=stride)if(S.alive[i]){const x=S.positions[i*3],y=S.positions[i*3+1],z=S.positions[i*3+2];if(y<=cutoff&&Number.isFinite(x+y+z)){sample.push(x,y,z);cx+=x;cy+=y;cz+=z;n++;}}
-  if(n<30){alert('There are too few bottom points to estimate a reliable flat surface.');return;}
-  cx/=n;cy/=n;cz/=n;
-  const a=new Array(9).fill(0);
-  for(let k=0;k<sample.length;k+=3){const x=sample[k]-cx,y=sample[k+1]-cy,z=sample[k+2]-cz;a[0]+=x*x;a[1]+=x*y;a[2]+=x*z;a[4]+=y*y;a[5]+=y*z;a[8]+=z*z;}
-  a[3]=a[1];a[6]=a[2];a[7]=a[5];
-  // Jacobi eigensolver for the symmetric covariance matrix.
-  const m=a.slice(),v=[1,0,0,0,1,0,0,0,1];
-  for(let it=0;it<32;it++){let p=0,q=1;if(Math.abs(m[2])>Math.abs(m[1])){p=0;q=2;}if(Math.abs(m[5])>Math.abs(m[p*3+q])){p=1;q=2;}const pq=m[p*3+q];if(Math.abs(pq)<1e-12)break;const tau=(m[q*3+q]-m[p*3+p])/(2*pq),t=Math.sign(tau||1)/(Math.abs(tau)+Math.sqrt(1+tau*tau)),c=1/Math.sqrt(1+t*t),sn=t*c;
-    const app=m[p*3+p],aqq=m[q*3+q];m[p*3+p]=app-t*pq;m[q*3+q]=aqq+t*pq;m[p*3+q]=m[q*3+p]=0;
-    for(let k=0;k<3;k++)if(k!==p&&k!==q){const mkp=m[k*3+p],mkq=m[k*3+q];m[k*3+p]=m[p*3+k]=c*mkp-sn*mkq;m[k*3+q]=m[q*3+k]=sn*mkp+c*mkq;}
-    for(let k=0;k<3;k++){const vkp=v[k*3+p],vkq=v[k*3+q];v[k*3+p]=c*vkp-sn*vkq;v[k*3+q]=sn*vkp+c*vkq;}
+  if(!S?.positions?.length||!S?.alive?.length||!THREE){alert('Load a splat before levelling it.');return;}
+  const count=Math.min(S.alive.length,Math.floor(S.positions.length/3)), points=[];
+  let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity,minZ=Infinity,maxZ=-Infinity;
+  const stride=Math.max(1,Math.floor(count/12000));
+  for(let i=0;i<count;i+=stride)if(S.alive[i]){
+    const x=S.positions[i*3],y=S.positions[i*3+1],z=S.positions[i*3+2];
+    if(!Number.isFinite(x+y+z))continue;
+    points.push({x,y,z});minX=Math.min(minX,x);maxX=Math.max(maxX,x);minY=Math.min(minY,y);maxY=Math.max(maxY,y);minZ=Math.min(minZ,z);maxZ=Math.max(maxZ,z);
   }
+  if(points.length<100){alert('Not enough live scan points to estimate a support surface.');return;}
+  const diagonal=Math.hypot(maxX-minX,maxY-minY,maxZ-minZ), tolerance=Math.max(diagonal*0.006,1e-5);
+  let best=null,seed=0x51f15e;
+  const rand=()=>{seed=(seed*1664525+1013904223)>>>0;return seed/4294967296;};
+  const ab=new THREE.Vector3(),ac=new THREE.Vector3(),normal=new THREE.Vector3(),cross=new THREE.Vector3();
+  for(let t=0;t<420;t++){
+    const a=points[Math.floor(rand()*points.length)],b=points[Math.floor(rand()*points.length)],c=points[Math.floor(rand()*points.length)];
+    ab.set(b.x-a.x,b.y-a.y,b.z-a.z);ac.set(c.x-a.x,c.y-a.y,c.z-a.z);cross.crossVectors(ab,ac);
+    if(cross.lengthSq()<1e-12)continue;normal.copy(cross).normalize();if(normal.y<0)normal.negate();if(normal.y<0.55)continue;
+    const d=-(normal.x*a.x+normal.y*a.y+normal.z*a.z);let inliers=0,error=0;
+    for(const p of points){const dist=Math.abs(normal.x*p.x+normal.y*p.y+normal.z*p.z+d);if(dist<=tolerance){inliers++;error+=dist;}}
+    if(!best||inliers>best.inliers||(inliers===best.inliers&&error<best.error))best={normal:normal.clone(),d,inliers,error};
+  }
+  if(!best||best.inliers<Math.max(80,points.length*0.035)){alert('Could not confidently detect a broad, flat support surface. No scan changes were made.');return;}
+  const planePoints=points.filter(p=>Math.abs(best.normal.x*p.x+best.normal.y*p.y+best.normal.z*p.z+best.d)<=tolerance);
+  let cx=0,cy=0,cz=0;for(const p of planePoints){cx+=p.x;cy+=p.y;cz+=p.z;}cx/=planePoints.length;cy/=planePoints.length;cz/=planePoints.length;
+  const covariance=new Array(9).fill(0);
+  for(const p of planePoints){const x=p.x-cx,y=p.y-cy,z=p.z-cz;covariance[0]+=x*x;covariance[1]+=x*y;covariance[2]+=x*z;covariance[4]+=y*y;covariance[5]+=y*z;covariance[8]+=z*z;}
+  covariance[3]=covariance[1];covariance[6]=covariance[2];covariance[7]=covariance[5];
+  const m=covariance.slice(),v=[1,0,0,0,1,0,0,0,1];
+  for(let it=0;it<36;it++){let p=0,q=1;if(Math.abs(m[2])>Math.abs(m[1])){p=0;q=2;}if(Math.abs(m[5])>Math.abs(m[p*3+q])){p=1;q=2;}const pq=m[p*3+q];if(Math.abs(pq)<1e-12)break;const tau=(m[q*3+q]-m[p*3+p])/(2*pq),tt=(tau>=0?1:-1)/(Math.abs(tau)+Math.sqrt(1+tau*tau)),cc=1/Math.sqrt(1+tt*tt),ss=tt*cc,app=m[p*3+p],aqq=m[q*3+q];m[p*3+p]=app-tt*pq;m[q*3+q]=aqq+tt*pq;m[p*3+q]=m[q*3+p]=0;for(let k=0;k<3;k++)if(k!==p&&k!==q){const kp=m[k*3+p],kq=m[k*3+q];m[k*3+p]=m[p*3+k]=cc*kp-ss*kq;m[k*3+q]=m[q*3+k]=ss*kp+cc*kq;}for(let k=0;k<3;k++){const kp=v[k*3+p],kq=v[k*3+q];v[k*3+p]=cc*kp-ss*kq;v[k*3+q]=ss*kp+cc*kq;}}
   let ei=0;if(m[4]<m[0])ei=1;if(m[8]<m[ei*3+ei])ei=2;
-  const normal=new THREE.Vector3(v[ei],v[3+ei],v[6+ei]).normalize();if(normal.y<0)normal.negate();
-  if(Math.abs(normal.y)>0.9995){window.showToast?.('Already level','The estimated support plane is already horizontal');return;}
-  const q=new THREE.Quaternion().setFromUnitVectors(normal,new THREE.Vector3(0,1,0));
-  const pivot=new THREE.Vector3(cx,cy,cz),p=new THREE.Vector3();
-  // One-level undo snapshot; source Gaussian arrays are transformed in place.
+  const n=new THREE.Vector3(v[ei],v[3+ei],v[6+ei]).normalize();if(n.y<0)n.negate();
+  if(n.y<0.55){alert('The detected support plane is too steep. No scan changes were made.');return;}
+  const q=new THREE.Quaternion().setFromUnitVectors(n,new THREE.Vector3(0,1,0)),pivot=new THREE.Vector3(cx,cy,cz),point=new THREE.Vector3();
   window._fumocaAutoLevelUndo={positions:S.positions.slice(),rotation:S.rotation?.slice?.()||null};
-  for(let i=0;i<count;i++)if(S.alive[i]){p.set(S.positions[i*3],S.positions[i*3+1],S.positions[i*3+2]).sub(pivot).applyQuaternion(q).add(pivot);S.positions[i*3]=p.x;S.positions[i*3+1]=p.y;S.positions[i*3+2]=p.z;
-    if(S.rotation){const old=new THREE.Quaternion(S.rotation[i*4+1],S.rotation[i*4+2],S.rotation[i*4+3],S.rotation[i*4]).premultiply(q).normalize();S.rotation[i*4]=old.w;S.rotation[i*4+1]=old.x;S.rotation[i*4+2]=old.y;S.rotation[i*4+3]=old.z;}}
-  window.rebuildGeometry?.();if(!window.rebuildGeometry&&S.points?.geometry){const attr=S.points.geometry.getAttribute('position');if(attr){for(let i=0;i<attr.count;i++){const src=S.points.geometry.getAttribute('sourceIndex')?.array[i]??i;attr.array.set(S.positions.subarray(src*3,src*3+3),i*3);}attr.needsUpdate=true;}}
-  const b=scanBounds();if(b){baseConfig.supportY=b.minY;const controls=window.controls||window._fumocaControls;if(controls?.target){controls.target.set((b.minX+b.maxX)/2,(b.minY+b.maxY)/2,(b.minZ+b.maxZ)/2);controls.update?.();}}
-  window.showToast?.('Scan levelled','The estimated bottom plane is now horizontal. Fit the platform to scan next.');
-  persist();
+  for(let i=0;i<count;i++)if(S.alive[i]){
+    point.set(S.positions[i*3],S.positions[i*3+1],S.positions[i*3+2]).sub(pivot).applyQuaternion(q).add(pivot);
+    S.positions[i*3]=point.x;S.positions[i*3+1]=point.y;S.positions[i*3+2]=point.z;
+    if(S.rotation){const old=new THREE.Quaternion(S.rotation[i*4+1],S.rotation[i*4+2],S.rotation[i*4+3],S.rotation[i*4]).premultiply(q).normalize();S.rotation[i*4]=old.w;S.rotation[i*4+1]=old.x;S.rotation[i*4+2]=old.y;S.rotation[i*4+3]=old.z;}
+  }
+  window.rebuildGeometry?.();
+  const bounds=scanBounds();
+  if(bounds){baseConfig.supportY=bounds.minY;baseConfig.enabled=true;const base=ensurePresentationBase();base.fitToBounds(bounds,{padding:Math.max(diagonal*0.025,0.02),gap:Math.max(0,Number(baseConfig.gap)||0)});baseConfig={...baseConfig,...base.getConfig(),supportY:bounds.minY};base.assembly.visible=true;syncBaseForm();}
+  window.showToast?.('Scan levelled','Detected support surface aligned horizontally; platform refitted.');persist();
 }
 function undoAutoLevel(){const S=window.S,snap=window._fumocaAutoLevelUndo;if(!S||!snap){alert('No auto-level operation to undo.');return;}S.positions.set(snap.positions);if(snap.rotation&&S.rotation)S.rotation.set(snap.rotation);window._fumocaAutoLevelUndo=null;window.rebuildGeometry?.();persist();window.showToast?.('Level undone','Original scan orientation restored.');}
 function fitBaseToScan(){const bounds=scanBounds();if(!bounds){alert('Load a splat first. FUMOCA needs scan points to calculate the platform footprint.');return;}baseConfig={...baseConfig,...baseFormValues(),enabled:true};const base=ensurePresentationBase();const fitted=base.fitToBounds(bounds,{padding:0.04,gap:Math.max(0,Number(baseConfig.gap)||0)});baseConfig={...baseConfig,...base.getConfig(),supportY:bounds.minY};baseConfig.width=fitted.width;baseConfig.depth=fitted.depth;base.assembly.visible=true;syncBaseForm();persist();}
