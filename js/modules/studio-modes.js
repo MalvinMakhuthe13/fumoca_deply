@@ -23,7 +23,7 @@ export const MODES = [
     label: 'Edit',
     icon: '✏️',
     hint: 'Select · brush · paint · transform',
-    tools: ['toolBox', 'toolLasso', 'toolMagic', 'toolBrushErase', 'toolBrushSelect', 'toolPaint', 'toolSmear', 'toolMove', 'toolScale', 'toolRotate', 'toolCrop'],
+    tools: ['toolBox', 'toolOval', 'toolLasso', 'toolMagic', 'toolBrushErase', 'toolBrushSelect', 'toolPaint', 'toolSmear', 'toolMove', 'toolScale', 'toolRotate', 'toolCrop'],
     leftTabs: ['tools', 'select'],
   },
   {

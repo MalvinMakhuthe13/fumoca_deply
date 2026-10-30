@@ -15,6 +15,7 @@
 <link rel="stylesheet" href="css/anim-studio.css"/>
 <link rel="stylesheet" href="css/fumoca-layouts.css"/>
 <script type="module" src="js/modules/anim-studio.js"></script>
+<script type="module" src="js/modules/presentation-platform.js?v=20261030-support-preview6"></script>
 <script type="module" src="js/modules/review-video.js?v=20261025-bglayer"></script>
 <script type="module" src="js/modules/present-tab.js?v=20261029-textstyle5"></script>
 
@@ -706,11 +707,13 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
     <button class="tool-btn active" id="toolOrbit" title="Orbit (B)">🌐</button>
     <button class="tool-btn" id="toolPan" title="Pan (H)">✋</button>
     <button class="tool-btn" id="toolZoom" title="Zoom (Z)">🔍</button>
+    <button class="tool-btn" id="dispEllipsoids" title="Show Gaussian ellipsoids (wireframe)" style="min-width:64px;padding:0 9px;font-size:11px;font-weight:700">◌ Ovals</button>
   </div>
   <div class="tool-group">
     <span class="tool-group-label">Select</span>
     <button class="tool-btn" id="toolSphere" title="3D Sphere Select (brush radius)">◯</button>
     <button class="tool-btn" id="toolBox" title="Box Select (X)">▭</button>
+    <button class="tool-btn" id="toolOval" title="Oval Select (O) — drag a wide oval around the area to select">⬭</button>
     <button class="tool-btn" id="toolLasso" title="Lasso (L)">⟡</button>
     <button class="tool-btn" id="toolMagic" title="Magic Select (M)">✦</button>
   </div>
@@ -738,6 +741,7 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
     <button class="tool-btn" id="dispColor" title="Color Map">🌈</button>
     <button class="tool-btn" id="dispOpacity" title="Opacity Map">◌</button>
     <button class="tool-btn" id="dispScale" title="Scale Map">⊙</button>
+
   </div>
   <div class="tool-group">
     <span class="tool-group-label">View</span>
@@ -760,6 +764,7 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
       <div class="ptab" data-tab="clean">Clean</div>
       <div class="ptab" data-tab="mesh">Mesh</div>
       <div class="ptab" data-tab="present">Present · Music</div>
+      <div class="ptab" data-tab="platform">Platform</div>
       <div class="ptab" data-tab="import">Import</div>
       <div class="ptab" data-tab="layers">Layers</div>
     </div>
@@ -1170,6 +1175,11 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
       <div id="studioBreakFrameRoot" style="margin-top:12px"></div>
       <div id="studioInteractRoot" style="margin-top:12px"></div>
       <div id="studioAudioRoot" style="margin-top:12px"></div>
+    </div>
+
+    <!-- TAB: PRESENTATION PLATFORM -->
+    <div class="panel-body" id="tab-platform" style="display:none">
+      <div id="fumocaPlatformRoot"></div>
     </div>
 
     <!-- TAB: IMPORT (LiDAR + formats) -->
@@ -1791,6 +1801,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
 import { decodeNif, encodeNif, geometryToSplatRows, downloadNif } from './js/modules/nif-format.js';
+import { estimateLevelNormal } from './js/modules/auto-level.js';
 
 // Cloud storage is only needed for save/upload actions. Keep it out of the
 // editor's startup dependency graph so a temporary storage CDN failure cannot
@@ -2088,11 +2099,11 @@ let _gizmoGestureSnap = null; // { indices:number[], positions:Float32Array, cen
 
 function _gizmoCollectIndices() {
   const indices = [];
-  if (!S.alive || !S.positions) return indices;
-  const hasSel = selectedPointCount() > 0;
+  if (!S.alive || !S.positions || !S.selected || selectedPointCount() === 0) return indices;
+  // A transform gesture must never silently fall back to the entire cloud.
+  // This guard prevents an empty selection from moving/rotating/scaling every splat.
   for (let i = 0; i < S.alive.length; i++) {
-    if (!S.alive[i]) continue;
-    if (hasSel && !(S.selected && S.selected[i])) continue;
+    if (!S.alive[i] || !S.selected[i] || S.layerHidden?.[i]) continue;
     indices.push(i);
   }
   return indices;
@@ -2124,6 +2135,8 @@ function beginGizmoGesture() {
     startQuat: transformTarget.quaternion.clone(),
     startScale: transformTarget.scale.clone(),
   };
+  const liveCount = S.alive ? S.alive.reduce((sum, value) => sum + (value ? 1 : 0), 0) : 0;
+  if (indices.length === liveCount) window.FumocaPresentationPlatform?.beginSplatTransform?.(_gizmoGestureSnap.centroid);
   captureGizmoTransform();
 }
 
@@ -2155,6 +2168,8 @@ function applyGizmoDelta() {
   const move = allowMove
     ? new THREE.Vector3(curPos.x - snap.startPos.x, curPos.y - snap.startPos.y, curPos.z - snap.startPos.z)
     : new THREE.Vector3(0, 0, 0);
+  const liveCount = S.alive.reduce((sum, value) => sum + (value ? 1 : 0), 0);
+  if (snap.indices.length === liveCount) window.FumocaPresentationPlatform?.updateSplatTransform?.({move,quaternion:qDelta,scale:{x:rx,y:ry,z:rz}});
 
   const rotate = (x, y, z, q, out) => {
     const ax = 2 * (q.y * z - q.z * y), ay = 2 * (q.z * x - q.x * z), az = 2 * (q.x * y - q.y * x);
@@ -2191,16 +2206,23 @@ function applyGizmoDelta() {
     if (allowScale && S.scale && snap.scales) S.scale[i] = snap.scales[k] * uniformScale;
     if (allowRotate && S.rotation && snap.rotations) {
       const aw = qDelta.w, ax = qDelta.x, ay = qDelta.y, az = qDelta.z;
-      const bw = snap.rotations[k * 4], bx = snap.rotations[k * 4 + 1], by = snap.rotations[k * 4 + 2], bz = snap.rotations[k * 4 + 3];
+      const xyzw = S.rotationOrder === 'xyzw';
+      const bw = snap.rotations[k * 4 + (xyzw ? 3 : 0)];
+      const bx = snap.rotations[k * 4 + (xyzw ? 0 : 1)];
+      const by = snap.rotations[k * 4 + (xyzw ? 1 : 2)];
+      const bz = snap.rotations[k * 4 + (xyzw ? 2 : 3)];
       let qw = aw * bw - ax * bx - ay * by - az * bz;
       let qx = aw * bx + ax * bw + ay * bz - az * by;
       let qy = aw * by - ax * bz + ay * bw + az * bx;
       let qz = aw * bz + ax * by - ay * bx + az * bw;
       const ql = Math.hypot(qw, qx, qy, qz) || 1;
-      S.rotation[i * 4] = qw / ql;
-      S.rotation[i * 4 + 1] = qx / ql;
-      S.rotation[i * 4 + 2] = qy / ql;
-      S.rotation[i * 4 + 3] = qz / ql;
+      if (xyzw) {
+        S.rotation[i * 4] = qx / ql; S.rotation[i * 4 + 1] = qy / ql;
+        S.rotation[i * 4 + 2] = qz / ql; S.rotation[i * 4 + 3] = qw / ql;
+      } else {
+        S.rotation[i * 4] = qw / ql; S.rotation[i * 4 + 1] = qx / ql;
+        S.rotation[i * 4 + 2] = qy / ql; S.rotation[i * 4 + 3] = qz / ql;
+      }
     }
 
     const out = _sourceToRender?.[i];
@@ -2226,6 +2248,9 @@ function applyGizmoDelta() {
   if (sizeAttr) sizeAttr.needsUpdate = true;
   if (rotationAttr) rotationAttr.needsUpdate = true;
   if (S.points?.geometry) S.points.geometry.boundingSphere = null;
+  // Update the same Spark Gaussians during the drag; no renderer swap or
+  // delayed full-file reload after mouse release.
+  window.FumocaSparkGaussian?.updateEditorStateLive?.(S, snap.indices);
 }
 
 
@@ -2279,6 +2304,8 @@ function endGizmoGesture() {
   renderMeasurementList();
   renderMeasurementOverlay();
   _gizmoGesture = false;
+  window.FumocaSparkGaussian?.endEditorGesture?.(S);
+  window.FumocaPresentationPlatform?.endSplatTransform?.();
   _gizmoGestureSnap = null;
   _xformIndices = null;
   _xformPivot = null;
@@ -2290,6 +2317,7 @@ function endGizmoGesture() {
 }
 
 transformControls.addEventListener('mouseDown', () => {
+  window.FumocaSparkGaussian?.beginEditorGesture?.();
   _gizmoGesture = true;
   pushHistory('transform gizmo');
   beginGizmoGesture();
@@ -2650,7 +2678,7 @@ function parseSplat(buffer) {
     rotation.set(q.map(v => v / qLen), i * 4);
   }
   S.splatRowSize = rowSize;
-  return { positions, colors, opacity, scale, scaleXYZ, rotation, hasSourceColor: true, count };
+  return { positions, colors, opacity, scale, scaleXYZ, rotation, rotationOrder: 'xyzw', hasSourceColor: true, count };
 }
 function parsePLY(buffer) {
   let geo;
@@ -2807,7 +2835,7 @@ function parsePLY(buffer) {
     // into another interleaved array doubles hundreds of MB on large captures.
     shCoefficients = Object.fromEntries(shAttributes.map(name => [name, geo.getAttribute(name).array]));
   }
-  return { positions, colors, opacity, scale, scaleXYZ, rotation, shAttributes, shCoefficients, intensities, classifications, returnNumbers, hasSourceColor, count };
+  return { positions, colors, opacity, scale, scaleXYZ, rotation, rotationOrder: 'wxyz', shAttributes, shCoefficients, intensities, classifications, returnNumbers, hasSourceColor, count };
 }
 // ─── LOAD ────────────────────────────────────────────────────────────────────
 async function loadFile(file, urlOverride) {
@@ -2879,7 +2907,13 @@ async function loadFile(file, urlOverride) {
   S.opacity = parsed.opacity; S.scale = parsed.scale;
   S.scaleXYZ = parsed.scaleXYZ || new Float32Array(parsed.count * 3).fill(0.01);
   S.rotation = parsed.rotation || new Float32Array(parsed.count * 4);
-  if (!parsed.rotation) for (let i = 0; i < parsed.count; i++) S.rotation[i * 4] = 1;
+  S.rotationOrder = parsed.rotationOrder || 'wxyz';
+  if (!parsed.rotation) {
+    for (let i = 0; i < parsed.count; i++) {
+      if (S.rotationOrder === 'xyzw') S.rotation[i * 4 + 3] = 1;
+      else S.rotation[i * 4] = 1;
+    }
+  }
   S.shAttributes = parsed.shAttributes || [];
   S.shCoefficients = parsed.shCoefficients || null;
   S.lidarIntensity = parsed.intensities || S.lidarIntensity || null;
@@ -3101,7 +3135,86 @@ async function loadFile(file, urlOverride) {
 
 // ─── GEOMETRY REBUILD ────────────────────────────────────────────────────────
 
-function rebuildGeometry() {
+
+// ─── GAUSSIAN ELLIPSOID INSPECTION OVERLAY ────────────────────────────────────
+// Draws the actual oriented covariance ellipsoids as a temporary wireframe
+// layer. It never changes the splat data and is disabled by default.
+let _showGaussianEllipsoids = false;
+let _gaussianEllipsoidOverlay = null;
+function _refreshGaussianEllipsoidOverlay() {
+  const vp=document.getElementById('viewport');
+  if(!_showGaussianEllipsoids){
+    document.getElementById('gaussianEllipseOverlay')?.remove();
+    return;
+  }
+  if(!vp||!S?.positions||!S?.alive||!window.THREE)return;
+  let canvas=document.getElementById('gaussianEllipseOverlay');
+  if(!canvas){
+    canvas=document.createElement('canvas');
+    canvas.id='gaussianEllipseOverlay';
+    canvas.style.cssText='position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:5;';
+    vp.appendChild(canvas);
+  }
+  const w=vp.clientWidth,h=vp.clientHeight;
+  if(!w||!h)return;
+  const dpr=Math.min(2,window.devicePixelRatio||1);
+  if(canvas.width!==Math.round(w*dpr)||canvas.height!==Math.round(h*dpr)){
+    canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);
+  }
+  const ctx=canvas.getContext('2d');
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.clearRect(0,0,w,h);
+  camera.updateMatrixWorld();
+  const view=camera.matrixWorldInverse;
+  const proj=camera.projectionMatrix;
+  const q=new THREE.Quaternion(),axis=new THREE.Vector3(),camAxis=new THREE.Vector3();
+  const center=new THREE.Vector3(),projected=new THREE.Vector3();
+  const maxInstances=12000,step=Math.max(1,Math.ceil(S.alive.length/maxInstances));
+  const sigma=2.5;
+  ctx.lineWidth=.85;
+  for(let i=0;i<S.alive.length;i+=step){
+    if(!S.alive[i]||S.layerHidden?.[i])continue;
+    const o=i*3;
+    const x=S.positions[o],y=S.positions[o+1],z=S.positions[o+2];
+    if(!Number.isFinite(x+y+z))continue;
+    center.set(x,y,z);
+    const cv=center.clone().applyMatrix4(view);
+    const depth=-cv.z;
+    if(depth<=camera.near||depth>=camera.far)continue;
+    projected.copy(center).project(camera);
+    if(projected.z < -1 || projected.z > 1)continue;
+    const px=(projected.x*.5+.5)*w,py=(-projected.y*.5+.5)*h;
+    const sx=Math.max(1e-7,S.scaleXYZ?.[o]??S.scale?.[i]??.01);
+    const sy=Math.max(1e-7,S.scaleXYZ?.[o+1]??S.scale?.[i]??.01);
+    const sz=Math.max(1e-7,S.scaleXYZ?.[o+2]??S.scale?.[i]??.01);
+    if(S.rotation){
+      const qi=i*4;
+      if(S.rotationOrder==='xyzw')q.set(S.rotation[qi],S.rotation[qi+1],S.rotation[qi+2],S.rotation[qi+3]);
+      else q.set(S.rotation[qi+1],S.rotation[qi+2],S.rotation[qi+3],S.rotation[qi]);
+      if(q.lengthSq()>1e-10)q.normalize();else q.identity();
+    }else q.identity();
+    const scales=[sx,sy,sz],covAxes=[];
+    let cxx=0,cxy=0,cyy=0;
+    for(let a=0;a<3;a++){
+      axis.set(a===0?1:0,a===1?1:0,a===2?1:0).applyQuaternion(q);
+      camAxis.copy(axis).transformDirection(view);
+      const dz=camAxis.z,dx=camAxis.x,dy=camAxis.y;
+      const jx=(proj.elements[0]*(dx*depth+cv.x*dz)/(depth*depth))*(w*.5);
+      const jy=(-proj.elements[5]*(dy*depth+cv.y*dz)/(depth*depth))*(h*.5);
+      const v=scales[a]*scales[a];
+      cxx+=v*jx*jx;cxy+=v*jx*jy;cyy+=v*jy*jy;
+    }
+    const trace=cxx+cyy,disc=Math.sqrt(Math.max(0,(cxx-cyy)*(cxx-cyy)+4*cxy*cxy));
+    const l1=Math.max(0,(trace+disc)*.5),l2=Math.max(0,(trace-disc)*.5);
+    const rx=Math.min(220,Math.max(.65,Math.sqrt(l1)*sigma));
+    const ry=Math.min(220,Math.max(.65,Math.sqrt(l2)*sigma));
+    if(px < -rx-4||px>w+rx+4||py < -ry-4||py>h+ry+4)continue;
+    const angle=.5*Math.atan2(2*cxy,cxx-cyy);
+    const opacity=clamp((S.opacity?.[i]??1)*.8,.18,.72);
+    ctx.strokeStyle='rgba(222,226,230,'+opacity+')';
+    ctx.beginPath();ctx.ellipse(px,py,rx,ry,angle,0,Math.PI*2);ctx.stroke();
+  }
+}function rebuildGeometry() {
 
   window.rebuildGeometry = rebuildGeometry; // keep window ref up to date
   // Invalidate hotspot point cloud cache so anchors use fresh edited positions
@@ -3303,6 +3416,7 @@ function rebuildGeometry() {
   const mat = buildMaterial();
   S.points = new THREE.Points(geo, mat);
   scene.add(S.points);
+  _refreshGaussianEllipsoidOverlay();
   // Spark is the visible Gaussian surface; keep the editor point cloud hidden and
   // mirror selection/deletion/position changes into Spark after every rebuild.
   if (window.FumocaSparkGaussian?.isEnabled()) {
@@ -3466,47 +3580,147 @@ function deleteSelected() {
   showToast('Deleted', `${fmt(del)} points removed`);
 }
 
-function selectSubjectAtScreen(x, y, radius = 28) {
-  if (!S.positions || !S.alive?.length) return false;
-  const vp = document.getElementById('viewport');
-  const W = vp.clientWidth, H = vp.clientHeight;
-  const ndc = new THREE.Vector3();
-  let best = -1, bestDist = radius * radius, bestDepth = Infinity;
-  for (let i = 0; i < S.alive.length; i++) {
-    if (!S.alive[i] || S.layerHidden?.[i]) continue;
-    ndc.set(S.positions[i*3], S.positions[i*3+1], S.positions[i*3+2]).project(camera);
-    if (ndc.z < -1 || ndc.z > 1) continue;
-    const sx = (ndc.x * 0.5 + 0.5) * W;
-    const sy = (-ndc.y * 0.5 + 0.5) * H;
-    const dx = sx - x, dy = sy - y, dist = dx*dx + dy*dy;
-    if (dist < bestDist || (dist === bestDist && ndc.z < bestDepth)) {
-      best = i; bestDist = dist; bestDepth = ndc.z;
+// Hit-test the same projected covariance ellipses shown by the Ovals overlay.
+// Returns the frontmost Gaussian whose 2D ellipse contains the pointer.
+function _pickGaussianEllipseAtScreen(x,y) {
+  if(!S?.positions||!S?.alive||!_showGaussianEllipsoids)return null;
+  camera.updateMatrixWorld();
+  const view=camera.matrixWorldInverse,proj=camera.projectionMatrix;
+  const q=new THREE.Quaternion(),axis=new THREE.Vector3(),camAxis=new THREE.Vector3();
+  const center=new THREE.Vector3(),projected=new THREE.Vector3();
+  let best=null,bestDepth=Infinity;
+  const sigma=2.5;
+  for(let i=0;i<S.alive.length;i++){
+    if(!S.alive[i]||S.layerHidden?.[i])continue;
+    const o=i*3;
+    center.set(S.positions[o],S.positions[o+1],S.positions[o+2]);
+    if(!Number.isFinite(center.x+center.y+center.z))continue;
+    const cv=center.clone().applyMatrix4(view),depth=-cv.z;
+    if(depth<=camera.near||depth>=camera.far||depth>=bestDepth)continue;
+    projected.copy(center).project(camera);
+    if(projected.z < -1||projected.z>1)continue;
+    const px=(projected.x*.5+.5)*viewport.clientWidth;
+    const py=(-projected.y*.5+.5)*viewport.clientHeight;
+    const sx=Math.max(1e-7,S.scaleXYZ?.[o]??S.scale?.[i]??.01);
+    const sy=Math.max(1e-7,S.scaleXYZ?.[o+1]??S.scale?.[i]??.01);
+    const sz=Math.max(1e-7,S.scaleXYZ?.[o+2]??S.scale?.[i]??.01);
+    if(S.rotation){
+      const qi=i*4;
+      if(S.rotationOrder==='xyzw')q.set(S.rotation[qi],S.rotation[qi+1],S.rotation[qi+2],S.rotation[qi+3]);
+      else q.set(S.rotation[qi+1],S.rotation[qi+2],S.rotation[qi+3],S.rotation[qi]);
+      if(q.lengthSq()>1e-10)q.normalize();else q.identity();
+    }else q.identity();
+    const scales=[sx,sy,sz];let cxx=0,cxy=0,cyy=0;
+    for(let k=0;k<3;k++){
+      axis.set(k===0?1:0,k===1?1:0,k===2?1:0).applyQuaternion(q);
+      camAxis.copy(axis).transformDirection(view);
+      const dz=camAxis.z,dx=camAxis.x,dy=camAxis.y;
+      const jx=(proj.elements[0]*(dx*depth+cv.x*dz)/(depth*depth))*(viewport.clientWidth*.5);
+      const jy=(-proj.elements[5]*(dy*depth+cv.y*dz)/(depth*depth))*(viewport.clientHeight*.5);
+      const v=scales[k]*scales[k];cxx+=v*jx*jx;cxy+=v*jx*jy;cyy+=v*jy*jy;
     }
+    const det=cxx*cyy-cxy*cxy;
+    if(det<=1e-12)continue;
+    const dx=x-px,dy=y-py;
+    const mahal=(cyy*dx*dx-2*cxy*dx*dy+cxx*dy*dy)/det;
+    // The outline is 2.5 sigma. A small tolerance makes thin outlines pickable.
+    if(mahal<=sigma*sigma*1.12){best=i;bestDepth=depth;}
   }
-  if (best < 0) return false;
-
-  // Hit in a layer → that subject. Else whole live cloud (single PLY has no layers).
-  const layer = (S.layers || []).find(L => L.visible !== false && L.mask?.[best]);
-  S.selected.fill(0);
-  if (layer) {
-    S.activeLayerId = layer.id;
-    for (let i = 0; i < S.selected.length; i++) {
-      if (S.alive[i] && layer.mask[i] && !S.layerHidden?.[i]) S.selected[i] = 1;
-    }
-  } else {
-    S.activeLayerId = null;
-    for (let i = 0; i < S.selected.length; i++) {
-      if (S.alive[i] && !S.layerHidden?.[i]) S.selected[i] = 1;
-    }
-  }
-  renderLayers();
-  rebuildGeometry();
-  refreshTransformSourceMap();
-  syncTransformGizmo();
-  setStatus(`Selected subject (${fmt(selectedPointCount())} points)`, 'ok');
-  return true;
+  return best===null?null:{index:best,depth:bestDepth};
 }
 
+function selectSubjectAtScreen(x, y, radius = 48, additive = false) {
+  if (!S.positions || !S.alive?.length || !S.points) return false;
+  const rect=viewport.getBoundingClientRect();
+  // Use the same actual rendered-point raycast as measurement. This gives us
+  // the frontmost source Gaussian under the cursor, not a nearby projected
+  // point that may belong to the display base behind the hat.
+  const ellipseHit=_showGaussianEllipsoids?_pickGaussianEllipseAtScreen(x,y):null;
+  const hit=ellipseHit?null:_measurementPointAt(rect.left+x,rect.top+y);
+  const seed=ellipseHit?.index??hit?.index;
+  if(!Number.isInteger(seed)||seed<0||!S.alive[seed]||S.layerHidden?.[seed])return false;
+
+  if(ellipseHit){
+    if(!additive)S.selected.fill(0);
+    S.selected[seed]=1;
+    S.activeLayerId=null;
+    rebuildGeometry();refreshTransformSourceMap();syncTransformGizmo();
+    setStatus(`Selected Gaussian ${seed+1} — 1 ellipsoid. Move, rotate, scale or delete this Gaussian.`,'ok');
+    return true;
+  }
+  const layer=(S.layers||[]).find(L=>L.visible!==false&&L.mask?.[seed]);
+  if(!additive) S.selected.fill(0);
+  let hits=0;
+  if(layer){
+    S.activeLayerId=layer.id;
+    for(let i=0;i<S.selected.length;i++)if(S.alive[i]&&layer.mask[i]&&!S.layerHidden?.[i]){S.selected[i]=1;hits++;}
+  }else{
+    S.activeLayerId=null;
+    if(!additive){
+      // A normal click in Navigate mode selects the complete loaded splat,
+      // not a tiny depth-bounded patch around one rendered Gaussian. The
+      // Gaussian ellipsoid overlay is diagnostic only and never participates
+      // in selection or transforms.
+      for(let i=0;i<S.alive.length;i++){
+        if(S.alive[i]&&!S.layerHidden?.[i]){S.selected[i]=1;hits++;}
+      }
+    }else{
+      // Shift-click remains available for adding a local surface patch.
+      const min=[Infinity,Infinity,Infinity],max=[-Infinity,-Infinity,-Infinity],visible=[];
+    const viewDepth=new Float32Array(S.alive.length);viewDepth.fill(NaN);
+    const v=new THREE.Vector3();
+    for(let i=0;i<S.alive.length;i++){
+      if(!S.alive[i]||S.layerHidden?.[i])continue;
+      const px=S.positions[i*3],py=S.positions[i*3+1],pz=S.positions[i*3+2];
+      if(!Number.isFinite(px)||!Number.isFinite(py)||!Number.isFinite(pz))continue;
+      min[0]=Math.min(min[0],px);min[1]=Math.min(min[1],py);min[2]=Math.min(min[2],pz);
+      max[0]=Math.max(max[0],px);max[1]=Math.max(max[1],py);max[2]=Math.max(max[2],pz);
+      v.set(px,py,pz).applyMatrix4(camera.matrixWorldInverse);
+      if(v.z>=0)continue;
+      viewDepth[i]=-v.z;visible.push(i);
+    }
+    const diagonal=Math.hypot(max[0]-min[0],max[1]-min[1],max[2]-min[2]);
+    // The previous radius was smaller than the actual inter-Gaussian
+    // spacing in ordinary SPLAT captures, so a valid click often selected
+    // exactly one point. Use a scene-relative neighbourhood large enough to
+    // bridge normal sampling gaps, while keeping depth continuity stricter.
+    const cellSize=Math.max(diagonal*0.008,1e-7);
+    const neighbourR=cellSize*1.85,neighbourR2=neighbourR*neighbourR;
+    const maxDepthStep=Math.max(diagonal*0.012,cellSize*1.5);
+    const key=(a,b,c)=>a+','+b+','+c,cells=new Map(),coords=new Map();
+    for(const i of visible){
+      const c=[Math.floor(S.positions[i*3]/cellSize),Math.floor(S.positions[i*3+1]/cellSize),Math.floor(S.positions[i*3+2]/cellSize)];
+      coords.set(i,c);const k=key(...c);if(!cells.has(k))cells.set(k,[]);cells.get(k).push(i);
+    }
+    const queue=[seed],visited=new Uint8Array(S.alive.length);visited[seed]=1;
+    const colourLimit=0.42,maxRegion=Math.min(90000,Math.max(1000,Math.floor(S.alive.length*.72)));
+    for(let head=0;head<queue.length&&queue.length<maxRegion;head++){
+      const i=queue[head],ix=S.positions[i*3],iy=S.positions[i*3+1],iz=S.positions[i*3+2],ci=coords.get(i);
+      S.selected[i]=1;hits++;
+      for(let a=-1;a<=1;a++)for(let b=-1;b<=1;b++)for(let c=-1;c<=1;c++){
+        const bucket=cells.get(key(ci[0]+a,ci[1]+b,ci[2]+c));if(!bucket)continue;
+        for(const j of bucket){
+          if(visited[j]||!Number.isFinite(viewDepth[j]))continue;
+          const dx=S.positions[j*3]-ix,dy=S.positions[j*3+1]-iy,dz=S.positions[j*3+2]-iz;
+          if(dx*dx+dy*dy+dz*dz>neighbourR2)continue;
+          // Prevent region growth jumping between front/back surfaces or
+          // leaking from the cap onto the broad, shallow display platform.
+          if(Math.abs(viewDepth[j]-viewDepth[i])>maxDepthStep)continue;
+          const dr=(S.colors?.[i*3]??.5)-(S.colors?.[j*3]??.5);
+          const dg=(S.colors?.[i*3+1]??.5)-(S.colors?.[j*3+1]??.5);
+          const db=(S.colors?.[i*3+2]??.5)-(S.colors?.[j*3+2]??.5);
+          if(Math.hypot(dr,dg,db)>colourLimit)continue;
+          visited[j]=1;queue.push(j);
+        }
+      }
+      }
+    }
+  }
+  if(!hits){S.selected.fill(0);return false;}
+  renderLayers();rebuildGeometry();refreshTransformSourceMap();syncTransformGizmo();
+  setStatus(layer?`Selected layer (${fmt(selectedPointCount())} total points)`:`${additive?'Added':'Selected'} depth-bounded region (${fmt(hits)} points; ${fmt(selectedPointCount())} total). Shift-click other fabric panels to add them without losing this selection.`,'ok');
+  return true;
+}
 function selectByBox(x0, y0, x1, y1) {
   if (!S.positions) return;
   const vp = document.getElementById('viewport');
@@ -3524,29 +3738,60 @@ function selectByBox(x0, y0, x1, y1) {
   rebuildGeometry(); syncTransformGizmo(); setStatus(`Selected ${fmt(hits)} points`);
 }
 
-function selectByLasso(pts) {
-  if (!S.positions || pts.length < 3) return;
-  const vp = document.getElementById('viewport');
-  const W = vp.clientWidth, H = vp.clientHeight;
-  function inPoly(px, py) {
-    let inside = false;
-    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
-      const xi = pts[i].x, yi = pts[i].y, xj = pts[j].x, yj = pts[j].y;
-      if (((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi)) inside = !inside;
+function selectByLasso(pts, modifiers = {}) {
+  if (!S.positions || !S.alive || pts.length < 3) return;
+  const vp=viewport.getBoundingClientRect(),W=Math.max(1,Math.ceil(vp.width)),H=Math.max(1,Math.ceil(vp.height));
+  const additive=!!modifiers.additive,subtract=!!modifiers.subtract;
+  const minX=Math.max(0,Math.floor(Math.min(...pts.map(p=>p.x))));
+  const maxX=Math.min(W-1,Math.ceil(Math.max(...pts.map(p=>p.x))));
+  const minY=Math.max(0,Math.floor(Math.min(...pts.map(p=>p.y))));
+  const maxY=Math.min(H-1,Math.ceil(Math.max(...pts.map(p=>p.y))));
+  if(maxX<minX||maxY<minY)return;
+  function inPoly(px,py){
+    let inside=false;
+    for(let i=0,j=pts.length-1;i<pts.length;j=i++){
+      const xi=pts[i].x,yi=pts[i].y,xj=pts[j].x,yj=pts[j].y;
+      if(((yi>py)!==(yj>py))&&(px<(xj-xi)*(py-yi)/(yj-yi)+xi))inside=!inside;
     }
     return inside;
   }
-  pushHistory('lasso select'); clearSelection();
-  const proj = new THREE.Vector3(); let hits = 0;
-  for (let i = 0; i < S.alive.length; i++) {
-    if (!S.alive[i]) continue;
-    proj.set(S.positions[i * 3], S.positions[i * 3 + 1], S.positions[i * 3 + 2]).project(camera);
-    const sx = (proj.x * 0.5 + 0.5) * W, sy = (-proj.y * 0.5 + 0.5) * H;
-    if (inPoly(sx, sy)) { S.selected[i] = 1; hits++; }
+  // Build a coarse screen-space depth buffer for the lasso footprint.
+  // Only the nearest surface in each small screen cell is selected, avoiding
+  // the old behaviour where the lasso selected front and back surfaces and
+  // the display base behind the hat.
+  const cell=3,cols=Math.max(1,Math.ceil(W/cell)),rows=Math.max(1,Math.ceil(H/cell));
+  const nearest=new Float32Array(cols*rows);nearest.fill(Infinity);
+  const view=new THREE.Vector3(),proj=new THREE.Vector3();
+  const depthByIndex=new Float32Array(S.alive.length);depthByIndex.fill(NaN);
+  for(let i=0;i<S.alive.length;i++){
+    if(!S.alive[i]||S.layerHidden?.[i])continue;
+    view.set(S.positions[i*3],S.positions[i*3+1],S.positions[i*3+2]).applyMatrix4(camera.matrixWorldInverse);
+    if(view.z>=0)continue;
+    proj.set(S.positions[i*3],S.positions[i*3+1],S.positions[i*3+2]).project(camera);
+    if(proj.z < -1 || proj.z > 1)continue;
+    const sx=(proj.x*.5+.5)*W,sy=(-proj.y*.5+.5)*H;
+    if(sx<minX||sx>maxX||sy<minY||sy>maxY||!inPoly(sx,sy))continue;
+    const d=-view.z;depthByIndex[i]=d;
+    const ci=Math.floor(sy/cell)*cols+Math.floor(sx/cell);
+    if(d<nearest[ci])nearest[ci]=d;
   }
-  rebuildGeometry(); syncTransformGizmo(); setStatus(`Selected ${fmt(hits)} points`);
+  const sceneDiagonal=(()=>{let mn=[Infinity,Infinity,Infinity],mx=[-Infinity,-Infinity,-Infinity];for(let i=0;i<S.alive.length;i++)if(S.alive[i])for(let k=0;k<3;k++){const v=S.positions[i*3+k];mn[k]=Math.min(mn[k],v);mx[k]=Math.max(mx[k],v);}return Math.hypot(mx[0]-mn[0],mx[1]-mn[1],mx[2]-mn[2]);})();
+  const depthTolerance=Math.max(sceneDiagonal*.006,1e-5);
+  if(!additive&&!subtract)S.selected.fill(0);
+  let hits=0;
+  for(let i=0;i<S.alive.length;i++){
+    if(!Number.isFinite(depthByIndex[i]))continue;
+    proj.set(S.positions[i*3],S.positions[i*3+1],S.positions[i*3+2]).project(camera);
+    const sx=(proj.x*.5+.5)*W,sy=(-proj.y*.5+.5)*H;
+    const ci=Math.floor(sy/cell)*cols+Math.floor(sx/cell);
+    if(depthByIndex[i]>nearest[ci]+depthTolerance)continue;
+    if(subtract){if(S.selected[i]){S.selected[i]=0;hits++;}}
+    else if(!S.selected[i]){S.selected[i]=1;hits++;}
+  }
+  renderLayers();rebuildGeometry();refreshTransformSourceMap();syncTransformGizmo();
+  const total=selectedPointCount();
+  setStatus(`Lasso ${subtract?'removed':additive?'added':'selected'} ${fmt(hits)} front-surface points (${fmt(total)} total)`,'ok');
 }
-
 function applyBrush(cx, cy) {
   if (!S.positions) return;
   const vp = document.getElementById('viewport');
@@ -3660,6 +3905,8 @@ function transformSelection(mode, dx, dy, redraw = true) {
       }
     }
     _xformAccum = { x: 0, y: 0, z: 0, angle: 0, factor: 1 };
+    const liveCount = S.alive.reduce((sum, value) => sum + (value ? 1 : 0), 0);
+    if (indices.length === liveCount) window.FumocaPresentationPlatform?.beginSplatTransform?.(_xformPivot);
   }
   const indices = _xformIndices;
   const pivot = _xformPivot;
@@ -3727,17 +3974,28 @@ function transformSelection(mode, dx, dy, redraw = true) {
       S.positions[i * 3 + 1] = p.y + pivot.y;
       S.positions[i * 3 + 2] = p.z + pivot.z;
       if (S.rotation && _xformStartRot) {
-        const oldQ = new THREE.Quaternion(
-          _xformStartRot[k * 4 + 1], _xformStartRot[k * 4 + 2], _xformStartRot[k * 4 + 3], _xformStartRot[k * 4]
-        );
+        const xyzw = S.rotationOrder === 'xyzw';
+        const oldQ = xyzw
+          ? new THREE.Quaternion(_xformStartRot[k * 4], _xformStartRot[k * 4 + 1], _xformStartRot[k * 4 + 2], _xformStartRot[k * 4 + 3])
+          : new THREE.Quaternion(_xformStartRot[k * 4 + 1], _xformStartRot[k * 4 + 2], _xformStartRot[k * 4 + 3], _xformStartRot[k * 4]);
         oldQ.premultiply(q).normalize();
-        S.rotation[i * 4] = oldQ.w;
-        S.rotation[i * 4 + 1] = oldQ.x;
-        S.rotation[i * 4 + 2] = oldQ.y;
-        S.rotation[i * 4 + 3] = oldQ.z;
+        if (xyzw) {
+          S.rotation[i * 4] = oldQ.x; S.rotation[i * 4 + 1] = oldQ.y;
+          S.rotation[i * 4 + 2] = oldQ.z; S.rotation[i * 4 + 3] = oldQ.w;
+        } else {
+          S.rotation[i * 4] = oldQ.w; S.rotation[i * 4 + 1] = oldQ.x;
+          S.rotation[i * 4 + 2] = oldQ.y; S.rotation[i * 4 + 3] = oldQ.z;
+        }
       }
     }
     _pokePositionAttribute();
+  }
+  const liveCount = S.alive.reduce((sum, value) => sum + (value ? 1 : 0), 0);
+  if (indices.length === liveCount) {
+    let q = new THREE.Quaternion();
+    if (mode === 'rotate') q.setFromAxisAngle(camera.getWorldDirection(new THREE.Vector3()).normalize(), _xformAccum.angle);
+    const factor = mode === 'scale-tool' ? _xformAccum.factor : 1;
+    window.FumocaPresentationPlatform?.updateSplatTransform?.({move:{x:_xformAccum.x,y:_xformAccum.y,z:_xformAccum.z},quaternion:q,scale:{x:factor,y:factor,z:factor}});
   }
   if (redraw) { window.FumocaGaussianRenderer?.invalidateSort(); rebuildGeometry(); }
 }
@@ -3801,21 +4059,57 @@ function autoClean() {
   showToast('Auto Clean', `${fmt(removed)} points removed`);
 }
 
-function selectFloaters() {
-  const core = estimateCore(); if (!core) return;
-  clearSelection();
-  const [cx, cy, cz] = core.c, [sx, sy, sz] = core.s;
-  const rad = Number($('selRad').value), minN = Number($('selNeigh').value);
-  // simplified: select far + low density
-  let hits = 0;
-  for (let i = 0; i < S.alive.length; i++) {
-    if (!S.alive[i]) continue;
-    const nx = Math.abs((S.positions[i * 3] - cx) / sx);
-    const ny = Math.abs((S.positions[i * 3 + 1] - cy) / sy);
-    const nz = Math.abs((S.positions[i * 3 + 2] - cz) / sz);
-    if (nx > 1.4 || ny > 1.4 || nz > 1.4) { S.selected[i] = 1; hits++; }
+function _buildDensityIndex() {
+  const ids=[], min=[Infinity,Infinity,Infinity], max=[-Infinity,-Infinity,-Infinity];
+  for(let i=0;i<S.alive.length;i++) if(S.alive[i] && !S.layerHidden?.[i]) {
+    const x=S.positions[i*3],y=S.positions[i*3+1],z=S.positions[i*3+2];
+    if(![x,y,z].every(Number.isFinite))continue;
+    ids.push(i);min[0]=Math.min(min[0],x);min[1]=Math.min(min[1],y);min[2]=Math.min(min[2],z);
+    max[0]=Math.max(max[0],x);max[1]=Math.max(max[1],y);max[2]=Math.max(max[2],z);
   }
-  rebuildGeometry(); setStatus(`Selected ${fmt(hits)} potential floaters`);
+  if(ids.length<2)return null;
+  const diagonal=Math.hypot(max[0]-min[0],max[1]-min[1],max[2]-min[2]);
+  const cellSize=Math.max(1e-7,diagonal*(Number($('selRad').value)||0.08)*0.08);
+  const key=(x,y,z)=>`${x},${y},${z}`, cells=new Map(), coords=new Map();
+  for(const i of ids){
+    const c=[0,1,2].map(a=>Math.floor(S.positions[i*3+a]/cellSize));coords.set(i,c);
+    const k=key(...c);cells.set(k,(cells.get(k)||0)+1);
+  }
+  return {ids,cells,coords,key,cellSize,min,max};
+}
+function _densityNeighbours(index,i) {
+  const c=index.coords.get(i);let count=0;
+  for(let x=-1;x<=1;x++)for(let y=-1;y<=1;y++)for(let z=-1;z<=1;z++)
+    count+=index.cells.get(index.key(c[0]+x,c[1]+y,c[2]+z))||0;
+  return count;
+}
+function selectFloaters() {
+  if(!S.alive||!S.positions)return;
+  const index=_buildDensityIndex();if(!index)return;
+  const minN=Math.max(1,Math.floor(Number($('selNeigh').value)||2));
+  S.selected.fill(0);let hits=0;
+  for(const i of index.ids)if(_densityNeighbours(index,i)<minN){S.selected[i]=1;hits++;}
+  rebuildGeometry();syncTransformGizmo();
+  setStatus(`Selected ${fmt(hits)} isolated/low-density splats`);
+  showToast('Floaters selected',`${fmt(hits)} sparse splats selected. Review before deleting; no points were removed.`);
+}
+function selectOuterNoise() {
+  if(!S.alive||!S.positions)return;
+  const index=_buildDensityIndex(),core=estimateCore();if(!index||!core)return;
+  const [cx,cy,cz]=core.c,[sx,sy,sz]=core.s;
+  const minN=Math.max(1,Math.floor(Number($('selNeigh').value)||2));
+  const opacityLimit=Number($('selOpac').value);
+  S.selected.fill(0);let hits=0;
+  for(const i of index.ids){
+    const nx=Math.abs((S.positions[i*3]-cx)/sx),ny=Math.abs((S.positions[i*3+1]-cy)/sy),nz=Math.abs((S.positions[i*3+2]-cz)/sz);
+    const outside=nx>1.25||ny>1.25||nz>1.25;
+    const sparse=_densityNeighbours(index,i)<minN;
+    const lowOpacity=(S.opacity?.[i]??1)<=opacityLimit;
+    if(outside&&(sparse||lowOpacity)){S.selected[i]=1;hits++;}
+  }
+  rebuildGeometry();syncTransformGizmo();
+  setStatus(`Selected ${fmt(hits)} outer-noise candidates`);
+  showToast('Outer noise selected',`${fmt(hits)} candidates selected for review. Dense surfaces are preserved; no points were removed.`);
 }
 
 function selectLowOpacity() {
@@ -4214,13 +4508,16 @@ async function startCapture() {
 // ─── MODE SWITCHING ──────────────────────────────────────────────────────────
 const toolMap = {
   toolOrbit: 'orbit', toolPan: 'pan', toolZoom: 'zoom-tool',
-  toolBox: 'box', toolSphere: 'sphere', toolLasso: 'lasso', toolMagic: 'magic',
+  toolBox: 'box', toolOval: 'oval-select', toolSphere: 'sphere', toolLasso: 'lasso', toolMagic: 'magic',
   toolBrushErase: 'brush-erase', toolBrushSelect: 'brush-select',
   toolPaint: 'paint', toolSmear: 'smear', toolFill: 'fill',
   toolMove: 'move', toolScale: 'scale-tool', toolRotate: 'rotate', toolCrop: 'crop', toolMeasure: 'measure'
 };
 
 function setMode(mode) {
+  // Choosing a tool must not change renderers. Spark remains the live viewport
+  // renderer; edits are pushed into its PackedSplats buffer while dragging.
+  if (!['move','scale-tool','rotate'].includes(mode)) window.FumocaSparkGaussian?.endEditorGesture?.(S);
   S.mode = mode;
   if (['move','scale-tool','rotate'].includes(mode) && S.alive?.length && S.selected && !S.selected.some(Boolean)) {
     for (let i = 0; i < S.alive.length; i++) {
@@ -4250,6 +4547,17 @@ function setMode(mode) {
 
 // ─── DISPLAY MODE ────────────────────────────────────────────────────────────
 const dispMap = { dispBlob: 'blob', dispDot: 'dot', dispSplat: 'splat', dispColor: 'color', dispOpacity: 'opacity', dispScale: 'scale' };
+
+// Ellipsoid visibility is independent of the point/splat display mode.
+$('dispEllipsoids')?.addEventListener('click',()=>{
+  _showGaussianEllipsoids=!_showGaussianEllipsoids;
+  $('dispEllipsoids')?.classList.toggle('active-cyan',_showGaussianEllipsoids);
+  $('dispEllipsoids')?.setAttribute('aria-pressed',String(_showGaussianEllipsoids));
+  _refreshGaussianEllipsoidOverlay();
+  showToast(_showGaussianEllipsoids?'Gaussian ellipsoids shown':'Gaussian ellipsoids hidden',
+    _showGaussianEllipsoids?'Wireframe covariance shapes are visible. Select or brush unwanted ones for trimming.':'Inspection overlay hidden; scan data is unchanged.');
+});
+
 function setDisplayMode(mode) {
   S.displayMode = mode;
   Object.entries(dispMap).forEach(([id, m]) => {
@@ -4317,7 +4625,14 @@ _curveCanvas?.addEventListener('pointerup',finishCurveDrag);_curveCanvas?.addEve
 const lassoSvg = $('lassoSvg');
 function renderLasso() {
   lassoSvg.innerHTML = '';
-  if (S.mode === 'box' && S.dragStart && S.dragCurrent) {
+  if (S.mode === 'oval-select' && S.dragStart && S.dragCurrent) {
+    const ellipse = document.createElementNS('http://www.w3.org/2000/svg', 'ellipse');
+    ellipse.setAttribute('cx', (S.dragStart.x + S.dragCurrent.x) / 2);
+    ellipse.setAttribute('cy', (S.dragStart.y + S.dragCurrent.y) / 2);
+    ellipse.setAttribute('rx', Math.max(2, Math.abs(S.dragCurrent.x - S.dragStart.x) / 2));
+    ellipse.setAttribute('ry', Math.max(2, Math.abs(S.dragCurrent.y - S.dragStart.y) / 2));
+    ellipse.setAttribute('class', 'lasso-shape'); lassoSvg.appendChild(ellipse);
+  } else if (S.mode === 'box' && S.dragStart && S.dragCurrent) {
     const x = Math.min(S.dragStart.x, S.dragCurrent.x), y = Math.min(S.dragStart.y, S.dragCurrent.y);
     const w = Math.abs(S.dragCurrent.x - S.dragStart.x), h = Math.abs(S.dragCurrent.y - S.dragStart.y);
     const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
@@ -4427,19 +4742,28 @@ renderer.domElement.addEventListener('dblclick', e => {
   e.preventDefault();
   e.stopPropagation();
   const { x, y } = _vpCoords(e);
-  if (!selectSubjectAtScreen(x, y, 48)) {
-    S.selected.fill(0);
-    for (let i = 0; i < S.alive.length; i++) {
-      if (S.alive[i] && !S.layerHidden?.[i]) S.selected[i] = 1;
-    }
-    rebuildGeometry();
-    if (typeof refreshTransformSourceMap === 'function') refreshTransformSourceMap();
-    syncTransformGizmo();
-    setStatus(`Double-click: selected whole subject (${fmt(selectedPointCount())} points)`, 'ok');
+  if (!selectSubjectAtScreen(x, y, 72)) {
+    clearSelection();
+    showToast('No subject point at click','Click directly on a visible part of the model. No points were selected.','warn');
   } else {
-    setStatus(`Double-click: selected subject (${fmt(selectedPointCount())} points)`, 'ok');
+    setStatus(`Double-click: selected complete splat (${fmt(selectedPointCount())} points)`, 'ok');
   }
 });
+
+// Orbit stays free for camera navigation. A stationary click selects the subject;
+// a drag remains an OrbitControls gesture and never changes point selection.
+let _subjectPickStart = null;
+renderer.domElement.addEventListener('pointerdown', e => {
+  if (S.mode !== 'orbit' || !S.positions || e.button !== 0) { _subjectPickStart = null; return; }
+  _subjectPickStart = { id: e.pointerId, x: e.clientX, y: e.clientY };
+}, true);
+window.addEventListener('pointerup', e => {
+  const start = _subjectPickStart; _subjectPickStart = null;
+  if (!start || start.id !== e.pointerId || S.mode !== 'orbit') return;
+  if (Math.hypot(e.clientX-start.x,e.clientY-start.y) > 7) return;
+  const {x,y} = _vpCoords(e);
+  if (selectSubjectAtScreen(x,y,48,e.shiftKey)) { refreshTransformSourceMap(); syncTransformGizmo(); }
+}, true);
 
 renderer.domElement.addEventListener('pointerdown', e => {
   if (S.mode === 'orbit') return;
@@ -4463,15 +4787,8 @@ renderer.domElement.addEventListener('pointerdown', e => {
   if (S.mode === 'magic') { window._smartSelectPending = true; _brushActive = false; S.dragging = false; return; }
   if (['move','scale-tool','rotate'].includes(S.mode)) {
     if (!selectedPointCount()) {
-      // Auto-select whole live cloud so Move is never a no-op
-      for (let i = 0; i < (S.alive?.length || 0); i++) {
-        if (S.alive[i] && !S.layerHidden?.[i]) S.selected[i] = 1;
-      }
-      if (!selectedPointCount()) {
-        showToast('Nothing to move', 'Load a splat first.', 'warn');
-        S.dragging = false; return;
-      }
-      setStatus(`Auto-selected ${selectedPointCount()} points for ${S.mode}`, 'ok');
+      showToast('Select points first', 'Use click, brush, box or lasso selection before transforming. The whole scene will never be selected automatically.', 'warn');
+      S.dragging = false; return;
     }
     pushHistory(`${S.mode} selection`);
   }
@@ -4515,6 +4832,7 @@ window.addEventListener('pointermove', e => {
       transformSelection(S.mode, dx, dy, false);
       S.dragStart = { x, y };
       _pokePositionAttribute();
+      window.FumocaSparkGaussian?.updateEditorStateLive?.(S, _gizmoCollectIndices());
     }
   }
   if ((S.mode === 'pan' || S.mode === 'zoom-tool') && S.dragStart) {
@@ -4573,9 +4891,15 @@ window.addEventListener('pointerup', e => {
     for(let i=0;i<S.alive.length;i++) if(S.alive[i]&&!S.selected[i]) S.alive[i]=0;
     S.selected.fill(0); rebuildGeometry(); setStatus('Scene cropped to box selection','ok');
   }
-  if (S.mode === 'lasso' && S.lassoPoints.length >= 3) selectByLasso(S.lassoPoints);
-  if (['box','sphere','lasso'].includes(S.mode)) syncTransformGizmo();
-  if (['move','scale-tool','rotate'].includes(S.mode)) { window.FumocaGaussianRenderer?.invalidateSort(); rebuildGeometry(); syncTransformGizmo(); captureGizmoTransform(); _xformIndices = null; _xformPivot = null; _xformStartPos = null; _xformStartScale = null; _xformStartScaleXYZ = null; _xformStartRot = null; _xformAccum = null; }
+  if (S.mode === 'oval-select' && S.dragStart && S.dragCurrent) {
+    const cx=(S.dragStart.x+S.dragCurrent.x)/2, cy=(S.dragStart.y+S.dragCurrent.y)/2;
+    const rx=Math.abs(S.dragCurrent.x-S.dragStart.x)/2, ry=Math.abs(S.dragCurrent.y-S.dragStart.y)/2;
+    if(rx>=4&&ry>=4){const oval=Array.from({length:64},(_,i)=>{const a=i*Math.PI*2/64;return{x:cx+Math.cos(a)*rx,y:cy+Math.sin(a)*ry};});selectByLasso(oval,{additive:e.shiftKey,subtract:e.altKey});}
+    else setStatus('Oval too small — drag a wider area to select it','warn');
+  }
+  if (S.mode === 'lasso' && S.lassoPoints.length >= 3) selectByLasso(S.lassoPoints, { additive: e.shiftKey, subtract: e.altKey });
+  if (['box','oval-select','sphere','lasso'].includes(S.mode)) syncTransformGizmo();
+  if (['move','scale-tool','rotate'].includes(S.mode)) { window.FumocaGaussianRenderer?.invalidateSort(); rebuildGeometry(); window.FumocaSparkGaussian?.endEditorGesture?.(S); window.FumocaPresentationPlatform?.endSplatTransform?.(); syncTransformGizmo(); captureGizmoTransform(); _xformIndices = null; _xformPivot = null; _xformStartPos = null; _xformStartScale = null; _xformStartScaleXYZ = null; _xformStartRot = null; _xformAccum = null; }
   _xformPivot = null; _xformIndices = null;
   S.dragging = false; S.dragStart = null; S.dragCurrent = null; S.lassoPoints = [];
   renderLasso();
@@ -4664,6 +4988,7 @@ function animate(now = performance.now()) {
   _lastViewportRender = now;
   controls.update();
   renderer.render(scene, camera);
+  if (_showGaussianEllipsoids) _refreshGaussianEllipsoidOverlay();
   // Reference photo overlay for Fill / collect-from-image
   try {
     const GF = window.FumocaGapFill;
@@ -4928,36 +5253,26 @@ document.querySelectorAll('[data-hud-view]').forEach(button => {
 });
 $('levelSubjectBtn')?.addEventListener('click',()=>{
   if(!S.positions||!S.alive)return;
-  const stride=Math.max(1,Math.floor(S.alive.length/12000));let samples=[];
-  for(let i=0;i<S.alive.length;i+=stride)if(S.alive[i])samples.push([S.positions[i*3],S.positions[i*3+1],S.positions[i*3+2]]);
-  if(samples.length<3)return showToast('Not enough points','Load a denser subject before auto leveling.','warn');
-  const limits=[0,1,2].map(axis=>{const values=samples.map(point=>point[axis]).sort((a,b)=>a-b);return [values[Math.floor(values.length*.005)],values[Math.floor(values.length*.995)]];});
-  samples=samples.filter(point=>point.every((value,axis)=>value>=limits[axis][0]&&value<=limits[axis][1]));
-  const mean=[0,0,0];for(const p of samples)for(let a=0;a<3;a++)mean[a]+=p[a]/samples.length;
-  const A=[[0,0,0],[0,0,0],[0,0,0]],V=[[1,0,0],[0,1,0],[0,0,1]];
-  for(const p of samples)for(let r=0;r<3;r++)for(let c=0;c<3;c++)A[r][c]+=(p[r]-mean[r])*(p[c]-mean[c])/samples.length;
-  for(let iter=0;iter<18;iter++){
-    let p=0,q=1;if(Math.abs(A[0][2])>Math.abs(A[p][q])){p=0;q=2;}if(Math.abs(A[1][2])>Math.abs(A[p][q])){p=1;q=2;}
-    if(Math.abs(A[p][q])<1e-12)break;
-    const theta=.5*Math.atan2(2*A[p][q],A[q][q]-A[p][p]),c=Math.cos(theta),s=Math.sin(theta),app=A[p][p],aqq=A[q][q],apq=A[p][q];
-    A[p][p]=c*c*app-2*s*c*apq+s*s*aqq;A[q][q]=s*s*app+2*s*c*apq+c*c*aqq;A[p][q]=A[q][p]=0;
-    for(let k=0;k<3;k++)if(k!==p&&k!==q){const akp=A[k][p],akq=A[k][q];A[k][p]=A[p][k]=c*akp-s*akq;A[k][q]=A[q][k]=s*akp+c*akq;}
-    for(let k=0;k<3;k++){const vkp=V[k][p],vkq=V[k][q];V[k][p]=c*vkp-s*vkq;V[k][q]=s*vkp+c*vkq;}
-  }
-  let axisIndex=0;if(A[1][1]<A[axisIndex][axisIndex])axisIndex=1;if(A[2][2]<A[axisIndex][axisIndex])axisIndex=2;
-  const up=new THREE.Vector3(V[0][axisIndex],V[1][axisIndex],V[2][axisIndex]).normalize();if(up.y<0)up.negate();
+  const selectedCount=selectedPointCount();
+  if(!selectedCount)return showToast('Select the subject first','Select only the object you want to level. Exclude the floor, display base, and background points so they cannot determine the orientation.','warn');
+  const indices=[];
+  for(let i=0;i<S.alive.length;i++){if(!S.alive[i]||!S.selected[i]||S.layerHidden?.[i])continue;indices.push(i);}
+  if(indices.length<30)return showToast('Not enough subject points','Select a larger, connected part of the subject before auto-leveling.','warn');
+  const estimate=estimateLevelNormal(S.positions,indices);
+  if(!estimate?.normal)return showToast('Could not determine level','No reliable support plane or stable principal axis was found. Select the subject without the floor, or include a flat ground surface, then try again.','warn');
+  const up=new THREE.Vector3(...estimate.normal).normalize();if(up.y<0)up.negate();
   const angle=Math.acos(THREE.MathUtils.clamp(up.y,-1,1));
-  if(angle<THREE.MathUtils.degToRad(.5))return showToast('Already level','The thinnest point-cloud axis is already aligned with Y-up.','ok');
-  const rotation=new THREE.Quaternion().setFromUnitVectors(up,new THREE.Vector3(0,1,0)),pivot=S.pivot||controls.target;
-  pushHistory('transform level');
-  const point=new THREE.Vector3();
-  for(let i=0;i<S.alive.length;i++)if(S.alive[i]){
+  if(angle<THREE.MathUtils.degToRad(.5))return showToast('Already level','The estimated support plane is already aligned with Y-up.','ok');
+  const rotation=new THREE.Quaternion().setFromUnitVectors(up,new THREE.Vector3(0,1,0)),pivot=new THREE.Vector3();
+  for(const i of indices)pivot.add(new THREE.Vector3(S.positions[i*3],S.positions[i*3+1],S.positions[i*3+2]));
+  pivot.multiplyScalar(1/indices.length);pushHistory('transform level');const point=new THREE.Vector3();
+  for(const i of indices){
     point.set(S.positions[i*3],S.positions[i*3+1],S.positions[i*3+2]).sub(pivot).applyQuaternion(rotation).add(pivot);
     S.positions[i*3]=point.x;S.positions[i*3+1]=point.y;S.positions[i*3+2]=point.z;
-    if(S.rotation){const q=new THREE.Quaternion(S.rotation[i*4+1],S.rotation[i*4+2],S.rotation[i*4+3],S.rotation[i*4]).premultiply(rotation).normalize();S.rotation.set([q.w,q.x,q.y,q.z],i*4);}
+    if(S.rotation){const o=i*4,xyzw=S.rotationOrder==='xyzw';const q=xyzw?new THREE.Quaternion(S.rotation[o],S.rotation[o+1],S.rotation[o+2],S.rotation[o+3]):new THREE.Quaternion(S.rotation[o+1],S.rotation[o+2],S.rotation[o+3],S.rotation[o]);q.premultiply(rotation).normalize();if(xyzw){S.rotation[o]=q.x;S.rotation[o+1]=q.y;S.rotation[o+2]=q.z;S.rotation[o+3]=q.w;}else{S.rotation[o]=q.w;S.rotation[o+1]=q.x;S.rotation[o+2]=q.y;S.rotation[o+3]=q.z;}}
   }
-  window.FumocaGaussianRenderer?.invalidateSort();rebuildGeometry();_refreshSceneReference(true);syncTransformGizmo();renderMeasurementList();renderMeasurementOverlay();
-  showToast('Subject leveled',`Aligned its thinnest principal axis to Y-up (${THREE.MathUtils.radToDeg(angle).toFixed(1)}° correction). Undo restores the prior orientation.`,'ok');
+  window.FumocaGaussianRenderer?.invalidateSort?.();rebuildGeometry();_refreshSceneReference(true);syncTransformGizmo();renderMeasurementList();renderMeasurementOverlay();
+  showToast('Subject leveled',`Aligned the detected ${estimate.method==='plane'?'support plane':'principal axis'} to Y-up (${THREE.MathUtils.radToDeg(angle).toFixed(1)}° correction). Undo restores the prior orientation.`,'ok');
 });
 $('centerSubjectBtn')?.addEventListener('click',()=>{
   if(!S.positions||!S.alive)return;
@@ -5265,8 +5580,19 @@ $('addSplatInput')?.addEventListener('change', async e => {
       S.colors = append(S.colors, parsed.colors, 3, 0.7);
       S.scale = append(S.scale, parsed.scale, 1, 0.01);
       S.scaleXYZ = append(S.scaleXYZ, parsed.scaleXYZ || new Float32Array(addN * 3).fill(0.01), 3, 0.01);
-      const addRotation = parsed.rotation || new Float32Array(addN * 4);
-      if (!parsed.rotation) for (let i = 0; i < addN; i++) addRotation[i * 4] = 1;
+      const addRotation = parsed.rotation ? Float32Array.from(parsed.rotation) : new Float32Array(addN * 4);
+      if (!parsed.rotation) {
+        for (let i = 0; i < addN; i++) {
+          if ((S.rotationOrder || 'wxyz') === 'xyzw') addRotation[i * 4 + 3] = 1;
+          else addRotation[i * 4] = 1;
+        }
+      } else if (parsed.rotationOrder && S.rotationOrder && parsed.rotationOrder !== S.rotationOrder) {
+        for (let i = 0; i < addN; i++) {
+          const o=i*4, q=addRotation.slice(o,o+4);
+          if (S.rotationOrder === 'wxyz') addRotation.set([q[3],q[0],q[1],q[2]],o);
+          else addRotation.set([q[1],q[2],q[3],q[0]],o);
+        }
+      }
       S.rotation = append(S.rotation, addRotation, 4);
       S.opacity = append(S.opacity, parsed.opacity, 1, 1);
       S.paintColors = append(S.paintColors, new Float32Array(addN * 3).fill(-1), 3, -1);
@@ -5515,8 +5841,8 @@ $('selLowOpacBtn')?.addEventListener('click', selectLowOpacity);
 $('selLargeScaleBtn')?.addEventListener('click', selectLargeScale);
 $('selFloatersBtn')?.addEventListener('click', selectFloaters);
 $('selFloatersBtn2')?.addEventListener('click', selectFloaters);
-$('selOuterBtn')?.addEventListener('click', selectFloaters);
-$('selOuterBtn2')?.addEventListener('click', selectFloaters);
+$('selOuterBtn')?.addEventListener('click', selectOuterNoise);
+$('selOuterBtn2')?.addEventListener('click', selectOuterNoise);
 $('selLowOpBtn2')?.addEventListener('click', selectLowOpacity);
 $('selLargeBtn2')?.addEventListener('click', selectLargeScale);
 $('autoCleanBtn').addEventListener('click', autoClean);
@@ -5526,10 +5852,20 @@ $('opacSharpenBtn')?.addEventListener('click', () => {
   rebuildGeometry(); setStatus('Opacity sharpened', 'ok');
 });
 $('densityPruneBtn')?.addEventListener('click', () => {
-  if (!S.alive) return; pushHistory('density prune');
-  const pct = Number($('pruneRange').value) / 100; let removed = 0;
-  for (let i = 0; i < S.alive.length; i++) if (S.alive[i] && Math.random() < pct * 0.3) { S.alive[i] = 0; removed++; }
-  rebuildGeometry(); setStatus(`Pruned ${fmt(removed)} low-density points`, 'ok');
+  if (!S.alive || !S.positions) return;
+  const index=_buildDensityIndex();if(!index)return;
+  // Deterministic spatial-density pruning: never delete points by random chance.
+  const pct=Number($('pruneRange').value)/100;
+  const minN=Math.max(2,Math.min(16,2+Math.round(pct*14)));
+  const remove=[];
+  for(const i of index.ids)if(_densityNeighbours(index,i)<minN)remove.push(i);
+  if(!remove.length){setStatus('No isolated points met the current density threshold.');return;}
+  pushHistory('density prune');
+  for(const i of remove)S.alive[i]=0;
+  S.selected?.fill(0);
+  rebuildGeometry();syncTransformGizmo();
+  setStatus(`Pruned ${fmt(remove.length)} isolated/low-density splats`,'ok');
+  showToast('Density cleanup',`${fmt(remove.length)} sparse splats removed. Undo restores them.`);
 });
 $('lidarCleanOutliersBtn')?.addEventListener('click', () => {
   if (!S.positions || !S.alive?.length) { setStatus('Load or merge a point cloud before cleaning it.'); return; }
@@ -5971,7 +6307,7 @@ window.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); return; }
   if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteSelected(); return; }
   if (e.key === 'Escape') { clearSelection(); S.lassoPoints = []; renderLasso(); return; }
-  const keyMap = { b: 'orbit', h: 'pan', z: 'zoom-tool', x: 'box', l: 'lasso', m: 'magic', e: 'brush-erase', s: 'brush-select', p: 'paint', v: 'move', r: 'rotate' };
+  const keyMap = { b: 'orbit', h: 'pan', z: 'zoom-tool', x: 'box', o: 'oval-select', l: 'lasso', m: 'magic', e: 'brush-erase', s: 'brush-select', p: 'paint', v: 'move', r: 'rotate' };
   if (keyMap[e.key.toLowerCase()]) setMode(keyMap[e.key.toLowerCase()]);
   if (e.key.toLowerCase() === 'i') { setMode('fill'); setStatus('Fill gaps — paint holes; load a photo to match real colour', 'ok'); }
   if (e.key.toLowerCase() === 'g') setDisplayMode(S.displayMode === 'blob' ? 'dot' : 'blob');

@@ -2,7 +2,7 @@ name: FUMOCA validation
 
 on:
   push:
-    branches: [main, "feat/**", "platform-integration-audit"]
+    branches: [main, "feat/**", "fix/**", "platform-integration-audit"]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -25,6 +25,24 @@ jobs:
         run: test -s docs/PLATFORM_INTEGRATION_AUDIT.md && grep -q "Acceptance gates for a clean release" docs/PLATFORM_INTEGRATION_AUDIT.md
       - name: Check Studio JavaScript syntax
         run: node --check js/modules/image-to-splat-studio.js
+      - name: Check Presentation Platform module
+        run: node --input-type=module --check < js/modules/presentation-platform.js
+      - name: Check Presentation Platform integration
+        run: |
+          node --input-type=module --check < js/modules/presentation-platform.js
+          node --input-type=module --check < js/modules/publish-to-fumoca.js
+          node --input-type=module --check < js/modules/viewer.js
+          grep -q "beginSplatTransform" js/modules/presentation-platform.js
+          grep -q "updateSplatTransform" js/modules/presentation-platform.js
+          grep -q "presentationPlatform" js/modules/publish-to-fumoca.js
+          grep -q "mountPublishedPresentationPlatform(bounds)" js/modules/viewer.js
+          grep -q "FumocaPresentationPlatform?.updateSplatTransform" edit.html
+      - name: Check Gaussian editing modules
+        run: |
+          node --input-type=module --check < js/modules/spark-gaussian-view.js
+          node --input-type=module --check < js/modules/spark-state-sync.js
+          node --input-type=module --check < js/modules/gaussian-ply-edit.js
+          node --input-type=module --check < js/modules/auto-level.js
       - name: Check viewer ES module syntax
         run: node --input-type=module --check < js/modules/viewer.js
       - name: Check persistence-sensitive editor modules
@@ -123,6 +141,33 @@ jobs:
           grep -q "Selected subject:" edit.html
           grep -q "if (dx <= 7 && dy <= 7)" edit.html
           grep -q "function selectSubjectAtScreen" edit.html
+      - name: Test auto-level support-plane estimator
+        run: |
+          node --input-type=module --check < js/modules/auto-level.js
+          node --experimental-default-type=module tests/auto-level.test.mjs
+      - name: Guard safe support-plane workflow UI
+        run: |
+          grep -q "fpAnalyseSupport" js/modules/presentation-platform.js
+          grep -q "fpSupportReport" js/modules/presentation-platform.js
+          ! grep -q "fpFlatten" js/modules/presentation-platform.js
+          ! grep -q "fpRestore" js/modules/presentation-platform.js
+          ! grep -q "flattenScanToPlatform" js/modules/presentation-platform.js
+          grep -q "support-preview6" edit.html
+          grep -q "fpApplyCorrection" js/modules/presentation-platform.js
+          grep -q "fpRestoreCorrection" js/modules/presentation-platform.js
+          grep -q "supportBackup" js/modules/presentation-platform.js
+      - name: Test non-destructive support-plane analysis
+        run: |
+          node --input-type=module --check < js/modules/support-plane.js
+          node --experimental-default-type=module tests/support-plane.test.mjs
+      - name: Test live Spark Gaussian state synchronization
+        run: |
+          node --input-type=module --check < js/modules/spark-state-sync.js
+          node --experimental-default-type=module tests/spark-state-sync.test.mjs
+      - name: Test binary Gaussian PLY editing and export
+        run: |
+          node --input-type=module --check < js/modules/gaussian-ply-edit.js
+          node --experimental-default-type=module tests/gaussian-ply-edit.test.mjs
       - name: Test PLY conversion fidelity disclosure
         run: |
           node --input-type=module --check < js/modules/ply-conversion-metadata.js

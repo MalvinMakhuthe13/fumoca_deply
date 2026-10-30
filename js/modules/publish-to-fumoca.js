@@ -260,6 +260,9 @@ const FumocaPublish = (() => {
       };
     }
 
+    const presentationPlatform = window.FumocaPresentationPlatform?.getConfig?.();
+    if (presentationPlatform) payload.meta = { ...(payload.meta || {}), presentationPlatform };
+
     let finalId = splatId;
     if (payload.meta?.reviewVideo) payload.meta.reviewVideo.boundId = splatId || null;
     if (splatId) {
