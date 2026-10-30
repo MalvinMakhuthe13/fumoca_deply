@@ -146,14 +146,11 @@ function renderImageManager() {
     row.append(anchor,remove);
     const controls=document.createElement('div'); controls.className='ptp-image-fields';
     const widthLabel=document.createElement('label'); widthLabel.textContent='Custom width · scene-relative';
-    const width=document.createElement('input'); width.type='range'; width.min='1'; width.max='200'; width.step='1'; width.value=String(item.width||18); width.dataset.imageWidth=item.id;
+    const width=document.createElement('input'); width.type='range'; width.min='1'; width.max='100'; width.step='0.5'; width.value=String(item.width||18); width.dataset.imageWidth=item.id;
     widthLabel.appendChild(width);
-    const customSize=document.createElement('input'); customSize.type='number'; customSize.min='1'; customSize.max='200'; customSize.step='0.5'; customSize.value=String(item.width||18); customSize.dataset.imageWidth=item.id; customSize.setAttribute('aria-label','Custom decal width');
+    const customSize=document.createElement('input'); customSize.type='number'; customSize.min='1'; customSize.max='100'; customSize.step='0.5'; customSize.value=String(item.width||18); customSize.dataset.imageWidth=item.id; customSize.setAttribute('aria-label','Custom decal width');
     const sizeRow=document.createElement('div'); sizeRow.className='ptp-row'; sizeRow.append(width,customSize);
-    const orientationLabel=document.createElement('label'); orientationLabel.textContent='Surface orientation';
-    const orientation=document.createElement('select'); orientation.dataset.imageOrientation=item.id;
-    [['surface','Follow scanned surface'],['bottom','Flat · bottom'],['top','Flat · top'],['front','Flat · front']].forEach(([v,label])=>{const o=document.createElement('option');o.value=v;o.textContent=label;o.selected=(item.orientation||'surface')===v;orientation.appendChild(o);});
-    orientationLabel.appendChild(orientation);
+    const orientationLabel=document.createElement('div'); orientationLabel.className='ptp-image-mode'; orientationLabel.textContent='Surface alignment · follows the exact area you click';
     const rotationLabel=document.createElement('label'); rotationLabel.textContent='Rotate on surface · '+(Number(item.rotation)||0)+'°';
     const rotation=document.createElement('input'); rotation.type='range'; rotation.min='-180'; rotation.max='180'; rotation.step='1'; rotation.value=String(Number(item.rotation)||0); rotation.dataset.imageRotation=item.id; rotationLabel.appendChild(rotation);
     const opacityLabel=document.createElement('label'); opacityLabel.textContent='Opacity';
@@ -311,13 +308,11 @@ function mountPanel() {
   panel.addEventListener('change', applyTextField);
 
   const handleImageControl = e => {
-    const orientation=e.target.closest('[data-image-orientation]');
-    if(orientation){updateImage(orientation.dataset.imageOrientation,{orientation:orientation.value});persist();return;}
-  };
+      };
   panel.addEventListener('change', handleImageControl);
   panel.addEventListener('input', e => {
     const width=e.target.closest('[data-image-width]');
-    if(width){updateImage(width.dataset.imageWidth,{width:Number(width.value)});persist();return;}
+    if(width){const value=Math.max(1,Math.min(100,Number(width.value)||1));width.value=String(value);panel.querySelectorAll('[data-image-width]').forEach(el=>{if(el!==width&&el.dataset.imageWidth===width.dataset.imageWidth)el.value=String(value);});updateImage(width.dataset.imageWidth,{width:value});persist();return;}
     const orientation=e.target.closest('[data-image-orientation]');
     if(orientation){updateImage(orientation.dataset.imageOrientation,{orientation:orientation.value});persist();return;}
     const rotation=e.target.closest('[data-image-rotation]');
