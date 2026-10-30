@@ -2,6 +2,7 @@
  * FUMOCA Present Tab — all Present tools live in the Present sidebar section
  * Magazine text · Nav · Review video · Save / share (keeps text for viewer)
  */
+import { PresentationBase } from './presentation-base.js?v=20261030-base1';
 import {
   initMagazineText, addText, updateText, removeText, applyPreset, clearText,
   exportAll as exportMagazine, importAll as importMagazine, setEditable as setMagEditable,
@@ -12,6 +13,15 @@ import {
 } from './present-nav.js';
 
 const STORAGE_KEY = 'fumoca_present_v1';
+const BASE_DEFAULTS={enabled:false,shape:'circle',width:0.6,depth:0.6,height:0.06,gap:0.005,material:'wood',logoUrl:null,logoSize:0.32,logoRotation:0,logoOffset:0.002,showLightRing:true};
+let presentationBase=null,presentationBaseScene=null,baseConfig={...BASE_DEFAULTS};
+function scanBounds(){const S=window.S;if(!S?.positions?.length)return null;const xs=[],ys=[],zs=[],n=Math.floor(S.positions.length/3),stride=Math.max(1,Math.floor(n/30000));for(let i=0;i<n;i+=stride){if(S.alive&&!S.alive[i])continue;const x=S.positions[i*3],y=S.positions[i*3+1],z=S.positions[i*3+2];if(Number.isFinite(x)&&Number.isFinite(y)&&Number.isFinite(z)){xs.push(x);ys.push(y);zs.push(z);}}if(xs.length<3)return null;const q=(a,p)=>{a.sort((x,y)=>x-y);return a[Math.min(a.length-1,Math.floor((a.length-1)*p))];};return{minX:q(xs,.005),maxX:q(xs,.995),minY:q(ys,.005),maxY:q(ys,.995),minZ:q(zs,.005),maxZ:q(zs,.995)};}
+function ensurePresentationBase(){const scene=window._fumocaScene||window.scene;if(!scene||!window.THREE)throw new Error('The Studio 3D scene is not ready yet.');if(presentationBase&&presentationBaseScene!==scene){presentationBase.dispose();presentationBase=null;}if(!presentationBase){presentationBaseScene=scene;presentationBase=new PresentationBase(scene,baseConfig);presentationBase.assembly.visible=!!baseConfig.enabled;}return presentationBase;}
+function baseFormValues(){const root=document.getElementById('ptpBaseManager');if(!root)return{...baseConfig};const val=k=>root.querySelector('[data-base-field="'+k+'"]')?.value;const num=(k,d)=>Number.isFinite(Number(val(k)))?Number(val(k)):d;return{...baseConfig,shape:val('shape')||baseConfig.shape,material:val('material')||baseConfig.material,width:num('width',baseConfig.width),depth:num('depth',baseConfig.depth),height:num('height',baseConfig.height),gap:num('gap',baseConfig.gap),logoSize:num('logoSize',baseConfig.logoSize),logoRotation:num('logoRotation',baseConfig.logoRotation),logoOffset:num('logoOffset',baseConfig.logoOffset),showLightRing:root.querySelector('[data-base-field="showLightRing"]')?.checked??baseConfig.showLightRing};}
+function syncBaseForm(){const root=document.getElementById('ptpBaseManager');if(!root)return;Object.entries(baseConfig).forEach(([k,v])=>{const el=root.querySelector('[data-base-field="'+k+'"]');if(!el||k==='logoUrl'||k==='enabled')return;if(el.type==='checkbox')el.checked=!!v;else if(v!=null)el.value=String(v);});const status=root.querySelector('[data-base-status]');if(status)status.textContent=baseConfig.enabled?'Platform active · follows scan in 3D':'No platform in the scene yet';}
+function applyBaseForm(){baseConfig={...baseConfig,...baseFormValues()};const base=ensurePresentationBase();base.update({shape:baseConfig.shape,width:baseConfig.width,depth:baseConfig.depth,height:baseConfig.height,material:baseConfig.material,logoUrl:baseConfig.logoUrl,logoSize:baseConfig.logoSize,logoRotation:baseConfig.logoRotation,logoOffset:baseConfig.logoOffset,showLightRing:baseConfig.showLightRing});base.assembly.visible=!!baseConfig.enabled;persist();syncBaseForm();}
+function fitBaseToScan(){const bounds=scanBounds();if(!bounds){alert('Load a splat first. FUMOCA needs scan points to calculate the platform footprint.');return;}baseConfig={...baseConfig,...baseFormValues(),enabled:true};const base=ensurePresentationBase();const fitted=base.fitToBounds(bounds,{padding:0.04,gap:Math.max(0,Number(baseConfig.gap)||0)});baseConfig.width=fitted.width;baseConfig.depth=fitted.depth;base.assembly.visible=true;syncBaseForm();persist();}
+async function loadBaseLogo(file){if(!file||!/^image\/(png|jpeg|webp)$/.test(file.type)){alert('Please choose a PNG, JPG or WebP logo.');return;}try{const bitmap=await createImageBitmap(file),scale=Math.min(1,768/Math.max(bitmap.width,bitmap.height)),canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(bitmap.width*scale));canvas.height=Math.max(1,Math.round(bitmap.height*scale));canvas.getContext('2d').drawImage(bitmap,0,0,canvas.width,canvas.height);bitmap.close?.();let dataUrl=canvas.toDataURL('image/png');if(dataUrl.length>480000){const small=document.createElement('canvas');small.width=Math.round(canvas.width*.65);small.height=Math.round(canvas.height*.65);small.getContext('2d').drawImage(canvas,0,0,small.width,small.height);dataUrl=small.toDataURL('image/png');}if(dataUrl.length>480000)throw new Error('Logo is too large. Please use a smaller transparent PNG.');baseConfig.logoUrl=dataUrl;baseConfig.enabled=true;applyBaseForm();}catch(error){alert(error.message||'Could not load that logo.');}}
 
 function idKey() {
   const q = new URLSearchParams(location.search);
@@ -43,6 +53,7 @@ function saveLocal(data) {
 function payload() {
   return {
     magazine: exportMagazine(),
+    platformBase: { ...baseConfig },
     nav: exportStops(),
     reviewLayout: window.FumocaReviewVideo?.getLayout?.() || null,
     reviewUrl: (window.FumocaReviewVideo?.getSrc?.() && !String(window.FumocaReviewVideo.getSrc()).startsWith('blob:'))
@@ -81,6 +92,7 @@ function copyViewerLink() {
       nav: data.nav,
       reviewUrl: data.reviewUrl,
       reviewLayout: data.reviewLayout || 'stack',
+      platformBase: { ...data.platformBase, logoUrl: null },
     }))));
   } catch {
     json = '';
@@ -185,6 +197,18 @@ function mountPanel() {
   panel = document.createElement('div');
   panel.id = 'fumocaPresentTabPanel';
   panel.innerHTML = `
+        <div class="ptp-section" id="ptpBaseManager">
+      <div class="ptp-title">3D presentation platform</div><div class="ptp-hint">Adds a solid platform beneath the scan in the same 3D scene. It follows orbit and zoom without changing Gaussian points.</div>
+      <div class="ptp-row"><button type="button" data-base-act="fit" class="primary">Fit platform to scan</button><button type="button" data-base-act="toggle">Show / hide</button><button type="button" data-base-act="remove" class="ptp-danger">Remove</button></div>
+      <div class="ptp-base-grid">
+        <label>Shape<select data-base-field="shape"><option value="circle">Circle</option><option value="square">Square</option><option value="rectangle">Rectangle</option></select></label>
+        <label>Material<select data-base-field="material"><option value="wood">Wood</option><option value="black">Black</option><option value="white">White</option><option value="metal">Metal</option><option value="glass">Glass</option></select></label>
+        <label>Width (scan units)<input type="number" min="0.02" step="0.01" data-base-field="width"></label><label>Depth (scan units)<input type="number" min="0.02" step="0.01" data-base-field="depth"></label>
+        <label>Thickness<input type="number" min="0.005" step="0.005" data-base-field="height"></label><label>Gap below scan<input type="number" min="0" step="0.001" data-base-field="gap"></label>
+        <label>Logo size<input type="number" min="0.01" step="0.01" data-base-field="logoSize"></label><label>Logo rotation °<input type="number" step="1" data-base-field="logoRotation"></label><label>Logo clearance<input type="number" min="0.0005" step="0.0005" data-base-field="logoOffset"></label>
+      </div>
+      <div class="ptp-row"><button type="button" data-base-act="logo">Upload underside logo</button><button type="button" data-base-act="clear-logo">Clear logo</button><label><input type="checkbox" data-base-field="showLightRing"> Light ring</label><button type="button" data-base-act="apply" class="primary">Apply changes</button><input type="file" accept="image/png,image/jpeg,image/webp" data-base-file hidden></div>
+      <div class="ptp-status" data-base-status>No platform in the scene yet</div></div>
     <div class="ptp-section">
       <div class="ptp-title">Magazine cover text</div>
       <div class="ptp-row">
@@ -238,6 +262,9 @@ function mountPanel() {
   host.appendChild(panel);
   syncPresentActive();
 
+  const baseRoot=panel.querySelector('#ptpBaseManager');
+  baseRoot?.addEventListener('change',(e)=>{if(e.target.matches('[data-base-field]')){baseConfig={...baseConfig,...baseFormValues()};persist();}});
+  baseRoot?.querySelector('[data-base-file]')?.addEventListener('change',(e)=>{loadBaseLogo(e.target.files?.[0]);e.target.value='';});
   const applyTextField = (e) => {
     const field = e.target.closest?.('[data-text-id][data-text-field]');
     if (!field || !panel.contains(field)) return;
@@ -260,6 +287,15 @@ function mountPanel() {
   panel.addEventListener('change', applyTextField);
 
   panel.addEventListener('click', (e) => {
+    const baseAction=e.target.closest('[data-base-act]');
+    if(baseAction){const action=baseAction.dataset.baseAct;try{
+      if(action==='fit')fitBaseToScan();
+      if(action==='apply')applyBaseForm();
+      if(action==='toggle'){baseConfig={...baseConfig,...baseFormValues(),enabled:!baseConfig.enabled};const base=ensurePresentationBase();base.assembly.visible=baseConfig.enabled;persist();syncBaseForm();}
+      if(action==='remove'){presentationBase?.dispose();presentationBase=null;presentationBaseScene=null;baseConfig={...BASE_DEFAULTS};syncBaseForm();persist();}
+      if(action==='logo')baseRoot.querySelector('[data-base-file]')?.click();
+      if(action==='clear-logo'){baseConfig.logoUrl=null;if(presentationBase)presentationBase.setLogo(null);persist();}
+    }catch(error){console.error('[FUMOCA presentation base]',error);alert(error.message||'Could not update the platform.');}return;}
     const removeTextBtn = e.target.closest('button[data-remove-text]');
     if (removeTextBtn) { removeText(removeTextBtn.dataset.removeText); renderTextManager(); persist(); return; }
     const removeNavBtn = e.target.closest('button[data-remove-nav]');
@@ -355,11 +391,12 @@ export function initPresentTab() {
   });
   setMagEditable(true);
 
-  const saved = loadLocal();
+  const saved=loadLocal();
+  if(saved?.platformBase){baseConfig={...BASE_DEFAULTS,...saved.platformBase};try{if(baseConfig.enabled){const base=ensurePresentationBase();base.update(baseConfig);base.assembly.visible=true;}}catch(error){console.warn('[FUMOCA base] restore deferred',error);}}
   if (saved?.magazine?.length) importMagazine(saved.magazine);
   if (saved?.nav?.length) importStops(saved.nav);
 
-  const tryMount = () => { mountPanel(); renderNavManager(); renderTextManager(); };
+  const tryMount = () => { mountPanel(); renderNavManager(); renderTextManager(); syncBaseForm(); };
   tryMount();
   [500, 1200, 2500].forEach((t) => setTimeout(tryMount, t));
 
@@ -390,6 +427,9 @@ export function initPresentTab() {
     addText,
     removeNavStop,
     clearNavStops,
+    getPresentationBase: () => presentationBase,
+    fitPresentationBase: fitBaseToScan,
+    getPresentationBaseConfig: () => ({ ...baseConfig }),
   };
 }
 
