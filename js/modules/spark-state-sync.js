@@ -33,7 +33,7 @@ export function applyEditorStateToPackedSplats(mesh, state, indices = null, THRE
     // decoder stores x,y,z,w, matching THREE.Quaternion's constructor.
     if (state.rotation) {
       const o = i * 4;
-      if (state.fileType === 'splat') {
+      if (state.rotationOrder === 'xyzw' || (!state.rotationOrder && state.fileType !== 'ply')) {
         rotation.set(state.rotation[o], state.rotation[o + 1], state.rotation[o + 2], state.rotation[o + 3]);
       } else {
         rotation.set(state.rotation[o + 1], state.rotation[o + 2], state.rotation[o + 3], state.rotation[o]);
