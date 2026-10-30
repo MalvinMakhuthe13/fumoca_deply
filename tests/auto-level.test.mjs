@@ -4,7 +4,7 @@ import { estimateLevelNormal } from '../js/modules/auto-level.js';
 const expected = [0.31, 0.88, -0.36];
 const norm = Math.hypot(...expected);
 const n = expected.map(v => v / norm);
-const u = [n[1], -n[0], 0];
+let u = [n[1], -n[0], 0];
 let ul = Math.hypot(...u); u = u.map(v => v / ul);
 const v = [n[1]*u[2]-n[2]*u[1], n[2]*u[0]-n[0]*u[2], n[0]*u[1]-n[1]*u[0]];
 const positions = [];
