@@ -3152,42 +3152,60 @@ function _refreshGaussianEllipsoidOverlay() {
   const live=[];
   for(let i=0;i<S.alive.length;i++) if(S.alive[i] && !S.layerHidden?.[i]) live.push(i);
   if(!live.length)return;
-  // Keep the diagnostic overlay interactive on large scans. Deterministic
-  // sampling preserves spatial coverage while avoiding tens of thousands
-  // of wireframe draw instances in the editor.
-  const maxInstances=6000, step=Math.max(1,Math.ceil(live.length/maxInstances));
+
+  // SuperSplat-style inspection: draw smooth elliptical section rings, not
+  // a triangulated wireframe sphere. Each Gaussian gets three orthogonal
+  // rings, rotated by its stored covariance quaternion.
+  const maxInstances=1800,step=Math.max(1,Math.ceil(live.length/maxInstances));
   const indices=live.filter((_,k)=>k%step===0);
-  const geometry=new THREE.SphereGeometry(1,12,8);
-  const material=new THREE.MeshBasicMaterial({
-    color:0xf4a36b,wireframe:true,transparent:true,opacity:.48,
-    depthWrite:false,toneMapped:false
-  });
-  const mesh=new THREE.InstancedMesh(geometry,material,indices.length);
-  mesh.name='FUMOCA Gaussian ellipsoid inspection overlay';
-  mesh.frustumCulled=false;
-  const position=new THREE.Vector3(),scale=new THREE.Vector3(),quaternion=new THREE.Quaternion();
-  const matrix=new THREE.Matrix4();
-  for(let k=0;k<indices.length;k++){
-    const i=indices[k],o=i*3;
-    position.set(S.positions[o],S.positions[o+1],S.positions[o+2]);
-    const sx=Math.max(1e-5,S.scaleXYZ?.[o] || S.scale?.[i] || .01);
-    const sy=Math.max(1e-5,S.scaleXYZ?.[o+1] || S.scale?.[i] || .01);
-    const sz=Math.max(1e-5,S.scaleXYZ?.[o+2] || S.scale?.[i] || .01);
-    scale.set(sx*2.5,sy*2.5,sz*2.5);
+  const segments=48,ringCount=3,verticesPerGaussian=segments*ringCount*2;
+  const positions=new Float32Array(indices.length*verticesPerGaussian*3);
+  let cursor=0;
+  const qv=new THREE.Vector3(),center=new THREE.Vector3(),rotation=new THREE.Quaternion();
+  for(const i of indices){
+    const o=i*3;
+    center.set(S.positions[o],S.positions[o+1],S.positions[o+2]);
+    const sx=Math.max(1e-6,S.scaleXYZ?.[o] ?? S.scale?.[i] ?? .01);
+    const sy=Math.max(1e-6,S.scaleXYZ?.[o+1] ?? S.scale?.[i] ?? .01);
+    const sz=Math.max(1e-6,S.scaleXYZ?.[o+2] ?? S.scale?.[i] ?? .01);
+    const radii=[sx*2,sy*2,sz*2];
     if(S.rotation){
       const q=i*4;
-      if(S.rotationOrder==='xyzw') quaternion.set(S.rotation[q],S.rotation[q+1],S.rotation[q+2],S.rotation[q+3]);
-      else quaternion.set(S.rotation[q+1],S.rotation[q+2],S.rotation[q+3],S.rotation[q]);
-      if(quaternion.lengthSq()>1e-10)quaternion.normalize();else quaternion.identity();
-    } else quaternion.identity();
-    matrix.compose(position,quaternion,scale);
-    mesh.setMatrixAt(k,matrix);
+      if(S.rotationOrder==='xyzw') rotation.set(S.rotation[q],S.rotation[q+1],S.rotation[q+2],S.rotation[q+3]);
+      else rotation.set(S.rotation[q+1],S.rotation[q+2],S.rotation[q+3],S.rotation[q]);
+      if(rotation.lengthSq()>1e-10)rotation.normalize();else rotation.identity();
+    }else rotation.identity();
+    const rings=[
+      [0,1,2], // XY
+      [0,2,1], // XZ
+      [1,2,0]  // YZ
+    ];
+    for(const [a,b] of rings){
+      for(let j=0;j<segments;j++){
+        const t=j/segments*Math.PI*2,next=(j+1)/segments*Math.PI*2;
+        for(const angle of [t,next]){
+          qv.set(
+            a===0?Math.cos(angle)*radii[a]:b===0?Math.sin(angle)*radii[b]:0,
+            a===1?Math.cos(angle)*radii[a]:b===1?Math.sin(angle)*radii[b]:0,
+            a===2?Math.cos(angle)*radii[a]:b===2?Math.sin(angle)*radii[b]:0
+          ).applyQuaternion(rotation).add(center);
+          positions[cursor++]=qv.x;positions[cursor++]=qv.y;positions[cursor++]=qv.z;
+        }
+      }
+    }
   }
-  mesh.instanceMatrix.needsUpdate=true;
-  scene.add(mesh);
-  _gaussianEllipsoidOverlay=mesh;
+  const geometry=new THREE.BufferGeometry();
+  geometry.setAttribute('position',new THREE.BufferAttribute(positions,3));
+  const material=new THREE.LineBasicMaterial({
+    color:0xf4a36b,transparent:true,opacity:.72,
+    depthWrite:false,toneMapped:false
+  });
+  const lines=new THREE.LineSegments(geometry,material);
+  lines.name='FUMOCA Gaussian ellipsoid inspection rings';
+  lines.frustumCulled=false;
+  scene.add(lines);
+  _gaussianEllipsoidOverlay=lines;
 }
-
 function rebuildGeometry() {
 
   window.rebuildGeometry = rebuildGeometry; // keep window ref up to date
