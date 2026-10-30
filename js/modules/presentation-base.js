@@ -182,7 +182,7 @@ export class PresentationBase {
       const mesh = new THREE.Mesh(geometry, material);
       // Plane's +Z normal rotated +90° around X points down (-Y).
       mesh.rotation.x = Math.PI / 2;
-      mesh.rotation.z = THREE.MathUtils.degToRad(Number(o.logoRotation) || 0);
+      mesh.rotation.y = THREE.MathUtils.degToRad(Number(o.logoRotation) || 0);
       mesh.position.y = (Number(o.platformY) || 0) - o.height / 2 - Math.max(0.0005, Number(o.logoOffset) || 0.002);
       mesh.name = 'UndersideBranding';
       mesh.renderOrder = 2;
