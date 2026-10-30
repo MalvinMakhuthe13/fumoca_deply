@@ -19,7 +19,8 @@ function idFromPage() {
 
 let restoredBase=null,restoredBaseScene=null;
 function restorePresentationBase(data){
-  const config=data?.platformBase;if(!config?.enabled)return;
+  const config=data?.platformBase;
+  if(!config?.enabled){restoredBase?.dispose?.();restoredBase=null;restoredBaseScene=null;return;}
   const scene=window._fumocaViewerScene||window._fumocaViewer?.scene||null;if(!scene)return;
   if(restoredBase&&restoredBaseScene===scene){restoredBase.update(config);restoredBase.assembly.visible=true;return;}
   restoredBase?.dispose?.();restoredBaseScene=scene;restoredBase=new PresentationBase(scene,config);restoredBase.assembly.visible=true;
