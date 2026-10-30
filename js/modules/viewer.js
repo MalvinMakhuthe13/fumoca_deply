@@ -1484,12 +1484,14 @@ function destroyPlyViewer() {
   if (_plyFrame) { cancelAnimationFrame(_plyFrame); _plyFrame = null; }
   if (_plyRenderer) { _plyRenderer.dispose(); _plyRenderer.domElement.remove(); _plyRenderer = null; }
   _plyAttributeControl?.remove(); _plyAttributeControl = null;
+  if (window._fumocaViewerScene === _plyScene) delete window._fumocaViewerScene;
   _plyScene = _plyCamera = _plyControls = null;
 }
 async function mountPlyViewer(url) {
   destroyPlyViewer();
   const container = stageHost || stageEl;
   _plyScene = new THREE.Scene();
+  window._fumocaViewerScene = _plyScene;
   _plyCamera = new THREE.PerspectiveCamera(55, container.clientWidth / container.clientHeight, 0.001, 2000);
   // nerfstudio/COLMAP uses OpenCV convention: Y is DOWN, Z into scene.
   // Match the Gaussiannif_files3D cameraUp of [0,-1,-0.6] so nif_files sit upright.
@@ -1765,6 +1767,7 @@ function mountDecodedCloud(g) {
   container.style.setProperty('opacity', '1', 'important');
   document.body?.classList.remove('media-flat');
   _plyScene = new THREE.Scene();
+  window._fumocaViewerScene = _plyScene;
   _plyCamera = new THREE.PerspectiveCamera(50, 1, Math.max(0.01, radius / 200), radius * 80);
   _plyCamera.up.set(0, 1, 0);
   _plyRenderer = new THREE.WebGLRenderer({ antialias: false, alpha: false, powerPreference: 'high-performance' });
@@ -1860,6 +1863,7 @@ async function mountPublishedSparkPly(url) {
   const bytes = new Uint8Array(await response.arrayBuffer());
   const { SplatMesh, SparkRenderer } = await import('@sparkjsdev/spark');
   _plyScene = new THREE.Scene();
+  window._fumocaViewerScene = _plyScene;
   _plyCamera = new THREE.PerspectiveCamera(55, Math.max(1, container.clientWidth) / Math.max(1, container.clientHeight), 0.001, 2000);
   _plyCamera.up.set(0, -1, -0.6).normalize();
   _plyRenderer = new THREE.WebGLRenderer({ antialias: false, alpha: true, powerPreference: 'high-performance' });
