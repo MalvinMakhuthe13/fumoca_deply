@@ -3485,7 +3485,7 @@ function deleteSelected() {
   showToast('Deleted', `${fmt(del)} points removed`);
 }
 
-function selectSubjectAtScreen(x, y, radius = 48) {
+function selectSubjectAtScreen(x, y, radius = 48, additive = false) {
   if (!S.positions || !S.alive?.length || !S.points) return false;
   const rect=viewport.getBoundingClientRect();
   // Use the same actual rendered-point raycast as measurement. This gives us
@@ -3496,7 +3496,7 @@ function selectSubjectAtScreen(x, y, radius = 48) {
   if(!Number.isInteger(seed)||seed<0||!S.alive[seed]||S.layerHidden?.[seed])return false;
 
   const layer=(S.layers||[]).find(L=>L.visible!==false&&L.mask?.[seed]);
-  S.selected.fill(0);
+  if(!additive) S.selected.fill(0);
   let hits=0;
   if(layer){
     S.activeLayerId=layer.id;
@@ -3554,7 +3554,7 @@ function selectSubjectAtScreen(x, y, radius = 48) {
   }
   if(!hits){S.selected.fill(0);return false;}
   renderLayers();rebuildGeometry();refreshTransformSourceMap();syncTransformGizmo();
-  setStatus(layer?`Selected layer (${fmt(hits)} points)`:`Selected depth-bounded connected region (${fmt(hits)} points). Extend with brush/lasso if needed.`,'ok');
+  setStatus(layer?`Selected layer (${fmt(selectedPointCount())} total points)`:`${additive?'Added':'Selected'} depth-bounded region (${fmt(hits)} points; ${fmt(selectedPointCount())} total). Shift-click other fabric panels to add them without losing this selection.`,'ok');
   return true;
 }
 function selectByBox(x0, y0, x1, y1) {
@@ -4540,7 +4540,7 @@ window.addEventListener('pointerup', e => {
   if (!start || start.id !== e.pointerId || S.mode !== 'orbit') return;
   if (Math.hypot(e.clientX-start.x,e.clientY-start.y) > 7) return;
   const {x,y} = _vpCoords(e);
-  if (selectSubjectAtScreen(x,y,48)) { refreshTransformSourceMap(); syncTransformGizmo(); }
+  if (selectSubjectAtScreen(x,y,48,e.shiftKey)) { refreshTransformSourceMap(); syncTransformGizmo(); }
 }, true);
 
 renderer.domElement.addEventListener('pointerdown', e => {
