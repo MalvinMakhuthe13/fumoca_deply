@@ -3,7 +3,7 @@
  */
 import { initMagazineText, importAll as importMagazine } from './present-magazine-text.js';
 import { initPresentNav, setNavStops } from './present-nav.js';
-import { PresentationBase } from './presentation-base.js?v=20261030-base3';
+import { PresentationBase } from './presentation-base.js?v=20261030-base4';
 import * as THREE from 'three';
 
 function b64Json(s) {
