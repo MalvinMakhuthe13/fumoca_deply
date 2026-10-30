@@ -241,8 +241,8 @@ h2 { font-size: 13px; font-weight: 600; letter-spacing: .04em; text-transform: u
       <input type="range" id="edge" min="0" max="80" value="20" step="2">
     </div>
     <div class="slider-row">
-      <label>Position Y <span id="yVal">-120 mm</span></label>
-      <input type="range" id="posY" min="-300" max="50" value="-120" step="5">
+      <label>Platform gap <span id="yVal">2 mm</span></label>
+      <input type="range" id="posY" min="0" max="40" value="2" step="1">
     </div>
 
     <h2>Material</h2>
@@ -404,7 +404,7 @@ function apply() {
   const width = parseFloat(document.getElementById('width').value) / 1000;
   const height = parseFloat(document.getElementById('height').value) / 1000;
   const edge = parseFloat(document.getElementById('edge').value) / 1000;
-  const posY = parseFloat(document.getElementById('posY').value) / 1000;
+  const gap = parseFloat(document.getElementById('posY').value) / 1000;
   const logoSize = parseFloat(document.getElementById('logoSize').value) / 1000;
   const logoRot = parseFloat(document.getElementById('logoRot').value);
   const logoOff = parseFloat(document.getElementById('logoOff').value) / 1000;
@@ -416,12 +416,19 @@ function apply() {
   base.assembly.visible = enabled;
   if (!enabled) return;
 
-  base.setDimensions({ width, depth: shape === 'rectangle' ? width * 0.7 : width, height, edgeRadius: edge });
-  base.setShape(shape);
-  base.setMaterial(material);
-  base.setPositionY(posY);
-  base.setLogo(logoUrl, logoSize, logoRot, logoOff);
-  objectGroup.position.y = Math.max(0, -posY + height / 2 + 0.02);
+  // One update for all platform and branding controls, then fit the solid base
+  // to the actual sample object bounds without moving or editing the object.
+  base.update({
+    shape, width, depth: shape === 'rectangle' ? width * 0.7 : width,
+    height, edgeRadius: edge, material,
+    logoUrl, logoSize, logoRotation: logoRot, logoOffset: Math.max(0.0005, Math.abs(logoOff))
+  });
+  base.fitToObject(objectGroup, {
+    width,
+    depth: shape === 'rectangle' ? width * 0.7 : width,
+    padding: 0.04,
+    gap
+  });
   updateLabels();
 }
 
