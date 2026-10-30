@@ -141,7 +141,7 @@ function renderImageManager() {
     const card=document.createElement('div'); card.className='ptp-text-item';
     const title=document.createElement('div'); title.className='ptp-text-heading'; title.textContent=(index+1)+'. '+(item.name||'Image layer');
     const row=document.createElement('div'); row.className='ptp-row';
-    const anchor=document.createElement('button'); anchor.type='button'; anchor.dataset.anchorImage=item.id; anchor.textContent=item.mode==='world'?'Re-anchor to splat':'Anchor to splat';
+    const anchor=document.createElement('button'); anchor.type='button'; anchor.dataset.anchorImage=item.id; anchor.textContent=item.mode==='world'?'Reposition 3D decal':'Attach to 3D surface';
     const remove=document.createElement('button'); remove.type='button'; remove.dataset.removeImage=item.id; remove.className='ptp-danger'; remove.textContent='Remove';
     row.append(anchor,remove);
     const controls=document.createElement('div'); controls.className='ptp-image-fields';
@@ -151,7 +151,7 @@ function renderImageManager() {
     const opacityLabel=document.createElement('label'); opacityLabel.textContent='Opacity';
     const opacity=document.createElement('input'); opacity.type='range'; opacity.min='10'; opacity.max='100'; opacity.step='1'; opacity.value=String(Math.round((item.opacity??1)*100)); opacity.dataset.imageOpacity=item.id;
     opacityLabel.appendChild(opacity);
-    const mode=document.createElement('div'); mode.className='ptp-image-mode'; mode.textContent=item.mode==='world'?'3D anchored · follows camera orbit':'Screen layer · fixed to composition';
+    const mode=document.createElement('div'); mode.className='ptp-image-mode'; mode.textContent=item.mode==='world'?'3D surface decal · attached to the scan':'Screen graphic · fixed to composition';
     controls.append(widthLabel,opacityLabel,mode);
     card.append(title,row,controls); root.appendChild(card);
   });
@@ -230,7 +230,7 @@ function mountPanel() {
       <div class="ptp-title">Image & logo layers</div>
       <div class="ptp-row"><button type="button" data-act="add-image" class="primary">＋ Add logo / image</button><button type="button" data-act="cancel-image">Cancel placement</button></div>
       <input id="ptpImageFile" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" style="display:none"/>
-      <div class="ptp-hint">Upload a transparent PNG or other image. Drag it into position, or select “Anchor to splat” and click a visible Gaussian point so it follows that 3D location as you orbit.</div>
+      <div class="ptp-hint">Upload a transparent PNG or other image. Screen graphics stay fixed to the composition. Choose “Attach to 3D surface” and click a visible, reasonably flat area of the scan to place a real 3D decal.</div>
       <div id="ptpImageManager"></div>
     </div>
     <div class="ptp-section">
@@ -310,7 +310,7 @@ function mountPanel() {
   });
   panel.addEventListener('click', (e) => {
     const anchor=e.target.closest('button[data-anchor-image]');
-    if(anchor){armWorldPlacement(anchor.dataset.anchorImage);alert('Click a visible point on the splat to anchor this image.');return;}
+    if(anchor){armWorldPlacement(anchor.dataset.anchorImage);return;}
     const removeImageBtn=e.target.closest('button[data-remove-image]');
     if(removeImageBtn){removeImage(removeImageBtn.dataset.removeImage);renderImageManager();persist();return;}
 
