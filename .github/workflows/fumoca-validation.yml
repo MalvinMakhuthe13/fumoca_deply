@@ -25,6 +25,8 @@ jobs:
         run: test -s docs/PLATFORM_INTEGRATION_AUDIT.md && grep -q "Acceptance gates for a clean release" docs/PLATFORM_INTEGRATION_AUDIT.md
       - name: Check Studio JavaScript syntax
         run: node --check js/modules/image-to-splat-studio.js
+      - name: Check Presentation Platform module
+        run: node --input-type=module --check < js/modules/presentation-platform.js
       - name: Check Gaussian editing modules
         run: |
           node --input-type=module --check < js/modules/spark-gaussian-view.js
