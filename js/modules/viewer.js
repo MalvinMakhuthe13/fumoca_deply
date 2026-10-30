@@ -2841,6 +2841,10 @@ function _fumocaExposeViewerBridge() {
       'cameraController.camera',
       'sceneHelper.camera',
     ]);
+    const scene = _fumocaPick(viewerInstance, [
+      'scene', 'threeScene', 'sceneHelper.scene', 'renderer.scene', 'splatMesh.scene',
+    ]);
+    if (scene?.isScene) window._fumocaViewerScene = scene;
     const controls = _fumocaPick(viewerInstance, [
       'controls',
       'orbitControls',
@@ -2851,6 +2855,7 @@ function _fumocaExposeViewerBridge() {
     if (controls) window._fumocaViewerControls = controls;
     window._fumocaViewer = {
       viewer: viewerInstance || null,
+      scene: window._fumocaViewerScene || null,
       camera: window._fumocaViewerCamera || null,
       controls: window._fumocaViewerControls || null,
       stage: stageHost || stageEl || null,
