@@ -145,6 +145,10 @@ jobs:
         run: |
           node --input-type=module --check < js/modules/auto-level.js
           node --experimental-default-type=module tests/auto-level.test.mjs
+      - name: Test non-destructive support-plane analysis
+        run: |
+          node --input-type=module --check < js/modules/support-plane.js
+          node --experimental-default-type=module tests/support-plane.test.mjs
       - name: Test live Spark Gaussian state synchronization
         run: |
           node --input-type=module --check < js/modules/spark-state-sync.js
