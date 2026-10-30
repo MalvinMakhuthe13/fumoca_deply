@@ -1851,6 +1851,48 @@ function mountDecodedCloud(g) {
 // High-fidelity published path: render the edited companion Gaussian PLY with
 // Spark, matching the editor renderer instead of flattening NIF geometry to legacy .splat rows.
 let _publishedSparkRenderer = null, _publishedSparkMesh = null;
+let _publishedPlatformGroup = null;
+function mountPublishedPresentationPlatform(bounds) {
+  if (_publishedPlatformGroup && _plyScene) {
+    _plyScene.remove(_publishedPlatformGroup);
+    _publishedPlatformGroup.traverse(o => { o.geometry?.dispose?.(); if (o.material) (Array.isArray(o.material)?o.material:[o.material]).forEach(m=>{m.map?.dispose?.();m.dispose?.();}); });
+    _publishedPlatformGroup = null;
+  }
+  const cfg = currentRecord?.meta?.presentationPlatform;
+  if (!cfg?.enabled || !_plyScene) return;
+  const unit = Math.max(bounds.getSize(new THREE.Vector3()).x,bounds.getSize(new THREE.Vector3()).y,bounds.getSize(new THREE.Vector3()).z,0.1)/400;
+  const width = Math.max(0.01,(Number(cfg.width)||600)*unit);
+  const depth = (cfg.shape==='circle'||cfg.shape==='square') ? width : width*.72;
+  const thick = Math.max(0.002,(Number(cfg.height)||80)*unit);
+  const radius = Math.max(0,Math.min((Number(cfg.edge)||20)*unit,Math.min(width,depth)*.48));
+  const makeShape = () => {
+    const sh = new THREE.Shape(), x=-width/2, y=-depth/2;
+    if (cfg.shape==='circle') { sh.absarc(0,0,width/2,0,Math.PI*2,false); return sh; }
+    const r = cfg.shape==='square' ? 0 : radius;
+    sh.moveTo(x+r,y);sh.lineTo(x+width-r,y);sh.quadraticCurveTo(x+width,y,x+width,y+r);
+    sh.lineTo(x+width,y+depth-r);sh.quadraticCurveTo(x+width,y+depth,x+width-r,y+depth);
+    sh.lineTo(x+r,y+depth);sh.quadraticCurveTo(x,y+depth,x,y+depth-r);
+    sh.lineTo(x,y+r);sh.quadraticCurveTo(x,y,x+r,y);return sh;
+  };
+  const group = new THREE.Group();group.name='FUMOCA Published Presentation Platform';
+  let material;
+  if(cfg.material==='black') material=new THREE.MeshStandardMaterial({color:0x101216,roughness:.28,metalness:.42});
+  else if(cfg.material==='white') material=new THREE.MeshStandardMaterial({color:0xe9edf0,roughness:.32,metalness:.08});
+  else if(cfg.material==='metal') material=new THREE.MeshStandardMaterial({color:0x9ba7b0,roughness:.22,metalness:.88});
+  else if(cfg.material==='glass') material=new THREE.MeshPhysicalMaterial({color:0xb9e6ee,roughness:.08,metalness:.12,transmission:.55,transparent:true,opacity:.72,thickness:.2});
+  else material=new THREE.MeshStandardMaterial({color:0x80502b,roughness:.62,metalness:.04});
+  const topGeo=new THREE.ExtrudeGeometry(makeShape(),{depth:thick,bevelEnabled:true,bevelSegments:3,steps:1,bevelSize:Math.min(radius*.35,thick*.18),bevelThickness:Math.min(radius*.35,thick*.18),curveSegments:48});
+  topGeo.rotateX(-Math.PI/2);
+  const top=new THREE.Mesh(topGeo,material);top.name='Platform top';top.castShadow=true;top.receiveShadow=true;group.add(top);
+  const bodyGeo=new THREE.ExtrudeGeometry(makeShape(),{depth:thick*1.5,bevelEnabled:false,curveSegments:48});bodyGeo.rotateX(-Math.PI/2);
+  const body=new THREE.Mesh(bodyGeo,new THREE.MeshStandardMaterial({color:0x111318,metalness:.72,roughness:.28}));body.position.y=-thick*1.5;body.name='Pedestal body';group.add(body);
+  if(cfg.led!==false){const ring=new THREE.Mesh(new THREE.TorusGeometry(width*.485,Math.max(thick*.035,.003),8,96),new THREE.MeshBasicMaterial({color:0xffc96b}));ring.rotation.x=Math.PI/2;ring.position.y=-thick*.58;group.add(ring);}
+  if(typeof cfg.logoDataUrl==='string'&&cfg.logoDataUrl.startsWith('data:image/')){
+    const image=new Image();image.onload=()=>{if(_publishedPlatformGroup!==group)return;const tex=new THREE.Texture(image);tex.colorSpace=THREE.SRGBColorSpace;tex.needsUpdate=true;const logoSize=width*(Math.max(20,Math.min(600,Number(cfg.logoSize)||400))/600);const logo=new THREE.Mesh(new THREE.PlaneGeometry(logoSize,logoSize),new THREE.MeshBasicMaterial({map:tex,transparent:true,side:THREE.DoubleSide,depthWrite:false}));logo.rotation.x=Math.PI/2;logo.rotation.z=(Number(cfg.logoRotation)||0)*Math.PI/180;logo.position.y=-thick*1.7+(Number(cfg.logoOffset)||0)*unit;logo.name='Underside brand logo';group.add(logo);};image.src=cfg.logoDataUrl;
+  }
+  group.position.set(bounds.getCenter(new THREE.Vector3()).x,bounds.min.y-thick+(Number(cfg.offsetY)||0)*unit,bounds.getCenter(new THREE.Vector3()).z);
+  group.visible=cfg.enabled!==false;_plyScene.add(group);_publishedPlatformGroup=group;
+}
 async function mountPublishedSparkPly(url) {
   destroyPlyViewer();
   const container = stageHost || stageEl;
@@ -1884,6 +1926,7 @@ async function mountPublishedSparkPly(url) {
   const bounds = new THREE.Box3().setFromBufferAttribute(position);
   const center = bounds.getCenter(new THREE.Vector3());
   const radius = Math.max(bounds.getBoundingSphere(new THREE.Sphere()).radius, 0.01);
+  mountPublishedPresentationPlatform(bounds);
   _plyCamera.position.set(center.x, center.y + radius * 0.35, center.z + radius * 2.3);
   _plyCamera.lookAt(center);
   _plyControls = new TrackballControls(_plyCamera, _plyRenderer.domElement);
