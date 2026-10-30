@@ -4966,6 +4966,7 @@ $('levelSubjectBtn')?.addEventListener('click',()=>{
   window.FumocaGaussianRenderer?.invalidateSort();rebuildGeometry();_refreshSceneReference(true);syncTransformGizmo();renderMeasurementList();renderMeasurementOverlay();
   showToast('Subject leveled',`Aligned its thinnest principal axis to Y-up (${THREE.MathUtils.radToDeg(angle).toFixed(1)}° correction). Undo restores the prior orientation.`,'ok');
 });
+$('transformLevelSplatBtn')?.addEventListener('click',()=> $('levelSubjectBtn')?.click());
 $('centerSubjectBtn')?.addEventListener('click',()=>{
   if(!S.positions||!S.alive)return;
   const pivot=S.pivot||controls.target,delta=pivot.clone().negate();
