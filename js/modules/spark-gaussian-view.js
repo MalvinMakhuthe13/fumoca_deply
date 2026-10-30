@@ -1,3 +1,4 @@
+import { applyEditorStateToPackedSplats } from './spark-state-sync.js';
 /**
  * FUMOCA Spark Gaussian View + editor bridge.
  * Spark renders the original Gaussian data; FUMOCA remains the source of truth
@@ -6,7 +7,6 @@
 const SparkGaussianView = (() => {
   let _spark = null, _mesh = null, _overlay = null;
   let _enabled = false, _loading = false, _syncQueued = false;
-  let _gesturePreview = false, _pendingGestureState = null;
   let _originalBytes = null, _lastStateSignature = '';
   let _lastFileName = 'export.ply';
 
@@ -37,8 +37,7 @@ const SparkGaussianView = (() => {
 
   function _hideLegacy() {
     const pts = _pointsObject();
-    if (pts) pts.visible = !_enabled || _gesturePreview;
-    if (_mesh) _mesh.visible = !_gesturePreview;
+    if (pts) pts.visible = !_enabled;
   }
 
   function _updateSelectionOverlay(state = window.S) {
@@ -122,19 +121,25 @@ const SparkGaussianView = (() => {
   }
 
   function _stateSignature(state) {
-    // Compact hash avoids retaining a giant string for every point in the scene.
-    let h1 = 2166136261, h2 = 0;
+    // Include every Gaussian property that the editor can change. Position-only
+    // signatures silently dropped rotation, scale and opacity edits.
+    let hash = 2166136261;
+    const mix = value => { hash = Math.imul(hash ^ (value | 0), 16777619); };
+    mix(state.alive.length);
     for (let i = 0; i < state.alive.length; i++) {
-      h1 = Math.imul(h1 ^ (state.alive[i] ? 1 : 0), 16777619);
-      if (state.alive[i]) {
-        for (let k=0;k<3;k++) {
-          const v = Math.fround(state.positions[i*3+k]);
-          const n = Number.isFinite(v) ? Math.round(v * 100000) : 0;
-          h2 = Math.imul(h2 ^ n, 16777619);
+      mix(state.alive[i] ? 1 : 0);
+      const arrays = [state.positions, state.scaleXYZ, state.rotation, state.opacity, state.colors];
+      for (const array of arrays) {
+        if (!array) { mix(0); continue; }
+        const stride = array === state.positions || array === state.scaleXYZ || array === state.colors ? 3
+          : array === state.rotation ? 4 : 1;
+        for (let k = 0; k < stride; k++) {
+          const value = Number(array[i * stride + k] ?? 0);
+          mix(Number.isFinite(value) ? Math.round(Math.fround(value) * 100000) : 0);
         }
       }
     }
-    return state.alive.length + ':' + (h1 >>> 0) + ':' + (h2 >>> 0);
+    return state.alive.length + ':' + (hash >>> 0);
   }
 
   function _makeEditedBytes(state) {
@@ -181,83 +186,60 @@ const SparkGaussianView = (() => {
     await _ensureSpark();
     const scene = _scene();
     const { SplatMesh } = await import('@sparkjsdev/spark');
-    if (_mesh) { scene.remove(_mesh); _mesh.dispose?.(); _mesh = null; }
     const fileBytes = bytes instanceof Uint8Array ? new Uint8Array(bytes) : new Uint8Array(bytes.slice ? bytes.slice(0) : bytes);
-    _mesh = new SplatMesh({ fileBytes, fileName, enableLod: false, onLoad: () => console.info('[FUMOCA] Spark Gaussian data loaded:', fileName) });
-    _mesh.name = 'fumoca-spark-splat';
-    scene.add(_mesh);
-    if (_mesh.initialized) await _mesh.initialized;
-    return _mesh;
-  }
-
-  async function syncEditorState(state = window.S) {
-    if (!_enabled || !_originalBytes || !state?.alive || !state?.positions || _loading) return false;
-    const signature = _stateSignature(state);
-    _updateSelectionOverlay(state);
-    _hideLegacy();
-    if (signature === _lastStateSignature) return true;
-    _loading = true;
+    const previous = _mesh;
+    const candidate = new SplatMesh({
+      fileBytes, fileName, enableLod: false,
+      onLoad: () => console.info('[FUMOCA] Spark Gaussian data loaded:', fileName)
+    });
+    candidate.name = 'fumoca-spark-splat';
+    candidate.visible = false;
+    scene.add(candidate);
     try {
-      const edited = _makeEditedBytes(state);
-      await loadFromBytes(edited, _lastFileName);
-      _lastStateSignature = signature;
-      console.info('[FUMOCA] Spark synced with editor state', {
-        originalCount: state.alive.length,
-        remaining: state.alive.reduce((n,v)=>n+(v?1:0),0)
-      });
-      return true;
+      await candidate.initialized;
+      // Swap only after Spark has completely decoded the replacement. A failed
+      // load must never remove the last known-good visible mesh.
+      candidate.visible = true;
+      _mesh = candidate;
+      if (previous) { scene.remove(previous); previous.dispose?.(); }
+      return candidate;
     } catch (error) {
-      console.error('[FUMOCA] Spark editor sync refused to apply changes safely', error);
+      scene.remove(candidate);
+      candidate.dispose?.();
+      throw error;
+    }
+  }
+
+  function syncEditorState(state = window.S, indices = null) {
+    if (!_enabled || !_mesh || !state?.alive || !state?.positions) return false;
+    _updateSelectionOverlay(state);
+    const result = applyEditorStateToPackedSplats(_mesh, state, indices, window.THREE);
+    if (!result.ok) {
+      console.error('[FUMOCA] Live Spark update rejected:', result.reason);
       return false;
-    } finally {
-      _loading = false;
-      _hideLegacy();
-      _updateSelectionOverlay(state);
-      if (_pendingGestureState) Promise.resolve().then(_flushPendingGesture);
     }
-  }
-
-  function beginEditorGesture() {
-    if (!_enabled) return false;
-    _pendingGestureState = null;
-    _gesturePreview = true;
-    _hideLegacy();
+    _lastStateSignature = _stateSignature(state);
     return true;
   }
 
-  async function _flushPendingGesture() {
-    if (!_pendingGestureState || _loading || !_enabled) return false;
-    const state = _pendingGestureState;
-    _pendingGestureState = null;
-    // Keep the live editor geometry visible while Spark rebuilds the edited PLY.
-    const synced = await syncEditorState(state);
-    if (synced) {
-      _gesturePreview = false;
-      _hideLegacy();
-    }
-    return synced;
-  }
-
-  function endEditorGesture(state = window.S) {
-    if (!_enabled) return false;
-    _pendingGestureState = state;
-    if (!_loading) _flushPendingGesture();
-    return true;
+  // Kept as compatibility hooks for edit.html. They no longer swap renderers:
+  // Spark stays visible and receives the same live data as the editor changes.
+  function beginEditorGesture() { return _enabled; }
+  function endEditorGesture(state = window.S) { return syncEditorState(state); }
+  function updateEditorStateLive(state = window.S, indices = null) {
+    return syncEditorState(state, indices);
   }
 
   function refreshEditorState(state = window.S) {
     if (!_enabled || !state) return;
-    _hideLegacy();
     _updateSelectionOverlay(state);
-    // Do not rebuild/reload Spark from intermediate pointer-move states.
-    // The gesture end commits one final state atomically.
-    if (_gesturePreview || _pendingGestureState) return;
     if (_syncQueued) return;
     _syncQueued = true;
     requestAnimationFrame(() => {
       _syncQueued = false;
-      if (_gesturePreview || _pendingGestureState) return;
-      syncEditorState(state);
+      if (!_enabled) return;
+      const signature = _stateSignature(state);
+      if (signature !== _lastStateSignature) syncEditorState(state);
     });
   }
 
@@ -296,8 +278,6 @@ const SparkGaussianView = (() => {
 
   function disable() {
     _enabled = false;
-    _gesturePreview = false;
-    _pendingGestureState = null;
     _hideLegacy();
     if (_overlay) { try { _scene()?.remove(_overlay); _overlay.geometry?.dispose?.(); _overlay.material?.dispose?.(); } catch (_) {} _overlay = null; }
     if (_mesh) { try { _scene()?.remove(_mesh); _mesh.dispose?.(); } catch (_) {} _mesh = null; }
@@ -317,7 +297,7 @@ const SparkGaussianView = (() => {
     if (_spark) { try { _scene()?.remove(_spark); _spark.dispose?.(); } catch (_) {} _spark = null; }
   }
 
-  return { enable, disable, isEnabled, isAvailable, loadFromBytes, syncEditorState, refreshEditorState, beginEditorGesture, endEditorGesture, exportEditedBytes, dispose };
+  return { enable, disable, isEnabled, isAvailable, loadFromBytes, syncEditorState, refreshEditorState, beginEditorGesture, endEditorGesture, updateEditorStateLive, exportEditedBytes, dispose };
 })();
 window.FumocaSparkGaussian = SparkGaussianView;
 export default SparkGaussianView;
