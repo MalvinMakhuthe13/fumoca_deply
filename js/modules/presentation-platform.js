@@ -7,7 +7,7 @@ const state = {
   width: 460, height: 24, edge: 18, offsetY: 0,
   led: true, logoUrl: null, logoSize: 400, logoRotation: 0, logoOffset: -5,
   group: null, top: null, body: null, ring: null, logo: null,
-  texture: null, unit: 1, lastBounds: null, dirty: true, logoDataUrl: null, gestureStart: null, suspendAutoFit: false, supportPlanePreview: null
+  texture: null, unit: 1, lastBounds: null, dirty: true, logoDataUrl: null, gestureStart: null, suspendAutoFit: false, supportPlanePreview: null, supportBackup: null
 };
 const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
 function boundsFromSplat(){
@@ -142,7 +142,9 @@ function renderUI(){
     <div class="fp-note">The platform is a separate Three.js object. Your original Gaussian scan remains untouched.</div>
     <button id="fpApply" class="fp-primary">Apply to scene</button>
     <button id="fpAnalyseSupport" style="width:100%;margin-top:7px;border-color:#d4ff00;color:#d4ff00">Analyse selected support area</button>
-    <div id="fpSupportReport" class="fp-note" style="margin-top:8px">Select points on the cap underside, then analyse. Preview only; scan data is not changed.</div>
+    <div id="fpSupportReport" class="fp-note" style="margin-top:8px">Select a broad patch on the cap's actual underside, then analyse. Nothing changes until you approve a safe preview.</div>
+    <button id="fpApplyCorrection" class="fp-primary" style="background:#16865b!important" disabled>Level, trim & seat cap</button>
+    <button id="fpRestoreCorrection" style="width:100%;margin-top:7px" disabled>Undo correction / restore original</button>
     <button id="fpSave" style="width:100%;margin-top:7px">Save platform settings</button>
   </div>`;
   const bindRange=(id,key,out,suffix=' mm')=>$(id).addEventListener('input',e=>{state[key]=+e.target.value;$(out).textContent=state[key]+suffix;build();});
@@ -156,7 +158,40 @@ function renderUI(){
   $('fpLogo').addEventListener('change',e=>{const file=e.target.files?.[0];if(!file)return;if(file.size>1024*1024){alert('Please use a logo image smaller than 1 MB.');e.target.value='';return;}const reader=new FileReader();reader.onload=()=>{state.logoDataUrl=String(reader.result||'');state.logoUrl=null;build();save();};reader.onerror=()=>alert('Could not read that logo file.');reader.readAsDataURL(file);});
   $('fpRemove').addEventListener('click',()=>{if(state.logoUrl)URL.revokeObjectURL(state.logoUrl);state.logoUrl=null;state.logoDataUrl=null;build();save();});
   $('fpApply').addEventListener('click',()=>{build();save();});
-  $('fpAnalyseSupport').addEventListener('click',()=>{const S=window.S,report=$('fpSupportReport'),indices=[];if(S?.selected)for(let i=0;i<S.selected.length;i++)if(S.selected[i]&&S.alive?.[i])indices.push(i);if(indices.length<30){report.textContent='Select at least 30 points on the cap underside. Use a close underside view and avoid the brim edge and floating noise.';return;}const interior=[0,0,0];let interiorCount=0;for(let i=0;i<S.alive.length;i++)if(S.alive[i]){interior[0]+=S.positions[i*3];interior[1]+=S.positions[i*3+1];interior[2]+=S.positions[i*3+2];interiorCount++;}if(interiorCount)for(let a=0;a<3;a++)interior[a]/=interiorCount;const plane=fitSelectedSupportPlane(S.positions,indices,{orientationPoint:interior});if(!plane){report.textContent='No reliable support plane found. Select a broader, flatter patch on the actual underside and try again.';return;}const preview=previewSupportPlaneTrim(S.positions,S.alive,plane,{maxTrimRatio:.35});state.supportPlanePreview={plane,preview,sourceCount:indices.length};report.textContent='Plane detected from '+plane.inlierCount.toLocaleString()+' / '+plane.sampleCount.toLocaleString()+' selected samples ('+Math.round(plane.inlierRatio*100)+'% consensus). Estimated trim: '+preview.below.toLocaleString()+' points; retained side: '+preview.above.toLocaleString()+'. '+(preview.safe?'Preview passes initial safety gate. No points changed.':'Preview rejected. No points changed.');window.dispatchEvent(new CustomEvent('fumoca:support-plane-preview',{detail:state.supportPlanePreview}));});
+  $('fpAnalyseSupport').addEventListener('click',()=>{const S=window.S,report=$('fpSupportReport'),indices=[];if(S?.selected)for(let i=0;i<S.selected.length;i++)if(S.selected[i]&&S.alive?.[i])indices.push(i);if(indices.length<30){report.textContent='Select at least 30 points on the cap underside. Use a close underside view and avoid the brim edge and floating noise.';return;}const interior=[0,0,0];let interiorCount=0;for(let i=0;i<S.alive.length;i++)if(S.alive[i]){interior[0]+=S.positions[i*3];interior[1]+=S.positions[i*3+1];interior[2]+=S.positions[i*3+2];interiorCount++;}if(interiorCount)for(let a=0;a<3;a++)interior[a]/=interiorCount;const plane=fitSelectedSupportPlane(S.positions,indices,{orientationPoint:interior});if(!plane){report.textContent='No reliable support plane found. Select a broader, flatter patch on the actual underside and try again.';return;}const preview=previewSupportPlaneTrim(S.positions,S.alive,plane,{maxTrimRatio:.35});state.supportPlanePreview={plane,preview,sourceCount:indices.length};$('fpApplyCorrection').disabled=!preview.safe||!!state.supportBackup;report.textContent='Plane detected from '+plane.inlierCount.toLocaleString()+' / '+plane.sampleCount.toLocaleString()+' selected samples ('+Math.round(plane.inlierRatio*100)+'% consensus). Estimated trim: '+preview.below.toLocaleString()+' points; retained side: '+preview.above.toLocaleString()+'. '+(preview.safe?'Review the result, then choose Level, trim & seat cap.':'Preview rejected by safety gate. No points changed.');window.dispatchEvent(new CustomEvent('fumoca:support-plane-preview',{detail:state.supportPlanePreview}));});
+  $('fpApplyCorrection').addEventListener('click',()=>{
+    const S=window.S,entry=state.supportPlanePreview;
+    if(!S?.positions||!S?.alive||!entry?.preview?.safe||!state.group){alert('Run a safe support-plane analysis first.');return;}
+    if(state.supportBackup){alert('A correction backup already exists. Restore it before applying another correction.');return;}
+    const confirmText='Apply the reviewed support plane? This levels the scan, trims points below the plane and seats the flat underside on the platform. A full in-memory backup is kept for Undo.';
+    if(!confirm(confirmText))return;
+    const live=S.alive.reduce((n,v)=>n+(v?1:0),0),p=entry.plane,preview=entry.preview;
+    state.supportBackup={positions:S.positions.slice(),alive:S.alive.slice(),rotation:S.rotation?.slice()||null,rotationOrder:S.rotationOrder||null};
+    const q=new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(...p.normal).normalize(),new THREE.Vector3(0,-1,0));
+    const pivot=new THREE.Vector3(...p.point),v=new THREE.Vector3();
+    const topY=state.group.position.y+Math.max(state.height*state.unit,.006)+Math.min(clamp(state.edge*state.unit,0,Math.min(state.lastBounds?.size?.[0]||1,state.lastBounds?.size?.[2]||1)*.18)*.42,Math.max(state.height*state.unit,.006)*.22);
+    const deltaY=topY;
+    let removed=0;
+    for(let i=0;i<S.alive.length;i++)if(S.alive[i]){
+      v.set(S.positions[i*3],S.positions[i*3+1],S.positions[i*3+2]);
+      const signed=p.normal[0]*(v.x-p.point[0])+p.normal[1]*(v.y-p.point[1])+p.normal[2]*(v.z-p.point[2]);
+      if(signed < -preview.margin){S.alive[i]=0;removed++;continue;}
+      v.sub(pivot).applyQuaternion(q);v.y+=deltaY;
+      S.positions[i*3]=v.x;S.positions[i*3+1]=v.y;S.positions[i*3+2]=v.z;
+      if(S.rotation){const o=i*4,r=new THREE.Quaternion();if(S.rotationOrder==='xyzw'||(!S.rotationOrder&&S.fileType!=='ply'))r.set(S.rotation[o],S.rotation[o+1],S.rotation[o+2],S.rotation[o+3]);else r.set(S.rotation[o+1],S.rotation[o+2],S.rotation[o+3],S.rotation[o]);r.premultiply(q).normalize();if(S.rotationOrder==='xyzw'||(!S.rotationOrder&&S.fileType!=='ply')){S.rotation[o]=r.x;S.rotation[o+1]=r.y;S.rotation[o+2]=r.z;S.rotation[o+3]=r.w;}else{S.rotation[o]=r.w;S.rotation[o+1]=r.x;S.rotation[o+2]=r.y;S.rotation[o+3]=r.z;}}
+    }
+    if(S.alive.reduce((n,v)=>n+(v?1:0),0)<Math.max(30,live*.5)){const b=state.supportBackup;S.positions.set(b.positions);S.alive.set(b.alive);if(S.rotation&&b.rotation)S.rotation.set(b.rotation);state.supportBackup=null;alert('Correction cancelled: too many points would be removed. Original scan restored.');return;}
+    window.FumocaSparkGaussian?.syncEditorState?.(S);window.FumocaGaussianRenderer?.invalidateSort?.();window.rebuildGeometry?.();
+    state.supportPlanePreview=null;$('fpApplyCorrection').disabled=true;$('fpRestoreCorrection').disabled=false;
+    $('fpSupportReport').textContent='Correction applied: '+removed.toLocaleString()+' lower/noise points trimmed; support plane levelled and seated. Original arrays are backed up until you restore or save a new source copy.';
+  });
+  $('fpRestoreCorrection').addEventListener('click',()=>{
+    const S=window.S,b=state.supportBackup;if(!S||!b)return;
+    if(!confirm('Restore the exact pre-correction positions, rotations and visibility?'))return;
+    S.positions.set(b.positions);S.alive.set(b.alive);if(S.rotation&&b.rotation)S.rotation.set(b.rotation);
+    state.supportBackup=null;window.FumocaSparkGaussian?.syncEditorState?.(S);window.FumocaGaussianRenderer?.invalidateSort?.();window.rebuildGeometry?.();
+    $('fpRestoreCorrection').disabled=true;$('fpSupportReport').textContent='Original scan restored exactly.';
+  });
   $('fpSave').addEventListener('click',save);
   $('fpEnabled').checked=state.enabled;
   for(const [id,key] of [['fpWidth','width'],['fpHeight','height'],['fpEdge','edge'],['fpOffset','offsetY'],['fpLogoSize','logoSize'],['fpLogoRot','logoRotation'],['fpLogoOff','logoOffset']]){$(id).value=state[key];$(id).dispatchEvent(new Event('input',{bubbles:true}));}
