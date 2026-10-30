@@ -1875,6 +1875,7 @@ function mountPublishedPresentationPlatform(bounds) {
     sh.lineTo(x+r,y+depth);sh.quadraticCurveTo(x,y+depth,x,y+depth-r);
     sh.lineTo(x,y+r);sh.quadraticCurveTo(x,y,x+r,y);return sh;
   };
+  if (!_plyScene.getObjectByName('fumoca-platform-ambient')) { const ambient=new THREE.AmbientLight(0xffffff,.8);ambient.name='fumoca-platform-ambient';const key=new THREE.DirectionalLight(0xffffff,1.15);key.name='fumoca-platform-key';key.position.set(3,5,4);_plyScene.add(ambient,key); }
   const group = new THREE.Group();group.name='FUMOCA Published Presentation Platform';
   let material;
   if(cfg.material==='black') material=new THREE.MeshStandardMaterial({color:0x101216,roughness:.28,metalness:.42});
