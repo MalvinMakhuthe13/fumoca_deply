@@ -157,6 +157,7 @@ const SparkGaussianView = (() => {
 
   async function enable(opts = {}) {
     if (_loading) return false;
+    const previous = { enabled:_enabled, originalBytes:_originalBytes, lastStateSignature:_lastStateSignature, lastFileName:_lastFileName };
     _loading = true;
     try {
       const S = window.S || {};
@@ -181,9 +182,13 @@ const SparkGaussianView = (() => {
       return true;
     } catch (error) {
       console.error('[FUMOCA] Spark renderer could not load the source file', error);
-      _enabled = false;
+      // Restore the last known-good bridge state. loadFromBytes already disposes
+      // only the failed candidate and never removes the previous mesh.
+      _enabled = previous.enabled;
+      _originalBytes = previous.originalBytes;
+      _lastStateSignature = previous.lastStateSignature;
+      _lastFileName = previous.lastFileName;
       _hideLegacy();
-      if (_mesh) { try { _scene()?.remove(_mesh); _mesh.dispose?.(); } catch (_) {} _mesh = null; }
       return false;
     } finally { _loading = false; }
   }
