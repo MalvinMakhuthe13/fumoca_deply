@@ -40,7 +40,7 @@ function autoLevelScan(){
   for(let t=0;t<420;t++){
     const a=points[Math.floor(rand()*points.length)],b=points[Math.floor(rand()*points.length)],c=points[Math.floor(rand()*points.length)];
     ab.set(b.x-a.x,b.y-a.y,b.z-a.z);ac.set(c.x-a.x,c.y-a.y,c.z-a.z);cross.crossVectors(ab,ac);
-    if(cross.lengthSq()<1e-12)continue;normal.copy(cross).normalize();if(normal.y<0)normal.negate();if(normal.y<0.55)continue;
+    if(cross.lengthSq()<1e-12)continue;normal.copy(cross).normalize();
     const d=-(normal.x*a.x+normal.y*a.y+normal.z*a.z);let inliers=0,error=0;
     for(const p of points){const dist=Math.abs(normal.x*p.x+normal.y*p.y+normal.z*p.z+d);if(dist<=tolerance){inliers++;error+=dist;}}
     if(!best||inliers>best.inliers||(inliers===best.inliers&&error<best.error))best={normal:normal.clone(),d,inliers,error};
@@ -55,8 +55,10 @@ function autoLevelScan(){
   for(let it=0;it<36;it++){let p=0,q=1;if(Math.abs(m[2])>Math.abs(m[1])){p=0;q=2;}if(Math.abs(m[5])>Math.abs(m[p*3+q])){p=1;q=2;}const pq=m[p*3+q];if(Math.abs(pq)<1e-12)break;const tau=(m[q*3+q]-m[p*3+p])/(2*pq),tt=(tau>=0?1:-1)/(Math.abs(tau)+Math.sqrt(1+tau*tau)),cc=1/Math.sqrt(1+tt*tt),ss=tt*cc,app=m[p*3+p],aqq=m[q*3+q];m[p*3+p]=app-tt*pq;m[q*3+q]=aqq+tt*pq;m[p*3+q]=m[q*3+p]=0;for(let k=0;k<3;k++)if(k!==p&&k!==q){const kp=m[k*3+p],kq=m[k*3+q];m[k*3+p]=m[p*3+k]=cc*kp-ss*kq;m[k*3+q]=m[q*3+k]=ss*kp+cc*kq;}for(let k=0;k<3;k++){const kp=v[k*3+p],kq=v[k*3+q];v[k*3+p]=cc*kp-ss*kq;v[k*3+q]=ss*kp+cc*kq;}}
   let ei=0;if(m[4]<m[0])ei=1;if(m[8]<m[ei*3+ei])ei=2;
   const n=new THREE.Vector3(v[ei],v[3+ei],v[6+ei]).normalize();if(n.y<0)n.negate();
-  if(n.y<0.55){alert('The detected support plane is too steep. No scan changes were made.');return;}
+  // A valid support plane may be steeply tilted in the current scan orientation.
+  // Always rotate its normal to world-up instead of rejecting it.
   const q=new THREE.Quaternion().setFromUnitVectors(n,new THREE.Vector3(0,1,0)),pivot=new THREE.Vector3(cx,cy,cz),point=new THREE.Vector3();
+  pushHistory('auto level support plane');
   window._fumocaAutoLevelUndo={positions:S.positions.slice(),rotation:S.rotation?.slice?.()||null};
   for(let i=0;i<count;i++)if(S.alive[i]){
     point.set(S.positions[i*3],S.positions[i*3+1],S.positions[i*3+2]).sub(pivot).applyQuaternion(q).add(pivot);
