@@ -69,16 +69,37 @@ export function previewSupportPlaneTrim(positions, alive, plane, options={}) {
   const margin=Math.max(0,options.margin??plane.tolerance??0),padding=Math.max(0,options.footprintPadding??0.2);
   const f=plane.footprint,du=(f.maxU-f.minU)*padding,dv=(f.maxV-f.minV)*padding;
   const trimIndices=[];let below=0,above=0,near=0,outside=0;
+  const scales=options.scaleXYZ||null,rotations=options.rotation||null;
+  const order=options.rotationOrder||'wxyz',sigma=Math.max(0,options.extentSigma??2.5);
+  const projectedRadius=(i)=>{
+    if(!scales)return 0;
+    const o=i*3,sx=Math.max(0,scales[o]||0),sy=Math.max(0,scales[o+1]||0),sz=Math.max(0,scales[o+2]||0);
+    if(!(sx+sy+sz>0))return 0;
+    let rx=[1,0,0],ry=[0,1,0],rz=[0,0,1];
+    if(rotations){
+      const q=i*4,x=rotations[q+(order==='xyzw'?0:1)],y=rotations[q+(order==='xyzw'?1:2)],z=rotations[q+(order==='xyzw'?2:3)],w=rotations[q+(order==='xyzw'?3:0)];
+      const rotate=(v)=>{const tx=2*(y*v[2]-z*v[1]),ty=2*(z*v[0]-x*v[2]),tz=2*(x*v[1]-y*v[0]);return [v[0]+w*tx+(y*tz-z*ty),v[1]+w*ty+(z*tx-x*tz),v[2]+w*tz+(x*ty-y*tx)];};
+      rx=rotate(rx);ry=rotate(ry);rz=rotate(rz);
+    }
+    const n=plane.normal;
+    return sigma*Math.sqrt((sx*dot(n,rx))**2+(sy*dot(n,ry))**2+(sz*dot(n,rz))**2);
+  };
+  let centerBelow=0,crossing=0;
   for(let i=0;i<alive.length;i++)if(alive[i]){
     const o=i*3;if(o+2>=positions.length)continue;
     const p=[positions[o],positions[o+1],positions[o+2]];if(!p.every(Number.isFinite))continue;
     const delta=sub(p,plane.point),pu=dot(delta,plane.u),pv=dot(delta,plane.v);
     if(pu<f.minU-du||pu>f.maxU+du||pv<f.minV-dv||pv>f.maxV+dv){outside++;continue;}
-    const distance=dot(plane.normal,delta);
-    if(distance < -margin){below++;trimIndices.push(i);}else if(distance>margin)above++;else near++;
+    const distance=dot(plane.normal,delta),extent=projectedRadius(i);
+    // Remove centres below the plane and near-plane Gaussians whose visible
+    // covariance ellipsoid hangs through it. Do not trim splats well inside
+    // the object merely because they are large.
+    const reachesBelow=extent>0&&distance<extent-margin&&distance<=extent*.35;
+    if(distance < -margin || reachesBelow){below++;trimIndices.push(i);if(distance<0)centerBelow++;if(reachesBelow)crossing++;}
+    else if(distance>margin)above++;else near++;
   }
   const total=below+above+near;
-  return {below,above,near,outside,total,trimIndices,trimRatio:total?below/total:0,margin,footprintPadding:padding,
+  return {below,above,near,outside,total,trimIndices,trimRatio:total?below/total:0,centerBelow,crossing,margin,footprintPadding:padding,
     safe:total>0&&below/total<=(options.maxTrimRatio??0.35)&&above>=30};
 }
 
