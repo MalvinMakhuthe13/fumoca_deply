@@ -241,8 +241,9 @@ export class PresentationBase {
     if (scanWidth <= 0 || scanDepth <= 0) {
       throw new Error('The scan bounds are too small to fit a platform.');
     }
-    const nextWidth = Math.max(0.02, width ?? scanWidth + padding * 2);
-    const nextDepth = Math.max(0.02, depth ?? scanDepth + padding * 2);
+    const fittedDiameter = Math.max(scanWidth, scanDepth) + padding * 2;
+    const nextWidth = Math.max(0.02, width ?? (this.options.shape === 'circle' || this.options.shape === 'square' ? fittedDiameter : scanWidth + padding * 2));
+    const nextDepth = this.options.shape === 'circle' || this.options.shape === 'square' ? nextWidth : Math.max(0.02, depth ?? scanDepth + padding * 2);
     const nextPlatformY = Number(bounds.minY) - gap - this.options.height / 2;
     this.options.positionX = (Number(bounds.minX) + Number(bounds.maxX)) / 2;
     this.options.positionZ = (Number(bounds.minZ) + Number(bounds.maxZ)) / 2;
