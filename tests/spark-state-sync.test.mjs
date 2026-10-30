@@ -37,7 +37,7 @@ assert.equal(result.updated,1);
 assert.equal(records[0],undefined,'unselected splat must not be touched');
 assert.equal(records[1].opacity,0,'deleted splat must become transparent');
 assert.deepEqual(records[1].center,{x:4,y:5,z:6});
-assert.deepEqual(records[1].scales,{x:.4,y:.5,z:.6});
+assert.ok(Math.abs(records[1].scales.x-.4)<1e-6 && Math.abs(records[1].scales.y-.5)<1e-6 && Math.abs(records[1].scales.z-.6)<1e-6,'Gaussian scales must be preserved within Float32 precision');
 assert.ok(Math.abs(records[1].rotation.y-Math.SQRT1_2)<1e-5,'PLY wxyz rotation must map to THREE xyzw');
 assert.equal(packed.needsUpdate,true);
 
