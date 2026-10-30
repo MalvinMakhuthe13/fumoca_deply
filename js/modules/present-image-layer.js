@@ -164,7 +164,8 @@ function createDecal(item) {
     if(mesh && loaded.image?.width && loaded.image?.height) {
       item.aspectRatio=loaded.image.width/loaded.image.height;
       const previous=mesh.geometry;
-      mesh.geometry=new THREE.PlaneGeometry(item.worldWidth,item.worldWidth/Math.max(.01,item.aspectRatio));
+      const currentWidth=mesh.geometry.parameters.width;
+      mesh.geometry=new THREE.PlaneGeometry(currentWidth,currentWidth/Math.max(.01,item.aspectRatio));
       previous.dispose();
     }
   });
@@ -172,6 +173,7 @@ function createDecal(item) {
   const material=new THREE.MeshBasicMaterial({map:texture,transparent:true,opacity:item.opacity??1,side:THREE.FrontSide,depthTest:true,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-2,toneMapped:false});
   const geometry=new THREE.PlaneGeometry(width,width/Math.max(.01,item.aspectRatio||1));
   mesh=new THREE.Mesh(geometry,material);
+  item._baseWidthSetting=Number(item.width)||18;
   mesh.name='fumoca-present-decal-'+item.id;
   mesh.position.set(item.wx,item.wy,item.wz).addScaledVector(n,Math.max(radius*.00035,.00003));
   mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),n);
@@ -231,10 +233,10 @@ export function addImage(src,partial={}) {
   items.push(item);rebuild();notify();return item;
 }
 export function removeImage(id){const item=items.find(x=>x.id===id);if(item)disposeDecal(item);items=items.filter(x=>x.id!==id);if(placingId===id)cancelPlacement();rebuild();notify();}
-export function updateImage(id,patch){const item=items.find(x=>x.id===id);if(!item)return null;Object.assign(item,patch);if(patch.width!==undefined){item.worldWidth=decalWidthFor(item);if(item.decal){const previous=item.decal.geometry;const aspect=item.aspectRatio||previous.parameters.width/Math.max(.001,previous.parameters.height)||1;item.decal.geometry=new THREE.PlaneGeometry(item.worldWidth,item.worldWidth/Math.max(.01,aspect));previous.dispose();item.decal.scale.set(1,1,1);}}if(patch.opacity!==undefined&&item.decal)item.decal.material.opacity=item.opacity;notify();return item;}
+export function updateImage(id,patch){const item=items.find(x=>x.id===id);if(!item)return null;Object.assign(item,patch);if(patch.width!==undefined){const base=Number(item._baseWidthSetting)||Number(item.width)||18;item.worldWidth=decalWidthFor(item);if(item.decal)item.decal.scale.setScalar(Math.max(.01,Number(item.width)/base));}if(patch.opacity!==undefined&&item.decal)item.decal.material.opacity=item.opacity;notify();return item;}
 export function armWorldPlacement(id){if(!items.some(x=>x.id===id))return false;placingId=id;host().classList.add('mi-placing');window.showToast?.('Place 3D decal','Click a visible, reasonably flat area of the scanned subject.','info');return true;}
 export function cancelPlacement(){placingId=null;host().classList.remove('mi-placing');}
-export function exportAll(){return items.map(({decal,...x})=>({...x}));}
+export function exportAll(){return items.map(({decal,_baseWidthSetting,...x})=>({...x}));}
 export function importAll(list=[]){for(const item of items)disposeDecal(item);items=(Array.isArray(list)?list:[]).filter(x=>typeof x.src==='string'&&x.src.startsWith('data:image/')).map(x=>({...x,id:x.id||uid()}));rebuild();}
 export function setEditable(v){editing=!!v;rebuild();}
 export function readImageFile(file){return new Promise((resolve,reject)=>{if(!file||!/^image\/(png|jpeg|webp|svg\+xml)$/.test(file.type))return reject(new Error('Use PNG, JPG, WebP or SVG.'));if(file.size>MAX_IMAGE_BYTES)return reject(new Error('Image must be 300 KB or smaller for a portable Studio composition.'));const reader=new FileReader();reader.onload=()=>resolve(String(reader.result));reader.onerror=()=>reject(new Error('Could not read that image.'));reader.readAsDataURL(file);});}
