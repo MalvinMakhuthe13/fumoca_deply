@@ -310,6 +310,11 @@ function mountPanel() {
   panel.addEventListener('input', applyTextField);
   panel.addEventListener('change', applyTextField);
 
+  const handleImageControl = e => {
+    const orientation=e.target.closest('[data-image-orientation]');
+    if(orientation){updateImage(orientation.dataset.imageOrientation,{orientation:orientation.value});persist();return;}
+  };
+  panel.addEventListener('change', handleImageControl);
   panel.addEventListener('input', e => {
     const width=e.target.closest('[data-image-width]');
     if(width){updateImage(width.dataset.imageWidth,{width:Number(width.value)});persist();return;}
