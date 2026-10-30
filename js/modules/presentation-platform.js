@@ -2,8 +2,8 @@
 const VERSION = '1.0.0';
 const $ = (id) => document.getElementById(id);
 const state = {
-  enabled: true, shape: 'circle', material: 'wood',
-  width: 600, height: 80, edge: 20, offsetY: 0,
+  enabled: true, shape: 'circle', material: 'black',
+  width: 460, height: 24, edge: 18, offsetY: 0,
   led: true, logoUrl: null, logoSize: 400, logoRotation: 0, logoOffset: -5,
   group: null, top: null, body: null, ring: null, logo: null,
   texture: null, unit: 1, lastBounds: null, dirty: true, logoDataUrl: null, gestureStart: null
@@ -11,23 +11,16 @@ const state = {
 const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
 function boundsFromSplat(){
   const S=window.S;if(!S?.positions||!S?.alive)return null;
-  const mn=[Infinity,Infinity,Infinity],mx=[-Infinity,-Infinity,-Infinity];
+  const values=[[],[],[]];
   for(let i=0;i<S.alive.length;i++)if(S.alive[i]){
-    for(let k=0;k<3;k++){const v=S.positions[i*3+k];if(Number.isFinite(v)){mn[k]=Math.min(mn[k],v);mx[k]=Math.max(mx[k],v);}}
+    const x=S.positions[i*3],y=S.positions[i*3+1],z=S.positions[i*3+2];
+    if(Number.isFinite(x)&&Number.isFinite(y)&&Number.isFinite(z)){values[0].push(x);values[1].push(y);values[2].push(z);}
   }
-  if(!Number.isFinite(mn[0]))return null;
-  return {min:mn,max:mx,size:mx.map((v,i)=>v-mn[i]),center:mn.map((v,i)=>(v+mx[i])*.5)};
-}
-function makeWoodTexture(){
-  const c=document.createElement('canvas');c.width=512;c.height=512;
-  const x=c.getContext('2d');x.fillStyle='#70421f';x.fillRect(0,0,512,512);
-  for(let i=0;i<220;i++){
-    const y=Math.random()*512,amp=2+Math.random()*10;
-    x.beginPath();x.moveTo(0,y);
-    for(let px=0;px<=512;px+=8)x.lineTo(px,y+Math.sin(px*.018+i)*amp+Math.sin(px*.047+i*2)*2);
-    x.strokeStyle=i%5===0?'rgba(35,15,5,.38)':'rgba(220,160,90,.12)';x.lineWidth=.5+Math.random()*3;x.stroke();
-  }
-  const t=new THREE.CanvasTexture(c);t.wrapS=t.wrapT=THREE.RepeatWrapping;t.colorSpace=THREE.SRGBColorSpace;return t;
+  if(!values[0].length)return null;
+  const quantile=(a,q)=>{a.sort((x,y)=>x-y);return a[Math.min(a.length-1,Math.max(0,Math.floor((a.length-1)*q)))];};
+  const min=values.map(a=>quantile(a,.015)),max=values.map(a=>quantile(a,.985));
+  const size=max.map((v,i)=>Math.max(v-min[i],1e-4));
+  return {min,max,size,center:min.map((v,i)=>(v+max[i])*.5)};
 }
 function makeShape(w,d,r){
   const s=new THREE.Shape(),x=-w/2,z=-d/2;
@@ -40,49 +33,51 @@ function makeShape(w,d,r){
   s.lineTo(x,z+rr);s.quadraticCurveTo(x,z,x+rr,z);return s;
 }
 function materialFor(kind){
-  if(kind==='wood')return new THREE.MeshStandardMaterial({map:state.texture,roughness:.62,metalness:.04});
-  if(kind==='black')return new THREE.MeshStandardMaterial({color:0x101216,roughness:.28,metalness:.42});
-  if(kind==='white')return new THREE.MeshStandardMaterial({color:0xe9edf0,roughness:.32,metalness:.08});
-  if(kind==='metal')return new THREE.MeshStandardMaterial({color:0x9ba7b0,roughness:.22,metalness:.88});
-  return new THREE.MeshPhysicalMaterial({color:0xb9e6ee,roughness:.08,metalness:.12,transmission:.55,transparent:true,opacity:.72,thickness:.2});
+  if(kind==='wood')return new THREE.MeshStandardMaterial({color:0x795333,roughness:.72,metalness:.02});
+  if(kind==='white')return new THREE.MeshStandardMaterial({color:0xe9edf0,roughness:.38,metalness:.04});
+  if(kind==='metal')return new THREE.MeshStandardMaterial({color:0x9ba7b0,roughness:.24,metalness:.82});
+  if(kind==='glass')return new THREE.MeshPhysicalMaterial({color:0xb9e6ee,roughness:.16,metalness:.08,transparent:true,opacity:.82,thickness:.35});
+  return new THREE.MeshStandardMaterial({color:0x11151b,roughness:.3,metalness:.32});
 }
 function disposeObject(obj){
   if(!obj)return;obj.traverse(o=>{if(o.geometry)o.geometry.dispose();if(o.material){for(const m of (Array.isArray(o.material)?o.material:[o.material])){if(m.map&&m.map!==state.texture)m.map.dispose();m.dispose();}}});
 }
 function build(){
   const T=window.THREE;if(!T||!window.scene)return;
-  if(!state.texture)state.texture=makeWoodTexture();
   const b=boundsFromSplat();if(!b)return;
-  state.lastBounds=b;state.unit=Math.max(...b.size,0.1)/400;
-  const width=state.width*state.unit,depth=(state.shape==='circle'||state.shape==='square')?width:width*.72;
-  const thick=Math.max(state.height*state.unit,.004),edge=state.edge;
+  state.lastBounds=b;
+  const footprint=Math.max(b.size[0],b.size[2],.01);
+  state.unit=footprint/400;
+  const width=footprint*(state.width/400);
+  const depth=(state.shape==='circle'||state.shape==='square')?width:width*.78;
+  const thick=Math.max(state.height*state.unit,.006);
+  const edge=clamp(state.edge*state.unit,0,Math.min(width,depth)*.18);
   const g=new T.Group();g.name='FUMOCA Presentation Platform';g.userData.fumocaPresentationPlatform=true;
-  const shape=makeShape(width,depth,edge);
-  const geo=new T.ExtrudeGeometry(shape,{depth:thick,bevelEnabled:true,bevelSegments:3,steps:1,bevelSize:Math.min(edge*state.unit*.35,thick*.18),bevelThickness:Math.min(edge*state.unit*.35,thick*.18),curveSegments:48});
-  geo.rotateX(-Math.PI/2);
-  const top=new T.Mesh(geo,materialFor(state.material));top.name='Platform top';top.castShadow=true;top.receiveShadow=true;g.add(top);
-  const bodyShape=makeShape(width,depth,edge);
-  const bodyGeo=new T.ExtrudeGeometry(bodyShape,{depth:thick*1.5,bevelEnabled:false,curveSegments:48});
-  bodyGeo.rotateX(-Math.PI/2);
-  const body=new T.Mesh(bodyGeo,new T.MeshStandardMaterial({color:0x111318,metalness:.72,roughness:.28}));
-  body.position.y=-thick*1.5;body.name='Pedestal body';g.add(body);
-  const ring=new T.Mesh(new T.TorusGeometry(width*.485,Math.max(thick*.035,.003),8,96),new T.MeshBasicMaterial({color:0xffc96b}));
-  ring.rotation.x=Math.PI/2;ring.position.y=-thick*.58;ring.name='LED accent ring';ring.visible=state.led;g.add(ring);
-  if(state.logoUrl){
+  const shape=makeShape(width,depth,state.edge);
+  const bevel=Math.min(edge*.42,thick*.22);
+  const geo=new T.ExtrudeGeometry(shape,{depth:thick,bevelEnabled:bevel>0,bevelSegments:4,steps:1,bevelSize:bevel,bevelThickness:bevel,curveSegments:64});
+  geo.rotateX(-Math.PI/2);geo.computeVertexNormals();
+  const base=new T.Mesh(geo,materialFor(state.material));
+  base.name='Solid presentation pedestal';base.castShadow=true;base.receiveShadow=true;g.add(base);
+  const ring=new T.Mesh(new T.TorusGeometry(Math.min(width,depth)*.475,Math.max(thick*.018,.0015),8,128),new T.MeshBasicMaterial({color:0xc6a56a}));
+  ring.rotation.x=Math.PI/2;ring.position.y=-thick*.52;ring.name='LED accent ring';ring.visible=state.led;g.add(ring);
+  if(state.logoDataUrl||state.logoUrl){
     const img=new Image();img.onload=()=>{
-      if(!state.group||state.group!==g)return;
+      if(state.group!==g)return;
       const c=document.createElement('canvas');c.width=512;c.height=512;const ctx=c.getContext('2d');
       ctx.clearRect(0,0,512,512);ctx.drawImage(img,32,32,448,448);
       const tex=new T.CanvasTexture(c);tex.colorSpace=T.SRGBColorSpace;
-      const plane=new T.Mesh(new T.PlaneGeometry(width*(state.logoSize/600),width*(state.logoSize/600)),new T.MeshBasicMaterial({map:tex,transparent:true,side:T.DoubleSide,depthWrite:false}));
+      const size=Math.min(width,depth)*(state.logoSize/600);
+      const plane=new T.Mesh(new T.PlaneGeometry(size,size),new T.MeshBasicMaterial({map:tex,transparent:true,side:T.DoubleSide,depthWrite:false,toneMapped:false}));
       plane.rotation.x=Math.PI/2;plane.rotation.z=state.logoRotation*Math.PI/180;
-      plane.position.set(0,-thick*1.7+state.logoOffset*state.unit,0);plane.name='Underside brand logo';g.add(plane);state.logo=plane;
-    };img.src=state.logoDataUrl||state.logoUrl;
+      plane.position.set(0,-thick*.98+state.logoOffset*state.unit,0);plane.name='Underside brand logo';g.add(plane);state.logo=plane;
+    };img.onerror=()=>console.warn('[FUMOCA Platform] Logo image could not be loaded');img.src=state.logoDataUrl||state.logoUrl;
   }
-  g.position.set(b.center[0],b.min[1]-thick+state.offsetY*state.unit,b.center[2]);
+  const gap=Math.max(footprint*.006,.001);
+  g.position.set(b.center[0],b.min[1]-gap-thick*.48+state.offsetY*state.unit,b.center[2]);
   g.visible=state.enabled;
   if(state.group){window.scene.remove(state.group);disposeObject(state.group);}
-  state.group=g;state.top=top;state.body=g.getObjectByName('Pedestal body');state.ring=ring;window.scene.add(g);
+  state.group=g;state.top=base;state.body=base;state.ring=ring;window.scene.add(g);
   window.dispatchEvent(new CustomEvent('fumoca:presentation-platform-updated',{detail:{config:getConfig()}}));
 }
 function getConfig(){return {version:VERSION,enabled:state.enabled,shape:state.shape,material:state.material,width:state.width,height:state.height,edge:state.edge,offsetY:state.offsetY,led:state.led,logoSize:state.logoSize,logoRotation:state.logoRotation,logoOffset:state.logoOffset,logoDataUrl:state.logoDataUrl||null};}
@@ -122,14 +117,14 @@ function renderUI(){
     <div class="fp-grid" style="margin-top:9px">
       <button data-shape="circle" class="active">◯<br>Circle</button><button data-shape="square">□<br>Square</button><button data-shape="rectangle">▭<br>Rectangle</button><button data-shape="custom">⌘<br>Custom</button>
     </div>
-    <div class="fp-row"><span>Width</span><input id="fpWidth" type="range" min="150" max="1200" value="600"><output id="fpWidthOut">600 mm</output></div>
-    <div class="fp-row"><span>Height</span><input id="fpHeight" type="range" min="20" max="240" value="80"><output id="fpHeightOut">80 mm</output></div>
+    <div class="fp-row"><span>Width</span><input id="fpWidth" type="range" min="150" max="1200" value="460"><output id="fpWidthOut">460 mm</output></div>
+    <div class="fp-row"><span>Height</span><input id="fpHeight" type="range" min="8" max="80" value="24"><output id="fpHeightOut">80 mm</output></div>
     <div class="fp-row"><span>Edge radius</span><input id="fpEdge" type="range" min="0" max="80" value="20"><output id="fpEdgeOut">20 mm</output></div>
     <div class="fp-row"><span>Position Y</span><input id="fpOffset" type="range" min="-300" max="100" value="0"><output id="fpOffsetOut">0 mm</output></div>
   </div>
   <div class="fp-section"><div class="fp-title">Material</div><div class="fp-swatches">
-    <button class="fp-swatch active" data-material="wood" title="Wood" style="background:repeating-linear-gradient(12deg,#5b2e14,#bd8750 5px,#3b1b0c 9px)"></button>
-    <button class="fp-swatch" data-material="black" title="Black" style="background:#101216"></button>
+    <button class="fp-swatch" data-material="wood" title="Wood" style="background:repeating-linear-gradient(12deg,#5b2e14,#bd8750 5px,#3b1b0c 9px)"></button>
+    <button class="fp-swatch active" data-material="black" title="Black" style="background:#101216"></button>
     <button class="fp-swatch" data-material="white" title="White" style="background:#eee"></button>
     <button class="fp-swatch" data-material="metal" title="Metal" style="background:linear-gradient(135deg,#555,#ddd,#666)"></button>
     <button class="fp-swatch" data-material="glass" title="Glass" style="background:linear-gradient(135deg,#b9e6ee,#526b7a)"></button>
