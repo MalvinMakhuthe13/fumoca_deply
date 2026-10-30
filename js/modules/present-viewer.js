@@ -89,8 +89,8 @@ export function initPresentViewer() {
 
   tryApply();
   [500, 1500, 3000].forEach((ms) => setTimeout(tryApply, ms));
-  window.addEventListener('fumoca:recordLoaded', tryApply);
-  window.addEventListener('fumoca:splatLoaded', tryApply);
+  window.addEventListener('fumoca:recordLoaded', () => { applied = false; tryApply(); });
+  window.addEventListener('fumoca:splatLoaded', () => { applied = false; tryApply(); });
   window.addEventListener('fumoca:viewerReady', () => { applied = false; tryApply(); });
   window.FumocaPresentViewer = { reload: () => { applied = false; tryApply(); } };
 }
