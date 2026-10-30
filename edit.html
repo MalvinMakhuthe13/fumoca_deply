@@ -3753,6 +3753,8 @@ function transformSelection(mode, dx, dy, redraw = true) {
       }
     }
     _xformAccum = { x: 0, y: 0, z: 0, angle: 0, factor: 1 };
+    const liveCount = S.alive.reduce((sum, value) => sum + (value ? 1 : 0), 0);
+    if (indices.length === liveCount) window.FumocaPresentationPlatform?.beginSplatTransform?.(_xformPivot);
   }
   const indices = _xformIndices;
   const pivot = _xformPivot;
@@ -3835,6 +3837,13 @@ function transformSelection(mode, dx, dy, redraw = true) {
       }
     }
     _pokePositionAttribute();
+  }
+  const liveCount = S.alive.reduce((sum, value) => sum + (value ? 1 : 0), 0);
+  if (indices.length === liveCount) {
+    let q = new THREE.Quaternion();
+    if (mode === 'rotate') q.setFromAxisAngle(camera.getWorldDirection(new THREE.Vector3()).normalize(), _xformAccum.angle);
+    const factor = mode === 'scale-tool' ? _xformAccum.factor : 1;
+    window.FumocaPresentationPlatform?.updateSplatTransform?.({move:{x:_xformAccum.x,y:_xformAccum.y,z:_xformAccum.z},quaternion:q,scale:{x:factor,y:factor,z:factor}});
   }
   if (redraw) { window.FumocaGaussianRenderer?.invalidateSort(); rebuildGeometry(); }
 }
@@ -4714,7 +4723,7 @@ window.addEventListener('pointerup', e => {
   }
   if (S.mode === 'lasso' && S.lassoPoints.length >= 3) selectByLasso(S.lassoPoints, { additive: e.shiftKey, subtract: e.altKey });
   if (['box','sphere','lasso'].includes(S.mode)) syncTransformGizmo();
-  if (['move','scale-tool','rotate'].includes(S.mode)) { window.FumocaGaussianRenderer?.invalidateSort(); rebuildGeometry(); window.FumocaSparkGaussian?.endEditorGesture?.(S); syncTransformGizmo(); captureGizmoTransform(); _xformIndices = null; _xformPivot = null; _xformStartPos = null; _xformStartScale = null; _xformStartScaleXYZ = null; _xformStartRot = null; _xformAccum = null; }
+  if (['move','scale-tool','rotate'].includes(S.mode)) { window.FumocaGaussianRenderer?.invalidateSort(); rebuildGeometry(); window.FumocaSparkGaussian?.endEditorGesture?.(S); window.FumocaPresentationPlatform?.endSplatTransform?.(); syncTransformGizmo(); captureGizmoTransform(); _xformIndices = null; _xformPivot = null; _xformStartPos = null; _xformStartScale = null; _xformStartScaleXYZ = null; _xformStartRot = null; _xformAccum = null; }
   _xformPivot = null; _xformIndices = null;
   S.dragging = false; S.dragStart = null; S.dragCurrent = null; S.lassoPoints = [];
   renderLasso();
