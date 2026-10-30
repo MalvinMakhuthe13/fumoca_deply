@@ -83,7 +83,7 @@ const SparkGaussianView = (() => {
       const arrays = [state.positions, state.scaleXYZ, state.rotation, state.opacity, state.colors, state.paintColors];
       for (const array of arrays) {
         if (!array) { mix(0); continue; }
-        const stride = array === state.positions || array === state.scaleXYZ || array === state.colors ? 3
+        const stride = array === state.positions || array === state.scaleXYZ || array === state.colors || array === state.paintColors ? 3
           : array === state.rotation ? 4 : 1;
         for (let k = 0; k < stride; k++) {
           const value = Number(array[i * stride + k] ?? 0);
