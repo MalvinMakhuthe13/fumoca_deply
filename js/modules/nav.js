@@ -36,7 +36,8 @@
     { href: 'image-to-splat.html', icon: '🧭', label: 'Image → Splat', match: ['image-to-splat.html', 'image-to-splat'] },
     { href: 'alignment.html', icon: '📐', label: 'Alignment', match: ['alignment.html', 'alignment'] },
     { href: 'media-edit.html', icon: '🎬', label: 'Video / Photo', match: ['media-edit.html'] },
-    { href: 'edit.html', icon: '✏️', label: 'Editor', match: ['edit.html'] }
+    { href: 'edit.html', icon: '✏️', label: 'Editor', match: ['edit.html'] },
+    { href: 'presentation-platform.html', icon: '📦', label: 'Presentation Platform', match: ['presentation-platform.html', 'presentation-platform'] }
   ];
 
   const FOOTER_ITEMS = [
@@ -56,15 +57,6 @@
     });
   }
 
-  /*function linkHTML(item, extraClass) {
-    const active = isActive(item) ? ' fnav-active' : '';
-    const badge = item.badge
-      ? `<span class="fnav-badge" data-badge="${item.badge}" hidden>0</span>`
-      : '';
-    return `<a href="${item.href}" class="fnav-item ${extraClass}${active}">
-      <span class="fnav-icon">${item.icon}</span><span class="fnav-label">${item.label}</span>${badge}
-    </a>`;
-  }*/
   function linkHTML(item, extraClass) {
 
   if (item.action === 'logout') {
