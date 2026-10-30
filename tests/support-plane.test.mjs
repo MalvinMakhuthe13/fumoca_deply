@@ -61,7 +61,9 @@ assert.equal(autoPlane.method,'automatic-boundary-ransac+pca','automatic result 
 
 // A clean underside with no material below it must still be eligible for
 // leveling/seating; zero trim candidates is not a reason to reject a plane.
-const cleanPositions=new Float32Array([...positions,...n.flatMap(x=>[x*.2,x*.4,x*.8])]);
+const cleanExtra=[];
+for(let i=0;i<50;i++)cleanExtra.push(...u.map((x,k)=>x*((i%10)-5)*.1+v[k]*(Math.floor(i/10)-2)*.1+n[k]*(.2+(i%7)*.03)));
+const cleanPositions=new Float32Array([...positions,...cleanExtra]);
 const cleanAlive=new Uint8Array(cleanPositions.length/3);cleanAlive.fill(1);
 const cleanPlane=fitSelectedSupportPlane(cleanPositions,selected,{orientationPoint:n.map(x=>x*.5)});
 const cleanPreview=previewSupportPlaneTrim(cleanPositions,cleanAlive,cleanPlane,{margin:.01});
