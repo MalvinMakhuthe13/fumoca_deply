@@ -4919,6 +4919,7 @@ function animate(now = performance.now()) {
   _lastViewportRender = now;
   controls.update();
   renderer.render(scene, camera);
+  if (_showGaussianEllipsoids) _refreshGaussianEllipsoidOverlay();
   // Reference photo overlay for Fill / collect-from-image
   try {
     const GF = window.FumocaGapFill;
