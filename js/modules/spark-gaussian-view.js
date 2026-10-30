@@ -72,6 +72,27 @@ const SparkGaussianView = (() => {
     _overlay.visible = _enabled && positions.length > 0;
   }
 
+  function _stateSignature(state) {
+    // Include every Gaussian property that the editor can change.
+    let hash = 2166136261;
+    const mix = value => { hash = Math.imul(hash ^ (value | 0), 16777619); };
+    mix(state.alive.length);
+    for (let i = 0; i < state.alive.length; i++) {
+      mix(state.alive[i] ? 1 : 0);
+      const arrays = [state.positions, state.scaleXYZ, state.rotation, state.opacity, state.colors];
+      for (const array of arrays) {
+        if (!array) { mix(0); continue; }
+        const stride = array === state.positions || array === state.scaleXYZ || array === state.colors ? 3
+          : array === state.rotation ? 4 : 1;
+        for (let k = 0; k < stride; k++) {
+          const value = Number(array[i * stride + k] ?? 0);
+          mix(Number.isFinite(value) ? Math.round(Math.fround(value) * 100000) : 0);
+        }
+      }
+    }
+    return state.alive.length + ':' + (hash >>> 0);
+  }
+
   async function loadFromBytes(bytes, fileName = 'scene.ply') {
     await _ensureSpark();
     const scene = _scene();
@@ -108,7 +129,7 @@ const SparkGaussianView = (() => {
       console.error('[FUMOCA] Live Spark update rejected:', result.reason);
       return false;
     }
-    _lastStateSignature = _stateSignature(state);
+    if (indices == null) _lastStateSignature = _stateSignature(state);
     return true;
   }
 
