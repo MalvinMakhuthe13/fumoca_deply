@@ -73,14 +73,18 @@ const SparkGaussianView = (() => {
 
   function _parseBinaryPly(bytes) {
     const src = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-    const marker = new TextEncoder().encode('end_header\n');
-    let headerEnd = -1;
+    const marker = new TextEncoder().encode('end_header');
+    let markerAt = -1;
     for (let i = 0; i <= src.length - marker.length; i++) {
       let match = true;
       for (let j = 0; j < marker.length; j++) if (src[i+j] !== marker[j]) { match = false; break; }
-      if (match) { headerEnd = i + marker.length; break; }
+      if (match) { markerAt = i; break; }
     }
-    if (headerEnd < 0) throw new Error('PLY header terminator not found');
+    if (markerAt < 0) throw new Error('PLY header terminator not found');
+    let headerEnd = markerAt + marker.length;
+    if (src[headerEnd] === 13 && src[headerEnd + 1] === 10) headerEnd += 2;
+    else if (src[headerEnd] === 10) headerEnd += 1;
+    else throw new Error('PLY header terminator has no supported line ending');
     const header = new TextDecoder().decode(src.subarray(0, headerEnd));
     if (!/^format binary_little_endian 1\.0$/m.test(header)) throw new Error('Editor sync currently requires binary little-endian PLY');
     const vertexMatch = header.match(/^element vertex (\d+)$/m);
@@ -161,6 +165,19 @@ const SparkGaussianView = (() => {
       }
       // FUMOCA stores Gaussian rotations as normalized quaternion w,x,y,z,
       // matching the standard rot_0..rot_3 property order.
+      if (state.scaleXYZ && parsed.scaleProps.every(Boolean)) {
+        for (let axis=0;axis<3;axis++) {
+          const scale = Number(state.scaleXYZ[i*3+axis]);
+          if (!(scale > 0) || !Number.isFinite(scale)) throw new Error('Invalid Gaussian scale at vertex ' + i);
+          const prop = parsed.scaleProps[axis];
+          view[prop.setter](prop.offset, Math.log(scale), true);
+        }
+      }
+      if (state.opacity && parsed.opacityProp) {
+        const alpha = Math.max(0.0001, Math.min(0.9999, Number(state.opacity[i])));
+        if (!Number.isFinite(alpha)) throw new Error('Invalid Gaussian opacity at vertex ' + i);
+        view[parsed.opacityProp.setter](parsed.opacityProp.offset, Math.log(alpha / (1 - alpha)), true);
+      }
       if (state.rotation && parsed.rotationProps.every(Boolean)) {
         let norm = 0;
         for (let axis=0;axis<4;axis++) norm += state.rotation[i*4+axis] ** 2;
