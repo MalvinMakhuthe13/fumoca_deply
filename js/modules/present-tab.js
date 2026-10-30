@@ -13,8 +13,8 @@ import {
 } from './present-nav.js';
 
 const STORAGE_KEY = 'fumoca_present_v1';
-const BASE_DEFAULTS={enabled:false,shape:'circle',width:0.6,depth:0.6,height:0.06,gap:0.005,material:'wood',logoUrl:null,logoSize:0.32,logoRotation:0,logoOffset:0.002,showLightRing:true};
-let presentationBase=null,presentationBaseScene=null,baseConfig={...BASE_DEFAULTS,customPoints:null};
+const BASE_DEFAULTS={enabled:false,shape:'circle',width:0.6,depth:0.6,height:0.06,gap:0.005,material:'wood',logoUrl:null,logoSize:0.32,logoRotation:0,logoOffset:0.002,showLightRing:true,customPoints:null};
+let presentationBase=null,presentationBaseScene=null,baseConfig={...BASE_DEFAULTS};
 let baseDrawing=false,baseDrawPoints=[];
 function scanBounds(){const S=window.S;if(!S?.positions?.length)return null;const xs=[],ys=[],zs=[],n=Math.floor(S.positions.length/3),stride=Math.max(1,Math.floor(n/30000));for(let i=0;i<n;i+=stride){if(S.alive&&!S.alive[i])continue;const x=S.positions[i*3],y=S.positions[i*3+1],z=S.positions[i*3+2];if(Number.isFinite(x)&&Number.isFinite(y)&&Number.isFinite(z)){xs.push(x);ys.push(y);zs.push(z);}}if(xs.length<3)return null;const q=(a,p)=>{a.sort((x,y)=>x-y);return a[Math.min(a.length-1,Math.floor((a.length-1)*p))];};return{minX:q(xs,.005),maxX:q(xs,.995),minY:q(ys,.005),maxY:q(ys,.995),minZ:q(zs,.005),maxZ:q(zs,.995)};}
 function ensurePresentationBase(){const scene=window._fumocaScene||window.scene;if(!scene||!window.THREE)throw new Error('The Studio 3D scene is not ready yet.');if(presentationBase&&presentationBaseScene!==scene){presentationBase.dispose();presentationBase=null;}if(!presentationBase){presentationBaseScene=scene;presentationBase=new PresentationBase(scene,baseConfig);presentationBase.assembly.visible=!!baseConfig.enabled;}return presentationBase;}
@@ -37,7 +37,9 @@ function idKey() {
 function loadLocal() {
   try {
     const all = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-    return all[idKey()] || all.default || null;
+    if (all[idKey()]) return all[idKey()];
+    if (idKey() === 'default') return all.default || null;
+    return all.default ? { ...all.default, platformBase: null } : null;
   } catch { return null; }
 }
 
