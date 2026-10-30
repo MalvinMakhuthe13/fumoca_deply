@@ -183,7 +183,9 @@ function renderUI(){
   </div>
   <div class="fp-section"><div class="fp-title">Scene integration</div>
     <div class="fp-note">The platform is a separate Three.js object. Your original Gaussian scan remains untouched.</div>
-    <button id="fpApply" class="fp-primary">Apply to scene</button>\n    <button id="fpFlatten" style="width:100%;margin-top:7px;border-color:#d4ff00;color:#d4ff00">Flatten scan to platform</button>\n    <button id="fpRestore" style="width:100%;margin-top:7px">Restore pre-flatten scan</button>
+    <button id="fpApply" class="fp-primary">Apply to scene</button>
+    <button id="fpFlatten" style="width:100%;margin-top:7px;border-color:#d4ff00;color:#d4ff00">Flatten scan to platform</button>
+    <button id="fpRestore" style="width:100%;margin-top:7px">Restore pre-flatten scan</button>
     <button id="fpSave" style="width:100%;margin-top:7px">Save platform settings</button>
   </div>`;
   const bindRange=(id,key,out,suffix=' mm')=>$(id).addEventListener('input',e=>{state[key]=+e.target.value;$(out).textContent=state[key]+suffix;build();});
@@ -196,7 +198,9 @@ function renderUI(){
   $('fpUpload').addEventListener('click',()=>$('fpLogo').click());
   $('fpLogo').addEventListener('change',e=>{const file=e.target.files?.[0];if(!file)return;if(file.size>1024*1024){alert('Please use a logo image smaller than 1 MB.');e.target.value='';return;}const reader=new FileReader();reader.onload=()=>{state.logoDataUrl=String(reader.result||'');state.logoUrl=null;build();save();};reader.onerror=()=>alert('Could not read that logo file.');reader.readAsDataURL(file);});
   $('fpRemove').addEventListener('click',()=>{if(state.logoUrl)URL.revokeObjectURL(state.logoUrl);state.logoUrl=null;state.logoDataUrl=null;build();save();});
-  $('fpApply').addEventListener('click',()=>{build();save();});\n  $('fpFlatten').addEventListener('click',()=>{try{const r=flattenScanToPlatform();alert('Flattened base: removed '+r.removed.toLocaleString()+' lower Gaussian points. Original scan is backed up; use Restore pre-flatten scan to reverse.');}catch(e){alert(e.message);}});\n  $('fpRestore').addEventListener('click',()=>{if(!restorePreFlatten())alert('No flatten backup is available in this Studio session.');});
+  $('fpApply').addEventListener('click',()=>{build();save();});
+  $('fpFlatten').addEventListener('click',()=>{try{const r=flattenScanToPlatform();alert('Flattened base: removed '+r.removed.toLocaleString()+' lower Gaussian points. Original scan is backed up; use Restore pre-flatten scan to reverse.');}catch(e){alert(e.message);}});
+  $('fpRestore').addEventListener('click',()=>{if(!restorePreFlatten())alert('No flatten backup is available in this Studio session.');});
   $('fpSave').addEventListener('click',save);
   $('fpEnabled').checked=state.enabled;
   for(const [id,key] of [['fpWidth','width'],['fpHeight','height'],['fpEdge','edge'],['fpOffset','offsetY'],['fpLogoSize','logoSize'],['fpLogoRot','logoRotation'],['fpLogoOff','logoOffset']]){$(id).value=state[key];$(id).dispatchEvent(new Event('input',{bubbles:true}));}
