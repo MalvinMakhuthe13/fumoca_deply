@@ -3,6 +3,7 @@
  */
 import { initMagazineText, importAll as importMagazine } from './present-magazine-text.js';
 import { initPresentNav, setNavStops } from './present-nav.js';
+import { initMagazineImages, importAll as importImages } from './present-image-layer.js';
 
 function b64Json(s) {
   try { return JSON.parse(decodeURIComponent(escape(atob(s)))); }
@@ -42,6 +43,7 @@ export function initPresentViewer() {
   }
 
   initMagazineText({ editable: false });
+  initMagazineImages({ editable: false });
   initPresentNav({ editable: false });
 
   let applied = false;
@@ -49,6 +51,7 @@ export function initPresentViewer() {
     if (applied) return;
     const data = resolvePresent();
     if (!data) return;
+    if (data.images?.length) { importImages(data.images); applied = true; console.info('[present-viewer] image layers restored'); }
     if (data.magazine?.length) {
       importMagazine(data.magazine);
       applied = true;
