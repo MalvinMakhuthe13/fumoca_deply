@@ -2,7 +2,7 @@
  * FUMOCA Present Tab — all Present tools live in the Present sidebar section
  * Magazine text · Nav · Review video · Save / share (keeps text for viewer)
  */
-import { PresentationBase } from './presentation-base.js?v=20261030-base1';
+import { PresentationBase } from './presentation-base.js?v=20261030-base2';
 import {
   initMagazineText, addText, updateText, removeText, applyPreset, clearText,
   exportAll as exportMagazine, importAll as importMagazine, setEditable as setMagEditable,
