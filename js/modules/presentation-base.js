@@ -1,237 +1,312 @@
 /**
  * FUMOCA Presentation Base
- * Solid parametric 3D platform that sits under a splat/scene.
- * Logo lives on the underside so rotation naturally reveals it.
- * Everything is parented under one Group so zoom/orbit/pan stay locked.
  *
- * Usage:
- *   import { PresentationBase } from './presentation-base.js';
- *   const base = new PresentationBase(scene, {
- *     shape: 'circle',
- *     width: 0.6,          // metres
- *     height: 0.08,
- *     edgeRadius: 0.02,
- *     material: 'wood',
- *     logoUrl: null,
- *     logoSize: 0.4,
- *     logoRotation: 0,
- *     logoOffsetZ: -0.005
- *   });
- *   // Parent your splat / object group under base.assembly
- *   base.assembly.add(yourSplatGroup);
- *   base.setPositionY(-0.12); // relative to the object
+ * A solid, editable 3D display platform. Keep the scanned object and this
+ * platform inside the same presentation assembly so orbit/zoom/pan affect
+ * them together. The scan itself is never modified.
  */
-
 import * as THREE from 'three';
 
 const MATERIALS = {
-  wood:  { color: 0x8b5a2b, roughness: 0.65, metalness: 0.05, map: 'wood' },
-  black: { color: 0x111111, roughness: 0.4,  metalness: 0.3  },
-  white: { color: 0xf5f5f5, roughness: 0.35, metalness: 0.05 },
-  metal: { color: 0xaaaaaa, roughness: 0.2,  metalness: 0.9  },
-  glass: { color: 0xffffff, roughness: 0.05, metalness: 0.0, transmission: 0.9, thickness: 0.02 }
+  wood:  { color: 0x8b5a2b, roughness: 0.68, metalness: 0.02, clearcoat: 0.18 },
+  black: { color: 0x111318, roughness: 0.38, metalness: 0.28 },
+  white: { color: 0xf3f2ed, roughness: 0.34, metalness: 0.03 },
+  metal: { color: 0x9fa7b1, roughness: 0.22, metalness: 0.88 },
+  glass: { color: 0xffffff, roughness: 0.08, metalness: 0, transmission: 0.82, thickness: 0.025 }
 };
 
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+function roundedRectShape(width, depth, radius) {
+  const x = width / 2, z = depth / 2;
+  const r = clamp(Number(radius) || 0, 0, Math.min(width, depth) / 2);
+  const s = new THREE.Shape();
+  s.moveTo(-x + r, -z);
+  s.lineTo(x - r, -z); s.quadraticCurveTo(x, -z, x, -z + r);
+  s.lineTo(x, z - r); s.quadraticCurveTo(x, z, x - r, z);
+  s.lineTo(-x + r, z); s.quadraticCurveTo(-x, z, -x, z - r);
+  s.lineTo(-x, -z + r); s.quadraticCurveTo(-x, -z, -x + r, -z);
+  return s;
+}
+
+function normaliseOutline(points, width, depth) {
+  if (!Array.isArray(points) || points.length < 3) return null;
+  const clean = points.map(p => ({ x: Number(p.x), z: Number(p.z) }))
+    .filter(p => Number.isFinite(p.x) && Number.isFinite(p.z));
+  if (clean.length < 3) return null;
+  const xs = clean.map(p => p.x), zs = clean.map(p => p.z);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minZ = Math.min(...zs), maxZ = Math.max(...zs);
+  const spanX = maxX - minX, spanZ = maxZ - minZ;
+  if (spanX <= 0 || spanZ <= 0) return null;
+  return clean.map(p => ({
+    x: ((p.x - (minX + maxX) / 2) / spanX) * width,
+    z: ((p.z - (minZ + maxZ) / 2) / spanZ) * depth
+  }));
+}
+
 export class PresentationBase {
-  constructor(scene, options = {}) {
+  constructor(scene = null, options = {}) {
     this.scene = scene;
     this.options = {
-      shape: 'circle',
-      width: 0.6,
-      depth: 0.6,
-      height: 0.08,
-      edgeRadius: 0.02,
-      material: 'wood',
-      positionY: -0.12,
-      logoUrl: null,
-      logoSize: 0.4,
-      logoRotation: 0,
-      logoOffsetZ: -0.005,
-      showLightRing: true,
+      shape: 'circle', width: 0.6, depth: 0.6, height: 0.08,
+      edgeRadius: 0.02, customPoints: null, material: 'wood',
+      positionY: 0, logoUrl: null, logoSize: 0.4,
+      logoRotation: 0, logoOffset: 0.002, showLightRing: true,
+      lightRingColor: 0xffe6a3, lightRingInset: 0.035,
       ...options
     };
-
     this.assembly = new THREE.Group();
-    this.assembly.name = 'PresentationAssembly';
+    this.assembly.name = 'FumocaPresentationAssembly';
+    this.assembly.userData.fumocaPresentationAssembly = true;
     this.platform = null;
     this.logoMesh = null;
     this.lightRing = null;
     this.logoTexture = null;
-
+    this._logoRequest = 0;
     this._build();
     if (scene) scene.add(this.assembly);
   }
 
+  _disposeObject(object) {
+    if (!object) return;
+    this.assembly.remove(object);
+    object.geometry?.dispose?.();
+    const materials = Array.isArray(object.material) ? object.material : [object.material];
+    materials.filter(Boolean).forEach(material => {
+      if (material.map && material.map !== this.logoTexture) material.map.dispose?.();
+      material.dispose?.();
+    });
+  }
+
+  _clearLogo() {
+    this._logoRequest++;
+    this._disposeObject(this.logoMesh);
+    this.logoMesh = null;
+    this.logoTexture?.dispose?.();
+    this.logoTexture = null;
+  }
+
   _build() {
-    this._disposeMeshes();
+    this._disposeObject(this.platform);
+    this._disposeObject(this.lightRing);
+    this.platform = this.lightRing = null;
     this._createPlatform();
     this._createLightRing();
     this._createLogo();
-    this.assembly.position.y = this.options.positionY;
-  }
-
-  _disposeMeshes() {
-    [this.platform, this.logoMesh, this.lightRing].forEach(m => {
-      if (m) {
-        m.geometry?.dispose();
-        if (Array.isArray(m.material)) m.material.forEach(mat => mat.dispose());
-        else m.material?.dispose();
-        this.assembly.remove(m);
-      }
-    });
-    this.platform = this.logoMesh = this.lightRing = null;
+    this.assembly.position.y = Number(this.options.positionY) || 0;
   }
 
   _createPlatform() {
-    const { shape, width, depth, height, edgeRadius, material } = this.options;
-    const w = width;
-    const d = depth || width;
-    const h = height;
-    const r = Math.min(edgeRadius, Math.min(w, d) / 2 - 0.001);
-
+    const o = this.options;
+    const width = Math.max(0.02, Number(o.width) || 0.6);
+    const depth = Math.max(0.02, Number(o.depth) || width);
+    const height = Math.max(0.005, Number(o.height) || 0.08);
     let geometry;
-    if (shape === 'circle') {
-      geometry = new THREE.CylinderGeometry(w / 2, w / 2, h, 64);
-    } else if (shape === 'square' || shape === 'rectangle') {
-      const shape2d = new THREE.Shape();
-      const hw = w / 2, hd = d / 2;
-      shape2d.moveTo(-hw + r, -hd);
-      shape2d.lineTo( hw - r, -hd);
-      shape2d.quadraticCurveTo( hw, -hd, hw, -hd + r);
-      shape2d.lineTo( hw,  hd - r);
-      shape2d.quadraticCurveTo( hw,  hd, hw - r, hd);
-      shape2d.lineTo(-hw + r,  hd);
-      shape2d.quadraticCurveTo(-hw,  hd, -hw, hd - r);
-      shape2d.lineTo(-hw, -hd + r);
-      shape2d.quadraticCurveTo(-hw, -hd, -hw + r, -hd);
-      const extrude = new THREE.ExtrudeGeometry(shape2d, {
-        depth: h,
-        bevelEnabled: false,
-        steps: 1
-      });
-      extrude.rotateX(-Math.PI / 2);
-      extrude.translate(0, -h / 2, 0);
-      geometry = extrude;
+
+    if (o.shape === 'circle') {
+      geometry = new THREE.CylinderGeometry(width / 2, width / 2, height, 96, 1, false);
     } else {
-      // custom fallback = rounded rect
-      geometry = new THREE.BoxGeometry(w, h, d);
+      let outline;
+      if (o.shape === 'custom') {
+        const points = normaliseOutline(o.customPoints, width, depth);
+        if (points) {
+          outline = new THREE.Shape();
+          outline.moveTo(points[0].x, points[0].z);
+          points.slice(1).forEach(p => outline.lineTo(p.x, p.z));
+          outline.closePath();
+        }
+      }
+      if (!outline) outline = roundedRectShape(width, depth, o.edgeRadius);
+      geometry = new THREE.ExtrudeGeometry(outline, {
+        depth: height, bevelEnabled: false, curveSegments: 12, steps: 1
+      });
+      // Shape is drawn in X/Z; extrusion becomes the vertical Y thickness.
+      geometry.rotateX(-Math.PI / 2);
+      geometry.translate(0, -height / 2, 0);
+      geometry.computeVertexNormals();
     }
 
-    const matDef = MATERIALS[material] || MATERIALS.wood;
-    const mat = new THREE.MeshPhysicalMaterial({
-      color: matDef.color,
-      roughness: matDef.roughness,
-      metalness: matDef.metalness,
-      transmission: matDef.transmission || 0,
-      thickness: matDef.thickness || 0,
-      clearcoat: material === 'wood' ? 0.15 : 0,
-      clearcoatRoughness: 0.4
+    const def = MATERIALS[o.material] || MATERIALS.wood;
+    const material = new THREE.MeshPhysicalMaterial({
+      color: def.color, roughness: def.roughness, metalness: def.metalness,
+      transmission: def.transmission || 0, thickness: def.thickness || 0,
+      clearcoat: def.clearcoat || 0
     });
+    if (o.material === 'wood') material.map = this._makeWoodTexture();
 
-    // Simple wood grain if no external texture
-    if (material === 'wood' && !matDef.map) {
-      mat.map = this._makeWoodTexture();
-    }
-
-    this.platform = new THREE.Mesh(geometry, mat);
+    this.platform = new THREE.Mesh(geometry, material);
+    this.platform.name = 'PresentationPlatform';
     this.platform.castShadow = true;
     this.platform.receiveShadow = true;
-    this.platform.name = 'Platform';
     this.assembly.add(this.platform);
   }
 
   _createLightRing() {
-    if (!this.options.showLightRing) return;
-    const { width, height } = this.options;
-    const radius = (width / 2) * 0.92;
-    const geom = new THREE.TorusGeometry(radius, 0.006, 16, 80);
-    const mat = new THREE.MeshBasicMaterial({
-      color: 0xfff4d0,
-      transparent: true,
-      opacity: 0.9
+    const o = this.options;
+    if (!o.showLightRing || o.shape !== 'circle') return;
+    const radius = Math.max(0.01, o.width / 2 - o.lightRingInset);
+    const geometry = new THREE.TorusGeometry(radius, 0.0035, 12, 96);
+    const material = new THREE.MeshBasicMaterial({
+      color: o.lightRingColor, transparent: true, opacity: 0.88,
+      depthWrite: false, side: THREE.DoubleSide
     });
-    this.lightRing = new THREE.Mesh(geom, mat);
+    this.lightRing = new THREE.Mesh(geometry, material);
     this.lightRing.rotation.x = Math.PI / 2;
-    this.lightRing.position.y = -height / 2 + 0.002;
-    this.lightRing.name = 'LightRing';
+    this.lightRing.position.y = -o.height / 2 - 0.0008;
+    this.lightRing.name = 'UndersideLightRing';
     this.assembly.add(this.lightRing);
   }
 
   _createLogo() {
-    const { logoUrl, logoSize, logoRotation, logoOffsetZ, width, height } = this.options;
-    if (!logoUrl) return;
-
+    const o = this.options;
+    if (!o.logoUrl) return;
+    const request = ++this._logoRequest;
     const loader = new THREE.TextureLoader();
-    loader.load(logoUrl, (tex) => {
-      tex.colorSpace = THREE.SRGBColorSpace;
-      this.logoTexture = tex;
-
-      const size = logoSize;
-      const geom = new THREE.PlaneGeometry(size, size);
-      const mat = new THREE.MeshBasicMaterial({
-        map: tex,
-        transparent: true,
-        side: THREE.DoubleSide,
-        depthWrite: false
+    loader.load(o.logoUrl, texture => {
+      if (request !== this._logoRequest) { texture.dispose(); return; }
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.anisotropy = 8;
+      const image = texture.image || {};
+      const aspect = image.width && image.height ? image.width / image.height : 1;
+      const maxSize = Math.max(0.01, Number(o.logoSize) || 0.4);
+      const w = aspect >= 1 ? maxSize : maxSize * aspect;
+      const h = aspect >= 1 ? maxSize / aspect : maxSize;
+      const geometry = new THREE.PlaneGeometry(w, h);
+      const material = new THREE.MeshBasicMaterial({
+        map: texture, transparent: true, alphaTest: 0.015,
+        side: THREE.DoubleSide, depthWrite: true, toneMapped: false
       });
-
-      this.logoMesh = new THREE.Mesh(geom, mat);
-      // Face downward (underside)
-      this.logoMesh.rotation.x = Math.PI; // flip so image is correct when viewed from below
-      this.logoMesh.rotation.z = THREE.MathUtils.degToRad(logoRotation);
-      this.logoMesh.position.y = -height / 2 + logoOffsetZ;
-      this.logoMesh.name = 'UndersideLogo';
-      this.assembly.add(this.logoMesh);
+      const mesh = new THREE.Mesh(geometry, material);
+      // Plane's +Z normal rotated +90° around X points down (-Y).
+      mesh.rotation.x = Math.PI / 2;
+      mesh.rotation.z = THREE.MathUtils.degToRad(Number(o.logoRotation) || 0);
+      mesh.position.y = -o.height / 2 - Math.max(0.0005, Number(o.logoOffset) || 0.002);
+      mesh.name = 'UndersideBranding';
+      mesh.renderOrder = 2;
+      this.logoTexture = texture;
+      this.logoMesh = mesh;
+      this.assembly.add(mesh);
+    }, undefined, error => {
+      console.warn('[FUMOCA] Could not load presentation logo:', error);
     });
   }
 
   _makeWoodTexture() {
-    const c = document.createElement('canvas');
-    c.width = 512; c.height = 512;
-    const ctx = c.getContext('2d');
-    ctx.fillStyle = '#7a4a1f';
+    const canvas = document.createElement('canvas');
+    canvas.width = 512; canvas.height = 512;
+    const ctx = canvas.getContext('2d');
+    const gradient = ctx.createLinearGradient(0, 0, 512, 512);
+    gradient.addColorStop(0, '#95602f');
+    gradient.addColorStop(0.5, '#6f421f');
+    gradient.addColorStop(1, '#a8733c');
+    ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, 512, 512);
-    for (let i = 0; i < 40; i++) {
-      ctx.strokeStyle = `rgba(${100 + Math.random()*40},${60 + Math.random()*30},${20 + Math.random()*20},${0.3 + Math.random()*0.4})`;
+    for (let i = 0; i < 70; i++) {
+      const y = Math.random() * 512;
+      ctx.strokeStyle = `rgba(42,22,9,${0.035 + Math.random() * 0.09})`;
       ctx.lineWidth = 1 + Math.random() * 3;
       ctx.beginPath();
-      ctx.moveTo(0, Math.random() * 512);
-      ctx.bezierCurveTo(128, Math.random()*512, 384, Math.random()*512, 512, Math.random()*512);
+      ctx.moveTo(0, y);
+      ctx.bezierCurveTo(150, y - 18, 350, y + 18, 512, y + (Math.random() - 0.5) * 24);
       ctx.stroke();
     }
-    const tex = new THREE.CanvasTexture(c);
-    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-    tex.repeat.set(2, 2);
-    return tex;
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+    texture.repeat.set(2, 2);
+    return texture;
   }
 
-  // ── Public setters ────────────────────────────────────────────────────────
-  setShape(shape) { this.options.shape = shape; this._build(); }
-  setDimensions({ width, depth, height, edgeRadius }) {
-    Object.assign(this.options, { width, depth, height, edgeRadius });
-    this._build();
+  /** Attach a scan/group without changing its internal geometry or transforms. */
+  attach(object) {
+    if (!object) throw new Error('A scan object is required.');
+    this.assembly.add(object);
+    return object;
   }
-  setMaterial(name) { this.options.material = name; this._build(); }
-  setPositionY(y) { this.options.positionY = y; this.assembly.position.y = y; }
-  setLogo(url, size, rotation, offsetZ) {
-    this.options.logoUrl = url;
-    this.options.logoSize = size ?? this.options.logoSize;
-    this.options.logoRotation = rotation ?? this.options.logoRotation;
-    this.options.logoOffsetZ = offsetZ ?? this.options.logoOffsetZ;
+
+  /**
+   * Fit the platform beneath an object already parented to this assembly.
+   * The object's own transform and geometry are left untouched.
+   */
+  fitToObject(object, { padding = 0.04, gap = 0, width = null, depth = null } = {}) {
+    if (!object || !this.assembly.getObjectById(object.id)) {
+      throw new Error('Attach the scan to this presentation assembly before fitting the base.');
+    }
+    this.assembly.updateMatrixWorld(true);
+    const bounds = new THREE.Box3().setFromObject(object);
+    if (bounds.isEmpty()) throw new Error('The scan has no measurable bounds.');
+    const inverse = this.assembly.matrixWorld.clone().invert();
+    const corners = [];
+    for (const x of [bounds.min.x, bounds.max.x]) {
+      for (const y of [bounds.min.y, bounds.max.y]) {
+        for (const z of [bounds.min.z, bounds.max.z]) {
+          corners.push(new THREE.Vector3(x, y, z).applyMatrix4(inverse));
+        }
+      }
+    }
+    const local = new THREE.Box3().setFromPoints(corners);
+    const w = width ?? (local.max.x - local.min.x + padding * 2);
+    const d = depth ?? (local.max.z - local.min.z + padding * 2);
+    this.options.width = Math.max(0.02, w);
+    this.options.depth = Math.max(0.02, d);
+    this.platform.position.y = local.min.y - gap - this.options.height / 2;
+    this._positionUndersideParts();
+    this._updateGeometryShape();
+    return { width: this.options.width, depth: this.options.depth, topY: this.platform.position.y + this.options.height / 2 };
+  }
+
+  _updateGeometryShape() {
+    // Rebuild once after a fit, retaining the calculated platform elevation.
+    const y = this.platform.position.y;
     this._build();
+    this.platform.position.y = y;
+    this._positionUndersideParts();
+  }
+
+  _positionUndersideParts() {
+    const y = this.platform.position.y - this.options.height / 2;
+    if (this.logoMesh) this.logoMesh.position.y = y - Math.max(0.0005, Number(this.options.logoOffset) || 0.002);
+    if (this.lightRing) this.lightRing.position.y = y - 0.0008;
+  }
+
+  /** Apply many UI changes with one geometry rebuild. */
+  update(patch = {}) {
+    const old = { ...this.options };
+    Object.assign(this.options, patch);
+    const geometryChanged = ['shape', 'width', 'depth', 'height', 'edgeRadius', 'customPoints', 'material', 'showLightRing', 'lightRingColor', 'lightRingInset']
+      .some(key => patch[key] !== undefined && patch[key] !== old[key]);
+    const logoChanged = ['logoUrl', 'logoSize', 'logoRotation', 'logoOffset']
+      .some(key => patch[key] !== undefined && patch[key] !== old[key]);
+    if (geometryChanged) this._build();
+    else if (logoChanged) {
+      this._clearLogo();
+      this._createLogo();
+    }
+    if (patch.positionY !== undefined) this.assembly.position.y = Number(patch.positionY) || 0;
+    return this;
+  }
+
+  setShape(shape, customPoints) { return this.update({ shape, ...(customPoints ? { customPoints } : {}) }); }
+  setDimensions(dimensions) { return this.update(dimensions); }
+  setMaterial(material) { return this.update({ material }); }
+  setPositionY(positionY) { return this.update({ positionY }); }
+  setLogo(logoUrl, logoSize, logoRotation, logoOffset) {
+    return this.update({ logoUrl, logoSize, logoRotation, logoOffset });
   }
 
   getConfig() {
-    return { ...this.options };
+    return { ...this.options, customPoints: this.options.customPoints ? this.options.customPoints.map(p => ({ ...p })) : null };
   }
 
-  loadConfig(cfg) {
-    Object.assign(this.options, cfg);
-    this._build();
-  }
+  loadConfig(config = {}) { return this.update(config); }
 
   dispose() {
-    this._disposeMeshes();
-    if (this.scene) this.scene.remove(this.assembly);
+    this._clearLogo();
+    this._disposeObject(this.platform);
+    this._disposeObject(this.lightRing);
+    this.platform = this.lightRing = null;
+    this.scene?.remove(this.assembly);
+    this.assembly.clear();
   }
 }
