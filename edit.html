@@ -760,6 +760,7 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
       <div class="ptab" data-tab="clean">Clean</div>
       <div class="ptab" data-tab="mesh">Mesh</div>
       <div class="ptab" data-tab="present">Present · Music</div>
+      <div class="ptab" data-tab="platform">Platform</div>
       <div class="ptab" data-tab="import">Import</div>
       <div class="ptab" data-tab="layers">Layers</div>
     </div>
@@ -1173,6 +1174,33 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
     </div>
 
     <!-- TAB: IMPORT (LiDAR + formats) -->
+    <div class="panel-body" id="tab-platform" style="display:none">
+      <div class="section">
+        <div class="sec-head"><span class="sec-label">Presentation Base</span></div>
+        <div style="display:flex;gap:6px;margin:8px 0">
+          <button class="chip" data-shape="circle" style="flex:1;padding:6px;border-radius:8px;background:rgba(212,255,0,.12);border:1px solid rgba(212,255,0,.4)">Circle</button>
+          <button class="chip" data-shape="square" style="flex:1;padding:6px;border-radius:8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12)">Square</button>
+          <button class="chip" data-shape="rect" style="flex:1;padding:6px;border-radius:8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12)">Rect</button>
+        </div>
+        <label style="font-size:11px;color:rgba(255,255,255,.5)">Width <span id="platWidthVal">600</span> mm</label>
+        <input type="range" id="platWidth" min="200" max="1200" value="600" style="width:100%">
+        <label style="font-size:11px;color:rgba(255,255,255,.5)">Height <span id="platHeightVal">80</span> mm</label>
+        <input type="range" id="platHeight" min="20" max="200" value="80" style="width:100%">
+        <div style="margin-top:10px;font-size:11px;color:rgba(255,255,255,.5)">Material</div>
+        <div style="display:flex;gap:8px;margin:6px 0">
+          <div class="mat-swatch" data-mat="wood" style="width:28px;height:28px;border-radius:50%;background:#8B4513;cursor:pointer;border:2px solid #d4ff00"></div>
+          <div class="mat-swatch" data-mat="black" style="width:28px;height:28px;border-radius:50%;background:#111;cursor:pointer"></div>
+          <div class="mat-swatch" data-mat="white" style="width:28px;height:28px;border-radius:50%;background:#eee;cursor:pointer"></div>
+          <div class="mat-swatch" data-mat="metal" style="width:28px;height:28px;border-radius:50%;background:#aaa;cursor:pointer"></div>
+        </div>
+        <button id="platApplyBtn" class="tb-btn lime" style="width:100%;margin-top:8px;height:36px">Apply Platform</button>
+        <button id="platFlipBtn" class="tb-btn" style="width:100%;margin-top:6px;height:36px">Flip to Underside</button>
+        <div style="margin-top:12px;font-size:11px;color:rgba(255,255,255,.45)">Logo on underside</div>
+        <input type="file" id="platLogoInput" accept="image/*" style="width:100%;margin-top:4px;color:#fff;font-size:12px">
+        <button id="platClearLogo" class="tb-btn" style="width:100%;margin-top:6px;height:32px">Clear Logo</button>
+      </div>
+    </div>
+
     <div class="panel-body" id="tab-import" style="display:none">
       <div id="imageAngleImportRoot"></div>
       <div class="section">
