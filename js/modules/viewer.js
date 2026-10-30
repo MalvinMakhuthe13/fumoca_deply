@@ -1484,12 +1484,14 @@ function destroyPlyViewer() {
   if (_plyFrame) { cancelAnimationFrame(_plyFrame); _plyFrame = null; }
   if (_plyRenderer) { _plyRenderer.dispose(); _plyRenderer.domElement.remove(); _plyRenderer = null; }
   _plyAttributeControl?.remove(); _plyAttributeControl = null;
+  if (window._fumocaViewerScene === _plyScene) delete window._fumocaViewerScene;
   _plyScene = _plyCamera = _plyControls = null;
 }
 async function mountPlyViewer(url) {
   destroyPlyViewer();
   const container = stageHost || stageEl;
   _plyScene = new THREE.Scene();
+  window._fumocaViewerScene = _plyScene;
   _plyCamera = new THREE.PerspectiveCamera(55, container.clientWidth / container.clientHeight, 0.001, 2000);
   // nerfstudio/COLMAP uses OpenCV convention: Y is DOWN, Z into scene.
   // Match the Gaussiannif_files3D cameraUp of [0,-1,-0.6] so nif_files sit upright.
