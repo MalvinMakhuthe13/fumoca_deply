@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>FUMOCA Studio — 3D Presentation Platform</title>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Oxanium:wght@600;700;800&display=swap" rel="stylesheet">
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
+  }
+}
+</script>
+<style>
+:root {
+  --void: #04050a;
+  --panel: #0c0e14;
+  --surface: rgba(255,255,255,.04);
+  --border: rgba(255,255,255,.08);
+  --lime: #d4ff00;
+  --cyan: #00e5ff;
+  --text: #f0f0f0;
+  --muted: rgba(255,255,255,.55);
+  --font: 'Outfit', sans-serif;
+  --display: 'Oxanium', sans-serif;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 100%; height: 100%; background: var(--void); color: var(--text); font-family: var(--font); overflow: hidden; }
+
+#app { display: grid; grid-template-columns: 320px 1fr 220px; height: 100vh; }
+
+/* Left panel */
+#panel {
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  padding: 18px 16px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.brand {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: 18px;
+  color: var(--lime);
+  letter-spacing: -0.02em;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.brand span { font-weight: 600; color: #fff; opacity: .7; }
+
+h2 { font-size: 13px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); margin-top: 6px; }
+
+.shapes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.shape-btn {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 4px;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 11px;
+  text-align: center;
+  transition: .15s;
+}
+.shape-btn.active, .shape-btn:hover {
+  border-color: var(--lime);
+  color: var(--lime);
+  background: rgba(212,255,0,.08);
+}
+
+.slider-row { display: flex; flex-direction: column; gap: 4px; }
+.slider-row label { font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; }
+.slider-row input[type=range] { width: 100%; accent-color: var(--lime); }
+
+.materials { display: flex; gap: 8px; flex-wrap: wrap; }
+.mat-btn {
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  position: relative;
+}
+.mat-btn.active { border-color: var(--lime); box-shadow: 0 0 0 2px rgba(212,255,0,.3); }
+.mat-btn span {
+  position: absolute; bottom: -16px; left: 50%; transform: translateX(-50%);
+  font-size: 9px; color: var(--muted); white-space: nowrap;
+}
+
+.logo-box {
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  padding: 10px;
+  text-align: center;
+  background: var(--surface);
+}
+.logo-box img { max-width: 100%; max-height: 70px; object-fit: contain; margin-bottom: 6px; }
+.logo-actions { display: flex; gap: 6px; justify-content: center; }
+.logo-actions button {
+  background: #1a1d28;
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.logo-actions button.danger { color: #ff6b8a; }
+
+#apply {
+  margin-top: auto;
+  background: #0ea5e9;
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  padding: 12px;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+}
+#apply:hover { background: #0284c7; }
+
+/* Viewport */
+#viewport { position: relative; background: radial-gradient(ellipse at center, #11131a 0%, #04050a 70%); }
+#canvas { width: 100%; height: 100%; display: block; }
+
+.hint {
+  position: absolute;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0,0,0,.5);
+  backdrop-filter: blur(8px);
+  padding: 8px 14px;
+  border-radius: 20px;
+  font-size: 12px;
+  color: var(--muted);
+  pointer-events: none;
+  border: 1px solid var(--border);
+}
+.hint strong { color: var(--cyan); }
+
+/* Right views */
+#views {
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+}
+.view-card {
+  background: #0a0c12;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  aspect-ratio: 1;
+  position: relative;
+}
+.view-card canvas { width: 100%; height: 100%; }
+.view-label {
+  position: absolute;
+  bottom: 6px;
+  left: 0; right: 0;
+  text-align: center;
+  font-size: 10px;
+  letter-spacing: .06em;
+  color: #fff;
+  background: linear-gradient(transparent, rgba(0,0,0,.7));
+  padding: 12px 4px 4px;
+}
+
+/* Rotation strip */
+#rotation-strip {
+  position: absolute;
+  bottom: 0;
+  left: 0; right: 0;
+  height: 140px;
+  background: linear-gradient(transparent, rgba(0,0,0,.85));
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 20px 16px;
+  pointer-events: none;
+}
+.rot-frame {
+  width: 90px;
+  height: 90px;
+  border-radius: 8px;
+  background: #0a0c12;
+  border: 1px solid var(--border);
+  position: relative;
+  overflow: hidden;
+}
+.rot-frame canvas { width: 100%; height: 100%; }
+.rot-deg {
+  position: absolute;
+  bottom: -18px;
+  left: 0; right: 0;
+  text-align: center;
+  font-size: 10px;
+  color: var(--muted);
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="panel">
+    <div class="brand">← FUMOCA <span>Studio</span></div>
+
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <h2>Presentation Base</h2>
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);">
+        <input type="checkbox" id="baseToggle" checked style="accent-color:var(--lime);"> On
+      </label>
+    </div>
+
+    <div class="shapes">
+      <button class="shape-btn active" data-shape="circle">○ Circle</button>
+      <button class="shape-btn" data-shape="square">□ Square</button>
+      <button class="shape-btn" data-shape="rectangle">▭ Rect</button>
+      <button class="shape-btn" data-shape="custom">✂ Custom</button>
+    </div>
+
+    <div class="slider-row">
+      <label>Width <span id="wVal">600 mm</span></label>
+      <input type="range" id="width" min="200" max="1200" value="600" step="10">
+    </div>
+    <div class="slider-row">
+      <label>Height <span id="hVal">80 mm</span></label>
+      <input type="range" id="height" min="20" max="200" value="80" step="5">
+    </div>
+    <div class="slider-row">
+      <label>Edge radius <span id="eVal">20 mm</span></label>
+      <input type="range" id="edge" min="0" max="80" value="20" step="2">
+    </div>
+    <div class="slider-row">
+      <label>Platform gap <span id="yVal">2 mm</span></label>
+      <input type="range" id="posY" min="0" max="40" value="2" step="1">
+    </div>
+
+    <h2>Material</h2>
+    <div class="materials">
+      <button class="mat-btn active" data-mat="wood" style="background:#8b5a2b;"><span>Wood</span></button>
+      <button class="mat-btn" data-mat="black" style="background:#111;"><span>Black</span></button>
+      <button class="mat-btn" data-mat="white" style="background:#f5f5f5;"><span>White</span></button>
+      <button class="mat-btn" data-mat="metal" style="background:#aaa;"><span>Metal</span></button>
+      <button class="mat-btn" data-mat="glass" style="background:linear-gradient(135deg,#fff,#cce);"><span>Glass</span></button>
+    </div>
+
+    <h2>Logo (Underside)</h2>
+    <div class="logo-box">
+      <img id="logoPreview" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='60' viewBox='0 0 160 60'%3E%3Ctext x='80' y='38' text-anchor='middle' font-family='sans-serif' font-size='22' font-weight='700' fill='%23ffd700'%3EBRYDGE%3C/text%3E%3Cpath d='M80 8 L86 20 H74 Z' fill='%23ffd700'/%3E%3C/svg%3E" alt="logo">
+      <div class="logo-actions">
+        <button id="uploadLogo">Upload logo</button>
+        <button id="removeLogo" class="danger">Remove</button>
+      </div>
+      <input type="file" id="logoFile" accept="image/*" hidden>
+    </div>
+
+    <div class="slider-row">
+      <label>Size <span id="sVal">400 mm</span></label>
+      <input type="range" id="logoSize" min="100" max="800" value="400" step="10">
+    </div>
+    <div class="slider-row">
+      <label>Rotation <span id="rVal">0°</span></label>
+      <input type="range" id="logoRot" min="-180" max="180" value="0" step="5">
+    </div>
+    <div class="slider-row">
+      <label>Logo underside clearance <span id="zVal">2 mm</span></label>
+      <input type="range" id="logoOff" min="1" max="20" value="2" step="1">
+    </div>
+
+    <button id="apply">Apply to Scene</button>
+  </div>
+
+  <div id="viewport">
+    <canvas id="canvas"></canvas>
+    <div class="hint">Drag to rotate · Scroll to zoom · Flip the view to see the <strong>underside logo</strong></div>
+    <div id="rotation-strip"></div>
+  </div>
+
+  <div id="views">
+    <div class="view-card" data-view="front"><canvas></canvas><div class="view-label">FRONT VIEW</div></div>
+    <div class="view-card" data-view="side"><canvas></canvas><div class="view-label">SIDE VIEW</div></div>
+    <div class="view-card" data-view="bottom"><canvas></canvas><div class="view-label">BOTTOM VIEW</div></div>
+    <div class="view-card" data-view="back"><canvas></canvas><div class="view-label">BACK VIEW</div></div>
+  </div>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { PresentationBase } from './js/modules/presentation-base.js';
+
+const canvas = document.getElementById('canvas');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(canvas.clientWidth, canvas.clientHeight);
+renderer.shadowMap.enabled = true;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.1;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x080a10);
+
+const camera = new THREE.PerspectiveCamera(42, canvas.clientWidth / canvas.clientHeight, 0.01, 50);
+camera.position.set(0.8, 0.55, 1.1);
+
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping = true;
+controls.target.set(0, 0.05, 0);
+
+// Lights
+const hemi = new THREE.HemisphereLight(0xffffff, 0x222233, 0.7);
+scene.add(hemi);
+const key = new THREE.DirectionalLight(0xffffff, 1.4);
+key.position.set(2.5, 4, 2);
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+scene.add(key);
+const fill = new THREE.DirectionalLight(0x88aaff, 0.4);
+fill.position.set(-2, 1.5, -1);
+scene.add(fill);
+const rim = new THREE.DirectionalLight(0xfff0d0, 0.6);
+rim.position.set(0, 1, -3);
+scene.add(rim);
+
+// Sample object: simple cap + table (stand-in for the real splat)
+const objectGroup = new THREE.Group();
+objectGroup.name = 'SampleObject';
+
+// Table
+const tableGeom = new THREE.CylinderGeometry(0.28, 0.28, 0.04, 48);
+const tableMat = new THREE.MeshPhysicalMaterial({ color: 0x6b4423, roughness: 0.7, metalness: 0.05 });
+const table = new THREE.Mesh(tableGeom, tableMat);
+table.position.y = 0.02;
+table.castShadow = true;
+table.receiveShadow = true;
+objectGroup.add(table);
+
+// Cap (simplified)
+const capGroup = new THREE.Group();
+const crown = new THREE.Mesh(
+  new THREE.SphereGeometry(0.12, 32, 16, 0, Math.PI * 2, 0, Math.PI * 0.55),
+  new THREE.MeshPhysicalMaterial({ color: 0x9a9a9a, roughness: 0.8 })
+);
+crown.position.y = 0.12;
+capGroup.add(crown);
+const brim = new THREE.Mesh(
+  new THREE.CylinderGeometry(0.18, 0.18, 0.012, 32),
+  new THREE.MeshPhysicalMaterial({ color: 0x222222, roughness: 0.6 })
+);
+brim.position.y = 0.06;
+capGroup.add(brim);
+const button = new THREE.Mesh(
+  new THREE.SphereGeometry(0.012, 12, 12),
+  new THREE.MeshPhysicalMaterial({ color: 0x111111 })
+);
+button.position.y = 0.235;
+capGroup.add(button);
+objectGroup.add(capGroup);
+
+scene.add(objectGroup);
+
+// Presentation Base
+const base = new PresentationBase(scene, {
+  shape: 'circle',
+  width: 0.6,
+  height: 0.08,
+  edgeRadius: 0.02,
+  material: 'wood',
+  positionY: -0.12,
+  logoUrl: document.getElementById('logoPreview').src,
+  logoSize: 0.4,
+  logoRotation: 0,
+  logoOffsetZ: -0.005,
+  showLightRing: true
+});
+
+// Parent the object under the assembly so they move together
+base.assembly.add(objectGroup);
+objectGroup.position.y = 0.12; // sit on top of platform
+
+// UI wiring
+function mm(v) { return (v / 1000).toFixed(3); }
+function updateLabels() {
+  document.getElementById('wVal').textContent = document.getElementById('width').value + ' mm';
+  document.getElementById('hVal').textContent = document.getElementById('height').value + ' mm';
+  document.getElementById('eVal').textContent = document.getElementById('edge').value + ' mm';
+  document.getElementById('yVal').textContent = document.getElementById('posY').value + ' mm';
+  document.getElementById('sVal').textContent = document.getElementById('logoSize').value + ' mm';
+  document.getElementById('rVal').textContent = document.getElementById('logoRot').value + '°';
+  document.getElementById('zVal').textContent = document.getElementById('logoOff').value + ' mm';
+}
+
+function apply() {
+  const width = parseFloat(document.getElementById('width').value) / 1000;
+  const height = parseFloat(document.getElementById('height').value) / 1000;
+  const edge = parseFloat(document.getElementById('edge').value) / 1000;
+  const gap = parseFloat(document.getElementById('posY').value) / 1000;
+  const logoSize = parseFloat(document.getElementById('logoSize').value) / 1000;
+  const logoRot = parseFloat(document.getElementById('logoRot').value);
+  const logoOff = parseFloat(document.getElementById('logoOff').value) / 1000;
+  const shape = document.querySelector('.shape-btn.active')?.dataset.shape || 'circle';
+  const material = document.querySelector('.mat-btn.active')?.dataset.mat || 'wood';
+  const logoUrl = document.getElementById('logoPreview').src;
+  const enabled = document.getElementById('baseToggle').checked;
+
+  base.assembly.visible = enabled;
+  if (!enabled) return;
+
+  // One update for all platform and branding controls, then fit the solid base
+  // to the actual sample object bounds without moving or editing the object.
+  base.update({
+    shape, width, depth: shape === 'rectangle' ? width * 0.7 : width,
+    height, edgeRadius: edge, material,
+    logoUrl, logoSize, logoRotation: logoRot, logoOffset: Math.max(0.0005, Math.abs(logoOff))
+  });
+  base.fitToObject(objectGroup, {
+    width,
+    depth: shape === 'rectangle' ? width * 0.7 : width,
+    padding: 0.04,
+    gap
+  });
+  updateLabels();
+}
+
+document.getElementById('apply').onclick = apply;
+
+document.querySelectorAll('.shape-btn').forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll('.shape-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  };
+});
+document.querySelectorAll('.mat-btn').forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll('.mat-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  };
+});
+
+document.getElementById('uploadLogo').onclick = () => document.getElementById('logoFile').click();
+document.getElementById('logoFile').onchange = (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const url = URL.createObjectURL(file);
+  document.getElementById('logoPreview').src = url;
+};
+document.getElementById('removeLogo').onclick = () => {
+  document.getElementById('logoPreview').src = 'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'1\' height=\'1\'/%3E';
+};
+
+document.getElementById('baseToggle').onchange = apply;
+
+['width','height','edge','posY','logoSize','logoRot','logoOff'].forEach(id => {
+  document.getElementById(id).oninput = updateLabels;
+});
+
+updateLabels();
+apply();
+
+// Resize
+function onResize() {
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', onResize);
+onResize();
+
+// Animate
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+
+// Simple multi-view thumbnails (static cameras)
+const viewCameras = {
+  front:  new THREE.PerspectiveCamera(40, 1, 0.1, 10),
+  side:   new THREE.PerspectiveCamera(40, 1, 0.1, 10),
+  bottom: new THREE.PerspectiveCamera(40, 1, 0.1, 10),
+  back:   new THREE.PerspectiveCamera(40, 1, 0.1, 10)
+};
+viewCameras.front.position.set(0, 0.4, 1.2);
+viewCameras.side.position.set(1.2, 0.4, 0);
+viewCameras.bottom.position.set(0, -1.1, 0.1);
+viewCameras.back.position.set(0, 0.4, -1.2);
+Object.values(viewCameras).forEach(c => c.lookAt(0, 0.05, 0));
+
+const viewRenderers = {};
+document.querySelectorAll('.view-card').forEach(card => {
+  const c = card.querySelector('canvas');
+  const r = new THREE.WebGLRenderer({ canvas: c, antialias: true, alpha: true });
+  r.setSize(180, 180);
+  viewRenderers[card.dataset.view] = r;
+});
+
+function renderViews() {
+  Object.entries(viewCameras).forEach(([name, cam]) => {
+    viewRenderers[name]?.render(scene, cam);
+  });
+}
+setInterval(renderViews, 120);
+
+// Rotation strip (pre-rendered angles)
+const strip = document.getElementById('rotation-strip');
+const angles = [0, 60, 120, 180, 240, 300, 360];
+angles.forEach(deg => {
+  const frame = document.createElement('div');
+  frame.className = 'rot-frame';
+  const c = document.createElement('canvas');
+  frame.appendChild(c);
+  const label = document.createElement('div');
+  label.className = 'rot-deg';
+  label.textContent = deg + '°';
+  frame.appendChild(label);
+  strip.appendChild(frame);
+
+  const r = new THREE.WebGLRenderer({ canvas: c, antialias: true, alpha: true });
+  r.setSize(90, 90);
+  const cam = new THREE.PerspectiveCamera(40, 1, 0.1, 10);
+  const rad = THREE.MathUtils.degToRad(deg);
+  cam.position.set(Math.sin(rad) * 1.15, 0.35, Math.cos(rad) * 1.15);
+  cam.lookAt(0, 0.05, 0);
+  r.render(scene, cam);
+});
+</script>
+</body>
+</html>

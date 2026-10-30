@@ -8,6 +8,7 @@ const SparkViewerBridge = (() => {
   let _renderer, _scene, _camera, _spark, _mesh, _controls, _raf, _resize, _focusCenter, _lastProgressLog = -1;
 
   function destroy() {
+    if (window._fumocaViewerScene === _scene) delete window._fumocaViewerScene;
     if (_raf) cancelAnimationFrame(_raf);
     _raf = 0;
     if (_resize) window.removeEventListener('resize', _resize);
@@ -131,6 +132,7 @@ const SparkViewerBridge = (() => {
     window._fumocaCaptureCanvas = _renderer.domElement;
 
     _scene = new THREE.Scene();
+    window._fumocaViewerScene = _scene;
     _camera = new THREE.PerspectiveCamera(50, w / h, 0.001, 2000);
     _camera.position.set(0, 1.2, 3);
     _camera.up.set(0, 1, 0);
@@ -225,6 +227,9 @@ const SparkViewerBridge = (() => {
     window._fumocaGlRenderer = _renderer;
     window._fumocaSparkPublicActive = true;
     forceHideAllLoaders();
+    window.dispatchEvent(new CustomEvent('fumoca:viewerReady', {
+      detail: { camera: _camera, controls: _controls, gaussianSource: 'spark-viewer-bridge' }
+    }));
     console.log('%c[Viewer] Spark solid — same engine as Studio Photoreal', 'color:#c8ff00;font-weight:700', fileName);
     return true;
   }

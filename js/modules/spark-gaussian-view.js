@@ -34,36 +34,84 @@ const SparkGaussianView = (() => {
     return _spark;
   }
 
+  const _legacyMaterialState = new WeakMap();
   function _hideLegacy() {
     const pts = _pointsObject();
-    if (pts) pts.visible = !_enabled;
+    if (!pts) return;
+    // Keep the source point cloud in the scene graph: editor raycasters,
+    // measurement tools and picking still need a live THREE.Points target.
+    // Hide only its pixels while Spark is active, not the object itself.
+    pts.visible = true;
+    const materials = Array.isArray(pts.material) ? pts.material : [pts.material];
+    for (const material of materials) {
+      if (!material) continue;
+      if (_enabled) {
+        if (!_legacyMaterialState.has(material)) {
+          _legacyMaterialState.set(material, {
+            colorWrite: material.colorWrite,
+            depthWrite: material.depthWrite,
+            transparent: material.transparent,
+            opacity: material.opacity
+          });
+        }
+        material.colorWrite = false;
+        material.depthWrite = false;
+        material.transparent = true;
+        material.opacity = 0;
+        material.needsUpdate = true;
+      } else {
+        const saved = _legacyMaterialState.get(material);
+        if (saved) {
+          material.colorWrite = saved.colorWrite;
+          material.depthWrite = saved.depthWrite;
+          material.transparent = saved.transparent;
+          material.opacity = saved.opacity;
+          material.needsUpdate = true;
+          _legacyMaterialState.delete(material);
+        }
+      }
+    }
   }
 
   function _updateSelectionOverlay(state = window.S) {
+    const THREE = window.THREE;
     const scene = _scene();
-    if (!scene || !state?.positions || !state?.alive || !state?.selected) return;
+    if (!scene || !THREE?.BufferGeometry || !THREE?.PointsMaterial || !THREE?.Points ||
+        !state?.positions || !state?.alive || !state?.selected) return;
+    // Editor S.positions are already in scene/world coordinates. Keep the
+    // overlay in the scene root; parenting it to SplatMesh applies Spark's
+    // internal transforms a second time and visibly detaches the highlight.
     const positions = [], colors = [];
+    // Keep whole-scene and partial selections visible. Coordinates are copied
+    // directly from the editor's source arrays into the scene root, so the
+    // selection follows the same camera/world frame as the rendered splat.
     for (let i = 0; i < state.alive.length; i++) {
       if (!state.alive[i] || !state.selected[i] || state.layerHidden?.[i]) continue;
       positions.push(state.positions[i*3], state.positions[i*3+1], state.positions[i*3+2]);
       colors.push(0.78, 1.0, 0.0);
     }
     if (!_overlay) {
-      const THREE = window.THREE;
-      if (!THREE?.BufferGeometry || !THREE?.PointsMaterial || !THREE?.Points) return;
       const geometry = new THREE.BufferGeometry();
       geometry.setAttribute('position', new THREE.Float32BufferAttribute([], 3));
       geometry.setAttribute('color', new THREE.Float32BufferAttribute([], 3));
-      const material = new THREE.PointsMaterial({ size: 6, sizeAttenuation: false, vertexColors: true, transparent: true, opacity: 1, depthTest: true });
+      const material = new THREE.PointsMaterial({
+        size: 0.012, sizeAttenuation: true, vertexColors: true,
+        transparent: true, opacity: 0.9, depthTest: true, depthWrite: false,
+        blending: THREE.NormalBlending
+      });
       _overlay = new THREE.Points(geometry, material);
       _overlay.name = 'fumoca-spark-selection-overlay';
       _overlay.renderOrder = 20;
+      _overlay.frustumCulled = false;
+      scene.add(_overlay);
+    } else if (_overlay.parent !== scene) {
+      _overlay.parent?.remove(_overlay);
       scene.add(_overlay);
     }
-    const THREE = window.THREE;
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
     geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    geometry.computeBoundingSphere();
     const previous = _overlay.geometry;
     _overlay.geometry = geometry;
     previous?.dispose?.();
@@ -262,7 +310,7 @@ const SparkGaussianView = (() => {
   function disable() {
     _enabled = false;
     _hideLegacy();
-    if (_overlay) { try { _scene()?.remove(_overlay); _overlay.geometry?.dispose?.(); _overlay.material?.dispose?.(); } catch (_) {} _overlay = null; }
+    if (_overlay) { try { _overlay.parent?.remove(_overlay); _overlay.geometry?.dispose?.(); _overlay.material?.dispose?.(); } catch (_) {} _overlay = null; }
     if (_mesh) { try { _scene()?.remove(_mesh); _mesh.dispose?.(); } catch (_) {} _mesh = null; }
   }
   // Export the current edited Gaussian PLY without flattening it to NIF's
@@ -273,6 +321,22 @@ const SparkGaussianView = (() => {
     return _makeEditedBytes(state);
   }
 
+  function updateSelectionPreview(state = window.S) { if (_enabled) _updateSelectionOverlay(state); }
+  function setPreviewTransform(position, quaternion, scale) {
+    if (!_enabled || !_mesh) return false;
+    _mesh.position.set(position.x, position.y, position.z);
+    _mesh.quaternion.set(quaternion.x, quaternion.y, quaternion.z, quaternion.w);
+    _mesh.scale.set(scale.x, scale.y, scale.z);
+    _mesh.updateMatrixWorld(true);
+    return true;
+  }
+  function clearPreviewTransform() {
+    if (!_mesh) return;
+    _mesh.position.set(0,0,0);
+    _mesh.quaternion.identity();
+    _mesh.scale.set(1,1,1);
+    _mesh.updateMatrixWorld(true);
+  }
   function isEnabled() { return _enabled; }
   function isAvailable() { return true; }
   function dispose() {
@@ -280,7 +344,7 @@ const SparkGaussianView = (() => {
     if (_spark) { try { _scene()?.remove(_spark); _spark.dispose?.(); } catch (_) {} _spark = null; }
   }
 
-  return { enable, disable, isEnabled, isAvailable, loadFromBytes, syncEditorState, refreshEditorState, exportEditedBytes, dispose };
+  return { enable, disable, isEnabled, isAvailable, loadFromBytes, syncEditorState, refreshEditorState, updateSelectionPreview, setPreviewTransform, clearPreviewTransform, exportEditedBytes, dispose };
 })();
 window.FumocaSparkGaussian = SparkGaussianView;
 export default SparkGaussianView;

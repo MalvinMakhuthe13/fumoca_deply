@@ -16,7 +16,7 @@
 <link rel="stylesheet" href="css/fumoca-layouts.css"/>
 <script type="module" src="js/modules/anim-studio.js"></script>
 <script type="module" src="js/modules/review-video.js?v=20261025-bglayer"></script>
-<script type="module" src="js/modules/present-tab.js?v=20261029-textstyle5"></script>
+<script type="module" src="js/modules/present-tab.js?v=20261030-levelplane2"></script>
 
 <style>
 /* ═══════════════════════════════════════════════════════
@@ -1008,6 +1008,13 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
     <!-- TAB: TRANSFORM -->
     <div class="panel-body" id="tab-transform" style="display:none">
       <div class="hint" style="margin-bottom:8px">Drag Move, Scale, or Rotate in the viewport, or enter exact values below. Scene axes use Y as up.</div>
+      <div class="section" id="actualSplatLevelSection">
+        <div class="sec-head"><span class="sec-label">Actual splat · surface alignment</span><span class="sec-badge">3D DATA</span></div>
+        <div class="sec-body">
+          <button type="button" class="ac-btn lime full" id="transformLevelSplatBtn">⌁ Auto-level loaded splat</button>
+          <div class="hint">Rotates the actual Gaussian point positions and orientations to align the scan's principal up-axis. This is independent of the presentation platform. Undo restores the previous scan.</div>
+        </div>
+      </div>
           <div class="ctrl-row"><span class="ctrl-label">Quick scene orientation (Y is up)</span></div>
           <div class="btn-grid col2" style="margin-bottom:8px">
             <button class="ac-btn" id="orientXPosBtn">Tilt X +90°</button><button class="ac-btn" id="orientXNegBtn">Tilt X −90°</button>
@@ -1162,6 +1169,13 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
 
     <!-- TAB: PRESENT (camera paths + break the frame) -->
     <div class="panel-body" id="tab-present" style="display:none">
+      <div class="section" id="presentActualSplatLevel" style="margin-bottom:10px;border-color:rgba(200,255,0,.35)">
+        <div class="sec-head"><span class="sec-label">Actual splat · alignment</span><span class="sec-badge">3D DATA</span></div>
+        <div class="sec-body">
+          <button type="button" class="ac-btn lime full" id="presentLevelLoadedSplatBtn">⌁ Level loaded splat to flat surface</button>
+          <div class="hint">Straightens the loaded Gaussian scan itself. This is separate from the presentation platform. You can still rotate, move and scale the scan in Transform.</div>
+        </div>
+      </div>
       <div class="section" style="margin-bottom:10px;border-color:rgba(212,255,0,.28)">
         <div class="sec-head"><span class="sec-label">Media Studio</span><span class="sec-badge">IMAGE · VIDEO</span></div>
         <div class="hint" style="padding:8px 10px">Create the “subject leaving the screen” image, iPhone-style depth text, or a short escape-loop video here. Adjust the effect in <b>Break the frame</b> below.</div>
@@ -2116,6 +2130,7 @@ function beginGizmoGesture() {
   _gizmoGestureSnap = {
     indices,
     positions,
+    allLiveSelected: indices.length === S.alive.reduce((n,v)=>n+(v?1:0),0),
     scales: S.scale ? Float32Array.from(indices.map((i) => S.scale[i])) : null,
     scaleXYZ: S.scaleXYZ ? Float32Array.from(indices.flatMap((i) => [S.scaleXYZ[i*3], S.scaleXYZ[i*3+1], S.scaleXYZ[i*3+2]])) : null,
     rotations: S.rotation ? Float32Array.from(indices.flatMap((i) => [S.rotation[i*4], S.rotation[i*4+1], S.rotation[i*4+2], S.rotation[i*4+3]])) : null,
@@ -2155,6 +2170,14 @@ function applyGizmoDelta() {
   const move = allowMove
     ? new THREE.Vector3(curPos.x - snap.startPos.x, curPos.y - snap.startPos.y, curPos.z - snap.startPos.z)
     : new THREE.Vector3(0, 0, 0);
+  // Keep the photoreal Spark splat visually attached to the gizmo during a
+  // whole-object gesture. The editor arrays are still the source of truth;
+  // the committed PLY is rebuilt on mouse-up.
+  if (snap.allLiveSelected && window.FumocaSparkGaussian?.isEnabled()) {
+    const scaledPivot = new THREE.Vector3(startC.x * rx, startC.y * ry, startC.z * rz).applyQuaternion(qDelta);
+    const previewPosition = startC.clone().add(move).sub(scaledPivot);
+    window.FumocaSparkGaussian.setPreviewTransform(previewPosition, qDelta, new THREE.Vector3(rx, ry, rz));
+  }
 
   const rotate = (x, y, z, q, out) => {
     const ax = 2 * (q.y * z - q.z * y), ay = 2 * (q.z * x - q.x * z), az = 2 * (q.x * y - q.y * x);
@@ -2226,6 +2249,7 @@ function applyGizmoDelta() {
   if (sizeAttr) sizeAttr.needsUpdate = true;
   if (rotationAttr) rotationAttr.needsUpdate = true;
   if (S.points?.geometry) S.points.geometry.boundingSphere = null;
+  window.FumocaSparkGaussian?.updateSelectionPreview?.(S);
 }
 
 
@@ -2272,6 +2296,8 @@ function endGizmoGesture() {
   window.FumocaGaussianRenderer?.invalidateSort?.();
   const allLiveSelected = S.selected?.every((value, i) => !S.alive[i] || value);
   rebuildGeometry();
+  // refreshEditorState rebuilds Spark from committed Gaussian data; clear any
+  // temporary object transform after the new mesh has been installed.
   _refreshSceneReference(allLiveSelected);
   refreshTransformSourceMap();
   syncTransformGizmo();
@@ -4421,6 +4447,17 @@ function _vpCoords(e) {
 }
 
 let _brushActive = false, _brushTimer;
+// A normal click selects the subject when the viewport is in Orbit mode.
+// Orbit dragging remains unchanged: clicks only fire when the pointer is released
+// without a meaningful drag, and the hit test is performed against source points.
+renderer.domElement.addEventListener('click', e => {
+  if (e.detail > 1 || S.mode !== 'orbit' || !S.positions || !S.alive?.length || _gizmoGesture) return;
+  const { x, y } = _vpCoords(e);
+  if (selectSubjectAtScreen(x, y, 48)) {
+    setStatus(`Selected subject (${fmt(selectedPointCount())} points)`, 'ok');
+  }
+});
+
 renderer.domElement.addEventListener('dblclick', e => {
   if (!S.positions || !S.alive?.length) return;
   if (S.mode === 'measure' || S.mode === 'paint' || S.mode === 'brush-erase') return;
@@ -4959,6 +4996,8 @@ $('levelSubjectBtn')?.addEventListener('click',()=>{
   window.FumocaGaussianRenderer?.invalidateSort();rebuildGeometry();_refreshSceneReference(true);syncTransformGizmo();renderMeasurementList();renderMeasurementOverlay();
   showToast('Subject leveled',`Aligned its thinnest principal axis to Y-up (${THREE.MathUtils.radToDeg(angle).toFixed(1)}° correction). Undo restores the prior orientation.`,'ok');
 });
+$('transformLevelSplatBtn')?.addEventListener('click',()=> window.FumocaAutoLevelSupportPlane?.());
+$('presentLevelLoadedSplatBtn')?.addEventListener('click',()=> window.FumocaAutoLevelSupportPlane?.());
 $('centerSubjectBtn')?.addEventListener('click',()=>{
   if(!S.positions||!S.alive)return;
   const pivot=S.pivot||controls.target,delta=pivot.clone().negate();
@@ -6117,7 +6156,7 @@ animBg();
 <script type="module" src="js/modules/ply-validator.js"></script>
 <script type="module" src="js/modules/camera-view.js"></script>
 <script type="module" src="js/modules/publish-to-fumoca.js?v=20261025-bglayer2"></script>
-<script type="module" src="js/modules/spark-gaussian-view.js?v=20261026-spark-native"></script>
+<script type="module" src="js/modules/spark-gaussian-view.js?v=20261030-selection-live2"></script>
 <script type="module" src="js/modules/gaussian-renderer.js"></script>
 <script type="module" src="js/modules/smart-select.js"></script>
 <script src="js/modules/gap-fill-engine.js"></script>
