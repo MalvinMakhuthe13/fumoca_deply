@@ -2132,6 +2132,8 @@ function beginGizmoGesture() {
     startQuat: transformTarget.quaternion.clone(),
     startScale: transformTarget.scale.clone(),
   };
+  const liveCount = S.alive ? S.alive.reduce((sum, value) => sum + (value ? 1 : 0), 0) : 0;
+  if (indices.length === liveCount) window.FumocaPresentationPlatform?.beginSplatTransform?.(_gizmoGestureSnap.centroid);
   captureGizmoTransform();
 }
 
@@ -2163,6 +2165,8 @@ function applyGizmoDelta() {
   const move = allowMove
     ? new THREE.Vector3(curPos.x - snap.startPos.x, curPos.y - snap.startPos.y, curPos.z - snap.startPos.z)
     : new THREE.Vector3(0, 0, 0);
+  const liveCount = S.alive.reduce((sum, value) => sum + (value ? 1 : 0), 0);
+  if (snap.indices.length === liveCount) window.FumocaPresentationPlatform?.updateSplatTransform?.({move,quaternion:qDelta,scale:{x:rx,y:ry,z:rz}});
 
   const rotate = (x, y, z, q, out) => {
     const ax = 2 * (q.y * z - q.z * y), ay = 2 * (q.z * x - q.x * z), az = 2 * (q.x * y - q.y * x);
@@ -2298,6 +2302,7 @@ function endGizmoGesture() {
   renderMeasurementOverlay();
   _gizmoGesture = false;
   window.FumocaSparkGaussian?.endEditorGesture?.(S);
+  window.FumocaPresentationPlatform?.endSplatTransform?.();
   _gizmoGestureSnap = null;
   _xformIndices = null;
   _xformPivot = null;
