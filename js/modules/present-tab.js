@@ -108,7 +108,7 @@ function copyViewerLink() {
   if (data.reviewLayout) url.searchParams.set('rvLayout', data.reviewLayout);
   const str = url.toString();
   navigator.clipboard?.writeText(str).then(
-    () => alert('Viewer link copied.\nIncludes magazine text' + (data.reviewUrl ? ' + review video URL' : ' (local video stays on this device only)') + '.'),
+    () => alert('Viewer link copied.\nIncludes platform layout + magazine text. The underside logo is restored from saved asset metadata when available.' + (data.reviewUrl ? ' + review video URL' : ' (local video stays on this device only)') + '.'),
     () => prompt('Copy link:', str)
   );
 }
