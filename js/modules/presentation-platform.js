@@ -7,7 +7,7 @@ const state = {
   width: 460, height: 24, edge: 18, offsetY: 0,
   led: true, logoUrl: null, logoSize: 400, logoRotation: 0, logoOffset: -5,
   group: null, top: null, body: null, ring: null, logo: null,
-  texture: null, unit: 1, lastBounds: null, dirty: true, logoDataUrl: null, gestureStart: null, suspendAutoFit: false, supportPlanePreview: null, supportBackup: null
+  texture: null, unit: 1, lastBounds: null, dirty: true, logoDataUrl: null, gestureStart: null, suspendAutoFit: false, supportPlanePreview: null, supportPreviewObject: null, supportBackup: null
 };
 const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
 function boundsFromSplat(){
@@ -80,6 +80,28 @@ function build(){
   if(state.group){window.scene.remove(state.group);disposeObject(state.group);}
   state.group=g;state.top=base;state.body=base;state.ring=ring;window.scene.add(g);
   window.dispatchEvent(new CustomEvent('fumoca:presentation-platform-updated',{detail:{config:getConfig()}}));
+}
+function clearSupportPreview(){
+  if(!state.supportPreviewObject)return;
+  window.scene?.remove(state.supportPreviewObject);
+  disposeObject(state.supportPreviewObject);
+  state.supportPreviewObject=null;
+}
+function showSupportPreview(plane,preview,positions){
+  clearSupportPreview();
+  if(!window.THREE||!window.scene||!plane?.footprint)return;
+  const T=window.THREE,f=plane.footprint;
+  const width=Math.max(.001,f.maxU-f.minU),height=Math.max(.001,f.maxV-f.minV);
+  const center=new T.Vector3(...plane.point).addScaledVector(new T.Vector3(...plane.u),(f.minU+f.maxU)*.5).addScaledVector(new T.Vector3(...plane.v),(f.minV+f.maxV)*.5);
+  const group=new T.Group();group.name='FUMOCA support-plane review preview';
+  const planeMesh=new T.Mesh(new T.PlaneGeometry(width,height),new T.MeshBasicMaterial({color:0x00d9ff,transparent:true,opacity:.2,side:T.DoubleSide,depthWrite:false}));
+  planeMesh.position.copy(center).addScaledVector(new T.Vector3(...plane.normal),.002);
+  planeMesh.quaternion.setFromUnitVectors(new T.Vector3(0,0,1),new T.Vector3(...plane.normal).normalize());
+  group.add(planeMesh);
+  const coords=new Float32Array((preview.trimIndices||[]).length*3);
+  for(let k=0;k<(preview.trimIndices||[]).length;k++){const i=preview.trimIndices[k];coords[k*3]=positions[i*3];coords[k*3+1]=positions[i*3+1];coords[k*3+2]=positions[i*3+2];}
+  if(coords.length){const geo=new T.BufferGeometry();geo.setAttribute('position',new T.BufferAttribute(coords,3));const pts=new T.Points(geo,new T.PointsMaterial({color:0xff5533,size:Math.max(.004,width*.004),sizeAttenuation:true,transparent:true,opacity:.95}));pts.name='Scoped trim candidates';group.add(pts);}
+  window.scene.add(group);state.supportPreviewObject=group;
 }
 function getConfig(){return {version:VERSION,enabled:state.enabled,shape:state.shape,material:state.material,width:state.width,height:state.height,edge:state.edge,offsetY:state.offsetY,led:state.led,logoSize:state.logoSize,logoRotation:state.logoRotation,logoOffset:state.logoOffset,logoDataUrl:state.logoDataUrl||null};}
 function beginSplatTransform(centroid){if(!state.group||!centroid)return;state.gestureStart={position:state.group.position.clone(),quaternion:state.group.quaternion.clone(),scale:state.group.scale.clone(),centroid:new THREE.Vector3(centroid.x,centroid.y,centroid.z)};}
@@ -158,7 +180,7 @@ function renderUI(){
   $('fpLogo').addEventListener('change',e=>{const file=e.target.files?.[0];if(!file)return;if(file.size>1024*1024){alert('Please use a logo image smaller than 1 MB.');e.target.value='';return;}const reader=new FileReader();reader.onload=()=>{state.logoDataUrl=String(reader.result||'');state.logoUrl=null;build();save();};reader.onerror=()=>alert('Could not read that logo file.');reader.readAsDataURL(file);});
   $('fpRemove').addEventListener('click',()=>{if(state.logoUrl)URL.revokeObjectURL(state.logoUrl);state.logoUrl=null;state.logoDataUrl=null;build();save();});
   $('fpApply').addEventListener('click',()=>{build();save();});
-  $('fpAnalyseSupport').addEventListener('click',()=>{const S=window.S,report=$('fpSupportReport'),indices=[];if(S?.selected)for(let i=0;i<S.selected.length;i++)if(S.selected[i]&&S.alive?.[i]&&!S.layerHidden?.[i])indices.push(i);if(indices.length<30){report.textContent='Select at least 30 points on the cap underside. Use a close underside view and avoid the brim edge and floating noise.';return;}const interior=[0,0,0];let interiorCount=0;for(let i=0;i<S.alive.length;i++)if(S.alive[i]){interior[0]+=S.positions[i*3];interior[1]+=S.positions[i*3+1];interior[2]+=S.positions[i*3+2];interiorCount++;}if(interiorCount)for(let a=0;a<3;a++)interior[a]/=interiorCount;const plane=fitSelectedSupportPlane(S.positions,indices,{orientationPoint:interior});if(!plane){report.textContent='No reliable support plane found. Select a broader, flatter patch on the actual underside and try again.';return;}const preview=previewSupportPlaneTrim(S.positions,S.alive,plane,{maxTrimRatio:.35,footprintPadding:.2});state.supportPlanePreview={plane,preview,sourceCount:indices.length};$('fpApplyCorrection').disabled=!preview?.safe||!!state.supportBackup;report.textContent='Plane detected from '+plane.inlierCount.toLocaleString()+' / '+plane.sampleCount.toLocaleString()+' selected samples ('+Math.round(plane.inlierRatio*100)+'% consensus). In selected underside footprint: '+preview.below.toLocaleString()+' trim candidates, '+preview.above.toLocaleString()+' retained-side points, '+preview.outside.toLocaleString()+' unrelated points protected. '+(preview.safe?'Review the scoped trim, then choose Level, trim & seat cap.':'Preview rejected by safety gate. No points changed.');window.dispatchEvent(new CustomEvent('fumoca:support-plane-preview',{detail:state.supportPlanePreview}));});
+  $('fpAnalyseSupport').addEventListener('click',()=>{const S=window.S,report=$('fpSupportReport'),indices=[];if(S?.selected)for(let i=0;i<S.selected.length;i++)if(S.selected[i]&&S.alive?.[i]&&!S.layerHidden?.[i])indices.push(i);if(indices.length<30){report.textContent='Select at least 30 points on the cap underside. Use a close underside view and avoid the brim edge and floating noise.';return;}const interior=[0,0,0];let interiorCount=0;for(let i=0;i<S.alive.length;i++)if(S.alive[i]){interior[0]+=S.positions[i*3];interior[1]+=S.positions[i*3+1];interior[2]+=S.positions[i*3+2];interiorCount++;}if(interiorCount)for(let a=0;a<3;a++)interior[a]/=interiorCount;const plane=fitSelectedSupportPlane(S.positions,indices,{orientationPoint:interior});if(!plane){report.textContent='No reliable support plane found. Select a broader, flatter patch on the actual underside and try again.';return;}const preview=previewSupportPlaneTrim(S.positions,S.alive,plane,{maxTrimRatio:.35,footprintPadding:.2});state.supportPlanePreview={plane,preview,sourceCount:indices.length};showSupportPreview(plane,preview,S.positions);$('fpApplyCorrection').disabled=!preview?.safe||!!state.supportBackup;report.textContent='Plane detected from '+plane.inlierCount.toLocaleString()+' / '+plane.sampleCount.toLocaleString()+' selected samples ('+Math.round(plane.inlierRatio*100)+'% consensus). In selected underside footprint: '+preview.below.toLocaleString()+' trim candidates, '+preview.above.toLocaleString()+' retained-side points, '+preview.outside.toLocaleString()+' unrelated points protected. '+(preview.safe?'Review the scoped trim, then choose Level, trim & seat cap.':'Preview rejected by safety gate. No points changed.');window.dispatchEvent(new CustomEvent('fumoca:support-plane-preview',{detail:state.supportPlanePreview}));});
   $('fpApplyCorrection').disabled=true;
   $('fpRestoreCorrection').disabled=!state.supportBackup;
   $('fpApplyCorrection').addEventListener('click',()=>{
@@ -182,16 +204,16 @@ function renderUI(){
       S.positions[i*3]=v.x;S.positions[i*3+1]=v.y;S.positions[i*3+2]=v.z;
       if(S.rotation){const o=i*4,r=new THREE.Quaternion();if(S.rotationOrder==='xyzw'||(!S.rotationOrder&&S.fileType!=='ply'))r.set(S.rotation[o],S.rotation[o+1],S.rotation[o+2],S.rotation[o+3]);else r.set(S.rotation[o+1],S.rotation[o+2],S.rotation[o+3],S.rotation[o]);r.premultiply(q).normalize();if(S.rotationOrder==='xyzw'||(!S.rotationOrder&&S.fileType!=='ply')){S.rotation[o]=r.x;S.rotation[o+1]=r.y;S.rotation[o+2]=r.z;S.rotation[o+3]=r.w;}else{S.rotation[o]=r.w;S.rotation[o+1]=r.x;S.rotation[o+2]=r.y;S.rotation[o+3]=r.z;}}
     }
-    if(S.alive.reduce((n,v)=>n+(v?1:0),0)<Math.max(30,live*.5)){const b=state.supportBackup;S.positions.set(b.positions);S.alive.set(b.alive);if(S.rotation&&b.rotation)S.rotation.set(b.rotation);state.supportBackup=null;alert('Correction cancelled: too many points would be removed. Original scan restored.');return;}
+    if(S.alive.reduce((n,v)=>n+(v?1:0),0)<Math.max(30,live*.5)){const b=state.supportBackup;S.positions.set(b.positions);S.alive.set(b.alive);if(S.rotation&&b.rotation)S.rotation.set(b.rotation);if(b.rotationOrder)S.rotationOrder=b.rotationOrder;state.supportBackup=null;alert('Correction cancelled: too many points would be removed. Original scan restored.');return;}
     state.suspendAutoFit=true;try{window.FumocaSparkGaussian?.syncEditorState?.(S);window.FumocaGaussianRenderer?.invalidateSort?.();window.rebuildGeometry?.();}finally{state.suspendAutoFit=false;}
-    state.supportPlanePreview=null;$('fpApplyCorrection').disabled=true;$('fpRestoreCorrection').disabled=false;
+    state.supportPlanePreview=null;clearSupportPreview();$('fpApplyCorrection').disabled=true;$('fpRestoreCorrection').disabled=false;
     $('fpSupportReport').textContent='Correction applied: '+removed.toLocaleString()+' points trimmed inside the selected underside footprint; unrelated scan regions were protected. Support plane levelled and seated. Original arrays are backed up until restored.';
   });
   $('fpRestoreCorrection').addEventListener('click',()=>{
     const S=window.S,b=state.supportBackup;if(!S||!b)return;
     if(!confirm('Restore the exact pre-correction positions, rotations and visibility?'))return;
     S.positions.set(b.positions);S.alive.set(b.alive);if(S.rotation&&b.rotation)S.rotation.set(b.rotation);
-    state.supportBackup=null;state.suspendAutoFit=true;try{window.FumocaSparkGaussian?.syncEditorState?.(S);window.FumocaGaussianRenderer?.invalidateSort?.();window.rebuildGeometry?.();}finally{state.suspendAutoFit=false;}
+    state.supportBackup=null;state.supportPlanePreview=null;clearSupportPreview();state.suspendAutoFit=true;try{window.FumocaSparkGaussian?.syncEditorState?.(S);window.FumocaGaussianRenderer?.invalidateSort?.();window.rebuildGeometry?.();}finally{state.suspendAutoFit=false;}
     $('fpRestoreCorrection').disabled=true;$('fpSupportReport').textContent='Original scan restored exactly.';
   });
   $('fpSave').addEventListener('click',save);
