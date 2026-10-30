@@ -1482,6 +1482,7 @@ function mountMeshViewer(mesh, calibration) {
 let _plyRenderer = null, _plyScene = null, _plyCamera = null, _plyControls = null, _plyFrame = null, _plyAttributeControl = null;
 function destroyPlyViewer() {
   if (_plyFrame) { cancelAnimationFrame(_plyFrame); _plyFrame = null; }
+  if (_publishedPlatformGroup) { _plyScene?.remove(_publishedPlatformGroup); _publishedPlatformGroup.traverse(o=>{o.geometry?.dispose?.();if(o.material)(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>{m.map?.dispose?.();m.dispose?.();});});_publishedPlatformGroup=null; }
   if (_plyRenderer) { _plyRenderer.dispose(); _plyRenderer.domElement.remove(); _plyRenderer = null; }
   _plyAttributeControl?.remove(); _plyAttributeControl = null;
   _plyScene = _plyCamera = _plyControls = null;
