@@ -145,3 +145,12 @@
 .mi-item img{display:block;width:100%;height:auto;max-height:40vh;object-fit:contain;user-select:none;pointer-events:none}
 .mi-placing{cursor:crosshair!important}
 .mi-layer .mi-item{pointer-events:auto}
+
+/* Image/logo layer controls — keep the controls compact and usable on narrow panels. */
+#fumocaPresentTabPanel .ptp-image-fields{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:9px}
+#fumocaPresentTabPanel .ptp-image-fields label{display:flex;flex-direction:column;gap:5px;font-size:10px;color:rgba(255,255,255,.58)}
+#fumocaPresentTabPanel .ptp-image-fields input[type=range]{width:100%;accent-color:#c8ff00}
+#fumocaPresentTabPanel .ptp-image-mode{grid-column:1/-1;font-size:9px;color:rgba(255,255,255,.38);line-height:1.35}
+#fumocaPresentTabPanel .ptp-nav-item{display:flex;align-items:center;justify-content:space-between;gap:8px}
+#fumocaPresentTabPanel .ptp-danger{color:#ff9bad;border-color:rgba(255,80,110,.25)}
+@media(max-width:520px){#fumocaPresentTabPanel .ptp-image-fields{grid-template-columns:1fr}}
