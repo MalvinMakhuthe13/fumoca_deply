@@ -10,7 +10,7 @@ import {
   initPresentNav, setNavStops, addNavStop, removeNavStop, clearNavStops, flyToStop,
   stopsFromHotspots, exportStops, importStops,
 } from './present-nav.js';
-import { initMagazineImages, addImage, removeImage, updateImage, armWorldPlacement, cancelPlacement, exportAll as exportImages, importAll as importImages, readImageFile } from './present-image-layer.js?v=20261030-decal2';
+import { initMagazineImages, addImage, removeImage, updateImage, armWorldPlacement, cancelPlacement, exportAll as exportImages, importAll as importImages, readImageFile } from './present-image-layer.js?v=20261030-decal3';
 
 const STORAGE_KEY = 'fumoca_present_v1';
 
@@ -146,7 +146,7 @@ function renderImageManager() {
     row.append(anchor,remove);
     const controls=document.createElement('div'); controls.className='ptp-image-fields';
     const widthLabel=document.createElement('label'); widthLabel.textContent='Width';
-    const width=document.createElement('input'); width.type='range'; width.min='1'; width.max='40'; width.step='1'; width.value=String(item.width||18); width.dataset.imageWidth=item.id;
+    const width=document.createElement('input'); width.type='range'; width.min='1'; width.max='100'; width.step='1'; width.value=String(item.width||18); width.dataset.imageWidth=item.id;
     widthLabel.appendChild(width);
     const opacityLabel=document.createElement('label'); opacityLabel.textContent='Opacity';
     const opacity=document.createElement('input'); opacity.type='range'; opacity.min='10'; opacity.max='100'; opacity.step='1'; opacity.value=String(Math.round((item.opacity??1)*100)); opacity.dataset.imageOpacity=item.id;
