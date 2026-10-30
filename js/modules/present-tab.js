@@ -145,10 +145,10 @@ function renderImageManager() {
     const remove=document.createElement('button'); remove.type='button'; remove.dataset.removeImage=item.id; remove.className='ptp-danger'; remove.textContent='Remove';
     row.append(anchor,remove);
     const controls=document.createElement('div'); controls.className='ptp-image-fields';
-    const widthLabel=document.createElement('label'); widthLabel.textContent='Custom width · scene-relative';
-    const width=document.createElement('input'); width.type='range'; width.min='1'; width.max='100'; width.step='0.5'; width.value=String(item.width||18); width.dataset.imageWidth=item.id;
+    const widthLabel=document.createElement('label'); widthLabel.textContent='Custom width · scene-relative (up to 1000%)';
+    const width=document.createElement('input'); width.type='range'; width.min='1'; width.max='1000'; width.step='0.5'; width.value=String(item.width||18); width.dataset.imageWidth=item.id;
     widthLabel.appendChild(width);
-    const customSize=document.createElement('input'); customSize.type='number'; customSize.min='1'; customSize.max='100'; customSize.step='0.5'; customSize.value=String(item.width||18); customSize.dataset.imageWidth=item.id; customSize.setAttribute('aria-label','Custom decal width');
+    const customSize=document.createElement('input'); customSize.type='number'; customSize.min='1'; customSize.max='1000'; customSize.step='0.5'; customSize.value=String(item.width||18); customSize.dataset.imageWidth=item.id; customSize.setAttribute('aria-label','Custom decal width');
     const sizeRow=document.createElement('div'); sizeRow.className='ptp-row'; sizeRow.append(width,customSize);
     const orientationLabel=document.createElement('div'); orientationLabel.className='ptp-image-mode'; orientationLabel.textContent='Surface alignment · follows the exact area you click';
     const rotationLabel=document.createElement('label'); rotationLabel.textContent='Rotate on surface · '+(Number(item.rotation)||0)+'°';
@@ -312,7 +312,7 @@ function mountPanel() {
   panel.addEventListener('change', handleImageControl);
   panel.addEventListener('input', e => {
     const width=e.target.closest('[data-image-width]');
-    if(width){const value=Math.max(1,Math.min(100,Number(width.value)||1));width.value=String(value);panel.querySelectorAll('[data-image-width]').forEach(el=>{if(el!==width&&el.dataset.imageWidth===width.dataset.imageWidth)el.value=String(value);});updateImage(width.dataset.imageWidth,{width:value});persist();return;}
+    if(width){const value=Math.max(1,Math.min(1000,Number(width.value)||1));width.value=String(value);panel.querySelectorAll('[data-image-width]').forEach(el=>{if(el!==width&&el.dataset.imageWidth===width.dataset.imageWidth)el.value=String(value);});updateImage(width.dataset.imageWidth,{width:value});persist();return;}
     const orientation=e.target.closest('[data-image-orientation]');
     if(orientation){updateImage(orientation.dataset.imageOrientation,{orientation:orientation.value});persist();return;}
     const rotation=e.target.closest('[data-image-rotation]');
