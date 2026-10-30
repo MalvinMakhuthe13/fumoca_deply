@@ -168,13 +168,8 @@ function syncDecals() {
   for(const item of items) {
     if(item.mode==='world') {
       createDecal(item);
-      if(item.decal) {
-        item.decal.material.opacity=item.opacity??1;
-        const radius=sceneRadius();
-        const w=item.worldWidth || radius*Math.max(.025,(item.width||18)/100*.8);
-        item.decal.scale.set(w/(item.decal.geometry.parameters.width||w),w/(item.decal.geometry.parameters.height||w),1);
-      }
-    } else disposeDecal(item);
+      if(item.decal) item.decal.material.opacity=item.opacity??1;
+    } else if(item.decal) disposeDecal(item);
   }
 }
 function onPlace(e) {
