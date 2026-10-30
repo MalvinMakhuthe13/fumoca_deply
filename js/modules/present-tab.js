@@ -145,7 +145,7 @@ function renderImageManager() {
     const remove=document.createElement('button'); remove.type='button'; remove.dataset.removeImage=item.id; remove.className='ptp-danger'; remove.textContent='Remove';
     row.append(anchor,remove);
     const controls=document.createElement('div'); controls.className='ptp-image-fields';
-    const widthLabel=document.createElement('label'); widthLabel.textContent='Width';
+    const widthLabel=document.createElement('label'); widthLabel.textContent='Custom width · scene-relative';
     const width=document.createElement('input'); width.type='range'; width.min='1'; width.max='200'; width.step='1'; width.value=String(item.width||18); width.dataset.imageWidth=item.id;
     widthLabel.appendChild(width);
     const customSize=document.createElement('input'); customSize.type='number'; customSize.min='1'; customSize.max='200'; customSize.step='0.5'; customSize.value=String(item.width||18); customSize.dataset.imageWidth=item.id; customSize.setAttribute('aria-label','Custom decal width');
@@ -238,7 +238,7 @@ function mountPanel() {
       <div class="ptp-title">Image & logo layers</div>
       <div class="ptp-row"><button type="button" data-act="add-image" class="primary">＋ Add logo / image</button><button type="button" data-act="cancel-image">Cancel placement</button></div>
       <input id="ptpImageFile" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" style="display:none"/>
-      <div class="ptp-hint">Upload a transparent PNG or other image. Screen graphics stay fixed to the composition. Choose “Attach to 3D surface” and click a visible, reasonably flat area of the scan to place a real 3D decal.</div>
+      <div class="ptp-hint">Upload a transparent PNG or other image. Screen graphics stay fixed to the composition. Choose “Attach to 3D surface”, then drag across the visible scan and release to place the decal. Fine-tune its size, flat orientation and rotation below.</div>
       <div id="ptpImageManager"></div>
     </div>
     <div class="ptp-section">
