@@ -6,7 +6,7 @@ const state = {
   width: 600, height: 80, edge: 20, offsetY: 0,
   led: true, logoUrl: null, logoSize: 400, logoRotation: 0, logoOffset: -5,
   group: null, top: null, body: null, ring: null, logo: null,
-  texture: null, unit: 1, lastBounds: null, dirty: true
+  texture: null, unit: 1, lastBounds: null, dirty: true, logoDataUrl: null, gestureStart: null
 };
 const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
 function boundsFromSplat(){
@@ -77,7 +77,7 @@ function build(){
       const plane=new T.Mesh(new T.PlaneGeometry(width*(state.logoSize/600),width*(state.logoSize/600)),new T.MeshBasicMaterial({map:tex,transparent:true,side:T.DoubleSide,depthWrite:false}));
       plane.rotation.x=Math.PI/2;plane.rotation.z=state.logoRotation*Math.PI/180;
       plane.position.set(0,-thick*1.7+state.logoOffset*state.unit,0);plane.name='Underside brand logo';g.add(plane);state.logo=plane;
-    };img.src=state.logoUrl;
+    };img.src=state.logoDataUrl||state.logoUrl;
   }
   g.position.set(b.center[0],b.min[1]-thick+state.offsetY*state.unit,b.center[2]);
   g.visible=state.enabled;
@@ -85,13 +85,16 @@ function build(){
   state.group=g;state.top=top;state.body=g.getObjectByName('Pedestal body');state.ring=ring;window.scene.add(g);
   window.dispatchEvent(new CustomEvent('fumoca:presentation-platform-updated',{detail:{config:getConfig()}}));
 }
-function getConfig(){return {version:VERSION,enabled:state.enabled,shape:state.shape,material:state.material,width:state.width,height:state.height,edge:state.edge,offsetY:state.offsetY,led:state.led,logoSize:state.logoSize,logoRotation:state.logoRotation,logoOffset:state.logoOffset};}
+function getConfig(){return {version:VERSION,enabled:state.enabled,shape:state.shape,material:state.material,width:state.width,height:state.height,edge:state.edge,offsetY:state.offsetY,led:state.led,logoSize:state.logoSize,logoRotation:state.logoRotation,logoOffset:state.logoOffset,logoDataUrl:state.logoDataUrl||null};}
+function beginSplatTransform(centroid){if(!state.group||!centroid)return;state.gestureStart={position:state.group.position.clone(),quaternion:state.group.quaternion.clone(),scale:state.group.scale.clone(),centroid:new THREE.Vector3(centroid.x,centroid.y,centroid.z)};}
+function updateSplatTransform({move={x:0,y:0,z:0},quaternion={x:0,y:0,z:0,w:1},scale={x:1,y:1,z:1}}={}){const start=state.gestureStart,g=state.group;if(!start||!g)return;const q=new THREE.Quaternion(quaternion.x,quaternion.y,quaternion.z,quaternion.w).normalize();const d=new THREE.Vector3(start.position.x-start.centroid.x,start.position.y-start.centroid.y,start.position.z-start.centroid.z);d.set(d.x*scale.x,d.y*scale.y,d.z*scale.z).applyQuaternion(q);g.position.set(start.centroid.x+move.x+d.x,start.centroid.y+move.y+d.y,start.centroid.z+move.z+d.z);g.quaternion.copy(q).multiply(start.quaternion).normalize();g.scale.set(start.scale.x*scale.x,start.scale.y*scale.y,start.scale.z*scale.z);}
+function endSplatTransform(){state.gestureStart=null;save();}
 function save(){
   try{localStorage.setItem('fumoca-platform:'+((window.S?.fileName)||'untitled'),JSON.stringify(getConfig()));}catch(e){}
   window.dispatchEvent(new CustomEvent('fumoca:presentation-platform-save',{detail:{config:getConfig()}}));
 }
 function restore(){
-  try{const raw=localStorage.getItem('fumoca-platform:'+((window.S?.fileName)||'untitled'));if(raw){const c=JSON.parse(raw);Object.assign(state,c);}}catch(e){}
+  try{const raw=localStorage.getItem('fumoca-platform:'+((window.S?.fileName)||'untitled'));if(raw){const c=JSON.parse(raw);Object.assign(state,c);state.logoUrl=null;}}catch(e){}
 }
 function addStyles(){
   if($('fumocaPlatformStyles'))return;
@@ -152,8 +155,8 @@ function renderUI(){
   bindRange('fpLogoSize','logoSize','fpLogoSizeOut');bindRange('fpLogoRot','logoRotation','fpLogoRotOut','°');bindRange('fpLogoOff','logoOffset','fpLogoOffOut');
   $('fpLed').addEventListener('change',e=>{state.led=e.target.checked;build();});
   $('fpUpload').addEventListener('click',()=>$('fpLogo').click());
-  $('fpLogo').addEventListener('change',e=>{const file=e.target.files?.[0];if(!file)return;if(state.logoUrl)URL.revokeObjectURL(state.logoUrl);state.logoUrl=URL.createObjectURL(file);build();});
-  $('fpRemove').addEventListener('click',()=>{if(state.logoUrl)URL.revokeObjectURL(state.logoUrl);state.logoUrl=null;build();});
+  $('fpLogo').addEventListener('change',e=>{const file=e.target.files?.[0];if(!file)return;if(file.size>1024*1024){alert('Please use a logo image smaller than 1 MB.');e.target.value='';return;}const reader=new FileReader();reader.onload=()=>{state.logoDataUrl=String(reader.result||'');state.logoUrl=null;build();save();};reader.onerror=()=>alert('Could not read that logo file.');reader.readAsDataURL(file);});
+  $('fpRemove').addEventListener('click',()=>{if(state.logoUrl)URL.revokeObjectURL(state.logoUrl);state.logoUrl=null;state.logoDataUrl=null;build();save();});
   $('fpApply').addEventListener('click',()=>{build();save();});
   $('fpSave').addEventListener('click',save);
   $('fpEnabled').checked=state.enabled;
@@ -170,5 +173,5 @@ function boot(){
   window.addEventListener('fumoca:splat-loaded',()=>{if(state.enabled)build();});
   console.info('[FUMOCA Platform] ready');
 }
-window.FumocaPresentationPlatform={getConfig,build,save,enable(v=true){state.enabled=!!v;if(state.group)state.group.visible=state.enabled;},get object(){return state.group;}};
+window.FumocaPresentationPlatform={getConfig,build,save,beginSplatTransform,updateSplatTransform,endSplatTransform,enable(v=true){state.enabled=!!v;if(state.group)state.group.visible=state.enabled;},get object(){return state.group;}};
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else window.addEventListener('load',boot,{once:true});
