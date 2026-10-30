@@ -20,7 +20,9 @@ const scan=new Float32Array([...positions,...n.map(x=>x*-.2),...n.map(x=>x*.2)])
 const alive=new Uint8Array(scan.length/3);alive.fill(1);
 const before=alive.slice();
 const preview=previewSupportPlaneTrim(scan,alive,plane,{margin:.01,maxTrimRatio:.35});
-assert.ok(preview&&preview.below>=1&&preview.above>=1,'trim preview should identify both sides');\nassert.equal(preview.below,1,'exterior underside debris must be classified for removal');\nassert.equal(preview.above,1,'cap interior must be classified for retention');
+assert.ok(preview&&preview.below>=1&&preview.above>=1,'trim preview should identify both sides');
+assert.equal(preview.below,1,'exterior underside debris must be classified for removal');
+assert.equal(preview.above,1,'cap interior must be classified for retention');
 assert.deepEqual(alive,before,'preview must not mutate scan state');
 assert.equal(preview.safe,true,'small trim preview should pass safety gate');
 console.log('Support-plane analysis and non-destructive trim preview tests passed.');
