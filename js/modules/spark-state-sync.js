@@ -43,11 +43,12 @@ export function applyEditorStateToPackedSplats(mesh, state, indices = null, THRE
     } else rotation.identity();
 
     const c = i * 3;
-    color.setRGB(
-      Math.max(0, Math.min(1, Number(state.colors?.[c] ?? 0.72))),
-      Math.max(0, Math.min(1, Number(state.colors?.[c + 1] ?? 0.68))),
-      Math.max(0, Math.min(1, Number(state.colors?.[c + 2] ?? 0.64)))
-    );
+    const channel = axis => {
+      const painted = Number(state.paintColors?.[c + axis]);
+      const base = Number(state.colors?.[c + axis] ?? [0.72, 0.68, 0.64][axis]);
+      return Math.max(0, Math.min(1, Number.isFinite(painted) && painted >= 0 ? painted : base));
+    };
+    color.setRGB(channel(0), channel(1), channel(2));
     const opacity = state.alive[i] ? Math.max(0, Math.min(1, Number(state.opacity?.[i] ?? 1))) : 0;
     return { center, scales, rotation, opacity, color };
   };
