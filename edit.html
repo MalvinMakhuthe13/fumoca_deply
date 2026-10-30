@@ -3580,16 +3580,74 @@ function deleteSelected() {
   showToast('Deleted', `${fmt(del)} points removed`);
 }
 
+// Hit-test the same projected covariance ellipses shown by the Ovals overlay.
+// Returns the frontmost Gaussian whose 2D ellipse contains the pointer.
+function _pickGaussianEllipseAtScreen(x,y) {
+  if(!S?.positions||!S?.alive||!_showGaussianEllipsoids)return null;
+  camera.updateMatrixWorld();
+  const view=camera.matrixWorldInverse,proj=camera.projectionMatrix;
+  const q=new THREE.Quaternion(),axis=new THREE.Vector3(),camAxis=new THREE.Vector3();
+  const center=new THREE.Vector3(),projected=new THREE.Vector3();
+  let best=null,bestDepth=Infinity;
+  const sigma=2.5;
+  for(let i=0;i<S.alive.length;i++){
+    if(!S.alive[i]||S.layerHidden?.[i])continue;
+    const o=i*3;
+    center.set(S.positions[o],S.positions[o+1],S.positions[o+2]);
+    if(!Number.isFinite(center.x+center.y+center.z))continue;
+    const cv=center.clone().applyMatrix4(view),depth=-cv.z;
+    if(depth<=camera.near||depth>=camera.far||depth>=bestDepth)continue;
+    projected.copy(center).project(camera);
+    if(projected.z < -1||projected.z>1)continue;
+    const px=(projected.x*.5+.5)*viewport.clientWidth;
+    const py=(-projected.y*.5+.5)*viewport.clientHeight;
+    const sx=Math.max(1e-7,S.scaleXYZ?.[o]??S.scale?.[i]??.01);
+    const sy=Math.max(1e-7,S.scaleXYZ?.[o+1]??S.scale?.[i]??.01);
+    const sz=Math.max(1e-7,S.scaleXYZ?.[o+2]??S.scale?.[i]??.01);
+    if(S.rotation){
+      const qi=i*4;
+      if(S.rotationOrder==='xyzw')q.set(S.rotation[qi],S.rotation[qi+1],S.rotation[qi+2],S.rotation[qi+3]);
+      else q.set(S.rotation[qi+1],S.rotation[qi+2],S.rotation[qi+3],S.rotation[qi]);
+      if(q.lengthSq()>1e-10)q.normalize();else q.identity();
+    }else q.identity();
+    const scales=[sx,sy,sz];let cxx=0,cxy=0,cyy=0;
+    for(let k=0;k<3;k++){
+      axis.set(k===0?1:0,k===1?1:0,k===2?1:0).applyQuaternion(q);
+      camAxis.copy(axis).transformDirection(view);
+      const dz=camAxis.z,dx=camAxis.x,dy=camAxis.y;
+      const jx=(proj.elements[0]*(dx*depth+cv.x*dz)/(depth*depth))*(viewport.clientWidth*.5);
+      const jy=(-proj.elements[5]*(dy*depth+cv.y*dz)/(depth*depth))*(viewport.clientHeight*.5);
+      const v=scales[k]*scales[k];cxx+=v*jx*jx;cxy+=v*jx*jy;cyy+=v*jy*jy;
+    }
+    const det=cxx*cyy-cxy*cxy;
+    if(det<=1e-12)continue;
+    const dx=x-px,dy=y-py;
+    const mahal=(cyy*dx*dx-2*cxy*dx*dy+cxx*dy*dy)/det;
+    // The outline is 2.5 sigma. A small tolerance makes thin outlines pickable.
+    if(mahal<=sigma*sigma*1.12){best=i;bestDepth=depth;}
+  }
+  return best===null?null:{index:best,depth:bestDepth};
+}
+
 function selectSubjectAtScreen(x, y, radius = 48, additive = false) {
   if (!S.positions || !S.alive?.length || !S.points) return false;
   const rect=viewport.getBoundingClientRect();
   // Use the same actual rendered-point raycast as measurement. This gives us
   // the frontmost source Gaussian under the cursor, not a nearby projected
   // point that may belong to the display base behind the hat.
-  const hit=_measurementPointAt(rect.left+x,rect.top+y);
-  const seed=hit?.index;
+  const ellipseHit=_showGaussianEllipsoids?_pickGaussianEllipseAtScreen(x,y):null;
+  const hit=ellipseHit?null:_measurementPointAt(rect.left+x,rect.top+y);
+  const seed=ellipseHit?.index??hit?.index;
   if(!Number.isInteger(seed)||seed<0||!S.alive[seed]||S.layerHidden?.[seed])return false;
 
+  if(ellipseHit){
+    if(!additive)S.selected.fill(0);
+    S.selected[seed]=1;
+    S.activeLayerId=null;
+    rebuildGeometry();refreshTransformSourceMap();syncTransformGizmo();
+    setStatus(`Selected Gaussian ${seed+1} — 1 ellipsoid. Move, rotate, scale or delete this Gaussian.`,'ok');
+    return true;
+  }
   const layer=(S.layers||[]).find(L=>L.visible!==false&&L.mask?.[seed]);
   if(!additive) S.selected.fill(0);
   let hits=0;
