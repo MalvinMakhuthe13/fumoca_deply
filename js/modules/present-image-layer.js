@@ -11,7 +11,7 @@ let editing = false;
 let placingId = null;
 let onChange = null;
 let raf = 0;
-const MAX_IMAGE_BYTES = 1024 * 1024;
+const MAX_IMAGE_BYTES = 300 * 1024;
 
 const uid = () => 'mi_' + Math.random().toString(36).slice(2, 10);
 const camera = () => window._fumocaViewerCamera || window._fumocaViewer?.camera || window._fumocaCamera || null;
