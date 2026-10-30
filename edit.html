@@ -3486,56 +3486,59 @@ function deleteSelected() {
 }
 
 function selectSubjectAtScreen(x, y, radius = 48) {
-  if (!S.positions || !S.alive?.length) return false;
-  const vp = document.getElementById('viewport');
-  const W = vp.clientWidth, H = vp.clientHeight;
-  const ndc = new THREE.Vector3();
-  let best = -1, bestDist = radius * radius, bestDepth = Infinity;
-  const visible = [];
-  const min=[Infinity,Infinity,Infinity],max=[-Infinity,-Infinity,-Infinity];
-  for(let i=0;i<S.alive.length;i++){
-    if(!S.alive[i]||S.layerHidden?.[i])continue;
-    const xw=S.positions[i*3],yw=S.positions[i*3+1],zw=S.positions[i*3+2];
-    if(!Number.isFinite(xw)||!Number.isFinite(yw)||!Number.isFinite(zw))continue;
-    min[0]=Math.min(min[0],xw);min[1]=Math.min(min[1],yw);min[2]=Math.min(min[2],zw);
-    max[0]=Math.max(max[0],xw);max[1]=Math.max(max[1],yw);max[2]=Math.max(max[2],zw);
-    ndc.set(xw,yw,zw).project(camera);
-    if(ndc.z < -1 || ndc.z > 1)continue;
-    const sx=(ndc.x*.5+.5)*W,sy=(-ndc.y*.5+.5)*H,dx=sx-x,dy=sy-y,dist=dx*dx+dy*dy;
-    visible.push(i);
-    if(dist<bestDist||(dist===bestDist&&ndc.z<bestDepth)){best=i;bestDist=dist;bestDepth=ndc.z;}
-  }
-  if(best<0)return false;
-  const layer=(S.layers||[]).find(L=>L.visible!==false&&L.mask?.[best]);
+  if (!S.positions || !S.alive?.length || !S.points) return false;
+  const rect=viewport.getBoundingClientRect();
+  // Use the same actual rendered-point raycast as measurement. This gives us
+  // the frontmost source Gaussian under the cursor, not a nearby projected
+  // point that may belong to the display base behind the hat.
+  const hit=_measurementPointAt(rect.left+x,rect.top+y);
+  const seed=hit?.index;
+  if(!Number.isInteger(seed)||seed<0||!S.alive[seed]||S.layerHidden?.[seed])return false;
+
+  const layer=(S.layers||[]).find(L=>L.visible!==false&&L.mask?.[seed]);
   S.selected.fill(0);
   let hits=0;
   if(layer){
     S.activeLayerId=layer.id;
     for(let i=0;i<S.selected.length;i++)if(S.alive[i]&&layer.mask[i]&&!S.layerHidden?.[i]){S.selected[i]=1;hits++;}
   }else{
-    // Grow a connected 3D region from the clicked Gaussian. A spatial hash
-    // limits neighbour checks; local colour continuity keeps separate objects
-    // (e.g. hat vs. brown display base) from merging into one selection.
     S.activeLayerId=null;
+    const min=[Infinity,Infinity,Infinity],max=[-Infinity,-Infinity,-Infinity],visible=[];
+    const viewDepth=new Float32Array(S.alive.length);viewDepth.fill(NaN);
+    const v=new THREE.Vector3();
+    for(let i=0;i<S.alive.length;i++){
+      if(!S.alive[i]||S.layerHidden?.[i])continue;
+      const px=S.positions[i*3],py=S.positions[i*3+1],pz=S.positions[i*3+2];
+      if(!Number.isFinite(px)||!Number.isFinite(py)||!Number.isFinite(pz))continue;
+      min[0]=Math.min(min[0],px);min[1]=Math.min(min[1],py);min[2]=Math.min(min[2],pz);
+      max[0]=Math.max(max[0],px);max[1]=Math.max(max[1],py);max[2]=Math.max(max[2],pz);
+      v.set(px,py,pz).applyMatrix4(camera.matrixWorldInverse);
+      if(v.z>=0)continue;
+      viewDepth[i]=-v.z;visible.push(i);
+    }
     const diagonal=Math.hypot(max[0]-min[0],max[1]-min[1],max[2]-min[2]);
-    const cellSize=Math.max(diagonal*0.0025,1e-6);
-    const neighbourR=cellSize*1.9,neighbourR2=neighbourR*neighbourR;
+    const cellSize=Math.max(diagonal*0.002,1e-7);
+    const neighbourR=cellSize*2.15,neighbourR2=neighbourR*neighbourR;
+    const maxDepthStep=Math.max(diagonal*0.018,cellSize*3);
     const key=(a,b,c)=>a+','+b+','+c,cells=new Map(),coords=new Map();
     for(const i of visible){
       const c=[Math.floor(S.positions[i*3]/cellSize),Math.floor(S.positions[i*3+1]/cellSize),Math.floor(S.positions[i*3+2]/cellSize)];
       coords.set(i,c);const k=key(...c);if(!cells.has(k))cells.set(k,[]);cells.get(k).push(i);
     }
-    const queue=[best],visited=new Uint8Array(S.alive.length);visited[best]=1;
-    const colourLimit=0.24,maxRegion=60000;
+    const queue=[seed],visited=new Uint8Array(S.alive.length);visited[seed]=1;
+    const colourLimit=0.34,maxRegion=Math.min(90000,Math.max(1000,Math.floor(S.alive.length*.72)));
     for(let head=0;head<queue.length&&queue.length<maxRegion;head++){
       const i=queue[head],ix=S.positions[i*3],iy=S.positions[i*3+1],iz=S.positions[i*3+2],ci=coords.get(i);
       S.selected[i]=1;hits++;
       for(let a=-1;a<=1;a++)for(let b=-1;b<=1;b++)for(let c=-1;c<=1;c++){
         const bucket=cells.get(key(ci[0]+a,ci[1]+b,ci[2]+c));if(!bucket)continue;
         for(const j of bucket){
-          if(visited[j])continue;
+          if(visited[j]||!Number.isFinite(viewDepth[j]))continue;
           const dx=S.positions[j*3]-ix,dy=S.positions[j*3+1]-iy,dz=S.positions[j*3+2]-iz;
           if(dx*dx+dy*dy+dz*dz>neighbourR2)continue;
+          // Prevent region growth jumping between front/back surfaces or
+          // leaking from the cap onto the broad, shallow display platform.
+          if(Math.abs(viewDepth[j]-viewDepth[i])>maxDepthStep)continue;
           const dr=(S.colors?.[i*3]??.5)-(S.colors?.[j*3]??.5);
           const dg=(S.colors?.[i*3+1]??.5)-(S.colors?.[j*3+1]??.5);
           const db=(S.colors?.[i*3+2]??.5)-(S.colors?.[j*3+2]??.5);
@@ -3547,7 +3550,7 @@ function selectSubjectAtScreen(x, y, radius = 48) {
   }
   if(!hits){S.selected.fill(0);return false;}
   renderLayers();rebuildGeometry();refreshTransformSourceMap();syncTransformGizmo();
-  setStatus(layer?`Selected layer (${fmt(hits)} points)`:`Selected connected region (${fmt(hits)} points). Extend with brush/lasso if needed.`,'ok');
+  setStatus(layer?`Selected layer (${fmt(hits)} points)`:`Selected depth-bounded connected region (${fmt(hits)} points). Extend with brush/lasso if needed.`,'ok');
   return true;
 }
 function selectByBox(x0, y0, x1, y1) {
