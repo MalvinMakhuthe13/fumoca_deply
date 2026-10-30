@@ -144,9 +144,16 @@ function renderImageManager() {
     const anchor=document.createElement('button'); anchor.type='button'; anchor.dataset.anchorImage=item.id; anchor.textContent=item.mode==='world'?'Re-anchor to splat':'Anchor to splat';
     const remove=document.createElement('button'); remove.type='button'; remove.dataset.removeImage=item.id; remove.className='ptp-danger'; remove.textContent='Remove';
     row.append(anchor,remove);
-    const size=document.createElement('label'); size.className='ptp-hint'; size.textContent='Width ';
-    const range=document.createElement('input'); range.type='range'; range.min='5'; range.max='60'; range.value=String(item.width||18); range.dataset.imageWidth=item.id;
-    size.appendChild(range); card.append(title,row,size); root.appendChild(card);
+    const controls=document.createElement('div'); controls.className='ptp-image-fields';
+    const widthLabel=document.createElement('label'); widthLabel.textContent='Width';
+    const width=document.createElement('input'); width.type='range'; width.min='5'; width.max='60'; width.step='1'; width.value=String(item.width||18); width.dataset.imageWidth=item.id;
+    widthLabel.appendChild(width);
+    const opacityLabel=document.createElement('label'); opacityLabel.textContent='Opacity';
+    const opacity=document.createElement('input'); opacity.type='range'; opacity.min='10'; opacity.max='100'; opacity.step='1'; opacity.value=String(Math.round((item.opacity??1)*100)); opacity.dataset.imageOpacity=item.id;
+    opacityLabel.appendChild(opacity);
+    const mode=document.createElement('div'); mode.className='ptp-image-mode'; mode.textContent=item.mode==='world'?'3D anchored · follows camera orbit':'Screen layer · fixed to composition';
+    controls.append(widthLabel,opacityLabel,mode);
+    card.append(title,row,controls); root.appendChild(card);
   });
 }
 
@@ -296,8 +303,10 @@ function mountPanel() {
   panel.addEventListener('change', applyTextField);
 
   panel.addEventListener('input', e => {
-    const range=e.target.closest('[data-image-width]');
-    if(range){updateImage(range.dataset.imageWidth,{width:Number(range.value)});persist();}
+    const width=e.target.closest('[data-image-width]');
+    if(width){updateImage(width.dataset.imageWidth,{width:Number(width.value)});persist();return;}
+    const opacity=e.target.closest('[data-image-opacity]');
+    if(opacity){updateImage(opacity.dataset.imageOpacity,{opacity:Number(opacity.value)/100});persist();}
   });
   panel.addEventListener('click', (e) => {
     const anchor=e.target.closest('button[data-anchor-image]');
