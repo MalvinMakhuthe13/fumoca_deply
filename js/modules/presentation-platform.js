@@ -1,3 +1,4 @@
+import { fitSelectedSupportPlane, previewSupportPlaneTrim } from './support-plane.js';
 /* FUMOCA Presentation Platform — non-destructive Three.js display base */
 const VERSION = '1.0.0';
 const $ = (id) => document.getElementById(id);
@@ -6,7 +7,7 @@ const state = {
   width: 460, height: 24, edge: 18, offsetY: 0,
   led: true, logoUrl: null, logoSize: 400, logoRotation: 0, logoOffset: -5,
   group: null, top: null, body: null, ring: null, logo: null,
-  texture: null, unit: 1, lastBounds: null, dirty: true, logoDataUrl: null, gestureStart: null, flattenBackup: null, suspendAutoFit: false
+  texture: null, unit: 1, lastBounds: null, dirty: true, logoDataUrl: null, gestureStart: null, flattenBackup: null, suspendAutoFit: false, supportPlanePreview: null
 };
 const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
 function boundsFromSplat(){
@@ -199,8 +200,7 @@ function renderUI(){
   $('fpLogo').addEventListener('change',e=>{const file=e.target.files?.[0];if(!file)return;if(file.size>1024*1024){alert('Please use a logo image smaller than 1 MB.');e.target.value='';return;}const reader=new FileReader();reader.onload=()=>{state.logoDataUrl=String(reader.result||'');state.logoUrl=null;build();save();};reader.onerror=()=>alert('Could not read that logo file.');reader.readAsDataURL(file);});
   $('fpRemove').addEventListener('click',()=>{if(state.logoUrl)URL.revokeObjectURL(state.logoUrl);state.logoUrl=null;state.logoDataUrl=null;build();save();});
   $('fpApply').addEventListener('click',()=>{build();save();});
-  $('fpFlatten').addEventListener('click',()=>{try{const r=flattenScanToPlatform();alert('Flattened base: removed '+r.removed.toLocaleString()+' lower Gaussian points. Original scan is backed up; use Restore pre-flatten scan to reverse.');}catch(e){alert(e.message);}});
-  $('fpRestore').addEventListener('click',()=>{if(!restorePreFlatten())alert('No flatten backup is available in this Studio session.');});
+  $('fpAnalyseSupport').addEventListener('click',()=>{const S=window.S,report=$('fpSupportReport'),indices=[];if(S?.selected)for(let i=0;i<S.selected.length;i++)if(S.selected[i]&&S.alive?.[i])indices.push(i);if(indices.length<30){report.textContent='Select at least 30 points on the cap underside. Use a close underside view and avoid the brim edge and floating noise.';return;}const plane=fitSelectedSupportPlane(S.positions,indices);if(!plane){report.textContent='No reliable support plane found. Select a broader, flatter patch on the actual underside and try again.';return;}const preview=previewSupportPlaneTrim(S.positions,S.alive,plane,{maxTrimRatio:.35});state.supportPlanePreview={plane,preview,sourceCount:indices.length};report.textContent='Plane detected from '+plane.inlierCount.toLocaleString()+' / '+plane.sampleCount.toLocaleString()+' selected samples ('+Math.round(plane.inlierRatio*100)+'% consensus). Estimated trim: '+preview.below.toLocaleString()+' points; retained side: '+preview.above.toLocaleString()+'. '+(preview.safe?'Preview passes initial safety gate. No points changed.':'Preview rejected. No points changed.');window.dispatchEvent(new CustomEvent('fumoca:support-plane-preview',{detail:state.supportPlanePreview}));});
   $('fpSave').addEventListener('click',save);
   $('fpEnabled').checked=state.enabled;
   for(const [id,key] of [['fpWidth','width'],['fpHeight','height'],['fpEdge','edge'],['fpOffset','offsetY'],['fpLogoSize','logoSize'],['fpLogoRot','logoRotation'],['fpLogoOff','logoOffset']]){$(id).value=state[key];$(id).dispatchEvent(new Event('input',{bubbles:true}));}
@@ -216,5 +216,5 @@ function boot(){
   window.addEventListener('fumoca:splat-loaded',()=>{if(state.enabled)build();});
   console.info('[FUMOCA Platform] ready');
 }
-window.FumocaPresentationPlatform={getConfig,build,save,flattenScanToPlatform,restorePreFlatten,beginSplatTransform,updateSplatTransform,endSplatTransform,enable(v=true){state.enabled=!!v;if(state.group)state.group.visible=state.enabled;},get object(){return state.group;}};
+window.FumocaPresentationPlatform={getConfig,build,save,analyseSelectedSupport(){const S=window.S,indices=[];if(S?.selected)for(let i=0;i<S.selected.length;i++)if(S.selected[i]&&S.alive?.[i])indices.push(i);const plane=fitSelectedSupportPlane(S?.positions,indices);const preview=plane?previewSupportPlaneTrim(S.positions,S.alive,plane):null;return plane?{plane,preview}:null;},beginSplatTransform,updateSplatTransform,endSplatTransform,enable(v=true){state.enabled=!!v;if(state.group)state.group.visible=state.enabled;},get object(){return state.group;}};
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else window.addEventListener('load',boot,{once:true});
