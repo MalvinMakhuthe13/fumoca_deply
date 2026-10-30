@@ -4736,7 +4736,7 @@ window.addEventListener('pointerup', e => {
     else setStatus('Oval too small — drag a wider area to select it','warn');
   }
   if (S.mode === 'lasso' && S.lassoPoints.length >= 3) selectByLasso(S.lassoPoints, { additive: e.shiftKey, subtract: e.altKey });
-  if (['box','sphere','lasso'].includes(S.mode)) syncTransformGizmo();
+  if (['box','oval-select','sphere','lasso'].includes(S.mode)) syncTransformGizmo();
   if (['move','scale-tool','rotate'].includes(S.mode)) { window.FumocaGaussianRenderer?.invalidateSort(); rebuildGeometry(); window.FumocaSparkGaussian?.endEditorGesture?.(S); window.FumocaPresentationPlatform?.endSplatTransform?.(); syncTransformGizmo(); captureGizmoTransform(); _xformIndices = null; _xformPivot = null; _xformStartPos = null; _xformStartScale = null; _xformStartScaleXYZ = null; _xformStartRot = null; _xformAccum = null; }
   _xformPivot = null; _xformIndices = null;
   S.dragging = false; S.dragStart = null; S.dragCurrent = null; S.lassoPoints = [];
