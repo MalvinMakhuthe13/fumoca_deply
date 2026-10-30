@@ -125,7 +125,13 @@ const SparkGaussianView = (() => {
   function syncEditorState(state = window.S, indices = null) {
     if (!_enabled || !_mesh || !state?.alive || !state?.positions) return false;
     _updateSelectionOverlay(state);
-    const result = applyEditorStateToPackedSplats(_mesh, state, indices, window.THREE);
+    let result;
+    try {
+      result = applyEditorStateToPackedSplats(_mesh, state, indices, window.THREE);
+    } catch (error) {
+      console.error('[FUMOCA] Live Spark update failed without replacing the active mesh:', error);
+      return false;
+    }
     if (!result.ok) {
       console.error('[FUMOCA] Live Spark update rejected:', result.reason);
       return false;
