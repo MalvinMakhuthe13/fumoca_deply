@@ -60,7 +60,7 @@ function build(){
   const base=new T.Mesh(geo,materialFor(state.material));
   base.name='Solid presentation pedestal';base.castShadow=true;base.receiveShadow=true;g.add(base);
   const ring=new T.Mesh(new T.TorusGeometry(Math.min(width,depth)*.475,Math.max(thick*.018,.0015),8,128),new T.MeshBasicMaterial({color:0xc6a56a}));
-  ring.rotation.x=Math.PI/2;ring.position.y=-thick*.52;ring.name='LED accent ring';ring.visible=state.led;g.add(ring);
+  ring.rotation.x=Math.PI/2;ring.position.y=-thick*.06;ring.name='LED accent ring';ring.visible=state.led;g.add(ring);
   if(state.logoDataUrl||state.logoUrl){
     const img=new Image();img.onload=()=>{
       if(state.group!==g)return;
@@ -74,7 +74,7 @@ function build(){
     };img.onerror=()=>console.warn('[FUMOCA Platform] Logo image could not be loaded');img.src=state.logoDataUrl||state.logoUrl;
   }
   const gap=Math.max(footprint*.006,.001);
-  g.position.set(b.center[0],b.min[1]-gap-thick*.48+state.offsetY*state.unit,b.center[2]);
+  g.position.set(b.center[0],b.min[1]-gap-thick+state.offsetY*state.unit,b.center[2]);
   g.visible=state.enabled;
   if(state.group){window.scene.remove(state.group);disposeObject(state.group);}
   state.group=g;state.top=base;state.body=base;state.ring=ring;window.scene.add(g);
