@@ -740,6 +740,7 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
     <button class="tool-btn" id="dispColor" title="Color Map">🌈</button>
     <button class="tool-btn" id="dispOpacity" title="Opacity Map">◌</button>
     <button class="tool-btn" id="dispScale" title="Scale Map">⊙</button>
+    <button class="tool-btn" id="dispEllipsoids" title="Show Gaussian ellipsoids (wireframe)">◌</button>
   </div>
   <div class="tool-group">
     <span class="tool-group-label">View</span>
@@ -3133,6 +3134,59 @@ async function loadFile(file, urlOverride) {
 
 // ─── GEOMETRY REBUILD ────────────────────────────────────────────────────────
 
+
+// ─── GAUSSIAN ELLIPSOID INSPECTION OVERLAY ────────────────────────────────────
+// Draws the actual oriented covariance ellipsoids as a temporary wireframe
+// layer. It never changes the splat data and is disabled by default.
+let _showGaussianEllipsoids = false;
+let _gaussianEllipsoidOverlay = null;
+function _refreshGaussianEllipsoidOverlay() {
+  if (_gaussianEllipsoidOverlay && scene) {
+    scene.remove(_gaussianEllipsoidOverlay);
+    _gaussianEllipsoidOverlay.geometry?.dispose();
+    _gaussianEllipsoidOverlay.material?.dispose();
+    _gaussianEllipsoidOverlay = null;
+  }
+  if (!_showGaussianEllipsoids || !S?.positions || !S?.alive || !window.THREE) return;
+  const live=[];
+  for(let i=0;i<S.alive.length;i++) if(S.alive[i] && !S.layerHidden?.[i]) live.push(i);
+  if(!live.length)return;
+  // Keep the diagnostic overlay interactive on large scans. Deterministic
+  // sampling preserves spatial coverage while avoiding tens of thousands
+  // of wireframe draw instances in the editor.
+  const maxInstances=6000, step=Math.max(1,Math.ceil(live.length/maxInstances));
+  const indices=live.filter((_,k)=>k%step===0);
+  const geometry=new THREE.SphereGeometry(1,12,8);
+  const material=new THREE.MeshBasicMaterial({
+    color:0xf4a36b,wireframe:true,transparent:true,opacity:.48,
+    depthWrite:false,toneMapped:false
+  });
+  const mesh=new THREE.InstancedMesh(geometry,material,indices.length);
+  mesh.name='FUMOCA Gaussian ellipsoid inspection overlay';
+  mesh.frustumCulled=false;
+  const position=new THREE.Vector3(),scale=new THREE.Vector3(),quaternion=new THREE.Quaternion();
+  const matrix=new THREE.Matrix4();
+  for(let k=0;k<indices.length;k++){
+    const i=indices[k],o=i*3;
+    position.set(S.positions[o],S.positions[o+1],S.positions[o+2]);
+    const sx=Math.max(1e-5,S.scaleXYZ?.[o] || S.scale?.[i] || .01);
+    const sy=Math.max(1e-5,S.scaleXYZ?.[o+1] || S.scale?.[i] || .01);
+    const sz=Math.max(1e-5,S.scaleXYZ?.[o+2] || S.scale?.[i] || .01);
+    scale.set(sx*2.5,sy*2.5,sz*2.5);
+    if(S.rotation){
+      const q=i*4;
+      if(S.rotationOrder==='xyzw') quaternion.set(S.rotation[q],S.rotation[q+1],S.rotation[q+2],S.rotation[q+3]);
+      else quaternion.set(S.rotation[q+1],S.rotation[q+2],S.rotation[q+3],S.rotation[q]);
+      if(quaternion.lengthSq()>1e-10)quaternion.normalize();else quaternion.identity();
+    } else quaternion.identity();
+    matrix.compose(position,quaternion,scale);
+    mesh.setMatrixAt(k,matrix);
+  }
+  mesh.instanceMatrix.needsUpdate=true;
+  scene.add(mesh);
+  _gaussianEllipsoidOverlay=mesh;
+}
+
 function rebuildGeometry() {
 
   window.rebuildGeometry = rebuildGeometry; // keep window ref up to date
@@ -3335,6 +3389,7 @@ function rebuildGeometry() {
   const mat = buildMaterial();
   S.points = new THREE.Points(geo, mat);
   scene.add(S.points);
+  _refreshGaussianEllipsoidOverlay();
   // Spark is the visible Gaussian surface; keep the editor point cloud hidden and
   // mirror selection/deletion/position changes into Spark after every rebuild.
   if (window.FumocaSparkGaussian?.isEnabled()) {
@@ -4396,6 +4451,17 @@ function setMode(mode) {
 
 // ─── DISPLAY MODE ────────────────────────────────────────────────────────────
 const dispMap = { dispBlob: 'blob', dispDot: 'dot', dispSplat: 'splat', dispColor: 'color', dispOpacity: 'opacity', dispScale: 'scale' };
+
+// Ellipsoid visibility is independent of the point/splat display mode.
+$('dispEllipsoids')?.addEventListener('click',()=>{
+  _showGaussianEllipsoids=!_showGaussianEllipsoids;
+  $('dispEllipsoids')?.classList.toggle('active-cyan',_showGaussianEllipsoids);
+  $('dispEllipsoids')?.setAttribute('aria-pressed',String(_showGaussianEllipsoids));
+  _refreshGaussianEllipsoidOverlay();
+  showToast(_showGaussianEllipsoids?'Gaussian ellipsoids shown':'Gaussian ellipsoids hidden',
+    _showGaussianEllipsoids?'Wireframe covariance shapes are visible. Select or brush unwanted ones for trimming.':'Inspection overlay hidden; scan data is unchanged.');
+});
+
 function setDisplayMode(mode) {
   S.displayMode = mode;
   Object.entries(dispMap).forEach(([id, m]) => {
