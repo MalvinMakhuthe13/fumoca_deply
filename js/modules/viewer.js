@@ -1492,7 +1492,6 @@ async function mountPlyViewer(url) {
   const container = stageHost || stageEl;
   _plyScene = new THREE.Scene();
   window._fumocaViewerScene = _plyScene;
-  window._fumocaViewerScene = _plyScene;
   _plyCamera = new THREE.PerspectiveCamera(55, container.clientWidth / container.clientHeight, 0.001, 2000);
   // nerfstudio/COLMAP uses OpenCV convention: Y is DOWN, Z into scene.
   // Match the Gaussiannif_files3D cameraUp of [0,-1,-0.6] so nif_files sit upright.
