@@ -181,7 +181,7 @@ function renderUI(){
       if(S.rotation){const o=i*4,r=new THREE.Quaternion();if(S.rotationOrder==='xyzw'||(!S.rotationOrder&&S.fileType!=='ply'))r.set(S.rotation[o],S.rotation[o+1],S.rotation[o+2],S.rotation[o+3]);else r.set(S.rotation[o+1],S.rotation[o+2],S.rotation[o+3],S.rotation[o]);r.premultiply(q).normalize();if(S.rotationOrder==='xyzw'||(!S.rotationOrder&&S.fileType!=='ply')){S.rotation[o]=r.x;S.rotation[o+1]=r.y;S.rotation[o+2]=r.z;S.rotation[o+3]=r.w;}else{S.rotation[o]=r.w;S.rotation[o+1]=r.x;S.rotation[o+2]=r.y;S.rotation[o+3]=r.z;}}
     }
     if(S.alive.reduce((n,v)=>n+(v?1:0),0)<Math.max(30,live*.5)){const b=state.supportBackup;S.positions.set(b.positions);S.alive.set(b.alive);if(S.rotation&&b.rotation)S.rotation.set(b.rotation);state.supportBackup=null;alert('Correction cancelled: too many points would be removed. Original scan restored.');return;}
-    window.FumocaSparkGaussian?.syncEditorState?.(S);window.FumocaGaussianRenderer?.invalidateSort?.();window.rebuildGeometry?.();
+    state.suspendAutoFit=true;window.FumocaSparkGaussian?.syncEditorState?.(S);window.FumocaGaussianRenderer?.invalidateSort?.();window.rebuildGeometry?.();state.suspendAutoFit=false;
     state.supportPlanePreview=null;$('fpApplyCorrection').disabled=true;$('fpRestoreCorrection').disabled=false;
     $('fpSupportReport').textContent='Correction applied: '+removed.toLocaleString()+' lower/noise points trimmed; support plane levelled and seated. Original arrays are backed up until you restore or save a new source copy.';
   });
@@ -189,7 +189,7 @@ function renderUI(){
     const S=window.S,b=state.supportBackup;if(!S||!b)return;
     if(!confirm('Restore the exact pre-correction positions, rotations and visibility?'))return;
     S.positions.set(b.positions);S.alive.set(b.alive);if(S.rotation&&b.rotation)S.rotation.set(b.rotation);
-    state.supportBackup=null;window.FumocaSparkGaussian?.syncEditorState?.(S);window.FumocaGaussianRenderer?.invalidateSort?.();window.rebuildGeometry?.();
+    state.supportBackup=null;state.suspendAutoFit=true;window.FumocaSparkGaussian?.syncEditorState?.(S);window.FumocaGaussianRenderer?.invalidateSort?.();window.rebuildGeometry?.();state.suspendAutoFit=false;
     $('fpRestoreCorrection').disabled=true;$('fpSupportReport').textContent='Original scan restored exactly.';
   });
   $('fpSave').addEventListener('click',save);
