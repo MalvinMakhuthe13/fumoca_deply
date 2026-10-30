@@ -6,7 +6,7 @@ const state = {
   width: 460, height: 24, edge: 18, offsetY: 0,
   led: true, logoUrl: null, logoSize: 400, logoRotation: 0, logoOffset: -5,
   group: null, top: null, body: null, ring: null, logo: null,
-  texture: null, unit: 1, lastBounds: null, dirty: true, logoDataUrl: null, gestureStart: null
+  texture: null, unit: 1, lastBounds: null, dirty: true, logoDataUrl: null, gestureStart: null, flattenBackup: null
 };
 const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
 function boundsFromSplat(){
@@ -80,6 +80,48 @@ function build(){
   state.group=g;state.top=base;state.body=base;state.ring=ring;window.scene.add(g);
   window.dispatchEvent(new CustomEvent('fumoca:presentation-platform-updated',{detail:{config:getConfig()}}));
 }
+function flattenScanToPlatform(){
+  const S=window.S,g=state.group;
+  if(!S?.positions||!S?.alive||!g)throw new Error('Load a scan and apply its platform before flattening.');
+  if(state.flattenBackup)throw new Error('A flatten backup already exists. Restore it before flattening again.');
+  const live=S.alive.reduce((n,v)=>n+(v?1:0),0);
+  if(live<1)throw new Error('There are no live Gaussian points to flatten.');
+  state.flattenBackup={alive:S.alive.slice(),positions:S.positions.slice(),scale:S.scale?.slice()||null,scaleXYZ:S.scaleXYZ?.slice()||null,rotation:S.rotation?.slice()||null,opacity:S.opacity?.slice()||null};
+  g.updateMatrixWorld(true);
+  const planeLocalY=state.height*state.unit;
+  const p=new THREE.Vector3(),normal=new THREE.Vector3(0,1,0).transformDirection(g.matrixWorld).normalize();
+  let removed=0,kept=0;
+  for(let i=0;i<S.alive.length;i++){
+    if(!S.alive[i])continue;
+    p.set(S.positions[i*3],S.positions[i*3+1],S.positions[i*3+2]);
+    g.worldToLocal(p);
+    if(p.y<planeLocalY){S.alive[i]=0;removed++;}else kept++;
+  }
+  if(kept<Math.max(30,live*.05)){
+    const b=state.flattenBackup;S.alive.set(b.alive);state.flattenBackup=null;
+    throw new Error('The detected platform plane would remove too much of the scan. Nothing was changed.');
+  }
+  window.FumocaSparkGaussian?.syncEditorState?.(S);
+  window.FumocaGaussianRenderer?.invalidateSort?.();
+  window.rebuildGeometry?.();
+  window.dispatchEvent(new CustomEvent('fumoca:rebuildGeometry'));
+  save();
+  return {removed,kept};
+}
+function restorePreFlatten(){
+  const S=window.S,b=state.flattenBackup;if(!S||!b)return false;
+  S.alive.set(b.alive);S.positions.set(b.positions);
+  if(b.scale&&S.scale)S.scale.set(b.scale);
+  if(b.scaleXYZ&&S.scaleXYZ)S.scaleXYZ.set(b.scaleXYZ);
+  if(b.rotation&&S.rotation)S.rotation.set(b.rotation);
+  if(b.opacity&&S.opacity)S.opacity.set(b.opacity);
+  state.flattenBackup=null;
+  window.FumocaSparkGaussian?.syncEditorState?.(S);
+  window.FumocaGaussianRenderer?.invalidateSort?.();
+  window.rebuildGeometry?.();
+  window.dispatchEvent(new CustomEvent('fumoca:rebuildGeometry'));
+  save();return true;
+}
 function getConfig(){return {version:VERSION,enabled:state.enabled,shape:state.shape,material:state.material,width:state.width,height:state.height,edge:state.edge,offsetY:state.offsetY,led:state.led,logoSize:state.logoSize,logoRotation:state.logoRotation,logoOffset:state.logoOffset,logoDataUrl:state.logoDataUrl||null};}
 function beginSplatTransform(centroid){if(!state.group||!centroid)return;state.gestureStart={position:state.group.position.clone(),quaternion:state.group.quaternion.clone(),scale:state.group.scale.clone(),centroid:new THREE.Vector3(centroid.x,centroid.y,centroid.z)};}
 function updateSplatTransform({move={x:0,y:0,z:0},quaternion={x:0,y:0,z:0,w:1},scale={x:1,y:1,z:1}}={}){const start=state.gestureStart,g=state.group;if(!start||!g)return;const q=new THREE.Quaternion(quaternion.x,quaternion.y,quaternion.z,quaternion.w).normalize();const d=new THREE.Vector3(start.position.x-start.centroid.x,start.position.y-start.centroid.y,start.position.z-start.centroid.z);d.set(d.x*scale.x,d.y*scale.y,d.z*scale.z).applyQuaternion(q);g.position.set(start.centroid.x+move.x+d.x,start.centroid.y+move.y+d.y,start.centroid.z+move.z+d.z);g.quaternion.copy(q).multiply(start.quaternion).normalize();g.scale.set(start.scale.x*scale.x,start.scale.y*scale.y,start.scale.z*scale.z);}
@@ -139,7 +181,7 @@ function renderUI(){
   </div>
   <div class="fp-section"><div class="fp-title">Scene integration</div>
     <div class="fp-note">The platform is a separate Three.js object. Your original Gaussian scan remains untouched.</div>
-    <button id="fpApply" class="fp-primary">Apply to scene</button>
+    <button id="fpApply" class="fp-primary">Apply to scene</button>\n    <button id="fpFlatten" style="width:100%;margin-top:7px;border-color:#d4ff00;color:#d4ff00">Flatten scan to platform</button>\n    <button id="fpRestore" style="width:100%;margin-top:7px">Restore pre-flatten scan</button>
     <button id="fpSave" style="width:100%;margin-top:7px">Save platform settings</button>
   </div>`;
   const bindRange=(id,key,out,suffix=' mm')=>$(id).addEventListener('input',e=>{state[key]=+e.target.value;$(out).textContent=state[key]+suffix;build();});
@@ -152,7 +194,7 @@ function renderUI(){
   $('fpUpload').addEventListener('click',()=>$('fpLogo').click());
   $('fpLogo').addEventListener('change',e=>{const file=e.target.files?.[0];if(!file)return;if(file.size>1024*1024){alert('Please use a logo image smaller than 1 MB.');e.target.value='';return;}const reader=new FileReader();reader.onload=()=>{state.logoDataUrl=String(reader.result||'');state.logoUrl=null;build();save();};reader.onerror=()=>alert('Could not read that logo file.');reader.readAsDataURL(file);});
   $('fpRemove').addEventListener('click',()=>{if(state.logoUrl)URL.revokeObjectURL(state.logoUrl);state.logoUrl=null;state.logoDataUrl=null;build();save();});
-  $('fpApply').addEventListener('click',()=>{build();save();});
+  $('fpApply').addEventListener('click',()=>{build();save();});\n  $('fpFlatten').addEventListener('click',()=>{try{const r=flattenScanToPlatform();alert('Flattened base: removed '+r.removed.toLocaleString()+' lower Gaussian points. Original scan is backed up; use Restore pre-flatten scan to reverse.');}catch(e){alert(e.message);}});\n  $('fpRestore').addEventListener('click',()=>{if(!restorePreFlatten())alert('No flatten backup is available in this Studio session.');});
   $('fpSave').addEventListener('click',save);
   $('fpEnabled').checked=state.enabled;
   for(const [id,key] of [['fpWidth','width'],['fpHeight','height'],['fpEdge','edge'],['fpOffset','offsetY'],['fpLogoSize','logoSize'],['fpLogoRot','logoRotation'],['fpLogoOff','logoOffset']]){$(id).value=state[key];$(id).dispatchEvent(new Event('input',{bubbles:true}));}
@@ -168,5 +210,5 @@ function boot(){
   window.addEventListener('fumoca:splat-loaded',()=>{if(state.enabled)build();});
   console.info('[FUMOCA Platform] ready');
 }
-window.FumocaPresentationPlatform={getConfig,build,save,beginSplatTransform,updateSplatTransform,endSplatTransform,enable(v=true){state.enabled=!!v;if(state.group)state.group.visible=state.enabled;},get object(){return state.group;}};
+window.FumocaPresentationPlatform={getConfig,build,save,flattenScanToPlatform,restorePreFlatten,beginSplatTransform,updateSplatTransform,endSplatTransform,enable(v=true){state.enabled=!!v;if(state.group)state.group.visible=state.enabled;},get object(){return state.group;}};
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else window.addEventListener('load',boot,{once:true});
