@@ -138,3 +138,11 @@
 #fumocaPresentTabPanel .ptp-text-fields input:not([type=color]),#fumocaPresentTabPanel .ptp-text-fields select{width:100%;min-width:0;height:30px;padding:5px 7px;border-radius:6px;border:1px solid rgba(255,255,255,.14);background:#101218;color:#f4f4f4;font:500 11px Inter,system-ui,sans-serif}
 #fumocaPresentTabPanel .ptp-text-fields input[type=color]{width:100%;height:30px;padding:2px;border-radius:6px;border:1px solid rgba(255,255,255,.14);background:#101218}
 #fumocaPresentTabPanel .ptp-text-fields .ptp-danger{grid-column:1/-1;color:#ff9bad;border-color:rgba(255,80,110,.25)}
+
+/* 3D presentation platform controls */
+#fumocaPresentTabPanel .ptp-base-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0}
+#fumocaPresentTabPanel .ptp-base-grid label{display:flex;flex-direction:column;gap:4px;min-width:0;font-size:10px;color:rgba(255,255,255,.62)}
+#fumocaPresentTabPanel .ptp-base-grid input,#fumocaPresentTabPanel .ptp-base-grid select{width:100%;min-width:0;height:31px;padding:5px 7px;border-radius:6px;border:1px solid rgba(255,255,255,.14);background:#101218;color:#f4f4f4;font:500 11px Inter,system-ui,sans-serif}
+#fumocaPresentTabPanel .ptp-base-grid input:focus,#fumocaPresentTabPanel .ptp-base-grid select:focus{outline:1px solid #c8ff00;border-color:#c8ff00}
+#fumocaPresentTabPanel .ptp-check{display:flex;align-items:center;gap:5px;font-size:10px;color:rgba(255,255,255,.7)}
+#fumocaPresentTabPanel .ptp-danger{color:#ff9bad!important;border-color:rgba(255,80,110,.25)!important}
