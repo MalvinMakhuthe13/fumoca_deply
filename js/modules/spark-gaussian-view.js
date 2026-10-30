@@ -77,9 +77,10 @@ const SparkGaussianView = (() => {
     let hash = 2166136261;
     const mix = value => { hash = Math.imul(hash ^ (value | 0), 16777619); };
     mix(state.alive.length);
+    mix(state.rotationOrder === 'xyzw' ? 1 : 0);
     for (let i = 0; i < state.alive.length; i++) {
       mix(state.alive[i] ? 1 : 0);
-      const arrays = [state.positions, state.scaleXYZ, state.rotation, state.opacity, state.colors];
+      const arrays = [state.positions, state.scaleXYZ, state.rotation, state.opacity, state.colors, state.paintColors];
       for (const array of arrays) {
         if (!array) { mix(0); continue; }
         const stride = array === state.positions || array === state.scaleXYZ || array === state.colors ? 3
