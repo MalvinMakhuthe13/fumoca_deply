@@ -18,10 +18,10 @@ function parseBinaryGaussianPly(bytes) {
   else throw new Error('PLY header terminator has no supported line ending');
 
   const header = new TextDecoder().decode(src.subarray(0, headerEnd));
-  if (!/^format binary_little_endian 1\\.0$/m.test(header)) {
+  if (!/^format binary_little_endian 1\\.0\\r?$/m.test(header)) {
     throw new Error('High-fidelity Gaussian export requires binary little-endian PLY');
   }
-  const vertexMatch = header.match(/^element vertex (\\d+)$/m);
+  const vertexMatch = header.match(/^element vertex (\\d+)\\r?$/m);
   if (!vertexMatch) throw new Error('PLY vertex element not found');
   const count = Number(vertexMatch[1]);
   const typeInfo = {
@@ -102,7 +102,7 @@ export function makeEditedGaussianPlyBytes(originalBytes, state) {
     }
     rows.push(row);
   }
-  const header = parsed.header.replace(/^element vertex \\d+$/m, 'element vertex ' + rows.length);
+  const header = parsed.header.replace(/^element vertex \\d+\\r?$/m, 'element vertex ' + rows.length);
   const headerBytes = new TextEncoder().encode(header);
   const out = new Uint8Array(headerBytes.length + rows.length*parsed.rowBytes);
   out.set(headerBytes);
