@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { fitSelectedSupportPlane, previewSupportPlaneTrim } from '../js/modules/support-plane.js';
+import { fitSelectedSupportPlane, previewSupportPlaneTrim, detectAutomaticSupportPlane } from '../js/modules/support-plane.js';
 
 const normal=[0.31,0.88,-0.36],length=Math.hypot(...normal),n=normal.map(v=>v/length);
 let u=[n[1],-n[0],0];let ul=Math.hypot(...u);u=u.map(v=>v/ul);
@@ -36,3 +36,35 @@ assert.deepEqual(state,positionsBefore,'preview must not mutate positions');
 // Ambiguous/undersupported selections must fail closed.
 assert.equal(fitSelectedSupportPlane(state,[0,1,2]),null,'too-small selections must be rejected');
 console.log('Support-plane fitting, scoped trim preview, and non-destructive guarantees passed.');
+
+
+// Automatic mode: tilted support plane plus the object body above it. No
+// manual selection is supplied; the detector must return a review candidate.
+const autoPositions=[];
+const autoAlive=[];
+for(let a=-18;a<=18;a++)for(let b=-18;b<=18;b++){
+  const noise=Math.sin(a*11+b*7)*0.00015;
+  autoPositions.push(...u.map((x,i)=>x*a+v[i]*b+n[i]*noise));
+  autoAlive.push(1);
+}
+for(let i=0;i<1800;i++){
+  const aa=(Math.sin(i*13)*.5+.5)*30-15;
+  const bb=(Math.cos(i*17)*.5+.5)*30-15;
+  const hh=.15+(Math.sin(i*23)*.5+.5)*8;
+  autoPositions.push(...u.map((x,k)=>x*aa+v[k]*bb+n[k]*hh));
+  autoAlive.push(1);
+}
+const autoPlane=detectAutomaticSupportPlane(new Float32Array(autoPositions),new Uint8Array(autoAlive),{iterations:700});
+assert.ok(autoPlane,'automatic detector should find a broad boundary support plane');
+assert.ok(Math.abs(autoPlane.normal.reduce((sum,x,i)=>sum+x*n[i],0))>.99,'automatic support normal should match the tilted base');
+assert.equal(autoPlane.method,'automatic-boundary-ransac+pca','automatic result should be clearly identified');
+
+// A clean underside with no material below it must still be eligible for
+// leveling/seating; zero trim candidates is not a reason to reject a plane.
+const cleanPositions=new Float32Array([...positions,...n.flatMap(x=>[x*.2,x*.4,x*.8])]);
+const cleanAlive=new Uint8Array(cleanPositions.length/3);cleanAlive.fill(1);
+const cleanPlane=fitSelectedSupportPlane(cleanPositions,selected,{orientationPoint:n.map(x=>x*.5)});
+const cleanPreview=previewSupportPlaneTrim(cleanPositions,cleanAlive,cleanPlane,{margin:.01});
+assert.ok(cleanPreview?.safe,'a valid clean base must be safe even when there are no trim candidates');
+assert.equal(cleanPreview.below,0,'clean base should not invent trim candidates');
+console.log('Automatic support-plane detection and clean-base seating checks passed.');
