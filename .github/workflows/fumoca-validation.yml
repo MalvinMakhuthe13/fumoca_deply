@@ -2,7 +2,7 @@ name: FUMOCA validation
 
 on:
   push:
-    branches: [main, "feat/**", "platform-integration-audit"]
+    branches: [main, "feat/**", "fix/**", "platform-integration-audit"]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -25,6 +25,12 @@ jobs:
         run: test -s docs/PLATFORM_INTEGRATION_AUDIT.md && grep -q "Acceptance gates for a clean release" docs/PLATFORM_INTEGRATION_AUDIT.md
       - name: Check Studio JavaScript syntax
         run: node --check js/modules/image-to-splat-studio.js
+      - name: Check Gaussian editing modules
+        run: |
+          node --input-type=module --check < js/modules/spark-gaussian-view.js
+          node --input-type=module --check < js/modules/spark-state-sync.js
+          node --input-type=module --check < js/modules/gaussian-ply-edit.js
+          node --input-type=module --check < js/modules/auto-level.js
       - name: Check viewer ES module syntax
         run: node --input-type=module --check < js/modules/viewer.js
       - name: Check persistence-sensitive editor modules
