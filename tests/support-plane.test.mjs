@@ -10,19 +10,29 @@ for(let a=-20;a<=20;a++)for(let b=-20;b<=20;b++){
  positions.push(...u.map((x,i)=>x*a+v[i]*b+n[i]*noise));
 }
 const selected=Array.from({length:positions.length/3},(_,i)=>i);
-const plane=fitSelectedSupportPlane(new Float32Array(positions),selected,{orientationPoint:n.map((x,i)=>x*.5)});
+const plane=fitSelectedSupportPlane(new Float32Array(positions),selected,{orientationPoint:n.map(x=>x*.5)});
 assert.ok(plane,'selected support plane should be found');
 assert.ok(plane.normal.reduce((sum,x,i)=>sum+x*n[i],0)>.999,'support normal must point inward toward object interior');
 assert.ok(plane.inlierRatio>.95,'support region should have high consensus');
+assert.ok(plane.footprint&&plane.u&&plane.v,'fitted plane must retain the selected patch footprint');
 
-// Preview classifies points without mutating either input array.
-const scan=new Float32Array([...positions,...n.map(x=>x*-.2),...n.map(x=>x*.2)]);
-const alive=new Uint8Array(scan.length/3);alive.fill(1);
-const before=alive.slice();
-const preview=previewSupportPlaneTrim(scan,alive,plane,{margin:.01,maxTrimRatio:.35});
-assert.ok(preview&&preview.below>=1&&preview.above>=1,'trim preview should identify both sides');
-assert.equal(preview.below,1,'exterior underside debris must be classified for removal');
-assert.equal(preview.above,1,'cap interior must be classified for retention');
-assert.deepEqual(alive,before,'preview must not mutate scan state');
-assert.equal(preview.safe,true,'small trim preview should pass safety gate');
-console.log('Support-plane analysis and non-destructive trim preview tests passed.');
+// Build a realistic cap side, one underside wisp inside the patch, and an
+// unrelated lower point far outside the selected patch footprint.
+const scan=[...positions];
+for(let i=0;i<40;i++)scan.push(...u.map((x,k)=>x*(i%5-2)*.1+v[k]*(Math.floor(i/5)-4)*.1+n[k]*.2));
+const trimIndex=scan.length/3;scan.push(...n.map(x=>x*-.2));
+const outsideIndex=scan.length/3;scan.push(...u.map((x,k)=>x*100+n[k]*-.2));
+const state=new Float32Array(scan),alive=new Uint8Array(state.length/3);alive.fill(1);
+const before=alive.slice(),positionsBefore=state.slice();
+const preview=previewSupportPlaneTrim(state,alive,plane,{margin:.01,maxTrimRatio:.35,footprintPadding:.2});
+assert.ok(preview&&preview.below>=1&&preview.above>=30,'preview must have trim candidates and retained cap evidence');
+assert.ok(preview.safe,'bounded support trim should pass safety gate');
+assert.ok(preview.trimIndices.includes(trimIndex),'underside wisp inside selected footprint should be a trim candidate');
+assert.ok(!preview.trimIndices.includes(outsideIndex),'unrelated geometry outside selected footprint must be protected');
+assert.ok(preview.outside>=1,'preview should report protected unrelated points');
+assert.deepEqual(alive,before,'preview must not mutate visibility');
+assert.deepEqual(state,positionsBefore,'preview must not mutate positions');
+
+// Ambiguous/undersupported selections must fail closed.
+assert.equal(fitSelectedSupportPlane(state,[0,1,2]),null,'too-small selections must be rejected');
+console.log('Support-plane fitting, scoped trim preview, and non-destructive guarantees passed.');
