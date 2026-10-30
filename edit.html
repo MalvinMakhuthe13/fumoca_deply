@@ -2227,6 +2227,9 @@ function applyGizmoDelta() {
   if (sizeAttr) sizeAttr.needsUpdate = true;
   if (rotationAttr) rotationAttr.needsUpdate = true;
   if (S.points?.geometry) S.points.geometry.boundingSphere = null;
+  // Update the same Spark Gaussians during the drag; no renderer swap or
+  // delayed full-file reload after mouse release.
+  window.FumocaSparkGaussian?.updateEditorStateLive?.(S, snap.indices);
 }
 
 
@@ -4224,8 +4227,9 @@ const toolMap = {
 };
 
 function setMode(mode) {
-  if (['move','scale-tool','rotate'].includes(mode)) window.FumocaSparkGaussian?.beginEditorGesture?.();
-  else window.FumocaSparkGaussian?.endEditorGesture?.(S);
+  // Choosing a tool must not change renderers. Spark remains the live viewport
+  // renderer; edits are pushed into its PackedSplats buffer while dragging.
+  if (!['move','scale-tool','rotate'].includes(mode)) window.FumocaSparkGaussian?.endEditorGesture?.(S);
   S.mode = mode;
   if (['move','scale-tool','rotate'].includes(mode) && S.alive?.length && S.selected && !S.selected.some(Boolean)) {
     for (let i = 0; i < S.alive.length; i++) {
@@ -4535,6 +4539,7 @@ window.addEventListener('pointermove', e => {
       transformSelection(S.mode, dx, dy, false);
       S.dragStart = { x, y };
       _pokePositionAttribute();
+      window.FumocaSparkGaussian?.updateEditorStateLive?.(S, _gizmoCollectIndices());
     }
   }
   if ((S.mode === 'pan' || S.mode === 'zoom-tool') && S.dragStart) {
