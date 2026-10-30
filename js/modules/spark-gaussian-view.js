@@ -40,30 +40,44 @@ const SparkGaussianView = (() => {
   }
 
   function _updateSelectionOverlay(state = window.S) {
-    const scene = _scene();
-    if (!scene || !state?.positions || !state?.alive || !state?.selected) return;
+    const THREE = window.THREE;
+    const parent = _mesh || _scene();
+    if (!parent || !THREE?.BufferGeometry || !THREE?.PointsMaterial || !THREE?.Points ||
+        !state?.positions || !state?.alive || !state?.selected) return;
     const positions = [], colors = [];
     for (let i = 0; i < state.alive.length; i++) {
       if (!state.alive[i] || !state.selected[i] || state.layerHidden?.[i]) continue;
-      positions.push(state.positions[i*3], state.positions[i*3+1], state.positions[i*3+2]);
+      // Editor positions are in scene coordinates. Convert them into the
+      // Spark splat object's local coordinates before parenting the overlay.
+      const world = new THREE.Vector3(
+        state.positions[i*3], state.positions[i*3+1], state.positions[i*3+2]
+      );
+      parent.worldToLocal(world);
+      positions.push(world.x, world.y, world.z);
       colors.push(0.78, 1.0, 0.0);
     }
     if (!_overlay) {
-      const THREE = window.THREE;
-      if (!THREE?.BufferGeometry || !THREE?.PointsMaterial || !THREE?.Points) return;
       const geometry = new THREE.BufferGeometry();
       geometry.setAttribute('position', new THREE.Float32BufferAttribute([], 3));
       geometry.setAttribute('color', new THREE.Float32BufferAttribute([], 3));
-      const material = new THREE.PointsMaterial({ size: 6, sizeAttenuation: false, vertexColors: true, transparent: true, opacity: 1, depthTest: true });
+      const material = new THREE.PointsMaterial({
+        size: 2.5, sizeAttenuation: true, vertexColors: true,
+        transparent: true, opacity: 0.92, depthTest: true, depthWrite: false,
+        blending: THREE.AdditiveBlending
+      });
       _overlay = new THREE.Points(geometry, material);
       _overlay.name = 'fumoca-spark-selection-overlay';
       _overlay.renderOrder = 20;
-      scene.add(_overlay);
+      _overlay.frustumCulled = false;
+      parent.add(_overlay);
+    } else if (_overlay.parent !== parent) {
+      _overlay.parent?.remove(_overlay);
+      parent.add(_overlay);
     }
-    const THREE = window.THREE;
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
     geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    geometry.computeBoundingSphere();
     const previous = _overlay.geometry;
     _overlay.geometry = geometry;
     previous?.dispose?.();
