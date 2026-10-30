@@ -5,18 +5,15 @@ const norm=a=>Math.hypot(a[0],a[1],a[2]);
 const sub=(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]];
 const normalize=a=>{const n=norm(a);return n>1e-12?a.map(v=>v/n):null;};
 
-/**
- * Fit a support plane to explicitly selected underside samples.
- * Selection is intentional: whole-object RANSAC can mistake a brim/crown plane
- * for the support surface. Returns null when evidence is weak or ambiguous.
- */
+/** Fit a plane only from the user's explicitly selected underside patch. */
 export function fitSelectedSupportPlane(positions, indices, options={}) {
   if(!positions||!indices||indices.length<30)return null;
   const points=[];
   const stride=Math.max(1,Math.floor(indices.length/(options.maxSamples||12000)));
   for(let k=0;k<indices.length;k+=stride){
-    const i=indices[k],p=[positions[i*3],positions[i*3+1],positions[i*3+2]];
-    if(Number.isInteger(i)&&i>=0&&p.every(Number.isFinite))points.push(p);
+    const i=indices[k];if(!Number.isInteger(i)||i<0||i*3+2>=positions.length)continue;
+    const p=[positions[i*3],positions[i*3+1],positions[i*3+2]];
+    if(p.every(Number.isFinite))points.push(p);
   }
   if(points.length<30)return null;
   const mins=[0,1,2].map(a=>Math.min(...points.map(p=>p[a])));
@@ -25,23 +22,20 @@ export function fitSelectedSupportPlane(positions, indices, options={}) {
   const tolerance=Math.max(diagonal*(options.toleranceRatio??0.006),1e-7);
   let seed=0x71c3a5d9;
   const rand=n=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed%n;};
-  let best=null,bestInliers=[];
-  const iterations=options.iterations||500;
-  for(let it=0;it<iterations;it++){
+  let bestNormal=null,bestInliers=[];
+  for(let it=0;it<(options.iterations||500);it++){
     const a=points[rand(points.length)],b=points[rand(points.length)],c=points[rand(points.length)];
-    let n=normalize(cross(sub(b,a),sub(c,a)));if(!n)continue;
-    let d=-dot(n,a),inliers=[];
-    for(let i=0;i<points.length;i++)if(Math.abs(dot(n,points[i])+d)<=tolerance)inliers.push(i);
-    if(inliers.length>bestInliers.length){best={normal:n,d};bestInliers=inliers;}
+    const n=normalize(cross(sub(b,a),sub(c,a)));if(!n)continue;
+    const inliers=[];
+    for(let i=0;i<points.length;i++)if(Math.abs(dot(n,sub(points[i],a)))<=tolerance)inliers.push(i);
+    if(inliers.length>bestInliers.length){bestNormal=n;bestInliers=inliers;}
   }
   const required=Math.max(24,Math.ceil(points.length*(options.minInlierRatio??0.18)));
-  if(!best||bestInliers.length<required)return null;
-  // Refit plane from inlier covariance using a Jacobi eigensolver.
+  if(!bestNormal||bestInliers.length<required)return null;
   const sample=bestInliers.map(i=>points[i]),center=[0,0,0];
   for(const p of sample)for(let a=0;a<3;a++)center[a]+=p[a]/sample.length;
-  const A=[[0,0,0],[0,0,0],[0,0,0]];
+  const A=[[0,0,0],[0,0,0],[0,0,0]],V=[[1,0,0],[0,1,0],[0,0,1]];
   for(const p of sample)for(let r=0;r<3;r++)for(let c=0;c<3;c++)A[r][c]+=(p[r]-center[r])*(p[c]-center[c])/sample.length;
-  const V=[[1,0,0],[0,1,0],[0,0,1]];
   for(let it=0;it<32;it++){
     let p=0,q=1;if(Math.abs(A[0][2])>Math.abs(A[p][q])){p=0;q=2;}if(Math.abs(A[1][2])>Math.abs(A[p][q])){p=1;q=2;}
     if(Math.abs(A[p][q])<1e-14)break;
@@ -51,33 +45,39 @@ export function fitSelectedSupportPlane(positions, indices, options={}) {
     for(let k=0;k<3;k++){const x=V[k][p],y=V[k][q];V[k][p]=c*x-s*y;V[k][q]=s*x+c*y;}
   }
   let axis=0;if(A[1][1]<A[axis][axis])axis=1;if(A[2][2]<A[axis][axis])axis=2;
-  let normal=normalize([V[0][axis],V[1][axis],V[2][axis]]);
-  if(!normal)return null;
-  // The support normal points INTO the object. This makes the retained cap side
-  // positive and the underside/exterior debris side negative for trim preview.
-  if(options.orientationPoint){
-    const inward=sub(options.orientationPoint,center);
-    if(dot(normal,inward)<0)normal=normal.map(v=>-v);
-  }else if(dot(normal,best.normal)<0)normal=normal.map(v=>-v);
-  const residuals=sample.map(p=>Math.abs(dot(normal,sub(p,center))));
-  residuals.sort((a,b)=>a-b);
-  return {normal,point:center,offset:-dot(normal,center),inlierCount:sample.length,
+  let normal=normalize([V[0][axis],V[1][axis],V[2][axis]]);if(!normal)return null;
+  if(options.orientationPoint){if(dot(normal,sub(options.orientationPoint,center))<0)normal=normal.map(v=>-v);}
+  else if(dot(normal,bestNormal)<0)normal=normal.map(v=>-v);
+  // Construct stable in-plane axes and retain the selected patch's footprint.
+  const ref=Math.abs(normal[1])<.9?[0,1,0]:[1,0,0];
+  const u=normalize(cross(ref,normal)),v=normalize(cross(normal,u));
+  const projected=sample.map(p=>{const d=sub(p,center);return [dot(d,u),dot(d,v)];});
+  const footprint={minU:Math.min(...projected.map(p=>p[0])),maxU:Math.max(...projected.map(p=>p[0])),minV:Math.min(...projected.map(p=>p[1])),maxV:Math.max(...projected.map(p=>p[1]))};
+  const residuals=sample.map(p=>Math.abs(dot(normal,sub(p,center)))).sort((a,b)=>a-b);
+  return {normal,point:center,offset:-dot(normal,center),u,v,footprint,inlierCount:sample.length,
     sampleCount:points.length,inlierRatio:sample.length/points.length,
     medianResidual:residuals[Math.floor(residuals.length*.5)],tolerance,method:'selected-ransac+pca'};
 }
 
-/** Classify candidate points on the negative side of a reviewed plane. */
+/**
+ * Trim candidates only inside an expanded footprint around the selected support
+ * patch. This prevents a plane from deleting unrelated geometry elsewhere.
+ * The returned indices are a review result; input arrays are never modified.
+ */
 export function previewSupportPlaneTrim(positions, alive, plane, options={}) {
-  if(!positions||!alive||!plane||!plane.normal||!plane.point)return null;
-  const margin=Math.max(0,options.margin??plane.tolerance??0);
-  let below=0,above=0,near=0;
+  if(!positions||!alive||!plane?.normal||!plane?.point||!plane?.footprint||!plane?.u||!plane?.v)return null;
+  const margin=Math.max(0,options.margin??plane.tolerance??0),padding=Math.max(0,options.footprintPadding??0.2);
+  const f=plane.footprint,du=(f.maxU-f.minU)*padding,dv=(f.maxV-f.minV)*padding;
+  const trimIndices=[];let below=0,above=0,near=0,outside=0;
   for(let i=0;i<alive.length;i++)if(alive[i]){
-    const p=[positions[i*3],positions[i*3+1],positions[i*3+2]];
-    if(!p.every(Number.isFinite))continue;
-    const distance=dot(plane.normal,sub(p,plane.point));
-    if(distance < -margin)below++;else if(distance>margin)above++;else near++;
+    const o=i*3;if(o+2>=positions.length)continue;
+    const p=[positions[o],positions[o+1],positions[o+2]];if(!p.every(Number.isFinite))continue;
+    const delta=sub(p,plane.point),pu=dot(delta,plane.u),pv=dot(delta,plane.v);
+    if(pu<f.minU-du||pu>f.maxU+du||pv<f.minV-dv||pv>f.maxV+dv){outside++;continue;}
+    const distance=dot(plane.normal,delta);
+    if(distance < -margin){below++;trimIndices.push(i);}else if(distance>margin)above++;else near++;
   }
   const total=below+above+near;
-  return {below,above,near,total,trimRatio:total?below/total:0,margin,
+  return {below,above,near,outside,total,trimIndices,trimRatio:total?below/total:0,margin,footprintPadding:padding,
     safe:total>0&&below>0&&below/total<=(options.maxTrimRatio??0.35)&&above>=30};
 }
