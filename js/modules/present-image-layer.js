@@ -152,11 +152,20 @@ function createDecal(item) {
   const radius=sceneRadius();
   const width=item.worldWidth || radius*Math.max(.025,(item.width||18)/100*.8);
   item.worldWidth=width;
-  const texture=new THREE.TextureLoader().load(item.src,()=>{texture.colorSpace=THREE.SRGBColorSpace;texture.needsUpdate=true;});
+  let mesh=null;
+  const texture=new THREE.TextureLoader().load(item.src,loaded=>{
+    texture.colorSpace=THREE.SRGBColorSpace;texture.needsUpdate=true;
+    if(mesh && loaded.image?.width && loaded.image?.height) {
+      const aspect=loaded.image.width/loaded.image.height;
+      const previous=mesh.geometry;
+      mesh.geometry=new THREE.PlaneGeometry(width,width/Math.max(.01,aspect));
+      previous.dispose();
+    }
+  });
   texture.colorSpace=THREE.SRGBColorSpace;
   const material=new THREE.MeshBasicMaterial({map:texture,transparent:true,opacity:item.opacity??1,side:THREE.DoubleSide,depthTest:true,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-2,toneMapped:false});
   const geometry=new THREE.PlaneGeometry(width,width);
-  const mesh=new THREE.Mesh(geometry,material);
+  mesh=new THREE.Mesh(geometry,material);
   mesh.name='fumoca-present-decal-'+item.id;
   mesh.position.set(item.wx,item.wy,item.wz).addScaledVector(n,Math.max(radius*.0015,.0001));
   mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),n);
@@ -215,7 +224,7 @@ export function addImage(src,partial={}) {
   items.push(item);rebuild();notify();return item;
 }
 export function removeImage(id){const item=items.find(x=>x.id===id);if(item)disposeDecal(item);items=items.filter(x=>x.id!==id);if(placingId===id)cancelPlacement();rebuild();notify();}
-export function updateImage(id,patch){const item=items.find(x=>x.id===id);if(!item)return null;Object.assign(item,patch);if(item.decal){if(patch.opacity!==undefined)item.decal.material.opacity=item.opacity;if(patch.width!==undefined){item.worldWidth=sceneRadius()*Math.max(.025,(item.width||18)/100*.8);const w=item.worldWidth;item.decal.scale.set(w/item.decal.geometry.parameters.width,w/item.decal.geometry.parameters.height,1);}}notify();return item;}
+export function updateImage(id,patch){const item=items.find(x=>x.id===id);if(!item)return null;Object.assign(item,patch);if(item.decal){if(patch.opacity!==undefined)item.decal.material.opacity=item.opacity;if(patch.width!==undefined){item.worldWidth=sceneRadius()*Math.max(.025,(item.width||18)/100*.8);const w=item.worldWidth;const factor=w/item.decal.geometry.parameters.width;item.decal.scale.set(factor,factor,1);}}notify();return item;}
 export function armWorldPlacement(id){if(!items.some(x=>x.id===id))return false;placingId=id;host().classList.add('mi-placing');window.showToast?.('Place 3D decal','Click a visible, reasonably flat area of the scanned subject.','info');return true;}
 export function cancelPlacement(){placingId=null;host().classList.remove('mi-placing');}
 export function exportAll(){return items.map(({decal,...x})=>({...x}));}
