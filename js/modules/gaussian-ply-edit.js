@@ -18,15 +18,15 @@ function parseBinaryGaussianPly(bytes) {
   else throw new Error('PLY header terminator has no supported line ending');
 
   const header = new TextDecoder().decode(src.subarray(0, headerEnd));
-  const headerLines = header.split(/\\r?\\n/);
+  const headerLines = header.split(/\r?\n/);
   if (!headerLines.includes('format binary_little_endian 1.0')) {
     throw new Error('High-fidelity Gaussian export requires binary little-endian PLY');
   }
   const vertexLine = headerLines.find(line => line.startsWith('element vertex '));
-  const vertexMatch = vertexLine?.match(/^element vertex (\\d+)$/);
+  const vertexMatch = vertexLine?.match(/^element vertex (\d+)$/);
   if (!vertexMatch) throw new Error('PLY vertex element not found');
   const count = Number(vertexMatch[1]);
-  const newline = header.includes('\\r\\n') ? '\\r\\n' : '\\n';
+  const newline = header.includes('\r\n') ? '\r\n' : '\n';
   const typeInfo = {
     char:[1,'getInt8','setInt8'], int8:[1,'getInt8','setInt8'],
     uchar:[1,'getUint8','setUint8'], uint8:[1,'getUint8','setUint8'],
@@ -39,10 +39,10 @@ function parseBinaryGaussianPly(bytes) {
   };
   let inVertex = false, rowBytes = 0;
   const properties = [];
-  for (const line of header.split(/\\r?\\n/)) {
-    if (line.startsWith('element ')) { inVertex = /^element vertex \\d+$/.test(line); continue; }
+  for (const line of header.split(/\r?\n/)) {
+    if (line.startsWith('element ')) { inVertex = /^element vertex \d+$/.test(line); continue; }
     if (!inVertex || !line.startsWith('property ')) continue;
-    const parts = line.trim().split(/\\s+/);
+    const parts = line.trim().split(/\s+/);
     if (parts[1] === 'list') throw new Error('Gaussian vertex list properties are unsupported');
     const info = typeInfo[parts[1]];
     if (!info) throw new Error('Unsupported PLY vertex property type: ' + parts[1]);
@@ -105,8 +105,8 @@ export function makeEditedGaussianPlyBytes(originalBytes, state) {
     }
     rows.push(row);
   }
-  const headerLines = parsed.header.split(/\\r?\\n/);
-  const vertexLineIndex = headerLines.findIndex(line => /^element vertex \\d+$/.test(line));
+  const headerLines = parsed.header.split(/\r?\n/);
+  const vertexLineIndex = headerLines.findIndex(line => /^element vertex \d+$/.test(line));
   if (vertexLineIndex < 0) throw new Error('PLY vertex element could not be rewritten');
   headerLines[vertexLineIndex] = 'element vertex ' + rows.length;
   const header = headerLines.join(parsed.newline);
