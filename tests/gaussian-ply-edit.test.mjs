@@ -49,7 +49,7 @@ function check(newline) {
   assert.ok(Math.abs(view.getFloat32(at('scale_2'),true)-Math.log(.4))<1e-6);
   assert.ok(Math.abs(view.getFloat32(at('rot_0'),true)-Math.SQRT1_2)<1e-6);
   assert.ok(Math.abs(view.getFloat32(at('rot_2'),true)-Math.SQRT1_2)<1e-6);
-  assert.equal(view.getFloat32(at('f_dc_0'),true),.123);
+  assert.ok(Math.abs(view.getFloat32(at('f_dc_0'),true)-.123)<1e-6);
 }
 check('\\n');
 check('\\r\\n');
