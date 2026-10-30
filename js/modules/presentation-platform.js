@@ -40,13 +40,13 @@ fill.position.set(-2, 2, -1);
 scene.add(fill);
 
 // ── Groups ───────────────────────────────────────────────────────────────────
-const rootGroup = new THREE.Group(); // whole thing we rotate
+const rootGroup = new THREE.Group();
 scene.add(rootGroup);
 
 const platformGroup = new THREE.Group();
 rootGroup.add(platformGroup);
 
-const splatHolder = new THREE.Group(); // DropInViewer goes here
+const splatHolder = new THREE.Group();
 rootGroup.add(splatHolder);
 
 let platformMesh = null;
@@ -56,12 +56,12 @@ let currentSplatViewer = null;
 // ── State ────────────────────────────────────────────────────────────────────
 const state = {
   shape: 'circle',
-  width: 0.6,   // meters
+  width: 0.6,
   height: 0.08,
   edge: 0.02,
   material: 'wood',
   logoSize: 0.4,
-  angle: 0,     // degrees for timeline flip
+  angle: 0,
 };
 
 // ── Materials ────────────────────────────────────────────────────────────────
@@ -104,7 +104,6 @@ function makeWoodTexture() {
   g.addColorStop(1, '#5C3317');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, 512, 512);
-  // simple grain
   for (let i = 0; i < 40; i++) {
     ctx.strokeStyle = `rgba(0,0,0,${0.05 + Math.random() * 0.1})`;
     ctx.lineWidth = 1 + Math.random() * 2;
@@ -144,8 +143,6 @@ function rebuildPlatform() {
   }
 
   const mat = makeMaterial(state.material);
-
-  // Underside logo material
   const undersideMat = new THREE.MeshStandardMaterial({
     color: 0x111111,
     roughness: 0.6,
@@ -179,7 +176,6 @@ async function loadSplat(url, name = 'Splat') {
   $('status').textContent = 'Loading splat…';
   $('loadedName').textContent = name;
 
-  // Clear placeholder or previous
   while (splatHolder.children.length) {
     const child = splatHolder.children[0];
     splatHolder.remove(child);
@@ -192,37 +188,46 @@ async function loadSplat(url, name = 'Splat') {
     currentSplatViewer = null;
   }
 
+  const lower = (url || '').toLowerCase();
+  let formatHint = null;
+  if (lower.includes('.splat')) formatHint = 'splat';
+  else if (lower.includes('.ply')) formatHint = 'ply';
+  else if (lower.includes('.ksplat')) formatHint = 'ksplat';
+
   const viewer = new GaussianSplats3D.DropInViewer({
     selfDrivenMode: false,
     useBuiltInControls: false,
   });
 
   try {
-    await viewer.addSplatScene(url, { showLoadingUI: false, progressiveLoad: true });
+    const opts = { showLoadingUI: false, progressiveLoad: true };
+    if (formatHint) opts.format = formatHint;
+    await viewer.addSplatScene(url, opts);
     currentSplatViewer = viewer;
     splatHolder.add(viewer);
-
-    // Sit flat after a short delay so bounds are ready
-    setTimeout(() => sitFlat(), 200);
+    setTimeout(() => sitFlat(), 300);
     $('status').textContent = 'Drag to orbit · Scroll to zoom · Flip to see logo';
   } catch (err) {
-    console.error(err);
-    $('status').textContent = 'Failed to load splat — check console';
+    console.error('Splat load failed:', err);
+    const msg = (err && err.message) ? err.message : String(err);
+    if (msg.toLowerCase().includes('format') || msg.toLowerCase().includes('supported')) {
+      $('status').textContent = 'Format not supported — use a .splat or Gaussian .ply';
+      alert('This file is not a supported Gaussian splat (.splat / .ply / .ksplat).\n\nUpload a proper .splat file or export one from the editor.');
+    } else {
+      $('status').textContent = 'Failed to load — check console';
+    }
     addPlaceholder();
   }
 }
 
 function sitFlat() {
   if (!currentSplatViewer) return;
-
   currentSplatViewer.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(currentSplatViewer);
-
   if (box.isEmpty()) {
     currentSplatViewer.position.y = state.height + 0.05;
     return;
   }
-
   const bottomY = box.min.y;
   const platformTop = state.height;
   currentSplatViewer.position.y += (platformTop - bottomY);
@@ -336,7 +341,6 @@ $('applyBtn').onclick = () => {
   sitFlat();
 };
 
-// Timeline rotation (flip around X so underside becomes visible)
 $('angleSlider').oninput = (e) => {
   const deg = parseFloat(e.target.value);
   state.angle = deg;
@@ -344,7 +348,6 @@ $('angleSlider').oninput = (e) => {
   rootGroup.rotation.x = THREE.MathUtils.degToRad(deg);
 };
 
-// Preset views
 document.querySelectorAll('.view-card').forEach(card => {
   card.onclick = () => {
     document.querySelectorAll('.view-card').forEach(c => c.classList.remove('active'));
@@ -359,14 +362,12 @@ document.querySelectorAll('.view-card').forEach(card => {
   };
 });
 
-// ── Resize ───────────────────────────────────────────────────────────────────
 window.addEventListener('resize', () => {
   camera.aspect = canvasHost.clientWidth / canvasHost.clientHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(canvasHost.clientWidth, canvasHost.clientHeight);
 });
 
-// ── Loop ─────────────────────────────────────────────────────────────────────
 function animate() {
   requestAnimationFrame(animate);
   controls.update();
@@ -374,17 +375,15 @@ function animate() {
 }
 animate();
 
-// Initial platform
 rebuildPlatform();
 
-// Demo placeholder
 function addPlaceholder() {
   const geo = new THREE.BoxGeometry(0.3, 0.15, 0.3);
   const mat = new THREE.MeshStandardMaterial({ color: 0x444444 });
   const mesh = new THREE.Mesh(geo, mat);
   mesh.position.y = state.height + 0.075;
   splatHolder.add(mesh);
-  $('loadedName').textContent = 'Placeholder (upload a splat or load from library)';
+  $('loadedName').textContent = 'Placeholder (upload a .splat or load from library)';
 }
 addPlaceholder();
 
