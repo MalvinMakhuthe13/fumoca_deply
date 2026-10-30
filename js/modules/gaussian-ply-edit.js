@@ -18,12 +18,15 @@ function parseBinaryGaussianPly(bytes) {
   else throw new Error('PLY header terminator has no supported line ending');
 
   const header = new TextDecoder().decode(src.subarray(0, headerEnd));
-  if (!/^format binary_little_endian 1\\.0\\r?$/m.test(header)) {
+  const headerLines = header.split(/\\r?\\n/);
+  if (!headerLines.includes('format binary_little_endian 1.0')) {
     throw new Error('High-fidelity Gaussian export requires binary little-endian PLY');
   }
-  const vertexMatch = header.match(/^element vertex (\\d+)\\r?$/m);
+  const vertexLine = headerLines.find(line => line.startsWith('element vertex '));
+  const vertexMatch = vertexLine?.match(/^element vertex (\\d+)$/);
   if (!vertexMatch) throw new Error('PLY vertex element not found');
   const count = Number(vertexMatch[1]);
+  const newline = header.includes('\\r\\n') ? '\\r\\n' : '\\n';
   const typeInfo = {
     char:[1,'getInt8','setInt8'], int8:[1,'getInt8','setInt8'],
     uchar:[1,'getUint8','setUint8'], uint8:[1,'getUint8','setUint8'],
@@ -54,7 +57,7 @@ function parseBinaryGaussianPly(bytes) {
     throw new Error('PLY contains trailing elements or unexpected data; safe Gaussian export refused');
   }
   return {
-    src, header, headerEnd, count, rowBytes, xyz,
+    src, header, headerEnd, newline, count, rowBytes, xyz,
     scaleProps:[0,1,2].map(i => properties.find(p => p.name === 'scale_' + i)),
     rotationProps:[0,1,2,3].map(i => properties.find(p => p.name === 'rot_' + i)),
     opacityProp:properties.find(p => p.name === 'opacity')
@@ -102,7 +105,11 @@ export function makeEditedGaussianPlyBytes(originalBytes, state) {
     }
     rows.push(row);
   }
-  const header = parsed.header.replace(/^element vertex \\d+\\r?$/m, 'element vertex ' + rows.length);
+  const headerLines = parsed.header.split(/\\r?\\n/);
+  const vertexLineIndex = headerLines.findIndex(line => /^element vertex \\d+$/.test(line));
+  if (vertexLineIndex < 0) throw new Error('PLY vertex element could not be rewritten');
+  headerLines[vertexLineIndex] = 'element vertex ' + rows.length;
+  const header = headerLines.join(parsed.newline);
   const headerBytes = new TextEncoder().encode(header);
   const out = new Uint8Array(headerBytes.length + rows.length*parsed.rowBytes);
   out.set(headerBytes);
