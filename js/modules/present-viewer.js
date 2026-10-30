@@ -3,6 +3,7 @@
  */
 import { initMagazineText, importAll as importMagazine } from './present-magazine-text.js';
 import { initPresentNav, setNavStops } from './present-nav.js';
+import { PresentationBase } from './presentation-base.js?v=20261030-base1';
 
 function b64Json(s) {
   try { return JSON.parse(decodeURIComponent(escape(atob(s)))); }
@@ -16,7 +17,15 @@ function idFromPage() {
   return q.get('nifId') || q.get('splatId') || q.get('id') || null;
 }
 
-function resolvePresent() {
+let restoredBase=null,restoredBaseScene=null;
+function restorePresentationBase(data){
+  const config=data?.platformBase;if(!config?.enabled)return;
+  const scene=window._fumocaViewerScene||window._fumocaViewer?.scene||null;if(!scene)return;
+  if(restoredBase&&restoredBaseScene===scene){restoredBase.update(config);restoredBase.assembly.visible=true;return;}
+  restoredBase?.dispose?.();restoredBaseScene=scene;restoredBase=new PresentationBase(scene,config);restoredBase.assembly.visible=true;
+  console.info('[present-viewer] solid presentation platform restored');
+}
+function resolvePresent(){
   const q = new URLSearchParams(location.search);
   if (q.get('present')) {
     const d = b64Json(q.get('present'));
@@ -49,6 +58,7 @@ export function initPresentViewer() {
     if (applied) return;
     const data = resolvePresent();
     if (!data) return;
+    restorePresentationBase(data);
     if (data.magazine?.length) {
       importMagazine(data.magazine);
       applied = true;
@@ -73,6 +83,7 @@ export function initPresentViewer() {
   [500, 1500, 3000].forEach((ms) => setTimeout(tryApply, ms));
   window.addEventListener('fumoca:recordLoaded', tryApply);
   window.addEventListener('fumoca:splatLoaded', tryApply);
+  window.addEventListener('fumoca:viewerReady', () => { applied = false; tryApply(); });
   window.FumocaPresentViewer = { reload: () => { applied = false; tryApply(); } };
 }
 
