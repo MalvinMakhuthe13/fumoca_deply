@@ -2130,6 +2130,7 @@ function beginGizmoGesture() {
   _gizmoGestureSnap = {
     indices,
     positions,
+    allLiveSelected: indices.length === S.alive.reduce((n,v)=>n+(v?1:0),0),
     scales: S.scale ? Float32Array.from(indices.map((i) => S.scale[i])) : null,
     scaleXYZ: S.scaleXYZ ? Float32Array.from(indices.flatMap((i) => [S.scaleXYZ[i*3], S.scaleXYZ[i*3+1], S.scaleXYZ[i*3+2]])) : null,
     rotations: S.rotation ? Float32Array.from(indices.flatMap((i) => [S.rotation[i*4], S.rotation[i*4+1], S.rotation[i*4+2], S.rotation[i*4+3]])) : null,
@@ -2169,6 +2170,14 @@ function applyGizmoDelta() {
   const move = allowMove
     ? new THREE.Vector3(curPos.x - snap.startPos.x, curPos.y - snap.startPos.y, curPos.z - snap.startPos.z)
     : new THREE.Vector3(0, 0, 0);
+  // Keep the photoreal Spark splat visually attached to the gizmo during a
+  // whole-object gesture. The editor arrays are still the source of truth;
+  // the committed PLY is rebuilt on mouse-up.
+  if (snap.allLiveSelected && window.FumocaSparkGaussian?.isEnabled()) {
+    const scaledPivot = new THREE.Vector3(startC.x * rx, startC.y * ry, startC.z * rz).applyQuaternion(qDelta);
+    const previewPosition = startC.clone().add(move).sub(scaledPivot);
+    window.FumocaSparkGaussian.setPreviewTransform(previewPosition, qDelta, new THREE.Vector3(rx, ry, rz));
+  }
 
   const rotate = (x, y, z, q, out) => {
     const ax = 2 * (q.y * z - q.z * y), ay = 2 * (q.z * x - q.x * z), az = 2 * (q.x * y - q.y * x);
@@ -2286,6 +2295,8 @@ function endGizmoGesture() {
   window.FumocaGaussianRenderer?.invalidateSort?.();
   const allLiveSelected = S.selected?.every((value, i) => !S.alive[i] || value);
   rebuildGeometry();
+  // refreshEditorState rebuilds Spark from committed Gaussian data; clear any
+  // temporary object transform after the new mesh has been installed.
   _refreshSceneReference(allLiveSelected);
   refreshTransformSourceMap();
   syncTransformGizmo();
