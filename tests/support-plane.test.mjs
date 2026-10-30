@@ -35,6 +35,20 @@ assert.deepEqual(state,positionsBefore,'preview must not mutate positions');
 
 // Ambiguous/undersupported selections must fail closed.
 assert.equal(fitSelectedSupportPlane(state,[0,1,2]),null,'too-small selections must be rejected');
+// Scale-aware trim: a Gaussian whose centre is slightly above the plane
+// must still be removed when its covariance ellipsoid visibly crosses below.
+const scaleScan=[...scan,...n.map(x=>x*.03)];
+const scaleAlive=new Uint8Array(scaleScan.length/3);scaleAlive.fill(1);
+const scaleXYZ=new Float32Array(scaleAlive.length*3);
+const crossingIndex=scaleAlive.length-1;
+scaleXYZ.set([.1,.1,.1],crossingIndex*3);
+const scalePreview=previewSupportPlaneTrim(new Float32Array(scaleScan),scaleAlive,plane,{
+  margin:.005,footprintPadding:.2,maxTrimRatio:.35,scaleXYZ,extentSigma:2.5
+});
+assert.ok(scalePreview?.trimIndices.includes(crossingIndex),'near-plane Gaussian with an ellipsoid crossing the support plane must be trimmed');
+assert.equal(scalePreview.centerBelow,0,'scale-aware candidate is allowed to have its centre above the plane');
+assert.ok(scalePreview.crossing>=1,'preview must report ellipsoid-plane intersections');
+
 console.log('Support-plane fitting, scoped trim preview, and non-destructive guarantees passed.');
 
 
