@@ -52,7 +52,7 @@ export class PresentationBase {
       shape: 'circle', width: 0.6, depth: 0.6, height: 0.08,
       edgeRadius: 0.02, customPoints: null, material: 'wood',
       positionX: 0, positionY: 0, positionZ: 0, platformY: 0, logoUrl: null, logoSize: 0.4,
-      logoRotation: 0, logoOffset: 0.002, showLightRing: true,
+      logoRotation: 0, logoOffset: 0.002, logoPositionX: 0, logoPositionZ: 0, showLightRing: true,
       lightRingColor: 0xffe6a3, lightRingInset: 0.035,
       ...options
     };
@@ -187,7 +187,7 @@ export class PresentationBase {
       // Plane's +Z normal rotated +90° around X points down (-Y).
       mesh.rotation.x = Math.PI / 2;
       mesh.rotation.y = THREE.MathUtils.degToRad(Number(o.logoRotation) || 0);
-      mesh.position.y = (Number(o.platformY) || 0) - o.height / 2 - Math.max(0.0005, Number(o.logoOffset) || 0.002);
+      mesh.position.set(Number(o.logoPositionX) || 0, (Number(o.platformY) || 0) - o.height / 2 - Math.max(0.0005, Math.min(0.05, Number(o.logoOffset) || 0.002)), Number(o.logoPositionZ) || 0);
       mesh.name = 'UndersideBranding';
       // Draw the decal after the solid base; its small physical offset keeps it
       // visible from below without z-fighting against the platform underside.
@@ -299,7 +299,7 @@ export class PresentationBase {
 
   _positionUndersideParts() {
     const y = this.platform.position.y - this.options.height / 2;
-    if (this.logoMesh) this.logoMesh.position.y = y - Math.max(0.0005, Number(this.options.logoOffset) || 0.002);
+    if (this.logoMesh) this.logoMesh.position.set(Number(this.options.logoPositionX) || 0, y - Math.max(0.0005, Math.min(0.05, Number(this.options.logoOffset) || 0.002)), Number(this.options.logoPositionZ) || 0);
     if (this.lightRing) this.lightRing.position.y = y - 0.0008;
   }
 
@@ -309,7 +309,7 @@ export class PresentationBase {
     Object.assign(this.options, patch);
     const geometryChanged = ['shape', 'width', 'depth', 'height', 'edgeRadius', 'customPoints', 'material', 'platformY', 'showLightRing', 'lightRingColor', 'lightRingInset']
       .some(key => patch[key] !== undefined && patch[key] !== old[key]);
-    const logoChanged = ['logoUrl', 'logoSize', 'logoRotation', 'logoOffset']
+    const logoChanged = ['logoUrl', 'logoSize', 'logoRotation', 'logoOffset', 'logoPositionX', 'logoPositionZ']
       .some(key => patch[key] !== undefined && patch[key] !== old[key]);
     if (geometryChanged) this._build();
     else if (logoChanged) {
