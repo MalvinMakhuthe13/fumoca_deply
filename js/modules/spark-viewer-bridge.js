@@ -227,6 +227,9 @@ const SparkViewerBridge = (() => {
     window._fumocaGlRenderer = _renderer;
     window._fumocaSparkPublicActive = true;
     forceHideAllLoaders();
+    window.dispatchEvent(new CustomEvent('fumoca:viewerReady', {
+      detail: { camera: _camera, controls: _controls, gaussianSource: 'spark-viewer-bridge' }
+    }));
     console.log('%c[Viewer] Spark solid — same engine as Studio Photoreal', 'color:#c8ff00;font-weight:700', fileName);
     return true;
   }
