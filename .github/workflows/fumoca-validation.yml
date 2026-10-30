@@ -152,7 +152,7 @@ jobs:
           ! grep -q "fpFlatten" js/modules/presentation-platform.js
           ! grep -q "fpRestore" js/modules/presentation-platform.js
           ! grep -q "flattenScanToPlatform" js/modules/presentation-platform.js
-          grep -q "support-preview4" edit.html
+          grep -q "support-preview6" edit.html
           grep -q "fpApplyCorrection" js/modules/presentation-platform.js
           grep -q "fpRestoreCorrection" js/modules/presentation-platform.js
           grep -q "supportBackup" js/modules/presentation-platform.js
