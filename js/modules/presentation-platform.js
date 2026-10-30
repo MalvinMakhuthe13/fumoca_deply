@@ -185,8 +185,8 @@ function renderUI(){
   <div class="fp-section"><div class="fp-title">Scene integration</div>
     <div class="fp-note">The platform is a separate Three.js object. Your original Gaussian scan remains untouched.</div>
     <button id="fpApply" class="fp-primary">Apply to scene</button>
-    <button id="fpFlatten" style="width:100%;margin-top:7px;border-color:#d4ff00;color:#d4ff00">Flatten scan to platform</button>
-    <button id="fpRestore" style="width:100%;margin-top:7px">Restore pre-flatten scan</button>
+    <button id="fpAnalyseSupport" style="width:100%;margin-top:7px;border-color:#d4ff00;color:#d4ff00">Analyse selected support area</button>
+    <div id="fpSupportReport" class="fp-note" style="margin-top:8px">Select points on the cap underside, then analyse. Preview only; scan data is not changed.</div>
     <button id="fpSave" style="width:100%;margin-top:7px">Save platform settings</button>
   </div>`;
   const bindRange=(id,key,out,suffix=' mm')=>$(id).addEventListener('input',e=>{state[key]=+e.target.value;$(out).textContent=state[key]+suffix;build();});
