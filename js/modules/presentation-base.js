@@ -276,7 +276,7 @@ export class PresentationBase {
   update(patch = {}) {
     const old = { ...this.options };
     Object.assign(this.options, patch);
-    const geometryChanged = ['shape', 'width', 'depth', 'height', 'edgeRadius', 'customPoints', 'material', 'showLightRing', 'lightRingColor', 'lightRingInset']
+    const geometryChanged = ['shape', 'width', 'depth', 'height', 'edgeRadius', 'customPoints', 'material', 'platformY', 'showLightRing', 'lightRingColor', 'lightRingInset']
       .some(key => patch[key] !== undefined && patch[key] !== old[key]);
     const logoChanged = ['logoUrl', 'logoSize', 'logoRotation', 'logoOffset']
       .some(key => patch[key] !== undefined && patch[key] !== old[key]);
