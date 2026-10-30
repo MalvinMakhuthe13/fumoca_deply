@@ -47,7 +47,11 @@ const SparkGaussianView = (() => {
     // Editor S.positions are already in scene/world coordinates. Keep the
     // overlay in the scene root; parenting it to SplatMesh applies Spark's
     // internal transforms a second time and visibly detaches the highlight.
+    let liveCount = 0, selectedCount = 0;
+    for (let i=0;i<state.alive.length;i++) if(state.alive[i]&&!state.layerHidden?.[i]) { liveCount++; if(state.selected[i]) selectedCount++; }
     const positions = [], colors = [];
+    // Whole-scene selection should not paint a detached-looking yellow cloud over the scan.
+    if (selectedCount === liveCount) { if (_overlay) _overlay.visible = false; return; }
     for (let i = 0; i < state.alive.length; i++) {
       if (!state.alive[i] || !state.selected[i] || state.layerHidden?.[i]) continue;
       positions.push(state.positions[i*3], state.positions[i*3+1], state.positions[i*3+2]);
@@ -284,6 +288,21 @@ const SparkGaussianView = (() => {
     return _makeEditedBytes(state);
   }
 
+  function setPreviewTransform(position, quaternion, scale) {
+    if (!_enabled || !_mesh) return false;
+    _mesh.position.set(position.x, position.y, position.z);
+    _mesh.quaternion.set(quaternion.x, quaternion.y, quaternion.z, quaternion.w);
+    _mesh.scale.set(scale.x, scale.y, scale.z);
+    _mesh.updateMatrixWorld(true);
+    return true;
+  }
+  function clearPreviewTransform() {
+    if (!_mesh) return;
+    _mesh.position.set(0,0,0);
+    _mesh.quaternion.identity();
+    _mesh.scale.set(1,1,1);
+    _mesh.updateMatrixWorld(true);
+  }
   function isEnabled() { return _enabled; }
   function isAvailable() { return true; }
   function dispose() {
@@ -291,7 +310,7 @@ const SparkGaussianView = (() => {
     if (_spark) { try { _scene()?.remove(_spark); _spark.dispose?.(); } catch (_) {} _spark = null; }
   }
 
-  return { enable, disable, isEnabled, isAvailable, loadFromBytes, syncEditorState, refreshEditorState, exportEditedBytes, dispose };
+  return { enable, disable, isEnabled, isAvailable, loadFromBytes, syncEditorState, refreshEditorState, setPreviewTransform, clearPreviewTransform, exportEditedBytes, dispose };
 })();
 window.FumocaSparkGaussian = SparkGaussianView;
 export default SparkGaussianView;
