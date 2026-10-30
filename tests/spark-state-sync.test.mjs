@@ -29,13 +29,15 @@ const state={
   scaleXYZ:new Float32Array([.1,.2,.3,.4,.5,.6]),
   rotation:new Float32Array([1,0,0,0,.7071068,0,.7071068,0]),
   opacity:new Float32Array([.8,.9]),
-  colors:new Float32Array([.1,.2,.3,.4,.5,.6])
+  colors:new Float32Array([.1,.2,.3,.4,.5,.6]),
+  paintColors:new Float32Array([-1,-1,-1,-1,.9,-1])
 };
 let result=applyEditorStateToPackedSplats(mesh,state,[1],THREE);
 assert.equal(result.ok,true);
 assert.equal(result.updated,1);
 assert.equal(records[0],undefined,'unselected splat must not be touched');
 assert.equal(records[1].opacity,0,'deleted splat must become transparent');
+assert.ok(Math.abs(records[1].color.g-.9)<1e-6,'paint overrides must reach the live Gaussian colour');
 assert.deepEqual(records[1].center,{x:4,y:5,z:6});
 assert.ok(Math.abs(records[1].scales.x-.4)<1e-6 && Math.abs(records[1].scales.y-.5)<1e-6 && Math.abs(records[1].scales.z-.6)<1e-6,'Gaussian scales must be preserved within Float32 precision');
 assert.ok(Math.abs(records[1].rotation.y-Math.SQRT1_2)<1e-5,'PLY wxyz rotation must map to THREE xyzw');
