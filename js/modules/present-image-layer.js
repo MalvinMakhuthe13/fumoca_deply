@@ -151,12 +151,11 @@ function decalWidthFor(item) { return sceneRadius()*Math.max(.005,(Number(item.w
 function createDecal(item) {
   const sc=scene(), cam=camera();
   if(!sc||!cam||item.mode!=='world'||item.decal) return;
-  const n=new THREE.Vector3(item.nx??0,item.ny??0,item.nz??1);
+  const n=orientationNormal(item.orientation,item);
   if(n.lengthSq()<.5) n.subVectors(cam.position,new THREE.Vector3(item.wx,item.wy,item.wz)).normalize();
   n.normalize();
   const radius=sceneRadius();
   const width=decalWidthFor(item);
-  item.worldWidth=width;
   item.worldWidth=width;
   let mesh=null;
   const texture=new THREE.TextureLoader().load(item.src,loaded=>{
@@ -177,6 +176,7 @@ function createDecal(item) {
   mesh.name='fumoca-present-decal-'+item.id;
   mesh.position.set(item.wx,item.wy,item.wz).addScaledVector(n,Math.max(radius*.00035,.00003));
   mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),n);
+  if(Number.isFinite(Number(item.rotation))) mesh.rotateZ(THREE.MathUtils.degToRad(Number(item.rotation)));
   mesh.renderOrder=100;
   mesh.userData.fumocaPresentImageId=item.id;
   sc.add(mesh); item.decal=mesh;
@@ -202,6 +202,7 @@ function onPlace(e) {
     e.preventDefault();e.stopPropagation();return;
   }
   Object.assign(item,anchor,{mode:'world'});
+  if(item.orientation==='bottom'){item.nx=0;item.ny=-1;item.nz=0;} else if(item.orientation==='top'){item.nx=0;item.ny=1;item.nz=0;} else if(item.orientation==='front'){item.nx=0;item.ny=0;item.nz=1;}
   item.worldWidth=decalWidthFor(item);
   placingId=null;host().classList.remove('mi-placing');
   rebuild();notify();
@@ -229,11 +230,12 @@ export function initMagazineImages(opts={}) {
 }
 export function addImage(src,partial={}) {
   if(typeof src!=='string'||!src.startsWith('data:image/'))throw new Error('Choose a valid image file.');
-  const item={id:uid(),name:partial.name||'Logo',src,mode:'screen',sx:partial.sx??50,sy:partial.sy??18,width:partial.width??18,opacity:partial.opacity??1,z:partial.z||0,wx:partial.wx,wy:partial.wy,wz:partial.wz,nx:partial.nx,ny:partial.ny,nz:partial.nz,worldWidth:partial.worldWidth};
+  const item={id:uid(),name:partial.name||'Logo',src,mode:'screen',sx:partial.sx??50,sy:partial.sy??18,width:partial.width??18,opacity:partial.opacity??1,z:partial.z||0,wx:partial.wx,wy:partial.wy,wz:partial.wz,nx:partial.nx,ny:partial.ny,nz:partial.nz,worldWidth:partial.worldWidth,rotation:partial.rotation??0,orientation:partial.orientation||'surface'};
   items.push(item);rebuild();notify();return item;
 }
 export function removeImage(id){const item=items.find(x=>x.id===id);if(item)disposeDecal(item);items=items.filter(x=>x.id!==id);if(placingId===id)cancelPlacement();rebuild();notify();}
-export function updateImage(id,patch){const item=items.find(x=>x.id===id);if(!item)return null;Object.assign(item,patch);if(patch.width!==undefined){const base=Number(item._baseWidthSetting)||Number(item.width)||18;item.worldWidth=decalWidthFor(item);if(item.decal)item.decal.scale.setScalar(Math.max(.01,Number(item.width)/base));}if(patch.opacity!==undefined&&item.decal)item.decal.material.opacity=item.opacity;notify();return item;}
+export function updateImage(id,patch){const item=items.find(x=>x.id===id);if(!item)return null;const oldRotation=Number(item.rotation)||0;Object.assign(item,patch);if(patch.width!==undefined){const base=Number(item._baseWidthSetting)||18;item.worldWidth=decalWidthFor(item);if(item.decal)item.decal.scale.setScalar(Math.max(.005,Number(item.width)/base));}if(patch.rotation!==undefined&&item.decal)item.decal.rotateZ(THREE.MathUtils.degToRad((Number(item.rotation)||0)-oldRotation));if(patch.opacity!==undefined&&item.decal)item.decal.material.opacity=item.opacity;if(patch.orientation!==undefined&&item.decal){const n=orientationNormal(item.orientation,item);item.nx=n.x;item.ny=n.y;item.nz=n.z;item.decal.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),n);item.decal.rotateZ(THREE.MathUtils.degToRad(Number(item.rotation)||0));}notify();return item;}
+function orientationNormal(mode,item){if(mode==='bottom')return new THREE.Vector3(0,-1,0);if(mode==='top')return new THREE.Vector3(0,1,0);if(mode==='front')return new THREE.Vector3(0,0,1);const n=new THREE.Vector3(item.nx??0,item.ny??0,item.nz??1);return n.lengthSq()<.5?new THREE.Vector3(0,0,1):n.normalize();}
 export function armWorldPlacement(id){if(!items.some(x=>x.id===id))return false;placingId=id;host().classList.add('mi-placing');window.showToast?.('Place 3D decal','Click a visible, reasonably flat area of the scanned subject.','info');return true;}
 export function cancelPlacement(){placingId=null;host().classList.remove('mi-placing');}
 export function exportAll(){return items.map(({decal,_baseWidthSetting,...x})=>({...x}));}
