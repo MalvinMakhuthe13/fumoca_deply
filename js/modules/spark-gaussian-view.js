@@ -288,6 +288,7 @@ const SparkGaussianView = (() => {
     return _makeEditedBytes(state);
   }
 
+  function updateSelectionPreview(state = window.S) { if (_enabled) _updateSelectionOverlay(state); }
   function setPreviewTransform(position, quaternion, scale) {
     if (!_enabled || !_mesh) return false;
     _mesh.position.set(position.x, position.y, position.z);
@@ -310,7 +311,7 @@ const SparkGaussianView = (() => {
     if (_spark) { try { _scene()?.remove(_spark); _spark.dispose?.(); } catch (_) {} _spark = null; }
   }
 
-  return { enable, disable, isEnabled, isAvailable, loadFromBytes, syncEditorState, refreshEditorState, setPreviewTransform, clearPreviewTransform, exportEditedBytes, dispose };
+  return { enable, disable, isEnabled, isAvailable, loadFromBytes, syncEditorState, refreshEditorState, updateSelectionPreview, setPreviewTransform, clearPreviewTransform, exportEditedBytes, dispose };
 })();
 window.FumocaSparkGaussian = SparkGaussianView;
 export default SparkGaussianView;
