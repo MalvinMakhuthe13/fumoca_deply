@@ -15,6 +15,7 @@
 <link rel="stylesheet" href="css/anim-studio.css"/>
 <link rel="stylesheet" href="css/fumoca-layouts.css"/>
 <script type="module" src="js/modules/anim-studio.js"></script>
+<script type="module" src="js/modules/presentation-platform.js?v=20261030-platform1"></script>
 <script type="module" src="js/modules/review-video.js?v=20261025-bglayer"></script>
 <script type="module" src="js/modules/present-tab.js?v=20261029-textstyle5"></script>
 
@@ -760,6 +761,7 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
       <div class="ptab" data-tab="clean">Clean</div>
       <div class="ptab" data-tab="mesh">Mesh</div>
       <div class="ptab" data-tab="present">Present · Music</div>
+      <div class="ptab" data-tab="platform">Platform</div>
       <div class="ptab" data-tab="import">Import</div>
       <div class="ptab" data-tab="layers">Layers</div>
     </div>
@@ -1170,6 +1172,11 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
       <div id="studioBreakFrameRoot" style="margin-top:12px"></div>
       <div id="studioInteractRoot" style="margin-top:12px"></div>
       <div id="studioAudioRoot" style="margin-top:12px"></div>
+    </div>
+
+    <!-- TAB: PRESENTATION PLATFORM -->
+    <div class="panel-body" id="tab-platform" style="display:none">
+      <div id="fumocaPlatformRoot"></div>
     </div>
 
     <!-- TAB: IMPORT (LiDAR + formats) -->
