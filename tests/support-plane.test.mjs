@@ -46,7 +46,7 @@ const scalePreview=previewSupportPlaneTrim(new Float32Array(scaleScan),scaleAliv
   margin:.005,footprintPadding:.2,maxTrimRatio:.35,scaleXYZ,extentSigma:2.5
 });
 assert.ok(scalePreview?.trimIndices.includes(crossingIndex),'near-plane Gaussian with an ellipsoid crossing the support plane must be trimmed');
-assert.ok(dot(n.map(x=>x*.08),plane.normal)>0,'scale-aware candidate centre must remain above the support plane');
+assert.ok(n.map(x=>x*.08).reduce((sum,x,i)=>sum+x*plane.normal[i],0)>0,'scale-aware candidate centre must remain above the support plane');
 assert.ok(scalePreview.crossing>=1,'preview must report ellipsoid-plane intersections');
 
 console.log('Support-plane fitting, scoped trim preview, and non-destructive guarantees passed.');
