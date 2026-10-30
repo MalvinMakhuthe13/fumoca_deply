@@ -79,5 +79,77 @@ export function previewSupportPlaneTrim(positions, alive, plane, options={}) {
   }
   const total=below+above+near;
   return {below,above,near,outside,total,trimIndices,trimRatio:total?below/total:0,margin,footprintPadding:padding,
-    safe:total>0&&below>0&&below/total<=(options.maxTrimRatio??0.35)&&above>=30};
+    safe:total>0&&below/total<=(options.maxTrimRatio??0.35)&&above>=30};
+}
+
+
+/**
+ * Find a likely support plane from the complete live scan without requiring
+ * a manual point selection. This is deliberately a candidate detector:
+ * it only returns a plane and never edits the scan. A human-reviewed preview
+ * remains mandatory before Level / Trim / Seat can mutate Gaussian data.
+ *
+ * The candidate must be a broad boundary plane with almost all scan points
+ * on its inward side. Ambiguous or weak planes fail closed.
+ */
+export function detectAutomaticSupportPlane(positions, alive, options={}) {
+  if(!positions || !alive || alive.length<60 || positions.length<alive.length*3) return null;
+  const maxSamples=Math.max(500,Math.min(options.maxSamples||9000,alive.length));
+  const stride=Math.max(1,Math.floor(alive.length/maxSamples));
+  const points=[],indices=[],center=[0,0,0],mins=[Infinity,Infinity,Infinity],maxs=[-Infinity,-Infinity,-Infinity];
+  for(let i=0;i<alive.length;i+=stride) {
+    if(!alive[i]) continue;
+    const o=i*3,p=[positions[o],positions[o+1],positions[o+2]];
+    if(!p.every(Number.isFinite)) continue;
+    points.push(p);indices.push(i);
+    for(let a=0;a<3;a++){center[a]+=p[a];mins[a]=Math.min(mins[a],p[a]);maxs[a]=Math.max(maxs[a],p[a]);}
+  }
+  if(points.length<60)return null;
+  for(let a=0;a<3;a++)center[a]/=points.length;
+  const diagonal=norm(sub(maxs,mins));
+  if(!(diagonal>1e-8))return null;
+  const tolerance=Math.max(diagonal*(options.toleranceRatio??0.006),1e-7);
+  let seed=0x4b1d2a73;
+  const rand=n=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed%n;};
+  let best=null,bestScore=0;
+  const iterations=options.iterations||420;
+  for(let it=0;it<iterations;it++){
+    const ia=rand(points.length),ib=rand(points.length),ic=rand(points.length);
+    if(ia===ib||ia===ic||ib===ic)continue;
+    const a=points[ia],b=points[ib],c=points[ic];
+    let normal=normalize(cross(sub(b,a),sub(c,a)));
+    if(!normal)continue;
+    if(dot(normal,sub(center,a))<0)normal=normal.map(v=>-v);
+    const inliers=[];let below=0;
+    for(let k=0;k<points.length;k++){
+      const d=dot(normal,sub(points[k],a));
+      if(d < -tolerance)below++;
+      if(Math.abs(d)<=tolerance)inliers.push(k);
+    }
+    const ratio=inliers.length/points.length,belowRatio=below/points.length;
+    if(inliers.length<Math.max(30,points.length*(options.minInlierRatio??0.012)))continue;
+    if(belowRatio>(options.maxOppositeRatio??0.025))continue;
+    const ref=Math.abs(normal[1])<.9?[0,1,0]:[1,0,0];
+    const u=normalize(cross(ref,normal)),v=normalize(cross(normal,u));
+    let minU=Infinity,maxU=-Infinity,minV=Infinity,maxV=-Infinity;
+    for(const k of inliers){const d=sub(points[k],a),pu=dot(d,u),pv=dot(d,v);minU=Math.min(minU,pu);maxU=Math.max(maxU,pu);minV=Math.min(minV,pv);maxV=Math.max(maxV,pv);}
+    const area=Math.max(0,(maxU-minU)*(maxV-minV));
+    const footprint=Math.sqrt(area)/diagonal;
+    const score=ratio*Math.min(1,footprint)*Math.max(0,1-belowRatio*12);
+    if(score>bestScore){bestScore=score;best={indices:inliers.map(k=>indices[k]),ratio,belowRatio,score};}
+  }
+  if(!best)return null;
+  const plane=fitSelectedSupportPlane(positions,best.indices,{
+    maxSamples:Math.min(12000,best.indices.length),
+    toleranceRatio:options.toleranceRatio??0.006,
+    minInlierRatio:options.refineInlierRatio??0.55,
+    iterations:Math.min(500,options.refineIterations||300),
+    orientationPoint:center
+  });
+  if(!plane)return null;
+  plane.method='automatic-boundary-ransac+pca';
+  plane.candidateInlierRatio=best.ratio;
+  plane.oppositeSideRatio=best.belowRatio;
+  plane.confidence=best.score;
+  return plane;
 }
