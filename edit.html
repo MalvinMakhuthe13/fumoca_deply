@@ -712,6 +712,7 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
     <span class="tool-group-label">Select</span>
     <button class="tool-btn" id="toolSphere" title="3D Sphere Select (brush radius)">◯</button>
     <button class="tool-btn" id="toolBox" title="Box Select (X)">▭</button>
+    <button class="tool-btn" id="toolOval" title="Oval Select (O) — drag a wide oval around the area to select">⬭</button>
     <button class="tool-btn" id="toolLasso" title="Lasso (L)">⟡</button>
     <button class="tool-btn" id="toolMagic" title="Magic Select (M)">✦</button>
   </div>
@@ -4356,7 +4357,7 @@ async function startCapture() {
 // ─── MODE SWITCHING ──────────────────────────────────────────────────────────
 const toolMap = {
   toolOrbit: 'orbit', toolPan: 'pan', toolZoom: 'zoom-tool',
-  toolBox: 'box', toolSphere: 'sphere', toolLasso: 'lasso', toolMagic: 'magic',
+  toolBox: 'box', toolOval: 'oval-select', toolSphere: 'sphere', toolLasso: 'lasso', toolMagic: 'magic',
   toolBrushErase: 'brush-erase', toolBrushSelect: 'brush-select',
   toolPaint: 'paint', toolSmear: 'smear', toolFill: 'fill',
   toolMove: 'move', toolScale: 'scale-tool', toolRotate: 'rotate', toolCrop: 'crop', toolMeasure: 'measure'
@@ -4462,7 +4463,14 @@ _curveCanvas?.addEventListener('pointerup',finishCurveDrag);_curveCanvas?.addEve
 const lassoSvg = $('lassoSvg');
 function renderLasso() {
   lassoSvg.innerHTML = '';
-  if (S.mode === 'box' && S.dragStart && S.dragCurrent) {
+  if (S.mode === 'oval-select' && S.dragStart && S.dragCurrent) {
+    const ellipse = document.createElementNS('http://www.w3.org/2000/svg', 'ellipse');
+    ellipse.setAttribute('cx', (S.dragStart.x + S.dragCurrent.x) / 2);
+    ellipse.setAttribute('cy', (S.dragStart.y + S.dragCurrent.y) / 2);
+    ellipse.setAttribute('rx', Math.max(2, Math.abs(S.dragCurrent.x - S.dragStart.x) / 2));
+    ellipse.setAttribute('ry', Math.max(2, Math.abs(S.dragCurrent.y - S.dragStart.y) / 2));
+    ellipse.setAttribute('class', 'lasso-shape'); lassoSvg.appendChild(ellipse);
+  } else if (S.mode === 'box' && S.dragStart && S.dragCurrent) {
     const x = Math.min(S.dragStart.x, S.dragCurrent.x), y = Math.min(S.dragStart.y, S.dragCurrent.y);
     const w = Math.abs(S.dragCurrent.x - S.dragStart.x), h = Math.abs(S.dragCurrent.y - S.dragStart.y);
     const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
@@ -4720,6 +4728,12 @@ window.addEventListener('pointerup', e => {
     pushHistory('crop to box');
     for(let i=0;i<S.alive.length;i++) if(S.alive[i]&&!S.selected[i]) S.alive[i]=0;
     S.selected.fill(0); rebuildGeometry(); setStatus('Scene cropped to box selection','ok');
+  }
+  if (S.mode === 'oval-select' && S.dragStart && S.dragCurrent) {
+    const cx=(S.dragStart.x+S.dragCurrent.x)/2, cy=(S.dragStart.y+S.dragCurrent.y)/2;
+    const rx=Math.abs(S.dragCurrent.x-S.dragStart.x)/2, ry=Math.abs(S.dragCurrent.y-S.dragStart.y)/2;
+    if(rx>=4&&ry>=4){const oval=Array.from({length:64},(_,i)=>{const a=i*Math.PI*2/64;return{x:cx+Math.cos(a)*rx,y:cy+Math.sin(a)*ry};});selectByLasso(oval,{additive:e.shiftKey,subtract:e.altKey});}
+    else setStatus('Oval too small — drag a wider area to select it','warn');
   }
   if (S.mode === 'lasso' && S.lassoPoints.length >= 3) selectByLasso(S.lassoPoints, { additive: e.shiftKey, subtract: e.altKey });
   if (['box','sphere','lasso'].includes(S.mode)) syncTransformGizmo();
@@ -6130,7 +6144,7 @@ window.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); return; }
   if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteSelected(); return; }
   if (e.key === 'Escape') { clearSelection(); S.lassoPoints = []; renderLasso(); return; }
-  const keyMap = { b: 'orbit', h: 'pan', z: 'zoom-tool', x: 'box', l: 'lasso', m: 'magic', e: 'brush-erase', s: 'brush-select', p: 'paint', v: 'move', r: 'rotate' };
+  const keyMap = { b: 'orbit', h: 'pan', z: 'zoom-tool', x: 'box', o: 'oval-select', l: 'lasso', m: 'magic', e: 'brush-erase', s: 'brush-select', p: 'paint', v: 'move', r: 'rotate' };
   if (keyMap[e.key.toLowerCase()]) setMode(keyMap[e.key.toLowerCase()]);
   if (e.key.toLowerCase() === 'i') { setMode('fill'); setStatus('Fill gaps — paint holes; load a photo to match real colour', 'ok'); }
   if (e.key.toLowerCase() === 'g') setDisplayMode(S.displayMode === 'blob' ? 'dot' : 'blob');
