@@ -12,6 +12,7 @@ let placingId = null;
 let onChange = null;
 let raf = 0;
 const MAX_IMAGE_BYTES = 300 * 1024;
+const MAX_ANCHOR_HIT_PX = 64;
 
 const uid = () => 'mi_' + Math.random().toString(36).slice(2, 10);
 const camera = () => window._fumocaViewerCamera || window._fumocaViewer?.camera || window._fumocaCamera || null;
@@ -91,7 +92,9 @@ function nearestGaussian(event) {
   const ny = -((event.clientY-rect.top)/rect.height)*2+1;
   cam.updateMatrixWorld?.(true);
   const alive = cloud.alive;
-  let best = null, bestD = 18*18;
+  // Gaussian centres are not the same as the visible splat surface. A small
+  // 18px radius silently missed many valid clicks on sparse/soft splats.
+  let best = null, bestD = MAX_ANCHOR_HIT_PX * MAX_ANCHOR_HIT_PX;
   const v = new THREE.Vector3();
   // Sampling caps the click-time work on very large splats without changing data.
   const stride = Math.max(1,Math.ceil((positions.length/3)/180000));
@@ -111,18 +114,23 @@ function onPlace(e) {
   if (!item) { placingId=null; return; }
   const anchor = nearestGaussian(e);
   if (!anchor) {
-    const r=host().getBoundingClientRect();
-    item.sx=((e.clientX-r.left)/r.width)*100;
-    item.sy=((e.clientY-r.top)/r.height)*100;
-    item.mode='screen';
-  } else {
-    Object.assign(item,anchor);
-    item.mode='world';
+    // Never silently convert a failed 3D placement into a screen-fixed logo.
+    // Keep placement armed so the user can try another visible part of the splat.
+    const message = !camera() || !window.S?.positions?.length
+      ? '3D anchoring is not ready. Make sure the splat is loaded, then try again.'
+      : 'No Gaussian found close enough. Click a more solid, visible part of the splat.';
+    if (typeof window.showToast === 'function') window.showToast('Anchor not placed', message, 'warn');
+    else console.warn('[Present image layer]', message);
+    e.preventDefault(); e.stopPropagation();
+    return;
   }
+  Object.assign(item,anchor);
+  item.mode='world';
   placingId=null;
   host().classList.remove('mi-placing');
   e.preventDefault(); e.stopPropagation();
   rebuild(); notify();
+  if (typeof window.showToast === 'function') window.showToast('Image anchored', 'This image will follow its 3D point as you orbit.', 'success');
 }
 function tick() {
   raf=0;
