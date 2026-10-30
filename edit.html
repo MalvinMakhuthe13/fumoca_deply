@@ -2249,6 +2249,7 @@ function applyGizmoDelta() {
   if (sizeAttr) sizeAttr.needsUpdate = true;
   if (rotationAttr) rotationAttr.needsUpdate = true;
   if (S.points?.geometry) S.points.geometry.boundingSphere = null;
+  window.FumocaSparkGaussian?.updateSelectionPreview?.(S);
 }
 
 
