@@ -32,9 +32,19 @@ function resolvePresent(){
   if (q.get('present')) {
     const d = b64Json(q.get('present'));
     if (d) {
-      const saved = window._fumocaCurrentRecord?.meta?.present || window._fumocaCurrentRecord?.metadata?.present;
-      if (d.platformBase && !d.platformBase.logoUrl && saved?.platformBase?.logoUrl) {
-        d.platformBase.logoUrl = saved.platformBase.logoUrl;
+      let saved = window._fumocaCurrentRecord?.meta?.present || window._fumocaCurrentRecord?.metadata?.present;
+      if (!saved) {
+        try {
+          const all = JSON.parse(localStorage.getItem('fumoca_present_v1') || '{}');
+          saved = all[idFromPage()] || all.default || null;
+        } catch (_) {}
+      }
+      if (saved?.platformBase) {
+        d.platformBase = {
+          ...saved.platformBase,
+          ...(d.platformBase || {}),
+          logoUrl: d.platformBase?.logoUrl || saved.platformBase.logoUrl || null,
+        };
       }
       return d;
     }
