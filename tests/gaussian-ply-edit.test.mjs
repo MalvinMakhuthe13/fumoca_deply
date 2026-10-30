@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { makeEditedGaussianPlyBytes } from '../js/modules/gaussian-ply-edit.js';
 
-function fixture(newline='\\n') {
+function fixture(newline='\n') {
   const properties=[
     ['x','float'],['y','float'],['z','float'],['opacity','float'],
     ['scale_0','float'],['scale_1','float'],['scale_2','float'],
@@ -51,8 +51,8 @@ function check(newline) {
   assert.ok(Math.abs(view.getFloat32(at('rot_2'),true)-Math.SQRT1_2)<1e-6);
   assert.ok(Math.abs(view.getFloat32(at('f_dc_0'),true)-.123)<1e-6);
 }
-check('\\n');
-check('\\r\\n');
+check('\n');
+check('\r\n');
 const source=fixture();
 assert.throws(()=>makeEditedGaussianPlyBytes(source.bytes,{alive:new Uint8Array([1]),positions:new Float32Array(3)}),/do not match/);
 const trailing=new Uint8Array(source.bytes.length+1);trailing.set(source.bytes);
