@@ -1791,6 +1791,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
 import { decodeNif, encodeNif, geometryToSplatRows, downloadNif } from './js/modules/nif-format.js';
+import { estimateLevelNormal } from './js/modules/auto-level.js';
 
 // Cloud storage is only needed for save/upload actions. Keep it out of the
 // editor's startup dependency graph so a temporary storage CDN failure cannot
@@ -2279,6 +2280,7 @@ function endGizmoGesture() {
   renderMeasurementList();
   renderMeasurementOverlay();
   _gizmoGesture = false;
+  window.FumocaSparkGaussian?.endEditorGesture?.(S);
   _gizmoGestureSnap = null;
   _xformIndices = null;
   _xformPivot = null;
@@ -2290,6 +2292,7 @@ function endGizmoGesture() {
 }
 
 transformControls.addEventListener('mouseDown', () => {
+  window.FumocaSparkGaussian?.beginEditorGesture?.();
   _gizmoGesture = true;
   pushHistory('transform gizmo');
   beginGizmoGesture();
@@ -4221,6 +4224,8 @@ const toolMap = {
 };
 
 function setMode(mode) {
+  if (['move','scale-tool','rotate'].includes(mode)) window.FumocaSparkGaussian?.beginEditorGesture?.();
+  else window.FumocaSparkGaussian?.endEditorGesture?.(S);
   S.mode = mode;
   if (['move','scale-tool','rotate'].includes(mode) && S.alive?.length && S.selected && !S.selected.some(Boolean)) {
     for (let i = 0; i < S.alive.length; i++) {
@@ -4441,6 +4446,21 @@ renderer.domElement.addEventListener('dblclick', e => {
   }
 });
 
+// Orbit stays free for camera navigation. A stationary click selects the subject;
+// a drag remains an OrbitControls gesture and never changes point selection.
+let _subjectPickStart = null;
+renderer.domElement.addEventListener('pointerdown', e => {
+  if (S.mode !== 'orbit' || !S.positions || e.button !== 0) { _subjectPickStart = null; return; }
+  _subjectPickStart = { id: e.pointerId, x: e.clientX, y: e.clientY };
+}, true);
+window.addEventListener('pointerup', e => {
+  const start = _subjectPickStart; _subjectPickStart = null;
+  if (!start || start.id !== e.pointerId || S.mode !== 'orbit') return;
+  if (Math.hypot(e.clientX-start.x,e.clientY-start.y) > 7) return;
+  const {x,y} = _vpCoords(e);
+  if (selectSubjectAtScreen(x,y,48)) { refreshTransformSourceMap(); syncTransformGizmo(); }
+}, true);
+
 renderer.domElement.addEventListener('pointerdown', e => {
   if (S.mode === 'orbit') return;
   if (S.mode === 'measure') {
@@ -4575,7 +4595,7 @@ window.addEventListener('pointerup', e => {
   }
   if (S.mode === 'lasso' && S.lassoPoints.length >= 3) selectByLasso(S.lassoPoints);
   if (['box','sphere','lasso'].includes(S.mode)) syncTransformGizmo();
-  if (['move','scale-tool','rotate'].includes(S.mode)) { window.FumocaGaussianRenderer?.invalidateSort(); rebuildGeometry(); syncTransformGizmo(); captureGizmoTransform(); _xformIndices = null; _xformPivot = null; _xformStartPos = null; _xformStartScale = null; _xformStartScaleXYZ = null; _xformStartRot = null; _xformAccum = null; }
+  if (['move','scale-tool','rotate'].includes(S.mode)) { window.FumocaGaussianRenderer?.invalidateSort(); rebuildGeometry(); window.FumocaSparkGaussian?.endEditorGesture?.(S); syncTransformGizmo(); captureGizmoTransform(); _xformIndices = null; _xformPivot = null; _xformStartPos = null; _xformStartScale = null; _xformStartScaleXYZ = null; _xformStartRot = null; _xformAccum = null; }
   _xformPivot = null; _xformIndices = null;
   S.dragging = false; S.dragStart = null; S.dragCurrent = null; S.lassoPoints = [];
   renderLasso();
@@ -4928,36 +4948,23 @@ document.querySelectorAll('[data-hud-view]').forEach(button => {
 });
 $('levelSubjectBtn')?.addEventListener('click',()=>{
   if(!S.positions||!S.alive)return;
-  const stride=Math.max(1,Math.floor(S.alive.length/12000));let samples=[];
-  for(let i=0;i<S.alive.length;i+=stride)if(S.alive[i])samples.push([S.positions[i*3],S.positions[i*3+1],S.positions[i*3+2]]);
-  if(samples.length<3)return showToast('Not enough points','Load a denser subject before auto leveling.','warn');
-  const limits=[0,1,2].map(axis=>{const values=samples.map(point=>point[axis]).sort((a,b)=>a-b);return [values[Math.floor(values.length*.005)],values[Math.floor(values.length*.995)]];});
-  samples=samples.filter(point=>point.every((value,axis)=>value>=limits[axis][0]&&value<=limits[axis][1]));
-  const mean=[0,0,0];for(const p of samples)for(let a=0;a<3;a++)mean[a]+=p[a]/samples.length;
-  const A=[[0,0,0],[0,0,0],[0,0,0]],V=[[1,0,0],[0,1,0],[0,0,1]];
-  for(const p of samples)for(let r=0;r<3;r++)for(let c=0;c<3;c++)A[r][c]+=(p[r]-mean[r])*(p[c]-mean[c])/samples.length;
-  for(let iter=0;iter<18;iter++){
-    let p=0,q=1;if(Math.abs(A[0][2])>Math.abs(A[p][q])){p=0;q=2;}if(Math.abs(A[1][2])>Math.abs(A[p][q])){p=1;q=2;}
-    if(Math.abs(A[p][q])<1e-12)break;
-    const theta=.5*Math.atan2(2*A[p][q],A[q][q]-A[p][p]),c=Math.cos(theta),s=Math.sin(theta),app=A[p][p],aqq=A[q][q],apq=A[p][q];
-    A[p][p]=c*c*app-2*s*c*apq+s*s*aqq;A[q][q]=s*s*app+2*s*c*apq+c*c*aqq;A[p][q]=A[q][p]=0;
-    for(let k=0;k<3;k++)if(k!==p&&k!==q){const akp=A[k][p],akq=A[k][q];A[k][p]=A[p][k]=c*akp-s*akq;A[k][q]=A[q][k]=s*akp+c*akq;}
-    for(let k=0;k<3;k++){const vkp=V[k][p],vkq=V[k][q];V[k][p]=c*vkp-s*vkq;V[k][q]=s*vkp+c*vkq;}
-  }
-  let axisIndex=0;if(A[1][1]<A[axisIndex][axisIndex])axisIndex=1;if(A[2][2]<A[axisIndex][axisIndex])axisIndex=2;
-  const up=new THREE.Vector3(V[0][axisIndex],V[1][axisIndex],V[2][axisIndex]).normalize();if(up.y<0)up.negate();
+  const selectedCount=selectedPointCount(),indices=[];
+  for(let i=0;i<S.alive.length;i++){if(!S.alive[i]||S.layerHidden?.[i])continue;if(selectedCount>0&&!S.selected[i])continue;indices.push(i);}
+  const estimate=estimateLevelNormal(S.positions,indices);
+  if(!estimate?.normal)return showToast('Could not determine level','No reliable support plane or stable principal axis was found. Select the subject without the floor, or include a flat ground surface, then try again.','warn');
+  const up=new THREE.Vector3(...estimate.normal).normalize();if(up.y<0)up.negate();
   const angle=Math.acos(THREE.MathUtils.clamp(up.y,-1,1));
-  if(angle<THREE.MathUtils.degToRad(.5))return showToast('Already level','The thinnest point-cloud axis is already aligned with Y-up.','ok');
-  const rotation=new THREE.Quaternion().setFromUnitVectors(up,new THREE.Vector3(0,1,0)),pivot=S.pivot||controls.target;
-  pushHistory('transform level');
-  const point=new THREE.Vector3();
-  for(let i=0;i<S.alive.length;i++)if(S.alive[i]){
+  if(angle<THREE.MathUtils.degToRad(.5))return showToast('Already level','The estimated support plane is already aligned with Y-up.','ok');
+  const rotation=new THREE.Quaternion().setFromUnitVectors(up,new THREE.Vector3(0,1,0)),pivot=new THREE.Vector3();
+  for(const i of indices)pivot.add(new THREE.Vector3(S.positions[i*3],S.positions[i*3+1],S.positions[i*3+2]));
+  pivot.multiplyScalar(1/indices.length);pushHistory('transform level');const point=new THREE.Vector3();
+  for(const i of indices){
     point.set(S.positions[i*3],S.positions[i*3+1],S.positions[i*3+2]).sub(pivot).applyQuaternion(rotation).add(pivot);
     S.positions[i*3]=point.x;S.positions[i*3+1]=point.y;S.positions[i*3+2]=point.z;
-    if(S.rotation){const q=new THREE.Quaternion(S.rotation[i*4+1],S.rotation[i*4+2],S.rotation[i*4+3],S.rotation[i*4]).premultiply(rotation).normalize();S.rotation.set([q.w,q.x,q.y,q.z],i*4);}
+    if(S.rotation){const q=new THREE.Quaternion(S.rotation[i*4+1],S.rotation[i*4+2],S.rotation[i*4+3],S.rotation[i*4]).premultiply(rotation).normalize();S.rotation[i*4]=q.w;S.rotation[i*4+1]=q.x;S.rotation[i*4+2]=q.y;S.rotation[i*4+3]=q.z;}
   }
-  window.FumocaGaussianRenderer?.invalidateSort();rebuildGeometry();_refreshSceneReference(true);syncTransformGizmo();renderMeasurementList();renderMeasurementOverlay();
-  showToast('Subject leveled',`Aligned its thinnest principal axis to Y-up (${THREE.MathUtils.radToDeg(angle).toFixed(1)}° correction). Undo restores the prior orientation.`,'ok');
+  window.FumocaGaussianRenderer?.invalidateSort?.();rebuildGeometry();_refreshSceneReference(true);syncTransformGizmo();renderMeasurementList();renderMeasurementOverlay();
+  showToast('Subject leveled',`Aligned the detected ${estimate.method==='plane'?'support plane':'principal axis'} to Y-up (${THREE.MathUtils.radToDeg(angle).toFixed(1)}° correction). Undo restores the prior orientation.`,'ok');
 });
 $('centerSubjectBtn')?.addEventListener('click',()=>{
   if(!S.positions||!S.alive)return;
