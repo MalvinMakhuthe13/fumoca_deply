@@ -2089,11 +2089,11 @@ let _gizmoGestureSnap = null; // { indices:number[], positions:Float32Array, cen
 
 function _gizmoCollectIndices() {
   const indices = [];
-  if (!S.alive || !S.positions) return indices;
-  const hasSel = selectedPointCount() > 0;
+  if (!S.alive || !S.positions || !S.selected || selectedPointCount() === 0) return indices;
+  // A transform gesture must never silently fall back to the entire cloud.
+  // This guard prevents an empty selection from moving/rotating/scaling every splat.
   for (let i = 0; i < S.alive.length; i++) {
-    if (!S.alive[i]) continue;
-    if (hasSel && !(S.selected && S.selected[i])) continue;
+    if (!S.alive[i] || !S.selected[i] || S.layerHidden?.[i]) continue;
     indices.push(i);
   }
   return indices;
@@ -3824,21 +3824,57 @@ function autoClean() {
   showToast('Auto Clean', `${fmt(removed)} points removed`);
 }
 
-function selectFloaters() {
-  const core = estimateCore(); if (!core) return;
-  clearSelection();
-  const [cx, cy, cz] = core.c, [sx, sy, sz] = core.s;
-  const rad = Number($('selRad').value), minN = Number($('selNeigh').value);
-  // simplified: select far + low density
-  let hits = 0;
-  for (let i = 0; i < S.alive.length; i++) {
-    if (!S.alive[i]) continue;
-    const nx = Math.abs((S.positions[i * 3] - cx) / sx);
-    const ny = Math.abs((S.positions[i * 3 + 1] - cy) / sy);
-    const nz = Math.abs((S.positions[i * 3 + 2] - cz) / sz);
-    if (nx > 1.4 || ny > 1.4 || nz > 1.4) { S.selected[i] = 1; hits++; }
+function _buildDensityIndex() {
+  const ids=[], min=[Infinity,Infinity,Infinity], max=[-Infinity,-Infinity,-Infinity];
+  for(let i=0;i<S.alive.length;i++) if(S.alive[i] && !S.layerHidden?.[i]) {
+    const x=S.positions[i*3],y=S.positions[i*3+1],z=S.positions[i*3+2];
+    if(![x,y,z].every(Number.isFinite))continue;
+    ids.push(i);min[0]=Math.min(min[0],x);min[1]=Math.min(min[1],y);min[2]=Math.min(min[2],z);
+    max[0]=Math.max(max[0],x);max[1]=Math.max(max[1],y);max[2]=Math.max(max[2],z);
   }
-  rebuildGeometry(); setStatus(`Selected ${fmt(hits)} potential floaters`);
+  if(ids.length<2)return null;
+  const diagonal=Math.hypot(max[0]-min[0],max[1]-min[1],max[2]-min[2]);
+  const cellSize=Math.max(1e-7,diagonal*(Number($('selRad').value)||0.08)*0.01);
+  const key=(x,y,z)=>`${x},${y},${z}`, cells=new Map(), coords=new Map();
+  for(const i of ids){
+    const c=[0,1,2].map(a=>Math.floor(S.positions[i*3+a]/cellSize));coords.set(i,c);
+    const k=key(...c);cells.set(k,(cells.get(k)||0)+1);
+  }
+  return {ids,cells,coords,key,cellSize,min,max};
+}
+function _densityNeighbours(index,i) {
+  const c=index.coords.get(i);let count=0;
+  for(let x=-1;x<=1;x++)for(let y=-1;y<=1;y++)for(let z=-1;z<=1;z++)
+    count+=index.cells.get(index.key(c[0]+x,c[1]+y,c[2]+z))||0;
+  return count;
+}
+function selectFloaters() {
+  if(!S.alive||!S.positions)return;
+  const index=_buildDensityIndex();if(!index)return;
+  const minN=Math.max(1,Math.floor(Number($('selNeigh').value)||2));
+  S.selected.fill(0);let hits=0;
+  for(const i of index.ids)if(_densityNeighbours(index,i)<minN){S.selected[i]=1;hits++;}
+  rebuildGeometry();syncTransformGizmo();
+  setStatus(`Selected ${fmt(hits)} isolated/low-density splats`);
+  showToast('Floaters selected',`${fmt(hits)} sparse splats selected. Review before deleting; no points were removed.`);
+}
+function selectOuterNoise() {
+  if(!S.alive||!S.positions)return;
+  const index=_buildDensityIndex(),core=estimateCore();if(!index||!core)return;
+  const [cx,cy,cz]=core.c,[sx,sy,sz]=core.s;
+  const minN=Math.max(1,Math.floor(Number($('selNeigh').value)||2));
+  const opacityLimit=Number($('selOpac').value);
+  S.selected.fill(0);let hits=0;
+  for(const i of index.ids){
+    const nx=Math.abs((S.positions[i*3]-cx)/sx),ny=Math.abs((S.positions[i*3+1]-cy)/sy),nz=Math.abs((S.positions[i*3+2]-cz)/sz);
+    const outside=nx>1.25||ny>1.25||nz>1.25;
+    const sparse=_densityNeighbours(index,i)<minN;
+    const lowOpacity=(S.opacity?.[i]??1)<=opacityLimit;
+    if(outside&&(sparse||lowOpacity)){S.selected[i]=1;hits++;}
+  }
+  rebuildGeometry();syncTransformGizmo();
+  setStatus(`Selected ${fmt(hits)} outer-noise candidates`);
+  showToast('Outer noise selected',`${fmt(hits)} candidates selected for review. Dense surfaces are preserved; no points were removed.`);
 }
 
 function selectLowOpacity() {
@@ -4970,8 +5006,11 @@ document.querySelectorAll('[data-hud-view]').forEach(button => {
 });
 $('levelSubjectBtn')?.addEventListener('click',()=>{
   if(!S.positions||!S.alive)return;
-  const selectedCount=selectedPointCount(),indices=[];
-  for(let i=0;i<S.alive.length;i++){if(!S.alive[i]||S.layerHidden?.[i])continue;if(selectedCount>0&&!S.selected[i])continue;indices.push(i);}
+  const selectedCount=selectedPointCount();
+  if(!selectedCount)return showToast('Select the subject first','Select only the object you want to level. Exclude the floor, display base, and background points so they cannot determine the orientation.','warn');
+  const indices=[];
+  for(let i=0;i<S.alive.length;i++){if(!S.alive[i]||!S.selected[i]||S.layerHidden?.[i])continue;indices.push(i);}
+  if(indices.length<30)return showToast('Not enough subject points','Select a larger, connected part of the subject before auto-leveling.','warn');
   const estimate=estimateLevelNormal(S.positions,indices);
   if(!estimate?.normal)return showToast('Could not determine level','No reliable support plane or stable principal axis was found. Select the subject without the floor, or include a flat ground surface, then try again.','warn');
   const up=new THREE.Vector3(...estimate.normal).normalize();if(up.y<0)up.negate();
@@ -5555,7 +5594,7 @@ $('selLowOpacBtn')?.addEventListener('click', selectLowOpacity);
 $('selLargeScaleBtn')?.addEventListener('click', selectLargeScale);
 $('selFloatersBtn')?.addEventListener('click', selectFloaters);
 $('selFloatersBtn2')?.addEventListener('click', selectFloaters);
-$('selOuterBtn')?.addEventListener('click', selectFloaters);
+$('selOuterBtn')?.addEventListener('click', selectOuterNoise);
 $('selOuterBtn2')?.addEventListener('click', selectFloaters);
 $('selLowOpBtn2')?.addEventListener('click', selectLowOpacity);
 $('selLargeBtn2')?.addEventListener('click', selectLargeScale);
