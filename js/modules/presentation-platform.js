@@ -166,6 +166,7 @@ function boot(){
   if(!window.THREE||!window.scene||!window.S){setTimeout(boot,100);return;}
   addStyles();restore();renderUI();build();
   window.addEventListener('fumoca:rebuildGeometry',()=>{if(state.group)build();});
+  window.addEventListener('fumoca:fileLoaded',()=>{if(state.enabled)build();});
   window.addEventListener('fumoca:splat-loaded',()=>{if(state.enabled)build();});
   console.info('[FUMOCA Platform] ready');
 }
