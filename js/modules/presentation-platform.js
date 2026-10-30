@@ -88,7 +88,9 @@ function flattenScanToPlatform(){
   if(live<1)throw new Error('There are no live Gaussian points to flatten.');
   state.flattenBackup={alive:S.alive.slice(),positions:S.positions.slice(),scale:S.scale?.slice()||null,scaleXYZ:S.scaleXYZ?.slice()||null,rotation:S.rotation?.slice()||null,opacity:S.opacity?.slice()||null};
   g.updateMatrixWorld(true);
-  const thick=Math.max(state.height*state.unit,.006);\n  const edge=clamp(state.edge*state.unit,0,Math.min(state.lastBounds?.size?.[0]||1,state.lastBounds?.size?.[2]||1)*.18);\n  const planeLocalY=thick+Math.min(edge*.42,thick*.22);
+  const thick=Math.max(state.height*state.unit,.006);
+  const edge=clamp(state.edge*state.unit,0,Math.min(state.lastBounds?.size?.[0]||1,state.lastBounds?.size?.[2]||1)*.18);
+  const planeLocalY=thick+Math.min(edge*.42,thick*.22);
   const p=new THREE.Vector3(),normal=new THREE.Vector3(0,1,0).transformDirection(g.matrixWorld).normalize();
   let removed=0,kept=0;
   for(let i=0;i<S.alive.length;i++){
