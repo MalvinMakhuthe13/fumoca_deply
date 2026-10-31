@@ -79,6 +79,7 @@
           <label style="font-size:11px;color:rgba(255,255,255,.55);display:block;margin-top:10px">Flip <span id="platAngleVal">0</span>°</label>
           <input type="range" id="platAngle" min="0" max="360" value="0" style="width:100%">
           <button type="button" id="platApplyBtn" style="width:100%;margin-top:10px;height:36px;border-radius:8px;border:1px solid rgba(212,255,0,.45);background:rgba(212,255,0,.16);color:#d4ff00;font-weight:700;cursor:pointer">Seat on platform</button>
+          <button type="button" id="platRemoveBtn" style="width:100%;margin-top:6px;height:32px;border-radius:8px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#fff;cursor:pointer">Remove platform</button>
           <div id="platStatus" style="margin-top:8px;font-size:11px;color:rgba(255,255,255,.45)">Load a splat, then seat it.</div>
         </div>
       </div>`;
@@ -228,29 +229,21 @@
       g.rotation.x = prev;
       return false;
     }
-    objs.forEach((obj) => obj.updateWorldMatrix(true, true));
-    const box = new T.Box3();
-    objs.forEach((obj) => {
-      const b = new T.Box3().setFromObject(obj);
-      if (!b.isEmpty()) box.union(b);
-    });
-    if (box.isEmpty()) {
-      g.rotation.x = prev;
-      return false;
-    }
-    const center = box.getCenter(new T.Vector3());
-    const dx = -center.x;
     const topY = platformMesh ? platformMesh.position.y * 2 : 0;
-    const dy = topY - box.min.y;
-    const dz = -center.z;
+    let seated = false;
     objs.forEach((obj) => {
-      obj.position.x += dx;
-      obj.position.y += dy;
-      obj.position.z += dz;
+      obj.updateWorldMatrix(true, true);
+      const b = new T.Box3().setFromObject(obj);
+      if (b.isEmpty() || !isFinite(b.min.y)) return;
+      const center = b.getCenter(new T.Vector3());
+      obj.position.x += -center.x;
+      obj.position.y += topY - b.min.y;
+      obj.position.z += -center.z;
+      seated = true;
     });
     g.rotation.x = prev;
     g.updateMatrixWorld(true);
-    return true;
+    return seated;
   }
 
   function applyAngle() {
@@ -393,6 +386,22 @@
       const input = $("platLogoInput");
       if (input) input.value = "";
       rebuild({ seat: false });
+    });
+    $("platRemoveBtn").addEventListener("click", () => {
+      const sc = scene();
+      if (root && sc) {
+        splatObjects().forEach((obj) => sc.attach(obj));
+        sc.remove(root);
+      }
+      root = null;
+      platformMesh = null;
+      ring = null;
+      state.angle = 0;
+      const angle = $("platAngle");
+      if (angle) angle.value = "0";
+      const label = $("platAngleVal");
+      if (label) label.textContent = "0";
+      status("Platform removed. The splat stays where you left it.");
     });
   }
 
