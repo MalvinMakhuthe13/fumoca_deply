@@ -117,9 +117,11 @@
     c.width = 512; c.height = 512;
     const ctx = c.getContext("2d");
     const g = ctx.createLinearGradient(0, 0, 512, 0);
-    g.addColorStop(0, "#5c3317");
-    g.addColorStop(0.5, "#8b5a2b");
-    g.addColorStop(1, "#3e2412");
+    g.addColorStop(0, "#3a2414");
+    g.addColorStop(0.35, "#8a5a32");
+    g.addColorStop(0.5, "#c4a574");
+    g.addColorStop(0.7, "#6b4226");
+    g.addColorStop(1, "#2a180e");
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, 512, 512);
     for (let i = 0; i < 70; i++) {
@@ -168,18 +170,40 @@
     return found.filter((obj) => obj !== platformMesh && obj !== ring && obj !== root);
   }
 
-  function carrier() {
+  function sparkMesh() {
     const sc = scene();
-    const spark = sc && sc.getObjectByName("fumoca-spark-splat");
-    if (spark && window.FumocaSparkGaussian?.isEnabled?.()) return spark;
-    return (window.S && window.S.points) || spark || null;
+    return sc ? sc.getObjectByName("fumoca-spark-splat") : null;
+  }
+
+  function visualObjects() {
+    const mesh = sparkMesh();
+    if (mesh && window.FumocaSparkGaussian?.isEnabled?.()) return [mesh];
+    const pts = window.S && window.S.points;
+    return pts ? [pts] : [];
+  }
+
+  function hideSelectionOverlay(hidden) {
+    const sc = scene();
+    const overlay = sc && sc.getObjectByName("fumoca-spark-selection-overlay");
+    if (overlay) overlay.visible = !hidden;
   }
 
   function worldBounds() {
     const T = THREE();
+    if (!T) return null;
+    const mesh = sparkMesh();
+    if (mesh && mesh.getBoundingBox && mesh.initialized && window.FumocaSparkGaussian?.isEnabled?.()) {
+      try {
+        mesh.updateWorldMatrix(true, true);
+        const local = mesh.getBoundingBox(true);
+        if (local && isFinite(local.min.x) && local.min.x < local.max.x) {
+          return local.clone().applyMatrix4(mesh.matrixWorld);
+        }
+      } catch (_) {}
+    }
     const S = window.S;
-    if (!T || !S?.positions || !S?.alive) return null;
-    const obj = carrier();
+    const obj = (window.S && window.S.points) || null;
+    if (!S?.positions || !S?.alive) return null;
     if (obj) obj.updateWorldMatrix(true, true);
     const v = new T.Vector3();
     const xs = [], ys = [], zs = [];
@@ -198,8 +222,8 @@
       return s[Math.min(s.length - 1, Math.max(0, Math.round(p * (s.length - 1))))];
     };
     return new T.Box3(
-      new T.Vector3(at(xs, 0.04), at(ys, 0.02), at(zs, 0.04)),
-      new T.Vector3(at(xs, 0.96), at(ys, 0.98), at(zs, 0.96))
+      new T.Vector3(at(xs, 0.08), at(ys, 0.06), at(zs, 0.08)),
+      new T.Vector3(at(xs, 0.92), at(ys, 0.98), at(zs, 0.92))
     );
   }
 
@@ -252,7 +276,8 @@
     g.position.set(center.x, box.min.y, center.z);
     g.rotation.set(0, 0, 0);
     g.updateMatrixWorld(true);
-    splatObjects().forEach((obj) => g.attach(obj));
+    visualObjects().forEach((obj) => g.attach(obj));
+    hideSelectionOverlay(true);
 
     if (platformMesh) {
       g.remove(platformMesh);
@@ -391,6 +416,7 @@
       root = null;
       platformMesh = null;
       ring = null;
+      hideSelectionOverlay(false);
       state.angle = 0;
       const angle = $("platAngle");
       if (angle) angle.value = "0";
