@@ -168,32 +168,50 @@
     return found.filter((obj) => obj !== platformMesh && obj !== ring && obj !== root);
   }
 
-  function measureSplat() {
+  function carrier() {
+    const sc = scene();
+    const spark = sc && sc.getObjectByName("fumoca-spark-splat");
+    if (spark && window.FumocaSparkGaussian?.isEnabled?.()) return spark;
+    return (window.S && window.S.points) || spark || null;
+  }
+
+  function worldBounds() {
     const T = THREE();
-    const objs = splatObjects();
-    if (!T) return null;
-    if (objs.length) {
-      const box = new T.Box3();
-      let any = false;
-      objs.forEach((obj) => {
-        obj.updateWorldMatrix(true, true);
-        const b = new T.Box3().setFromObject(obj);
-        if (!b.isEmpty() && isFinite(b.min.x)) { box.union(b); any = true; }
-      });
-      if (any) return box;
-    }
     const S = window.S;
-    if (!S || !S.positions || !S.alive) return null;
-    const min = new T.Vector3(Infinity, Infinity, Infinity);
-    const max = new T.Vector3(-Infinity, -Infinity, -Infinity);
-    for (let i = 0; i < S.alive.length; i++) {
+    if (!T || !S?.positions || !S?.alive) return null;
+    const obj = carrier();
+    if (obj) obj.updateWorldMatrix(true, true);
+    const v = new T.Vector3();
+    const xs = [], ys = [], zs = [];
+    const n = S.alive.length;
+    const step = n > 60000 ? Math.ceil(n / 60000) : 1;
+    for (let i = 0; i < n; i += step) {
       if (!S.alive[i]) continue;
-      const x = S.positions[i * 3], y = S.positions[i * 3 + 1], z = S.positions[i * 3 + 2];
-      if (x < min.x) min.x = x; if (y < min.y) min.y = y; if (z < min.z) min.z = z;
-      if (x > max.x) max.x = x; if (y > max.y) max.y = y; if (z > max.z) max.z = z;
+      v.set(S.positions[i * 3], S.positions[i * 3 + 1], S.positions[i * 3 + 2]);
+      if (obj) v.applyMatrix4(obj.matrixWorld);
+      if (!isFinite(v.x) || !isFinite(v.y) || !isFinite(v.z)) continue;
+      xs.push(v.x); ys.push(v.y); zs.push(v.z);
     }
-    if (min.x === Infinity) return null;
-    return new T.Box3(min, max);
+    if (xs.length < 20) return null;
+    const at = (arr, p) => {
+      const s = arr.slice().sort((a, b) => a - b);
+      return s[Math.min(s.length - 1, Math.max(0, Math.round(p * (s.length - 1))))];
+    };
+    return new T.Box3(
+      new T.Vector3(at(xs, 0.04), at(ys, 0.02), at(zs, 0.04)),
+      new T.Vector3(at(xs, 0.96), at(ys, 0.98), at(zs, 0.96))
+    );
+  }
+
+  function releaseToScene() {
+    const sc = scene();
+    if (!root || !sc) return;
+    splatObjects().forEach((obj) => {
+      if (obj.parent === root) sc.attach(obj);
+    });
+    root.position.set(0, 0, 0);
+    root.rotation.set(0, 0, 0);
+    root.updateMatrixWorld(true);
   }
 
   function ensureRoot() {
@@ -219,57 +237,22 @@
   function seatOnPlatform() {
     const T = THREE();
     const g = ensureRoot();
-    if (!T || !g) return false;
-    const prev = g.rotation.x;
-    g.rotation.x = 0;
-    g.updateMatrixWorld(true);
-    attachSplat();
-    const objs = splatObjects();
-    if (!objs.length) {
-      g.rotation.x = prev;
-      return false;
-    }
-    const topY = platformMesh ? platformMesh.position.y * 2 : 0;
-    let seated = false;
-    objs.forEach((obj) => {
-      obj.updateWorldMatrix(true, true);
-      const b = new T.Box3().setFromObject(obj);
-      if (b.isEmpty() || !isFinite(b.min.y)) return;
-      const center = b.getCenter(new T.Vector3());
-      obj.position.x += -center.x;
-      obj.position.y += topY - b.min.y;
-      obj.position.z += -center.z;
-      seated = true;
-    });
-    g.rotation.x = prev;
-    g.updateMatrixWorld(true);
-    return seated;
-  }
-
-  function applyAngle() {
-    if (!root) return;
-    const T = THREE();
-    root.rotation.x = T.MathUtils.degToRad(state.angle);
-  }
-
-  function rebuild(opts) {
-    const seat = !opts || opts.seat !== false;
-    const T = THREE();
-    const g = ensureRoot();
-    if (!T || !g) {
-      status("Editor scene is not ready yet.");
-      return;
-    }
-
-    const saved = g.rotation.x;
-    g.rotation.x = 0;
-    g.updateMatrixWorld(true);
-    const box = measureSplat();
-    const size = box ? box.getSize(new T.Vector3()) : new T.Vector3(1, 1, 1);
-    const footprint = Math.max(size.x, size.z, 0.05);
+    const sc = scene();
+    if (!T || !g || !sc) return false;
+    releaseToScene();
+    const box = worldBounds();
+    if (!box) return false;
+    const center = box.getCenter(new T.Vector3());
+    const size = box.getSize(new T.Vector3());
+    const footprint = Math.max(size.x, size.z, 1e-4);
     const width = footprint * (state.fit / 100);
     const depth = state.shape === "rect" ? width * 0.66 : width;
-    const height = Math.max(width * (state.thickness / 100), footprint * 0.02);
+    const height = Math.max(width * (state.thickness / 100), footprint * 0.015);
+
+    g.position.set(center.x, box.min.y, center.z);
+    g.rotation.set(0, 0, 0);
+    g.updateMatrixWorld(true);
+    splatObjects().forEach((obj) => g.attach(obj));
 
     if (platformMesh) {
       g.remove(platformMesh);
@@ -284,45 +267,57 @@
       ring = null;
     }
 
-    const top = topMaterial();
+    const wood = topMaterial();
+    const side = new T.MeshStandardMaterial({ color: 0x141414, roughness: 0.45, metalness: 0.35 });
     const under = undersideMaterial();
     let geo;
     if (state.shape === "circle") {
-      geo = new T.CylinderGeometry(width / 2, width / 2, height, 72);
-      platformMesh = new T.Mesh(geo, [top, top, under]);
+      geo = new T.CylinderGeometry(width / 2, width / 2, height, 80);
+      platformMesh = new T.Mesh(geo, [side, wood, under]);
     } else {
       geo = new T.BoxGeometry(width, height, state.shape === "square" ? width : depth);
-      platformMesh = new T.Mesh(geo, [top, top, top, under, top, top]);
+      platformMesh = new T.Mesh(geo, [side, side, wood, under, side, side]);
     }
     platformMesh.name = "fumoca-platform-mesh";
-    platformMesh.position.y = height / 2;
+    platformMesh.position.set(0, -height / 2, 0);
     platformMesh.castShadow = true;
     platformMesh.receiveShadow = true;
     g.add(platformMesh);
 
     if (logoTexture && under.map) {
-      const scale = 0.62;
+      const scale = 0.72;
+      under.map.center.set(0.5, 0.5);
       under.map.repeat.set(scale, scale);
-      under.map.offset.set((1 - scale) / 2, (1 - scale) / 2);
       under.map.needsUpdate = true;
     }
 
+    const radius = (state.shape === "circle" ? width : Math.max(width, depth)) * 0.5;
     ring = new T.Mesh(
-      new T.RingGeometry(width * 0.42, width * 0.48, 80),
-      new T.MeshBasicMaterial({ color: 0xffe7a0, transparent: true, opacity: 0.7, side: T.DoubleSide, depthWrite: false })
+      new T.TorusGeometry(radius * 0.96, Math.max(height * 0.08, radius * 0.012), 12, 80),
+      new T.MeshBasicMaterial({ color: 0xffe7a0, transparent: true, opacity: 0.85, depthWrite: false })
     );
-    ring.rotation.x = -Math.PI / 2;
-    ring.position.y = 0.002;
-    ring.renderOrder = 2;
+    ring.rotation.x = Math.PI / 2;
+    ring.position.y = -height + Math.max(height * 0.08, radius * 0.01);
     g.add(ring);
-
-    g.rotation.x = saved;
-    let seated = false;
-    if (seat) seated = seatOnPlatform();
     applyAngle();
+    return true;
+  }
+
+  function applyAngle() {
+    if (!root) return;
+    const T = THREE();
+    root.rotation.x = T.MathUtils.degToRad(state.angle);
+  }
+
+  function rebuild() {
+    if (!THREE() || !scene()) {
+      status("Editor scene is not ready yet.");
+      return;
+    }
+    const seated = seatOnPlatform();
     status(seated
-      ? "Seated. Drag to orbit, scroll to zoom, flip to see the logo."
-      : "Platform is in the scene. Load a splat, then seat it again.");
+      ? "Seated under the splat. Drag to orbit, scroll to zoom, flip to see the logo."
+      : "Load a splat first, then seat it.");
   }
 
   function wire() {
