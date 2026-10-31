@@ -189,25 +189,48 @@
   }
 
   function visuals() {
-    const sc = getScene();
     const list = [];
-    sc?.traverse((obj) => {
-      if (obj.name === "fumoca-spark-splat" || obj.name === "fumoca-spark-selection-overlay") list.push(obj);
-    });
+    const mesh = sparkMesh();
+    if (mesh) list.push(mesh);
     const pts = window.S && window.S.points;
-    if (pts && list.indexOf(pts) === -1) list.push(pts);
+    if (pts) list.push(pts);
     return list;
+  }
+
+  function selectionOverlay() {
+    const sc = getScene();
+    let found = null;
+    sc?.traverse((obj) => { if (obj.name === "fumoca-spark-selection-overlay") found = obj; });
+    return found;
+  }
+
+  function percentileBox(T, xs, ys, zs) {
+    if (xs.length < 20) return null;
+    const at = (arr, p) => {
+      const s = arr.slice().sort((a, b) => a - b);
+      return s[Math.min(s.length - 1, Math.max(0, Math.round(p * (s.length - 1))))];
+    };
+    return new T.Box3(
+      new T.Vector3(at(xs, 0.12), at(ys, 0.08), at(zs, 0.12)),
+      new T.Vector3(at(xs, 0.88), at(ys, 0.98), at(zs, 0.88))
+    );
   }
 
   function localBounds() {
     const T = THREE();
     if (!T) return null;
     const mesh = sparkMesh();
-    if (mesh?.getBoundingBox && mesh.initialized && window.FumocaSparkGaussian?.isEnabled?.()) {
+    const splats = mesh && (mesh.splats || mesh.packedSplats);
+    if (splats?.forEachSplat && window.FumocaSparkGaussian?.isEnabled?.()) {
+      const xs = [], ys = [], zs = [];
       try {
-        const box = mesh.getBoundingBox(true);
-        if (box && isFinite(box.min.x) && box.max.x > box.min.x) return box.clone();
+        splats.forEachSplat((index, center) => {
+          if ((index & 7) !== 0 || !center || !isFinite(center.x)) return;
+          xs.push(center.x); ys.push(center.y); zs.push(center.z);
+        });
       } catch (_) {}
+      const box = percentileBox(T, xs, ys, zs);
+      if (box) return box;
     }
     const S = window.S;
     if (!S?.positions || !S?.alive) return null;
@@ -220,15 +243,7 @@
       if (!isFinite(x) || !isFinite(y) || !isFinite(z)) continue;
       xs.push(x); ys.push(y); zs.push(z);
     }
-    if (xs.length < 20) return null;
-    const at = (arr, p) => {
-      const s = arr.slice().sort((a, b) => a - b);
-      return s[Math.min(s.length - 1, Math.round(p * (s.length - 1)))];
-    };
-    return new T.Box3(
-      new T.Vector3(at(xs, 0.08), at(ys, 0.05), at(zs, 0.08)),
-      new T.Vector3(at(xs, 0.92), at(ys, 0.98), at(zs, 0.92))
-    );
+    return percentileBox(T, xs, ys, zs);
   }
 
   function disposeMesh(mesh) {
@@ -254,8 +269,7 @@
     disposeMesh(bodyMesh); bodyMesh = null;
     disposeMesh(topMesh); topMesh = null;
     disposeMesh(ring); ring = null;
-    disposeMesh(lip); lip = null;
-    const { width, depth, height, edge } = metrics();
+    const { width, depth, height } = metrics();
     const side = sideMaterial();
     const top = topMaterial();
     const capH = Math.max(height * 0.1, footprint * 0.004);
@@ -269,31 +283,25 @@
     bodyMesh.name = "fumoca-platform-mesh";
     bodyMesh.position.y = -capH - bodyH / 2;
     root.add(bodyMesh);
+    const inset = width * (state.edge / 100) * 0.12;
+    const topW = Math.max(width - inset * 2, width * 0.72);
+    const topD = Math.max(depth - inset * 2, depth * 0.72);
     if (state.shape === "circle") {
-      topMesh = new T.Mesh(new T.CylinderGeometry(width / 2, width / 2, capH, 80), top);
+      topMesh = new T.Mesh(new T.CylinderGeometry(topW / 2, width / 2, capH, 80), top);
     } else {
-      topMesh = new T.Mesh(new T.BoxGeometry(width, capH, state.shape === "square" ? width : depth), top);
+      topMesh = new T.Mesh(new T.BoxGeometry(topW, capH, state.shape === "square" ? topW : topD), top);
     }
     topMesh.name = "fumoca-platform-top";
     topMesh.position.y = -capH / 2;
     root.add(topMesh);
 
     const radius = (state.shape === "circle" ? width : Math.max(width, depth)) * 0.5;
-    if (edge > footprint * 0.004) {
-      lip = new T.Mesh(
-        new T.TorusGeometry(Math.max(radius - edge * 0.35, radius * 0.5), edge, 10, 72),
-        sideMaterial()
-      );
-      lip.rotation.x = Math.PI / 2;
-      lip.position.y = -edge * 0.15;
-      root.add(lip);
-    }
     ring = new T.Mesh(
-      new T.TorusGeometry(radius * 0.98, Math.max(height * 0.035, radius * 0.008), 12, 90),
-      new T.MeshBasicMaterial({ color: 0xfff1c2, transparent: true, opacity: 0.95, depthWrite: false })
+      new T.TorusGeometry(radius * 1.02, Math.max(height * 0.045, radius * 0.012), 16, 96),
+      new T.MeshBasicMaterial({ color: 0xfff4cc, toneMapped: false })
     );
     ring.rotation.x = Math.PI / 2;
-    ring.position.y = -height + Math.max(height * 0.12, radius * 0.01);
+    ring.position.y = -height + Math.max(height * 0.22, radius * 0.02);
     root.add(ring);
     makeLogo();
   }
@@ -321,6 +329,7 @@
     if (!root || !pivot || !holder) return;
     const T = THREE();
     root.position.set(pivot.x, pivot.y, pivot.z);
+    root.rotation.order = "YXZ";
     root.rotation.set(T.MathUtils.degToRad(state.tilt), T.MathUtils.degToRad(state.spin), 0);
     holder.position.set(-pivot.x, -pivot.y, -pivot.z);
     holder.rotation.set(0, 0, 0);
@@ -350,7 +359,10 @@
       obj.position.set(0, 0, 0);
       obj.quaternion.identity();
       obj.scale.set(1, 1, 1);
+      obj.visible = true;
     });
+    const overlay = selectionOverlay();
+    if (overlay) overlay.visible = true;
   }
 
   function seat() {
@@ -386,13 +398,18 @@
 
   function watch() {
     follow = requestAnimationFrame(watch);
-    if (active) adoptVisuals();
+    if (!active) return;
+    adoptVisuals();
+    const overlay = selectionOverlay();
+    if (overlay) overlay.visible = false;
   }
 
-  function updateBase() {
+  function updateBase(movePivot) {
     if (!active || !seatCenter) return;
-    pivot.set(seatCenter.x, seatMinY - footprint * (state.drop / 100), seatCenter.z);
-    applyPose();
+    if (movePivot) {
+      pivot.set(seatCenter.x, seatMinY - footprint * (state.drop / 100), seatCenter.z);
+      applyPose();
+    }
     makeBase();
   }
 
@@ -454,10 +471,10 @@
         if (active) updateBase();
       });
     });
-    bindRange("platFit", "fit", "platFitVal", "", () => active && updateBase());
-    bindRange("platThick", "thickness", "platThickVal", "", () => active && updateBase());
-    bindRange("platEdge", "edge", "platEdgeVal", "", () => active && updateBase());
-    bindRange("platDrop", "drop", "platDropVal", "", () => active && updateBase());
+    bindRange("platFit", "fit", "platFitVal", "", () => active && updateBase(false));
+    bindRange("platThick", "thickness", "platThickVal", "", () => active && updateBase(false));
+    bindRange("platEdge", "edge", "platEdgeVal", "", () => active && updateBase(false));
+    bindRange("platDrop", "drop", "platDropVal", "", () => active && updateBase(true));
     bindRange("platSpin", "spin", "platSpinVal", "", () => { if (!active) seat(); else applyPose(); });
     bindRange("platTilt", "tilt", "platTiltVal", "", () => { if (!active) seat(); else applyPose(); });
     bindRange("platLogoScale", "logoScale", "platLogoScaleVal", "", () => active && makeLogo());
@@ -467,7 +484,7 @@
       status(seat() ? "Seated. Spin turns it. Tilt shows the underside." : "Load a splat first, then seat it.");
     });
     $("platBottomBtn").addEventListener("click", () => {
-      state.tilt = state.tilt > 150 ? 0 : 170;
+      state.tilt = state.tilt > 90 ? 0 : 180;
       const tilt = $("platTilt");
       if (tilt) tilt.value = String(state.tilt);
       const tv = $("platTiltVal");
