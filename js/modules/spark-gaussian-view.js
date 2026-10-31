@@ -58,7 +58,8 @@ const SparkGaussianView = (() => {
       _overlay = new THREE.Points(geometry, material);
       _overlay.name = 'fumoca-spark-selection-overlay';
       _overlay.renderOrder = 20;
-      (window.FumocaPresentation?.host?.() || scene).add(_overlay);
+      scene.add(_overlay);
+      window.FumocaPresentation?.adoptVisuals?.();
     }
     const THREE = window.THREE;
     const geometry = new THREE.BufferGeometry();
@@ -175,17 +176,21 @@ const SparkGaussianView = (() => {
     return out;
   }
 
+  function _unparent(obj) {
+    try { obj?.parent?.remove(obj); } catch (_) {}
+  }
+
   async function loadFromBytes(bytes, fileName = 'scene.ply') {
     await _ensureSpark();
     const scene = _scene();
     const { SplatMesh } = await import('@sparkjsdev/spark');
-    if (_mesh) { scene.remove(_mesh); _mesh.dispose?.(); _mesh = null; }
+    if (_mesh) { _unparent(_mesh); _mesh.dispose?.(); _mesh = null; }
     const fileBytes = bytes instanceof Uint8Array ? new Uint8Array(bytes) : new Uint8Array(bytes.slice ? bytes.slice(0) : bytes);
     _mesh = new SplatMesh({ fileBytes, fileName, enableLod: false, onLoad: () => console.info('[FUMOCA] Spark Gaussian data loaded:', fileName) });
     _mesh.name = 'fumoca-spark-splat';
-    const host = window.FumocaPresentation?.host?.() || scene;
-    host.add(_mesh);
+    scene.add(_mesh);
     if (_mesh.initialized) await _mesh.initialized;
+    window.FumocaPresentation?.adoptVisuals?.();
     return _mesh;
   }
 
@@ -255,7 +260,7 @@ const SparkGaussianView = (() => {
       console.error('[FUMOCA] Spark renderer could not load the source file', error);
       _enabled = false;
       _hideLegacy();
-      if (_mesh) { try { _scene()?.remove(_mesh); _mesh.dispose?.(); } catch (_) {} _mesh = null; }
+      if (_mesh) { try { _unparent(_mesh); _mesh.dispose?.(); } catch (_) {} _mesh = null; }
       return false;
     } finally { _loading = false; }
   }
@@ -263,8 +268,8 @@ const SparkGaussianView = (() => {
   function disable() {
     _enabled = false;
     _hideLegacy();
-    if (_overlay) { try { _scene()?.remove(_overlay); _overlay.geometry?.dispose?.(); _overlay.material?.dispose?.(); } catch (_) {} _overlay = null; }
-    if (_mesh) { try { _scene()?.remove(_mesh); _mesh.dispose?.(); } catch (_) {} _mesh = null; }
+    if (_overlay) { try { _unparent(_overlay); _overlay.geometry?.dispose?.(); _overlay.material?.dispose?.(); } catch (_) {} _overlay = null; }
+    if (_mesh) { try { _unparent(_mesh); _mesh.dispose?.(); } catch (_) {} _mesh = null; }
   }
   // Export the current edited Gaussian PLY without flattening it to NIF's
   // 14-float preview representation. This preserves SH coefficients and all
