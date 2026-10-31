@@ -58,7 +58,7 @@ const SparkGaussianView = (() => {
       _overlay = new THREE.Points(geometry, material);
       _overlay.name = 'fumoca-spark-selection-overlay';
       _overlay.renderOrder = 20;
-      scene.add(_overlay);
+      (window.FumocaPresentation?.host?.() || scene).add(_overlay);
     }
     const THREE = window.THREE;
     const geometry = new THREE.BufferGeometry();
@@ -183,7 +183,8 @@ const SparkGaussianView = (() => {
     const fileBytes = bytes instanceof Uint8Array ? new Uint8Array(bytes) : new Uint8Array(bytes.slice ? bytes.slice(0) : bytes);
     _mesh = new SplatMesh({ fileBytes, fileName, enableLod: false, onLoad: () => console.info('[FUMOCA] Spark Gaussian data loaded:', fileName) });
     _mesh.name = 'fumoca-spark-splat';
-    scene.add(_mesh);
+    const host = window.FumocaPresentation?.host?.() || scene;
+    host.add(_mesh);
     if (_mesh.initialized) await _mesh.initialized;
     return _mesh;
   }
