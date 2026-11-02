@@ -49,3 +49,22 @@ The browser extractor builds an anisotropic Gaussian density field and extracts 
 The smoke test encodes a small synthetic scene with both Gaussian and mesh layers into NIF, decodes it, and checks that both layers and their geometry survive independently. The workflow also checks JavaScript syntax and Python reconstruction-worker syntax.
 
 A passing smoke test does not replace a real capture test. Production readiness still requires a real PLY/NIF scan, visual inspection in Studio and the public viewer, geometry comparison, and a calibrated dimension check before print accuracy is claimed.
+
+
+## Gaussian surface reconstruction v2 work
+
+The follow-up reconstruction branch improves two mathematical inputs to the
+surface field without changing the dual-representation product contract:
+
+- Source quaternions are normalized before rotating sample offsets into each
+  Gaussian's local covariance frame. Non-unit quaternions must not distort the
+  reconstructed ellipsoid.
+- Automatic isosurface selection now uses a bounded quantile of occupied
+  density voxels, clamped to 12–38% of peak density. This avoids the previous
+  histogram-gradient heuristic selecting a low-density tail and producing an
+  excessively inflated shell.
+
+These are targeted reconstruction-quality corrections, not a claim that the
+density-field method now reproduces every physical surface. The result still
+requires visual comparison on real scans at several threshold values and
+resolutions. The original Gaussian layer remains untouched.
