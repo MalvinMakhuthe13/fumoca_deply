@@ -2512,9 +2512,22 @@ window.previewSolidMesh = (mesh, options = {}) => {
     }
     geometry.setIndex(new THREE.BufferAttribute(mesh.triangles, 1));
     geometry.computeVertexNormals();
-    const material = new THREE.MeshStandardMaterial({ vertexColors: !!mesh.colours, color: mesh.colours ? 0xffffff : 0x9ab3c7, roughness: 0.72, metalness: 0.05, side: THREE.DoubleSide });
+    const initialOpacity = Math.max(0.05, Math.min(1, Number(options.opacity ?? 0.38)));
+    const material = new THREE.MeshStandardMaterial({
+      vertexColors: !!mesh.colours,
+      color: mesh.colours ? 0xffffff : 0x9ab3c7,
+      roughness: 0.72,
+      metalness: 0.05,
+      side: THREE.DoubleSide,
+      transparent: initialOpacity < 0.999,
+      opacity: initialOpacity,
+      depthWrite: initialOpacity >= 0.999,
+    });
     _solidMeshPreviewObject = new THREE.Mesh(geometry, material);
     _solidMeshPreviewObject.name = 'FUMOCA extracted solid mesh';
+    // Draw the translucent reconstruction after the Gaussian layer so both
+    // representations remain legible in hybrid mode.
+    _solidMeshPreviewObject.renderOrder = 10;
     _solidMeshPreviewObject.frustumCulled = false;
     scene.add(_solidMeshPreviewObject);
     _solidMeshPreviewData = mesh;
@@ -2527,6 +2540,10 @@ window.previewSolidMesh = (mesh, options = {}) => {
   _solidMeshPreviewObject.material.emissiveIntensity = Math.max(0, Math.min(2, Number(options.light) || 0));
   _solidMeshPreviewObject.material.roughness = Math.max(0.05, Math.min(1, Number(options.roughness) || 0.72));
   _solidMeshPreviewObject.material.metalness = Math.max(0, Math.min(1, Number(options.metalness) || 0));
+  const opacity = Math.max(0.05, Math.min(1, Number(options.opacity ?? 0.38)));
+  _solidMeshPreviewObject.material.opacity = opacity;
+  _solidMeshPreviewObject.material.transparent = opacity < 0.999;
+  _solidMeshPreviewObject.material.depthWrite = opacity >= 0.999;
   _solidMeshPreviewObject.material.needsUpdate = true;
 };
 window.fitLidarToScene = () => {
@@ -3939,6 +3956,14 @@ function exportFile(type = 'splat') {
   let blob, name;
   const currentRows = _encodeSplatRows(idx);
   if (type === 'nif') {
+    // A mesh is derived from a specific Gaussian state. Never package a stale
+    // solid with edited source points and imply that the two still correspond.
+    const meshFreshness = window.FUMOCA_StudioMeshPrint?.checkSourceFreshness?.();
+    if (meshFreshness && !meshFreshness.ok) {
+      showToast('Solid mesh needs refresh', meshFreshness.message, 'warn');
+      setStatus(meshFreshness.message, 'warn');
+      return;
+    }
     // Real .nif export — canonical 14-float/point chunked binary, not a
     // renamed .splat. Carries forward the source file's meta/thumbnail when
     // this file was itself loaded from a .nif (S.nifMeta/S.nifThumbnailBytes).
@@ -5126,6 +5151,8 @@ window.saveLiveEdit = async function saveLiveEdit(extra = {}) {
       const aliveIdx = [];
       for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) aliveIdx.push(i);
       const hasSh = (S.shAttributes || []).length > 0;
+      const meshFreshness = window.FUMOCA_StudioMeshPrint?.checkSourceFreshness?.();
+      if (!hasSh && meshFreshness && !meshFreshness.ok) throw new Error(meshFreshness.message);
       const savedBlob = hasSh ? _encodeGaussianPly(aliveIdx) : new Blob([encodeNif({
         sourceBuffer: rowBytes,
         aliveIndices: Array.from({ length: aliveIdx.length }, (_, i) => i),

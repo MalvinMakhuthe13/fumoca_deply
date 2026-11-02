@@ -1,4 +1,5 @@
 import FumocMeshExtractor from './fumoc-mesh-extractor.js';
+import { computeGaussianSourceSignature, compareGaussianSourceSignature } from './dual-surface-contract.js';
 import { exportSelectionAsFigurine, pollPrintJob } from './print-export.js';
 import r2 from '../r2Client.js';
 import { supabase } from '../supabaseClient.js';
@@ -42,8 +43,12 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
             <option value="stl">STL - scale to print height</option>
           </select>
         </label>
-        <label style="display:flex;align-items:center;gap:7px;font-size:11px;margin:6px 0"><input id="meshPreviewToggle" type="checkbox" disabled> Show mesh object</label>
-        <label style="display:flex;align-items:center;gap:7px;font-size:11px;margin:6px 0"><input id="meshSplatLayerToggle" type="checkbox" checked> Show splat object</label>
+        <label style="display:flex;align-items:center;gap:7px;font-size:11px;margin:6px 0"><input id="meshPreviewToggle" type="checkbox" disabled> Show solid mesh</label>
+        <label style="display:flex;align-items:center;gap:7px;font-size:11px;margin:6px 0"><input id="meshSplatLayerToggle" type="checkbox" checked> Show original Gaussian splat</label>
+        <label style="display:block;font-size:11px;margin-top:8px">Hybrid mesh opacity <span id="meshPreviewOpacityVal" style="float:right;color:var(--neon)">38%</span>
+          <input id="meshPreviewOpacity" type="range" min="0.05" max="1" step="0.01" value="0.38" style="width:100%">
+        </label>
+        <div class="hint">Keep both layers enabled to compare the reconstructed surface against the untouched splat. Lower opacity reveals the original Gaussian detail through the solid surface.</div>
         <label style="display:block;font-size:11px">Preview light <input id="meshPreviewLight" type="range" min="0" max="2" step="0.05" value="0.25" style="width:100%"></label>
         <label style="display:block;font-size:11px">Surface roughness <input id="meshPreviewRoughness" type="range" min="0.05" max="1" step="0.05" value="0.72" style="width:100%"></label>
         <label style="display:block;font-size:11px">Metalness <input id="meshPreviewMetalness" type="range" min="0" max="1" step="0.05" value="0.05" style="width:100%"></label>
@@ -111,20 +116,42 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
   let lastMeshFormat = 'ply';
   let lastMeshData = null;
   let lastMeshStats = null;
+  let lastMeshSourceSignature = null;
+  const checkSourceFreshness = () => {
+    if (!window.S?.nifMesh) return { ok: true, message: '' };
+    return compareGaussianSourceSignature(window.S, lastMeshSourceSignature);
+  };
   const syncNifMesh = (mesh) => {
     lastMeshData = mesh || null;
+    if (mesh) {
+      const currentSignature = computeGaussianSourceSignature(window.S);
+      const persistedSignature = window.S?.nifMeta?.dual_surface_source_signature;
+      lastMeshSourceSignature = persistedSignature || currentSignature;
+      // Older NIF files predate the signature contract. Adopt their co-stored
+      // Gaussian/mesh pair as the baseline and persist the baseline on next save.
+      if (!persistedSignature && currentSignature && window.S) {
+        window.S.nifMeta = { ...(window.S.nifMeta || {}), dual_surface_source_signature: currentSignature };
+      }
+    } else {
+      lastMeshSourceSignature = null;
+    }
     const previewToggle = container.querySelector('#meshPreviewToggle');
     if (previewToggle) {
       previewToggle.disabled = !lastMeshData;
       previewToggle.checked = !!lastMeshData;
     }
     if (lastMeshData) {
-      window.previewSolidMesh?.(lastMeshData, { visible: true });
+      window.previewSolidMesh?.(lastMeshData, {
+        visible: true,
+        opacity: Number(container.querySelector('#meshPreviewOpacity')?.value || 0.38),
+      });
       lastMeshStats = FumocMeshExtractor.validateWatertight(lastMeshData);
       lastMesh = makeMeshBlob();
+      // Keep the source Gaussian layer visible. The default is a true hybrid
+      // view: original splat + reconstructed mesh, independently toggleable.
       const splatToggle = container.querySelector('#meshSplatLayerToggle');
-      if (splatToggle) splatToggle.checked = false;
-      if (window.S?.points) window.S.points.visible = false;
+      if (splatToggle) splatToggle.checked = true;
+      if (window.S?.points) window.S.points.visible = true;
       container.querySelector('#meshFillHolesBtn').disabled = false;
       container.querySelector('#meshRemoveFloatersBtn').disabled = false;
       container.querySelector('#saveMeshBtn').disabled = !lastMeshData.colours;
@@ -138,8 +165,15 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     light: Number(container.querySelector('#meshPreviewLight')?.value || 0.25),
     roughness: Number(container.querySelector('#meshPreviewRoughness')?.value || 0.72),
     metalness: Number(container.querySelector('#meshPreviewMetalness')?.value || 0.05),
+    opacity: Number(container.querySelector('#meshPreviewOpacity')?.value || 0.38),
   });
   container.querySelector('#meshPreviewToggle')?.addEventListener('change', updateMeshPreview);
+  container.querySelector('#meshPreviewOpacity')?.addEventListener('input', (event) => {
+    const value = Number(event.target.value);
+    const label = container.querySelector('#meshPreviewOpacityVal');
+    if (label) label.textContent = Math.round(value * 100) + '%';
+    updateMeshPreview();
+  });
   container.querySelector('#meshSplatLayerToggle')?.addEventListener('change', (event) => {
     if (window.S?.points) window.S.points.visible = event.target.checked;
   });
@@ -173,7 +207,8 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     window.previewSolidMesh?.(lastMeshData, { visible: true,
       light: Number(container.querySelector('#meshPreviewLight')?.value || 0.25),
       roughness: Number(container.querySelector('#meshPreviewRoughness')?.value || 0.72),
-      metalness: Number(container.querySelector('#meshPreviewMetalness')?.value || 0.05) });
+      metalness: Number(container.querySelector('#meshPreviewMetalness')?.value || 0.05),
+      opacity: Number(container.querySelector('#meshPreviewOpacity')?.value || 0.38) });
     window.dispatchEvent(new CustomEvent('fumoca:solidMeshReady', { detail: { mesh: lastMeshData, stats: lastMeshStats } }));
     meshStatus(`${message} Mesh now has ${lastMeshStats.triangles.toLocaleString()} faces; ${lastMeshStats.watertight ? 'watertight' : `${lastMeshStats.openEdges} open edges remain`}.`);
   };
@@ -182,6 +217,8 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
   const extractMesh = async () => {
     const state = window.S;
     if (!state?.positions || !state?.alive) { meshStatus('Load a splat or PLY before extracting a mesh.'); return false; }
+    const extractionSourceSignature = computeGaussianSourceSignature(state);
+    if (!extractionSourceSignature) { meshStatus('The current Gaussian source is empty or invalid.'); return false; }
     if (lastMeshData) window.previewSolidMesh?.(lastMeshData, { visible: false });
     lastMesh = null;
     lastMeshData = null;
@@ -236,9 +273,21 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         format, previewColours: true, name: 'fumoca-mesh', smooth,
         onProgress: (_pct, label) => meshStatus(label),
       });
+      // Extraction is asynchronous. If the user edits the splat while the
+      // worker is building the surface, discard the result rather than pairing
+      // geometry from an old snapshot with the newly edited Gaussian state.
+      const currentSourceSignature = computeGaussianSourceSignature(window.S);
+      if (currentSourceSignature !== extractionSourceSignature) {
+        throw new Error('The Gaussian source changed while the mesh was extracting. The result was discarded; run Extract mesh again.');
+      }
       lastMeshData = { ...result.mesh, vertices: result.mesh.vertices.slice(), triangles: result.mesh.triangles.slice(), colours: result.mesh.colours?.slice() };
-      // Preserve the extracted surface as a separate NIF mesh component.
-      if (window.S) window.S.nifMesh = lastMeshData;
+      // Preserve the extracted surface as a separate NIF mesh component and
+      // persist the exact source signature with the NIF metadata.
+      if (window.S) {
+        window.S.nifMesh = lastMeshData;
+        window.S.nifMeta = { ...(window.S.nifMeta || {}), dual_surface_source_signature: extractionSourceSignature };
+      }
+      lastMeshSourceSignature = extractionSourceSignature;
       if (format === 'stl') {
         // Print scaling belongs only to the STL download, not the scene mesh
         // retained for NIF export or preview.
@@ -270,9 +319,11 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       previewToggle.checked = true;
       container.querySelector('#meshFillHolesBtn').disabled = false;
       container.querySelector('#meshRemoveFloatersBtn').disabled = false;
+      // Keep the source Gaussian renderer active after extraction. Users can
+      // inspect both representations together or hide either layer manually.
       const splatToggle = container.querySelector('#meshSplatLayerToggle');
-      if (splatToggle) splatToggle.checked = false;
-      if (state.points) state.points.visible = false;
+      if (splatToggle) splatToggle.checked = true;
+      if (state.points) state.points.visible = true;
       updateMeshPreview();
       window.dispatchEvent(new CustomEvent('fumoca:solidMeshReady', { detail: { mesh: lastMeshData, stats: lastMeshStats } }));
       container.querySelector('#saveMeshBtn').disabled = !result.mesh.colours;
@@ -282,7 +333,12 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       return false;
     }
   };
-  window.FUMOCA_StudioMeshPrint = { mountMeshPrintPanel, extractMesh, get lastStats() { return lastMeshStats; } };
+  window.FUMOCA_StudioMeshPrint = {
+    mountMeshPrintPanel,
+    extractMesh,
+    checkSourceFreshness,
+    get lastStats() { return lastMeshStats; },
+  };
   container.querySelector('#meshExtractBtn')?.addEventListener('click', extractMesh);
 
   container.querySelector('#meshFillHolesBtn')?.addEventListener('click', () => {
