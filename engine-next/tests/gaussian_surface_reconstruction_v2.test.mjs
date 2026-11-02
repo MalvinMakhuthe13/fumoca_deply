@@ -108,6 +108,30 @@ test('density bounds include rotated three-sigma Gaussian support', async () => 
     'world Z bounds must include the short-axis support');
 });
 
+test('extractMesh uses directional bridging and returns bridge diagnostics', async () => {
+  const result = await FumocMeshExtractor.extractMesh({
+    N: 1,
+    posX: new Float32Array([0]), posY: new Float32Array([0]), posZ: new Float32Array([0]),
+    sclX: new Float32Array([Math.log(0.12)]),
+    sclY: new Float32Array([Math.log(0.12)]),
+    sclZ: new Float32Array([Math.log(0.12)]),
+    rotW: new Float32Array([1]), rotX: new Float32Array([0]),
+    rotY: new Float32Array([0]), rotZ: new Float32Array([0]),
+    colA: new Float32Array([255]),
+  }, {
+    resolution: 20,
+    sigmaScale: 1,
+    densityBridgingPasses: 1,
+    smooth: 0,
+    transferColours: false,
+    format: 'stl',
+  });
+  assert.ok(result.stats.triangles > 0);
+  assert.equal(result.stats.densityBridging.method, 'opposed-support-cavity-bridge');
+  assert.equal(result.stats.densityBridging.passes, 1);
+  assert.ok(result.stats.openEdges >= 0);
+});
+
 test('density regularization bridges a one-voxel gap without mutating the source field', () => {
   const R = 7;
   const density = new Float32Array(R * R * R);
