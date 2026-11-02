@@ -44,7 +44,7 @@ Pipeline stages:
 
 Requirements:
   pip install gsplat torch torchvision rembg segment-anything-2 depth-anything boto3 \
-              supabase trimesh scikit-image scipy manifold3d fast_simplification \
+              supabase trimesh scikit-image scipy fast_simplification \
               imageio[ffmpeg] Pillow requests
 """
 
