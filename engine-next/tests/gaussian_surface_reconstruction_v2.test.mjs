@@ -25,12 +25,12 @@ test('auto threshold does not follow a tiny low-density tail', () => {
 
 test('non-unit Gaussian quaternions produce the same density as normalized quaternions', async () => {
   const makeGaussian = (qScale) => ({
-    N: 1,
-    posX: new Float32Array([0]), posY: new Float32Array([0]), posZ: new Float32Array([0]),
-    sclX: new Float32Array([Math.log(0.18)]), sclY: new Float32Array([Math.log(0.08)]), sclZ: new Float32Array([Math.log(0.12)]),
-    rotW: new Float32Array([Math.SQRT1_2 * qScale]), rotX: new Float32Array([0]),
-    rotY: new Float32Array([0]), rotZ: new Float32Array([Math.SQRT1_2 * qScale]),
-    colA: new Float32Array([255]),
+    N: 2,
+    posX: new Float32Array([-0.1, 0.1]), posY: new Float32Array([0, 0]), posZ: new Float32Array([0, 0]),
+    sclX: new Float32Array([Math.log(0.18), Math.log(0.18)]), sclY: new Float32Array([Math.log(0.08), Math.log(0.08)]), sclZ: new Float32Array([Math.log(0.12), Math.log(0.12)]),
+    rotW: new Float32Array([Math.SQRT1_2 * qScale, Math.SQRT1_2 * qScale]), rotX: new Float32Array([0, 0]),
+    rotY: new Float32Array([0, 0]), rotZ: new Float32Array([Math.SQRT1_2 * qScale, Math.SQRT1_2 * qScale]),
+    colA: new Float32Array([255, 255]),
   });
   const a = await buildDensityField(makeGaussian(1), { resolution: 18, sigmaScale: 1.2 });
   const b = await buildDensityField(makeGaussian(3.7), { resolution: 18, sigmaScale: 1.2 });
