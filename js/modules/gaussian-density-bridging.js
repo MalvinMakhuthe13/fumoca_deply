@@ -37,6 +37,9 @@ export function bridgeDensityField(field, iterations = 1, options = {}) {
     for (let z = 1; z < R - 1; z++) for (let y = 1; y < R - 1; y++) for (let x = 1; x < R - 1; x++) {
       const index = z * plane + y * R + x;
       const center = current[index];
+      // A candidate cannot pass the local cavity test if it already exceeds
+      // the cavity fraction of the global maximum (localMean cannot be higher).
+      if (center >= maxDensity * relativeCavity) continue;
       let supportSum = 0, supportCount = 0, opposingPairs = 0;
       for (const [dx, dy, dz] of directions) {
         const a = current[(z + dz) * plane + (y + dy) * R + x + dx];
