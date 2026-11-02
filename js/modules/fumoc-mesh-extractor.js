@@ -322,10 +322,20 @@ async function buildDensityField(gaussians, opts = {}) {
       const invVx = 1 / (2 * sx * sx * sigmaScale * sigmaScale);
       const invVy = 1 / (2 * sy * sy * sigmaScale * sigmaScale);
       const invVz = 1 / (2 * sz * sz * sigmaScale * sigmaScale);
-      const qw = gaussians.rotW?.[i] ?? 1;
-      const qx = gaussians.rotX?.[i] ?? 0;
-      const qy = gaussians.rotY?.[i] ?? 0;
-      const qz = gaussians.rotZ?.[i] ?? 0;
+      // Normalize the source quaternion before rotating into Gaussian-local
+      // space. Imported/editable splats can contain slightly non-unit values;
+      // using them directly distorts the covariance and inflates the surface.
+      let qw = gaussians.rotW?.[i] ?? 1;
+      let qx = gaussians.rotX?.[i] ?? 0;
+      let qy = gaussians.rotY?.[i] ?? 0;
+      let qz = gaussians.rotZ?.[i] ?? 0;
+      const qLength = Math.hypot(qw, qx, qy, qz);
+      if (qLength > 1e-8) {
+        const qInv = 1 / qLength;
+        qw *= qInv; qx *= qInv; qy *= qInv; qz *= qInv;
+      } else {
+        qw = 1; qx = qy = qz = 0;
+      }
 
       // Voxel-space centre
       const vcx = (cx - minX) / voxelSize;
@@ -954,45 +964,44 @@ end_header
  * the absolute density values, which vary per scene.
  */
 function autoTuneThreshold(density) {
-  // Build a 100-bin histogram of non-zero densities
-  const N = density.length;
+  // Use the positive-density distribution rather than the steepest raw
+  // histogram drop. The old derivative heuristic often selected a very low
+  // tail bin, producing an oversized, blobby shell. A robust quantile gives a
+  // repeatable boundary level across differently scaled captures.
   let maxD = 0;
-  for (let i = 0; i < N; i++) if (density[i] > maxD) maxD = density[i];
-  if (maxD === 0) return 0.5;
+  let positiveCount = 0;
+  for (let i = 0; i < density.length; i++) {
+    const value = density[i];
+    if (Number.isFinite(value) && value > 0) {
+      if (value > maxD) maxD = value;
+      positiveCount++;
+    }
+  }
+  if (!positiveCount || !(maxD > 0)) return 0.5;
 
-  const BINS = 100;
-  const hist = new Uint32Array(BINS);
-  for (let i = 0; i < N; i++) {
-    if (density[i] > 0) {
-      const b = Math.min(BINS - 1, Math.floor(density[i] / maxD * BINS));
-      hist[b]++;
+  const BINS = 512;
+  const histogram = new Uint32Array(BINS);
+  const invMax = (BINS - 1) / maxD;
+  for (let i = 0; i < density.length; i++) {
+    const value = density[i];
+    if (Number.isFinite(value) && value > 0) {
+      const bin = Math.min(BINS - 1, Math.floor(value * invMax));
+      histogram[bin]++;
     }
   }
 
-  // Smooth the histogram (3-tap)
-  const smooth = new Float32Array(BINS);
-  for (let b = 0; b < BINS; b++) {
-    smooth[b] = (hist[Math.max(0,b-1)] + hist[b]*2 + hist[Math.min(BINS-1,b+1)]) / 4;
+  // Select the 62nd percentile of occupied voxels. Clamp it to a useful
+  // fraction of the peak so sparse tails cannot pull the surface outward and
+  // a few dense overlaps cannot push the threshold into the interior.
+  const target = Math.ceil(positiveCount * 0.62);
+  let cumulative = 0;
+  let quantileBin = 0;
+  for (; quantileBin < BINS; quantileBin++) {
+    cumulative += histogram[quantileBin];
+    if (cumulative >= target) break;
   }
-
-  // The surface boundary sits at the inflection point — where the
-  // density distribution transitions from "lots of low-density empty"
-  // to "fewer high-density solid". Find the bin where the log-derivative
-  // changes most sharply.
-  let bestBin = BINS / 4;
-  let bestDelta = 0;
-  for (let b = 5; b < BINS - 5; b++) {
-    // Compare average count in (b-5..b) vs (b..b+5)
-    let before = 0, after = 0;
-    for (let k = 0; k < 5; k++) {
-      before += smooth[b - k - 1];
-      after  += smooth[b + k];
-    }
-    const delta = before - after; // positive = transition from many to few
-    if (delta > bestDelta) { bestDelta = delta; bestBin = b; }
-  }
-
-  return (bestBin / BINS) * maxD;
+  const quantile = (quantileBin / (BINS - 1)) * maxD;
+  return Math.max(maxD * 0.12, Math.min(maxD * 0.38, quantile));
 }
 
 /**
