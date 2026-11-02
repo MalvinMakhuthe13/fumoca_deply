@@ -73,6 +73,8 @@
 
 'use strict';
 
+import { bridgeDensityField } from './gaussian-density-bridging.js';
+
 // ═══ MARCHING CUBES TABLES ═══════════════════════════════════════════════════
 // Edge table: which of the 12 edges are intersected for each of 256 cases.
 // Triangle table: which edges form triangles for each case.
@@ -1217,13 +1219,14 @@ async function extractMesh(gaussians, opts = {}) {
     densitySmoothing = 1,        // pre-MC voxel regularization passes (0–3)
     minComponentTriangles = 32,   // discard tiny disconnected MC islands
   } = opts;
+  const densityBridgingPasses = opts.densityBridgingPasses ?? densitySmoothing;
 
   // Stage 1: density field
   let field = await buildDensityField(gaussians, { resolution, sigmaScale, onProgress });
   if (densitySmoothing > 0) {
-    onProgress?.(46, 'Connecting nearby Gaussian density…');
+    onProgress?.(46, 'Bridging only locally enclosed density gaps…');
     await _yield();
-    field = smoothDensityField(field, densitySmoothing);
+    field = bridgeDensityField(field, densityBridgingPasses);
   }
 
   // Stage 1b: auto-tune threshold if not specified
@@ -1306,7 +1309,8 @@ async function extractMesh(gaussians, opts = {}) {
     threshold: useThreshold,
     sigmaScale,
     smoothing: { method: 'taubin', iterations: smooth, lambda: smoothLambda },
-    densitySmoothing: field.densitySmoothing || 0,
+    densityBridging: field.densityBridging || { passes: 0, bridgedVoxels: 0, method: 'disabled' },
+    densitySmoothing: 0,
     componentCleanup: { minTriangles: Math.max(0, Number(minComponentTriangles) || 0), removedComponents: componentCleanup.removedComponents, removedTriangles: componentCleanup.removedTriangles },
     format,
   };
@@ -1328,6 +1332,7 @@ const FumocMeshExtractor = {
   taubinSmooth,
   autoTuneThreshold,
   smoothDensityField,
+  bridgeDensityField,
   transferColours,
   validateWatertight,
   fillSmallHoles,
