@@ -21,8 +21,7 @@ export function selectVisibleScreenPoints({
     if (!isAlive(i)) continue;
     const p = project(i);
     if (!p || p.visible === false || !Number.isFinite(p.x) ||
-        !Number.isFinite(p.y) || !Number.isFinite(p.depth) || p.depth <= 0 ||
-        !contains(p.x, p.y)) continue;
+        !Number.isFinite(p.y) || !Number.isFinite(p.depth) || p.depth <= 0) continue;
     projected[i] = p;
     const key = keyFor(p.x, p.y);
     const old = nearest.get(key);
@@ -32,7 +31,7 @@ export function selectVisibleScreenPoints({
   const indices = [];
   for (let i = 0; i < projected.length; i++) {
     const p = projected[i];
-    if (!p) continue;
+    if (!p || !contains(p.x, p.y)) continue;
     const front = nearest.get(keyFor(p.x, p.y));
     const tolerance = Math.max(0.004, Math.abs(front) * depthTolerance);
     if (p.depth <= front + tolerance) indices.push(i);
