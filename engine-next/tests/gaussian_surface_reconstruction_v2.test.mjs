@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 globalThis.window = globalThis.window || {};
-const { autoTuneThreshold, buildDensityField } = await import('../../js/modules/fumoc-mesh-extractor.js');
+const { default: FumocMeshExtractor } = await import('../../js/modules/fumoc-mesh-extractor.js');
+const { autoTuneThreshold, buildDensityField } = FumocMeshExtractor;
 
 test('auto threshold is positive, bounded and scale invariant', () => {
   const density = new Float32Array(1000);
