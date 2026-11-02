@@ -92,3 +92,9 @@ missing scan regions. The pass count is configurable from 0 to 3 through
 `densitySmoothing`; the Studio extraction path uses one pass by default.
 The voxel operation is covered by regression tests for local gap continuity,
 constant-field preservation, and source immutability.
+
+A second continuity safeguard removes tiny disconnected triangle islands during
+normal extraction using the Studio's `Remove islands smaller than` face cutoff
+(default 32). The largest component is always retained. This only removes
+small detached fragments; it does not fuse separated major shells or perform
+object-aware segmentation. The cutoff can be set to zero to retain all islands.
