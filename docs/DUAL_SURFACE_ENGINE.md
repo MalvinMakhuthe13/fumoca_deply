@@ -68,3 +68,14 @@ These are targeted reconstruction-quality corrections, not a claim that the
 density-field method now reproduces every physical surface. The result still
 requires visual comparison on real scans at several threshold values and
 resolutions. The original Gaussian layer remains untouched.
+
+
+### Renderer-aligned Gaussian covariance
+
+The reconstruction density evaluates offsets in Gaussian-local coordinates using
+the inverse of the normalized source quaternion. This matches the renderer's
+world covariance convention (R * diag(scale²) * Rᵀ). Applying the forward
+quaternion to world offsets would mirror general 3D orientations and make the
+extracted mesh disagree with the visible Gaussian ellipsoids. A regression test
+uses a non-axis-aligned 3D quaternion and verifies that the density's major axis
+follows the renderer orientation.
