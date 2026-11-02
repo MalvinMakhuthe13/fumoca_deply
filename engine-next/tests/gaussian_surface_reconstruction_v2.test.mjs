@@ -87,6 +87,27 @@ test('anisotropic density follows the renderer forward quaternion orientation', 
   );
 });
 
+test('density bounds include rotated three-sigma Gaussian support', async () => {
+  const q = { w: Math.SQRT1_2, x: 0, y: 0, z: Math.SQRT1_2 };
+  const field = await buildDensityField({
+    N: 1,
+    posX: new Float32Array([0]), posY: new Float32Array([0]), posZ: new Float32Array([0]),
+    sclX: new Float32Array([Math.log(0.2)]),
+    sclY: new Float32Array([Math.log(0.04)]),
+    sclZ: new Float32Array([Math.log(0.03)]),
+    rotW: new Float32Array([q.w]), rotX: new Float32Array([q.x]),
+    rotY: new Float32Array([q.y]), rotZ: new Float32Array([q.z]),
+    colA: new Float32Array([255]),
+  }, { resolution: 48, sigmaScale: 1 });
+  // A 90-degree Z rotation swaps the long X and short Y support axes.
+  assert.ok(field.bounds.max.x >= 0.11 && field.bounds.min.x <= -0.11,
+    'world X bounds must include the rotated long-axis support');
+  assert.ok(field.bounds.max.y >= 0.59 && field.bounds.min.y <= -0.59,
+    'world Y bounds must include the rotated long-axis support');
+  assert.ok(field.bounds.max.z >= 0.09 && field.bounds.min.z <= -0.09,
+    'world Z bounds must include the short-axis support');
+});
+
 test('density regularization bridges a one-voxel gap without mutating the source field', () => {
   const R = 7;
   const density = new Float32Array(R * R * R);
