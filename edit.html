@@ -2512,7 +2512,17 @@ window.previewSolidMesh = (mesh, options = {}) => {
     }
     geometry.setIndex(new THREE.BufferAttribute(mesh.triangles, 1));
     geometry.computeVertexNormals();
-    const material = new THREE.MeshStandardMaterial({ vertexColors: !!mesh.colours, color: mesh.colours ? 0xffffff : 0x9ab3c7, roughness: 0.72, metalness: 0.05, side: THREE.DoubleSide });
+    const initialOpacity = Math.max(0.05, Math.min(1, Number(options.opacity ?? 0.38)));
+    const material = new THREE.MeshStandardMaterial({
+      vertexColors: !!mesh.colours,
+      color: mesh.colours ? 0xffffff : 0x9ab3c7,
+      roughness: 0.72,
+      metalness: 0.05,
+      side: THREE.DoubleSide,
+      transparent: initialOpacity < 0.999,
+      opacity: initialOpacity,
+      depthWrite: initialOpacity >= 0.999,
+    });
     _solidMeshPreviewObject = new THREE.Mesh(geometry, material);
     _solidMeshPreviewObject.name = 'FUMOCA extracted solid mesh';
     _solidMeshPreviewObject.frustumCulled = false;
@@ -2527,6 +2537,10 @@ window.previewSolidMesh = (mesh, options = {}) => {
   _solidMeshPreviewObject.material.emissiveIntensity = Math.max(0, Math.min(2, Number(options.light) || 0));
   _solidMeshPreviewObject.material.roughness = Math.max(0.05, Math.min(1, Number(options.roughness) || 0.72));
   _solidMeshPreviewObject.material.metalness = Math.max(0, Math.min(1, Number(options.metalness) || 0));
+  const opacity = Math.max(0.05, Math.min(1, Number(options.opacity ?? 0.38)));
+  _solidMeshPreviewObject.material.opacity = opacity;
+  _solidMeshPreviewObject.material.transparent = opacity < 0.999;
+  _solidMeshPreviewObject.material.depthWrite = opacity >= 0.999;
   _solidMeshPreviewObject.material.needsUpdate = true;
 };
 window.fitLidarToScene = () => {
