@@ -1177,6 +1177,7 @@ async function extractMesh(gaussians, opts = {}) {
     smooth          = 2,         // Taubin mesh smoothing iterations
     smoothLambda    = 0.5,       // smoothing strength
     densitySmoothing = 1,        // pre-MC voxel regularization passes (0–3)
+    minComponentTriangles = 32,   // discard tiny disconnected MC islands
   } = opts;
 
   // Stage 1: density field
@@ -1218,6 +1219,12 @@ async function extractMesh(gaussians, opts = {}) {
   if (mesh.triangles.length === 0) {
     throw new Error('[MeshExtractor] No surface formed from this point cloud. Increase splat scale or use a denser capture.');
   }
+
+  // Remove isolated speckle components as part of the normal extraction path.
+  // The largest component is always preserved; users can set the face cutoff
+  // to zero to retain every component, or run the repair control afterwards.
+  const componentCleanup = removeSmallComponents(mesh, minComponentTriangles);
+  mesh = componentCleanup.mesh;
 
   // Stage 2b: Taubin smoothing softens MC stair-stepping with less shrinkage.
   if (smooth > 0) {
@@ -1262,6 +1269,7 @@ async function extractMesh(gaussians, opts = {}) {
     sigmaScale,
     smoothing: { method: 'taubin', iterations: smooth, lambda: smoothLambda },
     densitySmoothing: field.densitySmoothing || 0,
+    componentCleanup: { minTriangles: Math.max(0, Number(minComponentTriangles) || 0), removedComponents: componentCleanup.removedComponents, removedTriangles: componentCleanup.removedTriangles },
     format,
   };
 
