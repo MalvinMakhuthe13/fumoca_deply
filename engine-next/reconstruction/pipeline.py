@@ -2040,6 +2040,18 @@ class ReconstructionWorker:
                 # existing only means the export step didn't crash.
                 'mesh_watertight':   bool(mesh_info.get('is_watertight')) if mesh_info else False,
                 'mesh_volume_m3':    mesh_info.get('volume_m3') if mesh_info else None,
+                # Preserve measured reconstruction diagnostics with the NIF
+                # record so Studio/viewer QA can distinguish open scan edges,
+                # disconnected fragments and unsupported reconstruction.
+                'mesh_diagnostics': ({
+                    key: mesh_info.get(key) for key in (
+                        'n_verts', 'n_faces', 'n_degenerate_faces',
+                        'n_connected_components', 'n_boundary_edges',
+                        'n_nonmanifold_edges', 'tsdf_coverage_ratio',
+                        'tsdf_observed_voxels', 'normal_component_count',
+                        'mean_surfel_confidence', 'is_watertight',
+                    ) if key in mesh_info
+                } if mesh_info else None),
                 'has_print_export':  bool(stl_bytes) and bool(mesh_info and mesh_info.get('is_watertight')),
                 'calibration_method':     calibration['method'],
                 'calibration_confidence': calibration['confidence'],
