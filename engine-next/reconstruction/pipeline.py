@@ -1650,14 +1650,12 @@ def _confidence_weighted_tsdf(grid: np.ndarray, positions: np.ndarray,
         spacing = tree.query(points, k=2, workers=-1)[0][:, 1]
         valid = spacing[np.isfinite(spacing) & (spacing > 1e-9)]
     else:
+        spacing = np.array([float(voxel_size)], dtype=np.float64)
         valid = np.empty((0,), dtype=np.float64)
     median_spacing = float(np.median(valid)) if len(valid) else float(voxel_size)
     # Isolated points have no measurable local spacing. Use a finite fallback
     # instead of infinity, which would mark the entire volume as observed.
-    local_spacing = np.where(np.isfinite(valid_spacing := (
-        tree.query(points, k=2, workers=-1)[0][:, 1] if len(points) > 1
-        else np.array([median_spacing])
-    )), valid_spacing, median_spacing)
+    local_spacing = np.where(np.isfinite(spacing), spacing, median_spacing)
     local_spacing = np.maximum(local_spacing, median_spacing * 0.25)
     local_spacing = np.minimum(local_spacing, median_spacing * 4.0)
     support_radius = np.minimum(
