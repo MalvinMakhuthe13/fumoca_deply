@@ -1815,6 +1815,7 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
 
 <script type="module">
 import * as THREE from 'three';
+import { selectVisibleScreenPoints } from './js/modules/screen-space-selection.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
@@ -3552,27 +3553,53 @@ function selectSubjectAtScreen(x, y, radius = 28) {
   return true;
 }
 
-function selectByBox(x0, y0, x1, y1) {
-  if (!S.positions) return;
+// Selection is depth-aware: only the front visible layer in each small
+// screen cell is selected. Shift adds another camera view; Alt subtracts.
+function selectVisibleRegion(contains) {
   const vp = document.getElementById('viewport');
   const W = vp.clientWidth, H = vp.clientHeight;
-  const ndcX0 = (Math.min(x0, x1) / W) * 2 - 1, ndcX1 = (Math.max(x0, x1) / W) * 2 - 1;
-  const ndcY0 = -(Math.min(y0, y1) / H) * 2 + 1, ndcY1 = -(Math.max(y0, y1) / H) * 2 + 1;
-  const proj = new THREE.Vector3();
-  pushHistory('box select'); clearSelection();
-  let hits = 0;
-  for (let i = 0; i < S.alive.length; i++) {
-    if (!S.alive[i]) continue;
-    proj.set(S.positions[i * 3], S.positions[i * 3 + 1], S.positions[i * 3 + 2]).project(camera);
-    if (proj.x >= ndcX0 && proj.x <= ndcX1 && proj.y >= Math.min(ndcY0, ndcY1) && proj.y <= Math.max(ndcY0, ndcY1)) { S.selected[i] = 1; hits++; }
-  }
-  rebuildGeometry(); syncTransformGizmo(); setStatus(`Selected ${fmt(hits)} points`);
+  camera.updateMatrixWorld(true);
+  const view = new THREE.Vector3(), projected = new THREE.Vector3();
+  return selectVisibleScreenPoints({
+    count: S.alive.length,
+    isAlive: i => !!S.alive[i] && !S.layerHidden?.[i],
+    project: i => {
+      const x = S.positions[i * 3], y = S.positions[i * 3 + 1], z = S.positions[i * 3 + 2];
+      view.set(x, y, z).applyMatrix4(camera.matrixWorldInverse);
+      projected.set(x, y, z).project(camera);
+      const depth = -view.z;
+      return {
+        x: (projected.x * 0.5 + 0.5) * W,
+        y: (-projected.y * 0.5 + 0.5) * H,
+        depth,
+        visible: depth > 0 && projected.z >= -1 && projected.z <= 1
+      };
+    },
+    contains,
+    cellSize: 4,
+    depthTolerance: 0.006
+  });
 }
 
-function selectByLasso(pts) {
-  if (!S.positions || pts.length < 3) return;
-  const vp = document.getElementById('viewport');
-  const W = vp.clientWidth, H = vp.clientHeight;
+function applyVisibleSelection(indices, { additive = false, subtract = false, label = 'selection' } = {}) {
+  pushHistory(label);
+  if (!additive && !subtract) clearSelection();
+  for (const i of indices) S.selected[i] = subtract ? 0 : 1;
+  rebuildGeometry();
+  syncTransformGizmo();
+  setStatus(`${subtract ? 'Removed' : 'Selected'} ${fmt(indices.length)} visible points · ${fmt(selectedPointCount())} total selected`);
+}
+
+function selectByBox(x0, y0, x1, y1, options = {}) {
+  if (!S.positions || !S.alive) return;
+  const left = Math.min(x0, x1), right = Math.max(x0, x1);
+  const top = Math.min(y0, y1), bottom = Math.max(y0, y1);
+  const indices = selectVisibleRegion((x, y) => x >= left && x <= right && y >= top && y <= bottom);
+  applyVisibleSelection(indices, { ...options, label: 'box select' });
+}
+
+function selectByLasso(pts, options = {}) {
+  if (!S.positions || !S.alive || pts.length < 3) return;
   function inPoly(px, py) {
     let inside = false;
     for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
@@ -3581,15 +3608,8 @@ function selectByLasso(pts) {
     }
     return inside;
   }
-  pushHistory('lasso select'); clearSelection();
-  const proj = new THREE.Vector3(); let hits = 0;
-  for (let i = 0; i < S.alive.length; i++) {
-    if (!S.alive[i]) continue;
-    proj.set(S.positions[i * 3], S.positions[i * 3 + 1], S.positions[i * 3 + 2]).project(camera);
-    const sx = (proj.x * 0.5 + 0.5) * W, sy = (-proj.y * 0.5 + 0.5) * H;
-    if (inPoly(sx, sy)) { S.selected[i] = 1; hits++; }
-  }
-  rebuildGeometry(); syncTransformGizmo(); setStatus(`Selected ${fmt(hits)} points`);
+  const indices = selectVisibleRegion(inPoly);
+  applyVisibleSelection(indices, { ...options, label: 'lasso select' });
 }
 
 function applyBrush(cx, cy) {
@@ -4617,8 +4637,8 @@ window.addEventListener('pointerup', e => {
     if (dx <= 7 && dy <= 7) {
       // A click in Select mode picks the nearest visible subject/layer. Dragging
       // still performs normal box selection.
-      if (!selectSubjectAtScreen(x, y)) selectByBox(S.dragStart.x, S.dragStart.y, S.dragCurrent.x, S.dragCurrent.y);
-    } else selectByBox(S.dragStart.x, S.dragStart.y, S.dragCurrent.x, S.dragCurrent.y);
+      if (!selectSubjectAtScreen(x, y)) selectByBox(S.dragStart.x, S.dragStart.y, S.dragCurrent.x, S.dragCurrent.y, { additive: e.shiftKey, subtract: e.altKey });
+    } else selectByBox(S.dragStart.x, S.dragStart.y, S.dragCurrent.x, S.dragCurrent.y, { additive: e.shiftKey, subtract: e.altKey });
   }
   if (S.mode === 'crop' && S.dragStart && S.dragCurrent) {
     selectByBox(S.dragStart.x,S.dragStart.y,S.dragCurrent.x,S.dragCurrent.y);
@@ -4626,7 +4646,7 @@ window.addEventListener('pointerup', e => {
     for(let i=0;i<S.alive.length;i++) if(S.alive[i]&&!S.selected[i]) S.alive[i]=0;
     S.selected.fill(0); rebuildGeometry(); setStatus('Scene cropped to box selection','ok');
   }
-  if (S.mode === 'lasso' && S.lassoPoints.length >= 3) selectByLasso(S.lassoPoints);
+  if (S.mode === 'lasso' && S.lassoPoints.length >= 3) selectByLasso(S.lassoPoints, { additive: e.shiftKey, subtract: e.altKey });
   if (['box','sphere','lasso'].includes(S.mode)) syncTransformGizmo();
   if (['move','scale-tool','rotate'].includes(S.mode)) { window.FumocaGaussianRenderer?.invalidateSort(); rebuildGeometry(); syncTransformGizmo(); captureGizmoTransform(); _xformIndices = null; _xformPivot = null; _xformStartPos = null; _xformStartScale = null; _xformStartScaleXYZ = null; _xformStartRot = null; _xformAccum = null; }
   _xformPivot = null; _xformIndices = null;
