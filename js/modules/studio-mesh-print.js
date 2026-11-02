@@ -123,7 +123,18 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
   };
   const syncNifMesh = (mesh) => {
     lastMeshData = mesh || null;
-    lastMeshSourceSignature = mesh ? computeGaussianSourceSignature(window.S) : null;
+    if (mesh) {
+      const currentSignature = computeGaussianSourceSignature(window.S);
+      const persistedSignature = window.S?.nifMeta?.dual_surface_source_signature;
+      lastMeshSourceSignature = persistedSignature || currentSignature;
+      // Older NIF files predate the signature contract. Adopt their co-stored
+      // Gaussian/mesh pair as the baseline and persist the baseline on next save.
+      if (!persistedSignature && currentSignature && window.S) {
+        window.S.nifMeta = { ...(window.S.nifMeta || {}), dual_surface_source_signature: currentSignature };
+      }
+    } else {
+      lastMeshSourceSignature = null;
+    }
     const previewToggle = container.querySelector('#meshPreviewToggle');
     if (previewToggle) {
       previewToggle.disabled = !lastMeshData;
@@ -203,6 +214,8 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
   const extractMesh = async () => {
     const state = window.S;
     if (!state?.positions || !state?.alive) { meshStatus('Load a splat or PLY before extracting a mesh.'); return false; }
+    const extractionSourceSignature = computeGaussianSourceSignature(state);
+    if (!extractionSourceSignature) { meshStatus('The current Gaussian source is empty or invalid.'); return false; }
     if (lastMeshData) window.previewSolidMesh?.(lastMeshData, { visible: false });
     lastMesh = null;
     lastMeshData = null;
@@ -257,10 +270,21 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         format, previewColours: true, name: 'fumoca-mesh', smooth,
         onProgress: (_pct, label) => meshStatus(label),
       });
+      // Extraction is asynchronous. If the user edits the splat while the
+      // worker is building the surface, discard the result rather than pairing
+      // geometry from an old snapshot with the newly edited Gaussian state.
+      const currentSourceSignature = computeGaussianSourceSignature(window.S);
+      if (currentSourceSignature !== extractionSourceSignature) {
+        throw new Error('The Gaussian source changed while the mesh was extracting. The result was discarded; run Extract mesh again.');
+      }
       lastMeshData = { ...result.mesh, vertices: result.mesh.vertices.slice(), triangles: result.mesh.triangles.slice(), colours: result.mesh.colours?.slice() };
-      // Preserve the extracted surface as a separate NIF mesh component.
-      if (window.S) window.S.nifMesh = lastMeshData;
-      lastMeshSourceSignature = computeGaussianSourceSignature(window.S);
+      // Preserve the extracted surface as a separate NIF mesh component and
+      // persist the exact source signature with the NIF metadata.
+      if (window.S) {
+        window.S.nifMesh = lastMeshData;
+        window.S.nifMeta = { ...(window.S.nifMeta || {}), dual_surface_source_signature: extractionSourceSignature };
+      }
+      lastMeshSourceSignature = extractionSourceSignature;
       if (format === 'stl') {
         // Print scaling belongs only to the STL download, not the scene mesh
         // retained for NIF export or preview.
