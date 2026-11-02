@@ -350,7 +350,8 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         ? (result.stats.components === 1 ? 'one connected watertight shell' : `${result.stats.components} disconnected watertight shells`)
         : `open surface — ${result.stats.openEdges} open edges${result.stats.components > 1 ? ` across ${result.stats.components} shells` : ''}`;
       const colorNote = format === 'stl' ? ', color kept in preview (STL stores geometry only)' : ', vertex color transferred';
-      meshStatus(`Mesh ready from ${eligibleCount.toLocaleString()} ${selectedOnly ? 'selected' : 'live'} source points (${ids.length.toLocaleString()} sampled): ${result.stats.triangles.toLocaleString()} triangles, ${(lastMesh.size / 1048576).toFixed(2)} MB, ${shellStatus}${colorNote}.`);
+      const bridgeCount = Number(result.stats.densityBridging?.bridgedVoxels || 0);
+      meshStatus(`Mesh ready from ${eligibleCount.toLocaleString()} ${selectedOnly ? 'selected' : 'live'} source points (${ids.length.toLocaleString()} sampled): ${result.stats.triangles.toLocaleString()} triangles, ${(lastMesh.size / 1048576).toFixed(2)} MB, ${shellStatus}, ${bridgeCount.toLocaleString()} density voxels bridged${colorNote}.`);
       const downloadButton = container.querySelector('#printStlBtn');
       downloadButton.disabled = format === 'stl' && !result.stats.printable;
       downloadButton.textContent = downloadButton.disabled ? 'STL needs one closed shell' : `Download ${format.toUpperCase()}`;
@@ -437,6 +438,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
             resolution: lastMeshStats?.resolution ?? null,
             threshold: lastMeshStats?.threshold ?? null,
             sigma_scale: lastMeshStats?.sigmaScale ?? null,
+            density_bridging: lastMeshStats?.densityBridging ?? null,
             smoothing: lastMeshStats?.smoothing ?? null,
           },
         },
