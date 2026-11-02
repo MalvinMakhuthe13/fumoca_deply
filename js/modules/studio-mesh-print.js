@@ -45,6 +45,8 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         </label>
         <label style="display:flex;align-items:center;gap:7px;font-size:11px;margin:6px 0"><input id="meshPreviewToggle" type="checkbox" disabled> Show solid mesh</label>
         <label style="display:flex;align-items:center;gap:7px;font-size:11px;margin:6px 0"><input id="meshSplatLayerToggle" type="checkbox" checked> Show original Gaussian splat</label>
+        <label style="display:flex;align-items:center;gap:7px;font-size:11px;margin:8px 0 4px"><input id="meshSelectedOnly" type="checkbox"> Extract selected splats only</label>
+        <div class="hint">Select the object first with the Studio Select tools, then enable this to exclude the table, floor, and surrounding scan. The source splat is not deleted or changed.</div>
         <label style="display:block;font-size:11px;margin-top:8px">Hybrid mesh opacity <span id="meshPreviewOpacityVal" style="float:right;color:var(--neon)">38%</span>
           <input id="meshPreviewOpacity" type="range" min="0.05" max="1" step="0.01" value="0.38" style="width:100%">
         </label>
@@ -233,8 +235,12 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     try {
       const maxPoints = 250_000;
       const ids = [];
+      const selectedOnly = !!container.querySelector("#meshSelectedOnly")?.checked;
+      if (selectedOnly && !state.selected) throw new Error("No Studio selection is available. Select the object with the Select tools, then retry.");
+      let eligibleCount = 0;
       let skippedSeen=0,randomState=((state.alive.length^0x6d2b79f5)>>>0)||1;
-      for(let i=0;i<state.alive.length;i++)if(state.alive[i]){
+      for(let i=0;i<state.alive.length;i++)if(state.alive[i] && (!selectedOnly || state.selected[i])){
+        eligibleCount++;
         if(ids.length<maxPoints){ids.push(i);continue;}
         skippedSeen++;
         randomState^=randomState<<13;randomState^=randomState>>>17;randomState^=randomState<<5;
@@ -242,7 +248,8 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         if(pick<ids.length)ids[pick]=i;
       }
       ids.sort((a,b)=>a-b);
-      if (ids.length < 50) throw new Error('At least 50 live points are needed for mesh extraction.');
+      if (ids.length < 50) throw new Error(selectedOnly ? "Only " + eligibleCount + " selected live points are available. Select at least 50 points on the object; do not include the support surface." : "At least 50 live points are needed for mesh extraction.");
+      meshStatus("Extracting " + ids.length.toLocaleString() + (selectedOnly ? " selected object points" : " live scene points") + (eligibleCount > maxPoints ? " (sampled from " + eligibleCount.toLocaleString() + ")" : "") + "…");
       const g = { N: ids.length };
       for (const key of ['posX','posY','posZ','sclX','sclY','sclZ','rotW','rotX','rotY','rotZ','colR','colG','colB','colA']) g[key] = new Float32Array(ids.length);
       ids.forEach((i, row) => {
