@@ -38,5 +38,9 @@ jobs:
         run: node --experimental-default-type=module --test engine-next/tests/screen_space_selection.test.mjs
       - name: Verify reconstruction worker syntax
         run: python -m py_compile engine-next/reconstruction/pipeline.py
+      - name: Verify oriented-surfel normal orientation
+        run: |
+          python -m pip install --quiet numpy scipy
+          python engine-next/tests/oriented_surfel_reconstruction.test.py
       - name: Verify Studio inline scripts
         run: python engine-next/tests/check_edit_inline_scripts.py
