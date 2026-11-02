@@ -98,3 +98,20 @@ normal extraction using the Studio's `Remove islands smaller than` face cutoff
 (default 32). The largest component is always retained. This only removes
 small detached fragments; it does not fuse separated major shells or perform
 object-aware segmentation. The cutoff can be set to zero to retain all islands.
+
+
+## Depth-aware Studio object selection
+
+Studio lasso and box selection now use a screen-space depth pass. For each
+small screen cell, the selector records the nearest live Gaussian centre and
+only adds points close to that visible depth. This prevents most points on a
+support plane or background behind the visible object from being selected
+through the front surface. Selection is additive across gestures, so the user
+can rotate the object and select additional visible sides.
+
+This is a point-centre visibility approximation, not a full per-pixel Gaussian
+ellipsoid depth buffer. Very thin or interleaved geometry may still need manual
+selection cleanup. Mesh extraction reports whether it used selected-only or
+all-live points and records the source-point counts in the in-memory NIF
+metadata. A successful selection test does not establish mesh continuity or
+watertightness; those remain measured from the extracted geometry.
