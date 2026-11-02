@@ -2525,6 +2525,9 @@ window.previewSolidMesh = (mesh, options = {}) => {
     });
     _solidMeshPreviewObject = new THREE.Mesh(geometry, material);
     _solidMeshPreviewObject.name = 'FUMOCA extracted solid mesh';
+    // Draw the translucent reconstruction after the Gaussian layer so both
+    // representations remain legible in hybrid mode.
+    _solidMeshPreviewObject.renderOrder = 10;
     _solidMeshPreviewObject.frustumCulled = false;
     scene.add(_solidMeshPreviewObject);
     _solidMeshPreviewData = mesh;
