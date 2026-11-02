@@ -35,7 +35,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         <label style="display:block;font-size:11px;margin-top:8px">Density bridging passes <span id="meshDensitySmoothingVal" style="float:right;color:var(--neon)">1</span>
           <input id="meshDensitySmoothing" type="range" min="0" max="3" step="1" value="1" style="width:100%">
         </label>
-        <div class="hint">Regularizes the voxel density before surface extraction. More passes can bridge tiny gaps, but may soften edges or merge very close surfaces. This does not invent unseen geometry.</div>
+        <div class="hint">Bridges only small density cavities with support from multiple opposing directions. A single gap between two separate nearby sheets is not enough to trigger a bridge. This does not invent unseen geometry.</div>
         <label style="display:block;font-size:11px">Mesh smoothing passes
           <input id="meshSmooth" type="range" min="0" max="4" step="1" value="1" style="width:100%">
         </label>
@@ -287,7 +287,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       const result = await FumocMeshExtractor.extractMesh(g, {
         resolution, threshold: thresholdValue > 0 ? thresholdValue : null, sigmaScale,
         minComponentTriangles: Number(container.querySelector('#meshFloaterSize')?.value || 32),
-        densitySmoothing,
+        densityBridgingPasses: densitySmoothing,
         format, previewColours: true, name: 'fumoca-mesh', smooth,
         onProgress: (_pct, label) => meshStatus(label),
       });
