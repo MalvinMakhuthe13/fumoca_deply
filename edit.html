@@ -2010,8 +2010,9 @@ function _updateViewportBounds() {
 }
 
 function selectedPointCount() {
-  if (!S.selected) return 0;
-  let n=0; for(let i=0;i<S.selected.length;i++) if(S.alive?.[i] && S.selected[i]) n++;
+  let n=0;
+  if (S.selected) for(let i=0;i<S.selected.length;i++) if(S.alive?.[i] && S.selected[i]) n++;
+  window.dispatchEvent(new CustomEvent('fumoca:selectionChanged', { detail: { count: n } }));
   return n;
 }
 function _updateGroundGrid(recenter = false) {
@@ -3501,7 +3502,7 @@ function updateHistoryBtns() {
 }
 
 // ─── SELECTION ──────────────────────────────────────────────────────────────
-function clearSelection() { if (S.selected) S.selected.fill(0); rebuildGeometry(); syncTransformGizmo(); }
+function clearSelection() { if (S.selected) S.selected.fill(0); rebuildGeometry(); syncTransformGizmo(); selectedPointCount(); }
 function invertSelection() { if (!S.alive) return; for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) S.selected[i] ^= 1; rebuildGeometry(); syncTransformGizmo(); }
 function deleteSelected() {
   if (!S.alive) return;
@@ -5545,7 +5546,7 @@ $('shrinkSelBtn').addEventListener('click', () => {
   }
   S.selected = newSel; rebuildGeometry(); setStatus(`Shrunk selection by ${fmt(removed)}`);
 });
-$('selAllBtn')?.addEventListener('click', () => { if (!S.alive) return; for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) S.selected[i] = 1; rebuildGeometry(); syncTransformGizmo(); setStatus('All selected'); });
+$('selAllBtn')?.addEventListener('click', () => { if (!S.alive) return; for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) S.selected[i] = 1; rebuildGeometry(); syncTransformGizmo(); setStatus(`All selected (${fmt(selectedPointCount())} points)`); });
 $('expandSelBtn')?.addEventListener('click', () => {
   if (!S.alive) return;
   // Stronger, multi-pass version of Grow — 3 iterations of the same real
