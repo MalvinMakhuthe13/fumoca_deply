@@ -22,6 +22,8 @@ jobs:
           node --check --experimental-default-type=module js/modules/nif-format.js
       - name: Verify dual-layer NIF round trip
         run: node --experimental-default-type=module --test engine-next/tests/dual_surface_roundtrip.test.mjs
+      - name: Verify Gaussian-to-mesh source freshness contract
+        run: node --experimental-default-type=module --test engine-next/tests/dual_surface_source_contract.test.mjs
       - name: Verify reconstruction worker syntax
         run: python -m py_compile engine-next/reconstruction/pipeline.py
       - name: Verify Studio inline scripts
