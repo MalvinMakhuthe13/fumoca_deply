@@ -83,15 +83,21 @@ follows the renderer orientation.
 
 ## Local density continuity regularization
 
-The Gaussian density field now receives one separable 3D [1,2,1] blur pass
-before automatic thresholding and Marching Cubes. This shares a small amount
-of density across immediate neighbouring voxels, reducing one-voxel pinholes
-and fragmented boundaries between nearby Gaussian contributions. It does not
-modify the original splat, merge distant objects, or promise to repair large
-missing scan regions. The pass count is configurable from 0 to 3 through
-`densitySmoothing`; the Studio extraction path uses one pass by default.
-The voxel operation is covered by regression tests for local gap continuity,
-constant-field preservation, and source immutability.
+The density field now uses a directionally constrained cavity-bridging pass
+before automatic thresholding and Marching Cubes. A candidate low-density voxel
+is filled only when it has support from at least three independent opposing
+neighbour directions, and the paired support values are sufficiently similar.
+A lone opposing pair is deliberately insufficient, reducing the risk of
+bridging two nearby but separate sheets. The operation is non-destructive and
+reports the number of voxels it changed. The Studio control exposes 0–3 passes.
+
+This is a conservative local continuity repair, not semantic segmentation,
+normal-aware reconstruction, or recovery of unobserved geometry. It is
+specifically intended for small enclosed density cavities. Larger open seams,
+thin structures, and missing scan regions still require better capture coverage
+or a dedicated reconstruction/repair operation. Regression tests cover
+enclosed-cavity bridging, rejection of a simple two-sheet gap, constant-field
+preservation, pass bounds, and source immutability.
 
 A second continuity safeguard removes tiny disconnected triangle islands during
 normal extraction using the Studio's `Remove islands smaller than` face cutoff
