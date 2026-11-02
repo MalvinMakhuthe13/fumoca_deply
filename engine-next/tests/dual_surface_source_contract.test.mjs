@@ -32,7 +32,7 @@ test('position, visibility, scale, rotation, opacity and color edits invalidate 
   for (const key of ['positions', 'alive', 'scaleXYZ', 'rotation', 'opacity', 'colors', 'paintColors']) {
     const state = fixture();
     const signature = computeGaussianSourceSignature(state);
-    state[key][0] = state[key][0] + 0.25;
+    state[key][0] = key === 'alive' ? 0 : state[key][0] + 0.25;
     assert.equal(compareGaussianSourceSignature(state, signature).ok, false, key);
   }
 });
