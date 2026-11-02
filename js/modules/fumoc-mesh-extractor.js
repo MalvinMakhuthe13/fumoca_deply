@@ -280,8 +280,46 @@ async function buildDensityField(gaussians, opts = {}) {
     }
   }
 
-  // Add small padding so Gaussians at edges don't get clipped
-  const padding = 0.05 * Math.max(maxX-minX, maxY-minY, maxZ-minZ);
+  // Expand the grid to contain each active Gaussian's rotated 3σ support.
+  // Bounds based only on Gaussian centres clip broad/anisotropic splats at the
+  // volume edge, creating artificial open cuts and missing surface patches.
+  // The world-axis extent is sqrt(diag(R * diag(s²) * Rᵀ)).
+  for (let i = 0; i < N; i++) {
+    const opacity = (colA?.[i] ?? 255) / 255;
+    if (opacity < 0.05) continue;
+    const sx = Math.exp(sclX?.[i] ?? -3);
+    const sy = Math.exp(sclY?.[i] ?? -3);
+    const sz = Math.exp(sclZ?.[i] ?? -3);
+    let qw = gaussians.rotW?.[i] ?? 1;
+    let qx = gaussians.rotX?.[i] ?? 0;
+    let qy = gaussians.rotY?.[i] ?? 0;
+    let qz = gaussians.rotZ?.[i] ?? 0;
+    const qLength = Math.hypot(qw, qx, qy, qz);
+    if (qLength > 1e-8) {
+      const inv = 1 / qLength;
+      qw *= inv; qx *= inv; qy *= inv; qz *= inv;
+    } else {
+      qw = 1; qx = qy = qz = 0;
+    }
+    const r00 = 1 - 2 * (qy*qy + qz*qz);
+    const r01 = 2 * (qx*qy - qz*qw);
+    const r02 = 2 * (qx*qz + qy*qw);
+    const r10 = 2 * (qx*qy + qz*qw);
+    const r11 = 1 - 2 * (qx*qx + qz*qz);
+    const r12 = 2 * (qy*qz - qx*qw);
+    const r20 = 2 * (qx*qz - qy*qw);
+    const r21 = 2 * (qy*qz + qx*qw);
+    const r22 = 1 - 2 * (qx*qx + qy*qy);
+    const ex = 3 * sigmaScale * Math.sqrt((r00*sx)**2 + (r01*sy)**2 + (r02*sz)**2);
+    const ey = 3 * sigmaScale * Math.sqrt((r10*sx)**2 + (r11*sy)**2 + (r12*sz)**2);
+    const ez = 3 * sigmaScale * Math.sqrt((r20*sx)**2 + (r21*sy)**2 + (r22*sz)**2);
+    minX = Math.min(minX, posX[i] - ex); maxX = Math.max(maxX, posX[i] + ex);
+    minY = Math.min(minY, posY[i] - ey); maxY = Math.max(maxY, posY[i] + ey);
+    minZ = Math.min(minZ, posZ[i] - ez); maxZ = Math.max(maxZ, posZ[i] + ez);
+  }
+
+  // A small extra margin keeps interpolation away from the volume boundary.
+  const padding = 0.01 * Math.max(maxX-minX, maxY-minY, maxZ-minZ);
   minX -= padding; minY -= padding; minZ -= padding;
   maxX += padding; maxY += padding; maxZ += padding;
 
