@@ -3594,7 +3594,25 @@ function selectByBox(x0, y0, x1, y1, options = {}) {
   if (!S.positions || !S.alive) return;
   const left = Math.min(x0, x1), right = Math.max(x0, x1);
   const top = Math.min(y0, y1), bottom = Math.max(y0, y1);
-  const indices = selectVisibleRegion((x, y) => x >= left && x <= right && y >= top && y <= bottom);
+  let indices;
+  if (options.through) {
+    // Scene crop is intentionally a through-selection: preserve every point
+    // projected into the rectangle, including hidden/back-side geometry.
+    const vp = document.getElementById('viewport');
+    const W = vp.clientWidth, H = vp.clientHeight;
+    const projected = new THREE.Vector3();
+    indices = [];
+    for (let i = 0; i < S.alive.length; i++) {
+      if (!S.alive[i] || S.layerHidden?.[i]) continue;
+      projected.set(S.positions[i * 3], S.positions[i * 3 + 1], S.positions[i * 3 + 2]).project(camera);
+      if (projected.z < -1 || projected.z > 1) continue;
+      const x = (projected.x * 0.5 + 0.5) * W;
+      const y = (-projected.y * 0.5 + 0.5) * H;
+      if (x >= left && x <= right && y >= top && y <= bottom) indices.push(i);
+    }
+  } else {
+    indices = selectVisibleRegion((x, y) => x >= left && x <= right && y >= top && y <= bottom);
+  }
   applyVisibleSelection(indices, { ...options, label: 'box select' });
 }
 
@@ -4641,7 +4659,7 @@ window.addEventListener('pointerup', e => {
     } else selectByBox(S.dragStart.x, S.dragStart.y, S.dragCurrent.x, S.dragCurrent.y, { additive: e.shiftKey, subtract: e.altKey });
   }
   if (S.mode === 'crop' && S.dragStart && S.dragCurrent) {
-    selectByBox(S.dragStart.x,S.dragStart.y,S.dragCurrent.x,S.dragCurrent.y);
+    selectByBox(S.dragStart.x,S.dragStart.y,S.dragCurrent.x,S.dragCurrent.y,{ through: true });
     pushHistory('crop to box');
     for(let i=0;i<S.alive.length;i++) if(S.alive[i]&&!S.selected[i]) S.alive[i]=0;
     S.selected.fill(0); rebuildGeometry(); setStatus('Scene cropped to box selection','ok');
