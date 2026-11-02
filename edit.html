@@ -3587,7 +3587,9 @@ function applyVisibleSelection(indices, { additive = false, subtract = false, la
   for (const i of indices) S.selected[i] = subtract ? 0 : 1;
   rebuildGeometry();
   syncTransformGizmo();
-  setStatus(`${subtract ? 'Removed' : 'Selected'} ${fmt(indices.length)} visible points · ${fmt(selectedPointCount())} total selected`);
+  const selectedTotal = selectedPointCount();
+  window.dispatchEvent(new CustomEvent('fumoca:selectionChanged', { detail: { count: selectedTotal, changed: indices.length } }));
+  setStatus(`${subtract ? 'Removed' : 'Selected'} ${fmt(indices.length)} visible points · ${fmt(selectedTotal)} total selected`);
 }
 
 function selectByBox(x0, y0, x1, y1, options = {}) {
