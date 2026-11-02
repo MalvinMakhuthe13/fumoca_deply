@@ -139,3 +139,18 @@ This is a foundation, not the completed reconstruction system. A local normal gr
 The global sign of each graph component is intentionally left arbitrary. A consistent sign is sufficient for a zero-level surface, but reliable inside/outside classification and watertight closure require additional evidence. Unsupported regions must remain open rather than being filled by assumption.
 
 Regression coverage is added in engine-next/tests/oriented_surfel_reconstruction.test.py for alternating normal signs, disconnected spatial patches, and empty/single-point inputs. CI runs this test with NumPy and SciPy installed.
+## Supported oriented-surfel TSDF follow-up (2026-11-02)
+
+The worker TSDF now has an explicit support mask:
+
+- Signed distances are truncated to a local band and weighted by Gaussian confidence.
+- A voxel is considered observed only when it lies within a local support radius of nearby surfels and has nonzero same-component weight.
+- Marching Cubes receives the observed mask. Unsupported space is not assigned an artificial outside value, so the extracted surface can retain open boundaries where capture evidence ends.
+- The previous implicit `manifold3d` conversion was removed from this extraction stage. It could change or close geometry without an explicit user repair action; reconstruction now reports the observed topology instead.
+- Worker diagnostics include TSDF coverage, observed voxel count, normal-graph component count, mean surfel confidence, connected mesh components, boundary edges, non-manifold edges, and watertight status.
+
+Regression cases now include a nearby supported plane, a distant unsupported query voxel, and two close parallel sheets assigned to separate components. These tests check that the TSDF does not average the two sheets into a phantom middle surface.
+
+### Remaining implementation work
+
+This remains worker-side. Studio still uses the browser density/Marching-Cubes extractor. Graph components are local normal-consistency regions, not semantic objects; the current NIF KEYFRAME_MESH encoding still carries one mesh payload, so per-object mesh visibility/editing and stable component identity require a versioned component-aware NIF representation and Studio/viewer integration. Support-plane semantic separation, concave-surface validation, and conservative user-directed repair remain outstanding. No real-scene quality claim is made until the user's complete scan is processed and visually inspected.
