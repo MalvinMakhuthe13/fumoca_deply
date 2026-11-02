@@ -65,5 +65,41 @@ check('empty input returns empty arrays without error',
       empty_n.shape == (0, 3) and empty_labels.shape == (0,),
       (empty_n.shape, empty_labels.shape))
 
+
+# Confidence-weighted TSDF must not invent a field in unsupported space.
+fuse = namespace['_confidence_weighted_tsdf']
+surf = np.array([[x * 0.1, y * 0.1, 0.0]
+                 for x in range(5) for y in range(5)], dtype=float)
+surf_normals = np.tile([0.0, 0.0, 1.0], (len(surf), 1))
+surf_components = np.zeros(len(surf), dtype=np.int32)
+surf_confidence = np.ones(len(surf), dtype=float)
+queries = np.array([[0.2, 0.2, 0.0], [0.2, 0.2, 4.0]], dtype=float)
+field, observed, support = fuse(
+    queries, surf, surf_normals, surf_components, surf_confidence, 0.1
+)
+check('near-surface voxels receive TSDF support',
+      bool(observed[0]) and abs(float(field[0])) < 1e-8,
+      (field, observed, support))
+check('unsupported distant voxels remain masked',
+      not bool(observed[1]), (field, observed, support))
+
+# Two close parallel sheets must not average into a false middle surface.
+lower = np.array([[x * 0.1, y * 0.1, 0.0]
+                  for x in range(5) for y in range(5)], dtype=float)
+upper = lower.copy()
+upper[:, 2] = 0.5
+two_sheets = np.vstack([lower, upper])
+two_normals = np.tile([0.0, 0.0, 1.0], (len(two_sheets), 1))
+two_components = np.r_[np.zeros(len(lower), dtype=np.int32),
+                       np.ones(len(upper), dtype=np.int32)]
+two_confidence = np.ones(len(two_sheets), dtype=float)
+middle_query = np.array([[0.2, 0.2, 0.2]], dtype=float)
+middle_field, middle_mask, _ = fuse(
+    middle_query, two_sheets, two_normals, two_components, two_confidence, 0.1
+)
+check('nearest component controls signed distance between separate sheets',
+      bool(middle_mask[0]) and abs(float(middle_field[0]) - 0.2) < 1e-6,
+      (middle_field, middle_mask))
+
 print(f'\n{passed} passed, {failed} failed')
 sys.exit(1 if failed else 0)
