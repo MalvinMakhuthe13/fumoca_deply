@@ -51,6 +51,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         <label style="display:flex;align-items:center;gap:7px;font-size:11px;margin:6px 0"><input id="meshSplatLayerToggle" type="checkbox" checked> Show original Gaussian splat</label>
         <label style="display:flex;align-items:center;gap:7px;font-size:11px;margin:8px 0 4px"><input id="meshSelectedOnly" type="checkbox"> Extract selected splats only</label>
         <div class="hint" id="meshSelectionStatus" style="margin:4px 0">0 live points selected</div>
+        <div id="meshDiagnostics" class="hint" style="margin:8px 0;padding:8px;border:1px solid rgba(255,255,255,.12);border-radius:7px">No mesh diagnostics yet. Extract a mesh to inspect its topology.</div>
         <div class="hint">Depth-aware lasso/box selection adds only the visible surface layer. Rotate and select again from other sides to build the complete object selection. Hold Shift to add and Alt to subtract; check the live point count before enabling selected-only extraction. The source splat is never deleted or changed.</div>
         <label style="display:block;font-size:11px;margin-top:8px">Hybrid mesh opacity <span id="meshPreviewOpacityVal" style="float:right;color:var(--neon)">38%</span>
           <input id="meshPreviewOpacity" type="range" min="0.05" max="1" step="0.01" value="0.38" style="width:100%">
@@ -201,6 +202,22 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     const el = container.querySelector('#meshPrintStatus');
     if (el) el.textContent = message;
     onStatus?.(message);
+  };
+  const renderMeshDiagnostics = (stats) => {
+    const el = container.querySelector('#meshDiagnostics');
+    if (!el) return;
+    if (!stats) {
+      el.textContent = 'No mesh diagnostics yet. Extract a mesh to inspect its topology.';
+      return;
+    }
+    const components = Number(stats.components ?? stats.n_connected_components ?? 0);
+    const open = Number(stats.openEdges ?? stats.n_boundary_edges ?? 0);
+    const nonManifold = Number(stats.nonManifoldEdges ?? stats.n_nonmanifold_edges ?? 0);
+    const triangles = Number(stats.triangles ?? stats.n_faces ?? 0);
+    const watertight = stats.watertight ?? stats.is_watertight;
+    const coverage = Number.isFinite(Number(stats.tsdf_coverage_ratio))
+      ? ` · TSDF support ${(Number(stats.tsdf_coverage_ratio) * 100).toFixed(1)}%` : '';
+    el.textContent = `Components: ${components} · Triangles: ${triangles.toLocaleString()} · Open edges: ${open.toLocaleString()} · Non-manifold edges: ${nonManifold.toLocaleString()} · ${watertight ? 'Watertight' : 'Open surface'}${coverage}`;
   };
   const makeMeshBlob = () => {
     if (!lastMeshData) return null;
