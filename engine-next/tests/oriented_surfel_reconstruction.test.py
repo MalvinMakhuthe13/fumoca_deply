@@ -101,5 +101,31 @@ check('nearest component controls signed distance between separate sheets',
       bool(middle_mask[0]) and abs(float(middle_field[0]) - 0.2) < 1e-6,
       (middle_field, middle_mask))
 
+
+# A one-surfel scene must have a finite, local support radius. It must not
+# turn infinity (the missing second-neighbour distance) into global support.
+single_field, single_mask, single_support = fuse(
+    np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 10.0]]),
+    np.array([[0.0, 0.0, 0.0]]),
+    np.array([[0.0, 0.0, 1.0]]),
+    np.array([0], dtype=np.int32),
+    np.array([1.0]),
+    0.1,
+)
+check('single surfel supports only a finite local band',
+      bool(single_mask[0]) and not bool(single_mask[1])
+      and np.isfinite(single_field).all()
+      and single_support['coverage_ratio'] == 0.5,
+      (single_field, single_mask, single_support))
+
+empty_rejected = False
+try:
+    fuse(np.zeros((1, 3)), np.empty((0, 3)), np.empty((0, 3)),
+         np.empty((0,), dtype=np.int32), np.empty((0,)), 0.1)
+except ValueError:
+    empty_rejected = True
+check('empty surfel input fails clearly instead of indexing invalid neighbors',
+      empty_rejected)
+
 print(f'\n{passed} passed, {failed} failed')
 sys.exit(1 if failed else 0)
