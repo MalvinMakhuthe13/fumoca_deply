@@ -1635,15 +1635,35 @@ def _confidence_weighted_tsdf(grid: np.ndarray, positions: np.ndarray,
     from scipy.spatial import cKDTree
     points = np.asarray(positions, dtype=np.float64)
     query = np.asarray(grid, dtype=np.float64)
+    if points.ndim != 2 or points.shape[1] != 3 or len(points) == 0:
+        raise ValueError('TSDF fusion requires at least one 3D surfel position')
+    if query.ndim != 2 or query.shape[1] != 3:
+        raise ValueError('TSDF query grid must have shape (N, 3)')
+    if len(normals) != len(points) or len(component_ids) != len(points) or len(confidence) != len(points):
+        raise ValueError('surfel normals, component IDs and confidence must match positions')
     tree = cKDTree(points)
-    k = min(max(2, int(neighbors)), len(points))
+    k = min(max(1, int(neighbors)), len(points))
     dists, idx = tree.query(query, k=k, workers=-1)
     if k == 1:
         dists, idx = dists[:, None], idx[:, None]
-    spacing = tree.query(points, k=2, workers=-1)[0][:, 1]
-    valid = spacing[np.isfinite(spacing) & (spacing > 1e-9)]
+    if len(points) > 1:
+        spacing = tree.query(points, k=2, workers=-1)[0][:, 1]
+        valid = spacing[np.isfinite(spacing) & (spacing > 1e-9)]
+    else:
+        valid = np.empty((0,), dtype=np.float64)
     median_spacing = float(np.median(valid)) if len(valid) else float(voxel_size)
-    support_radius = np.maximum(2.5 * float(voxel_size), 2.5 * spacing[idx[:, 0]])
+    # Isolated points have no measurable local spacing. Use a finite fallback
+    # instead of infinity, which would mark the entire volume as observed.
+    local_spacing = np.where(np.isfinite(valid_spacing := (
+        tree.query(points, k=2, workers=-1)[0][:, 1] if len(points) > 1
+        else np.array([median_spacing])
+    )), valid_spacing, median_spacing)
+    local_spacing = np.maximum(local_spacing, median_spacing * 0.25)
+    local_spacing = np.minimum(local_spacing, median_spacing * 4.0)
+    support_radius = np.minimum(
+        np.maximum(2.5 * float(voxel_size), 2.5 * local_spacing[idx[:, 0]]),
+        max(2.5 * float(voxel_size), 10.0 * median_spacing)
+    )
     observed = np.isfinite(dists[:, 0]) & (dists[:, 0] <= support_radius)
     truncation = max(3.0 * float(voxel_size), 2.0 * median_spacing)
     sigma = max(2.0 * float(voxel_size), 1e-9)
