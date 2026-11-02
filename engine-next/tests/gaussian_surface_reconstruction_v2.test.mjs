@@ -86,3 +86,26 @@ test('anisotropic density follows the renderer forward quaternion orientation', 
     'mesh density must follow the renderer orientation, not its mirrored inverse',
   );
 });
+
+test('density regularization bridges a one-voxel gap without mutating the source field', () => {
+  const R = 7;
+  const density = new Float32Array(R * R * R);
+  const at = (x, y, z) => z * R * R + y * R + x;
+  density[at(2, 3, 3)] = 1;
+  density[at(4, 3, 3)] = 1;
+  const original = density.slice();
+  const field = { density, resolution: R, voxelSize: 1, bounds: { min: { x: 0, y: 0, z: 0 }, max: { x: 7, y: 7, z: 7 } } };
+  const regularized = FumocMeshExtractor.smoothDensityField(field, 1);
+  assert.equal(density[at(3, 3, 3)], 0, 'source density remains unchanged');
+  assert.ok(regularized.density[at(3, 3, 3)] > 0, 'the one-voxel gap receives neighbouring density');
+  assert.equal(regularized.densitySmoothing, 1);
+  assert.deepEqual(Array.from(density), Array.from(original));
+});
+
+test('density regularization preserves a constant field and zero-pass identity', () => {
+  const density = new Float32Array(5 * 5 * 5).fill(0.25);
+  const field = { density, resolution: 5 };
+  const smoothed = FumocMeshExtractor.smoothDensityField(field, 1);
+  for (const value of smoothed.density) assert.ok(Math.abs(value - 0.25) < 1e-6);
+  assert.equal(FumocMeshExtractor.smoothDensityField(field, 0), field);
+});
