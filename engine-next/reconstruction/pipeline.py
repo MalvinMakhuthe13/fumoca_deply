@@ -1547,6 +1547,88 @@ def _patch(job_id: str, payload: dict):
         print(f'[warn] Supabase progress update failed: {e}')
 
 
+def _orient_normals_consistently(positions: np.ndarray, normals: np.ndarray,
+                                  neighbors: int = 8,
+                                  distance_factor: float = 3.5,
+                                  min_alignment: float = 0.12):
+    """
+    Orient unoriented Gaussian normal *lines* by local graph propagation.
+
+    Returns (oriented_normals, component_ids, diagnostics). Edges are admitted
+    only when points are locally close and their normal lines are compatible.
+    Each connected component gets its own arbitrary sign seed: there is no
+    scene-wide centroid assumption. A component's global sign is immaterial to
+    its zero level set; consistency within that component is what TSDF needs.
+
+    This deliberately does not claim semantic object segmentation. Nearby
+    coplanar objects can share a graph component; downstream editing still
+    needs geometric component analysis or explicit user separation.
+    """
+    from scipy.spatial import cKDTree
+
+    points = np.asarray(positions, dtype=np.float64)
+    out = np.asarray(normals, dtype=np.float64).copy()
+    if points.ndim != 2 or points.shape[1] != 3 or out.shape != points.shape:
+        raise ValueError('positions and normals must both have shape (N, 3)')
+    count = len(points)
+    if count == 0:
+        return out, np.empty(0, dtype=np.int32), {
+            'components': 0, 'oriented_points': 0, 'method': 'local_knn_graph'}
+    lengths = np.linalg.norm(out, axis=1)
+    out /= np.maximum(lengths[:, None], 1e-12)
+    if count == 1:
+        return out, np.zeros(1, dtype=np.int32), {
+            'components': 1, 'oriented_points': 1, 'method': 'local_knn_graph'}
+
+    k = min(max(2, int(neighbors) + 1), count)
+    distances, indices = cKDTree(points).query(points, k=k, workers=-1)
+    if k == 1:
+        distances, indices = distances[:, None], indices[:, None]
+    local_spacing = np.maximum(distances[:, 1], 1e-9)
+    positive = local_spacing[np.isfinite(local_spacing) & (local_spacing > 1e-9)]
+    median_spacing = float(np.median(positive)) if len(positive) else 1.0
+
+    adjacency = [[] for _ in range(count)]
+    for i in range(count):
+        for slot in range(1, k):
+            j = int(indices[i, slot])
+            if i == j:
+                continue
+            limit = distance_factor * max(local_spacing[i], local_spacing[j],
+                                           median_spacing * 0.5)
+            if distances[i, slot] > limit:
+                continue
+            alignment = float(np.dot(out[i], out[j]))
+            if abs(alignment) < min_alignment:
+                continue
+            adjacency[i].append((j, alignment))
+
+    component_ids = np.full(count, -1, dtype=np.int32)
+    component = 0
+    for seed in range(count):
+        if component_ids[seed] >= 0:
+            continue
+        component_ids[seed] = component
+        stack = [seed]
+        while stack:
+            current = stack.pop()
+            for neighbor, alignment in adjacency[current]:
+                if component_ids[neighbor] >= 0:
+                    continue
+                if alignment < 0:
+                    out[neighbor] *= -1.0
+                component_ids[neighbor] = component
+                stack.append(neighbor)
+        component += 1
+
+    return out, component_ids, {
+        'components': int(component),
+        'oriented_points': int(count),
+        'method': 'local_knn_graph',
+        'neighbors': int(k - 1),
+    }
+
+
 class ReconstructionWorker:
 
     def __init__(self, job_id: str, user_id: str):
@@ -2968,20 +3050,23 @@ class ReconstructionWorker:
         norm_len = np.linalg.norm(normals, axis=1, keepdims=True)
         normals = normals / np.maximum(norm_len, 1e-8)
 
-        # A Gaussian's shortest axis gives the normal *line*, not a signed
-        # direction — quaternion rotation of a basis vector has no inherent
-        # "outward" sense, so adjacent points can end up with randomly
-        # flipped normals. Left unresolved, that corrupts the signed-distance
-        # field below (sd = diff·normal flips sign incoherently between
-        # neighbors) and produces holes/spurious shells in marching cubes.
-        # Orient outward from the point-cloud centroid — correct for
-        # roughly-convex, star-shaped single subjects, which matches the
-        # orbit-capture scripts this pipeline is built around (not correct
-        # for strongly concave scenes, e.g. capturing the inside of a room).
-        centroid = positions.mean(axis=0)
-        outward  = positions - centroid
-        flip     = np.einsum('vc,vc->v', normals, outward) < 0
-        normals[flip] *= -1
+        # A shortest Gaussian axis is an unoriented normal line. Orient it
+        # locally, independently per spatially connected surface component;
+        # never use one scene-wide centroid (which flips concavities and
+        # contaminates multi-object/support-plane captures).
+        normals, normal_component_ids, normal_orientation = (
+            _orient_normals_consistently(positions, normals)
+        )
+        print('[NIF] Normal orientation:', normal_orientation)
+
+        # Confidence combines learned opacity with Gaussian flatness. Nearly
+        # isotropic blobs contribute weak normal evidence and must not carry
+        # the same TSDF weight as a clearly surface-like Gaussian.
+        scales = np.exp(np.clip(log_scales, -12.0, 8.0))
+        sorted_scales = np.sort(scales, axis=1)
+        flatness = (sorted_scales[:, 1] - sorted_scales[:, 0]) / np.maximum(
+            sorted_scales[:, 1], 1e-8)
+        confidence = np.clip(opacity[keep] * flatness, 0.025, 1.0)
 
         # ── Splat oriented points into a signed-distance volume ────────────────
         mn = positions.min(axis=0) - 0.05
@@ -3008,6 +3093,13 @@ class ReconstructionWorker:
         if k == 1:
             dists = dists[:, None]; idx = idx[:, None]
         w = np.exp(-(dists**2) / (2 * sigma**2))
+        # A voxel is reconstructed from the nearest Gaussian's local surface
+        # component only. This prevents nearby but distinct sheets (for
+        # example a cap and its display plane) from averaging opposite signed
+        # distances into a phantom bridge.
+        nearest_component = normal_component_ids[idx[:, 0]]
+        same_component = normal_component_ids[idx] == nearest_component[:, None]
+        w *= same_component * confidence[idx]
         w_sum = w.sum(axis=1) + 1e-8
         diff = grid[:, None, :] - positions[idx]
         sd = np.einsum('vkc,vkc->vk', diff, normals[idx])
