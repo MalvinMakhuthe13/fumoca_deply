@@ -154,3 +154,10 @@ Regression cases now include a nearby supported plane, a distant unsupported que
 ### Remaining implementation work
 
 This remains worker-side. Studio still uses the browser density/Marching-Cubes extractor. Graph components are local normal-consistency regions, not semantic objects; the current NIF KEYFRAME_MESH encoding still carries one mesh payload, so per-object mesh visibility/editing and stable component identity require a versioned component-aware NIF representation and Studio/viewer integration. Support-plane semantic separation, concave-surface validation, and conservative user-directed repair remain outstanding. No real-scene quality claim is made until the user's complete scan is processed and visually inspected.
+### Sparse-support and normal-graph safeguards
+
+The worker's support-band calculation now handles one-surfel and empty-input cases explicitly. An isolated surfel receives a finite local support radius based on the voxel size; a missing second-neighbour distance can no longer become infinite support for the whole volume. Empty surfel sets and mismatched per-surfel arrays fail with a clear validation error.
+
+Normal-orientation graph edges are now inserted in both directions before propagation. This makes connected-component traversal independent of asymmetric k-nearest-neighbour relationships and avoids seed-order-dependent sign propagation.
+
+Latest regression coverage includes finite support for a single surfel, rejection of an empty surfel set, supported versus distant query voxels, and separation of nearby parallel sheets. These safeguards are worker-side; they do not yet port oriented-surfel fusion into the browser Studio extractor.
