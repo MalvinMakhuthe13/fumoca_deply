@@ -32,10 +32,14 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         <label style="display:block;font-size:11px;margin-top:8px">Surface threshold (0 = automatic)
           <input id="meshThreshold" type="number" min="0" max="10" step="0.01" value="0" style="display:block;width:100%;padding:7px;border-radius:7px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#fff;margin-top:4px">
         </label>
-        <label style="display:block;font-size:11px">Smoothing passes
+        <label style="display:block;font-size:11px;margin-top:8px">Density bridging passes <span id="meshDensitySmoothingVal" style="float:right;color:var(--neon)">1</span>
+          <input id="meshDensitySmoothing" type="range" min="0" max="3" step="1" value="1" style="width:100%">
+        </label>
+        <div class="hint">Regularizes the voxel density before surface extraction. More passes can bridge tiny gaps, but may soften edges or merge very close surfaces. This does not invent unseen geometry.</div>
+        <label style="display:block;font-size:11px">Mesh smoothing passes
           <input id="meshSmooth" type="range" min="0" max="4" step="1" value="1" style="width:100%">
         </label>
-        <div class="hint">Higher detail preserves finer surfaces but takes longer and uses more memory. 160³ is the high-detail browser setting. Smoothing uses a size-preserving pass. Closed results still depend on capture coverage.</div>
+        <div class="hint">This smooths the extracted triangles after reconstruction. It is separate from density bridging and cannot close large holes. Closed results still depend on capture coverage.</div>
         <label style="display:block;font-size:11px;margin:8px 0 6px">Mesh format
           <select id="meshFormat" style="display:block;width:100%;padding:8px;border-radius:8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#fff;margin-top:4px">
             <option value="ply">Colored PLY - keep scene scale</option>
@@ -98,6 +102,10 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
   });
   const initialResolutionLabel = container.querySelector('#meshResVal');
   if (initialResolutionLabel) initialResolutionLabel.textContent = `${container.querySelector('#meshRes')?.value || 48}${String.fromCharCode(179)}`;
+  container.querySelector('#meshDensitySmoothing')?.addEventListener('input', (e) => {
+    const label = container.querySelector('#meshDensitySmoothingVal');
+    if (label) label.textContent = String(Number(e.target.value));
+  });
   container.querySelector('#meshContinuity')?.addEventListener('input', (e) => {
     const label = container.querySelector('#meshContinuityVal');
     if (label) label.textContent = `${Number(e.target.value).toFixed(2)}x`;
@@ -274,11 +282,12 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       const format = container.querySelector('#meshFormat')?.value || 'ply';
       const thresholdValue = Number(container.querySelector('#meshThreshold')?.value || 0);
       const sigmaScale = Number(container.querySelector('#meshContinuity')?.value || 1.5);
+      const densitySmoothing = Number(container.querySelector('#meshDensitySmoothing')?.value ?? 1);
       const smooth = Number(container.querySelector('#meshSmooth')?.value || 0);
       const result = await FumocMeshExtractor.extractMesh(g, {
         resolution, threshold: thresholdValue > 0 ? thresholdValue : null, sigmaScale,
         minComponentTriangles: Number(container.querySelector('#meshFloaterSize')?.value || 32),
-        densitySmoothing: 1,
+        densitySmoothing,
         format, previewColours: true, name: 'fumoca-mesh', smooth,
         onProgress: (_pct, label) => meshStatus(label),
       });
