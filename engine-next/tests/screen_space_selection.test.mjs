@@ -20,6 +20,21 @@ test('lasso selection excludes a hidden support point behind the visible object'
   assert.deepEqual(selected, [0, 1]);
 });
 
+test('a visible occluder just outside the lasso still hides support behind it', () => {
+  const points = [
+    { x: 10, y: 10, depth: 1.0 }, // nearest cap point, just outside the lasso
+    { x: 11, y: 10, depth: 1.4 }, // support point inside the lasso
+  ];
+  const selected = selectVisibleScreenPoints({
+    count: points.length,
+    isAlive: () => true,
+    project: i => ({ ...points[i], visible: true }),
+    contains: (x, y) => x >= 11,
+    cellSize: 4,
+  });
+  assert.deepEqual(selected, []);
+});
+
 test('visibility selection ignores dead and clipped points', () => {
   const points = [
     { x: 5, y: 5, depth: 1, visible: true },
