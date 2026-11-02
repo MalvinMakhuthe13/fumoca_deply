@@ -6,7 +6,7 @@
  * since the mesh was generated, rather than silently publishing a stale pair.
  */
 export function computeGaussianSourceSignature(state) {
-  if (!state?.positions || !state?.alive) return null;
+  if (!state?.positions?.length || !state?.alive?.length) return null;
 
   let h1 = 2166136261;
   let h2 = 0x9e3779b9;
