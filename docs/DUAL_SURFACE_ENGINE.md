@@ -31,6 +31,7 @@ The two layers are stored independently in NIF: KEYFRAME_GEO (Gaussian data) and
 - An opacity of 1 uses an opaque, depth-writing mesh. Lower opacity enables transparent blending and disables mesh depth writes to reduce the mesh hiding the source splat.
 - STL scaling is export-only. It must never mutate the scene mesh or the source Gaussian coordinates.
 - Mesh repair changes only the mesh layer. It must not rewrite Gaussian attributes.
+- Studio records a deterministic source signature when the mesh is loaded or extracted. NIF export and combined scene save fail closed if Gaussian positions, alive mask, scales, rotations, opacity, or source/paint colours have changed since extraction. Re-extract the mesh to restore a verified pair.
 
 ## Reconstruction behaviour and honest limits
 
