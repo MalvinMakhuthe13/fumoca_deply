@@ -121,3 +121,21 @@ selection cleanup. Mesh extraction reports whether it used selected-only or
 all-live points and records the source-point counts in the in-memory NIF
 metadata. A successful selection test does not establish mesh continuity or
 watertightness; those remain measured from the extracted geometry.
+
+## Oriented-surfel reconstruction foundation (2026-11-02)
+
+The production worker now has an initial local oriented-surfel stage:
+
+- The shortest Gaussian covariance axis supplies an unoriented surface-normal line.
+- Normal signs are propagated over a local k-nearest-neighbour graph. Spatially disconnected graph components are oriented independently; no single scene-wide centroid is used. This avoids the known failure for concave scenes and mixed full-scene captures.
+- Each Gaussian receives a TSDF confidence weight from learned opacity and covariance flatness. Near-isotropic Gaussians contribute less than clearly flattened, surface-like Gaussians.
+- Each voxel aggregates signed-distance samples from the nearest Gaussian's local graph component only. This reduces cancellation between nearby disconnected sheets, such as an object and a separate support surface.
+- The original Gaussian geometry is not modified.
+
+### Current limits — do not overstate this stage
+
+This is a foundation, not the completed reconstruction system. A local normal graph component is not a semantic object ID: nearby coplanar objects may remain connected, and one physical object can contain disconnected observed patches. The component labels currently guide TSDF aggregation; they are not yet serialized as separately editable NIF mesh objects. The browser Studio extractor still uses its Gaussian-density/Marching-Cubes path and has not yet been ported to this oriented-surfel method.
+
+The global sign of each graph component is intentionally left arbitrary. A consistent sign is sufficient for a zero-level surface, but reliable inside/outside classification and watertight closure require additional evidence. Unsupported regions must remain open rather than being filled by assumption.
+
+Regression coverage is added in engine-next/tests/oriented_surfel_reconstruction.test.py for alternating normal signs, disconnected spatial patches, and empty/single-point inputs. CI runs this test with NumPy and SciPy installed.
