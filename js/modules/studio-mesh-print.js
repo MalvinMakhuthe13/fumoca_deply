@@ -353,6 +353,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         sourcePointCount: eligibleCount,
         extractedPointCount: ids.length,
       };
+      renderMeshDiagnostics(lastMeshStats);
       if (window.S) {
         window.S.nifMeta = {
           ...(window.S.nifMeta || {}),
