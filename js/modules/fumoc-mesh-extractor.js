@@ -361,12 +361,18 @@ async function buildDensityField(gaussians, opts = {}) {
             const dx = vx - vcx;
             let gx = dx * voxelSize, gy = dy * voxelSize, gz = dz * voxelSize;
             if (qx || qy || qz) {
-              const tx = 2 * (qy * gz - qz * gy);
-              const ty = 2 * (qz * gx - qx * gz);
-              const tz = 2 * (qx * gy - qy * gx);
-              gx = gx - qw * tx + (qy * tz - qz * ty);
-              gy = gy - qw * ty + (qz * tx - qx * tz);
-              gz = gz - qw * tz + (qx * ty - qy * tx);
+              // The renderer builds world covariance as R * diag(scale²) * Rᵀ.
+              // Density evaluation therefore needs Rᵀ * offset (world → local),
+              // i.e. the inverse unit quaternion, not the forward rotation.
+              // Using the forward rotation mirrors general 3D orientations and
+              // gives the mesh a different covariance from the visible splat.
+              const iqx = -qx, iqy = -qy, iqz = -qz;
+              const tx = 2 * (iqy * gz - iqz * gy);
+              const ty = 2 * (iqz * gx - iqx * gz);
+              const tz = 2 * (iqx * gy - iqy * gx);
+              gx = gx - qw * tx + (iqy * tz - iqz * ty);
+              gy = gy - qw * ty + (iqz * tx - iqx * tz);
+              gz = gz - qw * tz + (iqx * ty - iqy * tx);
             }
             const exponent = gx * gx * invVx + gy * gy * invVy + gz * gz * invVz;
             if (exponent > 9) continue; // > 3σ on weighted distance — skip
