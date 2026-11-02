@@ -5,8 +5,8 @@ fumoca.co.za · © Fumoca Technologies
 What this produces per .nif file:
   CHUNK 0x0002  PROXY_VIDEO    — H.264 proxy video (from input or rendered)
   CHUNK 0x0003  KEYFRAME_GEO   — full 3D depth field (all points, 14 floats each)
-  CHUNK 0x0004  KEYFRAME_MESH  — real triangulated watertight mesh, extracted from
-                                 the trained Gaussians (see stage 9 below)
+  CHUNK 0x0004  KEYFRAME_MESH  — real triangulated surface mesh, extracted from
+                                 trained Gaussians; openness is measured, not assumed
   CHUNK 0x0007  DEPTH_MAP      — per-pixel depth (float16 HxW, reference frame). Metric
                                  (metres) only when CALIBRATION.method used the DepthAnything
                                  Metric checkpoint or an ArUco/manual reference — check
@@ -31,13 +31,11 @@ Pipeline stages:
   6. Segment Anything (SAM 2) — per-object segmentation for interactive layers
   7. Camera pose estimation — COLMAP sparse SfM
   8. 3D depth field training — gsplat v1.x
-  9. Mesh extraction — real triangulation from the trained Gaussians. Each
-     Gaussian's shortest axis (after training) aligns with the true surface
-     normal, so we treat the splats as an oriented point cloud, splat them into
-     a signed-distance volume, and run marching cubes to get an actual
-     watertight triangle mesh — not a renamed point cloud. This is the same
-     family of technique as SuGaR / Gaussian-to-mesh literature, implemented
-     here with only numpy/scipy/scikit-image (no GPU, no extra service).
+  9. Mesh extraction — estimate unoriented surfel normals from each Gaussian's
+     shortest covariance axis, orient them locally, fuse a confidence-weighted
+     truncated signed-distance field, and run masked marching cubes. Voxels
+     without nearby surfel support are excluded, so real scan boundaries can
+     remain open. Watertightness is measured, never assumed.
   10. Layer splitting — divide points into foreground/background by depth + mask
   11. Proxy video encoding — ffmpeg H.264
   12. Pack all chunks → .nif binary
@@ -109,7 +107,7 @@ except ImportError:
 # ─── NIF binary constants ─────────────────────────────────────────────────────
 NIF_MAGIC    = 0x4E494600
 CHUNK_GEO    = 0x0003
-CHUNK_MESH   = 0x0004  # Watertight triangle mesh — real triangulation, see _extract_mesh()
+CHUNK_MESH   = 0x0004  # Reconstructed triangle surface; may be open, see _extract_mesh()
 CHUNK_CAMERAS = 0x000B  # Per-frame 4×4 view matrices + pose_source — see _pack_cameras().
                          # Previously computed for Gaussian training and then discarded;
                          # nothing in the .nif persisted them, so a NIF-native viewer had
@@ -3047,12 +3045,12 @@ class ReconstructionWorker:
     def _extract_mesh(self, geo_data: np.ndarray, grid_res: int = 96,
                        opacity_thresh: float = 0.25, max_faces: int = 60_000) -> tuple:
         """
-        Real triangulation from the trained Gaussians — not a renamed point
-        cloud. After training, each Gaussian's *shortest* axis aligns with the
-        true surface normal (the same property SuGaR and related Gaussian-to-
-        mesh papers rely on). We use that to treat the splats as an oriented
-        point cloud: splat each point's signed distance (along its normal)
-        into a volume, then run marching cubes for a real watertight mesh.
+        Reconstruct a triangle surface from trained Gaussians. The shortest
+        covariance axis provides an unoriented normal line; local graph
+        propagation makes neighbouring signs consistent. A confidence-weighted
+        truncated SDF is fused only where nearby surfels provide support, then
+        masked marching cubes extracts the observed surface. Open boundaries
+        are preserved; watertightness is measured, never promised.
 
         geo_data: (N, 14) float32 — [x,y,z, log_sx,log_sy,log_sz,
                                       qw,qx,qy,qz, opacity_logit, r,g,b (logit)]
