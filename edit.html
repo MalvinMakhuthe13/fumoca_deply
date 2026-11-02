@@ -3503,7 +3503,7 @@ function updateHistoryBtns() {
 
 // ─── SELECTION ──────────────────────────────────────────────────────────────
 function clearSelection() { if (S.selected) S.selected.fill(0); rebuildGeometry(); syncTransformGizmo(); selectedPointCount(); }
-function invertSelection() { if (!S.alive) return; for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) S.selected[i] ^= 1; rebuildGeometry(); syncTransformGizmo(); }
+function invertSelection() { if (!S.alive) return; for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) S.selected[i] ^= 1; rebuildGeometry(); syncTransformGizmo(); selectedPointCount(); }
 function deleteSelected() {
   if (!S.alive) return;
   pushHistory('delete');
