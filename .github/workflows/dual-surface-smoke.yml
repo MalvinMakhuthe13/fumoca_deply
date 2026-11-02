@@ -24,3 +24,5 @@ jobs:
         run: node --experimental-default-type=module --test engine-next/tests/dual_surface_roundtrip.test.mjs
       - name: Verify reconstruction worker syntax
         run: python -m py_compile engine-next/reconstruction/pipeline.py
+      - name: Verify Studio inline scripts
+        run: python engine-next/tests/check_edit_inline_scripts.py
