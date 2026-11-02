@@ -270,6 +270,8 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       const smooth = Number(container.querySelector('#meshSmooth')?.value || 0);
       const result = await FumocMeshExtractor.extractMesh(g, {
         resolution, threshold: thresholdValue > 0 ? thresholdValue : null, sigmaScale,
+        minComponentTriangles: Number(container.querySelector('#meshFloaterSize')?.value || 32),
+        densitySmoothing: 1,
         format, previewColours: true, name: 'fumoca-mesh', smooth,
         onProgress: (_pct, label) => meshStatus(label),
       });
