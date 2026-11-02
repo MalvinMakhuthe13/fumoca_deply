@@ -42,8 +42,12 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
             <option value="stl">STL - scale to print height</option>
           </select>
         </label>
-        <label style="display:flex;align-items:center;gap:7px;font-size:11px;margin:6px 0"><input id="meshPreviewToggle" type="checkbox" disabled> Show mesh object</label>
-        <label style="display:flex;align-items:center;gap:7px;font-size:11px;margin:6px 0"><input id="meshSplatLayerToggle" type="checkbox" checked> Show splat object</label>
+        <label style="display:flex;align-items:center;gap:7px;font-size:11px;margin:6px 0"><input id="meshPreviewToggle" type="checkbox" disabled> Show solid mesh</label>
+        <label style="display:flex;align-items:center;gap:7px;font-size:11px;margin:6px 0"><input id="meshSplatLayerToggle" type="checkbox" checked> Show original Gaussian splat</label>
+        <label style="display:block;font-size:11px;margin-top:8px">Hybrid mesh opacity <span id="meshPreviewOpacityVal" style="float:right;color:var(--neon)">38%</span>
+          <input id="meshPreviewOpacity" type="range" min="0.05" max="1" step="0.01" value="0.38" style="width:100%">
+        </label>
+        <div class="hint">Keep both layers enabled to compare the reconstructed surface against the untouched splat. Lower opacity reveals the original Gaussian detail through the solid surface.</div>
         <label style="display:block;font-size:11px">Preview light <input id="meshPreviewLight" type="range" min="0" max="2" step="0.05" value="0.25" style="width:100%"></label>
         <label style="display:block;font-size:11px">Surface roughness <input id="meshPreviewRoughness" type="range" min="0.05" max="1" step="0.05" value="0.72" style="width:100%"></label>
         <label style="display:block;font-size:11px">Metalness <input id="meshPreviewMetalness" type="range" min="0" max="1" step="0.05" value="0.05" style="width:100%"></label>
@@ -122,9 +126,11 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       window.previewSolidMesh?.(lastMeshData, { visible: true });
       lastMeshStats = FumocMeshExtractor.validateWatertight(lastMeshData);
       lastMesh = makeMeshBlob();
+      // Keep the source Gaussian layer visible. The default is a true hybrid
+      // view: original splat + reconstructed mesh, independently toggleable.
       const splatToggle = container.querySelector('#meshSplatLayerToggle');
-      if (splatToggle) splatToggle.checked = false;
-      if (window.S?.points) window.S.points.visible = false;
+      if (splatToggle) splatToggle.checked = true;
+      if (window.S?.points) window.S.points.visible = true;
       container.querySelector('#meshFillHolesBtn').disabled = false;
       container.querySelector('#meshRemoveFloatersBtn').disabled = false;
       container.querySelector('#saveMeshBtn').disabled = !lastMeshData.colours;
@@ -138,8 +144,15 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     light: Number(container.querySelector('#meshPreviewLight')?.value || 0.25),
     roughness: Number(container.querySelector('#meshPreviewRoughness')?.value || 0.72),
     metalness: Number(container.querySelector('#meshPreviewMetalness')?.value || 0.05),
+    opacity: Number(container.querySelector('#meshPreviewOpacity')?.value || 0.38),
   });
   container.querySelector('#meshPreviewToggle')?.addEventListener('change', updateMeshPreview);
+  container.querySelector('#meshPreviewOpacity')?.addEventListener('input', (event) => {
+    const value = Number(event.target.value);
+    const label = container.querySelector('#meshPreviewOpacityVal');
+    if (label) label.textContent = Math.round(value * 100) + '%';
+    updateMeshPreview();
+  });
   container.querySelector('#meshSplatLayerToggle')?.addEventListener('change', (event) => {
     if (window.S?.points) window.S.points.visible = event.target.checked;
   });
@@ -173,7 +186,8 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     window.previewSolidMesh?.(lastMeshData, { visible: true,
       light: Number(container.querySelector('#meshPreviewLight')?.value || 0.25),
       roughness: Number(container.querySelector('#meshPreviewRoughness')?.value || 0.72),
-      metalness: Number(container.querySelector('#meshPreviewMetalness')?.value || 0.05) });
+      metalness: Number(container.querySelector('#meshPreviewMetalness')?.value || 0.05),
+      opacity: Number(container.querySelector('#meshPreviewOpacity')?.value || 0.38) });
     window.dispatchEvent(new CustomEvent('fumoca:solidMeshReady', { detail: { mesh: lastMeshData, stats: lastMeshStats } }));
     meshStatus(`${message} Mesh now has ${lastMeshStats.triangles.toLocaleString()} faces; ${lastMeshStats.watertight ? 'watertight' : `${lastMeshStats.openEdges} open edges remain`}.`);
   };
@@ -270,9 +284,11 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       previewToggle.checked = true;
       container.querySelector('#meshFillHolesBtn').disabled = false;
       container.querySelector('#meshRemoveFloatersBtn').disabled = false;
+      // Keep the source Gaussian renderer active after extraction. Users can
+      // inspect both representations together or hide either layer manually.
       const splatToggle = container.querySelector('#meshSplatLayerToggle');
-      if (splatToggle) splatToggle.checked = false;
-      if (state.points) state.points.visible = false;
+      if (splatToggle) splatToggle.checked = true;
+      if (state.points) state.points.visible = true;
       updateMeshPreview();
       window.dispatchEvent(new CustomEvent('fumoca:solidMeshReady', { detail: { mesh: lastMeshData, stats: lastMeshStats } }));
       container.querySelector('#saveMeshBtn').disabled = !result.mesh.colours;
