@@ -141,7 +141,10 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       previewToggle.checked = !!lastMeshData;
     }
     if (lastMeshData) {
-      window.previewSolidMesh?.(lastMeshData, { visible: true });
+      window.previewSolidMesh?.(lastMeshData, {
+        visible: true,
+        opacity: Number(container.querySelector('#meshPreviewOpacity')?.value || 0.38),
+      });
       lastMeshStats = FumocMeshExtractor.validateWatertight(lastMeshData);
       lastMesh = makeMeshBlob();
       // Keep the source Gaussian layer visible. The default is a true hybrid
