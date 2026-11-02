@@ -1,4 +1,5 @@
 import FumocMeshExtractor from './fumoc-mesh-extractor.js';
+import { computeGaussianSourceSignature, compareGaussianSourceSignature } from './dual-surface-contract.js';
 import { exportSelectionAsFigurine, pollPrintJob } from './print-export.js';
 import r2 from '../r2Client.js';
 import { supabase } from '../supabaseClient.js';
@@ -115,8 +116,14 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
   let lastMeshFormat = 'ply';
   let lastMeshData = null;
   let lastMeshStats = null;
+  let lastMeshSourceSignature = null;
+  const checkSourceFreshness = () => {
+    if (!window.S?.nifMesh) return { ok: true, message: '' };
+    return compareGaussianSourceSignature(window.S, lastMeshSourceSignature);
+  };
   const syncNifMesh = (mesh) => {
     lastMeshData = mesh || null;
+    lastMeshSourceSignature = mesh ? computeGaussianSourceSignature(window.S) : null;
     const previewToggle = container.querySelector('#meshPreviewToggle');
     if (previewToggle) {
       previewToggle.disabled = !lastMeshData;
@@ -253,6 +260,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       lastMeshData = { ...result.mesh, vertices: result.mesh.vertices.slice(), triangles: result.mesh.triangles.slice(), colours: result.mesh.colours?.slice() };
       // Preserve the extracted surface as a separate NIF mesh component.
       if (window.S) window.S.nifMesh = lastMeshData;
+      lastMeshSourceSignature = computeGaussianSourceSignature(window.S);
       if (format === 'stl') {
         // Print scaling belongs only to the STL download, not the scene mesh
         // retained for NIF export or preview.
@@ -298,7 +306,12 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       return false;
     }
   };
-  window.FUMOCA_StudioMeshPrint = { mountMeshPrintPanel, extractMesh, get lastStats() { return lastMeshStats; } };
+  window.FUMOCA_StudioMeshPrint = {
+    mountMeshPrintPanel,
+    extractMesh,
+    checkSourceFreshness,
+    get lastStats() { return lastMeshStats; },
+  };
   container.querySelector('#meshExtractBtn')?.addEventListener('click', extractMesh);
 
   container.querySelector('#meshFillHolesBtn')?.addEventListener('click', () => {
