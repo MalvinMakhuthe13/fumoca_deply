@@ -3953,6 +3953,14 @@ function exportFile(type = 'splat') {
   let blob, name;
   const currentRows = _encodeSplatRows(idx);
   if (type === 'nif') {
+    // A mesh is derived from a specific Gaussian state. Never package a stale
+    // solid with edited source points and imply that the two still correspond.
+    const meshFreshness = window.FUMOCA_StudioMeshPrint?.checkSourceFreshness?.();
+    if (meshFreshness && !meshFreshness.ok) {
+      showToast('Solid mesh needs refresh', meshFreshness.message, 'warn');
+      setStatus(meshFreshness.message, 'warn');
+      return;
+    }
     // Real .nif export — canonical 14-float/point chunked binary, not a
     // renamed .splat. Carries forward the source file's meta/thumbnail when
     // this file was itself loaded from a .nif (S.nifMeta/S.nifThumbnailBytes).
@@ -5140,6 +5148,8 @@ window.saveLiveEdit = async function saveLiveEdit(extra = {}) {
       const aliveIdx = [];
       for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) aliveIdx.push(i);
       const hasSh = (S.shAttributes || []).length > 0;
+      const meshFreshness = window.FUMOCA_StudioMeshPrint?.checkSourceFreshness?.();
+      if (!hasSh && meshFreshness && !meshFreshness.ok) throw new Error(meshFreshness.message);
       const savedBlob = hasSh ? _encodeGaussianPly(aliveIdx) : new Blob([encodeNif({
         sourceBuffer: rowBytes,
         aliveIndices: Array.from({ length: aliveIdx.length }, (_, i) => i),
