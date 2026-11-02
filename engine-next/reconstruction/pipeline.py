@@ -1599,7 +1599,12 @@ def _orient_normals_consistently(positions: np.ndarray, normals: np.ndarray,
             alignment = float(np.dot(out[i], out[j]))
             if abs(alignment) < min_alignment:
                 continue
+            # Treat the k-nearest-neighbour graph as undirected. A point can
+            # select j without j selecting it back; one-way edges make the
+            # orientation result depend on seed order and can split a valid
+            # local surface into traversal-dependent fragments.
             adjacency[i].append((j, alignment))
+            adjacency[j].append((i, alignment))
 
     component_ids = np.full(count, -1, dtype=np.int32)
     component = 0
