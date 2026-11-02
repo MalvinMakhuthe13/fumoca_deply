@@ -312,14 +312,28 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         lastMesh = FumocMeshExtractor.exportSTL(exportMesh, 'fumoca-mesh');
       }
       lastMeshFormat = format;
-      lastMeshStats = result.stats;
+      lastMeshStats = {
+        ...result.stats,
+        extractionMode: selectedOnly ? 'selected-only' : 'all-live',
+        sourcePointCount: eligibleCount,
+        extractedPointCount: ids.length,
+      };
+      if (window.S) {
+        window.S.nifMeta = {
+          ...(window.S.nifMeta || {}),
+          mesh_extraction_mode: selectedOnly ? 'selected-only' : 'all-live',
+          mesh_source_point_count: eligibleCount,
+          mesh_extracted_point_count: ids.length,
+          mesh_extracted_at: new Date().toISOString(),
+        };
+      }
       if (format !== 'stl') lastMesh = format === 'obj' ? FumocMeshExtractor.exportOBJ(result.mesh, 'fumoca-mesh')
         : FumocMeshExtractor.exportPLY(result.mesh, 'fumoca-mesh');
       const shellStatus = result.stats.watertight
         ? (result.stats.components === 1 ? 'one connected watertight shell' : `${result.stats.components} disconnected watertight shells`)
         : `open surface — ${result.stats.openEdges} open edges${result.stats.components > 1 ? ` across ${result.stats.components} shells` : ''}`;
       const colorNote = format === 'stl' ? ', color kept in preview (STL stores geometry only)' : ', vertex color transferred';
-      meshStatus(`Mesh ready: ${result.stats.triangles.toLocaleString()} triangles, ${(lastMesh.size / 1048576).toFixed(2)} MB, ${shellStatus}${colorNote}.`);
+      meshStatus(`Mesh ready from ${eligibleCount.toLocaleString()} ${selectedOnly ? 'selected' : 'live'} source points (${ids.length.toLocaleString()} sampled): ${result.stats.triangles.toLocaleString()} triangles, ${(lastMesh.size / 1048576).toFixed(2)} MB, ${shellStatus}${colorNote}.`);
       const downloadButton = container.querySelector('#printStlBtn');
       downloadButton.disabled = format === 'stl' && !result.stats.printable;
       downloadButton.textContent = downloadButton.disabled ? 'STL needs one closed shell' : `Download ${format.toUpperCase()}`;
