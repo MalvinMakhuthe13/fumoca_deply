@@ -109,3 +109,20 @@ test('density regularization preserves a constant field and zero-pass identity',
   for (const value of smoothed.density) assert.ok(Math.abs(value - 0.25) < 1e-6);
   assert.equal(FumocMeshExtractor.smoothDensityField(field, 0), field);
 });
+
+
+test('automatic component cleanup removes tiny islands but preserves the dominant shell', () => {
+  const vertices = new Float32Array([
+    0,0,0, 1,0,0, 0,1,0,
+    10,0,0, 11,0,0, 10,1,0,
+    11,1,0, 10,0,1,
+  ]);
+  const triangles = new Uint32Array([
+    0,1,2,
+    3,4,5, 4,6,5, 3,5,7, 5,6,7,
+  ]);
+  const result = FumocMeshExtractor.removeSmallComponents({ vertices, triangles }, 3);
+  assert.equal(result.removedComponents, 1);
+  assert.equal(result.removedTriangles, 1);
+  assert.equal(result.mesh.triangles.length / 3, 4);
+});
