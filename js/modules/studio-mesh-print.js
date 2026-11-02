@@ -50,6 +50,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         <label style="display:flex;align-items:center;gap:7px;font-size:11px;margin:6px 0"><input id="meshPreviewToggle" type="checkbox" disabled> Show solid mesh</label>
         <label style="display:flex;align-items:center;gap:7px;font-size:11px;margin:6px 0"><input id="meshSplatLayerToggle" type="checkbox" checked> Show original Gaussian splat</label>
         <label style="display:flex;align-items:center;gap:7px;font-size:11px;margin:8px 0 4px"><input id="meshSelectedOnly" type="checkbox"> Extract selected splats only</label>
+        <div class="hint" id="meshSelectionStatus" style="margin:4px 0">0 live points selected</div>
         <div class="hint">Depth-aware lasso/box selection adds the visible surface layer. Rotate and select again from other sides to build a complete object selection; then enable this to exclude the table, floor, and surrounding scan. The source splat is not deleted or changed.</div>
         <label style="display:block;font-size:11px;margin-top:8px">Hybrid mesh opacity <span id="meshPreviewOpacityVal" style="float:right;color:var(--neon)">38%</span>
           <input id="meshPreviewOpacity" type="range" min="0.05" max="1" step="0.01" value="0.38" style="width:100%">
@@ -102,6 +103,13 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
   });
   const initialResolutionLabel = container.querySelector('#meshResVal');
   if (initialResolutionLabel) initialResolutionLabel.textContent = `${container.querySelector('#meshRes')?.value || 48}${String.fromCharCode(179)}`;
+  const selectionStatus = container.querySelector('#meshSelectionStatus');
+  const updateSelectionStatus = (event) => {
+    const count = Number(event?.detail?.count ?? window.S?.selected?.reduce?.((sum, value, index) => sum + (value && window.S?.alive?.[index] ? 1 : 0), 0) ?? 0);
+    if (selectionStatus) selectionStatus.textContent = `${count.toLocaleString()} live points selected`;
+  };
+  window.addEventListener('fumoca:selectionChanged', updateSelectionStatus);
+  updateSelectionStatus();
   container.querySelector('#meshDensitySmoothing')?.addEventListener('input', (e) => {
     const label = container.querySelector('#meshDensitySmoothingVal');
     if (label) label.textContent = String(Number(e.target.value));
