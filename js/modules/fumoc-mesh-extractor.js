@@ -961,6 +961,52 @@ end_header
  * }
  */
 /**
+ * Apply a small separable [1,2,1] Gaussian blur to the voxel density field.
+ * This regularizes one-voxel gaps between neighbouring splat contributions
+ * before isosurface extraction. It does not merge distant objects or alter
+ * the source Gaussian data. Each pass is separable to keep the cost O(3R^3).
+ */
+function smoothDensityField(field, iterations = 1) {
+  const { density, resolution: R } = field;
+  const passes = Math.max(0, Math.min(3, Math.floor(Number(iterations) || 0)));
+  if (!passes || !density?.length || !R) return field;
+  let current = density;
+  const plane = R * R;
+  const blurAxis = (input, axis) => {
+    const output = new Float32Array(input.length);
+    for (let z = 0; z < R; z++) {
+      for (let y = 0; y < R; y++) {
+        for (let x = 0; x < R; x++) {
+          const i = z * plane + y * R + x;
+          let a, b, c;
+          if (axis === 0) {
+            a = input[z * plane + y * R + Math.max(0, x - 1)];
+            b = input[i];
+            c = input[z * plane + y * R + Math.min(R - 1, x + 1)];
+          } else if (axis === 1) {
+            a = input[z * plane + Math.max(0, y - 1) * R + x];
+            b = input[i];
+            c = input[z * plane + Math.min(R - 1, y + 1) * R + x];
+          } else {
+            a = input[Math.max(0, z - 1) * plane + y * R + x];
+            b = input[i];
+            c = input[Math.min(R - 1, z + 1) * plane + y * R + x];
+          }
+          output[i] = (a + 2 * b + c) * 0.25;
+        }
+      }
+    }
+    return output;
+  };
+  for (let pass = 0; pass < passes; pass++) {
+    current = blurAxis(current, 0);
+    current = blurAxis(current, 1);
+    current = blurAxis(current, 2);
+  }
+  return { ...field, density: current, densitySmoothing: passes };
+}
+
+/**
  * Auto-tune the iso-surface threshold from the density field histogram.
  * Finds the threshold that produces the sharpest gradient — the inflection
  * point where density transitions from "inside object" to "empty space".
@@ -1128,12 +1174,18 @@ async function extractMesh(gaussians, opts = {}) {
 
   const t0 = performance.now();
   const {
-    smooth          = 2,         // Laplacian smoothing iterations
+    smooth          = 2,         // Taubin mesh smoothing iterations
     smoothLambda    = 0.5,       // smoothing strength
+    densitySmoothing = 1,        // pre-MC voxel regularization passes (0–3)
   } = opts;
 
   // Stage 1: density field
-  const field = await buildDensityField(gaussians, { resolution, sigmaScale, onProgress });
+  let field = await buildDensityField(gaussians, { resolution, sigmaScale, onProgress });
+  if (densitySmoothing > 0) {
+    onProgress?.(46, 'Connecting nearby Gaussian density…');
+    await _yield();
+    field = smoothDensityField(field, densitySmoothing);
+  }
 
   // Stage 1b: auto-tune threshold if not specified
   let useThreshold = threshold;
@@ -1209,6 +1261,7 @@ async function extractMesh(gaussians, opts = {}) {
     threshold: useThreshold,
     sigmaScale,
     smoothing: { method: 'taubin', iterations: smooth, lambda: smoothLambda },
+    densitySmoothing: field.densitySmoothing || 0,
     format,
   };
 
@@ -1228,6 +1281,7 @@ const FumocMeshExtractor = {
   laplacianSmooth,
   taubinSmooth,
   autoTuneThreshold,
+  smoothDensityField,
   transferColours,
   validateWatertight,
   fillSmallHoles,
