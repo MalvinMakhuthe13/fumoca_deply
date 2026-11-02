@@ -79,3 +79,16 @@ quaternion to world offsets would mirror general 3D orientations and make the
 extracted mesh disagree with the visible Gaussian ellipsoids. A regression test
 uses a non-axis-aligned 3D quaternion and verifies that the density's major axis
 follows the renderer orientation.
+
+
+## Local density continuity regularization
+
+The Gaussian density field now receives one separable 3D [1,2,1] blur pass
+before automatic thresholding and Marching Cubes. This shares a small amount
+of density across immediate neighbouring voxels, reducing one-voxel pinholes
+and fragmented boundaries between nearby Gaussian contributions. It does not
+modify the original splat, merge distant objects, or promise to repair large
+missing scan regions. The pass count is configurable from 0 to 3 through
+`densitySmoothing`; the Studio extraction path uses one pass by default.
+The voxel operation is covered by regression tests for local gap continuity,
+constant-field preservation, and source immutability.
