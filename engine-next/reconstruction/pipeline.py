@@ -1629,6 +1629,60 @@ def _orient_normals_consistently(positions: np.ndarray, normals: np.ndarray,
     }
 
 
+def _confidence_weighted_tsdf(grid: np.ndarray, positions: np.ndarray,
+                              normals: np.ndarray, component_ids: np.ndarray,
+                              confidence: np.ndarray, voxel_size: float,
+                              neighbors: int = 8):
+    """Fuse oriented surfels; return TSDF, observed mask and support diagnostics."""
+    from scipy.spatial import cKDTree
+    points = np.asarray(positions, dtype=np.float64)
+    query = np.asarray(grid, dtype=np.float64)
+    tree = cKDTree(points)
+    k = min(max(2, int(neighbors)), len(points))
+    dists, idx = tree.query(query, k=k, workers=-1)
+    if k == 1:
+        dists, idx = dists[:, None], idx[:, None]
+    spacing = tree.query(points, k=2, workers=-1)[0][:, 1]
+    valid = spacing[np.isfinite(spacing) & (spacing > 1e-9)]
+    median_spacing = float(np.median(valid)) if len(valid) else float(voxel_size)
+    support_radius = np.maximum(2.5 * float(voxel_size), 2.5 * spacing[idx[:, 0]])
+    observed = np.isfinite(dists[:, 0]) & (dists[:, 0] <= support_radius)
+    truncation = max(3.0 * float(voxel_size), 2.0 * median_spacing)
+    sigma = max(2.0 * float(voxel_size), 1e-9)
+    weights = np.exp(-(dists ** 2) / (2.0 * sigma ** 2))
+    nearest_component = component_ids[idx[:, 0]]
+    weights *= (component_ids[idx] == nearest_component[:, None]) * confidence[idx]
+    delta = query[:, None, :] - points[idx]
+    signed = np.einsum('vkc,vkc->vk', delta, normals[idx])
+    signed = np.clip(signed, -truncation, truncation)
+    weight_sum = weights.sum(axis=1)
+    observed &= weight_sum > 1e-10
+    field = (signed * weights).sum(axis=1) / np.maximum(weight_sum, 1e-12)
+    return field, observed, {
+        'observed_voxels': int(np.count_nonzero(observed)),
+        'total_voxels': int(len(query)),
+        'coverage_ratio': float(np.mean(observed)) if len(query) else 0.0,
+        'median_point_spacing': median_spacing,
+        'tsdf_truncation': truncation,
+    }
+
+
+def _mesh_topology_diagnostics(mesh):
+    """Measure topology without implicitly closing or repairing open surfaces."""
+    edges = np.asarray(mesh.edges_sorted)
+    if len(edges):
+        _, counts = np.unique(edges, axis=0, return_counts=True)
+        boundary = int(np.count_nonzero(counts == 1))
+        nonmanifold = int(np.count_nonzero(counts > 2))
+    else:
+        boundary = nonmanifold = 0
+    return {
+        'n_connected_components': int(len(mesh.split(only_watertight=False))),
+        'n_boundary_edges': boundary,
+        'n_nonmanifold_edges': nonmanifold,
+    }
+
+
 class ReconstructionWorker:
 
     def __init__(self, job_id: str, user_id: str):
@@ -3087,27 +3141,19 @@ class ReconstructionWorker:
 
         from scipy.spatial import cKDTree
         tree = cKDTree(positions)
-        sigma = voxel_size * 3
-        k = min(8, len(positions))
-        dists, idx = tree.query(grid, k=k, workers=-1)
-        if k == 1:
-            dists = dists[:, None]; idx = idx[:, None]
-        w = np.exp(-(dists**2) / (2 * sigma**2))
-        # A voxel is reconstructed from the nearest Gaussian's local surface
-        # component only. This prevents nearby but distinct sheets (for
-        # example a cap and its display plane) from averaging opposite signed
-        # distances into a phantom bridge.
-        nearest_component = normal_component_ids[idx[:, 0]]
-        same_component = normal_component_ids[idx] == nearest_component[:, None]
-        w *= same_component * confidence[idx]
-        w_sum = w.sum(axis=1) + 1e-8
-        diff = grid[:, None, :] - positions[idx]
-        sd = np.einsum('vkc,vkc->vk', diff, normals[idx])
-        tsdf = ((sd * w).sum(axis=1) / w_sum).reshape(dims[0], dims[1], dims[2])
+        tsdf_flat, observed_flat, tsdf_diagnostics = _confidence_weighted_tsdf(
+            grid, positions, normals, normal_component_ids, confidence, voxel_size
+        )
+        tsdf = tsdf_flat.reshape(dims[0], dims[1], dims[2])
+        observed = observed_flat.reshape(dims[0], dims[1], dims[2])
+        print('[NIF] TSDF support:', tsdf_diagnostics)
 
         try:
             from skimage import measure
-            verts, faces, _, _ = measure.marching_cubes(tsdf, level=0.0)
+            # Mask unsupported voxels so unobserved space is not force-closed.
+            verts, faces, _, _ = measure.marching_cubes(
+                tsdf, level=0.0, mask=observed
+            )
         except (ValueError, RuntimeError) as e:
             print(f'[NIF] Marching cubes found no closed surface — skipping mesh ({e})')
             return None, None, None
@@ -3130,19 +3176,10 @@ class ReconstructionWorker:
             except Exception as e:
                 print(f'[NIF] Decimation unavailable ({e}) — keeping full-res mesh')
 
-        try:
-            import manifold3d
-            m3_mesh = manifold3d.Mesh(
-                vert_properties=mesh.vertices.astype(np.float32),
-                tri_verts=mesh.faces.astype(np.uint32),
-            )
-            manifold = manifold3d.Manifold(m3_mesh)
-            if not manifold.is_empty():
-                out = manifold.to_mesh()
-                mv, mf = out.vert_properties[:, :3], out.tri_verts
-                mesh = trimesh.Trimesh(vertices=mv, faces=mf, process=True)
-        except Exception as e:
-            print(f'[NIF] manifold3d repair skipped (non-fatal): {e}')
+        # Do not silently force open reconstructions through a solid repair.
+        # Unsupported regions and real object gaps must remain observable.
+        topology = _mesh_topology_diagnostics(mesh)
+        print('[NIF] Mesh topology:', topology)
 
         n_verts, n_faces = len(mesh.vertices), len(mesh.faces)
         print(f'[NIF] Mesh extracted: {n_verts:,} verts, {n_faces:,} faces, '
@@ -3223,6 +3260,11 @@ class ReconstructionWorker:
             'n_verts': n_verts,
             'n_faces': n_faces,
             'n_degenerate_faces': n_degenerate,
+            **topology,
+            'tsdf_coverage_ratio': tsdf_diagnostics['coverage_ratio'],
+            'tsdf_observed_voxels': tsdf_diagnostics['observed_voxels'],
+            'normal_component_count': normal_orientation['components'],
+            'mean_surfel_confidence': float(np.mean(confidence)) if len(confidence) else 0.0,
         }
 
     def run_mesh_only(self, geo_r2_key: str, meta: dict):
