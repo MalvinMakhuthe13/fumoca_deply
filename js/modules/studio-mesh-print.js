@@ -6,6 +6,7 @@ import { createDocumentModel } from './document-model.js';
 import { buildSupportPlaneTransform } from './support-plane-transform.js';
 import { normalizeMeshComponents } from './mesh-component-contract.js';
 import { assignGaussianMemberships } from './gaussian-component-membership.js';
+import { findGaussianRowsBelowSupportPlane } from './support-plane-trim.js';
 import r2 from '../r2Client.js';
 import { supabase } from '../supabaseClient.js';
 
@@ -102,6 +103,15 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
               <button type="button" id="meshLevelSupportPlane" class="mini-btn" disabled>Level to support plane</button>
               <button type="button" id="meshUndoSupportLevel" class="mini-btn" disabled>Undo level</button>
             </div>
+            <div style="display:flex;gap:5px;margin-top:7px;flex-wrap:wrap">
+              <label class="hint" style="flex:1;min-width:105px">Trim tolerance
+                <input id="meshSupportTrimTolerance" type="number" min="0" step="0.001" value="0.002" style="width:100%;padding:4px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#fff">
+              </label>
+              <button type="button" id="meshPreviewSupportTrim" class="mini-btn" disabled>Preview trim</button>
+              <button type="button" id="meshApplySupportTrim" class="mini-btn" disabled>Trim below plane</button>
+              <button type="button" id="meshUndoSupportTrim" class="mini-btn" disabled>Undo trim</button>
+            </div>
+            <div class="hint">Trim is scoped to the selected component's linked Gaussian splats and mesh. Preview selects affected splats first. Other components, including a separately reconstructed platform, are left untouched. The cut stays open until you explicitly cap it.</div>
             <div class="hint">Level applies the detected plane to the complete Gaussian + mesh scene and preserves the source geometry relationship. It does not trim or delete points; that remains a separate reviewed operation.</div>
           </div>
           <div class="hint" style="margin-top:6px">Each connected surface has independent visibility, selection, isolation, transform and deletion. The original Gaussian splats remain unchanged.</div>
@@ -260,6 +270,14 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     const undoButton = container.querySelector('#meshUndoSupportLevel');
     if (levelButton) levelButton.disabled = !hasPlane || !!candidate?.leveled || !window.S?.positions?.length;
     if (undoButton) undoButton.disabled = !supportLevelUndo;
+    const selected = (window.S?.nifMeshComponents || []).find(item => item.id === window.S?.activeMeshComponentId);
+    const hasMembership = !!selected?.gaussianIds?.length && !!window.S?.documentModel?.gaussianIds?.length;
+    const previewButton = container.querySelector('#meshPreviewSupportTrim');
+    const applyButton = container.querySelector('#meshApplySupportTrim');
+    const undoTrimButton = container.querySelector('#meshUndoSupportTrim');
+    if (previewButton) previewButton.disabled = !hasPlane || !hasMembership;
+    if (applyButton) applyButton.disabled = !window.S?.supportPlaneTrimPreview?.rows?.length;
+    if (undoTrimButton) undoTrimButton.disabled = !window.S?.supportPlaneTrimUndo;
   };
 
   const levelToSupportPlane = async () => {
