@@ -1960,7 +1960,7 @@ def _classify_mesh_surface_role(component, scene_min_y: float,
     lower_fraction = float((vertices[:, 1].mean() - scene_min_y) / scene_height)
     face_fraction = float(len(faces) / max(int(total_faces), 1))
     candidate = (
-        planarity <= 0.015 and up_alignment >= 0.88
+        planarity <= 0.015 and up_alignment >= 0.95
         and lower_fraction <= 0.22 and face_fraction >= 0.03
     )
     confidence = 0.0
