@@ -540,10 +540,45 @@ test('component-scoped patches share the chronological journal without full-scen
   assert.equal(fullCaptureCalls, 1, 'patch commit must not capture the full scene');
   assert.equal(history.state().count, 1);
   assert.equal(history.undo(), true);
+  assert.equal(fullCaptureCalls, 1, 'patch undo must not capture the full scene');
   assert.equal(components[0].visible, true);
   assert.deepEqual([...components[0].vertices], [0, 1, 2]);
   assert.equal(components[1].visible, true, 'unrelated component must remain untouched');
   assert.equal(history.redo(), true);
+  assert.equal(fullCaptureCalls, 1, 'patch redo must not capture the full scene');
   assert.equal(components[0].visible, false);
   assert.deepEqual([...components[0].vertices], [99, 1, 2]);
+});
+
+
+test('legacy snapshot edits can follow scoped patches after an explicit pre-mutation baseline refresh', () => {
+  const state = { componentVisible: true, gaussianValue: 1 };
+  let captures = 0;
+  const history = new UnifiedEditHistory({
+    capture: () => { captures++; return { ...state }; },
+    restore: snapshot => Object.assign(state, snapshot),
+  });
+  const capturePatch = () => ({ componentVisible: state.componentVisible });
+  const applyPatch = patch => { state.componentVisible = patch.componentVisible; };
+  const before = capturePatch();
+  state.componentVisible = false;
+  assert.equal(history.commitPatch('Hide component', {
+    before, after: capturePatch(), capturePatch, applyPatch,
+  }), true);
+  assert.equal(captures, 1, 'patch commit must not capture full scene');
+
+  history.syncBaseline();
+  assert.equal(captures, 2, 'legacy edit captures one baseline before mutation');
+  state.gaussianValue = 2;
+  assert.equal(history.commit('Gaussian edit'), true);
+  assert.equal(state.gaussianValue, 2);
+  assert.equal(history.undo(), true);
+  assert.equal(state.gaussianValue, 1);
+  assert.equal(state.componentVisible, false, 'undoing snapshot entry must preserve preceding patch');
+  assert.equal(history.undo(), true);
+  assert.equal(state.componentVisible, true);
+  assert.equal(history.redo(), true);
+  assert.equal(state.componentVisible, false);
+  assert.equal(history.redo(), true);
+  assert.equal(state.gaussianValue, 2);
 });
