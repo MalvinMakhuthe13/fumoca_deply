@@ -415,6 +415,32 @@ export class UnifiedEditHistory {
     }
   }
 
+  /**
+   * Cancel an in-progress legacy pre-mutation gesture. The baseline is the
+   * detached state captured before the caller mutated authored data.
+   */
+  cancelPending() {
+    if (this.transactionOpen) throw new Error('cannot cancel while a history transaction is open');
+    const current = this.#capture();
+    try {
+      this.restore(cloneHistoryValue(this.baseline), { direction: 'cancel', label: 'Cancelled edit' });
+      this.baseline = this.#capture();
+      this.lastError = null;
+      this.#notify();
+      return true;
+    } catch (error) {
+      try {
+        this.restore(cloneHistoryValue(current), { direction: 'rollback', label: 'Cancelled edit', failedDirection: 'cancel' });
+        this.baseline = this.#capture();
+      } catch (restoreError) {
+        error.restoreError = restoreError;
+      }
+      this.lastError = error;
+      this.#notify();
+      throw error;
+    }
+  }
+
   undo() {
     if (this.transactionOpen || !this.canUndo()) return false;
     const entry = this.entries[this.cursor - 1];
