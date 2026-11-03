@@ -2278,7 +2278,7 @@ class ReconstructionWorker:
                 # what the JS editor's save path already writes (see NIFSpec.js /
                 # nif-format.js) — without these, a .nif produced by this worker
                 # had no title, no hotspots, and no poster image outside Supabase.
-                (CHUNK_META,    self._pack_meta(vertical, meta)),
+                (CHUNK_META,    self._pack_meta(vertical, meta, mesh_info)),
                 (CHUNK_PHYSICS, json.dumps(_build_physics_chunk(mesh_info, vertical, calibration, meta)).encode('utf-8')),
                 (CHUNK_CALIB,   json.dumps(calibration).encode('utf-8')),
             ]
@@ -3955,7 +3955,7 @@ class ReconstructionWorker:
             print(f'[NIF] Thumbnail upload failed: {e}')
             return None
 
-    def _pack_meta(self, vertical: str, meta: dict) -> bytes:
+    def _pack_meta(self, vertical: str, meta: dict, mesh_info: dict = None) -> bytes:
         """
         Build the CHUNK_META JSON payload — same shape NIFSpec.js's
         encodeMetaChunk()/decodeMetaChunk() read/write on the JS editor path,
@@ -3970,6 +3970,12 @@ class ReconstructionWorker:
             'tourStops':   meta.get('tourStops') or [],
             'createdAt':   _now_iso(),
         }
+        if mesh_info:
+            payload.update({
+                'surface_reconstruction': 'oriented-gaussian-surfel-tsdf',
+                'mesh_component_count': len(mesh_info.get('mesh_components', [])),
+                'mesh_diagnostics': mesh_info,
+            })
         return json.dumps(payload).encode('utf-8')
 
     # ── Register ───────────────────────────────────────────────────────────────
