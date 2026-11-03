@@ -975,7 +975,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       visible.addEventListener('change', () => {
         component.visible = visible.checked;
         window.setSolidMeshComponentVisibility?.(component.id, visible.checked);
-        syncComponentDiagnosticsToMeta();
+        refreshCombinedMeshFromComponents();
       });
       const select = document.createElement('button');
       select.type = 'button'; select.className = 'mini-btn';
@@ -1029,8 +1029,8 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       isolate.addEventListener('click', () => {
         for (const item of items) item.visible = item.id === component.id;
         window.previewSolidMeshComponents?.(items, { visible: true, opacity: 1 });
-        syncComponentDiagnosticsToMeta();
         renderMeshComponents(items);
+        refreshCombinedMeshFromComponents();
       });
       const role = document.createElement('span');
       role.className = 'hint';
@@ -1104,7 +1104,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     // visible here; each child mesh still honours its own visible flag.
     window.previewSolidMeshComponents?.(components, { visible: true, opacity: 1 });
     renderMeshComponents(components);
-    syncComponentDiagnosticsToMeta();
+    refreshCombinedMeshFromComponents();
     updateComponentTransformButtons();
     updateSupportPlaneControls();
   };
@@ -1265,12 +1265,9 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       vertices[i + 1] = cy + y + move[1];
       vertices[i + 2] = cz - x * sine + z * cosine + move[2];
     }
-    state.nifMesh = null; // rebuild combined compatibility mesh from edited components on NIF export
+    state.nifMesh = null;
     state.nifMeta = { ...(state.nifMeta || {}), mesh_components_edited: true };
-    syncComponentDiagnosticsToMeta();
-    lastMeshData = null; lastMeshStats = null; lastMesh = null;
-    container.querySelector('#saveMeshBtn').disabled = true;
-    container.querySelector('#printStlBtn').disabled = true;
+    refreshCombinedMeshFromComponents();
     window.previewSolidMeshComponents?.(state.nifMeshComponents, { visible: true, opacity: 1 });
     window.highlightSolidMeshComponent?.(component.id);
     renderMeshComponents(state.nifMeshComponents);
@@ -1405,9 +1402,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         { source: component.id, axis: axis.toUpperCase(), offset: splitOffset, normal, cut_is_open: true },
       ],
     };
-    lastMeshData = null; lastMeshStats = null; lastMesh = null;
-    container.querySelector('#saveMeshBtn').disabled = true;
-    container.querySelector('#printStlBtn').disabled = true;
+    refreshCombinedMeshFromComponents();
     window.previewSolidMeshComponents?.(state.nifMeshComponents, { visible: true, opacity: 1 });
     window.highlightSolidMeshComponent?.(state.activeMeshComponentId);
     renderMeshComponents(state.nifMeshComponents);
@@ -1430,7 +1425,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       mesh_components_edited: true,
       mesh_component_splits: (state.nifMeta?.mesh_component_splits || []).slice(0, -1),
     };
-    lastMeshData = null; lastMeshStats = null; lastMesh = null;
+    refreshCombinedMeshFromComponents();
     window.previewSolidMeshComponents?.(state.nifMeshComponents, { visible: true, opacity: 1 });
     window.highlightSolidMeshComponent?.(state.activeMeshComponentId);
     renderMeshComponents(state.nifMeshComponents);
@@ -1445,6 +1440,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     component.transformUndoVertices = null;
     state.nifMesh = null;
     state.nifMeta = { ...(state.nifMeta || {}), mesh_components_edited: true };
+    refreshCombinedMeshFromComponents();
     window.previewSolidMeshComponents?.(state.nifMeshComponents, { visible: true, opacity: 1 });
     window.highlightSolidMeshComponent?.(component.id);
     renderMeshComponents(state.nifMeshComponents);
@@ -1471,11 +1467,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     // The old combined mesh is derived data; discard it so NIF export rebuilds
     // the compatibility mesh from the remaining independent components.
     state.nifMesh = null;
-    lastMeshData = null;
-    lastMeshStats = null;
-    lastMesh = null;
-    container.querySelector('#saveMeshBtn').disabled = true;
-    container.querySelector('#printStlBtn').disabled = true;
+    refreshCombinedMeshFromComponents();
     container.querySelector('#meshPreviewToggle').checked = true;
     window.previewSolidMeshComponents?.(state.nifMeshComponents, { visible: true, opacity: 1 });
     window.highlightSolidMeshComponent?.(state.activeMeshComponentId);
@@ -1500,9 +1492,8 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       ? snapshot.previousActiveId : snapshot.source.id;
     state.meshComponentDeleteUndo = null;
     state.nifMesh = null;
-    lastMeshData = null; lastMeshStats = null; lastMesh = null;
-    syncComponentDiagnosticsToMeta();
     state.nifMeta = { ...(state.nifMeta || {}), mesh_components_edited: true };
+    refreshCombinedMeshFromComponents();
     window.previewSolidMeshComponents?.(components, { visible: true, opacity: 1 });
     window.highlightSolidMeshComponent?.(state.activeMeshComponentId);
     renderMeshComponents(components);
