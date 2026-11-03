@@ -32,8 +32,14 @@ export function assignGaussianMemberships(components, {
     return { min, max };
   });
   if (!bounds.length) return { components, assignedCount: 0, ambiguousCount: 0, unassignedCount: gaussianIds.length };
-  const sceneMin = [0, 1, 2].map(axis => Math.min(...bounds.map(box => box.min[axis])));
-  const sceneMax = [0, 1, 2].map(axis => Math.max(...bounds.map(box => box.max[axis])));
+  const sceneMin = [Infinity, Infinity, Infinity];
+  const sceneMax = [-Infinity, -Infinity, -Infinity];
+  for (const box of bounds) {
+    for (let axis = 0; axis < 3; axis++) {
+      sceneMin[axis] = Math.min(sceneMin[axis], box.min[axis]);
+      sceneMax[axis] = Math.max(sceneMax[axis], box.max[axis]);
+    }
+  }
   const diagonal = Math.hypot(sceneMax[0] - sceneMin[0], sceneMax[1] - sceneMin[1], sceneMax[2] - sceneMin[2]);
   const marginDistance = Number.isFinite(Number(margin)) && Number(margin) > 0
     ? Number(margin) : Math.max(diagonal * 0.005, 1e-4);
