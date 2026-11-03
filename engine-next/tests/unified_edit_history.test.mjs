@@ -127,8 +127,9 @@ test('a failed transaction restores every affected domain and records no history
 test('async mutations are rejected and rolled back instead of producing partial snapshots', () => {
   const state = fixture();
   const history = makeHistory(state);
-  assert.throws(() => history.transact('async mistake', async () => {
+  assert.throws(() => history.transact('async mistake', () => {
     state.gaussian[0] = 9;
+    return Promise.resolve('late completion');
   }), /must be synchronous/);
   assert.deepEqual([...state.gaussian], [0, 1, 2]);
   assert.equal(history.canUndo(), false);
