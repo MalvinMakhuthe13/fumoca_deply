@@ -737,32 +737,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     return true;
   };
 
-  const undoSupportPlaneCap = () => {
-    const state = window.S, snapshot = state?.meshComponentCapUndo;
-    if (!state || !snapshot) return false;
-    if (meshStateSignature(state.nifMesh, state.nifMeshComponents) !== snapshot.afterSignature) {
-      state.meshComponentCapUndo = null;
-      updateComponentTransformButtons();
-      meshStatus('Undo cap is no longer safe because the component changed after capping. Newer edits were preserved.');
-      return false;
-    }
-    window.beginStudioHistory?.('Restore capped support boundary');
-    state.nifMeshComponents = (state.nifMeshComponents || []).map(component =>
-      component.id === snapshot.componentId ? snapshot.previousComponent : component);
-    state.meshComponentCapUndo = null;
-    state.nifMesh = null;
-    lastMeshData = null; lastMesh = null; lastMeshStats = null;
-    state.nifMeta = snapshot.previousMeta || { ...(state.nifMeta || {}), mesh_components_edited: true };
-    refreshCombinedMeshFromComponents();
-    window.previewSolidMeshComponents?.(state.nifMeshComponents, { visible: true, opacity: 0.95 });
-    renderMeshComponents(state.nifMeshComponents);
-    window.commitStudioHistory?.();
-    updateComponentTransformButtons();
-    updateSupportPlaneControls();
-    meshStatus('Undid support-base capping. The original open boundary has been restored.');
-    return true;
-  };
-
   const levelToSupportPlane = async () => {
     const state = window.S;
     const candidate = getSupportPlaneCandidate();
@@ -1138,7 +1112,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       if (window.S) {
         window.S.meshComponentSplitUndo = null;
         window.S.meshComponentDeleteUndo = null;
-        window.S.meshComponentCapUndo = null;
         window.S.meshComponentMembershipUndo = null;
       }
       window.previewSolidMeshComponents?.(components, { visible: true, opacity: 0.95 });
@@ -1303,10 +1276,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     if (state?.meshComponentMembershipUndo
         && meshStateSignature(state.nifMesh, state.nifMeshComponents) !== state.meshComponentMembershipUndo.afterSignature) {
       state.meshComponentMembershipUndo = null;
-    }
-    if (state?.meshComponentCapUndo
-        && meshStateSignature(state.nifMesh, state.nifMeshComponents) !== state.meshComponentCapUndo.afterSignature) {
-      state.meshComponentCapUndo = null;
     }
     const component = selectedMeshComponent();
     const apply = container.querySelector('#meshComponentApplyTransform');
@@ -2014,7 +1983,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     state.nifMesh = null;
     state.meshComponentSplitUndo = null;
     state.meshComponentDeleteUndo = null;
-    state.meshComponentCapUndo = null;
     state.meshComponentMembershipUndo = null;
     state.supportPlaneTrimUndo = null;
     state.nifMeta = { ...(state.nifMeta || {}), mesh_components_edited: true };
