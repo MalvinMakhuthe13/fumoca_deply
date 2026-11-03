@@ -450,10 +450,16 @@ function encodeMeshComponentsChunk(components) {
     const nVerts = Math.floor((vertices?.length || 0) / 3);
     const nFaces = Math.floor((faces?.length || 0) / 3);
     const colours = component.colours || component.colors || new Uint8Array(nVerts * 3).fill(200);
-    let invalidVertex = false, invalidFace = false;
+    let invalidVertex = false, invalidFace = false, invalidColour = false;
     if (vertices) {
       for (let i = 0; i < vertices.length; i++) {
         if (!Number.isFinite(vertices[i])) { invalidVertex = true; break; }
+      }
+    }
+    if (colours) {
+      for (let i = 0; i < colours.length; i++) {
+        const value = colours[i];
+        if (!Number.isInteger(value) || value < 0 || value > 255) { invalidColour = true; break; }
       }
     }
     if (faces) {
@@ -467,7 +473,7 @@ function encodeMeshComponentsChunk(components) {
     if (!idBytes.length || idBytes.length > 255 || seenIds.has(id) ||
         !vertices || vertices.length !== nVerts * 3 ||
         !faces || faces.length !== nFaces * 3 || !nVerts || !nFaces ||
-        colours.length !== nVerts * 3 || invalidVertex || invalidFace) {
+        colours.length !== nVerts * 3 || invalidVertex || invalidFace || invalidColour) {
       throw new Error('[nif-format] invalid or duplicate mesh component geometry/ID');
     }
     seenIds.add(id);
@@ -517,10 +523,13 @@ async function decodeMeshComponentsChunk(chunk) {
       const nFaces = view.getUint32(at, false); at += 4;
       if (!id || !nVerts || !nFaces || nVerts > 50000000 || nFaces > 100000000) throw new Error('invalid component dimensions');
       const required = nVerts * 15 + nFaces * 12;
-      if (!Number.isSafeInteger(required) || at + required > view.byteLength) throw new Error('truncated component geometry');
+      if (!Number.isSafeInteger(required) || required > view.byteLength - at) throw new Error('truncated component geometry');
       const positions = new Float32Array(nVerts * 3);
       for (let p = 0; p < positions.length; p++) { positions[p] = view.getFloat32(at, false); at += 4; }
       const colors = bytes.slice(at, at + nVerts * 3); at += nVerts * 3;
+      for (let c = 0; c < colors.length; c++) {
+        if (!Number.isInteger(colors[c]) || colors[c] < 0 || colors[c] > 255) throw new Error('invalid component color');
+      }
       const faces = new Uint32Array(nFaces * 3);
       for (let f = 0; f < faces.length; f++) {
         faces[f] = view.getUint32(at, false); at += 4;
