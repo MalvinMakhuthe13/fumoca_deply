@@ -5,10 +5,12 @@ on:
     branches:
       - feature/dual-surface-engine-2026-11-02
       - feature/gaussian-surface-reconstruction-v2
+      - feature/unified-studio-history-2026-11-03
   pull_request:
     branches:
       - main
       - feature/dual-surface-engine-2026-11-02
+      - feature/gaussian-surface-reconstruction-v2
 
 jobs:
   dual-surface:
