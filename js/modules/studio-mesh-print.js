@@ -64,7 +64,21 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
             <button type="button" id="meshComponentDelete" class="mini-btn" disabled>Delete selected</button>
           </div>
           <div id="meshComponentsList" style="display:grid;gap:5px"></div>
-          <div class="hint" style="margin-top:6px">Each connected surface has independent visibility and selection. Selecting a component highlights it; deleting removes only that component from the scene geometry.</div>
+          <div style="margin-top:9px;padding-top:8px;border-top:1px solid rgba(255,255,255,.1)">
+            <strong style="font-size:11px">Transform selected component</strong>
+            <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;margin-top:6px">
+              <label class="hint">Move X<input id="meshComponentMoveX" type="number" step="0.01" value="0" style="width:100%;padding:4px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#fff"></label>
+              <label class="hint">Move Y<input id="meshComponentMoveY" type="number" step="0.01" value="0" style="width:100%;padding:4px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#fff"></label>
+              <label class="hint">Move Z<input id="meshComponentMoveZ" type="number" step="0.01" value="0" style="width:100%;padding:4px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#fff"></label>
+              <label class="hint">Rotate Y°<input id="meshComponentRotateY" type="number" step="1" value="0" style="width:100%;padding:4px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#fff"></label>
+              <label class="hint">Uniform scale<input id="meshComponentScale" type="number" min="0.01" step="0.01" value="1" style="width:100%;padding:4px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#fff"></label>
+            </div>
+            <div style="display:flex;gap:5px;margin-top:7px">
+              <button type="button" id="meshComponentApplyTransform" class="mini-btn" disabled>Apply transform</button>
+              <button type="button" id="meshComponentUndoTransform" class="mini-btn" disabled>Undo transform</button>
+            </div>
+          </div>
+          <div class="hint" style="margin-top:6px">Each connected surface has independent visibility, selection, isolation, transform and deletion. The original Gaussian splats remain unchanged.</div>
         </div>
         <div class="hint">Depth-aware lasso/box selection adds only the visible surface layer. Rotate and select again from other sides to build the complete object selection. Hold Shift to add and Alt to subtract; check the live point count before enabling selected-only extraction. The source splat is never deleted or changed.</div>
         <label style="display:block;font-size:11px;margin-top:8px">Hybrid mesh opacity <span id="meshPreviewOpacityVal" style="float:right;color:var(--neon)">38%</span>
@@ -233,6 +247,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         if (window.S) window.S.activeMeshComponentId = component.id;
         window.highlightSolidMeshComponent?.(component.id);
         renderMeshComponents(items);
+        updateComponentTransformButtons();
         meshStatus('Selected component ' + component.id + '. Its visibility and geometry are independent of the other scene components.');
       });
       const isolate = document.createElement('button');
@@ -269,6 +284,73 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     for (const component of window.S?.nifMeshComponents || []) component.visible = false;
     window.setSolidMeshComponentsVisibility?.(false);
     renderMeshComponents(window.S?.nifMeshComponents || []);
+  });
+  const selectedMeshComponent = () => (window.S?.nifMeshComponents || []).find(component => component.id === window.S?.activeMeshComponentId);
+  const updateComponentTransformButtons = () => {
+    const component = selectedMeshComponent();
+    const apply = container.querySelector('#meshComponentApplyTransform');
+    const undo = container.querySelector('#meshComponentUndoTransform');
+    if (apply) apply.disabled = !component;
+    if (undo) undo.disabled = !component?.transformUndoVertices;
+    const remove = container.querySelector('#meshComponentDelete');
+    if (remove) remove.disabled = !component;
+  };
+  container.querySelector('#meshComponentApplyTransform')?.addEventListener('click', () => {
+    const state = window.S, component = selectedMeshComponent();
+    if (!state || !component) return;
+    const move = [
+      Number(container.querySelector('#meshComponentMoveX')?.value || 0),
+      Number(container.querySelector('#meshComponentMoveY')?.value || 0),
+      Number(container.querySelector('#meshComponentMoveZ')?.value || 0),
+    ];
+    const angle = Number(container.querySelector('#meshComponentRotateY')?.value || 0) * Math.PI / 180;
+    const scale = Number(container.querySelector('#meshComponentScale')?.value || 1);
+    if (!move.every(Number.isFinite) || !Number.isFinite(angle) || !Number.isFinite(scale) || scale <= 0) {
+      meshStatus('Component transform values must be finite and scale must be greater than zero.');
+      return;
+    }
+    const vertices = component.vertices || component.positions;
+    if (!vertices?.length) return;
+    component.transformUndoVertices = vertices.slice();
+    let cx = 0, cy = 0, cz = 0;
+    for (let i = 0; i < vertices.length; i += 3) {
+      cx += vertices[i]; cy += vertices[i + 1]; cz += vertices[i + 2];
+    }
+    const count = vertices.length / 3;
+    cx /= count; cy /= count; cz /= count;
+    const cosine = Math.cos(angle), sine = Math.sin(angle);
+    for (let i = 0; i < vertices.length; i += 3) {
+      const x = (vertices[i] - cx) * scale;
+      const y = (vertices[i + 1] - cy) * scale;
+      const z = (vertices[i + 2] - cz) * scale;
+      vertices[i] = cx + x * cosine + z * sine + move[0];
+      vertices[i + 1] = cy + y + move[1];
+      vertices[i + 2] = cz - x * sine + z * cosine + move[2];
+    }
+    state.nifMesh = null; // rebuild combined compatibility mesh from edited components on NIF export
+    state.nifMeta = { ...(state.nifMeta || {}), mesh_components_edited: true };
+    lastMeshData = null; lastMeshStats = null; lastMesh = null;
+    container.querySelector('#saveMeshBtn').disabled = true;
+    container.querySelector('#printStlBtn').disabled = true;
+    window.previewSolidMeshComponents?.(state.nifMeshComponents, { visible: true, opacity: 1 });
+    window.highlightSolidMeshComponent?.(component.id);
+    renderMeshComponents(state.nifMeshComponents);
+    updateComponentTransformButtons();
+    meshStatus('Applied transform to ' + component.id + '. Export the NIF to preserve this component edit; the Gaussian source is unchanged.');
+  });
+  container.querySelector('#meshComponentUndoTransform')?.addEventListener('click', () => {
+    const state = window.S, component = selectedMeshComponent();
+    if (!state || !component?.transformUndoVertices) return;
+    const vertices = component.vertices || component.positions;
+    vertices.set(component.transformUndoVertices);
+    component.transformUndoVertices = null;
+    state.nifMesh = null;
+    state.nifMeta = { ...(state.nifMeta || {}), mesh_components_edited: true };
+    window.previewSolidMeshComponents?.(state.nifMeshComponents, { visible: true, opacity: 1 });
+    window.highlightSolidMeshComponent?.(component.id);
+    renderMeshComponents(state.nifMeshComponents);
+    updateComponentTransformButtons();
+    meshStatus('Undid the last transform for ' + component.id + '.');
   });
   container.querySelector('#meshComponentDelete')?.addEventListener('click', () => {
     const state = window.S;
