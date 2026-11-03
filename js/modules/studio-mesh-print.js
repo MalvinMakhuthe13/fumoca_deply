@@ -1191,7 +1191,10 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       try { renderMeshDiagnostics(stagedStats); }
       catch (diagnosticError) { console.warn('[Studio mesh] Mesh committed but diagnostics refresh failed:', diagnosticError); }
       const bridgeCount = Number(result.stats.densityBridging?.bridgedVoxels || 0);
-      meshStatus(`Mesh ready from ${eligibleCount.toLocaleString()} ${selectedOnly ? 'selected' : 'live'} source points (${ids.length.toLocaleString()} sampled): ${result.stats.triangles.toLocaleString()} triangles, ${(stagedLastMesh.size / 1048576).toFixed(2)} MB, ${shellStatus}, ${bridgeCount.toLocaleString()} density voxels bridged${colorNote}.`);
+      const membershipNote = membershipResult.assignedCount
+        ? `, ${membershipResult.assignedCount.toLocaleString()} Gaussian splats linked to components (${membershipResult.ambiguousCount.toLocaleString()} ambiguous left unassigned)`
+        : ', no Gaussian membership could be assigned unambiguously';
+      meshStatus(`Mesh ready from ${eligibleCount.toLocaleString()} ${selectedOnly ? 'selected' : 'live'} source points (${ids.length.toLocaleString()} sampled): ${result.stats.triangles.toLocaleString()} triangles, ${(stagedLastMesh.size / 1048576).toFixed(2)} MB, ${shellStatus}, ${bridgeCount.toLocaleString()} density voxels bridged${membershipNote}${colorNote}.`);
       const downloadButton = container.querySelector('#printStlBtn');
       downloadButton.disabled = format === 'stl' && !result.stats.printable;
       downloadButton.textContent = downloadButton.disabled ? 'STL needs one closed shell' : `Download ${format.toUpperCase()}`;
@@ -1319,7 +1322,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
           window.dispatchEvent(new CustomEvent('fumoca:nifMeshComponentsLoaded', { detail: { components } }));
           const previewToggle = container.querySelector('#meshPreviewToggle');
           if (previewToggle) { previewToggle.disabled = false; previewToggle.checked = true; }
-          meshStatus(`Oriented-surfel reconstruction loaded: ${components.length} independent components. Source splats remain intact; inspect component visibility and support-surface candidates before editing.`);
+          meshStatus(`Oriented-surfel reconstruction loaded: ${components.length} independent components, ${membershipResult.assignedCount.toLocaleString()} Gaussian splats linked (${membershipResult.ambiguousCount.toLocaleString()} ambiguous left unassigned). Source splats remain intact; inspect component visibility and support-surface candidates before editing.`);
         } catch (error) {
           meshStatus(error.message || String(error));
         } finally {
