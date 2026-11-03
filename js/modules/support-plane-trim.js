@@ -20,7 +20,12 @@ export function findGaussianRowsBelowSupportPlane({
   const length = Math.hypot(...n);
   if (length < 1e-8) throw new RangeError('support-plane normal is degenerate');
   for (let axis = 0; axis < 3; axis++) n[axis] /= length;
-  const normalizedOffset = d / length;
+  let normalizedOffset = d / length;
+  // "Below" always means the side opposite the object-facing +Y direction.
+  if (n[1] < 0) {
+    for (let axis = 0; axis < 3; axis++) n[axis] *= -1;
+    normalizedOffset *= -1;
+  }
   const memberIds = new Set();
   for (const raw of componentGaussianIds) {
     const id = Number(raw);
