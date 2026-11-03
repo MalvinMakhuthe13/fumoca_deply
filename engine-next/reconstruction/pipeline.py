@@ -3294,7 +3294,7 @@ class ReconstructionWorker:
             if part.visual.vertex_colors is not None:
                 part_colors = part.visual.vertex_colors[:, :3].astype(np.uint8)
             part_topology = _mesh_topology_diagnostics(part)
-            part_flags = 1 if part.is_watertight else 0
+            part_flags = (1 if part.is_watertight else 0) | 2  # visible by default
             component_chunk.extend(struct.pack('>B', len(label_bytes)))
             component_chunk.extend(label_bytes)
             component_chunk.extend(struct.pack(
