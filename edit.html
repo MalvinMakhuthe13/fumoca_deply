@@ -4168,8 +4168,10 @@ function _compactLidarAttributes(indices) {
 function _documentModelForSave(retainedIndices) {
   const pointCount = Math.floor((S.positions?.length || 0) / 3);
   let base = S.documentModel;
+  let changed = false;
   if (!base) {
     base = createDocumentModel({ gaussianIds: allocateGaussianIds(pointCount).ids });
+    changed = true;
   }
   if (base.gaussianIds.length > pointCount) {
     throw new Error('Document Gaussian identity count exceeds the live point array. Refusing to save mismatched component identities.');
@@ -4180,17 +4182,35 @@ function _documentModelForSave(retainedIndices) {
     extended.set(base.gaussianIds);
     extended.set(allocation.ids, base.gaussianIds.length);
     base = createDocumentModel({ ...base, gaussianIds: extended, nextGaussianId: allocation.nextId });
+    changed = true;
   }
+  const arraysEqual = (a, b) => {
+    if ((a?.length || 0) !== (b?.length || 0)) return false;
+    for (let i = 0; i < (a?.length || 0); i++) if (a[i] !== b[i]) return false;
+    return true;
+  };
   const liveComponents = Array.isArray(S.nifMeshComponents) ? S.nifMeshComponents : [];
   const liveById = new Map(liveComponents.map(component => [component.id, component]));
   const knownIds = new Set((base.components || []).map(component => component.id));
   const components = (base.components || []).map(component => {
     const live = liveById.get(component.id);
-    if (!live) return { ...component, visible: false, selected: false, deleted: true };
+    if (!live) {
+      if (component.deleted !== true || component.visible !== false || component.selected === true) changed = true;
+      return { ...component, visible: false, selected: false, deleted: true };
+    }
+    const gaussianIds = live.gaussianIds || component.gaussianIds || [];
+    const visible = live.visible !== false;
+    const selected = live.selected === true;
+    if (component.visible !== visible || component.selected !== selected
+        || component.deleted === true
+        || (live.watertight !== undefined && component.watertight !== (live.watertight === true))
+        || (live.supportSurfaceCandidate !== undefined && component.supportSurfaceCandidate !== (live.supportSurfaceCandidate === true))
+        || !arraysEqual(component.gaussianIds, gaussianIds)) changed = true;
     return {
       ...component,
-      visible: live.visible !== false,
-      selected: live.selected === true,
+      gaussianIds,
+      visible,
+      selected,
       ...(live.watertight !== undefined ? { watertight: live.watertight === true } : {}),
       ...(live.supportSurfaceCandidate !== undefined ? { supportSurfaceCandidate: live.supportSurfaceCandidate === true } : {}),
       deleted: false,
@@ -4198,6 +4218,7 @@ function _documentModelForSave(retainedIndices) {
   });
   for (const live of liveComponents) {
     if (knownIds.has(live.id)) continue;
+    changed = true;
     components.push({
       id: live.id,
       parentIds: live.parentIds || [],
@@ -4213,11 +4234,21 @@ function _documentModelForSave(retainedIndices) {
   const activeComponentId = Array.isArray(S.nifMeshComponents)
     ? (liveById.has(S.activeMeshComponentId) ? S.activeMeshComponentId : null)
     : (base.activeComponentId || null);
+  if (activeComponentId !== (base.activeComponentId || null)) changed = true;
+  const sourceSignature = S.nifMeta?.dual_surface_source_signature;
+  const source = {
+    ...(base.source || {}),
+    ...(sourceSignature ? { geometrySignature: sourceSignature } : {}),
+  };
+  if (sourceSignature && base.source?.geometrySignature !== sourceSignature) changed = true;
   const updated = createDocumentModel({
     ...base,
+    revision: base.revision + (changed ? 1 : 0),
+    source,
     components,
     activeComponentId,
   });
+  S.documentModel = updated;
   return compactDocumentModel(updated, retainedIndices);
 }
 
