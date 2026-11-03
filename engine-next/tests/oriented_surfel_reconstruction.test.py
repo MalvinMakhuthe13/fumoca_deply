@@ -103,6 +103,63 @@ check('nearest component controls signed distance between separate sheets',
       (middle_field, middle_mask))
 
 
+
+# Two nearby but separate objects must not acquire an observed bridge across
+# a gap wider than the local Gaussian support radius.
+left_object = np.array([[x * 0.05, y * 0.05, 0.0]
+                        for x in range(5) for y in range(5)], dtype=float)
+right_object = left_object.copy()
+right_object[:, 0] += 1.0
+separate_objects = np.vstack([left_object, right_object])
+separate_normals = np.tile([0.0, 0.0, 1.0], (len(separate_objects), 1))
+separate_ids = np.r_[np.zeros(len(left_object), dtype=np.int32),
+                     np.ones(len(right_object), dtype=np.int32)]
+gap_query = np.array([[0.5, 0.1, 0.0]], dtype=float)
+gap_field, gap_observed, gap_support = fuse(
+    gap_query, separate_objects, separate_normals, separate_ids,
+    np.ones(len(separate_objects)), 0.02,
+)
+check('two nearby independent objects do not gain a phantom surface in the gap',
+      not bool(gap_observed[0]), (gap_field, gap_observed, gap_support))
+
+# A thin two-sided feature must retain a non-zero signed distance at its
+# mid-plane instead of averaging the two sides into a false zero crossing.
+thin_lower = np.array([[x * 0.05, y * 0.05, 0.0]
+                       for x in range(5) for y in range(5)], dtype=float)
+thin_upper = thin_lower.copy(); thin_upper[:, 2] = 0.08
+thin_points = np.vstack([thin_lower, thin_upper])
+thin_normals = np.tile([0.0, 0.0, 1.0], (len(thin_points), 1))
+thin_ids = np.r_[np.zeros(len(thin_lower), dtype=np.int32),
+                 np.ones(len(thin_upper), dtype=np.int32)]
+thin_field, thin_observed, thin_support = fuse(
+    np.array([[0.1, 0.1, 0.04]], dtype=float),
+    thin_points, thin_normals, thin_ids, np.ones(len(thin_points)), 0.02,
+)
+check('thin parallel feature keeps separate signed surfaces without a zero-valued midpoint',
+      bool(thin_observed[0]) and abs(float(thin_field[0])) > 0.02,
+      (thin_field, thin_observed, thin_support))
+
+# An L-shaped concave corner keeps both perpendicular observed surface patches.
+wall_x = np.array([[0.0, y * 0.05, z * 0.05]
+                   for y in range(5) for z in range(5)], dtype=float)
+wall_z = np.array([[x * 0.05, y * 0.05, 0.0]
+                   for x in range(5) for y in range(5)], dtype=float)
+concave_points = np.vstack([wall_x, wall_z])
+concave_normals = np.vstack([
+    np.tile([1.0, 0.0, 0.0], (len(wall_x), 1)),
+    np.tile([0.0, 0.0, 1.0], (len(wall_z), 1)),
+])
+concave_ids = np.zeros(len(concave_points), dtype=np.int32)
+concave_field, concave_observed, concave_support = fuse(
+    np.array([[0.0, 0.1, 0.1], [0.1, 0.1, 0.0]], dtype=float),
+    concave_points, concave_normals, concave_ids,
+    np.ones(len(concave_points)), 0.02,
+)
+check('concave L-shaped capture retains support on both perpendicular faces',
+      bool(np.all(concave_observed)) and np.all(np.abs(concave_field) < 1e-8),
+      (concave_field, concave_observed, concave_support))
+
+
 # A one-surfel scene must have a finite, local support radius. It must not
 # turn infinity (the missing second-neighbour distance) into global support.
 single_field, single_mask, single_support = fuse(
