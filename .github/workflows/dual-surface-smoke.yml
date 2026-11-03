@@ -26,6 +26,8 @@ jobs:
           node --check --experimental-default-type=module js/modules/studio-mesh-print.js
           node --check --experimental-default-type=module js/modules/dual-surface-contract.js
           node --check --experimental-default-type=module js/modules/nif-format.js
+          node --check --experimental-default-type=module js/modules/print-export.js
+          node --check --experimental-default-type=module js/modules/viewer.js
       - name: Verify dual-layer NIF round trip
         run: node --experimental-default-type=module --test engine-next/tests/dual_surface_roundtrip.test.mjs
       - name: Verify Gaussian-to-mesh source freshness contract
