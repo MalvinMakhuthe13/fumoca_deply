@@ -4201,16 +4201,26 @@ function _documentModelForSave(retainedIndices) {
     const gaussianIds = live.gaussianIds || component.gaussianIds || [];
     const visible = live.visible !== false;
     const selected = live.selected === true;
+    const parentIds = [...new Set((live.parentIds || component.parentIds || []).map(String))];
+    const geometrySource = live.geometrySource || component.geometrySource || 'gaussian-derived';
+    const provenance = live.provenance || component.provenance || null;
+    const metadataChanged = JSON.stringify(component.parentIds || []) !== JSON.stringify(parentIds)
+      || component.geometrySource !== geometrySource
+      || JSON.stringify(component.provenance || null) !== JSON.stringify(provenance);
     if (component.visible !== visible || component.selected !== selected
         || component.deleted === true
         || (live.watertight !== undefined && component.watertight !== (live.watertight === true))
         || (live.supportSurfaceCandidate !== undefined && component.supportSurfaceCandidate !== (live.supportSurfaceCandidate === true))
-        || !arraysEqual(component.gaussianIds, gaussianIds)) changed = true;
+        || !arraysEqual(component.gaussianIds, gaussianIds)
+        || metadataChanged) changed = true;
     return {
       ...component,
+      parentIds,
       gaussianIds,
       visible,
       selected,
+      geometrySource,
+      provenance,
       ...(live.watertight !== undefined ? { watertight: live.watertight === true } : {}),
       ...(live.supportSurfaceCandidate !== undefined ? { supportSurfaceCandidate: live.supportSurfaceCandidate === true } : {}),
       deleted: false,
