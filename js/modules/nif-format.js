@@ -468,7 +468,7 @@ function encodeMeshComponentsChunk(components) {
   for (const c of normalized) {
     view.setUint8(at++, c.idBytes.length);
     bytes.set(c.idBytes, at); at += c.idBytes.length;
-    view.setUint8(at++, (c.watertight ? 1 : 0) | (c.visible === false ? 0 : 2));
+    view.setUint8(at++, (c.watertight ? 1 : 0) | (c.visible === false ? 0 : 2) | (c.supportSurfaceCandidate ? 4 : 0));
     view.setUint32(at, c.nVerts, false); at += 4;
     view.setUint32(at, c.nFaces, false); at += 4;
     for (const value of c.vertices) { view.setFloat32(at, value, false); at += 4; }
@@ -509,7 +509,7 @@ async function decodeMeshComponentsChunk(chunk) {
         if (faces[f] >= nVerts) throw new Error('component face index out of range');
       }
       if (Array.from(positions).some(value => !Number.isFinite(value))) throw new Error('non-finite component vertex');
-      components.push({ id, positions, colors, faces, nVerts, nFaces, watertight: !!(flags & 1), visible: !!(flags & 2) });
+      components.push({ id, positions, colors, faces, nVerts, nFaces, watertight: !!(flags & 1), visible: !!(flags & 2), supportSurfaceCandidate: !!(flags & 4) });
     }
     if (at !== view.byteLength) throw new Error('unexpected trailing component bytes');
     return components;
