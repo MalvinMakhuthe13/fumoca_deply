@@ -277,3 +277,24 @@ test('a single oversized snapshot is never retained beyond the configured byte b
   history.undo();
   assert.deepEqual([...state.positions], [1, 2, 3]);
 });
+
+
+test('identical before and after snapshots are not recorded', () => {
+  const state = { positions: new Float32Array([1, 2, 3]), visible: true };
+  const history = new UnifiedEditHistory({
+    capture: () => ({ positions: state.positions, visible: state.visible }),
+    restore: snapshot => {
+      state.positions = snapshot.positions;
+      state.visible = snapshot.visible;
+    },
+  });
+
+  assert.equal(history.commit('No-op gesture'), false);
+  assert.equal(history.state().count, 0);
+  assert.equal(history.state().bytes, 0);
+
+  state.positions[1] = 7;
+  assert.equal(history.commit('Actual edit'), true);
+  assert.equal(history.state().count, 1);
+  assert.equal(history.canUndo(), true);
+});
