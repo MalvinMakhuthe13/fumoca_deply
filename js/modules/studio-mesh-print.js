@@ -827,22 +827,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         lastMeshFormat = priorFormat;
         lastMeshStats = priorStats;
       }
-      const previous = {
-        positions: state.positions,
-        rotation: state.rotation,
-        nifMesh: state.nifMesh,
-        nifMeshComponents: state.nifMeshComponents,
-        nifMeta: state.nifMeta,
-        documentModel: state.documentModel,
-        gaussianSourceBytes: state.gaussianSourceBytes,
-        lastGaussianBytes: window._fumocaLastGaussianBytes,
-        lastMeshData,
-        lastMesh,
-        lastMeshStats,
-        lastMeshFormat,
-        lastMeshSourceSignature,
-      };
-
       window.beginStudioHistory?.('Level support plane');
       // Commit both representations together. The plane is moved to y=0 and
       // its normal becomes +Y; no Gaussian or mesh point is trimmed or deleted.
