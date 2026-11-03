@@ -1043,6 +1043,11 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
   };
 
   const updateComponentTransformButtons = () => {
+    const state = window.S;
+    if (state?.meshComponentMembershipUndo
+        && meshStateSignature(state.nifMesh, state.nifMeshComponents) !== state.meshComponentMembershipUndo.afterSignature) {
+      state.meshComponentMembershipUndo = null;
+    }
     const component = selectedMeshComponent();
     const apply = container.querySelector('#meshComponentApplyTransform');
     const undo = container.querySelector('#meshComponentUndoTransform');
