@@ -290,6 +290,10 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     if (previewButton) previewButton.disabled = !hasPlane || !hasMembership;
     if (applyButton) applyButton.disabled = !window.S?.supportPlaneTrimPreview?.rows?.length;
     if (undoTrimButton) undoTrimButton.disabled = !window.S?.supportPlaneTrimUndo;
+    const capButton = container.querySelector('#meshCapSupportBase');
+    const undoCapButton = container.querySelector('#meshUndoSupportCap');
+    if (capButton) capButton.disabled = !hasPlane || !selected?.vertices?.length || !selected?.triangles?.length;
+    if (undoCapButton) undoCapButton.disabled = !window.S?.meshComponentCapUndo;
   };
 
   const makeSupportTrimPlan = (component) => {
@@ -573,6 +577,118 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     if (!Number.isFinite(offset)) throw new Error('The detected support-plane offset is invalid.');
     const normalized = buildSupportPlaneTransform(normal, offset);
     return { normal: normalized.normal, offset: normalized.offset, candidate };
+  };
+
+  const capSupportPlaneBase = () => {
+    const state = window.S, component = selectedMeshComponent();
+    if (!state || !component) { meshStatus('Select a mesh component before capping its support base.'); return false; }
+    let plane, tolerance;
+    try {
+      plane = getNormalizedSupportPlane();
+      tolerance = Number(container.querySelector('#meshSupportCapTolerance')?.value ?? 0.001);
+      if (!Number.isFinite(tolerance) || tolerance < 0) throw new Error('Cap tolerance must be a non-negative finite value.');
+    } catch (error) {
+      meshStatus(error.message || String(error));
+      return false;
+    }
+    let result;
+    try {
+      result = capPlanarBoundaryLoops(component, {
+        normal: plane.normal, offset: plane.offset, tolerance,
+      });
+    } catch (error) {
+      meshStatus(error.message || String(error));
+      return false;
+    }
+    if (result.unchanged) {
+      meshStatus(`No closed support-plane boundary loop could be capped. Skipped open: ${result.skippedOpen}; non-planar: ${result.skippedNonPlanar}; invalid outline: ${result.skippedTriangulation}. No geometry changed.`);
+      return false;
+    }
+    const diagnostics = FumocMeshExtractor.validateWatertight(result.mesh);
+    const previousComponent = {
+      ...component,
+      vertices: component.vertices.slice(),
+      triangles: component.triangles.slice(),
+      colours: component.colours?.slice?.(),
+      gaussianIds: component.gaussianIds?.slice?.() || component.gaussianIds,
+    };
+    const cappedComponent = {
+      ...component,
+      vertices: result.mesh.vertices,
+      triangles: result.mesh.triangles,
+      colours: result.mesh.colours,
+      watertight: diagnostics.watertight,
+      diagnostics: {
+        ...(component.diagnostics || {}),
+        ...diagnostics,
+        n_boundary_edges: diagnostics.openEdges,
+        n_nonmanifold_edges: diagnostics.nonManifoldEdges,
+        support_plane_cap_loops: result.cappedLoops,
+        support_plane_cap_triangles: result.cappedTriangles,
+      },
+      provenance: {
+        ...(component.provenance || {}),
+        operation: 'support-plane-cap',
+        supportPlane: { normal: plane.normal, offset: plane.offset, tolerance },
+      },
+    };
+    state.nifMeshComponents = (state.nifMeshComponents || []).map(item =>
+      item.id === component.id ? cappedComponent : item);
+    state.nifMesh = null;
+    lastMeshData = null; lastMesh = null; lastMeshStats = null;
+    state.meshComponentCapUndo = {
+      componentId: component.id,
+      previousComponent,
+      afterSignature: null,
+    };
+    state.nifMeta = {
+      ...(state.nifMeta || {}),
+      mesh_components_edited: true,
+      support_plane_cap: {
+        component_id: component.id,
+        normal: plane.normal,
+        offset: plane.offset,
+        tolerance,
+        capped_loops: result.cappedLoops,
+        capped_triangles: result.cappedTriangles,
+        watertight: diagnostics.watertight,
+        applied_at: new Date().toISOString(),
+      },
+    };
+    syncComponentDiagnosticsToMeta();
+    state.meshComponentCapUndo.afterSignature = meshStateSignature(state.nifMesh, state.nifMeshComponents);
+    window.previewSolidMeshComponents?.(state.nifMeshComponents, { visible: true, opacity: 0.95 });
+    window.highlightSolidMeshComponent?.(component.id);
+    renderMeshComponents(state.nifMeshComponents);
+    updateComponentTransformButtons();
+    updateSupportPlaneControls();
+    meshStatus(`Capped ${result.cappedLoops} planar support boundary loop(s) with ${result.cappedTriangles} triangles. Overall watertight: ${diagnostics.watertight ? 'yes' : 'not yet — other open boundaries remain'}.`);
+    return true;
+  };
+
+  const undoSupportPlaneCap = () => {
+    const state = window.S, snapshot = state?.meshComponentCapUndo;
+    if (!state || !snapshot) return false;
+    if (meshStateSignature(state.nifMesh, state.nifMeshComponents) !== snapshot.afterSignature) {
+      state.meshComponentCapUndo = null;
+      updateComponentTransformButtons();
+      meshStatus('Undo cap is no longer safe because the component changed after capping. Newer edits were preserved.');
+      return false;
+    }
+    state.nifMeshComponents = (state.nifMeshComponents || []).map(component =>
+      component.id === snapshot.componentId ? snapshot.previousComponent : component);
+    state.meshComponentCapUndo = null;
+    state.nifMesh = null;
+    lastMeshData = null; lastMesh = null; lastMeshStats = null;
+    const { support_plane_cap: _undoneCap, ...metaWithoutCap } = state.nifMeta || {};
+    state.nifMeta = { ...metaWithoutCap, mesh_components_edited: true };
+    syncComponentDiagnosticsToMeta();
+    window.previewSolidMeshComponents?.(state.nifMeshComponents, { visible: true, opacity: 0.95 });
+    renderMeshComponents(state.nifMeshComponents);
+    updateComponentTransformButtons();
+    updateSupportPlaneControls();
+    meshStatus('Undid support-base capping. The original open boundary has been restored.');
+    return true;
   };
 
   const levelToSupportPlane = async () => {
@@ -1656,6 +1772,8 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     undoGaussianMembershipLink,
     applySupportPlaneTrim,
     undoSupportPlaneTrim,
+    capSupportPlaneBase,
+    undoSupportPlaneCap,
   };
   container.querySelector('#meshOrientedReconstructBtn')?.addEventListener('click', async () => {
     const button = container.querySelector('#meshOrientedReconstructBtn');
@@ -1768,6 +1886,8 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
   container.querySelector('#meshPreviewSupportTrim')?.addEventListener('click', previewSupportPlaneTrim);
   container.querySelector('#meshApplySupportTrim')?.addEventListener('click', applySupportPlaneTrim);
   container.querySelector('#meshUndoSupportTrim')?.addEventListener('click', undoSupportPlaneTrim);
+  container.querySelector('#meshCapSupportBase')?.addEventListener('click', capSupportPlaneBase);
+  container.querySelector('#meshUndoSupportCap')?.addEventListener('click', undoSupportPlaneCap);
   container.querySelector('#meshPreviewSupportTrim')?.addEventListener('click', previewSupportPlaneTrim);
   container.querySelector('#meshApplySupportTrim')?.addEventListener('click', applySupportPlaneTrim);
   container.querySelector('#meshUndoSupportTrim')?.addEventListener('click', undoSupportPlaneTrim);
