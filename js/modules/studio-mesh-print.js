@@ -82,6 +82,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
                 <input id="meshComponentSplitY" type="number" step="0.001" value="0" style="width:100%;padding:4px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#fff">
               </label>
               <button type="button" id="meshComponentSplitPlane" class="mini-btn" disabled>Split selected</button>
+              <button type="button" id="meshComponentUndoSplit" class="mini-btn" disabled>Undo split</button>
             </div>
             <div class="hint">Plane splitting only clips existing triangles. It deliberately leaves the new cut open; it does not invent a cap.</div>
           </div>
@@ -304,6 +305,8 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     if (remove) remove.disabled = !component;
     const split = container.querySelector('#meshComponentSplitPlane');
     if (split) split.disabled = !component;
+    const undoSplit = container.querySelector('#meshComponentUndoSplit');
+    if (undoSplit) undoSplit.disabled = !window.S?.meshComponentSplitUndo;
   };
   container.querySelector('#meshComponentApplyTransform')?.addEventListener('click', () => {
     const state = window.S, component = selectedMeshComponent();
@@ -322,6 +325,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     const vertices = component.vertices || component.positions;
     if (!vertices?.length) return;
     component.transformUndoVertices = vertices.slice();
+    state.meshComponentSplitUndo = null; // further edits invalidate the one-step plane-split undo
     let cx = 0, cy = 0, cz = 0;
     for (let i = 0; i < vertices.length; i += 3) {
       cx += vertices[i]; cy += vertices[i + 1]; cz += vertices[i + 2];
@@ -376,6 +380,10 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       supportSurfaceCandidate: true, // lower side of a user-defined horizontal separation plane; review candidate only
     };
     const replacement = [positive, negative].sort((a, b) => meanY(a) - meanY(b));
+    state.meshComponentSplitUndo = {
+      source: { ...component, vertices: component.vertices.slice(), triangles: component.triangles.slice(), colours: component.colours?.slice() },
+      partIds: [positive.id, negative.id],
+    };
     state.nifMeshComponents = (state.nifMeshComponents || []).filter(item => item.id !== component.id)
       .concat(replacement);
     state.activeMeshComponentId = positive.id;
@@ -397,6 +405,26 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     updateComponentTransformButtons();
     meshStatus('Split ' + component.id + ' into two independent surfaces at Y=' + y + '. The new boundary is intentionally open; no cap geometry was invented.');
   });
+  container.querySelector('#meshComponentUndoSplit')?.addEventListener('click', () => {
+    const state = window.S, snapshot = state?.meshComponentSplitUndo;
+    if (!state || !snapshot) return;
+    state.nifMeshComponents = (state.nifMeshComponents || []).filter(component => !snapshot.partIds.includes(component.id));
+    state.nifMeshComponents.push(snapshot.source);
+    state.activeMeshComponentId = snapshot.source.id;
+    state.meshComponentSplitUndo = null;
+    state.nifMesh = null;
+    state.nifMeta = {
+      ...(state.nifMeta || {}),
+      mesh_components_edited: true,
+      mesh_component_splits: (state.nifMeta?.mesh_component_splits || []).slice(0, -1),
+    };
+    lastMeshData = null; lastMeshStats = null; lastMesh = null;
+    window.previewSolidMeshComponents?.(state.nifMeshComponents, { visible: true, opacity: 1 });
+    window.highlightSolidMeshComponent?.(state.activeMeshComponentId);
+    renderMeshComponents(state.nifMeshComponents);
+    updateComponentTransformButtons();
+    meshStatus('Undid the most recent plane split. The original component geometry has been restored.');
+  });
   container.querySelector('#meshComponentUndoTransform')?.addEventListener('click', () => {
     const state = window.S, component = selectedMeshComponent();
     if (!state || !component?.transformUndoVertices) return;
@@ -415,6 +443,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     const state = window.S;
     if (!state?.activeMeshComponentId) return;
     const id = state.activeMeshComponentId;
+    state.meshComponentSplitUndo = null;
     state.nifMeshComponents = (state.nifMeshComponents || []).filter(component => component.id !== id);
     state.activeMeshComponentId = state.nifMeshComponents[0]?.id || null;
     // The old combined mesh is derived data; discard it so NIF export rebuilds
