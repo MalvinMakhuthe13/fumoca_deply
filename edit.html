@@ -3683,6 +3683,9 @@ function updateHistoryBtns() {
   $('undoBtn').disabled = !state.canUndo && !_pendingUnifiedHistory;
   $('redoBtn').disabled = !state.canRedo;
 }
+window.beginStudioHistory = label => pushHistory(label);
+window.commitStudioHistory = () => flushPendingUnifiedHistory();
+window.cancelStudioHistory = () => { _pendingUnifiedHistory = null; updateHistoryBtns(); };
 
 // ─── SELECTION ──────────────────────────────────────────────────────────────
 function clearSelection() { if (S.selected) S.selected.fill(0); rebuildGeometry(); syncTransformGizmo(); selectedPointCount(); }
