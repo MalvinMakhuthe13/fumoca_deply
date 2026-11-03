@@ -2340,7 +2340,7 @@ class ReconstructionWorker:
                         'tsdf_observed_voxels', 'tsdf_batch_size',
                         'tsdf_fusion_batches', 'anisotropic_tangent_support',
                         'normal_component_count', 'mean_surfel_confidence',
-                        'is_watertight', 'mesh_components',
+                        'is_watertight', 'surface_repair', 'mesh_components',
                     ) if key in mesh_info
                 } if mesh_info else None),
                 'has_print_export':  bool(stl_bytes) and bool(mesh_info and mesh_info.get('is_watertight')),
@@ -3496,6 +3496,15 @@ class ReconstructionWorker:
         mesh.update_faces(mesh.nondegenerate_faces())
         mesh.remove_unreferenced_vertices()
 
+        # Confidence-aware repair is intentionally narrow: only small convex
+        # loops whose interior is covered by high-confidence, normal-aligned
+        # Gaussian surfels may be capped. Unsupported openings remain open.
+        mesh, surface_repair = _repair_supported_mesh_boundaries(
+            mesh, positions, normals, confidence, voxel_size,
+            tsdf_diagnostics['median_point_spacing'],
+        )
+        print('[NIF] Confidence-aware surface repair:', surface_repair)
+
         if len(mesh.faces) > max_faces:
             try:
                 mesh = mesh.simplify_quadric_decimation(face_count=max_faces)
@@ -3637,6 +3646,7 @@ class ReconstructionWorker:
             'anisotropic_tangent_support': tsdf_diagnostics['anisotropic_tangent_support'],
             'normal_component_count': normal_orientation['components'],
             'mean_surfel_confidence': float(np.mean(confidence)) if len(confidence) else 0.0,
+            'surface_repair': surface_repair,
             'mesh_components': component_summaries,
         }, mesh_components_bytes
 
