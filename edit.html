@@ -4156,7 +4156,7 @@ function _documentModelForSave(retainedIndices) {
   const knownIds = new Set((base.components || []).map(component => component.id));
   const components = (base.components || []).map(component => {
     const live = liveById.get(component.id);
-    if (!live) return component;
+    if (!live) return { ...component, visible: false, selected: false, deleted: true };
     return {
       ...component,
       visible: live.visible !== false,
