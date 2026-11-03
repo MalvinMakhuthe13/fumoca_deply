@@ -7,6 +7,7 @@ import { buildSupportPlaneTransform } from './support-plane-transform.js';
 import { normalizeMeshComponents } from './mesh-component-contract.js';
 import { assignGaussianMemberships } from './gaussian-component-membership.js';
 import { findGaussianRowsBelowSupportPlane } from './support-plane-trim.js';
+import { capPlanarBoundaryLoops } from './planar-mesh-cap.js';
 import r2 from '../r2Client.js';
 import { supabase } from '../supabaseClient.js';
 
@@ -112,6 +113,14 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
               <button type="button" id="meshApplySupportTrim" class="mini-btn" disabled>Trim below plane</button>
               <button type="button" id="meshUndoSupportTrim" class="mini-btn" disabled>Undo trim</button>
             </div>
+            <div style="display:flex;gap:5px;margin-top:7px;flex-wrap:wrap">
+              <label class="hint" style="flex:1;min-width:105px">Cap tolerance
+                <input id="meshSupportCapTolerance" type="number" min="0" step="0.0001" value="0.001" style="width:100%;padding:4px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#fff">
+              </label>
+              <button type="button" id="meshCapSupportBase" class="mini-btn" disabled>Cap flat base</button>
+              <button type="button" id="meshUndoSupportCap" class="mini-btn" disabled>Undo cap</button>
+            </div>
+            <div class="hint">Capping only closes boundary loops that lie on the detected support plane. Concave outlines are triangulated in-plane; unrelated holes are left open.</div>
             <div class="hint">Trim is scoped to the selected component's linked Gaussian splats and mesh. Preview selects affected splats first. Other components, including a separately reconstructed platform, are left untouched. The cut stays open until you explicitly cap it.</div>
             <div class="hint">Level applies the detected plane to the complete Gaussian + mesh scene and preserves the source geometry relationship. It does not trim or delete points; that remains a separate reviewed operation.</div>
           </div>
