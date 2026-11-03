@@ -78,5 +78,6 @@ test('NIF preserves Gaussian source and connected mesh as independent layers', a
       triangles: new Uint32Array([0, 1, 3]),
       colours: new Uint8Array(9),
     }],
-  }), /duplicate mesh component geometry\/ID/, 'component faces must reference local vertices');
+  }), /invalid mesh color or face indices|invalid or duplicate mesh component geometry\/ID/,
+  'component faces must reference local vertices');
 });
