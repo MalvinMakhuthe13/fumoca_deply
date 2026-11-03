@@ -717,7 +717,14 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       if (currentSourceSignature !== extractionSourceSignature) {
         throw new Error('The Gaussian source changed while the mesh was extracting. The result was discarded; run Extract mesh again.');
       }
-      lastMeshData = { ...result.mesh, vertices: result.mesh.vertices.slice(), triangles: result.mesh.triangles.slice(), colours: result.mesh.colours?.slice() };
+      // Build every output locally first. No live editor state, preview, active
+      // component, or previous download is changed until all staging succeeds.
+      const stagedMeshData = {
+        ...result.mesh,
+        vertices: result.mesh.vertices.slice(),
+        triangles: result.mesh.triangles.slice(),
+        colours: result.mesh.colours?.slice(),
+      };
       const extractedComponents = (result.components || []).map(component => ({
         id: component.id,
         vertices: component.vertices.slice(),
@@ -727,58 +734,70 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         visible: true,
         diagnostics: component.stats || null,
       }));
-      // Preserve the combined compatibility mesh and the independently
-      // addressable connected surfaces. Gaussian geometry remains untouched.
-      if (window.S) {
-        window.S.nifMesh = lastMeshData;
-        window.S.nifMeshComponents = extractedComponents;
-        window.S.activeMeshComponentId = extractedComponents[0]?.id || null;
-        window.S.nifMeta = { ...(window.S.nifMeta || {}), dual_surface_source_signature: extractionSourceSignature };
-      }
-      window.previewSolidMesh?.(lastMeshData, { visible: false });
-      window.previewSolidMeshComponents?.(extractedComponents, { visible: true, opacity: 0.95 });
-      renderMeshComponents(extractedComponents);
-      window.dispatchEvent(new CustomEvent('fumoca:nifMeshComponentsLoaded', { detail: { components: extractedComponents } }));
-      lastMeshSourceSignature = extractionSourceSignature;
+      let stagedLastMesh;
       if (format === 'stl') {
         // Print scaling belongs only to the STL download, not the scene mesh
         // retained for NIF export or preview.
-        const exportMesh = { ...result.mesh, vertices: result.mesh.vertices.slice() };
+        const exportMesh = { ...stagedMeshData, vertices: stagedMeshData.vertices.slice() };
         let minY = Infinity, maxY = -Infinity;
-        for (let i = 1; i < exportMesh.vertices.length; i += 3) { minY = Math.min(minY, exportMesh.vertices[i]); maxY = Math.max(maxY, exportMesh.vertices[i]); }
+        for (let i = 1; i < exportMesh.vertices.length; i += 3) {
+          minY = Math.min(minY, exportMesh.vertices[i]);
+          maxY = Math.max(maxY, exportMesh.vertices[i]);
+        }
         const factor = Number(height?.value || 120) / Math.max(maxY - minY, 1e-6);
         for (let i = 0; i < exportMesh.vertices.length; i += 3) {
           exportMesh.vertices[i] *= factor;
           exportMesh.vertices[i + 1] = (exportMesh.vertices[i + 1] - minY) * factor;
           exportMesh.vertices[i + 2] *= factor;
         }
-        lastMesh = FumocMeshExtractor.exportSTL(exportMesh, 'fumoca-mesh');
+        stagedLastMesh = FumocMeshExtractor.exportSTL(exportMesh, 'fumoca-mesh');
+      } else if (format === 'obj') {
+        stagedLastMesh = FumocMeshExtractor.exportOBJ(stagedMeshData, 'fumoca-mesh');
+      } else {
+        stagedLastMesh = FumocMeshExtractor.exportPLY(stagedMeshData, 'fumoca-mesh');
       }
-      lastMeshFormat = format;
-      lastMeshStats = {
+      const stagedStats = {
         ...result.stats,
         extractionMode: selectedOnly ? 'selected-only' : 'all-live',
         sourcePointCount: eligibleCount,
         extractedPointCount: ids.length,
       };
-      renderMeshDiagnostics(lastMeshStats);
+      const shellStatus = result.stats.watertight
+        ? (result.stats.components === 1 ? 'one connected watertight shell' : `${result.stats.components} disconnected watertight shells`)
+        : `open surface — ${result.stats.openEdges} open edges${result.stats.components > 1 ? ` across ${result.stats.components} shells` : ''}`;
+      const colorNote = format === 'stl' ? ', color kept in preview (STL stores geometry only)' : ', vertex color transferred';
+
+      // Atomic commit: from here on, the new mesh is the current good result.
+      lastMeshData = stagedMeshData;
+      lastMesh = stagedLastMesh;
+      lastMeshFormat = format;
+      lastMeshStats = stagedStats;
+      lastMeshSourceSignature = extractionSourceSignature;
       if (window.S) {
+        window.S.nifMesh = stagedMeshData;
+        window.S.nifMeshComponents = extractedComponents;
+        window.S.activeMeshComponentId = extractedComponents[0]?.id || null;
         window.S.nifMeta = {
           ...(window.S.nifMeta || {}),
+          dual_surface_source_signature: extractionSourceSignature,
           mesh_extraction_mode: selectedOnly ? 'selected-only' : 'all-live',
           mesh_source_point_count: eligibleCount,
           mesh_extracted_point_count: ids.length,
           mesh_extracted_at: new Date().toISOString(),
         };
       }
-      if (format !== 'stl') lastMesh = format === 'obj' ? FumocMeshExtractor.exportOBJ(result.mesh, 'fumoca-mesh')
-        : FumocMeshExtractor.exportPLY(result.mesh, 'fumoca-mesh');
-      const shellStatus = result.stats.watertight
-        ? (result.stats.components === 1 ? 'one connected watertight shell' : `${result.stats.components} disconnected watertight shells`)
-        : `open surface — ${result.stats.openEdges} open edges${result.stats.components > 1 ? ` across ${result.stats.components} shells` : ''}`;
-      const colorNote = format === 'stl' ? ', color kept in preview (STL stores geometry only)' : ', vertex color transferred';
+      try {
+        window.previewSolidMesh?.(stagedMeshData, { visible: false });
+        window.previewSolidMeshComponents?.(extractedComponents, { visible: true, opacity: 0.95 });
+        renderMeshComponents(extractedComponents);
+        window.dispatchEvent(new CustomEvent('fumoca:nifMeshComponentsLoaded', { detail: { components: extractedComponents } }));
+      } catch (previewError) {
+        console.warn('[Studio mesh] New mesh committed but preview refresh failed:', previewError);
+      }
+      renderMeshDiagnostics(stagedStats);
       const bridgeCount = Number(result.stats.densityBridging?.bridgedVoxels || 0);
-      meshStatus(`Mesh ready from ${eligibleCount.toLocaleString()} ${selectedOnly ? 'selected' : 'live'} source points (${ids.length.toLocaleString()} sampled): ${result.stats.triangles.toLocaleString()} triangles, ${(lastMesh.size / 1048576).toFixed(2)} MB, ${shellStatus}, ${bridgeCount.toLocaleString()} density voxels bridged${colorNote}.`);
+      const bridgeCount = Number(result.stats.densityBridging?.bridgedVoxels || 0);
+      meshStatus(`Mesh ready from ${eligibleCount.toLocaleString()} ${selectedOnly ? 'selected' : 'live'} source points (${ids.length.toLocaleString()} sampled): ${result.stats.triangles.toLocaleString()} triangles, ${(stagedLastMesh.size / 1048576).toFixed(2)} MB, ${shellStatus}, ${bridgeCount.toLocaleString()} density voxels bridged${colorNote}.`);
       const downloadButton = container.querySelector('#printStlBtn');
       downloadButton.disabled = format === 'stl' && !result.stats.printable;
       downloadButton.textContent = downloadButton.disabled ? 'STL needs one closed shell' : `Download ${format.toUpperCase()}`;
