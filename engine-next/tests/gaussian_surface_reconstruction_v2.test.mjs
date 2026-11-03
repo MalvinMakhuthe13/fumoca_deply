@@ -5,6 +5,35 @@ globalThis.window = globalThis.window || {};
 const { default: FumocMeshExtractor } = await import('../../js/modules/fumoc-mesh-extractor.js');
 const { autoTuneThreshold, buildDensityField } = FumocMeshExtractor;
 
+test('mesh splitter preserves separate connected surfaces and local indices', () => {
+  const mesh = {
+    vertices: new Float32Array([
+      0, 0, 0, 1, 0, 0, 0, 1, 0,
+      3, 0, 0, 4, 0, 0, 3, 1, 0,
+    ]),
+    triangles: new Uint32Array([0, 1, 2, 3, 4, 5]),
+    colours: new Uint8Array([255, 0, 0, 0, 255, 0, 0, 0, 255, 90, 70, 50, 90, 70, 50, 90, 70, 50]),
+  };
+  const parts = FumocMeshExtractor.splitMeshComponents(mesh);
+  assert.equal(parts.length, 2);
+  assert.deepEqual(parts.map(part => part.triangles.length / 3), [1, 1]);
+  assert.deepEqual(Array.from(parts[0].triangles), [0, 1, 2]);
+  assert.deepEqual(Array.from(parts[1].triangles), [0, 1, 2]);
+  assert.deepEqual(Array.from(parts[0].colours), [255, 0, 0, 0, 255, 0, 0, 0, 255]);
+  assert.deepEqual(Array.from(parts[1].colours), [90, 70, 50, 90, 70, 50, 90, 70, 50]);
+  assert.notEqual(parts[0].id, parts[1].id);
+});
+
+test('mesh splitter keeps faces connected through shared vertices in one component', () => {
+  const parts = FumocMeshExtractor.splitMeshComponents({
+    vertices: new Float32Array([0,0,0, 1,0,0, 0,1,0, 1,1,0]),
+    triangles: new Uint32Array([0,1,2, 1,3,2]),
+  });
+  assert.equal(parts.length, 1);
+  assert.equal(parts[0].triangles.length / 3, 2);
+  assert.equal(parts[0].vertices.length / 3, 4);
+});
+
 test('auto threshold is positive, bounded and scale invariant', () => {
   const density = new Float32Array(1000);
   for (let i = 0; i < density.length; i++) density[i] = i < 100 ? 0 : (i - 99) / 900;
