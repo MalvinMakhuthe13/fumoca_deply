@@ -2877,9 +2877,12 @@ async function loadFile(file, urlOverride) {
   const extSource = (urlOverride || file.name).split(/[?#]/, 1)[0];
   const ext = extSource.split('.').pop().toLowerCase();
   S.nifMesh = null;
+  S.nifMeshComponents = [];
+  S.activeMeshComponentId = null;
   S.nifPassthroughChunks = [];
   S.lidarIntensity = S.lidarClassification = S.lidarReturnNumber = null;
   window.previewSolidMesh?.(null, { visible: false });
+  window.previewSolidMeshComponents?.([], { visible: false });
   let parsed;
   if (ext === 'nif') {
     // Real .nif — decode canonical 14-float/point geometry, then convert to
@@ -2891,11 +2894,20 @@ async function loadFile(file, urlOverride) {
     S.sourceBuffer = rows.buffer;
     S.nifMeta = decoded.meta || {};
     S.nifThumbnailBytes = decoded.thumbnailBytes || null;
-    S.nifPassthroughChunks = decoded.reader.chunks.filter(chunk => ![0x0001, 0x0003, 0x0004, 0x0015, 0x0019].includes(chunk.type));
+    S.nifPassthroughChunks = decoded.reader.chunks.filter(chunk => ![0x0001, 0x0003, 0x0004, 0x0015, 0x0019, 0x001A].includes(chunk.type));
     S.nifMesh = decoded.mesh ? {
       vertices: decoded.mesh.positions, colours: decoded.mesh.colors,
       triangles: decoded.mesh.faces,
     } : null;
+    S.nifMeshComponents = (decoded.meshComponents || []).map(component => ({
+      id: component.id,
+      vertices: component.positions,
+      colours: component.colors,
+      triangles: component.faces,
+      watertight: component.watertight,
+      visible: component.visible !== false,
+    }));
+    S.activeMeshComponentId = S.nifMeshComponents[0]?.id || null;
     S.lidarIntensity = decoded.lidarAttributes?.intensity || null;
     S.lidarClassification = decoded.lidarAttributes?.classification || null;
     S.lidarReturnNumber = decoded.lidarAttributes?.returnNumber || null;
@@ -2948,10 +2960,13 @@ async function loadFile(file, urlOverride) {
   S.history = []; S.historyIndex = -1;
   updateHistoryBtns();
   rebuildGeometry(); setProgress(100);
-  if (S.nifMesh) {
+  if (S.nifMeshComponents?.length) {
+    window.previewSolidMeshComponents?.(S.nifMeshComponents, { visible: true });
+  } else if (S.nifMesh) {
     window.previewSolidMesh?.(S.nifMesh, { visible: true });
   }
   window.dispatchEvent(new CustomEvent('fumoca:nifMeshLoaded', { detail: { mesh: S.nifMesh } }));
+  window.dispatchEvent(new CustomEvent('fumoca:nifMeshComponentsLoaded', { detail: { components: S.nifMeshComponents || [] } }));
   renderLayers();
   $('fileName').textContent = file.name;
   $('fileMeta').textContent = `${fmt(parsed.count)} points · ${(file.size / 1024 / 1024).toFixed(1)} MB · ${ext.toUpperCase()} · ${S.sourceColorAvailable ? 'source color' : 'no RGB color (neutral preview)'}`;
@@ -4015,6 +4030,7 @@ function exportFile(type = 'splat') {
       meta: S.nifMeta || {},
       thumbnailBytes: S.nifThumbnailBytes || undefined,
       mesh: S.nifMesh || undefined,
+      meshComponents: S.nifMeshComponents?.length ? S.nifMeshComponents : undefined,
       lidarAttributes: _compactLidarAttributes(idx),
       passthroughChunks: S.nifPassthroughChunks || [],
       vertical: (S.nifMeta && S.nifMeta.vertical) || 'generic',
