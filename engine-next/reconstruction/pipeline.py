@@ -1726,6 +1726,49 @@ def _confidence_weighted_tsdf(grid: np.ndarray, positions: np.ndarray,
     }
 
 
+def _classify_mesh_surface_role(component, scene_min_y: float,
+                                  scene_max_y: float, total_faces: int):
+    """
+    Conservatively flag a disconnected, broad, near-horizontal lower surface
+    as a support-surface candidate. This is a review hint, not auto-deletion
+    or semantic object truth; Studio retains the geometry unchanged.
+    """
+    vertices = np.asarray(component.vertices, dtype=np.float64)
+    faces = np.asarray(component.faces)
+    if vertices.ndim != 2 or vertices.shape[1] != 3 or len(vertices) < 6 or len(faces) < 8:
+        return {'role_candidate': 'surface', 'support_plane_confidence': 0.0}
+    centered = vertices - vertices.mean(axis=0, keepdims=True)
+    covariance = centered.T @ centered / max(len(vertices), 1)
+    eigenvalues, eigenvectors = np.linalg.eigh(covariance)
+    planarity = float(eigenvalues[0] / max(eigenvalues[1], 1e-12))
+    plane_normal = eigenvectors[:, 0]
+    up_alignment = float(abs(plane_normal[1]))
+    scene_height = max(float(scene_max_y) - float(scene_min_y), 1e-9)
+    lower_fraction = float((vertices[:, 1].mean() - scene_min_y) / scene_height)
+    face_fraction = float(len(faces) / max(int(total_faces), 1))
+    candidate = (
+        planarity <= 0.015 and up_alignment >= 0.88
+        and lower_fraction <= 0.22 and face_fraction >= 0.03
+    )
+    confidence = 0.0
+    if candidate:
+        confidence = float(np.clip(
+            (1.0 - min(planarity / 0.015, 1.0)) * 0.4
+            + up_alignment * 0.35
+            + (1.0 - min(lower_fraction / 0.22, 1.0)) * 0.15
+            + min(face_fraction / 0.2, 1.0) * 0.1,
+            0.0, 1.0,
+        ))
+    return {
+        'role_candidate': 'support_surface' if candidate else 'surface',
+        'support_plane_confidence': confidence,
+        'planarity_ratio': planarity,
+        'up_alignment': up_alignment,
+        'lower_scene_fraction': lower_fraction,
+        'face_fraction': face_fraction,
+    }
+
+
 def _mesh_topology_diagnostics(mesh):
     """Measure topology without implicitly closing or repairing open surfaces."""
     edges = np.asarray(mesh.edges_sorted)
