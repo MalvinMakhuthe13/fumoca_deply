@@ -64,6 +64,20 @@ test('membership respects alive and selected-only masks and preserves existing a
   assert.deepEqual([...preserved.components[0].gaussianIds], [99]);
 });
 
+test('partially persisted memberships are retained while only missing components are filled', () => {
+  const components = [
+    { ...component('known', 0, 1), gaussianIds: new Uint32Array([99]) },
+    component('missing', 10, 11),
+  ];
+  const result = assignGaussianMemberships(components, {
+    positions: new Float32Array([0.2,0.2,0, 10.2,0.2,0]),
+    gaussianIds: new Uint32Array([1,2]),
+    margin: 0.1,
+  });
+  assert.deepEqual([...result.components[0].gaussianIds], [99]);
+  assert.deepEqual([...result.components[1].gaussianIds], [2]);
+});
+
 test('identity and position array lengths must agree', () => {
   assert.throws(() => assignGaussianMemberships([component('one',0,1)], {
     positions: new Float32Array([0,0,0]), gaussianIds: new Uint32Array([1,2]),
