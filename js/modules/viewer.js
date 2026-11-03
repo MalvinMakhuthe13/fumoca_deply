@@ -1351,28 +1351,41 @@ function destroyMeshViewer() {
   _meshLightingPanel?.remove(); _meshLightingPanel = null;
   document.getElementById('fumocaMeshToggle')?.remove();
 }
-function mountMeshViewer(mesh, calibration) {
+function mountMeshViewer(mesh, calibration, meshComponents = []) {
   destroyMeshViewer();
   const container = stageHost || stageEl;
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(mesh.positions, 3));
-  // Colors arrive as 0-255 uint8 â€” THREE wants 0-1 floats for vertexColors.
-  const colorsF = new Float32Array(mesh.colors.length);
-  for (let i = 0; i < mesh.colors.length; i++) colorsF[i] = mesh.colors[i] / 255;
-  geo.setAttribute('color', new THREE.BufferAttribute(colorsF, 3));
-  geo.setIndex(new THREE.BufferAttribute(mesh.faces, 1));
-  geo.computeVertexNormals();  // required for lit shading â€” this is what makes it read as solid, not flat/blobby
-  // Lambertian-ish material with vertex colors: matte, physically-plausible
-  // shading (as opposed to the additive/transparent splat material above),
-  // which is precisely the visual cue that reads as "solid object" rather
-  // than "fuzzy point cloud."
   const mat = new THREE.MeshStandardMaterial({
     vertexColors: true, metalness: 0.05, roughness: 0.75,
-    side: THREE.DoubleSide,  // reconstructed meshes can have thin/open regions â€” avoid black backfaces
+    side: THREE.DoubleSide,
   });
-  const meshObj = new THREE.Mesh(geo, mat);
+  const meshGroup = new THREE.Group();
+  const renderParts = meshComponents?.length ? meshComponents : [mesh];
+  const componentObjects = [];
+  for (const part of renderParts) {
+    const positions = part.positions || part.vertices;
+    const colors = part.colors || part.colours;
+    const faces = part.faces || part.triangles;
+    if (!positions?.length || !faces?.length) continue;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const colorsF = new Float32Array(positions.length);
+    if (colors?.length === positions.length) {
+      for (let i = 0; i < colors.length; i++) colorsF[i] = colors[i] / 255;
+    } else {
+      colorsF.fill(0.72);
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(colorsF, 3));
+    geo.setIndex(new THREE.BufferAttribute(faces, 1));
+    geo.computeVertexNormals();
+    const meshObj = new THREE.Mesh(geo, mat);
+    meshObj.name = part.id || 'FUMOCA reconstructed component';
+    meshObj.visible = part.visible !== false;
+    meshGroup.add(meshObj);
+    componentObjects.push(meshObj);
+  }
+  if (!componentObjects.length) return;
   _meshScene = new THREE.Scene();
-  _meshScene.add(meshObj);
+  _meshScene.add(meshGroup);
   const ambient = new THREE.AmbientLight(0xffffff, 0.55);
   const key = new THREE.DirectionalLight(0xffffff, 1.1);
   key.position.set(1, 1.2, 1.5);
@@ -1396,9 +1409,10 @@ function mountMeshViewer(mesh, calibration) {
   _meshControls.rotateSpeed = 1.15; _meshControls.zoomSpeed = 1.05;
   _meshControls.enablePan = false;
   _meshControls.minPolarAngle = 0; _meshControls.maxPolarAngle = Math.PI;
-  geo.computeBoundingSphere();
-  const r = geo.boundingSphere.radius || 1;
-  const c = geo.boundingSphere.center;
+  const meshBounds = new THREE.Box3().setFromObject(meshGroup);
+  const meshSphere = meshBounds.getBoundingSphere(new THREE.Sphere());
+  const r = meshSphere.radius || 1;
+  const c = meshSphere.center;
   _meshCamera.position.set(c.x, c.y - r * 0.25, c.z + r * 2.4);
   _meshCamera.lookAt(c.x, c.y, c.z);
   _meshControls.target.set(c.x, c.y, c.z);
@@ -2342,7 +2356,7 @@ async function boot() {
       const nifResp   = await fetch(fileUrl);
       const nifBuffer = await nifResp.arrayBuffer();
       if (fileUrl.startsWith('blob:')) URL.revokeObjectURL(fileUrl);
-      const { meta, gaussians, calibration, verification, mesh } = await decodeNif(nifBuffer);
+      const { meta, gaussians, calibration, verification, mesh, meshComponents } = await decodeNif(nifBuffer);
       // Keep decoded NIF positions available for camera fitting and integrations.
       // The Gaussian renderer does not expose its internal buffer consistently.
       const gaussianData = gaussians.data;
@@ -2376,6 +2390,7 @@ async function boot() {
       window._fumocaCalibration  = calibration;
       window._fumocaVerification = verification;
       window._fumocaDecodedMesh  = mesh;
+      window._fumocaDecodedMeshComponents = meshComponents || [];
       renderTrustBadges(calibration, verification);
       const nifBytes = geometryToSplatRows(gaussians, { preserveScales: true });
       const nifBlob  = new Blob([nifBytes], { type: 'application/octet-stream' });
@@ -2425,7 +2440,7 @@ async function boot() {
     // before â€” mountInteractiveViewer owns stageHost/container setup, and
     // mounting the mesh canvas first would have it torn down along with it.
     if (window._fumocaDecodedMesh?.nVerts > 0) {
-      mountMeshViewer(window._fumocaDecodedMesh, window._fumocaCalibration);
+      mountMeshViewer(window._fumocaDecodedMesh, window._fumocaCalibration, window._fumocaDecodedMeshComponents);
     } else {
       destroyMeshViewer();  // clears any leftover toggle/canvas from a previously-viewed file
     }
