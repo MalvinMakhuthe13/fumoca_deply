@@ -111,6 +111,9 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
               <label class="hint" style="flex:1;min-width:105px">Trim tolerance (scene units)
                 <input id="meshSupportTrimTolerance" type="number" min="0" step="0.001" value="0.002" style="width:100%;padding:4px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#fff">
               </label>
+              <label class="hint" style="flex:1;min-width:105px">Gaussian extent (σ)
+                <input id="meshSupportTrimSigma" type="number" min="0" max="6" step="0.25" value="2" style="width:100%;padding:4px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#fff">
+              </label>
               <button type="button" id="meshPreviewSupportTrim" class="mini-btn" disabled>Preview trim</button>
               <button type="button" id="meshApplySupportTrim" class="mini-btn" disabled>Trim below plane</button>
               <button type="button" id="meshUndoSupportTrim" class="mini-btn" disabled>Undo trim</button>
@@ -321,17 +324,27 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     if (!state?.positions || !state?.alive || !state.documentModel?.gaussianIds?.length || !component?.gaussianIds?.length) {
       throw new Error('Select a reconstructed component with linked Gaussian splats before trimming.');
     }
+    if (component.supportSurfaceCandidate === true) {
+      throw new Error('The selected component is marked as a support surface. Select the object component instead; the platform is protected from trimming.');
+    }
     const { normal, offset } = getNormalizedSupportPlane();
     const tolerance = Number(container.querySelector('#meshSupportTrimTolerance')?.value ?? 0.002);
     if (!Number.isFinite(tolerance) || tolerance < 0) throw new Error('Trim tolerance must be a non-negative finite value.');
+    const sigmaMultiplier = Number(container.querySelector('#meshSupportTrimSigma')?.value ?? 2);
+    if (!Number.isFinite(sigmaMultiplier) || sigmaMultiplier < 0 || sigmaMultiplier > 6) {
+      throw new Error('Gaussian extent must be between 0 and 6 standard deviations.');
+    }
     const plan = findGaussianRowsBelowSupportPlane({
       positions: state.positions,
       gaussianIds: state.documentModel.gaussianIds,
       componentGaussianIds: component.gaussianIds,
       alive: state.alive,
+      scalesXYZ: state.scaleXYZ,
+      rotationsWXYZ: state.rotation,
+      sigmaMultiplier,
       normal, offset, tolerance,
     });
-    return { ...plan, componentId: component.id, tolerance };
+    return { ...plan, componentId: component.id, tolerance, sigmaMultiplier };
   };
 
   const clearSupportTrimPreview = (restoreSelection = true) => {
@@ -411,6 +424,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     const sameRows = plan.rows.length === preview.rows.length
       && plan.rows.every((row, index) => row === preview.rows[index]);
     const samePlane = plan.offset === preview.offset && plan.tolerance === preview.tolerance
+      && plan.sigmaMultiplier === preview.sigmaMultiplier
       && plan.normal.every((value, index) => value === preview.normal[index]);
     if (computeGaussianSourceSignature(state) !== preview.sourceSignature
         || meshStateSignature(state.nifMesh, state.nifMeshComponents) !== preview.meshSignature
@@ -450,6 +464,9 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       const split = FumocMeshExtractor.splitMeshByPlane(component, {
         normal: plan.normal, offset: plan.offset,
       });
+      if (!split?.positive && split?.negative) {
+        throw new Error('The entire selected mesh component lies below the support plane. No edits were applied; verify the detected plane and component selection.');
+      }
       if (split?.split && split.positive?.vertices?.length && split.negative?.vertices?.length) {
         const diagnostics = FumocMeshExtractor.validateWatertight(split.positive);
         nextComponent = {
