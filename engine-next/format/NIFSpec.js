@@ -90,7 +90,7 @@ export const CHUNK = Object.freeze({
                            // engine-next/reconstruction/verify.py and encodeVerificationChunk()
                            // below. Absence means "not verified", never inferred as "passed".
   LIDAR_ATTR:    0x0019,  // Optional per-point LiDAR intensity/class/return arrays (v1; see nif-format.js).
-  MESH_COMPONENTS: 0x001A, // Versioned independently addressable reconstructed mesh components.
+  MESH_COMPONENTS: 0x001A, // v1: id, flags (watertight/visible/support candidate), positions, RGB, local faces.
   SPATIAL_AUDIO: 0x0300,  // RESERVED — ambisonics B-format + HRTF source positions.
                            // Shared ID with SPAXSpec.js's SPAX_CHUNK.SPATIAL_AUDIO — see the
                            // "Shared chunk-ID registry" note above CHUNK for why this moved
