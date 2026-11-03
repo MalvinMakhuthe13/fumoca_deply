@@ -183,5 +183,33 @@ check('vertical planar wall is not mislabeled as a horizontal support plane',
       and vertical_role['support_plane_confidence'] == 0.0,
       vertical_role)
 
+
+# Chunked fusion must be numerically identical to a single larger batch.
+batch_queries = np.array([[0.01, 0.0, 0.0], [0.10, 0.0, 0.0],
+                          [0.0, 0.0, 0.02], [0.0, 0.0, 2.0]], dtype=float)
+batch_args = (
+    np.array([[0.0, 0.0, 0.0]], dtype=float),
+    np.array([[0.0, 0.0, 1.0]], dtype=float),
+    np.array([0], dtype=np.int32),
+    np.array([1.0], dtype=float),
+    0.1,
+)
+large_field, large_mask, _ = fuse(
+    batch_queries, *batch_args,
+    tangent_axes=np.array([[[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]]),
+    tangent_scales=np.array([[0.02, 0.20]], dtype=float),
+    batch_size=100,
+)
+small_field, small_mask, small_stats = fuse(
+    batch_queries, *batch_args,
+    tangent_axes=np.array([[[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]]),
+    tangent_scales=np.array([[0.02, 0.20]], dtype=float),
+    batch_size=1,
+)
+check('chunked TSDF fusion matches large-batch results',
+      np.allclose(large_field, small_field) and np.array_equal(large_mask, small_mask)
+      and small_stats['fusion_batches'] == len(batch_queries),
+      (large_field, small_field, large_mask, small_mask, small_stats))
+
 print(f'\n{passed} passed, {failed} failed')
 sys.exit(1 if failed else 0)
