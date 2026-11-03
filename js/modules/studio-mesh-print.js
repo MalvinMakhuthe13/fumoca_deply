@@ -594,6 +594,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       }
     }
     window.beginStudioHistory?.('Restore support-plane trim');
+    window.beginStudioHistory?.('Restore support-plane trim');
     for (let i = 0; i < snapshot.rows.length; i++) state.alive[snapshot.rows[i]] = snapshot.previousAlive[i];
     state.nifMeshComponents = (state.nifMeshComponents || []).map(component =>
       component.id === snapshot.componentId ? snapshot.previousComponent : component);
@@ -749,6 +750,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       meshStatus('Undo cap is no longer safe because the component changed after capping. Newer edits were preserved.');
       return false;
     }
+    window.beginStudioHistory?.('Restore capped support boundary');
     window.beginStudioHistory?.('Restore capped support boundary');
     state.nifMeshComponents = (state.nifMeshComponents || []).map(component =>
       component.id === snapshot.componentId ? snapshot.previousComponent : component);
@@ -933,6 +935,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       meshStatus('Undo leveling is no longer safe because the Gaussian or mesh scene has changed since leveling. The newer edits have been preserved.');
       return false;
     }
+    window.beginStudioHistory?.('Undo support-plane leveling');
     state.positions = previous.positions;
     state.rotation = previous.rotation;
     state.nifMesh = previous.nifMesh;
@@ -949,6 +952,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     container.querySelector('#saveMeshBtn').disabled = !lastMeshData?.colours;
     container.querySelector('#printStlBtn').disabled = !lastMesh || (lastMeshFormat === 'stl' && !lastMeshStats?.printable);
     supportLevelUndo = null;
+    window.commitStudioHistory?.();
     try {
       window.rebuildGeometry?.();
       if (lastMeshData) {
@@ -1335,6 +1339,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       meshStatus('Undo link is no longer safe because component geometry, visibility or membership changed. Newer edits were preserved.');
       return false;
     }
+    window.beginStudioHistory?.('Restore Gaussian component membership');
     const before = new Map(snapshot.before.map(item => [item.id, item]));
     state.nifMeshComponents = (state.nifMeshComponents || []).map(component => {
       const prior = before.get(component.id);
@@ -1347,6 +1352,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     });
     state.meshComponentMembershipUndo = null;
     syncComponentDiagnosticsToMeta();
+    window.commitStudioHistory?.();
     renderMeshComponents(state.nifMeshComponents);
     updateComponentTransformButtons();
     updateSupportPlaneControls();
@@ -1573,6 +1579,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
   container.querySelector('#meshComponentUndoSplit')?.addEventListener('click', () => {
     const state = window.S, snapshot = state?.meshComponentSplitUndo;
     if (!state || !snapshot) return;
+    window.beginStudioHistory?.('Restore split mesh component');
     state.nifMeshComponents = (state.nifMeshComponents || []).filter(component => !snapshot.partIds.includes(component.id));
     state.nifMeshComponents.push(snapshot.source);
     state.activeMeshComponentId = snapshot.source.id;
@@ -1588,6 +1595,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     window.previewSolidMeshComponents?.(state.nifMeshComponents, { visible: true, opacity: 1 });
     window.highlightSolidMeshComponent?.(state.activeMeshComponentId);
     renderMeshComponents(state.nifMeshComponents);
+    window.commitStudioHistory?.();
     updateComponentTransformButtons();
     meshStatus('Undid the most recent plane split. The original component geometry has been restored.');
   });
@@ -1595,6 +1603,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     const state = window.S, component = selectedMeshComponent();
     if (!state || !component?.transformUndoVertices) return;
     const vertices = component.vertices || component.positions;
+    window.beginStudioHistory?.('Undo mesh component transform');
     vertices.set(component.transformUndoVertices);
     component.transformUndoVertices = null;
     state.nifMesh = null;
@@ -1603,6 +1612,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     window.previewSolidMeshComponents?.(state.nifMeshComponents, { visible: true, opacity: 1 });
     window.highlightSolidMeshComponent?.(component.id);
     renderMeshComponents(state.nifMeshComponents);
+    window.commitStudioHistory?.();
     updateComponentTransformButtons();
     meshStatus('Undid the last transform for ' + component.id + '.');
   });
