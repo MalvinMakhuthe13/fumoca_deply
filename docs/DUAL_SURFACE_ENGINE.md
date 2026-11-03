@@ -168,3 +168,12 @@ The oriented-surfel worker now passes each Gaussian's two non-normal rotation ax
 Support is still confidence-weighted and restricted to the nearest normal-graph component. The observed mask is true only when at least one same-component surfel supports the query inside its tangent footprint and truncation band. The tangent-scale floor is 0.1 voxel to avoid replacing genuine anisotropy with an artificially isotropic footprint. Missing or degenerate tangent frames are rejected.
 
 This improves worker-side surface evidence; it is not yet the browser Studio extraction path, semantic object segmentation, or a guarantee of closed geometry.
+### Independently addressable NIF mesh components
+
+NIF chunk `0x001A` (`MESH_COMPONENTS`, version 1) stores connected reconstructed surfaces separately. Each record carries an ID, measured watertight flag, visibility flag, vertex positions, RGB colors and local triangle indices. The existing `KEYFRAME_MESH` chunk remains as a combined compatibility fallback for older viewers.
+
+The reconstruction worker writes each connected mesh surface as a separate component while retaining the combined mesh. Studio decodes the component records into independent scene objects and exposes per-component visibility, selection/highlighting, isolation and deletion. Deleting a component rebuilds the legacy combined mesh from the remaining components on export; the original Gaussian source remains a separate layer.
+
+The public NIF viewer renders the component records as separate meshes and exposes component visibility controls. The component IDs currently identify connected geometric surfaces, not semantic object identities. If two physical objects touch and become one connected surface, they may still require manual separation or a future semantic/support-plane segmentation pass.
+
+Visibility and watertightness are independent flags. An open component is not discarded or relabelled as printable. This chunk does not claim semantic segmentation, support-plane classification, or automatic repair.
