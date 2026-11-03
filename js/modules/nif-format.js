@@ -499,6 +499,7 @@ async function decodeMeshComponentsChunk(chunk) {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const decoder = new TextDecoder();
   const components = [];
+  const seenIds = new Set();
   try {
     if (view.byteLength < 5 || view.getUint8(0) !== 1) throw new Error('unsupported component chunk version');
     const count = view.getUint32(1, false);
@@ -509,6 +510,8 @@ async function decodeMeshComponentsChunk(chunk) {
       const idLength = view.getUint8(at++);
       if (at + idLength + 9 > view.byteLength) throw new Error('truncated component header');
       const id = decoder.decode(bytes.subarray(at, at + idLength)); at += idLength;
+      if (!id || seenIds.has(id)) throw new Error('empty or duplicate component ID');
+      seenIds.add(id);
       const flags = view.getUint8(at++);
       const nVerts = view.getUint32(at, false); at += 4;
       const nFaces = view.getUint32(at, false); at += 4;
@@ -523,7 +526,9 @@ async function decodeMeshComponentsChunk(chunk) {
         faces[f] = view.getUint32(at, false); at += 4;
         if (faces[f] >= nVerts) throw new Error('component face index out of range');
       }
-      if (Array.from(positions).some(value => !Number.isFinite(value))) throw new Error('non-finite component vertex');
+      for (let p = 0; p < positions.length; p++) {
+        if (!Number.isFinite(positions[p])) throw new Error('non-finite component vertex');
+      }
       components.push({ id, positions, colors, faces, nVerts, nFaces, watertight: !!(flags & 1), visible: !!(flags & 2), supportSurfaceCandidate: !!(flags & 4) });
     }
     if (at !== view.byteLength) throw new Error('unexpected trailing component bytes');
