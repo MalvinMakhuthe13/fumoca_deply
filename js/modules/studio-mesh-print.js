@@ -650,6 +650,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     state.meshComponentCapUndo = {
       componentId: component.id,
       previousComponent,
+      previousMeta: state.nifMeta,
       afterSignature: null,
     };
     state.nifMeta = {
@@ -691,8 +692,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     state.meshComponentCapUndo = null;
     state.nifMesh = null;
     lastMeshData = null; lastMesh = null; lastMeshStats = null;
-    const { support_plane_cap: _undoneCap, ...metaWithoutCap } = state.nifMeta || {};
-    state.nifMeta = { ...metaWithoutCap, mesh_components_edited: true };
+    state.nifMeta = snapshot.previousMeta || { ...(state.nifMeta || {}), mesh_components_edited: true };
     syncComponentDiagnosticsToMeta();
     window.previewSolidMeshComponents?.(state.nifMeshComponents, { visible: true, opacity: 0.95 });
     renderMeshComponents(state.nifMeshComponents);
