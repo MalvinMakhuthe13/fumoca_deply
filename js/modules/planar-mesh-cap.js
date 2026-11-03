@@ -161,6 +161,20 @@ export function capPlanarBoundaryLoops(mesh, { normal, offset, tolerance = 1e-4 
       unchanged: true,
     };
   }
+  const nextVertices = mesh.vertices.slice();
+  // Snap only the accepted boundary-loop vertices onto the exact support plane.
+  // This makes the generated base genuinely planar while limiting shape change
+  // to the caller-approved cap tolerance.
+  for (const loop of loops) {
+    for (const index of loop.indices) {
+      const at = index * 3;
+      const distance = nextVertices[at] * n[0] + nextVertices[at + 1] * n[1]
+        + nextVertices[at + 2] * n[2] - planeOffset;
+      nextVertices[at] -= distance * n[0];
+      nextVertices[at + 1] -= distance * n[1];
+      nextVertices[at + 2] -= distance * n[2];
+    }
+  }
   const nextTriangles = new Uint32Array(faces.length + loops.reduce((sum, loop) => sum + loop.triangles.length, 0));
   nextTriangles.set(faces);
   let cursor = faces.length;
@@ -168,7 +182,7 @@ export function capPlanarBoundaryLoops(mesh, { normal, offset, tolerance = 1e-4 
     for (const index of loop.triangles) nextTriangles[cursor++] = loop.indices[index];
   }
   return {
-    mesh: { ...mesh, vertices: mesh.vertices.slice(), triangles: nextTriangles, colours: mesh.colours?.slice?.() || mesh.colours },
+    mesh: { ...mesh, vertices: nextVertices, triangles: nextTriangles, colours: mesh.colours?.slice?.() || mesh.colours },
     cappedLoops: loops.length,
     cappedTriangles: (nextTriangles.length - faces.length) / 3,
     skippedOpen,
