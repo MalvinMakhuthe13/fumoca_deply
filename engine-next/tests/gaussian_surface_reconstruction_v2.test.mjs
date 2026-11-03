@@ -24,6 +24,20 @@ test('mesh splitter preserves separate connected surfaces and local indices', ()
   assert.notEqual(parts[0].id, parts[1].id);
 });
 
+test('mesh component IDs remain stable when disconnected components are reordered', () => {
+  const first = {
+    vertices: new Float32Array([0,0,0, 1,0,0, 0,1,0, 5,0,0, 6,0,0, 5,1,0]),
+    triangles: new Uint32Array([0,1,2, 3,4,5]),
+  };
+  const reordered = {
+    vertices: new Float32Array([5,0,0, 6,0,0, 5,1,0, 0,0,0, 1,0,0, 0,1,0]),
+    triangles: new Uint32Array([0,1,2, 3,4,5]),
+  };
+  const idsA = FumocMeshExtractor.splitMeshComponents(first).map(part => part.id).sort();
+  const idsB = FumocMeshExtractor.splitMeshComponents(reordered).map(part => part.id).sort();
+  assert.deepEqual(idsA, idsB);
+});
+
 test('mesh splitter keeps faces connected through shared vertices in one component', () => {
   const parts = FumocMeshExtractor.splitMeshComponents({
     vertices: new Float32Array([0,0,0, 1,0,0, 0,1,0, 1,1,0]),
