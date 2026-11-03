@@ -434,7 +434,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
   };
 
   const syncNifMesh = (mesh) => {
-    if (mesh !== lastMeshData) supportLevelUndo = null;
+    if (mesh !== lastMeshData) { supportLevelUndo = null; if (window.S) window.S.meshComponentDeleteUndo = null; }
     lastMeshData = mesh || null;
     const supportSuggestion = window.S?.nifMeta?.mesh_diagnostics?.support_plane_candidate;
     if (supportSuggestion?.detected && supportSuggestion.y !== null && supportSuggestion.y !== undefined && Number.isFinite(Number(supportSuggestion.y))) {
@@ -500,7 +500,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     const removeButton = container.querySelector('#meshComponentDelete');
     if (!panel || !list) return;
     const items = Array.isArray(components) ? components : [];
-    panel.style.display = items.length ? '' : 'none';
+    panel.style.display = (items.length || window.S?.meshComponentDeleteUndo) ? '' : 'none';
     if (count) count.textContent = String(items.length);
     if (removeButton) removeButton.disabled = !items.some(item => item.id === window.S?.activeMeshComponentId);
     list.innerHTML = '';
@@ -909,7 +909,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     renderMeshComponents(state.nifMeshComponents);
     updateComponentTransformButtons();
     updateSupportPlaneControls();
-    updateComponentTransformButtons();
     meshStatus('Deleted component ' + id + '. Its geometry and Gaussian membership are retained in one-step undo and document lineage.');
   });
   container.querySelector('#meshComponentUndoDelete')?.addEventListener('click', () => {
@@ -934,6 +933,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     window.highlightSolidMeshComponent?.(state.activeMeshComponentId);
     renderMeshComponents(components);
     updateComponentTransformButtons();
+    updateSupportPlaneControls();
     meshStatus('Restored deleted component ' + snapshot.source.id + ' with its geometry and Gaussian membership.');
   });
   const updateMeshPreview = () => {
@@ -1161,6 +1161,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       supportLevelUndo = null;
       updateSupportPlaneControls();
       if (window.S) {
+        window.S.meshComponentDeleteUndo = null;
         window.S.nifMesh = stagedMeshData;
         window.S.nifMeshComponents = extractedComponents;
         window.S.activeMeshComponentId = extractedComponents[0]?.id || null;
@@ -1278,6 +1279,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
           state.nifMeshComponents = components;
           state.activeMeshComponentId = components[0]?.id || null;
           state.meshComponentSplitUndo = null;
+          state.meshComponentDeleteUndo = null;
           state.nifMeta = {
             ...(state.nifMeta || {}),
             ...(decoded.meta || {}),
