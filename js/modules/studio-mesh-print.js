@@ -218,6 +218,8 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
   let lastMeshSourceSignature = null;
   const checkSourceFreshness = () => {
     if (!window.S?.nifMesh && !window.S?.nifMeshComponents?.length) return { ok: true, message: '' };
+    // A mesh-only NIF has no Gaussian source to compare against.
+    if (!window.S?.positions?.length || !window.S?.alive?.length) return { ok: true, message: '' };
     return compareGaussianSourceSignature(window.S, lastMeshSourceSignature);
   };
   const getSupportPlaneCandidate = () =>
@@ -1693,7 +1695,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     lastMeshSourceSignature = signature;
     state.nifMeta = {
       ...(state.nifMeta || {}),
-      dual_surface_source_signature: signature,
+      ...(signature ? { dual_surface_source_signature: signature } : {}),
     };
     const saveButton = container.querySelector('#saveMeshBtn');
     const printButton = container.querySelector('#printStlBtn');
