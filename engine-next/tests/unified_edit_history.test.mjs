@@ -505,9 +505,8 @@ test('history snapshots clone and compare DataView bytes exactly', () => {
 
 test('history snapshots reject renderer-class instances instead of flattening prototypes', () => {
   class RendererHandle { constructor() { this.id = 'renderer-object'; } }
-  const history = new UnifiedEditHistory({
+  assert.throws(() => new UnifiedEditHistory({
     capture: () => ({ renderer: new RendererHandle() }),
     restore: () => {},
-  });
-  assert.throws(() => history.commit('Unsafe renderer snapshot'), /history snapshots must contain plain data/);
+  }), /history snapshots must contain plain data/);
 });
