@@ -8,6 +8,7 @@ function fixture() {
   return createDocumentModel({
     documentId: 'persistent-doc',
     revision: 7,
+    activeComponentId: 'cap-a',
     nextGaussianId: 5,
     gaussianIds: new Uint32Array([1, 2, 4]),
     source: { geometrySignature: 'geo-abc', appearanceSignature: 'app-def' },
@@ -28,6 +29,7 @@ test('document model binary chunk round-trips IDs, membership, visibility and li
   assert.ok(decoded);
   assert.equal(decoded.documentId, original.documentId);
   assert.equal(decoded.revision, 7);
+  assert.equal(decoded.activeComponentId, 'cap-a');
   assert.equal(decoded.nextGaussianId, 5);
   assert.deepEqual([...decoded.gaussianIds], [1, 2, 4]);
   assert.deepEqual([...decoded.components[0].gaussianIds], [1, 2]);
