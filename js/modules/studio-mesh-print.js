@@ -681,10 +681,28 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     const negativeDiagnostics = FumocMeshExtractor.validateWatertight(result.negative);
     const supportSuggestion = state.nifMeta?.mesh_diagnostics?.support_plane_candidate;
     const isSuggestedSupportSplit = axis === 'y' && supportSuggestion?.detected &&
-      Number.isFinite(Number(supportSuggestion.y)) &&
+      supportSuggestion.y !== null && supportSuggestion.y !== undefined && Number.isFinite(Number(supportSuggestion.y)) &&
       Math.abs(y - Number(supportSuggestion.y)) <= Math.max(Number(supportSuggestion.tolerance || 0), 1e-4);
+    const splitToken = Math.round(y * 100000).toString(36);
+    const splitBaseId = `${component.id}-split-${axis}-${splitToken}`;
+    const parentIds = [...new Set([...(component.parentIds || []), component.id])];
+    const splitMembership = { positive: [], negative: [] };
+    const memberIds = component.gaussianIds || [];
+    if (memberIds.length && state.documentModel?.gaussianIds?.length) {
+      const rowById = new Map();
+      state.documentModel.gaussianIds.forEach((id, index) => rowById.set(id, index));
+      for (const gaussianId of memberIds) {
+        const row = rowById.get(gaussianId);
+        if (row === undefined) continue;
+        const side = state.positions[row * 3 + axisIndex] - y >= 0 ? 'positive' : 'negative';
+        splitMembership[side].push(gaussianId);
+      }
+    }
     const positive = {
-      ...result.positive, id: component.id + (axis === 'y' ? '-above' : '-' + axis + '-positive'),
+      ...result.positive, id: `${splitBaseId}-positive`,
+      parentIds, gaussianIds: Uint32Array.from(splitMembership.positive),
+      geometrySource: component.geometrySource || 'gaussian-derived',
+      provenance: { ...(component.provenance || {}), operation: 'plane-split', sourceComponentId: component.id, axis, offset: y },
       watertight: positiveDiagnostics.watertight,
       visible: component.visible !== false,
       supportSurfaceCandidate: false,
@@ -695,7 +713,10 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       },
     };
     const negative = {
-      ...result.negative, id: component.id + (axis === 'y' ? '-below' : '-' + axis + '-negative'),
+      ...result.negative, id: `${splitBaseId}-negative`,
+      parentIds, gaussianIds: Uint32Array.from(splitMembership.negative),
+      geometrySource: component.geometrySource || 'gaussian-derived',
+      provenance: { ...(component.provenance || {}), operation: 'plane-split', sourceComponentId: component.id, axis, offset: y },
       watertight: negativeDiagnostics.watertight,
       visible: component.visible !== false,
       supportSurfaceCandidate: !!isSuggestedSupportSplit, // only mark the lower half when it matches the detected support plane
@@ -710,7 +731,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     };
     const replacement = [positive, negative].sort((a, b) => meanAxis(a) - meanAxis(b));
     state.meshComponentSplitUndo = {
-      source: { ...component, vertices: component.vertices.slice(), triangles: component.triangles.slice(), colours: component.colours?.slice() },
+      source: { ...component, vertices: component.vertices.slice(), triangles: component.triangles.slice(), colours: component.colours?.slice(), gaussianIds: component.gaussianIds?.slice?.() || component.gaussianIds },
       partIds: [positive.id, negative.id],
     };
     state.nifMeshComponents = (state.nifMeshComponents || []).filter(item => item.id !== component.id)
