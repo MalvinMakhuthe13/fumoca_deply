@@ -511,6 +511,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       positions: rowPositions,
       previousAlive,
       previousComponent,
+      previousMeta: state.nifMeta ? { ...state.nifMeta } : {},
       previousSelection: preview.previousSelection,
       sourceSignatureAfter: null,
       meshSignatureAfter: null,
@@ -553,7 +554,13 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       window.rebuildGeometry?.();
       window.previewSolidMeshComponents?.(state.nifMeshComponents || [], { visible: true, opacity: 0.95 });
       renderMeshComponents(state.nifMeshComponents || []);
-      window.dispatchEvent(new CustomEvent('fumoca:selectionChanged', { detail: { count: 0, changed: plan.rows.length } }));
+      let restoredSelectionCount = 0;
+      for (let row = 0; row < (state.selected?.length || 0); row++) {
+        if (state.selected[row] && state.alive?.[row]) restoredSelectionCount++;
+      }
+      window.dispatchEvent(new CustomEvent('fumoca:selectionChanged', {
+        detail: { count: restoredSelectionCount, changed: plan.rows.length },
+      }));
     } catch (error) {
       console.warn('[Studio mesh] Trim committed; viewport refresh failed:', error);
     }
@@ -589,8 +596,10 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       component.id === snapshot.componentId ? snapshot.previousComponent : component);
     state.nifMesh = null;
     lastMeshData = null; lastMesh = null; lastMeshStats = null;
-    const { support_plane_trim: _undoneTrim, ...metaWithoutTrim } = state.nifMeta || {};
-    state.nifMeta = { ...metaWithoutTrim, mesh_components_edited: true };
+    state.nifMeta = {
+      ...(snapshot.previousMeta || {}),
+      mesh_components_edited: true,
+    };
     const signature = computeGaussianSourceSignature(state);
     state.nifMeta.dual_surface_source_signature = signature;
     lastMeshSourceSignature = signature;
@@ -604,6 +613,13 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       window.rebuildGeometry?.();
       window.previewSolidMeshComponents?.(state.nifMeshComponents || [], { visible: true, opacity: 0.95 });
       renderMeshComponents(state.nifMeshComponents || []);
+      let restoredSelectionCount = 0;
+      for (let row = 0; row < (state.selected?.length || 0); row++) {
+        if (state.selected[row] && state.alive?.[row]) restoredSelectionCount++;
+      }
+      window.dispatchEvent(new CustomEvent('fumoca:selectionChanged', {
+        detail: { count: restoredSelectionCount, changed: snapshot.rows.length },
+      }));
     } catch (error) {
       console.warn('[Studio mesh] Trim undo committed; viewport refresh failed:', error);
     }
