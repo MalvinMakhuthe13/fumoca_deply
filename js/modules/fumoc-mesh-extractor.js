@@ -1405,6 +1405,22 @@ function splitMeshByPlane(mesh, { normal = [0, 1, 0], offset = 0, epsilon = 1e-6
  * components. Components retain source vertex colors and local face indices.
  * This is geometric connectivity, not semantic object recognition.
  */
+function stableMeshComponentId(vertices, triangles) {
+  // Hash the component's local geometry, not its size rank in the scene. This
+  // keeps IDs unchanged when disconnected components are reordered.
+  const view = new DataView(new ArrayBuffer(4));
+  let a = 0x811c9dc5, b = 0x9e3779b9;
+  const feed = (value) => {
+    view.setUint32(0, Number(value) >>> 0, true);
+    const word = view.getUint32(0, true);
+    a = Math.imul(a ^ word, 0x01000193) >>> 0;
+    b = Math.imul(b ^ (word + 0x7ed55d16), 0x85ebca6b) >>> 0;
+  };
+  for (const value of vertices) { view.setFloat32(0, value, true); feed(view.getUint32(0, true)); }
+  for (const value of triangles) feed(value);
+  return `mesh-${a.toString(16).padStart(8, '0')}${b.toString(16).padStart(8, '0')}`;
+}
+
 function splitMeshComponents(mesh) {
   const vertices = mesh?.vertices;
   const triangles = mesh?.triangles;
@@ -1464,7 +1480,7 @@ function splitMeshComponents(mesh) {
     const componentMesh = { vertices: localVertices, triangles: localFaces, colours: localColours };
     const topology = validateWatertight(componentMesh);
     return {
-      id: `surface-${String(index + 1).padStart(4, '0')}`,
+      id: stableMeshComponentId(localVertices, localFaces),
       ...componentMesh,
       watertight: topology.watertight,
       visible: true,
