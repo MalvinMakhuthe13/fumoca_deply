@@ -379,8 +379,8 @@ check('sloped lower component is not labeled as horizontal support plane',
       sloped_role)
 
 
-# Support-plane suggestions are non-destructive and require a broad lower
-# horizontal band with Gaussian normals aligned to world up.
+# Support-plane suggestions are non-destructive and accept tilted bases,
+# but require a broad planar surfel cluster with the object on one side.
 detect_support = namespace['_detect_support_plane_candidate']
 platform = np.array([[x * 0.1, 0.0, z * 0.1]
                      for x in range(21) for z in range(21)], dtype=float)
@@ -393,9 +393,10 @@ support_normals = np.vstack([
 ])
 support_confidence = np.ones(len(support_scene), dtype=float)
 support_suggestion = detect_support(support_scene, support_normals, support_confidence, 0.01)
-check('broad lower horizontal platform produces a non-destructive split suggestion',
+check('broad lower horizontal platform produces a non-destructive plane suggestion',
       support_suggestion['detected']
       and abs(support_suggestion['y']) < 1e-8
+      and np.allclose(support_suggestion['normal'], [0.0, 1.0, 0.0], atol=1e-5)
       and support_suggestion['confidence'] >= 0.5,
       support_suggestion)
 
@@ -405,18 +406,31 @@ wall_suggestion = detect_support(
     wall_points, np.tile([1.0, 0.0, 0.0], (len(wall_points), 1)),
     np.ones(len(wall_points)), 0.01,
 )
-check('vertical wall does not produce a horizontal support-plane suggestion',
+check('vertical wall does not produce a support-plane suggestion',
       not wall_suggestion['detected'], wall_suggestion)
 
-sloped_points = platform.copy()
-sloped_points[:, 1] = sloped_points[:, 0] * 0.5
-sloped_normals = np.tile([-0.4472136, 0.8944272, 0.0], (len(sloped_points), 1))
-sloped_suggestion = detect_support(
-    sloped_points, sloped_normals, np.ones(len(sloped_points)), 0.01,
+tilted_normal = np.array([-0.4472136, 0.8944272, 0.0], dtype=float)
+tilted_platform = platform.copy()
+tilted_platform[:, 1] = tilted_platform[:, 0] * 0.5
+tilted_object = np.vstack([
+    tilted_platform[::4] + tilted_normal * distance
+    for distance in (0.15, 0.30, 0.45)
+])
+tilted_scene = np.vstack([tilted_platform, tilted_object])
+tilted_normals = np.vstack([
+    np.tile(tilted_normal, (len(tilted_platform), 1)),
+    np.tile([0.0, 0.0, 1.0], (len(tilted_object), 1)),
+])
+tilted_suggestion = detect_support(
+    tilted_scene, tilted_normals, np.ones(len(tilted_scene)), 0.01,
 )
-check('sloped lower surface does not produce a horizontal support-plane suggestion',
-      not sloped_suggestion['detected'], sloped_suggestion)
-
+check('tilted lower support plane returns a normalized plane, not a guessed Y height',
+      tilted_suggestion['detected']
+      and tilted_suggestion['y'] is None
+      and np.allclose(tilted_suggestion['normal'], tilted_normal, atol=1e-4)
+      and abs(tilted_suggestion['offset']) < 1e-5
+      and tilted_suggestion['confidence'] >= 0.5,
+      tilted_suggestion)
 
 
 # Malformed Gaussian rows must not poison KD-tree/TSDF construction, and
