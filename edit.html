@@ -4114,6 +4114,17 @@ function _encodeGaussianPly(indices) {
   return new Blob([lines.join('\n')], { type: 'text/plain' });
 }
 
+// Rebuild the photoreal source payload after geometric transforms so toggling
+// Spark off/on cannot reload stale pre-transform coordinates.
+window.refreshGaussianSourceBytes = async () => {
+  if (!S.isGaussianPly || !S.positions?.length) return false;
+  const indices = Array.from({ length: S.positions.length / 3 }, (_, index) => index);
+  const bytes = await _encodeGaussianPly(indices).arrayBuffer();
+  S.gaussianSourceBytes = bytes;
+  window._fumocaLastGaussianBytes = bytes;
+  return true;
+};
+
 function _compactLidarAttributes(indices) {
   const compact = (source) => source ? indices.map(i => source[i] ?? 0) : null;
   const intensity = S.lidarIntensity ? Uint16Array.from(compact(S.lidarIntensity)) : null;
