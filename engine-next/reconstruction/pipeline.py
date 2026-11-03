@@ -1697,7 +1697,7 @@ def _confidence_weighted_tsdf(grid: np.ndarray, positions: np.ndarray,
     # direction from smearing across a narrow edge in the other direction.
     if axes is not None:
         local_axes = axes[idx]
-        local_scales = np.maximum(scales[idx], float(voxel_size) * 0.5)
+        local_scales = np.maximum(scales[idx], float(voxel_size) * 0.1)
         tangent_u = np.einsum('vkc,vkc->vk', delta, local_axes[:, :, 0, :])
         tangent_v = np.einsum('vkc,vkc->vk', delta, local_axes[:, :, 1, :])
         mahalanobis_sq = (tangent_u / local_scales[:, :, 0]) ** 2 + (tangent_v / local_scales[:, :, 1]) ** 2
