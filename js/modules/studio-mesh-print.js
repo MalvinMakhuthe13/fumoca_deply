@@ -292,6 +292,14 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         triangles: component.triangles?.slice?.() || component.triangles,
         colours: component.colours?.slice?.() || component.colours,
       }));
+      const priorMeshData = lastMeshData;
+      let nextLastMesh;
+      try {
+        lastMeshData = nextMesh;
+        nextLastMesh = makeMeshBlob();
+      } finally {
+        lastMeshData = priorMeshData;
+      }
       const previous = {
         positions: state.positions,
         rotation: state.rotation,
@@ -328,16 +336,20 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       };
       state.nifMeta.dual_surface_source_signature = computeGaussianSourceSignature(state);
       lastMeshSourceSignature = state.nifMeta.dual_surface_source_signature;
-      lastMesh = makeMeshBlob();
+      lastMesh = nextLastMesh;
       supportLevelUndo = previous;
 
-      window.rebuildGeometry?.();
-      if (lastMeshData) {
-        window.previewSolidMesh?.(lastMeshData, { visible: true,
-          opacity: Number(container.querySelector('#meshPreviewOpacity')?.value || 0.38) });
-        window.previewSolidMeshComponents?.(nextComponents, { visible: true, opacity: 0.95 });
-        renderMeshComponents(nextComponents);
-        window.dispatchEvent(new CustomEvent('fumoca:solidMeshReady', { detail: { mesh: lastMeshData, stats: lastMeshStats } }));
+      try {
+        window.rebuildGeometry?.();
+        if (lastMeshData) {
+          window.previewSolidMesh?.(lastMeshData, { visible: true,
+            opacity: Number(container.querySelector('#meshPreviewOpacity')?.value || 0.38) });
+          window.previewSolidMeshComponents?.(nextComponents, { visible: true, opacity: 0.95 });
+          renderMeshComponents(nextComponents);
+          window.dispatchEvent(new CustomEvent('fumoca:solidMeshReady', { detail: { mesh: lastMeshData, stats: lastMeshStats } }));
+        }
+      } catch (previewError) {
+        console.warn('[Studio mesh] Support plane was levelled but preview refresh failed:', previewError);
       }
       updateSupportPlaneControls();
       meshStatus('Support plane levelled to horizontal at y=0. Original Gaussian and mesh geometry are preserved; nothing below the plane has been removed.');
@@ -362,12 +374,16 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     lastMeshStats = previous.lastMeshStats;
     lastMeshSourceSignature = previous.lastMeshSourceSignature;
     supportLevelUndo = null;
-    window.rebuildGeometry?.();
-    if (lastMeshData) {
-      window.previewSolidMesh?.(lastMeshData, { visible: true,
-        opacity: Number(container.querySelector('#meshPreviewOpacity')?.value || 0.38) });
-      window.previewSolidMeshComponents?.(state.nifMeshComponents || [], { visible: true, opacity: 0.95 });
-      renderMeshComponents(state.nifMeshComponents || []);
+    try {
+      window.rebuildGeometry?.();
+      if (lastMeshData) {
+        window.previewSolidMesh?.(lastMeshData, { visible: true,
+          opacity: Number(container.querySelector('#meshPreviewOpacity')?.value || 0.38) });
+        window.previewSolidMeshComponents?.(state.nifMeshComponents || [], { visible: true, opacity: 0.95 });
+        renderMeshComponents(state.nifMeshComponents || []);
+      }
+    } catch (previewError) {
+      console.warn('[Studio mesh] Support-plane undo restored geometry but preview refresh failed:', previewError);
     }
     updateSupportPlaneControls();
     meshStatus('Support-plane leveling undone. The previous Gaussian and mesh coordinates are restored.');
