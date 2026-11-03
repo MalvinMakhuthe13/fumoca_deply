@@ -3494,8 +3494,10 @@ class ReconstructionWorker:
                 tsdf, level=0.0, mask=observed
             )
         except (ValueError, RuntimeError) as e:
-            print(f'[NIF] Marching cubes found no closed surface — skipping mesh ({e})')
-            return None, None, None
+            print(f'[NIF] Marching cubes found no supported zero-crossing — skipping mesh ({e})')
+            # Keep the four-value contract used by both the full capture and
+            # mesh-only callers: (mesh_chunk, STL, diagnostics, components).
+            return None, None, None, None
 
         verts_world = verts * voxel_size + mn
 
