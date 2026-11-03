@@ -1820,7 +1820,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
 import { decodeNif, encodeNif, geometryToSplatRows, downloadNif } from './js/modules/nif-format.js';
-import { createDocumentModel, allocateGaussianIds, compactDocumentModel } from './js/modules/document-model.js';
+import { createDocumentModel, allocateGaussianIds, compactDocumentModel, UnifiedEditHistory } from './js/modules/document-model.js';
 import { normalizeMeshComponents } from './js/modules/mesh-component-contract.js';
 import { assignGaussianMemberships } from './js/modules/gaussian-component-membership.js';
 
@@ -1959,6 +1959,55 @@ const S = {
 };
 // Expose globally so modules and guard checks can reference it
 window.S = S;
+
+let _pendingUnifiedHistory = null;
+const _cloneHistoryPivot = value => value ? [value.x, value.y, value.z] : null;
+const studioEditHistory = new UnifiedEditHistory({
+  limit: 80,
+  maxBytes: 256 * 1024 * 1024,
+  capture: () => ({
+    positions: S.positions,
+    colors: S.colors,
+    opacity: S.opacity,
+    scale: S.scale,
+    scaleXYZ: S.scaleXYZ,
+    rotation: S.rotation,
+    alive: S.alive,
+    selected: S.selected,
+    paintColors: S.paintColors,
+    shCoefficients: S.shCoefficients,
+    documentModel: S.documentModel || null,
+    nifMeshComponents: S.nifMeshComponents || [],
+    nifMeta: S.nifMeta || null,
+    measurements: S.measurements || [],
+    pivot: _cloneHistoryPivot(S.pivot),
+  }),
+  restore: snapshot => {
+    for (const key of ['positions','colors','opacity','scale','scaleXYZ','rotation','alive','selected','paintColors','shCoefficients']) {
+      S[key] = snapshot[key] == null ? null : snapshot[key];
+    }
+    S.documentModel = snapshot.documentModel;
+    S.nifMeshComponents = snapshot.nifMeshComponents || [];
+    S.nifMeta = snapshot.nifMeta;
+    S.measurements = snapshot.measurements || [];
+    S.pivot = snapshot.pivot ? new THREE.Vector3(...snapshot.pivot) : null;
+    rebuildGeometry();
+    _refreshSceneReference(true);
+    syncTransformGizmo();
+    renderMeasurementList();
+    renderMeasurementOverlay();
+    updateHistoryBtns();
+  },
+  onChange: updateHistoryBtns,
+});
+function flushPendingUnifiedHistory() {
+  if (!_pendingUnifiedHistory) return false;
+  const pending = _pendingUnifiedHistory;
+  _pendingUnifiedHistory = null;
+  const committed = studioEditHistory.commit(pending.label, { coalesceKey: pending.coalesceKey || null });
+  updateHistoryBtns();
+  return committed;
+}
 let _sourceToRender = null;
 let _gizmoGesture = false;
 let _previousGizmoTransform = null;
@@ -3105,7 +3154,8 @@ async function loadFile(file, urlOverride) {
     lidarColorMode.value = 'rgb';
     _applyLidarSceneColorMode();
   }
-  S.history = []; S.historyIndex = -1;
+  _pendingUnifiedHistory = null;
+  studioEditHistory.clear();
   updateHistoryBtns();
   rebuildGeometry(); setProgress(100);
   if (S.nifMeshComponents?.length) {
@@ -3613,55 +3663,25 @@ function updateStats() {
 
 // ─── HISTORY ────────────────────────────────────────────────────────────────
 function pushHistory(label) {
-  const snap = { alive: S.alive.slice(), selected: S.selected.slice(), paintColors: S.paintColors?.slice(), pivot: S.pivot?.clone() };
-  if (/transform|move|rotate|scale-tool/i.test(label)) {
-    snap.positions = S.positions?.slice(); snap.scale = S.scale?.slice(); snap.scaleXYZ = S.scaleXYZ?.slice(); snap.rotation = S.rotation?.slice(); snap.opacity = S.opacity?.slice(); snap.shCoefficients = S.shCoefficients;
-  }
-  if (S.historyIndex < S.history.length - 1) S.history = S.history.slice(0, S.historyIndex + 1);
-  S.history.push({ label, snap });
-  if (S.history.length > 40) S.history.shift();
-  S.historyIndex = S.history.length - 1;
+  // Most Studio operations call this immediately before mutating authored data.
+  // Close the previous gesture now, then hold a single pending label for this one.
+  flushPendingUnifiedHistory();
+  _pendingUnifiedHistory = { label: String(label || 'Edit'), coalesceKey: null };
   updateHistoryBtns();
 }
 function undo() {
-  if (S.historyIndex < 0) return;
-  const entry = S.history[S.historyIndex];
-  const { snap } = entry;
-  entry.redoSnap = { alive:S.alive.slice(), selected:S.selected.slice(), paintColors:S.paintColors?.slice(), pivot:S.pivot?.clone() };
-  if (snap.positions) { entry.redoSnap.positions=S.positions?.slice(); entry.redoSnap.scale=S.scale?.slice(); entry.redoSnap.scaleXYZ=S.scaleXYZ?.slice(); entry.redoSnap.rotation=S.rotation?.slice(); entry.redoSnap.opacity=S.opacity?.slice(); entry.redoSnap.shCoefficients=S.shCoefficients; }
-  S.alive = snap.alive.slice(); S.selected = snap.selected.slice();
-  if (snap.paintColors) S.paintColors = snap.paintColors.slice();
-  if (snap.positions) S.positions=snap.positions.slice();
-  if (snap.scale) S.scale=snap.scale.slice();
-  if (snap.scaleXYZ) S.scaleXYZ=snap.scaleXYZ.slice();
-  if (snap.rotation) S.rotation=snap.rotation.slice();
-  if (snap.opacity) S.opacity=snap.opacity.slice();
-  if (snap.shCoefficients) S.shCoefficients=snap.shCoefficients;
-  if (snap.pivot) S.pivot=snap.pivot.clone();
-  S.historyIndex--;
-  rebuildGeometry(); _refreshSceneReference(true); syncTransformGizmo(); renderMeasurementList(); renderMeasurementOverlay(); updateHistoryBtns();
+  flushPendingUnifiedHistory();
+  if (!studioEditHistory.undo()) return;
   setStatus('Undone', 'ok');
 }
 function redo() {
-  if (S.historyIndex >= S.history.length - 1) return;
-  S.historyIndex++;
-  const entry = S.history[S.historyIndex];
-  const snap = entry.redoSnap || entry.snap;
-  S.alive = snap.alive.slice(); S.selected = snap.selected.slice();
-  if (snap.paintColors) S.paintColors = snap.paintColors.slice();
-  if (snap.positions) S.positions=snap.positions.slice();
-  if (snap.scale) S.scale=snap.scale.slice();
-  if (snap.scaleXYZ) S.scaleXYZ=snap.scaleXYZ.slice();
-  if (snap.rotation) S.rotation=snap.rotation.slice();
-  if (snap.opacity) S.opacity=snap.opacity.slice();
-  if (snap.shCoefficients) S.shCoefficients=snap.shCoefficients;
-  if (snap.pivot) S.pivot=snap.pivot.clone();
-  rebuildGeometry(); _refreshSceneReference(true); syncTransformGizmo(); renderMeasurementList(); renderMeasurementOverlay(); updateHistoryBtns();
+  if (!studioEditHistory.redo()) return;
   setStatus('Redone', 'ok');
 }
 function updateHistoryBtns() {
-  $('undoBtn').disabled = S.historyIndex < 0;
-  $('redoBtn').disabled = S.historyIndex >= S.history.length - 1;
+  const state = studioEditHistory.state();
+  $('undoBtn').disabled = !state.canUndo && !_pendingUnifiedHistory;
+  $('redoBtn').disabled = !state.canRedo;
 }
 
 // ─── SELECTION ──────────────────────────────────────────────────────────────
