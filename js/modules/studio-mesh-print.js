@@ -92,6 +92,11 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
               <button type="button" id="meshComponentUndoSplit" class="mini-btn" disabled>Undo split</button>
             </div>
             <div class="hint">Axis-aligned splitting only clips existing triangles. The new cut remains open; no cap is invented. Use Y for a horizontal support-plane split.</div>
+            <div style="display:flex;gap:5px;margin-top:9px">
+              <button type="button" id="meshLevelSupportPlane" class="mini-btn" disabled>Level to support plane</button>
+              <button type="button" id="meshUndoSupportLevel" class="mini-btn" disabled>Undo level</button>
+            </div>
+            <div class="hint">Level applies the detected plane to the complete Gaussian + mesh scene and preserves the source geometry relationship. It does not trim or delete points; that remains a separate reviewed operation.</div>
           </div>
           <div class="hint" style="margin-top:6px">Each connected surface has independent visibility, selection, isolation, transform and deletion. The original Gaussian splats remain unchanged.</div>
         </div>
@@ -179,6 +184,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
 
   let lastMesh = null;
   let lastMeshFormat = 'ply';
+  let supportLevelUndo = null;
   let lastMeshData = null;
   let lastMeshStats = null;
   let lastMeshSourceSignature = null;
