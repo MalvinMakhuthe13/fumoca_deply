@@ -2012,12 +2012,7 @@ const studioEditHistory = new UnifiedEditHistory({
     S.pivot = snapshot.pivot ? new THREE.Vector3(...snapshot.pivot) : null;
     rebuildGeometry();
     _refreshSceneReference(true);
-    if (S.nifMeshComponents?.length) {
-      window.refreshStudioCombinedMeshFromComponents?.();
-      window.previewSolidMeshComponents?.(S.nifMeshComponents, { visible: true, opacity: 0.95 });
-    } else if (S.nifMesh) {
-      window.previewSolidMesh?.(S.nifMesh, { visible: true, opacity: 0.95 });
-    }
+    window.refreshStudioMeshDerivedState?.();
     syncTransformGizmo();
     renderMeasurementList();
     renderMeasurementOverlay();
