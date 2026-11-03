@@ -173,7 +173,7 @@ A reader MUST skip unrecognised chunk types without error.
 
 ---
 
-## 6e. Persistent document identity and Gaussian source fidelity\n\nThese optional chunks extend NIF without changing the existing KEYFRAME_GEO or KEYFRAME_MESH layouts. Readers that do not implement them MUST skip them using the standard chunk size.\n\n**DOCUMENT_MODEL v1 payload (big-endian):** `[version:u8=1][metadata_length:u32][gaussian_count:u32][component_count:u32][metadata:utf8-json][gaussian_ids:gaussian_count×u32][component_memberships...]`. The JSON metadata stores the document UUID, model version, revision, next Gaussian ID, source signatures, reconstruction metadata, lineage and component identity records. Each component membership is `[count:u32][gaussian_ids:count×u32]`. Gaussian identity 0 is reserved; IDs are document-scoped and are not array offsets. Component IDs are stable strings. Membership references MUST resolve to an ID in the document Gaussian ID array.\n\n**GAUSSIAN_PLY** stores the original PLY byte stream as an optional fidelity payload. KEYFRAME_GEO remains the canonical render/interchange representation; GAUSSIAN_PLY preserves source PLY attributes such as higher-order SH coefficients that cannot be represented in the 14-float geometry record. An editor should prefer this payload when reopening a Gaussian PLY-authored scene, while retaining KEYFRAME_GEO as the interoperable fallback.\n\n## 5. Compression codecs
+## 5. Compression codecs
 
 | Value | Name  | Standard | Notes |
 |-------|-------|----------|-------|
@@ -318,6 +318,16 @@ verified" and MUST NOT be displayed or treated as a pass by any consumer.
 a shape-only comparison has no tolerance to pass or fail against, and a
 consumer must not render a null `pass` as a failure any more than as a
 success.
+
+---
+
+## 6e. Persistent document identity and Gaussian source fidelity
+
+These optional chunks extend NIF without changing the existing KEYFRAME_GEO or KEYFRAME_MESH layouts. Readers that do not implement them MUST skip them using the standard chunk size.
+
+**DOCUMENT_MODEL v1 payload (big-endian):** `[version:u8=1][metadata_length:u32][gaussian_count:u32][component_count:u32][metadata:utf8-json][gaussian_ids:gaussian_count×u32][component_memberships...]`. The JSON metadata stores the document UUID, model version, revision, next Gaussian ID, source signatures, reconstruction metadata, lineage and component identity records. Each component membership is `[count:u32][gaussian_ids:count×u32]`. Gaussian identity 0 is reserved; IDs are document-scoped and are not array offsets. Component IDs are stable strings. Membership references MUST resolve to an ID in the document Gaussian ID array.
+
+**GAUSSIAN_PLY** stores the original PLY byte stream as an optional fidelity payload. KEYFRAME_GEO remains the canonical render/interchange representation; GAUSSIAN_PLY preserves source PLY attributes such as higher-order SH coefficients that cannot be represented in the 14-float geometry record. An editor should prefer this payload when reopening a Gaussian PLY-authored scene, while retaining KEYFRAME_GEO as the interoperable fallback.
 
 ---
 
