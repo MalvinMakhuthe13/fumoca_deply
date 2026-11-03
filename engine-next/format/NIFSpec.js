@@ -188,12 +188,19 @@ function decodeAscii(dv, offset, len) {
 
 // Concatenate multiple Uint8Arrays into one
 function concat(...arrays) {
-  const total = arrays.reduce((s, a) => s + a.byteLength, 0);
-  const out   = new Uint8Array(total);
-  let offset  = 0;
-  for (const a of arrays) {
-    out.set(new Uint8Array(a instanceof ArrayBuffer ? a : a.buffer ?? a), offset);
-    offset += a.byteLength;
+  const views = arrays.map((value) => {
+    if (value instanceof ArrayBuffer) return new Uint8Array(value);
+    if (ArrayBuffer.isView(value)) {
+      return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+    }
+    return new Uint8Array(value);
+  });
+  const total = views.reduce((sum, view) => sum + view.byteLength, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const view of views) {
+    out.set(view, offset);
+    offset += view.byteLength;
   }
   return out;
 }
@@ -250,8 +257,7 @@ export async function decompressChunk(chunk) {
   if (!chunk) return null;
   if (chunk.codec === CODEC.RAW) return chunk.data;
   if (chunk.codec === CODEC.GZIP) return gzipDecompress(chunk.data);
-  console.warn(`[NIFSpec] Chunk type 0x${chunk.type.toString(16)} uses unsupported codec 0x${chunk.codec.toString(16)} — returning raw bytes, likely unusable`);
-  return chunk.data;
+  throw new Error(`[NIFSpec] Unsupported codec 0x${chunk.codec.toString(16)} for chunk type 0x${chunk.type.toString(16)}`);
 }
 
 // Write a big-endian float32 into a DataView at offset
