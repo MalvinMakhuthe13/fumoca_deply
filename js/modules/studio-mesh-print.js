@@ -279,8 +279,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     if (state?.supportPlaneTrimUndo
         && (computeGaussianSourceSignature(state) !== state.supportPlaneTrimUndo.sourceSignatureAfter
           || meshStateSignature(state.nifMesh, state.nifMeshComponents) !== state.supportPlaneTrimUndo.meshSignatureAfter)) {
-      state.supportPlaneTrimUndo = null;
-    }
+      }
     const candidate = getSupportPlaneCandidate();
     const hasPlane = !!(candidate?.detected && (
       (Array.isArray(candidate.normal) && candidate.normal.length === 3
@@ -425,17 +424,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       return false;
     }
 
-    const rowIds = new Uint32Array(plan.rows.length);
-    const rowPositions = new Float32Array(plan.rows.length * 3);
-    const previousAlive = new Uint8Array(plan.rows.length);
     const removedRows = new Set(plan.rows);
-    for (let i = 0; i < plan.rows.length; i++) {
-      const row = plan.rows[i];
-      rowIds[i] = state.documentModel.gaussianIds[row];
-      previousAlive[i] = state.alive[row] ? 1 : 0;
-      rowPositions.set(state.positions.subarray(row * 3, row * 3 + 3), i * 3);
-    }
-
     const gaussianRowById = new Map();
     state.documentModel.gaussianIds.forEach((id, row) => gaussianRowById.set(id, row));
     let nextComponent = {
@@ -484,26 +473,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     }
 
     window.beginStudioHistory?.('Support-plane trim');
-    const previousComponent = {
-      ...component,
-      vertices: component.vertices.slice(),
-      triangles: component.triangles.slice(),
-      colours: component.colours?.slice?.(),
-      gaussianIds: component.gaussianIds?.slice?.() || component.gaussianIds,
-    };
-    state.supportPlaneTrimUndo = {
-      componentId: component.id,
-      rows: plan.rows.slice(),
-      gaussianIds: rowIds,
-      positions: rowPositions,
-      previousAlive,
-      previousComponent,
-      previousMeta: state.nifMeta ? { ...state.nifMeta } : {},
-      previousSelection: preview.previousSelection,
-      sourceSignatureAfter: null,
-      meshSignatureAfter: null,
-      clippedMesh,
-    };
     for (const row of plan.rows) {
       state.alive[row] = 0;
       if (state.selected) state.selected[row] = 0;
@@ -555,68 +524,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     updateSupportPlaneControls();
     updateComponentTransformButtons();
     meshStatus(`Trimmed ${plan.rows.length.toLocaleString()} linked Gaussian splats below the support plane${clippedMesh ? ' and clipped the selected mesh component' : ''}. Other components were preserved. Undo is available while this source and mesh remain unchanged.`);
-    return true;
-  };
-
-  const undoSupportPlaneTrim = async () => {
-    const state = window.S, snapshot = state?.supportPlaneTrimUndo;
-    if (!state || !snapshot) return false;
-    if (computeGaussianSourceSignature(state) !== snapshot.sourceSignatureAfter
-        || meshStateSignature(state.nifMesh, state.nifMeshComponents) !== snapshot.meshSignatureAfter) {
-      state.supportPlaneTrimUndo = null;
-      updateSupportPlaneControls();
-      meshStatus('Undo trim is no longer safe because the Gaussian source or mesh changed after trimming. Newer edits were preserved.');
-      return false;
-    }
-    for (let i = 0; i < snapshot.rows.length; i++) {
-      const row = snapshot.rows[i];
-      if (state.documentModel?.gaussianIds?.[row] !== snapshot.gaussianIds[i]
-          || state.alive[row] !== 0
-          || state.positions[row * 3] !== snapshot.positions[i * 3]
-          || state.positions[row * 3 + 1] !== snapshot.positions[i * 3 + 1]
-          || state.positions[row * 3 + 2] !== snapshot.positions[i * 3 + 2]) {
-        meshStatus('Undo trim refused because one of the affected Gaussian rows changed.');
-        return false;
-      }
-    }
-    window.beginStudioHistory?.('Restore support-plane trim');
-    for (let i = 0; i < snapshot.rows.length; i++) state.alive[snapshot.rows[i]] = snapshot.previousAlive[i];
-    state.nifMeshComponents = (state.nifMeshComponents || []).map(component =>
-      component.id === snapshot.componentId ? snapshot.previousComponent : component);
-    state.nifMesh = null;
-    lastMeshData = null; lastMesh = null; lastMeshStats = null;
-    state.nifMeta = {
-      ...(snapshot.previousMeta || {}),
-      mesh_components_edited: true,
-    };
-    const signature = computeGaussianSourceSignature(state);
-    state.nifMeta.dual_surface_source_signature = signature;
-    lastMeshSourceSignature = signature;
-    refreshCombinedMeshFromComponents();
-    if (snapshot.previousSelection && state.selected?.length === snapshot.previousSelection.length) {
-      state.selected.set(snapshot.previousSelection);
-    }
-    state.supportPlaneTrimUndo = null;
-    try {
-      await window.refreshGaussianSourceBytes?.();
-      window.rebuildGeometry?.();
-      window.previewSolidMeshComponents?.(state.nifMeshComponents || [], { visible: true, opacity: 0.95 });
-      renderMeshComponents(state.nifMeshComponents || []);
-      let restoredSelectionCount = 0;
-      for (let row = 0; row < (state.selected?.length || 0); row++) {
-        if (state.selected[row] && state.alive?.[row]) restoredSelectionCount++;
-      }
-      window.dispatchEvent(new CustomEvent('fumoca:selectionChanged', {
-        detail: { count: restoredSelectionCount, changed: snapshot.rows.length },
-      }));
-    } catch (error) {
-      console.warn('[Studio mesh] Trim undo committed; viewport refresh failed:', error);
-    }
-    syncComponentDiagnosticsToMeta();
-    window.commitStudioHistory?.();
-    updateSupportPlaneControls();
-    updateComponentTransformButtons();
-    meshStatus('Undid support-plane trim. The removed Gaussian rows and original component geometry have been restored.');
     return true;
   };
 
@@ -1984,7 +1891,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     state.meshComponentSplitUndo = null;
     state.meshComponentDeleteUndo = null;
     state.meshComponentMembershipUndo = null;
-    state.supportPlaneTrimUndo = null;
     state.nifMeta = { ...(state.nifMeta || {}), mesh_components_edited: true };
     refreshCombinedMeshFromComponents();
     window.previewSolidMeshComponents?.(state.nifMeshComponents, { visible: true, opacity: 0.95 });
