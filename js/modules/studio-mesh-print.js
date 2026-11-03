@@ -760,20 +760,38 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       const nextRotation = state.rotation
         ? planeTransform.transformGaussianRotationsWxyz(state.rotation)
         : state.rotation;
-      const nextMesh = transformMesh(state.nifMesh || lastMeshData);
       const nextComponents = (state.nifMeshComponents || []).map(component => ({
         ...component,
         vertices: transformPositions(component.vertices),
         triangles: component.triangles?.slice?.() || component.triangles,
         colours: component.colours?.slice?.() || component.colours,
       }));
-      const priorMeshData = lastMeshData;
+      const nextMesh = state.nifMesh
+        ? transformMesh(state.nifMesh)
+        : combineMeshComponents(nextComponents, { visibleOnly: false });
+      const nextVisibleMesh = combineMeshComponents(nextComponents, { visibleOnly: true });
+      const nextVisibleMeshData = nextVisibleMesh.triangles.length ? nextVisibleMesh : null;
+      const nextTopology = nextVisibleMeshData ? FumocMeshExtractor.validateWatertight(nextVisibleMeshData) : null;
+      const nextMeshStats = nextTopology ? {
+        ...nextTopology,
+        printable: nextTopology.watertight === true && Number(nextTopology.nonManifoldEdges || 0) === 0,
+        vertices: nextVisibleMeshData.vertices.length / 3,
+        triangles: nextVisibleMeshData.triangles.length / 3,
+        components: nextVisibleMeshData.componentCount,
+        componentIds: nextVisibleMeshData.componentIds,
+        extractionMode: 'component-edited',
+      } : null;
+      const priorMeshData = lastMeshData, priorFormat = lastMeshFormat, priorStats = lastMeshStats;
       let nextLastMesh;
       try {
-        lastMeshData = nextMesh;
+        lastMeshData = nextVisibleMeshData;
+        lastMeshFormat = container.querySelector('#meshFormat')?.value || 'ply';
+        lastMeshStats = nextMeshStats;
         nextLastMesh = makeMeshBlob();
       } finally {
         lastMeshData = priorMeshData;
+        lastMeshFormat = priorFormat;
+        lastMeshStats = priorStats;
       }
       const previous = {
         positions: state.positions,
@@ -787,6 +805,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         lastMeshData,
         lastMesh,
         lastMeshStats,
+        lastMeshFormat,
         lastMeshSourceSignature,
       };
 
@@ -796,7 +815,9 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       state.rotation = nextRotation;
       state.nifMesh = nextMesh;
       state.nifMeshComponents = nextComponents;
-      lastMeshData = nextMesh;
+      lastMeshData = nextVisibleMeshData;
+      lastMeshStats = nextMeshStats;
+      lastMeshFormat = container.querySelector('#meshFormat')?.value || 'ply';
       const leveledCandidate = {
         ...candidate,
         normal: [0, 1, 0],
@@ -823,6 +844,8 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       lastMeshSourceSignature = state.nifMeta.dual_surface_source_signature;
       lastMesh = nextLastMesh;
       previous.leveledSourceSignature = computeGaussianSourceSignature(state);
+      container.querySelector('#saveMeshBtn').disabled = !lastMeshData?.colours;
+      container.querySelector('#printStlBtn').disabled = !lastMesh || (lastMeshFormat === 'stl' && !lastMeshStats?.printable);
       previous.leveledMeshSignature = meshStateSignature(state.nifMesh, state.nifMeshComponents);
       supportLevelUndo = previous;
       try { await window.refreshGaussianSourceBytes?.(); }
@@ -871,7 +894,10 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     lastMeshData = previous.lastMeshData;
     lastMesh = previous.lastMesh;
     lastMeshStats = previous.lastMeshStats;
+    lastMeshFormat = previous.lastMeshFormat;
     lastMeshSourceSignature = previous.lastMeshSourceSignature;
+    container.querySelector('#saveMeshBtn').disabled = !lastMeshData?.colours;
+    container.querySelector('#printStlBtn').disabled = !lastMesh || (lastMeshFormat === 'stl' && !lastMeshStats?.printable);
     supportLevelUndo = null;
     try {
       window.rebuildGeometry?.();
