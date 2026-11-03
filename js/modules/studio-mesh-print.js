@@ -1226,6 +1226,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     extractMesh,
     checkSourceFreshness,
     get lastStats() { return lastMeshStats; },
+    getSourceSignature: () => computeGaussianSourceSignature(window.S),
     levelToSupportPlane,
     undoSupportPlaneLevel,
   };
