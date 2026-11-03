@@ -86,6 +86,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
                   <option value="y" selected>Y</option>
                   <option value="x">X</option>
                   <option value="z">Z</option>
+                  <option value="support">Detected support plane</option>
                 </select>
               </label>
               <label class="hint" style="flex:1">Split plane offset (scene units)
@@ -658,32 +659,68 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     updateComponentTransformButtons();
     meshStatus('Applied transform to ' + component.id + '. Export the NIF to preserve this component edit; the Gaussian source is unchanged.');
   });
+  const splitAxisSelect = container.querySelector('#meshComponentSplitAxis');
+  const splitOffsetInput = container.querySelector('#meshComponentSplitY');
+  const syncSplitInput = () => {
+    const useSupportPlane = splitAxisSelect?.value === 'support';
+    if (splitOffsetInput) {
+      splitOffsetInput.disabled = useSupportPlane;
+      splitOffsetInput.placeholder = useSupportPlane ? 'Using detected plane' : 'Scene coordinate';
+    }
+  };
+  splitAxisSelect?.addEventListener('change', syncSplitInput);
+  syncSplitInput();
+
   container.querySelector('#meshComponentSplitPlane')?.addEventListener('click', () => {
     const state = window.S, component = selectedMeshComponent();
     if (!state || !component) return;
-    const y = Number(container.querySelector('#meshComponentSplitY')?.value);
-    if (!Number.isFinite(y)) { meshStatus('Enter a finite coordinate for the selected split axis.'); return; }
-    const axis = container.querySelector('#meshComponentSplitAxis')?.value || 'y';
-    const axisIndex = ({ x: 0, y: 1, z: 2 })[axis];
-    if (axisIndex === undefined) { meshStatus('Choose X, Y or Z for the split plane.'); return; }
-    const normal = [0, 0, 0]; normal[axisIndex] = 1;
-    const result = FumocMeshExtractor.splitMeshByPlane(component, { normal, offset: y });
+    const axis = splitAxisSelect?.value || 'y';
+    const supportSuggestion = state.nifMeta?.mesh_diagnostics?.support_plane_candidate;
+    let normal, splitOffset;
+    if (axis === 'support') {
+      if (!supportSuggestion?.detected || !Array.isArray(supportSuggestion.normal)
+          || supportSuggestion.normal.length !== 3
+          || supportSuggestion.offset === null || supportSuggestion.offset === undefined
+          || !supportSuggestion.normal.every(value => Number.isFinite(Number(value)))
+          || !Number.isFinite(Number(supportSuggestion.offset))) {
+        meshStatus('No valid oriented support plane is available. Run oriented-surfel reconstruction first.');
+        return;
+      }
+      normal = supportSuggestion.normal.map(Number);
+      splitOffset = Number(supportSuggestion.offset);
+    } else {
+      const axisIndex = ({ x: 0, y: 1, z: 2 })[axis];
+      if (axisIndex === undefined) { meshStatus('Choose X, Y, Z or detected support plane.'); return; }
+      splitOffset = Number(splitOffsetInput?.value);
+      if (!Number.isFinite(splitOffset)) { meshStatus('Enter a finite coordinate for the selected split axis.'); return; }
+      normal = [0, 0, 0]; normal[axisIndex] = 1;
+    }
+    const normalLength = Math.hypot(...normal);
+    if (normalLength < 1e-8) { meshStatus('The split plane normal is degenerate.'); return; }
+    normal = normal.map(value => value / normalLength);
+    splitOffset /= normalLength;
+    const result = FumocMeshExtractor.splitMeshByPlane(component, { normal, offset: splitOffset });
     if (!result.split || !result.positive || !result.negative) {
       meshStatus('The plane did not divide this component into two surfaces. No geometry was changed.');
       return;
     }
-    const meanAxis = part => {
+    const meanPlaneDistance = part => {
       let sum = 0;
-      for (let i = axisIndex; i < part.vertices.length; i += 3) sum += part.vertices[i];
+      for (let i = 0; i + 2 < part.vertices.length; i += 3) {
+        sum += part.vertices[i] * normal[0] + part.vertices[i + 1] * normal[1]
+          + part.vertices[i + 2] * normal[2] - splitOffset;
+      }
       return sum / Math.max(1, part.vertices.length / 3);
     };
     const positiveDiagnostics = FumocMeshExtractor.validateWatertight(result.positive);
     const negativeDiagnostics = FumocMeshExtractor.validateWatertight(result.negative);
-    const supportSuggestion = state.nifMeta?.mesh_diagnostics?.support_plane_candidate;
-    const isSuggestedSupportSplit = axis === 'y' && supportSuggestion?.detected &&
-      supportSuggestion.y !== null && supportSuggestion.y !== undefined && Number.isFinite(Number(supportSuggestion.y)) &&
-      Math.abs(y - Number(supportSuggestion.y)) <= Math.max(Number(supportSuggestion.tolerance || 0), 1e-4);
-    const splitToken = Math.round(y * 100000).toString(36);
+    const isSuggestedSupportSplit = axis === 'support' || (
+      axis === 'y' && supportSuggestion?.detected
+      && supportSuggestion.y !== null && supportSuggestion.y !== undefined
+      && Number.isFinite(Number(supportSuggestion.y))
+      && Math.abs(splitOffset - Number(supportSuggestion.y)) <= Math.max(Number(supportSuggestion.tolerance || 0), 1e-4)
+    );
+    const splitToken = Math.round(splitOffset * 100000).toString(36);
     const splitBaseId = `${component.id}-split-${axis}-${splitToken}`;
     const parentIds = [...new Set([...(component.parentIds || []), component.id])];
     const splitMembership = { positive: [], negative: [] };
@@ -694,7 +731,9 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       for (const gaussianId of memberIds) {
         const row = rowById.get(gaussianId);
         if (row === undefined) continue;
-        const side = state.positions[row * 3 + axisIndex] - y >= 0 ? 'positive' : 'negative';
+        const side = state.positions[row * 3] * normal[0]
+          + state.positions[row * 3 + 1] * normal[1]
+          + state.positions[row * 3 + 2] * normal[2] - splitOffset >= 0 ? 'positive' : 'negative';
         splitMembership[side].push(gaussianId);
       }
     }
@@ -702,7 +741,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       ...result.positive, id: `${splitBaseId}-positive`,
       parentIds, gaussianIds: Uint32Array.from(splitMembership.positive),
       geometrySource: component.geometrySource || 'gaussian-derived',
-      provenance: { ...(component.provenance || {}), operation: 'plane-split', sourceComponentId: component.id, axis, offset: y },
+      provenance: { ...(component.provenance || {}), operation: 'plane-split', sourceComponentId: component.id, normal, offset: splitOffset },
       watertight: positiveDiagnostics.watertight,
       visible: component.visible !== false,
       supportSurfaceCandidate: false,
@@ -716,20 +755,20 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       ...result.negative, id: `${splitBaseId}-negative`,
       parentIds, gaussianIds: Uint32Array.from(splitMembership.negative),
       geometrySource: component.geometrySource || 'gaussian-derived',
-      provenance: { ...(component.provenance || {}), operation: 'plane-split', sourceComponentId: component.id, axis, offset: y },
+      provenance: { ...(component.provenance || {}), operation: 'plane-split', sourceComponentId: component.id, normal, offset: splitOffset },
       watertight: negativeDiagnostics.watertight,
       visible: component.visible !== false,
-      supportSurfaceCandidate: !!isSuggestedSupportSplit, // only mark the lower half when it matches the detected support plane
+      supportSurfaceCandidate: !!isSuggestedSupportSplit,
       diagnostics: {
         ...negativeDiagnostics,
         n_boundary_edges: negativeDiagnostics.openEdges,
         n_nonmanifold_edges: negativeDiagnostics.nonManifoldEdges,
         ...(isSuggestedSupportSplit ? {
-          support_plane_confidence: Number(supportSuggestion.confidence || 0),
+          support_plane_confidence: Number(supportSuggestion?.confidence || 0),
         } : {}),
       },
     };
-    const replacement = [positive, negative].sort((a, b) => meanAxis(a) - meanAxis(b));
+    const replacement = [positive, negative].sort((a, b) => meanPlaneDistance(a) - meanPlaneDistance(b));
     state.meshComponentSplitUndo = {
       source: { ...component, vertices: component.vertices.slice(), triangles: component.triangles.slice(), colours: component.colours?.slice(), gaussianIds: component.gaussianIds?.slice?.() || component.gaussianIds },
       partIds: [positive.id, negative.id],
@@ -738,13 +777,15 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       .concat(replacement);
     state.activeMeshComponentId = positive.id;
     state.nifMesh = null;
+    supportLevelUndo = null;
+    updateSupportPlaneControls();
     syncComponentDiagnosticsToMeta();
     state.nifMeta = {
       ...(state.nifMeta || {}),
       mesh_components_edited: true,
       mesh_component_splits: [
         ...(state.nifMeta?.mesh_component_splits || []),
-        { source: component.id, axis: axis.toUpperCase(), offset: y, cut_is_open: true },
+        { source: component.id, axis: axis.toUpperCase(), offset: splitOffset, normal, cut_is_open: true },
       ],
     };
     lastMeshData = null; lastMeshStats = null; lastMesh = null;
@@ -754,7 +795,9 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     window.highlightSolidMeshComponent?.(state.activeMeshComponentId);
     renderMeshComponents(state.nifMeshComponents);
     updateComponentTransformButtons();
-    meshStatus('Split ' + component.id + ' into two independent surfaces at ' + axis.toUpperCase() + '=' + y + '. The new boundary is intentionally open; no cap geometry was invented.');
+    meshStatus(axis === 'support'
+      ? `Split ${component.id} using the detected oriented support plane. The two surfaces are independent; the new boundary remains open and no cap was invented.`
+      : `Split ${component.id} into two independent surfaces at ${axis.toUpperCase()}=${splitOffset}. The new boundary remains open and no cap was invented.`);
   });
   container.querySelector('#meshComponentUndoSplit')?.addEventListener('click', () => {
     const state = window.S, snapshot = state?.meshComponentSplitUndo;
