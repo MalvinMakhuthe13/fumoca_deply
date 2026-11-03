@@ -25,9 +25,12 @@ jobs:
           node --check --experimental-default-type=module js/modules/screen-space-selection.js
           node --check --experimental-default-type=module js/modules/studio-mesh-print.js
           node --check --experimental-default-type=module js/modules/dual-surface-contract.js
+          node --check --experimental-default-type=module js/modules/document-model.js
           node --check --experimental-default-type=module js/modules/nif-format.js
           node --check --experimental-default-type=module js/modules/print-export.js
           node --check --experimental-default-type=module js/modules/viewer.js
+      - name: Verify canonical document identity and transactional history
+        run: node --experimental-default-type=module --test engine-next/tests/document_model.test.mjs
       - name: Verify dual-layer NIF round trip and component visibility persistence
         run: node --experimental-default-type=module --test engine-next/tests/dual_surface_roundtrip.test.mjs
       - name: Verify Gaussian-to-mesh source freshness contract
