@@ -322,7 +322,7 @@ export class UnifiedEditHistory {
       this.cursor = 0;
       this.bytes = 0;
       this.baseline = after;
-      this.lastError = `"${entry.label}" was applied, but its snapshot (${entry.bytes} bytes) exceeds the ${this.maxBytes}-byte history budget; undo history was cleared to protect memory.`;
+      this.lastError = new Error(`"${entry.label}" was applied, but its snapshot (${entry.bytes} bytes) exceeds the ${this.maxBytes}-byte history budget; undo history was cleared to protect memory.`);
       this.#notify();
       return false;
     }
