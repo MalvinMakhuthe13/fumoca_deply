@@ -1454,7 +1454,8 @@ function splitMeshComponents(mesh) {
     groups.get(root).push(face);
   }
   const ordered = [...groups.values()].sort((a, b) => b.length - a.length);
-  return ordered.map((faces, index) => {
+  const idOccurrences = new Map();
+  return ordered.map((faces) => {
     const vertexMap = new Map();
     const oldVertices = [];
     const localFaces = new Uint32Array(faces.length * 3);
@@ -1479,8 +1480,11 @@ function splitMeshComponents(mesh) {
     });
     const componentMesh = { vertices: localVertices, triangles: localFaces, colours: localColours };
     const topology = validateWatertight(componentMesh);
+    const stableId = stableMeshComponentId(localVertices, localFaces);
+    const occurrence = idOccurrences.get(stableId) || 0;
+    idOccurrences.set(stableId, occurrence + 1);
     return {
-      id: stableMeshComponentId(localVertices, localFaces),
+      id: occurrence ? `${stableId}-${occurrence + 1}` : stableId,
       ...componentMesh,
       watertight: topology.watertight,
       visible: true,
