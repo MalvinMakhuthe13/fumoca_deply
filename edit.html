@@ -2548,6 +2548,80 @@ window.previewSolidMesh = (mesh, options = {}) => {
   _solidMeshPreviewObject.material.depthWrite = opacity >= 0.999;
   _solidMeshPreviewObject.material.needsUpdate = true;
 };
+let _solidMeshComponentsGroup = null;
+const _solidMeshComponentObjects = new Map();
+const clearSolidMeshComponents = () => {
+  if (_solidMeshComponentsGroup) {
+    scene.remove(_solidMeshComponentsGroup);
+    _solidMeshComponentsGroup.traverse(object => {
+      if (object.geometry) object.geometry.dispose();
+      if (object.material) {
+        if (Array.isArray(object.material)) object.material.forEach(material => material.dispose());
+        else object.material.dispose();
+      }
+    });
+  }
+  _solidMeshComponentsGroup = null;
+  _solidMeshComponentObjects.clear();
+};
+window.previewSolidMeshComponents = (components = [], options = {}) => {
+  clearSolidMeshComponents();
+  if (!Array.isArray(components) || !components.length) return;
+  const group = new THREE.Group();
+  group.name = 'FUMOCA independent reconstructed components';
+  const opacity = Math.max(0.05, Math.min(1, Number(options.opacity ?? 0.9)));
+  for (const component of components) {
+    const positions = component.vertices || component.positions;
+    const faces = component.triangles || component.faces;
+    const colours = component.colours || component.colors;
+    if (!positions?.length || !faces?.length) continue;
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    if (colours?.length === positions.length) {
+      const color = new Float32Array(colours.length);
+      for (let i = 0; i < color.length; i++) color[i] = colours[i] / 255;
+      geometry.setAttribute('color', new THREE.BufferAttribute(color, 3));
+    }
+    geometry.setIndex(new THREE.BufferAttribute(faces, 1));
+    geometry.computeVertexNormals();
+    const material = new THREE.MeshStandardMaterial({
+      vertexColors: !!colours,
+      color: colours ? 0xffffff : 0x9ab3c7,
+      roughness: Math.max(0.05, Math.min(1, Number(options.roughness ?? 0.72))),
+      metalness: Math.max(0, Math.min(1, Number(options.metalness ?? 0.05))),
+      side: THREE.DoubleSide,
+      transparent: opacity < 0.999,
+      opacity,
+      depthWrite: opacity >= 0.999,
+    });
+    const object = new THREE.Mesh(geometry, material);
+    object.name = component.id || 'FUMOCA mesh component';
+    object.userData.meshComponentId = component.id || object.name;
+    object.visible = component.visible !== false && options.visible !== false;
+    object.renderOrder = 10;
+    object.frustumCulled = false;
+    group.add(object);
+    _solidMeshComponentObjects.set(object.userData.meshComponentId, object);
+  }
+  _solidMeshComponentsGroup = group;
+  scene.add(group);
+};
+window.setSolidMeshComponentVisibility = (id, visible) => {
+  const object = _solidMeshComponentObjects.get(String(id));
+  if (!object) return false;
+  object.visible = !!visible;
+  return true;
+};
+window.setSolidMeshComponentsVisibility = (visible) => {
+  for (const object of _solidMeshComponentObjects.values()) object.visible = !!visible;
+};
+window.highlightSolidMeshComponent = (id) => {
+  for (const [componentId, object] of _solidMeshComponentObjects) {
+    object.material.emissive.set(componentId === String(id) ? 0x334400 : 0x000000);
+    object.material.emissiveIntensity = componentId === String(id) ? 0.45 : 0;
+  }
+};
+
 window.fitLidarToScene = () => {
   if (!_lidarPreviewCloud) return false;
   const cloudBounds = _boundsForPositions(_lidarPreviewCloud.positions);
