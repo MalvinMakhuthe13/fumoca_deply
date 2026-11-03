@@ -2089,6 +2089,27 @@ def _mesh_topology_diagnostics(mesh):
     }
 
 
+def _build_nif_meta_payload(author: str, vertical: str, meta: dict,
+                            mesh_info: dict = None, created_at: str = ''):
+    """Build the self-contained NIF META payload, including measured mesh diagnostics."""
+    payload = {
+        'title': meta.get('title') or 'Untitled NIF',
+        'description': meta.get('description') or '',
+        'author': author,
+        'vertical': vertical,
+        'hotspots': meta.get('hotspots') or [],
+        'tourStops': meta.get('tourStops') or [],
+        'createdAt': created_at,
+    }
+    if mesh_info:
+        payload.update({
+            'surface_reconstruction': 'oriented-gaussian-surfel-tsdf',
+            'mesh_component_count': len(mesh_info.get('mesh_components', [])),
+            'mesh_diagnostics': mesh_info,
+        })
+    return payload
+
+
 class ReconstructionWorker:
 
     def __init__(self, job_id: str, user_id: str):
@@ -3957,25 +3978,12 @@ class ReconstructionWorker:
 
     def _pack_meta(self, vertical: str, meta: dict, mesh_info: dict = None) -> bytes:
         """
-        Build the CHUNK_META JSON payload — same shape NIFSpec.js's
-        encodeMetaChunk()/decodeMetaChunk() read/write on the JS editor path,
-        so a .nif produced by either encoder decodes identically.
+        Build the CHUNK_META JSON payload using the same self-describing fields
+        as NIFSpec.js, plus measured reconstruction diagnostics when available.
         """
-        payload = {
-            'title':       meta.get('title') or 'Untitled NIF',
-            'description': meta.get('description') or '',
-            'author':      self.user_id,
-            'vertical':    vertical,
-            'hotspots':    meta.get('hotspots') or [],
-            'tourStops':   meta.get('tourStops') or [],
-            'createdAt':   _now_iso(),
-        }
-        if mesh_info:
-            payload.update({
-                'surface_reconstruction': 'oriented-gaussian-surfel-tsdf',
-                'mesh_component_count': len(mesh_info.get('mesh_components', [])),
-                'mesh_diagnostics': mesh_info,
-            })
+        payload = _build_nif_meta_payload(
+            self.user_id, vertical, meta, mesh_info, created_at=_now_iso()
+        )
         return json.dumps(payload).encode('utf-8')
 
     # ── Register ───────────────────────────────────────────────────────────────
