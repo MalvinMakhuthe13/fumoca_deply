@@ -2613,7 +2613,12 @@ window.setSolidMeshComponentVisibility = (id, visible) => {
   return true;
 };
 window.setSolidMeshComponentsVisibility = (visible) => {
-  for (const object of _solidMeshComponentObjects.values()) object.visible = !!visible;
+  // Global layer visibility belongs to the group. Do not overwrite each
+  // component's own visibility flag: a user-hidden support plane/object must
+  // remain hidden when the complete reconstructed layer is toggled back on.
+  if (!_solidMeshComponentsGroup) return false;
+  _solidMeshComponentsGroup.visible = !!visible;
+  return true;
 };
 window.highlightSolidMeshComponent = (id) => {
   for (const [componentId, object] of _solidMeshComponentObjects) {
