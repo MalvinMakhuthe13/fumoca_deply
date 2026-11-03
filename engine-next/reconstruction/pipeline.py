@@ -3329,6 +3329,8 @@ class ReconstructionWorker:
             reverse=True,
         )
         component_summaries = []
+        scene_min_y = float(mesh.bounds[0][1])
+        scene_max_y = float(mesh.bounds[1][1])
         component_chunk = bytearray(struct.pack('>BI', 1, len(split_meshes)))
         for component_index, part in enumerate(split_meshes, start=1):
             component_id = f'component-{component_index:04d}'
@@ -3337,7 +3339,11 @@ class ReconstructionWorker:
             if part.visual.vertex_colors is not None:
                 part_colors = part.visual.vertex_colors[:, :3].astype(np.uint8)
             part_topology = _mesh_topology_diagnostics(part)
-            part_flags = (1 if part.is_watertight else 0) | 2  # visible by default
+            surface_role = _classify_mesh_surface_role(
+                part, scene_min_y, scene_max_y, len(mesh.faces)
+            )
+            part_flags = ((1 if part.is_watertight else 0) | 2
+                          | (4 if surface_role['role_candidate'] == 'support_surface' else 0))
             component_chunk.extend(struct.pack('>B', len(label_bytes)))
             component_chunk.extend(label_bytes)
             component_chunk.extend(struct.pack(
@@ -3352,6 +3358,7 @@ class ReconstructionWorker:
                 'faces': int(len(part.faces)),
                 'watertight': bool(part.is_watertight),
                 **part_topology,
+                **surface_role,
             })
         mesh_components_bytes = bytes(component_chunk)
         print(f'[NIF] Mesh components: {len(component_summaries)} independently addressable surfaces')
