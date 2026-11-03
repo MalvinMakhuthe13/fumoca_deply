@@ -4122,7 +4122,7 @@ function _compactLidarAttributes(indices) {
   return intensity || classification || returnNumber ? { intensity, classification, returnNumber } : null;
 }
 
-function exportFile(type = 'splat') {
+async function exportFile(type = 'splat') {
   if (!S.alive) return;
   const idx = []; for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) idx.push(i);
   let blob, name;
@@ -4139,6 +4139,25 @@ function exportFile(type = 'splat') {
     // Real .nif export — canonical 14-float/point chunked binary, not a
     // renamed .splat. Carries forward the source file's meta/thumbnail when
     // this file was itself loaded from a .nif (S.nifMeta/S.nifThumbnailBytes).
+    const meshComponents = S.nifMeshComponents?.length ? S.nifMeshComponents : [];
+    const knownComponentIds = new Set((S.documentModel?.components || []).map(component => component.id));
+    const documentBase = createDocumentModel({
+      ...(S.documentModel || {}),
+      gaussianIds: S.documentModel?.gaussianIds || allocateGaussianIds(S.positions.length / 3).ids,
+      components: [
+        ...(S.documentModel?.components || []),
+        ...meshComponents.filter(component => !knownComponentIds.has(component.id)).map(component => ({
+          id: component.id, gaussianIds: [], visible: component.visible !== false,
+          geometrySource: 'gaussian-derived',
+          provenance: { source: 'mesh-reconstruction' },
+        })),
+      ],
+    });
+    const savedDocumentModel = compactDocumentModel(documentBase, idx);
+    const hasSh = (S.shAttributes || []).length > 0;
+    const gaussianPlyBytes = hasSh
+      ? new Uint8Array(await _encodeGaussianPly(idx).arrayBuffer())
+      : undefined;
     const buf = encodeNif({
       sourceBuffer: currentRows,
       aliveIndices: Array.from({ length: idx.length }, (_, i) => i),
@@ -4146,7 +4165,9 @@ function exportFile(type = 'splat') {
       meta: S.nifMeta || {},
       thumbnailBytes: S.nifThumbnailBytes || undefined,
       mesh: S.nifMesh || undefined,
-      meshComponents: S.nifMeshComponents?.length ? S.nifMeshComponents : undefined,
+      meshComponents: meshComponents.length ? meshComponents : undefined,
+      documentModel: savedDocumentModel,
+      gaussianPlyBytes,
       lidarAttributes: _compactLidarAttributes(idx),
       passthroughChunks: S.nifPassthroughChunks || [],
       vertical: (S.nifMeta && S.nifMeta.vertical) || 'generic',
