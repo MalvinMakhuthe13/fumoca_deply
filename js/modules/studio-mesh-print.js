@@ -5,6 +5,7 @@ import { decodeNif } from './nif-format.js';
 import { createDocumentModel } from './document-model.js';
 import { buildSupportPlaneTransform } from './support-plane-transform.js';
 import { normalizeMeshComponents } from './mesh-component-contract.js';
+import { combineMeshComponents } from './mesh-component-contract.js';
 import { assignGaussianMemberships } from './gaussian-component-membership.js';
 import { findGaussianRowsBelowSupportPlane } from './support-plane-trim.js';
 import { capPlanarBoundaryLoops } from './planar-mesh-cap.js';
@@ -1570,6 +1571,50 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       ? ` · Support plane Y=${Number(stats.support_plane_candidate.y).toFixed(4)} (${Math.round(Number(stats.support_plane_candidate.confidence || 0) * 100)}%)` : '';
     el.textContent = `Components: ${components} · Triangles: ${triangles.toLocaleString()} · Open edges: ${open.toLocaleString()} · Non-manifold edges: ${nonManifold.toLocaleString()} · ${watertight ? 'Watertight' : 'Open surface'}${coverage}${confidence}${normalComponents}${batches}${repair}${support}`;
   };
+  const refreshCombinedMeshFromComponents = (message = '') => {
+    const state = window.S;
+    if (!state) return null;
+    const components = state.nifMeshComponents || [];
+    const allComponentsMesh = combineMeshComponents(components, { visibleOnly: false });
+    const visibleComponentsMesh = combineMeshComponents(components, { visibleOnly: true });
+    state.nifMesh = allComponentsMesh.triangles.length ? allComponentsMesh : null;
+    lastMeshData = visibleComponentsMesh.triangles.length ? visibleComponentsMesh : null;
+    lastMeshFormat = 'ply';
+    if (lastMeshData) {
+      lastMeshStats = {
+        ...FumocMeshExtractor.validateWatertight(lastMeshData),
+        vertices: lastMeshData.vertices.length / 3,
+        triangles: lastMeshData.triangles.length / 3,
+        components: lastMeshData.componentCount,
+        componentIds: lastMeshData.componentIds,
+        extractionMode: 'component-edited',
+      };
+      lastMesh = makeMeshBlob();
+      renderMeshDiagnostics(lastMeshStats);
+    } else {
+      lastMeshStats = null;
+      lastMesh = null;
+    }
+    const signature = computeGaussianSourceSignature(state);
+    lastMeshSourceSignature = signature;
+    state.nifMeta = {
+      ...(state.nifMeta || {}),
+      dual_surface_source_signature: signature,
+    };
+    const saveButton = container.querySelector('#saveMeshBtn');
+    const printButton = container.querySelector('#printStlBtn');
+    if (saveButton) saveButton.disabled = !lastMeshData?.colours;
+    if (printButton) printButton.disabled = !lastMesh || !!(lastMeshStats && !lastMeshStats.watertight && lastMeshFormat === 'stl');
+    if (lastMeshData) {
+      window.dispatchEvent(new CustomEvent('fumoca:solidMeshReady', {
+        detail: { mesh: lastMeshData, stats: lastMeshStats },
+      }));
+    }
+    syncComponentDiagnosticsToMeta();
+    if (message) meshStatus(message);
+    return lastMeshData;
+  };
+
   const makeMeshBlob = () => {
     if (!lastMeshData) return null;
     if (lastMeshFormat === 'obj') return FumocMeshExtractor.exportOBJ(lastMeshData, 'fumoca-mesh');
