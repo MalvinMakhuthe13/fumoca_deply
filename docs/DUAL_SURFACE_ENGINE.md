@@ -212,3 +212,7 @@ This is deliberately non-destructive: the worker does not delete the support sur
 The candidate detector has regression coverage for a broad lower platform, a vertical wall and a sloped lower surface. The connected-mesh surface-role classifier uses a stricter horizontal-normal threshold to avoid labeling moderately sloped surfaces as support planes. These are geometric heuristics, not semantic object recognition; overlapping or coplanar object bases can still require manual review.
 
 Component plane splits now immediately recompute topology on both resulting surfaces. Studio reports the actual open-edge and non-manifold-edge counts rather than displaying an empty diagnostic as zero.
+
+### NIF component integrity and large-scene encoding
+
+The browser-side MESH_COMPONENTS encoder now rejects duplicate component IDs and invalid local face indices. Validation walks typed arrays directly instead of materializing temporary JavaScript arrays, avoiding a large avoidable memory spike when saving scenes with high-resolution independent components. The NIF round-trip regression covers duplicate IDs and out-of-range local indices.
