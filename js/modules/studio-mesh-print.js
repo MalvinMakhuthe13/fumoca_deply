@@ -974,9 +974,39 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       visible.type = 'checkbox'; visible.checked = component.visible !== false;
       visible.title = 'Show or hide this component';
       visible.addEventListener('change', () => {
-        component.visible = visible.checked;
-        window.setSolidMeshComponentVisibility?.(component.id, visible.checked);
+        const before = [{ id: component.id, visible: component.visible !== false }];
+        const nextVisible = visible.checked;
+        component.visible = nextVisible;
+        window.setSolidMeshComponentVisibility?.(component.id, nextVisible);
         refreshCombinedMeshFromComponents();
+        try {
+          const committed = window.commitStudioPatch?.('Change component visibility', {
+            before,
+            after: [{ id: component.id, visible: nextVisible }],
+            capturePatch: () => {
+              const current = (window.S?.nifMeshComponents || items).find(item => item.id === component.id);
+              return [{ id: component.id, visible: current?.visible !== false }];
+            },
+            applyPatch: patch => {
+              for (const saved of patch) {
+                const target = (window.S?.nifMeshComponents || items).find(item => item.id === saved.id);
+                if (!target) throw new Error('Mesh component no longer exists: ' + saved.id);
+                target.visible = saved.visible;
+                window.setSolidMeshComponentVisibility?.(saved.id, saved.visible);
+              }
+              refreshCombinedMeshFromComponents();
+              renderMeshComponents(window.S?.nifMeshComponents || items);
+            },
+          });
+          if (committed === false) throw new Error('The visibility edit could not be retained in Undo history');
+        } catch (error) {
+          component.visible = before[0].visible;
+          visible.checked = before[0].visible;
+          window.setSolidMeshComponentVisibility?.(component.id, before[0].visible);
+          refreshCombinedMeshFromComponents();
+          console.error('[Studio mesh] Could not record component visibility:', error);
+          meshStatus('Component visibility change was rolled back: ' + (error.message || String(error)));
+        }
       });
       const select = document.createElement('button');
       select.type = 'button'; select.className = 'mini-btn';
