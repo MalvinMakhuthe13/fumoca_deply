@@ -1320,6 +1320,87 @@ async function extractMesh(gaussians, opts = {}) {
 }
 
 /**
+ * Clip a mesh into two open, independently editable halves using a plane.
+ * This only subdivides observed triangles; it never caps the cut or invents
+ * faces. The positive side is dot(position, normal) >= offset.
+ */
+function splitMeshByPlane(mesh, { normal = [0, 1, 0], offset = 0, epsilon = 1e-6 } = {}) {
+  if (!mesh?.vertices?.length || !mesh?.triangles?.length || mesh.triangles.length % 3) {
+    throw new Error('[MeshExtractor] A valid triangle mesh is required for plane splitting.');
+  }
+  const n = Math.hypot(...normal);
+  if (!Number.isFinite(n) || n < 1e-9 || !Number.isFinite(offset)) {
+    throw new Error('[MeshExtractor] Split plane requires a finite non-zero normal and offset.');
+  }
+  const unit = normal.map(value => value / n);
+  const source = mesh.vertices, faces = mesh.triangles, sourceColors = mesh.colours;
+  const makeSide = (sign) => {
+    const vertices = [], triangles = [], colours = [];
+    const vertexMap = new Map();
+    const addVertex = (vertex) => {
+      const key = vertex.position.map(value => Math.round(value / Math.max(epsilon, 1e-9))).join(',');
+      let index = vertexMap.get(key);
+      if (index !== undefined) return index;
+      index = vertices.length / 3;
+      vertices.push(...vertex.position);
+      if (sourceColors) colours.push(...vertex.color);
+      vertexMap.set(key, index);
+      return index;
+    };
+    const signedDistance = (position) =>
+      position[0] * unit[0] + position[1] * unit[1] + position[2] * unit[2] - offset;
+    const clip = (polygon) => {
+      const output = [];
+      for (let i = 0; i < polygon.length; i++) {
+        const current = polygon[i], next = polygon[(i + 1) % polygon.length];
+        const dc = signedDistance(current.position) * sign;
+        const dn = signedDistance(next.position) * sign;
+        const currentInside = dc >= -epsilon, nextInside = dn >= -epsilon;
+        if (currentInside) output.push(current);
+        if (currentInside !== nextInside) {
+          const t = dc / (dc - dn);
+          output.push({
+            position: current.position.map((value, axis) => value + (next.position[axis] - value) * t),
+            color: current.color.map((value, axis) => value + (next.color[axis] - value) * t),
+          });
+        }
+      }
+      return output;
+    };
+    for (let face = 0; face < faces.length; face += 3) {
+      const polygon = [0, 1, 2].map(corner => {
+        const index = faces[face + corner];
+        return {
+          position: Array.from(source.subarray(index * 3, index * 3 + 3)),
+          color: sourceColors ? Array.from(sourceColors.subarray(index * 3, index * 3 + 3)) : [200, 200, 200],
+        };
+      });
+      const distances = polygon.map(vertex => signedDistance(vertex.position));
+      // Assign fully coplanar triangles to the positive side exactly once.
+      if (distances.every(value => Math.abs(value) <= epsilon) && sign < 0) continue;
+      const clipped = clip(polygon);
+      if (clipped.length < 3) continue;
+      const indices = clipped.map(addVertex);
+      for (let i = 1; i < indices.length - 1; i++) triangles.push(indices[0], indices[i], indices[i + 1]);
+    }
+    return {
+      vertices: new Float32Array(vertices),
+      triangles: new Uint32Array(triangles),
+      colours: sourceColors ? new Uint8Array(colours.map(value => Math.max(0, Math.min(255, Math.round(value))))) : null,
+    };
+  };
+  const positive = makeSide(1), negative = makeSide(-1);
+  const positiveHasFaces = positive.triangles.length > 0;
+  const negativeHasFaces = negative.triangles.length > 0;
+  return {
+    positive: positiveHasFaces ? positive : null,
+    negative: negativeHasFaces ? negative : null,
+    split: positiveHasFaces && negativeHasFaces,
+    cutIsOpen: positiveHasFaces && negativeHasFaces,
+  };
+}
+
+/**
  * Split triangle geometry into independently addressable vertex-connected
  * components. Components retain source vertex colors and local face indices.
  * This is geometric connectivity, not semantic object recognition.
@@ -1410,6 +1491,7 @@ const FumocMeshExtractor = {
   transferColours,
   validateWatertight,
   splitMeshComponents,
+  splitMeshByPlane,
   fillSmallHoles,
   removeSmallComponents,
   exportSTL,
