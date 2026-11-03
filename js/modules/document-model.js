@@ -444,6 +444,83 @@ export class UnifiedEditHistory {
     }
   }
 
+  /**
+   * Commit a compact domain patch into the same chronological journal.
+   * before/after must contain only the affected domain data (for example one
+   * component and its membership metadata), never a full-scene capture.
+   * applyPatch(snapshot, context) and capturePatch() are supplied by the
+   * domain adapter and must be synchronous.
+   */
+  commitPatch(label, { before, after, applyPatch, capturePatch, coalesceKey = null } = {}) {
+    if (this.transactionOpen) throw new Error('cannot commit a patch while a history transaction is open');
+    if (typeof applyPatch !== 'function' || typeof capturePatch !== 'function') {
+      throw new TypeError('commitPatch requires applyPatch and capturePatch callbacks');
+    }
+    const patchBefore = cloneHistoryValue(before);
+    const patchAfter = cloneHistoryValue(after);
+    if (this.equals(patchBefore, patchAfter)) return false;
+    const entry = {
+      id: Date.now().toString(36) + '-' + this.cursor.toString(36),
+      kind: 'patch',
+      label: String(label || 'Edit'),
+      coalesceKey: coalesceKey == null ? null : String(coalesceKey),
+      before: patchBefore,
+      after: patchAfter,
+      applyPatch,
+      capturePatch,
+      bytes: estimateHistoryBytes(patchBefore) + estimateHistoryBytes(patchAfter),
+      committedAt: Date.now(),
+    };
+    if (entry.bytes > this.maxBytes) {
+      this.entries.length = 0;
+      this.cursor = 0;
+      this.bytes = 0;
+      this.lastError = new Error(`"${entry.label}" patch exceeds the ${this.maxBytes}-byte history budget; undo history was cleared.`);
+      this.#notify();
+      return false;
+    }
+    const current = this.entries[this.cursor - 1];
+    if (entry.coalesceKey && current?.kind === 'patch' && current.coalesceKey === entry.coalesceKey && this.cursor === this.entries.length) {
+      this.bytes -= current.bytes;
+      entry.before = current.before;
+      entry.bytes = estimateHistoryBytes(entry.before) + estimateHistoryBytes(entry.after);
+      this.entries[this.cursor - 1] = entry;
+      this.bytes += entry.bytes;
+    } else {
+      this.#push(entry);
+    }
+    while (this.bytes > this.maxBytes && this.entries.length > 1) {
+      this.bytes -= this.entries.shift().bytes;
+      this.cursor = Math.max(0, this.cursor - 1);
+    }
+    if (this.bytes > this.maxBytes) {
+      this.entries.length = 0; this.cursor = 0; this.bytes = 0;
+      this.lastError = new Error(`"${entry.label}" coalesced patch exceeds the history budget; undo history was cleared.`);
+      this.#notify();
+      return false;
+    }
+    this.lastError = null;
+    this.#notify();
+    return true;
+  }
+
+  #applyEntry(entry, snapshot, direction) {
+    if (entry.kind !== 'patch') {
+      this.restore(cloneHistoryValue(snapshot), { direction, label: entry.label, entryId: entry.id });
+      return;
+    }
+    const current = cloneHistoryValue(entry.capturePatch());
+    try {
+      const result = entry.applyPatch(cloneHistoryValue(snapshot), { direction, label: entry.label, entryId: entry.id });
+      if (result && typeof result.then === 'function') throw new TypeError('history patch application must be synchronous');
+    } catch (error) {
+      try {
+        entry.applyPatch(current, { direction: 'rollback', label: entry.label, entryId: entry.id });
+      } catch (restoreError) { error.restoreError = restoreError; }
+      throw error;
+    }
+  }
+
   /** Commit one completed user gesture, not every frame of a drag. */
   commit(label = 'Edit', { coalesceKey = null } = {}) {
     if (this.transactionOpen) throw new Error('cannot commit while a history transaction is open');
@@ -566,7 +643,7 @@ export class UnifiedEditHistory {
     const entry = this.entries[this.cursor - 1];
     const current = this.#capture();
     try {
-      this.restore(cloneHistoryValue(entry.before), { direction: 'undo', label: entry.label, entryId: entry.id });
+      this.#applyEntry(entry, entry.before, 'undo');
       const restored = this.#capture();
       this.cursor--;
       this.baseline = restored;
@@ -593,7 +670,7 @@ export class UnifiedEditHistory {
     const entry = this.entries[this.cursor];
     const current = this.#capture();
     try {
-      this.restore(cloneHistoryValue(entry.after), { direction: 'redo', label: entry.label, entryId: entry.id });
+      this.#applyEntry(entry, entry.after, 'redo');
       const restored = this.#capture();
       this.cursor++;
       this.baseline = restored;
