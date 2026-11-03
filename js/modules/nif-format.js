@@ -389,6 +389,19 @@ export function encodeNif(opts = {}) {
     writer.add(CHUNK.DOCUMENT_MODEL, encodeDocumentModelChunk(opts.documentModel), CODEC.RAW);
   }
 
+  // Preserve the complete Gaussian PLY (including higher-order SH) alongside
+  // the canonical render geometry. This prevents the editor's previous PLY
+  // save path from discarding independently stored mesh/document chunks.
+  if (opts.gaussianPlyBytes) {
+    const plyBytes = opts.gaussianPlyBytes instanceof Uint8Array
+      ? opts.gaussianPlyBytes
+      : new Uint8Array(opts.gaussianPlyBytes);
+    if (plyBytes.byteLength < 16 || plyBytes.byteLength > 2 * 1024 * 1024 * 1024) {
+      throw new Error('[nif-format] invalid Gaussian PLY payload size');
+    }
+    writer.add(CHUNK.GAUSSIAN_PLY, plyBytes, CODEC.RAW);
+  }
+
   // LiDAR measurements are per-point attributes. Store them in a separate
   // optional NIF chunk so RGB rendering palettes never overwrite source data.
   const lidar = opts.lidarAttributes;
@@ -596,6 +609,7 @@ export async function decodeNif(arrayBuffer) {
   const meshBytes = await readBytes(CHUNK.KEYFRAME_MESH);
   const componentBytes = await readBytes(CHUNK.MESH_COMPONENTS);
   const documentModelBytes = await readBytes(CHUNK.DOCUMENT_MODEL);
+  const gaussianPlyBytes = await readBytes(CHUNK.GAUSSIAN_PLY);
   const mesh = await decodeMeshBytes(meshBytes);
   const meshComponents = decodeMeshComponentsBytes(componentBytes);
   const documentModel = decodeDocumentModelChunk(documentModelBytes);
@@ -620,7 +634,7 @@ export async function decodeNif(arrayBuffer) {
     } catch (err) { console.warn('[nif-format] LiDAR attributes ignored:', err.message); }
   }
 
-  return { reader, meta, thumbnailBytes, gaussians: geometry, calibration, verification, mesh, meshComponents, documentModel, lidarAttributes };
+  return { reader, meta, thumbnailBytes, gaussians: geometry, calibration, verification, mesh, meshComponents, documentModel, gaussianPlyBytes, lidarAttributes };
 }
 
 // ── Draco decoder — lazily created, reused across every mesh this session.
