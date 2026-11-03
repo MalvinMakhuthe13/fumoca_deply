@@ -123,7 +123,7 @@ export function capPlanarBoundaryLoops(mesh, { normal, offset, tolerance = 1e-4 
   }
   const visited = new Set();
   const loops = [];
-  let skippedOpen = 0, skippedNonPlanar = 0, skippedTriangulation = 0;
+  let skippedOpen = 0, skippedNonPlanar = 0, skippedTriangulation = 0, skippedTooLarge = 0;
   for (const edge of boundaryEdges) {
     const initialKey = edgeKey(edge.a, edge.b);
     if (visited.has(initialKey)) continue;
@@ -144,6 +144,9 @@ export function capPlanarBoundaryLoops(mesh, { normal, offset, tolerance = 1e-4 
     }
     for (const key of localEdges) visited.add(key);
     if (!closed || loop.length < 3) { skippedOpen++; continue; }
+    // The simplicity check and ear clipping are intentionally bounded so a
+    // dense scan cannot freeze the browser on a huge accidental boundary.
+    if (loop.length > 2048) { skippedTooLarge++; continue; }
 
     const positions = loop.map(index => [
       mesh.vertices[index * 3], mesh.vertices[index * 3 + 1], mesh.vertices[index * 3 + 2],
@@ -187,6 +190,7 @@ export function capPlanarBoundaryLoops(mesh, { normal, offset, tolerance = 1e-4 
       skippedOpen,
       skippedNonPlanar,
       skippedTriangulation,
+      skippedTooLarge,
       skippedMultipleLoops: loops.length > 1 ? loops.length : 0,
       unchanged: true,
     };
@@ -218,6 +222,7 @@ export function capPlanarBoundaryLoops(mesh, { normal, offset, tolerance = 1e-4 
     skippedOpen,
     skippedNonPlanar,
     skippedTriangulation,
+    skippedTooLarge,
     unchanged: false,
   };
 }
