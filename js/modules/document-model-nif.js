@@ -48,7 +48,10 @@ export function encodeDocumentModelChunk(model) {
     source: model.source ?? null,
     reconstruction: model.reconstruction ?? null,
     lineage: model.lineage ?? [],
-    components: components.map(({ gaussianIds, ...component }) => component),
+    components: components.map((component) => {
+      const { gaussianIds, vertices, triangles, faces, positions, colors, colours, normals, indices, ...identity } = component;
+      return identity;
+    }),
   };
   const metadataBytes = encoder.encode(JSON.stringify(metadata));
   if (metadataBytes.length > MAX_METADATA_BYTES) throw new RangeError('document metadata exceeds safety limit');
