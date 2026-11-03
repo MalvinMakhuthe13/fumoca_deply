@@ -706,18 +706,32 @@ function decodeMeshBytes(bytes) {
                     `no decoder for this format, skipping mesh render.`);
       return null;
     }
+    if (dv.byteLength < 9) throw new Error('truncated mesh header');
     const nVerts = dv.getUint32(1, false);
     const nFaces = dv.getUint32(5, false);
+    if (!nVerts || !nFaces || nVerts > 50000000 || nFaces > 100000000) {
+      throw new Error('invalid mesh dimensions');
+    }
+    const required = 9 + nVerts * 15 + nFaces * 12;
+    if (!Number.isSafeInteger(required) || required !== dv.byteLength) {
+      throw new Error('mesh payload length does not match declared topology');
+    }
     let offset = 9;
 
     const positions = new Float32Array(nVerts * 3);
-    for (let i = 0; i < nVerts * 3; i++) { positions[i] = dv.getFloat32(offset, false); offset += 4; }
+    for (let i = 0; i < positions.length; i++) {
+      positions[i] = dv.getFloat32(offset, false); offset += 4;
+      if (!Number.isFinite(positions[i])) throw new Error('non-finite mesh vertex');
+    }
 
     const colors = bytes.slice(offset, offset + nVerts * 3);
     offset += nVerts * 3;
 
     const faces = new Uint32Array(nFaces * 3);
-    for (let i = 0; i < nFaces * 3; i++) { faces[i] = dv.getUint32(offset, false); offset += 4; }
+    for (let i = 0; i < faces.length; i++) {
+      faces[i] = dv.getUint32(offset, false); offset += 4;
+      if (faces[i] >= nVerts) throw new Error('mesh face index out of range');
+    }
 
     return { positions, colors, faces, nVerts, nFaces };
   } catch (e) {
