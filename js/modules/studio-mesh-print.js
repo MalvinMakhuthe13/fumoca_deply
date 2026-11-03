@@ -244,7 +244,9 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       meshStatus('The detected support-plane normal is degenerate.');
       return false;
     }
+    const normalLength = planeNormal.length();
     planeNormal.normalize();
+    offset /= normalLength;
     if (planeNormal.y < 0) {
       planeNormal.negate();
       offset *= -1;
