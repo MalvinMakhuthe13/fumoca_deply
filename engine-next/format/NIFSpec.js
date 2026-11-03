@@ -206,10 +206,10 @@ function concat(...arrays) {
 }
 
 // ─── Gzip (de)compression ──────────────────────────────────────────────────────
-// Every real .nif produced by engine-next/reconstruction/pipeline.py auto-gzips
-// any chunk ≥1KB (see pipeline.py's _compress()) — which is virtually every
-// geometry/mesh/depth chunk. Without this, NIFReader.getGeometry() and friends
-// would be handed raw gzip bytes and either crash or silently return garbage.
+// The Python worker attempts gzip for eligible chunks ≥1KB and keeps the
+// compressed form only when it is at least 5% smaller (pipeline.py _compress).
+// Codec handling remains explicit: readers must never infer compression from
+// payload bytes or pass an unsupported codec to a semantic decoder.
 // Uses the browser/Node native CompressionStream/DecompressionStream — no WASM
 // dependency, same approach already used in SPAXSpec.js.
 export async function gzipDecompress(bytes) {
