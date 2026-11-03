@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   allocateGaussianIds, createDocumentModel, validateDocumentModel,
-  DocumentHistory, createComponentChildren, cloneDocumentModel,
+  DocumentHistory, createComponentChildren, cloneDocumentModel, compactDocumentModel,
 } from '../../js/modules/document-model.js';
 
 const ids = (() => { let n = 0; return () => `test-id-${++n}`; })();
@@ -79,4 +79,15 @@ test('mesh-authored components may exist without Gaussian membership', () => {
   });
   assert.equal(model.components[0].geometrySource, 'mesh-authored');
   assert.equal(validateDocumentModel(model).componentCount, 1);
+});
+
+
+test('compacting a save retains original Gaussian identities and filters component membership', () => {
+  const model = fixture();
+  const compacted = compactDocumentModel(model, [2, 0]);
+  assert.deepEqual([...compacted.gaussianIds], [3, 1]);
+  assert.deepEqual([...compacted.components[0].gaussianIds], [1]);
+  assert.equal(compacted.nextGaussianId, model.nextGaussianId);
+  assert.throws(() => compactDocumentModel(model, [0, 0]), /duplicated/);
+  assert.throws(() => compactDocumentModel(model, [9]), /invalid/);
 });
