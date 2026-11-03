@@ -451,7 +451,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
           provenance: {
             ...(component.provenance || {}),
             operation: 'support-plane-trim',
-            supportPlaneTrimmed: clippedMesh,
+            supportPlaneTrimmed: true,
             normal: plan.normal,
             offset: plan.offset,
             tolerance: plan.tolerance,
@@ -464,7 +464,29 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       return false;
     }
 
-    window.beginStudioHistory?.('Support-plane trim');
+    const trimRows = Uint32Array.from(plan.rows);
+    const cloneTrimComponent = source => ({
+      ...source,
+      vertices: source.vertices?.slice?.() ?? source.vertices,
+      positions: source.positions?.slice?.() ?? source.positions,
+      triangles: source.triangles?.slice?.() ?? source.triangles,
+      faces: source.faces?.slice?.() ?? source.faces,
+      colours: source.colours?.slice?.() ?? source.colours,
+      colors: source.colors?.slice?.() ?? source.colors,
+      gaussianIds: source.gaussianIds ? Uint32Array.from(source.gaussianIds) : source.gaussianIds,
+      diagnostics: { ...(source.diagnostics || {}) },
+      provenance: { ...(source.provenance || {}) },
+    });
+    const cloneTrimMeta = value => JSON.parse(JSON.stringify(value || {}));
+    const beforePatch = {
+      componentId: component.id,
+      component: cloneTrimComponent(component),
+      rows: trimRows.slice(),
+      aliveValues: Uint8Array.from(trimRows, row => state.alive[row]),
+      selectedValues: Uint8Array.from(trimRows, row => preview.previousSelection?.[row] || 0),
+      meta: cloneTrimMeta(state.nifMeta),
+    };
+
     for (const row of plan.rows) {
       state.alive[row] = 0;
       if (state.selected) state.selected[row] = 0;
@@ -486,16 +508,91 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         applied_at: new Date().toISOString(),
       },
     };
-    const nextSignature = computeGaussianSourceSignature(state);
-    state.nifMeta.dual_surface_source_signature = nextSignature;
-    lastMeshSourceSignature = nextSignature;
+    state.nifMeta.dual_surface_source_signature = computeGaussianSourceSignature(state);
+    lastMeshSourceSignature = state.nifMeta.dual_surface_source_signature;
     refreshCombinedMeshFromComponents();
-    window.commitStudioHistory?.();
+    syncComponentDiagnosticsToMeta();
+
+    // Restore the user's pre-preview selection, then clear only rows actually
+    // removed by this trim. The patch stores those row bits, not the full scene.
     if (preview.previousSelection && state.selected?.length === preview.previousSelection.length) {
       state.selected.set(preview.previousSelection);
     }
+    for (const row of plan.rows) if (state.selected) state.selected[row] = 0;
     state.supportPlaneTrimPreview = null;
-    syncComponentDiagnosticsToMeta();
+
+    const captureTrimPatch = () => {
+      const live = window.S;
+      const current = (live?.nifMeshComponents || []).find(item => item.id === component.id);
+      if (!live || !current) throw new Error('The trimmed component no longer exists.');
+      return {
+        componentId: component.id,
+        component: cloneTrimComponent(current),
+        rows: trimRows.slice(),
+        aliveValues: Uint8Array.from(trimRows, row => live.alive[row]),
+        selectedValues: Uint8Array.from(trimRows, row => live.selected?.[row] || 0),
+        meta: cloneTrimMeta(live.nifMeta),
+      };
+    };
+    const applyTrimPatch = patch => {
+      const live = window.S;
+      if (!live?.alive || !live?.selected) throw new Error('Studio Gaussian row state is unavailable.');
+      if (patch.rows.length !== patch.aliveValues.length || patch.rows.length !== patch.selectedValues.length) {
+        throw new Error('The support-plane trim history patch is incomplete.');
+      }
+      for (let index = 0; index < patch.rows.length; index++) {
+        const row = patch.rows[index];
+        if (row >= live.alive.length || row >= live.selected.length) {
+          throw new Error('The Gaussian row layout changed; refusing to apply a stale trim patch.');
+        }
+        live.alive[row] = patch.aliveValues[index];
+        live.selected[row] = patch.selectedValues[index];
+      }
+      const found = (live.nifMeshComponents || []).some(item => item.id === patch.componentId);
+      if (!found) throw new Error('Mesh component no longer exists: ' + patch.componentId);
+      live.nifMeshComponents = live.nifMeshComponents.map(item =>
+        item.id === patch.componentId ? cloneTrimComponent(patch.component) : item);
+      live.nifMesh = null;
+      live.nifMeta = cloneTrimMeta(patch.meta);
+      lastMeshData = null; lastMesh = null; lastMeshStats = null;
+      syncComponentDiagnosticsToMeta();
+      refreshCombinedMeshFromComponents();
+      live.nifMeta = {
+        ...(live.nifMeta || {}),
+        dual_surface_source_signature: computeGaussianSourceSignature(live),
+      };
+      lastMeshSourceSignature = live.nifMeta.dual_surface_source_signature;
+      window.previewSolidMeshComponents?.(live.nifMeshComponents || [], { visible: true, opacity: 0.95 });
+      window.highlightSolidMeshComponent?.(patch.componentId);
+      renderMeshComponents(live.nifMeshComponents || []);
+      window.rebuildGeometry?.();
+      updateComponentTransformButtons();
+      updateSupportPlaneControls();
+      try {
+        const refresh = window.refreshGaussianSourceBytes?.();
+        refresh?.catch?.(error => console.warn('[Studio mesh] Could not refresh Gaussian source bytes after trim history restore:', error));
+      } catch (error) {
+        console.warn('[Studio mesh] Could not refresh Gaussian source bytes after trim history restore:', error);
+      }
+    };
+    const afterPatch = captureTrimPatch();
+    try {
+      const committed = window.commitStudioPatch?.('Support-plane trim', {
+        before: beforePatch,
+        after: afterPatch,
+        capturePatch: captureTrimPatch,
+        applyPatch: applyTrimPatch,
+      });
+      if (committed === false || typeof window.commitStudioPatch !== 'function') {
+        throw new Error('The support-plane trim could not be retained in unified Undo history.');
+      }
+    } catch (error) {
+      try { applyTrimPatch(beforePatch); }
+      catch (rollbackError) { error.rollbackError = rollbackError; }
+      meshStatus('Trim was rolled back because unified history could not retain it: ' + (error.message || String(error)));
+      return false;
+    }
+    lastMeshSourceSignature = computeGaussianSourceSignature(state);
     try {
       await window.refreshGaussianSourceBytes?.();
       window.rebuildGeometry?.();
