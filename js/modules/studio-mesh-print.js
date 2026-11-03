@@ -594,7 +594,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       }
     }
     window.beginStudioHistory?.('Restore support-plane trim');
-    window.beginStudioHistory?.('Restore support-plane trim');
     for (let i = 0; i < snapshot.rows.length; i++) state.alive[snapshot.rows[i]] = snapshot.previousAlive[i];
     state.nifMeshComponents = (state.nifMeshComponents || []).map(component =>
       component.id === snapshot.componentId ? snapshot.previousComponent : component);
@@ -750,7 +749,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       meshStatus('Undo cap is no longer safe because the component changed after capping. Newer edits were preserved.');
       return false;
     }
-    window.beginStudioHistory?.('Restore capped support boundary');
     window.beginStudioHistory?.('Restore capped support boundary');
     state.nifMeshComponents = (state.nifMeshComponents || []).map(component =>
       component.id === snapshot.componentId ? snapshot.previousComponent : component);
@@ -1545,7 +1543,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       },
     };
     const replacement = [positive, negative].sort((a, b) => meanPlaneDistance(a) - meanPlaneDistance(b));
-    window.beginStudioHistory?.('Split mesh component');
     window.beginStudioHistory?.('Split mesh component');
     state.meshComponentSplitUndo = {
       source: { ...component, vertices: component.vertices.slice(), triangles: component.triangles.slice(), colours: component.colours?.slice(), gaussianIds: component.gaussianIds?.slice?.() || component.gaussianIds },
