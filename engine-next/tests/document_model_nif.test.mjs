@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createDocumentModel } from '../../js/modules/document-model.js';
 import { encodeDocumentModelChunk, decodeDocumentModelChunk } from '../../js/modules/document-model-nif.js';
+import { encodeNif, decodeNif } from '../../js/modules/nif-format.js';
 
 function fixture() {
   return createDocumentModel({
@@ -49,4 +50,26 @@ test('document model binary encoding rejects duplicate Gaussian identities', () 
   const model = fixture();
   model.gaussianIds = new Uint32Array([1, 1]);
   assert.throws(() => encodeDocumentModelChunk(model), /duplicate ID/);
+});
+
+
+test('complete NIF round-trip carries document identities and the original SH PLY payload', async () => {
+  const model = fixture();
+  const geometry = new Float32Array(14 * 3);
+  for (let i = 0; i < 3; i++) {
+    geometry[i * 14 + 3] = -4;
+    geometry[i * 14 + 4] = -4;
+    geometry[i * 14 + 5] = -4;
+    geometry[i * 14 + 6] = 1;
+    geometry[i * 14 + 7] = 0;
+    geometry[i * 14 + 8] = 0;
+    geometry[i * 14 + 9] = 0;
+  }
+  const ply = new TextEncoder().encode('ply\\nformat ascii 1.0\\nelement vertex 0\\nend_header\\n');
+  const encoded = encodeNif({ geometry, documentModel: model, gaussianPlyBytes: ply });
+  const decoded = await decodeNif(encoded);
+  assert.equal(decoded.documentModel.documentId, model.documentId);
+  assert.deepEqual([...decoded.documentModel.gaussianIds], [1, 2, 4]);
+  assert.deepEqual([...decoded.documentModel.components[0].gaussianIds], [1, 2]);
+  assert.deepEqual([...decoded.gaussianPlyBytes], [...ply]);
 });
