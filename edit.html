@@ -1820,6 +1820,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
 import { decodeNif, encodeNif, geometryToSplatRows, downloadNif } from './js/modules/nif-format.js';
+import { createDocumentModel, allocateGaussianIds, compactDocumentModel } from './js/modules/document-model.js';
 
 // Cloud storage is only needed for save/upload actions. Keep it out of the
 // editor's startup dependency graph so a temporary storage CDN failure cannot
@@ -2964,17 +2965,27 @@ async function loadFile(file, urlOverride) {
   window.previewSolidMesh?.(null, { visible: false });
   window.previewSolidMeshComponents?.([], { visible: false });
   let parsed;
+  let decodedDocumentModel = null;
   if (ext === 'nif') {
     // Real .nif — decode canonical 14-float/point geometry, then convert to
     // the same 32-byte splat-row layout the rest of this editor already
     // understands (brush erase, export, save) so nothing else needs to change.
-    const decoded = await decodeNif(buf);         // { reader, meta, thumbnailBytes, gaussians }
+    const decoded = await decodeNif(buf);         // canonical NIF geometry + optional full-fidelity Gaussian PLY
     const rows = geometryToSplatRows(decoded.gaussians); // Uint8Array, 32 bytes/point
+    decodedDocumentModel = decoded.documentModel || null;
+    if (decoded.gaussianPlyBytes?.byteLength) {
+      const plyBytes = decoded.gaussianPlyBytes;
+      const plyBuffer = plyBytes.buffer.slice(plyBytes.byteOffset, plyBytes.byteOffset + plyBytes.byteLength);
+      parsed = parsePLY(plyBuffer);
+      S.gaussianSourceBytes = plyBuffer.slice(0);
+      S.isGaussianPly = true;
+      window._fumocaLastGaussianBytes = S.gaussianSourceBytes;
+    }
     S.fileType = 'nif';
     S.sourceBuffer = rows.buffer;
     S.nifMeta = decoded.meta || {};
     S.nifThumbnailBytes = decoded.thumbnailBytes || null;
-    S.nifPassthroughChunks = decoded.reader.chunks.filter(chunk => ![0x0001, 0x0003, 0x0004, 0x0015, 0x0019, 0x001A].includes(chunk.type));
+    S.nifPassthroughChunks = decoded.reader.chunks.filter(chunk => ![0x0001, 0x0003, 0x0004, 0x0015, 0x0019, 0x001A, 0x001B, 0x001C].includes(chunk.type));
     S.nifMesh = decoded.mesh ? {
       vertices: decoded.mesh.positions, colours: decoded.mesh.colors,
       triangles: decoded.mesh.faces,
@@ -2993,7 +3004,7 @@ async function loadFile(file, urlOverride) {
     S.lidarIntensity = decoded.lidarAttributes?.intensity || null;
     S.lidarClassification = decoded.lidarAttributes?.classification || null;
     S.lidarReturnNumber = decoded.lidarAttributes?.returnNumber || null;
-    parsed = parseSplat(rows.buffer);
+    if (!parsed) parsed = parseSplat(rows.buffer);
   } else if (ext === 'splat') {
     S.fileType = 'splat'; S.sourceBuffer = buf;
     S.gaussianSourceBytes = buf.slice(0);
@@ -3029,6 +3040,21 @@ async function loadFile(file, urlOverride) {
   S.lidarDisplayColors = null;
   S.alive = new Uint8Array(parsed.count).fill(1);
   S.selected = new Uint8Array(parsed.count);
+  // Gaussian IDs are stable document identities, never array offsets. Legacy
+  // NIF/PLY/splat files receive a fresh identity table on first editor load.
+  if (decodedDocumentModel && decodedDocumentModel.gaussianIds?.length === parsed.count) {
+    S.documentModel = decodedDocumentModel;
+  } else {
+    if (decodedDocumentModel) console.warn('[document-model] Stored Gaussian identity count does not match loaded geometry; allocating a new identity table.');
+    S.documentModel = createDocumentModel({
+      gaussianIds: allocateGaussianIds(parsed.count).ids,
+      components: (S.nifMeshComponents || []).map(component => ({
+        id: component.id, gaussianIds: [], visible: component.visible !== false,
+        geometrySource: 'gaussian-derived',
+        provenance: { source: 'legacy-nif-mesh-component' },
+      })),
+    });
+  }
   S.paintColors = new Float32Array(parsed.count * 3).fill(-1);
   S.layers = []; S.activeLayerId = null; S.layerHidden = new Uint8Array(parsed.count);
   const lidarColorMode = document.getElementById('lidarColorMode');
@@ -5292,20 +5318,40 @@ window.saveLiveEdit = async function saveLiveEdit(extra = {}) {
       const hasSh = (S.shAttributes || []).length > 0;
       const meshFreshness = window.FUMOCA_StudioMeshPrint?.checkSourceFreshness?.();
       if (!hasSh && meshFreshness && !meshFreshness.ok) throw new Error(meshFreshness.message);
-      const savedBlob = hasSh ? _encodeGaussianPly(aliveIdx) : new Blob([encodeNif({
+      const meshComponents = S.nifMeshComponents?.length ? S.nifMeshComponents : [];
+      const knownComponentIds = new Set((S.documentModel?.components || []).map(component => component.id));
+      const documentBase = createDocumentModel({
+        ...(S.documentModel || {}),
+        gaussianIds: S.documentModel?.gaussianIds || allocateGaussianIds(S.positions.length / 3).ids,
+        components: [
+          ...(S.documentModel?.components || []),
+          ...meshComponents.filter(component => !knownComponentIds.has(component.id)).map(component => ({
+            id: component.id, gaussianIds: [], visible: component.visible !== false,
+            geometrySource: 'gaussian-derived',
+            provenance: { source: 'mesh-reconstruction' },
+          })),
+        ],
+      });
+      const savedDocumentModel = compactDocumentModel(documentBase, aliveIdx);
+      const gaussianPlyBytes = hasSh
+        ? new Uint8Array(await _encodeGaussianPly(aliveIdx).arrayBuffer())
+        : undefined;
+      const savedBlob = new Blob([encodeNif({
         sourceBuffer: rowBytes,
         aliveIndices: Array.from({ length: aliveIdx.length }, (_, i) => i),
         rowSize: 32,
         meta: S.nifMeta || {},
         thumbnailBytes: S.nifThumbnailBytes || undefined,
         mesh: S.nifMesh || undefined,
-        meshComponents: S.nifMeshComponents?.length ? S.nifMeshComponents : undefined,
+        meshComponents: meshComponents.length ? meshComponents : undefined,
+        documentModel: savedDocumentModel,
+        gaussianPlyBytes,
         lidarAttributes: _compactLidarAttributes(aliveIdx),
         passthroughChunks: S.nifPassthroughChunks || [],
         vertical: S.nifMeta?.vertical || 'generic',
       })], { type: 'application/octet-stream' });
-      const savedExt = hasSh ? 'ply' : 'nif';
-      const savedContentType = hasSh ? 'text/plain' : 'application/octet-stream';
+      const savedExt = 'nif';
+      const savedContentType = 'application/octet-stream';
       const path = `${splatId}/edited_${Date.now()}.${savedExt}`;
       const r2 = await getR2Client();
       const { fileKey, error: upErr } = await r2.from('nif-files')
