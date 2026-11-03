@@ -4,6 +4,7 @@ import { exportSelectionAsFigurine, reconstructSceneWithOrientedSurfels, pollPri
 import { decodeNif } from './nif-format.js';
 import { createDocumentModel } from './document-model.js';
 import { buildSupportPlaneTransform } from './support-plane-transform.js';
+import { normalizeMeshComponents } from './mesh-component-contract.js';
 import r2 from '../r2Client.js';
 import { supabase } from '../supabaseClient.js';
 
@@ -961,15 +962,14 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         triangles: result.mesh.triangles.slice(),
         colours: result.mesh.colours?.slice(),
       };
-      const extractedComponents = (result.components || []).map(component => ({
-        id: component.id,
+      const extractedComponents = normalizeMeshComponents((result.components || []).map(component => ({
+        ...component,
         vertices: component.vertices.slice(),
         triangles: component.triangles.slice(),
         colours: component.colours?.slice(),
-        watertight: component.watertight,
         visible: true,
         diagnostics: component.stats || null,
-      }));
+      })));
       let stagedLastMesh;
       if (format === 'stl') {
         // Print scaling belongs only to the STL download, not the scene mesh
@@ -1105,16 +1105,15 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
           if (error || !data) throw new Error(error?.message || 'Could not download the oriented reconstruction NIF.');
           const decoded = await decodeNif(await data.arrayBuffer());
           if (!decoded.mesh) throw new Error('The oriented reconstruction NIF contains no combined compatibility mesh.');
-          const components = (decoded.meshComponents || []).map(component => ({
-            id: component.id,
+          const components = normalizeMeshComponents((decoded.meshComponents || []).map(component => ({
+            ...component,
             vertices: component.positions,
             colours: component.colors,
             triangles: component.faces,
-            watertight: component.watertight,
             visible: component.visible !== false,
             supportSurfaceCandidate: component.supportSurfaceCandidate === true,
             diagnostics: decoded.meta?.mesh_diagnostics?.mesh_components?.find(item => item.id === component.id) || null,
-          }));
+          })));
           state.nifMesh = {
             vertices: decoded.mesh.positions,
             colours: decoded.mesh.colors,
