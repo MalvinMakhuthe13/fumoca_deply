@@ -23,10 +23,6 @@ function cloneValue(value) {
     const bytes = value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);
     return new DataView(bytes);
   }
-  if (value instanceof DataView) {
-    const bytes = value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);
-    return new DataView(bytes);
-  }
   if (ArrayBuffer.isView(value)) return new value.constructor(value);
   if (value instanceof ArrayBuffer) return value.slice(0);
   if (Array.isArray(value)) return value.map(cloneValue);
@@ -306,6 +302,10 @@ export class DocumentHistory {
  */
 function cloneHistoryValue(value) {
   if (value == null || typeof value !== 'object') return value;
+  if (value instanceof DataView) {
+    const bytes = value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);
+    return new DataView(bytes);
+  }
   if (ArrayBuffer.isView(value)) return new value.constructor(value);
   if (value instanceof ArrayBuffer) return value.slice(0);
   if (Array.isArray(value)) return value.map(cloneHistoryValue);
