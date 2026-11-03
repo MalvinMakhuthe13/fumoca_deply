@@ -639,6 +639,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         colours: component.colours?.slice(),
         watertight: component.watertight,
         visible: true,
+        diagnostics: component.stats || null,
       }));
       // Preserve the combined compatibility mesh and the independently
       // addressable connected surfaces. Gaussian geometry remains untouched.
@@ -763,6 +764,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
             watertight: component.watertight,
             visible: component.visible !== false,
             supportSurfaceCandidate: component.supportSurfaceCandidate === true,
+            diagnostics: decoded.meta?.mesh_diagnostics?.mesh_components?.find(item => item.id === component.id) || null,
           }));
           state.nifMesh = {
             vertices: decoded.mesh.positions,
