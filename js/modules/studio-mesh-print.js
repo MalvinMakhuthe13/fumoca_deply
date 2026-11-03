@@ -274,6 +274,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       window.previewSolidMeshComponents?.(components, { visible: true, opacity: 0.95 });
       window.highlightSolidMeshComponent?.(window.S?.activeMeshComponentId || components[0].id);
     }
+    updateComponentTransformButtons();
   });
   container.querySelector('#meshComponentsShowAll')?.addEventListener('click', () => {
     for (const component of window.S?.nifMeshComponents || []) component.visible = true;
