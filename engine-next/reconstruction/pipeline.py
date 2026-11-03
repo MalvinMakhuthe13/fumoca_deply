@@ -1635,7 +1635,8 @@ def _orient_normals_consistently(positions: np.ndarray, normals: np.ndarray,
 def _confidence_weighted_tsdf(grid: np.ndarray, positions: np.ndarray,
                               normals: np.ndarray, component_ids: np.ndarray,
                               confidence: np.ndarray, voxel_size: float,
-                              neighbors: int = 8):
+                              neighbors: int = 8, tangent_axes: np.ndarray = None,
+                              tangent_scales: np.ndarray = None):
     """Fuse oriented surfels; return TSDF, observed mask and support diagnostics."""
     from scipy.spatial import cKDTree
     points = np.asarray(positions, dtype=np.float64)
@@ -1646,6 +1647,21 @@ def _confidence_weighted_tsdf(grid: np.ndarray, positions: np.ndarray,
         raise ValueError('TSDF query grid must have shape (N, 3)')
     if len(normals) != len(points) or len(component_ids) != len(points) or len(confidence) != len(points):
         raise ValueError('surfel normals, component IDs and confidence must match positions')
+    normal_array = np.asarray(normals, dtype=np.float64)
+    normal_lengths = np.linalg.norm(normal_array, axis=1)
+    if not np.all(np.isfinite(normal_array)) or np.any(normal_lengths < 1e-9):
+        raise ValueError('surfel normals must be finite non-zero vectors')
+    normal_array = normal_array / normal_lengths[:, None]
+    axes = None if tangent_axes is None else np.asarray(tangent_axes, dtype=np.float64)
+    scales = None if tangent_scales is None else np.asarray(tangent_scales, dtype=np.float64)
+    if (axes is None) != (scales is None):
+        raise ValueError('tangent_axes and tangent_scales must be supplied together')
+    if axes is not None:
+        if axes.shape != (len(points), 2, 3) or scales.shape != (len(points), 2):
+            raise ValueError('tangent axes/scales must have shapes (N,2,3) and (N,2)')
+        if not np.all(np.isfinite(axes)) or not np.all(np.isfinite(scales)) or np.any(scales <= 0):
+            raise ValueError('tangent axes and scales must be finite with positive scales')
+        axes = axes / np.maximum(np.linalg.norm(axes, axis=2, keepdims=True), 1e-9)
     tree = cKDTree(points)
     k = min(max(1, int(neighbors)), len(points))
     dists, idx = tree.query(query, k=k, workers=-1)
@@ -1670,12 +1686,32 @@ def _confidence_weighted_tsdf(grid: np.ndarray, positions: np.ndarray,
     observed = np.isfinite(dists[:, 0]) & (dists[:, 0] <= support_radius)
     truncation = max(3.0 * float(voxel_size), 2.0 * median_spacing)
     sigma = max(2.0 * float(voxel_size), 1e-9)
-    weights = np.exp(-(dists ** 2) / (2.0 * sigma ** 2))
     nearest_component = component_ids[idx[:, 0]]
-    weights *= (component_ids[idx] == nearest_component[:, None]) * confidence[idx]
+    component_match = component_ids[idx] == nearest_component[:, None]
     delta = query[:, None, :] - points[idx]
-    signed = np.einsum('vkc,vkc->vk', delta, normals[idx])
-    signed = np.clip(signed, -truncation, truncation)
+    signed_raw = np.einsum('vkc,vkc->vk', delta, normal_array[idx])
+    # Use the two Gaussian axes tangent to the estimated normal as an
+    # anisotropic surfel footprint. This prevents a broad axis in one tangent
+    # direction from smearing across a narrow edge in the other direction.
+    if axes is not None:
+        local_axes = axes[idx]
+        local_scales = np.maximum(scales[idx], float(voxel_size) * 0.5)
+        tangent_u = np.einsum('vkc,vkc->vk', delta, local_axes[:, :, 0, :])
+        tangent_v = np.einsum('vkc,vkc->vk', delta, local_axes[:, :, 1, :])
+        mahalanobis_sq = (tangent_u / local_scales[:, :, 0]) ** 2 + (tangent_v / local_scales[:, :, 1]) ** 2
+        footprint = mahalanobis_sq <= 9.0
+        weights = np.exp(-0.5 * mahalanobis_sq) * np.exp(-0.5 * (signed_raw / sigma) ** 2)
+        observed &= bool(np.any(footprint[:, 0] & component_match[:, 0] &
+                                (np.abs(signed_raw[:, 0]) <= truncation)))
+    else:
+        tangent = delta - signed_raw[:, :, None] * normal_array[idx]
+        tangent_distance = np.linalg.norm(tangent, axis=2)
+        footprint = tangent_distance <= support_radius[:, None]
+        weights = np.exp(-(tangent_distance ** 2) / (2.0 * sigma ** 2))
+        weights *= np.exp(-0.5 * (signed_raw / sigma) ** 2)
+        observed &= footprint[:, 0] & (np.abs(signed_raw[:, 0]) <= truncation)
+    weights *= component_match * confidence[idx] * footprint
+    signed = np.clip(signed_raw, -truncation, truncation)
     weight_sum = weights.sum(axis=1)
     observed &= weight_sum > 1e-10
     field = (signed * weights).sum(axis=1) / np.maximum(weight_sum, 1e-12)
@@ -3174,8 +3210,15 @@ class ReconstructionWorker:
 
         from scipy.spatial import cKDTree
         tree = cKDTree(positions)
+        tangent_columns = np.array([[1, 2], [0, 2], [0, 1]], dtype=np.int32)[axis_idx]
+        tangent_axes = np.stack((
+            R[np.arange(len(pts)), :, tangent_columns[:, 0]],
+            R[np.arange(len(pts)), :, tangent_columns[:, 1]],
+        ), axis=1)
+        tangent_scales = np.take_along_axis(scales, tangent_columns, axis=1)
         tsdf_flat, observed_flat, tsdf_diagnostics = _confidence_weighted_tsdf(
-            grid, positions, normals, normal_component_ids, confidence, voxel_size
+            grid, positions, normals, normal_component_ids, confidence, voxel_size,
+            tangent_axes=tangent_axes, tangent_scales=tangent_scales,
         )
         tsdf = tsdf_flat.reshape(dims[0], dims[1], dims[2])
         observed = observed_flat.reshape(dims[0], dims[1], dims[2])
