@@ -510,3 +510,40 @@ test('history snapshots reject renderer-class instances instead of flattening pr
     restore: () => {},
   }), /history snapshots must contain plain data/);
 });
+
+
+test('component-scoped patches share the chronological journal without full-scene snapshots', () => {
+  let components = [
+    { id: 'body', visible: true, vertices: new Float32Array([0, 1, 2]) },
+    { id: 'wheel', visible: true, vertices: new Float32Array([3, 4, 5]) },
+  ];
+  let fullCaptureCalls = 0;
+  const capturePatch = () => components.filter(c => c.id === 'body').map(c => ({
+    id: c.id, visible: c.visible, vertices: c.vertices,
+  }));
+  const applyPatch = patch => {
+    for (const saved of patch) {
+      const index = components.findIndex(c => c.id === saved.id);
+      if (index < 0) throw new Error('component missing: ' + saved.id);
+      components[index] = { ...components[index], visible: saved.visible, vertices: saved.vertices };
+    }
+  };
+  const history = new UnifiedEditHistory({
+    capture: () => { fullCaptureCalls++; return { sentinel: true }; },
+    restore: () => {},
+  });
+  const before = capturePatch();
+  components[0].visible = false;
+  components[0].vertices[0] = 99;
+  const after = capturePatch();
+  assert.equal(history.commitPatch('Edit body component', { before, after, applyPatch, capturePatch }), true);
+  assert.equal(fullCaptureCalls, 1, 'patch commit must not capture the full scene');
+  assert.equal(history.state().count, 1);
+  assert.equal(history.undo(), true);
+  assert.equal(components[0].visible, true);
+  assert.deepEqual([...components[0].vertices], [0, 1, 2]);
+  assert.equal(components[1].visible, true, 'unrelated component must remain untouched');
+  assert.equal(history.redo(), true);
+  assert.equal(components[0].visible, false);
+  assert.deepEqual([...components[0].vertices], [99, 1, 2]);
+});
