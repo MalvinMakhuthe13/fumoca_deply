@@ -69,10 +69,9 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
             <button type="button" id="meshComponentsShowAll" class="mini-btn">Show all</button>
             <button type="button" id="meshComponentsHideAll" class="mini-btn">Hide all</button>
             <button type="button" id="meshComponentDelete" class="mini-btn" disabled>Delete selected</button>
-            <button type="button" id="meshComponentUndoDelete" class="mini-btn" disabled>Undo delete</button>
-            <button type="button" id="meshComponentUndoLink" class="mini-btn" disabled>Undo link</button>
             <button type="button" id="meshComponentUnlinkSelection" class="mini-btn" disabled>Unlink selected splats</button>
           </div>
+          <p class="hint">All mesh and component changes are undone in chronological order with the main Studio Undo/Redo controls.</p>
           <div id="meshComponentsList" style="display:grid;gap:5px"></div>
           <div style="margin-top:9px;padding-top:8px;border-top:1px solid rgba(255,255,255,.1)">
             <strong style="font-size:11px">Transform selected component</strong>
@@ -85,7 +84,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
             </div>
             <div style="display:flex;gap:5px;margin-top:7px">
               <button type="button" id="meshComponentApplyTransform" class="mini-btn" disabled>Apply transform</button>
-              <button type="button" id="meshComponentUndoTransform" class="mini-btn" disabled>Undo transform</button>
             </div>
             <div style="display:flex;align-items:end;gap:6px;margin-top:8px">
               <label class="hint" style="width:76px">Axis
@@ -100,12 +98,10 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
                 <input id="meshComponentSplitY" type="number" step="0.001" value="0" style="width:100%;padding:4px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#fff">
               </label>
               <button type="button" id="meshComponentSplitPlane" class="mini-btn" disabled>Split selected</button>
-              <button type="button" id="meshComponentUndoSplit" class="mini-btn" disabled>Undo split</button>
             </div>
             <div class="hint">Splitting clips existing triangles along X/Y/Z or the detected oriented support plane. New cut boundaries remain open; no cap is invented.</div>
             <div style="display:flex;gap:5px;margin-top:9px">
               <button type="button" id="meshLevelSupportPlane" class="mini-btn" disabled>Level to support plane</button>
-              <button type="button" id="meshUndoSupportLevel" class="mini-btn" disabled>Undo level</button>
             </div>
             <div style="display:flex;gap:5px;margin-top:7px;flex-wrap:wrap">
               <label class="hint" style="flex:1;min-width:105px">Trim tolerance (scene units)
@@ -116,14 +112,12 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
               </label>
               <button type="button" id="meshPreviewSupportTrim" class="mini-btn" disabled>Preview trim</button>
               <button type="button" id="meshApplySupportTrim" class="mini-btn" disabled>Trim below plane</button>
-              <button type="button" id="meshUndoSupportTrim" class="mini-btn" disabled>Undo trim</button>
             </div>
             <div style="display:flex;gap:5px;margin-top:7px;flex-wrap:wrap">
               <label class="hint" style="flex:1;min-width:105px">Cap tolerance (scene units)
                 <input id="meshSupportCapTolerance" type="number" min="0" step="0.0001" value="0.001" style="width:100%;padding:4px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#fff">
               </label>
               <button type="button" id="meshCapSupportBase" class="mini-btn" disabled>Cap flat base</button>
-              <button type="button" id="meshUndoSupportCap" class="mini-btn" disabled>Undo cap</button>
             </div>
             <div class="hint">Capping only closes boundary loops that lie on the detected support plane. Concave outlines are triangulated in-plane; unrelated holes are left open.</div>
             <div class="hint">Trim is scoped to the selected component's linked Gaussian splats and mesh. Preview selects affected splats first. Other components, including a separately reconstructed platform, are left untouched. The cut stays open until you explicitly cap it.</div>
