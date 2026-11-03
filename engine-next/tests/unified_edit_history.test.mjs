@@ -519,7 +519,7 @@ test('component-scoped patches share the chronological journal without full-scen
   ];
   let fullCaptureCalls = 0;
   const capturePatch = () => components.filter(c => c.id === 'body').map(c => ({
-    id: c.id, visible: c.visible, vertices: c.vertices,
+    id: c.id, visible: c.visible, vertices: [...c.vertices],
   }));
   const applyPatch = patch => {
     for (const saved of patch) {
