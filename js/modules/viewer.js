@@ -1362,7 +1362,7 @@ function destroyMeshViewer() {
   _meshLightingPanel?.remove(); _meshLightingPanel = null;
   document.getElementById('fumocaMeshToggle')?.remove();
 }
-function mountMeshViewer(mesh, calibration, meshComponents = []) {
+function mountMeshViewer(mesh, calibration, meshComponents = [], meshDiagnostics = null) {
   destroyMeshViewer();
   const container = stageHost || stageEl;
   const mat = new THREE.MeshStandardMaterial({
@@ -1480,6 +1480,16 @@ function mountMeshViewer(mesh, calibration, meshComponents = []) {
   panelTitle.textContent = 'MESH LIGHTING';
   Object.assign(panelTitle.style, {fontWeight:'800', letterSpacing:'.12em', fontSize:'10px', marginBottom:'9px', color:'#c8ff00'});
   panel.appendChild(panelTitle);
+  const supportSuggestion = meshDiagnostics?.support_plane_candidate;
+  if (supportSuggestion?.detected) {
+    const supportNote = document.createElement('div');
+    supportNote.textContent = `Suggested support plane · Y=${Number(supportSuggestion.y).toFixed(4)} · ${Math.round(Number(supportSuggestion.confidence || 0) * 100)}% confidence · review separation in Studio`;
+    Object.assign(supportNote.style, {
+      margin: '4px 0 9px', padding: '7px', borderRadius: '7px',
+      background: 'rgba(200,255,0,.08)', color: '#d7f79a', fontSize: '10px', lineHeight: '1.4',
+    });
+    panel.appendChild(supportNote);
+  }
   if (meshComponents?.length > 1) {
     const componentTitle = document.createElement('div');
     componentTitle.textContent = 'SCENE COMPONENTS';
@@ -2431,6 +2441,7 @@ async function boot() {
       window._fumocaCalibration  = calibration;
       window._fumocaVerification = verification;
       window._fumocaDecodedMesh  = mesh;
+      window._fumocaDecodedMeshDiagnostics = meta?.mesh_diagnostics || null;
       window._fumocaDecodedMeshComponents = (meshComponents || []).map(component => ({
         ...component,
         diagnostics: meta?.mesh_diagnostics?.mesh_components?.find(item => item.id === component.id) || null,
@@ -2484,7 +2495,7 @@ async function boot() {
     // before â€” mountInteractiveViewer owns stageHost/container setup, and
     // mounting the mesh canvas first would have it torn down along with it.
     if (window._fumocaDecodedMesh?.nVerts > 0) {
-      mountMeshViewer(window._fumocaDecodedMesh, window._fumocaCalibration, window._fumocaDecodedMeshComponents);
+      mountMeshViewer(window._fumocaDecodedMesh, window._fumocaCalibration, window._fumocaDecodedMeshComponents, window._fumocaDecodedMeshDiagnostics);
     } else {
       destroyMeshViewer();  // clears any leftover toggle/canvas from a previously-viewed file
     }
