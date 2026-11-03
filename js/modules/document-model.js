@@ -312,6 +312,21 @@ export class UnifiedEditHistory {
       bytes: estimateHistoryBytes(before) + estimateHistoryBytes(after),
       committedAt: Date.now(),
     };
+
+    // A single before/after pair can exceed the entire history budget (common
+    // for very large scans). Never retain that entry as an exception to the
+    // configured cap: discard stale undo/redo entries, advance the baseline
+    // to the current authored state, and expose the reason to the UI.
+    if (entry.bytes > this.maxBytes) {
+      this.entries.length = 0;
+      this.cursor = 0;
+      this.bytes = 0;
+      this.baseline = after;
+      this.lastError = `"${entry.label}" was applied, but its snapshot (${entry.bytes} bytes) exceeds the ${this.maxBytes}-byte history budget; undo history was cleared to protect memory.`;
+      this.#notify();
+      return false;
+    }
+
     const current = this.entries[this.cursor - 1];
     if (entry.coalesceKey && current?.coalesceKey === entry.coalesceKey && this.cursor === this.entries.length) {
       this.bytes -= current.bytes;
