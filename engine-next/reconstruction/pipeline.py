@@ -2444,7 +2444,7 @@ class ReconstructionWorker:
                         'tsdf_observed_voxels', 'tsdf_batch_size',
                         'tsdf_fusion_batches', 'anisotropic_tangent_support',
                         'normal_component_count', 'mean_surfel_confidence',
-                        'is_watertight', 'surface_repair', 'mesh_components',
+                        'is_watertight', 'surface_repair', 'support_plane_candidate', 'mesh_components',
                     ) if key in mesh_info
                 } if mesh_info else None),
                 'has_print_export':  bool(stl_bytes) and bool(mesh_info and mesh_info.get('is_watertight')),
