@@ -3,6 +3,7 @@ import { computeGaussianSourceSignature, compareGaussianSourceSignature } from '
 import { exportSelectionAsFigurine, reconstructSceneWithOrientedSurfels, pollPrintJob } from './print-export.js';
 import { decodeNif } from './nif-format.js';
 import { createDocumentModel } from './document-model.js';
+import { buildSupportPlaneTransform } from './support-plane-transform.js';
 import r2 from '../r2Client.js';
 import { supabase } from '../supabaseClient.js';
 
@@ -253,11 +254,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       meshStatus('No valid support plane is available. Run oriented-surfel reconstruction first.');
       return false;
     }
-    const THREE = window.THREE;
-    if (!THREE?.Vector3 || !THREE?.Quaternion) {
-      meshStatus('The 3D transform engine is not available.');
-      return false;
-    }
     let normalValues = Array.isArray(candidate.normal) ? candidate.normal.map(Number) : [0, 1, 0];
     let offset = candidate.offset === null || candidate.offset === undefined ? NaN : Number(candidate.offset);
     if (!normalValues.every(Number.isFinite) || normalValues.length !== 3) {
@@ -272,33 +268,14 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       meshStatus('The detected support plane offset is invalid.');
       return false;
     }
-    const planeNormal = new THREE.Vector3(...normalValues);
-    if (planeNormal.lengthSq() < 1e-10) {
-      meshStatus('The detected support-plane normal is degenerate.');
+    let planeTransform;
+    try {
+      planeTransform = buildSupportPlaneTransform(normalValues, offset);
+    } catch (error) {
+      meshStatus(error.message || String(error));
       return false;
     }
-    const normalLength = planeNormal.length();
-    planeNormal.normalize();
-    offset /= normalLength;
-    if (planeNormal.y < 0) {
-      planeNormal.negate();
-      offset *= -1;
-    }
-    const levelRotation = new THREE.Quaternion().setFromUnitVectors(
-      planeNormal, new THREE.Vector3(0, 1, 0),
-    ).normalize();
-    const planeOrigin = planeNormal.clone().multiplyScalar(offset);
-    const transformPositions = (source) => {
-      if (!source) return source;
-      const output = source.slice();
-      const point = new THREE.Vector3();
-      for (let i = 0; i + 2 < output.length; i += 3) {
-        point.set(source[i] - planeOrigin.x, source[i + 1] - planeOrigin.y, source[i + 2] - planeOrigin.z)
-          .applyQuaternion(levelRotation);
-        output[i] = point.x; output[i + 1] = point.y; output[i + 2] = point.z;
-      }
-      return output;
-    };
+    const transformPositions = source => source ? planeTransform.transformPositionArray(source) : source;
     const transformMesh = (mesh) => mesh ? {
       ...mesh,
       vertices: transformPositions(mesh.vertices),
@@ -309,19 +286,9 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     try {
       // Stage transformed copies before changing any live state.
       const nextPositions = transformPositions(state.positions);
-      let nextRotation = state.rotation?.slice?.() || state.rotation;
-      if (nextRotation) {
-        const gaussianRotation = new THREE.Quaternion();
-        for (let i = 0; i + 3 < nextRotation.length; i += 4) {
-          // Studio stores Gaussian quaternions as w,x,y,z; THREE uses x,y,z,w.
-          gaussianRotation.set(nextRotation[i + 1], nextRotation[i + 2], nextRotation[i + 3], nextRotation[i])
-            .premultiply(levelRotation).normalize();
-          nextRotation[i] = gaussianRotation.w;
-          nextRotation[i + 1] = gaussianRotation.x;
-          nextRotation[i + 2] = gaussianRotation.y;
-          nextRotation[i + 3] = gaussianRotation.z;
-        }
-      }
+      const nextRotation = state.rotation
+        ? planeTransform.transformGaussianRotationsWxyz(state.rotation)
+        : state.rotation;
       const nextMesh = transformMesh(state.nifMesh || lastMeshData);
       const nextComponents = (state.nifMeshComponents || []).map(component => ({
         ...component,
