@@ -34,6 +34,40 @@ test('mesh splitter keeps faces connected through shared vertices in one compone
   assert.equal(parts[0].vertices.length / 3, 4);
 });
 
+test('plane splitting separates observed triangles without capping the cut', () => {
+  const mesh = {
+    vertices: new Float32Array([
+      0, -1, 0,  1, 1, 0,  -1, 1, 0,
+      0, 2, 1,
+    ]),
+    triangles: new Uint32Array([0, 1, 2, 1, 3, 2]),
+    colours: new Uint8Array([0, 0, 255, 255, 0, 0, 0, 255, 0, 255, 255, 255]),
+  };
+  const result = FumocMeshExtractor.splitMeshByPlane(mesh, { normal: [0, 1, 0], offset: 0 });
+  assert.equal(result.split, true);
+  assert.equal(result.cutIsOpen, true, 'the split creates no cap faces');
+  assert.ok(result.positive && result.negative);
+  assert.ok(result.positive.triangles.length > 0 && result.negative.triangles.length > 0);
+  for (const part of [result.positive, result.negative]) {
+    assert.equal(part.vertices.length % 3, 0);
+    assert.equal(part.triangles.length % 3, 0);
+    assert.ok(part.triangles.every(index => index < part.vertices.length / 3));
+    assert.equal(part.colours.length, part.vertices.length);
+  }
+  assert.deepEqual(Array.from(mesh.vertices), [0, -1, 0, 1, 1, 0, -1, 1, 0, 0, 2, 1],
+    'source geometry is never mutated');
+});
+
+test('plane splitting returns one side when the plane does not cross the mesh', () => {
+  const result = FumocMeshExtractor.splitMeshByPlane({
+    vertices: new Float32Array([0, 1, 0, 1, 1, 0, 0, 2, 0]),
+    triangles: new Uint32Array([0, 1, 2]),
+  }, { normal: [0, 1, 0], offset: 0 });
+  assert.equal(result.split, false);
+  assert.ok(result.positive);
+  assert.equal(result.negative, null);
+});
+
 test('auto threshold is positive, bounded and scale invariant', () => {
   const density = new Float32Array(1000);
   for (let i = 0; i < density.length; i++) density[i] = i < 100 ? 0 : (i - 99) / 900;
