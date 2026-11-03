@@ -1,6 +1,7 @@
 import FumocMeshExtractor from './fumoc-mesh-extractor.js';
 import { computeGaussianSourceSignature, compareGaussianSourceSignature } from './dual-surface-contract.js';
-import { exportSelectionAsFigurine, pollPrintJob } from './print-export.js';
+import { exportSelectionAsFigurine, reconstructSceneWithOrientedSurfels, pollPrintJob } from './print-export.js';
+import { decodeNif } from './nif-format.js';
 import r2 from '../r2Client.js';
 import { supabase } from '../supabaseClient.js';
 
@@ -76,6 +77,8 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         <label style="display:block;font-size:11px;margin:8px 0">Cap boundary loops up to <input id="meshHoleSize" type="number" min="3" max="128" step="1" value="48" style="width:64px;padding:4px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#fff"> edges</label>
         <label style="display:block;font-size:11px;margin:8px 0">Remove noise islands smaller than <input id="meshFloaterSize" type="number" min="0" max="10000" step="1" value="0" style="width:72px;padding:4px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#fff"> faces</label>
         <div class="hint">Set to 0 to preserve every disconnected component during full-scene extraction. Remove tiny islands later only after inspecting the scene; small components may be real objects or details.</div>
+        <div class="hint" style="margin:8px 0">For the oriented-surfel TSDF path, send the complete live scene to the reconstruction worker. It preserves scene coordinates, returns separate mesh components, and leaves the original Gaussian layer untouched.</div>
+        <button type="button" class="ac-btn cyan full" id="meshOrientedReconstructBtn">Reconstruct full scene · oriented surfels</button>
         <div class="btn-grid col2" style="margin-top:8px">
           <button type="button" class="ac-btn lime full" id="meshExtractBtn">Extract mesh</button>
           <button type="button" class="ac-btn full" id="meshFillHolesBtn" disabled>Fill small mesh holes</button>
@@ -538,6 +541,88 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     checkSourceFreshness,
     get lastStats() { return lastMeshStats; },
   };
+  container.querySelector('#meshOrientedReconstructBtn')?.addEventListener('click', async () => {
+    const button = container.querySelector('#meshOrientedReconstructBtn');
+    const state = window.S;
+    if (!state?.alive || !state?.sourceBuffer && state.fileType !== 'ply') {
+      meshStatus('Load a full scene before starting oriented-surfel reconstruction.');
+      return;
+    }
+    const sourceSignature = computeGaussianSourceSignature(state);
+    if (!sourceSignature) { meshStatus('The current Gaussian source is empty or invalid.'); return; }
+    button.disabled = true;
+    try {
+      const jobId = await reconstructSceneWithOrientedSurfels({ onStatus: meshStatus });
+      meshStatus(`Oriented-surfel job ${jobId.slice(0, 8)} queued for the full live scene. The Gaussian layer remains unchanged.`);
+      let applied = false;
+      pollPrintJob(jobId, async (job) => {
+        if (job.status === 'failed' || job.status === 'needs_retry') {
+          meshStatus(`Oriented-surfel reconstruction ${job.status}: ${job.error_message || 'The worker could not produce a supported surface.'}`);
+          button.disabled = false;
+          return;
+        }
+        meshStatus(`Oriented-surfel reconstruction ${String(job.status || 'queued')}: ${Number(job.progress || 0)}%`);
+        if (job.status !== 'complete' || applied) return;
+        applied = true;
+        try {
+          const currentSignature = computeGaussianSourceSignature(window.S);
+          if (currentSignature !== sourceSignature) {
+            throw new Error('The Gaussian scene changed while the worker was reconstructing it. The old result was not applied; run reconstruction again.');
+          }
+          const key = job.meta?.mesh_nif_r2_key;
+          if (!key) throw new Error('The worker completed but did not return the reconstructed NIF scene key.');
+          meshStatus('Downloading oriented mesh components…');
+          const { data, error } = await r2.from('nif-files').download(key);
+          if (error || !data) throw new Error(error?.message || 'Could not download the oriented reconstruction NIF.');
+          const decoded = await decodeNif(await data.arrayBuffer());
+          if (!decoded.mesh) throw new Error('The oriented reconstruction NIF contains no combined compatibility mesh.');
+          const components = (decoded.meshComponents || []).map(component => ({
+            id: component.id,
+            vertices: component.positions,
+            colours: component.colors,
+            triangles: component.faces,
+            watertight: component.watertight,
+            visible: component.visible !== false,
+            supportSurfaceCandidate: component.supportSurfaceCandidate === true,
+          }));
+          state.nifMesh = {
+            vertices: decoded.mesh.positions,
+            colours: decoded.mesh.colors,
+            triangles: decoded.mesh.faces,
+          };
+          state.nifMeshComponents = components;
+          state.activeMeshComponentId = components[0]?.id || null;
+          state.nifMeta = {
+            ...(state.nifMeta || {}),
+            ...(decoded.meta || {}),
+            dual_surface_source_signature: sourceSignature,
+            surface_reconstruction: 'oriented-gaussian-surfel-tsdf',
+          };
+          lastMeshFormat = 'ply';
+          syncNifMesh(state.nifMesh);
+          renderMeshDiagnostics({
+            ...FumocMeshExtractor.validateWatertight(lastMeshData),
+            tsdf_coverage_ratio: decoded.meta?.mesh_diagnostics?.tsdf_coverage_ratio,
+          });
+          window.previewSolidMesh?.(lastMeshData, { visible: false });
+          window.previewSolidMeshComponents?.(components, { visible: true, opacity: 0.95 });
+          renderMeshComponents(components);
+          window.highlightSolidMeshComponent?.(state.activeMeshComponentId);
+          window.dispatchEvent(new CustomEvent('fumoca:nifMeshComponentsLoaded', { detail: { components } }));
+          const previewToggle = container.querySelector('#meshPreviewToggle');
+          if (previewToggle) { previewToggle.disabled = false; previewToggle.checked = true; }
+          meshStatus(`Oriented-surfel reconstruction loaded: ${components.length} independent components. Source splats remain intact; inspect component visibility and support-surface candidates before editing.`);
+        } catch (error) {
+          meshStatus(error.message || String(error));
+        } finally {
+          button.disabled = false;
+        }
+      });
+    } catch (error) {
+      meshStatus(error.message || String(error));
+      button.disabled = false;
+    }
+  });
   container.querySelector('#meshExtractBtn')?.addEventListener('click', extractMesh);
 
   container.querySelector('#meshFillHolesBtn')?.addEventListener('click', () => {
