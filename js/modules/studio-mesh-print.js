@@ -174,10 +174,18 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       previewToggle.checked = !!lastMeshData;
     }
     if (lastMeshData) {
-      window.previewSolidMesh?.(lastMeshData, {
-        visible: true,
-        opacity: Number(container.querySelector('#meshPreviewOpacity')?.value || 0.38),
-      });
+      if (window.S?.nifMeshComponents?.length) {
+        window.previewSolidMesh?.(lastMeshData, { visible: false });
+        window.previewSolidMeshComponents?.(window.S.nifMeshComponents, {
+          visible: true, opacity: Number(container.querySelector('#meshPreviewOpacity')?.value || 0.95),
+        });
+        renderMeshComponents(window.S.nifMeshComponents);
+      } else {
+        window.previewSolidMesh?.(lastMeshData, {
+          visible: true,
+          opacity: Number(container.querySelector('#meshPreviewOpacity')?.value || 0.38),
+        });
+      }
       lastMeshStats = FumocMeshExtractor.validateWatertight(lastMeshData);
       lastMesh = makeMeshBlob();
       // Keep the source Gaussian layer visible. The default is a true hybrid
@@ -264,18 +272,38 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     // The old combined mesh is derived data; discard it so NIF export rebuilds
     // the compatibility mesh from the remaining independent components.
     state.nifMesh = null;
+    lastMeshData = null;
+    lastMeshStats = null;
+    lastMesh = null;
+    container.querySelector('#saveMeshBtn').disabled = true;
+    container.querySelector('#printStlBtn').disabled = true;
+    container.querySelector('#meshPreviewToggle').checked = true;
     window.previewSolidMeshComponents?.(state.nifMeshComponents, { visible: true, opacity: 1 });
     window.highlightSolidMeshComponent?.(state.activeMeshComponentId);
+    window.setSolidMeshComponentsVisibility?.(true);
     renderMeshComponents(state.nifMeshComponents);
     meshStatus('Deleted component ' + id + '. Other reconstructed components and the original Gaussian layer are unchanged.');
   });
-  const updateMeshPreview = () => window.previewSolidMesh?.(lastMeshData, {
-    visible: !!container.querySelector('#meshPreviewToggle')?.checked,
-    light: Number(container.querySelector('#meshPreviewLight')?.value || 0.25),
-    roughness: Number(container.querySelector('#meshPreviewRoughness')?.value || 0.72),
-    metalness: Number(container.querySelector('#meshPreviewMetalness')?.value || 0.05),
-    opacity: Number(container.querySelector('#meshPreviewOpacity')?.value || 0.38),
-  });
+  const updateMeshPreview = () => {
+    const visible = !!container.querySelector('#meshPreviewToggle')?.checked;
+    if (window.S?.nifMeshComponents?.length) {
+      window.setSolidMeshComponentsVisibility?.(visible);
+      window.previewSolidMeshComponents?.(window.S.nifMeshComponents, {
+        visible, opacity: Number(container.querySelector('#meshPreviewOpacity')?.value || 0.95),
+        light: Number(container.querySelector('#meshPreviewLight')?.value || 0.25),
+        roughness: Number(container.querySelector('#meshPreviewRoughness')?.value || 0.72),
+        metalness: Number(container.querySelector('#meshPreviewMetalness')?.value || 0.05),
+      });
+    } else {
+      window.previewSolidMesh?.(lastMeshData, {
+        visible,
+        light: Number(container.querySelector('#meshPreviewLight')?.value || 0.25),
+        roughness: Number(container.querySelector('#meshPreviewRoughness')?.value || 0.72),
+        metalness: Number(container.querySelector('#meshPreviewMetalness')?.value || 0.05),
+        opacity: Number(container.querySelector('#meshPreviewOpacity')?.value || 0.38),
+      });
+    }
+  };
   container.querySelector('#meshPreviewToggle')?.addEventListener('change', updateMeshPreview);
   container.querySelector('#meshPreviewOpacity')?.addEventListener('input', (event) => {
     const value = Number(event.target.value);
@@ -345,6 +373,10 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     const extractionSourceSignature = computeGaussianSourceSignature(state);
     if (!extractionSourceSignature) { meshStatus('The current Gaussian source is empty or invalid.'); return false; }
     if (lastMeshData) window.previewSolidMesh?.(lastMeshData, { visible: false });
+    window.previewSolidMeshComponents?.([], { visible: false });
+    state.nifMeshComponents = [];
+    state.activeMeshComponentId = null;
+    renderMeshComponents([]);
     lastMesh = null;
     lastMeshData = null;
     lastMeshStats = null;
@@ -414,12 +446,26 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         throw new Error('The Gaussian source changed while the mesh was extracting. The result was discarded; run Extract mesh again.');
       }
       lastMeshData = { ...result.mesh, vertices: result.mesh.vertices.slice(), triangles: result.mesh.triangles.slice(), colours: result.mesh.colours?.slice() };
-      // Preserve the extracted surface as a separate NIF mesh component and
-      // persist the exact source signature with the NIF metadata.
+      const extractedComponents = (result.components || []).map(component => ({
+        id: component.id,
+        vertices: component.vertices.slice(),
+        triangles: component.triangles.slice(),
+        colours: component.colours?.slice(),
+        watertight: component.watertight,
+        visible: true,
+      }));
+      // Preserve the combined compatibility mesh and the independently
+      // addressable connected surfaces. Gaussian geometry remains untouched.
       if (window.S) {
         window.S.nifMesh = lastMeshData;
+        window.S.nifMeshComponents = extractedComponents;
+        window.S.activeMeshComponentId = extractedComponents[0]?.id || null;
         window.S.nifMeta = { ...(window.S.nifMeta || {}), dual_surface_source_signature: extractionSourceSignature };
       }
+      window.previewSolidMesh?.(lastMeshData, { visible: false });
+      window.previewSolidMeshComponents?.(extractedComponents, { visible: true, opacity: 0.95 });
+      renderMeshComponents(extractedComponents);
+      window.dispatchEvent(new CustomEvent('fumoca:nifMeshComponentsLoaded', { detail: { components: extractedComponents } }));
       lastMeshSourceSignature = extractionSourceSignature;
       if (format === 'stl') {
         // Print scaling belongs only to the STL download, not the scene mesh
