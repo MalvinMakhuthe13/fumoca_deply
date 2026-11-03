@@ -79,6 +79,31 @@ test('NIF preserves Gaussian source and connected mesh as independent layers', a
   assert.equal(componentOnly.meshComponents.length, 2);
   assert.equal(componentOnly.mesh.nFaces, 5);
 
+
+  // Component visibility is authored per object and must survive encoding.
+  // The whole mesh-layer toggle is a renderer/group concern and must not
+  // rewrite these per-component preferences.
+  const visibilityRoundTrip = await decodeNif(encodeNif({
+    positions, colors01, opacities01, scalesLinear, quats,
+    meshComponents: meshComponents.map(component => ({ ...component })),
+  }));
+  assert.deepEqual(
+    visibilityRoundTrip.meshComponents.map(component => [component.id, component.visible]),
+    [['cap-shell', true], ['support-platform', false]],
+    'global layer visibility must not overwrite per-component visibility during NIF persistence',
+  );
+
+  assert.throws(() => encodeNif({
+    positions, colors01, opacities01, scalesLinear, quats,
+    meshComponents: [{
+      id: 'invalid-colour',
+      vertices: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]),
+      triangles: new Uint32Array([0, 1, 2]),
+      colours: new Float32Array([0, 0, 0, 1, 1, 1, 2, 2, 2]),
+    }],
+  }), /invalid or duplicate mesh component geometry\/ID/,
+  'component colours must be byte-range integer channels');
+
   assert.throws(() => encodeNif({
     positions, colors01, opacities01, scalesLinear, quats,
     meshComponents: [meshComponents[0], { ...meshComponents[1], id: 'cap-shell' }],
