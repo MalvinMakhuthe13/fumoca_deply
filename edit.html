@@ -1821,6 +1821,7 @@ import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
 import { decodeNif, encodeNif, geometryToSplatRows, downloadNif } from './js/modules/nif-format.js';
 import { createDocumentModel, allocateGaussianIds, compactDocumentModel } from './js/modules/document-model.js';
+import { normalizeMeshComponents } from './js/modules/mesh-component-contract.js';
 
 // Cloud storage is only needed for save/upload actions. Keep it out of the
 // editor's startup dependency graph so a temporary storage CDN failure cannot
@@ -2998,16 +2999,15 @@ async function loadFile(file, urlOverride) {
       vertices: decoded.mesh.positions, colours: decoded.mesh.colors,
       triangles: decoded.mesh.faces,
     } : null;
-    S.nifMeshComponents = (decoded.meshComponents || []).map(component => ({
-      id: component.id,
+    S.nifMeshComponents = normalizeMeshComponents((decoded.meshComponents || []).map(component => ({
+      ...component,
       vertices: component.positions,
       colours: component.colors,
       triangles: component.faces,
-      watertight: component.watertight,
       visible: component.visible !== false,
       supportSurfaceCandidate: component.supportSurfaceCandidate === true,
       diagnostics: decoded.meta?.mesh_diagnostics?.mesh_components?.find(item => item.id === component.id) || null,
-    }));
+    })));
     S.activeMeshComponentId = decoded.documentModel?.activeComponentId && S.nifMeshComponents.some(component => component.id === decoded.documentModel.activeComponentId)
       ? decoded.documentModel.activeComponentId : (S.nifMeshComponents[0]?.id || null);
     S.lidarIntensity = decoded.lidarAttributes?.intensity || null;
