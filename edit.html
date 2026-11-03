@@ -2656,6 +2656,7 @@ window.mergePointCloudIntoStudio = (cloud = _lidarPreviewCloud) => {
     lidarIntensity: S.lidarIntensity, lidarClassification: S.lidarClassification, lidarReturnNumber: S.lidarReturnNumber,
     alive: S.alive, selected: S.selected, sourceBuffer: S.sourceBuffer,
     fileType: S.fileType, fileName: S.fileName, splatRowSize: S.splatRowSize,
+    documentModel: S.documentModel,
   };
   const join = (a, b, stride = 1, fill = 0) => {
     const out = new Float32Array((a?.length || 0) + b.length);
@@ -2675,6 +2676,13 @@ window.mergePointCloudIntoStudio = (cloud = _lidarPreviewCloud) => {
     addedScale[i] = pointSize;
   }
   S.positions = join(S.positions, _lidarPreviewPositions);
+  if (S.documentModel) {
+    const allocation = allocateGaussianIds(added, S.documentModel.nextGaussianId);
+    const joinedIds = new Uint32Array(S.documentModel.gaussianIds.length + allocation.ids.length);
+    joinedIds.set(S.documentModel.gaussianIds);
+    joinedIds.set(allocation.ids, S.documentModel.gaussianIds.length);
+    S.documentModel = createDocumentModel({ ...S.documentModel, gaussianIds: joinedIds, nextGaussianId: allocation.nextId });
+  }
   S.colors = join(S.colors, addedColors);
   S.opacity = join(S.opacity, addedOpacity);
   S.scale = join(S.scale, addedScale);
@@ -5317,7 +5325,7 @@ window.saveLiveEdit = async function saveLiveEdit(extra = {}) {
       for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) aliveIdx.push(i);
       const hasSh = (S.shAttributes || []).length > 0;
       const meshFreshness = window.FUMOCA_StudioMeshPrint?.checkSourceFreshness?.();
-      if (!hasSh && meshFreshness && !meshFreshness.ok) throw new Error(meshFreshness.message);
+      if (meshFreshness && !meshFreshness.ok) throw new Error(meshFreshness.message);
       const meshComponents = S.nifMeshComponents?.length ? S.nifMeshComponents : [];
       const knownComponentIds = new Set((S.documentModel?.components || []).map(component => component.id));
       const documentBase = createDocumentModel({
