@@ -51,6 +51,17 @@ test('ear-clips a concave support base without filling outside its outline', () 
   assert.equal(boundaryEdgeCount(result.mesh), 6);
 });
 
+test('accepted near-planar base vertices are snapped onto the exact support plane', () => {
+  const mesh = openPrism([[0,0], [2,0], [2,2], [0,2]]);
+  mesh.vertices[3 * 3 + 1] = 0.0005;
+  const result = capPlanarBoundaryLoops(mesh, { normal: [0,1,0], offset: 0, tolerance: 0.001 });
+  assert.equal(result.cappedLoops, 1);
+  for (let vertex = 0; vertex < 4; vertex++) {
+    assert.ok(Math.abs(result.mesh.vertices[vertex * 3 + 1]) < 1e-8);
+  }
+  assert.equal(mesh.vertices[3 * 3 + 1], 0.0005); // source geometry remains untouched
+});
+
 test('refuses to cap non-planar loops and leaves the original mesh untouched', () => {
   const mesh = openPrism([[0,0], [2,0], [2,2], [0,2]]);
   mesh.vertices[3 * 3 + 1] = 0.02;
