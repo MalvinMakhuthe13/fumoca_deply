@@ -87,6 +87,17 @@ test('refuses multiple coplanar loops rather than filling possible holes', () =>
   assert.equal(result.mesh.vertices, vertices);
 });
 
+test('skips oversized boundary loops rather than blocking the browser', () => {
+  const points = Array.from({ length: 2050 }, (_, i) => {
+    const angle = i / 2050 * Math.PI * 2;
+    return [Math.cos(angle), Math.sin(angle)];
+  });
+  const mesh = openPrism(points);
+  const result = capPlanarBoundaryLoops(mesh, { normal: [0,1,0], offset: 0 });
+  assert.equal(result.unchanged, true);
+  assert.equal(result.skippedTooLarge, 1);
+});
+
 test('rejects invalid indices and degenerate planes', () => {
   const mesh = openPrism([[0,0], [1,0], [1,1]]);
   assert.throws(() => capPlanarBoundaryLoops(mesh, { normal: [0,0,0], offset: 0 }), /degenerate/);
