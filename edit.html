@@ -5498,12 +5498,27 @@ $('addSplatInput')?.addEventListener('change', async e => {
       let parsed;
       if (ext === 'nif') {
         const decoded = await decodeNif(buffer);
-        parsed = parseSplat(geometryToSplatRows(decoded.gaussians).buffer);
+        if (decoded.gaussianPlyBytes?.byteLength) {
+          const plyBytes = decoded.gaussianPlyBytes;
+          parsed = parsePLY(plyBytes.buffer.slice(plyBytes.byteOffset, plyBytes.byteOffset + plyBytes.byteLength));
+        } else {
+          parsed = parseSplat(geometryToSplatRows(decoded.gaussians).buffer);
+        }
       } else if (ext === 'splat') parsed = parseSplat(buffer);
       else if (ext === 'ply') parsed = parsePLY(buffer);
       else throw new Error(`Unsupported splat format: .${ext}`);
       if (!parsed.count) throw new Error(`${file.name} has no readable points`);
       const oldN = S.alive.length, addN = parsed.count;
+      const currentDocument = S.documentModel || createDocumentModel({ gaussianIds: allocateGaussianIds(oldN).ids });
+      const newGaussianIds = allocateGaussianIds(addN, currentDocument.nextGaussianId);
+      const joinedGaussianIds = new Uint32Array(currentDocument.gaussianIds.length + newGaussianIds.ids.length);
+      joinedGaussianIds.set(currentDocument.gaussianIds);
+      joinedGaussianIds.set(newGaussianIds.ids, currentDocument.gaussianIds.length);
+      S.documentModel = createDocumentModel({
+        ...currentDocument,
+        gaussianIds: joinedGaussianIds,
+        nextGaussianId: newGaussianIds.nextId,
+      });
       const append = (a, b, stride = 1, fallback = 0) => {
         const out = new Float32Array((oldN + addN) * stride);
         if (a) out.set(a);
