@@ -343,7 +343,12 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       if (!state.selected || state.selected.length !== state.alive.length) state.selected = new Uint8Array(state.alive.length);
       state.selected.fill(0);
       for (const row of plan.rows) state.selected[row] = 1;
-      state.supportPlaneTrimPreview = { ...plan, previousSelection };
+      state.supportPlaneTrimPreview = {
+        ...plan,
+        previousSelection,
+        sourceSignature: computeGaussianSourceSignature(state),
+        meshSignature: meshStateSignature(state.nifMesh, state.nifMeshComponents),
+      };
       window.rebuildGeometry?.();
       window.dispatchEvent(new CustomEvent('fumoca:selectionChanged', {
         detail: { count: plan.rows.length, changed: plan.rows.length, componentId: component.id },
@@ -367,6 +372,17 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     let plan;
     try { plan = makeSupportTrimPlan(component); }
     catch (error) { meshStatus(error.message || String(error)); return false; }
+    const sameRows = plan.rows.length === preview.rows.length
+      && plan.rows.every((row, index) => row === preview.rows[index]);
+    const samePlane = plan.offset === preview.offset && plan.tolerance === preview.tolerance
+      && plan.normal.every((value, index) => value === preview.normal[index]);
+    if (computeGaussianSourceSignature(state) !== preview.sourceSignature
+        || meshStateSignature(state.nifMesh, state.nifMeshComponents) !== preview.meshSignature
+        || !sameRows || !samePlane) {
+      clearSupportTrimPreview(true);
+      meshStatus('The Gaussian source, component geometry or support plane changed after preview. Review a fresh preview before trimming.');
+      return false;
+    }
     if (!plan.rows.length) {
       clearSupportTrimPreview();
       meshStatus('The trim preview is no longer valid; no Gaussian points were removed.');
