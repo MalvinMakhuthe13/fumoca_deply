@@ -2982,6 +2982,7 @@ async function loadFile(file, urlOverride) {
       watertight: component.watertight,
       visible: component.visible !== false,
       supportSurfaceCandidate: component.supportSurfaceCandidate === true,
+      diagnostics: decoded.meta?.mesh_diagnostics?.mesh_components?.find(item => item.id === component.id) || null,
     }));
     S.activeMeshComponentId = S.nifMeshComponents[0]?.id || null;
     S.lidarIntensity = decoded.lidarAttributes?.intensity || null;
