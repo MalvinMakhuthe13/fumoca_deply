@@ -199,9 +199,13 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     || null;
 
   const meshStateSignature = (mesh, components = []) => {
-    let hash = 0x811c9dc5;
+    let hashA = 0x811c9dc5, hashB = 0x9e3779b9;
     const view = new DataView(new ArrayBuffer(4));
-    const feed = value => { hash = Math.imul(hash ^ (Number(value) >>> 0), 0x01000193) >>> 0; };
+    const feed = value => {
+      const word = Number(value) >>> 0;
+      hashA = Math.imul(hashA ^ word, 0x01000193) >>> 0;
+      hashB = Math.imul(hashB ^ ((word + 0x7ed55d16) >>> 0), 0x85ebca6b) >>> 0;
+    };
     const feedText = value => { for (const char of String(value ?? '')) feed(char.charCodeAt(0)); };
     const feedArray = (array, floating) => {
       if (!array) { feed(0); return; }
@@ -214,14 +218,17 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     feedText(mesh ? 'mesh' : 'no-mesh');
     feedArray(mesh?.vertices, true);
     feedArray(mesh?.triangles, false);
+    feedArray(mesh?.colours, false);
     for (const component of components || []) {
       feedText(component.id);
       feed(component.visible === false ? 0 : 1);
       feed(component.supportSurfaceCandidate ? 1 : 0);
+      feed(component.watertight ? 1 : 0);
       feedArray(component.vertices, true);
       feedArray(component.triangles, false);
+      feedArray(component.colours, false);
     }
-    return hash.toString(16).padStart(8, '0');
+    return hashA.toString(16).padStart(8, '0') + hashB.toString(16).padStart(8, '0');
   };
 
   const updateSupportPlaneControls = () => {
