@@ -197,3 +197,8 @@ A boundary rim with no interior surfel support is rejected and remains open. Bra
 Studio's component panel now supports per-component translation (X/Y/Z), rotation about Y, uniform scaling, one-step transform undo, isolation, visibility and deletion. These operations modify only the selected reconstructed component's vertex buffer. They do not mutate Gaussian positions, scales, rotations or opacity. On NIF export, the component chunk stores the transformed geometry and the legacy combined mesh is rebuilt from the remaining components if needed.
 
 Transform undo is an in-session one-step operation; it is not yet a persistent multi-step edit history. Semantic object recognition and arbitrary-axis transform gizmos remain future work.
+### Manual support-plane/object separation
+
+Studio also provides an explicit horizontal Y-plane split for a selected reconstructed component. It clips existing triangles into above/below meshes, interpolates vertex colors at the cut, and preserves both sides as independent components. The new cut remains open; no cap is generated. The lower side is marked as a support-surface candidate for review, not automatically removed.
+
+This gives the user a controlled way to separate a touching platform from an object when connected-component analysis alone returns one surface. The plane offset is in scene coordinates and must be chosen by inspecting the scan. A poor plane choice can cut through the subject, so the operation is reversible only through the scene's NIF history/backup; the immediate one-step transform undo does not undo plane splits.
