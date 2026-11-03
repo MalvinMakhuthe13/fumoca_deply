@@ -72,6 +72,21 @@ test('refuses to cap non-planar loops and leaves the original mesh untouched', (
   assert.equal(result.mesh, mesh);
 });
 
+test('refuses multiple coplanar loops rather than filling possible holes', () => {
+  const first = openPrism([[0,0], [2,0], [2,2], [0,2]]);
+  const second = openPrism([[4,0], [6,0], [6,2], [4,2]]);
+  const vertices = new Float32Array([...first.vertices, ...second.vertices]);
+  const offset = first.vertices.length / 3;
+  const triangles = new Uint32Array([
+    ...first.triangles,
+    ...Array.from(second.triangles, index => index + offset),
+  ]);
+  const result = capPlanarBoundaryLoops({ vertices, triangles }, { normal: [0,1,0], offset: 0 });
+  assert.equal(result.unchanged, true);
+  assert.equal(result.skippedMultipleLoops, 2);
+  assert.equal(result.mesh.vertices, vertices);
+});
+
 test('rejects invalid indices and degenerate planes', () => {
   const mesh = openPrism([[0,0], [1,0], [1,1]]);
   assert.throws(() => capPlanarBoundaryLoops(mesh, { normal: [0,0,0], offset: 0 }), /degenerate/);
