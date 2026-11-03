@@ -3722,6 +3722,9 @@ class ReconstructionWorker:
                 except Exception as scale_error:
                     raise RuntimeError(f'Could not scale print mesh: {scale_error}') from scale_error
             else:
+                # Scene coordinates are intentionally uncalibrated here; do not
+                # label their geometric volume as cubic metres.
+                mesh_info['volume_m3'] = None
                 print('[NIF] mesh_only: preserving source scene coordinates; STL is not dimensionally print-scaled')
 
             # Return a complete NIF containing the original Gaussian geometry,
