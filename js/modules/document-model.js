@@ -377,6 +377,18 @@ export class UnifiedEditHistory {
       entry.bytes = estimateHistoryBytes(entry.before) + estimateHistoryBytes(entry.after);
       this.entries[this.cursor - 1] = entry;
       this.bytes += entry.bytes;
+      // Coalescing replaces an entry and can make it larger than the budget
+      // even when the original entry fitted. Apply the same strict cap used
+      // for ordinary commits.
+      if (entry.bytes > this.maxBytes) {
+        this.entries.length = 0;
+        this.cursor = 0;
+        this.bytes = 0;
+        this.baseline = after;
+        this.lastError = new Error(`"${entry.label}" was applied, but its coalesced snapshot (${entry.bytes} bytes) exceeds the ${this.maxBytes}-byte history budget; undo history was cleared to protect memory.`);
+        this.#notify();
+        return false;
+      }
     } else {
       this.#push(entry);
     }
