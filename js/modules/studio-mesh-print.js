@@ -1003,6 +1003,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
           component.visible = before[0].visible;
           visible.checked = before[0].visible;
           window.setSolidMeshComponentVisibility?.(component.id, before[0].visible);
+          window.syncStudioDocumentModelFromMesh?.();
           refreshCombinedMeshFromComponents();
           console.error('[Studio mesh] Could not record component visibility:', error);
           meshStatus('Component visibility change was rolled back: ' + (error.message || String(error)));
