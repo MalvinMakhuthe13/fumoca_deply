@@ -1078,6 +1078,8 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     window.previewSolidMeshComponents?.(components, { visible: true, opacity: 1 });
     renderMeshComponents(components);
     syncComponentDiagnosticsToMeta();
+    updateComponentTransformButtons();
+    updateSupportPlaneControls();
   };
   container.querySelector('#meshComponentsShowAll')?.addEventListener('click', () => {
     for (const component of window.S?.nifMeshComponents || []) component.visible = true;
@@ -1179,6 +1181,10 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     if (state?.meshComponentMembershipUndo
         && meshStateSignature(state.nifMesh, state.nifMeshComponents) !== state.meshComponentMembershipUndo.afterSignature) {
       state.meshComponentMembershipUndo = null;
+    }
+    if (state?.meshComponentCapUndo
+        && meshStateSignature(state.nifMesh, state.nifMeshComponents) !== state.meshComponentCapUndo.afterSignature) {
+      state.meshComponentCapUndo = null;
     }
     const component = selectedMeshComponent();
     const apply = container.querySelector('#meshComponentApplyTransform');
