@@ -1552,8 +1552,8 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       meshComponentsEdited: state.nifMeta?.mesh_components_edited === true,
       splitRecords: (state.nifMeta?.mesh_component_splits || []).map(item => ({ ...item })),
     };
-    state.nifMeshComponents = (state.nifMeshComponents || []).filter(item => item.id !== component.id)
-      .concat(replacement);
+    state.nifMeshComponents = (state.nifMeshComponents || []).filter(item => item.id !== component.id);
+    state.nifMeshComponents.splice(Math.min(sourceIndex, state.nifMeshComponents.length), 0, ...replacement);
     state.activeMeshComponentId = positive.id;
     state.nifMesh = null;
     state.nifMeta = {
