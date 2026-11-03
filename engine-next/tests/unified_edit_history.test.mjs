@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { UnifiedEditHistory } from '../../js/modules/document-model.js';
+import { UnifiedEditHistory, createDocumentModel, syncDocumentComponentsFromMesh, validateDocumentModel } from '../../js/modules/document-model.js';
 
 function fixture() {
   return {
@@ -362,4 +362,95 @@ test('coalesced edits cannot exceed the configured history byte budget', () => {
   assert.equal(history.state().bytes, 0);
   assert.equal(history.canUndo(), false);
   assert.match(history.state().error, /coalesced snapshot exceeds the 1048576-byte history budget/);
+});
+
+
+test('live mesh reconciliation keeps link and unlink membership canonical through undo and redo', () => {
+  const state = {
+    documentModel: createDocumentModel({
+      documentId: 'mesh-sync-doc',
+      gaussianIds: new Uint32Array([1, 2, 3]),
+      nextGaussianId: 4,
+      activeComponentId: 'object',
+      components: [
+        { id: 'object', gaussianIds: new Uint32Array([1]), visible: true },
+        { id: 'platform', gaussianIds: new Uint32Array([2, 3]), visible: true, supportSurfaceCandidate: true },
+      ],
+    }),
+    nifMeshComponents: [
+      { id: 'object', gaussianIds: new Uint32Array([1, 2]), visible: true },
+      { id: 'platform', gaussianIds: new Uint32Array([3]), visible: true, supportSurfaceCandidate: true },
+    ],
+    activeMeshComponentId: 'object',
+  };
+  const history = new UnifiedEditHistory({
+    capture: () => clone(state),
+    restore: snapshot => Object.assign(state, clone(snapshot)),
+  });
+
+  state.documentModel = syncDocumentComponentsFromMesh(
+    state.documentModel, state.nifMeshComponents, state.activeMeshComponentId
+  );
+  history.commit('Link selected splats');
+  validateDocumentModel(state.documentModel);
+  assert.deepEqual([...state.documentModel.components.find(c => c.id === 'object').gaussianIds], [1, 2]);
+  assert.deepEqual([...state.documentModel.components.find(c => c.id === 'platform').gaussianIds], [3]);
+
+  state.nifMeshComponents[0].gaussianIds = new Uint32Array([1]);
+  state.nifMeshComponents[1].gaussianIds = new Uint32Array([2, 3]);
+  state.documentModel = syncDocumentComponentsFromMesh(
+    state.documentModel, state.nifMeshComponents, state.activeMeshComponentId
+  );
+  history.commit('Unlink selected splats');
+  assert.deepEqual([...state.documentModel.components.find(c => c.id === 'object').gaussianIds], [1]);
+
+  history.undo();
+  assert.deepEqual([...state.documentModel.components.find(c => c.id === 'object').gaussianIds], [1, 2]);
+  assert.deepEqual([...state.documentModel.components.find(c => c.id === 'platform').gaussianIds], [3]);
+  history.redo();
+  assert.deepEqual([...state.documentModel.components.find(c => c.id === 'object').gaussianIds], [1]);
+  assert.deepEqual([...state.documentModel.components.find(c => c.id === 'platform').gaussianIds], [2, 3]);
+  validateDocumentModel(state.documentModel);
+});
+
+test('live mesh reconciliation preserves deleted ancestors and inserts split children with exclusive lineage', () => {
+  const model = createDocumentModel({
+    documentId: 'split-sync-doc',
+    gaussianIds: new Uint32Array([1, 2, 3, 4]),
+    nextGaussianId: 5,
+    activeComponentId: 'child-a',
+    components: [
+      { id: 'parent', gaussianIds: new Uint32Array([1, 2, 3, 4]), visible: true },
+    ],
+  });
+  const synced = syncDocumentComponentsFromMesh(model, [
+    { id: 'child-a', parentIds: ['parent'], gaussianIds: new Uint32Array([1, 2]), visible: true,
+      provenance: { operation: 'plane-split', sourceComponentId: 'parent' } },
+    { id: 'child-b', parentIds: ['parent'], gaussianIds: new Uint32Array([3, 4]), visible: true,
+      provenance: { operation: 'plane-split', sourceComponentId: 'parent' } },
+  ], 'child-a');
+
+  validateDocumentModel(synced);
+  assert.equal(synced.components.length, 3);
+  const parent = synced.components.find(c => c.id === 'parent');
+  assert.equal(parent.deleted, true);
+  assert.deepEqual([...parent.gaussianIds], [1, 2, 3, 4]);
+  assert.deepEqual(synced.components.find(c => c.id === 'child-a').parentIds, ['parent']);
+  assert.deepEqual(synced.components.find(c => c.id === 'child-b').parentIds, ['parent']);
+  assert.equal(synced.activeComponentId, 'child-a');
+});
+
+test('live mesh reconciliation rejects duplicate Gaussian ownership without mutating the source model', () => {
+  const model = createDocumentModel({
+    documentId: 'duplicate-sync-doc',
+    gaussianIds: new Uint32Array([1, 2]),
+    nextGaussianId: 3,
+    components: [{ id: 'object', gaussianIds: new Uint32Array([1]) }],
+  });
+  assert.throws(() => syncDocumentComponentsFromMesh(model, [
+    { id: 'object', gaussianIds: new Uint32Array([1, 2]) },
+    { id: 'platform', gaussianIds: new Uint32Array([2]) },
+  ], 'object'), /owned by both/);
+  assert.deepEqual([...model.components[0].gaussianIds], [1]);
+  assert.equal(model.components.length, 1);
 });
