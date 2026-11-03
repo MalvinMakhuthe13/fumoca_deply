@@ -373,7 +373,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     const negative = {
       ...result.negative, id: component.id + '-below',
       watertight: false, visible: component.visible !== false,
-      supportSurfaceCandidate: component.supportSurfaceCandidate === true,
+      supportSurfaceCandidate: true, // lower side of a user-defined horizontal separation plane; review candidate only
     };
     const replacement = [positive, negative].sort((a, b) => meanY(a) - meanY(b));
     state.nifMeshComponents = (state.nifMeshComponents || []).filter(item => item.id !== component.id)
