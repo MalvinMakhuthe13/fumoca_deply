@@ -402,6 +402,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
   };
 
   const syncNifMesh = (mesh) => {
+    if (mesh !== lastMeshData) supportLevelUndo = null;
     lastMeshData = mesh || null;
     const supportSuggestion = window.S?.nifMeta?.mesh_diagnostics?.support_plane_candidate;
     if (supportSuggestion?.detected && supportSuggestion.y !== null && supportSuggestion.y !== undefined && Number.isFinite(Number(supportSuggestion.y))) {
