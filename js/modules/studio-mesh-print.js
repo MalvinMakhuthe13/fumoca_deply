@@ -2142,9 +2142,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
   container.querySelector('#meshUndoSupportTrim')?.addEventListener('click', undoSupportPlaneTrim);
   container.querySelector('#meshCapSupportBase')?.addEventListener('click', capSupportPlaneBase);
   container.querySelector('#meshUndoSupportCap')?.addEventListener('click', undoSupportPlaneCap);
-  container.querySelector('#meshPreviewSupportTrim')?.addEventListener('click', previewSupportPlaneTrim);
-  container.querySelector('#meshApplySupportTrim')?.addEventListener('click', applySupportPlaneTrim);
-  container.querySelector('#meshUndoSupportTrim')?.addEventListener('click', undoSupportPlaneTrim);
 
   container.querySelector('#meshFillHolesBtn')?.addEventListener('click', () => {
     const threshold = Number(container.querySelector('#meshHoleSize')?.value || 48);
