@@ -465,19 +465,21 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     }
 
     const trimRows = Uint32Array.from(plan.rows);
-    const cloneTrimComponent = source => ({
-      ...source,
-      vertices: source.vertices?.slice?.() ?? source.vertices,
-      positions: source.positions?.slice?.() ?? source.positions,
-      triangles: source.triangles?.slice?.() ?? source.triangles,
-      faces: source.faces?.slice?.() ?? source.faces,
-      colours: source.colours?.slice?.() ?? source.colours,
-      colors: source.colors?.slice?.() ?? source.colors,
-      gaussianIds: source.gaussianIds ? Uint32Array.from(source.gaussianIds) : source.gaussianIds,
-      diagnostics: { ...(source.diagnostics || {}) },
-      provenance: { ...(source.provenance || {}) },
-    });
-    const cloneTrimMeta = value => JSON.parse(JSON.stringify(value || {}));
+    const cloneTrimValue = value => {
+      if (value == null || typeof value !== 'object') return value;
+      if (ArrayBuffer.isView(value)) return new value.constructor(value);
+      if (value instanceof ArrayBuffer) return value.slice(0);
+      if (Array.isArray(value)) return value.map(cloneTrimValue);
+      const prototype = Object.getPrototypeOf(value);
+      if (prototype !== Object.prototype && prototype !== null) {
+        throw new TypeError('Trim history patches may contain only plain component data.');
+      }
+      const copy = Object.create(prototype);
+      for (const [key, item] of Object.entries(value)) copy[key] = cloneTrimValue(item);
+      return copy;
+    };
+    const cloneTrimComponent = source => cloneTrimValue(source);
+    const cloneTrimMeta = value => cloneTrimValue(value || {});
     const beforePatch = {
       componentId: component.id,
       component: cloneTrimComponent(component),
