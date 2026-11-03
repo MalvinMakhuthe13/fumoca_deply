@@ -5299,6 +5299,7 @@ window.saveLiveEdit = async function saveLiveEdit(extra = {}) {
         meta: S.nifMeta || {},
         thumbnailBytes: S.nifThumbnailBytes || undefined,
         mesh: S.nifMesh || undefined,
+        meshComponents: S.nifMeshComponents?.length ? S.nifMeshComponents : undefined,
         lidarAttributes: _compactLidarAttributes(aliveIdx),
         passthroughChunks: S.nifPassthroughChunks || [],
         vertical: S.nifMeta?.vertical || 'generic',
