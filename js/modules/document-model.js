@@ -37,15 +37,17 @@ function maxId(ids) {
 
 function asUint32Ids(value, label, { allowEmpty = true } = {}) {
   if (value == null && allowEmpty) return new Uint32Array();
-  const ids = value instanceof Uint32Array ? new Uint32Array(value) : Uint32Array.from(value || []);
-  if (!allowEmpty && ids.length === 0) throw new Error(`[document-model] ${label} cannot be empty`);
+  const values = Array.from(value || []);
+  if (!allowEmpty && values.length === 0) throw new Error(`[document-model] ${label} cannot be empty`);
   const seen = new Set();
-  for (const id of ids) {
-    if (id === 0) throw new Error(`[document-model] ${label} contains reserved ID 0`);
+  for (const id of values) {
+    if (!Number.isInteger(id) || id < 1 || id > 0xffffffff) {
+      throw new Error(`[document-model] ${label} contains an invalid uint32 identity`);
+    }
     if (seen.has(id)) throw new Error(`[document-model] ${label} contains duplicate ID ${id}`);
     seen.add(id);
   }
-  return ids;
+  return Uint32Array.from(values);
 }
 
 /** Allocate monotonically increasing point identities; 0 is permanently reserved. */
@@ -120,7 +122,8 @@ export function validateDocumentModel(model) {
     for (const parentId of component.parentIds || []) {
       if (parentId === component.id) throw new Error(`component ${component.id} cannot parent itself`);
     }
-    for (const gaussianId of component.gaussianIds || []) {
+    const membership = asUint32Ids(component.gaussianIds, `component ${component.id} Gaussian membership`);
+    for (const gaussianId of membership) {
       if (!known.has(gaussianId)) throw new Error(`component ${component.id} references unknown Gaussian ID ${gaussianId}`);
     }
   }
