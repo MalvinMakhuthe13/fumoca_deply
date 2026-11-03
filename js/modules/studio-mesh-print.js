@@ -315,6 +315,13 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     }
     state.supportPlaneTrimPreview = null;
     window.rebuildGeometry?.();
+    let selectedCount = 0;
+    for (let row = 0; row < (state.selected?.length || 0); row++) {
+      if (state.selected[row] && state.alive?.[row]) selectedCount++;
+    }
+    window.dispatchEvent(new CustomEvent('fumoca:selectionChanged', {
+      detail: { count: selectedCount, changed: 0 },
+    }));
     updateSupportPlaneControls();
   };
 
@@ -511,7 +518,8 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       component.id === snapshot.componentId ? snapshot.previousComponent : component);
     state.nifMesh = null;
     lastMeshData = null; lastMesh = null; lastMeshStats = null;
-    state.nifMeta = { ...(state.nifMeta || {}), mesh_components_edited: true };
+    const { support_plane_trim: _undoneTrim, ...metaWithoutTrim } = state.nifMeta || {};
+    state.nifMeta = { ...metaWithoutTrim, mesh_components_edited: true };
     const signature = computeGaussianSourceSignature(state);
     state.nifMeta.dual_surface_source_signature = signature;
     lastMeshSourceSignature = signature;
