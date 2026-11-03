@@ -1379,6 +1379,7 @@ function mountMeshViewer(mesh, calibration, meshComponents = []) {
     geo.computeVertexNormals();
     const meshObj = new THREE.Mesh(geo, mat);
     meshObj.name = part.id || 'FUMOCA reconstructed component';
+    meshObj.userData.componentId = part.id || meshObj.name;
     meshObj.visible = part.visible !== false;
     meshGroup.add(meshObj);
     componentObjects.push(meshObj);
@@ -1467,6 +1468,23 @@ function mountMeshViewer(mesh, calibration, meshComponents = []) {
   panelTitle.textContent = 'MESH LIGHTING';
   Object.assign(panelTitle.style, {fontWeight:'800', letterSpacing:'.12em', fontSize:'10px', marginBottom:'9px', color:'#c8ff00'});
   panel.appendChild(panelTitle);
+  if (meshComponents?.length > 1) {
+    const componentTitle = document.createElement('div');
+    componentTitle.textContent = 'SCENE COMPONENTS';
+    Object.assign(componentTitle.style, {fontWeight:'800',fontSize:'10px',letterSpacing:'.1em',margin:'10px 0 6px',color:'#c8ff00'});
+    panel.appendChild(componentTitle);
+    for (const object of componentObjects) {
+      const row = document.createElement('label');
+      Object.assign(row.style, {display:'flex',alignItems:'center',gap:'7px',margin:'5px 0',fontSize:'11px'});
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox'; checkbox.checked = object.visible;
+      checkbox.addEventListener('change', () => { object.visible = checkbox.checked; });
+      const name = document.createElement('span');
+      name.textContent = object.name;
+      row.append(checkbox, name);
+      panel.appendChild(row);
+    }
+  }
   const addRange = (label, min, max, step, initial, apply) => {
     const wrap = document.createElement('label');
     Object.assign(wrap.style, {display:'grid', gridTemplateColumns:'1fr auto', gap:'4px 8px', margin:'9px 0'});
