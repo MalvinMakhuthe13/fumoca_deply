@@ -1529,17 +1529,33 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       },
     };
     const replacement = [positive, negative].sort((a, b) => meanPlaneDistance(a) - meanPlaneDistance(b));
-    window.beginStudioHistory?.('Split mesh component');
-    state.meshComponentSplitUndo = {
-      source: { ...component, vertices: component.vertices.slice(), triangles: component.triangles.slice(), colours: component.colours?.slice(), gaussianIds: component.gaussianIds?.slice?.() || component.gaussianIds },
+    const sourceIndex = (state.nifMeshComponents || []).findIndex(item => item.id === component.id);
+    const cloneForSplitHistory = source => ({
+      ...source,
+      vertices: (source.vertices || source.positions || []).slice(),
+      ...(source.positions ? { positions: source.positions.slice() } : {}),
+      triangles: (source.triangles || source.faces || []).slice(),
+      ...(source.faces ? { faces: source.faces.slice() } : {}),
+      ...(source.colours ? { colours: source.colours.slice() } : {}),
+      ...(source.colors ? { colors: source.colors.slice() } : {}),
+      ...(source.gaussianIds ? { gaussianIds: Uint32Array.from(source.gaussianIds) } : {}),
+      ...(source.parentIds ? { parentIds: [...source.parentIds] } : {}),
+      ...(source.diagnostics ? { diagnostics: { ...source.diagnostics } } : {}),
+      ...(source.provenance ? { provenance: { ...source.provenance } } : {}),
+    });
+    const beforePatch = {
+      sourceId: component.id,
       partIds: [positive.id, negative.id],
+      index: sourceIndex,
+      components: [cloneForSplitHistory(component)],
+      activeId: state.activeMeshComponentId,
+      meshComponentsEdited: state.nifMeta?.mesh_components_edited === true,
+      splitRecords: (state.nifMeta?.mesh_component_splits || []).map(item => ({ ...item })),
     };
     state.nifMeshComponents = (state.nifMeshComponents || []).filter(item => item.id !== component.id)
       .concat(replacement);
     state.activeMeshComponentId = positive.id;
     state.nifMesh = null;
-    updateSupportPlaneControls();
-    syncComponentDiagnosticsToMeta();
     state.nifMeta = {
       ...(state.nifMeta || {}),
       mesh_components_edited: true,
@@ -1548,38 +1564,71 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         { source: component.id, axis: axis.toUpperCase(), offset: splitOffset, normal, cut_is_open: true },
       ],
     };
-    refreshCombinedMeshFromComponents();
-    window.previewSolidMeshComponents?.(state.nifMeshComponents, { visible: true, opacity: 1 });
-    window.highlightSolidMeshComponent?.(state.activeMeshComponentId);
-    renderMeshComponents(state.nifMeshComponents);
-    window.commitStudioHistory?.();
-    updateComponentTransformButtons();
-    meshStatus(axis === 'support'
-      ? `Split ${component.id} using the detected oriented support plane. The two surfaces are independent; the new boundary remains open and no cap was invented.`
-      : `Split ${component.id} into two independent surfaces at ${axis.toUpperCase()}=${splitOffset}. The new boundary remains open and no cap was invented.`);
-  });
-  container.querySelector('#meshComponentUndoSplit')?.addEventListener('click', () => {
-    const state = window.S, snapshot = state?.meshComponentSplitUndo;
-    if (!state || !snapshot) return;
-    window.beginStudioHistory?.('Restore split mesh component');
-    state.nifMeshComponents = (state.nifMeshComponents || []).filter(component => !snapshot.partIds.includes(component.id));
-    state.nifMeshComponents.push(snapshot.source);
-    state.activeMeshComponentId = snapshot.source.id;
-    state.meshComponentSplitUndo = null;
-    state.nifMesh = null;
-    syncComponentDiagnosticsToMeta();
-    state.nifMeta = {
-      ...(state.nifMeta || {}),
-      mesh_components_edited: true,
-      mesh_component_splits: (state.nifMeta?.mesh_component_splits || []).slice(0, -1),
+    const idsForSplit = new Set([component.id, positive.id, negative.id]);\n    const afterPatch = {
+      ...beforePatch,
+      components: replacement.map(cloneForSplitHistory),
+      activeId: positive.id,
+      meshComponentsEdited: true,
+      splitRecords: state.nifMeta.mesh_component_splits.map(item => ({ ...item })),
+    };
+    const applySplitPatch = patch => {
+      const live = window.S;
+      if (!live) throw new Error('Studio state is unavailable');
+      const ids = new Set([patch.sourceId, ...patch.partIds]);
+      live.nifMeshComponents = (live.nifMeshComponents || []).filter(item => !ids.has(item.id));
+      live.nifMeshComponents.splice(Math.min(patch.index, live.nifMeshComponents.length), 0,
+        ...patch.components.map(cloneForSplitHistory));
+      live.activeMeshComponentId = patch.activeId;
+      live.nifMesh = null;
+      live.nifMeta = {
+        ...(live.nifMeta || {}),
+        mesh_components_edited: patch.meshComponentsEdited,
+        mesh_component_splits: patch.splitRecords.map(item => ({ ...item })),
+      };
+      syncComponentDiagnosticsToMeta();
+      refreshCombinedMeshFromComponents();
+      window.previewSolidMeshComponents?.(live.nifMeshComponents, { visible: true, opacity: 1 });
+      window.highlightSolidMeshComponent?.(live.activeMeshComponentId);
+      renderMeshComponents(live.nifMeshComponents);
+      updateComponentTransformButtons();
+      updateSupportPlaneControls();
     };
     refreshCombinedMeshFromComponents();
     window.previewSolidMeshComponents?.(state.nifMeshComponents, { visible: true, opacity: 1 });
     window.highlightSolidMeshComponent?.(state.activeMeshComponentId);
     renderMeshComponents(state.nifMeshComponents);
-    window.commitStudioHistory?.();
+    try {
+      const committed = window.commitStudioPatch?.('Split mesh component', {
+        before: beforePatch,
+        after: afterPatch,
+        capturePatch: () => {
+          const live = window.S;
+          const indices = [];
+          live.nifMeshComponents.forEach((item, index) => {
+            if (beforePatch.partIds.includes(item.id) || item.id === beforePatch.sourceId) indices.push(index);
+          });
+          const current = live.nifMeshComponents.filter(item => idsForSplit.has(item.id));
+          return {
+            ...afterPatch,
+            index: indices.length ? Math.min(...indices) : afterPatch.index,
+            components: current.map(cloneForSplitHistory),
+            activeId: live.activeMeshComponentId,
+            meshComponentsEdited: live.nifMeta?.mesh_components_edited === true,
+            splitRecords: (live.nifMeta?.mesh_component_splits || []).map(item => ({ ...item })),
+          };
+        },
+        applyPatch: applySplitPatch,
+      });
+      if (committed === false) throw new Error('The split could not be retained in Studio Undo history');
+    } catch (error) {
+      applySplitPatch(beforePatch);
+      meshStatus('Split was rolled back: ' + (error.message || String(error)));
+      return;
+    }
     updateComponentTransformButtons();
-    meshStatus('Undid the most recent plane split. The original component geometry has been restored.');
+    meshStatus(axis === 'support'
+      ? `Split ${component.id} using the detected oriented support plane. The two surfaces are independent; the new boundary remains open and no cap was invented.`
+      : `Split ${component.id} into two independent surfaces at ${axis.toUpperCase()}=${splitOffset}. The new boundary remains open and no cap was invented.`);
   });
   container.querySelector('#meshComponentUndoTransform')?.addEventListener('click', () => {
     const state = window.S, component = selectedMeshComponent();
