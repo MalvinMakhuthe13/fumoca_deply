@@ -352,23 +352,33 @@ function historyValuesEqual(a, b, seen = new WeakMap()) {
 }
 
 function estimateHistoryBytes(value, seen = new Set()) {
-  if (value == null || typeof value !== 'object' || seen.has(value)) return 0;
+  if (value == null) return 0;
+  if (typeof value === 'string') return value.length * 2;
+  if (typeof value === 'number' || typeof value === 'bigint') return 8;
+  if (typeof value === 'boolean') return 4;
+  if (typeof value !== 'object' || seen.has(value)) return 0;
   seen.add(value);
-  if (ArrayBuffer.isView(value)) return value.byteLength;
-  if (value instanceof ArrayBuffer) return value.byteLength;
+  if (ArrayBuffer.isView(value)) return value.byteLength + 16;
+  if (value instanceof ArrayBuffer) return value.byteLength + 16;
   if (value instanceof Map) {
-    let bytes = 0;
-    for (const [key, item] of value) bytes += estimateHistoryBytes(key, seen) + estimateHistoryBytes(item, seen);
+    let bytes = 48;
+    for (const [key, item] of value) bytes += 16 + estimateHistoryBytes(key, seen) + estimateHistoryBytes(item, seen);
     return bytes;
   }
   if (value instanceof Set) {
-    let bytes = 0;
+    let bytes = 40;
+    for (const item of value) bytes += 8 + estimateHistoryBytes(item, seen);
+    return bytes;
+  }
+  if (Array.isArray(value)) {
+    let bytes = 24 + value.length * 8;
     for (const item of value) bytes += estimateHistoryBytes(item, seen);
     return bytes;
   }
-  if (Array.isArray(value)) return value.reduce((sum, item) => sum + estimateHistoryBytes(item, seen), 0);
-  let bytes = 0;
-  for (const [key, item] of Object.entries(value)) bytes += key.length * 2 + estimateHistoryBytes(item, seen);
+  let bytes = 32;
+  for (const [key, item] of Object.entries(value)) {
+    bytes += key.length * 2 + 8 + estimateHistoryBytes(item, seen);
+  }
   return bytes;
 }
 
