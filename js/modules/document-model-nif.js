@@ -45,6 +45,7 @@ export function encodeDocumentModelChunk(model) {
     documentId: model.documentId,
     revision: model.revision,
     nextGaussianId: model.nextGaussianId,
+    activeComponentId: model.activeComponentId ?? null,
     source: model.source ?? null,
     reconstruction: model.reconstruction ?? null,
     lineage: model.lineage ?? [],
