@@ -25,6 +25,7 @@ import {
   decompressChunk, decodePhysicsChunk,
   decodeCalibrationChunk, decodeVerificationChunk,
 } from '../../engine-next/format/NIFSpec.js';
+import { encodeDocumentModelChunk, decodeDocumentModelChunk } from './document-model-nif.js';
 
 const FLOATS_PER_POINT = 14;
 
@@ -383,6 +384,11 @@ export function encodeNif(opts = {}) {
     writer.add(CHUNK.MESH_COMPONENTS, encodeMeshComponentsChunk(opts.meshComponents), CODEC.RAW);
   }
 
+  // Stable Gaussian identities and component lineage travel with the geometry.
+  if (opts.documentModel) {
+    writer.add(CHUNK.DOCUMENT_MODEL, encodeDocumentModelChunk(opts.documentModel), CODEC.RAW);
+  }
+
   // LiDAR measurements are per-point attributes. Store them in a separate
   // optional NIF chunk so RGB rendering palettes never overwrite source data.
   const lidar = opts.lidarAttributes;
@@ -426,7 +432,11 @@ export function encodeNif(opts = {}) {
   // discarded everything except geometry — cameras, depth maps, meshes,
   // print-ready STL, and the poster thumbnail all vanished on first save.
   if (Array.isArray(opts.passthroughChunks)) {
-    for (const chunk of opts.passthroughChunks) writer.chunks.push(chunk);
+    for (const chunk of opts.passthroughChunks) {
+      // Rebuilt chunks must not be duplicated by the original-file passthrough.
+      if (opts.documentModel && chunk.type === CHUNK.DOCUMENT_MODEL) continue;
+      writer.chunks.push(chunk);
+    }
   }
 
   return writer.build().buffer;
@@ -585,8 +595,10 @@ export async function decodeNif(arrayBuffer) {
   // this doesn't change the calling convention.
   const meshBytes = await readBytes(CHUNK.KEYFRAME_MESH);
   const componentBytes = await readBytes(CHUNK.MESH_COMPONENTS);
+  const documentModelBytes = await readBytes(CHUNK.DOCUMENT_MODEL);
   const mesh = await decodeMeshBytes(meshBytes);
   const meshComponents = decodeMeshComponentsBytes(componentBytes);
+  const documentModel = decodeDocumentModelChunk(documentModelBytes);
 
   let lidarAttributes = null;
   const lidarBytes = await readBytes(CHUNK.LIDAR_ATTR);
@@ -608,7 +620,7 @@ export async function decodeNif(arrayBuffer) {
     } catch (err) { console.warn('[nif-format] LiDAR attributes ignored:', err.message); }
   }
 
-  return { reader, meta, thumbnailBytes, gaussians: geometry, calibration, verification, mesh, meshComponents, lidarAttributes };
+  return { reader, meta, thumbnailBytes, gaussians: geometry, calibration, verification, mesh, meshComponents, documentModel, lidarAttributes };
 }
 
 // ── Draco decoder — lazily created, reused across every mesh this session.
