@@ -1320,6 +1320,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     updateSupportPlaneControls();
     meshStatus('Restored deleted component ' + snapshot.source.id + ' with its geometry and Gaussian membership.');
   });
+  container.querySelector('#meshComponentUndoLink')?.addEventListener('click', undoGaussianMembershipLink);
   const updateMeshPreview = () => {
     const visible = !!container.querySelector('#meshPreviewToggle')?.checked;
     if (window.S?.nifMeshComponents?.length) {
