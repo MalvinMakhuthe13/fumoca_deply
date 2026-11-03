@@ -203,7 +203,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       (Array.isArray(candidate.normal) && candidate.normal.length === 3
         && candidate.normal.every(value => Number.isFinite(Number(value)))
         && Number.isFinite(Number(candidate.offset)))
-      || Number.isFinite(Number(candidate.y))
+      || (candidate.y !== null && candidate.y !== undefined && Number.isFinite(Number(candidate.y)))
     ));
     const levelButton = container.querySelector('#meshLevelSupportPlane');
     const undoButton = container.querySelector('#meshUndoSupportLevel');
@@ -226,7 +226,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     let normalValues = Array.isArray(candidate.normal) ? candidate.normal.map(Number) : [0, 1, 0];
     let offset = Number(candidate.offset);
     if (!normalValues.every(Number.isFinite) || normalValues.length !== 3) {
-      if (!Number.isFinite(Number(candidate.y))) {
+      if (candidate.y === null || candidate.y === undefined || !Number.isFinite(Number(candidate.y))) {
         meshStatus('The detected support plane has no usable normal and offset.');
         return false;
       }
@@ -393,7 +393,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
   const syncNifMesh = (mesh) => {
     lastMeshData = mesh || null;
     const supportSuggestion = window.S?.nifMeta?.mesh_diagnostics?.support_plane_candidate;
-    if (supportSuggestion?.detected && Number.isFinite(Number(supportSuggestion.y))) {
+    if (supportSuggestion?.detected && supportSuggestion.y !== null && supportSuggestion.y !== undefined && Number.isFinite(Number(supportSuggestion.y))) {
       const splitY = container.querySelector('#meshComponentSplitY');
       if (splitY) splitY.value = String(Number(supportSuggestion.y).toFixed(5));
     }
@@ -1100,7 +1100,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
           };
           const supportSuggestion = decoded.meta?.mesh_diagnostics?.support_plane_candidate;
           if (supportSuggestion?.detected) {
-            if (Number.isFinite(Number(supportSuggestion.y))) {
+            if (supportSuggestion.y !== null && supportSuggestion.y !== undefined && Number.isFinite(Number(supportSuggestion.y))) {
               const splitY = container.querySelector('#meshComponentSplitY');
               if (splitY) splitY.value = String(Number(supportSuggestion.y).toFixed(5));
               meshStatus('A lower horizontal support plane was detected with ' +
