@@ -216,7 +216,11 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
           opacity: Number(container.querySelector('#meshPreviewOpacity')?.value || 0.38),
         });
       }
-      lastMeshStats = FumocMeshExtractor.validateWatertight(lastMeshData);
+      lastMeshStats = {
+        ...(window.S?.nifMeta?.mesh_diagnostics || {}),
+        ...FumocMeshExtractor.validateWatertight(lastMeshData),
+      };
+      renderMeshDiagnostics(lastMeshStats);
       lastMesh = makeMeshBlob();
       // Keep the source Gaussian layer visible. The default is a true hybrid
       // view: original splat + reconstructed mesh, independently toggleable.
@@ -548,7 +552,9 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       ? ` · TSDF batches ${Number(stats.tsdf_fusion_batches)}` : '';
     const repair = stats.surface_repair
       ? ` · Evidence-gated repair ${Number(stats.surface_repair.filled_loops || 0)} filled / ${Number(stats.surface_repair.rejected_loops || 0)} rejected` : '';
-    el.textContent = `Components: ${components} · Triangles: ${triangles.toLocaleString()} · Open edges: ${open.toLocaleString()} · Non-manifold edges: ${nonManifold.toLocaleString()} · ${watertight ? 'Watertight' : 'Open surface'}${coverage}${confidence}${normalComponents}${batches}${repair}`;
+    const support = stats.support_plane_candidate?.detected
+      ? ` · Support plane Y=${Number(stats.support_plane_candidate.y).toFixed(4)} (${Math.round(Number(stats.support_plane_candidate.confidence || 0) * 100)}%)` : '';
+    el.textContent = `Components: ${components} · Triangles: ${triangles.toLocaleString()} · Open edges: ${open.toLocaleString()} · Non-manifold edges: ${nonManifold.toLocaleString()} · ${watertight ? 'Watertight' : 'Open surface'}${coverage}${confidence}${normalComponents}${batches}${repair}${support}`;
   };
   const makeMeshBlob = () => {
     if (!lastMeshData) return null;
