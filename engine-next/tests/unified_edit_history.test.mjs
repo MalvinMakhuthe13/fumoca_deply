@@ -191,6 +191,49 @@ test('restore failures do not advance undo/redo cursor', () => {
   assert.equal(history.state().error, 'renderer refused snapshot');
 });
 
+test('partially failed undo and redo restores are rolled back before cursor movement', () => {
+  const state = fixture();
+  let failUndoOnce = true;
+  let failRedoOnce = true;
+  const history = new UnifiedEditHistory({
+    capture: () => clone(state),
+    restore: (snapshot, context) => {
+      if (context.direction === 'undo' && failUndoOnce) {
+        failUndoOnce = false;
+        state.gaussian[0] = -101; // simulate a renderer/model adapter failing mid-restore
+        throw new Error('undo restore failed halfway');
+      }
+      if (context.direction === 'redo' && failRedoOnce) {
+        failRedoOnce = false;
+        state.gaussian[0] = -202;
+        throw new Error('redo restore failed halfway');
+      }
+      for (const key of Object.keys(state)) delete state[key];
+      Object.assign(state, clone(snapshot));
+    },
+  });
+
+  state.gaussian[0] = 10;
+  history.commit('Move and clean');
+  assert.throws(() => history.undo(), /undo restore failed halfway/);
+  assert.equal(state.gaussian[0], 10);
+  assert.equal(history.state().cursor, 1);
+  assert.equal(history.canUndo(), true);
+
+  assert.equal(history.undo(), true);
+  assert.equal(state.gaussian[0], 0);
+  assert.equal(history.state().cursor, 0);
+
+  assert.throws(() => history.redo(), /redo restore failed halfway/);
+  assert.equal(state.gaussian[0], 0);
+  assert.equal(history.state().cursor, 0);
+  assert.equal(history.canRedo(), true);
+
+  assert.equal(history.redo(), true);
+  assert.equal(state.gaussian[0], 10);
+  assert.equal(history.state().cursor, 1);
+});
+
 test('uncommitted gesture does not create extra history entries', () => {
   const state = fixture();
   const history = makeHistory(state);
