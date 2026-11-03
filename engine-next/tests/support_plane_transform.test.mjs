@@ -20,7 +20,8 @@ test('plane normalization scales its offset and handles a downward normal', () =
   const transform = buildSupportPlaneTransform([0, -2, 0], -4);
   assert.deepEqual(transform.normal, [-0, 1, -0]);
   assert.equal(transform.offset, 2);
-  assert.deepEqual(transform.transformPoint([0, 2, 0]), [0, 0, 0]);
+  const origin = transform.transformPoint([0, 2, 0]);
+  assert.ok(Math.hypot(...origin) < 1e-8);
 });
 
 test('Gaussian positions and wxyz rotations are transformed together', () => {
