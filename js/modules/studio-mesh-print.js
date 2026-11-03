@@ -612,7 +612,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       return false;
     }
     if (result.unchanged) {
-      meshStatus(`No closed support-plane boundary loop could be capped. Skipped open: ${result.skippedOpen}; non-planar: ${result.skippedNonPlanar}; invalid outline: ${result.skippedTriangulation}. No geometry changed.`);
+      meshStatus(`No safe support-plane cap was made. Planar loops found: ${result.skippedMultipleLoops || 0}; skipped open: ${result.skippedOpen}; non-planar: ${result.skippedNonPlanar}; invalid outline: ${result.skippedTriangulation}. Multiple coplanar loops are refused to protect holes and ring-shaped bases.`);
       return false;
     }
     const diagnostics = FumocMeshExtractor.validateWatertight(result.mesh);
