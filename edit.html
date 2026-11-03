@@ -3735,10 +3735,17 @@ function updateHistoryBtns() {
 }
 window.beginStudioHistory = label => pushHistory(label);
 window.commitStudioHistory = () => flushPendingUnifiedHistory();
+window.syncStudioDocumentModelFromMesh = () => {
+  if (Array.isArray(S.nifMeshComponents) && S.documentModel) {
+    S.documentModel = syncDocumentComponentsFromMesh(S.documentModel, S.nifMeshComponents, S.activeMeshComponentId);
+  }
+  return S.documentModel || null;
+};
 window.commitStudioPatch = (label, options) => {
   if (_pendingUnifiedHistory) throw new Error('Cannot commit a scoped patch while a full-snapshot edit is pending');
   const applyPatch = options?.applyPatch;
   if (typeof applyPatch !== 'function') throw new TypeError('A scoped patch requires applyPatch');
+  window.syncStudioDocumentModelFromMesh();
   return studioEditHistory.commitPatch(label, {
     ...options,
     applyPatch: (patch, context) => {
