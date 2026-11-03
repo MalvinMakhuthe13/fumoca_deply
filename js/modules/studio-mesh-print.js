@@ -270,6 +270,17 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
   };
 
   const updateSupportPlaneControls = () => {
+    const state = window.S;
+    if (state?.supportPlaneTrimUndo
+        && (computeGaussianSourceSignature(state) !== state.supportPlaneTrimUndo.sourceSignatureAfter
+          || meshStateSignature(state.nifMesh, state.nifMeshComponents) !== state.supportPlaneTrimUndo.meshSignatureAfter)) {
+      state.supportPlaneTrimUndo = null;
+    }
+    if (supportLevelUndo
+        && (computeGaussianSourceSignature(state) !== supportLevelUndo.leveledSourceSignature
+          || meshStateSignature(state.nifMesh, state.nifMeshComponents) !== supportLevelUndo.leveledMeshSignature)) {
+      supportLevelUndo = null;
+    }
     const candidate = getSupportPlaneCandidate();
     const hasPlane = !!(candidate?.detected && (
       (Array.isArray(candidate.normal) && candidate.normal.length === 3
