@@ -1160,6 +1160,46 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     window.commitStudioHistory?.();
   });
   const selectedMeshComponent = () => (window.S?.nifMeshComponents || []).find(component => component.id === window.S?.activeMeshComponentId);
+  const captureGaussianMembershipPatch = (state) => ({
+    activeId: state.activeMeshComponentId || null,
+    components: (state.nifMeshComponents || []).map(component => ({
+      id: component.id,
+      gaussianIds: Uint32Array.from(component.gaussianIds || []),
+      diagnostics: { ...(component.diagnostics || {}) },
+      provenance: { ...(component.provenance || {}) },
+    })),
+  });
+  const applyGaussianMembershipPatch = (patch) => {
+    const state = window.S;
+    if (!state) throw new Error('Studio state is unavailable');
+    const byId = new Map((patch.components || []).map(item => [item.id, item]));
+    const live = state.nifMeshComponents || [];
+    for (const component of live) {
+      const saved = byId.get(component.id);
+      if (!saved) continue;
+      component.gaussianIds = Uint32Array.from(saved.gaussianIds || []);
+      component.diagnostics = { ...(saved.diagnostics || {}) };
+      component.provenance = { ...(saved.provenance || {}) };
+    }
+    state.activeMeshComponentId = patch.activeId;
+    syncComponentDiagnosticsToMeta();
+    renderMeshComponents(live);
+    updateComponentTransformButtons();
+    updateSupportPlaneControls();
+  };
+  const commitGaussianMembershipPatch = (label, before, after) => {
+    const committed = window.commitStudioPatch?.(label, {
+      before,
+      after,
+      capturePatch: () => captureGaussianMembershipPatch(window.S),
+      applyPatch: applyGaussianMembershipPatch,
+    });
+    if (committed === false || typeof window.commitStudioPatch !== 'function') {
+      applyGaussianMembershipPatch(before);
+      throw new Error('The membership edit could not be retained in Studio Undo history');
+    }
+    return true;
+  };
   const linkSelectedGaussiansToComponent = (targetComponent) => {
     const state = window.S;
     if (!state?.selected || !state?.alive || !state.documentModel?.gaussianIds?.length || !targetComponent) return false;
@@ -1167,8 +1207,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       meshStatus('Support-platform components are protected from Gaussian ownership. Link selected splats to the object component instead.');
       return false;
     }
-    // Do not treat the temporary trim-preview selection as a user's ownership
-    // assignment. Restore the real selection before collecting IDs.
     if (state.supportPlaneTrimPreview) clearSupportTrimPreview(true);
     const selectedIds = [];
     for (let row = 0; row < state.selected.length; row++) {
@@ -1178,51 +1216,31 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       meshStatus('Select live Gaussian splats first, then link that selection to the active mesh component.');
       return false;
     }
-    const before = (state.nifMeshComponents || []).map(component => ({
-      id: component.id,
-      gaussianIds: component.gaussianIds?.slice?.() || new Uint32Array(),
-      diagnostics: component.diagnostics,
-      provenance: component.provenance,
-    }));
+    const before = captureGaussianMembershipPatch(state);
     const selectedSet = new Set(selectedIds);
-    window.beginStudioHistory?.('Link selected Gaussian splats');
     state.nifMeshComponents = (state.nifMeshComponents || []).map(component => {
       const existing = Array.from(component.gaussianIds || []);
-      if (component.id === targetComponent.id) {
-        const combined = new Set(existing);
-        for (const id of selectedIds) combined.add(id);
-        return {
-          ...component,
-          gaussianIds: Uint32Array.from(combined),
-          diagnostics: {
-            ...(component.diagnostics || {}),
-            gaussian_membership_count: combined.size,
-            gaussian_membership_method: 'user-selected',
-          },
-          provenance: { ...(component.provenance || {}), gaussianMembership: 'user-selected' },
-        };
-      }
+      const retained = component.id === targetComponent.id
+        ? existing : existing.filter(id => !selectedSet.has(id));
+      const combined = component.id === targetComponent.id
+        ? new Set([...retained, ...selectedIds]) : retained;
+      const ids = component.id === targetComponent.id ? Uint32Array.from(combined) : Uint32Array.from(retained);
+      const method = component.id === targetComponent.id ? 'user-selected' : 'user-selected-adjusted';
       return {
         ...component,
-        gaussianIds: Uint32Array.from(existing.filter(id => !selectedSet.has(id))),
-        diagnostics: {
-          ...(component.diagnostics || {}),
-          gaussian_membership_count: existing.filter(id => !selectedSet.has(id)).length,
-          gaussian_membership_method: 'user-selected-adjusted',
-        },
-        provenance: { ...(component.provenance || {}), gaussianMembership: 'user-selected-adjusted' },
+        gaussianIds: ids,
+        diagnostics: { ...(component.diagnostics || {}), gaussian_membership_count: ids.length, gaussian_membership_method: method },
+        provenance: { ...(component.provenance || {}), gaussianMembership: method },
       };
     });
     state.activeMeshComponentId = targetComponent.id;
-    state.meshComponentMembershipUndo = {
-      before,
-      afterSignature: meshStateSignature(state.nifMesh, state.nifMeshComponents),
-    };
-    syncComponentDiagnosticsToMeta();
-    window.commitStudioHistory?.();
-    renderMeshComponents(state.nifMeshComponents);
-    updateComponentTransformButtons();
-    updateSupportPlaneControls();
+    const after = captureGaussianMembershipPatch(state);
+    try {
+      commitGaussianMembershipPatch('Link selected Gaussian splats', before, after);
+    } catch (error) {
+      meshStatus('Link was rolled back: ' + (error.message || String(error)));
+      return false;
+    }
     meshStatus(`Linked ${selectedIds.length.toLocaleString()} selected Gaussian splats exclusively to ${targetComponent.id}. Other component memberships were updated to avoid overlap.`);
     return true;
   };
@@ -1239,14 +1257,8 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       meshStatus('Select live Gaussian splats first, then unlink them from mesh components.');
       return false;
     }
-    const before = (state.nifMeshComponents || []).map(component => ({
-      id: component.id,
-      gaussianIds: component.gaussianIds?.slice?.() || new Uint32Array(),
-      diagnostics: component.diagnostics,
-      provenance: component.provenance,
-    }));
+    const before = captureGaussianMembershipPatch(state);
     let removedCount = 0;
-    window.beginStudioHistory?.('Unlink selected Gaussian splats');
     state.nifMeshComponents = (state.nifMeshComponents || []).map(component => {
       const existing = Array.from(component.gaussianIds || []);
       const retained = existing.filter(id => !selectedIds.has(id));
@@ -1256,59 +1268,22 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       return {
         ...component,
         gaussianIds: Uint32Array.from(retained),
-        diagnostics: {
-          ...(component.diagnostics || {}),
-          gaussian_membership_count: retained.length,
-          gaussian_membership_method: 'user-unlinked',
-        },
+        diagnostics: { ...(component.diagnostics || {}), gaussian_membership_count: retained.length, gaussian_membership_method: 'user-unlinked' },
         provenance: { ...(component.provenance || {}), gaussianMembership: 'user-unlinked' },
       };
     });
     if (!removedCount) {
-      window.cancelStudioHistory?.();
       meshStatus('None of the selected splats were linked to a mesh component.');
       return false;
     }
-    state.meshComponentMembershipUndo = {
-      before,
-      afterSignature: meshStateSignature(state.nifMesh, state.nifMeshComponents),
-    };
-    syncComponentDiagnosticsToMeta();
-    window.commitStudioHistory?.();
-    renderMeshComponents(state.nifMeshComponents);
-    updateComponentTransformButtons();
-    updateSupportPlaneControls();
-    meshStatus(`Unlinked ${removedCount.toLocaleString()} Gaussian splat membership assignment(s). The splats remain in the original Gaussian layer; mesh geometry was not deleted.`);
-    return true;
-  };
-
-  const undoGaussianMembershipLink = () => {
-    const state = window.S, snapshot = state?.meshComponentMembershipUndo;
-    if (!state || !snapshot) return false;
-    if (meshStateSignature(state.nifMesh, state.nifMeshComponents) !== snapshot.afterSignature) {
-      state.meshComponentMembershipUndo = null;
-      updateComponentTransformButtons();
-      meshStatus('Undo link is no longer safe because component geometry, visibility or membership changed. Newer edits were preserved.');
+    const after = captureGaussianMembershipPatch(state);
+    try {
+      commitGaussianMembershipPatch('Unlink selected Gaussian splats', before, after);
+    } catch (error) {
+      meshStatus('Unlink was rolled back: ' + (error.message || String(error)));
       return false;
     }
-    window.beginStudioHistory?.('Restore Gaussian component membership');
-    const before = new Map(snapshot.before.map(item => [item.id, item]));
-    state.nifMeshComponents = (state.nifMeshComponents || []).map(component => {
-      const prior = before.get(component.id);
-      return prior ? {
-        ...component,
-        gaussianIds: prior.gaussianIds.slice(),
-        diagnostics: prior.diagnostics,
-        provenance: prior.provenance,
-      } : component;
-    });
-    state.meshComponentMembershipUndo = null;
-    syncComponentDiagnosticsToMeta();
-    window.commitStudioHistory?.();
-    renderMeshComponents(state.nifMeshComponents);
-    updateComponentTransformButtons();
-    updateSupportPlaneControls();
-    meshStatus('Restored the previous Gaussian membership assignments for all components.');
+    meshStatus(`Unlinked ${removedCount.toLocaleString()} Gaussian splat membership assignment(s). The splats remain in the original Gaussian layer; mesh geometry was not deleted.`);
     return true;
   };
 
