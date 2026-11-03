@@ -582,3 +582,43 @@ test('legacy snapshot edits can follow scoped patches after an explicit pre-muta
   assert.equal(history.redo(), true);
   assert.equal(state.gaussianValue, 2);
 });
+
+
+test('component transform patch restores exact geometry and authored metadata without full-scene capture', () => {
+  const component = { id: 'body', vertices: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]) };
+  const state = { component, meshComponentsEdited: false };
+  let fullCaptures = 0;
+  const history = new UnifiedEditHistory({
+    capture: () => { fullCaptures++; return { vertices: state.component.vertices.slice(), meshComponentsEdited: state.meshComponentsEdited }; },
+    restore: snapshot => {
+      state.component.vertices.set(snapshot.vertices);
+      state.meshComponentsEdited = snapshot.meshComponentsEdited;
+    },
+  });
+  const capturePatch = () => ({
+    id: component.id,
+    vertices: component.vertices.slice(),
+    meshComponentsEdited: state.meshComponentsEdited,
+  });
+  const before = capturePatch();
+  component.vertices[0] = 4.25;
+  component.vertices[4] = -2.5;
+  state.meshComponentsEdited = true;
+  const after = capturePatch();
+  assert.equal(history.commitPatch('Transform component', {
+    before, after, capturePatch,
+    applyPatch: patch => {
+      assert.equal(patch.id, component.id);
+      component.vertices.set(patch.vertices);
+      state.meshComponentsEdited = patch.meshComponentsEdited;
+    },
+  }), true);
+  assert.equal(fullCaptures, 1, 'transform patch must not capture full scene');
+  assert.equal(history.undo(), true);
+  assert.deepEqual(Array.from(component.vertices), [0, 0, 0, 1, 0, 0, 0, 1, 0]);
+  assert.equal(state.meshComponentsEdited, false);
+  assert.equal(history.redo(), true);
+  assert.deepEqual(Array.from(component.vertices), [4.25, 0, 0, 1, -2.5, 0, 0, 1, 0]);
+  assert.equal(state.meshComponentsEdited, true);
+  assert.equal(fullCaptures, 1, 'transform patch undo/redo must not capture full scene');
+});
