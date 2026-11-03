@@ -298,3 +298,44 @@ test('identical before and after snapshots are not recorded', () => {
   assert.equal(history.state().count, 1);
   assert.equal(history.canUndo(), true);
 });
+
+
+test('cancelPending restores the pre-mutation baseline without adding history', () => {
+  const state = { positions: new Float32Array([1, 2, 3]), visible: true };
+  const history = new UnifiedEditHistory({
+    capture: () => ({ positions: state.positions, visible: state.visible }),
+    restore: snapshot => {
+      state.positions = snapshot.positions;
+      state.visible = snapshot.visible;
+    },
+  });
+
+  state.positions[0] = 99;
+  state.visible = false;
+  assert.equal(history.cancelPending(), true);
+  assert.deepEqual([...state.positions], [1, 2, 3]);
+  assert.equal(state.visible, true);
+  assert.equal(history.state().count, 0);
+  assert.equal(history.canUndo(), false);
+  assert.equal(history.canRedo(), false);
+});
+
+test('cancelPending rolls back to the mutated state if baseline restoration fails', () => {
+  const state = { value: 1, failNext: false };
+  const history = new UnifiedEditHistory({
+    capture: () => ({ value: state.value }),
+    restore: snapshot => {
+      if (state.failNext) {
+        state.failNext = false;
+        throw new Error('restore failed');
+      }
+      state.value = snapshot.value;
+    },
+  });
+
+  state.value = 2;
+  state.failNext = true;
+  assert.throws(() => history.cancelPending(), /restore failed/);
+  assert.equal(state.value, 2);
+  assert.match(history.state().error, /restore failed/);
+});
