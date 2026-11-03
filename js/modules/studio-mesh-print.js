@@ -891,8 +891,8 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     }
   };
 
-  const syncNifMesh = (mesh) => {
-    if (mesh !== lastMeshData) {
+  const syncNifMesh = (mesh, { preserveRecoveryState = false } = {}) => {
+    if (!preserveRecoveryState && mesh !== lastMeshData) {
         if (window.S) {
         window.S.meshComponentDeleteUndo = null;
         window.S.meshComponentSplitUndo = null;
@@ -1727,7 +1727,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       return mesh;
     }
     if (state.nifMesh) {
-      syncNifMesh(state.nifMesh);
+      syncNifMesh(state.nifMesh, { preserveRecoveryState: true });
       return lastMeshData;
     }
     lastMeshData = null;
