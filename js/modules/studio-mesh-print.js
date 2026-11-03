@@ -198,6 +198,32 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     || window.S?.nifMeta?.support_plane_candidate
     || null;
 
+  const meshStateSignature = (mesh, components = []) => {
+    let hash = 0x811c9dc5;
+    const view = new DataView(new ArrayBuffer(4));
+    const feed = value => { hash = Math.imul(hash ^ (Number(value) >>> 0), 0x01000193) >>> 0; };
+    const feedText = value => { for (const char of String(value ?? '')) feed(char.charCodeAt(0)); };
+    const feedArray = (array, floating) => {
+      if (!array) { feed(0); return; }
+      feed(array.length);
+      for (const value of array) {
+        if (floating) { view.setFloat32(0, Number(value), true); feed(view.getUint32(0, true)); }
+        else feed(value);
+      }
+    };
+    feedText(mesh ? 'mesh' : 'no-mesh');
+    feedArray(mesh?.vertices, true);
+    feedArray(mesh?.triangles, false);
+    for (const component of components || []) {
+      feedText(component.id);
+      feed(component.visible === false ? 0 : 1);
+      feed(component.supportSurfaceCandidate ? 1 : 0);
+      feedArray(component.vertices, true);
+      feedArray(component.triangles, false);
+    }
+    return hash.toString(16).padStart(8, '0');
+  };
+
   const updateSupportPlaneControls = () => {
     const candidate = getSupportPlaneCandidate();
     const hasPlane = !!(candidate?.detected && (
@@ -351,6 +377,8 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       }
       lastMeshSourceSignature = state.nifMeta.dual_surface_source_signature;
       lastMesh = nextLastMesh;
+      previous.leveledSourceSignature = computeGaussianSourceSignature(state);
+      previous.leveledMeshSignature = meshStateSignature(state.nifMesh, state.nifMeshComponents);
       supportLevelUndo = previous;
       try { await window.refreshGaussianSourceBytes?.(); }
       catch (sourceError) { console.warn('[Studio mesh] Levelled geometry but could not refresh Gaussian PLY bytes:', sourceError); }
@@ -380,6 +408,13 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     if (!supportLevelUndo || !window.S) return false;
     const state = window.S;
     const previous = supportLevelUndo;
+    if (computeGaussianSourceSignature(state) !== previous.leveledSourceSignature
+        || meshStateSignature(state.nifMesh, state.nifMeshComponents) !== previous.leveledMeshSignature) {
+      supportLevelUndo = null;
+      updateSupportPlaneControls();
+      meshStatus('Undo leveling is no longer safe because the Gaussian or mesh scene has changed since leveling. The newer edits have been preserved.');
+      return false;
+    }
     state.positions = previous.positions;
     state.rotation = previous.rotation;
     state.nifMesh = previous.nifMesh;
