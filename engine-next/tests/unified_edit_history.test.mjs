@@ -418,7 +418,7 @@ test('live mesh reconciliation preserves deleted ancestors and inserts split chi
     documentId: 'split-sync-doc',
     gaussianIds: new Uint32Array([1, 2, 3, 4]),
     nextGaussianId: 5,
-    activeComponentId: 'child-a',
+    activeComponentId: 'parent',
     components: [
       { id: 'parent', gaussianIds: new Uint32Array([1, 2, 3, 4]), visible: true },
     ],
