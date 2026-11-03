@@ -1977,6 +1977,7 @@ const studioEditHistory = new UnifiedEditHistory({
     paintColors: S.paintColors,
     shCoefficients: S.shCoefficients,
     documentModel: S.documentModel || null,
+    nifMesh: S.nifMesh || null,
     nifMeshComponents: S.nifMeshComponents || [],
     activeMeshComponentId: S.activeMeshComponentId || null,
     nifMeta: S.nifMeta || null,
@@ -1994,6 +1995,7 @@ const studioEditHistory = new UnifiedEditHistory({
       S[key] = snapshot[key] == null ? null : snapshot[key];
     }
     S.documentModel = snapshot.documentModel;
+    S.nifMesh = snapshot.nifMesh;
     S.nifMeshComponents = snapshot.nifMeshComponents || [];
     S.activeMeshComponentId = snapshot.activeMeshComponentId;
     S.nifMesh = null;
@@ -2008,8 +2010,12 @@ const studioEditHistory = new UnifiedEditHistory({
     S.pivot = snapshot.pivot ? new THREE.Vector3(...snapshot.pivot) : null;
     rebuildGeometry();
     _refreshSceneReference(true);
-    window.refreshStudioCombinedMeshFromComponents?.();
-    window.previewSolidMeshComponents?.(S.nifMeshComponents || [], { visible: true, opacity: 0.95 });
+    if (S.nifMeshComponents?.length) {
+      window.refreshStudioCombinedMeshFromComponents?.();
+      window.previewSolidMeshComponents?.(S.nifMeshComponents, { visible: true, opacity: 0.95 });
+    } else if (S.nifMesh) {
+      window.previewSolidMesh?.(S.nifMesh, { visible: true, opacity: 0.95 });
+    }
     syncTransformGizmo();
     renderMeasurementList();
     renderMeasurementOverlay();
