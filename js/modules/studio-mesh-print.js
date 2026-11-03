@@ -2,6 +2,7 @@ import FumocMeshExtractor from './fumoc-mesh-extractor.js';
 import { computeGaussianSourceSignature, compareGaussianSourceSignature } from './dual-surface-contract.js';
 import { exportSelectionAsFigurine, reconstructSceneWithOrientedSurfels, pollPrintJob } from './print-export.js';
 import { decodeNif } from './nif-format.js';
+import { createDocumentModel } from './document-model.js';
 import r2 from '../r2Client.js';
 import { supabase } from '../supabaseClient.js';
 
@@ -307,6 +308,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         nifMesh: state.nifMesh,
         nifMeshComponents: state.nifMeshComponents,
         nifMeta: state.nifMeta,
+        documentModel: state.documentModel,
         lastMeshData,
         lastMesh,
         lastMeshStats,
@@ -336,6 +338,13 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         },
       };
       state.nifMeta.dual_surface_source_signature = computeGaussianSourceSignature(state);
+      if (state.documentModel) {
+        state.documentModel = createDocumentModel({
+          ...state.documentModel,
+          revision: state.documentModel.revision + 1,
+          source: { ...(state.documentModel.source || {}), geometrySignature: state.nifMeta.dual_surface_source_signature },
+        });
+      }
       lastMeshSourceSignature = state.nifMeta.dual_surface_source_signature;
       lastMesh = nextLastMesh;
       supportLevelUndo = previous;
@@ -370,6 +379,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     state.nifMesh = previous.nifMesh;
     state.nifMeshComponents = previous.nifMeshComponents;
     state.nifMeta = previous.nifMeta;
+    state.documentModel = previous.documentModel;
     lastMeshData = previous.lastMeshData;
     lastMesh = previous.lastMesh;
     lastMeshStats = previous.lastMeshStats;
