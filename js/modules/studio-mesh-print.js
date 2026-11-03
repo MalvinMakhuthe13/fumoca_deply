@@ -269,9 +269,16 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       role.className = 'hint';
       role.textContent = component.supportSurfaceCandidate ? 'Support surface candidate' : '';
       role.style.color = component.supportSurfaceCandidate ? 'var(--neon)' : 'var(--muted)';
+      const diagnostics = component.diagnostics || component.stats || {};
+      const boundaryEdges = Number(diagnostics.n_boundary_edges ?? diagnostics.openEdges ?? 0);
+      const nonManifoldEdges = Number(diagnostics.n_nonmanifold_edges ?? diagnostics.nonManifoldEdges ?? 0);
+      const topology = document.createElement('span');
+      topology.className = 'hint';
+      topology.textContent = diagnostics.is_watertight || diagnostics.watertight
+        ? 'Watertight' : `Open ${boundaryEdges} · NM ${nonManifoldEdges}`;
       const faces = document.createElement('span');
       faces.className = 'hint'; faces.textContent = Number(component.triangles?.length || component.faces?.length || 0) / 3 + ' tris';
-      row.append(visible, select, isolate, role, faces);
+      row.append(visible, select, isolate, role, topology, faces);
       list.append(row);
     }
   };
