@@ -1344,7 +1344,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       state.documentModel.gaussianIds.forEach((id, index) => rowById.set(id, index));
       for (const gaussianId of memberIds) {
         const row = rowById.get(gaussianId);
-        if (row === undefined) continue;
+        if (row === undefined || (state.alive && !state.alive[row])) continue;
         const side = state.positions[row * 3] * normal[0]
           + state.positions[row * 3 + 1] * normal[1]
           + state.positions[row * 3 + 2] * normal[2] - splitOffset >= 0 ? 'positive' : 'negative';
