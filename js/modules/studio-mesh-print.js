@@ -320,7 +320,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
 
   const previewSupportPlaneTrim = () => {
     const state = window.S, component = selectedMeshComponent();
-    if (state?.supportPlaneTrimPreview?.componentId === component?.id) {
+    if (state?.supportPlaneTrimPreview && state.supportPlaneTrimPreview.componentId === component?.id) {
       clearSupportTrimPreview(true);
       meshStatus('Support-plane trim preview cleared. No geometry or Gaussian points were changed.');
       return false;
