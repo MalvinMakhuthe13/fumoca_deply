@@ -161,3 +161,10 @@ The worker's support-band calculation now handles one-surfel and empty-input cas
 Normal-orientation graph edges are now inserted in both directions before propagation. This makes connected-component traversal independent of asymmetric k-nearest-neighbour relationships and avoids seed-order-dependent sign propagation.
 
 Latest regression coverage includes finite support for a single surfel, rejection of an empty surfel set, supported versus distant query voxels, and separation of nearby parallel sheets. These safeguards are worker-side; they do not yet port oriented-surfel fusion into the browser Studio extractor.
+### Anisotropic Gaussian surfel footprints in TSDF fusion
+
+The oriented-surfel worker now passes each Gaussian's two non-normal rotation axes and their corresponding linear scales into TSDF fusion. Candidate support is evaluated in the Gaussian tangent frame using a 2D Mahalanobis footprint, while signed distance is measured along the component-oriented normal. The two tangent radii remain independent: a broad axis cannot widen a narrow edge in the perpendicular tangent direction.
+
+Support is still confidence-weighted and restricted to the nearest normal-graph component. The observed mask is true only when at least one same-component surfel supports the query inside its tangent footprint and truncation band. The tangent-scale floor is 0.1 voxel to avoid replacing genuine anisotropy with an artificially isotropic footprint. Missing or degenerate tangent frames are rejected.
+
+This improves worker-side surface evidence; it is not yet the browser Studio extraction path, semantic object segmentation, or a guarantee of closed geometry.
