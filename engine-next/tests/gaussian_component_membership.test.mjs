@@ -120,3 +120,21 @@ test('empty component list reports all eligible live splats as unassigned', () =
   assert.equal(result.unassignedCount, 2);
   assert.equal(result.preserved, true);
 });
+
+
+test('overlapping mesh-authored platform bounds do not block object membership', () => {
+  const object = component('object', 0, 1);
+  const platform = {
+    ...component('platform', -1, 2),
+    geometrySource: 'mesh-authored',
+    supportSurfaceCandidate: true,
+  };
+  const result = assignGaussianMemberships([object, platform], {
+    positions: new Float32Array([0.5,0.2,0]),
+    gaussianIds: new Uint32Array([77]),
+    margin: 0.1,
+  });
+  assert.equal(result.assignedCount, 1);
+  assert.deepEqual([...result.components[0].gaussianIds], [77]);
+  assert.deepEqual([...result.components[1].gaussianIds], []);
+});
