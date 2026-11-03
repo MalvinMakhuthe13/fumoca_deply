@@ -252,3 +252,28 @@ test('uncommitted gesture does not create extra history entries', () => {
   history.undo();
   assert.equal(state.gaussian[0], 0);
 });
+
+test('a single oversized snapshot is never retained beyond the configured byte budget', () => {
+  const state = { positions: new Float32Array(140_000) };
+  const history = new UnifiedEditHistory({
+    maxBytes: 1024 * 1024,
+    capture: () => ({ positions: new Float32Array(state.positions) }),
+    restore: (snapshot) => { state.positions.set(snapshot.positions); },
+  });
+
+  state.positions[0] = 17;
+  assert.equal(history.commit('Large scan-wide edit'), false);
+  assert.equal(history.state().count, 0);
+  assert.equal(history.state().bytes, 0);
+  assert.equal(history.canUndo(), false);
+  assert.match(history.state().error, /exceeds the 1048576-byte history budget/);
+
+  // The oversized edit is now the baseline; later small edits remain undoable.
+  state.positions = new Float32Array([1, 2, 3]);
+  history.clear();
+  state.positions[0] = 9;
+  assert.equal(history.commit('Small follow-up'), true);
+  assert.equal(history.canUndo(), true);
+  history.undo();
+  assert.deepEqual([...state.positions], [1, 2, 3]);
+});
