@@ -381,7 +381,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     const state = window.S, component = selectedMeshComponent();
     if (!state || !component) return;
     const y = Number(container.querySelector('#meshComponentSplitY')?.value);
-    if (!Number.isFinite(y)) { meshStatus('Enter a finite Y coordinate for the split plane.'); return; }
+    if (!Number.isFinite(y)) { meshStatus('Enter a finite coordinate for the selected split axis.'); return; }
     const axis = container.querySelector('#meshComponentSplitAxis')?.value || 'y';
     const axisIndex = ({ x: 0, y: 1, z: 2 })[axis];
     if (axisIndex === undefined) { meshStatus('Choose X, Y or Z for the split plane.'); return; }
@@ -398,6 +398,10 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     };
     const positiveDiagnostics = FumocMeshExtractor.validateWatertight(result.positive);
     const negativeDiagnostics = FumocMeshExtractor.validateWatertight(result.negative);
+    const supportSuggestion = state.nifMeta?.mesh_diagnostics?.support_plane_candidate;
+    const isSuggestedSupportSplit = axis === 'y' && supportSuggestion?.detected &&
+      Number.isFinite(Number(supportSuggestion.y)) &&
+      Math.abs(y - Number(supportSuggestion.y)) <= Math.max(Number(supportSuggestion.tolerance || 0), 1e-4);
     const positive = {
       ...result.positive, id: component.id + (axis === 'y' ? '-above' : '-' + axis + '-positive'),
       watertight: positiveDiagnostics.watertight,
@@ -413,11 +417,14 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       ...result.negative, id: component.id + (axis === 'y' ? '-below' : '-' + axis + '-negative'),
       watertight: negativeDiagnostics.watertight,
       visible: component.visible !== false,
-      supportSurfaceCandidate: axis === 'y', // only a lower horizontal Y split is a support candidate
+      supportSurfaceCandidate: !!isSuggestedSupportSplit, // only mark the lower half when it matches the detected support plane
       diagnostics: {
         ...negativeDiagnostics,
         n_boundary_edges: negativeDiagnostics.openEdges,
         n_nonmanifold_edges: negativeDiagnostics.nonManifoldEdges,
+        ...(isSuggestedSupportSplit ? {
+          support_plane_confidence: Number(supportSuggestion.confidence || 0),
+        } : {}),
       },
     };
     const replacement = [positive, negative].sort((a, b) => meanAxis(a) - meanAxis(b));
