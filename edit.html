@@ -1981,6 +1981,8 @@ const studioEditHistory = new UnifiedEditHistory({
     activeMeshComponentId: S.activeMeshComponentId || null,
     nifMeta: S.nifMeta || null,
     layerHidden: S.layerHidden || null,
+    layers: S.layers || [],
+    activeLayerId: S.activeLayerId || null,
     supportPlaneTrimUndo: S.supportPlaneTrimUndo || null,
     meshComponentCapUndo: S.meshComponentCapUndo || null,
     meshComponentMembershipUndo: S.meshComponentMembershipUndo || null,
@@ -1994,12 +1996,13 @@ const studioEditHistory = new UnifiedEditHistory({
       S[key] = snapshot[key] == null ? null : snapshot[key];
     }
     S.documentModel = snapshot.documentModel;
-    S.nifMesh = snapshot.nifMesh;
+    S.nifMesh = snapshot.nifMesh || null;
     S.nifMeshComponents = snapshot.nifMeshComponents || [];
     S.activeMeshComponentId = snapshot.activeMeshComponentId;
-    S.nifMesh = null;
     S.nifMeta = snapshot.nifMeta;
     S.layerHidden = snapshot.layerHidden;
+    S.layers = snapshot.layers || [];
+    S.activeLayerId = snapshot.activeLayerId || null;
     S.supportPlaneTrimUndo = snapshot.supportPlaneTrimUndo;
     S.meshComponentCapUndo = snapshot.meshComponentCapUndo;
     S.meshComponentMembershipUndo = snapshot.meshComponentMembershipUndo;
