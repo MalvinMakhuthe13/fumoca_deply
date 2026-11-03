@@ -211,5 +211,35 @@ check('chunked TSDF fusion matches large-batch results',
       and small_stats['fusion_batches'] == len(batch_queries),
       (large_field, small_field, large_mask, small_mask, small_stats))
 
+
+# A small convex boundary may be repaired only when confident surfels cover
+# its interior and agree with the candidate cap normal.
+evaluate_loop = namespace['_evaluate_supported_boundary_loop']
+square_loop = np.array([
+    [-1.0, 0.0, -1.0], [1.0, 0.0, -1.0],
+    [1.0, 0.0, 1.0], [-1.0, 0.0, 1.0],
+], dtype=float)
+interior_support = np.array([[x * 0.1, 0.0, z * 0.1]
+                             for x in range(-10, 11) for z in range(-10, 11)], dtype=float)
+interior_normals = np.tile([0.0, 1.0, 0.0], (len(interior_support), 1))
+interior_confidence = np.ones(len(interior_support), dtype=float)
+supported_repair = evaluate_loop(
+    square_loop, interior_support, interior_normals, interior_confidence, 0.2
+)
+check('supported convex boundary loop qualifies for conservative repair',
+      supported_repair['supported'] and supported_repair['coverage'] >= 0.8,
+      supported_repair)
+
+rim_only = square_loop.copy()
+rim_only[:, 1] = 0.0
+rim_normals = np.tile([0.0, 1.0, 0.0], (len(rim_only), 1))
+unsupported_repair = evaluate_loop(
+    square_loop, rim_only, rim_normals, np.ones(len(rim_only)), 0.2
+)
+check('a genuine opening with evidence only at its rim remains open',
+      not unsupported_repair['supported']
+      and unsupported_repair['reason'] == 'insufficient_interior_evidence',
+      unsupported_repair)
+
 print(f'\n{passed} passed, {failed} failed')
 sys.exit(1 if failed else 0)
