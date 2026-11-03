@@ -410,6 +410,8 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     if (supportSuggestion?.detected && supportSuggestion.y !== null && supportSuggestion.y !== undefined && Number.isFinite(Number(supportSuggestion.y))) {
       const splitY = container.querySelector('#meshComponentSplitY');
       if (splitY) splitY.value = String(Number(supportSuggestion.y).toFixed(5));
+    } else if (supportSuggestion?.detected && Array.isArray(supportSuggestion.normal)) {
+      meshStatus('Tilted support plane detected. Review the confidence, then use Level to support plane; no points have been trimmed.');
     }
     if (mesh) {
       const currentSignature = computeGaussianSourceSignature(window.S);
