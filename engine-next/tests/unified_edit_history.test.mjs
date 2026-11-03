@@ -551,6 +551,76 @@ test('component-scoped patches share the chronological journal without full-scen
 });
 
 
+test('support-plane trim patches restore only affected Gaussian rows and one component', () => {
+  const state = {
+    alive: new Uint8Array([1, 1, 1, 1]),
+    selected: new Uint8Array([1, 0, 1, 0]),
+    components: [
+      { id: 'body', gaussianIds: new Uint32Array([10, 11, 12]), vertices: new Float32Array([0, 1, 2]) },
+      { id: 'platform', gaussianIds: new Uint32Array([20]), vertices: new Float32Array([3, 4, 5]) },
+    ],
+    meta: { support_plane_trim: null, mesh_components_edited: false },
+  };
+  const rows = new Uint32Array([1, 2]);
+  const capturePatch = () => ({
+    componentId: 'body',
+    component: clone(state.components[0]),
+    rows: rows.slice(),
+    aliveValues: Uint8Array.from(rows, row => state.alive[row]),
+    selectedValues: Uint8Array.from(rows, row => state.selected[row]),
+    meta: clone(state.meta),
+  });
+  const applyPatch = patch => {
+    for (let i = 0; i < patch.rows.length; i++) {
+      state.alive[patch.rows[i]] = patch.aliveValues[i];
+      state.selected[patch.rows[i]] = patch.selectedValues[i];
+    }
+    state.components = state.components.map(component =>
+      component.id === patch.componentId ? clone(patch.component) : component);
+    state.meta = clone(patch.meta);
+  };
+  let fullCaptureCalls = 0;
+  const history = new UnifiedEditHistory({
+    capture: () => { fullCaptureCalls++; return { sceneSentinel: true }; },
+    restore: () => {},
+  });
+  const before = capturePatch();
+
+  state.alive[1] = 0;
+  state.alive[2] = 0;
+  state.selected[1] = 0;
+  state.selected[2] = 0;
+  state.components[0] = {
+    ...state.components[0],
+    gaussianIds: new Uint32Array([10]),
+    vertices: new Float32Array([0, 1]),
+  };
+  state.meta = { support_plane_trim: { component_id: 'body', removed_gaussians: 2 }, mesh_components_edited: true };
+  const after = capturePatch();
+
+  assert.equal(history.commitPatch('Support-plane trim', { before, after, capturePatch, applyPatch }), true);
+  assert.equal(fullCaptureCalls, 1, 'scoped trim commit must not capture the full scene');
+  assert.equal(history.undo(), true);
+  assert.deepEqual(Array.from(state.alive), [1, 1, 1, 1]);
+  assert.deepEqual(Array.from(state.selected), [1, 0, 1, 0]);
+  assert.deepEqual(Array.from(state.components[0].gaussianIds), [10, 11, 12]);
+  assert.deepEqual(Array.from(state.components[0].vertices), [0, 1, 2]);
+  assert.deepEqual(Array.from(state.components[1].gaussianIds), [20], 'platform membership must remain untouched');
+  assert.equal(state.meta.support_plane_trim, null);
+  assert.equal(state.meta.mesh_components_edited, false);
+
+  assert.equal(history.redo(), true);
+  assert.deepEqual(Array.from(state.alive), [1, 0, 0, 1]);
+  assert.deepEqual(Array.from(state.selected), [1, 0, 0, 0]);
+  assert.deepEqual(Array.from(state.components[0].gaussianIds), [10]);
+  assert.deepEqual(Array.from(state.components[0].vertices), [0, 1]);
+  assert.deepEqual(Array.from(state.components[1].gaussianIds), [20], 'platform membership must remain untouched on redo');
+  assert.deepEqual(state.meta.support_plane_trim, { component_id: 'body', removed_gaussians: 2 });
+  assert.equal(state.meta.mesh_components_edited, true);
+  assert.equal(fullCaptureCalls, 1, 'scoped trim undo/redo must not capture the full scene');
+});
+
+
 test('legacy snapshot edits can follow scoped patches after an explicit pre-mutation baseline refresh', () => {
   const state = { componentVisible: true, gaussianValue: 1 };
   let captures = 0;
