@@ -590,6 +590,8 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         vertices: (component.vertices || component.positions || []).length / 3,
         faces: (component.triangles || component.faces || []).length / 3,
         support_surface_candidate: component.supportSurfaceCandidate === true,
+        gaussian_membership_count: component.gaussianIds?.length || 0,
+        ...(component.provenance?.gaussianMembership ? { gaussian_membership_method: component.provenance.gaussianMembership } : {}),
       };
       const watertight = component.watertight ?? diagnostics.watertight;
       if (typeof watertight === 'boolean') summary.watertight = watertight;
