@@ -107,7 +107,8 @@ except ImportError:
 # ─── NIF binary constants ─────────────────────────────────────────────────────
 NIF_MAGIC    = 0x4E494600
 CHUNK_GEO    = 0x0003
-CHUNK_MESH   = 0x0004  # Reconstructed triangle surface; may be open, see _extract_mesh()
+CHUNK_MESH   = 0x0004  # Combined reconstructed triangle surface; may be open.
+CHUNK_MESH_COMPONENTS = 0x001A  # Versioned independently addressable mesh components.
 CHUNK_CAMERAS = 0x000B  # Per-frame 4×4 view matrices + pose_source — see _pack_cameras().
                          # Previously computed for Gaussian training and then discarded;
                          # nothing in the .nif persisted them, so a NIF-native viewer had
@@ -1891,7 +1892,7 @@ class ReconstructionWorker:
 
             # ── Real mesh extraction — triangulation from the trained Gaussians ─
             self._tick('processing', 65)
-            mesh_bytes, stl_bytes, mesh_info = self._extract_mesh(mesh_geo_data)
+            mesh_bytes, stl_bytes, mesh_info, mesh_components_bytes = self._extract_mesh(mesh_geo_data)
 
             self._tick('processing', 72)
             layer_bytes = split_layers(
@@ -1959,6 +1960,8 @@ class ReconstructionWorker:
                 chunks.append((CHUNK_THUMB, thumb_bytes))
             if mesh_bytes:
                 chunks.append((CHUNK_MESH, mesh_bytes))
+            if mesh_components_bytes:
+                chunks.append((CHUNK_MESH_COMPONENTS, mesh_components_bytes))
             if stl_bytes:
                 chunks.append((CHUNK_PRINT, stl_bytes))
             if proxy_bytes:
@@ -3153,7 +3156,7 @@ class ReconstructionWorker:
         pts = geo_data[keep]
         if len(pts) < 200:
             print(f'[NIF] Only {len(pts)} confident points — skipping mesh extraction')
-            return None, None, None
+            return None, None, None, None
         positions = pts[:, 0:3]
         log_scales = pts[:, 3:6]
         quats = pts[:, 6:10]
@@ -3272,6 +3275,42 @@ class ReconstructionWorker:
         face_bytes = mesh.faces.astype('>u4').tobytes()
         mesh_chunk_bytes = header + pos_bytes + col_bytes + face_bytes
 
+        # Preserve every connected surface as its own independently addressable
+        # NIF component. The combined KEYFRAME_MESH remains as a backwards-
+        # compatible fallback for viewers that do not understand chunk 0x001A.
+        split_meshes = sorted(
+            mesh.split(only_watertight=False),
+            key=lambda part: len(part.faces),
+            reverse=True,
+        )
+        component_summaries = []
+        component_chunk = bytearray(struct.pack('>BI', 1, len(split_meshes)))
+        for component_index, part in enumerate(split_meshes, start=1):
+            component_id = f'component-{component_index:04d}'
+            label_bytes = component_id.encode('utf-8')
+            part_colors = np.zeros((len(part.vertices), 3), dtype=np.uint8)
+            if part.visual.vertex_colors is not None:
+                part_colors = part.visual.vertex_colors[:, :3].astype(np.uint8)
+            part_topology = _mesh_topology_diagnostics(part)
+            part_flags = 1 if part.is_watertight else 0
+            component_chunk.extend(struct.pack('>B', len(label_bytes)))
+            component_chunk.extend(label_bytes)
+            component_chunk.extend(struct.pack(
+                '>BII', part_flags, len(part.vertices), len(part.faces)
+            ))
+            component_chunk.extend(np.asarray(part.vertices, dtype='>f4').tobytes())
+            component_chunk.extend(part_colors.tobytes())
+            component_chunk.extend(np.asarray(part.faces, dtype='>u4').tobytes())
+            component_summaries.append({
+                'id': component_id,
+                'vertices': int(len(part.vertices)),
+                'faces': int(len(part.faces)),
+                'watertight': bool(part.is_watertight),
+                **part_topology,
+            })
+        mesh_components_bytes = bytes(component_chunk)
+        print(f'[NIF] Mesh components: {len(component_summaries)} independently addressable surfaces')
+
         # Optional Draco compression — typically 5-10x smaller than the raw
         # struct format above for meshes this size. ENABLE_DRACO_MESH=True
         # now that nif-format.js's decodeMeshChunk()/_decodeDracoMesh() reads
@@ -3342,7 +3381,8 @@ class ReconstructionWorker:
             'tsdf_observed_voxels': tsdf_diagnostics['observed_voxels'],
             'normal_component_count': normal_orientation['components'],
             'mean_surfel_confidence': float(np.mean(confidence)) if len(confidence) else 0.0,
-        }
+            'mesh_components': component_summaries,
+        }, mesh_components_bytes
 
     def run_mesh_only(self, geo_r2_key: str, meta: dict):
         """
@@ -3369,7 +3409,7 @@ class ReconstructionWorker:
             print(f'[NIF] mesh_only: {count:,} input points')
 
             self._tick('processing', 50)
-            mesh_bytes, stl_bytes, mesh_info = self._extract_mesh(geo_data)
+            mesh_bytes, stl_bytes, mesh_info, _mesh_components_bytes = self._extract_mesh(geo_data)
 
             if not stl_bytes:
                 raise RuntimeError(
