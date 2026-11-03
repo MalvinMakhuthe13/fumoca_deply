@@ -3715,6 +3715,7 @@ function pushHistory(label) {
   // Most Studio operations call this immediately before mutating authored data.
   // Close the previous gesture now, then hold a single pending label for this one.
   flushPendingUnifiedHistory();
+  studioEditHistory.syncBaseline();
   _pendingUnifiedHistory = { label: String(label || 'Edit'), coalesceKey: null };
   updateHistoryBtns();
 }
@@ -3734,6 +3735,23 @@ function updateHistoryBtns() {
 }
 window.beginStudioHistory = label => pushHistory(label);
 window.commitStudioHistory = () => flushPendingUnifiedHistory();
+window.commitStudioPatch = (label, options) => {
+  if (_pendingUnifiedHistory) throw new Error('Cannot commit a scoped patch while a full-snapshot edit is pending');
+  const applyPatch = options?.applyPatch;
+  if (typeof applyPatch !== 'function') throw new TypeError('A scoped patch requires applyPatch');
+  return studioEditHistory.commitPatch(label, {
+    ...options,
+    applyPatch: (patch, context) => {
+      const result = applyPatch(patch, context);
+      if (result && typeof result.then === 'function') throw new TypeError('Studio history patches must be synchronous');
+      if (Array.isArray(S.nifMeshComponents) && S.documentModel) {
+        S.documentModel = syncDocumentComponentsFromMesh(S.documentModel, S.nifMeshComponents, S.activeMeshComponentId);
+      }
+      window.refreshStudioMeshDerivedState?.();
+      return result;
+    },
+  });
+};
 window.cancelStudioHistory = () => {
   if (!_pendingUnifiedHistory) return false;
   try {
