@@ -310,9 +310,10 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         id: component.id,
         vertices: (component.vertices || component.positions || []).length / 3,
         faces: (component.triangles || component.faces || []).length / 3,
-        watertight: component.watertight ?? diagnostics.watertight ?? false,
         support_surface_candidate: component.supportSurfaceCandidate === true,
       };
+      const watertight = component.watertight ?? diagnostics.watertight;
+      if (typeof watertight === 'boolean') summary.watertight = watertight;
       const boundary = diagnostics.n_boundary_edges ?? diagnostics.openEdges;
       const nonManifold = diagnostics.n_nonmanifold_edges ?? diagnostics.nonManifoldEdges;
       if (Number.isFinite(Number(boundary))) summary.n_boundary_edges = Number(boundary);
