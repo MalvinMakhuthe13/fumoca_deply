@@ -72,6 +72,20 @@ test('transaction rollback, undo and redo restore exact typed-array state', () =
   assert.equal(history.current.components[0].gaussianIds[0], 1);
 });
 
+test('active component identity must reference a known component', () => {
+  assert.throws(() => createDocumentModel({
+    documentId: 'bad-active-component',
+    components: [{ id: 'part-a', gaussianIds: [] }],
+    activeComponentId: 'missing-part',
+  }), /activeComponentId must reference/);
+  const model = createDocumentModel({
+    documentId: 'valid-active-component',
+    components: [{ id: 'part-a', gaussianIds: [] }],
+    activeComponentId: 'part-a',
+  });
+  assert.equal(model.activeComponentId, 'part-a');
+});
+
 test('mesh-authored components may exist without Gaussian membership', () => {
   const model = createDocumentModel({
     documentId: 'mesh-only-doc',
