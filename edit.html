@@ -2028,10 +2028,25 @@ const studioEditHistory = new UnifiedEditHistory({
 function flushPendingUnifiedHistory() {
   if (!_pendingUnifiedHistory) return false;
   const pending = _pendingUnifiedHistory;
-  _pendingUnifiedHistory = null;
-  const committed = studioEditHistory.commit(pending.label, { coalesceKey: pending.coalesceKey || null });
-  updateHistoryBtns();
-  return committed;
+  try {
+    const committed = studioEditHistory.commit(pending.label, { coalesceKey: pending.coalesceKey || null });
+    _pendingUnifiedHistory = null;
+    const historyError = studioEditHistory.state().error;
+    if (!committed && historyError) {
+      console.warn('[Studio history] Edit applied without an undo entry:', historyError);
+      setStatus(historyError, 'error');
+      showToast('Undo history limit reached', historyError);
+    }
+    updateHistoryBtns();
+    return committed;
+  } catch (error) {
+    // Keep the pending gesture visible and retryable if snapshot capture itself
+    // fails; never silently discard the only record of an unfinished edit.
+    console.error('[Studio history] Could not commit pending edit:', error);
+    setStatus('Could not record this edit in undo history: ' + (error.message || String(error)), 'error');
+    updateHistoryBtns();
+    return false;
+  }
 }
 let _sourceToRender = null;
 let _gizmoGesture = false;
