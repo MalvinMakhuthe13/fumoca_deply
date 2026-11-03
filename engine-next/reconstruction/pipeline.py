@@ -1746,6 +1746,81 @@ def _confidence_weighted_tsdf(grid: np.ndarray, positions: np.ndarray,
     }
 
 
+def _evaluate_supported_boundary_loop(loop_points: np.ndarray,
+                                      surfel_positions: np.ndarray,
+                                      surfel_normals: np.ndarray,
+                                      surfel_confidence: np.ndarray,
+                                      support_radius: float,
+                                      max_edges: int = 48):
+    """
+    Decide whether a small convex boundary loop has observed surfel evidence
+    across its interior. A boundary ring alone is not enough to authorize a cap.
+    """
+    from scipy.spatial import cKDTree
+    loop = np.asarray(loop_points, dtype=np.float64)
+    points = np.asarray(surfel_positions, dtype=np.float64)
+    normals = np.asarray(surfel_normals, dtype=np.float64)
+    confidence = np.asarray(surfel_confidence, dtype=np.float64)
+    if (loop.ndim != 2 or loop.shape[1] != 3 or len(loop) < 3
+            or len(loop) > int(max_edges) or len(points) == 0
+            or len(normals) != len(points) or len(confidence) != len(points)):
+        return {'supported': False, 'reason': 'invalid_or_oversized_loop'}
+    center = loop.mean(axis=0)
+    centered = loop - center
+    _, singular, vh = np.linalg.svd(centered, full_matrices=False)
+    if len(singular) < 2 or singular[1] < 1e-9:
+        return {'supported': False, 'reason': 'degenerate_loop'}
+    plane_normal = vh[-1]
+    planarity = float(singular[-1] / max(singular[-2], 1e-12))
+    if planarity > 0.08:
+        return {'supported': False, 'reason': 'non_planar_loop', 'planarity': planarity}
+    basis_u, basis_v = vh[0], vh[1]
+    projected = np.stack((centered @ basis_u, centered @ basis_v), axis=1)
+    edges = np.roll(projected, -1, axis=0) - projected
+    crosses = np.array([
+        edges[i, 0] * edges[(i + 1) % len(edges), 1]
+        - edges[i, 1] * edges[(i + 1) % len(edges), 0]
+        for i in range(len(edges))
+    ])
+    nonzero = crosses[np.abs(crosses) > 1e-9]
+    if len(nonzero) < len(crosses) * 0.8 or not (np.all(nonzero > 0) or np.all(nonzero < 0)):
+        return {'supported': False, 'reason': 'non_convex_or_branched_loop', 'planarity': planarity}
+
+    # Probe the interior, not just the boundary. This prevents a genuine open
+    # hole from being capped merely because its rim has nearby surfels.
+    edge_midpoints = (loop + np.roll(loop, -1, axis=0)) * 0.5
+    samples = np.vstack([center, center[None, :] * 0.35 + edge_midpoints * 0.65])
+    tree = cKDTree(points)
+    distances, indices = tree.query(samples, k=1, workers=-1)
+    nearest_normals = normals[indices]
+    nearest_lengths = np.linalg.norm(nearest_normals, axis=1)
+    nearest_normals = nearest_normals / np.maximum(nearest_lengths[:, None], 1e-9)
+    alignment = np.abs(nearest_normals @ plane_normal)
+    supported = (
+        np.isfinite(distances) & (distances <= float(support_radius))
+        & (confidence[indices] >= 0.2) & (alignment >= 0.75)
+    )
+    coverage = float(np.mean(supported))
+    if coverage < 0.8 or not bool(supported[0]):
+        return {
+            'supported': False, 'reason': 'insufficient_interior_evidence',
+            'coverage': coverage, 'planarity': planarity,
+        }
+    center_point = points[indices[0]]
+    center_point = center_point - np.dot(center_point - center, plane_normal) * plane_normal
+    mean_normal = nearest_normals[supported].mean(axis=0)
+    if np.dot(mean_normal, plane_normal) < 0:
+        mean_normal *= -1
+    return {
+        'supported': True,
+        'center': center_point,
+        'normal': mean_normal / max(np.linalg.norm(mean_normal), 1e-9),
+        'coverage': coverage,
+        'planarity': planarity,
+        'mean_confidence': float(np.mean(confidence[indices[supported]])),
+    }
+
+
 def _classify_mesh_surface_role(component, scene_min_y: float,
                                   scene_max_y: float, total_faces: int):
     """
