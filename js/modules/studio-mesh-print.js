@@ -290,11 +290,9 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     const hasMembership = !!selected?.gaussianIds?.length && !!window.S?.documentModel?.gaussianIds?.length;
     const previewButton = container.querySelector('#meshPreviewSupportTrim');
     const applyButton = container.querySelector('#meshApplySupportTrim');
-    const undoTrimButton = container.querySelector('#meshUndoSupportTrim');
     if (previewButton) previewButton.disabled = !hasPlane || !hasMembership;
     if (applyButton) applyButton.disabled = !window.S?.supportPlaneTrimPreview?.rows?.length;
     const capButton = container.querySelector('#meshCapSupportBase');
-    const undoCapButton = container.querySelector('#meshUndoSupportCap');
     if (capButton) capButton.disabled = !hasPlane || !selected?.vertices?.length || !selected?.triangles?.length;
   };
 
