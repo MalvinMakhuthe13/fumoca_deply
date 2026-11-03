@@ -17,8 +17,13 @@ function asUint32(source, label) {
   if (!source || typeof source.length !== 'number' || source.length % 3) {
     throw new TypeError(label + ' must contain triangle indices');
   }
-  const values = source instanceof Uint32Array ? source : Uint32Array.from(source);
-  return values;
+  for (const raw of source) {
+    const value = Number(raw);
+    if (!Number.isInteger(value) || value < 0 || value > 0xffffffff) {
+      throw new Error(label + ' contains an invalid uint32 index');
+    }
+  }
+  return source instanceof Uint32Array ? source : Uint32Array.from(source);
 }
 
 export function normalizeMeshComponent(input) {
@@ -48,13 +53,15 @@ export function normalizeMeshComponent(input) {
     }
   }
 
-  const gaussianIds = input.gaussianIds == null ? new Uint32Array() :
-    (input.gaussianIds instanceof Uint32Array ? input.gaussianIds : Uint32Array.from(input.gaussianIds));
+  const rawGaussianIds = input.gaussianIds == null ? [] : Array.from(input.gaussianIds, Number);
   const seenGaussianIds = new Set();
-  for (const gaussianId of gaussianIds) {
-    if (!gaussianId || seenGaussianIds.has(gaussianId)) throw new Error('mesh component Gaussian membership contains zero or duplicate identities');
+  for (const gaussianId of rawGaussianIds) {
+    if (!Number.isInteger(gaussianId) || gaussianId < 1 || gaussianId > 0xffffffff || seenGaussianIds.has(gaussianId)) {
+      throw new Error('mesh component Gaussian membership contains an invalid or duplicate identity');
+    }
     seenGaussianIds.add(gaussianId);
   }
+  const gaussianIds = input.gaussianIds instanceof Uint32Array ? input.gaussianIds : Uint32Array.from(rawGaussianIds);
   return {
     id,
     vertices,
