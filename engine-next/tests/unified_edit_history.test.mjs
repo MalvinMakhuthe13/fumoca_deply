@@ -454,3 +454,28 @@ test('live mesh reconciliation rejects duplicate Gaussian ownership without muta
   assert.deepEqual([...model.components[0].gaussianIds], [1]);
   assert.equal(model.components.length, 1);
 });
+
+
+test('history byte budget includes plain arrays, strings and component metadata', () => {
+  const state = {
+    metadata: {
+      componentName: 'vehicle-body',
+      provenance: { operation: 'support-plane-trim', sourceComponentId: 'vehicle-root' },
+      gaussianIds: Array.from({ length: 90_000 }, (_, index) => index + 1),
+    },
+  };
+  const history = new UnifiedEditHistory({
+    maxBytes: 1024 * 1024,
+    capture: () => ({ metadata: state.metadata }),
+    restore: snapshot => { state.metadata = snapshot.metadata; },
+  });
+
+  state.metadata = {
+    componentName: 'vehicle-body-edited',
+    provenance: { operation: 'support-plane-trim', sourceComponentId: 'vehicle-root' },
+    gaussianIds: Array.from({ length: 90_000 }, (_, index) => index + 2),
+  };
+  assert.equal(history.commit('Update component metadata'), false);
+  assert.equal(history.state().bytes, 0);
+  assert.match(history.state().error, /exceeds the 1048576-byte history budget/);
+});
