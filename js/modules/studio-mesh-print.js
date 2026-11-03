@@ -771,6 +771,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
           };
           state.nifMeshComponents = components;
           state.activeMeshComponentId = components[0]?.id || null;
+          state.meshComponentSplitUndo = null;
           state.nifMeta = {
             ...(state.nifMeta || {}),
             ...(decoded.meta || {}),
