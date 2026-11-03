@@ -348,6 +348,14 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     updateSupportPlaneControls();
   };
 
+  window.addEventListener('fumoca:selectionChanged', (event) => {
+    if (window.S?.supportPlaneTrimPreview && !event.detail?.supportTrimPreview) {
+      // Preserve the user's new selection rather than restoring the selection
+      // that existed before the temporary trim preview.
+      clearSupportTrimPreview(false);
+    }
+  });
+
   const previewSupportPlaneTrim = () => {
     const state = window.S, component = selectedMeshComponent();
     if (state?.supportPlaneTrimPreview && state.supportPlaneTrimPreview.componentId === component?.id) {
@@ -374,7 +382,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       };
       window.rebuildGeometry?.();
       window.dispatchEvent(new CustomEvent('fumoca:selectionChanged', {
-        detail: { count: plan.rows.length, changed: plan.rows.length, componentId: component.id },
+        detail: { count: plan.rows.length, changed: plan.rows.length, componentId: component.id, supportTrimPreview: true },
       }));
       updateSupportPlaneControls();
       meshStatus(`Preview: ${plan.rows.length.toLocaleString()} linked splats below the support plane are selected for trimming. Review the highlighted points before applying.`);
