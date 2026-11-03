@@ -177,3 +177,8 @@ The reconstruction worker writes each connected mesh surface as a separate compo
 The public NIF viewer renders the component records as separate meshes and exposes component visibility controls. The component IDs currently identify connected geometric surfaces, not semantic object identities. If two physical objects touch and become one connected surface, they may still require manual separation or a future semantic/support-plane segmentation pass.
 
 Visibility and watertightness are independent flags. An open component is not discarded or relabelled as printable. This chunk does not claim semantic segmentation, support-plane classification, or automatic repair.
+### Support-surface candidate classification
+
+During worker mesh-component packing, each disconnected component is checked for PCA planarity, alignment of its plane normal with the Studio Y-up axis, position within the lower scene band, and share of total mesh faces. A sufficiently broad, nearly horizontal lower component is flagged as `support_surface` candidate and receives a confidence score. The original vertices/faces are not removed, flattened, capped, or merged.
+
+This is intentionally a candidate label rather than automatic support-plane truth. A flat product base can also satisfy some of these geometric tests. The user must review the label before treating a component as a platform or excluding it from an object export. Connected object/platform geometry is still one connected component and requires a later dedicated separation pass.
