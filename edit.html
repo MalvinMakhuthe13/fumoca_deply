@@ -3710,7 +3710,22 @@ function updateHistoryBtns() {
 }
 window.beginStudioHistory = label => pushHistory(label);
 window.commitStudioHistory = () => flushPendingUnifiedHistory();
-window.cancelStudioHistory = () => { _pendingUnifiedHistory = null; updateHistoryBtns(); };
+window.cancelStudioHistory = () => {
+  if (!_pendingUnifiedHistory) return false;
+  try {
+    studioEditHistory.cancelPending();
+    _pendingUnifiedHistory = null;
+    updateHistoryBtns();
+    return true;
+  } catch (error) {
+    // Keep the pending marker so the user can retry recovery; the journal
+    // has already attempted to restore the pre-cancel scene on failure.
+    console.error('[Studio history] Could not cancel pending edit:', error);
+    setStatus('Could not safely cancel this edit. The scene was preserved; retry or reload before continuing.', 'error');
+    updateHistoryBtns();
+    return false;
+  }
+};
 
 // ─── SELECTION ──────────────────────────────────────────────────────────────
 function clearSelection() { if (S.selected) S.selected.fill(0); rebuildGeometry(); syncTransformGizmo(); selectedPointCount(); }
