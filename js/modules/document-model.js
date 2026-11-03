@@ -631,10 +631,12 @@ export class UnifiedEditHistory {
    */
   cancelPending() {
     if (this.transactionOpen) throw new Error('cannot cancel while a history transaction is open');
+    if (!this.baselineValid) throw new Error('cannot cancel a legacy edit without a valid pre-mutation baseline');
     const current = this.#capture();
     try {
       this.restore(cloneHistoryValue(this.baseline), { direction: 'cancel', label: 'Cancelled edit' });
       this.baseline = this.#capture();
+      this.baselineValid = true;
       this.lastError = null;
       this.#notify();
       return true;
@@ -642,6 +644,7 @@ export class UnifiedEditHistory {
       try {
         this.restore(cloneHistoryValue(current), { direction: 'rollback', label: 'Cancelled edit', failedDirection: 'cancel' });
         this.baseline = this.#capture();
+        this.baselineValid = true;
       } catch (restoreError) {
         error.restoreError = restoreError;
       }
