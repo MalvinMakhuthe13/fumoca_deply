@@ -342,23 +342,24 @@ test('cancelPending rolls back to the mutated state if baseline restoration fail
 
 
 test('coalesced edits cannot exceed the configured history byte budget', () => {
-  const state = { positions: new Float32Array(60_000) };
+  const state = { positions: new Float32Array(220_000) };
   const history = new UnifiedEditHistory({
     maxBytes: 1024 * 1024,
     capture: () => ({ positions: new Float32Array(state.positions) }),
     restore: snapshot => { state.positions = new Float32Array(snapshot.positions); },
   });
 
-  state.positions[0] = 1;
+  // Each individual before/after pair fits. Merging must retain the earliest
+  // before-state, making the combined pair exceed the budget.
+  state.positions = new Float32Array(20_000);
   assert.equal(history.commit('Component drag', { coalesceKey: 'component:car:transform' }), true);
   assert.equal(history.state().count, 1);
   assert.ok(history.state().bytes <= 1024 * 1024);
 
   state.positions = new Float32Array(220_000);
-  state.positions[0] = 2;
   assert.equal(history.commit('Component drag', { coalesceKey: 'component:car:transform' }), false);
   assert.equal(history.state().count, 0);
   assert.equal(history.state().bytes, 0);
   assert.equal(history.canUndo(), false);
-  assert.match(history.state().error, /snapshot \(1120036 bytes\) exceeds the 1048576-byte history budget/);
+  assert.match(history.state().error, /coalesced snapshot exceeds the 1048576-byte history budget/);
 });
