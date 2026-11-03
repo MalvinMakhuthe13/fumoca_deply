@@ -213,7 +213,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     if (undoButton) undoButton.disabled = !supportLevelUndo;
   };
 
-  const levelToSupportPlane = () => {
+  const levelToSupportPlane = async () => {
     const state = window.S;
     const candidate = getSupportPlaneCandidate();
     if (!state?.positions?.length || !candidate?.detected) {
@@ -311,6 +311,8 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         nifMeshComponents: state.nifMeshComponents,
         nifMeta: state.nifMeta,
         documentModel: state.documentModel,
+        gaussianSourceBytes: state.gaussianSourceBytes,
+        lastGaussianBytes: window._fumocaLastGaussianBytes,
         lastMeshData,
         lastMesh,
         lastMeshStats,
@@ -350,6 +352,8 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       lastMeshSourceSignature = state.nifMeta.dual_surface_source_signature;
       lastMesh = nextLastMesh;
       supportLevelUndo = previous;
+      try { await window.refreshGaussianSourceBytes?.(); }
+      catch (sourceError) { console.warn('[Studio mesh] Levelled geometry but could not refresh Gaussian PLY bytes:', sourceError); }
 
       try {
         window.rebuildGeometry?.();
@@ -372,7 +376,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     }
   };
 
-  const undoSupportPlaneLevel = () => {
+  const undoSupportPlaneLevel = async () => {
     if (!supportLevelUndo || !window.S) return false;
     const state = window.S;
     const previous = supportLevelUndo;
@@ -382,6 +386,8 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     state.nifMeshComponents = previous.nifMeshComponents;
     state.nifMeta = previous.nifMeta;
     state.documentModel = previous.documentModel;
+    state.gaussianSourceBytes = previous.gaussianSourceBytes;
+    window._fumocaLastGaussianBytes = previous.lastGaussianBytes;
     lastMeshData = previous.lastMeshData;
     lastMesh = previous.lastMesh;
     lastMeshStats = previous.lastMeshStats;
