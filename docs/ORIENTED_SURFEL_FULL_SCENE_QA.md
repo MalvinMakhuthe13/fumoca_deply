@@ -50,3 +50,6 @@ This protocol validates the full reconstruction workflow, not only a single sele
 The automated worker tests cover normal orientation, confidence-weighted TSDF support, nearby separated objects, thin parallel features, a concave L-shaped corner, support-plane suggestions, evidence-gated boundary repair, invalid Gaussian rows, NIF component round trips and split-boundary diagnostics.
 
 These tests validate helper behavior and file contracts. They do **not** replace testing the actual trained cap/platform capture in the deployed Studio and public viewer. Record the capture used, the component count, TSDF coverage, confidence, open/non-manifold edge counts, and screenshots from all sides before approving the reconstruction.
+
+10. For manually touching/side-by-side geometry, test the component split tool on X, Y and Z axes. The cut must remain open, report its actual boundary edges, and preserve each side as a separate component.
+11. After moving, splitting, undoing or deleting a component, export and reload the NIF. Verify that component IDs and updated topology summaries match the edited geometry rather than the original worker result.
