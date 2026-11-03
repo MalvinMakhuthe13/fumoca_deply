@@ -15,7 +15,7 @@ function fixture() {
     reconstruction: { method: 'oriented-surfel-tsdf', version: 2 },
     lineage: [{ operation: 'split', parentId: 'whole', childIds: ['cap-a', 'cap-b'] }],
     components: [
-      { id: 'cap-a', parentIds: ['whole'], gaussianIds: new Uint32Array([1, 2]), visible: true, selected: true, geometrySource: 'gaussian-derived', vertices: new Float32Array([0, 0, 0]) },
+      { id: 'cap-a', parentIds: ['whole'], gaussianIds: new Uint32Array([1, 2]), visible: true, selected: true, geometrySource: 'gaussian-derived', provenance: { operation: 'support-plane-cap', supportPlane: { normal: [0, 1, 0], offset: 0 } }, vertices: new Float32Array([0, 0, 0]) },
       { id: 'cap-b', parentIds: ['whole'], gaussianIds: new Uint32Array([4]), visible: false, geometrySource: 'gaussian-derived' },
       { id: 'platform', gaussianIds: [], geometrySource: 'mesh-authored' },
     ],
@@ -36,6 +36,8 @@ test('document model binary chunk round-trips IDs, membership, visibility and li
   assert.deepEqual([...decoded.components[1].gaussianIds], [4]);
   assert.equal(decoded.components[1].visible, false);
   assert.equal(decoded.components[2].geometrySource, 'mesh-authored');
+  assert.deepEqual(decoded.components[0].provenance, original.components[0].provenance);
+  assert.deepEqual(decoded.components[0].parentIds, ['whole']);
   assert.deepEqual(decoded.lineage, original.lineage);
   assert.deepEqual(decoded.source, original.source);
   assert.equal('vertices' in decoded.components[0], false);
