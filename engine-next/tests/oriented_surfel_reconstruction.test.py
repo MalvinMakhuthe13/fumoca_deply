@@ -127,5 +127,31 @@ except ValueError:
 check('empty surfel input fails clearly instead of indexing invalid neighbors',
       empty_rejected)
 
+
+# Gaussian tangent scales must constrain support anisotropically. A narrow
+# tangent axis must not inherit the broad radius of the other tangent axis.
+anisotropic_field, anisotropic_mask, anisotropic_stats = fuse(
+    np.array([[0.01, 0.0, 0.0], [0.10, 0.0, 0.0]], dtype=float),
+    np.array([[0.0, 0.0, 0.0]], dtype=float),
+    np.array([[0.0, 0.0, 1.0]], dtype=float),
+    np.array([0], dtype=np.int32),
+    np.array([1.0], dtype=float),
+    0.1,
+    tangent_axes=np.array([[[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]]),
+    tangent_scales=np.array([[0.02, 0.20]], dtype=float),
+)
+check('anisotropic tangent footprint accepts samples along its narrow axis',
+      bool(anisotropic_mask[0]) and not bool(anisotropic_mask[1]),
+      (anisotropic_field, anisotropic_mask, anisotropic_stats))
+
+bad_axes_rejected = False
+try:
+    fuse(np.zeros((1, 3)), np.zeros((1, 3)), np.array([[0.0, 0.0, 1.0]]),
+         np.array([0], dtype=np.int32), np.array([1.0]), 0.1,
+         tangent_axes=np.zeros((1, 2, 3)), tangent_scales=np.ones((1, 2)))
+except ValueError:
+    bad_axes_rejected = True
+check('degenerate Gaussian tangent axes are rejected', bad_axes_rejected)
+
 print(f'\n{passed} passed, {failed} failed')
 sys.exit(1 if failed else 0)
