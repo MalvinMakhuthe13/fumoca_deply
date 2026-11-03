@@ -213,6 +213,211 @@ export class DocumentHistory {
   snapshot() { return cloneDocumentModel(this.current); }
 }
 
+
+/**
+ * Unified, document-scoped edit journal.
+ *
+ * The journal stores domain snapshots (Gaussian buffers, component geometry,
+ * identities, visibility, selection and metadata) supplied by a Studio adapter.
+ * It deliberately excludes transient renderer objects.
+ */
+function cloneHistoryValue(value) {
+  if (value == null || typeof value !== 'object') return value;
+  if (ArrayBuffer.isView(value)) return new value.constructor(value);
+  if (value instanceof ArrayBuffer) return value.slice(0);
+  if (Array.isArray(value)) return value.map(cloneHistoryValue);
+  if (value instanceof Map) return new Map([...value].map(([key, item]) => [cloneHistoryValue(key), cloneHistoryValue(item)]));
+  if (value instanceof Set) return new Set([...value].map(cloneHistoryValue));
+  const copy = {};
+  for (const [key, item] of Object.entries(value)) copy[key] = cloneHistoryValue(item);
+  return copy;
+}
+
+function estimateHistoryBytes(value, seen = new Set()) {
+  if (value == null || typeof value !== 'object' || seen.has(value)) return 0;
+  seen.add(value);
+  if (ArrayBuffer.isView(value)) return value.byteLength;
+  if (value instanceof ArrayBuffer) return value.byteLength;
+  if (value instanceof Map) {
+    let bytes = 0;
+    for (const [key, item] of value) bytes += estimateHistoryBytes(key, seen) + estimateHistoryBytes(item, seen);
+    return bytes;
+  }
+  if (value instanceof Set) {
+    let bytes = 0;
+    for (const item of value) bytes += estimateHistoryBytes(item, seen);
+    return bytes;
+  }
+  if (Array.isArray(value)) return value.reduce((sum, item) => sum + estimateHistoryBytes(item, seen), 0);
+  let bytes = 0;
+  for (const [key, item] of Object.entries(value)) bytes += key.length * 2 + estimateHistoryBytes(item, seen);
+  return bytes;
+}
+
+/**
+ * Bounded atomic snapshot journal shared by all Studio editing domains.
+ * capture() returns detached data; restore() replaces authored document state
+ * and refreshes previews. Both callbacks must be synchronous.
+ */
+export class UnifiedEditHistory {
+  constructor({ capture, restore, limit = 80, maxBytes = 512 * 1024 * 1024, equals = null, onChange = null } = {}) {
+    if (typeof capture !== 'function' || typeof restore !== 'function') {
+      throw new TypeError('UnifiedEditHistory requires capture and restore functions');
+    }
+    this.capture = capture;
+    this.restore = restore;
+    this.limit = Math.max(1, Math.floor(Number(limit) || 80));
+    this.maxBytes = Math.max(1024 * 1024, Math.floor(Number(maxBytes) || 512 * 1024 * 1024));
+    this.equals = typeof equals === 'function' ? equals : null;
+    this.onChange = typeof onChange === 'function' ? onChange : null;
+    this.entries = [];
+    this.cursor = 0;
+    this.bytes = 0;
+    this.transactionOpen = false;
+    this.lastError = null;
+    this.baseline = this.#capture();
+  }
+
+  #capture() {
+    const snapshot = this.capture();
+    if (!snapshot || typeof snapshot !== 'object') throw new TypeError('history capture must return an object snapshot');
+    return cloneHistoryValue(snapshot);
+  }
+
+  #notify() { this.onChange?.(this.state()); }
+
+  #push(entry) {
+    while (this.entries.length > this.cursor) this.bytes -= this.entries.pop().bytes;
+    this.entries.push(entry);
+    this.cursor = this.entries.length;
+    this.bytes += entry.bytes;
+    while (this.entries.length > this.limit || (this.bytes > this.maxBytes && this.entries.length > 1)) {
+      this.bytes -= this.entries.shift().bytes;
+      this.cursor = Math.max(0, this.cursor - 1);
+    }
+  }
+
+  /** Commit one completed user gesture, not every frame of a drag. */
+  commit(label = 'Edit', { coalesceKey = null } = {}) {
+    if (this.transactionOpen) throw new Error('cannot commit while a history transaction is open');
+    const after = this.#capture();
+    const before = this.baseline;
+    if (this.equals && this.equals(before, after)) return false;
+    const entry = {
+      id: Date.now().toString(36) + '-' + this.cursor.toString(36),
+      label: String(label || 'Edit'),
+      coalesceKey: coalesceKey == null ? null : String(coalesceKey),
+      before,
+      after,
+      bytes: estimateHistoryBytes(before) + estimateHistoryBytes(after),
+      committedAt: Date.now(),
+    };
+    const current = this.entries[this.cursor - 1];
+    if (entry.coalesceKey && current?.coalesceKey === entry.coalesceKey && this.cursor === this.entries.length) {
+      this.bytes -= current.bytes;
+      entry.before = current.before;
+      entry.bytes = estimateHistoryBytes(entry.before) + estimateHistoryBytes(entry.after);
+      this.entries[this.cursor - 1] = entry;
+      this.bytes += entry.bytes;
+    } else {
+      this.#push(entry);
+    }
+    this.baseline = after;
+    this.lastError = null;
+    this.#notify();
+    return true;
+  }
+
+  /** Synchronous transaction with exact rollback if mutation or validation fails. */
+  transact(label, mutate, options = {}) {
+    if (typeof mutate !== 'function') throw new TypeError('history mutation must be a function');
+    if (this.transactionOpen) throw new Error('nested history transactions are not supported');
+    const before = this.#capture();
+    this.transactionOpen = true;
+    try {
+      const result = mutate();
+      if (result && typeof result.then === 'function') {
+        throw new TypeError('history transactions must be synchronous; prepare async work before committing');
+      }
+      this.transactionOpen = false;
+      this.baseline = before;
+      this.commit(label, options);
+      return result;
+    } catch (error) {
+      this.transactionOpen = false;
+      try {
+        this.restore(cloneHistoryValue(before), { direction: 'rollback', label: String(label || 'Edit') });
+        this.baseline = this.#capture();
+      } catch (restoreError) {
+        error.restoreError = restoreError;
+      }
+      this.lastError = error;
+      this.#notify();
+      throw error;
+    }
+  }
+
+  undo() {
+    if (this.transactionOpen || !this.canUndo()) return false;
+    const entry = this.entries[this.cursor - 1];
+    try {
+      this.restore(cloneHistoryValue(entry.before), { direction: 'undo', label: entry.label, entryId: entry.id });
+      this.cursor--;
+      this.baseline = this.#capture();
+      this.lastError = null;
+      this.#notify();
+      return true;
+    } catch (error) {
+      this.lastError = error;
+      this.#notify();
+      throw error;
+    }
+  }
+
+  redo() {
+    if (this.transactionOpen || !this.canRedo()) return false;
+    const entry = this.entries[this.cursor];
+    try {
+      this.restore(cloneHistoryValue(entry.after), { direction: 'redo', label: entry.label, entryId: entry.id });
+      this.cursor++;
+      this.baseline = this.#capture();
+      this.lastError = null;
+      this.#notify();
+      return true;
+    } catch (error) {
+      this.lastError = error;
+      this.#notify();
+      throw error;
+    }
+  }
+
+  canUndo() { return this.cursor > 0; }
+  canRedo() { return this.cursor < this.entries.length; }
+
+  clear() {
+    this.entries.length = 0;
+    this.cursor = 0;
+    this.bytes = 0;
+    this.baseline = this.#capture();
+    this.lastError = null;
+    this.#notify();
+  }
+
+  state() {
+    return {
+      canUndo: this.canUndo(),
+      canRedo: this.canRedo(),
+      undoLabel: this.canUndo() ? this.entries[this.cursor - 1].label : null,
+      redoLabel: this.canRedo() ? this.entries[this.cursor].label : null,
+      count: this.entries.length,
+      cursor: this.cursor,
+      bytes: this.bytes,
+      transactionOpen: this.transactionOpen,
+      error: this.lastError?.message || null,
+    };
+  }
+}
+
 /** Split lineage helper: child components retain ancestry and source membership. */
 export function createComponentChildren(parent, children, { idFactory = makeUuid } = {}) {
   if (!parent?.id || !Array.isArray(children) || children.length < 2) {
