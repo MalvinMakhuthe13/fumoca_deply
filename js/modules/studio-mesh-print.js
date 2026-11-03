@@ -1574,8 +1574,10 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     lastMeshData = visibleComponentsMesh.triangles.length ? visibleComponentsMesh : null;
     lastMeshFormat = container.querySelector('#meshFormat')?.value || 'ply';
     if (lastMeshData) {
+      const topology = FumocMeshExtractor.validateWatertight(lastMeshData);
       lastMeshStats = {
-        ...FumocMeshExtractor.validateWatertight(lastMeshData),
+        ...topology,
+        printable: topology.watertight === true && Number(topology.nonManifoldEdges || 0) === 0,
         vertices: lastMeshData.vertices.length / 3,
         triangles: lastMeshData.triangles.length / 3,
         components: lastMeshData.componentCount,
