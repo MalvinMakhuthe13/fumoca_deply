@@ -479,3 +479,35 @@ test('history byte budget includes plain arrays, strings and component metadata'
   assert.equal(history.state().bytes, 0);
   assert.match(history.state().error, /exceeds the 1048576-byte history budget/);
 });
+
+
+test('history snapshots clone and compare DataView bytes exactly', () => {
+  const sourceBuffer = new Uint8Array([90, 1, 2, 3, 91]).buffer;
+  const state = { view: new DataView(sourceBuffer, 1, 3) };
+  const history = new UnifiedEditHistory({
+    capture: () => ({ view: state.view }),
+    restore: snapshot => { state.view = snapshot.view; },
+  });
+
+  state.view.setUint8(1, 77);
+  assert.equal(history.commit('Edit DataView'), true);
+  history.undo();
+  assert.deepEqual(
+    [...new Uint8Array(state.view.buffer, state.view.byteOffset, state.view.byteLength)],
+    [1, 2, 3],
+  );
+  history.redo();
+  assert.deepEqual(
+    [...new Uint8Array(state.view.buffer, state.view.byteOffset, state.view.byteLength)],
+    [1, 77, 3],
+  );
+});
+
+test('history snapshots reject renderer-class instances instead of flattening prototypes', () => {
+  class RendererHandle { constructor() { this.id = 'renderer-object'; } }
+  const history = new UnifiedEditHistory({
+    capture: () => ({ renderer: new RendererHandle() }),
+    restore: () => {},
+  });
+  assert.throws(() => history.commit('Unsafe renderer snapshot'), /history snapshots must contain plain data/);
+});
