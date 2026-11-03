@@ -75,6 +75,7 @@ test('anisotropic Gaussian extent is measured along the rotated plane normal', (
 
 test('zero sigma trims by Gaussian centre only and input arrays remain unchanged', () => {
   const positions = new Float32Array([0, -0.1, 0, 0, 0.1, 0]);
+  const originalPositions = positions.slice();
   const scalesXYZ = new Float32Array([10, 10, 10, 10, 10, 10]);
   const result = findGaussianRowsBelowSupportPlane({
     positions,
@@ -86,6 +87,6 @@ test('zero sigma trims by Gaussian centre only and input arrays remain unchanged
     offset: 0,
   });
   assert.deepEqual([...result.rows], [0]);
-  assert.deepEqual([...positions], [0, -0.1, 0, 0, 0.1, 0]);
+  assert.deepEqual([...positions], [...originalPositions]);
   assert.deepEqual([...scalesXYZ], [10, 10, 10, 10, 10, 10]);
 });
