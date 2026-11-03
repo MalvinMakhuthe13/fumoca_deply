@@ -226,3 +226,5 @@ The oriented TSDF regression suite now also exercises two nearby independent obj
 ### Gaussian input validation before oriented reconstruction
 
 The worker now validates the 14-field Gaussian row contract before building a spatial index. Non-finite geometry/color/opacity rows and zero-length quaternions are excluded; malformed row shapes fail with a clear error. Opacity and RGB logits are clipped before sigmoid evaluation so extreme finite values cannot overflow the exponential. Regression coverage checks NaN rows, degenerate quaternions, extreme logits and malformed row widths.
+
+TSDF fusion also validates finite query/position coordinates, positive voxel size, non-negative integer component labels, and finite non-negative confidence weights before building or querying its spatial index. This prevents malformed confidence from propagating NaNs into the signed-distance field.
