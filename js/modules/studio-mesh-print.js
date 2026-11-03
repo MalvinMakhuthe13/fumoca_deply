@@ -341,7 +341,13 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     const watertight = stats.watertight ?? stats.is_watertight;
     const coverage = Number.isFinite(Number(stats.tsdf_coverage_ratio))
       ? ` · TSDF support ${(Number(stats.tsdf_coverage_ratio) * 100).toFixed(1)}%` : '';
-    el.textContent = `Components: ${components} · Triangles: ${triangles.toLocaleString()} · Open edges: ${open.toLocaleString()} · Non-manifold edges: ${nonManifold.toLocaleString()} · ${watertight ? 'Watertight' : 'Open surface'}${coverage}`;
+    const confidence = Number.isFinite(Number(stats.mean_surfel_confidence))
+      ? ` · Surfel confidence ${(Number(stats.mean_surfel_confidence) * 100).toFixed(1)}%` : '';
+    const normalComponents = Number.isFinite(Number(stats.normal_component_count))
+      ? ` · Normal regions ${Number(stats.normal_component_count)}` : '';
+    const batches = Number.isFinite(Number(stats.tsdf_fusion_batches))
+      ? ` · TSDF batches ${Number(stats.tsdf_fusion_batches)}` : '';
+    el.textContent = `Components: ${components} · Triangles: ${triangles.toLocaleString()} · Open edges: ${open.toLocaleString()} · Non-manifold edges: ${nonManifold.toLocaleString()} · ${watertight ? 'Watertight' : 'Open surface'}${coverage}${confidence}${normalComponents}${batches}`;
   };
   const makeMeshBlob = () => {
     if (!lastMeshData) return null;
@@ -601,8 +607,8 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
           lastMeshFormat = 'ply';
           syncNifMesh(state.nifMesh);
           renderMeshDiagnostics({
+            ...(decoded.meta?.mesh_diagnostics || {}),
             ...FumocMeshExtractor.validateWatertight(lastMeshData),
-            tsdf_coverage_ratio: decoded.meta?.mesh_diagnostics?.tsdf_coverage_ratio,
           });
           window.previewSolidMesh?.(lastMeshData, { visible: false });
           window.previewSolidMeshComponents?.(components, { visible: true, opacity: 0.95 });
