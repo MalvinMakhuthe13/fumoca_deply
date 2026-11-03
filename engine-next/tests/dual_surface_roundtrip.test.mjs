@@ -30,8 +30,15 @@ test('NIF preserves Gaussian source and connected mesh as independent layers', a
     ]),
   };
 
+  const meshComponents = [
+    { id: 'cap-shell', vertices: mesh.vertices, triangles: mesh.triangles,
+      colours: mesh.colours, watertight: true },
+    { id: 'support-platform', vertices: new Float32Array([0, -0.2, 0, 1, -0.2, 0, 0, -0.2, 1]),
+      triangles: new Uint32Array([0, 1, 2]), colours: new Uint8Array([90, 70, 50, 90, 70, 50, 90, 70, 50]),
+      watertight: false },
+  ];
   const encoded = encodeNif({
-    positions, colors01, opacities01, scalesLinear, quats, mesh,
+    positions, colors01, opacities01, scalesLinear, quats, mesh, meshComponents,
     meta: { title: 'Dual surface round-trip fixture', surface_model: 'gaussian+mesh' },
   });
   const decoded = await decodeNif(encoded);
@@ -41,5 +48,11 @@ test('NIF preserves Gaussian source and connected mesh as independent layers', a
   assert.deepEqual(Array.from(decoded.mesh.positions), Array.from(mesh.vertices));
   assert.deepEqual(Array.from(decoded.mesh.faces), Array.from(mesh.triangles));
   assert.deepEqual(Array.from(decoded.mesh.colors), Array.from(mesh.colours));
+  assert.equal(decoded.meshComponents.length, 2, 'independent component chunk must survive');
+  assert.deepEqual(decoded.meshComponents.map(component => component.id), ['cap-shell', 'support-platform']);
+  assert.equal(decoded.meshComponents[0].watertight, true);
+  assert.equal(decoded.meshComponents[1].watertight, false);
+  assert.deepEqual(Array.from(decoded.meshComponents[1].faces), [0, 1, 2]);
+  assert.deepEqual(Array.from(decoded.meshComponents[1].positions), [0, -0.2, 0, 1, -0.2, 0, 0, -0.2, 1]);
   assert.equal(decoded.meta.title, 'Dual surface round-trip fixture');
 });
