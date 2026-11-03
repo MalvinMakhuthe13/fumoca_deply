@@ -77,6 +77,13 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
               <button type="button" id="meshComponentApplyTransform" class="mini-btn" disabled>Apply transform</button>
               <button type="button" id="meshComponentUndoTransform" class="mini-btn" disabled>Undo transform</button>
             </div>
+            <div style="display:flex;align-items:end;gap:6px;margin-top:8px">
+              <label class="hint" style="flex:1">Split at horizontal Y plane (scene units)
+                <input id="meshComponentSplitY" type="number" step="0.001" value="0" style="width:100%;padding:4px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#fff">
+              </label>
+              <button type="button" id="meshComponentSplitPlane" class="mini-btn" disabled>Split selected</button>
+            </div>
+            <div class="hint">Plane splitting only clips existing triangles. It deliberately leaves the new cut open; it does not invent a cap.</div>
           </div>
           <div class="hint" style="margin-top:6px">Each connected surface has independent visibility, selection, isolation, transform and deletion. The original Gaussian splats remain unchanged.</div>
         </div>
@@ -295,6 +302,8 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     if (undo) undo.disabled = !component?.transformUndoVertices;
     const remove = container.querySelector('#meshComponentDelete');
     if (remove) remove.disabled = !component;
+    const split = container.querySelector('#meshComponentSplitPlane');
+    if (split) split.disabled = !component;
   };
   container.querySelector('#meshComponentApplyTransform')?.addEventListener('click', () => {
     const state = window.S, component = selectedMeshComponent();
@@ -338,6 +347,55 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     renderMeshComponents(state.nifMeshComponents);
     updateComponentTransformButtons();
     meshStatus('Applied transform to ' + component.id + '. Export the NIF to preserve this component edit; the Gaussian source is unchanged.');
+  });
+  container.querySelector('#meshComponentSplitPlane')?.addEventListener('click', () => {
+    const state = window.S, component = selectedMeshComponent();
+    if (!state || !component) return;
+    const y = Number(container.querySelector('#meshComponentSplitY')?.value);
+    if (!Number.isFinite(y)) { meshStatus('Enter a finite Y coordinate for the split plane.'); return; }
+    const result = FumocMeshExtractor.splitMeshByPlane(component, {
+      normal: [0, 1, 0], offset: y,
+    });
+    if (!result.split || !result.positive || !result.negative) {
+      meshStatus('The plane did not divide this component into two surfaces. No geometry was changed.');
+      return;
+    }
+    const meanY = part => {
+      let sum = 0;
+      for (let i = 1; i < part.vertices.length; i += 3) sum += part.vertices[i];
+      return sum / Math.max(1, part.vertices.length / 3);
+    };
+    const positive = {
+      ...result.positive, id: component.id + '-above',
+      watertight: false, visible: component.visible !== false,
+      supportSurfaceCandidate: false,
+    };
+    const negative = {
+      ...result.negative, id: component.id + '-below',
+      watertight: false, visible: component.visible !== false,
+      supportSurfaceCandidate: component.supportSurfaceCandidate === true,
+    };
+    const replacement = [positive, negative].sort((a, b) => meanY(a) - meanY(b));
+    state.nifMeshComponents = (state.nifMeshComponents || []).filter(item => item.id !== component.id)
+      .concat(replacement);
+    state.activeMeshComponentId = positive.id;
+    state.nifMesh = null;
+    state.nifMeta = {
+      ...(state.nifMeta || {}),
+      mesh_components_edited: true,
+      mesh_component_splits: [
+        ...(state.nifMeta?.mesh_component_splits || []),
+        { source: component.id, axis: 'Y', offset: y, cut_is_open: true },
+      ],
+    };
+    lastMeshData = null; lastMeshStats = null; lastMesh = null;
+    container.querySelector('#saveMeshBtn').disabled = true;
+    container.querySelector('#printStlBtn').disabled = true;
+    window.previewSolidMeshComponents?.(state.nifMeshComponents, { visible: true, opacity: 1 });
+    window.highlightSolidMeshComponent?.(state.activeMeshComponentId);
+    renderMeshComponents(state.nifMeshComponents);
+    updateComponentTransformButtons();
+    meshStatus('Split ' + component.id + ' into two independent surfaces at Y=' + y + '. The new boundary is intentionally open; no cap geometry was invented.');
   });
   container.querySelector('#meshComponentUndoTransform')?.addEventListener('click', () => {
     const state = window.S, component = selectedMeshComponent();
