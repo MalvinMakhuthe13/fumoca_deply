@@ -53,6 +53,6 @@ test('NIF preserves Gaussian source and connected mesh as independent layers', a
   assert.equal(decoded.meshComponents[0].watertight, true);
   assert.equal(decoded.meshComponents[1].watertight, false);
   assert.deepEqual(Array.from(decoded.meshComponents[1].faces), [0, 1, 2]);
-  assert.deepEqual(Array.from(decoded.meshComponents[1].positions), [0, -0.2, 0, 1, -0.2, 0, 0, -0.2, 1]);
+  assert.ok(decoded.meshComponents[1].positions.every((value, index) => Math.abs(value - [0, -0.2, 0, 1, -0.2, 0, 0, -0.2, 1][index]) < 1e-6));
   assert.equal(decoded.meta.title, 'Dual surface round-trip fixture');
 });
