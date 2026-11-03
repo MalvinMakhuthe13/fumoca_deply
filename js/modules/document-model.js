@@ -102,6 +102,7 @@ export function createDocumentModel(options = {}) {
     source: cloneValue(options.source || { geometrySignature: null, appearanceSignature: null }),
     reconstruction: cloneValue(options.reconstruction || null),
     components,
+    activeComponentId: options.activeComponentId == null ? null : String(options.activeComponentId),
     lineage: cloneValue(options.lineage || []),
   };
   validateDocumentModel(model);
@@ -126,6 +127,9 @@ export function validateDocumentModel(model) {
     for (const gaussianId of membership) {
       if (!known.has(gaussianId)) throw new Error(`component ${component.id} references unknown Gaussian ID ${gaussianId}`);
     }
+  }
+  if (model.activeComponentId != null && !componentIds.has(model.activeComponentId)) {
+    throw new Error('activeComponentId must reference a document component');
   }
   if (!Number.isSafeInteger(model.nextGaussianId) || model.nextGaussianId < 1 || model.nextGaussianId > 0x100000000) {
     throw new Error('nextGaussianId is outside the supported range');
