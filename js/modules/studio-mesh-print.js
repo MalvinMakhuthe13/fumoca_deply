@@ -467,6 +467,10 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     const trimRows = Uint32Array.from(plan.rows);
     const cloneTrimValue = value => {
       if (value == null || typeof value !== 'object') return value;
+      if (value instanceof DataView) {
+        const bytes = value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);
+        return new DataView(bytes);
+      }
       if (ArrayBuffer.isView(value)) return new value.constructor(value);
       if (value instanceof ArrayBuffer) return value.slice(0);
       if (Array.isArray(value)) return value.map(cloneTrimValue);
