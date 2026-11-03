@@ -1822,6 +1822,7 @@ import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
 import { decodeNif, encodeNif, geometryToSplatRows, downloadNif } from './js/modules/nif-format.js';
 import { createDocumentModel, allocateGaussianIds, compactDocumentModel } from './js/modules/document-model.js';
 import { normalizeMeshComponents } from './js/modules/mesh-component-contract.js';
+import { assignGaussianMemberships } from './js/modules/gaussian-component-membership.js';
 
 // Cloud storage is only needed for save/upload actions. Keep it out of the
 // editor's startup dependency graph so a temporary storage CDN failure cannot
@@ -3064,6 +3065,35 @@ async function loadFile(file, urlOverride) {
       })),
       activeComponentId: S.nifMeshComponents[0]?.id || null,
     });
+  }
+  // Rehydrate per-component Gaussian membership from the document graph before
+  // using the conservative spatial fallback for legacy files without it.
+  if (S.nifMeshComponents?.length) {
+    const documentComponents = new Map((S.documentModel.components || []).map(component => [component.id, component]));
+    S.nifMeshComponents = S.nifMeshComponents.map(component => {
+      const stored = documentComponents.get(component.id);
+      return stored ? {
+        ...component,
+        gaussianIds: stored.gaussianIds || component.gaussianIds,
+        parentIds: stored.parentIds || component.parentIds,
+        provenance: stored.provenance || component.provenance,
+        geometrySource: stored.geometrySource || component.geometrySource,
+        selected: stored.selected === true,
+      } : component;
+    });
+    if (!S.nifMeshComponents.some(component => component.gaussianIds?.length)) {
+      const membership = assignGaussianMemberships(S.nifMeshComponents, {
+        positions: S.positions,
+        gaussianIds: S.documentModel.gaussianIds,
+        alive: S.alive,
+      });
+      S.nifMeshComponents = membership.components;
+      console.info('[document-model] Conservative component membership:', {
+        assigned: membership.assignedCount,
+        ambiguous: membership.ambiguousCount,
+        unassigned: membership.unassignedCount,
+      });
+    }
   }
   S.paintColors = new Float32Array(parsed.count * 3).fill(-1);
   S.layers = []; S.activeLayerId = null; S.layerHidden = new Uint8Array(parsed.count);
