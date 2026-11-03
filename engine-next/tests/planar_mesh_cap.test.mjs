@@ -43,6 +43,35 @@ test('caps a planar convex support base and faces outward below the object', () 
   }
 });
 
+test('caps a tilted support plane and keeps the cap exactly on that plane', () => {
+  const normal = [-1 / Math.sqrt(5), 2 / Math.sqrt(5), 0];
+  const u = [0, 0, 1];
+  const v = [2 / Math.sqrt(5), 1 / Math.sqrt(5), 0];
+  const polygon = [[0,0], [2,0], [2,2], [0,2]];
+  const vertices = [];
+  for (const [a,b] of polygon) vertices.push(u[0]*a+v[0]*b, u[1]*a+v[1]*b, u[2]*a+v[2]*b);
+  for (const [a,b] of polygon) vertices.push(
+    u[0]*a+v[0]*b+normal[0], u[1]*a+v[1]*b+normal[1], u[2]*a+v[2]*b+normal[2],
+  );
+  const triangles = [];
+  for (let i = 0; i < 4; i++) {
+    const j = (i + 1) % 4;
+    triangles.push(i,j,4+j, i,4+j,4+i);
+  }
+  const result = capPlanarBoundaryLoops({
+    vertices: new Float32Array(vertices),
+    triangles: new Uint32Array(triangles),
+  }, { normal, offset: 0, tolerance: 1e-5 });
+  assert.equal(result.cappedLoops, 1);
+  for (let i = 0; i < 4; i++) {
+    const at = i * 3;
+    const distance = result.mesh.vertices[at] * normal[0]
+      + result.mesh.vertices[at+1] * normal[1]
+      + result.mesh.vertices[at+2] * normal[2];
+    assert.ok(Math.abs(distance) < 1e-6);
+  }
+});
+
 test('ear-clips a concave support base without filling outside its outline', () => {
   const mesh = openPrism([[0,0], [2,0], [2,1], [1,1], [1,2], [0,2]]);
   const result = capPlanarBoundaryLoops(mesh, { normal: [0,1,0], offset: 0 });
