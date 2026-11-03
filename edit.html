@@ -4180,7 +4180,7 @@ function _documentModelForSave(retainedIndices) {
       provenance: live.provenance || { source: 'mesh-reconstruction' },
     });
   }
-  const activeComponentId = liveComponents.length
+  const activeComponentId = Array.isArray(S.nifMeshComponents)
     ? (liveById.has(S.activeMeshComponentId) ? S.activeMeshComponentId : null)
     : (base.activeComponentId || null);
   const updated = createDocumentModel({
