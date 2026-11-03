@@ -3710,7 +3710,7 @@ function pushHistory(label) {
   updateHistoryBtns();
 }
 function undo() {
-  flushPendingUnifiedHistory();
+  if (_pendingUnifiedHistory && !flushPendingUnifiedHistory() && _pendingUnifiedHistory) return;
   if (!studioEditHistory.undo()) return;
   setStatus('Undone', 'ok');
 }
