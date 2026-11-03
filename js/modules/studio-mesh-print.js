@@ -378,15 +378,29 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       for (let i = 1; i < part.vertices.length; i += 3) sum += part.vertices[i];
       return sum / Math.max(1, part.vertices.length / 3);
     };
+    const positiveDiagnostics = FumocMeshExtractor.validateWatertight(result.positive);
+    const negativeDiagnostics = FumocMeshExtractor.validateWatertight(result.negative);
     const positive = {
       ...result.positive, id: component.id + '-above',
-      watertight: false, visible: component.visible !== false,
+      watertight: positiveDiagnostics.watertight,
+      visible: component.visible !== false,
       supportSurfaceCandidate: false,
+      diagnostics: {
+        ...positiveDiagnostics,
+        n_boundary_edges: positiveDiagnostics.openEdges,
+        n_nonmanifold_edges: positiveDiagnostics.nonManifoldEdges,
+      },
     };
     const negative = {
       ...result.negative, id: component.id + '-below',
-      watertight: false, visible: component.visible !== false,
+      watertight: negativeDiagnostics.watertight,
+      visible: component.visible !== false,
       supportSurfaceCandidate: true, // lower side of a user-defined horizontal separation plane; review candidate only
+      diagnostics: {
+        ...negativeDiagnostics,
+        n_boundary_edges: negativeDiagnostics.openEdges,
+        n_nonmanifold_edges: negativeDiagnostics.nonManifoldEdges,
+      },
     };
     const replacement = [positive, negative].sort((a, b) => meanY(a) - meanY(b));
     state.meshComponentSplitUndo = {
