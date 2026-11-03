@@ -1637,11 +1637,14 @@ def _confidence_weighted_tsdf(grid: np.ndarray, positions: np.ndarray,
                               normals: np.ndarray, component_ids: np.ndarray,
                               confidence: np.ndarray, voxel_size: float,
                               neighbors: int = 8, tangent_axes: np.ndarray = None,
-                              tangent_scales: np.ndarray = None):
-    """Fuse oriented surfels; return TSDF, observed mask and support diagnostics."""
+                              tangent_scales: np.ndarray = None,
+                              batch_size: int = 50000):
+    """Fuse oriented anisotropic surfels in bounded batches; preserve unsupported voxels."""
     from scipy.spatial import cKDTree
     points = np.asarray(positions, dtype=np.float64)
     query = np.asarray(grid, dtype=np.float64)
+    component_ids = np.asarray(component_ids)
+    confidence = np.asarray(confidence, dtype=np.float64)
     if points.ndim != 2 or points.shape[1] != 3 or len(points) == 0:
         raise ValueError('TSDF fusion requires at least one 3D surfel position')
     if query.ndim != 2 or query.shape[1] != 3:
@@ -1667,9 +1670,6 @@ def _confidence_weighted_tsdf(grid: np.ndarray, positions: np.ndarray,
         axes = axes / axis_lengths
     tree = cKDTree(points)
     k = min(max(1, int(neighbors)), len(points))
-    dists, idx = tree.query(query, k=k, workers=-1)
-    if k == 1:
-        dists, idx = dists[:, None], idx[:, None]
     if len(points) > 1:
         spacing = tree.query(points, k=2, workers=-1)[0][:, 1]
         valid = spacing[np.isfinite(spacing) & (spacing > 1e-9)]
@@ -1682,47 +1682,67 @@ def _confidence_weighted_tsdf(grid: np.ndarray, positions: np.ndarray,
     local_spacing = np.where(np.isfinite(spacing), spacing, median_spacing)
     local_spacing = np.maximum(local_spacing, median_spacing * 0.25)
     local_spacing = np.minimum(local_spacing, median_spacing * 4.0)
-    support_radius = np.minimum(
-        np.maximum(2.5 * float(voxel_size), 2.5 * local_spacing[idx[:, 0]]),
-        max(2.5 * float(voxel_size), 10.0 * median_spacing)
-    )
-    observed = np.isfinite(dists[:, 0]) & (dists[:, 0] <= support_radius)
     truncation = max(3.0 * float(voxel_size), 2.0 * median_spacing)
     sigma = max(2.0 * float(voxel_size), 1e-9)
-    nearest_component = component_ids[idx[:, 0]]
-    component_match = component_ids[idx] == nearest_component[:, None]
-    delta = query[:, None, :] - points[idx]
-    signed_raw = np.einsum('vkc,vkc->vk', delta, normal_array[idx])
-    # Use the two Gaussian axes tangent to the estimated normal as an
-    # anisotropic surfel footprint. This prevents a broad axis in one tangent
-    # direction from smearing across a narrow edge in the other direction.
-    if axes is not None:
-        local_axes = axes[idx]
-        local_scales = np.maximum(scales[idx], float(voxel_size) * 0.1)
-        tangent_u = np.einsum('vkc,vkc->vk', delta, local_axes[:, :, 0, :])
-        tangent_v = np.einsum('vkc,vkc->vk', delta, local_axes[:, :, 1, :])
-        mahalanobis_sq = (tangent_u / local_scales[:, :, 0]) ** 2 + (tangent_v / local_scales[:, :, 1]) ** 2
-        footprint = mahalanobis_sq <= 9.0
-        weights = np.exp(-0.5 * mahalanobis_sq) * np.exp(-0.5 * (signed_raw / sigma) ** 2)
-        observed &= np.any(footprint & component_match & (np.abs(signed_raw) <= truncation), axis=1)
-    else:
-        tangent = delta - signed_raw[:, :, None] * normal_array[idx]
-        tangent_distance = np.linalg.norm(tangent, axis=2)
-        footprint = tangent_distance <= support_radius[:, None]
-        weights = np.exp(-(tangent_distance ** 2) / (2.0 * sigma ** 2))
-        weights *= np.exp(-0.5 * (signed_raw / sigma) ** 2)
-        observed &= footprint[:, 0] & (np.abs(signed_raw[:, 0]) <= truncation)
-    weights *= component_match * confidence[idx] * footprint
-    signed = np.clip(signed_raw, -truncation, truncation)
-    weight_sum = weights.sum(axis=1)
-    observed &= weight_sum > 1e-10
-    field = (signed * weights).sum(axis=1) / np.maximum(weight_sum, 1e-12)
+    chunk_size = max(1, int(batch_size))
+    field = np.zeros(len(query), dtype=np.float64)
+    observed = np.zeros(len(query), dtype=bool)
+    batch_count = 0
+
+    for start in range(0, len(query), chunk_size):
+        stop = min(start + chunk_size, len(query))
+        query_batch = query[start:stop]
+        dists, idx = tree.query(query_batch, k=k, workers=-1)
+        if k == 1:
+            dists, idx = dists[:, None], idx[:, None]
+        support_radius = np.minimum(
+            np.maximum(2.5 * float(voxel_size), 2.5 * local_spacing[idx[:, 0]]),
+            max(2.5 * float(voxel_size), 10.0 * median_spacing)
+        )
+        observed_batch = np.isfinite(dists[:, 0]) & (dists[:, 0] <= support_radius)
+        nearest_component = component_ids[idx[:, 0]]
+        component_match = component_ids[idx] == nearest_component[:, None]
+        delta = query_batch[:, None, :] - points[idx]
+        signed_raw = np.einsum('vkc,vkc->vk', delta, normal_array[idx])
+        if axes is not None:
+            local_axes = axes[idx]
+            # Keep the true Gaussian anisotropy; the small floor only prevents
+            # division by a sub-voxel numerical zero.
+            local_scales = np.maximum(scales[idx], float(voxel_size) * 0.1)
+            tangent_u = np.einsum('vkc,vkc->vk', delta, local_axes[:, :, 0, :])
+            tangent_v = np.einsum('vkc,vkc->vk', delta, local_axes[:, :, 1, :])
+            mahalanobis_sq = (tangent_u / local_scales[:, :, 0]) ** 2 + (tangent_v / local_scales[:, :, 1]) ** 2
+            footprint = mahalanobis_sq <= 9.0
+            weights = np.exp(-0.5 * mahalanobis_sq) * np.exp(-0.5 * (signed_raw / sigma) ** 2)
+            observed_batch &= np.any(
+                footprint & component_match & (np.abs(signed_raw) <= truncation), axis=1
+            )
+        else:
+            tangent = delta - signed_raw[:, :, None] * normal_array[idx]
+            tangent_distance = np.linalg.norm(tangent, axis=2)
+            footprint = tangent_distance <= support_radius[:, None]
+            weights = np.exp(-(tangent_distance ** 2) / (2.0 * sigma ** 2))
+            weights *= np.exp(-0.5 * (signed_raw / sigma) ** 2)
+            observed_batch &= np.any(
+                footprint & component_match & (np.abs(signed_raw) <= truncation), axis=1
+            )
+        weights *= component_match * confidence[idx] * footprint
+        signed = np.clip(signed_raw, -truncation, truncation)
+        weight_sum = weights.sum(axis=1)
+        observed_batch &= weight_sum > 1e-10
+        field[start:stop] = (signed * weights).sum(axis=1) / np.maximum(weight_sum, 1e-12)
+        observed[start:stop] = observed_batch
+        batch_count += 1
+
     return field, observed, {
         'observed_voxels': int(np.count_nonzero(observed)),
         'total_voxels': int(len(query)),
         'coverage_ratio': float(np.mean(observed)) if len(query) else 0.0,
         'median_point_spacing': median_spacing,
         'tsdf_truncation': truncation,
+        'batch_size': chunk_size,
+        'fusion_batches': batch_count,
+        'anisotropic_tangent_support': axes is not None,
     }
 
 
