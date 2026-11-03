@@ -390,6 +390,30 @@ check('sloped lower surface does not produce a horizontal support-plane suggesti
       not sloped_suggestion['detected'], sloped_suggestion)
 
 
+
+# Malformed Gaussian rows must not poison KD-tree/TSDF construction, and
+# extreme but finite opacity logits must not overflow the sigmoid.
+prepare_inputs = namespace['_prepare_gaussian_mesh_inputs']
+gaussian_rows = np.zeros((4, 14), dtype=np.float64)
+gaussian_rows[:, 6] = 1.0
+gaussian_rows[:, 10] = [0.0, 0.0, 0.0, 1000.0]
+gaussian_rows[1, 0] = np.nan
+gaussian_rows[2, 6:10] = 0.0
+prepared, stable_opacity, valid_gaussians = prepare_inputs(gaussian_rows, 0.25)
+check('Gaussian mesh input mask rejects NaNs and zero quaternions but keeps valid rows',
+      valid_gaussians.tolist() == [True, False, False, True]
+      and np.isfinite(stable_opacity).all()
+      and stable_opacity[3] > 0.999,
+      (stable_opacity, valid_gaussians))
+
+bad_shape_rejected = False
+try:
+    prepare_inputs(np.zeros((3, 10)), 0.25)
+except ValueError:
+    bad_shape_rejected = True
+check('Gaussian mesh input validation rejects rows without the 14-field contract',
+      bad_shape_rejected)
+
 # The primary NIF META payload must carry diagnostics and the proposed support
 # plane so the public viewer and an offline downloaded NIF see the same context.
 build_meta = namespace['_build_nif_meta_payload']
