@@ -78,13 +78,20 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
               <button type="button" id="meshComponentUndoTransform" class="mini-btn" disabled>Undo transform</button>
             </div>
             <div style="display:flex;align-items:end;gap:6px;margin-top:8px">
-              <label class="hint" style="flex:1">Split at horizontal Y plane (scene units)
+              <label class="hint" style="width:76px">Axis
+                <select id="meshComponentSplitAxis" style="width:100%;padding:4px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#fff">
+                  <option value="y" selected>Y</option>
+                  <option value="x">X</option>
+                  <option value="z">Z</option>
+                </select>
+              </label>
+              <label class="hint" style="flex:1">Split plane offset (scene units)
                 <input id="meshComponentSplitY" type="number" step="0.001" value="0" style="width:100%;padding:4px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#fff">
               </label>
               <button type="button" id="meshComponentSplitPlane" class="mini-btn" disabled>Split selected</button>
               <button type="button" id="meshComponentUndoSplit" class="mini-btn" disabled>Undo split</button>
             </div>
-            <div class="hint">Plane splitting only clips existing triangles. It deliberately leaves the new cut open; it does not invent a cap.</div>
+            <div class="hint">Axis-aligned splitting only clips existing triangles. The new cut remains open; no cap is invented. Use Y for a horizontal support-plane split.</div>
           </div>
           <div class="hint" style="margin-top:6px">Each connected surface has independent visibility, selection, isolation, transform and deletion. The original Gaussian splats remain unchanged.</div>
         </div>
@@ -375,22 +382,24 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     if (!state || !component) return;
     const y = Number(container.querySelector('#meshComponentSplitY')?.value);
     if (!Number.isFinite(y)) { meshStatus('Enter a finite Y coordinate for the split plane.'); return; }
-    const result = FumocMeshExtractor.splitMeshByPlane(component, {
-      normal: [0, 1, 0], offset: y,
-    });
+    const axis = container.querySelector('#meshComponentSplitAxis')?.value || 'y';
+    const axisIndex = ({ x: 0, y: 1, z: 2 })[axis];
+    if (axisIndex === undefined) { meshStatus('Choose X, Y or Z for the split plane.'); return; }
+    const normal = [0, 0, 0]; normal[axisIndex] = 1;
+    const result = FumocMeshExtractor.splitMeshByPlane(component, { normal, offset: y });
     if (!result.split || !result.positive || !result.negative) {
       meshStatus('The plane did not divide this component into two surfaces. No geometry was changed.');
       return;
     }
-    const meanY = part => {
+    const meanAxis = part => {
       let sum = 0;
-      for (let i = 1; i < part.vertices.length; i += 3) sum += part.vertices[i];
+      for (let i = axisIndex; i < part.vertices.length; i += 3) sum += part.vertices[i];
       return sum / Math.max(1, part.vertices.length / 3);
     };
     const positiveDiagnostics = FumocMeshExtractor.validateWatertight(result.positive);
     const negativeDiagnostics = FumocMeshExtractor.validateWatertight(result.negative);
     const positive = {
-      ...result.positive, id: component.id + '-above',
+      ...result.positive, id: component.id + (axis === 'y' ? '-above' : '-' + axis + '-positive'),
       watertight: positiveDiagnostics.watertight,
       visible: component.visible !== false,
       supportSurfaceCandidate: false,
@@ -401,17 +410,17 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       },
     };
     const negative = {
-      ...result.negative, id: component.id + '-below',
+      ...result.negative, id: component.id + (axis === 'y' ? '-below' : '-' + axis + '-negative'),
       watertight: negativeDiagnostics.watertight,
       visible: component.visible !== false,
-      supportSurfaceCandidate: true, // lower side of a user-defined horizontal separation plane; review candidate only
+      supportSurfaceCandidate: axis === 'y', // only a lower horizontal Y split is a support candidate
       diagnostics: {
         ...negativeDiagnostics,
         n_boundary_edges: negativeDiagnostics.openEdges,
         n_nonmanifold_edges: negativeDiagnostics.nonManifoldEdges,
       },
     };
-    const replacement = [positive, negative].sort((a, b) => meanY(a) - meanY(b));
+    const replacement = [positive, negative].sort((a, b) => meanAxis(a) - meanAxis(b));
     state.meshComponentSplitUndo = {
       source: { ...component, vertices: component.vertices.slice(), triangles: component.triangles.slice(), colours: component.colours?.slice() },
       partIds: [positive.id, negative.id],
@@ -425,7 +434,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       mesh_components_edited: true,
       mesh_component_splits: [
         ...(state.nifMeta?.mesh_component_splits || []),
-        { source: component.id, axis: 'Y', offset: y, cut_is_open: true },
+        { source: component.id, axis: axis.toUpperCase(), offset: y, cut_is_open: true },
       ],
     };
     lastMeshData = null; lastMeshStats = null; lastMesh = null;
@@ -435,7 +444,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     window.highlightSolidMeshComponent?.(state.activeMeshComponentId);
     renderMeshComponents(state.nifMeshComponents);
     updateComponentTransformButtons();
-    meshStatus('Split ' + component.id + ' into two independent surfaces at Y=' + y + '. The new boundary is intentionally open; no cap geometry was invented.');
+    meshStatus('Split ' + component.id + ' into two independent surfaces at ' + axis.toUpperCase() + '=' + y + '. The new boundary is intentionally open; no cap geometry was invented.');
   });
   container.querySelector('#meshComponentUndoSplit')?.addEventListener('click', () => {
     const state = window.S, snapshot = state?.meshComponentSplitUndo;
