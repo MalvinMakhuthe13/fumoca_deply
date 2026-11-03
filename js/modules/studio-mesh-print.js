@@ -66,6 +66,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
             <button type="button" id="meshComponentsShowAll" class="mini-btn">Show all</button>
             <button type="button" id="meshComponentsHideAll" class="mini-btn">Hide all</button>
             <button type="button" id="meshComponentDelete" class="mini-btn" disabled>Delete selected</button>
+            <button type="button" id="meshComponentUndoDelete" class="mini-btn" disabled>Undo delete</button>
           </div>
           <div id="meshComponentsList" style="display:grid;gap:5px"></div>
           <div style="margin-top:9px;padding-top:8px;border-top:1px solid rgba(255,255,255,.1)">
@@ -96,7 +97,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
               <button type="button" id="meshComponentSplitPlane" class="mini-btn" disabled>Split selected</button>
               <button type="button" id="meshComponentUndoSplit" class="mini-btn" disabled>Undo split</button>
             </div>
-            <div class="hint">Axis-aligned splitting only clips existing triangles. The new cut remains open; no cap is invented. Use Y for a horizontal support-plane split.</div>
+            <div class="hint">Splitting clips existing triangles along X/Y/Z or the detected oriented support plane. New cut boundaries remain open; no cap is invented.</div>
             <div style="display:flex;gap:5px;margin-top:9px">
               <button type="button" id="meshLevelSupportPlane" class="mini-btn" disabled>Level to support plane</button>
               <button type="button" id="meshUndoSupportLevel" class="mini-btn" disabled>Undo level</button>
@@ -650,6 +651,8 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     if (undo) undo.disabled = !component?.transformUndoVertices;
     const remove = container.querySelector('#meshComponentDelete');
     if (remove) remove.disabled = !component;
+    const undoDelete = container.querySelector('#meshComponentUndoDelete');
+    if (undoDelete) undoDelete.disabled = !window.S?.meshComponentDeleteUndo;
     const split = container.querySelector('#meshComponentSplitPlane');
     if (split) split.disabled = !component;
     const undoSplit = container.querySelector('#meshComponentUndoSplit');
@@ -878,6 +881,15 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     const state = window.S;
     if (!state?.activeMeshComponentId) return;
     const id = state.activeMeshComponentId;
+    const componentIndex = (state.nifMeshComponents || []).findIndex(component => component.id === id);
+    const deletedComponent = (state.nifMeshComponents || [])[componentIndex];
+    if (!deletedComponent) return;
+    state.meshComponentDeleteUndo = {
+      source: { ...deletedComponent, vertices: deletedComponent.vertices.slice(), triangles: deletedComponent.triangles.slice(), colours: deletedComponent.colours?.slice(), gaussianIds: deletedComponent.gaussianIds?.slice?.() || deletedComponent.gaussianIds },
+      index: componentIndex,
+      previousActiveId: state.activeMeshComponentId,
+    };
+    supportLevelUndo = null;
     state.meshComponentSplitUndo = null;
     state.nifMeshComponents = (state.nifMeshComponents || []).filter(component => component.id !== id);
     state.activeMeshComponentId = state.nifMeshComponents[0]?.id || null;
@@ -896,7 +908,33 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     window.setSolidMeshComponentsVisibility?.(true);
     renderMeshComponents(state.nifMeshComponents);
     updateComponentTransformButtons();
-    meshStatus('Deleted component ' + id + '. Other reconstructed components and the original Gaussian layer are unchanged.');
+    updateSupportPlaneControls();
+    updateComponentTransformButtons();
+    meshStatus('Deleted component ' + id + '. Its geometry and Gaussian membership are retained in one-step undo and document lineage.');
+  });
+  container.querySelector('#meshComponentUndoDelete')?.addEventListener('click', () => {
+    const state = window.S, snapshot = state?.meshComponentDeleteUndo;
+    if (!state || !snapshot) return;
+    const components = state.nifMeshComponents || [];
+    if (components.some(component => component.id === snapshot.source.id)) {
+      state.meshComponentDeleteUndo = null;
+      updateComponentTransformButtons();
+      return;
+    }
+    components.splice(Math.min(snapshot.index, components.length), 0, snapshot.source);
+    state.nifMeshComponents = components;
+    state.activeMeshComponentId = components.some(component => component.id === snapshot.previousActiveId)
+      ? snapshot.previousActiveId : snapshot.source.id;
+    state.meshComponentDeleteUndo = null;
+    state.nifMesh = null;
+    lastMeshData = null; lastMeshStats = null; lastMesh = null;
+    syncComponentDiagnosticsToMeta();
+    state.nifMeta = { ...(state.nifMeta || {}), mesh_components_edited: true };
+    window.previewSolidMeshComponents?.(components, { visible: true, opacity: 1 });
+    window.highlightSolidMeshComponent?.(state.activeMeshComponentId);
+    renderMeshComponents(components);
+    updateComponentTransformButtons();
+    meshStatus('Restored deleted component ' + snapshot.source.id + ' with its geometry and Gaussian membership.');
   });
   const updateMeshPreview = () => {
     const visible = !!container.querySelector('#meshPreviewToggle')?.checked;
