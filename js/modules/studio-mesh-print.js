@@ -1360,9 +1360,11 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     }
     const vertices = component.vertices || component.positions;
     if (!vertices?.length) return;
-    window.beginStudioHistory?.('Transform mesh component');
-    component.transformUndoVertices = vertices.slice();
-    state.meshComponentSplitUndo = null; // further edits invalidate the one-step plane-split undo
+    const beforePatch = {
+      id: component.id,
+      vertices: vertices.slice(),
+      transformUndoVertices: component.transformUndoVertices?.slice?.() || null,
+    };
     let cx = 0, cy = 0, cz = 0;
     for (let i = 0; i < vertices.length; i += 3) {
       cx += vertices[i]; cy += vertices[i + 1]; cz += vertices[i + 2];
@@ -1378,13 +1380,64 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       vertices[i + 1] = cy + y + move[1];
       vertices[i + 2] = cz - x * sine + z * cosine + move[2];
     }
+    component.transformUndoVertices = null; // Undo/Redo is owned by the unified history journal.
+    const afterPatch = {
+      id: component.id,
+      vertices: vertices.slice(),
+      transformUndoVertices: null,
+    };
     state.nifMesh = null;
     state.nifMeta = { ...(state.nifMeta || {}), mesh_components_edited: true };
     refreshCombinedMeshFromComponents();
     window.previewSolidMeshComponents?.(state.nifMeshComponents, { visible: true, opacity: 1 });
     window.highlightSolidMeshComponent?.(component.id);
     renderMeshComponents(state.nifMeshComponents);
-    window.commitStudioHistory?.();
+    try {
+      const committed = window.commitStudioPatch?.('Transform mesh component', {
+        before: beforePatch,
+        after: afterPatch,
+        capturePatch: () => {
+          const current = (window.S?.nifMeshComponents || []).find(item => item.id === beforePatch.id);
+          if (!current) throw new Error('Mesh component no longer exists: ' + beforePatch.id);
+          return {
+            id: current.id,
+            vertices: (current.vertices || current.positions).slice(),
+            transformUndoVertices: current.transformUndoVertices?.slice?.() || null,
+          };
+        },
+        applyPatch: patch => {
+          const target = (window.S?.nifMeshComponents || []).find(item => item.id === patch.id);
+          if (!target) throw new Error('Mesh component no longer exists: ' + patch.id);
+          const currentVertices = target.vertices || target.positions;
+          if (currentVertices?.length === patch.vertices.length && typeof currentVertices.set === 'function') {
+            currentVertices.set(patch.vertices);
+          } else if (target.vertices) target.vertices = patch.vertices.slice();
+          else target.positions = patch.vertices.slice();
+          target.transformUndoVertices = patch.transformUndoVertices?.slice?.() || null;
+          window.S.nifMesh = null;
+          window.S.nifMeta = { ...(window.S.nifMeta || {}), mesh_components_edited: true };
+          refreshCombinedMeshFromComponents();
+          window.previewSolidMeshComponents?.(window.S.nifMeshComponents, { visible: true, opacity: 1 });
+          window.highlightSolidMeshComponent?.(target.id);
+          renderMeshComponents(window.S.nifMeshComponents);
+          updateComponentTransformButtons();
+        },
+      });
+      if (committed === false) throw new Error('The transform could not be retained in Undo history');
+    } catch (error) {
+      const currentVertices = component.vertices || component.positions;
+      if (currentVertices?.length === beforePatch.vertices.length && typeof currentVertices.set === 'function') currentVertices.set(beforePatch.vertices);
+      else if (component.vertices) component.vertices = beforePatch.vertices.slice();
+      else component.positions = beforePatch.vertices.slice();
+      component.transformUndoVertices = beforePatch.transformUndoVertices?.slice?.() || null;
+      state.nifMesh = null;
+      refreshCombinedMeshFromComponents();
+      window.previewSolidMeshComponents?.(state.nifMeshComponents, { visible: true, opacity: 1 });
+      renderMeshComponents(state.nifMeshComponents);
+      console.error('[Studio mesh] Could not record component transform:', error);
+      meshStatus('Component transform was rolled back: ' + (error.message || String(error)));
+      return;
+    }
     updateComponentTransformButtons();
     meshStatus('Applied transform to ' + component.id + '. Export the NIF to preserve this component edit; the Gaussian source is unchanged.');
   });
