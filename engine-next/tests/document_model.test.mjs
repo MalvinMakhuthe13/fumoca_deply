@@ -30,7 +30,8 @@ test('Gaussian identities are monotonic, nonzero and independent of array order'
   assert.deepEqual([...a.ids], [1, 2, 3]);
   assert.deepEqual([...b.ids], [4, 5]);
   assert.equal(a.nextId, 4);
-  assert.throws(() => allocateGaussianIds(2, 0xffffffff), /exhausted/);\n  assert.throws(() => createDocumentModel({ documentId: 'bad', gaussianIds: [-1] }), /invalid uint32 identity/);
+  assert.throws(() => allocateGaussianIds(2, 0xffffffff), /exhausted/);
+  assert.throws(() => createDocumentModel({ documentId: 'bad', gaussianIds: [-1] }), /invalid uint32 identity/);
 });
 
 test('document model validates unique component IDs and Gaussian membership', () => {
@@ -38,7 +39,10 @@ test('document model validates unique component IDs and Gaussian membership', ()
   assert.deepEqual(validateDocumentModel(model), { valid: true, gaussianCount: 3, componentCount: 1 });
   const bad = cloneDocumentModel(model);
   bad.components[0].gaussianIds = new Uint32Array([99]);
-  assert.throws(() => validateDocumentModel(bad), /unknown Gaussian ID/);\n  const duplicate = cloneDocumentModel(model);\n  duplicate.components[0].gaussianIds = new Uint32Array([1, 1]);\n  assert.throws(() => validateDocumentModel(duplicate), /duplicate ID/);
+  assert.throws(() => validateDocumentModel(bad), /unknown Gaussian ID/);
+  const duplicate = cloneDocumentModel(model);
+  duplicate.components[0].gaussianIds = new Uint32Array([1, 1]);
+  assert.throws(() => validateDocumentModel(duplicate), /duplicate ID/);
 });
 
 test('split children preserve parent lineage and source membership', () => {
