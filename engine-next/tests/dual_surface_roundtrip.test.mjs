@@ -110,6 +110,25 @@ test('NIF preserves Gaussian source and connected mesh as independent layers', a
   const invalidPayload = encodeNif({
     positions, colors01, opacities01, scalesLinear, quats, meshComponents,
   });
+
+  // Transport corruption must be caught by CRC before semantic decoding.
+  const badCrcFile = invalidPayload.slice(0);
+  const badCrcView = new DataView(badCrcFile);
+  let scanOffset = 256;
+  while (scanOffset + 16 <= badCrcFile.byteLength) {
+    const type = badCrcView.getUint16(scanOffset, false);
+    const size = badCrcView.getUint32(scanOffset + 4, false);
+    if (type === CHUNK.MESH_COMPONENTS) {
+      badCrcView.setUint8(scanOffset + 16, badCrcView.getUint8(scanOffset + 16) ^ 0x01);
+      break;
+    }
+    scanOffset += 16 + size;
+  }
+  const badCrcDecoded = await decodeNif(badCrcFile);
+  assert.equal(badCrcDecoded.reader.isCorrupted, true,
+    'payload mutation without CRC update must be reported as transport corruption');
+  assert.equal(badCrcDecoded.meshComponents.length, 0);
+
   // The component chunk is integrity-checked independently of the legacy mesh.
   // Corrupting a local face index must reject the component chunk, never expose
   // an out-of-range index to BufferGeometry or selection code.
