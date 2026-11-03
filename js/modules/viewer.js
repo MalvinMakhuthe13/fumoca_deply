@@ -1505,11 +1505,12 @@ function mountMeshViewer(mesh, calibration, meshComponents = [], meshDiagnostics
       const sourcePart = renderParts.find(part => (part.id || 'FUMOCA reconstructed component') === object.name);
       const diagnostics = sourcePart?.diagnostics || {};
       const role = object.userData.supportSurfaceCandidate ? ' · Support surface candidate' : '';
-      const topology = diagnostics.watertight
+      const watertight = diagnostics.watertight ?? sourcePart?.watertight;
+      const topology = watertight === true
         ? ' · Watertight'
         : Number.isFinite(Number(diagnostics.n_boundary_edges))
           ? ` · Open ${Number(diagnostics.n_boundary_edges)} / NM ${Number(diagnostics.n_nonmanifold_edges || 0)}`
-          : '';
+          : watertight === false ? ' · Open topology' : '';
       const supportConfidence = object.userData.supportSurfaceCandidate &&
         Number.isFinite(Number(diagnostics.support_plane_confidence))
         ? ` ${Math.round(Number(diagnostics.support_plane_confidence) * 100)}%` : '';
