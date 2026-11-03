@@ -276,10 +276,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
           || meshStateSignature(state.nifMesh, state.nifMeshComponents) !== state.supportPlaneTrimPreview.meshSignature)) {
       clearSupportTrimPreview(true);
     }
-    if (state?.supportPlaneTrimUndo
-        && (computeGaussianSourceSignature(state) !== state.supportPlaneTrimUndo.sourceSignatureAfter
-          || meshStateSignature(state.nifMesh, state.nifMeshComponents) !== state.supportPlaneTrimUndo.meshSignatureAfter)) {
-      }
     const candidate = getSupportPlaneCandidate();
     const hasPlane = !!(candidate?.detected && (
       (Array.isArray(candidate.normal) && candidate.normal.length === 3
@@ -297,11 +293,9 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     const undoTrimButton = container.querySelector('#meshUndoSupportTrim');
     if (previewButton) previewButton.disabled = !hasPlane || !hasMembership;
     if (applyButton) applyButton.disabled = !window.S?.supportPlaneTrimPreview?.rows?.length;
-    if (undoTrimButton) undoTrimButton.disabled = !window.S?.supportPlaneTrimUndo;
     const capButton = container.querySelector('#meshCapSupportBase');
     const undoCapButton = container.querySelector('#meshUndoSupportCap');
     if (capButton) capButton.disabled = !hasPlane || !selected?.vertices?.length || !selected?.triangles?.length;
-    if (undoCapButton) undoCapButton.disabled = !window.S?.meshComponentCapUndo;
   };
 
   const makeSupportTrimPlan = (component) => {
@@ -498,8 +492,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     state.nifMeta.dual_surface_source_signature = nextSignature;
     lastMeshSourceSignature = nextSignature;
     refreshCombinedMeshFromComponents();
-    state.supportPlaneTrimUndo.sourceSignatureAfter = nextSignature;
-    state.supportPlaneTrimUndo.meshSignatureAfter = meshStateSignature(state.nifMesh, state.nifMeshComponents);
     window.commitStudioHistory?.();
     if (preview.previousSelection && state.selected?.length === preview.previousSelection.length) {
       state.selected.set(preview.previousSelection);
@@ -2059,7 +2051,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         window.S.meshComponentSplitUndo = null;
         window.S.meshComponentCapUndo = null;
         window.S.meshComponentMembershipUndo = null;
-        window.S.supportPlaneTrimUndo = null;
         window.S.supportPlaneTrimPreview = null;
         window.S.nifMesh = stagedMeshData;
         window.S.nifMeshComponents = extractedComponents;
@@ -2126,9 +2117,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     undoGaussianMembershipLink,
     unlinkSelectedGaussiansFromComponents,
     applySupportPlaneTrim,
-    undoSupportPlaneTrim,
     capSupportPlaneBase,
-    undoSupportPlaneCap,
   };
   container.querySelector('#meshOrientedReconstructBtn')?.addEventListener('click', async () => {
     const button = container.querySelector('#meshOrientedReconstructBtn');
@@ -2239,9 +2228,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
   container.querySelector('#meshLevelSupportPlane')?.addEventListener('click', levelToSupportPlane);
   container.querySelector('#meshPreviewSupportTrim')?.addEventListener('click', previewSupportPlaneTrim);
   container.querySelector('#meshApplySupportTrim')?.addEventListener('click', applySupportPlaneTrim);
-  container.querySelector('#meshUndoSupportTrim')?.addEventListener('click', undoSupportPlaneTrim);
   container.querySelector('#meshCapSupportBase')?.addEventListener('click', capSupportPlaneBase);
-  container.querySelector('#meshUndoSupportCap')?.addEventListener('click', undoSupportPlaneCap);
 
   container.querySelector('#meshFillHolesBtn')?.addEventListener('click', () => {
     const threshold = Number(container.querySelector('#meshHoleSize')?.value || 48);
