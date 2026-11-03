@@ -117,6 +117,7 @@ export function validateDocumentModel(model) {
   const gaussianIds = asUint32Ids(model.gaussianIds, 'document Gaussian IDs');
   const known = new Set(gaussianIds);
   const componentIds = new Set();
+  const gaussianOwners = new Map();
   for (const component of model.components || []) {
     if (!component?.id || componentIds.has(component.id)) throw new Error('component IDs must be non-empty and unique');
     componentIds.add(component.id);
@@ -126,6 +127,15 @@ export function validateDocumentModel(model) {
     const membership = asUint32Ids(component.gaussianIds, `component ${component.id} Gaussian membership`);
     for (const gaussianId of membership) {
       if (!known.has(gaussianId)) throw new Error(`component ${component.id} references unknown Gaussian ID ${gaussianId}`);
+      // Deleted ancestors remain in the document graph for lineage, but live
+      // Gaussian ownership must be exclusive so trim/delete cannot hit siblings.
+      if (component.deleted !== true) {
+        const previousOwner = gaussianOwners.get(gaussianId);
+        if (previousOwner) {
+          throw new Error(`Gaussian ID ${gaussianId} is owned by both ${previousOwner} and ${component.id}`);
+        }
+        gaussianOwners.set(gaussianId, component.id);
+      }
     }
   }
   if (model.activeComponentId != null && !componentIds.has(model.activeComponentId)) {
