@@ -2047,6 +2047,17 @@ function flushPendingUnifiedHistory() {
     return false;
   }
 }
+function settlePendingStudioHistory(action = 'save') {
+  if (!_pendingUnifiedHistory) return true;
+  flushPendingUnifiedHistory();
+  if (_pendingUnifiedHistory) {
+    const message = 'The current edit could not be committed safely; ' + action + ' was stopped to protect the document.';
+    setStatus(message, 'error');
+    showToast('Save/export stopped', message, 'warn');
+    return false;
+  }
+  return true;
+}
 let _sourceToRender = null;
 let _gizmoGesture = false;
 let _previousGizmoTransform = null;
@@ -4367,6 +4378,7 @@ function _documentModelForSave(retainedIndices) {
 
 async function exportFile(type = 'splat') {
   if (!S.alive) return;
+  if (!settlePendingStudioHistory('export')) return;
   const idx = []; for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) idx.push(i);
   let blob, name;
   const currentRows = _encodeSplatRows(idx);
@@ -5513,6 +5525,7 @@ window.saveLiveEdit = async function saveLiveEdit(extra = {}) {
   const params  = new URLSearchParams(location.search);
   const splatId = params.get('splatId') || params.get('nifId') || window._fumocaCurrentRecord?.id;
   if (!splatId) { console.warn('[saveLiveEdit] No splatId — cannot save'); return false; }
+  if (!settlePendingStudioHistory('save')) return false;
 
   let sb = window._fumocaSupabase || window.supabase;
   if (!sb) {
