@@ -14,7 +14,8 @@ export function assignGaussianMemberships(components, {
     throw new Error('Gaussian identity count must match the position array');
   }
   const existingMembership = components.map(component => Array.from(component.gaussianIds || []));
-  const existingIds = new Set(existingMembership.flat());
+  const existingIds = new Set();
+  for (const ids of existingMembership) for (const id of ids) existingIds.add(id);
   const missingMembership = existingMembership.map(ids => ids.length === 0);
   if (!missingMembership.some(Boolean)) {
     return {
@@ -84,7 +85,7 @@ export function assignGaussianMemberships(components, {
       ambiguousCount++;
       continue;
     }
-    if (bestIndex >= 0 && bestDistance <= marginSquared) {
+    if (bestIndex >= 0 && missingMembership[bestIndex] && bestDistance <= marginSquared) {
       membership[bestIndex].push(gaussianIds[row]);
       assignedCount++;
     }
