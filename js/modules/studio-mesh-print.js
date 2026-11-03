@@ -300,6 +300,40 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       list.append(row);
     }
   };
+  const syncComponentDiagnosticsToMeta = () => {
+    const state = window.S;
+    if (!state) return;
+    const components = Array.isArray(state.nifMeshComponents) ? state.nifMeshComponents : [];
+    const summaries = components.map(component => {
+      const diagnostics = component.diagnostics || {};
+      const summary = {
+        id: component.id,
+        vertices: (component.vertices || component.positions || []).length / 3,
+        faces: (component.triangles || component.faces || []).length / 3,
+        watertight: component.watertight ?? diagnostics.watertight ?? false,
+        support_surface_candidate: component.supportSurfaceCandidate === true,
+      };
+      const boundary = diagnostics.n_boundary_edges ?? diagnostics.openEdges;
+      const nonManifold = diagnostics.n_nonmanifold_edges ?? diagnostics.nonManifoldEdges;
+      if (Number.isFinite(Number(boundary))) summary.n_boundary_edges = Number(boundary);
+      if (Number.isFinite(Number(nonManifold))) summary.n_nonmanifold_edges = Number(nonManifold);
+      if (Number.isFinite(Number(diagnostics.support_plane_confidence))) {
+        summary.support_plane_confidence = Number(diagnostics.support_plane_confidence);
+      }
+      return summary;
+    });
+    const current = state.nifMeta?.mesh_diagnostics || {};
+    state.nifMeta = {
+      ...(state.nifMeta || {}),
+      mesh_component_count: components.length,
+      mesh_diagnostics: {
+        ...current,
+        n_connected_components: components.length,
+        mesh_components: summaries,
+      },
+    };
+  };
+
   window.addEventListener('fumoca:nifMeshComponentsLoaded', (event) => {
     const components = event.detail?.components || [];
     renderMeshComponents(components);
@@ -368,6 +402,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     }
     state.nifMesh = null; // rebuild combined compatibility mesh from edited components on NIF export
     state.nifMeta = { ...(state.nifMeta || {}), mesh_components_edited: true };
+    syncComponentDiagnosticsToMeta();
     lastMeshData = null; lastMeshStats = null; lastMesh = null;
     container.querySelector('#saveMeshBtn').disabled = true;
     container.querySelector('#printStlBtn').disabled = true;
@@ -436,6 +471,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       .concat(replacement);
     state.activeMeshComponentId = positive.id;
     state.nifMesh = null;
+    syncComponentDiagnosticsToMeta();
     state.nifMeta = {
       ...(state.nifMeta || {}),
       mesh_components_edited: true,
@@ -461,6 +497,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     state.activeMeshComponentId = snapshot.source.id;
     state.meshComponentSplitUndo = null;
     state.nifMesh = null;
+    syncComponentDiagnosticsToMeta();
     state.nifMeta = {
       ...(state.nifMeta || {}),
       mesh_components_edited: true,
@@ -494,6 +531,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     state.meshComponentSplitUndo = null;
     state.nifMeshComponents = (state.nifMeshComponents || []).filter(component => component.id !== id);
     state.activeMeshComponentId = state.nifMeshComponents[0]?.id || null;
+    syncComponentDiagnosticsToMeta();
     // The old combined mesh is derived data; discard it so NIF export rebuilds
     // the compatibility mesh from the remaining independent components.
     state.nifMesh = null;
