@@ -1786,6 +1786,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     if (message) meshStatus(message);
     return lastMeshData;
   };
+  window.refreshStudioCombinedMeshFromComponents = refreshCombinedMeshFromComponents;
 
   const makeMeshBlob = () => {
     if (!lastMeshData) return null;
