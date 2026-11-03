@@ -3552,6 +3552,10 @@ class ReconstructionWorker:
         mx = positions.max(axis=0) + 0.05
         extent = mx - mn
         voxel_size = extent.max() / grid_res
+        support_plane_candidate = _detect_support_plane_candidate(
+            positions, normals, confidence, voxel_size
+        )
+        print('[NIF] Support-plane suggestion:', support_plane_candidate)
         dims = np.maximum(np.ceil(extent / voxel_size).astype(int) + 1, 4)
         # Cap total voxel count so this stays tractable on CPU
         while dims[0]*dims[1]*dims[2] > 2_000_000:
@@ -3755,6 +3759,7 @@ class ReconstructionWorker:
             'normal_component_count': normal_orientation['components'],
             'mean_surfel_confidence': float(np.mean(confidence)) if len(confidence) else 0.0,
             'surface_repair': surface_repair,
+            'support_plane_candidate': support_plane_candidate,
             'mesh_components': component_summaries,
         }, mesh_components_bytes
 
