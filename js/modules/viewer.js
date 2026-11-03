@@ -1391,6 +1391,7 @@ function mountMeshViewer(mesh, calibration, meshComponents = []) {
     const meshObj = new THREE.Mesh(geo, mat);
     meshObj.name = part.id || 'FUMOCA reconstructed component';
     meshObj.userData.componentId = part.id || meshObj.name;
+    meshObj.userData.supportSurfaceCandidate = part.supportSurfaceCandidate === true;
     meshObj.visible = part.visible !== false;
     meshGroup.add(meshObj);
     componentObjects.push(meshObj);
@@ -1491,7 +1492,7 @@ function mountMeshViewer(mesh, calibration, meshComponents = []) {
       checkbox.type = 'checkbox'; checkbox.checked = object.visible;
       checkbox.addEventListener('change', () => { object.visible = checkbox.checked; });
       const name = document.createElement('span');
-      name.textContent = object.name;
+      name.textContent = object.name + (object.userData.supportSurfaceCandidate ? ' · Support surface candidate' : '');
       row.append(checkbox, name);
       panel.appendChild(row);
     }
