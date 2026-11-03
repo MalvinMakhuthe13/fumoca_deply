@@ -253,6 +253,8 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       feedArray(component.vertices, true);
       feedArray(component.triangles, false);
       feedArray(component.colours, false);
+      feedArray(component.gaussianIds, false);
+      for (const parentId of component.parentIds || []) feedText(parentId);
     }
     return hashA.toString(16).padStart(8, '0') + hashB.toString(16).padStart(8, '0');
   };
@@ -1491,6 +1493,9 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     getSourceSignature: () => computeGaussianSourceSignature(window.S),
     levelToSupportPlane,
     undoSupportPlaneLevel,
+    previewSupportPlaneTrim,
+    applySupportPlaneTrim,
+    undoSupportPlaneTrim,
   };
   container.querySelector('#meshOrientedReconstructBtn')?.addEventListener('click', async () => {
     const button = container.querySelector('#meshOrientedReconstructBtn');
@@ -1600,6 +1605,9 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
   container.querySelector('#meshExtractBtn')?.addEventListener('click', extractMesh);
   container.querySelector('#meshLevelSupportPlane')?.addEventListener('click', levelToSupportPlane);
   container.querySelector('#meshUndoSupportLevel')?.addEventListener('click', undoSupportPlaneLevel);
+  container.querySelector('#meshPreviewSupportTrim')?.addEventListener('click', previewSupportPlaneTrim);
+  container.querySelector('#meshApplySupportTrim')?.addEventListener('click', applySupportPlaneTrim);
+  container.querySelector('#meshUndoSupportTrim')?.addEventListener('click', undoSupportPlaneTrim);
   container.querySelector('#meshPreviewSupportTrim')?.addEventListener('click', previewSupportPlaneTrim);
   container.querySelector('#meshApplySupportTrim')?.addEventListener('click', applySupportPlaneTrim);
   container.querySelector('#meshUndoSupportTrim')?.addEventListener('click', undoSupportPlaneTrim);
