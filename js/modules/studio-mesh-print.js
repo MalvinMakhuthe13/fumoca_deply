@@ -1635,18 +1635,32 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       meshStatus('The active mesh component no longer exists. Select a component and try again.');
       return;
     }
-    window.beginStudioHistory?.('Delete mesh component');
-    state.meshComponentDeleteUndo = {
-      source: { ...deletedComponent, vertices: deletedComponent.vertices.slice(), triangles: deletedComponent.triangles.slice(), colours: deletedComponent.colours?.slice(), gaussianIds: deletedComponent.gaussianIds?.slice?.() || deletedComponent.gaussianIds },
+    const cloneComponentForHistory = source => ({
+      ...source,
+      vertices: (source.vertices || source.positions || []).slice(),
+      ...(source.positions ? { positions: source.positions.slice() } : {}),
+      triangles: (source.triangles || source.faces || []).slice(),
+      ...(source.faces ? { faces: source.faces.slice() } : {}),
+      ...(source.colours ? { colours: source.colours.slice() } : {}),
+      ...(source.colors ? { colors: source.colors.slice() } : {}),
+      ...(source.gaussianIds ? { gaussianIds: source.gaussianIds.slice?.() || source.gaussianIds } : {}),
+      ...(source.parentIds ? { parentIds: [...source.parentIds] } : {}),
+      ...(source.diagnostics ? { diagnostics: { ...source.diagnostics } } : {}),
+      ...(source.provenance ? { provenance: { ...source.provenance } } : {}),
+    });
+    const beforePatch = {
+      id,
       index: componentIndex,
-      previousActiveId: state.activeMeshComponentId,
+      component: cloneComponentForHistory(deletedComponent),
+      activeId: state.activeMeshComponentId,
+      meshComponentsEdited: state.nifMeta?.mesh_components_edited === true,
     };
+    state.meshComponentDeleteUndo = null;
     state.meshComponentSplitUndo = null;
     state.nifMeshComponents = (state.nifMeshComponents || []).filter(component => component.id !== id);
     state.activeMeshComponentId = state.nifMeshComponents[0]?.id || null;
     syncComponentDiagnosticsToMeta();
-    // The old combined mesh is derived data; discard it so NIF export rebuilds
-    // the compatibility mesh from the remaining independent components.
+    state.nifMeta = { ...(state.nifMeta || {}), mesh_components_edited: true };
     state.nifMesh = null;
     refreshCombinedMeshFromComponents();
     container.querySelector('#meshPreviewToggle').checked = true;
@@ -1654,7 +1668,65 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     window.highlightSolidMeshComponent?.(state.activeMeshComponentId);
     window.setSolidMeshComponentsVisibility?.(true);
     renderMeshComponents(state.nifMeshComponents);
-    window.commitStudioHistory?.();
+    try {
+      const committed = window.commitStudioPatch?.('Delete mesh component', {
+        before: beforePatch,
+        after: {
+          id,
+          index: componentIndex,
+          component: null,
+          activeId: state.activeMeshComponentId,
+          meshComponentsEdited: true,
+        },
+        capturePatch: () => {
+          const currentState = window.S;
+          const index = (currentState?.nifMeshComponents || []).findIndex(item => item.id === id);
+          return {
+            id,
+            index,
+            component: index >= 0 ? cloneComponentForHistory(currentState.nifMeshComponents[index]) : null,
+            activeId: currentState?.activeMeshComponentId || null,
+            meshComponentsEdited: currentState?.nifMeta?.mesh_components_edited === true,
+          };
+        },
+        applyPatch: patch => {
+          const currentState = window.S;
+          if (!currentState) throw new Error('Studio document is unavailable');
+          const currentIndex = (currentState.nifMeshComponents || []).findIndex(item => item.id === patch.id);
+          const components = (currentState.nifMeshComponents || []).filter(item => item.id !== patch.id);
+          if (patch.component) {
+            if (currentIndex >= 0) components.splice(currentIndex, 0, cloneComponentForHistory(patch.component));
+            else components.splice(Math.max(0, Math.min(patch.index, components.length)), 0, cloneComponentForHistory(patch.component));
+          }
+          currentState.nifMeshComponents = components;
+          currentState.activeMeshComponentId = patch.activeId && components.some(item => item.id === patch.activeId)
+            ? patch.activeId : (components[0]?.id || null);
+          currentState.meshComponentDeleteUndo = null;
+          currentState.nifMesh = null;
+          syncComponentDiagnosticsToMeta();
+          currentState.nifMeta = { ...(currentState.nifMeta || {}), mesh_components_edited: patch.meshComponentsEdited === true };
+          refreshCombinedMeshFromComponents();
+          window.previewSolidMeshComponents?.(components, { visible: true, opacity: 1 });
+          window.highlightSolidMeshComponent?.(currentState.activeMeshComponentId);
+          renderMeshComponents(components);
+          updateComponentTransformButtons();
+          updateSupportPlaneControls();
+        },
+      });
+      if (committed === false) throw new Error('The deletion could not be retained in Undo history');
+    } catch (error) {
+      const components = state.nifMeshComponents || [];
+      components.splice(Math.min(componentIndex, components.length), 0, cloneComponentForHistory(beforePatch.component));
+      state.nifMeshComponents = components;
+      state.activeMeshComponentId = beforePatch.activeId;
+      state.nifMeta = { ...(state.nifMeta || {}), mesh_components_edited: beforePatch.meshComponentsEdited };
+      syncComponentDiagnosticsToMeta();
+      refreshCombinedMeshFromComponents();
+      renderMeshComponents(components);
+      console.error('[Studio mesh] Could not record component deletion:', error);
+      meshStatus('Component deletion was rolled back: ' + (error.message || String(error)));
+      return;
+    }
     updateComponentTransformButtons();
     updateSupportPlaneControls();
     meshStatus('Deleted component ' + id + '. Its geometry and Gaussian membership are retained in one-step undo and document lineage.');
