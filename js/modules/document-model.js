@@ -214,7 +214,7 @@ export class DocumentHistory {
 }
 
 
-/**
+/*
  * Unified, document-scoped edit journal.
  *
  * The journal stores domain snapshots (Gaussian buffers, component geometry,
