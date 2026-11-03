@@ -1652,6 +1652,82 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     }
     return FumocMeshExtractor.exportSTL(printMesh, 'fumoca-mesh');
   };
+  const repairMeshComponents = (operation, threshold) => {
+    const state = window.S;
+    const components = state?.nifMeshComponents || [];
+    if (!state || !components.length) return null;
+    let repairedComponents = 0, changedFaces = 0, changedLoops = 0, skippedSupportBases = 0, skippedEmpty = 0;
+    const nextComponents = components.map(component => {
+      if (operation === 'fill-holes' && component.provenance?.operation === 'support-plane-trim') {
+        // The support-plane boundary must be capped explicitly with the planar
+        // cap tool; generic hole filling could distort or close the wrong loop.
+        skippedSupportBases++;
+        return component;
+      }
+      const result = operation === 'fill-holes'
+        ? FumocMeshExtractor.fillSmallHoles(component, threshold)
+        : FumocMeshExtractor.removeSmallComponents(component, threshold);
+      const changed = operation === 'fill-holes' ? result.filledLoops > 0 : result.removedTriangles > 0;
+      if (!changed || !result.mesh?.triangles?.length) {
+        if (changed && !result.mesh?.triangles?.length) skippedEmpty++;
+        return component;
+      }
+      repairedComponents++;
+      changedFaces += operation === 'fill-holes' ? result.filledTriangles : result.removedTriangles;
+      changedLoops += operation === 'fill-holes' ? result.filledLoops : result.removedComponents;
+      const topology = FumocMeshExtractor.validateWatertight(result.mesh);
+      return {
+        ...component,
+        vertices: result.mesh.vertices.slice(),
+        triangles: result.mesh.triangles.slice(),
+        colours: result.mesh.colours?.slice?.() || result.mesh.colours,
+        watertight: topology.watertight,
+        diagnostics: {
+          ...(component.diagnostics || {}),
+          ...topology,
+          n_boundary_edges: topology.openEdges,
+          n_nonmanifold_edges: topology.nonManifoldEdges,
+        },
+        provenance: {
+          ...(component.provenance || {}),
+          operation: operation === 'fill-holes' ? 'fill-small-holes' : 'remove-small-islands',
+          previousOperation: component.provenance?.operation || null,
+          threshold,
+        },
+        transformUndoVertices: null,
+      };
+    });
+    if (!repairedComponents) {
+      const suffix = skippedSupportBases
+        ? ' The trimmed support boundary was deliberately left for the explicit Cap flat base tool.'
+        : '';
+      meshStatus(operation === 'fill-holes'
+        ? 'No eligible small holes were repaired in the selected components.' + suffix
+        : 'No small disconnected islands were removed from the selected components.');
+      return { changed: false };
+    }
+    state.nifMeshComponents = normalizeMeshComponents(nextComponents);
+    state.nifMesh = null;
+    state.meshComponentSplitUndo = null;
+    state.meshComponentDeleteUndo = null;
+    state.meshComponentCapUndo = null;
+    state.meshComponentMembershipUndo = null;
+    state.supportPlaneTrimUndo = null;
+    supportLevelUndo = null;
+    state.nifMeta = { ...(state.nifMeta || {}), mesh_components_edited: true };
+    refreshCombinedMeshFromComponents();
+    window.previewSolidMeshComponents?.(state.nifMeshComponents, { visible: true, opacity: 0.95 });
+    renderMeshComponents(state.nifMeshComponents);
+    updateComponentTransformButtons();
+    updateSupportPlaneControls();
+    const message = operation === 'fill-holes'
+      ? `Filled ${changedLoops} small boundary loop(s) across ${repairedComponents} component(s) (${changedFaces} cap faces).`
+      : `Removed ${changedLoops} small disconnected island(s) across ${repairedComponents} component(s) (${changedFaces} faces).`;
+    meshStatus(message + (skippedSupportBases ? ` ${skippedSupportBases} trimmed support base(s) were reserved for explicit planar capping.` : '')
+      + (skippedEmpty ? ` ${skippedEmpty} component(s) were preserved because repair would have removed all their faces.` : ''));
+    return { changed: true, repairedComponents, changedFaces, changedLoops, skippedSupportBases, skippedEmpty };
+  };
+
   const refreshMeshAfterRepair = (message) => {
     if (!lastMeshData) return;
     window.S.nifMesh = lastMeshData;
@@ -1993,16 +2069,26 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
   container.querySelector('#meshUndoSupportTrim')?.addEventListener('click', undoSupportPlaneTrim);
 
   container.querySelector('#meshFillHolesBtn')?.addEventListener('click', () => {
+    const threshold = Number(container.querySelector('#meshHoleSize')?.value || 48);
+    if (window.S?.nifMeshComponents?.length) {
+      repairMeshComponents('fill-holes', threshold);
+      return;
+    }
     if (!lastMeshData) return meshStatus('Extract a mesh before repairing mesh holes.');
-    const result = FumocMeshExtractor.fillSmallHoles(lastMeshData, Number(container.querySelector('#meshHoleSize')?.value || 48));
+    const result = FumocMeshExtractor.fillSmallHoles(lastMeshData, threshold);
     if (!result.filledLoops) return meshStatus('No small, unbranched boundary loops were found. Larger or complex gaps need a reconstruction pass.');
     lastMeshData = result.mesh;
     refreshMeshAfterRepair(`Capped ${result.filledLoops} small boundary loop${result.filledLoops === 1 ? '' : 's'} (${result.filledTriangles} faces).`);
   });
 
   container.querySelector('#meshRemoveFloatersBtn')?.addEventListener('click', () => {
+    const threshold = Number(container.querySelector('#meshFloaterSize')?.value || 32);
+    if (window.S?.nifMeshComponents?.length) {
+      repairMeshComponents('remove-islands', threshold);
+      return;
+    }
     if (!lastMeshData) return meshStatus('Extract a mesh before removing mesh islands.');
-    const result = FumocMeshExtractor.removeSmallComponents(lastMeshData, Number(container.querySelector('#meshFloaterSize')?.value || 32));
+    const result = FumocMeshExtractor.removeSmallComponents(lastMeshData, threshold);
     if (!result.removedTriangles) return meshStatus('No disconnected mesh islands are below that face threshold.');
     lastMeshData = result.mesh;
     refreshMeshAfterRepair(`Removed ${result.removedComponents} small island${result.removedComponents === 1 ? '' : 's'} (${result.removedTriangles} faces).`);
