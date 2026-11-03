@@ -115,7 +115,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
             <div class="hint">Trim is scoped to the selected component's linked Gaussian splats and mesh. Preview selects affected splats first. Other components, including a separately reconstructed platform, are left untouched. The cut stays open until you explicitly cap it.</div>
             <div class="hint">Level applies the detected plane to the complete Gaussian + mesh scene and preserves the source geometry relationship. It does not trim or delete points; that remains a separate reviewed operation.</div>
           </div>
-          <div class="hint" style="margin-top:6px">Each connected surface has independent visibility, selection, isolation, transform and deletion. The original Gaussian splats remain unchanged.</div>
+          <div class="hint" style="margin-top:6px">Each connected surface has independent visibility, selection, isolation, transform and deletion. Gaussian splats can be linked manually; support-plane trimming affects only the selected component’s linked splats.</div>
         </div>
         <div class="hint">Depth-aware lasso/box selection adds only the visible surface layer. Rotate and select again from other sides to build the complete object selection. Hold Shift to add and Alt to subtract; check the live point count before enabling selected-only extraction. The source splat is never deleted or changed.</div>
         <label style="display:block;font-size:11px;margin-top:8px">Hybrid mesh opacity <span id="meshPreviewOpacityVal" style="float:right;color:var(--neon)">38%</span>
@@ -937,6 +937,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       window.highlightSolidMeshComponent?.(window.S?.activeMeshComponentId || components[0].id);
     }
     updateComponentTransformButtons();
+    updateSupportPlaneControls();
   });
   const applyComponentVisibilityPreferences = () => {
     const components = window.S?.nifMeshComponents || [];
