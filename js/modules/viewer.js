@@ -1345,6 +1345,17 @@ let _meshRenderer = null, _meshScene = null, _meshCamera = null, _meshControls =
 let _meshLights = null, _meshLightingPanel = null;
 function destroyMeshViewer() {
   if (_meshFrame) { cancelAnimationFrame(_meshFrame); _meshFrame = null; }
+  if (_meshScene) {
+    const geometries = new Set(), materials = new Set();
+    _meshScene.traverse(object => {
+      if (object.geometry) geometries.add(object.geometry);
+      if (object.material) {
+        for (const material of Array.isArray(object.material) ? object.material : [object.material]) materials.add(material);
+      }
+    });
+    for (const geometry of geometries) geometry.dispose();
+    for (const material of materials) material.dispose();
+  }
   if (_meshRenderer) { _meshRenderer.dispose(); _meshRenderer.domElement.remove(); _meshRenderer = null; }
   _meshScene = _meshCamera = _meshControls = null;
   _meshLights = null;
