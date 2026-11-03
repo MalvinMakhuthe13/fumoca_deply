@@ -789,6 +789,14 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
             dual_surface_source_signature: sourceSignature,
             surface_reconstruction: 'oriented-gaussian-surfel-tsdf',
           };
+          const supportSuggestion = decoded.meta?.mesh_diagnostics?.support_plane_candidate;
+          if (supportSuggestion?.detected && Number.isFinite(Number(supportSuggestion.y))) {
+            const splitY = container.querySelector('#meshComponentSplitY');
+            if (splitY) splitY.value = String(Number(supportSuggestion.y).toFixed(5));
+            meshStatus('A lower horizontal support plane was detected with ' +
+              Math.round(Number(supportSuggestion.confidence || 0) * 100) +
+              '% confidence. Review the suggested Y plane before splitting; no geometry was removed automatically.');
+          }
           lastMeshFormat = 'ply';
           syncNifMesh(state.nifMesh);
           renderMeshDiagnostics({
