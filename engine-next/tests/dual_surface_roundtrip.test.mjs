@@ -39,7 +39,18 @@ test('NIF preserves Gaussian source and connected mesh as independent layers', a
   ];
   const encoded = encodeNif({
     positions, colors01, opacities01, scalesLinear, quats, mesh, meshComponents,
-    meta: { title: 'Dual surface round-trip fixture', surface_model: 'gaussian+mesh' },
+    meta: {
+      title: 'Dual surface round-trip fixture',
+      surface_model: 'gaussian+mesh',
+      mesh_component_count: 2,
+      mesh_diagnostics: {
+        support_plane_candidate: { detected: true, y: -0.2, confidence: 0.82 },
+        mesh_components: [
+          { id: 'cap-shell', watertight: true, n_boundary_edges: 0, n_nonmanifold_edges: 0 },
+          { id: 'support-platform', watertight: false, support_plane_confidence: 0.82, n_boundary_edges: 12, n_nonmanifold_edges: 0 },
+        ],
+      },
+    },
   });
   const decoded = await decodeNif(encoded);
 
@@ -58,6 +69,9 @@ test('NIF preserves Gaussian source and connected mesh as independent layers', a
   assert.deepEqual(Array.from(decoded.meshComponents[1].faces), [0, 1, 2]);
   assert.ok(decoded.meshComponents[1].positions.every((value, index) => Math.abs(value - [0, -0.2, 0, 1, -0.2, 0, 0, -0.2, 1][index]) < 1e-6));
   assert.equal(decoded.meta.title, 'Dual surface round-trip fixture');
+  assert.equal(decoded.meta.mesh_component_count, 2);
+  assert.equal(decoded.meta.mesh_diagnostics.support_plane_candidate.y, -0.2);
+  assert.equal(decoded.meta.mesh_diagnostics.mesh_components[1].n_boundary_edges, 12);
   const componentOnly = await decodeNif(encodeNif({
     positions, colors01, opacities01, scalesLinear, quats, meshComponents,
   }));
