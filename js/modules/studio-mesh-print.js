@@ -1178,15 +1178,9 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     }
     const component = selectedMeshComponent();
     const apply = container.querySelector('#meshComponentApplyTransform');
-    const undo = container.querySelector('#meshComponentUndoTransform');
     if (apply) apply.disabled = !component;
-    if (undo) undo.disabled = !component?.transformUndoVertices;
     const remove = container.querySelector('#meshComponentDelete');
     if (remove) remove.disabled = !component;
-    const undoDelete = container.querySelector('#meshComponentUndoDelete');
-    if (undoDelete) undoDelete.disabled = !window.S?.meshComponentDeleteUndo;
-    const undoLink = container.querySelector('#meshComponentUndoLink');
-    if (undoLink) undoLink.disabled = !window.S?.meshComponentMembershipUndo;
     const unlinkSelection = container.querySelector('#meshComponentUnlinkSelection');
     let hasSelectedLive = false;
     for (let row = 0; row < (state?.selected?.length || 0); row++) {
@@ -1195,8 +1189,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     if (unlinkSelection) unlinkSelection.disabled = !hasSelectedLive;
     const split = container.querySelector('#meshComponentSplitPlane');
     if (split) split.disabled = !component;
-    const undoSplit = container.querySelector('#meshComponentUndoSplit');
-    if (undoSplit) undoSplit.disabled = !window.S?.meshComponentSplitUndo;
   };
   container.querySelector('#meshComponentApplyTransform')?.addEventListener('click', () => {
     const state = window.S, component = selectedMeshComponent();
@@ -1510,23 +1502,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       ? `Split ${component.id} using the detected oriented support plane. The two surfaces are independent; the new boundary remains open and no cap was invented.`
       : `Split ${component.id} into two independent surfaces at ${axis.toUpperCase()}=${splitOffset}. The new boundary remains open and no cap was invented.`);
   });
-  container.querySelector('#meshComponentUndoTransform')?.addEventListener('click', () => {
-    const state = window.S, component = selectedMeshComponent();
-    if (!state || !component?.transformUndoVertices) return;
-    const vertices = component.vertices || component.positions;
-    window.beginStudioHistory?.('Undo mesh component transform');
-    vertices.set(component.transformUndoVertices);
-    component.transformUndoVertices = null;
-    state.nifMesh = null;
-    state.nifMeta = { ...(state.nifMeta || {}), mesh_components_edited: true };
-    refreshCombinedMeshFromComponents();
-    window.previewSolidMeshComponents?.(state.nifMeshComponents, { visible: true, opacity: 1 });
-    window.highlightSolidMeshComponent?.(component.id);
-    renderMeshComponents(state.nifMeshComponents);
-    window.commitStudioHistory?.();
-    updateComponentTransformButtons();
-    meshStatus('Undid the last transform for ' + component.id + '.');
-  });
   container.querySelector('#meshComponentDelete')?.addEventListener('click', () => {
     const state = window.S;
     if (!state?.activeMeshComponentId) return;
@@ -1635,195 +1610,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     updateSupportPlaneControls();
     meshStatus('Deleted component ' + id + '. Its geometry and Gaussian membership are retained in one-step undo and document lineage.');
   });
-  container.querySelector('#meshComponentUndoDelete')?.addEventListener('click', () => {
-    const state = window.S, snapshot = state?.meshComponentDeleteUndo;
-    if (!state || !snapshot) return;
-    const components = state.nifMeshComponents || [];
-    if (components.some(component => component.id === snapshot.source.id)) {
-      state.meshComponentDeleteUndo = null;
-      updateComponentTransformButtons();
-      return;
-    }
-    window.beginStudioHistory?.('Restore deleted mesh component');
-    components.splice(Math.min(snapshot.index, components.length), 0, snapshot.source);
-    state.nifMeshComponents = components;
-    state.activeMeshComponentId = components.some(component => component.id === snapshot.previousActiveId)
-      ? snapshot.previousActiveId : snapshot.source.id;
-    state.meshComponentDeleteUndo = null;
-    state.nifMesh = null;
-    state.nifMeta = { ...(state.nifMeta || {}), mesh_components_edited: true };
-    refreshCombinedMeshFromComponents();
-    window.previewSolidMeshComponents?.(components, { visible: true, opacity: 1 });
-    window.highlightSolidMeshComponent?.(state.activeMeshComponentId);
-    renderMeshComponents(components);
-    window.commitStudioHistory?.();
-    updateComponentTransformButtons();
-    updateSupportPlaneControls();
-    meshStatus('Restored deleted component ' + snapshot.source.id + ' with its geometry and Gaussian membership.');
-  });
-  container.querySelector('#meshComponentUndoLink')?.addEventListener('click', undoGaussianMembershipLink);
-  container.querySelector('#meshComponentUnlinkSelection')?.addEventListener('click', unlinkSelectedGaussiansFromComponents);
-  const updateMeshPreview = () => {
-    const visible = !!container.querySelector('#meshPreviewToggle')?.checked;
-    if (window.S?.nifMeshComponents?.length) {
-      window.setSolidMeshComponentsVisibility?.(visible);
-      window.previewSolidMeshComponents?.(window.S.nifMeshComponents, {
-        visible, opacity: Number(container.querySelector('#meshPreviewOpacity')?.value || 0.95),
-        light: Number(container.querySelector('#meshPreviewLight')?.value || 0.25),
-        roughness: Number(container.querySelector('#meshPreviewRoughness')?.value || 0.72),
-        metalness: Number(container.querySelector('#meshPreviewMetalness')?.value || 0.05),
-      });
-    } else {
-      window.previewSolidMesh?.(lastMeshData, {
-        visible,
-        light: Number(container.querySelector('#meshPreviewLight')?.value || 0.25),
-        roughness: Number(container.querySelector('#meshPreviewRoughness')?.value || 0.72),
-        metalness: Number(container.querySelector('#meshPreviewMetalness')?.value || 0.05),
-        opacity: Number(container.querySelector('#meshPreviewOpacity')?.value || 0.38),
-      });
-    }
-  };
-  container.querySelector('#meshPreviewToggle')?.addEventListener('change', updateMeshPreview);
-  container.querySelector('#meshPreviewOpacity')?.addEventListener('input', (event) => {
-    const value = Number(event.target.value);
-    const label = container.querySelector('#meshPreviewOpacityVal');
-    if (label) label.textContent = Math.round(value * 100) + '%';
-    updateMeshPreview();
-  });
-  container.querySelector('#meshSplatLayerToggle')?.addEventListener('change', (event) => {
-    if (window.S?.points) window.S.points.visible = event.target.checked;
-  });
-  ['#meshPreviewLight', '#meshPreviewRoughness', '#meshPreviewMetalness'].forEach(selector => container.querySelector(selector)?.addEventListener('input', updateMeshPreview));
-  const meshStatus = (message) => {
-    const el = container.querySelector('#meshPrintStatus');
-    if (el) el.textContent = message;
-    onStatus?.(message);
-  };
-  const renderMeshDiagnostics = (stats) => {
-    const el = container.querySelector('#meshDiagnostics');
-    if (!el) return;
-    if (!stats) {
-      el.textContent = 'No mesh diagnostics yet. Extract a mesh to inspect its topology.';
-      return;
-    }
-    const components = Number(stats.components ?? stats.n_connected_components ?? 0);
-    const open = Number(stats.openEdges ?? stats.n_boundary_edges ?? 0);
-    const nonManifold = Number(stats.nonManifoldEdges ?? stats.n_nonmanifold_edges ?? 0);
-    const triangles = Number(stats.triangles ?? stats.n_faces ?? 0);
-    const watertight = stats.watertight ?? stats.is_watertight;
-    const coverage = Number.isFinite(Number(stats.tsdf_coverage_ratio))
-      ? ` · TSDF support ${(Number(stats.tsdf_coverage_ratio) * 100).toFixed(1)}%` : '';
-    const confidence = Number.isFinite(Number(stats.mean_surfel_confidence))
-      ? ` · Surfel confidence ${(Number(stats.mean_surfel_confidence) * 100).toFixed(1)}%` : '';
-    const normalComponents = Number.isFinite(Number(stats.normal_component_count))
-      ? ` · Normal regions ${Number(stats.normal_component_count)}` : '';
-    const batches = Number.isFinite(Number(stats.tsdf_fusion_batches))
-      ? ` · TSDF batches ${Number(stats.tsdf_fusion_batches)}` : '';
-    const repair = stats.surface_repair
-      ? ` · Evidence-gated repair ${Number(stats.surface_repair.filled_loops || 0)} filled / ${Number(stats.surface_repair.rejected_loops || 0)} rejected` : '';
-    const support = stats.support_plane_candidate?.detected
-      ? ` · Support plane Y=${Number(stats.support_plane_candidate.y).toFixed(4)} (${Math.round(Number(stats.support_plane_candidate.confidence || 0) * 100)}%)` : '';
-    el.textContent = `Components: ${components} · Triangles: ${triangles.toLocaleString()} · Open edges: ${open.toLocaleString()} · Non-manifold edges: ${nonManifold.toLocaleString()} · ${watertight ? 'Watertight' : 'Open surface'}${coverage}${confidence}${normalComponents}${batches}${repair}${support}`;
-  };
-  const refreshCombinedMeshFromComponents = (message = '') => {
-    window.refreshStudioCombinedMeshFromComponents = refreshCombinedMeshFromComponents;
-    const state = window.S;
-    if (!state) return null;
-    const components = state.nifMeshComponents || [];
-    const allComponentsMesh = combineMeshComponents(components, { visibleOnly: false });
-    const visibleComponentsMesh = combineMeshComponents(components, { visibleOnly: true });
-    state.nifMesh = allComponentsMesh.triangles.length ? allComponentsMesh : null;
-    lastMeshData = visibleComponentsMesh.triangles.length ? visibleComponentsMesh : null;
-    lastMeshFormat = container.querySelector('#meshFormat')?.value || 'ply';
-    if (lastMeshData) {
-      const topology = FumocMeshExtractor.validateWatertight(lastMeshData);
-      lastMeshStats = {
-        ...topology,
-        printable: topology.watertight === true && Number(topology.nonManifoldEdges || 0) === 0
-          && Number(topology.components ?? visibleComponentsMesh.componentCount) === 1
-          && visibleComponentsMesh.componentCount === 1,
-        vertices: lastMeshData.vertices.length / 3,
-        triangles: lastMeshData.triangles.length / 3,
-        components: lastMeshData.componentCount,
-        componentIds: lastMeshData.componentIds,
-        extractionMode: 'component-edited',
-      };
-      lastMesh = makeMeshBlob();
-      renderMeshDiagnostics(lastMeshStats);
-    } else {
-      lastMeshStats = null;
-      lastMesh = null;
-    }
-    const signature = computeGaussianSourceSignature(state);
-    lastMeshSourceSignature = signature;
-    state.nifMeta = {
-      ...(state.nifMeta || {}),
-      ...(signature ? { dual_surface_source_signature: signature } : {}),
-    };
-    const saveButton = container.querySelector('#saveMeshBtn');
-    const printButton = container.querySelector('#printStlBtn');
-    if (saveButton) saveButton.disabled = !lastMeshData?.colours;
-    if (printButton) printButton.disabled = !lastMesh || (lastMeshFormat === 'stl' && !lastMeshStats?.printable);
-    if (lastMeshData) {
-      window.dispatchEvent(new CustomEvent('fumoca:solidMeshReady', {
-        detail: { mesh: lastMeshData, stats: lastMeshStats },
-      }));
-    }
-    syncComponentDiagnosticsToMeta();
-    if (message) meshStatus(message);
-    return lastMeshData;
-  };
-  window.refreshStudioCombinedMeshFromComponents = refreshCombinedMeshFromComponents;
-
-  // History restores authored scene state, not these closure-owned export caches.
-  // Rebuild them from the restored canonical scene before export/print can run.
-  window.refreshStudioMeshDerivedState = () => {
-    const state = window.S;
-    if (!state) return null;
-    if (Array.isArray(state.nifMeshComponents) && state.nifMeshComponents.length) {
-      const mesh = refreshCombinedMeshFromComponents();
-      window.previewSolidMesh?.(state.nifMesh, { visible: false });
-      window.previewSolidMeshComponents?.(state.nifMeshComponents, {
-        visible: true,
-        opacity: Number(container.querySelector('#meshPreviewOpacity')?.value || 0.95),
-      });
-      renderMeshComponents(state.nifMeshComponents);
-      return mesh;
-    }
-    if (state.nifMesh) {
-      syncNifMesh(state.nifMesh, { preserveRecoveryState: true });
-      return lastMeshData;
-    }
-    lastMeshData = null;
-    lastMesh = null;
-    lastMeshStats = null;
-    lastMeshSourceSignature = null;
-    window.previewSolidMesh?.(null, { visible: false });
-    window.previewSolidMeshComponents?.([], { visible: false });
-    const saveButton = container.querySelector('#saveMeshBtn');
-    const printButton = container.querySelector('#printStlBtn');
-    if (saveButton) saveButton.disabled = true;
-    if (printButton) printButton.disabled = true;
-    renderMeshDiagnostics(null);
-    window.dispatchEvent(new CustomEvent('fumoca:solidMeshReady', { detail: { mesh: null, stats: null } }));
-    return null;
-  };
-
-  const makeMeshBlob = () => {
-    if (!lastMeshData) return null;
-    if (lastMeshFormat === 'obj') return FumocMeshExtractor.exportOBJ(lastMeshData, 'fumoca-mesh');
-    if (lastMeshFormat === 'ply') return FumocMeshExtractor.exportPLY(lastMeshData, 'fumoca-mesh');
-    const printMesh = { ...lastMeshData, vertices: lastMeshData.vertices.slice() };
-    let minY = Infinity, maxY = -Infinity;
-    for (let i = 1; i < printMesh.vertices.length; i += 3) { minY = Math.min(minY, printMesh.vertices[i]); maxY = Math.max(maxY, printMesh.vertices[i]); }
-    const factor = Number(height?.value || 120) / Math.max(maxY - minY, 1e-6);
-    for (let i = 0; i < printMesh.vertices.length; i += 3) {
-      printMesh.vertices[i] *= factor;
-      printMesh.vertices[i + 1] = (printMesh.vertices[i + 1] - minY) * factor;
-      printMesh.vertices[i + 2] *= factor;
-    }
-    return FumocMeshExtractor.exportSTL(printMesh, 'fumoca-mesh');
-  };
   const repairMeshComponents = (operation, threshold) => {
     const state = window.S;
     const components = state?.nifMeshComponents || [];
