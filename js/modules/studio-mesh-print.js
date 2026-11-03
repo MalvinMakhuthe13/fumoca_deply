@@ -518,6 +518,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     const nextSignature = computeGaussianSourceSignature(state);
     state.nifMeta.dual_surface_source_signature = nextSignature;
     lastMeshSourceSignature = nextSignature;
+    refreshCombinedMeshFromComponents();
     state.supportPlaneTrimUndo.sourceSignatureAfter = nextSignature;
     state.supportPlaneTrimUndo.meshSignatureAfter = meshStateSignature(state.nifMesh, state.nifMeshComponents);
     if (preview.previousSelection && state.selected?.length === preview.previousSelection.length) {
@@ -571,6 +572,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     const signature = computeGaussianSourceSignature(state);
     state.nifMeta.dual_surface_source_signature = signature;
     lastMeshSourceSignature = signature;
+    refreshCombinedMeshFromComponents();
     if (snapshot.previousSelection && state.selected?.length === snapshot.previousSelection.length) {
       state.selected.set(snapshot.previousSelection);
     }
@@ -681,7 +683,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         applied_at: new Date().toISOString(),
       },
     };
-    syncComponentDiagnosticsToMeta();
+    refreshCombinedMeshFromComponents();
     state.meshComponentCapUndo.afterSignature = meshStateSignature(state.nifMesh, state.nifMeshComponents);
     window.previewSolidMeshComponents?.(state.nifMeshComponents, { visible: true, opacity: 0.95 });
     window.highlightSolidMeshComponent?.(component.id);
@@ -707,7 +709,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     state.nifMesh = null;
     lastMeshData = null; lastMesh = null; lastMeshStats = null;
     state.nifMeta = snapshot.previousMeta || { ...(state.nifMeta || {}), mesh_components_edited: true };
-    syncComponentDiagnosticsToMeta();
+    refreshCombinedMeshFromComponents();
     window.previewSolidMeshComponents?.(state.nifMeshComponents, { visible: true, opacity: 0.95 });
     renderMeshComponents(state.nifMeshComponents);
     updateComponentTransformButtons();
