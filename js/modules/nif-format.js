@@ -499,9 +499,8 @@ function encodeMeshComponentsChunk(components) {
   return bytes;
 }
 
-async function decodeMeshComponentsChunk(chunk) {
-  if (!chunk?.data) return [];
-  const bytes = chunk.data;
+function decodeMeshComponentsBytes(bytes) {
+  if (!bytes) return [];
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const decoder = new TextDecoder();
   const components = [];
@@ -557,9 +556,18 @@ export async function decodeNif(arrayBuffer) {
   const geometry = await reader.getGeometry(); // { count, data: Float32Array(14/point) } | null
   if (!geometry) throw new Error('[nif-format] .nif file has no KEYFRAME_GEO chunk');
 
-  const meta = decodeMetaChunk(reader.getChunk(CHUNK.META));
-  const thumbChunk = reader.getChunk(CHUNK.THUMBNAIL);
-  const thumbnailBytes = thumbChunk ? thumbChunk.data : null;
+  // All semantic decoders receive decompressed payload bytes. Codec handling
+  // stays at this boundary so RAW and worker-GZIP files share one path.
+  const readBytes = async (type) => {
+    try { return await reader.getDecompressed(type); }
+    catch (error) {
+      console.warn(`[nif-format] chunk 0x${type.toString(16)} decompression failed:`, error.message);
+      return null;
+    }
+  };
+  const metaBytes = await readBytes(CHUNK.META);
+  const meta = decodeMetaChunk(metaBytes ? { data: metaBytes } : null);
+  const thumbnailBytes = await readBytes(CHUNK.THUMBNAIL);
 
   // CALIBRATION/VERIFICATION — this is the live app's only decode path, so
   // if these aren't read here, the calibration confidence and product-
@@ -575,14 +583,16 @@ export async function decodeNif(arrayBuffer) {
   // pipeline.py's ENABLE_DRACO_MESH is on). Async because Draco decode goes
   // through a wasm module — decodeNif already awaits everything else, so
   // this doesn't change the calling convention.
-  const mesh = await decodeMeshChunk(reader.getChunk(CHUNK.KEYFRAME_MESH));
-  const meshComponents = await decodeMeshComponentsChunk(reader.getChunk(CHUNK.MESH_COMPONENTS));
+  const meshBytes = await readBytes(CHUNK.KEYFRAME_MESH);
+  const componentBytes = await readBytes(CHUNK.MESH_COMPONENTS);
+  const mesh = await decodeMeshBytes(meshBytes);
+  const meshComponents = decodeMeshComponentsBytes(componentBytes);
 
   let lidarAttributes = null;
-  const lidarChunk = reader.getChunk(CHUNK.LIDAR_ATTR);
-  if (lidarChunk) {
+  const lidarBytes = await readBytes(CHUNK.LIDAR_ATTR);
+  if (lidarBytes) {
     try {
-      const view = new DataView(lidarChunk.data.buffer, lidarChunk.data.byteOffset, lidarChunk.data.byteLength);
+      const view = new DataView(lidarBytes.buffer, lidarBytes.byteOffset, lidarBytes.byteLength);
       if (view.getUint8(0) !== 1) throw new Error('unsupported LiDAR attribute chunk version');
       const flags = view.getUint8(1), n = view.getUint32(2, false);
       if (n !== geometry.count) throw new Error('LiDAR attribute count does not match geometry');
@@ -682,14 +692,14 @@ function clamp01(v) { return v < 0 ? 0 : v > 1 ? 1 : v; }
 //   flag 0x00: [n_verts:u32 BE][n_faces:u32 BE]
 //              [positions: n_verts×3×f32 BE][colors: n_verts×3×u8][faces: n_faces×3×u32 BE]
 //   flag 0x01: Draco buffer — decoded via _decodeDracoMesh() above.
-async function decodeMeshChunk(chunk) {
-  if (!chunk) return null;
+function decodeMeshBytes(bytes) {
+  if (!bytes) return null;
   try {
-    const dv = new DataView(chunk.data.buffer, chunk.data.byteOffset, chunk.data.byteLength);
+    const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     const formatFlag = dv.getUint8(0);
 
     if (formatFlag === 0x01) {
-      return await _decodeDracoMesh(chunk.data.subarray(1));
+      return _decodeDracoMesh(bytes.subarray(1));
     }
     if (formatFlag !== 0x00) {
       console.warn(`[nif-format] KEYFRAME_MESH has format_flag ${formatFlag} — ` +
@@ -703,7 +713,7 @@ async function decodeMeshChunk(chunk) {
     const positions = new Float32Array(nVerts * 3);
     for (let i = 0; i < nVerts * 3; i++) { positions[i] = dv.getFloat32(offset, false); offset += 4; }
 
-    const colors = new Uint8Array(chunk.data.buffer, chunk.data.byteOffset + offset, nVerts * 3);
+    const colors = bytes.slice(offset, offset + nVerts * 3);
     offset += nVerts * 3;
 
     const faces = new Uint32Array(nFaces * 3);
