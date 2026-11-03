@@ -1767,7 +1767,7 @@ def _evaluate_supported_boundary_loop(loop_points: np.ndarray,
         return {'supported': False, 'reason': 'invalid_or_oversized_loop'}
     center = loop.mean(axis=0)
     centered = loop - center
-    _, singular, vh = np.linalg.svd(centered, full_matrices=False)
+    _, singular, vh = np.linalg.svd(centered, full_matrices=True)
     if len(singular) < 2 or singular[1] < 1e-9:
         return {'supported': False, 'reason': 'degenerate_loop'}
     plane_normal = vh[-1]
