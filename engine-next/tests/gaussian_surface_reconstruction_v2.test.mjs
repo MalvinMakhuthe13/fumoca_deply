@@ -237,3 +237,34 @@ test('automatic component cleanup removes tiny islands but preserves the dominan
   assert.equal(result.removedTriangles, 1);
   assert.equal(result.mesh.triangles.length / 3, 4);
 });
+
+test('axis-aligned component splitting supports X, Y and Z without creating caps', () => {
+  for (const axis of [0, 1, 2]) {
+    const vertices = new Float32Array([
+      0, 0, 0,
+      1, 0, 0,
+      0, 1, 0,
+      0, 0, 1,
+    ]);
+    for (let i = 0; i < vertices.length; i += 3) {
+      vertices[i + axis] -= 0.5;
+    }
+    const mesh = {
+      vertices,
+      triangles: new Uint32Array([0, 1, 2, 0, 3, 1, 1, 3, 2, 2, 3, 0]),
+      colours: new Uint8Array(12).fill(180),
+    };
+    const normal = [0, 0, 0]; normal[axis] = 1;
+    const result = FumocMeshExtractor.splitMeshByPlane(mesh, { normal, offset: 0 });
+    assert.equal(result.split, true, `axis ${axis} should divide the fixture`);
+    assert.equal(result.cutIsOpen, true);
+    assert.ok(result.positive && result.negative);
+    for (let i = axis; i < result.positive.vertices.length; i += 3) {
+      assert.ok(result.positive.vertices[i] >= -1e-5, 'positive side stays on positive half-space');
+    }
+    for (let i = axis; i < result.negative.vertices.length; i += 3) {
+      assert.ok(result.negative.vertices[i] <= 1e-5, 'negative side stays on negative half-space');
+    }
+  }
+});
+
