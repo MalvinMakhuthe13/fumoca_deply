@@ -3461,7 +3461,7 @@ class ReconstructionWorker:
             print(f'[NIF] mesh_only: {count:,} input points')
 
             self._tick('processing', 50)
-            mesh_bytes, stl_bytes, mesh_info, _mesh_components_bytes = self._extract_mesh(geo_data)
+            mesh_bytes, stl_bytes, mesh_info, mesh_components_bytes = self._extract_mesh(geo_data)
 
             if not stl_bytes:
                 raise RuntimeError(
@@ -3471,26 +3471,56 @@ class ReconstructionWorker:
                     'capture with more coverage of the subject.'
                 )
 
-            # The Studio print controls select a physical height. Scale the
-            # generated mesh before upload so downloaded STL coordinates are mm.
-            try:
-                import io
-                import trimesh
-                print_mesh = trimesh.load(io.BytesIO(stl_bytes), file_type='stl', force='mesh')
-                desired_height_mm = float(meta.get('height_mm') or {
-                    'product': 120, 'figurine': 120, 'bust': 150, 'large': 200,
-                }.get(meta.get('print_preset'), 120))
-                y_height = float(print_mesh.bounds[1][1] - print_mesh.bounds[0][1])
-                dimension = y_height if y_height > 1e-9 else float(max(print_mesh.extents))
-                if not math.isfinite(desired_height_mm) or desired_height_mm <= 0:
-                    raise ValueError('Print height must be greater than zero.')
-                print_mesh.apply_scale(desired_height_mm / max(dimension, 1e-9))
-                stl_bytes = print_mesh.export(file_type='stl')
-                mesh_info['is_watertight'] = bool(print_mesh.is_watertight)
-                mesh_info['volume_m3'] = float(print_mesh.volume) / 1_000_000_000 if print_mesh.is_watertight else None
-                print(f'[NIF] mesh_only: scaled to {desired_height_mm:.1f} mm ({meta.get("print_preset", "product")})')
-            except Exception as scale_error:
-                raise RuntimeError(f'Could not scale print mesh: {scale_error}') from scale_error
+            # Print export scales to a requested millimetre height. Full-scene
+            # reconstruction explicitly preserves source coordinates so the
+            # reconstructed mesh can be paired with the untouched Studio splats.
+            preserve_scene_scale = bool(meta.get('preserve_scene_scale'))
+            if not preserve_scene_scale:
+                try:
+                    import io
+                    import trimesh
+                    print_mesh = trimesh.load(io.BytesIO(stl_bytes), file_type='stl', force='mesh')
+                    desired_height_mm = float(meta.get('height_mm') or {
+                        'product': 120, 'figurine': 120, 'bust': 150, 'large': 200,
+                    }.get(meta.get('print_preset'), 120))
+                    y_height = float(print_mesh.bounds[1][1] - print_mesh.bounds[0][1])
+                    dimension = y_height if y_height > 1e-9 else float(max(print_mesh.extents))
+                    if not math.isfinite(desired_height_mm) or desired_height_mm <= 0:
+                        raise ValueError('Print height must be greater than zero.')
+                    print_mesh.apply_scale(desired_height_mm / max(dimension, 1e-9))
+                    stl_bytes = print_mesh.export(file_type='stl')
+                    mesh_info['is_watertight'] = bool(print_mesh.is_watertight)
+                    mesh_info['volume_m3'] = float(print_mesh.volume) / 1_000_000_000 if print_mesh.is_watertight else None
+                    print(f'[NIF] mesh_only: scaled to {desired_height_mm:.1f} mm ({meta.get("print_preset", "product")})')
+                except Exception as scale_error:
+                    raise RuntimeError(f'Could not scale print mesh: {scale_error}') from scale_error
+            else:
+                print('[NIF] mesh_only: preserving source scene coordinates; STL is not dimensionally print-scaled')
+
+            # Return a complete NIF containing the original Gaussian geometry,
+            # combined compatibility mesh and independent component chunk. This
+            # is the Studio's oriented-surfel reconstruction handoff.
+            mesh_nif_key = None
+            if mesh_bytes:
+                nif_meta = {
+                    'title': meta.get('title') or 'Oriented scene reconstruction',
+                    'surface_reconstruction': 'oriented-gaussian-surfel-tsdf',
+                    'mesh_component_count': len(mesh_info.get('mesh_components', [])),
+                    'mesh_diagnostics': mesh_info,
+                    'scene_scale_preserved': preserve_scene_scale,
+                }
+                nif_chunks = [
+                    (CHUNK_GEO, geo_bytes),
+                    (CHUNK_MESH, mesh_bytes),
+                    (CHUNK_META, json.dumps(nif_meta).encode('utf-8')),
+                ]
+                if mesh_components_bytes:
+                    nif_chunks.append((CHUNK_MESH_COMPONENTS, mesh_components_bytes))
+                mesh_nif_bytes = pack_nif(nif_chunks, 'generic', fps=1)
+                mesh_nif_key = f'nif/{self.user_id}/{self.job_id}/oriented-scene.nif'
+                R2.put_object(Bucket=OUTPUT_BUCKET, Key=mesh_nif_key, Body=mesh_nif_bytes,
+                              ContentType='application/octet-stream')
+                print(f'[NIF] mesh_only: uploaded oriented scene NIF {mesh_nif_key}')
 
             # Same gap as the main run() path, same fix: STL bytes existing
             # only means the export call didn't crash, not that the mesh is
@@ -3516,9 +3546,12 @@ class ReconstructionWorker:
             SB.table('reconstruction_jobs').update({
                 'status': 'complete', 'progress': 100,
                 'meta': {**meta, 'stl_r2_key': stl_key, 'stl_url': stl_url,
+                         'mesh_nif_r2_key': mesh_nif_key,
+                         'mesh_components_count': len(mesh_info.get('mesh_components', [])),
                          'mesh_bytes_included': bool(mesh_bytes),
                          'mesh_watertight': watertight,
                          'mesh_volume_m3': mesh_info.get('volume_m3'),
+                         'stl_scene_scale_preserved': preserve_scene_scale,
                          'print_warning': None if watertight else
                              'This mesh has holes or non-manifold edges and may fail '
                              'slicer validation. Run auto-repair in the mesh editor '
