@@ -1121,6 +1121,12 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     const components = event.detail?.components || [];
     renderMeshComponents(components);
     if (components.length) {
+      if (window.S) {
+        window.S.meshComponentSplitUndo = null;
+        window.S.meshComponentDeleteUndo = null;
+        window.S.meshComponentCapUndo = null;
+        window.S.meshComponentMembershipUndo = null;
+      }
       window.previewSolidMeshComponents?.(components, { visible: true, opacity: 0.95 });
       window.highlightSolidMeshComponent?.(window.S?.activeMeshComponentId || components[0].id);
     }
@@ -1885,6 +1891,9 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       updateSupportPlaneControls();
       if (window.S) {
         window.S.meshComponentDeleteUndo = null;
+        window.S.meshComponentSplitUndo = null;
+        window.S.meshComponentCapUndo = null;
+        window.S.meshComponentMembershipUndo = null;
         window.S.supportPlaneTrimUndo = null;
         window.S.supportPlaneTrimPreview = null;
         window.S.nifMesh = stagedMeshData;
