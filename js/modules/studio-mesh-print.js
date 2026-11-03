@@ -151,7 +151,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
   let lastMeshStats = null;
   let lastMeshSourceSignature = null;
   const checkSourceFreshness = () => {
-    if (!window.S?.nifMesh) return { ok: true, message: '' };
+    if (!window.S?.nifMesh && !window.S?.nifMeshComponents?.length) return { ok: true, message: '' };
     return compareGaussianSourceSignature(window.S, lastMeshSourceSignature);
   };
   const syncNifMesh = (mesh) => {
