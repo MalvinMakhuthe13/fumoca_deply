@@ -1939,6 +1939,97 @@ def _repair_supported_mesh_boundaries(mesh, surfel_positions: np.ndarray,
     return mesh, stats
 
 
+def _detect_support_plane_candidate(positions: np.ndarray, normals: np.ndarray,
+                                    confidence: np.ndarray, voxel_size: float):
+    """
+    Detect a lower, broad, near-horizontal Gaussian support plane as a
+    non-destructive suggestion for Studio's explicit component split tool.
+
+    This does NOT remove surfels or cut triangles. It returns a suggested
+    horizontal Y coordinate only when the observations provide enough
+    independent planar support; the user remains in control of separation.
+    """
+    points = np.asarray(positions, dtype=np.float64)
+    normal_array = np.asarray(normals, dtype=np.float64)
+    weights = np.asarray(confidence, dtype=np.float64)
+    empty = {'detected': False, 'confidence': 0.0, 'reason': 'insufficient_support'}
+    if (points.ndim != 2 or points.shape[1] != 3 or len(points) < 32
+            or normal_array.shape != points.shape or weights.shape != (len(points),)
+            or not np.all(np.isfinite(points)) or not np.all(np.isfinite(normal_array))
+            or not np.all(np.isfinite(weights))):
+        return {**empty, 'reason': 'invalid_or_sparse_inputs'}
+    bounds_min = points.min(axis=0)
+    bounds_max = points.max(axis=0)
+    scene_extent = bounds_max - bounds_min
+    scene_height = float(scene_extent[1])
+    if scene_height <= max(float(voxel_size) * 4.0, 1e-8):
+        return {**empty, 'reason': 'insufficient_vertical_extent'}
+
+    lengths = np.linalg.norm(normal_array, axis=1)
+    unit_normals = normal_array / np.maximum(lengths[:, None], 1e-9)
+    lower_limit = bounds_min[1] + scene_height * 0.30
+    candidate_mask = (
+        (points[:, 1] <= lower_limit)
+        & (np.abs(unit_normals[:, 1]) >= 0.95)
+        & (weights >= 0.15)
+        & (lengths >= 1e-8)
+    )
+    candidates = points[candidate_mask]
+    if len(candidates) < max(32, int(np.ceil(len(points) * 0.01))):
+        return {**empty, 'reason': 'too_few_lower_horizontal_surfels'}
+
+    # Horizontal support planes are robustly estimated from the dominant
+    # lower-scene Y band; a median resists stray object points and outliers.
+    tolerance = max(2.0 * float(voxel_size), scene_height * 0.005)
+    bin_width = max(2.0 * tolerance, 1e-8)
+    y_values = candidates[:, 1]
+    bin_ids = np.floor((y_values - bounds_min[1]) / bin_width).astype(np.int64)
+    unique_bins, bin_counts = np.unique(bin_ids, return_counts=True)
+    dominant_bin = int(unique_bins[int(np.argmax(bin_counts))])
+    dominant = candidates[bin_ids == dominant_bin]
+    plane_y = float(np.median(dominant[:, 1]))
+    inliers = candidates[np.abs(candidates[:, 1] - plane_y) <= tolerance]
+    minimum_inliers = max(32, int(np.ceil(len(points) * 0.01)))
+    if len(inliers) < minimum_inliers:
+        return {**empty, 'reason': 'weak_horizontal_plane_cluster'}
+
+    x_span = float(np.quantile(inliers[:, 0], 0.95) - np.quantile(inliers[:, 0], 0.05))
+    z_span = float(np.quantile(inliers[:, 2], 0.95) - np.quantile(inliers[:, 2], 0.05))
+    scene_area = max(float(scene_extent[0] * scene_extent[2]), 1e-12)
+    footprint_ratio = float(np.clip((x_span * z_span) / scene_area, 0.0, 1.0))
+    lower_fraction = float((plane_y - bounds_min[1]) / scene_height)
+    normal_alignment = float(np.mean(np.abs(unit_normals[candidate_mask & (
+        np.abs(points[:, 1] - plane_y) <= tolerance
+    ), 1]))) if np.any(candidate_mask & (np.abs(points[:, 1] - plane_y) <= tolerance)) else 0.0
+    inlier_fraction = float(len(inliers) / len(points))
+    detected = (
+        footprint_ratio >= 0.18
+        and lower_fraction <= 0.30
+        and normal_alignment >= 0.95
+        and inlier_fraction >= 0.01
+    )
+    score = float(np.clip(
+        0.30 * min(footprint_ratio / 0.45, 1.0)
+        + 0.25 * min(inlier_fraction / 0.08, 1.0)
+        + 0.25 * normal_alignment
+        + 0.20 * (1.0 - min(lower_fraction / 0.30, 1.0)),
+        0.0, 1.0,
+    )) if detected else 0.0
+    return {
+        'detected': bool(detected),
+        'y': plane_y if detected else None,
+        'confidence': score,
+        'point_count': int(len(inliers)),
+        'inlier_fraction': inlier_fraction,
+        'footprint_ratio': footprint_ratio,
+        'normal_alignment': normal_alignment,
+        'lower_scene_fraction': lower_fraction,
+        'tolerance': tolerance,
+        'reason': 'broad_lower_horizontal_gaussian_support' if detected else
+                  'candidate_did_not_meet_support_thresholds',
+    }
+
+
 def _classify_mesh_surface_role(component, scene_min_y: float,
                                   scene_max_y: float, total_faces: int):
     """
