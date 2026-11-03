@@ -616,6 +616,7 @@ export class UnifiedEditHistory {
       try {
         this.restore(cloneHistoryValue(before), { direction: 'rollback', label: String(label || 'Edit') });
         this.baseline = this.#capture();
+        this.baselineValid = true;
       } catch (restoreError) {
         error.restoreError = restoreError;
       }
@@ -716,6 +717,7 @@ export class UnifiedEditHistory {
     this.cursor = 0;
     this.bytes = 0;
     this.baseline = this.#capture();
+    this.baselineValid = true;
     this.lastError = null;
     this.#notify();
   }
