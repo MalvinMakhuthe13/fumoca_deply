@@ -288,10 +288,12 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       throw new Error('Select a reconstructed component with linked Gaussian splats before trimming.');
     }
     if (!candidate?.detected) throw new Error('No detected support plane is available.');
-    const normal = Array.isArray(candidate.normal) && candidate.normal.length === 3
-      ? candidate.normal.map(Number) : [0, 1, 0];
-    const offset = candidate.offset !== null && candidate.offset !== undefined
-      ? Number(candidate.offset) : Number(candidate.y);
+    const hasOrientedPlane = Array.isArray(candidate.normal) && candidate.normal.length === 3
+      && candidate.normal.every(value => Number.isFinite(Number(value)))
+      && candidate.offset !== null && candidate.offset !== undefined
+      && Number.isFinite(Number(candidate.offset));
+    const normal = hasOrientedPlane ? candidate.normal.map(Number) : [0, 1, 0];
+    const offset = hasOrientedPlane ? Number(candidate.offset) : Number(candidate.y);
     if (!Number.isFinite(offset)) throw new Error('The detected support-plane offset is invalid.');
     const tolerance = Number(container.querySelector('#meshSupportTrimTolerance')?.value ?? 0.002);
     if (!Number.isFinite(tolerance) || tolerance < 0) throw new Error('Trim tolerance must be a non-negative finite value.');
@@ -302,7 +304,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       alive: state.alive,
       normal, offset, tolerance,
     });
-    return { ...plan, componentId: component.id, normal, offset, tolerance };
+    return { ...plan, componentId: component.id, tolerance };
   };
 
   const clearSupportTrimPreview = (restoreSelection = true) => {
