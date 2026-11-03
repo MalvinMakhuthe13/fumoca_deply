@@ -1659,9 +1659,11 @@ def _confidence_weighted_tsdf(grid: np.ndarray, positions: np.ndarray,
     if axes is not None:
         if axes.shape != (len(points), 2, 3) or scales.shape != (len(points), 2):
             raise ValueError('tangent axes/scales must have shapes (N,2,3) and (N,2)')
-        if not np.all(np.isfinite(axes)) or not np.all(np.isfinite(scales)) or np.any(scales <= 0):
-            raise ValueError('tangent axes and scales must be finite with positive scales')
-        axes = axes / np.maximum(np.linalg.norm(axes, axis=2, keepdims=True), 1e-9)
+        axis_lengths = np.linalg.norm(axes, axis=2, keepdims=True)
+        if (not np.all(np.isfinite(axes)) or not np.all(np.isfinite(scales))
+                or np.any(scales <= 0) or np.any(axis_lengths < 1e-8)):
+            raise ValueError('tangent axes must be finite non-zero vectors and scales must be finite positive values')
+        axes = axes / axis_lengths
     tree = cKDTree(points)
     k = min(max(1, int(neighbors)), len(points))
     dists, idx = tree.query(query, k=k, workers=-1)
