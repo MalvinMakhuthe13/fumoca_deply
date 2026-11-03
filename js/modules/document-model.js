@@ -19,6 +19,14 @@ function makeUuid() {
 
 function cloneValue(value) {
   if (value == null || typeof value !== 'object') return value;
+  if (value instanceof DataView) {
+    const bytes = value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);
+    return new DataView(bytes);
+  }
+  if (value instanceof DataView) {
+    const bytes = value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);
+    return new DataView(bytes);
+  }
   if (ArrayBuffer.isView(value)) return new value.constructor(value);
   if (value instanceof ArrayBuffer) return value.slice(0);
   if (Array.isArray(value)) return value.map(cloneValue);
@@ -303,7 +311,11 @@ function cloneHistoryValue(value) {
   if (Array.isArray(value)) return value.map(cloneHistoryValue);
   if (value instanceof Map) return new Map([...value].map(([key, item]) => [cloneHistoryValue(key), cloneHistoryValue(item)]));
   if (value instanceof Set) return new Set([...value].map(cloneHistoryValue));
-  const copy = {};
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) {
+    throw new TypeError(`history snapshots must contain plain data, not ${value.constructor?.name || 'custom-prototype'} instances`);
+  }
+  const copy = Object.create(prototype);
   for (const [key, item] of Object.entries(value)) copy[key] = cloneHistoryValue(item);
   return copy;
 }
@@ -312,6 +324,13 @@ function historyValuesEqual(a, b, seen = new WeakMap()) {
   if (Object.is(a, b)) return true;
   if (a == null || b == null || typeof a !== 'object' || typeof b !== 'object') return false;
   if (Object.getPrototypeOf(a) !== Object.getPrototypeOf(b)) return false;
+  if (a instanceof DataView) {
+    if (!(b instanceof DataView) || a.byteLength !== b.byteLength) return false;
+    const av = new Uint8Array(a.buffer, a.byteOffset, a.byteLength);
+    const bv = new Uint8Array(b.buffer, b.byteOffset, b.byteLength);
+    for (let i = 0; i < av.length; i++) if (av[i] !== bv[i]) return false;
+    return true;
+  }
   if (ArrayBuffer.isView(a)) {
     if (a.constructor !== b.constructor || a.length !== b.length) return false;
     for (let i = 0; i < a.length; i++) if (!Object.is(a[i], b[i])) return false;
