@@ -222,3 +222,7 @@ The primary capture NIF now embeds the same reconstruction diagnostics in its ow
 The public mesh viewer now consumes the embedded component diagnostics: component visibility rows show support-candidate role and measured topology where available, and a detected support-plane suggestion is displayed as a review hint with its Y coordinate and confidence. The public viewer remains read-only; actual splitting/editing stays in Studio.
 
 The oriented TSDF regression suite now also exercises two nearby independent object patches with an unsupported gap, a thin two-sided feature whose midpoint must not become a false zero crossing, and an L-shaped concave corner with perpendicular observed faces. These tests complement the separated parallel-sheet and unsupported-voxel cases; they validate the fusion helper, not a full GPU-trained capture.
+
+### Gaussian input validation before oriented reconstruction
+
+The worker now validates the 14-field Gaussian row contract before building a spatial index. Non-finite geometry/color/opacity rows and zero-length quaternions are excluded; malformed row shapes fail with a clear error. Opacity and RGB logits are clipped before sigmoid evaluation so extreme finite values cannot overflow the exponential. Regression coverage checks NaN rows, degenerate quaternions, extreme logits and malformed row widths.
