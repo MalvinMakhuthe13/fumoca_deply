@@ -3695,8 +3695,24 @@ class ReconstructionWorker:
         scene_min_y = float(mesh.bounds[0][1])
         scene_max_y = float(mesh.bounds[1][1])
         component_chunk = bytearray(struct.pack('>BI', 1, len(split_meshes)))
-        for component_index, part in enumerate(split_meshes, start=1):
-            component_id = f'component-{component_index:04d}'
+        component_id_occurrences = {}
+        for part in split_meshes:
+            # Match the browser extractor's word-wise FNV identity contract.
+            # IDs are based on local float32 geometry + local face indices,
+            # never on component size rank or list position.
+            hash_a, hash_b = 0x811C9DC5, 0x9E3779B9
+            hash_words = np.concatenate((
+                np.asarray(part.vertices, dtype='<f4').reshape(-1).view('<u4'),
+                np.asarray(part.faces, dtype='<u4').reshape(-1),
+            ))
+            for raw_word in hash_words:
+                word = int(raw_word)
+                hash_a = ((hash_a ^ word) * 0x01000193) & 0xFFFFFFFF
+                hash_b = ((hash_b ^ ((word + 0x7ED55D16) & 0xFFFFFFFF)) * 0x85EBCA6B) & 0xFFFFFFFF
+            base_component_id = f'mesh-{hash_a:08x}{hash_b:08x}'
+            occurrence = component_id_occurrences.get(base_component_id, 0)
+            component_id_occurrences[base_component_id] = occurrence + 1
+            component_id = base_component_id if occurrence == 0 else f'{base_component_id}-{occurrence + 1}'
             label_bytes = component_id.encode('utf-8')
             part_colors = np.zeros((len(part.vertices), 3), dtype=np.uint8)
             if part.visual.vertex_colors is not None:
