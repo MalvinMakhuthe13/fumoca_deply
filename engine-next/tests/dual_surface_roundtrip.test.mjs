@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { gzipSync } from 'node:zlib';
 import { encodeNif, decodeNif } from '../../js/modules/nif-format.js';
+import { NIFReader, NIFWriter, CHUNK, CODEC, crc32 } from '../format/NIFSpec.js';
 
 test('NIF preserves Gaussian source and connected mesh as independent layers', async () => {
   const positions = new Float32Array([
@@ -122,13 +124,33 @@ test('NIF preserves Gaussian source and connected mesh as independent layers', a
   assert.ok(markerAt >= 0, 'component ID must be present in NIF bytes');
   // The final component face index is immediately after its vertex and colour
   // payload. Derive its offset from the two fixture component records.
-  const secondHeader = markerAt + marker.length + 1;
+  const secondHeader = markerAt + marker.length;
   const secondVertexCount = new DataView(corruptFaces).getUint32(secondHeader + 1, false);
   const secondFaceCount = new DataView(corruptFaces).getUint32(secondHeader + 5, false);
   const faceStart = secondHeader + 9 + secondVertexCount * 15;
   const lastIndexOffset = faceStart + secondFaceCount * 12 - 4;
   new DataView(corruptFaces).setUint32(lastIndexOffset, secondVertexCount + 5, false);
+
+  // Recompute the component chunk CRC so this is a topology-validation test,
+  // not a transport-integrity test. Locate the actual chunk by its header.
+  const corruptView = new DataView(corruptFaces);
+  let chunkOffset = 256;
+  let componentPayloadOffset = -1;
+  while (chunkOffset + 16 <= corruptFaces.byteLength) {
+    const type = corruptView.getUint16(chunkOffset, false);
+    const size = corruptView.getUint32(chunkOffset + 4, false);
+    if (type === CHUNK.MESH_COMPONENTS) {
+      componentPayloadOffset = chunkOffset + 16;
+      corruptView.setUint32(chunkOffset + 8,
+        crc32(new Uint8Array(corruptFaces, componentPayloadOffset, size)), false);
+      break;
+    }
+    chunkOffset += 16 + size;
+  }
+  assert.ok(componentPayloadOffset >= 0, 'component chunk header must be present');
   const corruptedDecoded = await decodeNif(corruptFaces);
+  assert.equal(corruptedDecoded.reader.isCorrupted, false,
+    'CRC-valid malformed topology must reach the semantic decoder');
   assert.equal(corruptedDecoded.meshComponents.length, 0,
     'malformed component payloads must be discarded instead of exposing invalid topology');
 
@@ -147,4 +169,52 @@ test('NIF preserves Gaussian source and connected mesh as independent layers', a
     }],
   }), /invalid mesh color or face indices|invalid or duplicate mesh component geometry\/ID/,
   'component faces must reference local vertices');
+});
+
+
+test('NIF decoder handles worker-style gzip chunks and typed-array subviews', async () => {
+  const payload = new Uint8Array([0xaa, 1, 2, 3, 0xbb]).subarray(1, 4);
+  const viewWriter = new NIFWriter();
+  viewWriter.add(CHUNK.META, payload, CODEC.RAW);
+  const viewFile = viewWriter.build();
+  const viewReader = new NIFReader(viewFile);
+  assert.deepEqual(Array.from(viewReader.getChunk(CHUNK.META).data), [1, 2, 3],
+    'NIFWriter must serialize only the supplied typed-array view');
+
+  const positions = new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]);
+  const colors01 = new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]);
+  const opacities01 = new Float32Array([1, 1, 1]);
+  const scalesLinear = new Float32Array([0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]);
+  const quats = new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]);
+  const meshComponents = [{
+    id: 'gzip-component',
+    vertices: positions,
+    triangles: new Uint32Array([0, 1, 2]),
+    colours: new Uint8Array([255, 0, 0, 0, 255, 0, 0, 0, 255]),
+  }];
+  const rawFile = encodeNif({
+    positions, colors01, opacities01, scalesLinear, quats, meshComponents,
+    meta: { title: 'gzip fixture', description: 'x'.repeat(2048) },
+  });
+  const rawReader = new NIFReader(rawFile);
+  const gzipWriter = new NIFWriter();
+  const gzipTypes = new Set([
+    CHUNK.KEYFRAME_GEO, CHUNK.KEYFRAME_MESH, CHUNK.MESH_COMPONENTS, CHUNK.META,
+  ]);
+  for (const chunk of rawReader.chunks) {
+    if (gzipTypes.has(chunk.type)) {
+      gzipWriter.add(chunk.type, new Uint8Array(gzipSync(Buffer.from(chunk.data))), CODEC.GZIP);
+    } else {
+      gzipWriter.add(chunk.type, chunk.data, chunk.codec);
+    }
+  }
+  const gzipBytes = gzipWriter.build();
+  const decoded = await decodeNif(gzipBytes.buffer.slice(
+    gzipBytes.byteOffset, gzipBytes.byteOffset + gzipBytes.byteLength));
+  assert.equal(decoded.gaussians.count, 3);
+  assert.equal(decoded.meshComponents.length, 1);
+  assert.equal(decoded.meshComponents[0].id, 'gzip-component');
+  assert.equal(decoded.meta.title, 'gzip fixture');
+  assert.equal(decoded.meta.description.length, 2048);
+  assert.ok(decoded.mesh, 'gzipped combined mesh must decode');
 });
