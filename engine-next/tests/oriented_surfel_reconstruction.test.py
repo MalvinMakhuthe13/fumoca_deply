@@ -332,5 +332,25 @@ sloped_suggestion = detect_support(
 check('sloped lower surface does not produce a horizontal support-plane suggestion',
       not sloped_suggestion['detected'], sloped_suggestion)
 
+
+# The primary NIF META payload must carry diagnostics and the proposed support
+# plane so the public viewer and an offline downloaded NIF see the same context.
+build_meta = namespace['_build_nif_meta_payload']
+meta_diagnostics = {
+    'n_connected_components': 2,
+    'support_plane_candidate': {'detected': True, 'y': -0.125, 'confidence': 0.82},
+    'mesh_components': [{'id': 'object-1'}, {'id': 'support-1'}],
+}
+meta_payload = build_meta(
+    'test-user', 'generic', {'title': 'Full scene', 'hotspots': []},
+    meta_diagnostics, created_at='2026-11-03T00:00:00Z',
+)
+check('primary NIF metadata embeds component diagnostics and support-plane suggestion',
+      meta_payload['surface_reconstruction'] == 'oriented-gaussian-surfel-tsdf'
+      and meta_payload['mesh_component_count'] == 2
+      and meta_payload['mesh_diagnostics']['support_plane_candidate']['y'] == -0.125
+      and meta_payload['author'] == 'test-user',
+      meta_payload)
+
 print(f'\n{passed} passed, {failed} failed')
 sys.exit(1 if failed else 0)
