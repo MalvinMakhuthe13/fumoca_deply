@@ -241,5 +241,21 @@ check('a genuine opening with evidence only at its rim remains open',
       and unsupported_repair['reason'] == 'insufficient_interior_evidence',
       unsupported_repair)
 
+
+# Boundary traversal returns closed unbranched loops only.
+class EdgeFixture:
+    def __init__(self, edges):
+        self.edges_sorted = np.asarray(edges, dtype=np.int32)
+
+find_loops = namespace['_boundary_edge_loops']
+closed_loop = find_loops(EdgeFixture([[0, 1], [1, 2], [2, 3], [3, 0]]))
+check('closed boundary edge cycle is found as one loop',
+      len(closed_loop) == 1 and len(closed_loop[0]) == 4,
+      closed_loop)
+branched_loop = find_loops(EdgeFixture([[0, 1], [1, 2], [1, 3], [3, 0]]))
+check('branched boundary graph is not treated as a repairable loop',
+      len(branched_loop) == 0,
+      branched_loop)
+
 print(f'\n{passed} passed, {failed} failed')
 sys.exit(1 if failed else 0)
