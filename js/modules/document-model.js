@@ -233,6 +233,49 @@ function cloneHistoryValue(value) {
   return copy;
 }
 
+function historyValuesEqual(a, b, seen = new WeakMap()) {
+  if (Object.is(a, b)) return true;
+  if (a == null || b == null || typeof a !== 'object' || typeof b !== 'object') return false;
+  if (Object.getPrototypeOf(a) !== Object.getPrototypeOf(b)) return false;
+  if (ArrayBuffer.isView(a)) {
+    if (a.constructor !== b.constructor || a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) if (!Object.is(a[i], b[i])) return false;
+    return true;
+  }
+  if (a instanceof ArrayBuffer) {
+    if (a.byteLength !== b.byteLength) return false;
+    const av = new Uint8Array(a), bv = new Uint8Array(b);
+    for (let i = 0; i < av.length; i++) if (av[i] !== bv[i]) return false;
+    return true;
+  }
+  if (seen.get(a) === b) return true;
+  seen.set(a, b);
+  if (a instanceof Map) {
+    if (a.size !== b.size) return false;
+    const ai = a.entries(), bi = b.entries();
+    while (true) {
+      const x = ai.next(), y = bi.next();
+      if (x.done || y.done) return x.done === y.done;
+      if (!historyValuesEqual(x.value[0], y.value[0], seen) || !historyValuesEqual(x.value[1], y.value[1], seen)) return false;
+    }
+  }
+  if (a instanceof Set) {
+    if (a.size !== b.size) return false;
+    const ai = a.values(), bi = b.values();
+    while (true) {
+      const x = ai.next(), y = bi.next();
+      if (x.done || y.done) return x.done === y.done;
+      if (!historyValuesEqual(x.value, y.value, seen)) return false;
+    }
+  }
+  const ak = Object.keys(a), bk = Object.keys(b);
+  if (ak.length !== bk.length) return false;
+  for (const key of ak) {
+    if (!Object.prototype.hasOwnProperty.call(b, key) || !historyValuesEqual(a[key], b[key], seen)) return false;
+  }
+  return true;
+}
+
 function estimateHistoryBytes(value, seen = new Set()) {
   if (value == null || typeof value !== 'object' || seen.has(value)) return 0;
   seen.add(value);
@@ -268,7 +311,7 @@ export class UnifiedEditHistory {
     this.restore = restore;
     this.limit = Math.max(1, Math.floor(Number(limit) || 80));
     this.maxBytes = Math.max(1024 * 1024, Math.floor(Number(maxBytes) || 512 * 1024 * 1024));
-    this.equals = typeof equals === 'function' ? equals : null;
+    this.equals = typeof equals === 'function' ? equals : historyValuesEqual;
     this.onChange = typeof onChange === 'function' ? onChange : null;
     this.entries = [];
     this.cursor = 0;
