@@ -1598,6 +1598,9 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
   container.querySelector('#meshExtractBtn')?.addEventListener('click', extractMesh);
   container.querySelector('#meshLevelSupportPlane')?.addEventListener('click', levelToSupportPlane);
   container.querySelector('#meshUndoSupportLevel')?.addEventListener('click', undoSupportPlaneLevel);
+  container.querySelector('#meshPreviewSupportTrim')?.addEventListener('click', previewSupportPlaneTrim);
+  container.querySelector('#meshApplySupportTrim')?.addEventListener('click', applySupportPlaneTrim);
+  container.querySelector('#meshUndoSupportTrim')?.addEventListener('click', undoSupportPlaneTrim);
 
   container.querySelector('#meshFillHolesBtn')?.addEventListener('click', () => {
     if (!lastMeshData) return meshStatus('Extract a mesh before repairing mesh holes.');
