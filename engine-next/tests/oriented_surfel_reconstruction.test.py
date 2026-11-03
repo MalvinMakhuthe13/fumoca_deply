@@ -6,6 +6,7 @@ The helper is extracted from pipeline.py so these tests do not import the
 worker's GPU/cloud dependencies. Requires numpy and scipy.
 """
 import sys
+import ast
 from pathlib import Path
 import numpy as np
 
@@ -256,6 +257,41 @@ branched_loop = find_loops(EdgeFixture([[0, 1], [1, 2], [1, 3], [3, 0]]))
 check('branched boundary graph is not treated as a repairable loop',
       len(branched_loop) == 0,
       branched_loop)
+
+
+# Every _extract_mesh return path must preserve the four-value contract used
+# by both ReconstructionWorker.run() and run_mesh_only().
+module_ast = ast.parse(source)
+worker_class = next(node for node in module_ast.body
+                    if isinstance(node, ast.ClassDef) and node.name == 'ReconstructionWorker')
+extract_method = next(node for node in worker_class.body
+                      if isinstance(node, ast.FunctionDef) and node.name == '_extract_mesh')
+return_shapes = []
+for node in ast.walk(extract_method):
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node is not extract_method:
+        continue
+    if isinstance(node, ast.Return):
+        value = node.value
+        return_shapes.append(len(value.elts) if isinstance(value, ast.Tuple) else 1)
+check('all mesh extraction return paths preserve four-value caller contract',
+      bool(return_shapes) and all(size == 4 for size in return_shapes),
+      return_shapes)
+
+# A lower horizontal candidate is not enough by itself: elevated horizontal
+# surfaces and sloped support surfaces must remain ordinary scene geometry.
+upper_vertices = plane_vertices.copy()
+upper_vertices[:, 1] = 0.9
+upper_role = classify_surface(MeshFixture(upper_vertices, plane_faces), 0.0, 1.0, 50)
+check('elevated horizontal component is not labeled as support plane',
+      upper_role['role_candidate'] == 'surface',
+      upper_role)
+
+sloped_vertices = plane_vertices.copy()
+sloped_vertices[:, 1] = sloped_vertices[:, 0] * 0.5
+sloped_role = classify_surface(MeshFixture(sloped_vertices, plane_faces), 0.0, 1.0, 50)
+check('sloped lower component is not labeled as horizontal support plane',
+      sloped_role['role_candidate'] == 'surface',
+      sloped_role)
 
 print(f'\n{passed} passed, {failed} failed')
 sys.exit(1 if failed else 0)
