@@ -78,6 +78,9 @@ export function assignGaussianMemberships(components, {
   }
 
   const bounds = components.map((component, index) => {
+    // A support platform or mesh-authored scene object is not a Gaussian
+    // ownership candidate and must not make nearby object splats ambiguous.
+    if (!autoAssignable[index]) return null;
     const vertices = component.vertices;
     if (!vertices || vertices.length < 9 || vertices.length % 3) {
       if (missingMembership[index]) throw new Error('component ' + component.id + ' has no usable vertices for membership mapping');
