@@ -1985,6 +1985,7 @@ const studioEditHistory = new UnifiedEditHistory({
     meshComponentCapUndo: S.meshComponentCapUndo || null,
     meshComponentMembershipUndo: S.meshComponentMembershipUndo || null,
     meshComponentSplitUndo: S.meshComponentSplitUndo || null,
+    meshComponentDeleteUndo: S.meshComponentDeleteUndo || null,
     measurements: S.measurements || [],
     pivot: _cloneHistoryPivot(S.pivot),
   }),
@@ -2002,6 +2003,7 @@ const studioEditHistory = new UnifiedEditHistory({
     S.meshComponentCapUndo = snapshot.meshComponentCapUndo;
     S.meshComponentMembershipUndo = snapshot.meshComponentMembershipUndo;
     S.meshComponentSplitUndo = snapshot.meshComponentSplitUndo;
+    S.meshComponentDeleteUndo = snapshot.meshComponentDeleteUndo;
     S.measurements = snapshot.measurements || [];
     S.pivot = snapshot.pivot ? new THREE.Vector3(...snapshot.pivot) : null;
     rebuildGeometry();
