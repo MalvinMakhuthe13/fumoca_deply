@@ -1122,6 +1122,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       window.highlightSolidMeshComponent?.(window.S?.activeMeshComponentId || components[0].id);
     }
     updateComponentTransformButtons();
+    if (components.length) refreshCombinedMeshFromComponents();
     updateSupportPlaneControls();
   });
   const applyComponentVisibilityPreferences = () => {
