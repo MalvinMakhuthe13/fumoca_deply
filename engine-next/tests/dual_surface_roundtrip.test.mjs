@@ -99,7 +99,7 @@ test('NIF preserves Gaussian source and connected mesh as independent layers', a
       id: 'invalid-colour',
       vertices: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]),
       triangles: new Uint32Array([0, 1, 2]),
-      colours: new Float32Array([0, 0, 0, 1, 1, 1, 2, 2, 2]),
+      colours: new Float32Array([0, 0, 0, 1, 1, 1, 2, 2, 256]),
     }],
   }), /invalid or duplicate mesh component geometry\/ID/,
   'component colours must be byte-range integer channels');
