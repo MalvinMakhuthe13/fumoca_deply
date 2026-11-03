@@ -360,5 +360,5 @@ test('coalesced edits cannot exceed the configured history byte budget', () => {
   assert.equal(history.state().count, 0);
   assert.equal(history.state().bytes, 0);
   assert.equal(history.canUndo(), false);
-  assert.match(history.state().error, /coalesced snapshot exceeds the 1048576-byte history budget/);
+  assert.match(history.state().error, /snapshot \(1120036 bytes\) exceeds the 1048576-byte history budget/);
 });
