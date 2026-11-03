@@ -210,3 +210,37 @@ export function createComponentChildren(parent, children, { idFactory = makeUuid
     parentIds: [...new Set([...(child.parentIds || []), parent.id])],
   }, idFactory));
 }
+
+
+/**
+ * Compact a document model to the Gaussian rows retained by a save/export.
+ * The input indices refer to the model's current Gaussian array order. Stable
+ * identities survive filtering; deleted rows are not renumbered or reused.
+ */
+export function compactDocumentModel(model, retainedIndices) {
+  validateDocumentModel(model);
+  if (!Array.isArray(retainedIndices) && !ArrayBuffer.isView(retainedIndices)) {
+    throw new TypeError('retainedIndices must be an array of Gaussian row indices');
+  }
+  const seen = new Set();
+  const gaussianIds = [];
+  for (const rawIndex of retainedIndices) {
+    const index = Number(rawIndex);
+    if (!Number.isInteger(index) || index < 0 || index >= model.gaussianIds.length || seen.has(index)) {
+      throw new RangeError('retained Gaussian row index is invalid or duplicated');
+    }
+    seen.add(index);
+    gaussianIds.push(model.gaussianIds[index]);
+  }
+  const retained = new Set(gaussianIds);
+  const components = (model.components || []).map(component => ({
+    ...cloneValue(component),
+    gaussianIds: Array.from(component.gaussianIds || []).filter(id => retained.has(id)),
+  }));
+  return createDocumentModel({
+    ...cloneValue(model),
+    gaussianIds: Uint32Array.from(gaussianIds),
+    components,
+    nextGaussianId: model.nextGaussianId,
+  });
+}
