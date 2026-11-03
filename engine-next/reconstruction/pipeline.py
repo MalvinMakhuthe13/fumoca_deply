@@ -1808,6 +1808,19 @@ def _evaluate_supported_boundary_loop(loop_points: np.ndarray,
         }
     center_point = points[indices[0]]
     center_point = center_point - np.dot(center_point - center, plane_normal) * plane_normal
+    center_2d = np.array([np.dot(center_point - center, basis_u),
+                          np.dot(center_point - center, basis_v)])
+    edge_start = projected
+    edge_end = np.roll(projected, -1, axis=0)
+    edge_vec = edge_end - edge_start
+    to_center = center_2d[None, :] - edge_start
+    center_cross = edge_vec[:, 0] * to_center[:, 1] - edge_vec[:, 1] * to_center[:, 0]
+    center_nonzero = center_cross[np.abs(center_cross) > 1e-9]
+    if len(center_nonzero) < len(edge_vec) * 0.8 or not (
+        np.all(center_nonzero > 0) or np.all(center_nonzero < 0)
+    ):
+        return {'supported': False, 'reason': 'supported_center_outside_loop',
+                'coverage': coverage, 'planarity': planarity}
     mean_normal = nearest_normals[supported].mean(axis=0)
     if np.dot(mean_normal, plane_normal) < 0:
         mean_normal *= -1
