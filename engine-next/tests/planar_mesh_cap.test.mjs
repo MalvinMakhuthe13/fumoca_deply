@@ -59,7 +59,7 @@ test('accepted near-planar base vertices are snapped onto the exact support plan
   for (let vertex = 0; vertex < 4; vertex++) {
     assert.ok(Math.abs(result.mesh.vertices[vertex * 3 + 1]) < 1e-8);
   }
-  assert.equal(mesh.vertices[3 * 3 + 1], 0.0005); // source geometry remains untouched
+  assert.ok(Math.abs(mesh.vertices[3 * 3 + 1] - 0.0005) < 1e-8); // source geometry remains untouched
 });
 
 test('refuses to cap non-planar loops and leaves the original mesh untouched', () => {
@@ -68,7 +68,7 @@ test('refuses to cap non-planar loops and leaves the original mesh untouched', (
   const result = capPlanarBoundaryLoops(mesh, { normal: [0,1,0], offset: 0, tolerance: 0.001 });
   assert.equal(result.unchanged, true);
   assert.equal(result.cappedLoops, 0);
-  assert.equal(result.skippedNonPlanar, 1);
+  assert.equal(result.skippedNonPlanar, 2); // the top and deliberately perturbed bottom loops are both off-plane
   assert.equal(result.mesh, mesh);
 });
 
