@@ -1944,7 +1944,6 @@ const S = {
   displayMode: 'blob',
   brushSize: 28, brushStrength: 1.0, brushHardness: 0.8,
   brightness: 1.0, ptScale: 1.0, blobSoftness: 0.6,
-  history: [], historyIndex: -1,
   lassoPoints: [], dragging: false, dragStart: null, dragCurrent: null,
   bgType: 'transparent',
   bgImageUrl: null, bgOpacity: 1.0, bgBlur: 0, bgScale: 1.0,
@@ -6307,8 +6306,6 @@ function rotateEntireScene(axis, degrees) {
   $('trnScale').value = '100'; $('trnMoveX').value='0'; $('trnMoveY').value='0'; $('trnMoveZ').value='0'; $('trnOpac').value='0'; $('trnTemp').value='0';
   $('applyTrnBtn').click();
   $('trnTemp').value = previousTemp;
-  const historyEntry = S.history[S.history.length - 1];
-  if (historyEntry?.label === 'transform') historyEntry.snap.selected = previous.slice();
   S.selected.set(previous); rebuildGeometry(); syncTransformGizmo();
 }
 $('orientXPosBtn')?.addEventListener('click',()=>rotateEntireScene('x',90));
