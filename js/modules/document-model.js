@@ -480,7 +480,7 @@ export class UnifiedEditHistory {
       return false;
     }
     const current = this.entries[this.cursor - 1];
-    if (entry.coalesceKey && current?.kind === 'patch' && current.coalesceKey === entry.coalesceKey && this.cursor === this.entries.length) {
+    if (entry.coalesceKey && current?.kind === 'patch' && current.coalesceKey === entry.coalesceKey && current.applyPatch === entry.applyPatch && current.capturePatch === entry.capturePatch && this.cursor === this.entries.length) {
       this.bytes -= current.bytes;
       entry.before = current.before;
       entry.bytes = estimateHistoryBytes(entry.before) + estimateHistoryBytes(entry.after);
@@ -499,6 +499,9 @@ export class UnifiedEditHistory {
       this.#notify();
       return false;
     }
+    // Keep the legacy snapshot baseline aligned so a later full-snapshot
+    // operation can safely follow a patch entry in the same timeline.
+    this.baseline = this.#capture();
     this.lastError = null;
     this.#notify();
     return true;
