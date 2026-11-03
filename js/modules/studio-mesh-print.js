@@ -1117,6 +1117,9 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
   const linkSelectedGaussiansToComponent = (targetComponent) => {
     const state = window.S;
     if (!state?.selected || !state?.alive || !state.documentModel?.gaussianIds?.length || !targetComponent) return false;
+    // Do not treat the temporary trim-preview selection as a user's ownership
+    // assignment. Restore the real selection before collecting IDs.
+    if (state.supportPlaneTrimPreview) clearSupportTrimPreview(true);
     const selectedIds = [];
     for (let row = 0; row < state.selected.length; row++) {
       if (state.selected[row] && state.alive[row]) selectedIds.push(state.documentModel.gaussianIds[row]);
