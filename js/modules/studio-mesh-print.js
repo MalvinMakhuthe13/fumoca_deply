@@ -875,8 +875,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
   const syncNifMesh = (mesh, { preserveRecoveryState = false } = {}) => {
     if (!preserveRecoveryState && mesh !== lastMeshData) {
         if (window.S) {
-        window.S.meshComponentDeleteUndo = null;
-        window.S.meshComponentSplitUndo = null;
       }
     }
     lastMeshData = mesh || null;
@@ -944,7 +942,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     const removeButton = container.querySelector('#meshComponentDelete');
     if (!panel || !list) return;
     const items = Array.isArray(components) ? components : [];
-    panel.style.display = (items.length || window.S?.meshComponentDeleteUndo) ? '' : 'none';
+    panel.style.display = items.length ? '' : 'none';
     if (count) count.textContent = String(items.length);
     if (removeButton) removeButton.disabled = !items.some(item => item.id === window.S?.activeMeshComponentId);
     list.innerHTML = '';
@@ -1106,9 +1104,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     renderMeshComponents(components);
     if (components.length) {
       if (window.S) {
-        window.S.meshComponentSplitUndo = null;
-        window.S.meshComponentDeleteUndo = null;
-        window.S.meshComponentMembershipUndo = null;
       }
       window.previewSolidMeshComponents?.(components, { visible: true, opacity: 0.95 });
       window.highlightSolidMeshComponent?.(window.S?.activeMeshComponentId || components[0].id);
@@ -1271,7 +1266,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     const state = window.S;
     if (state?.meshComponentMembershipUndo
         && meshStateSignature(state.nifMesh, state.nifMeshComponents) !== state.meshComponentMembershipUndo.afterSignature) {
-      state.meshComponentMembershipUndo = null;
     }
     const component = selectedMeshComponent();
     const apply = container.querySelector('#meshComponentApplyTransform');
@@ -1631,8 +1625,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       activeId: state.activeMeshComponentId,
       meshComponentsEdited: state.nifMeta?.mesh_components_edited === true,
     };
-    state.meshComponentDeleteUndo = null;
-    state.meshComponentSplitUndo = null;
     state.nifMeshComponents = (state.nifMeshComponents || []).filter(component => component.id !== id);
     state.activeMeshComponentId = state.nifMeshComponents[0]?.id || null;
     syncComponentDiagnosticsToMeta();
@@ -1677,7 +1669,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
           currentState.nifMeshComponents = components;
           currentState.activeMeshComponentId = patch.activeId && components.some(item => item.id === patch.activeId)
             ? patch.activeId : (components[0]?.id || null);
-          currentState.meshComponentDeleteUndo = null;
           currentState.nifMesh = null;
           syncComponentDiagnosticsToMeta();
           currentState.nifMeta = { ...(currentState.nifMeta || {}), mesh_components_edited: patch.meshComponentsEdited === true };
@@ -1763,8 +1754,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     }
     state.nifMeshComponents = normalizeMeshComponents(nextComponents);
     state.nifMesh = null;
-    state.meshComponentSplitUndo = null;
-    state.meshComponentDeleteUndo = null;
     state.meshComponentMembershipUndo = null;
     state.nifMeta = { ...(state.nifMeta || {}), mesh_components_edited: true };
     refreshCombinedMeshFromComponents();
@@ -1930,10 +1919,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       lastMeshSourceSignature = extractionSourceSignature;
       updateSupportPlaneControls();
       if (window.S) {
-        window.S.meshComponentDeleteUndo = null;
-        window.S.meshComponentSplitUndo = null;
-        window.S.meshComponentCapUndo = null;
-        window.S.meshComponentMembershipUndo = null;
         window.S.supportPlaneTrimPreview = null;
         window.S.nifMesh = stagedMeshData;
         window.S.nifMeshComponents = extractedComponents;
@@ -2060,9 +2045,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
           };
           state.nifMeshComponents = components;
           state.activeMeshComponentId = components[0]?.id || null;
-          state.meshComponentSplitUndo = null;
-          state.meshComponentDeleteUndo = null;
-          state.nifMeta = {
+                      state.nifMeta = {
             ...(state.nifMeta || {}),
             ...(decoded.meta || {}),
             dual_surface_source_signature: sourceSignature,
