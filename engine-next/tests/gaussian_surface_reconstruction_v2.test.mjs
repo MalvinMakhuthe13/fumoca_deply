@@ -53,6 +53,9 @@ test('plane splitting separates observed triangles without capping the cut', () 
     assert.equal(part.triangles.length % 3, 0);
     assert.ok(part.triangles.every(index => index < part.vertices.length / 3));
     assert.equal(part.colours.length, part.vertices.length);
+    const topology = FumocMeshExtractor.validateWatertight(part);
+    assert.ok(topology.openEdges > 0, 'each clipped side must report its deliberately open cut boundary');
+    assert.equal(topology.watertight, false, 'plane splitting must not silently cap the cut');
   }
   assert.deepEqual(Array.from(mesh.vertices), [0, -1, 0, 1, 1, 0, -1, 1, 0, 0, 2, 1],
     'source geometry is never mutated');
