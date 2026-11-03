@@ -52,6 +52,19 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         <label style="display:flex;align-items:center;gap:7px;font-size:11px;margin:8px 0 4px"><input id="meshSelectedOnly" type="checkbox"> Extract selected splats only</label>
         <div class="hint" id="meshSelectionStatus" style="margin:4px 0">0 live points selected</div>
         <div id="meshDiagnostics" class="hint" style="margin:8px 0;padding:8px;border:1px solid rgba(255,255,255,.12);border-radius:7px">No mesh diagnostics yet. Extract a mesh to inspect its topology.</div>
+        <div id="meshComponentsPanel" style="display:none;margin:8px 0;padding:8px;border:1px solid rgba(255,255,255,.12);border-radius:7px">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:7px">
+            <strong style="font-size:11px">Independent scene components</strong>
+            <span id="meshComponentsCount" class="hint">0</span>
+          </div>
+          <div style="display:flex;gap:5px;margin-bottom:7px">
+            <button type="button" id="meshComponentsShowAll" class="mini-btn">Show all</button>
+            <button type="button" id="meshComponentsHideAll" class="mini-btn">Hide all</button>
+            <button type="button" id="meshComponentDelete" class="mini-btn" disabled>Delete selected</button>
+          </div>
+          <div id="meshComponentsList" style="display:grid;gap:5px"></div>
+          <div class="hint" style="margin-top:6px">Each connected surface has independent visibility and selection. Selecting a component highlights it; deleting removes only that component from the scene geometry.</div>
+        </div>
         <div class="hint">Depth-aware lasso/box selection adds only the visible surface layer. Rotate and select again from other sides to build the complete object selection. Hold Shift to add and Alt to subtract; check the live point count before enabling selected-only extraction. The source splat is never deleted or changed.</div>
         <label style="display:block;font-size:11px;margin-top:8px">Hybrid mesh opacity <span id="meshPreviewOpacityVal" style="float:right;color:var(--neon)">38%</span>
           <input id="meshPreviewOpacity" type="range" min="0.05" max="1" step="0.01" value="0.38" style="width:100%">
@@ -180,6 +193,82 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     }
   };
   window.addEventListener('fumoca:nifMeshLoaded', (event) => syncNifMesh(event.detail?.mesh));
+  const renderMeshComponents = (components = []) => {
+    const panel = container.querySelector('#meshComponentsPanel');
+    const list = container.querySelector('#meshComponentsList');
+    const count = container.querySelector('#meshComponentsCount');
+    const removeButton = container.querySelector('#meshComponentDelete');
+    if (!panel || !list) return;
+    const items = Array.isArray(components) ? components : [];
+    panel.style.display = items.length ? '' : 'none';
+    if (count) count.textContent = String(items.length);
+    if (removeButton) removeButton.disabled = !items.some(item => item.id === window.S?.activeMeshComponentId);
+    list.innerHTML = '';
+    for (const component of items) {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:6px;padding:5px;border-radius:6px;background:rgba(255,255,255,.035)';
+      const visible = document.createElement('input');
+      visible.type = 'checkbox'; visible.checked = component.visible !== false;
+      visible.title = 'Show or hide this component';
+      visible.addEventListener('change', () => {
+        component.visible = visible.checked;
+        window.setSolidMeshComponentVisibility?.(component.id, visible.checked);
+      });
+      const select = document.createElement('button');
+      select.type = 'button'; select.className = 'mini-btn';
+      select.textContent = component.id === window.S?.activeMeshComponentId ? 'Selected' : 'Select';
+      select.style.flex = '1'; select.style.textAlign = 'left';
+      select.addEventListener('click', () => {
+        if (window.S) window.S.activeMeshComponentId = component.id;
+        window.highlightSolidMeshComponent?.(component.id);
+        renderMeshComponents(items);
+        meshStatus('Selected component ' + component.id + '. Its visibility and geometry are independent of the other scene components.');
+      });
+      const isolate = document.createElement('button');
+      isolate.type = 'button'; isolate.className = 'mini-btn'; isolate.textContent = 'Isolate';
+      isolate.addEventListener('click', () => {
+        for (const item of items) item.visible = item.id === component.id;
+        window.previewSolidMeshComponents?.(items, { visible: true, opacity: 1 });
+        renderMeshComponents(items);
+      });
+      const faces = document.createElement('span');
+      faces.className = 'hint'; faces.textContent = Number(component.triangles?.length || component.faces?.length || 0) / 3 + ' tris';
+      row.append(visible, select, isolate, faces);
+      list.append(row);
+    }
+  };
+  window.addEventListener('fumoca:nifMeshComponentsLoaded', (event) => {
+    const components = event.detail?.components || [];
+    renderMeshComponents(components);
+    if (components.length) {
+      window.previewSolidMeshComponents?.(components, { visible: true, opacity: 0.95 });
+      window.highlightSolidMeshComponent?.(window.S?.activeMeshComponentId || components[0].id);
+    }
+  });
+  container.querySelector('#meshComponentsShowAll')?.addEventListener('click', () => {
+    for (const component of window.S?.nifMeshComponents || []) component.visible = true;
+    window.previewSolidMeshComponents?.(window.S?.nifMeshComponents || [], { visible: true, opacity: 1 });
+    renderMeshComponents(window.S?.nifMeshComponents || []);
+  });
+  container.querySelector('#meshComponentsHideAll')?.addEventListener('click', () => {
+    for (const component of window.S?.nifMeshComponents || []) component.visible = false;
+    window.setSolidMeshComponentsVisibility?.(false);
+    renderMeshComponents(window.S?.nifMeshComponents || []);
+  });
+  container.querySelector('#meshComponentDelete')?.addEventListener('click', () => {
+    const state = window.S;
+    if (!state?.activeMeshComponentId) return;
+    const id = state.activeMeshComponentId;
+    state.nifMeshComponents = (state.nifMeshComponents || []).filter(component => component.id !== id);
+    state.activeMeshComponentId = state.nifMeshComponents[0]?.id || null;
+    // The old combined mesh is derived data; discard it so NIF export rebuilds
+    // the compatibility mesh from the remaining independent components.
+    state.nifMesh = null;
+    window.previewSolidMeshComponents?.(state.nifMeshComponents, { visible: true, opacity: 1 });
+    window.highlightSolidMeshComponent?.(state.activeMeshComponentId);
+    renderMeshComponents(state.nifMeshComponents);
+    meshStatus('Deleted component ' + id + '. Other reconstructed components and the original Gaussian layer are unchanged.');
+  });
   const updateMeshPreview = () => window.previewSolidMesh?.(lastMeshData, {
     visible: !!container.querySelector('#meshPreviewToggle')?.checked,
     light: Number(container.querySelector('#meshPreviewLight')?.value || 0.25),
