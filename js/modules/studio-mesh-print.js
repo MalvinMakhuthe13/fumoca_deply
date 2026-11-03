@@ -794,8 +794,8 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       } catch (previewError) {
         console.warn('[Studio mesh] New mesh committed but preview refresh failed:', previewError);
       }
-      renderMeshDiagnostics(stagedStats);
-      const bridgeCount = Number(result.stats.densityBridging?.bridgedVoxels || 0);
+      try { renderMeshDiagnostics(stagedStats); }
+      catch (diagnosticError) { console.warn('[Studio mesh] Mesh committed but diagnostics refresh failed:', diagnosticError); }
       const bridgeCount = Number(result.stats.densityBridging?.bridgedVoxels || 0);
       meshStatus(`Mesh ready from ${eligibleCount.toLocaleString()} ${selectedOnly ? 'selected' : 'live'} source points (${ids.length.toLocaleString()} sampled): ${result.stats.triangles.toLocaleString()} triangles, ${(stagedLastMesh.size / 1048576).toFixed(2)} MB, ${shellStatus}, ${bridgeCount.toLocaleString()} density voxels bridged${colorNote}.`);
       const downloadButton = container.querySelector('#printStlBtn');
@@ -811,8 +811,12 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       const splatToggle = container.querySelector('#meshSplatLayerToggle');
       if (splatToggle) splatToggle.checked = true;
       if (state.points) state.points.visible = true;
-      updateMeshPreview();
-      window.dispatchEvent(new CustomEvent('fumoca:solidMeshReady', { detail: { mesh: lastMeshData, stats: lastMeshStats } }));
+      try {
+        updateMeshPreview();
+        window.dispatchEvent(new CustomEvent('fumoca:solidMeshReady', { detail: { mesh: lastMeshData, stats: lastMeshStats } }));
+      } catch (previewError) {
+        console.warn('[Studio mesh] Mesh committed but final preview event failed:', previewError);
+      }
       container.querySelector('#saveMeshBtn').disabled = !result.mesh.colours;
       return lastMeshData;
     } catch (err) {
