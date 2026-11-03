@@ -68,6 +68,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
             <button type="button" id="meshComponentsHideAll" class="mini-btn">Hide all</button>
             <button type="button" id="meshComponentDelete" class="mini-btn" disabled>Delete selected</button>
             <button type="button" id="meshComponentUndoDelete" class="mini-btn" disabled>Undo delete</button>
+            <button type="button" id="meshComponentUndoLink" class="mini-btn" disabled>Undo link</button>
           </div>
           <div id="meshComponentsList" style="display:grid;gap:5px"></div>
           <div style="margin-top:9px;padding-top:8px;border-top:1px solid rgba(255,255,255,.1)">
@@ -857,6 +858,13 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         }));
         meshStatus(`Selected ${selectedCount.toLocaleString()} Gaussian splats linked to ${component.id}. Ambiguous spatial matches were left unassigned.`);
       });
+      const linkSelection = document.createElement('button');
+      linkSelection.type = 'button';
+      linkSelection.className = 'mini-btn';
+      linkSelection.textContent = 'Link selected splats';
+      linkSelection.disabled = !(window.S?.selected && window.S?.documentModel?.gaussianIds?.length);
+      linkSelection.title = 'Assign currently selected live Gaussian splats to this mesh component';
+      linkSelection.addEventListener('click', () => linkSelectedGaussiansToComponent(component));
       const isolate = document.createElement('button');
       isolate.type = 'button'; isolate.className = 'mini-btn'; isolate.textContent = 'Isolate';
       isolate.addEventListener('click', () => {
@@ -880,7 +888,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         ? 'Watertight' : `Open ${boundaryEdges} · NM ${nonManifoldEdges}`;
       const faces = document.createElement('span');
       faces.className = 'hint'; faces.textContent = Number(component.triangles?.length || component.faces?.length || 0) / 3 + ' tris';
-      row.append(visible, select, selectSplats, isolate, role, topology, faces);
+      row.append(visible, select, selectSplats, linkSelection, isolate, role, topology, faces);
       list.append(row);
     }
   };
@@ -947,6 +955,76 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     applyComponentVisibilityPreferences();
   });
   const selectedMeshComponent = () => (window.S?.nifMeshComponents || []).find(component => component.id === window.S?.activeMeshComponentId);
+  const linkSelectedGaussiansToComponent = (targetComponent) => {
+    const state = window.S;
+    if (!state?.selected || !state?.alive || !state.documentModel?.gaussianIds?.length || !targetComponent) return false;
+    const selectedIds = [];
+    for (let row = 0; row < state.selected.length; row++) {
+      if (state.selected[row] && state.alive[row]) selectedIds.push(state.documentModel.gaussianIds[row]);
+    }
+    if (!selectedIds.length) {
+      meshStatus('Select live Gaussian splats first, then link that selection to the active mesh component.');
+      return false;
+    }
+    const before = (state.nifMeshComponents || []).map(component => ({
+      id: component.id,
+      gaussianIds: component.gaussianIds?.slice?.() || new Uint32Array(),
+    }));
+    const selectedSet = new Set(selectedIds);
+    state.nifMeshComponents = (state.nifMeshComponents || []).map(component => {
+      const existing = Array.from(component.gaussianIds || []);
+      if (component.id === targetComponent.id) {
+        const combined = new Set(existing);
+        for (const id of selectedIds) combined.add(id);
+        return {
+          ...component,
+          gaussianIds: Uint32Array.from(combined),
+          diagnostics: {
+            ...(component.diagnostics || {}),
+            gaussian_membership_count: combined.size,
+            gaussian_membership_method: 'user-selected',
+          },
+          provenance: { ...(component.provenance || {}), gaussianMembership: 'user-selected' },
+        };
+      }
+      return {
+        ...component,
+        gaussianIds: Uint32Array.from(existing.filter(id => !selectedSet.has(id))),
+      };
+    });
+    state.meshComponentMembershipUndo = {
+      before,
+      afterSignature: meshStateSignature(state.nifMesh, state.nifMeshComponents),
+    };
+    syncComponentDiagnosticsToMeta();
+    renderMeshComponents(state.nifMeshComponents);
+    updateComponentTransformButtons();
+    updateSupportPlaneControls();
+    meshStatus(`Linked ${selectedIds.length.toLocaleString()} selected Gaussian splats exclusively to ${targetComponent.id}. Other component memberships were updated to avoid overlap.`);
+    return true;
+  };
+
+  const undoGaussianMembershipLink = () => {
+    const state = window.S, snapshot = state?.meshComponentMembershipUndo;
+    if (!state || !snapshot) return false;
+    if (meshStateSignature(state.nifMesh, state.nifMeshComponents) !== snapshot.afterSignature) {
+      state.meshComponentMembershipUndo = null;
+      updateComponentTransformButtons();
+      meshStatus('Undo link is no longer safe because component geometry, visibility or membership changed. Newer edits were preserved.');
+      return false;
+    }
+    const before = new Map(snapshot.before.map(item => [item.id, item.gaussianIds]));
+    state.nifMeshComponents = (state.nifMeshComponents || []).map(component =>
+      before.has(component.id) ? { ...component, gaussianIds: before.get(component.id).slice() } : component);
+    state.meshComponentMembershipUndo = null;
+    syncComponentDiagnosticsToMeta();
+    renderMeshComponents(state.nifMeshComponents);
+    updateComponentTransformButtons();
+    updateSupportPlaneControls();
+    meshStatus('Restored the previous Gaussian membership assignments for all components.');
+    return true;
+  };
+
   const updateComponentTransformButtons = () => {
     const component = selectedMeshComponent();
     const apply = container.querySelector('#meshComponentApplyTransform');
@@ -957,6 +1035,8 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     if (remove) remove.disabled = !component;
     const undoDelete = container.querySelector('#meshComponentUndoDelete');
     if (undoDelete) undoDelete.disabled = !window.S?.meshComponentDeleteUndo;
+    const undoLink = container.querySelector('#meshComponentUndoLink');
+    if (undoLink) undoLink.disabled = !window.S?.meshComponentMembershipUndo;
     const split = container.querySelector('#meshComponentSplitPlane');
     if (split) split.disabled = !component;
     const undoSplit = container.querySelector('#meshComponentUndoSplit');
@@ -1533,6 +1613,8 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     levelToSupportPlane,
     undoSupportPlaneLevel,
     previewSupportPlaneTrim,
+    linkSelectedGaussiansToComponent,
+    undoGaussianMembershipLink,
     applySupportPlaneTrim,
     undoSupportPlaneTrim,
   };
