@@ -3008,7 +3008,8 @@ async function loadFile(file, urlOverride) {
       supportSurfaceCandidate: component.supportSurfaceCandidate === true,
       diagnostics: decoded.meta?.mesh_diagnostics?.mesh_components?.find(item => item.id === component.id) || null,
     }));
-    S.activeMeshComponentId = S.nifMeshComponents[0]?.id || null;
+    S.activeMeshComponentId = decoded.documentModel?.activeComponentId && S.nifMeshComponents.some(component => component.id === decoded.documentModel.activeComponentId)
+      ? decoded.documentModel.activeComponentId : (S.nifMeshComponents[0]?.id || null);
     S.lidarIntensity = decoded.lidarAttributes?.intensity || null;
     S.lidarClassification = decoded.lidarAttributes?.classification || null;
     S.lidarReturnNumber = decoded.lidarAttributes?.returnNumber || null;
@@ -3061,6 +3062,7 @@ async function loadFile(file, urlOverride) {
         geometrySource: 'gaussian-derived',
         provenance: { source: 'legacy-nif-mesh-component' },
       })),
+      activeComponentId: S.nifMeshComponents[0]?.id || null,
     });
   }
   S.paintColors = new Float32Array(parsed.count * 3).fill(-1);
@@ -4133,6 +4135,62 @@ function _compactLidarAttributes(indices) {
   return intensity || classification || returnNumber ? { intensity, classification, returnNumber } : null;
 }
 
+function _documentModelForSave(retainedIndices) {
+  const pointCount = Math.floor((S.positions?.length || 0) / 3);
+  let base = S.documentModel;
+  if (!base) {
+    base = createDocumentModel({ gaussianIds: allocateGaussianIds(pointCount).ids });
+  }
+  if (base.gaussianIds.length > pointCount) {
+    throw new Error('Document Gaussian identity count exceeds the live point array. Refusing to save mismatched component identities.');
+  }
+  if (base.gaussianIds.length < pointCount) {
+    const allocation = allocateGaussianIds(pointCount - base.gaussianIds.length, base.nextGaussianId);
+    const extended = new Uint32Array(pointCount);
+    extended.set(base.gaussianIds);
+    extended.set(allocation.ids, base.gaussianIds.length);
+    base = createDocumentModel({ ...base, gaussianIds: extended, nextGaussianId: allocation.nextId });
+  }
+  const liveComponents = Array.isArray(S.nifMeshComponents) ? S.nifMeshComponents : [];
+  const liveById = new Map(liveComponents.map(component => [component.id, component]));
+  const knownIds = new Set((base.components || []).map(component => component.id));
+  const components = (base.components || []).map(component => {
+    const live = liveById.get(component.id);
+    if (!live) return component;
+    return {
+      ...component,
+      visible: live.visible !== false,
+      selected: live.selected === true,
+      ...(live.watertight !== undefined ? { watertight: live.watertight === true } : {}),
+      ...(live.supportSurfaceCandidate !== undefined ? { supportSurfaceCandidate: live.supportSurfaceCandidate === true } : {}),
+      deleted: false,
+    };
+  });
+  for (const live of liveComponents) {
+    if (knownIds.has(live.id)) continue;
+    components.push({
+      id: live.id,
+      parentIds: live.parentIds || [],
+      gaussianIds: live.gaussianIds || [],
+      visible: live.visible !== false,
+      selected: live.selected === true,
+      ...(live.watertight !== undefined ? { watertight: live.watertight === true } : {}),
+      ...(live.supportSurfaceCandidate !== undefined ? { supportSurfaceCandidate: live.supportSurfaceCandidate === true } : {}),
+      geometrySource: live.geometrySource || 'gaussian-derived',
+      provenance: live.provenance || { source: 'mesh-reconstruction' },
+    });
+  }
+  const activeComponentId = liveComponents.length
+    ? (liveById.has(S.activeMeshComponentId) ? S.activeMeshComponentId : null)
+    : (base.activeComponentId || null);
+  const updated = createDocumentModel({
+    ...base,
+    components,
+    activeComponentId,
+  });
+  return compactDocumentModel(updated, retainedIndices);
+}
+
 async function exportFile(type = 'splat') {
   if (!S.alive) return;
   const idx = []; for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) idx.push(i);
@@ -4151,20 +4209,7 @@ async function exportFile(type = 'splat') {
     // renamed .splat. Carries forward the source file's meta/thumbnail when
     // this file was itself loaded from a .nif (S.nifMeta/S.nifThumbnailBytes).
     const meshComponents = S.nifMeshComponents?.length ? S.nifMeshComponents : [];
-    const knownComponentIds = new Set((S.documentModel?.components || []).map(component => component.id));
-    const documentBase = createDocumentModel({
-      ...(S.documentModel || {}),
-      gaussianIds: S.documentModel?.gaussianIds || allocateGaussianIds(S.positions.length / 3).ids,
-      components: [
-        ...(S.documentModel?.components || []),
-        ...meshComponents.filter(component => !knownComponentIds.has(component.id)).map(component => ({
-          id: component.id, gaussianIds: [], visible: component.visible !== false,
-          geometrySource: 'gaussian-derived',
-          provenance: { source: 'mesh-reconstruction' },
-        })),
-      ],
-    });
-    const savedDocumentModel = compactDocumentModel(documentBase, idx);
+    const savedDocumentModel = _documentModelForSave(idx);
     const hasSh = (S.shAttributes || []).length > 0;
     const gaussianPlyBytes = hasSh
       ? new Uint8Array(await _encodeGaussianPly(idx).arrayBuffer())
@@ -5359,20 +5404,7 @@ window.saveLiveEdit = async function saveLiveEdit(extra = {}) {
       const meshFreshness = window.FUMOCA_StudioMeshPrint?.checkSourceFreshness?.();
       if (meshFreshness && !meshFreshness.ok) throw new Error(meshFreshness.message);
       const meshComponents = S.nifMeshComponents?.length ? S.nifMeshComponents : [];
-      const knownComponentIds = new Set((S.documentModel?.components || []).map(component => component.id));
-      const documentBase = createDocumentModel({
-        ...(S.documentModel || {}),
-        gaussianIds: S.documentModel?.gaussianIds || allocateGaussianIds(S.positions.length / 3).ids,
-        components: [
-          ...(S.documentModel?.components || []),
-          ...meshComponents.filter(component => !knownComponentIds.has(component.id)).map(component => ({
-            id: component.id, gaussianIds: [], visible: component.visible !== false,
-            geometrySource: 'gaussian-derived',
-            provenance: { source: 'mesh-reconstruction' },
-          })),
-        ],
-      });
-      const savedDocumentModel = compactDocumentModel(documentBase, aliveIdx);
+      const savedDocumentModel = _documentModelForSave(aliveIdx);
       const gaussianPlyBytes = hasSh
         ? new Uint8Array(await _encodeGaussianPly(aliveIdx).arrayBuffer())
         : undefined;
