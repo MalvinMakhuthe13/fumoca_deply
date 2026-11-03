@@ -216,3 +216,5 @@ Component plane splits now immediately recompute topology on both resulting surf
 ### NIF component integrity and large-scene encoding
 
 The browser-side MESH_COMPONENTS encoder now rejects duplicate component IDs and invalid local face indices. Validation walks typed arrays directly instead of materializing temporary JavaScript arrays, avoiding a large avoidable memory spike when saving scenes with high-resolution independent components. The NIF round-trip regression covers duplicate IDs and out-of-range local indices.
+
+The primary capture NIF now embeds the same reconstruction diagnostics in its own META chunk, not only in the Supabase record. This includes the support-plane suggestion and per-component topology/role summaries, so downloaded NIFs and the public viewer can retain the same inspection context without depending on a separate database lookup.
