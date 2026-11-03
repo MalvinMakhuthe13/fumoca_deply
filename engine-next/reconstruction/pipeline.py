@@ -1701,8 +1701,7 @@ def _confidence_weighted_tsdf(grid: np.ndarray, positions: np.ndarray,
         mahalanobis_sq = (tangent_u / local_scales[:, :, 0]) ** 2 + (tangent_v / local_scales[:, :, 1]) ** 2
         footprint = mahalanobis_sq <= 9.0
         weights = np.exp(-0.5 * mahalanobis_sq) * np.exp(-0.5 * (signed_raw / sigma) ** 2)
-        observed &= bool(np.any(footprint[:, 0] & component_match[:, 0] &
-                                (np.abs(signed_raw[:, 0]) <= truncation)))
+        observed &= footprint[:, 0] & component_match[:, 0] & (np.abs(signed_raw[:, 0]) <= truncation)
     else:
         tangent = delta - signed_raw[:, :, None] * normal_array[idx]
         tangent_distance = np.linalg.norm(tangent, axis=2)
