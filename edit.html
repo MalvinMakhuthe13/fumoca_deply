@@ -1820,7 +1820,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
 import { decodeNif, encodeNif, geometryToSplatRows, downloadNif } from './js/modules/nif-format.js';
-import { createDocumentModel, allocateGaussianIds, compactDocumentModel, UnifiedEditHistory } from './js/modules/document-model.js';
+import { createDocumentModel, allocateGaussianIds, compactDocumentModel, syncDocumentComponentsFromMesh, UnifiedEditHistory } from './js/modules/document-model.js';
 import { normalizeMeshComponents } from './js/modules/mesh-component-contract.js';
 import { assignGaussianMemberships } from './js/modules/gaussian-component-membership.js';
 
@@ -2029,6 +2029,13 @@ function flushPendingUnifiedHistory() {
   if (!_pendingUnifiedHistory) return false;
   const pending = _pendingUnifiedHistory;
   try {
+    // The live mesh collection is the writer during mesh editing. Reconcile it
+    // into the canonical identity graph before the journal captures its after-state.
+    if (Array.isArray(S.nifMeshComponents) && S.documentModel) {
+      S.documentModel = syncDocumentComponentsFromMesh(
+        S.documentModel, S.nifMeshComponents, S.activeMeshComponentId
+      );
+    }
     const committed = studioEditHistory.commit(pending.label, { coalesceKey: pending.coalesceKey || null });
     _pendingUnifiedHistory = null;
     const historyError = studioEditHistory.state().error;
@@ -2040,10 +2047,17 @@ function flushPendingUnifiedHistory() {
     updateHistoryBtns();
     return committed;
   } catch (error) {
-    // Keep the pending gesture visible and retryable if snapshot capture itself
-    // fails; never silently discard the only record of an unfinished edit.
+    // A failed canonical-model validation must not leave a half-applied mesh edit
+    // in Studio. Roll back to the journal's detached pre-gesture baseline.
     console.error('[Studio history] Could not commit pending edit:', error);
-    setStatus('Could not record this edit in undo history: ' + (error.message || String(error)), 'error');
+    try {
+      studioEditHistory.cancelPending();
+      _pendingUnifiedHistory = null;
+      setStatus('Edit rejected and rolled back: ' + (error.message || String(error)), 'error');
+    } catch (rollbackError) {
+      console.error('[Studio history] Rollback after commit validation failed:', rollbackError);
+      setStatus('Could not safely roll back this edit. Scene preserved; reload before continuing.', 'error');
+    }
     updateHistoryBtns();
     return false;
   }
