@@ -978,6 +978,8 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       lastMeshFormat = format;
       lastMeshStats = stagedStats;
       lastMeshSourceSignature = extractionSourceSignature;
+      supportLevelUndo = null;
+      updateSupportPlaneControls();
       if (window.S) {
         window.S.nifMesh = stagedMeshData;
         window.S.nifMeshComponents = extractedComponents;
@@ -1097,12 +1099,18 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
             surface_reconstruction: 'oriented-gaussian-surfel-tsdf',
           };
           const supportSuggestion = decoded.meta?.mesh_diagnostics?.support_plane_candidate;
-          if (supportSuggestion?.detected && Number.isFinite(Number(supportSuggestion.y))) {
-            const splitY = container.querySelector('#meshComponentSplitY');
-            if (splitY) splitY.value = String(Number(supportSuggestion.y).toFixed(5));
-            meshStatus('A lower horizontal support plane was detected with ' +
-              Math.round(Number(supportSuggestion.confidence || 0) * 100) +
-              '% confidence. Review the suggested Y plane before splitting; no geometry was removed automatically.');
+          if (supportSuggestion?.detected) {
+            if (Number.isFinite(Number(supportSuggestion.y))) {
+              const splitY = container.querySelector('#meshComponentSplitY');
+              if (splitY) splitY.value = String(Number(supportSuggestion.y).toFixed(5));
+              meshStatus('A lower horizontal support plane was detected with ' +
+                Math.round(Number(supportSuggestion.confidence || 0) * 100) +
+                '% confidence. You can level the scene or review the suggested Y plane; nothing was removed.');
+            } else if (Array.isArray(supportSuggestion.normal) && Number.isFinite(Number(supportSuggestion.offset))) {
+              meshStatus('A tilted support plane was detected with ' +
+                Math.round(Number(supportSuggestion.confidence || 0) * 100) +
+                '% confidence. Use Level to support plane to make it horizontal; nothing was removed.');
+            }
           }
           lastMeshFormat = 'ply';
           syncNifMesh(state.nifMesh);
