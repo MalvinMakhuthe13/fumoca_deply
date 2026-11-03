@@ -2953,6 +2953,7 @@ async function loadFile(file, urlOverride) {
   S.nifMesh = null;
   S.nifMeshComponents = [];
   S.activeMeshComponentId = null;
+  S.meshComponentSplitUndo = null;
   S.nifPassthroughChunks = [];
   S.lidarIntensity = S.lidarClassification = S.lidarReturnNumber = null;
   window.previewSolidMesh?.(null, { visible: false });
