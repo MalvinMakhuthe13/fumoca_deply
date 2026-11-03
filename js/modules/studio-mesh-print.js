@@ -1579,7 +1579,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     const visibleComponentsMesh = combineMeshComponents(components, { visibleOnly: true });
     state.nifMesh = allComponentsMesh.triangles.length ? allComponentsMesh : null;
     lastMeshData = visibleComponentsMesh.triangles.length ? visibleComponentsMesh : null;
-    lastMeshFormat = 'ply';
+    lastMeshFormat = container.querySelector('#meshFormat')?.value || 'ply';
     if (lastMeshData) {
       lastMeshStats = {
         ...FumocMeshExtractor.validateWatertight(lastMeshData),
@@ -1604,7 +1604,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     const saveButton = container.querySelector('#saveMeshBtn');
     const printButton = container.querySelector('#printStlBtn');
     if (saveButton) saveButton.disabled = !lastMeshData?.colours;
-    if (printButton) printButton.disabled = !lastMesh || !!(lastMeshStats && !lastMeshStats.watertight && lastMeshFormat === 'stl');
+    if (printButton) printButton.disabled = !lastMesh || (lastMeshFormat === 'stl' && !lastMeshStats?.printable);
     if (lastMeshData) {
       window.dispatchEvent(new CustomEvent('fumoca:solidMeshReady', {
         detail: { mesh: lastMeshData, stats: lastMeshStats },
