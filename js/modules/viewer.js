@@ -1492,7 +1492,18 @@ function mountMeshViewer(mesh, calibration, meshComponents = []) {
       checkbox.type = 'checkbox'; checkbox.checked = object.visible;
       checkbox.addEventListener('change', () => { object.visible = checkbox.checked; });
       const name = document.createElement('span');
-      name.textContent = object.name + (object.userData.supportSurfaceCandidate ? ' · Support surface candidate' : '');
+      const sourcePart = renderParts.find(part => (part.id || 'FUMOCA reconstructed component') === object.name);
+      const diagnostics = sourcePart?.diagnostics || {};
+      const role = object.userData.supportSurfaceCandidate ? ' · Support surface candidate' : '';
+      const topology = diagnostics.watertight
+        ? ' · Watertight'
+        : Number.isFinite(Number(diagnostics.n_boundary_edges))
+          ? ` · Open ${Number(diagnostics.n_boundary_edges)} / NM ${Number(diagnostics.n_nonmanifold_edges || 0)}`
+          : '';
+      const supportConfidence = object.userData.supportSurfaceCandidate &&
+        Number.isFinite(Number(diagnostics.support_plane_confidence))
+        ? ` ${Math.round(Number(diagnostics.support_plane_confidence) * 100)}%` : '';
+      name.textContent = object.name + role + supportConfidence + topology;
       row.append(checkbox, name);
       panel.appendChild(row);
     }
@@ -2420,7 +2431,10 @@ async function boot() {
       window._fumocaCalibration  = calibration;
       window._fumocaVerification = verification;
       window._fumocaDecodedMesh  = mesh;
-      window._fumocaDecodedMeshComponents = meshComponents || [];
+      window._fumocaDecodedMeshComponents = (meshComponents || []).map(component => ({
+        ...component,
+        diagnostics: meta?.mesh_diagnostics?.mesh_components?.find(item => item.id === component.id) || null,
+      }));
       renderTrustBadges(calibration, verification);
       const nifBytes = geometryToSplatRows(gaussians, { preserveScales: true });
       const nifBlob  = new Blob([nifBytes], { type: 'application/octet-stream' });
