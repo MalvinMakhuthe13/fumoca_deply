@@ -293,5 +293,44 @@ check('sloped lower component is not labeled as horizontal support plane',
       sloped_role['role_candidate'] == 'surface',
       sloped_role)
 
+
+# Support-plane suggestions are non-destructive and require a broad lower
+# horizontal band with Gaussian normals aligned to world up.
+detect_support = namespace['_detect_support_plane_candidate']
+platform = np.array([[x * 0.1, 0.0, z * 0.1]
+                     for x in range(21) for z in range(21)], dtype=float)
+object_points = np.array([[0.4 + x * 0.02, 0.2 + y * 0.04, 0.4 + z * 0.02]
+                          for x in range(11) for y in range(11) for z in range(11)], dtype=float)
+support_scene = np.vstack([platform, object_points])
+support_normals = np.vstack([
+    np.tile([0.0, 1.0, 0.0], (len(platform), 1)),
+    np.tile([0.0, 0.0, 1.0], (len(object_points), 1)),
+])
+support_confidence = np.ones(len(support_scene), dtype=float)
+support_suggestion = detect_support(support_scene, support_normals, support_confidence, 0.01)
+check('broad lower horizontal platform produces a non-destructive split suggestion',
+      support_suggestion['detected']
+      and abs(support_suggestion['y']) < 1e-8
+      and support_suggestion['confidence'] >= 0.5,
+      support_suggestion)
+
+wall_points = np.array([[0.0, y * 0.1, z * 0.1]
+                        for y in range(21) for z in range(21)], dtype=float)
+wall_suggestion = detect_support(
+    wall_points, np.tile([1.0, 0.0, 0.0], (len(wall_points), 1)),
+    np.ones(len(wall_points)), 0.01,
+)
+check('vertical wall does not produce a horizontal support-plane suggestion',
+      not wall_suggestion['detected'], wall_suggestion)
+
+sloped_points = platform.copy()
+sloped_points[:, 1] = sloped_points[:, 0] * 0.5
+sloped_normals = np.tile([-0.4472136, 0.8944272, 0.0], (len(sloped_points), 1))
+sloped_suggestion = detect_support(
+    sloped_points, sloped_normals, np.ones(len(sloped_points)), 0.01,
+)
+check('sloped lower surface does not produce a horizontal support-plane suggestion',
+      not sloped_suggestion['detected'], sloped_suggestion)
+
 print(f'\n{passed} passed, {failed} failed')
 sys.exit(1 if failed else 0)
