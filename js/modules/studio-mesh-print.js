@@ -202,6 +202,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     const hasPlane = !!(candidate?.detected && (
       (Array.isArray(candidate.normal) && candidate.normal.length === 3
         && candidate.normal.every(value => Number.isFinite(Number(value)))
+        && candidate.offset !== null && candidate.offset !== undefined
         && Number.isFinite(Number(candidate.offset)))
       || (candidate.y !== null && candidate.y !== undefined && Number.isFinite(Number(candidate.y)))
     ));
@@ -224,7 +225,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       return false;
     }
     let normalValues = Array.isArray(candidate.normal) ? candidate.normal.map(Number) : [0, 1, 0];
-    let offset = Number(candidate.offset);
+    let offset = candidate.offset === null || candidate.offset === undefined ? NaN : Number(candidate.offset);
     if (!normalValues.every(Number.isFinite) || normalValues.length !== 3) {
       if (candidate.y === null || candidate.y === undefined || !Number.isFinite(Number(candidate.y))) {
         meshStatus('The detected support plane has no usable normal and offset.');
