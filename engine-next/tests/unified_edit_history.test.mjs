@@ -45,7 +45,14 @@ const equal = (a, b) => assert.deepEqual(a, b);
 
 test('one journal orders Gaussian edits, component transforms, visibility, trim, split, cap and deletion', () => {
   const state = fixture();
-  const history = makeHistory(state);
+  const history = new UnifiedEditHistory({
+    capture: () => clone(state),
+    restore: (snapshot) => {
+      for (const key of Object.keys(state)) delete state[key];
+      Object.assign(state, clone(snapshot));
+    },
+    limit: 10,
+  });
 
   state.gaussian[0] = 99;
   history.commit('Gaussian brush edit');
