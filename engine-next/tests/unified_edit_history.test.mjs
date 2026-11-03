@@ -354,7 +354,7 @@ test('coalesced edits cannot exceed the configured history byte budget', () => {
   assert.equal(history.state().count, 1);
   assert.ok(history.state().bytes <= 1024 * 1024);
 
-  state.positions = new Float32Array(100_000);
+  state.positions = new Float32Array(220_000);
   state.positions[0] = 2;
   assert.equal(history.commit('Component drag', { coalesceKey: 'component:car:transform' }), false);
   assert.equal(history.state().count, 0);
