@@ -377,11 +377,13 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       rowPositions.set(state.positions.subarray(row * 3, row * 3 + 3), i * 3);
     }
 
+    const gaussianRowById = new Map();
+    state.documentModel.gaussianIds.forEach((id, row) => gaussianRowById.set(id, row));
     let nextComponent = {
       ...component,
       gaussianIds: Uint32Array.from(Array.from(component.gaussianIds || []).filter(id => {
-        const row = state.documentModel.gaussianIds.indexOf(id);
-        return row >= 0 && !removedRows.has(row);
+        const row = gaussianRowById.get(id);
+        return row !== undefined && !removedRows.has(row);
       })),
     };
     let clippedMesh = false;
@@ -1310,6 +1312,9 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
   const extractMesh = async () => {
     const state = window.S;
     if (!state?.positions || !state?.alive) { meshStatus('Load a splat or PLY before extracting a mesh.'); return false; }
+    // A trim preview is a temporary selection overlay. Restore the user's real
+    // selection before an optional selected-only extraction begins.
+    if (state.supportPlaneTrimPreview) clearSupportTrimPreview(true);
     const extractionSourceSignature = computeGaussianSourceSignature(state);
     if (!extractionSourceSignature) { meshStatus('The current Gaussian source is empty or invalid.'); return false; }
     // Stage extraction without touching the currently committed mesh. A failed
@@ -1440,6 +1445,8 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       updateSupportPlaneControls();
       if (window.S) {
         window.S.meshComponentDeleteUndo = null;
+        window.S.supportPlaneTrimUndo = null;
+        window.S.supportPlaneTrimPreview = null;
         window.S.nifMesh = stagedMeshData;
         window.S.nifMeshComponents = extractedComponents;
         window.S.activeMeshComponentId = extractedComponents[0]?.id || null;
