@@ -13,38 +13,94 @@ export function assignGaussianMemberships(components, {
   if (!gaussianIds || gaussianIds.length !== positions.length / 3) {
     throw new Error('Gaussian identity count must match the position array');
   }
-  const existingMembership = components.map(component => Array.from(component.gaussianIds || []));
-  const existingIds = new Set();
-  for (const ids of existingMembership) for (const id of ids) existingIds.add(id);
-  const missingMembership = existingMembership.map(ids => ids.length === 0);
-  if (!missingMembership.some(Boolean)) {
+  if (alive && alive.length !== gaussianIds.length) throw new Error('alive mask length does not match Gaussian identities');
+  if (selectedOnly && (!selected || selected.length !== gaussianIds.length)) {
+    throw new Error('selected-only membership requires a matching selection mask');
+  }
+
+  const sourceIds = new Set();
+  for (const raw of gaussianIds) {
+    const id = Number(raw);
+    if (!Number.isInteger(id) || id < 1 || id > 0xffffffff || sourceIds.has(id)) {
+      throw new Error('Gaussian identity table contains an invalid or duplicate uint32 identity');
+    }
+    sourceIds.add(id);
+  }
+
+  const componentIds = new Set();
+  const existingMembership = components.map(component => {
+    const id = String(component?.id || '');
+    if (!id || componentIds.has(id)) throw new Error('component IDs must be non-empty and unique');
+    componentIds.add(id);
+    const ids = Array.from(component.gaussianIds || [], Number);
+    const local = new Set();
+    for (const gaussianId of ids) {
+      if (!Number.isInteger(gaussianId) || gaussianId < 1 || gaussianId > 0xffffffff
+          || !sourceIds.has(gaussianId) || local.has(gaussianId)) {
+        throw new Error('component ' + id + ' contains an invalid, duplicate or unknown Gaussian identity');
+      }
+      local.add(gaussianId);
+    }
+    return ids;
+  });
+
+  const ownership = new Map();
+  existingMembership.forEach((ids, componentIndex) => {
+    for (const id of ids) {
+      if (ownership.has(id)) {
+        throw new Error('Gaussian identity ' + id + ' is assigned to multiple mesh components');
+      }
+      ownership.set(id, componentIndex);
+    }
+  });
+
+  const countEligible = () => {
+    let count = 0;
+    for (let row = 0; row < gaussianIds.length; row++) {
+      if (alive && !alive[row]) continue;
+      if (selectedOnly && !selected[row]) continue;
+      const x = Number(positions[row * 3]), y = Number(positions[row * 3 + 1]), z = Number(positions[row * 3 + 2]);
+      if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)) count++;
+    }
+    return count;
+  };
+  const autoAssignable = components.map(component =>
+    component.geometrySource !== 'mesh-authored' && component.supportSurfaceCandidate !== true);
+  const missingMembership = existingMembership.map((ids, index) => ids.length === 0 && autoAssignable[index]);
+  if (!components.length || !missingMembership.some(Boolean)) {
     return {
       components,
-      assignedCount: existingMembership.reduce((sum, ids) => sum + ids.length, 0),
+      assignedCount: 0,
       ambiguousCount: 0,
-      unassignedCount: 0,
+      unassignedCount: countEligible(),
       preserved: true,
     };
   }
-  if (alive && alive.length !== gaussianIds.length) throw new Error('alive mask length does not match Gaussian identities');
-  if (selectedOnly && (!selected || selected.length !== gaussianIds.length)) throw new Error('selected-only membership requires a matching selection mask');
 
-  const bounds = components.map(component => {
+  const bounds = components.map((component, index) => {
     const vertices = component.vertices;
-    if (!vertices || vertices.length < 9) throw new Error('component has no usable vertices');
+    if (!vertices || vertices.length < 9 || vertices.length % 3) {
+      if (missingMembership[index]) throw new Error('component ' + component.id + ' has no usable vertices for membership mapping');
+      return null;
+    }
     const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
     for (let i = 0; i < vertices.length; i += 3) {
       for (let axis = 0; axis < 3; axis++) {
-        min[axis] = Math.min(min[axis], vertices[i + axis]);
-        max[axis] = Math.max(max[axis], vertices[i + axis]);
+        const value = Number(vertices[i + axis]);
+        if (!Number.isFinite(value)) throw new Error('component ' + component.id + ' has non-finite vertices');
+        min[axis] = Math.min(min[axis], value);
+        max[axis] = Math.max(max[axis], value);
       }
     }
     return { min, max };
   });
-  if (!bounds.length) return { components, assignedCount: 0, ambiguousCount: 0, unassignedCount: gaussianIds.length };
+  const usableBounds = bounds.filter(Boolean);
+  if (!usableBounds.length) {
+    return { components, assignedCount: 0, ambiguousCount: 0, unassignedCount: countEligible(), preserved: true };
+  }
   const sceneMin = [Infinity, Infinity, Infinity];
   const sceneMax = [-Infinity, -Infinity, -Infinity];
-  for (const box of bounds) {
+  for (const box of usableBounds) {
     for (let axis = 0; axis < 3; axis++) {
       sceneMin[axis] = Math.min(sceneMin[axis], box.min[axis]);
       sceneMax[axis] = Math.max(sceneMax[axis], box.max[axis]);
@@ -59,7 +115,7 @@ export function assignGaussianMemberships(components, {
   let assignedCount = 0, ambiguousCount = 0, eligibleCount = 0;
 
   for (let row = 0; row < gaussianIds.length; row++) {
-    if (existingIds.has(gaussianIds[row])) continue;
+    if (ownership.has(gaussianIds[row])) continue;
     if (alive && !alive[row]) continue;
     if (selectedOnly && !selected[row]) continue;
     const x = Number(positions[row * 3]), y = Number(positions[row * 3 + 1]), z = Number(positions[row * 3 + 2]);
@@ -68,6 +124,7 @@ export function assignGaussianMemberships(components, {
     let bestIndex = -1, bestDistance = Infinity, secondDistance = Infinity, insideCount = 0;
     for (let componentIndex = 0; componentIndex < bounds.length; componentIndex++) {
       const box = bounds[componentIndex];
+      if (!box) continue;
       const dx = x < box.min[0] ? box.min[0] - x : x > box.max[0] ? x - box.max[0] : 0;
       const dy = y < box.min[1] ? box.min[1] - y : y > box.max[1] ? y - box.max[1] : 0;
       const dz = z < box.min[2] ? box.min[2] - z : z > box.max[2] ? z - box.max[2] : 0;
@@ -102,13 +159,13 @@ export function assignGaussianMemberships(components, {
         gaussian_membership_count: retainedIds.length,
         gaussian_membership_method: existingMembership[index].length
           ? (component.diagnostics?.gaussian_membership_method || 'persisted')
-          : 'conservative-unambiguous-aabb',
+          : (missingMembership[index] ? 'conservative-unambiguous-aabb' : 'not-auto-assigned'),
       },
       provenance: {
         ...(component.provenance || {}),
         gaussianMembership: existingMembership[index].length
           ? (component.provenance?.gaussianMembership || 'persisted')
-          : 'conservative-unambiguous-aabb',
+          : (missingMembership[index] ? 'conservative-unambiguous-aabb' : 'not-auto-assigned'),
       },
     };
   });
