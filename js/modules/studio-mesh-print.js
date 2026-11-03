@@ -463,6 +463,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
           provenance: {
             ...(component.provenance || {}),
             operation: 'support-plane-trim',
+            supportPlaneTrimmed: clippedMesh,
             normal: plan.normal,
             offset: plan.offset,
             tolerance: plan.tolerance,
@@ -656,6 +657,8 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       provenance: {
         ...(component.provenance || {}),
         operation: 'support-plane-cap',
+        supportPlaneTrimmed: false,
+        supportPlaneCapped: true,
         supportPlane: { normal: plane.normal, offset: plane.offset, tolerance },
       },
     };
@@ -1658,7 +1661,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     if (!state || !components.length) return null;
     let repairedComponents = 0, changedFaces = 0, changedLoops = 0, skippedSupportBases = 0, skippedEmpty = 0;
     const nextComponents = components.map(component => {
-      if (operation === 'fill-holes' && component.provenance?.operation === 'support-plane-trim') {
+      if (operation === 'fill-holes' && component.provenance?.supportPlaneTrimmed === true && component.provenance?.supportPlaneCapped !== true) {
         // The support-plane boundary must be capped explicitly with the planar
         // cap tool; generic hole filling could distort or close the wrong loop.
         skippedSupportBases++;
