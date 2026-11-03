@@ -423,6 +423,7 @@ export class UnifiedEditHistory {
     this.transactionOpen = false;
     this.lastError = null;
     this.baseline = this.#capture();
+    this.baselineValid = true;
   }
 
   #capture() {
@@ -432,6 +433,13 @@ export class UnifiedEditHistory {
   }
 
   #notify() { this.onChange?.(this.state()); }
+
+  syncBaseline() {
+    if (this.transactionOpen) throw new Error('cannot refresh history baseline during a transaction');
+    this.baseline = this.#capture();
+    this.baselineValid = true;
+    return true;
+  }
 
   #push(entry) {
     while (this.entries.length > this.cursor) this.bytes -= this.entries.pop().bytes;
@@ -499,9 +507,8 @@ export class UnifiedEditHistory {
       this.#notify();
       return false;
     }
-    // Keep the legacy snapshot baseline aligned so a later full-snapshot
-    // operation can safely follow a patch entry in the same timeline.
-    this.baseline = this.#capture();
+    // Legacy snapshot edits refresh their baseline before mutation.
+    this.baselineValid = false;
     this.lastError = null;
     this.#notify();
     return true;
@@ -527,6 +534,7 @@ export class UnifiedEditHistory {
   /** Commit one completed user gesture, not every frame of a drag. */
   commit(label = 'Edit', { coalesceKey = null } = {}) {
     if (this.transactionOpen) throw new Error('cannot commit while a history transaction is open');
+    if (!this.baselineValid) throw new Error('full-snapshot history commit requires syncBaseline() before mutation');
     const after = this.#capture();
     const before = this.baseline;
     if (this.equals && this.equals(before, after)) return false;
@@ -581,6 +589,7 @@ export class UnifiedEditHistory {
       this.#push(entry);
     }
     this.baseline = after;
+    this.baselineValid = true;
     this.lastError = null;
     this.#notify();
     return true;
@@ -599,6 +608,7 @@ export class UnifiedEditHistory {
       }
       this.transactionOpen = false;
       this.baseline = before;
+      this.baselineValid = true;
       this.commit(label, options);
       return result;
     } catch (error) {
@@ -644,23 +654,23 @@ export class UnifiedEditHistory {
   undo() {
     if (this.transactionOpen || !this.canUndo()) return false;
     const entry = this.entries[this.cursor - 1];
-    const current = this.#capture();
+    const isPatch = entry.kind === 'patch';
+    const current = isPatch ? null : this.#capture();
     try {
       this.#applyEntry(entry, entry.before, 'undo');
-      const restored = this.#capture();
       this.cursor--;
-      this.baseline = restored;
+      if (isPatch) this.baselineValid = false;
+      else { this.baseline = this.#capture(); this.baselineValid = true; }
       this.lastError = null;
       this.#notify();
       return true;
     } catch (error) {
-      // A restore adapter can fail after partially changing scene state.
-      // Best-effort rollback keeps the cursor and visible document in sync.
-      try {
-        this.restore(cloneHistoryValue(current), { direction: 'rollback', label: entry.label, failedDirection: 'undo' });
-        this.baseline = this.#capture();
-      } catch (restoreError) {
-        error.restoreError = restoreError;
+      if (!isPatch) {
+        try {
+          this.restore(cloneHistoryValue(current), { direction: 'rollback', label: entry.label, failedDirection: 'undo' });
+          this.baseline = this.#capture();
+          this.baselineValid = true;
+        } catch (restoreError) { error.restoreError = restoreError; }
       }
       this.lastError = error;
       this.#notify();
@@ -671,21 +681,23 @@ export class UnifiedEditHistory {
   redo() {
     if (this.transactionOpen || !this.canRedo()) return false;
     const entry = this.entries[this.cursor];
-    const current = this.#capture();
+    const isPatch = entry.kind === 'patch';
+    const current = isPatch ? null : this.#capture();
     try {
       this.#applyEntry(entry, entry.after, 'redo');
-      const restored = this.#capture();
       this.cursor++;
-      this.baseline = restored;
+      if (isPatch) this.baselineValid = false;
+      else { this.baseline = this.#capture(); this.baselineValid = true; }
       this.lastError = null;
       this.#notify();
       return true;
     } catch (error) {
-      try {
-        this.restore(cloneHistoryValue(current), { direction: 'rollback', label: entry.label, failedDirection: 'redo' });
-        this.baseline = this.#capture();
-      } catch (restoreError) {
-        error.restoreError = restoreError;
+      if (!isPatch) {
+        try {
+          this.restore(cloneHistoryValue(current), { direction: 'rollback', label: entry.label, failedDirection: 'redo' });
+          this.baseline = this.#capture();
+          this.baselineValid = true;
+        } catch (restoreError) { error.restoreError = restoreError; }
       }
       this.lastError = error;
       this.#notify();
