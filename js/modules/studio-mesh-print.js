@@ -660,47 +660,21 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       return false;
     }
     const diagnostics = FumocMeshExtractor.validateWatertight(result.mesh);
-    const previousComponent = {
-      ...component,
-      vertices: component.vertices.slice(),
-      triangles: component.triangles.slice(),
-      colours: component.colours?.slice?.(),
-      gaussianIds: component.gaussianIds?.slice?.() || component.gaussianIds,
-    };
-    const cappedComponent = {
-      ...component,
-      vertices: result.mesh.vertices,
-      triangles: result.mesh.triangles,
-      colours: result.mesh.colours,
-      watertight: diagnostics.watertight,
-      diagnostics: {
-        ...(component.diagnostics || {}),
-        ...diagnostics,
-        n_boundary_edges: diagnostics.openEdges,
-        n_nonmanifold_edges: diagnostics.nonManifoldEdges,
-        support_plane_cap_loops: result.cappedLoops,
-        support_plane_cap_triangles: result.cappedTriangles,
-      },
-      provenance: {
-        ...(component.provenance || {}),
-        operation: 'support-plane-cap',
-        supportPlaneTrimmed: false,
-        supportPlaneCapped: true,
-        supportPlane: { normal: plane.normal, offset: plane.offset, tolerance },
-      },
-    };
-    window.beginStudioHistory?.('Cap support boundary');
-    state.nifMeshComponents = (state.nifMeshComponents || []).map(item =>
-      item.id === component.id ? cappedComponent : item);
-    state.nifMesh = null;
-    lastMeshData = null; lastMesh = null; lastMeshStats = null;
-    state.meshComponentCapUndo = {
+    const cloneCapComponent = source => ({
+      ...source,
+      vertices: source.vertices?.slice?.() || source.vertices,
+      triangles: source.triangles?.slice?.() || source.triangles,
+      colours: source.colours?.slice?.() || source.colours,
+      gaussianIds: source.gaussianIds ? Uint32Array.from(source.gaussianIds) : source.gaussianIds,
+      diagnostics: { ...(source.diagnostics || {}) },
+      provenance: { ...(source.provenance || {}) },
+    });
+    const beforePatch = {
       componentId: component.id,
-      previousComponent,
-      previousMeta: state.nifMeta,
-      afterSignature: null,
+      component: cloneCapComponent(component),
+      meta: state.nifMeta ? { ...state.nifMeta } : {},
     };
-    state.nifMeta = {
+    const afterMeta = {
       ...(state.nifMeta || {}),
       mesh_components_edited: true,
       support_plane_cap: {
@@ -714,9 +688,46 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         applied_at: new Date().toISOString(),
       },
     };
+    const afterPatch = { componentId: component.id, component: cloneCapComponent(cappedComponent), meta: afterMeta };
+    const applyCapPatch = patch => {
+      const live = window.S;
+      if (!live) throw new Error('Studio state is unavailable');
+      live.nifMeshComponents = (live.nifMeshComponents || []).map(item =>
+        item.id === patch.componentId ? cloneCapComponent(patch.component) : item);
+      live.nifMesh = null;
+      live.nifMeta = { ...(patch.meta || {}) };
+      syncComponentDiagnosticsToMeta();
+      refreshCombinedMeshFromComponents();
+      window.previewSolidMeshComponents?.(live.nifMeshComponents, { visible: true, opacity: 0.95 });
+      window.highlightSolidMeshComponent?.(patch.componentId);
+      renderMeshComponents(live.nifMeshComponents);
+      updateComponentTransformButtons();
+      updateSupportPlaneControls();
+    };
+    state.nifMeshComponents = (state.nifMeshComponents || []).map(item =>
+      item.id === component.id ? cappedComponent : item);
+    state.nifMesh = null;
+    state.nifMeta = afterMeta;
     refreshCombinedMeshFromComponents();
-    state.meshComponentCapUndo.afterSignature = meshStateSignature(state.nifMesh, state.nifMeshComponents);
-    window.commitStudioHistory?.();
+    const committed = window.commitStudioPatch?.('Cap support boundary', {
+      before: beforePatch,
+      after: afterPatch,
+      capturePatch: () => {
+        const live = window.S;
+        const current = (live?.nifMeshComponents || []).find(item => item.id === component.id);
+        return {
+          componentId: component.id,
+          component: current ? cloneCapComponent(current) : beforePatch.component,
+          meta: { ...(live?.nifMeta || {}) },
+        };
+      },
+      applyPatch: applyCapPatch,
+    });
+    if (committed === false || typeof window.commitStudioPatch !== 'function') {
+      applyCapPatch(beforePatch);
+      meshStatus('Cap was rolled back because Studio history could not retain the edit.');
+      return false;
+    }
     window.previewSolidMeshComponents?.(state.nifMeshComponents, { visible: true, opacity: 0.95 });
     window.highlightSolidMeshComponent?.(component.id);
     renderMeshComponents(state.nifMeshComponents);
