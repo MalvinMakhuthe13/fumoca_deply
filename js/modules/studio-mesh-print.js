@@ -497,6 +497,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       return false;
     }
 
+    window.beginStudioHistory?.('Support-plane trim');
     const previousComponent = {
       ...component,
       vertices: component.vertices.slice(),
@@ -544,6 +545,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     refreshCombinedMeshFromComponents();
     state.supportPlaneTrimUndo.sourceSignatureAfter = nextSignature;
     state.supportPlaneTrimUndo.meshSignatureAfter = meshStateSignature(state.nifMesh, state.nifMeshComponents);
+    window.commitStudioHistory?.();
     if (preview.previousSelection && state.selected?.length === preview.previousSelection.length) {
       state.selected.set(preview.previousSelection);
     }
@@ -699,6 +701,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         supportPlane: { normal: plane.normal, offset: plane.offset, tolerance },
       },
     };
+    window.beginStudioHistory?.('Cap support boundary');
     state.nifMeshComponents = (state.nifMeshComponents || []).map(item =>
       item.id === component.id ? cappedComponent : item);
     state.nifMesh = null;
@@ -725,6 +728,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     };
     refreshCombinedMeshFromComponents();
     state.meshComponentCapUndo.afterSignature = meshStateSignature(state.nifMesh, state.nifMeshComponents);
+    window.commitStudioHistory?.();
     window.previewSolidMeshComponents?.(state.nifMeshComponents, { visible: true, opacity: 0.95 });
     window.highlightSolidMeshComponent?.(component.id);
     renderMeshComponents(state.nifMeshComponents);
@@ -849,6 +853,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         lastMeshSourceSignature,
       };
 
+      window.beginStudioHistory?.('Level support plane');
       // Commit both representations together. The plane is moved to y=0 and
       // its normal becomes +Y; no Gaussian or mesh point is trimmed or deleted.
       state.positions = nextPositions;
@@ -887,6 +892,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       container.querySelector('#saveMeshBtn').disabled = !lastMeshData?.colours;
       container.querySelector('#printStlBtn').disabled = !lastMesh || (lastMeshFormat === 'stl' && !lastMeshStats?.printable);
       previous.leveledMeshSignature = meshStateSignature(state.nifMesh, state.nifMeshComponents);
+      window.commitStudioHistory?.();
       supportLevelUndo = previous;
       try { await window.refreshGaussianSourceBytes?.(); }
       catch (sourceError) { console.warn('[Studio mesh] Levelled geometry but could not refresh Gaussian PLY bytes:', sourceError); }
@@ -1215,6 +1221,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       provenance: component.provenance,
     }));
     const selectedSet = new Set(selectedIds);
+    window.beginStudioHistory?.('Link selected Gaussian splats');
     state.nifMeshComponents = (state.nifMeshComponents || []).map(component => {
       const existing = Array.from(component.gaussianIds || []);
       if (component.id === targetComponent.id) {
@@ -1248,6 +1255,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       afterSignature: meshStateSignature(state.nifMesh, state.nifMeshComponents),
     };
     syncComponentDiagnosticsToMeta();
+    window.commitStudioHistory?.();
     renderMeshComponents(state.nifMeshComponents);
     updateComponentTransformButtons();
     updateSupportPlaneControls();
@@ -1383,6 +1391,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     }
     const vertices = component.vertices || component.positions;
     if (!vertices?.length) return;
+    window.beginStudioHistory?.('Transform mesh component');
     component.transformUndoVertices = vertices.slice();
     state.meshComponentSplitUndo = null; // further edits invalidate the one-step plane-split undo
     let cx = 0, cy = 0, cz = 0;
@@ -1406,6 +1415,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     window.previewSolidMeshComponents?.(state.nifMeshComponents, { visible: true, opacity: 1 });
     window.highlightSolidMeshComponent?.(component.id);
     renderMeshComponents(state.nifMeshComponents);
+    window.commitStudioHistory?.();
     updateComponentTransformButtons();
     meshStatus('Applied transform to ' + component.id + '. Export the NIF to preserve this component edit; the Gaussian source is unchanged.');
   });
@@ -1518,6 +1528,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       },
     };
     const replacement = [positive, negative].sort((a, b) => meanPlaneDistance(a) - meanPlaneDistance(b));
+    window.beginStudioHistory?.('Split mesh component');
     state.meshComponentSplitUndo = {
       source: { ...component, vertices: component.vertices.slice(), triangles: component.triangles.slice(), colours: component.colours?.slice(), gaussianIds: component.gaussianIds?.slice?.() || component.gaussianIds },
       partIds: [positive.id, negative.id],
@@ -1541,6 +1552,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     window.previewSolidMeshComponents?.(state.nifMeshComponents, { visible: true, opacity: 1 });
     window.highlightSolidMeshComponent?.(state.activeMeshComponentId);
     renderMeshComponents(state.nifMeshComponents);
+    window.commitStudioHistory?.();
     updateComponentTransformButtons();
     meshStatus(axis === 'support'
       ? `Split ${component.id} using the detected oriented support plane. The two surfaces are independent; the new boundary remains open and no cap was invented.`
