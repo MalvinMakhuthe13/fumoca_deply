@@ -786,11 +786,13 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       select.textContent = component.id === window.S?.activeMeshComponentId ? 'Selected' : 'Select';
       select.style.flex = '1'; select.style.textAlign = 'left';
       select.addEventListener('click', () => {
+        if (window.S?.supportPlaneTrimPreview?.componentId !== component.id) clearSupportTrimPreview(true);
         for (const item of items) item.selected = item.id === component.id;
         if (window.S) window.S.activeMeshComponentId = component.id;
         window.highlightSolidMeshComponent?.(component.id);
         renderMeshComponents(items);
         updateComponentTransformButtons();
+        updateSupportPlaneControls();
         meshStatus('Selected component ' + component.id + '. Its visibility and geometry are independent of the other scene components.');
       });
       const memberCount = component.gaussianIds?.length || 0;
