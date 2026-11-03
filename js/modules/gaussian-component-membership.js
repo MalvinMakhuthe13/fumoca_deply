@@ -13,8 +13,17 @@ export function assignGaussianMemberships(components, {
   if (!gaussianIds || gaussianIds.length !== positions.length / 3) {
     throw new Error('Gaussian identity count must match the position array');
   }
-  if (components.some(component => component.gaussianIds?.length)) {
-    return { components, assignedCount: components.reduce((sum, component) => sum + (component.gaussianIds?.length || 0), 0), ambiguousCount: 0, unassignedCount: 0, preserved: true };
+  const existingMembership = components.map(component => Array.from(component.gaussianIds || []));
+  const existingIds = new Set(existingMembership.flat());
+  const missingMembership = existingMembership.map(ids => ids.length === 0);
+  if (!missingMembership.some(Boolean)) {
+    return {
+      components,
+      assignedCount: existingMembership.reduce((sum, ids) => sum + ids.length, 0),
+      ambiguousCount: 0,
+      unassignedCount: 0,
+      preserved: true,
+    };
   }
   if (alive && alive.length !== gaussianIds.length) throw new Error('alive mask length does not match Gaussian identities');
   if (selectedOnly && (!selected || selected.length !== gaussianIds.length)) throw new Error('selected-only membership requires a matching selection mask');
@@ -49,6 +58,7 @@ export function assignGaussianMemberships(components, {
   let assignedCount = 0, ambiguousCount = 0, eligibleCount = 0;
 
   for (let row = 0; row < gaussianIds.length; row++) {
+    if (existingIds.has(gaussianIds[row])) continue;
     if (alive && !alive[row]) continue;
     if (selectedOnly && !selected[row]) continue;
     const x = Number(positions[row * 3]), y = Number(positions[row * 3 + 1]), z = Number(positions[row * 3 + 2]);
@@ -80,19 +90,27 @@ export function assignGaussianMemberships(components, {
     }
   }
 
-  const normalized = components.map((component, index) => ({
-    ...component,
-    gaussianIds: Uint32Array.from(membership[index]),
-    diagnostics: {
-      ...(component.diagnostics || {}),
-      gaussian_membership_count: membership[index].length,
-      gaussian_membership_method: 'conservative-unambiguous-aabb',
-    },
-    provenance: {
-      ...(component.provenance || {}),
-      gaussianMembership: 'conservative-unambiguous-aabb',
-    },
-  }));
+  const normalized = components.map((component, index) => {
+    const retainedIds = existingMembership[index].length
+      ? existingMembership[index] : membership[index];
+    return {
+      ...component,
+      gaussianIds: Uint32Array.from(retainedIds),
+      diagnostics: {
+        ...(component.diagnostics || {}),
+        gaussian_membership_count: retainedIds.length,
+        gaussian_membership_method: existingMembership[index].length
+          ? (component.diagnostics?.gaussian_membership_method || 'persisted')
+          : 'conservative-unambiguous-aabb',
+      },
+      provenance: {
+        ...(component.provenance || {}),
+        gaussianMembership: existingMembership[index].length
+          ? (component.provenance?.gaussianMembership || 'persisted')
+          : 'conservative-unambiguous-aabb',
+      },
+    };
+  });
   return {
     components: normalized,
     assignedCount,
