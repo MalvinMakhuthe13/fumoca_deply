@@ -280,6 +280,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       isolate.addEventListener('click', () => {
         for (const item of items) item.visible = item.id === component.id;
         window.previewSolidMeshComponents?.(items, { visible: true, opacity: 1 });
+        syncComponentDiagnosticsToMeta();
         renderMeshComponents(items);
       });
       const role = document.createElement('span');
