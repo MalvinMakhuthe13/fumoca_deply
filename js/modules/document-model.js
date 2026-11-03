@@ -29,7 +29,7 @@ function cloneValue(value) {
   return out;
 }
 
-function asUint32Ids(value, label, { allowEmpty = true } = {}) {
+function maxId(ids) {\n  let maximum = 0;\n  for (const id of ids) if (id > maximum) maximum = id;\n  return maximum;\n}\n\nfunction asUint32Ids(value, label, { allowEmpty = true } = {}) {
   if (value == null && allowEmpty) return new Uint32Array();
   const ids = value instanceof Uint32Array ? new Uint32Array(value) : Uint32Array.from(value || []);
   if (!allowEmpty && ids.length === 0) throw new Error(`[document-model] ${label} cannot be empty`);
@@ -89,7 +89,7 @@ export function createDocumentModel(options = {}) {
     version: DOCUMENT_MODEL_VERSION,
     documentId,
     revision: Number.isSafeInteger(options.revision) && options.revision >= 0 ? options.revision : 0,
-    nextGaussianId: options.nextGaussianId || (gaussianIds.length ? Math.max(...gaussianIds) + 1 : 1),
+    nextGaussianId: options.nextGaussianId ?? (maxId(gaussianIds) + 1),
     gaussianIds,
     source: cloneValue(options.source || { geometrySignature: null, appearanceSignature: null }),
     reconstruction: cloneValue(options.reconstruction || null),
@@ -121,7 +121,7 @@ export function validateDocumentModel(model) {
   if (!Number.isSafeInteger(model.nextGaussianId) || model.nextGaussianId < 1 || model.nextGaussianId > 0x100000000) {
     throw new Error('nextGaussianId is outside the supported range');
   }
-  if (gaussianIds.length && model.nextGaussianId <= Math.max(...gaussianIds)) {
+  if (gaussianIds.length && model.nextGaussianId <= maxId(gaussianIds)) {
     throw new Error('nextGaussianId must exceed every allocated Gaussian ID');
   }
   return { valid: true, gaussianCount: gaussianIds.length, componentCount: componentIds.size };
