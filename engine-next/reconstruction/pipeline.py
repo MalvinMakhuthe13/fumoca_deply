@@ -3388,9 +3388,11 @@ class ReconstructionWorker:
 
         geo_data: (N, 14) float32 — [x,y,z, log_sx,log_sy,log_sz,
                                       qw,qx,qy,qz, opacity_logit, r,g,b (logit)]
-        Returns (mesh_bytes, stl_bytes) — either may be None if too few
-        confident points remain to fit a surface (e.g. a very sparse/noisy
-        capture), or if STL export specifically fails.
+        Returns (mesh_bytes, stl_bytes, mesh_info, mesh_components_bytes).
+        All four values are None when too few confident points remain or no
+        supported zero-crossing exists. STL may independently be None when
+        mesh export fails; mesh bytes and component data can still be useful
+        for scene inspection when the surface is open or non-manifold.
 
         mesh_bytes layout: [format_flag:u8]
           flag 0x00 (raw struct — used automatically when DracoPy isn't
