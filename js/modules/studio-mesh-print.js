@@ -1611,10 +1611,15 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     const state = window.S;
     if (!state?.activeMeshComponentId) return;
     const id = state.activeMeshComponentId;
-    window.beginStudioHistory?.('Delete mesh component');
     const componentIndex = (state.nifMeshComponents || []).findIndex(component => component.id === id);
     const deletedComponent = (state.nifMeshComponents || [])[componentIndex];
-    if (!deletedComponent) return;
+    // Validate the target before opening a history transaction. A stale active
+    // component ID must never leave an empty pending transaction in Studio.
+    if (!deletedComponent) {
+      meshStatus('The active mesh component no longer exists. Select a component and try again.');
+      return;
+    }
+    window.beginStudioHistory?.('Delete mesh component');
     state.meshComponentDeleteUndo = {
       source: { ...deletedComponent, vertices: deletedComponent.vertices.slice(), triangles: deletedComponent.triangles.slice(), colours: deletedComponent.colours?.slice(), gaussianIds: deletedComponent.gaussianIds?.slice?.() || deletedComponent.gaussianIds },
       index: componentIndex,
