@@ -12,6 +12,23 @@ function pointInTriangle(p, a, b, c, orientation, epsilon) {
   const c3 = cross2(c, a, p) * orientation;
   return c1 >= -epsilon && c2 >= -epsilon && c3 >= -epsilon;
 }
+function segmentsIntersect(a, b, c, d, epsilon = 1e-10) {
+  const abC = cross2(a, b, c), abD = cross2(a, b, d);
+  const cdA = cross2(c, d, a), cdB = cross2(c, d, b);
+  return ((abC > epsilon && abD < -epsilon) || (abC < -epsilon && abD > epsilon))
+    && ((cdA > epsilon && cdB < -epsilon) || (cdA < -epsilon && cdB > epsilon));
+}
+function isSimplePolygon(points, epsilon = 1e-10) {
+  for (let i = 0; i < points.length; i++) {
+    const a = points[i], b = points[(i + 1) % points.length];
+    for (let j = i + 1; j < points.length; j++) {
+      if (j === i || j === (i + 1) % points.length || (j + 1) % points.length === i) continue;
+      const c = points[j], d = points[(j + 1) % points.length];
+      if (segmentsIntersect(a, b, c, d, epsilon)) return false;
+    }
+  }
+  return true;
+}
 function triangulatePolygon(points, epsilon = 1e-10) {
   if (points.length < 3) return null;
   let area = 0;
@@ -59,6 +76,15 @@ function triangulatePolygon(points, epsilon = 1e-10) {
 export function capPlanarBoundaryLoops(mesh, { normal, offset, tolerance = 1e-4 } = {}) {
   if (!mesh?.vertices?.length || !mesh?.triangles?.length || mesh.vertices.length % 3 || mesh.triangles.length % 3) {
     throw new TypeError('a valid triangle mesh is required for planar capping');
+  }
+  for (const value of mesh.vertices) {
+    if (!Number.isFinite(Number(value))) throw new Error('mesh vertices must be finite');
+  }
+  const vertexCount = mesh.vertices.length / 3;
+  for (const index of mesh.triangles) {
+    if (!Number.isInteger(Number(index)) || Number(index) < 0 || Number(index) >= vertexCount) {
+      throw new RangeError('mesh face index is outside its vertex array');
+    }
   }
   const n = Array.from(normal || [], Number);
   const d = Number(offset), tol = Number(tolerance);
@@ -145,7 +171,7 @@ export function capPlanarBoundaryLoops(mesh, { normal, offset, tolerance = 1e-4 
       return [relative[0] * u[0] + relative[1] * u[1] + relative[2] * u[2],
         relative[0] * v[0] + relative[1] * v[1] + relative[2] * v[2]];
     });
-    const capFaces = triangulatePolygon(points2D);
+    const capFaces = isSimplePolygon(points2D) ? triangulatePolygon(points2D) : null;
     if (!capFaces) { skippedTriangulation++; continue; }
     loops.push({ indices: loop, triangles: capFaces });
   }
