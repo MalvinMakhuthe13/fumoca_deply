@@ -50,3 +50,42 @@ test('trim planner refuses missing membership, invalid masks and malformed plane
   assert.throws(() => findGaussianRowsBelowSupportPlane({ ...base, normal: [0,0,0] }), /degenerate/);
   assert.throws(() => findGaussianRowsBelowSupportPlane({ ...base, tolerance: -1 }), /finite/);
 });
+
+
+test('anisotropic Gaussian extent is measured along the rotated plane normal', () => {
+  const base = {
+    positions: new Float32Array([0, 0.5, 0]),
+    gaussianIds: new Uint32Array([21]),
+    componentGaussianIds: new Uint32Array([21]),
+    scalesXYZ: new Float32Array([2, 0.1, 0.1]),
+    sigmaMultiplier: 1,
+    normal: [0, 1, 0],
+    offset: 0,
+  };
+  const unrotated = findGaussianRowsBelowSupportPlane(base);
+  assert.equal(unrotated.rows.length, 0);
+  const half = Math.SQRT1_2;
+  const rotated = findGaussianRowsBelowSupportPlane({
+    ...base,
+    rotationsWXYZ: new Float32Array([half, 0, 0, half]),
+  });
+  assert.deepEqual([...rotated.rows], [0]);
+  assert.ok(rotated.projectedRadii[0] > 1.99);
+});
+
+test('zero sigma trims by Gaussian centre only and input arrays remain unchanged', () => {
+  const positions = new Float32Array([0, -0.1, 0, 0, 0.1, 0]);
+  const scalesXYZ = new Float32Array([10, 10, 10, 10, 10, 10]);
+  const result = findGaussianRowsBelowSupportPlane({
+    positions,
+    gaussianIds: new Uint32Array([31, 32]),
+    componentGaussianIds: new Uint32Array([31, 32]),
+    scalesXYZ,
+    sigmaMultiplier: 0,
+    normal: [0, 1, 0],
+    offset: 0,
+  });
+  assert.deepEqual([...result.rows], [0]);
+  assert.deepEqual([...positions], [0, -0.1, 0, 0, 0.1, 0]);
+  assert.deepEqual([...scalesXYZ], [10, 10, 10, 10, 10, 10]);
+});
