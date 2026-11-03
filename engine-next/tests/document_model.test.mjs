@@ -105,3 +105,26 @@ test('compacting a save retains original Gaussian identities and filters compone
   assert.throws(() => compactDocumentModel(model, [0, 0]), /duplicated/);
   assert.throws(() => compactDocumentModel(model, [9]), /invalid/);
 });
+
+
+test('live component Gaussian ownership is exclusive but deleted ancestors retain lineage membership', () => {
+  const base = fixture();
+  const overlapping = cloneDocumentModel(base);
+  overlapping.components.push({
+    id: 'second-live-part',
+    gaussianIds: new Uint32Array([2]),
+    vertices: new Float32Array([2, 0, 0]),
+  });
+  assert.throws(() => validateDocumentModel(overlapping), /owned by both cap and second-live-part/);
+
+  const withDeletedParent = createDocumentModel({
+    documentId: 'split-lineage',
+    gaussianIds: new Uint32Array([1, 2]),
+    components: [
+      { id: 'parent', gaussianIds: new Uint32Array([1, 2]), deleted: true },
+      { id: 'child-a', parentIds: ['parent'], gaussianIds: new Uint32Array([1]) },
+      { id: 'child-b', parentIds: ['parent'], gaussianIds: new Uint32Array([2]) },
+    ],
+  });
+  assert.equal(validateDocumentModel(withDeletedParent).componentCount, 3);
+});
