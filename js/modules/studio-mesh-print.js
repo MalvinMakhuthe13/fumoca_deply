@@ -372,6 +372,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     window.highlightSolidMeshComponent?.(state.activeMeshComponentId);
     window.setSolidMeshComponentsVisibility?.(true);
     renderMeshComponents(state.nifMeshComponents);
+    updateComponentTransformButtons();
     meshStatus('Deleted component ' + id + '. Other reconstructed components and the original Gaussian layer are unchanged.');
   });
   const updateMeshPreview = () => {
