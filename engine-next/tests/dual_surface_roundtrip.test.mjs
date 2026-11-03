@@ -64,4 +64,19 @@ test('NIF preserves Gaussian source and connected mesh as independent layers', a
   assert.ok(componentOnly.mesh, 'legacy combined mesh fallback must be rebuilt from components');
   assert.equal(componentOnly.meshComponents.length, 2);
   assert.equal(componentOnly.mesh.nFaces, 5);
+
+  assert.throws(() => encodeNif({
+    positions, colors01, opacities01, scalesLinear, quats,
+    meshComponents: [meshComponents[0], { ...meshComponents[1], id: 'cap-shell' }],
+  }), /duplicate mesh component geometry\/ID/, 'component IDs must be unique');
+
+  assert.throws(() => encodeNif({
+    positions, colors01, opacities01, scalesLinear, quats,
+    meshComponents: [{
+      id: 'invalid-index',
+      vertices: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]),
+      triangles: new Uint32Array([0, 1, 3]),
+      colours: new Uint8Array(9),
+    }],
+  }), /duplicate mesh component geometry\/ID/, 'component faces must reference local vertices');
 });
