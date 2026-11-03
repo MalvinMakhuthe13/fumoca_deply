@@ -4242,6 +4242,7 @@ function _documentModelForSave(retainedIndices) {
     ...(sourceSignature ? { geometrySignature: sourceSignature } : {}),
   };
   if (sourceSignature && base.source?.geometrySignature !== sourceSignature) changed = true;
+  if (sourceSignature) S.nifMeta = { ...(S.nifMeta || {}), dual_surface_source_signature: sourceSignature };
   const updated = createDocumentModel({
     ...base,
     revision: base.revision + (changed ? 1 : 0),
