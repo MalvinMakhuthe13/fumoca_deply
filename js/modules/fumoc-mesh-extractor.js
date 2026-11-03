@@ -1294,6 +1294,7 @@ async function extractMesh(gaussians, opts = {}) {
 
   onProgress?.(100, 'Done');
 
+  const components = splitMeshComponents(mesh);
   const stats = {
     vertices:    mesh.vertices.length / 3,
     triangles:   mesh.triangles.length / 3,
@@ -1302,7 +1303,7 @@ async function extractMesh(gaussians, opts = {}) {
     printable:   validation.printable,
     openEdges:   validation.openEdges,
     nonManifoldEdges: validation.nonManifoldEdges,
-    components: validation.components,
+    components: components.length,
     largestComponentTriangles: validation.largestComponentTriangles,
     elapsedMs:   Math.round(performance.now() - t0),
     resolution,
@@ -1315,7 +1316,80 @@ async function extractMesh(gaussians, opts = {}) {
     format,
   };
 
-  return { mesh, blob, stats };
+  return { mesh, components, blob, stats };
+}
+
+/**
+ * Split triangle geometry into independently addressable vertex-connected
+ * components. Components retain source vertex colors and local face indices.
+ * This is geometric connectivity, not semantic object recognition.
+ */
+function splitMeshComponents(mesh) {
+  const vertices = mesh?.vertices;
+  const triangles = mesh?.triangles;
+  if (!vertices?.length || !triangles?.length || triangles.length % 3) return [];
+  const faceCount = triangles.length / 3;
+  const parent = new Int32Array(faceCount);
+  for (let i = 0; i < faceCount; i++) parent[i] = i;
+  const find = (value) => {
+    let root = value;
+    while (parent[root] !== root) root = parent[root];
+    while (parent[value] !== value) { const next = parent[value]; parent[value] = root; value = next; }
+    return root;
+  };
+  const unite = (a, b) => {
+    const ra = find(a), rb = find(b);
+    if (ra !== rb) parent[rb] = ra;
+  };
+  const owner = new Map();
+  for (let face = 0; face < faceCount; face++) {
+    for (let corner = 0; corner < 3; corner++) {
+      const vertex = triangles[face * 3 + corner];
+      const previous = owner.get(vertex);
+      if (previous === undefined) owner.set(vertex, face);
+      else unite(face, previous);
+    }
+  }
+  const groups = new Map();
+  for (let face = 0; face < faceCount; face++) {
+    const root = find(face);
+    if (!groups.has(root)) groups.set(root, []);
+    groups.get(root).push(face);
+  }
+  const ordered = [...groups.values()].sort((a, b) => b.length - a.length);
+  return ordered.map((faces, index) => {
+    const vertexMap = new Map();
+    const oldVertices = [];
+    const localFaces = new Uint32Array(faces.length * 3);
+    let at = 0;
+    for (const face of faces) {
+      for (let corner = 0; corner < 3; corner++) {
+        const oldIndex = triangles[face * 3 + corner];
+        let localIndex = vertexMap.get(oldIndex);
+        if (localIndex === undefined) {
+          localIndex = oldVertices.length;
+          vertexMap.set(oldIndex, localIndex);
+          oldVertices.push(oldIndex);
+        }
+        localFaces[at++] = localIndex;
+      }
+    }
+    const localVertices = new Float32Array(oldVertices.length * 3);
+    const localColours = mesh.colours ? new Uint8Array(oldVertices.length * 3) : null;
+    oldVertices.forEach((oldIndex, localIndex) => {
+      localVertices.set(vertices.subarray(oldIndex * 3, oldIndex * 3 + 3), localIndex * 3);
+      if (localColours) localColours.set(mesh.colours.subarray(oldIndex * 3, oldIndex * 3 + 3), localIndex * 3);
+    });
+    const componentMesh = { vertices: localVertices, triangles: localFaces, colours: localColours };
+    const topology = validateWatertight(componentMesh);
+    return {
+      id: `surface-${String(index + 1).padStart(4, '0')}`,
+      ...componentMesh,
+      watertight: topology.watertight,
+      visible: true,
+      stats: { triangles: faces.length, vertices: oldVertices.length, ...topology },
+    };
+  });
 }
 
 // ═══ HELPERS ═════════════════════════════════════════════════════════════════
@@ -1335,6 +1409,7 @@ const FumocMeshExtractor = {
   bridgeDensityField,
   transferColours,
   validateWatertight,
+  splitMeshComponents,
   fillSmallHoles,
   removeSmallComponents,
   exportSTL,
