@@ -1751,7 +1751,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     }
     state.nifMeshComponents = normalizeMeshComponents(nextComponents);
     state.nifMesh = null;
-    state.meshComponentMembershipUndo = null;
     state.nifMeta = { ...(state.nifMeta || {}), mesh_components_edited: true };
     refreshCombinedMeshFromComponents();
     window.previewSolidMeshComponents?.(state.nifMeshComponents, { visible: true, opacity: 0.95 });
