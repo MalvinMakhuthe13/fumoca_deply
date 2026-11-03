@@ -2088,6 +2088,7 @@ class ReconstructionWorker:
                 # Preserve measured reconstruction diagnostics with the NIF
                 # record so Studio/viewer QA can distinguish open scan edges,
                 # disconnected fragments and unsupported reconstruction.
+                'mesh_component_count': len(mesh_info.get('mesh_components', [])) if mesh_info else 0,
                 'mesh_diagnostics': ({
                     key: mesh_info.get(key) for key in (
                         'n_verts', 'n_faces', 'n_degenerate_faces',
@@ -2095,6 +2096,7 @@ class ReconstructionWorker:
                         'n_nonmanifold_edges', 'tsdf_coverage_ratio',
                         'tsdf_observed_voxels', 'normal_component_count',
                         'mean_surfel_confidence', 'is_watertight',
+                        'mesh_components',
                     ) if key in mesh_info
                 } if mesh_info else None),
                 'has_print_export':  bool(stl_bytes) and bool(mesh_info and mesh_info.get('is_watertight')),
