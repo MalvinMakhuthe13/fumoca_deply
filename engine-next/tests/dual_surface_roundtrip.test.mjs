@@ -104,6 +104,34 @@ test('NIF preserves Gaussian source and connected mesh as independent layers', a
   }), /invalid or duplicate mesh component geometry\/ID/,
   'component colours must be byte-range integer channels');
 
+
+  const invalidPayload = encodeNif({
+    positions, colors01, opacities01, scalesLinear, quats, meshComponents,
+  });
+  // The component chunk is integrity-checked independently of the legacy mesh.
+  // Corrupting a local face index must reject the component chunk, never expose
+  // an out-of-range index to BufferGeometry or selection code.
+  const corruptFaces = invalidPayload.slice(0);
+  const raw = new Uint8Array(corruptFaces);
+  const marker = new TextEncoder().encode('support-platform');
+  let markerAt = -1;
+  outer: for (let i = 0; i <= raw.length - marker.length; i++) {
+    for (let j = 0; j < marker.length; j++) if (raw[i + j] !== marker[j]) continue outer;
+    markerAt = i; break;
+  }
+  assert.ok(markerAt >= 0, 'component ID must be present in NIF bytes');
+  // The final component face index is immediately after its vertex and colour
+  // payload. Derive its offset from the two fixture component records.
+  const secondHeader = markerAt + marker.length + 1;
+  const secondVertexCount = new DataView(corruptFaces).getUint32(secondHeader + 1, false);
+  const secondFaceCount = new DataView(corruptFaces).getUint32(secondHeader + 5, false);
+  const faceStart = secondHeader + 9 + secondVertexCount * 15;
+  const lastIndexOffset = faceStart + secondFaceCount * 12 - 4;
+  new DataView(corruptFaces).setUint32(lastIndexOffset, secondVertexCount + 5, false);
+  const corruptedDecoded = await decodeNif(corruptFaces);
+  assert.equal(corruptedDecoded.meshComponents.length, 0,
+    'malformed component payloads must be discarded instead of exposing invalid topology');
+
   assert.throws(() => encodeNif({
     positions, colors01, opacities01, scalesLinear, quats,
     meshComponents: [meshComponents[0], { ...meshComponents[1], id: 'cap-shell' }],
