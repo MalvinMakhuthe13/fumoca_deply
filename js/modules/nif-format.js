@@ -286,6 +286,32 @@ export function encodeGeometryOnly(opts = {}) {
  *   vertical      string        header vertical tag (default 'generic')
  * @returns {ArrayBuffer}
  */
+function combineMeshComponents(components) {
+  if (!Array.isArray(components) || !components.length) return null;
+  const valid = components.filter(component => (component.vertices || component.positions)?.length &&
+    (component.triangles || component.faces)?.length);
+  if (!valid.length) return null;
+  const vertexCount = valid.reduce((sum, c) => sum + (c.vertices || c.positions).length / 3, 0);
+  const faceCount = valid.reduce((sum, c) => sum + (c.triangles || c.faces).length / 3, 0);
+  const vertices = new Float32Array(vertexCount * 3);
+  const triangles = new Uint32Array(faceCount * 3);
+  const colours = new Uint8Array(vertexCount * 3);
+  let vertexAt = 0, faceAt = 0, vertexOffset = 0;
+  for (const component of valid) {
+    const v = component.vertices || component.positions;
+    const f = component.triangles || component.faces;
+    const c = component.colours || component.colors;
+    vertices.set(v, vertexAt);
+    if (c?.length === v.length) colours.set(c, vertexAt);
+    else colours.fill(200, vertexAt, vertexAt + v.length);
+    for (let i = 0; i < f.length; i++) triangles[faceAt + i] = f[i] + vertexOffset;
+    vertexAt += v.length;
+    faceAt += f.length;
+    vertexOffset += v.length / 3;
+  }
+  return { vertices, triangles, colours };
+}
+
 export function encodeNif(opts = {}) {
   let geoData, count;
 
@@ -323,12 +349,14 @@ export function encodeNif(opts = {}) {
     : packGeometryQuantized(geoData, count);
   writer.add(CHUNK.KEYFRAME_GEO, geoBytes, CODEC.RAW);
 
-  // Keep the extracted solid as its own colored NIF component. Gaussian
-  // geometry remains independent so editors/viewers can toggle the two.
-  if (opts.mesh?.vertices?.length && opts.mesh?.triangles?.length) {
-    const vertices = opts.mesh.vertices;
-    const faces = opts.mesh.triangles;
-    const colors = opts.mesh.colours || new Uint8Array(vertices.length).fill(200);
+  // Keep the extracted solid as its own colored NIF component. When only
+  // independent components are supplied, rebuild the legacy combined mesh
+  // fallback so older viewers still render the full reconstructed scene.
+  const legacyMesh = opts.mesh || combineMeshComponents(opts.meshComponents);
+  if (legacyMesh?.vertices?.length && legacyMesh?.triangles?.length) {
+    const vertices = legacyMesh.vertices;
+    const faces = legacyMesh.triangles;
+    const colors = legacyMesh.colours || new Uint8Array(vertices.length).fill(200);
     const nVerts = Math.floor(vertices.length / 3);
     const nFaces = Math.floor(faces.length / 3);
     if (vertices.length % 3 || faces.length % 3 || colors.length !== nVerts * 3 ||
@@ -440,7 +468,7 @@ function encodeMeshComponentsChunk(components) {
   for (const c of normalized) {
     view.setUint8(at++, c.idBytes.length);
     bytes.set(c.idBytes, at); at += c.idBytes.length;
-    view.setUint8(at++, c.watertight ? 1 : 0);
+    view.setUint8(at++, (c.watertight ? 1 : 0) | (c.visible === false ? 0 : 2));
     view.setUint32(at, c.nVerts, false); at += 4;
     view.setUint32(at, c.nFaces, false); at += 4;
     for (const value of c.vertices) { view.setFloat32(at, value, false); at += 4; }
@@ -481,7 +509,7 @@ async function decodeMeshComponentsChunk(chunk) {
         if (faces[f] >= nVerts) throw new Error('component face index out of range');
       }
       if (Array.from(positions).some(value => !Number.isFinite(value))) throw new Error('non-finite component vertex');
-      components.push({ id, positions, colors, faces, nVerts, nFaces, watertight: !!(flags & 1) });
+      components.push({ id, positions, colors, faces, nVerts, nFaces, watertight: !!(flags & 1), visible: !!(flags & 2) });
     }
     if (at !== view.byteLength) throw new Error('unexpected trailing component bytes');
     return components;
