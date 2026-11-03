@@ -55,13 +55,13 @@ test('membership respects alive and selected-only masks and preserves existing a
   });
   assert.deepEqual([...result.components[0].gaussianIds], [2]);
   const preserved = assignGaussianMemberships([{
-    ...components[0], gaussianIds: new Uint32Array([99]),
+    ...components[0], gaussianIds: new Uint32Array([1]),
   }], {
     positions: new Float32Array([0.2,0.2,0]),
     gaussianIds: new Uint32Array([1]),
   });
   assert.equal(preserved.preserved, true);
-  assert.deepEqual([...preserved.components[0].gaussianIds], [99]);
+  assert.deepEqual([...preserved.components[0].gaussianIds], [1]);
 });
 
 test('partially persisted memberships are retained while only missing components are filled', () => {
@@ -82,4 +82,41 @@ test('identity and position array lengths must agree', () => {
   assert.throws(() => assignGaussianMemberships([component('one',0,1)], {
     positions: new Float32Array([0,0,0]), gaussianIds: new Uint32Array([1,2]),
   }), /identity count must match/);
+});
+
+
+test('membership rejects duplicate ownership and identities outside the source document', () => {
+  const left = { ...component('left', 0, 1), gaussianIds: new Uint32Array([1]) };
+  const right = { ...component('right', 10, 11), gaussianIds: new Uint32Array([1]) };
+  const args = { positions: new Float32Array([0.2,0.2,0]), gaussianIds: new Uint32Array([1]) };
+  assert.throws(() => assignGaussianMemberships([left, right], args), /assigned to multiple mesh components/);
+  assert.throws(() => assignGaussianMemberships([
+    { ...component('stale', 0, 1), gaussianIds: new Uint32Array([99]) },
+  ], args), /invalid, duplicate or unknown Gaussian identity/);
+});
+
+test('mesh-authored support platforms are never auto-assigned Gaussian ownership', () => {
+  const platform = {
+    ...component('platform', 0, 2),
+    geometrySource: 'mesh-authored',
+    supportSurfaceCandidate: true,
+  };
+  const result = assignGaussianMemberships([platform], {
+    positions: new Float32Array([0.2,0.2,0, 1.2,0.2,0]),
+    gaussianIds: new Uint32Array([1,2]),
+  });
+  assert.equal(result.assignedCount, 0);
+  assert.equal(result.unassignedCount, 2);
+  assert.deepEqual([...result.components[0].gaussianIds], []);
+});
+
+test('empty component list reports all eligible live splats as unassigned', () => {
+  const result = assignGaussianMemberships([], {
+    positions: new Float32Array([0,0,0, 1,1,1, 2,2,2]),
+    gaussianIds: new Uint32Array([1,2,3]),
+    alive: new Uint8Array([1,0,1]),
+  });
+  assert.equal(result.assignedCount, 0);
+  assert.equal(result.unassignedCount, 2);
+  assert.equal(result.preserved, true);
 });
