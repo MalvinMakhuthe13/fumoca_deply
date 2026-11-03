@@ -1713,6 +1713,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     el.textContent = `Components: ${components} · Triangles: ${triangles.toLocaleString()} · Open edges: ${open.toLocaleString()} · Non-manifold edges: ${nonManifold.toLocaleString()} · ${watertight ? 'Watertight' : 'Open surface'}${coverage}${confidence}${normalComponents}${batches}${repair}${support}`;
   };
   const refreshCombinedMeshFromComponents = (message = '') => {
+    window.refreshStudioCombinedMeshFromComponents = refreshCombinedMeshFromComponents;
     const state = window.S;
     if (!state) return null;
     const components = state.nifMeshComponents || [];
