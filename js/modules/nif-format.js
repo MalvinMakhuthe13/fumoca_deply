@@ -456,7 +456,7 @@ function encodeMeshComponentsChunk(components) {
         Array.from(faces).some(value => !Number.isInteger(value) || value < 0 || value >= nVerts)) {
       throw new Error('[nif-format] invalid mesh component geometry');
     }
-    return { idBytes, vertices, faces, colours, nVerts, nFaces, watertight: !!component.watertight };
+    return { idBytes, vertices, faces, colours, nVerts, nFaces, watertight: !!component.watertight, visible: component.visible !== false };
   });
   let byteLength = 5;
   for (const c of normalized) byteLength += 1 + c.idBytes.length + 9 + c.nVerts * 15 + c.nFaces * 12;
