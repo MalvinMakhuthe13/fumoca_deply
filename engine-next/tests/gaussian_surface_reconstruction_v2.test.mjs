@@ -90,6 +90,29 @@ test('plane splitting separates observed triangles without capping the cut', () 
     'source geometry is never mutated');
 });
 
+test('plane splitting supports a tilted arbitrary support-plane normal', () => {
+  const mesh = {
+    vertices: new Float32Array([-1,0,0, 1,0,0, 0,1,0, 0,0,1]),
+    triangles: new Uint32Array([0,1,2, 0,3,1, 1,3,2, 2,3,0]),
+  };
+  const normal = [-1 / Math.sqrt(5), 2 / Math.sqrt(5), 0];
+  const result = FumocMeshExtractor.splitMeshByPlane(mesh, { normal, offset: 0 });
+  assert.equal(result.split, true);
+  assert.ok(result.positive && result.negative);
+  for (let i = 0; i + 2 < result.positive.vertices.length; i += 3) {
+    const distance = result.positive.vertices[i] * normal[0]
+      + result.positive.vertices[i + 1] * normal[1]
+      + result.positive.vertices[i + 2] * normal[2];
+    assert.ok(distance >= -1e-5);
+  }
+  for (let i = 0; i + 2 < result.negative.vertices.length; i += 3) {
+    const distance = result.negative.vertices[i] * normal[0]
+      + result.negative.vertices[i + 1] * normal[1]
+      + result.negative.vertices[i + 2] * normal[2];
+    assert.ok(distance <= 1e-5);
+  }
+});
+
 test('plane splitting returns one side when the plane does not cross the mesh', () => {
   const result = FumocMeshExtractor.splitMeshByPlane({
     vertices: new Float32Array([0, 1, 0, 1, 1, 0, 0, 2, 0]),
