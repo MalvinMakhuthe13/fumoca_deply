@@ -28,6 +28,7 @@ jobs:
           node --check --experimental-default-type=module js/modules/document-model.js
           node --check --experimental-default-type=module js/modules/document-model-nif.js
           node --check --experimental-default-type=module js/modules/support-plane-transform.js
+          node --check --experimental-default-type=module js/modules/support-plane-trim.js
           node --check --experimental-default-type=module js/modules/mesh-component-contract.js
           node --check --experimental-default-type=module js/modules/gaussian-component-membership.js
           node --check --experimental-default-type=module js/modules/nif-format.js
@@ -39,6 +40,8 @@ jobs:
         run: node --experimental-default-type=module --test engine-next/tests/document_model_nif.test.mjs
       - name: Verify support-plane leveling transforms
         run: node --experimental-default-type=module --test engine-next/tests/support_plane_transform.test.mjs
+      - name: Verify component-scoped support-plane trim planning
+        run: node --experimental-default-type=module --test engine-next/tests/support_plane_trim.test.mjs
       - name: Verify shared mesh component contract
         run: node --experimental-default-type=module --test engine-next/tests/mesh_component_contract.test.mjs
       - name: Verify Gaussian component membership mapping
