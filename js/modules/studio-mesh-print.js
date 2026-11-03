@@ -1564,7 +1564,8 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         { source: component.id, axis: axis.toUpperCase(), offset: splitOffset, normal, cut_is_open: true },
       ],
     };
-    const idsForSplit = new Set([component.id, positive.id, negative.id]);\n    const afterPatch = {
+    const idsForSplit = new Set([component.id, positive.id, negative.id]);
+    const afterPatch = {
       ...beforePatch,
       components: replacement.map(cloneForSplitHistory),
       activeId: positive.id,
