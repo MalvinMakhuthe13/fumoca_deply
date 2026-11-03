@@ -655,20 +655,9 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     if (!state?.positions || !state?.alive) { meshStatus('Load a splat or PLY before extracting a mesh.'); return false; }
     const extractionSourceSignature = computeGaussianSourceSignature(state);
     if (!extractionSourceSignature) { meshStatus('The current Gaussian source is empty or invalid.'); return false; }
-    if (lastMeshData) window.previewSolidMesh?.(lastMeshData, { visible: false });
-    window.previewSolidMeshComponents?.([], { visible: false });
-    state.nifMeshComponents = [];
-    state.activeMeshComponentId = null;
-    renderMeshComponents([]);
-    lastMesh = null;
-    lastMeshData = null;
-    lastMeshStats = null;
-    container.querySelector('#saveMeshBtn').disabled = true;
-    container.querySelector('#printStlBtn').disabled = true;
-    container.querySelector('#meshFillHolesBtn').disabled = true;
-    container.querySelector('#meshRemoveFloatersBtn').disabled = true;
-    container.querySelector('#meshPreviewToggle').checked = false;
-    container.querySelector('#meshPreviewToggle').disabled = true;
+    // Stage extraction without touching the currently committed mesh. A failed
+    // extraction, cancellation, or stale-source result must leave the last good
+    // components, preview, downloads and active selection intact.
     meshStatus('Preparing current live points…');
     try {
       const maxPoints = 250_000;
