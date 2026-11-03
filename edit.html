@@ -2980,6 +2980,7 @@ async function loadFile(file, urlOverride) {
       triangles: component.faces,
       watertight: component.watertight,
       visible: component.visible !== false,
+      supportSurfaceCandidate: component.supportSurfaceCandidate === true,
     }));
     S.activeMeshComponentId = S.nifMeshComponents[0]?.id || null;
     S.lidarIntensity = decoded.lidarAttributes?.intensity || null;
