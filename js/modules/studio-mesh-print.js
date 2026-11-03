@@ -209,7 +209,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
 
   let lastMesh = null;
   let lastMeshFormat = 'ply';
-  let supportLevelUndo = null;
   let lastMeshData = null;
   let lastMeshStats = null;
   let lastMeshSourceSignature = null;
@@ -282,11 +281,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
           || meshStateSignature(state.nifMesh, state.nifMeshComponents) !== state.supportPlaneTrimUndo.meshSignatureAfter)) {
       state.supportPlaneTrimUndo = null;
     }
-    if (supportLevelUndo
-        && (computeGaussianSourceSignature(state) !== supportLevelUndo.leveledSourceSignature
-          || meshStateSignature(state.nifMesh, state.nifMeshComponents) !== supportLevelUndo.leveledMeshSignature)) {
-      supportLevelUndo = null;
-    }
     const candidate = getSupportPlaneCandidate();
     const hasPlane = !!(candidate?.detected && (
       (Array.isArray(candidate.normal) && candidate.normal.length === 3
@@ -296,9 +290,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       || (candidate.y !== null && candidate.y !== undefined && Number.isFinite(Number(candidate.y)))
     ));
     const levelButton = container.querySelector('#meshLevelSupportPlane');
-    const undoButton = container.querySelector('#meshUndoSupportLevel');
     if (levelButton) levelButton.disabled = !hasPlane || !!candidate?.leveled || !window.S?.positions?.length;
-    if (undoButton) undoButton.disabled = !supportLevelUndo;
     const selected = (window.S?.nifMeshComponents || []).find(item => item.id === window.S?.activeMeshComponentId);
     const hasMembership = !!selected?.gaussianIds?.length && !!window.S?.documentModel?.gaussianIds?.length;
     const previewButton = container.querySelector('#meshPreviewSupportTrim');
@@ -891,7 +883,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       container.querySelector('#printStlBtn').disabled = !lastMesh || (lastMeshFormat === 'stl' && !lastMeshStats?.printable);
       previous.leveledMeshSignature = meshStateSignature(state.nifMesh, state.nifMeshComponents);
       window.commitStudioHistory?.();
-      supportLevelUndo = previous;
       try { await window.refreshGaussianSourceBytes?.(); }
       catch (sourceError) { console.warn('[Studio mesh] Levelled geometry but could not refresh Gaussian PLY bytes:', sourceError); }
 
@@ -916,55 +907,9 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     }
   };
 
-  const undoSupportPlaneLevel = async () => {
-    if (!supportLevelUndo || !window.S) return false;
-    const state = window.S;
-    const previous = supportLevelUndo;
-    if (computeGaussianSourceSignature(state) !== previous.leveledSourceSignature
-        || meshStateSignature(state.nifMesh, state.nifMeshComponents) !== previous.leveledMeshSignature) {
-      supportLevelUndo = null;
-      updateSupportPlaneControls();
-      meshStatus('Undo leveling is no longer safe because the Gaussian or mesh scene has changed since leveling. The newer edits have been preserved.');
-      return false;
-    }
-    window.beginStudioHistory?.('Undo support-plane leveling');
-    state.positions = previous.positions;
-    state.rotation = previous.rotation;
-    state.nifMesh = previous.nifMesh;
-    state.nifMeshComponents = previous.nifMeshComponents;
-    state.nifMeta = previous.nifMeta;
-    state.documentModel = previous.documentModel;
-    state.gaussianSourceBytes = previous.gaussianSourceBytes;
-    window._fumocaLastGaussianBytes = previous.lastGaussianBytes;
-    lastMeshData = previous.lastMeshData;
-    lastMesh = previous.lastMesh;
-    lastMeshStats = previous.lastMeshStats;
-    lastMeshFormat = previous.lastMeshFormat;
-    lastMeshSourceSignature = previous.lastMeshSourceSignature;
-    container.querySelector('#saveMeshBtn').disabled = !lastMeshData?.colours;
-    container.querySelector('#printStlBtn').disabled = !lastMesh || (lastMeshFormat === 'stl' && !lastMeshStats?.printable);
-    supportLevelUndo = null;
-    window.commitStudioHistory?.();
-    try {
-      window.rebuildGeometry?.();
-      if (lastMeshData) {
-        window.previewSolidMesh?.(lastMeshData, { visible: true,
-          opacity: Number(container.querySelector('#meshPreviewOpacity')?.value || 0.38) });
-        window.previewSolidMeshComponents?.(state.nifMeshComponents || [], { visible: true, opacity: 0.95 });
-        renderMeshComponents(state.nifMeshComponents || []);
-      }
-    } catch (previewError) {
-      console.warn('[Studio mesh] Support-plane undo restored geometry but preview refresh failed:', previewError);
-    }
-    updateSupportPlaneControls();
-    meshStatus('Support-plane leveling undone. The previous Gaussian and mesh coordinates are restored.');
-    return true;
-  };
-
   const syncNifMesh = (mesh) => {
     if (mesh !== lastMeshData) {
-      supportLevelUndo = null;
-      if (window.S) {
+        if (window.S) {
         window.S.meshComponentDeleteUndo = null;
         window.S.meshComponentSplitUndo = null;
       }
@@ -2092,7 +2037,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     get lastStats() { return lastMeshStats; },
     getSourceSignature: () => computeGaussianSourceSignature(window.S),
     levelToSupportPlane,
-    undoSupportPlaneLevel,
     previewSupportPlaneTrim,
     linkSelectedGaussiansToComponent,
     undoGaussianMembershipLink,
@@ -2209,7 +2153,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
   });
   container.querySelector('#meshExtractBtn')?.addEventListener('click', extractMesh);
   container.querySelector('#meshLevelSupportPlane')?.addEventListener('click', levelToSupportPlane);
-  container.querySelector('#meshUndoSupportLevel')?.addEventListener('click', undoSupportPlaneLevel);
   container.querySelector('#meshPreviewSupportTrim')?.addEventListener('click', previewSupportPlaneTrim);
   container.querySelector('#meshApplySupportTrim')?.addEventListener('click', applySupportPlaneTrim);
   container.querySelector('#meshUndoSupportTrim')?.addEventListener('click', undoSupportPlaneTrim);
