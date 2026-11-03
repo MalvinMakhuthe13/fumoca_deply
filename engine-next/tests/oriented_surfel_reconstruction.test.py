@@ -186,6 +186,34 @@ check('empty surfel input fails clearly instead of indexing invalid neighbors',
       empty_rejected)
 
 
+
+invalid_confidence_rejected = False
+try:
+    fuse(np.zeros((1, 3)), np.zeros((1, 3)), np.array([[0.0, 0.0, 1.0]]),
+         np.array([0], dtype=np.int32), np.array([np.nan]), 0.1)
+except ValueError:
+    invalid_confidence_rejected = True
+check('non-finite surfel confidence is rejected before TSDF accumulation',
+      invalid_confidence_rejected)
+
+negative_confidence_rejected = False
+try:
+    fuse(np.zeros((1, 3)), np.zeros((1, 3)), np.array([[0.0, 0.0, 1.0]]),
+         np.array([0], dtype=np.int32), np.array([-0.1]), 0.1)
+except ValueError:
+    negative_confidence_rejected = True
+check('negative surfel confidence is rejected before TSDF accumulation',
+      negative_confidence_rejected)
+
+invalid_component_ids_rejected = False
+try:
+    fuse(np.zeros((1, 3)), np.zeros((1, 3)), np.array([[0.0, 0.0, 1.0]]),
+         np.array([0.0]), np.array([1.0]), 0.1)
+except ValueError:
+    invalid_component_ids_rejected = True
+check('non-integer surfel component IDs are rejected',
+      invalid_component_ids_rejected)
+
 # Gaussian tangent scales must constrain support anisotropically. A narrow
 # tangent axis must not inherit the broad radius of the other tangent axis.
 anisotropic_field, anisotropic_mask, anisotropic_stats = fuse(
