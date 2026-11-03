@@ -4235,7 +4235,8 @@ function _documentModelForSave(retainedIndices) {
     ? (liveById.has(S.activeMeshComponentId) ? S.activeMeshComponentId : null)
     : (base.activeComponentId || null);
   if (activeComponentId !== (base.activeComponentId || null)) changed = true;
-  const sourceSignature = S.nifMeta?.dual_surface_source_signature;
+  const sourceSignature = window.FUMOCA_StudioMeshPrint?.getSourceSignature?.()
+    || S.nifMeta?.dual_surface_source_signature;
   const source = {
     ...(base.source || {}),
     ...(sourceSignature ? { geometrySignature: sourceSignature } : {}),
