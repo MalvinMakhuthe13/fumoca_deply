@@ -2089,6 +2089,19 @@ def _mesh_topology_diagnostics(mesh):
     }
 
 
+def _prepare_gaussian_mesh_inputs(geo_data: np.ndarray, opacity_threshold: float):
+    """Validate Gaussian rows and return stable opacity plus a finite-surface mask."""
+    data = np.asarray(geo_data, dtype=np.float64)
+    if data.ndim != 2 or data.shape[1] < 14:
+        raise ValueError('mesh extraction requires Gaussian rows with at least 14 fields')
+    opacity_logits = np.clip(data[:, 10], -30.0, 30.0)
+    opacity = 1.0 / (1.0 + np.exp(-opacity_logits))
+    finite_rows = np.all(np.isfinite(data[:, :14]), axis=1)
+    quaternion_lengths = np.linalg.norm(data[:, 6:10], axis=1)
+    valid = finite_rows & (quaternion_lengths > 1e-8) & (opacity > float(opacity_threshold))
+    return data, opacity, valid
+
+
 def _build_nif_meta_payload(author: str, vertical: str, meta: dict,
                             mesh_info: dict = None, created_at: str = ''):
     """Build the self-contained NIF META payload, including measured mesh diagnostics."""
@@ -3524,8 +3537,7 @@ class ReconstructionWorker:
             ENABLE_DRACO_MESH back to False if they're wrong (raw struct
             format is unaffected either way).
         """
-        opacity = 1.0 / (1.0 + np.exp(-geo_data[:, 10]))
-        keep = opacity > opacity_thresh
+        geo_data, opacity, keep = _prepare_gaussian_mesh_inputs(geo_data, opacity_thresh)
         pts = geo_data[keep]
         if len(pts) < 200:
             print(f'[NIF] Only {len(pts)} confident points — skipping mesh extraction')
@@ -3533,7 +3545,7 @@ class ReconstructionWorker:
         positions = pts[:, 0:3]
         log_scales = pts[:, 3:6]
         quats = pts[:, 6:10]
-        colors = 1.0 / (1.0 + np.exp(-pts[:, 11:14]))  # sigmoid → 0-1 RGB
+        colors = 1.0 / (1.0 + np.exp(-np.clip(pts[:, 11:14], -30.0, 30.0)))  # sigmoid → 0-1 RGB
 
         # Normal = the rotated local axis with the smallest scale
         axis_idx = np.argmin(log_scales, axis=1)
