@@ -1711,6 +1711,40 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
   };
   window.refreshStudioCombinedMeshFromComponents = refreshCombinedMeshFromComponents;
 
+  // History restores authored scene state, not these closure-owned export caches.
+  // Rebuild them from the restored canonical scene before export/print can run.
+  window.refreshStudioMeshDerivedState = () => {
+    const state = window.S;
+    if (!state) return null;
+    if (Array.isArray(state.nifMeshComponents) && state.nifMeshComponents.length) {
+      const mesh = refreshCombinedMeshFromComponents();
+      window.previewSolidMesh?.(state.nifMesh, { visible: false });
+      window.previewSolidMeshComponents?.(state.nifMeshComponents, {
+        visible: true,
+        opacity: Number(container.querySelector('#meshPreviewOpacity')?.value || 0.95),
+      });
+      renderMeshComponents(state.nifMeshComponents);
+      return mesh;
+    }
+    if (state.nifMesh) {
+      syncNifMesh(state.nifMesh);
+      return lastMeshData;
+    }
+    lastMeshData = null;
+    lastMesh = null;
+    lastMeshStats = null;
+    lastMeshSourceSignature = null;
+    window.previewSolidMesh?.(null, { visible: false });
+    window.previewSolidMeshComponents?.([], { visible: false });
+    const saveButton = container.querySelector('#saveMeshBtn');
+    const printButton = container.querySelector('#printStlBtn');
+    if (saveButton) saveButton.disabled = true;
+    if (printButton) printButton.disabled = true;
+    renderMeshDiagnostics(null);
+    window.dispatchEvent(new CustomEvent('fumoca:solidMeshReady', { detail: { mesh: null, stats: null } }));
+    return null;
+  };
+
   const makeMeshBlob = () => {
     if (!lastMeshData) return null;
     if (lastMeshFormat === 'obj') return FumocMeshExtractor.exportOBJ(lastMeshData, 'fumoca-mesh');
