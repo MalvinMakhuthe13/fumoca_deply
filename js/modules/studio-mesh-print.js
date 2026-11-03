@@ -239,9 +239,13 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         window.previewSolidMeshComponents?.(items, { visible: true, opacity: 1 });
         renderMeshComponents(items);
       });
+      const role = document.createElement('span');
+      role.className = 'hint';
+      role.textContent = component.supportSurfaceCandidate ? 'Support surface candidate' : '';
+      role.style.color = component.supportSurfaceCandidate ? 'var(--neon)' : 'var(--muted)';
       const faces = document.createElement('span');
       faces.className = 'hint'; faces.textContent = Number(component.triangles?.length || component.faces?.length || 0) / 3 + ' tris';
-      row.append(visible, select, isolate, faces);
+      row.append(visible, select, isolate, role, faces);
       list.append(row);
     }
   };
