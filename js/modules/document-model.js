@@ -150,6 +150,81 @@ export function validateDocumentModel(model) {
   return { valid: true, gaussianCount: gaussianIds.length, componentCount: componentIds.size };
 }
 
+/**
+ * Reconcile the canonical component graph from Studio's live mesh-component
+ * collection. Deleted records remain in the graph for lineage; live Gaussian
+ * ownership is rebuilt from the mesh list and validated before it is returned.
+ * This function is pure: callers may safely validate first and assign second.
+ */
+export function syncDocumentComponentsFromMesh(model, liveComponents, activeComponentId = null) {
+  if (!model) return null;
+  if (!Array.isArray(liveComponents)) throw new TypeError('liveComponents must be an array');
+  const liveById = new Map();
+  for (const component of liveComponents) {
+    if (!component?.id || liveById.has(component.id)) {
+      throw new Error('live mesh component IDs must be non-empty and unique');
+    }
+    liveById.set(component.id, component);
+  }
+  const arraysEqual = (a, b) => {
+    const left = a || [], right = b || [];
+    if (left.length !== right.length) return false;
+    for (let i = 0; i < left.length; i++) if (left[i] !== right[i]) return false;
+    return true;
+  };
+  let changed = false;
+  const knownIds = new Set((model.components || []).map(component => component.id));
+  const components = (model.components || []).map(component => {
+    const live = liveById.get(component.id);
+    if (!live) {
+      if (component.deleted !== true || component.visible !== false || component.selected === true) changed = true;
+      return { ...component, visible: false, selected: false, deleted: true };
+    }
+    const gaussianIds = live.gaussianIds || [];
+    const parentIds = [...new Set((live.parentIds || component.parentIds || []).map(String))];
+    const visible = live.visible !== false;
+    const selected = live.selected === true;
+    const geometrySource = live.geometrySource || component.geometrySource || 'gaussian-derived';
+    const provenance = live.provenance || component.provenance || null;
+    if (!arraysEqual(component.gaussianIds, gaussianIds)
+        || JSON.stringify(component.parentIds || []) !== JSON.stringify(parentIds)
+        || component.visible !== visible || component.selected !== selected
+        || component.deleted === true || component.geometrySource !== geometrySource
+        || JSON.stringify(component.provenance || null) !== JSON.stringify(provenance)
+        || (live.watertight !== undefined && component.watertight !== (live.watertight === true))
+        || (live.supportSurfaceCandidate !== undefined && component.supportSurfaceCandidate !== (live.supportSurfaceCandidate === true))) changed = true;
+    return {
+      ...component, parentIds, gaussianIds, visible, selected, geometrySource, provenance, deleted: false,
+      ...(live.watertight !== undefined ? { watertight: live.watertight === true } : {}),
+      ...(live.supportSurfaceCandidate !== undefined ? { supportSurfaceCandidate: live.supportSurfaceCandidate === true } : {}),
+    };
+  });
+  for (const live of liveComponents) {
+    if (knownIds.has(live.id)) continue;
+    changed = true;
+    components.push({
+      id: live.id,
+      parentIds: live.parentIds || [],
+      gaussianIds: live.gaussianIds || [],
+      visible: live.visible !== false,
+      selected: live.selected === true,
+      ...(live.watertight !== undefined ? { watertight: live.watertight === true } : {}),
+      ...(live.supportSurfaceCandidate !== undefined ? { supportSurfaceCandidate: live.supportSurfaceCandidate === true } : {}),
+      geometrySource: live.geometrySource || 'gaussian-derived',
+      provenance: live.provenance || { source: 'mesh-reconstruction' },
+    });
+  }
+  const nextActive = liveById.has(activeComponentId) ? activeComponentId : null;
+  if ((model.activeComponentId || null) !== nextActive) changed = true;
+  if (!changed) return model;
+  return createDocumentModel({
+    ...model,
+    revision: model.revision + 1,
+    components,
+    activeComponentId: nextActive,
+  });
+}
+
 /** Make an independent snapshot, including typed geometry and identity arrays. */
 export function cloneDocumentModel(model) {
   validateDocumentModel(model);
