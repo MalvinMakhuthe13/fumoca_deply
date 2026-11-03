@@ -441,6 +441,7 @@ export function encodeNif(opts = {}) {
  */
 function encodeMeshComponentsChunk(components) {
   const encoder = new TextEncoder();
+  const seenIds = new Set();
   const normalized = components.map((component, index) => {
     const id = String(component.id ?? `component-${index + 1}`);
     const idBytes = encoder.encode(id);
@@ -449,13 +450,27 @@ function encodeMeshComponentsChunk(components) {
     const nVerts = Math.floor((vertices?.length || 0) / 3);
     const nFaces = Math.floor((faces?.length || 0) / 3);
     const colours = component.colours || component.colors || new Uint8Array(nVerts * 3).fill(200);
-    if (!idBytes.length || idBytes.length > 255 || !vertices || vertices.length !== nVerts * 3 ||
-        !faces || faces.length !== nFaces * 3 || !nVerts || !nFaces ||
-        colours.length !== nVerts * 3 ||
-        Array.from(vertices).some(value => !Number.isFinite(value)) ||
-        Array.from(faces).some(value => !Number.isInteger(value) || value < 0 || value >= nVerts)) {
-      throw new Error('[nif-format] invalid mesh component geometry');
+    let invalidVertex = false, invalidFace = false;
+    if (vertices) {
+      for (let i = 0; i < vertices.length; i++) {
+        if (!Number.isFinite(vertices[i])) { invalidVertex = true; break; }
+      }
     }
+    if (faces) {
+      for (let i = 0; i < faces.length; i++) {
+        const value = faces[i];
+        if (!Number.isInteger(value) || value < 0 || value >= nVerts) {
+          invalidFace = true; break;
+        }
+      }
+    }
+    if (!idBytes.length || idBytes.length > 255 || seenIds.has(id) ||
+        !vertices || vertices.length !== nVerts * 3 ||
+        !faces || faces.length !== nFaces * 3 || !nVerts || !nFaces ||
+        colours.length !== nVerts * 3 || invalidVertex || invalidFace) {
+      throw new Error('[nif-format] invalid or duplicate mesh component geometry/ID');
+    }
+    seenIds.add(id);
     return { idBytes, vertices, faces, colours, nVerts, nFaces, watertight: !!component.watertight, visible: component.visible !== false, supportSurfaceCandidate: component.supportSurfaceCandidate === true };
   });
   let byteLength = 5;
