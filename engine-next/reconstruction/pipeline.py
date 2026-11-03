@@ -2064,8 +2064,8 @@ def _detect_support_plane_candidate(positions: np.ndarray, normals: np.ndarray,
                 'normal': plane_normal.tolist() if detected else None,
                 'offset': plane_offset if detected else None,
                 'y': (plane_offset / plane_normal[1]
-                      if detected and abs(plane_normal[0]) < 0.10
-                      and abs(plane_normal[2]) < 0.10 else None),
+                      if detected and abs(plane_normal[0]) < 0.02
+                      and abs(plane_normal[2]) < 0.02 else None),
                 'confidence': score,
                 'point_count': int(len(inlier_indices)),
                 'inlier_fraction': inlier_fraction,
