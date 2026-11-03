@@ -176,7 +176,10 @@ export function capPlanarBoundaryLoops(mesh, { normal, offset, tolerance = 1e-4 
     loops.push({ indices: loop, triangles: capFaces });
   }
 
-  if (!loops.length) {
+  // Multiple coplanar loops may represent holes (for example, a ring-shaped
+  // base). Filling each independently would destroy that topology. Refuse the
+  // automatic cap until the user separates or resolves those boundaries.
+  if (!loops.length || loops.length > 1) {
     return {
       mesh,
       cappedLoops: 0,
@@ -184,6 +187,7 @@ export function capPlanarBoundaryLoops(mesh, { normal, offset, tolerance = 1e-4 
       skippedOpen,
       skippedNonPlanar,
       skippedTriangulation,
+      skippedMultipleLoops: loops.length > 1 ? loops.length : 0,
       unchanged: true,
     };
   }
