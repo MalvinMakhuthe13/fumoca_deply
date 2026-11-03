@@ -320,13 +320,19 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
 
   const previewSupportPlaneTrim = () => {
     const state = window.S, component = selectedMeshComponent();
+    if (state?.supportPlaneTrimPreview?.componentId === component?.id) {
+      clearSupportTrimPreview(true);
+      meshStatus('Support-plane trim preview cleared. No geometry or Gaussian points were changed.');
+      return false;
+    }
     try {
       const plan = makeSupportTrimPlan(component);
       if (!plan.rows.length) {
         meshStatus('No live Gaussian splats from this component fall below the support plane at the selected tolerance.');
         return false;
       }
-      const previousSelection = state.selected?.slice?.() || new Uint8Array(state.alive.length);
+      const previousSelection = state.supportPlaneTrimPreview?.previousSelection?.slice?.()
+        || state.selected?.slice?.() || new Uint8Array(state.alive.length);
       if (!state.selected || state.selected.length !== state.alive.length) state.selected = new Uint8Array(state.alive.length);
       state.selected.fill(0);
       for (const row of plan.rows) state.selected[row] = 1;
