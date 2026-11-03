@@ -181,6 +181,11 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
   };
   const syncNifMesh = (mesh) => {
     lastMeshData = mesh || null;
+    const supportSuggestion = window.S?.nifMeta?.mesh_diagnostics?.support_plane_candidate;
+    if (supportSuggestion?.detected && Number.isFinite(Number(supportSuggestion.y))) {
+      const splitY = container.querySelector('#meshComponentSplitY');
+      if (splitY) splitY.value = String(Number(supportSuggestion.y).toFixed(5));
+    }
     if (mesh) {
       const currentSignature = computeGaussianSourceSignature(window.S);
       const persistedSignature = window.S?.nifMeta?.dual_surface_source_signature;
