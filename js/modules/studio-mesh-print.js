@@ -1364,6 +1364,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       id: component.id,
       vertices: vertices.slice(),
       transformUndoVertices: component.transformUndoVertices?.slice?.() || null,
+      meshComponentsEdited: state.nifMeta?.mesh_components_edited === true,
     };
     let cx = 0, cy = 0, cz = 0;
     for (let i = 0; i < vertices.length; i += 3) {
@@ -1385,6 +1386,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       id: component.id,
       vertices: vertices.slice(),
       transformUndoVertices: null,
+      meshComponentsEdited: true,
     };
     state.nifMesh = null;
     state.nifMeta = { ...(state.nifMeta || {}), mesh_components_edited: true };
@@ -1403,6 +1405,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
             id: current.id,
             vertices: (current.vertices || current.positions).slice(),
             transformUndoVertices: current.transformUndoVertices?.slice?.() || null,
+            meshComponentsEdited: window.S.nifMeta?.mesh_components_edited === true,
           };
         },
         applyPatch: patch => {
@@ -1415,7 +1418,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
           else target.positions = patch.vertices.slice();
           target.transformUndoVertices = patch.transformUndoVertices?.slice?.() || null;
           window.S.nifMesh = null;
-          window.S.nifMeta = { ...(window.S.nifMeta || {}), mesh_components_edited: true };
+          window.S.nifMeta = { ...(window.S.nifMeta || {}), mesh_components_edited: patch.meshComponentsEdited === true };
           refreshCombinedMeshFromComponents();
           window.previewSolidMeshComponents?.(window.S.nifMeshComponents, { visible: true, opacity: 1 });
           window.highlightSolidMeshComponent?.(target.id);
@@ -1431,6 +1434,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       else component.positions = beforePatch.vertices.slice();
       component.transformUndoVertices = beforePatch.transformUndoVertices?.slice?.() || null;
       state.nifMesh = null;
+      state.nifMeta = { ...(state.nifMeta || {}), mesh_components_edited: beforePatch.meshComponentsEdited };
       refreshCombinedMeshFromComponents();
       window.previewSolidMeshComponents?.(state.nifMeshComponents, { visible: true, opacity: 1 });
       renderMeshComponents(state.nifMeshComponents);
