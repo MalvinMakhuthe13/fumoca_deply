@@ -69,9 +69,12 @@ export function findGaussianRowsBelowSupportPlane({
           ];
         }
       }
-      const sx = Math.max(0, Number(scalesXYZ[row * 3]) || 0);
-      const sy = Math.max(0, Number(scalesXYZ[row * 3 + 1]) || 0);
-      const sz = Math.max(0, Number(scalesXYZ[row * 3 + 2]) || 0);
+      const sx = Number(scalesXYZ[row * 3]);
+      const sy = Number(scalesXYZ[row * 3 + 1]);
+      const sz = Number(scalesXYZ[row * 3 + 2]);
+      if (![sx, sy, sz].every(value => Number.isFinite(value) && value >= 0)) {
+        throw new Error('Gaussian scales must be finite non-negative linear values');
+      }
       projectedRadius = sigma * Math.sqrt(
         (localNormal[0] * sx) ** 2 + (localNormal[1] * sy) ** 2 + (localNormal[2] * sz) ** 2,
       );
