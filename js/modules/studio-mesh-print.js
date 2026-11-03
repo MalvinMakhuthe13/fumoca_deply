@@ -356,6 +356,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       // that existed before the temporary trim preview.
       clearSupportTrimPreview(false);
     }
+    updateComponentTransformButtons();
   });
 
   const previewSupportPlaneTrim = () => {
