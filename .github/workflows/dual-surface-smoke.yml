@@ -47,6 +47,8 @@ jobs:
         run: node --experimental-default-type=module --test engine-next/tests/planar_mesh_cap.test.mjs
       - name: Verify shared mesh component contract
         run: node --experimental-default-type=module --test engine-next/tests/mesh_component_contract.test.mjs
+      - name: Verify combined component mesh exports
+        run: node --experimental-default-type=module --test engine-next/tests/combine_mesh_components.test.mjs
       - name: Verify Gaussian component membership mapping
         run: node --experimental-default-type=module --test engine-next/tests/gaussian_component_membership.test.mjs
       - name: Verify dual-layer NIF round trip and component visibility persistence
