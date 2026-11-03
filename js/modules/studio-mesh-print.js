@@ -505,7 +505,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     list.innerHTML = '';
     for (const component of items) {
       const row = document.createElement('div');
-      row.style.cssText = 'display:flex;align-items:center;gap:6px;padding:5px;border-radius:6px;background:rgba(255,255,255,.035)';
+      row.style.cssText = 'display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:5px;border-radius:6px;background:rgba(255,255,255,.035)';
       const visible = document.createElement('input');
       visible.type = 'checkbox'; visible.checked = component.visible !== false;
       visible.title = 'Show or hide this component';
@@ -519,11 +519,38 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       select.textContent = component.id === window.S?.activeMeshComponentId ? 'Selected' : 'Select';
       select.style.flex = '1'; select.style.textAlign = 'left';
       select.addEventListener('click', () => {
+        for (const item of items) item.selected = item.id === component.id;
         if (window.S) window.S.activeMeshComponentId = component.id;
         window.highlightSolidMeshComponent?.(component.id);
         renderMeshComponents(items);
         updateComponentTransformButtons();
         meshStatus('Selected component ' + component.id + '. Its visibility and geometry are independent of the other scene components.');
+      });
+      const memberCount = component.gaussianIds?.length || 0;
+      const selectSplats = document.createElement('button');
+      selectSplats.type = 'button';
+      selectSplats.className = 'mini-btn';
+      selectSplats.textContent = `Select splats (${memberCount.toLocaleString()})`;
+      selectSplats.disabled = memberCount === 0;
+      selectSplats.title = 'Select Gaussian splats conservatively linked to this mesh component';
+      selectSplats.addEventListener('click', () => {
+        const state = window.S;
+        if (!state?.selected || !state.documentModel?.gaussianIds?.length) return;
+        const rowById = new Map();
+        state.documentModel.gaussianIds.forEach((id, index) => rowById.set(id, index));
+        state.selected.fill(0);
+        let selectedCount = 0;
+        for (const gaussianId of component.gaussianIds || []) {
+          const rowIndex = rowById.get(gaussianId);
+          if (rowIndex === undefined || !state.alive?.[rowIndex] || state.layerHidden?.[rowIndex]) continue;
+          state.selected[rowIndex] = 1;
+          selectedCount++;
+        }
+        window.rebuildGeometry?.();
+        window.dispatchEvent(new CustomEvent('fumoca:selectionChanged', {
+          detail: { count: selectedCount, changed: selectedCount, componentId: component.id },
+        }));
+        meshStatus(`Selected ${selectedCount.toLocaleString()} Gaussian splats linked to ${component.id}. Ambiguous spatial matches were left unassigned.`);
       });
       const isolate = document.createElement('button');
       isolate.type = 'button'; isolate.className = 'mini-btn'; isolate.textContent = 'Isolate';
@@ -548,7 +575,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         ? 'Watertight' : `Open ${boundaryEdges} · NM ${nonManifoldEdges}`;
       const faces = document.createElement('span');
       faces.className = 'hint'; faces.textContent = Number(component.triangles?.length || component.faces?.length || 0) / 3 + ' tris';
-      row.append(visible, select, isolate, role, topology, faces);
+      row.append(visible, select, selectSplats, isolate, role, topology, faces);
       list.append(row);
     }
   };
