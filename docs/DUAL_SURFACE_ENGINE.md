@@ -192,3 +192,8 @@ The local browser density/Marching-Cubes extractor remains available as a separa
 The worker now examines closed, unbranched mesh boundary loops up to 48 edges. It will cap a loop only when the loop is sufficiently planar and convex, high-confidence surfels cover at least 80% of interior probes, their normal lines agree with the candidate cap plane, and the selected support point projects inside the loop. The cap center is taken from observed surfel evidence rather than guessed from an arbitrary geometric fill.
 
 A boundary rim with no interior surfel support is rejected and remains open. Branched boundaries, non-convex loops, non-planar loops and oversized loops are left unchanged. Repair counts (candidate, filled and rejected loops) are retained in mesh diagnostics and shown in Studio. This is intentionally conservative: it will leave genuine openings alone even when that means the mesh remains non-watertight.
+### Independent component transforms
+
+Studio's component panel now supports per-component translation (X/Y/Z), rotation about Y, uniform scaling, one-step transform undo, isolation, visibility and deletion. These operations modify only the selected reconstructed component's vertex buffer. They do not mutate Gaussian positions, scales, rotations or opacity. On NIF export, the component chunk stores the transformed geometry and the legacy combined mesh is rebuilt from the remaining components if needed.
+
+Transform undo is an in-session one-step operation; it is not yet a persistent multi-step edit history. Semantic object recognition and arbitrary-axis transform gizmos remain future work.
