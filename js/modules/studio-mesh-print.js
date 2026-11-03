@@ -1607,7 +1607,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       const topology = FumocMeshExtractor.validateWatertight(lastMeshData);
       lastMeshStats = {
         ...topology,
-        printable: topology.watertight === true && Number(topology.nonManifoldEdges || 0) === 0,
+        printable: topology.watertight === true && Number(topology.nonManifoldEdges || 0) === 0 && visibleComponentsMesh.componentCount === 1,
         vertices: lastMeshData.vertices.length / 3,
         triangles: lastMeshData.triangles.length / 3,
         components: lastMeshData.componentCount,
