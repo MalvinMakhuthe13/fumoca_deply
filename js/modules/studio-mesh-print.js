@@ -192,6 +192,188 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     if (!window.S?.nifMesh && !window.S?.nifMeshComponents?.length) return { ok: true, message: '' };
     return compareGaussianSourceSignature(window.S, lastMeshSourceSignature);
   };
+  const getSupportPlaneCandidate = () =>
+    window.S?.nifMeta?.mesh_diagnostics?.support_plane_candidate
+    || window.S?.nifMeta?.support_plane_candidate
+    || null;
+
+  const updateSupportPlaneControls = () => {
+    const candidate = getSupportPlaneCandidate();
+    const hasPlane = !!(candidate?.detected && (
+      (Array.isArray(candidate.normal) && candidate.normal.length === 3
+        && candidate.normal.every(value => Number.isFinite(Number(value)))
+        && Number.isFinite(Number(candidate.offset)))
+      || Number.isFinite(Number(candidate.y))
+    ));
+    const levelButton = container.querySelector('#meshLevelSupportPlane');
+    const undoButton = container.querySelector('#meshUndoSupportLevel');
+    if (levelButton) levelButton.disabled = !hasPlane || !!candidate?.leveled || !window.S?.positions?.length;
+    if (undoButton) undoButton.disabled = !supportLevelUndo;
+  };
+
+  const levelToSupportPlane = () => {
+    const state = window.S;
+    const candidate = getSupportPlaneCandidate();
+    if (!state?.positions?.length || !candidate?.detected) {
+      meshStatus('No valid support plane is available. Run oriented-surfel reconstruction first.');
+      return false;
+    }
+    const THREE = window.THREE;
+    if (!THREE?.Vector3 || !THREE?.Quaternion) {
+      meshStatus('The 3D transform engine is not available.');
+      return false;
+    }
+    let normalValues = Array.isArray(candidate.normal) ? candidate.normal.map(Number) : [0, 1, 0];
+    let offset = Number(candidate.offset);
+    if (!normalValues.every(Number.isFinite) || normalValues.length !== 3) {
+      if (!Number.isFinite(Number(candidate.y))) {
+        meshStatus('The detected support plane has no usable normal and offset.');
+        return false;
+      }
+      normalValues = [0, 1, 0];
+      offset = Number(candidate.y);
+    }
+    if (!Number.isFinite(offset)) {
+      meshStatus('The detected support plane offset is invalid.');
+      return false;
+    }
+    const planeNormal = new THREE.Vector3(...normalValues);
+    if (planeNormal.lengthSq() < 1e-10) {
+      meshStatus('The detected support-plane normal is degenerate.');
+      return false;
+    }
+    planeNormal.normalize();
+    if (planeNormal.y < 0) {
+      planeNormal.negate();
+      offset *= -1;
+    }
+    const levelRotation = new THREE.Quaternion().setFromUnitVectors(
+      planeNormal, new THREE.Vector3(0, 1, 0),
+    ).normalize();
+    const planeOrigin = planeNormal.clone().multiplyScalar(offset);
+    const transformPositions = (source) => {
+      if (!source) return source;
+      const output = source.slice();
+      const point = new THREE.Vector3();
+      for (let i = 0; i + 2 < output.length; i += 3) {
+        point.set(source[i] - planeOrigin.x, source[i + 1] - planeOrigin.y, source[i + 2] - planeOrigin.z)
+          .applyQuaternion(levelRotation);
+        output[i] = point.x; output[i + 1] = point.y; output[i + 2] = point.z;
+      }
+      return output;
+    };
+    const transformMesh = (mesh) => mesh ? {
+      ...mesh,
+      vertices: transformPositions(mesh.vertices),
+      triangles: mesh.triangles?.slice?.() || mesh.triangles,
+      colours: mesh.colours?.slice?.() || mesh.colours,
+    } : null;
+
+    try {
+      // Stage transformed copies before changing any live state.
+      const nextPositions = transformPositions(state.positions);
+      let nextRotation = state.rotation?.slice?.() || state.rotation;
+      if (nextRotation) {
+        const gaussianRotation = new THREE.Quaternion();
+        for (let i = 0; i + 3 < nextRotation.length; i += 4) {
+          // Studio stores Gaussian quaternions as w,x,y,z; THREE uses x,y,z,w.
+          gaussianRotation.set(nextRotation[i + 1], nextRotation[i + 2], nextRotation[i + 3], nextRotation[i])
+            .premultiply(levelRotation).normalize();
+          nextRotation[i] = gaussianRotation.w;
+          nextRotation[i + 1] = gaussianRotation.x;
+          nextRotation[i + 2] = gaussianRotation.y;
+          nextRotation[i + 3] = gaussianRotation.z;
+        }
+      }
+      const nextMesh = transformMesh(state.nifMesh || lastMeshData);
+      const nextComponents = (state.nifMeshComponents || []).map(component => ({
+        ...component,
+        vertices: transformPositions(component.vertices),
+        triangles: component.triangles?.slice?.() || component.triangles,
+        colours: component.colours?.slice?.() || component.colours,
+      }));
+      const previous = {
+        positions: state.positions,
+        rotation: state.rotation,
+        nifMesh: state.nifMesh,
+        nifMeshComponents: state.nifMeshComponents,
+        nifMeta: state.nifMeta,
+        lastMeshData,
+        lastMesh,
+        lastMeshStats,
+        lastMeshSourceSignature,
+      };
+
+      // Commit both representations together. The plane is moved to y=0 and
+      // its normal becomes +Y; no Gaussian or mesh point is trimmed or deleted.
+      state.positions = nextPositions;
+      state.rotation = nextRotation;
+      state.nifMesh = nextMesh;
+      state.nifMeshComponents = nextComponents;
+      lastMeshData = nextMesh;
+      const leveledCandidate = {
+        ...candidate,
+        normal: [0, 1, 0],
+        offset: 0,
+        y: 0,
+        leveled: true,
+        leveled_at: new Date().toISOString(),
+      };
+      state.nifMeta = {
+        ...(state.nifMeta || {}),
+        mesh_diagnostics: {
+          ...(state.nifMeta?.mesh_diagnostics || {}),
+          support_plane_candidate: leveledCandidate,
+        },
+      };
+      state.nifMeta.dual_surface_source_signature = computeGaussianSourceSignature(state);
+      lastMeshSourceSignature = state.nifMeta.dual_surface_source_signature;
+      lastMesh = makeMeshBlob();
+      supportLevelUndo = previous;
+
+      window.rebuildGeometry?.();
+      if (lastMeshData) {
+        window.previewSolidMesh?.(lastMeshData, { visible: true,
+          opacity: Number(container.querySelector('#meshPreviewOpacity')?.value || 0.38) });
+        window.previewSolidMeshComponents?.(nextComponents, { visible: true, opacity: 0.95 });
+        renderMeshComponents(nextComponents);
+        window.dispatchEvent(new CustomEvent('fumoca:solidMeshReady', { detail: { mesh: lastMeshData, stats: lastMeshStats } }));
+      }
+      updateSupportPlaneControls();
+      meshStatus('Support plane levelled to horizontal at y=0. Original Gaussian and mesh geometry are preserved; nothing below the plane has been removed.');
+      return true;
+    } catch (error) {
+      meshStatus(error.message || String(error));
+      return false;
+    }
+  };
+
+  const undoSupportPlaneLevel = () => {
+    if (!supportLevelUndo || !window.S) return false;
+    const state = window.S;
+    const previous = supportLevelUndo;
+    state.positions = previous.positions;
+    state.rotation = previous.rotation;
+    state.nifMesh = previous.nifMesh;
+    state.nifMeshComponents = previous.nifMeshComponents;
+    state.nifMeta = previous.nifMeta;
+    lastMeshData = previous.lastMeshData;
+    lastMesh = previous.lastMesh;
+    lastMeshStats = previous.lastMeshStats;
+    lastMeshSourceSignature = previous.lastMeshSourceSignature;
+    supportLevelUndo = null;
+    window.rebuildGeometry?.();
+    if (lastMeshData) {
+      window.previewSolidMesh?.(lastMeshData, { visible: true,
+        opacity: Number(container.querySelector('#meshPreviewOpacity')?.value || 0.38) });
+      window.previewSolidMeshComponents?.(state.nifMeshComponents || [], { visible: true, opacity: 0.95 });
+      renderMeshComponents(state.nifMeshComponents || []);
+    }
+    updateSupportPlaneControls();
+    meshStatus('Support-plane leveling undone. The previous Gaussian and mesh coordinates are restored.');
+    return true;
+  };
+
   const syncNifMesh = (mesh) => {
     lastMeshData = mesh || null;
     const supportSuggestion = window.S?.nifMeta?.mesh_diagnostics?.support_plane_candidate;
@@ -211,6 +393,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     } else {
       lastMeshSourceSignature = null;
     }
+    updateSupportPlaneControls();
     const previewToggle = container.querySelector('#meshPreviewToggle');
     if (previewToggle) {
       previewToggle.disabled = !lastMeshData;
@@ -835,6 +1018,8 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     extractMesh,
     checkSourceFreshness,
     get lastStats() { return lastMeshStats; },
+    levelToSupportPlane,
+    undoSupportPlaneLevel,
   };
   container.querySelector('#meshOrientedReconstructBtn')?.addEventListener('click', async () => {
     const button = container.querySelector('#meshOrientedReconstructBtn');
@@ -929,6 +1114,8 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     }
   });
   container.querySelector('#meshExtractBtn')?.addEventListener('click', extractMesh);
+  container.querySelector('#meshLevelSupportPlane')?.addEventListener('click', levelToSupportPlane);
+  container.querySelector('#meshUndoSupportLevel')?.addEventListener('click', undoSupportPlaneLevel);
 
   container.querySelector('#meshFillHolesBtn')?.addEventListener('click', () => {
     if (!lastMeshData) return meshStatus('Extract a mesh before repairing mesh holes.');
