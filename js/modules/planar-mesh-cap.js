@@ -144,15 +144,15 @@ export function capPlanarBoundaryLoops(mesh, { normal, offset, tolerance = 1e-4 
     }
     for (const key of localEdges) visited.add(key);
     if (!closed || loop.length < 3) { skippedOpen++; continue; }
-    // The simplicity check and ear clipping are intentionally bounded so a
-    // dense scan cannot freeze the browser on a huge accidental boundary.
-    if (loop.length > 2048) { skippedTooLarge++; continue; }
 
     const positions = loop.map(index => [
       mesh.vertices[index * 3], mesh.vertices[index * 3 + 1], mesh.vertices[index * 3 + 2],
     ]);
     const distances = positions.map(point => point[0] * n[0] + point[1] * n[1] + point[2] * n[2] - planeOffset);
     if (distances.some(distance => Math.abs(distance) > tol)) { skippedNonPlanar++; continue; }
+    // The simplicity check and ear clipping are intentionally bounded so a
+    // dense scan cannot freeze the browser on a huge accidental boundary.
+    if (loop.length > 2048) { skippedTooLarge++; continue; }
 
     // Construct a stable 2D basis with cross(u,v) = +normal.
     const reference = Math.abs(n[0]) < 0.8 ? [1, 0, 0] : [0, 0, 1];
