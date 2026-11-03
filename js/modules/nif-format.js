@@ -447,7 +447,8 @@ export function encodeNif(opts = {}) {
   if (Array.isArray(opts.passthroughChunks)) {
     for (const chunk of opts.passthroughChunks) {
       // Rebuilt chunks must not be duplicated by the original-file passthrough.
-      if (opts.documentModel && chunk.type === CHUNK.DOCUMENT_MODEL) continue;
+      if ((opts.documentModel && chunk.type === CHUNK.DOCUMENT_MODEL) ||
+          (opts.gaussianPlyBytes && chunk.type === CHUNK.GAUSSIAN_PLY)) continue;
       writer.chunks.push(chunk);
     }
   }
