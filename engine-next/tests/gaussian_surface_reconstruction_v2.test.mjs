@@ -38,6 +38,21 @@ test('mesh component IDs remain stable when disconnected components are reordere
   assert.deepEqual(idsA, idsB);
 });
 
+test('identical disconnected mesh islands receive unique repeatable IDs', () => {
+  const mesh = {
+    vertices: new Float32Array([
+      0,0,0, 1,0,0, 0,1,0,
+      0,0,0, 1,0,0, 0,1,0,
+    ]),
+    triangles: new Uint32Array([0,1,2, 3,4,5]),
+  };
+  const idsA = FumocMeshExtractor.splitMeshComponents(mesh).map(part => part.id);
+  const idsB = FumocMeshExtractor.splitMeshComponents(mesh).map(part => part.id);
+  assert.equal(new Set(idsA).size, 2);
+  assert.deepEqual(idsA, idsB);
+  assert.match(idsA[1], /-2$/);
+});
+
 test('mesh splitter keeps faces connected through shared vertices in one component', () => {
   const parts = FumocMeshExtractor.splitMeshComponents({
     vertices: new Float32Array([0,0,0, 1,0,0, 0,1,0, 1,1,0]),
