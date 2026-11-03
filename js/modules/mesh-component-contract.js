@@ -89,3 +89,43 @@ export function normalizeMeshComponents(components) {
     return normalized;
   });
 }
+
+/**
+ * Build a legacy-compatible combined mesh view without changing the
+ * independently editable component records. Hidden components can be omitted
+ * from print/library exports while the NIF compatibility mesh keeps all parts.
+ */
+export function combineMeshComponents(components, { visibleOnly = false } = {}) {
+  const items = normalizeMeshComponents(components || []).filter(component =>
+    !visibleOnly || component.visible !== false);
+  let vertexCount = 0, faceIndexCount = 0, hasColours = false;
+  for (const component of items) {
+    vertexCount += component.vertices.length / 3;
+    faceIndexCount += component.triangles.length;
+    hasColours ||= !!component.colours;
+  }
+  if (vertexCount > 0xffffffff) throw new RangeError('combined mesh exceeds uint32 vertex indexing');
+  const vertices = new Float32Array(vertexCount * 3);
+  const triangles = new Uint32Array(faceIndexCount);
+  const colours = hasColours ? new Uint8Array(vertexCount * 3) : null;
+  let vertexOffset = 0, faceOffset = 0;
+  for (const component of items) {
+    vertices.set(component.vertices, vertexOffset * 3);
+    if (colours) {
+      if (component.colours) colours.set(component.colours, vertexOffset * 3);
+      else colours.fill(200, vertexOffset * 3, (vertexOffset + component.vertices.length / 3) * 3);
+    }
+    for (let i = 0; i < component.triangles.length; i++) {
+      triangles[faceOffset + i] = component.triangles[i] + vertexOffset;
+    }
+    vertexOffset += component.vertices.length / 3;
+    faceOffset += component.triangles.length;
+  }
+  return {
+    vertices,
+    triangles,
+    colours,
+    componentCount: items.length,
+    componentIds: items.map(component => component.id),
+  };
+}
