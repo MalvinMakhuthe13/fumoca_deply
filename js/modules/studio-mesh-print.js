@@ -612,7 +612,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       return false;
     }
     if (result.unchanged) {
-      meshStatus(`No safe support-plane cap was made. Planar loops found: ${result.skippedMultipleLoops || 0}; skipped open: ${result.skippedOpen}; non-planar: ${result.skippedNonPlanar}; invalid outline: ${result.skippedTriangulation}. Multiple coplanar loops are refused to protect holes and ring-shaped bases.`);
+      meshStatus(`No safe support-plane cap was made. Planar loops found: ${result.skippedMultipleLoops || 0}; skipped open: ${result.skippedOpen}; non-planar: ${result.skippedNonPlanar}; invalid outline: ${result.skippedTriangulation}; too large: ${result.skippedTooLarge || 0}. Multiple loops are refused to protect holes; oversized loops are refused to keep Studio responsive.`);
       return false;
     }
     const diagnostics = FumocMeshExtractor.validateWatertight(result.mesh);
