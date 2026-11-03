@@ -203,3 +203,12 @@ Studio also provides an explicit horizontal Y-plane split for a selected reconst
 
 This gives the user a controlled way to separate a touching platform from an object when connected-component analysis alone returns one surface. The plane offset is in scene coordinates and must be chosen by inspecting the scan. A poor plane choice can cut through the subject. Studio now offers one-step undo for the most recent plane split. That snapshot is in-memory only and is invalidated by a subsequent component transform or deletion, so save a duplicate/original NIF before making a series of destructive edits.
 Studio's component list also displays each component's measured open-boundary and non-manifold edge counts, watertight status, triangle count, and support-candidate confidence when available. These are per-component diagnostics from the worker or browser splitter; a support candidate remains a user-review label.
+### Support-plane suggestion and component editing safeguards
+
+The oriented worker now evaluates lower-scene Gaussian surfels for a broad horizontal support-plane candidate. The estimate uses the shortest-axis Gaussian normals, confidence, a dominant lower Y band, horizontal footprint coverage and the plane's relative height. A candidate is recorded as a suggested Y coordinate and confidence in `mesh_diagnostics.support_plane_candidate`.
+
+This is deliberately non-destructive: the worker does not delete the support surface or clip object triangles automatically. Studio pre-fills its horizontal component-split control with the suggested Y coordinate, and the user explicitly chooses whether to split. The split clips observed triangles and leaves the new boundary open; it does not create a cap.
+
+The candidate detector has regression coverage for a broad lower platform, a vertical wall and a sloped lower surface. The connected-mesh surface-role classifier uses a stricter horizontal-normal threshold to avoid labeling moderately sloped surfaces as support planes. These are geometric heuristics, not semantic object recognition; overlapping or coplanar object bases can still require manual review.
+
+Component plane splits now immediately recompute topology on both resulting surfaces. Studio reports the actual open-edge and non-manifold-edge counts rather than displaying an empty diagnostic as zero.
