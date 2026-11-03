@@ -593,6 +593,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         return false;
       }
     }
+    window.beginStudioHistory?.('Restore support-plane trim');
     for (let i = 0; i < snapshot.rows.length; i++) state.alive[snapshot.rows[i]] = snapshot.previousAlive[i];
     state.nifMeshComponents = (state.nifMeshComponents || []).map(component =>
       component.id === snapshot.componentId ? snapshot.previousComponent : component);
@@ -626,6 +627,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       console.warn('[Studio mesh] Trim undo committed; viewport refresh failed:', error);
     }
     syncComponentDiagnosticsToMeta();
+    window.commitStudioHistory?.();
     updateSupportPlaneControls();
     updateComponentTransformButtons();
     meshStatus('Undid support-plane trim. The removed Gaussian rows and original component geometry have been restored.');
@@ -747,6 +749,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       meshStatus('Undo cap is no longer safe because the component changed after capping. Newer edits were preserved.');
       return false;
     }
+    window.beginStudioHistory?.('Restore capped support boundary');
     state.nifMeshComponents = (state.nifMeshComponents || []).map(component =>
       component.id === snapshot.componentId ? snapshot.previousComponent : component);
     state.meshComponentCapUndo = null;
@@ -756,6 +759,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     refreshCombinedMeshFromComponents();
     window.previewSolidMeshComponents?.(state.nifMeshComponents, { visible: true, opacity: 0.95 });
     renderMeshComponents(state.nifMeshComponents);
+    window.commitStudioHistory?.();
     updateComponentTransformButtons();
     updateSupportPlaneControls();
     meshStatus('Undid support-base capping. The original open boundary has been restored.');
@@ -1188,12 +1192,16 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     updateSupportPlaneControls();
   };
   container.querySelector('#meshComponentsShowAll')?.addEventListener('click', () => {
+    window.beginStudioHistory?.('Show all mesh components');
     for (const component of window.S?.nifMeshComponents || []) component.visible = true;
     applyComponentVisibilityPreferences();
+    window.commitStudioHistory?.();
   });
   container.querySelector('#meshComponentsHideAll')?.addEventListener('click', () => {
+    window.beginStudioHistory?.('Hide all mesh components');
     for (const component of window.S?.nifMeshComponents || []) component.visible = false;
     applyComponentVisibilityPreferences();
+    window.commitStudioHistory?.();
   });
   const selectedMeshComponent = () => (window.S?.nifMeshComponents || []).find(component => component.id === window.S?.activeMeshComponentId);
   const linkSelectedGaussiansToComponent = (targetComponent) => {
@@ -1282,6 +1290,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       provenance: component.provenance,
     }));
     let removedCount = 0;
+    window.beginStudioHistory?.('Unlink selected Gaussian splats');
     state.nifMeshComponents = (state.nifMeshComponents || []).map(component => {
       const existing = Array.from(component.gaussianIds || []);
       const retained = existing.filter(id => !selectedIds.has(id));
@@ -1300,6 +1309,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       };
     });
     if (!removedCount) {
+      window.cancelStudioHistory?.();
       meshStatus('None of the selected splats were linked to a mesh component.');
       return false;
     }
@@ -1308,6 +1318,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       afterSignature: meshStateSignature(state.nifMesh, state.nifMeshComponents),
     };
     syncComponentDiagnosticsToMeta();
+    window.commitStudioHistory?.();
     renderMeshComponents(state.nifMeshComponents);
     updateComponentTransformButtons();
     updateSupportPlaneControls();
@@ -1529,6 +1540,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     };
     const replacement = [positive, negative].sort((a, b) => meanPlaneDistance(a) - meanPlaneDistance(b));
     window.beginStudioHistory?.('Split mesh component');
+    window.beginStudioHistory?.('Split mesh component');
     state.meshComponentSplitUndo = {
       source: { ...component, vertices: component.vertices.slice(), triangles: component.triangles.slice(), colours: component.colours?.slice(), gaussianIds: component.gaussianIds?.slice?.() || component.gaussianIds },
       partIds: [positive.id, negative.id],
@@ -1598,6 +1610,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     const state = window.S;
     if (!state?.activeMeshComponentId) return;
     const id = state.activeMeshComponentId;
+    window.beginStudioHistory?.('Delete mesh component');
     const componentIndex = (state.nifMeshComponents || []).findIndex(component => component.id === id);
     const deletedComponent = (state.nifMeshComponents || [])[componentIndex];
     if (!deletedComponent) return;
@@ -1620,6 +1633,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     window.highlightSolidMeshComponent?.(state.activeMeshComponentId);
     window.setSolidMeshComponentsVisibility?.(true);
     renderMeshComponents(state.nifMeshComponents);
+    window.commitStudioHistory?.();
     updateComponentTransformButtons();
     updateSupportPlaneControls();
     meshStatus('Deleted component ' + id + '. Its geometry and Gaussian membership are retained in one-step undo and document lineage.');
@@ -1633,6 +1647,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       updateComponentTransformButtons();
       return;
     }
+    window.beginStudioHistory?.('Restore deleted mesh component');
     components.splice(Math.min(snapshot.index, components.length), 0, snapshot.source);
     state.nifMeshComponents = components;
     state.activeMeshComponentId = components.some(component => component.id === snapshot.previousActiveId)
@@ -1644,6 +1659,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     window.previewSolidMeshComponents?.(components, { visible: true, opacity: 1 });
     window.highlightSolidMeshComponent?.(state.activeMeshComponentId);
     renderMeshComponents(components);
+    window.commitStudioHistory?.();
     updateComponentTransformButtons();
     updateSupportPlaneControls();
     meshStatus('Restored deleted component ' + snapshot.source.id + ' with its geometry and Gaussian membership.');
