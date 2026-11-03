@@ -201,6 +201,17 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     || window.S?.nifMeta?.support_plane_candidate
     || null;
 
+  const splitComponentBaseId = (parentId, axis, offset) => {
+    const key = `${parentId}|plane-split|${axis}|${Number(offset).toPrecision(12)}`;
+    let a = 0x811c9dc5, b = 0x9e3779b9;
+    for (let i = 0; i < key.length; i++) {
+      const word = key.charCodeAt(i);
+      a = Math.imul(a ^ word, 0x01000193) >>> 0;
+      b = Math.imul(b ^ ((word + 0x7ed55d16) >>> 0), 0x85ebca6b) >>> 0;
+    }
+    return `split-${a.toString(16).padStart(8, '0')}${b.toString(16).padStart(8, '0')}`;
+  };
+
   const meshStateSignature = (mesh, components = []) => {
     let hashA = 0x811c9dc5, hashB = 0x9e3779b9;
     const view = new DataView(new ArrayBuffer(4));
@@ -720,8 +731,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       && Number.isFinite(Number(supportSuggestion.y))
       && Math.abs(splitOffset - Number(supportSuggestion.y)) <= Math.max(Number(supportSuggestion.tolerance || 0), 1e-4)
     );
-    const splitToken = Math.round(splitOffset * 100000).toString(36);
-    const splitBaseId = `${component.id}-split-${axis}-${splitToken}`;
+    const splitBaseId = splitComponentBaseId(component.id, axis, splitOffset);
     const parentIds = [...new Set([...(component.parentIds || []), component.id])];
     const splitMembership = { positive: [], negative: [] };
     const memberIds = component.gaussianIds || [];
