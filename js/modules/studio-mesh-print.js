@@ -267,9 +267,11 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       });
       const role = document.createElement('span');
       role.className = 'hint';
-      role.textContent = component.supportSurfaceCandidate ? 'Support surface candidate' : '';
-      role.style.color = component.supportSurfaceCandidate ? 'var(--neon)' : 'var(--muted)';
       const diagnostics = component.diagnostics || component.stats || {};
+      const supportConfidence = Number(diagnostics.support_plane_confidence);
+      role.textContent = component.supportSurfaceCandidate
+        ? 'Support candidate' + (Number.isFinite(supportConfidence) ? ` ${Math.round(supportConfidence * 100)}%` : '') : '';
+      role.style.color = component.supportSurfaceCandidate ? 'var(--neon)' : 'var(--muted)';
       const boundaryEdges = Number(diagnostics.n_boundary_edges ?? diagnostics.openEdges ?? 0);
       const nonManifoldEdges = Number(diagnostics.n_nonmanifold_edges ?? diagnostics.nonManifoldEdges ?? 0);
       const topology = document.createElement('span');
