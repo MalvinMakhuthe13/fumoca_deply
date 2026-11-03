@@ -1821,6 +1821,111 @@ def _evaluate_supported_boundary_loop(loop_points: np.ndarray,
     }
 
 
+def _boundary_edge_loops(mesh, max_edges: int = 48):
+    """Return only closed, unbranched boundary loops; ignore open/branched rims."""
+    edges = np.asarray(mesh.edges_sorted)
+    if edges.size == 0:
+        return []
+    unique_edges, counts = np.unique(edges, axis=0, return_counts=True)
+    boundary = unique_edges[counts == 1]
+    adjacency = {}
+    remaining = set()
+    for a, b in boundary:
+        a, b = int(a), int(b)
+        adjacency.setdefault(a, []).append(b)
+        adjacency.setdefault(b, []).append(a)
+        remaining.add((min(a, b), max(a, b)))
+    if any(len(neighbors) != 2 for neighbors in adjacency.values()):
+        # Branched/open boundary graphs are not safe to cap with a fan.
+        return []
+    loops = []
+    while remaining:
+        first = next(iter(remaining))
+        start, current = first
+        loop = [start, current]
+        remaining.remove(first)
+        previous = start
+        closed = False
+        while len(loop) <= int(max_edges) + 1:
+            candidates = [v for v in adjacency[current] if v != previous]
+            if not candidates:
+                break
+            nxt = candidates[0]
+            edge = (min(current, nxt), max(current, nxt))
+            if nxt == start:
+                remaining.discard(edge)
+                closed = True
+                break
+            if edge not in remaining:
+                break
+            remaining.remove(edge)
+            loop.append(nxt)
+            previous, current = current, nxt
+        if closed and 3 <= len(loop) <= int(max_edges):
+            loops.append(np.asarray(loop, dtype=np.int64))
+    return loops
+
+
+def _repair_supported_mesh_boundaries(mesh, surfel_positions: np.ndarray,
+                                      surfel_normals: np.ndarray,
+                                      surfel_confidence: np.ndarray,
+                                      voxel_size: float,
+                                      median_spacing: float,
+                                      max_loop_edges: int = 48):
+    """
+    Fill only small convex loops whose interior has confident, normal-aligned
+    Gaussian surfel support. Genuine openings and unsupported gaps stay open.
+    """
+    import trimesh
+    loops = _boundary_edge_loops(mesh, max_edges=max_loop_edges)
+    stats = {
+        'method': 'interior-confidence-gated-convex-loop',
+        'candidate_loops': len(loops),
+        'filled_loops': 0,
+        'filled_triangles': 0,
+        'rejected_loops': 0,
+    }
+    if not loops:
+        return mesh, stats
+    vertices = np.asarray(mesh.vertices, dtype=np.float64).copy()
+    faces = np.asarray(mesh.faces, dtype=np.int64).tolist()
+    source_colors = np.asarray(mesh.visual.vertex_colors[:, :3], dtype=np.uint8)
+    colors = source_colors.tolist()
+    support_radius = max(2.0 * float(voxel_size), 1.5 * float(median_spacing))
+    for loop in loops:
+        assessment = _evaluate_supported_boundary_loop(
+            vertices[loop], surfel_positions, surfel_normals,
+            surfel_confidence, support_radius, max_edges=max_loop_edges,
+        )
+        if not assessment.get('supported'):
+            stats['rejected_loops'] += 1
+            continue
+        center_index = len(vertices)
+        center = np.asarray(assessment['center'], dtype=np.float64)
+        vertices = np.vstack([vertices, center])
+        colors.append(np.asarray(source_colors[loop].mean(axis=0), dtype=np.uint8).tolist())
+        expected_normal = np.asarray(assessment['normal'], dtype=np.float64)
+        for i in range(len(loop)):
+            a = int(loop[i])
+            b = int(loop[(i + 1) % len(loop)])
+            face_normal = np.cross(vertices[b] - vertices[a], center - vertices[a])
+            if np.dot(face_normal, expected_normal) < 0:
+                a, b = b, a
+            faces.append([a, b, center_index])
+            stats['filled_triangles'] += 1
+        stats['filled_loops'] += 1
+    if stats['filled_loops']:
+        repaired = trimesh.Trimesh(
+            vertices=vertices,
+            faces=np.asarray(faces, dtype=np.int64),
+            vertex_colors=np.asarray(colors, dtype=np.uint8),
+            process=False,
+        )
+        repaired.remove_unreferenced_vertices()
+        return repaired, stats
+    return mesh, stats
+
+
 def _classify_mesh_surface_role(component, scene_min_y: float,
                                   scene_max_y: float, total_faces: int):
     """
