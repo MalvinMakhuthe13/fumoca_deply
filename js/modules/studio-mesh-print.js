@@ -347,7 +347,9 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       ? ` · Normal regions ${Number(stats.normal_component_count)}` : '';
     const batches = Number.isFinite(Number(stats.tsdf_fusion_batches))
       ? ` · TSDF batches ${Number(stats.tsdf_fusion_batches)}` : '';
-    el.textContent = `Components: ${components} · Triangles: ${triangles.toLocaleString()} · Open edges: ${open.toLocaleString()} · Non-manifold edges: ${nonManifold.toLocaleString()} · ${watertight ? 'Watertight' : 'Open surface'}${coverage}${confidence}${normalComponents}${batches}`;
+    const repair = stats.surface_repair
+      ? ` · Evidence-gated repair ${Number(stats.surface_repair.filled_loops || 0)} filled / ${Number(stats.surface_repair.rejected_loops || 0)} rejected` : '';
+    el.textContent = `Components: ${components} · Triangles: ${triangles.toLocaleString()} · Open edges: ${open.toLocaleString()} · Non-manifold edges: ${nonManifold.toLocaleString()} · ${watertight ? 'Watertight' : 'Open surface'}${coverage}${confidence}${normalComponents}${batches}${repair}`;
   };
   const makeMeshBlob = () => {
     if (!lastMeshData) return null;
