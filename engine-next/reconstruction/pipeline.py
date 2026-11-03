@@ -1651,6 +1651,14 @@ def _confidence_weighted_tsdf(grid: np.ndarray, positions: np.ndarray,
         raise ValueError('TSDF query grid must have shape (N, 3)')
     if len(normals) != len(points) or len(component_ids) != len(points) or len(confidence) != len(points):
         raise ValueError('surfel normals, component IDs and confidence must match positions')
+    if (not np.all(np.isfinite(points)) or not np.all(np.isfinite(query))
+            or not np.isfinite(voxel_size) or float(voxel_size) <= 0):
+        raise ValueError('TSDF positions, queries and voxel size must be finite; voxel size must be positive')
+    if (component_ids.ndim != 1 or not np.issubdtype(component_ids.dtype, np.integer)
+            or np.any(component_ids < 0)):
+        raise ValueError('surfel component IDs must be a non-negative integer array')
+    if not np.all(np.isfinite(confidence)) or np.any(confidence < 0):
+        raise ValueError('surfel confidence must be finite and non-negative')
     normal_array = np.asarray(normals, dtype=np.float64)
     normal_lengths = np.linalg.norm(normal_array, axis=1)
     if not np.all(np.isfinite(normal_array)) or np.any(normal_lengths < 1e-9):
