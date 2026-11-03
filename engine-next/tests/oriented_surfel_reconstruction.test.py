@@ -153,5 +153,35 @@ except ValueError:
     bad_axes_rejected = True
 check('degenerate Gaussian tangent axes are rejected', bad_axes_rejected)
 
+
+# A large lower horizontal mesh component is only flagged as a support
+# candidate. Its geometry is retained; vertical planes are not mislabeled.
+class MeshFixture:
+    def __init__(self, vertices, faces):
+        self.vertices = np.asarray(vertices, dtype=float)
+        self.faces = np.asarray(faces, dtype=np.int32)
+
+classify_surface = namespace['_classify_mesh_surface_role']
+plane_vertices = np.array([[x * 0.1, 0.0, z * 0.1]
+                           for x in range(5) for z in range(5)], dtype=float)
+plane_faces = []
+for x in range(4):
+    for z in range(4):
+        a = x * 5 + z
+        plane_faces.extend([[a, a + 1, a + 5], [a + 1, a + 6, a + 5]])
+plane_role = classify_surface(MeshFixture(plane_vertices, plane_faces), 0.0, 1.0, 50)
+check('large lower horizontal component is flagged as support candidate',
+      plane_role['role_candidate'] == 'support_surface'
+      and plane_role['support_plane_confidence'] > 0.5,
+      plane_role)
+
+vertical_vertices = np.array([[0.0, y * 0.1, z * 0.1]
+                               for y in range(5) for z in range(5)], dtype=float)
+vertical_role = classify_surface(MeshFixture(vertical_vertices, plane_faces), 0.0, 1.0, 50)
+check('vertical planar wall is not mislabeled as a horizontal support plane',
+      vertical_role['role_candidate'] == 'surface'
+      and vertical_role['support_plane_confidence'] == 0.0,
+      vertical_role)
+
 print(f'\n{passed} passed, {failed} failed')
 sys.exit(1 if failed else 0)
