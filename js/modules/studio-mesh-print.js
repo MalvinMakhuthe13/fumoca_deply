@@ -1475,7 +1475,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       .concat(replacement);
     state.activeMeshComponentId = positive.id;
     state.nifMesh = null;
-    supportLevelUndo = null;
     updateSupportPlaneControls();
     syncComponentDiagnosticsToMeta();
     state.nifMeta = {
@@ -1554,7 +1553,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       index: componentIndex,
       previousActiveId: state.activeMeshComponentId,
     };
-    supportLevelUndo = null;
     state.meshComponentSplitUndo = null;
     state.nifMeshComponents = (state.nifMeshComponents || []).filter(component => component.id !== id);
     state.activeMeshComponentId = state.nifMeshComponents[0]?.id || null;
@@ -1789,7 +1787,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     state.meshComponentCapUndo = null;
     state.meshComponentMembershipUndo = null;
     state.supportPlaneTrimUndo = null;
-    supportLevelUndo = null;
     state.nifMeta = { ...(state.nifMeta || {}), mesh_components_edited: true };
     refreshCombinedMeshFromComponents();
     window.previewSolidMeshComponents?.(state.nifMeshComponents, { visible: true, opacity: 0.95 });
@@ -1952,7 +1949,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       lastMeshFormat = format;
       lastMeshStats = stagedStats;
       lastMeshSourceSignature = extractionSourceSignature;
-      supportLevelUndo = null;
       updateSupportPlaneControls();
       if (window.S) {
         window.S.meshComponentDeleteUndo = null;
