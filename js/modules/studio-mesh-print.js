@@ -271,6 +271,11 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
 
   const updateSupportPlaneControls = () => {
     const state = window.S;
+    if (state?.supportPlaneTrimPreview
+        && (computeGaussianSourceSignature(state) !== state.supportPlaneTrimPreview.sourceSignature
+          || meshStateSignature(state.nifMesh, state.nifMeshComponents) !== state.supportPlaneTrimPreview.meshSignature)) {
+      clearSupportTrimPreview(true);
+    }
     if (state?.supportPlaneTrimUndo
         && (computeGaussianSourceSignature(state) !== state.supportPlaneTrimUndo.sourceSignatureAfter
           || meshStateSignature(state.nifMesh, state.nifMeshComponents) !== state.supportPlaneTrimUndo.meshSignatureAfter)) {
