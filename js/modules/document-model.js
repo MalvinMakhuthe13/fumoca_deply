@@ -29,7 +29,13 @@ function cloneValue(value) {
   return out;
 }
 
-function maxId(ids) {\n  let maximum = 0;\n  for (const id of ids) if (id > maximum) maximum = id;\n  return maximum;\n}\n\nfunction asUint32Ids(value, label, { allowEmpty = true } = {}) {
+function maxId(ids) {
+  let maximum = 0;
+  for (const id of ids) if (id > maximum) maximum = id;
+  return maximum;
+}
+
+function asUint32Ids(value, label, { allowEmpty = true } = {}) {
   if (value == null && allowEmpty) return new Uint32Array();
   const ids = value instanceof Uint32Array ? new Uint32Array(value) : Uint32Array.from(value || []);
   if (!allowEmpty && ids.length === 0) throw new Error(`[document-model] ${label} cannot be empty`);
