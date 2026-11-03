@@ -969,6 +969,8 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     const before = (state.nifMeshComponents || []).map(component => ({
       id: component.id,
       gaussianIds: component.gaussianIds?.slice?.() || new Uint32Array(),
+      diagnostics: component.diagnostics,
+      provenance: component.provenance,
     }));
     const selectedSet = new Set(selectedIds);
     state.nifMeshComponents = (state.nifMeshComponents || []).map(component => {
@@ -990,8 +992,15 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       return {
         ...component,
         gaussianIds: Uint32Array.from(existing.filter(id => !selectedSet.has(id))),
+        diagnostics: {
+          ...(component.diagnostics || {}),
+          gaussian_membership_count: existing.filter(id => !selectedSet.has(id)).length,
+          gaussian_membership_method: 'user-selected-adjusted',
+        },
+        provenance: { ...(component.provenance || {}), gaussianMembership: 'user-selected-adjusted' },
       };
     });
+    state.activeMeshComponentId = targetComponent.id;
     state.meshComponentMembershipUndo = {
       before,
       afterSignature: meshStateSignature(state.nifMesh, state.nifMeshComponents),
@@ -1013,9 +1022,16 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       meshStatus('Undo link is no longer safe because component geometry, visibility or membership changed. Newer edits were preserved.');
       return false;
     }
-    const before = new Map(snapshot.before.map(item => [item.id, item.gaussianIds]));
-    state.nifMeshComponents = (state.nifMeshComponents || []).map(component =>
-      before.has(component.id) ? { ...component, gaussianIds: before.get(component.id).slice() } : component);
+    const before = new Map(snapshot.before.map(item => [item.id, item]));
+    state.nifMeshComponents = (state.nifMeshComponents || []).map(component => {
+      const prior = before.get(component.id);
+      return prior ? {
+        ...component,
+        gaussianIds: prior.gaussianIds.slice(),
+        diagnostics: prior.diagnostics,
+        provenance: prior.provenance,
+      } : component;
+    });
     state.meshComponentMembershipUndo = null;
     syncComponentDiagnosticsToMeta();
     renderMeshComponents(state.nifMeshComponents);
