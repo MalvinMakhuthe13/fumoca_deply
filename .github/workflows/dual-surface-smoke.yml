@@ -4,9 +4,11 @@ on:
   push:
     branches:
       - feature/dual-surface-engine-2026-11-02
+      - feature/gaussian-surface-reconstruction-v2
   pull_request:
     branches:
       - main
+      - feature/dual-surface-engine-2026-11-02
 
 jobs:
   dual-surface:
@@ -18,14 +20,52 @@ jobs:
           node-version: 22
       - name: Verify JavaScript syntax
         run: |
+          node --check --experimental-default-type=module js/modules/fumoc-mesh-extractor.js
+          node --check --experimental-default-type=module js/modules/gaussian-density-bridging.js
+          node --check --experimental-default-type=module js/modules/screen-space-selection.js
           node --check --experimental-default-type=module js/modules/studio-mesh-print.js
           node --check --experimental-default-type=module js/modules/dual-surface-contract.js
+          node --check --experimental-default-type=module js/modules/document-model.js
+          node --check --experimental-default-type=module js/modules/document-model-nif.js
+          node --check --experimental-default-type=module js/modules/support-plane-transform.js
+          node --check --experimental-default-type=module js/modules/support-plane-trim.js
+          node --check --experimental-default-type=module js/modules/planar-mesh-cap.js
+          node --check --experimental-default-type=module js/modules/mesh-component-contract.js
+          node --check --experimental-default-type=module js/modules/gaussian-component-membership.js
           node --check --experimental-default-type=module js/modules/nif-format.js
-      - name: Verify dual-layer NIF round trip
+          node --check --experimental-default-type=module js/modules/print-export.js
+          node --check --experimental-default-type=module js/modules/viewer.js
+      - name: Verify canonical document identity and transactional history
+        run: node --experimental-default-type=module --test engine-next/tests/document_model.test.mjs
+      - name: Verify binary NIF document identity persistence
+        run: node --experimental-default-type=module --test engine-next/tests/document_model_nif.test.mjs
+      - name: Verify support-plane leveling transforms
+        run: node --experimental-default-type=module --test engine-next/tests/support_plane_transform.test.mjs
+      - name: Verify component-scoped support-plane trim planning
+        run: node --experimental-default-type=module --test engine-next/tests/support_plane_trim.test.mjs
+      - name: Verify planar support-base capping
+        run: node --experimental-default-type=module --test engine-next/tests/planar_mesh_cap.test.mjs
+      - name: Verify shared mesh component contract
+        run: node --experimental-default-type=module --test engine-next/tests/mesh_component_contract.test.mjs
+      - name: Verify combined component mesh exports
+        run: node --experimental-default-type=module --test engine-next/tests/combine_mesh_components.test.mjs
+      - name: Verify Gaussian component membership mapping
+        run: node --experimental-default-type=module --test engine-next/tests/gaussian_component_membership.test.mjs
+      - name: Verify dual-layer NIF round trip and component visibility persistence
         run: node --experimental-default-type=module --test engine-next/tests/dual_surface_roundtrip.test.mjs
       - name: Verify Gaussian-to-mesh source freshness contract
         run: node --experimental-default-type=module --test engine-next/tests/dual_surface_source_contract.test.mjs
+      - name: Verify Gaussian surface reconstruction regressions
+        run: node --experimental-default-type=module --test engine-next/tests/gaussian_surface_reconstruction_v2.test.mjs
+      - name: Verify directional density bridging
+        run: node --experimental-default-type=module --test engine-next/tests/gaussian_density_bridging.test.mjs
+      - name: Verify depth-aware screen selection
+        run: node --experimental-default-type=module --test engine-next/tests/screen_space_selection.test.mjs
       - name: Verify reconstruction worker syntax
         run: python -m py_compile engine-next/reconstruction/pipeline.py
+      - name: Verify oriented-surfel normal orientation
+        run: |
+          python -m pip install --quiet numpy scipy
+          python engine-next/tests/oriented_surfel_reconstruction.test.py
       - name: Verify Studio inline scripts
         run: python engine-next/tests/check_edit_inline_scripts.py

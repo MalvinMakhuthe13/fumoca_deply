@@ -143,6 +143,9 @@ and continue reading. This ensures forward compatibility.
 | 0x0016 | SEMANTIC_MAP  | **Reserved, not implemented.** Per-voxel semantic labels (vertical-specific schema) (planned). |
 | 0x0017 | CALIBRATION   | Real-world scale record. See §6c. |
 | 0x0018 | VERIFICATION  | Product-verification report against a reference mesh. See §6d. |
+| 0x001A | MESH_COMPONENTS | Independently addressable reconstructed mesh components (v1 binary component records). The combined KEYFRAME_MESH remains the backwards-compatible scene fallback. |
+| 0x001B | DOCUMENT_MODEL | Optional stable document identity: document UUID/revision, uint32 Gaussian IDs, component IDs, Gaussian membership, visibility and lineage. See §6e. |
+| 0x001C | GAUSSIAN_PLY | Optional original Gaussian PLY payload, preserving higher-order spherical-harmonic coefficients and source attributes not represented by the canonical 14-float KEYFRAME_GEO layout. |
 | 0x0020 | CERT          | Encoder certificate. See §10. |
 | 0x0300 | SPATIAL_AUDIO | **Reserved, not implemented.** Ambisonics B-format audio + HRTF source positions (planned). ID shared with .spax's SPAX_CHUNK.SPATIAL_AUDIO — see §11a. |
 | 0x0500 | EDIT_HISTORY  | **Reserved, not implemented.** Non-destructive edit operations (reversible) (planned). ID shared with .spax's SPAX_CHUNK.EDIT_HISTORY — see §11a. |
@@ -315,6 +318,16 @@ verified" and MUST NOT be displayed or treated as a pass by any consumer.
 a shape-only comparison has no tolerance to pass or fail against, and a
 consumer must not render a null `pass` as a failure any more than as a
 success.
+
+---
+
+## 6e. Persistent document identity and Gaussian source fidelity
+
+These optional chunks extend NIF without changing the existing KEYFRAME_GEO or KEYFRAME_MESH layouts. Readers that do not implement them MUST skip them using the standard chunk size.
+
+**DOCUMENT_MODEL v1 payload (big-endian):** `[version:u8=1][metadata_length:u32][gaussian_count:u32][component_count:u32][metadata:utf8-json][gaussian_ids:gaussian_count×u32][component_memberships...]`. The JSON metadata stores the document UUID, model version, revision, next Gaussian ID, optional active component ID, source signatures, reconstruction metadata, lineage and component identity records. The active component ID, when present, MUST reference a component record. Each component membership is `[count:u32][gaussian_ids:count×u32]`. Gaussian identity 0 is reserved; IDs are document-scoped and are not array offsets. Component IDs are stable strings. Membership references MUST resolve to an ID in the document Gaussian ID array.
+
+**GAUSSIAN_PLY** stores the original PLY byte stream as an optional fidelity payload. KEYFRAME_GEO remains the canonical render/interchange representation; GAUSSIAN_PLY preserves source PLY attributes such as higher-order SH coefficients that cannot be represented in the 14-float geometry record. An editor should prefer this payload when reopening a Gaussian PLY-authored scene, while retaining KEYFRAME_GEO as the interoperable fallback.
 
 ---
 

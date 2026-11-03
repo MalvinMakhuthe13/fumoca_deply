@@ -8,6 +8,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
 import * as GS3D from 'https://cdn.jsdelivr.net/npm/@mkkellogg/gaussian-splats-3d@0.4.7/build/gaussian-splats-3d.module.js';
 import { MeshEngine } from './mesh-engine.js';
+import { selectVisibleScreenPoints } from './screen-space-selection.js';
 import { SoundEngine, buildAmbientPanel } from './sound-engine.js';
 
 // ── DISPLAY MODES ─────────────────────────────────────────────────────────────
@@ -377,9 +378,17 @@ function setMode(mode) {
 }
 
 function projectPoint(i) {
-  const p=new THREE.Vector3(state.positions[i*3],state.positions[i*3+1],state.positions[i*3+2]);
-  p.project(camera);
-  return {x:(p.x*.5+.5)*window.innerWidth, y:(-p.y*.5+.5)*window.innerHeight, z:p.z};
+  const world = new THREE.Vector3(state.positions[i*3],state.positions[i*3+1],state.positions[i*3+2]);
+  const view = camera.worldToLocal(world.clone());
+  const depth = -view.z;
+  const p = world.project(camera);
+  return {
+    x:(p.x*.5+.5)*window.innerWidth,
+    y:(-p.y*.5+.5)*window.innerHeight,
+    z:p.z,
+    depth,
+    visible:p.z>=-1 && p.z<=1,
+  };
 }
 function pointInPoly(x,y,pts) {
   let inside=false;
@@ -393,17 +402,25 @@ function pointInPoly(x,y,pts) {
 function selectByScreen(points, isBox=false) {
   if(!state.alive) return;
   let minX,minY,maxX,maxY;
-  if(isBox) { minX=Math.min(points[0].x,points[1].x);minY=Math.min(points[0].y,points[1].y);maxX=Math.max(points[0].x,points[1].x);maxY=Math.max(points[0].y,points[1].y); }
-  let sel=0;
-  for (let i=0;i<state.alive.length;i++) {
-    if(!state.alive[i]) continue;
-    const p=projectPoint(i);
-    if(p.z<-1||p.z>1) continue;
-    const hit=isBox?(p.x>=minX&&p.x<=maxX&&p.y>=minY&&p.y<=maxY):pointInPoly(p.x,p.y,points);
-    if(hit) { state.selected[i]=1; sel++; }
+  if(isBox) {
+    minX=Math.min(points[0].x,points[1].x); minY=Math.min(points[0].y,points[1].y);
+    maxX=Math.max(points[0].x,points[1].x); maxY=Math.max(points[0].y,points[1].y);
   }
+  const contains = isBox
+    ? (x,y)=>x>=minX&&x<=maxX&&y>=minY&&y<=maxY
+    : (x,y)=>pointInPoly(x,y,points);
+  const visibleIndices = selectVisibleScreenPoints({
+    count: state.alive.length,
+    isAlive: i => !!state.alive[i],
+    project: projectPoint,
+    contains,
+    cellSize: 4,
+    depthTolerance: 0.006,
+  });
+  for (const i of visibleIndices) state.selected[i]=1;
+  const totalSelected = state.selected.reduce((sum,value)=>sum+(value?1:0),0);
   rebuildGeometry(false);
-  setStatus(`Selected ${fmt(sel)} gaussians.`);
+  setStatus(`Added ${fmt(visibleIndices.length)} visible surface Gaussians; ${fmt(totalSelected)} selected total. Rotate and select again to capture other sides.`);
 }
 
 function deleteSelected() {

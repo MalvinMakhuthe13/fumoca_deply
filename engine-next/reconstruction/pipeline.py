@@ -5,8 +5,8 @@ fumoca.co.za · © Fumoca Technologies
 What this produces per .nif file:
   CHUNK 0x0002  PROXY_VIDEO    — H.264 proxy video (from input or rendered)
   CHUNK 0x0003  KEYFRAME_GEO   — full 3D depth field (all points, 14 floats each)
-  CHUNK 0x0004  KEYFRAME_MESH  — real triangulated watertight mesh, extracted from
-                                 the trained Gaussians (see stage 9 below)
+  CHUNK 0x0004  KEYFRAME_MESH  — real triangulated surface mesh, extracted from
+                                 trained Gaussians; openness is measured, not assumed
   CHUNK 0x0007  DEPTH_MAP      — per-pixel depth (float16 HxW, reference frame). Metric
                                  (metres) only when CALIBRATION.method used the DepthAnything
                                  Metric checkpoint or an ArUco/manual reference — check
@@ -31,13 +31,11 @@ Pipeline stages:
   6. Segment Anything (SAM 2) — per-object segmentation for interactive layers
   7. Camera pose estimation — COLMAP sparse SfM
   8. 3D depth field training — gsplat v1.x
-  9. Mesh extraction — real triangulation from the trained Gaussians. Each
-     Gaussian's shortest axis (after training) aligns with the true surface
-     normal, so we treat the splats as an oriented point cloud, splat them into
-     a signed-distance volume, and run marching cubes to get an actual
-     watertight triangle mesh — not a renamed point cloud. This is the same
-     family of technique as SuGaR / Gaussian-to-mesh literature, implemented
-     here with only numpy/scipy/scikit-image (no GPU, no extra service).
+  9. Mesh extraction — estimate unoriented surfel normals from each Gaussian's
+     shortest covariance axis, orient them locally, fuse a confidence-weighted
+     truncated signed-distance field, and run masked marching cubes. Voxels
+     without nearby surfel support are excluded, so real scan boundaries can
+     remain open. Watertightness is measured, never assumed.
   10. Layer splitting — divide points into foreground/background by depth + mask
   11. Proxy video encoding — ffmpeg H.264
   12. Pack all chunks → .nif binary
@@ -46,7 +44,7 @@ Pipeline stages:
 
 Requirements:
   pip install gsplat torch torchvision rembg segment-anything-2 depth-anything boto3 \
-              supabase trimesh scikit-image scipy manifold3d fast_simplification \
+              supabase trimesh scikit-image scipy fast_simplification \
               imageio[ffmpeg] Pillow requests
 """
 
@@ -109,7 +107,8 @@ except ImportError:
 # ─── NIF binary constants ─────────────────────────────────────────────────────
 NIF_MAGIC    = 0x4E494600
 CHUNK_GEO    = 0x0003
-CHUNK_MESH   = 0x0004  # Watertight triangle mesh — real triangulation, see _extract_mesh()
+CHUNK_MESH   = 0x0004  # Combined reconstructed triangle surface; may be open.
+CHUNK_MESH_COMPONENTS = 0x001A  # Versioned independently addressable mesh components.
 CHUNK_CAMERAS = 0x000B  # Per-frame 4×4 view matrices + pose_source — see _pack_cameras().
                          # Previously computed for Gaussian training and then discarded;
                          # nothing in the .nif persisted them, so a NIF-native viewer had
@@ -1547,6 +1546,637 @@ def _patch(job_id: str, payload: dict):
         print(f'[warn] Supabase progress update failed: {e}')
 
 
+def _orient_normals_consistently(positions: np.ndarray, normals: np.ndarray,
+                                  neighbors: int = 8,
+                                  distance_factor: float = 3.5,
+                                  min_alignment: float = 0.12):
+    """
+    Orient unoriented Gaussian normal *lines* by local graph propagation.
+
+    Returns (oriented_normals, component_ids, diagnostics). Edges are admitted
+    only when points are locally close and their normal lines are compatible.
+    Each connected component gets its own arbitrary sign seed: there is no
+    scene-wide centroid assumption. A component's global sign is immaterial to
+    its zero level set; consistency within that component is what TSDF needs.
+
+    This deliberately does not claim semantic object segmentation. Nearby
+    coplanar objects can share a graph component; downstream editing still
+    needs geometric component analysis or explicit user separation.
+    """
+    from scipy.spatial import cKDTree
+
+    points = np.asarray(positions, dtype=np.float64)
+    out = np.asarray(normals, dtype=np.float64).copy()
+    if points.ndim != 2 or points.shape[1] != 3 or out.shape != points.shape:
+        raise ValueError('positions and normals must both have shape (N, 3)')
+    count = len(points)
+    if count == 0:
+        return out, np.empty(0, dtype=np.int32), {
+            'components': 0, 'oriented_points': 0, 'method': 'local_knn_graph'}
+    lengths = np.linalg.norm(out, axis=1)
+    out /= np.maximum(lengths[:, None], 1e-12)
+    if count == 1:
+        return out, np.zeros(1, dtype=np.int32), {
+            'components': 1, 'oriented_points': 1, 'method': 'local_knn_graph'}
+
+    k = min(max(2, int(neighbors) + 1), count)
+    distances, indices = cKDTree(points).query(points, k=k, workers=-1)
+    if k == 1:
+        distances, indices = distances[:, None], indices[:, None]
+    local_spacing = np.maximum(distances[:, 1], 1e-9)
+    positive = local_spacing[np.isfinite(local_spacing) & (local_spacing > 1e-9)]
+    median_spacing = float(np.median(positive)) if len(positive) else 1.0
+
+    adjacency = [[] for _ in range(count)]
+    for i in range(count):
+        for slot in range(1, k):
+            j = int(indices[i, slot])
+            if i == j:
+                continue
+            limit = distance_factor * max(local_spacing[i], local_spacing[j],
+                                           median_spacing * 0.5)
+            if distances[i, slot] > limit:
+                continue
+            alignment = float(np.dot(out[i], out[j]))
+            if abs(alignment) < min_alignment:
+                continue
+            # Treat the k-nearest-neighbour graph as undirected. A point can
+            # select j without j selecting it back; one-way edges make the
+            # orientation result depend on seed order and can split a valid
+            # local surface into traversal-dependent fragments.
+            adjacency[i].append((j, alignment))
+            adjacency[j].append((i, alignment))
+
+    component_ids = np.full(count, -1, dtype=np.int32)
+    component = 0
+    for seed in range(count):
+        if component_ids[seed] >= 0:
+            continue
+        component_ids[seed] = component
+        stack = [seed]
+        while stack:
+            current = stack.pop()
+            for neighbor, alignment in adjacency[current]:
+                if component_ids[neighbor] >= 0:
+                    continue
+                if alignment < 0:
+                    out[neighbor] *= -1.0
+                component_ids[neighbor] = component
+                stack.append(neighbor)
+        component += 1
+
+    return out, component_ids, {
+        'components': int(component),
+        'oriented_points': int(count),
+        'method': 'local_knn_graph',
+        'neighbors': int(k - 1),
+    }
+
+
+def _confidence_weighted_tsdf(grid: np.ndarray, positions: np.ndarray,
+                              normals: np.ndarray, component_ids: np.ndarray,
+                              confidence: np.ndarray, voxel_size: float,
+                              neighbors: int = 8, tangent_axes: np.ndarray = None,
+                              tangent_scales: np.ndarray = None,
+                              batch_size: int = 50000):
+    """Fuse oriented anisotropic surfels in bounded batches; preserve unsupported voxels."""
+    from scipy.spatial import cKDTree
+    points = np.asarray(positions, dtype=np.float64)
+    query = np.asarray(grid, dtype=np.float64)
+    component_ids = np.asarray(component_ids)
+    confidence = np.asarray(confidence, dtype=np.float64)
+    if points.ndim != 2 or points.shape[1] != 3 or len(points) == 0:
+        raise ValueError('TSDF fusion requires at least one 3D surfel position')
+    if query.ndim != 2 or query.shape[1] != 3:
+        raise ValueError('TSDF query grid must have shape (N, 3)')
+    if len(normals) != len(points) or len(component_ids) != len(points) or len(confidence) != len(points):
+        raise ValueError('surfel normals, component IDs and confidence must match positions')
+    if (not np.all(np.isfinite(points)) or not np.all(np.isfinite(query))
+            or not np.isfinite(voxel_size) or float(voxel_size) <= 0):
+        raise ValueError('TSDF positions, queries and voxel size must be finite; voxel size must be positive')
+    if (component_ids.ndim != 1 or not np.issubdtype(component_ids.dtype, np.integer)
+            or np.any(component_ids < 0)):
+        raise ValueError('surfel component IDs must be a non-negative integer array')
+    if not np.all(np.isfinite(confidence)) or np.any(confidence < 0):
+        raise ValueError('surfel confidence must be finite and non-negative')
+    normal_array = np.asarray(normals, dtype=np.float64)
+    normal_lengths = np.linalg.norm(normal_array, axis=1)
+    if not np.all(np.isfinite(normal_array)) or np.any(normal_lengths < 1e-9):
+        raise ValueError('surfel normals must be finite non-zero vectors')
+    normal_array = normal_array / normal_lengths[:, None]
+    axes = None if tangent_axes is None else np.asarray(tangent_axes, dtype=np.float64)
+    scales = None if tangent_scales is None else np.asarray(tangent_scales, dtype=np.float64)
+    if (axes is None) != (scales is None):
+        raise ValueError('tangent_axes and tangent_scales must be supplied together')
+    if axes is not None:
+        if axes.shape != (len(points), 2, 3) or scales.shape != (len(points), 2):
+            raise ValueError('tangent axes/scales must have shapes (N,2,3) and (N,2)')
+        axis_lengths = np.linalg.norm(axes, axis=2, keepdims=True)
+        if (not np.all(np.isfinite(axes)) or not np.all(np.isfinite(scales))
+                or np.any(scales <= 0) or np.any(axis_lengths < 1e-8)):
+            raise ValueError('tangent axes must be finite non-zero vectors and scales must be finite positive values')
+        axes = axes / axis_lengths
+    tree = cKDTree(points)
+    k = min(max(1, int(neighbors)), len(points))
+    if len(points) > 1:
+        spacing = tree.query(points, k=2, workers=-1)[0][:, 1]
+        valid = spacing[np.isfinite(spacing) & (spacing > 1e-9)]
+    else:
+        spacing = np.array([float(voxel_size)], dtype=np.float64)
+        valid = np.empty((0,), dtype=np.float64)
+    median_spacing = float(np.median(valid)) if len(valid) else float(voxel_size)
+    # Isolated points have no measurable local spacing. Use a finite fallback
+    # instead of infinity, which would mark the entire volume as observed.
+    local_spacing = np.where(np.isfinite(spacing), spacing, median_spacing)
+    local_spacing = np.maximum(local_spacing, median_spacing * 0.25)
+    local_spacing = np.minimum(local_spacing, median_spacing * 4.0)
+    truncation = max(3.0 * float(voxel_size), 2.0 * median_spacing)
+    sigma = max(2.0 * float(voxel_size), 1e-9)
+    chunk_size = max(1, int(batch_size))
+    field = np.zeros(len(query), dtype=np.float64)
+    observed = np.zeros(len(query), dtype=bool)
+    batch_count = 0
+
+    for start in range(0, len(query), chunk_size):
+        stop = min(start + chunk_size, len(query))
+        query_batch = query[start:stop]
+        dists, idx = tree.query(query_batch, k=k, workers=-1)
+        if k == 1:
+            dists, idx = dists[:, None], idx[:, None]
+        support_radius = np.minimum(
+            np.maximum(2.5 * float(voxel_size), 2.5 * local_spacing[idx[:, 0]]),
+            max(2.5 * float(voxel_size), 10.0 * median_spacing)
+        )
+        observed_batch = np.isfinite(dists[:, 0]) & (dists[:, 0] <= support_radius)
+        nearest_component = component_ids[idx[:, 0]]
+        component_match = component_ids[idx] == nearest_component[:, None]
+        delta = query_batch[:, None, :] - points[idx]
+        signed_raw = np.einsum('vkc,vkc->vk', delta, normal_array[idx])
+        if axes is not None:
+            local_axes = axes[idx]
+            # Keep the true Gaussian anisotropy; the small floor only prevents
+            # division by a sub-voxel numerical zero.
+            local_scales = np.maximum(scales[idx], float(voxel_size) * 0.1)
+            tangent_u = np.einsum('vkc,vkc->vk', delta, local_axes[:, :, 0, :])
+            tangent_v = np.einsum('vkc,vkc->vk', delta, local_axes[:, :, 1, :])
+            mahalanobis_sq = (tangent_u / local_scales[:, :, 0]) ** 2 + (tangent_v / local_scales[:, :, 1]) ** 2
+            footprint = mahalanobis_sq <= 9.0
+            weights = np.exp(-0.5 * mahalanobis_sq) * np.exp(-0.5 * (signed_raw / sigma) ** 2)
+            observed_batch &= np.any(
+                footprint & component_match & (np.abs(signed_raw) <= truncation), axis=1
+            )
+        else:
+            tangent = delta - signed_raw[:, :, None] * normal_array[idx]
+            tangent_distance = np.linalg.norm(tangent, axis=2)
+            footprint = tangent_distance <= support_radius[:, None]
+            weights = np.exp(-(tangent_distance ** 2) / (2.0 * sigma ** 2))
+            weights *= np.exp(-0.5 * (signed_raw / sigma) ** 2)
+            observed_batch &= np.any(
+                footprint & component_match & (np.abs(signed_raw) <= truncation), axis=1
+            )
+        weights *= component_match * confidence[idx] * footprint
+        signed = np.clip(signed_raw, -truncation, truncation)
+        weight_sum = weights.sum(axis=1)
+        observed_batch &= weight_sum > 1e-10
+        field[start:stop] = (signed * weights).sum(axis=1) / np.maximum(weight_sum, 1e-12)
+        observed[start:stop] = observed_batch
+        batch_count += 1
+
+    return field, observed, {
+        'observed_voxels': int(np.count_nonzero(observed)),
+        'total_voxels': int(len(query)),
+        'coverage_ratio': float(np.mean(observed)) if len(query) else 0.0,
+        'median_point_spacing': median_spacing,
+        'tsdf_truncation': truncation,
+        'batch_size': chunk_size,
+        'fusion_batches': batch_count,
+        'anisotropic_tangent_support': axes is not None,
+    }
+
+
+def _evaluate_supported_boundary_loop(loop_points: np.ndarray,
+                                      surfel_positions: np.ndarray,
+                                      surfel_normals: np.ndarray,
+                                      surfel_confidence: np.ndarray,
+                                      support_radius: float,
+                                      max_edges: int = 48):
+    """
+    Decide whether a small convex boundary loop has observed surfel evidence
+    across its interior. A boundary ring alone is not enough to authorize a cap.
+    """
+    from scipy.spatial import cKDTree
+    loop = np.asarray(loop_points, dtype=np.float64)
+    points = np.asarray(surfel_positions, dtype=np.float64)
+    normals = np.asarray(surfel_normals, dtype=np.float64)
+    confidence = np.asarray(surfel_confidence, dtype=np.float64)
+    if (loop.ndim != 2 or loop.shape[1] != 3 or len(loop) < 3
+            or len(loop) > int(max_edges) or len(points) == 0
+            or len(normals) != len(points) or len(confidence) != len(points)):
+        return {'supported': False, 'reason': 'invalid_or_oversized_loop'}
+    center = loop.mean(axis=0)
+    centered = loop - center
+    _, singular, vh = np.linalg.svd(centered, full_matrices=True)
+    if len(singular) < 2 or singular[1] < 1e-9:
+        return {'supported': False, 'reason': 'degenerate_loop'}
+    plane_normal = vh[-1]
+    planarity = float(singular[-1] / max(singular[-2], 1e-12))
+    if planarity > 0.08:
+        return {'supported': False, 'reason': 'non_planar_loop', 'planarity': planarity}
+    basis_u, basis_v = vh[0], vh[1]
+    projected = np.stack((centered @ basis_u, centered @ basis_v), axis=1)
+    edges = np.roll(projected, -1, axis=0) - projected
+    crosses = np.array([
+        edges[i, 0] * edges[(i + 1) % len(edges), 1]
+        - edges[i, 1] * edges[(i + 1) % len(edges), 0]
+        for i in range(len(edges))
+    ])
+    nonzero = crosses[np.abs(crosses) > 1e-9]
+    if len(nonzero) < len(crosses) * 0.8 or not (np.all(nonzero > 0) or np.all(nonzero < 0)):
+        return {'supported': False, 'reason': 'non_convex_or_branched_loop', 'planarity': planarity}
+
+    # Probe the interior, not just the boundary. This prevents a genuine open
+    # hole from being capped merely because its rim has nearby surfels.
+    edge_midpoints = (loop + np.roll(loop, -1, axis=0)) * 0.5
+    samples = np.vstack([center, center[None, :] * 0.35 + edge_midpoints * 0.65])
+    tree = cKDTree(points)
+    distances, indices = tree.query(samples, k=1, workers=-1)
+    nearest_normals = normals[indices]
+    nearest_lengths = np.linalg.norm(nearest_normals, axis=1)
+    nearest_normals = nearest_normals / np.maximum(nearest_lengths[:, None], 1e-9)
+    alignment = np.abs(nearest_normals @ plane_normal)
+    supported = (
+        np.isfinite(distances) & (distances <= float(support_radius))
+        & (confidence[indices] >= 0.2) & (alignment >= 0.75)
+    )
+    coverage = float(np.mean(supported))
+    if coverage < 0.8 or not bool(supported[0]):
+        return {
+            'supported': False, 'reason': 'insufficient_interior_evidence',
+            'coverage': coverage, 'planarity': planarity,
+        }
+    center_point = points[indices[0]]
+    center_point = center_point - np.dot(center_point - center, plane_normal) * plane_normal
+    center_2d = np.array([np.dot(center_point - center, basis_u),
+                          np.dot(center_point - center, basis_v)])
+    edge_start = projected
+    edge_end = np.roll(projected, -1, axis=0)
+    edge_vec = edge_end - edge_start
+    to_center = center_2d[None, :] - edge_start
+    center_cross = edge_vec[:, 0] * to_center[:, 1] - edge_vec[:, 1] * to_center[:, 0]
+    center_nonzero = center_cross[np.abs(center_cross) > 1e-9]
+    if len(center_nonzero) < len(edge_vec) * 0.8 or not (
+        np.all(center_nonzero > 0) or np.all(center_nonzero < 0)
+    ):
+        return {'supported': False, 'reason': 'supported_center_outside_loop',
+                'coverage': coverage, 'planarity': planarity}
+    mean_normal = nearest_normals[supported].mean(axis=0)
+    if np.dot(mean_normal, plane_normal) < 0:
+        mean_normal *= -1
+    return {
+        'supported': True,
+        'center': center_point,
+        'normal': mean_normal / max(np.linalg.norm(mean_normal), 1e-9),
+        'coverage': coverage,
+        'planarity': planarity,
+        'mean_confidence': float(np.mean(confidence[indices[supported]])),
+    }
+
+
+def _boundary_edge_loops(mesh, max_edges: int = 48):
+    """Return only closed, unbranched boundary loops; ignore open/branched rims."""
+    edges = np.asarray(mesh.edges_sorted)
+    if edges.size == 0:
+        return []
+    unique_edges, counts = np.unique(edges, axis=0, return_counts=True)
+    boundary = unique_edges[counts == 1]
+    adjacency = {}
+    remaining = set()
+    for a, b in boundary:
+        a, b = int(a), int(b)
+        adjacency.setdefault(a, []).append(b)
+        adjacency.setdefault(b, []).append(a)
+        remaining.add((min(a, b), max(a, b)))
+    if any(len(neighbors) != 2 for neighbors in adjacency.values()):
+        # Branched/open boundary graphs are not safe to cap with a fan.
+        return []
+    loops = []
+    while remaining:
+        first = next(iter(remaining))
+        start, current = first
+        loop = [start, current]
+        remaining.remove(first)
+        previous = start
+        closed = False
+        while len(loop) <= int(max_edges) + 1:
+            candidates = [v for v in adjacency[current] if v != previous]
+            if not candidates:
+                break
+            nxt = candidates[0]
+            edge = (min(current, nxt), max(current, nxt))
+            if nxt == start:
+                remaining.discard(edge)
+                closed = True
+                break
+            if edge not in remaining:
+                break
+            remaining.remove(edge)
+            loop.append(nxt)
+            previous, current = current, nxt
+        if closed and 3 <= len(loop) <= int(max_edges):
+            loops.append(np.asarray(loop, dtype=np.int64))
+    return loops
+
+
+def _repair_supported_mesh_boundaries(mesh, surfel_positions: np.ndarray,
+                                      surfel_normals: np.ndarray,
+                                      surfel_confidence: np.ndarray,
+                                      voxel_size: float,
+                                      median_spacing: float,
+                                      max_loop_edges: int = 48):
+    """
+    Fill only small convex loops whose interior has confident, normal-aligned
+    Gaussian surfel support. Genuine openings and unsupported gaps stay open.
+    """
+    import trimesh
+    loops = _boundary_edge_loops(mesh, max_edges=max_loop_edges)
+    stats = {
+        'method': 'interior-confidence-gated-convex-loop',
+        'candidate_loops': len(loops),
+        'filled_loops': 0,
+        'filled_triangles': 0,
+        'rejected_loops': 0,
+    }
+    if not loops:
+        return mesh, stats
+    vertices = np.asarray(mesh.vertices, dtype=np.float64).copy()
+    faces = np.asarray(mesh.faces, dtype=np.int64).tolist()
+    source_colors = np.asarray(mesh.visual.vertex_colors[:, :3], dtype=np.uint8)
+    colors = source_colors.tolist()
+    support_radius = max(2.0 * float(voxel_size), 1.5 * float(median_spacing))
+    for loop in loops:
+        assessment = _evaluate_supported_boundary_loop(
+            vertices[loop], surfel_positions, surfel_normals,
+            surfel_confidence, support_radius, max_edges=max_loop_edges,
+        )
+        if not assessment.get('supported'):
+            stats['rejected_loops'] += 1
+            continue
+        center_index = len(vertices)
+        center = np.asarray(assessment['center'], dtype=np.float64)
+        vertices = np.vstack([vertices, center])
+        colors.append(np.asarray(source_colors[loop].mean(axis=0), dtype=np.uint8).tolist())
+        expected_normal = np.asarray(assessment['normal'], dtype=np.float64)
+        for i in range(len(loop)):
+            a = int(loop[i])
+            b = int(loop[(i + 1) % len(loop)])
+            face_normal = np.cross(vertices[b] - vertices[a], center - vertices[a])
+            if np.dot(face_normal, expected_normal) < 0:
+                a, b = b, a
+            faces.append([a, b, center_index])
+            stats['filled_triangles'] += 1
+        stats['filled_loops'] += 1
+    if stats['filled_loops']:
+        repaired = trimesh.Trimesh(
+            vertices=vertices,
+            faces=np.asarray(faces, dtype=np.int64),
+            vertex_colors=np.asarray(colors, dtype=np.uint8),
+            process=False,
+        )
+        repaired.remove_unreferenced_vertices()
+        return repaired, stats
+    return mesh, stats
+
+
+def _detect_support_plane_candidate(positions: np.ndarray, normals: np.ndarray,
+                                    confidence: np.ndarray, voxel_size: float):
+    """
+    Detect a broad lower support plane from Gaussian surfel positions/normals.
+
+    The plane may be tilted in capture coordinates. The result is only a
+    non-destructive suggestion: it never removes surfels or clips the mesh.
+    The returned normal points from the candidate plane toward the object.
+    """
+    points = np.asarray(positions, dtype=np.float64)
+    normal_array = np.asarray(normals, dtype=np.float64)
+    weights = np.asarray(confidence, dtype=np.float64)
+    empty = {
+        'detected': False, 'confidence': 0.0, 'normal': None, 'offset': None,
+        'y': None, 'reason': 'insufficient_support',
+    }
+    if (points.ndim != 2 or points.shape[1] != 3 or len(points) < 32
+            or normal_array.shape != points.shape or weights.shape != (len(points),)
+            or not np.all(np.isfinite(points)) or not np.all(np.isfinite(normal_array))
+            or not np.all(np.isfinite(weights))):
+        return {**empty, 'reason': 'invalid_or_sparse_inputs'}
+
+    lengths = np.linalg.norm(normal_array, axis=1)
+    unit_normals = normal_array / np.maximum(lengths[:, None], 1e-9)
+    # A support surface can be tilted, but a vertical wall is not a plausible
+    # gravity-bearing base. Keep a broad upward-facing cone rather than Y-only.
+    candidate_mask = (
+        (np.abs(unit_normals[:, 1]) >= 0.70)
+        & (weights >= 0.15)
+        & (lengths >= 1e-8)
+    )
+    candidate_indices = np.flatnonzero(candidate_mask)
+    minimum_inliers = max(32, int(np.ceil(len(points) * 0.01)))
+    if len(candidate_indices) < minimum_inliers:
+        return {**empty, 'reason': 'too_few_upward_facing_support_surfels'}
+
+    scene_extent = np.ptp(points, axis=0)
+    scene_diagonal = float(np.linalg.norm(scene_extent))
+    tolerance = max(2.0 * float(voxel_size), scene_diagonal * 0.005, 1e-8)
+    # Deterministic bounded RANSAC: surfel normals supply candidate plane
+    # orientations, so no random 3-point sampling or nondeterministic seed.
+    stride = max(1, int(np.ceil(len(candidate_indices) / 256)))
+    hypotheses = candidate_indices[::stride][:256]
+    best = None
+    for sample_index in hypotheses:
+        plane_normal = unit_normals[sample_index].copy()
+        if plane_normal[1] < 0:
+            plane_normal *= -1.0
+        plane_offset = float(np.dot(points[sample_index], plane_normal))
+        signed = points @ plane_normal - plane_offset
+        alignment = np.abs(unit_normals @ plane_normal)
+        inlier_mask = (
+            (np.abs(signed) <= tolerance)
+            & (alignment >= 0.90)
+            & (weights >= 0.15)
+            & (lengths >= 1e-8)
+        )
+        inlier_indices = np.flatnonzero(inlier_mask)
+        if len(inlier_indices) < minimum_inliers:
+            continue
+
+        outside = ~inlier_mask
+        positive_count = int(np.count_nonzero(signed[outside] > tolerance))
+        negative_count = int(np.count_nonzero(signed[outside] < -tolerance))
+        side_count = positive_count + negative_count
+        if side_count < minimum_inliers:
+            continue
+        object_side_fraction = max(positive_count, negative_count) / side_count
+        if negative_count > positive_count:
+            plane_normal *= -1.0
+            plane_offset *= -1.0
+            signed *= -1.0
+        # The oriented normal must point generally upward and toward the object.
+        if plane_normal[1] < 0.70:
+            continue
+
+        projected = points @ plane_normal
+        projected_span = max(float(np.quantile(projected, 0.98) -
+                                   np.quantile(projected, 0.02)), 1e-9)
+        lower_fraction = float(np.clip(
+            (plane_offset - float(np.quantile(projected, 0.02))) / projected_span,
+            0.0, 1.0,
+        ))
+        inliers = points[inlier_indices]
+        centered = inliers - inliers.mean(axis=0, keepdims=True)
+        covariance = centered.T @ centered / max(len(inliers), 1)
+        _, eigenvectors = np.linalg.eigh(covariance)
+        basis = eigenvectors[:, 1:]
+        inlier_plane_coords = inliers @ basis
+        scene_plane_coords = points @ basis
+        inlier_spans = np.quantile(inlier_plane_coords, 0.95, axis=0) - np.quantile(inlier_plane_coords, 0.05, axis=0)
+        scene_spans = np.quantile(scene_plane_coords, 0.95, axis=0) - np.quantile(scene_plane_coords, 0.05, axis=0)
+        scene_area = max(float(np.prod(scene_spans)), 1e-12)
+        footprint_ratio = float(np.clip(np.prod(inlier_spans) / scene_area, 0.0, 1.0))
+        normal_alignment = float(np.mean(alignment[inlier_indices]))
+        inlier_fraction = float(len(inlier_indices) / len(points))
+        detected = (
+            footprint_ratio >= 0.18
+            and lower_fraction <= 0.30
+            and normal_alignment >= 0.90
+            and object_side_fraction >= 0.90
+            and inlier_fraction >= 0.01
+        )
+        score = float(np.clip(
+            0.24 * min(footprint_ratio / 0.45, 1.0)
+            + 0.22 * min(inlier_fraction / 0.08, 1.0)
+            + 0.20 * normal_alignment
+            + 0.20 * object_side_fraction
+            + 0.14 * (1.0 - min(lower_fraction / 0.30, 1.0)),
+            0.0, 1.0,
+        )) if detected else 0.0
+        if best is None or score > best['confidence']:
+            best = {
+                'detected': bool(detected),
+                'normal': plane_normal.tolist() if detected else None,
+                'offset': plane_offset if detected else None,
+                'y': (plane_offset / plane_normal[1]
+                      if detected and abs(plane_normal[0]) < 0.02
+                      and abs(plane_normal[2]) < 0.02 else None),
+                'confidence': score,
+                'point_count': int(len(inlier_indices)),
+                'inlier_fraction': inlier_fraction,
+                'footprint_ratio': footprint_ratio,
+                'normal_alignment': normal_alignment,
+                'object_side_fraction': object_side_fraction,
+                'lower_scene_fraction': lower_fraction,
+                'normal_up_alignment': float(plane_normal[1]),
+                'tolerance': tolerance,
+                'reason': 'broad_lower_oriented_gaussian_support' if detected else
+                          'candidate_did_not_meet_support_thresholds',
+            }
+
+    return best if best is not None else {
+        **empty, 'tolerance': tolerance, 'reason': 'no_supported_one_sided_plane',
+    }
+
+
+def _classify_mesh_surface_role(component, scene_min_y: float,
+                                  scene_max_y: float, total_faces: int):
+    """
+    Conservatively flag a disconnected, broad, near-horizontal lower surface
+    as a support-surface candidate. This is a review hint, not auto-deletion
+    or semantic object truth; Studio retains the geometry unchanged.
+    """
+    vertices = np.asarray(component.vertices, dtype=np.float64)
+    faces = np.asarray(component.faces)
+    if vertices.ndim != 2 or vertices.shape[1] != 3 or len(vertices) < 6 or len(faces) < 8:
+        return {'role_candidate': 'surface', 'support_plane_confidence': 0.0}
+    centered = vertices - vertices.mean(axis=0, keepdims=True)
+    covariance = centered.T @ centered / max(len(vertices), 1)
+    eigenvalues, eigenvectors = np.linalg.eigh(covariance)
+    planarity = float(eigenvalues[0] / max(eigenvalues[1], 1e-12))
+    plane_normal = eigenvectors[:, 0]
+    up_alignment = float(abs(plane_normal[1]))
+    scene_height = max(float(scene_max_y) - float(scene_min_y), 1e-9)
+    lower_fraction = float((vertices[:, 1].mean() - scene_min_y) / scene_height)
+    face_fraction = float(len(faces) / max(int(total_faces), 1))
+    candidate = (
+        planarity <= 0.015 and up_alignment >= 0.95
+        and lower_fraction <= 0.22 and face_fraction >= 0.03
+    )
+    confidence = 0.0
+    if candidate:
+        confidence = float(np.clip(
+            (1.0 - min(planarity / 0.015, 1.0)) * 0.4
+            + up_alignment * 0.35
+            + (1.0 - min(lower_fraction / 0.22, 1.0)) * 0.15
+            + min(face_fraction / 0.2, 1.0) * 0.1,
+            0.0, 1.0,
+        ))
+    return {
+        'role_candidate': 'support_surface' if candidate else 'surface',
+        'support_plane_confidence': confidence,
+        'planarity_ratio': planarity,
+        'up_alignment': up_alignment,
+        'lower_scene_fraction': lower_fraction,
+        'face_fraction': face_fraction,
+    }
+
+
+def _mesh_topology_diagnostics(mesh):
+    """Measure topology without implicitly closing or repairing open surfaces."""
+    edges = np.asarray(mesh.edges_sorted)
+    if len(edges):
+        _, counts = np.unique(edges, axis=0, return_counts=True)
+        boundary = int(np.count_nonzero(counts == 1))
+        nonmanifold = int(np.count_nonzero(counts > 2))
+    else:
+        boundary = nonmanifold = 0
+    return {
+        'n_connected_components': int(len(mesh.split(only_watertight=False))),
+        'n_boundary_edges': boundary,
+        'n_nonmanifold_edges': nonmanifold,
+    }
+
+
+def _prepare_gaussian_mesh_inputs(geo_data: np.ndarray, opacity_threshold: float):
+    """Validate Gaussian rows and return stable opacity plus a finite-surface mask."""
+    data = np.asarray(geo_data, dtype=np.float64)
+    if data.ndim != 2 or data.shape[1] < 14:
+        raise ValueError('mesh extraction requires Gaussian rows with at least 14 fields')
+    opacity_logits = np.clip(data[:, 10], -30.0, 30.0)
+    opacity = 1.0 / (1.0 + np.exp(-opacity_logits))
+    finite_rows = np.all(np.isfinite(data[:, :14]), axis=1)
+    quaternion_lengths = np.linalg.norm(data[:, 6:10], axis=1)
+    valid = finite_rows & (quaternion_lengths > 1e-8) & (opacity > float(opacity_threshold))
+    return data, opacity, valid
+
+
+def _build_nif_meta_payload(author: str, vertical: str, meta: dict,
+                            mesh_info: dict = None, created_at: str = ''):
+    """Build the self-contained NIF META payload, including measured mesh diagnostics."""
+    payload = {
+        'title': meta.get('title') or 'Untitled NIF',
+        'description': meta.get('description') or '',
+        'author': author,
+        'vertical': vertical,
+        'hotspots': meta.get('hotspots') or [],
+        'tourStops': meta.get('tourStops') or [],
+        'createdAt': created_at,
+    }
+    if mesh_info:
+        payload.update({
+            'surface_reconstruction': 'oriented-gaussian-surfel-tsdf',
+            'mesh_component_count': len(mesh_info.get('mesh_components', [])),
+            'mesh_diagnostics': mesh_info,
+        })
+    return payload
+
+
 class ReconstructionWorker:
 
     def __init__(self, job_id: str, user_id: str):
@@ -1697,7 +2327,7 @@ class ReconstructionWorker:
 
             # ── Real mesh extraction — triangulation from the trained Gaussians ─
             self._tick('processing', 65)
-            mesh_bytes, stl_bytes, mesh_info = self._extract_mesh(mesh_geo_data)
+            mesh_bytes, stl_bytes, mesh_info, mesh_components_bytes = self._extract_mesh(mesh_geo_data)
 
             self._tick('processing', 72)
             layer_bytes = split_layers(
@@ -1736,7 +2366,7 @@ class ReconstructionWorker:
                 # what the JS editor's save path already writes (see NIFSpec.js /
                 # nif-format.js) — without these, a .nif produced by this worker
                 # had no title, no hotspots, and no poster image outside Supabase.
-                (CHUNK_META,    self._pack_meta(vertical, meta)),
+                (CHUNK_META,    self._pack_meta(vertical, meta, mesh_info)),
                 (CHUNK_PHYSICS, json.dumps(_build_physics_chunk(mesh_info, vertical, calibration, meta)).encode('utf-8')),
                 (CHUNK_CALIB,   json.dumps(calibration).encode('utf-8')),
             ]
@@ -1765,6 +2395,8 @@ class ReconstructionWorker:
                 chunks.append((CHUNK_THUMB, thumb_bytes))
             if mesh_bytes:
                 chunks.append((CHUNK_MESH, mesh_bytes))
+            if mesh_components_bytes:
+                chunks.append((CHUNK_MESH_COMPONENTS, mesh_components_bytes))
             if stl_bytes:
                 chunks.append((CHUNK_PRINT, stl_bytes))
             if proxy_bytes:
@@ -1888,6 +2520,21 @@ class ReconstructionWorker:
                 # existing only means the export step didn't crash.
                 'mesh_watertight':   bool(mesh_info.get('is_watertight')) if mesh_info else False,
                 'mesh_volume_m3':    mesh_info.get('volume_m3') if mesh_info else None,
+                # Preserve measured reconstruction diagnostics with the NIF
+                # record so Studio/viewer QA can distinguish open scan edges,
+                # disconnected fragments and unsupported reconstruction.
+                'mesh_component_count': len(mesh_info.get('mesh_components', [])) if mesh_info else 0,
+                'mesh_diagnostics': ({
+                    key: mesh_info.get(key) for key in (
+                        'n_verts', 'n_faces', 'n_degenerate_faces',
+                        'n_connected_components', 'n_boundary_edges',
+                        'n_nonmanifold_edges', 'tsdf_coverage_ratio',
+                        'tsdf_observed_voxels', 'tsdf_batch_size',
+                        'tsdf_fusion_batches', 'anisotropic_tangent_support',
+                        'normal_component_count', 'mean_surfel_confidence',
+                        'is_watertight', 'surface_repair', 'support_plane_candidate', 'mesh_components',
+                    ) if key in mesh_info
+                } if mesh_info else None),
                 'has_print_export':  bool(stl_bytes) and bool(mesh_info and mesh_info.get('is_watertight')),
                 'calibration_method':     calibration['method'],
                 'calibration_confidence': calibration['confidence'],
@@ -2911,18 +3558,20 @@ class ReconstructionWorker:
     def _extract_mesh(self, geo_data: np.ndarray, grid_res: int = 96,
                        opacity_thresh: float = 0.25, max_faces: int = 60_000) -> tuple:
         """
-        Real triangulation from the trained Gaussians — not a renamed point
-        cloud. After training, each Gaussian's *shortest* axis aligns with the
-        true surface normal (the same property SuGaR and related Gaussian-to-
-        mesh papers rely on). We use that to treat the splats as an oriented
-        point cloud: splat each point's signed distance (along its normal)
-        into a volume, then run marching cubes for a real watertight mesh.
+        Reconstruct a triangle surface from trained Gaussians. The shortest
+        covariance axis provides an unoriented normal line; local graph
+        propagation makes neighbouring signs consistent. A confidence-weighted
+        truncated SDF is fused only where nearby surfels provide support, then
+        masked marching cubes extracts the observed surface. Open boundaries
+        are preserved; watertightness is measured, never promised.
 
         geo_data: (N, 14) float32 — [x,y,z, log_sx,log_sy,log_sz,
                                       qw,qx,qy,qz, opacity_logit, r,g,b (logit)]
-        Returns (mesh_bytes, stl_bytes) — either may be None if too few
-        confident points remain to fit a surface (e.g. a very sparse/noisy
-        capture), or if STL export specifically fails.
+        Returns (mesh_bytes, stl_bytes, mesh_info, mesh_components_bytes).
+        All four values are None when too few confident points remain or no
+        supported zero-crossing exists. STL may independently be None when
+        mesh export fails; mesh bytes and component data can still be useful
+        for scene inspection when the surface is open or non-manifold.
 
         mesh_bytes layout: [format_flag:u8]
           flag 0x00 (raw struct — used automatically when DracoPy isn't
@@ -2942,16 +3591,15 @@ class ReconstructionWorker:
             ENABLE_DRACO_MESH back to False if they're wrong (raw struct
             format is unaffected either way).
         """
-        opacity = 1.0 / (1.0 + np.exp(-geo_data[:, 10]))
-        keep = opacity > opacity_thresh
+        geo_data, opacity, keep = _prepare_gaussian_mesh_inputs(geo_data, opacity_thresh)
         pts = geo_data[keep]
         if len(pts) < 200:
             print(f'[NIF] Only {len(pts)} confident points — skipping mesh extraction')
-            return None, None, None
+            return None, None, None, None
         positions = pts[:, 0:3]
         log_scales = pts[:, 3:6]
         quats = pts[:, 6:10]
-        colors = 1.0 / (1.0 + np.exp(-pts[:, 11:14]))  # sigmoid → 0-1 RGB
+        colors = 1.0 / (1.0 + np.exp(-np.clip(pts[:, 11:14], -30.0, 30.0)))  # sigmoid → 0-1 RGB
 
         # Normal = the rotated local axis with the smallest scale
         axis_idx = np.argmin(log_scales, axis=1)
@@ -2968,26 +3616,33 @@ class ReconstructionWorker:
         norm_len = np.linalg.norm(normals, axis=1, keepdims=True)
         normals = normals / np.maximum(norm_len, 1e-8)
 
-        # A Gaussian's shortest axis gives the normal *line*, not a signed
-        # direction — quaternion rotation of a basis vector has no inherent
-        # "outward" sense, so adjacent points can end up with randomly
-        # flipped normals. Left unresolved, that corrupts the signed-distance
-        # field below (sd = diff·normal flips sign incoherently between
-        # neighbors) and produces holes/spurious shells in marching cubes.
-        # Orient outward from the point-cloud centroid — correct for
-        # roughly-convex, star-shaped single subjects, which matches the
-        # orbit-capture scripts this pipeline is built around (not correct
-        # for strongly concave scenes, e.g. capturing the inside of a room).
-        centroid = positions.mean(axis=0)
-        outward  = positions - centroid
-        flip     = np.einsum('vc,vc->v', normals, outward) < 0
-        normals[flip] *= -1
+        # A shortest Gaussian axis is an unoriented normal line. Orient it
+        # locally, independently per spatially connected surface component;
+        # never use one scene-wide centroid (which flips concavities and
+        # contaminates multi-object/support-plane captures).
+        normals, normal_component_ids, normal_orientation = (
+            _orient_normals_consistently(positions, normals)
+        )
+        print('[NIF] Normal orientation:', normal_orientation)
+
+        # Confidence combines learned opacity with Gaussian flatness. Nearly
+        # isotropic blobs contribute weak normal evidence and must not carry
+        # the same TSDF weight as a clearly surface-like Gaussian.
+        scales = np.exp(np.clip(log_scales, -12.0, 8.0))
+        sorted_scales = np.sort(scales, axis=1)
+        flatness = (sorted_scales[:, 1] - sorted_scales[:, 0]) / np.maximum(
+            sorted_scales[:, 1], 1e-8)
+        confidence = np.clip(opacity[keep] * flatness, 0.025, 1.0)
 
         # ── Splat oriented points into a signed-distance volume ────────────────
         mn = positions.min(axis=0) - 0.05
         mx = positions.max(axis=0) + 0.05
         extent = mx - mn
         voxel_size = extent.max() / grid_res
+        support_plane_candidate = _detect_support_plane_candidate(
+            positions, normals, confidence, voxel_size
+        )
+        print('[NIF] Support-plane suggestion:', support_plane_candidate)
         dims = np.maximum(np.ceil(extent / voxel_size).astype(int) + 1, 4)
         # Cap total voxel count so this stays tractable on CPU
         while dims[0]*dims[1]*dims[2] > 2_000_000:
@@ -3002,23 +3657,31 @@ class ReconstructionWorker:
 
         from scipy.spatial import cKDTree
         tree = cKDTree(positions)
-        sigma = voxel_size * 3
-        k = min(8, len(positions))
-        dists, idx = tree.query(grid, k=k, workers=-1)
-        if k == 1:
-            dists = dists[:, None]; idx = idx[:, None]
-        w = np.exp(-(dists**2) / (2 * sigma**2))
-        w_sum = w.sum(axis=1) + 1e-8
-        diff = grid[:, None, :] - positions[idx]
-        sd = np.einsum('vkc,vkc->vk', diff, normals[idx])
-        tsdf = ((sd * w).sum(axis=1) / w_sum).reshape(dims[0], dims[1], dims[2])
+        tangent_columns = np.array([[1, 2], [0, 2], [0, 1]], dtype=np.int32)[axis_idx]
+        tangent_axes = np.stack((
+            R[np.arange(len(pts)), :, tangent_columns[:, 0]],
+            R[np.arange(len(pts)), :, tangent_columns[:, 1]],
+        ), axis=1)
+        tangent_scales = np.take_along_axis(scales, tangent_columns, axis=1)
+        tsdf_flat, observed_flat, tsdf_diagnostics = _confidence_weighted_tsdf(
+            grid, positions, normals, normal_component_ids, confidence, voxel_size,
+            tangent_axes=tangent_axes, tangent_scales=tangent_scales,
+        )
+        tsdf = tsdf_flat.reshape(dims[0], dims[1], dims[2])
+        observed = observed_flat.reshape(dims[0], dims[1], dims[2])
+        print('[NIF] TSDF support:', tsdf_diagnostics)
 
         try:
             from skimage import measure
-            verts, faces, _, _ = measure.marching_cubes(tsdf, level=0.0)
+            # Mask unsupported voxels so unobserved space is not force-closed.
+            verts, faces, _, _ = measure.marching_cubes(
+                tsdf, level=0.0, mask=observed
+            )
         except (ValueError, RuntimeError) as e:
-            print(f'[NIF] Marching cubes found no closed surface — skipping mesh ({e})')
-            return None, None, None
+            print(f'[NIF] Marching cubes found no supported zero-crossing — skipping mesh ({e})')
+            # Keep the four-value contract used by both the full capture and
+            # mesh-only callers: (mesh_chunk, STL, diagnostics, components).
+            return None, None, None, None
 
         verts_world = verts * voxel_size + mn
 
@@ -3032,25 +3695,25 @@ class ReconstructionWorker:
         mesh.update_faces(mesh.nondegenerate_faces())
         mesh.remove_unreferenced_vertices()
 
+        # Confidence-aware repair is intentionally narrow: only small convex
+        # loops whose interior is covered by high-confidence, normal-aligned
+        # Gaussian surfels may be capped. Unsupported openings remain open.
+        mesh, surface_repair = _repair_supported_mesh_boundaries(
+            mesh, positions, normals, confidence, voxel_size,
+            tsdf_diagnostics['median_point_spacing'],
+        )
+        print('[NIF] Confidence-aware surface repair:', surface_repair)
+
         if len(mesh.faces) > max_faces:
             try:
                 mesh = mesh.simplify_quadric_decimation(face_count=max_faces)
             except Exception as e:
                 print(f'[NIF] Decimation unavailable ({e}) — keeping full-res mesh')
 
-        try:
-            import manifold3d
-            m3_mesh = manifold3d.Mesh(
-                vert_properties=mesh.vertices.astype(np.float32),
-                tri_verts=mesh.faces.astype(np.uint32),
-            )
-            manifold = manifold3d.Manifold(m3_mesh)
-            if not manifold.is_empty():
-                out = manifold.to_mesh()
-                mv, mf = out.vert_properties[:, :3], out.tri_verts
-                mesh = trimesh.Trimesh(vertices=mv, faces=mf, process=True)
-        except Exception as e:
-            print(f'[NIF] manifold3d repair skipped (non-fatal): {e}')
+        # Do not silently force open reconstructions through a solid repair.
+        # Unsupported regions and real object gaps must remain observable.
+        topology = _mesh_topology_diagnostics(mesh)
+        print('[NIF] Mesh topology:', topology)
 
         n_verts, n_faces = len(mesh.vertices), len(mesh.faces)
         print(f'[NIF] Mesh extracted: {n_verts:,} verts, {n_faces:,} faces, '
@@ -3065,6 +3728,65 @@ class ReconstructionWorker:
         col_bytes = colors_out.tobytes()
         face_bytes = mesh.faces.astype('>u4').tobytes()
         mesh_chunk_bytes = header + pos_bytes + col_bytes + face_bytes
+
+        # Preserve every connected surface as its own independently addressable
+        # NIF component. The combined KEYFRAME_MESH remains as a backwards-
+        # compatible fallback for viewers that do not understand chunk 0x001A.
+        split_meshes = sorted(
+            mesh.split(only_watertight=False),
+            key=lambda part: len(part.faces),
+            reverse=True,
+        )
+        component_summaries = []
+        scene_min_y = float(mesh.bounds[0][1])
+        scene_max_y = float(mesh.bounds[1][1])
+        component_chunk = bytearray(struct.pack('>BI', 1, len(split_meshes)))
+        component_id_occurrences = {}
+        for part in split_meshes:
+            # Match the browser extractor's word-wise FNV identity contract.
+            # IDs are based on local float32 geometry + local face indices,
+            # never on component size rank or list position.
+            hash_a, hash_b = 0x811C9DC5, 0x9E3779B9
+            hash_words = np.concatenate((
+                np.asarray(part.vertices, dtype='<f4').reshape(-1).view('<u4'),
+                np.asarray(part.faces, dtype='<u4').reshape(-1),
+            ))
+            for raw_word in hash_words:
+                word = int(raw_word)
+                hash_a = ((hash_a ^ word) * 0x01000193) & 0xFFFFFFFF
+                hash_b = ((hash_b ^ ((word + 0x7ED55D16) & 0xFFFFFFFF)) * 0x85EBCA6B) & 0xFFFFFFFF
+            base_component_id = f'mesh-{hash_a:08x}{hash_b:08x}'
+            occurrence = component_id_occurrences.get(base_component_id, 0)
+            component_id_occurrences[base_component_id] = occurrence + 1
+            component_id = base_component_id if occurrence == 0 else f'{base_component_id}-{occurrence + 1}'
+            label_bytes = component_id.encode('utf-8')
+            part_colors = np.zeros((len(part.vertices), 3), dtype=np.uint8)
+            if part.visual.vertex_colors is not None:
+                part_colors = part.visual.vertex_colors[:, :3].astype(np.uint8)
+            part_topology = _mesh_topology_diagnostics(part)
+            surface_role = _classify_mesh_surface_role(
+                part, scene_min_y, scene_max_y, len(mesh.faces)
+            )
+            part_flags = ((1 if part.is_watertight else 0) | 2
+                          | (4 if surface_role['role_candidate'] == 'support_surface' else 0))
+            component_chunk.extend(struct.pack('>B', len(label_bytes)))
+            component_chunk.extend(label_bytes)
+            component_chunk.extend(struct.pack(
+                '>BII', part_flags, len(part.vertices), len(part.faces)
+            ))
+            component_chunk.extend(np.asarray(part.vertices, dtype='>f4').tobytes())
+            component_chunk.extend(part_colors.tobytes())
+            component_chunk.extend(np.asarray(part.faces, dtype='>u4').tobytes())
+            component_summaries.append({
+                'id': component_id,
+                'vertices': int(len(part.vertices)),
+                'faces': int(len(part.faces)),
+                'watertight': bool(part.is_watertight),
+                **part_topology,
+                **surface_role,
+            })
+        mesh_components_bytes = bytes(component_chunk)
+        print(f'[NIF] Mesh components: {len(component_summaries)} independently addressable surfaces')
 
         # Optional Draco compression — typically 5-10x smaller than the raw
         # struct format above for meshes this size. ENABLE_DRACO_MESH=True
@@ -3131,7 +3853,18 @@ class ReconstructionWorker:
             'n_verts': n_verts,
             'n_faces': n_faces,
             'n_degenerate_faces': n_degenerate,
-        }
+            **topology,
+            'tsdf_coverage_ratio': tsdf_diagnostics['coverage_ratio'],
+            'tsdf_observed_voxels': tsdf_diagnostics['observed_voxels'],
+            'tsdf_batch_size': tsdf_diagnostics['batch_size'],
+            'tsdf_fusion_batches': tsdf_diagnostics['fusion_batches'],
+            'anisotropic_tangent_support': tsdf_diagnostics['anisotropic_tangent_support'],
+            'normal_component_count': normal_orientation['components'],
+            'mean_surfel_confidence': float(np.mean(confidence)) if len(confidence) else 0.0,
+            'surface_repair': surface_repair,
+            'support_plane_candidate': support_plane_candidate,
+            'mesh_components': component_summaries,
+        }, mesh_components_bytes
 
     def run_mesh_only(self, geo_r2_key: str, meta: dict):
         """
@@ -3158,7 +3891,7 @@ class ReconstructionWorker:
             print(f'[NIF] mesh_only: {count:,} input points')
 
             self._tick('processing', 50)
-            mesh_bytes, stl_bytes, mesh_info = self._extract_mesh(geo_data)
+            mesh_bytes, stl_bytes, mesh_info, mesh_components_bytes = self._extract_mesh(geo_data)
 
             if not stl_bytes:
                 raise RuntimeError(
@@ -3168,26 +3901,59 @@ class ReconstructionWorker:
                     'capture with more coverage of the subject.'
                 )
 
-            # The Studio print controls select a physical height. Scale the
-            # generated mesh before upload so downloaded STL coordinates are mm.
-            try:
-                import io
-                import trimesh
-                print_mesh = trimesh.load(io.BytesIO(stl_bytes), file_type='stl', force='mesh')
-                desired_height_mm = float(meta.get('height_mm') or {
-                    'product': 120, 'figurine': 120, 'bust': 150, 'large': 200,
-                }.get(meta.get('print_preset'), 120))
-                y_height = float(print_mesh.bounds[1][1] - print_mesh.bounds[0][1])
-                dimension = y_height if y_height > 1e-9 else float(max(print_mesh.extents))
-                if not math.isfinite(desired_height_mm) or desired_height_mm <= 0:
-                    raise ValueError('Print height must be greater than zero.')
-                print_mesh.apply_scale(desired_height_mm / max(dimension, 1e-9))
-                stl_bytes = print_mesh.export(file_type='stl')
-                mesh_info['is_watertight'] = bool(print_mesh.is_watertight)
-                mesh_info['volume_m3'] = float(print_mesh.volume) / 1_000_000_000 if print_mesh.is_watertight else None
-                print(f'[NIF] mesh_only: scaled to {desired_height_mm:.1f} mm ({meta.get("print_preset", "product")})')
-            except Exception as scale_error:
-                raise RuntimeError(f'Could not scale print mesh: {scale_error}') from scale_error
+            # Print export scales to a requested millimetre height. Full-scene
+            # reconstruction explicitly preserves source coordinates so the
+            # reconstructed mesh can be paired with the untouched Studio splats.
+            preserve_scene_scale = bool(meta.get('preserve_scene_scale'))
+            if not preserve_scene_scale:
+                try:
+                    import io
+                    import trimesh
+                    print_mesh = trimesh.load(io.BytesIO(stl_bytes), file_type='stl', force='mesh')
+                    desired_height_mm = float(meta.get('height_mm') or {
+                        'product': 120, 'figurine': 120, 'bust': 150, 'large': 200,
+                    }.get(meta.get('print_preset'), 120))
+                    y_height = float(print_mesh.bounds[1][1] - print_mesh.bounds[0][1])
+                    dimension = y_height if y_height > 1e-9 else float(max(print_mesh.extents))
+                    if not math.isfinite(desired_height_mm) or desired_height_mm <= 0:
+                        raise ValueError('Print height must be greater than zero.')
+                    print_mesh.apply_scale(desired_height_mm / max(dimension, 1e-9))
+                    stl_bytes = print_mesh.export(file_type='stl')
+                    mesh_info['is_watertight'] = bool(print_mesh.is_watertight)
+                    mesh_info['volume_m3'] = float(print_mesh.volume) / 1_000_000_000 if print_mesh.is_watertight else None
+                    print(f'[NIF] mesh_only: scaled to {desired_height_mm:.1f} mm ({meta.get("print_preset", "product")})')
+                except Exception as scale_error:
+                    raise RuntimeError(f'Could not scale print mesh: {scale_error}') from scale_error
+            else:
+                # Scene coordinates are intentionally uncalibrated here; do not
+                # label their geometric volume as cubic metres.
+                mesh_info['volume_m3'] = None
+                print('[NIF] mesh_only: preserving source scene coordinates; STL is not dimensionally print-scaled')
+
+            # Return a complete NIF containing the original Gaussian geometry,
+            # combined compatibility mesh and independent component chunk. This
+            # is the Studio's oriented-surfel reconstruction handoff.
+            mesh_nif_key = None
+            if mesh_bytes:
+                nif_meta = {
+                    'title': meta.get('title') or 'Oriented scene reconstruction',
+                    'surface_reconstruction': 'oriented-gaussian-surfel-tsdf',
+                    'mesh_component_count': len(mesh_info.get('mesh_components', [])),
+                    'mesh_diagnostics': mesh_info,
+                    'scene_scale_preserved': preserve_scene_scale,
+                }
+                nif_chunks = [
+                    (CHUNK_GEO, geo_bytes),
+                    (CHUNK_MESH, mesh_bytes),
+                    (CHUNK_META, json.dumps(nif_meta).encode('utf-8')),
+                ]
+                if mesh_components_bytes:
+                    nif_chunks.append((CHUNK_MESH_COMPONENTS, mesh_components_bytes))
+                mesh_nif_bytes = pack_nif(nif_chunks, 'generic', fps=1)
+                mesh_nif_key = f'nif/{self.user_id}/{self.job_id}/oriented-scene.nif'
+                R2.put_object(Bucket=OUTPUT_BUCKET, Key=mesh_nif_key, Body=mesh_nif_bytes,
+                              ContentType='application/octet-stream')
+                print(f'[NIF] mesh_only: uploaded oriented scene NIF {mesh_nif_key}')
 
             # Same gap as the main run() path, same fix: STL bytes existing
             # only means the export call didn't crash, not that the mesh is
@@ -3213,9 +3979,12 @@ class ReconstructionWorker:
             SB.table('reconstruction_jobs').update({
                 'status': 'complete', 'progress': 100,
                 'meta': {**meta, 'stl_r2_key': stl_key, 'stl_url': stl_url,
+                         'mesh_nif_r2_key': mesh_nif_key,
+                         'mesh_components_count': len(mesh_info.get('mesh_components', [])),
                          'mesh_bytes_included': bool(mesh_bytes),
                          'mesh_watertight': watertight,
                          'mesh_volume_m3': mesh_info.get('volume_m3'),
+                         'stl_scene_scale_preserved': preserve_scene_scale,
                          'print_warning': None if watertight else
                              'This mesh has holes or non-manifold edges and may fail '
                              'slicer validation. Run auto-repair in the mesh editor '
@@ -3289,21 +4058,14 @@ class ReconstructionWorker:
             print(f'[NIF] Thumbnail upload failed: {e}')
             return None
 
-    def _pack_meta(self, vertical: str, meta: dict) -> bytes:
+    def _pack_meta(self, vertical: str, meta: dict, mesh_info: dict = None) -> bytes:
         """
-        Build the CHUNK_META JSON payload — same shape NIFSpec.js's
-        encodeMetaChunk()/decodeMetaChunk() read/write on the JS editor path,
-        so a .nif produced by either encoder decodes identically.
+        Build the CHUNK_META JSON payload using the same self-describing fields
+        as NIFSpec.js, plus measured reconstruction diagnostics when available.
         """
-        payload = {
-            'title':       meta.get('title') or 'Untitled NIF',
-            'description': meta.get('description') or '',
-            'author':      self.user_id,
-            'vertical':    vertical,
-            'hotspots':    meta.get('hotspots') or [],
-            'tourStops':   meta.get('tourStops') or [],
-            'createdAt':   _now_iso(),
-        }
+        payload = _build_nif_meta_payload(
+            self.user_id, vertical, meta, mesh_info, created_at=_now_iso()
+        )
         return json.dumps(payload).encode('utf-8')
 
     # ── Register ───────────────────────────────────────────────────────────────

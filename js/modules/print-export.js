@@ -18,7 +18,7 @@ import r2 from '../r2Client.js';
  *   onStatus function  optional (message: string) => void, for UI feedback
  * @returns {Promise<string>} the reconstruction_jobs id — poll it for status
  */
-export async function exportSelectionAsFigurine({ title, preset = 'product', heightMm = 120, onStatus } = {}) {
+export async function exportSelectionAsFigurine({ title, preset = 'product', heightMm = 120, preserveSceneScale = false, onStatus } = {}) {
   const sb = window._fumocaSupabase;
   if (!sb) throw new Error('Supabase client not available');
 
@@ -80,12 +80,26 @@ export async function exportSelectionAsFigurine({ title, preset = 'product', hei
     vertical: preset,
     capture_mode: 'mesh_only',
     raw_r2_key: fileKey,
-    meta: { title: title || 'Print export', point_count: aliveIndices.length, print_preset: preset, height_mm: Number(heightMm) || 120 },
+    meta: { title: title || 'Print export', point_count: aliveIndices.length, print_preset: preset, height_mm: Number(heightMm) || 120, preserve_scene_scale: !!preserveSceneScale },
   }).select().single();
   if (jobErr) throw jobErr;
 
   onStatus?.('Queued. This runs server-side — check back in a few minutes.');
   return job.id;
+}
+
+/**
+ * Queue the full live Studio scene for the worker's oriented Gaussian-surfel
+ * TSDF path. Unlike a print export, this preserves source scene coordinates
+ * and returns a complete NIF with separate connected mesh components.
+ */
+export async function reconstructSceneWithOrientedSurfels({ onStatus } = {}) {
+  return exportSelectionAsFigurine({
+    title: 'Oriented full-scene reconstruction',
+    preset: 'product',
+    preserveSceneScale: true,
+    onStatus,
+  });
 }
 
 /**

@@ -436,6 +436,8 @@
   body.fumoca-showroom #editCanvas,
   body.fumoca-showroom #editSelRect { display:none !important; }
   body.fumoca-showroom #viewerShell { inset:0 !important; }
+  body.fumoca-showroom #fumocaMeshToggle,
+  body.fumoca-showroom #fumocaMeshLighting { display:none !important; }
 
   /* ── PUBLIC VIEWER LOCK — hides all admin UI for embed/share links ── */
   body.fumoca-public-viewer #editModeBtn,
@@ -751,6 +753,7 @@
       '#viewerMenuPanel', '#viewerMenuOverlay', '#toolbar', '#toolbarPanel',
       '#editToolbar', '#editTools', '#editControls', '#ownerControls',
       '#fumocaPresentTabPanel', '#presentNavLayer', '#magazineTextLayer',
+      '#fumocaMeshToggle', '#fumocaMeshLighting',
       '#fumocaExploreSceneButton', '#capTeaserBtn', '#teaserBtn', '#copyLinkBtn'
     ];
     document.querySelectorAll(selectors.join(',')).forEach((el) => {

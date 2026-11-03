@@ -1815,10 +1815,14 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
 
 <script type="module">
 import * as THREE from 'three';
+import { selectVisibleScreenPoints } from './js/modules/screen-space-selection.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
 import { decodeNif, encodeNif, geometryToSplatRows, downloadNif } from './js/modules/nif-format.js';
+import { createDocumentModel, allocateGaussianIds, compactDocumentModel } from './js/modules/document-model.js';
+import { normalizeMeshComponents } from './js/modules/mesh-component-contract.js';
+import { assignGaussianMemberships } from './js/modules/gaussian-component-membership.js';
 
 // Cloud storage is only needed for save/upload actions. Keep it out of the
 // editor's startup dependency graph so a temporary storage CDN failure cannot
@@ -2009,8 +2013,9 @@ function _updateViewportBounds() {
 }
 
 function selectedPointCount() {
-  if (!S.selected) return 0;
-  let n=0; for(let i=0;i<S.selected.length;i++) if(S.alive?.[i] && S.selected[i]) n++;
+  let n=0;
+  if (S.selected) for(let i=0;i<S.selected.length;i++) if(S.alive?.[i] && S.selected[i]) n++;
+  window.dispatchEvent(new CustomEvent('fumoca:selectionChanged', { detail: { count: n } }));
   return n;
 }
 function _updateGroundGrid(recenter = false) {
@@ -2546,6 +2551,85 @@ window.previewSolidMesh = (mesh, options = {}) => {
   _solidMeshPreviewObject.material.depthWrite = opacity >= 0.999;
   _solidMeshPreviewObject.material.needsUpdate = true;
 };
+let _solidMeshComponentsGroup = null;
+const _solidMeshComponentObjects = new Map();
+const clearSolidMeshComponents = () => {
+  if (_solidMeshComponentsGroup) {
+    scene.remove(_solidMeshComponentsGroup);
+    _solidMeshComponentsGroup.traverse(object => {
+      if (object.geometry) object.geometry.dispose();
+      if (object.material) {
+        if (Array.isArray(object.material)) object.material.forEach(material => material.dispose());
+        else object.material.dispose();
+      }
+    });
+  }
+  _solidMeshComponentsGroup = null;
+  _solidMeshComponentObjects.clear();
+};
+window.previewSolidMeshComponents = (components = [], options = {}) => {
+  clearSolidMeshComponents();
+  if (!Array.isArray(components) || !components.length) return;
+  const group = new THREE.Group();
+  group.name = 'FUMOCA independent reconstructed components';
+  const opacity = Math.max(0.05, Math.min(1, Number(options.opacity ?? 0.9)));
+  for (const component of components) {
+    const positions = component.vertices || component.positions;
+    const faces = component.triangles || component.faces;
+    const colours = component.colours || component.colors;
+    if (!positions?.length || !faces?.length) continue;
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    if (colours?.length === positions.length) {
+      const color = new Float32Array(colours.length);
+      for (let i = 0; i < color.length; i++) color[i] = colours[i] / 255;
+      geometry.setAttribute('color', new THREE.BufferAttribute(color, 3));
+    }
+    geometry.setIndex(new THREE.BufferAttribute(faces, 1));
+    geometry.computeVertexNormals();
+    const material = new THREE.MeshStandardMaterial({
+      vertexColors: !!colours,
+      color: colours ? 0xffffff : 0x9ab3c7,
+      roughness: Math.max(0.05, Math.min(1, Number(options.roughness ?? 0.72))),
+      metalness: Math.max(0, Math.min(1, Number(options.metalness ?? 0.05))),
+      side: THREE.DoubleSide,
+      transparent: opacity < 0.999,
+      opacity,
+      depthWrite: opacity >= 0.999,
+    });
+    const object = new THREE.Mesh(geometry, material);
+    object.name = component.id || 'FUMOCA mesh component';
+    object.userData.meshComponentId = component.id || object.name;
+    object.visible = component.visible !== false && options.visible !== false;
+    object.renderOrder = 10;
+    object.frustumCulled = false;
+    group.add(object);
+    _solidMeshComponentObjects.set(object.userData.meshComponentId, object);
+  }
+  _solidMeshComponentsGroup = group;
+  scene.add(group);
+};
+window.setSolidMeshComponentVisibility = (id, visible) => {
+  const object = _solidMeshComponentObjects.get(String(id));
+  if (!object) return false;
+  object.visible = !!visible;
+  return true;
+};
+window.setSolidMeshComponentsVisibility = (visible) => {
+  // Global layer visibility belongs to the group. Do not overwrite each
+  // component's own visibility flag: a user-hidden support plane/object must
+  // remain hidden when the complete reconstructed layer is toggled back on.
+  if (!_solidMeshComponentsGroup) return false;
+  _solidMeshComponentsGroup.visible = !!visible;
+  return true;
+};
+window.highlightSolidMeshComponent = (id) => {
+  for (const [componentId, object] of _solidMeshComponentObjects) {
+    object.material.emissive.set(componentId === String(id) ? 0x334400 : 0x000000);
+    object.material.emissiveIntensity = componentId === String(id) ? 0.45 : 0;
+  }
+};
+
 window.fitLidarToScene = () => {
   if (!_lidarPreviewCloud) return false;
   const cloudBounds = _boundsForPositions(_lidarPreviewCloud.positions);
@@ -2574,6 +2658,7 @@ window.mergePointCloudIntoStudio = (cloud = _lidarPreviewCloud) => {
     lidarIntensity: S.lidarIntensity, lidarClassification: S.lidarClassification, lidarReturnNumber: S.lidarReturnNumber,
     alive: S.alive, selected: S.selected, sourceBuffer: S.sourceBuffer,
     fileType: S.fileType, fileName: S.fileName, splatRowSize: S.splatRowSize,
+    documentModel: S.documentModel,
   };
   const join = (a, b, stride = 1, fill = 0) => {
     const out = new Float32Array((a?.length || 0) + b.length);
@@ -2593,6 +2678,13 @@ window.mergePointCloudIntoStudio = (cloud = _lidarPreviewCloud) => {
     addedScale[i] = pointSize;
   }
   S.positions = join(S.positions, _lidarPreviewPositions);
+  if (S.documentModel) {
+    const allocation = allocateGaussianIds(added, S.documentModel.nextGaussianId);
+    const joinedIds = new Uint32Array(S.documentModel.gaussianIds.length + allocation.ids.length);
+    joinedIds.set(S.documentModel.gaussianIds);
+    joinedIds.set(allocation.ids, S.documentModel.gaussianIds.length);
+    S.documentModel = createDocumentModel({ ...S.documentModel, gaussianIds: joinedIds, nextGaussianId: allocation.nextId });
+  }
   S.colors = join(S.colors, addedColors);
   S.opacity = join(S.opacity, addedOpacity);
   S.scale = join(S.scale, addedScale);
@@ -2875,29 +2967,54 @@ async function loadFile(file, urlOverride) {
   const extSource = (urlOverride || file.name).split(/[?#]/, 1)[0];
   const ext = extSource.split('.').pop().toLowerCase();
   S.nifMesh = null;
+  S.nifMeshComponents = [];
+  S.activeMeshComponentId = null;
+  S.meshComponentSplitUndo = null;
   S.nifPassthroughChunks = [];
   S.lidarIntensity = S.lidarClassification = S.lidarReturnNumber = null;
   window.previewSolidMesh?.(null, { visible: false });
+  window.previewSolidMeshComponents?.([], { visible: false });
   let parsed;
+  let decodedDocumentModel = null;
   if (ext === 'nif') {
     // Real .nif — decode canonical 14-float/point geometry, then convert to
     // the same 32-byte splat-row layout the rest of this editor already
     // understands (brush erase, export, save) so nothing else needs to change.
-    const decoded = await decodeNif(buf);         // { reader, meta, thumbnailBytes, gaussians }
+    const decoded = await decodeNif(buf);         // canonical NIF geometry + optional full-fidelity Gaussian PLY
     const rows = geometryToSplatRows(decoded.gaussians); // Uint8Array, 32 bytes/point
+    decodedDocumentModel = decoded.documentModel || null;
+    if (decoded.gaussianPlyBytes?.byteLength) {
+      const plyBytes = decoded.gaussianPlyBytes;
+      const plyBuffer = plyBytes.buffer.slice(plyBytes.byteOffset, plyBytes.byteOffset + plyBytes.byteLength);
+      parsed = parsePLY(plyBuffer);
+      S.gaussianSourceBytes = plyBuffer.slice(0);
+      S.isGaussianPly = true;
+      window._fumocaLastGaussianBytes = S.gaussianSourceBytes;
+    }
     S.fileType = 'nif';
     S.sourceBuffer = rows.buffer;
     S.nifMeta = decoded.meta || {};
     S.nifThumbnailBytes = decoded.thumbnailBytes || null;
-    S.nifPassthroughChunks = decoded.reader.chunks.filter(chunk => ![0x0001, 0x0003, 0x0004, 0x0015, 0x0019].includes(chunk.type));
+    S.nifPassthroughChunks = decoded.reader.chunks.filter(chunk => ![0x0001, 0x0003, 0x0004, 0x0015, 0x0019, 0x001A, 0x001B, 0x001C].includes(chunk.type));
     S.nifMesh = decoded.mesh ? {
       vertices: decoded.mesh.positions, colours: decoded.mesh.colors,
       triangles: decoded.mesh.faces,
     } : null;
+    S.nifMeshComponents = normalizeMeshComponents((decoded.meshComponents || []).map(component => ({
+      ...component,
+      vertices: component.positions,
+      colours: component.colors,
+      triangles: component.faces,
+      visible: component.visible !== false,
+      supportSurfaceCandidate: component.supportSurfaceCandidate === true,
+      diagnostics: decoded.meta?.mesh_diagnostics?.mesh_components?.find(item => item.id === component.id) || null,
+    })));
+    S.activeMeshComponentId = decoded.documentModel?.activeComponentId && S.nifMeshComponents.some(component => component.id === decoded.documentModel.activeComponentId)
+      ? decoded.documentModel.activeComponentId : (S.nifMeshComponents[0]?.id || null);
     S.lidarIntensity = decoded.lidarAttributes?.intensity || null;
     S.lidarClassification = decoded.lidarAttributes?.classification || null;
     S.lidarReturnNumber = decoded.lidarAttributes?.returnNumber || null;
-    parsed = parseSplat(rows.buffer);
+    if (!parsed) parsed = parseSplat(rows.buffer);
   } else if (ext === 'splat') {
     S.fileType = 'splat'; S.sourceBuffer = buf;
     S.gaussianSourceBytes = buf.slice(0);
@@ -2933,6 +3050,51 @@ async function loadFile(file, urlOverride) {
   S.lidarDisplayColors = null;
   S.alive = new Uint8Array(parsed.count).fill(1);
   S.selected = new Uint8Array(parsed.count);
+  // Gaussian IDs are stable document identities, never array offsets. Legacy
+  // NIF/PLY/splat files receive a fresh identity table on first editor load.
+  if (decodedDocumentModel && decodedDocumentModel.gaussianIds?.length === parsed.count) {
+    S.documentModel = decodedDocumentModel;
+  } else {
+    if (decodedDocumentModel) console.warn('[document-model] Stored Gaussian identity count does not match loaded geometry; allocating a new identity table.');
+    S.documentModel = createDocumentModel({
+      gaussianIds: allocateGaussianIds(parsed.count).ids,
+      components: (S.nifMeshComponents || []).map(component => ({
+        id: component.id, gaussianIds: [], visible: component.visible !== false,
+        geometrySource: 'gaussian-derived',
+        provenance: { source: 'legacy-nif-mesh-component' },
+      })),
+      activeComponentId: S.nifMeshComponents[0]?.id || null,
+    });
+  }
+  // Rehydrate per-component Gaussian membership from the document graph before
+  // using the conservative spatial fallback for legacy files without it.
+  if (S.nifMeshComponents?.length) {
+    const documentComponents = new Map((S.documentModel.components || []).map(component => [component.id, component]));
+    S.nifMeshComponents = S.nifMeshComponents.map(component => {
+      const stored = documentComponents.get(component.id);
+      return stored ? {
+        ...component,
+        gaussianIds: stored.gaussianIds || component.gaussianIds,
+        parentIds: stored.parentIds || component.parentIds,
+        provenance: stored.provenance || component.provenance,
+        geometrySource: stored.geometrySource || component.geometrySource,
+        selected: stored.selected === true,
+      } : component;
+    });
+    if (!S.nifMeshComponents.some(component => component.gaussianIds?.length)) {
+      const membership = assignGaussianMemberships(S.nifMeshComponents, {
+        positions: S.positions,
+        gaussianIds: S.documentModel.gaussianIds,
+        alive: S.alive,
+      });
+      S.nifMeshComponents = membership.components;
+      console.info('[document-model] Conservative component membership:', {
+        assigned: membership.assignedCount,
+        ambiguous: membership.ambiguousCount,
+        unassigned: membership.unassignedCount,
+      });
+    }
+  }
   S.paintColors = new Float32Array(parsed.count * 3).fill(-1);
   S.layers = []; S.activeLayerId = null; S.layerHidden = new Uint8Array(parsed.count);
   const lidarColorMode = document.getElementById('lidarColorMode');
@@ -2946,10 +3108,13 @@ async function loadFile(file, urlOverride) {
   S.history = []; S.historyIndex = -1;
   updateHistoryBtns();
   rebuildGeometry(); setProgress(100);
-  if (S.nifMesh) {
+  if (S.nifMeshComponents?.length) {
+    window.previewSolidMeshComponents?.(S.nifMeshComponents, { visible: true });
+  } else if (S.nifMesh) {
     window.previewSolidMesh?.(S.nifMesh, { visible: true });
   }
   window.dispatchEvent(new CustomEvent('fumoca:nifMeshLoaded', { detail: { mesh: S.nifMesh } }));
+  window.dispatchEvent(new CustomEvent('fumoca:nifMeshComponentsLoaded', { detail: { components: S.nifMeshComponents || [] } }));
   renderLayers();
   $('fileName').textContent = file.name;
   $('fileMeta').textContent = `${fmt(parsed.count)} points · ${(file.size / 1024 / 1024).toFixed(1)} MB · ${ext.toUpperCase()} · ${S.sourceColorAvailable ? 'source color' : 'no RGB color (neutral preview)'}`;
@@ -3500,8 +3665,8 @@ function updateHistoryBtns() {
 }
 
 // ─── SELECTION ──────────────────────────────────────────────────────────────
-function clearSelection() { if (S.selected) S.selected.fill(0); rebuildGeometry(); syncTransformGizmo(); }
-function invertSelection() { if (!S.alive) return; for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) S.selected[i] ^= 1; rebuildGeometry(); syncTransformGizmo(); }
+function clearSelection() { if (S.selected) S.selected.fill(0); rebuildGeometry(); syncTransformGizmo(); selectedPointCount(); }
+function invertSelection() { if (!S.alive) return; for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) S.selected[i] ^= 1; rebuildGeometry(); syncTransformGizmo(); selectedPointCount(); }
 function deleteSelected() {
   if (!S.alive) return;
   pushHistory('delete');
@@ -3552,27 +3717,73 @@ function selectSubjectAtScreen(x, y, radius = 28) {
   return true;
 }
 
-function selectByBox(x0, y0, x1, y1) {
-  if (!S.positions) return;
+// Selection is depth-aware: only the front visible layer in each small
+// screen cell is selected. Shift adds another camera view; Alt subtracts.
+function selectVisibleRegion(contains) {
   const vp = document.getElementById('viewport');
   const W = vp.clientWidth, H = vp.clientHeight;
-  const ndcX0 = (Math.min(x0, x1) / W) * 2 - 1, ndcX1 = (Math.max(x0, x1) / W) * 2 - 1;
-  const ndcY0 = -(Math.min(y0, y1) / H) * 2 + 1, ndcY1 = -(Math.max(y0, y1) / H) * 2 + 1;
-  const proj = new THREE.Vector3();
-  pushHistory('box select'); clearSelection();
-  let hits = 0;
-  for (let i = 0; i < S.alive.length; i++) {
-    if (!S.alive[i]) continue;
-    proj.set(S.positions[i * 3], S.positions[i * 3 + 1], S.positions[i * 3 + 2]).project(camera);
-    if (proj.x >= ndcX0 && proj.x <= ndcX1 && proj.y >= Math.min(ndcY0, ndcY1) && proj.y <= Math.max(ndcY0, ndcY1)) { S.selected[i] = 1; hits++; }
-  }
-  rebuildGeometry(); syncTransformGizmo(); setStatus(`Selected ${fmt(hits)} points`);
+  camera.updateMatrixWorld(true);
+  const view = new THREE.Vector3(), projected = new THREE.Vector3();
+  return selectVisibleScreenPoints({
+    count: S.alive.length,
+    isAlive: i => !!S.alive[i] && !S.layerHidden?.[i],
+    project: i => {
+      const x = S.positions[i * 3], y = S.positions[i * 3 + 1], z = S.positions[i * 3 + 2];
+      view.set(x, y, z).applyMatrix4(camera.matrixWorldInverse);
+      projected.set(x, y, z).project(camera);
+      const depth = -view.z;
+      return {
+        x: (projected.x * 0.5 + 0.5) * W,
+        y: (-projected.y * 0.5 + 0.5) * H,
+        depth,
+        visible: depth > 0 && projected.z >= -1 && projected.z <= 1
+      };
+    },
+    contains,
+    cellSize: 4,
+    depthTolerance: 0.006
+  });
 }
 
-function selectByLasso(pts) {
-  if (!S.positions || pts.length < 3) return;
-  const vp = document.getElementById('viewport');
-  const W = vp.clientWidth, H = vp.clientHeight;
+function applyVisibleSelection(indices, { additive = false, subtract = false, label = 'selection' } = {}) {
+  pushHistory(label);
+  if (!additive && !subtract) clearSelection();
+  for (const i of indices) S.selected[i] = subtract ? 0 : 1;
+  rebuildGeometry();
+  syncTransformGizmo();
+  const selectedTotal = selectedPointCount();
+  window.dispatchEvent(new CustomEvent('fumoca:selectionChanged', { detail: { count: selectedTotal, changed: indices.length } }));
+  setStatus(`${subtract ? 'Removed' : 'Selected'} ${fmt(indices.length)} visible points · ${fmt(selectedTotal)} total selected`);
+}
+
+function selectByBox(x0, y0, x1, y1, options = {}) {
+  if (!S.positions || !S.alive) return;
+  const left = Math.min(x0, x1), right = Math.max(x0, x1);
+  const top = Math.min(y0, y1), bottom = Math.max(y0, y1);
+  let indices;
+  if (options.through) {
+    // Scene crop is intentionally a through-selection: preserve every point
+    // projected into the rectangle, including hidden/back-side geometry.
+    const vp = document.getElementById('viewport');
+    const W = vp.clientWidth, H = vp.clientHeight;
+    const projected = new THREE.Vector3();
+    indices = [];
+    for (let i = 0; i < S.alive.length; i++) {
+      if (!S.alive[i] || S.layerHidden?.[i]) continue;
+      projected.set(S.positions[i * 3], S.positions[i * 3 + 1], S.positions[i * 3 + 2]).project(camera);
+      if (projected.z < -1 || projected.z > 1) continue;
+      const x = (projected.x * 0.5 + 0.5) * W;
+      const y = (-projected.y * 0.5 + 0.5) * H;
+      if (x >= left && x <= right && y >= top && y <= bottom) indices.push(i);
+    }
+  } else {
+    indices = selectVisibleRegion((x, y) => x >= left && x <= right && y >= top && y <= bottom);
+  }
+  applyVisibleSelection(indices, { ...options, label: 'box select' });
+}
+
+function selectByLasso(pts, options = {}) {
+  if (!S.positions || !S.alive || pts.length < 3) return;
   function inPoly(px, py) {
     let inside = false;
     for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
@@ -3581,15 +3792,8 @@ function selectByLasso(pts) {
     }
     return inside;
   }
-  pushHistory('lasso select'); clearSelection();
-  const proj = new THREE.Vector3(); let hits = 0;
-  for (let i = 0; i < S.alive.length; i++) {
-    if (!S.alive[i]) continue;
-    proj.set(S.positions[i * 3], S.positions[i * 3 + 1], S.positions[i * 3 + 2]).project(camera);
-    const sx = (proj.x * 0.5 + 0.5) * W, sy = (-proj.y * 0.5 + 0.5) * H;
-    if (inPoly(sx, sy)) { S.selected[i] = 1; hits++; }
-  }
-  rebuildGeometry(); syncTransformGizmo(); setStatus(`Selected ${fmt(hits)} points`);
+  const indices = selectVisibleRegion(inPoly);
+  applyVisibleSelection(indices, { ...options, label: 'lasso select' });
 }
 
 function applyBrush(cx, cy) {
@@ -3942,6 +4146,17 @@ function _encodeGaussianPly(indices) {
   return new Blob([lines.join('\n')], { type: 'text/plain' });
 }
 
+// Rebuild the photoreal source payload after geometric transforms so toggling
+// Spark off/on cannot reload stale pre-transform coordinates.
+window.refreshGaussianSourceBytes = async () => {
+  if (!S.isGaussianPly || !S.positions?.length) return false;
+  const indices = Array.from({ length: S.positions.length / 3 }, (_, index) => index);
+  const bytes = await _encodeGaussianPly(indices).arrayBuffer();
+  S.gaussianSourceBytes = bytes;
+  window._fumocaLastGaussianBytes = bytes;
+  return true;
+};
+
 function _compactLidarAttributes(indices) {
   const compact = (source) => source ? indices.map(i => source[i] ?? 0) : null;
   const intensity = S.lidarIntensity ? Uint16Array.from(compact(S.lidarIntensity)) : null;
@@ -3950,7 +4165,106 @@ function _compactLidarAttributes(indices) {
   return intensity || classification || returnNumber ? { intensity, classification, returnNumber } : null;
 }
 
-function exportFile(type = 'splat') {
+function _documentModelForSave(retainedIndices) {
+  const pointCount = Math.floor((S.positions?.length || 0) / 3);
+  let base = S.documentModel;
+  let changed = false;
+  if (!base) {
+    base = createDocumentModel({ gaussianIds: allocateGaussianIds(pointCount).ids });
+    changed = true;
+  }
+  if (base.gaussianIds.length > pointCount) {
+    throw new Error('Document Gaussian identity count exceeds the live point array. Refusing to save mismatched component identities.');
+  }
+  if (base.gaussianIds.length < pointCount) {
+    const allocation = allocateGaussianIds(pointCount - base.gaussianIds.length, base.nextGaussianId);
+    const extended = new Uint32Array(pointCount);
+    extended.set(base.gaussianIds);
+    extended.set(allocation.ids, base.gaussianIds.length);
+    base = createDocumentModel({ ...base, gaussianIds: extended, nextGaussianId: allocation.nextId });
+    changed = true;
+  }
+  const arraysEqual = (a, b) => {
+    if ((a?.length || 0) !== (b?.length || 0)) return false;
+    for (let i = 0; i < (a?.length || 0); i++) if (a[i] !== b[i]) return false;
+    return true;
+  };
+  const liveComponents = Array.isArray(S.nifMeshComponents) ? S.nifMeshComponents : [];
+  const liveById = new Map(liveComponents.map(component => [component.id, component]));
+  const knownIds = new Set((base.components || []).map(component => component.id));
+  const components = (base.components || []).map(component => {
+    const live = liveById.get(component.id);
+    if (!live) {
+      if (component.deleted !== true || component.visible !== false || component.selected === true) changed = true;
+      return { ...component, visible: false, selected: false, deleted: true };
+    }
+    const gaussianIds = live.gaussianIds || component.gaussianIds || [];
+    const visible = live.visible !== false;
+    const selected = live.selected === true;
+    const parentIds = [...new Set((live.parentIds || component.parentIds || []).map(String))];
+    const geometrySource = live.geometrySource || component.geometrySource || 'gaussian-derived';
+    const provenance = live.provenance || component.provenance || null;
+    const metadataChanged = JSON.stringify(component.parentIds || []) !== JSON.stringify(parentIds)
+      || component.geometrySource !== geometrySource
+      || JSON.stringify(component.provenance || null) !== JSON.stringify(provenance);
+    if (component.visible !== visible || component.selected !== selected
+        || component.deleted === true
+        || (live.watertight !== undefined && component.watertight !== (live.watertight === true))
+        || (live.supportSurfaceCandidate !== undefined && component.supportSurfaceCandidate !== (live.supportSurfaceCandidate === true))
+        || !arraysEqual(component.gaussianIds, gaussianIds)
+        || metadataChanged) changed = true;
+    return {
+      ...component,
+      parentIds,
+      gaussianIds,
+      visible,
+      selected,
+      geometrySource,
+      provenance,
+      ...(live.watertight !== undefined ? { watertight: live.watertight === true } : {}),
+      ...(live.supportSurfaceCandidate !== undefined ? { supportSurfaceCandidate: live.supportSurfaceCandidate === true } : {}),
+      deleted: false,
+    };
+  });
+  for (const live of liveComponents) {
+    if (knownIds.has(live.id)) continue;
+    changed = true;
+    components.push({
+      id: live.id,
+      parentIds: live.parentIds || [],
+      gaussianIds: live.gaussianIds || [],
+      visible: live.visible !== false,
+      selected: live.selected === true,
+      ...(live.watertight !== undefined ? { watertight: live.watertight === true } : {}),
+      ...(live.supportSurfaceCandidate !== undefined ? { supportSurfaceCandidate: live.supportSurfaceCandidate === true } : {}),
+      geometrySource: live.geometrySource || 'gaussian-derived',
+      provenance: live.provenance || { source: 'mesh-reconstruction' },
+    });
+  }
+  const activeComponentId = Array.isArray(S.nifMeshComponents)
+    ? (liveById.has(S.activeMeshComponentId) ? S.activeMeshComponentId : null)
+    : (base.activeComponentId || null);
+  if (activeComponentId !== (base.activeComponentId || null)) changed = true;
+  const sourceSignature = window.FUMOCA_StudioMeshPrint?.getSourceSignature?.()
+    || S.nifMeta?.dual_surface_source_signature;
+  const source = {
+    ...(base.source || {}),
+    ...(sourceSignature ? { geometrySignature: sourceSignature } : {}),
+  };
+  if (sourceSignature && base.source?.geometrySignature !== sourceSignature) changed = true;
+  if (sourceSignature) S.nifMeta = { ...(S.nifMeta || {}), dual_surface_source_signature: sourceSignature };
+  const updated = createDocumentModel({
+    ...base,
+    revision: base.revision + (changed ? 1 : 0),
+    source,
+    components,
+    activeComponentId,
+  });
+  S.documentModel = updated;
+  return compactDocumentModel(updated, retainedIndices);
+}
+
+async function exportFile(type = 'splat') {
   if (!S.alive) return;
   const idx = []; for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) idx.push(i);
   let blob, name;
@@ -3967,6 +4281,12 @@ function exportFile(type = 'splat') {
     // Real .nif export — canonical 14-float/point chunked binary, not a
     // renamed .splat. Carries forward the source file's meta/thumbnail when
     // this file was itself loaded from a .nif (S.nifMeta/S.nifThumbnailBytes).
+    const meshComponents = S.nifMeshComponents?.length ? S.nifMeshComponents : [];
+    const savedDocumentModel = _documentModelForSave(idx);
+    const hasSh = (S.shAttributes || []).length > 0;
+    const gaussianPlyBytes = hasSh
+      ? new Uint8Array(await _encodeGaussianPly(idx).arrayBuffer())
+      : undefined;
     const buf = encodeNif({
       sourceBuffer: currentRows,
       aliveIndices: Array.from({ length: idx.length }, (_, i) => i),
@@ -3974,6 +4294,9 @@ function exportFile(type = 'splat') {
       meta: S.nifMeta || {},
       thumbnailBytes: S.nifThumbnailBytes || undefined,
       mesh: S.nifMesh || undefined,
+      meshComponents: meshComponents.length ? meshComponents : undefined,
+      documentModel: savedDocumentModel,
+      gaussianPlyBytes,
       lidarAttributes: _compactLidarAttributes(idx),
       passthroughChunks: S.nifPassthroughChunks || [],
       vertical: (S.nifMeta && S.nifMeta.vertical) || 'generic',
@@ -4617,16 +4940,16 @@ window.addEventListener('pointerup', e => {
     if (dx <= 7 && dy <= 7) {
       // A click in Select mode picks the nearest visible subject/layer. Dragging
       // still performs normal box selection.
-      if (!selectSubjectAtScreen(x, y)) selectByBox(S.dragStart.x, S.dragStart.y, S.dragCurrent.x, S.dragCurrent.y);
-    } else selectByBox(S.dragStart.x, S.dragStart.y, S.dragCurrent.x, S.dragCurrent.y);
+      if (!selectSubjectAtScreen(x, y)) selectByBox(S.dragStart.x, S.dragStart.y, S.dragCurrent.x, S.dragCurrent.y, { additive: e.shiftKey, subtract: e.altKey });
+    } else selectByBox(S.dragStart.x, S.dragStart.y, S.dragCurrent.x, S.dragCurrent.y, { additive: e.shiftKey, subtract: e.altKey });
   }
   if (S.mode === 'crop' && S.dragStart && S.dragCurrent) {
-    selectByBox(S.dragStart.x,S.dragStart.y,S.dragCurrent.x,S.dragCurrent.y);
+    selectByBox(S.dragStart.x,S.dragStart.y,S.dragCurrent.x,S.dragCurrent.y,{ through: true });
     pushHistory('crop to box');
     for(let i=0;i<S.alive.length;i++) if(S.alive[i]&&!S.selected[i]) S.alive[i]=0;
     S.selected.fill(0); rebuildGeometry(); setStatus('Scene cropped to box selection','ok');
   }
-  if (S.mode === 'lasso' && S.lassoPoints.length >= 3) selectByLasso(S.lassoPoints);
+  if (S.mode === 'lasso' && S.lassoPoints.length >= 3) selectByLasso(S.lassoPoints, { additive: e.shiftKey, subtract: e.altKey });
   if (['box','sphere','lasso'].includes(S.mode)) syncTransformGizmo();
   if (['move','scale-tool','rotate'].includes(S.mode)) { window.FumocaGaussianRenderer?.invalidateSort(); rebuildGeometry(); syncTransformGizmo(); captureGizmoTransform(); _xformIndices = null; _xformPivot = null; _xformStartPos = null; _xformStartScale = null; _xformStartScaleXYZ = null; _xformStartRot = null; _xformAccum = null; }
   _xformPivot = null; _xformIndices = null;
@@ -5152,20 +5475,28 @@ window.saveLiveEdit = async function saveLiveEdit(extra = {}) {
       for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) aliveIdx.push(i);
       const hasSh = (S.shAttributes || []).length > 0;
       const meshFreshness = window.FUMOCA_StudioMeshPrint?.checkSourceFreshness?.();
-      if (!hasSh && meshFreshness && !meshFreshness.ok) throw new Error(meshFreshness.message);
-      const savedBlob = hasSh ? _encodeGaussianPly(aliveIdx) : new Blob([encodeNif({
+      if (meshFreshness && !meshFreshness.ok) throw new Error(meshFreshness.message);
+      const meshComponents = S.nifMeshComponents?.length ? S.nifMeshComponents : [];
+      const savedDocumentModel = _documentModelForSave(aliveIdx);
+      const gaussianPlyBytes = hasSh
+        ? new Uint8Array(await _encodeGaussianPly(aliveIdx).arrayBuffer())
+        : undefined;
+      const savedBlob = new Blob([encodeNif({
         sourceBuffer: rowBytes,
         aliveIndices: Array.from({ length: aliveIdx.length }, (_, i) => i),
         rowSize: 32,
         meta: S.nifMeta || {},
         thumbnailBytes: S.nifThumbnailBytes || undefined,
         mesh: S.nifMesh || undefined,
+        meshComponents: meshComponents.length ? meshComponents : undefined,
+        documentModel: savedDocumentModel,
+        gaussianPlyBytes,
         lidarAttributes: _compactLidarAttributes(aliveIdx),
         passthroughChunks: S.nifPassthroughChunks || [],
         vertical: S.nifMeta?.vertical || 'generic',
       })], { type: 'application/octet-stream' });
-      const savedExt = hasSh ? 'ply' : 'nif';
-      const savedContentType = hasSh ? 'text/plain' : 'application/octet-stream';
+      const savedExt = 'nif';
+      const savedContentType = 'application/octet-stream';
       const path = `${splatId}/edited_${Date.now()}.${savedExt}`;
       const r2 = await getR2Client();
       const { fileKey, error: upErr } = await r2.from('nif-files')
@@ -5304,12 +5635,27 @@ $('addSplatInput')?.addEventListener('change', async e => {
       let parsed;
       if (ext === 'nif') {
         const decoded = await decodeNif(buffer);
-        parsed = parseSplat(geometryToSplatRows(decoded.gaussians).buffer);
+        if (decoded.gaussianPlyBytes?.byteLength) {
+          const plyBytes = decoded.gaussianPlyBytes;
+          parsed = parsePLY(plyBytes.buffer.slice(plyBytes.byteOffset, plyBytes.byteOffset + plyBytes.byteLength));
+        } else {
+          parsed = parseSplat(geometryToSplatRows(decoded.gaussians).buffer);
+        }
       } else if (ext === 'splat') parsed = parseSplat(buffer);
       else if (ext === 'ply') parsed = parsePLY(buffer);
       else throw new Error(`Unsupported splat format: .${ext}`);
       if (!parsed.count) throw new Error(`${file.name} has no readable points`);
       const oldN = S.alive.length, addN = parsed.count;
+      const currentDocument = S.documentModel || createDocumentModel({ gaussianIds: allocateGaussianIds(oldN).ids });
+      const newGaussianIds = allocateGaussianIds(addN, currentDocument.nextGaussianId);
+      const joinedGaussianIds = new Uint32Array(currentDocument.gaussianIds.length + newGaussianIds.ids.length);
+      joinedGaussianIds.set(currentDocument.gaussianIds);
+      joinedGaussianIds.set(newGaussianIds.ids, currentDocument.gaussianIds.length);
+      S.documentModel = createDocumentModel({
+        ...currentDocument,
+        gaussianIds: joinedGaussianIds,
+        nextGaussianId: newGaussianIds.nextId,
+      });
       const append = (a, b, stride = 1, fallback = 0) => {
         const out = new Float32Array((oldN + addN) * stride);
         if (a) out.set(a);
@@ -5505,7 +5851,7 @@ $('shrinkSelBtn').addEventListener('click', () => {
   }
   S.selected = newSel; rebuildGeometry(); setStatus(`Shrunk selection by ${fmt(removed)}`);
 });
-$('selAllBtn')?.addEventListener('click', () => { if (!S.alive) return; for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) S.selected[i] = 1; rebuildGeometry(); syncTransformGizmo(); setStatus('All selected'); });
+$('selAllBtn')?.addEventListener('click', () => { if (!S.alive) return; for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) S.selected[i] = 1; rebuildGeometry(); syncTransformGizmo(); setStatus(`All selected (${fmt(selectedPointCount())} points)`); });
 $('expandSelBtn')?.addEventListener('click', () => {
   if (!S.alive) return;
   // Stronger, multi-pass version of Grow — 3 iterations of the same real

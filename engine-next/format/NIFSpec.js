@@ -90,6 +90,9 @@ export const CHUNK = Object.freeze({
                            // engine-next/reconstruction/verify.py and encodeVerificationChunk()
                            // below. Absence means "not verified", never inferred as "passed".
   LIDAR_ATTR:    0x0019,  // Optional per-point LiDAR intensity/class/return arrays (v1; see nif-format.js).
+  MESH_COMPONENTS: 0x001A, // v1: id, flags (watertight/visible/support candidate), positions, RGB, local faces.
+  DOCUMENT_MODEL: 0x001B, // Optional stable Gaussian/component identities, membership and lineage.
+  GAUSSIAN_PLY:  0x001C, // Optional full-fidelity Gaussian PLY payload, including higher-order SH attributes.
   SPATIAL_AUDIO: 0x0300,  // RESERVED — ambisonics B-format + HRTF source positions.
                            // Shared ID with SPAXSpec.js's SPAX_CHUNK.SPATIAL_AUDIO — see the
                            // "Shared chunk-ID registry" note above CHUNK for why this moved
@@ -187,21 +190,28 @@ function decodeAscii(dv, offset, len) {
 
 // Concatenate multiple Uint8Arrays into one
 function concat(...arrays) {
-  const total = arrays.reduce((s, a) => s + a.byteLength, 0);
-  const out   = new Uint8Array(total);
-  let offset  = 0;
-  for (const a of arrays) {
-    out.set(new Uint8Array(a instanceof ArrayBuffer ? a : a.buffer ?? a), offset);
-    offset += a.byteLength;
+  const views = arrays.map((value) => {
+    if (value instanceof ArrayBuffer) return new Uint8Array(value);
+    if (ArrayBuffer.isView(value)) {
+      return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+    }
+    return new Uint8Array(value);
+  });
+  const total = views.reduce((sum, view) => sum + view.byteLength, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const view of views) {
+    out.set(view, offset);
+    offset += view.byteLength;
   }
   return out;
 }
 
 // ─── Gzip (de)compression ──────────────────────────────────────────────────────
-// Every real .nif produced by engine-next/reconstruction/pipeline.py auto-gzips
-// any chunk ≥1KB (see pipeline.py's _compress()) — which is virtually every
-// geometry/mesh/depth chunk. Without this, NIFReader.getGeometry() and friends
-// would be handed raw gzip bytes and either crash or silently return garbage.
+// The Python worker attempts gzip for eligible chunks ≥1KB and keeps the
+// compressed form only when it is at least 5% smaller (pipeline.py _compress).
+// Codec handling remains explicit: readers must never infer compression from
+// payload bytes or pass an unsupported codec to a semantic decoder.
 // Uses the browser/Node native CompressionStream/DecompressionStream — no WASM
 // dependency, same approach already used in SPAXSpec.js.
 export async function gzipDecompress(bytes) {
@@ -249,8 +259,7 @@ export async function decompressChunk(chunk) {
   if (!chunk) return null;
   if (chunk.codec === CODEC.RAW) return chunk.data;
   if (chunk.codec === CODEC.GZIP) return gzipDecompress(chunk.data);
-  console.warn(`[NIFSpec] Chunk type 0x${chunk.type.toString(16)} uses unsupported codec 0x${chunk.codec.toString(16)} — returning raw bytes, likely unusable`);
-  return chunk.data;
+  throw new Error(`[NIFSpec] Unsupported codec 0x${chunk.codec.toString(16)} for chunk type 0x${chunk.type.toString(16)}`);
 }
 
 // Write a big-endian float32 into a DataView at offset
