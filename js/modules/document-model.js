@@ -360,14 +360,24 @@ export class UnifiedEditHistory {
   undo() {
     if (this.transactionOpen || !this.canUndo()) return false;
     const entry = this.entries[this.cursor - 1];
+    const current = this.#capture();
     try {
       this.restore(cloneHistoryValue(entry.before), { direction: 'undo', label: entry.label, entryId: entry.id });
+      const restored = this.#capture();
       this.cursor--;
-      this.baseline = this.#capture();
+      this.baseline = restored;
       this.lastError = null;
       this.#notify();
       return true;
     } catch (error) {
+      // A restore adapter can fail after partially changing scene state.
+      // Best-effort rollback keeps the cursor and visible document in sync.
+      try {
+        this.restore(cloneHistoryValue(current), { direction: 'rollback', label: entry.label, failedDirection: 'undo' });
+        this.baseline = this.#capture();
+      } catch (restoreError) {
+        error.restoreError = restoreError;
+      }
       this.lastError = error;
       this.#notify();
       throw error;
@@ -377,14 +387,22 @@ export class UnifiedEditHistory {
   redo() {
     if (this.transactionOpen || !this.canRedo()) return false;
     const entry = this.entries[this.cursor];
+    const current = this.#capture();
     try {
       this.restore(cloneHistoryValue(entry.after), { direction: 'redo', label: entry.label, entryId: entry.id });
+      const restored = this.#capture();
       this.cursor++;
-      this.baseline = this.#capture();
+      this.baseline = restored;
       this.lastError = null;
       this.#notify();
       return true;
     } catch (error) {
+      try {
+        this.restore(cloneHistoryValue(current), { direction: 'rollback', label: entry.label, failedDirection: 'redo' });
+        this.baseline = this.#capture();
+      } catch (restoreError) {
+        error.restoreError = restoreError;
+      }
       this.lastError = error;
       this.#notify();
       throw error;
