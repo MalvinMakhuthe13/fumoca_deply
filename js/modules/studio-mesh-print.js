@@ -262,6 +262,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       visible.addEventListener('change', () => {
         component.visible = visible.checked;
         window.setSolidMeshComponentVisibility?.(component.id, visible.checked);
+        syncComponentDiagnosticsToMeta();
       });
       const select = document.createElement('button');
       select.type = 'button'; select.className = 'mini-btn';
@@ -344,15 +345,21 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     }
     updateComponentTransformButtons();
   });
+  const applyComponentVisibilityPreferences = () => {
+    const components = window.S?.nifMeshComponents || [];
+    // Rebuild the preview from per-component preferences. The group is made
+    // visible here; each child mesh still honours its own visible flag.
+    window.previewSolidMeshComponents?.(components, { visible: true, opacity: 1 });
+    renderMeshComponents(components);
+    syncComponentDiagnosticsToMeta();
+  };
   container.querySelector('#meshComponentsShowAll')?.addEventListener('click', () => {
     for (const component of window.S?.nifMeshComponents || []) component.visible = true;
-    window.previewSolidMeshComponents?.(window.S?.nifMeshComponents || [], { visible: true, opacity: 1 });
-    renderMeshComponents(window.S?.nifMeshComponents || []);
+    applyComponentVisibilityPreferences();
   });
   container.querySelector('#meshComponentsHideAll')?.addEventListener('click', () => {
     for (const component of window.S?.nifMeshComponents || []) component.visible = false;
-    window.setSolidMeshComponentsVisibility?.(false);
-    renderMeshComponents(window.S?.nifMeshComponents || []);
+    applyComponentVisibilityPreferences();
   });
   const selectedMeshComponent = () => (window.S?.nifMeshComponents || []).find(component => component.id === window.S?.activeMeshComponentId);
   const updateComponentTransformButtons = () => {
