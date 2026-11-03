@@ -1193,6 +1193,10 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
   const linkSelectedGaussiansToComponent = (targetComponent) => {
     const state = window.S;
     if (!state?.selected || !state?.alive || !state.documentModel?.gaussianIds?.length || !targetComponent) return false;
+    if (targetComponent.supportSurfaceCandidate === true) {
+      meshStatus('Support-platform components are protected from Gaussian ownership. Link selected splats to the object component instead.');
+      return false;
+    }
     // Do not treat the temporary trim-preview selection as a user's ownership
     // assignment. Restore the real selection before collecting IDs.
     if (state.supportPlaneTrimPreview) clearSupportTrimPreview(true);
