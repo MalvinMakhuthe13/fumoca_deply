@@ -1982,7 +1982,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     levelToSupportPlane,
     previewSupportPlaneTrim,
     linkSelectedGaussiansToComponent,
-    undoGaussianMembershipLink,
     unlinkSelectedGaussiansFromComponents,
     applySupportPlaneTrim,
     capSupportPlaneBase,
