@@ -11,6 +11,7 @@ WORKER = ROOT / "kaggle" / "fumoca_cpu_mesh_worker.py"
 def main():
     pipeline_text = PIPELINE.read_text(encoding="utf-8")
     tree = ast.parse(pipeline_text)
+    assert "from __future__ import annotations" in pipeline_text
     top_level_imports = {
         alias.name
         for node in tree.body if isinstance(node, ast.Import)
