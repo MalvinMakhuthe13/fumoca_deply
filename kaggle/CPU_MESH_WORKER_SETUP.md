@@ -12,6 +12,8 @@ The function only claims `queued` rows whose `capture_mode` is
 
 ## Kaggle CPU notebook
 
+A ready-to-run notebook is included at `kaggle/FUMOCA_CPU_Mesh_Worker.ipynb`. Upload/import it into Kaggle, or follow the manual steps below.
+
 1. Create/open a Kaggle notebook.
 2. In Notebook options, set **Accelerator: None** (do not enable GPU).
 3. Add these five values as Kaggle secrets:
