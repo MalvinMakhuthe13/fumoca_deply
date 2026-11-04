@@ -5,10 +5,12 @@ on:
     branches:
       - feature/dual-surface-engine-2026-11-02
       - feature/gaussian-surface-reconstruction-v2
+      - feature/unified-studio-history-2026-11-03
   pull_request:
     branches:
       - main
       - feature/dual-surface-engine-2026-11-02
+      - feature/gaussian-surface-reconstruction-v2
 
 jobs:
   dual-surface:
@@ -37,6 +39,8 @@ jobs:
           node --check --experimental-default-type=module js/modules/viewer.js
       - name: Verify canonical document identity and transactional history
         run: node --experimental-default-type=module --test engine-next/tests/document_model.test.mjs
+      - name: Verify unified cross-domain edit history
+        run: node --experimental-default-type=module --test engine-next/tests/unified_edit_history.test.mjs
       - name: Verify binary NIF document identity persistence
         run: node --experimental-default-type=module --test engine-next/tests/document_model_nif.test.mjs
       - name: Verify support-plane leveling transforms

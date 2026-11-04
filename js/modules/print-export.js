@@ -84,7 +84,7 @@ export async function exportSelectionAsFigurine({ title, preset = 'product', hei
   }).select().single();
   if (jobErr) throw jobErr;
 
-  onStatus?.('Queued. This runs server-side — check back in a few minutes.');
+  onStatus?.('Queued for CPU mesh reconstruction. No GPU training is required; a CPU mesh worker must be running.');
   return job.id;
 }
 

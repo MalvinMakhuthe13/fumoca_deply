@@ -19,6 +19,10 @@ function makeUuid() {
 
 function cloneValue(value) {
   if (value == null || typeof value !== 'object') return value;
+  if (value instanceof DataView) {
+    const bytes = value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);
+    return new DataView(bytes);
+  }
   if (ArrayBuffer.isView(value)) return new value.constructor(value);
   if (value instanceof ArrayBuffer) return value.slice(0);
   if (Array.isArray(value)) return value.map(cloneValue);
@@ -150,6 +154,81 @@ export function validateDocumentModel(model) {
   return { valid: true, gaussianCount: gaussianIds.length, componentCount: componentIds.size };
 }
 
+/**
+ * Reconcile the canonical component graph from Studio's live mesh-component
+ * collection. Deleted records remain in the graph for lineage; live Gaussian
+ * ownership is rebuilt from the mesh list and validated before it is returned.
+ * This function is pure: callers may safely validate first and assign second.
+ */
+export function syncDocumentComponentsFromMesh(model, liveComponents, activeComponentId = null) {
+  if (!model) return null;
+  if (!Array.isArray(liveComponents)) throw new TypeError('liveComponents must be an array');
+  const liveById = new Map();
+  for (const component of liveComponents) {
+    if (!component?.id || liveById.has(component.id)) {
+      throw new Error('live mesh component IDs must be non-empty and unique');
+    }
+    liveById.set(component.id, component);
+  }
+  const arraysEqual = (a, b) => {
+    const left = a || [], right = b || [];
+    if (left.length !== right.length) return false;
+    for (let i = 0; i < left.length; i++) if (left[i] !== right[i]) return false;
+    return true;
+  };
+  let changed = false;
+  const knownIds = new Set((model.components || []).map(component => component.id));
+  const components = (model.components || []).map(component => {
+    const live = liveById.get(component.id);
+    if (!live) {
+      if (component.deleted !== true || component.visible !== false || component.selected === true) changed = true;
+      return { ...component, visible: false, selected: false, deleted: true };
+    }
+    const gaussianIds = live.gaussianIds || [];
+    const parentIds = [...new Set((live.parentIds || component.parentIds || []).map(String))];
+    const visible = live.visible !== false;
+    const selected = live.selected === true;
+    const geometrySource = live.geometrySource || component.geometrySource || 'gaussian-derived';
+    const provenance = live.provenance || component.provenance || null;
+    if (!arraysEqual(component.gaussianIds, gaussianIds)
+        || JSON.stringify(component.parentIds || []) !== JSON.stringify(parentIds)
+        || component.visible !== visible || component.selected !== selected
+        || component.deleted === true || component.geometrySource !== geometrySource
+        || JSON.stringify(component.provenance || null) !== JSON.stringify(provenance)
+        || (live.watertight !== undefined && component.watertight !== (live.watertight === true))
+        || (live.supportSurfaceCandidate !== undefined && component.supportSurfaceCandidate !== (live.supportSurfaceCandidate === true))) changed = true;
+    return {
+      ...component, parentIds, gaussianIds, visible, selected, geometrySource, provenance, deleted: false,
+      ...(live.watertight !== undefined ? { watertight: live.watertight === true } : {}),
+      ...(live.supportSurfaceCandidate !== undefined ? { supportSurfaceCandidate: live.supportSurfaceCandidate === true } : {}),
+    };
+  });
+  for (const live of liveComponents) {
+    if (knownIds.has(live.id)) continue;
+    changed = true;
+    components.push({
+      id: live.id,
+      parentIds: live.parentIds || [],
+      gaussianIds: live.gaussianIds || [],
+      visible: live.visible !== false,
+      selected: live.selected === true,
+      ...(live.watertight !== undefined ? { watertight: live.watertight === true } : {}),
+      ...(live.supportSurfaceCandidate !== undefined ? { supportSurfaceCandidate: live.supportSurfaceCandidate === true } : {}),
+      geometrySource: live.geometrySource || 'gaussian-derived',
+      provenance: live.provenance || { source: 'mesh-reconstruction' },
+    });
+  }
+  const nextActive = liveById.has(activeComponentId) ? activeComponentId : null;
+  if ((model.activeComponentId || null) !== nextActive) changed = true;
+  if (!changed) return model;
+  return createDocumentModel({
+    ...model,
+    revision: model.revision + 1,
+    components,
+    activeComponentId: nextActive,
+  });
+}
+
 /** Make an independent snapshot, including typed geometry and identity arrays. */
 export function cloneDocumentModel(model) {
   validateDocumentModel(model);
@@ -211,6 +290,451 @@ export class DocumentHistory {
   canUndo() { return this.undoStack.length > 0; }
   canRedo() { return this.redoStack.length > 0; }
   snapshot() { return cloneDocumentModel(this.current); }
+}
+
+
+/*
+ * Unified, document-scoped edit journal.
+ *
+ * The journal stores domain snapshots (Gaussian buffers, component geometry,
+ * identities, visibility, selection and metadata) supplied by a Studio adapter.
+ * It deliberately excludes transient renderer objects.
+ */
+function cloneHistoryValue(value) {
+  if (value == null || typeof value !== 'object') return value;
+  if (value instanceof DataView) {
+    const bytes = value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);
+    return new DataView(bytes);
+  }
+  if (ArrayBuffer.isView(value)) return new value.constructor(value);
+  if (value instanceof ArrayBuffer) return value.slice(0);
+  if (Array.isArray(value)) return value.map(cloneHistoryValue);
+  if (value instanceof Map) return new Map([...value].map(([key, item]) => [cloneHistoryValue(key), cloneHistoryValue(item)]));
+  if (value instanceof Set) return new Set([...value].map(cloneHistoryValue));
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) {
+    throw new TypeError(`history snapshots must contain plain data, not ${value.constructor?.name || 'custom-prototype'} instances`);
+  }
+  const copy = Object.create(prototype);
+  for (const [key, item] of Object.entries(value)) copy[key] = cloneHistoryValue(item);
+  return copy;
+}
+
+function historyValuesEqual(a, b, seen = new WeakMap()) {
+  if (Object.is(a, b)) return true;
+  if (a == null || b == null || typeof a !== 'object' || typeof b !== 'object') return false;
+  if (Object.getPrototypeOf(a) !== Object.getPrototypeOf(b)) return false;
+  if (a instanceof DataView) {
+    if (!(b instanceof DataView) || a.byteLength !== b.byteLength) return false;
+    const av = new Uint8Array(a.buffer, a.byteOffset, a.byteLength);
+    const bv = new Uint8Array(b.buffer, b.byteOffset, b.byteLength);
+    for (let i = 0; i < av.length; i++) if (av[i] !== bv[i]) return false;
+    return true;
+  }
+  if (ArrayBuffer.isView(a)) {
+    if (a.constructor !== b.constructor || a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) if (!Object.is(a[i], b[i])) return false;
+    return true;
+  }
+  if (a instanceof ArrayBuffer) {
+    if (a.byteLength !== b.byteLength) return false;
+    const av = new Uint8Array(a), bv = new Uint8Array(b);
+    for (let i = 0; i < av.length; i++) if (av[i] !== bv[i]) return false;
+    return true;
+  }
+  if (seen.get(a) === b) return true;
+  seen.set(a, b);
+  if (a instanceof Map) {
+    if (a.size !== b.size) return false;
+    const ai = a.entries(), bi = b.entries();
+    while (true) {
+      const x = ai.next(), y = bi.next();
+      if (x.done || y.done) return x.done === y.done;
+      if (!historyValuesEqual(x.value[0], y.value[0], seen) || !historyValuesEqual(x.value[1], y.value[1], seen)) return false;
+    }
+  }
+  if (a instanceof Set) {
+    if (a.size !== b.size) return false;
+    const ai = a.values(), bi = b.values();
+    while (true) {
+      const x = ai.next(), y = bi.next();
+      if (x.done || y.done) return x.done === y.done;
+      if (!historyValuesEqual(x.value, y.value, seen)) return false;
+    }
+  }
+  const ak = Object.keys(a), bk = Object.keys(b);
+  if (ak.length !== bk.length) return false;
+  for (const key of ak) {
+    if (!Object.prototype.hasOwnProperty.call(b, key) || !historyValuesEqual(a[key], b[key], seen)) return false;
+  }
+  return true;
+}
+
+function estimateHistoryBytes(value, seen = new Set()) {
+  if (value == null) return 0;
+  if (typeof value === 'string') return value.length * 2;
+  if (typeof value === 'number' || typeof value === 'bigint') return 8;
+  if (typeof value === 'boolean') return 4;
+  if (typeof value !== 'object' || seen.has(value)) return 0;
+  seen.add(value);
+  if (ArrayBuffer.isView(value)) return value.byteLength + 16;
+  if (value instanceof ArrayBuffer) return value.byteLength + 16;
+  if (value instanceof Map) {
+    let bytes = 48;
+    for (const [key, item] of value) bytes += 16 + estimateHistoryBytes(key, seen) + estimateHistoryBytes(item, seen);
+    return bytes;
+  }
+  if (value instanceof Set) {
+    let bytes = 40;
+    for (const item of value) bytes += 8 + estimateHistoryBytes(item, seen);
+    return bytes;
+  }
+  if (Array.isArray(value)) {
+    let bytes = 24 + value.length * 8;
+    for (const item of value) bytes += estimateHistoryBytes(item, seen);
+    return bytes;
+  }
+  let bytes = 32;
+  for (const [key, item] of Object.entries(value)) {
+    bytes += key.length * 2 + 8 + estimateHistoryBytes(item, seen);
+  }
+  return bytes;
+}
+
+/**
+ * Bounded atomic snapshot journal shared by all Studio editing domains.
+ * capture() returns detached data; restore() replaces authored document state
+ * and refreshes previews. Both callbacks must be synchronous.
+ */
+export class UnifiedEditHistory {
+  constructor({ capture, restore, limit = 80, maxBytes = 512 * 1024 * 1024, equals = null, onChange = null } = {}) {
+    if (typeof capture !== 'function' || typeof restore !== 'function') {
+      throw new TypeError('UnifiedEditHistory requires capture and restore functions');
+    }
+    this.capture = capture;
+    this.restore = restore;
+    this.limit = Math.max(1, Math.floor(Number(limit) || 80));
+    this.maxBytes = Math.max(1024 * 1024, Math.floor(Number(maxBytes) || 512 * 1024 * 1024));
+    this.equals = typeof equals === 'function' ? equals : historyValuesEqual;
+    this.onChange = typeof onChange === 'function' ? onChange : null;
+    this.entries = [];
+    this.cursor = 0;
+    this.bytes = 0;
+    this.transactionOpen = false;
+    this.lastError = null;
+    this.baseline = this.#capture();
+    this.baselineValid = true;
+  }
+
+  #capture() {
+    const snapshot = this.capture();
+    if (!snapshot || typeof snapshot !== 'object') throw new TypeError('history capture must return an object snapshot');
+    return cloneHistoryValue(snapshot);
+  }
+
+  #notify() { this.onChange?.(this.state()); }
+
+  syncBaseline() {
+    if (this.transactionOpen) throw new Error('cannot refresh history baseline during a transaction');
+    this.baseline = this.#capture();
+    this.baselineValid = true;
+    return true;
+  }
+
+  #push(entry) {
+    while (this.entries.length > this.cursor) this.bytes -= this.entries.pop().bytes;
+    this.entries.push(entry);
+    this.cursor = this.entries.length;
+    this.bytes += entry.bytes;
+    while (this.entries.length > this.limit || (this.bytes > this.maxBytes && this.entries.length > 1)) {
+      this.bytes -= this.entries.shift().bytes;
+      this.cursor = Math.max(0, this.cursor - 1);
+    }
+  }
+
+  /**
+   * Commit a compact domain patch into the same chronological journal.
+   * before/after must contain only the affected domain data (for example one
+   * component and its membership metadata), never a full-scene capture.
+   * applyPatch(snapshot, context) and capturePatch() are supplied by the
+   * domain adapter and must be synchronous.
+   */
+  commitPatch(label, { before, after, applyPatch, capturePatch, coalesceKey = null } = {}) {
+    if (this.transactionOpen) throw new Error('cannot commit a patch while a history transaction is open');
+    if (typeof applyPatch !== 'function' || typeof capturePatch !== 'function') {
+      throw new TypeError('commitPatch requires applyPatch and capturePatch callbacks');
+    }
+    const patchBefore = cloneHistoryValue(before);
+    const patchAfter = cloneHistoryValue(after);
+    if (this.equals(patchBefore, patchAfter)) return false;
+    const entry = {
+      id: Date.now().toString(36) + '-' + this.cursor.toString(36),
+      kind: 'patch',
+      label: String(label || 'Edit'),
+      coalesceKey: coalesceKey == null ? null : String(coalesceKey),
+      before: patchBefore,
+      after: patchAfter,
+      applyPatch,
+      capturePatch,
+      bytes: estimateHistoryBytes(patchBefore) + estimateHistoryBytes(patchAfter),
+      committedAt: Date.now(),
+    };
+    if (entry.bytes > this.maxBytes) {
+      this.entries.length = 0;
+      this.cursor = 0;
+      this.bytes = 0;
+      this.lastError = new Error(`"${entry.label}" patch exceeds the ${this.maxBytes}-byte history budget; undo history was cleared.`);
+      this.#notify();
+      return false;
+    }
+    const current = this.entries[this.cursor - 1];
+    if (entry.coalesceKey && current?.kind === 'patch' && current.coalesceKey === entry.coalesceKey && current.applyPatch === entry.applyPatch && current.capturePatch === entry.capturePatch && this.cursor === this.entries.length) {
+      this.bytes -= current.bytes;
+      entry.before = current.before;
+      entry.bytes = estimateHistoryBytes(entry.before) + estimateHistoryBytes(entry.after);
+      this.entries[this.cursor - 1] = entry;
+      this.bytes += entry.bytes;
+    } else {
+      this.#push(entry);
+    }
+    while (this.bytes > this.maxBytes && this.entries.length > 1) {
+      this.bytes -= this.entries.shift().bytes;
+      this.cursor = Math.max(0, this.cursor - 1);
+    }
+    if (this.bytes > this.maxBytes) {
+      this.entries.length = 0; this.cursor = 0; this.bytes = 0;
+      this.lastError = new Error(`"${entry.label}" coalesced patch exceeds the history budget; undo history was cleared.`);
+      this.#notify();
+      return false;
+    }
+    // Legacy snapshot edits refresh their baseline before mutation.
+    this.baselineValid = false;
+    this.lastError = null;
+    this.#notify();
+    return true;
+  }
+
+  #applyEntry(entry, snapshot, direction) {
+    if (entry.kind !== 'patch') {
+      this.restore(cloneHistoryValue(snapshot), { direction, label: entry.label, entryId: entry.id });
+      return;
+    }
+    const current = cloneHistoryValue(entry.capturePatch());
+    try {
+      const result = entry.applyPatch(cloneHistoryValue(snapshot), { direction, label: entry.label, entryId: entry.id });
+      if (result && typeof result.then === 'function') throw new TypeError('history patch application must be synchronous');
+    } catch (error) {
+      try {
+        entry.applyPatch(current, { direction: 'rollback', label: entry.label, entryId: entry.id });
+      } catch (restoreError) { error.restoreError = restoreError; }
+      throw error;
+    }
+  }
+
+  /** Commit one completed user gesture, not every frame of a drag. */
+  commit(label = 'Edit', { coalesceKey = null } = {}) {
+    if (this.transactionOpen) throw new Error('cannot commit while a history transaction is open');
+    if (!this.baselineValid) throw new Error('full-snapshot history commit requires syncBaseline() before mutation');
+    const after = this.#capture();
+    const before = this.baseline;
+    if (this.equals && this.equals(before, after)) return false;
+    const entry = {
+      id: Date.now().toString(36) + '-' + this.cursor.toString(36),
+      label: String(label || 'Edit'),
+      coalesceKey: coalesceKey == null ? null : String(coalesceKey),
+      before,
+      after,
+      bytes: estimateHistoryBytes(before) + estimateHistoryBytes(after),
+      committedAt: Date.now(),
+    };
+
+    // A single before/after pair can exceed the entire history budget (common
+    // for very large scans). Never retain that entry as an exception to the
+    // configured cap: discard stale undo/redo entries, advance the baseline
+    // to the current authored state, and expose the reason to the UI.
+    if (entry.bytes > this.maxBytes) {
+      this.entries.length = 0;
+      this.cursor = 0;
+      this.bytes = 0;
+      this.baseline = after;
+      this.lastError = new Error(`"${entry.label}" was applied, but its snapshot (${entry.bytes} bytes) exceeds the ${this.maxBytes}-byte history budget; undo history was cleared to protect memory.`);
+      this.#notify();
+      return false;
+    }
+
+    const current = this.entries[this.cursor - 1];
+    if (entry.coalesceKey && current?.coalesceKey === entry.coalesceKey && this.cursor === this.entries.length) {
+      this.bytes -= current.bytes;
+      entry.before = current.before;
+      entry.bytes = estimateHistoryBytes(entry.before) + estimateHistoryBytes(entry.after);
+      this.entries[this.cursor - 1] = entry;
+      this.bytes += entry.bytes;
+      // Coalescing replaces an entry and can make it larger than the budget
+      // even when the original entry fitted. Apply the same strict cap used
+      // for ordinary commits.
+      while (this.bytes > this.maxBytes && this.entries.length > 1) {
+        this.bytes -= this.entries.shift().bytes;
+        this.cursor = Math.max(0, this.cursor - 1);
+      }
+      if (this.bytes > this.maxBytes) {
+        this.entries.length = 0;
+        this.cursor = 0;
+        this.bytes = 0;
+        this.baseline = after;
+        this.lastError = new Error(`"${entry.label}" was applied, but its coalesced snapshot exceeds the ${this.maxBytes}-byte history budget; undo history was cleared to protect memory.`);
+        this.#notify();
+        return false;
+      }
+    } else {
+      this.#push(entry);
+    }
+    this.baseline = after;
+    this.baselineValid = true;
+    this.lastError = null;
+    this.#notify();
+    return true;
+  }
+
+  /** Synchronous transaction with exact rollback if mutation or validation fails. */
+  transact(label, mutate, options = {}) {
+    if (typeof mutate !== 'function') throw new TypeError('history mutation must be a function');
+    if (this.transactionOpen) throw new Error('nested history transactions are not supported');
+    const before = this.#capture();
+    this.transactionOpen = true;
+    try {
+      const result = mutate();
+      if (result && typeof result.then === 'function') {
+        throw new TypeError('history transactions must be synchronous; prepare async work before committing');
+      }
+      this.transactionOpen = false;
+      this.baseline = before;
+      this.baselineValid = true;
+      this.commit(label, options);
+      return result;
+    } catch (error) {
+      this.transactionOpen = false;
+      try {
+        this.restore(cloneHistoryValue(before), { direction: 'rollback', label: String(label || 'Edit') });
+        this.baseline = this.#capture();
+        this.baselineValid = true;
+      } catch (restoreError) {
+        error.restoreError = restoreError;
+      }
+      this.lastError = error;
+      this.#notify();
+      throw error;
+    }
+  }
+
+  /**
+   * Cancel an in-progress legacy pre-mutation gesture. The baseline is the
+   * detached state captured before the caller mutated authored data.
+   */
+  cancelPending() {
+    if (this.transactionOpen) throw new Error('cannot cancel while a history transaction is open');
+    if (!this.baselineValid) throw new Error('cannot cancel a legacy edit without a valid pre-mutation baseline');
+    const current = this.#capture();
+    try {
+      this.restore(cloneHistoryValue(this.baseline), { direction: 'cancel', label: 'Cancelled edit' });
+      this.baseline = this.#capture();
+      this.baselineValid = true;
+      this.lastError = null;
+      this.#notify();
+      return true;
+    } catch (error) {
+      try {
+        this.restore(cloneHistoryValue(current), { direction: 'rollback', label: 'Cancelled edit', failedDirection: 'cancel' });
+        this.baseline = this.#capture();
+        this.baselineValid = true;
+      } catch (restoreError) {
+        error.restoreError = restoreError;
+      }
+      this.lastError = error;
+      this.#notify();
+      throw error;
+    }
+  }
+
+  undo() {
+    if (this.transactionOpen || !this.canUndo()) return false;
+    const entry = this.entries[this.cursor - 1];
+    const isPatch = entry.kind === 'patch';
+    const current = isPatch ? null : this.#capture();
+    try {
+      this.#applyEntry(entry, entry.before, 'undo');
+      this.cursor--;
+      if (isPatch) this.baselineValid = false;
+      else { this.baseline = this.#capture(); this.baselineValid = true; }
+      this.lastError = null;
+      this.#notify();
+      return true;
+    } catch (error) {
+      if (!isPatch) {
+        try {
+          this.restore(cloneHistoryValue(current), { direction: 'rollback', label: entry.label, failedDirection: 'undo' });
+          this.baseline = this.#capture();
+          this.baselineValid = true;
+        } catch (restoreError) { error.restoreError = restoreError; }
+      }
+      this.lastError = error;
+      this.#notify();
+      throw error;
+    }
+  }
+
+  redo() {
+    if (this.transactionOpen || !this.canRedo()) return false;
+    const entry = this.entries[this.cursor];
+    const isPatch = entry.kind === 'patch';
+    const current = isPatch ? null : this.#capture();
+    try {
+      this.#applyEntry(entry, entry.after, 'redo');
+      this.cursor++;
+      if (isPatch) this.baselineValid = false;
+      else { this.baseline = this.#capture(); this.baselineValid = true; }
+      this.lastError = null;
+      this.#notify();
+      return true;
+    } catch (error) {
+      if (!isPatch) {
+        try {
+          this.restore(cloneHistoryValue(current), { direction: 'rollback', label: entry.label, failedDirection: 'redo' });
+          this.baseline = this.#capture();
+          this.baselineValid = true;
+        } catch (restoreError) { error.restoreError = restoreError; }
+      }
+      this.lastError = error;
+      this.#notify();
+      throw error;
+    }
+  }
+
+  canUndo() { return this.cursor > 0; }
+  canRedo() { return this.cursor < this.entries.length; }
+
+  clear() {
+    this.entries.length = 0;
+    this.cursor = 0;
+    this.bytes = 0;
+    this.baseline = this.#capture();
+    this.baselineValid = true;
+    this.lastError = null;
+    this.#notify();
+  }
+
+  state() {
+    return {
+      canUndo: this.canUndo(),
+      canRedo: this.canRedo(),
+      undoLabel: this.canUndo() ? this.entries[this.cursor - 1].label : null,
+      redoLabel: this.canRedo() ? this.entries[this.cursor].label : null,
+      count: this.entries.length,
+      cursor: this.cursor,
+      bytes: this.bytes,
+      transactionOpen: this.transactionOpen,
+      error: this.lastError?.message || null,
+    };
+  }
 }
 
 /** Split lineage helper: child components retain ancestry and source membership. */

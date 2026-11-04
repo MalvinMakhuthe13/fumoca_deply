@@ -1820,7 +1820,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
 import { decodeNif, encodeNif, geometryToSplatRows, downloadNif } from './js/modules/nif-format.js';
-import { createDocumentModel, allocateGaussianIds, compactDocumentModel } from './js/modules/document-model.js';
+import { createDocumentModel, allocateGaussianIds, compactDocumentModel, syncDocumentComponentsFromMesh, UnifiedEditHistory } from './js/modules/document-model.js';
 import { normalizeMeshComponents } from './js/modules/mesh-component-contract.js';
 import { assignGaussianMemberships } from './js/modules/gaussian-component-membership.js';
 
@@ -1944,7 +1944,6 @@ const S = {
   displayMode: 'blob',
   brushSize: 28, brushStrength: 1.0, brushHardness: 0.8,
   brightness: 1.0, ptScale: 1.0, blobSoftness: 0.6,
-  history: [], historyIndex: -1,
   lassoPoints: [], dragging: false, dragStart: null, dragCurrent: null,
   bgType: 'transparent',
   bgImageUrl: null, bgOpacity: 1.0, bgBlur: 0, bgScale: 1.0,
@@ -1959,6 +1958,106 @@ const S = {
 };
 // Expose globally so modules and guard checks can reference it
 window.S = S;
+
+let _pendingUnifiedHistory = null;
+const _cloneHistoryPivot = value => value ? [value.x, value.y, value.z] : null;
+const studioEditHistory = new UnifiedEditHistory({
+  limit: 80,
+  maxBytes: 256 * 1024 * 1024,
+  capture: () => ({
+    positions: S.positions,
+    colors: S.colors,
+    opacity: S.opacity,
+    scale: S.scale,
+    scaleXYZ: S.scaleXYZ,
+    rotation: S.rotation,
+    alive: S.alive,
+    selected: S.selected,
+    paintColors: S.paintColors,
+    shCoefficients: S.shCoefficients,
+    documentModel: S.documentModel || null,
+    nifMesh: S.nifMesh || null,
+    nifMeshComponents: S.nifMeshComponents || [],
+    activeMeshComponentId: S.activeMeshComponentId || null,
+    nifMeta: S.nifMeta || null,
+    layerHidden: S.layerHidden || null,
+    layers: S.layers || [],
+    activeLayerId: S.activeLayerId || null,
+    measurements: S.measurements || [],
+    pivot: _cloneHistoryPivot(S.pivot),
+  }),
+  restore: snapshot => {
+    for (const key of ['positions','colors','opacity','scale','scaleXYZ','rotation','alive','selected','paintColors','shCoefficients']) {
+      S[key] = snapshot[key] == null ? null : snapshot[key];
+    }
+    S.documentModel = snapshot.documentModel;
+    S.nifMesh = snapshot.nifMesh || null;
+    S.nifMeshComponents = snapshot.nifMeshComponents || [];
+    S.activeMeshComponentId = snapshot.activeMeshComponentId;
+    S.nifMeta = snapshot.nifMeta;
+    S.layerHidden = snapshot.layerHidden;
+    S.layers = snapshot.layers || [];
+    S.activeLayerId = snapshot.activeLayerId || null;
+    S.measurements = snapshot.measurements || [];
+    S.pivot = snapshot.pivot ? new THREE.Vector3(...snapshot.pivot) : null;
+    rebuildGeometry();
+    _refreshSceneReference(true);
+    window.refreshStudioMeshDerivedState?.();
+    syncTransformGizmo();
+    renderMeasurementList();
+    renderMeasurementOverlay();
+    updateHistoryBtns();
+  },
+  onChange: updateHistoryBtns,
+});
+function flushPendingUnifiedHistory() {
+  if (!_pendingUnifiedHistory) return false;
+  const pending = _pendingUnifiedHistory;
+  try {
+    // The live mesh collection is the writer during mesh editing. Reconcile it
+    // into the canonical identity graph before the journal captures its after-state.
+    if (Array.isArray(S.nifMeshComponents) && S.documentModel) {
+      S.documentModel = syncDocumentComponentsFromMesh(
+        S.documentModel, S.nifMeshComponents, S.activeMeshComponentId
+      );
+    }
+    const committed = studioEditHistory.commit(pending.label, { coalesceKey: pending.coalesceKey || null });
+    _pendingUnifiedHistory = null;
+    const historyError = studioEditHistory.state().error;
+    if (!committed && historyError) {
+      console.warn('[Studio history] Edit applied without an undo entry:', historyError);
+      setStatus(historyError, 'error');
+      showToast('Undo history limit reached', historyError);
+    }
+    updateHistoryBtns();
+    return committed;
+  } catch (error) {
+    // A failed canonical-model validation must not leave a half-applied mesh edit
+    // in Studio. Roll back to the journal's detached pre-gesture baseline.
+    console.error('[Studio history] Could not commit pending edit:', error);
+    try {
+      studioEditHistory.cancelPending();
+      _pendingUnifiedHistory = null;
+      setStatus('Edit rejected and rolled back: ' + (error.message || String(error)), 'error');
+    } catch (rollbackError) {
+      console.error('[Studio history] Rollback after commit validation failed:', rollbackError);
+      setStatus('Could not safely roll back this edit. Scene preserved; reload before continuing.', 'error');
+    }
+    updateHistoryBtns();
+    return false;
+  }
+}
+function settlePendingStudioHistory(action = 'save') {
+  if (!_pendingUnifiedHistory) return true;
+  flushPendingUnifiedHistory();
+  if (_pendingUnifiedHistory) {
+    const message = 'The current edit could not be committed safely; ' + action + ' was stopped to protect the document.';
+    setStatus(message, 'error');
+    showToast('Save/export stopped', message, 'warn');
+    return false;
+  }
+  return true;
+}
 let _sourceToRender = null;
 let _gizmoGesture = false;
 let _previousGizmoTransform = null;
@@ -2969,7 +3068,6 @@ async function loadFile(file, urlOverride) {
   S.nifMesh = null;
   S.nifMeshComponents = [];
   S.activeMeshComponentId = null;
-  S.meshComponentSplitUndo = null;
   S.nifPassthroughChunks = [];
   S.lidarIntensity = S.lidarClassification = S.lidarReturnNumber = null;
   window.previewSolidMesh?.(null, { visible: false });
@@ -3105,7 +3203,8 @@ async function loadFile(file, urlOverride) {
     lidarColorMode.value = 'rgb';
     _applyLidarSceneColorMode();
   }
-  S.history = []; S.historyIndex = -1;
+  _pendingUnifiedHistory = null;
+  studioEditHistory.clear();
   updateHistoryBtns();
   rebuildGeometry(); setProgress(100);
   if (S.nifMeshComponents?.length) {
@@ -3613,56 +3712,69 @@ function updateStats() {
 
 // ─── HISTORY ────────────────────────────────────────────────────────────────
 function pushHistory(label) {
-  const snap = { alive: S.alive.slice(), selected: S.selected.slice(), paintColors: S.paintColors?.slice(), pivot: S.pivot?.clone() };
-  if (/transform|move|rotate|scale-tool/i.test(label)) {
-    snap.positions = S.positions?.slice(); snap.scale = S.scale?.slice(); snap.scaleXYZ = S.scaleXYZ?.slice(); snap.rotation = S.rotation?.slice(); snap.opacity = S.opacity?.slice(); snap.shCoefficients = S.shCoefficients;
-  }
-  if (S.historyIndex < S.history.length - 1) S.history = S.history.slice(0, S.historyIndex + 1);
-  S.history.push({ label, snap });
-  if (S.history.length > 40) S.history.shift();
-  S.historyIndex = S.history.length - 1;
+  // Most Studio operations call this immediately before mutating authored data.
+  // Close the previous gesture now, then hold a single pending label for this one.
+  flushPendingUnifiedHistory();
+  studioEditHistory.syncBaseline();
+  _pendingUnifiedHistory = { label: String(label || 'Edit'), coalesceKey: null };
   updateHistoryBtns();
 }
 function undo() {
-  if (S.historyIndex < 0) return;
-  const entry = S.history[S.historyIndex];
-  const { snap } = entry;
-  entry.redoSnap = { alive:S.alive.slice(), selected:S.selected.slice(), paintColors:S.paintColors?.slice(), pivot:S.pivot?.clone() };
-  if (snap.positions) { entry.redoSnap.positions=S.positions?.slice(); entry.redoSnap.scale=S.scale?.slice(); entry.redoSnap.scaleXYZ=S.scaleXYZ?.slice(); entry.redoSnap.rotation=S.rotation?.slice(); entry.redoSnap.opacity=S.opacity?.slice(); entry.redoSnap.shCoefficients=S.shCoefficients; }
-  S.alive = snap.alive.slice(); S.selected = snap.selected.slice();
-  if (snap.paintColors) S.paintColors = snap.paintColors.slice();
-  if (snap.positions) S.positions=snap.positions.slice();
-  if (snap.scale) S.scale=snap.scale.slice();
-  if (snap.scaleXYZ) S.scaleXYZ=snap.scaleXYZ.slice();
-  if (snap.rotation) S.rotation=snap.rotation.slice();
-  if (snap.opacity) S.opacity=snap.opacity.slice();
-  if (snap.shCoefficients) S.shCoefficients=snap.shCoefficients;
-  if (snap.pivot) S.pivot=snap.pivot.clone();
-  S.historyIndex--;
-  rebuildGeometry(); _refreshSceneReference(true); syncTransformGizmo(); renderMeasurementList(); renderMeasurementOverlay(); updateHistoryBtns();
+  if (_pendingUnifiedHistory && !flushPendingUnifiedHistory() && _pendingUnifiedHistory) return;
+  if (!studioEditHistory.undo()) return;
   setStatus('Undone', 'ok');
 }
 function redo() {
-  if (S.historyIndex >= S.history.length - 1) return;
-  S.historyIndex++;
-  const entry = S.history[S.historyIndex];
-  const snap = entry.redoSnap || entry.snap;
-  S.alive = snap.alive.slice(); S.selected = snap.selected.slice();
-  if (snap.paintColors) S.paintColors = snap.paintColors.slice();
-  if (snap.positions) S.positions=snap.positions.slice();
-  if (snap.scale) S.scale=snap.scale.slice();
-  if (snap.scaleXYZ) S.scaleXYZ=snap.scaleXYZ.slice();
-  if (snap.rotation) S.rotation=snap.rotation.slice();
-  if (snap.opacity) S.opacity=snap.opacity.slice();
-  if (snap.shCoefficients) S.shCoefficients=snap.shCoefficients;
-  if (snap.pivot) S.pivot=snap.pivot.clone();
-  rebuildGeometry(); _refreshSceneReference(true); syncTransformGizmo(); renderMeasurementList(); renderMeasurementOverlay(); updateHistoryBtns();
+  if (!studioEditHistory.redo()) return;
   setStatus('Redone', 'ok');
 }
 function updateHistoryBtns() {
-  $('undoBtn').disabled = S.historyIndex < 0;
-  $('redoBtn').disabled = S.historyIndex >= S.history.length - 1;
+  const state = studioEditHistory.state();
+  $('undoBtn').disabled = !state.canUndo && !_pendingUnifiedHistory;
+  $('redoBtn').disabled = !state.canRedo;
 }
+window.beginStudioHistory = label => pushHistory(label);
+window.commitStudioHistory = () => flushPendingUnifiedHistory();
+window.syncStudioDocumentModelFromMesh = () => {
+  if (Array.isArray(S.nifMeshComponents) && S.documentModel) {
+    S.documentModel = syncDocumentComponentsFromMesh(S.documentModel, S.nifMeshComponents, S.activeMeshComponentId);
+  }
+  return S.documentModel || null;
+};
+window.commitStudioPatch = (label, options) => {
+  if (_pendingUnifiedHistory) throw new Error('Cannot commit a scoped patch while a full-snapshot edit is pending');
+  const applyPatch = options?.applyPatch;
+  if (typeof applyPatch !== 'function') throw new TypeError('A scoped patch requires applyPatch');
+  window.syncStudioDocumentModelFromMesh();
+  return studioEditHistory.commitPatch(label, {
+    ...options,
+    applyPatch: (patch, context) => {
+      const result = applyPatch(patch, context);
+      if (result && typeof result.then === 'function') throw new TypeError('Studio history patches must be synchronous');
+      if (Array.isArray(S.nifMeshComponents) && S.documentModel) {
+        S.documentModel = syncDocumentComponentsFromMesh(S.documentModel, S.nifMeshComponents, S.activeMeshComponentId);
+      }
+      window.refreshStudioMeshDerivedState?.();
+      return result;
+    },
+  });
+};
+window.cancelStudioHistory = () => {
+  if (!_pendingUnifiedHistory) return false;
+  try {
+    studioEditHistory.cancelPending();
+    _pendingUnifiedHistory = null;
+    updateHistoryBtns();
+    return true;
+  } catch (error) {
+    // Keep the pending marker so the user can retry recovery; the journal
+    // has already attempted to restore the pre-cancel scene on failure.
+    console.error('[Studio history] Could not cancel pending edit:', error);
+    setStatus('Could not safely cancel this edit. The scene was preserved; retry or reload before continuing.', 'error');
+    updateHistoryBtns();
+    return false;
+  }
+};
 
 // ─── SELECTION ──────────────────────────────────────────────────────────────
 function clearSelection() { if (S.selected) S.selected.fill(0); rebuildGeometry(); syncTransformGizmo(); selectedPointCount(); }
@@ -4266,6 +4378,7 @@ function _documentModelForSave(retainedIndices) {
 
 async function exportFile(type = 'splat') {
   if (!S.alive) return;
+  if (!settlePendingStudioHistory('export')) return;
   const idx = []; for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) idx.push(i);
   let blob, name;
   const currentRows = _encodeSplatRows(idx);
@@ -5412,6 +5525,7 @@ window.saveLiveEdit = async function saveLiveEdit(extra = {}) {
   const params  = new URLSearchParams(location.search);
   const splatId = params.get('splatId') || params.get('nifId') || window._fumocaCurrentRecord?.id;
   if (!splatId) { console.warn('[saveLiveEdit] No splatId — cannot save'); return false; }
+  if (!settlePendingStudioHistory('save')) return false;
 
   let sb = window._fumocaSupabase || window.supabase;
   if (!sb) {
@@ -6261,8 +6375,6 @@ function rotateEntireScene(axis, degrees) {
   $('trnScale').value = '100'; $('trnMoveX').value='0'; $('trnMoveY').value='0'; $('trnMoveZ').value='0'; $('trnOpac').value='0'; $('trnTemp').value='0';
   $('applyTrnBtn').click();
   $('trnTemp').value = previousTemp;
-  const historyEntry = S.history[S.history.length - 1];
-  if (historyEntry?.label === 'transform') historyEntry.snap.selected = previous.slice();
   S.selected.set(previous); rebuildGeometry(); syncTransformGizmo();
 }
 $('orientXPosBtn')?.addEventListener('click',()=>rotateEntireScene('x',90));

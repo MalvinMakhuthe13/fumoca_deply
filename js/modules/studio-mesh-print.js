@@ -69,10 +69,9 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
             <button type="button" id="meshComponentsShowAll" class="mini-btn">Show all</button>
             <button type="button" id="meshComponentsHideAll" class="mini-btn">Hide all</button>
             <button type="button" id="meshComponentDelete" class="mini-btn" disabled>Delete selected</button>
-            <button type="button" id="meshComponentUndoDelete" class="mini-btn" disabled>Undo delete</button>
-            <button type="button" id="meshComponentUndoLink" class="mini-btn" disabled>Undo link</button>
             <button type="button" id="meshComponentUnlinkSelection" class="mini-btn" disabled>Unlink selected splats</button>
           </div>
+          <p class="hint">All mesh and component changes are undone in chronological order with the main Studio Undo/Redo controls.</p>
           <div id="meshComponentsList" style="display:grid;gap:5px"></div>
           <div style="margin-top:9px;padding-top:8px;border-top:1px solid rgba(255,255,255,.1)">
             <strong style="font-size:11px">Transform selected component</strong>
@@ -85,7 +84,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
             </div>
             <div style="display:flex;gap:5px;margin-top:7px">
               <button type="button" id="meshComponentApplyTransform" class="mini-btn" disabled>Apply transform</button>
-              <button type="button" id="meshComponentUndoTransform" class="mini-btn" disabled>Undo transform</button>
             </div>
             <div style="display:flex;align-items:end;gap:6px;margin-top:8px">
               <label class="hint" style="width:76px">Axis
@@ -100,12 +98,10 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
                 <input id="meshComponentSplitY" type="number" step="0.001" value="0" style="width:100%;padding:4px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#fff">
               </label>
               <button type="button" id="meshComponentSplitPlane" class="mini-btn" disabled>Split selected</button>
-              <button type="button" id="meshComponentUndoSplit" class="mini-btn" disabled>Undo split</button>
             </div>
             <div class="hint">Splitting clips existing triangles along X/Y/Z or the detected oriented support plane. New cut boundaries remain open; no cap is invented.</div>
             <div style="display:flex;gap:5px;margin-top:9px">
               <button type="button" id="meshLevelSupportPlane" class="mini-btn" disabled>Level to support plane</button>
-              <button type="button" id="meshUndoSupportLevel" class="mini-btn" disabled>Undo level</button>
             </div>
             <div style="display:flex;gap:5px;margin-top:7px;flex-wrap:wrap">
               <label class="hint" style="flex:1;min-width:105px">Trim tolerance (scene units)
@@ -116,14 +112,12 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
               </label>
               <button type="button" id="meshPreviewSupportTrim" class="mini-btn" disabled>Preview trim</button>
               <button type="button" id="meshApplySupportTrim" class="mini-btn" disabled>Trim below plane</button>
-              <button type="button" id="meshUndoSupportTrim" class="mini-btn" disabled>Undo trim</button>
             </div>
             <div style="display:flex;gap:5px;margin-top:7px;flex-wrap:wrap">
               <label class="hint" style="flex:1;min-width:105px">Cap tolerance (scene units)
                 <input id="meshSupportCapTolerance" type="number" min="0" step="0.0001" value="0.001" style="width:100%;padding:4px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#fff">
               </label>
               <button type="button" id="meshCapSupportBase" class="mini-btn" disabled>Cap flat base</button>
-              <button type="button" id="meshUndoSupportCap" class="mini-btn" disabled>Undo cap</button>
             </div>
             <div class="hint">Capping only closes boundary loops that lie on the detected support plane. Concave outlines are triangulated in-plane; unrelated holes are left open.</div>
             <div class="hint">Trim is scoped to the selected component's linked Gaussian splats and mesh. Preview selects affected splats first. Other components, including a separately reconstructed platform, are left untouched. The cut stays open until you explicitly cap it.</div>
@@ -142,7 +136,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         <label style="display:block;font-size:11px;margin:8px 0">Cap boundary loops up to <input id="meshHoleSize" type="number" min="3" max="128" step="1" value="48" style="width:64px;padding:4px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#fff"> edges</label>
         <label style="display:block;font-size:11px;margin:8px 0">Remove noise islands smaller than <input id="meshFloaterSize" type="number" min="0" max="10000" step="1" value="0" style="width:72px;padding:4px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#fff"> faces</label>
         <div class="hint">Set to 0 to preserve every disconnected component during full-scene extraction. Remove tiny islands later only after inspecting the scene; small components may be real objects or details.</div>
-        <div class="hint" style="margin:8px 0">For the oriented-surfel TSDF path, send the complete live scene to the reconstruction worker. It preserves scene coordinates, returns separate mesh components, and leaves the original Gaussian layer untouched.</div>
+        <div class="hint" style="margin:8px 0">The oriented-surfel TSDF path runs on CPU against the existing Gaussian scene. It preserves scene coordinates, returns separate mesh components, and leaves the original Gaussian layer untouched. No GPU training is involved.</div>
         <button type="button" class="ac-btn cyan full" id="meshOrientedReconstructBtn">Reconstruct full scene · oriented surfels</button>
         <div class="btn-grid col2" style="margin-top:8px">
           <button type="button" class="ac-btn lime full" id="meshExtractBtn">Extract mesh</button>
@@ -169,16 +163,118 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
           <span class="ctrl-val" id="printHVal">120</span>
         </div>
         <input type="range" id="printH" min="30" max="400" value="120">
-        <div class="hint">STL is enabled only for one connected, watertight shell. The worker reports mesh repairs and limitations.</div>
+        <div class="hint">STL is enabled only for one connected, watertight shell. The CPU worker reports mesh repairs and limitations; no GPU training is used.</div>
         <div class="btn-grid col2">
           <button type="button" class="ac-btn cyan full" id="printStlBtn" disabled>Download STL</button>
-          <button type="button" class="ac-btn full" id="printQueueBtn">Queue GPU print</button>
+          <button type="button" class="ac-btn full" id="printQueueBtn">Queue CPU print mesh</button>
         </div>
         <button type="button" class="ac-btn lime full" id="saveMeshBtn" disabled style="margin-top:7px">Save colored PLY to Library</button>
         <div class="hint" id="meshPrintStatus" style="margin-top:8px">Load a splat or PLY to begin.</div>
       </div>
     </div>
   `;
+
+  // Central status reporter used by extraction, repair, support-plane and print actions.
+  // Keep it in the mount scope so every event handler and async operation can report progress.
+  const meshStatus = (message) => {
+    const text = String(message ?? '');
+    const el = container.querySelector('#meshPrintStatus');
+    if (el) el.textContent = text;
+    onStatus?.(text);
+  };
+
+  // Keep the component records authoritative and rebuild the legacy combined
+  // mesh whenever a component changes. This is required by NIF persistence,
+  // export, preview and the unified history replay paths.
+  const makeMeshBlob = () => {
+    if (!lastMeshData) return null;
+    if (lastMeshFormat === 'obj') return FumocMeshExtractor.exportOBJ(lastMeshData, 'fumoca-mesh');
+    if (lastMeshFormat === 'stl') return FumocMeshExtractor.exportSTL(lastMeshData, 'fumoca-mesh');
+    return FumocMeshExtractor.exportPLY(lastMeshData, 'fumoca-mesh');
+  };
+
+  const renderMeshDiagnostics = (stats = {}) => {
+    const el = container.querySelector('#meshDiagnostics');
+    if (!el) return;
+    const vertices = Number(stats.vertices ?? lastMeshData?.vertices?.length / 3 ?? 0);
+    const triangles = Number(stats.triangles ?? lastMeshData?.triangles?.length / 3 ?? 0);
+    const components = Number(stats.components ?? window.S?.nifMeshComponents?.length ?? 0);
+    const openEdges = Number(stats.openEdges ?? 0);
+    const nonManifoldEdges = Number(stats.nonManifoldEdges ?? 0);
+    const watertight = stats.watertight === true;
+    el.textContent = [
+      `Vertices: ${vertices.toLocaleString()}`,
+      `Triangles: ${triangles.toLocaleString()}`,
+      `Components: ${components.toLocaleString()}`,
+      watertight ? 'Topology: watertight' : `Topology: open surface (${openEdges.toLocaleString()} open edges)`,
+      `Non-manifold edges: ${nonManifoldEdges.toLocaleString()}`,
+    ].join(' · ');
+  };
+
+  const updateMeshPreview = () => {
+    const visible = !!container.querySelector('#meshPreviewToggle')?.checked;
+    const opacity = Number(container.querySelector('#meshPreviewOpacity')?.value ?? 0.38);
+    const components = window.S?.nifMeshComponents || [];
+    if (components.length) {
+      window.previewSolidMesh?.(lastMeshData, { visible: false });
+      window.previewSolidMeshComponents?.(components, {
+        visible: true,
+        opacity,
+        light: Number(container.querySelector('#meshPreviewLight')?.value ?? 0.25),
+        roughness: Number(container.querySelector('#meshPreviewRoughness')?.value ?? 0.72),
+        metalness: Number(container.querySelector('#meshPreviewMetalness')?.value ?? 0.05),
+      });
+    } else if (lastMeshData) {
+      window.previewSolidMesh?.(lastMeshData, {
+        visible, opacity,
+        light: Number(container.querySelector('#meshPreviewLight')?.value ?? 0.25),
+        roughness: Number(container.querySelector('#meshPreviewRoughness')?.value ?? 0.72),
+        metalness: Number(container.querySelector('#meshPreviewMetalness')?.value ?? 0.05),
+      });
+    }
+    return !!lastMeshData;
+  };
+
+  const refreshCombinedMeshFromComponents = () => {
+    const state = window.S;
+    if (!state) return null;
+    const components = Array.isArray(state.nifMeshComponents) ? state.nifMeshComponents : [];
+    const combined = components.length ? combineMeshComponents(components) : null;
+    state.nifMesh = combined;
+    lastMeshData = combined;
+    lastMeshStats = combined ? {
+      ...FumocMeshExtractor.validateWatertight(combined),
+      vertices: combined.vertices.length / 3,
+      triangles: combined.triangles.length / 3,
+      components: components.length,
+    } : null;
+    if (combined) {
+      lastMesh = makeMeshBlob();
+      renderMeshDiagnostics(lastMeshStats);
+    } else {
+      lastMesh = null;
+      const diagnostics = container.querySelector('#meshDiagnostics');
+      if (diagnostics) diagnostics.textContent = 'No mesh diagnostics yet. Extract a mesh to inspect its topology.';
+    }
+    const previewToggle = container.querySelector('#meshPreviewToggle');
+    if (previewToggle) {
+      previewToggle.disabled = !combined;
+      if (!combined) previewToggle.checked = false;
+    }
+    const saveButton = container.querySelector('#saveMeshBtn');
+    if (saveButton) saveButton.disabled = !combined?.colours;
+    const printButton = container.querySelector('#printStlBtn');
+    if (printButton) printButton.disabled = !combined || !lastMeshStats?.printable;
+    return combined;
+  };
+
+  container.querySelector('#meshPreviewToggle')?.addEventListener('change', updateMeshPreview);
+  container.querySelector('#meshPreviewOpacity')?.addEventListener('input', updateMeshPreview);
+  ['#meshPreviewLight', '#meshPreviewRoughness', '#meshPreviewMetalness'].forEach(selector =>
+    container.querySelector(selector)?.addEventListener('input', updateMeshPreview));
+  container.querySelector('#meshSplatLayerToggle')?.addEventListener('change', event => {
+    if (window.S?.points) window.S.points.visible = event.target.checked;
+  });
 
   container.querySelector('#meshRes')?.addEventListener('input', (e) => {
     const el = container.querySelector('#meshResVal');
@@ -215,7 +311,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
 
   let lastMesh = null;
   let lastMeshFormat = 'ply';
-  let supportLevelUndo = null;
   let lastMeshData = null;
   let lastMeshStats = null;
   let lastMeshSourceSignature = null;
@@ -283,16 +378,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
           || meshStateSignature(state.nifMesh, state.nifMeshComponents) !== state.supportPlaneTrimPreview.meshSignature)) {
       clearSupportTrimPreview(true);
     }
-    if (state?.supportPlaneTrimUndo
-        && (computeGaussianSourceSignature(state) !== state.supportPlaneTrimUndo.sourceSignatureAfter
-          || meshStateSignature(state.nifMesh, state.nifMeshComponents) !== state.supportPlaneTrimUndo.meshSignatureAfter)) {
-      state.supportPlaneTrimUndo = null;
-    }
-    if (supportLevelUndo
-        && (computeGaussianSourceSignature(state) !== supportLevelUndo.leveledSourceSignature
-          || meshStateSignature(state.nifMesh, state.nifMeshComponents) !== supportLevelUndo.leveledMeshSignature)) {
-      supportLevelUndo = null;
-    }
     const candidate = getSupportPlaneCandidate();
     const hasPlane = !!(candidate?.detected && (
       (Array.isArray(candidate.normal) && candidate.normal.length === 3
@@ -302,21 +387,15 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       || (candidate.y !== null && candidate.y !== undefined && Number.isFinite(Number(candidate.y)))
     ));
     const levelButton = container.querySelector('#meshLevelSupportPlane');
-    const undoButton = container.querySelector('#meshUndoSupportLevel');
     if (levelButton) levelButton.disabled = !hasPlane || !!candidate?.leveled || !window.S?.positions?.length;
-    if (undoButton) undoButton.disabled = !supportLevelUndo;
     const selected = (window.S?.nifMeshComponents || []).find(item => item.id === window.S?.activeMeshComponentId);
     const hasMembership = !!selected?.gaussianIds?.length && !!window.S?.documentModel?.gaussianIds?.length;
     const previewButton = container.querySelector('#meshPreviewSupportTrim');
     const applyButton = container.querySelector('#meshApplySupportTrim');
-    const undoTrimButton = container.querySelector('#meshUndoSupportTrim');
     if (previewButton) previewButton.disabled = !hasPlane || !hasMembership;
     if (applyButton) applyButton.disabled = !window.S?.supportPlaneTrimPreview?.rows?.length;
-    if (undoTrimButton) undoTrimButton.disabled = !window.S?.supportPlaneTrimUndo;
     const capButton = container.querySelector('#meshCapSupportBase');
-    const undoCapButton = container.querySelector('#meshUndoSupportCap');
     if (capButton) capButton.disabled = !hasPlane || !selected?.vertices?.length || !selected?.triangles?.length;
-    if (undoCapButton) undoCapButton.disabled = !window.S?.meshComponentCapUndo;
   };
 
   const makeSupportTrimPlan = (component) => {
@@ -439,17 +518,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       return false;
     }
 
-    const rowIds = new Uint32Array(plan.rows.length);
-    const rowPositions = new Float32Array(plan.rows.length * 3);
-    const previousAlive = new Uint8Array(plan.rows.length);
     const removedRows = new Set(plan.rows);
-    for (let i = 0; i < plan.rows.length; i++) {
-      const row = plan.rows[i];
-      rowIds[i] = state.documentModel.gaussianIds[row];
-      previousAlive[i] = state.alive[row] ? 1 : 0;
-      rowPositions.set(state.positions.subarray(row * 3, row * 3 + 3), i * 3);
-    }
-
     const gaussianRowById = new Map();
     state.documentModel.gaussianIds.forEach((id, row) => gaussianRowById.set(id, row));
     let nextComponent = {
@@ -484,7 +553,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
           provenance: {
             ...(component.provenance || {}),
             operation: 'support-plane-trim',
-            supportPlaneTrimmed: clippedMesh,
+            supportPlaneTrimmed: true,
             normal: plan.normal,
             offset: plan.offset,
             tolerance: plan.tolerance,
@@ -497,26 +566,35 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       return false;
     }
 
-    const previousComponent = {
-      ...component,
-      vertices: component.vertices.slice(),
-      triangles: component.triangles.slice(),
-      colours: component.colours?.slice?.(),
-      gaussianIds: component.gaussianIds?.slice?.() || component.gaussianIds,
+    const trimRows = Uint32Array.from(plan.rows);
+    const cloneTrimValue = value => {
+      if (value == null || typeof value !== 'object') return value;
+      if (value instanceof DataView) {
+        const bytes = value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);
+        return new DataView(bytes);
+      }
+      if (ArrayBuffer.isView(value)) return new value.constructor(value);
+      if (value instanceof ArrayBuffer) return value.slice(0);
+      if (Array.isArray(value)) return value.map(cloneTrimValue);
+      const prototype = Object.getPrototypeOf(value);
+      if (prototype !== Object.prototype && prototype !== null) {
+        throw new TypeError('Trim history patches may contain only plain component data.');
+      }
+      const copy = Object.create(prototype);
+      for (const [key, item] of Object.entries(value)) copy[key] = cloneTrimValue(item);
+      return copy;
     };
-    state.supportPlaneTrimUndo = {
+    const cloneTrimComponent = source => cloneTrimValue(source);
+    const cloneTrimMeta = value => cloneTrimValue(value || {});
+    const beforePatch = {
       componentId: component.id,
-      rows: plan.rows.slice(),
-      gaussianIds: rowIds,
-      positions: rowPositions,
-      previousAlive,
-      previousComponent,
-      previousMeta: state.nifMeta ? { ...state.nifMeta } : {},
-      previousSelection: preview.previousSelection,
-      sourceSignatureAfter: null,
-      meshSignatureAfter: null,
-      clippedMesh,
+      component: cloneTrimComponent(component),
+      rows: trimRows.slice(),
+      aliveValues: Uint8Array.from(trimRows, row => state.alive[row]),
+      selectedValues: Uint8Array.from(trimRows, row => preview.previousSelection?.[row] || 0),
+      meta: cloneTrimMeta(state.nifMeta),
     };
+
     for (const row of plan.rows) {
       state.alive[row] = 0;
       if (state.selected) state.selected[row] = 0;
@@ -538,17 +616,91 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         applied_at: new Date().toISOString(),
       },
     };
-    const nextSignature = computeGaussianSourceSignature(state);
-    state.nifMeta.dual_surface_source_signature = nextSignature;
-    lastMeshSourceSignature = nextSignature;
+    state.nifMeta.dual_surface_source_signature = computeGaussianSourceSignature(state);
+    lastMeshSourceSignature = state.nifMeta.dual_surface_source_signature;
     refreshCombinedMeshFromComponents();
-    state.supportPlaneTrimUndo.sourceSignatureAfter = nextSignature;
-    state.supportPlaneTrimUndo.meshSignatureAfter = meshStateSignature(state.nifMesh, state.nifMeshComponents);
+    syncComponentDiagnosticsToMeta();
+
+    // Restore the user's pre-preview selection, then clear only rows actually
+    // removed by this trim. The patch stores those row bits, not the full scene.
     if (preview.previousSelection && state.selected?.length === preview.previousSelection.length) {
       state.selected.set(preview.previousSelection);
     }
+    for (const row of plan.rows) if (state.selected) state.selected[row] = 0;
     state.supportPlaneTrimPreview = null;
-    syncComponentDiagnosticsToMeta();
+
+    const captureTrimPatch = () => {
+      const live = window.S;
+      const current = (live?.nifMeshComponents || []).find(item => item.id === component.id);
+      if (!live || !current) throw new Error('The trimmed component no longer exists.');
+      return {
+        componentId: component.id,
+        component: cloneTrimComponent(current),
+        rows: trimRows.slice(),
+        aliveValues: Uint8Array.from(trimRows, row => live.alive[row]),
+        selectedValues: Uint8Array.from(trimRows, row => live.selected?.[row] || 0),
+        meta: cloneTrimMeta(live.nifMeta),
+      };
+    };
+    const applyTrimPatch = patch => {
+      const live = window.S;
+      if (!live?.alive || !live?.selected) throw new Error('Studio Gaussian row state is unavailable.');
+      if (patch.rows.length !== patch.aliveValues.length || patch.rows.length !== patch.selectedValues.length) {
+        throw new Error('The support-plane trim history patch is incomplete.');
+      }
+      for (let index = 0; index < patch.rows.length; index++) {
+        const row = patch.rows[index];
+        if (row >= live.alive.length || row >= live.selected.length) {
+          throw new Error('The Gaussian row layout changed; refusing to apply a stale trim patch.');
+        }
+        live.alive[row] = patch.aliveValues[index];
+        live.selected[row] = patch.selectedValues[index];
+      }
+      const found = (live.nifMeshComponents || []).some(item => item.id === patch.componentId);
+      if (!found) throw new Error('Mesh component no longer exists: ' + patch.componentId);
+      live.nifMeshComponents = live.nifMeshComponents.map(item =>
+        item.id === patch.componentId ? cloneTrimComponent(patch.component) : item);
+      live.nifMesh = null;
+      live.nifMeta = cloneTrimMeta(patch.meta);
+      lastMeshData = null; lastMesh = null; lastMeshStats = null;
+      syncComponentDiagnosticsToMeta();
+      refreshCombinedMeshFromComponents();
+      live.nifMeta = {
+        ...(live.nifMeta || {}),
+        dual_surface_source_signature: computeGaussianSourceSignature(live),
+      };
+      lastMeshSourceSignature = live.nifMeta.dual_surface_source_signature;
+      window.previewSolidMeshComponents?.(live.nifMeshComponents || [], { visible: true, opacity: 0.95 });
+      window.highlightSolidMeshComponent?.(patch.componentId);
+      renderMeshComponents(live.nifMeshComponents || []);
+      window.rebuildGeometry?.();
+      updateComponentTransformButtons();
+      updateSupportPlaneControls();
+      try {
+        const refresh = window.refreshGaussianSourceBytes?.();
+        refresh?.catch?.(error => console.warn('[Studio mesh] Could not refresh Gaussian source bytes after trim history restore:', error));
+      } catch (error) {
+        console.warn('[Studio mesh] Could not refresh Gaussian source bytes after trim history restore:', error);
+      }
+    };
+    const afterPatch = captureTrimPatch();
+    try {
+      const committed = window.commitStudioPatch?.('Support-plane trim', {
+        before: beforePatch,
+        after: afterPatch,
+        capturePatch: captureTrimPatch,
+        applyPatch: applyTrimPatch,
+      });
+      if (committed === false || typeof window.commitStudioPatch !== 'function') {
+        throw new Error('The support-plane trim could not be retained in unified Undo history.');
+      }
+    } catch (error) {
+      try { applyTrimPatch(beforePatch); }
+      catch (rollbackError) { error.rollbackError = rollbackError; }
+      meshStatus('Trim was rolled back because unified history could not retain it: ' + (error.message || String(error)));
+      return false;
+    }
+    lastMeshSourceSignature = computeGaussianSourceSignature(state);
     try {
       await window.refreshGaussianSourceBytes?.();
       window.rebuildGeometry?.();
@@ -567,66 +719,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     updateSupportPlaneControls();
     updateComponentTransformButtons();
     meshStatus(`Trimmed ${plan.rows.length.toLocaleString()} linked Gaussian splats below the support plane${clippedMesh ? ' and clipped the selected mesh component' : ''}. Other components were preserved. Undo is available while this source and mesh remain unchanged.`);
-    return true;
-  };
-
-  const undoSupportPlaneTrim = async () => {
-    const state = window.S, snapshot = state?.supportPlaneTrimUndo;
-    if (!state || !snapshot) return false;
-    if (computeGaussianSourceSignature(state) !== snapshot.sourceSignatureAfter
-        || meshStateSignature(state.nifMesh, state.nifMeshComponents) !== snapshot.meshSignatureAfter) {
-      state.supportPlaneTrimUndo = null;
-      updateSupportPlaneControls();
-      meshStatus('Undo trim is no longer safe because the Gaussian source or mesh changed after trimming. Newer edits were preserved.');
-      return false;
-    }
-    for (let i = 0; i < snapshot.rows.length; i++) {
-      const row = snapshot.rows[i];
-      if (state.documentModel?.gaussianIds?.[row] !== snapshot.gaussianIds[i]
-          || state.alive[row] !== 0
-          || state.positions[row * 3] !== snapshot.positions[i * 3]
-          || state.positions[row * 3 + 1] !== snapshot.positions[i * 3 + 1]
-          || state.positions[row * 3 + 2] !== snapshot.positions[i * 3 + 2]) {
-        meshStatus('Undo trim refused because one of the affected Gaussian rows changed.');
-        return false;
-      }
-    }
-    for (let i = 0; i < snapshot.rows.length; i++) state.alive[snapshot.rows[i]] = snapshot.previousAlive[i];
-    state.nifMeshComponents = (state.nifMeshComponents || []).map(component =>
-      component.id === snapshot.componentId ? snapshot.previousComponent : component);
-    state.nifMesh = null;
-    lastMeshData = null; lastMesh = null; lastMeshStats = null;
-    state.nifMeta = {
-      ...(snapshot.previousMeta || {}),
-      mesh_components_edited: true,
-    };
-    const signature = computeGaussianSourceSignature(state);
-    state.nifMeta.dual_surface_source_signature = signature;
-    lastMeshSourceSignature = signature;
-    refreshCombinedMeshFromComponents();
-    if (snapshot.previousSelection && state.selected?.length === snapshot.previousSelection.length) {
-      state.selected.set(snapshot.previousSelection);
-    }
-    state.supportPlaneTrimUndo = null;
-    try {
-      await window.refreshGaussianSourceBytes?.();
-      window.rebuildGeometry?.();
-      window.previewSolidMeshComponents?.(state.nifMeshComponents || [], { visible: true, opacity: 0.95 });
-      renderMeshComponents(state.nifMeshComponents || []);
-      let restoredSelectionCount = 0;
-      for (let row = 0; row < (state.selected?.length || 0); row++) {
-        if (state.selected[row] && state.alive?.[row]) restoredSelectionCount++;
-      }
-      window.dispatchEvent(new CustomEvent('fumoca:selectionChanged', {
-        detail: { count: restoredSelectionCount, changed: snapshot.rows.length },
-      }));
-    } catch (error) {
-      console.warn('[Studio mesh] Trim undo committed; viewport refresh failed:', error);
-    }
-    syncComponentDiagnosticsToMeta();
-    updateSupportPlaneControls();
-    updateComponentTransformButtons();
-    meshStatus('Undid support-plane trim. The removed Gaussian rows and original component geometry have been restored.');
     return true;
   };
 
@@ -670,46 +762,21 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       return false;
     }
     const diagnostics = FumocMeshExtractor.validateWatertight(result.mesh);
-    const previousComponent = {
-      ...component,
-      vertices: component.vertices.slice(),
-      triangles: component.triangles.slice(),
-      colours: component.colours?.slice?.(),
-      gaussianIds: component.gaussianIds?.slice?.() || component.gaussianIds,
-    };
-    const cappedComponent = {
-      ...component,
-      vertices: result.mesh.vertices,
-      triangles: result.mesh.triangles,
-      colours: result.mesh.colours,
-      watertight: diagnostics.watertight,
-      diagnostics: {
-        ...(component.diagnostics || {}),
-        ...diagnostics,
-        n_boundary_edges: diagnostics.openEdges,
-        n_nonmanifold_edges: diagnostics.nonManifoldEdges,
-        support_plane_cap_loops: result.cappedLoops,
-        support_plane_cap_triangles: result.cappedTriangles,
-      },
-      provenance: {
-        ...(component.provenance || {}),
-        operation: 'support-plane-cap',
-        supportPlaneTrimmed: false,
-        supportPlaneCapped: true,
-        supportPlane: { normal: plane.normal, offset: plane.offset, tolerance },
-      },
-    };
-    state.nifMeshComponents = (state.nifMeshComponents || []).map(item =>
-      item.id === component.id ? cappedComponent : item);
-    state.nifMesh = null;
-    lastMeshData = null; lastMesh = null; lastMeshStats = null;
-    state.meshComponentCapUndo = {
+    const cloneCapComponent = source => ({
+      ...source,
+      vertices: source.vertices?.slice?.() || source.vertices,
+      triangles: source.triangles?.slice?.() || source.triangles,
+      colours: source.colours?.slice?.() || source.colours,
+      gaussianIds: source.gaussianIds ? Uint32Array.from(source.gaussianIds) : source.gaussianIds,
+      diagnostics: { ...(source.diagnostics || {}) },
+      provenance: { ...(source.provenance || {}) },
+    });
+    const beforePatch = {
       componentId: component.id,
-      previousComponent,
-      previousMeta: state.nifMeta,
-      afterSignature: null,
+      component: cloneCapComponent(component),
+      meta: state.nifMeta ? { ...state.nifMeta } : {},
     };
-    state.nifMeta = {
+    const afterMeta = {
       ...(state.nifMeta || {}),
       mesh_components_edited: true,
       support_plane_cap: {
@@ -723,38 +790,52 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         applied_at: new Date().toISOString(),
       },
     };
+    const afterPatch = { componentId: component.id, component: cloneCapComponent(cappedComponent), meta: afterMeta };
+    const applyCapPatch = patch => {
+      const live = window.S;
+      if (!live) throw new Error('Studio state is unavailable');
+      live.nifMeshComponents = (live.nifMeshComponents || []).map(item =>
+        item.id === patch.componentId ? cloneCapComponent(patch.component) : item);
+      live.nifMesh = null;
+      live.nifMeta = { ...(patch.meta || {}) };
+      syncComponentDiagnosticsToMeta();
+      refreshCombinedMeshFromComponents();
+      window.previewSolidMeshComponents?.(live.nifMeshComponents, { visible: true, opacity: 0.95 });
+      window.highlightSolidMeshComponent?.(patch.componentId);
+      renderMeshComponents(live.nifMeshComponents);
+      updateComponentTransformButtons();
+      updateSupportPlaneControls();
+    };
+    state.nifMeshComponents = (state.nifMeshComponents || []).map(item =>
+      item.id === component.id ? cappedComponent : item);
+    state.nifMesh = null;
+    state.nifMeta = afterMeta;
     refreshCombinedMeshFromComponents();
-    state.meshComponentCapUndo.afterSignature = meshStateSignature(state.nifMesh, state.nifMeshComponents);
+    const committed = window.commitStudioPatch?.('Cap support boundary', {
+      before: beforePatch,
+      after: afterPatch,
+      capturePatch: () => {
+        const live = window.S;
+        const current = (live?.nifMeshComponents || []).find(item => item.id === component.id);
+        return {
+          componentId: component.id,
+          component: current ? cloneCapComponent(current) : beforePatch.component,
+          meta: { ...(live?.nifMeta || {}) },
+        };
+      },
+      applyPatch: applyCapPatch,
+    });
+    if (committed === false || typeof window.commitStudioPatch !== 'function') {
+      applyCapPatch(beforePatch);
+      meshStatus('Cap was rolled back because Studio history could not retain the edit.');
+      return false;
+    }
     window.previewSolidMeshComponents?.(state.nifMeshComponents, { visible: true, opacity: 0.95 });
     window.highlightSolidMeshComponent?.(component.id);
     renderMeshComponents(state.nifMeshComponents);
     updateComponentTransformButtons();
     updateSupportPlaneControls();
     meshStatus(`Capped ${result.cappedLoops} planar support boundary loop(s) with ${result.cappedTriangles} triangles. Overall watertight: ${diagnostics.watertight ? 'yes' : 'not yet — other open boundaries remain'}.`);
-    return true;
-  };
-
-  const undoSupportPlaneCap = () => {
-    const state = window.S, snapshot = state?.meshComponentCapUndo;
-    if (!state || !snapshot) return false;
-    if (meshStateSignature(state.nifMesh, state.nifMeshComponents) !== snapshot.afterSignature) {
-      state.meshComponentCapUndo = null;
-      updateComponentTransformButtons();
-      meshStatus('Undo cap is no longer safe because the component changed after capping. Newer edits were preserved.');
-      return false;
-    }
-    state.nifMeshComponents = (state.nifMeshComponents || []).map(component =>
-      component.id === snapshot.componentId ? snapshot.previousComponent : component);
-    state.meshComponentCapUndo = null;
-    state.nifMesh = null;
-    lastMeshData = null; lastMesh = null; lastMeshStats = null;
-    state.nifMeta = snapshot.previousMeta || { ...(state.nifMeta || {}), mesh_components_edited: true };
-    refreshCombinedMeshFromComponents();
-    window.previewSolidMeshComponents?.(state.nifMeshComponents, { visible: true, opacity: 0.95 });
-    renderMeshComponents(state.nifMeshComponents);
-    updateComponentTransformButtons();
-    updateSupportPlaneControls();
-    meshStatus('Undid support-base capping. The original open boundary has been restored.');
     return true;
   };
 
@@ -833,22 +914,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         lastMeshFormat = priorFormat;
         lastMeshStats = priorStats;
       }
-      const previous = {
-        positions: state.positions,
-        rotation: state.rotation,
-        nifMesh: state.nifMesh,
-        nifMeshComponents: state.nifMeshComponents,
-        nifMeta: state.nifMeta,
-        documentModel: state.documentModel,
-        gaussianSourceBytes: state.gaussianSourceBytes,
-        lastGaussianBytes: window._fumocaLastGaussianBytes,
-        lastMeshData,
-        lastMesh,
-        lastMeshStats,
-        lastMeshFormat,
-        lastMeshSourceSignature,
-      };
-
+      window.beginStudioHistory?.('Level support plane');
       // Commit both representations together. The plane is moved to y=0 and
       // its normal becomes +Y; no Gaussian or mesh point is trimmed or deleted.
       state.positions = nextPositions;
@@ -887,7 +953,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       container.querySelector('#saveMeshBtn').disabled = !lastMeshData?.colours;
       container.querySelector('#printStlBtn').disabled = !lastMesh || (lastMeshFormat === 'stl' && !lastMeshStats?.printable);
       previous.leveledMeshSignature = meshStateSignature(state.nifMesh, state.nifMeshComponents);
-      supportLevelUndo = previous;
+      window.commitStudioHistory?.();
       try { await window.refreshGaussianSourceBytes?.(); }
       catch (sourceError) { console.warn('[Studio mesh] Levelled geometry but could not refresh Gaussian PLY bytes:', sourceError); }
 
@@ -912,55 +978,9 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     }
   };
 
-  const undoSupportPlaneLevel = async () => {
-    if (!supportLevelUndo || !window.S) return false;
-    const state = window.S;
-    const previous = supportLevelUndo;
-    if (computeGaussianSourceSignature(state) !== previous.leveledSourceSignature
-        || meshStateSignature(state.nifMesh, state.nifMeshComponents) !== previous.leveledMeshSignature) {
-      supportLevelUndo = null;
-      updateSupportPlaneControls();
-      meshStatus('Undo leveling is no longer safe because the Gaussian or mesh scene has changed since leveling. The newer edits have been preserved.');
-      return false;
-    }
-    state.positions = previous.positions;
-    state.rotation = previous.rotation;
-    state.nifMesh = previous.nifMesh;
-    state.nifMeshComponents = previous.nifMeshComponents;
-    state.nifMeta = previous.nifMeta;
-    state.documentModel = previous.documentModel;
-    state.gaussianSourceBytes = previous.gaussianSourceBytes;
-    window._fumocaLastGaussianBytes = previous.lastGaussianBytes;
-    lastMeshData = previous.lastMeshData;
-    lastMesh = previous.lastMesh;
-    lastMeshStats = previous.lastMeshStats;
-    lastMeshFormat = previous.lastMeshFormat;
-    lastMeshSourceSignature = previous.lastMeshSourceSignature;
-    container.querySelector('#saveMeshBtn').disabled = !lastMeshData?.colours;
-    container.querySelector('#printStlBtn').disabled = !lastMesh || (lastMeshFormat === 'stl' && !lastMeshStats?.printable);
-    supportLevelUndo = null;
-    try {
-      window.rebuildGeometry?.();
-      if (lastMeshData) {
-        window.previewSolidMesh?.(lastMeshData, { visible: true,
-          opacity: Number(container.querySelector('#meshPreviewOpacity')?.value || 0.38) });
-        window.previewSolidMeshComponents?.(state.nifMeshComponents || [], { visible: true, opacity: 0.95 });
-        renderMeshComponents(state.nifMeshComponents || []);
-      }
-    } catch (previewError) {
-      console.warn('[Studio mesh] Support-plane undo restored geometry but preview refresh failed:', previewError);
-    }
-    updateSupportPlaneControls();
-    meshStatus('Support-plane leveling undone. The previous Gaussian and mesh coordinates are restored.');
-    return true;
-  };
-
-  const syncNifMesh = (mesh) => {
-    if (mesh !== lastMeshData) {
-      supportLevelUndo = null;
-      if (window.S) {
-        window.S.meshComponentDeleteUndo = null;
-        window.S.meshComponentSplitUndo = null;
+  const syncNifMesh = (mesh, { preserveRecoveryState = false } = {}) => {
+    if (!preserveRecoveryState && mesh !== lastMeshData) {
+        if (window.S) {
       }
     }
     lastMeshData = mesh || null;
@@ -1028,7 +1048,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     const removeButton = container.querySelector('#meshComponentDelete');
     if (!panel || !list) return;
     const items = Array.isArray(components) ? components : [];
-    panel.style.display = (items.length || window.S?.meshComponentDeleteUndo) ? '' : 'none';
+    panel.style.display = items.length ? '' : 'none';
     if (count) count.textContent = String(items.length);
     if (removeButton) removeButton.disabled = !items.some(item => item.id === window.S?.activeMeshComponentId);
     list.innerHTML = '';
@@ -1039,9 +1059,40 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       visible.type = 'checkbox'; visible.checked = component.visible !== false;
       visible.title = 'Show or hide this component';
       visible.addEventListener('change', () => {
-        component.visible = visible.checked;
-        window.setSolidMeshComponentVisibility?.(component.id, visible.checked);
+        const before = [{ id: component.id, visible: component.visible !== false }];
+        const nextVisible = visible.checked;
+        component.visible = nextVisible;
+        window.setSolidMeshComponentVisibility?.(component.id, nextVisible);
         refreshCombinedMeshFromComponents();
+        try {
+          const committed = window.commitStudioPatch?.('Change component visibility', {
+            before,
+            after: [{ id: component.id, visible: nextVisible }],
+            capturePatch: () => {
+              const current = (window.S?.nifMeshComponents || items).find(item => item.id === component.id);
+              return [{ id: component.id, visible: current?.visible !== false }];
+            },
+            applyPatch: patch => {
+              for (const saved of patch) {
+                const target = (window.S?.nifMeshComponents || items).find(item => item.id === saved.id);
+                if (!target) throw new Error('Mesh component no longer exists: ' + saved.id);
+                target.visible = saved.visible;
+                window.setSolidMeshComponentVisibility?.(saved.id, saved.visible);
+              }
+              refreshCombinedMeshFromComponents();
+              renderMeshComponents(window.S?.nifMeshComponents || items);
+            },
+          });
+          if (committed === false) throw new Error('The visibility edit could not be retained in Undo history');
+        } catch (error) {
+          component.visible = before[0].visible;
+          visible.checked = before[0].visible;
+          window.setSolidMeshComponentVisibility?.(component.id, before[0].visible);
+          window.syncStudioDocumentModelFromMesh?.();
+          refreshCombinedMeshFromComponents();
+          console.error('[Studio mesh] Could not record component visibility:', error);
+          meshStatus('Component visibility change was rolled back: ' + (error.message || String(error)));
+        }
       });
       const select = document.createElement('button');
       select.type = 'button'; select.className = 'mini-btn';
@@ -1159,10 +1210,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     renderMeshComponents(components);
     if (components.length) {
       if (window.S) {
-        window.S.meshComponentSplitUndo = null;
-        window.S.meshComponentDeleteUndo = null;
-        window.S.meshComponentCapUndo = null;
-        window.S.meshComponentMembershipUndo = null;
       }
       window.previewSolidMeshComponents?.(components, { visible: true, opacity: 0.95 });
       window.highlightSolidMeshComponent?.(window.S?.activeMeshComponentId || components[0].id);
@@ -1182,14 +1229,58 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     updateSupportPlaneControls();
   };
   container.querySelector('#meshComponentsShowAll')?.addEventListener('click', () => {
+    window.beginStudioHistory?.('Show all mesh components');
     for (const component of window.S?.nifMeshComponents || []) component.visible = true;
     applyComponentVisibilityPreferences();
+    window.commitStudioHistory?.();
   });
   container.querySelector('#meshComponentsHideAll')?.addEventListener('click', () => {
+    window.beginStudioHistory?.('Hide all mesh components');
     for (const component of window.S?.nifMeshComponents || []) component.visible = false;
     applyComponentVisibilityPreferences();
+    window.commitStudioHistory?.();
   });
   const selectedMeshComponent = () => (window.S?.nifMeshComponents || []).find(component => component.id === window.S?.activeMeshComponentId);
+  const captureGaussianMembershipPatch = (state) => ({
+    activeId: state.activeMeshComponentId || null,
+    components: (state.nifMeshComponents || []).map(component => ({
+      id: component.id,
+      gaussianIds: Uint32Array.from(component.gaussianIds || []),
+      diagnostics: { ...(component.diagnostics || {}) },
+      provenance: { ...(component.provenance || {}) },
+    })),
+  });
+  const applyGaussianMembershipPatch = (patch) => {
+    const state = window.S;
+    if (!state) throw new Error('Studio state is unavailable');
+    const byId = new Map((patch.components || []).map(item => [item.id, item]));
+    const live = state.nifMeshComponents || [];
+    for (const component of live) {
+      const saved = byId.get(component.id);
+      if (!saved) continue;
+      component.gaussianIds = Uint32Array.from(saved.gaussianIds || []);
+      component.diagnostics = { ...(saved.diagnostics || {}) };
+      component.provenance = { ...(saved.provenance || {}) };
+    }
+    state.activeMeshComponentId = patch.activeId;
+    syncComponentDiagnosticsToMeta();
+    renderMeshComponents(live);
+    updateComponentTransformButtons();
+    updateSupportPlaneControls();
+  };
+  const commitGaussianMembershipPatch = (label, before, after) => {
+    const committed = window.commitStudioPatch?.(label, {
+      before,
+      after,
+      capturePatch: () => captureGaussianMembershipPatch(window.S),
+      applyPatch: applyGaussianMembershipPatch,
+    });
+    if (committed === false || typeof window.commitStudioPatch !== 'function') {
+      applyGaussianMembershipPatch(before);
+      throw new Error('The membership edit could not be retained in Studio Undo history');
+    }
+    return true;
+  };
   const linkSelectedGaussiansToComponent = (targetComponent) => {
     const state = window.S;
     if (!state?.selected || !state?.alive || !state.documentModel?.gaussianIds?.length || !targetComponent) return false;
@@ -1197,8 +1288,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       meshStatus('Support-platform components are protected from Gaussian ownership. Link selected splats to the object component instead.');
       return false;
     }
-    // Do not treat the temporary trim-preview selection as a user's ownership
-    // assignment. Restore the real selection before collecting IDs.
     if (state.supportPlaneTrimPreview) clearSupportTrimPreview(true);
     const selectedIds = [];
     for (let row = 0; row < state.selected.length; row++) {
@@ -1208,49 +1297,31 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       meshStatus('Select live Gaussian splats first, then link that selection to the active mesh component.');
       return false;
     }
-    const before = (state.nifMeshComponents || []).map(component => ({
-      id: component.id,
-      gaussianIds: component.gaussianIds?.slice?.() || new Uint32Array(),
-      diagnostics: component.diagnostics,
-      provenance: component.provenance,
-    }));
+    const before = captureGaussianMembershipPatch(state);
     const selectedSet = new Set(selectedIds);
     state.nifMeshComponents = (state.nifMeshComponents || []).map(component => {
       const existing = Array.from(component.gaussianIds || []);
-      if (component.id === targetComponent.id) {
-        const combined = new Set(existing);
-        for (const id of selectedIds) combined.add(id);
-        return {
-          ...component,
-          gaussianIds: Uint32Array.from(combined),
-          diagnostics: {
-            ...(component.diagnostics || {}),
-            gaussian_membership_count: combined.size,
-            gaussian_membership_method: 'user-selected',
-          },
-          provenance: { ...(component.provenance || {}), gaussianMembership: 'user-selected' },
-        };
-      }
+      const retained = component.id === targetComponent.id
+        ? existing : existing.filter(id => !selectedSet.has(id));
+      const combined = component.id === targetComponent.id
+        ? new Set([...retained, ...selectedIds]) : retained;
+      const ids = component.id === targetComponent.id ? Uint32Array.from(combined) : Uint32Array.from(retained);
+      const method = component.id === targetComponent.id ? 'user-selected' : 'user-selected-adjusted';
       return {
         ...component,
-        gaussianIds: Uint32Array.from(existing.filter(id => !selectedSet.has(id))),
-        diagnostics: {
-          ...(component.diagnostics || {}),
-          gaussian_membership_count: existing.filter(id => !selectedSet.has(id)).length,
-          gaussian_membership_method: 'user-selected-adjusted',
-        },
-        provenance: { ...(component.provenance || {}), gaussianMembership: 'user-selected-adjusted' },
+        gaussianIds: ids,
+        diagnostics: { ...(component.diagnostics || {}), gaussian_membership_count: ids.length, gaussian_membership_method: method },
+        provenance: { ...(component.provenance || {}), gaussianMembership: method },
       };
     });
     state.activeMeshComponentId = targetComponent.id;
-    state.meshComponentMembershipUndo = {
-      before,
-      afterSignature: meshStateSignature(state.nifMesh, state.nifMeshComponents),
-    };
-    syncComponentDiagnosticsToMeta();
-    renderMeshComponents(state.nifMeshComponents);
-    updateComponentTransformButtons();
-    updateSupportPlaneControls();
+    const after = captureGaussianMembershipPatch(state);
+    try {
+      commitGaussianMembershipPatch('Link selected Gaussian splats', before, after);
+    } catch (error) {
+      meshStatus('Link was rolled back: ' + (error.message || String(error)));
+      return false;
+    }
     meshStatus(`Linked ${selectedIds.length.toLocaleString()} selected Gaussian splats exclusively to ${targetComponent.id}. Other component memberships were updated to avoid overlap.`);
     return true;
   };
@@ -1267,12 +1338,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       meshStatus('Select live Gaussian splats first, then unlink them from mesh components.');
       return false;
     }
-    const before = (state.nifMeshComponents || []).map(component => ({
-      id: component.id,
-      gaussianIds: component.gaussianIds?.slice?.() || new Uint32Array(),
-      diagnostics: component.diagnostics,
-      provenance: component.provenance,
-    }));
+    const before = captureGaussianMembershipPatch(state);
     let removedCount = 0;
     state.nifMeshComponents = (state.nifMeshComponents || []).map(component => {
       const existing = Array.from(component.gaussianIds || []);
@@ -1283,11 +1349,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       return {
         ...component,
         gaussianIds: Uint32Array.from(retained),
-        diagnostics: {
-          ...(component.diagnostics || {}),
-          gaussian_membership_count: retained.length,
-          gaussian_membership_method: 'user-unlinked',
-        },
+        diagnostics: { ...(component.diagnostics || {}), gaussian_membership_count: retained.length, gaussian_membership_method: 'user-unlinked' },
         provenance: { ...(component.provenance || {}), gaussianMembership: 'user-unlinked' },
       };
     });
@@ -1295,67 +1357,24 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       meshStatus('None of the selected splats were linked to a mesh component.');
       return false;
     }
-    state.meshComponentMembershipUndo = {
-      before,
-      afterSignature: meshStateSignature(state.nifMesh, state.nifMeshComponents),
-    };
-    syncComponentDiagnosticsToMeta();
-    renderMeshComponents(state.nifMeshComponents);
-    updateComponentTransformButtons();
-    updateSupportPlaneControls();
-    meshStatus(`Unlinked ${removedCount.toLocaleString()} Gaussian splat membership assignment(s). The splats remain in the original Gaussian layer; mesh geometry was not deleted.`);
-    return true;
-  };
-
-  const undoGaussianMembershipLink = () => {
-    const state = window.S, snapshot = state?.meshComponentMembershipUndo;
-    if (!state || !snapshot) return false;
-    if (meshStateSignature(state.nifMesh, state.nifMeshComponents) !== snapshot.afterSignature) {
-      state.meshComponentMembershipUndo = null;
-      updateComponentTransformButtons();
-      meshStatus('Undo link is no longer safe because component geometry, visibility or membership changed. Newer edits were preserved.');
+    const after = captureGaussianMembershipPatch(state);
+    try {
+      commitGaussianMembershipPatch('Unlink selected Gaussian splats', before, after);
+    } catch (error) {
+      meshStatus('Unlink was rolled back: ' + (error.message || String(error)));
       return false;
     }
-    const before = new Map(snapshot.before.map(item => [item.id, item]));
-    state.nifMeshComponents = (state.nifMeshComponents || []).map(component => {
-      const prior = before.get(component.id);
-      return prior ? {
-        ...component,
-        gaussianIds: prior.gaussianIds.slice(),
-        diagnostics: prior.diagnostics,
-        provenance: prior.provenance,
-      } : component;
-    });
-    state.meshComponentMembershipUndo = null;
-    syncComponentDiagnosticsToMeta();
-    renderMeshComponents(state.nifMeshComponents);
-    updateComponentTransformButtons();
-    updateSupportPlaneControls();
-    meshStatus('Restored the previous Gaussian membership assignments for all components.');
+    meshStatus(`Unlinked ${removedCount.toLocaleString()} Gaussian splat membership assignment(s). The splats remain in the original Gaussian layer; mesh geometry was not deleted.`);
     return true;
   };
 
   const updateComponentTransformButtons = () => {
     const state = window.S;
-    if (state?.meshComponentMembershipUndo
-        && meshStateSignature(state.nifMesh, state.nifMeshComponents) !== state.meshComponentMembershipUndo.afterSignature) {
-      state.meshComponentMembershipUndo = null;
-    }
-    if (state?.meshComponentCapUndo
-        && meshStateSignature(state.nifMesh, state.nifMeshComponents) !== state.meshComponentCapUndo.afterSignature) {
-      state.meshComponentCapUndo = null;
-    }
     const component = selectedMeshComponent();
     const apply = container.querySelector('#meshComponentApplyTransform');
-    const undo = container.querySelector('#meshComponentUndoTransform');
     if (apply) apply.disabled = !component;
-    if (undo) undo.disabled = !component?.transformUndoVertices;
     const remove = container.querySelector('#meshComponentDelete');
     if (remove) remove.disabled = !component;
-    const undoDelete = container.querySelector('#meshComponentUndoDelete');
-    if (undoDelete) undoDelete.disabled = !window.S?.meshComponentDeleteUndo;
-    const undoLink = container.querySelector('#meshComponentUndoLink');
-    if (undoLink) undoLink.disabled = !window.S?.meshComponentMembershipUndo;
     const unlinkSelection = container.querySelector('#meshComponentUnlinkSelection');
     let hasSelectedLive = false;
     for (let row = 0; row < (state?.selected?.length || 0); row++) {
@@ -1364,8 +1383,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     if (unlinkSelection) unlinkSelection.disabled = !hasSelectedLive;
     const split = container.querySelector('#meshComponentSplitPlane');
     if (split) split.disabled = !component;
-    const undoSplit = container.querySelector('#meshComponentUndoSplit');
-    if (undoSplit) undoSplit.disabled = !window.S?.meshComponentSplitUndo;
   };
   container.querySelector('#meshComponentApplyTransform')?.addEventListener('click', () => {
     const state = window.S, component = selectedMeshComponent();
@@ -1383,8 +1400,12 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     }
     const vertices = component.vertices || component.positions;
     if (!vertices?.length) return;
-    component.transformUndoVertices = vertices.slice();
-    state.meshComponentSplitUndo = null; // further edits invalidate the one-step plane-split undo
+    const beforePatch = {
+      id: component.id,
+      vertices: vertices.slice(),
+      transformUndoVertices: component.transformUndoVertices?.slice?.() || null,
+      meshComponentsEdited: state.nifMeta?.mesh_components_edited === true,
+    };
     let cx = 0, cy = 0, cz = 0;
     for (let i = 0; i < vertices.length; i += 3) {
       cx += vertices[i]; cy += vertices[i + 1]; cz += vertices[i + 2];
@@ -1400,12 +1421,67 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       vertices[i + 1] = cy + y + move[1];
       vertices[i + 2] = cz - x * sine + z * cosine + move[2];
     }
+    component.transformUndoVertices = null; // Undo/Redo is owned by the unified history journal.
+    const afterPatch = {
+      id: component.id,
+      vertices: vertices.slice(),
+      transformUndoVertices: null,
+      meshComponentsEdited: true,
+    };
     state.nifMesh = null;
     state.nifMeta = { ...(state.nifMeta || {}), mesh_components_edited: true };
     refreshCombinedMeshFromComponents();
     window.previewSolidMeshComponents?.(state.nifMeshComponents, { visible: true, opacity: 1 });
     window.highlightSolidMeshComponent?.(component.id);
     renderMeshComponents(state.nifMeshComponents);
+    try {
+      const committed = window.commitStudioPatch?.('Transform mesh component', {
+        before: beforePatch,
+        after: afterPatch,
+        capturePatch: () => {
+          const current = (window.S?.nifMeshComponents || []).find(item => item.id === beforePatch.id);
+          if (!current) throw new Error('Mesh component no longer exists: ' + beforePatch.id);
+          return {
+            id: current.id,
+            vertices: (current.vertices || current.positions).slice(),
+            transformUndoVertices: current.transformUndoVertices?.slice?.() || null,
+            meshComponentsEdited: window.S.nifMeta?.mesh_components_edited === true,
+          };
+        },
+        applyPatch: patch => {
+          const target = (window.S?.nifMeshComponents || []).find(item => item.id === patch.id);
+          if (!target) throw new Error('Mesh component no longer exists: ' + patch.id);
+          const currentVertices = target.vertices || target.positions;
+          if (currentVertices?.length === patch.vertices.length && typeof currentVertices.set === 'function') {
+            currentVertices.set(patch.vertices);
+          } else if (target.vertices) target.vertices = patch.vertices.slice();
+          else target.positions = patch.vertices.slice();
+          target.transformUndoVertices = patch.transformUndoVertices?.slice?.() || null;
+          window.S.nifMesh = null;
+          window.S.nifMeta = { ...(window.S.nifMeta || {}), mesh_components_edited: patch.meshComponentsEdited === true };
+          refreshCombinedMeshFromComponents();
+          window.previewSolidMeshComponents?.(window.S.nifMeshComponents, { visible: true, opacity: 1 });
+          window.highlightSolidMeshComponent?.(target.id);
+          renderMeshComponents(window.S.nifMeshComponents);
+          updateComponentTransformButtons();
+        },
+      });
+      if (committed === false) throw new Error('The transform could not be retained in Undo history');
+    } catch (error) {
+      const currentVertices = component.vertices || component.positions;
+      if (currentVertices?.length === beforePatch.vertices.length && typeof currentVertices.set === 'function') currentVertices.set(beforePatch.vertices);
+      else if (component.vertices) component.vertices = beforePatch.vertices.slice();
+      else component.positions = beforePatch.vertices.slice();
+      component.transformUndoVertices = beforePatch.transformUndoVertices?.slice?.() || null;
+      state.nifMesh = null;
+      state.nifMeta = { ...(state.nifMeta || {}), mesh_components_edited: beforePatch.meshComponentsEdited };
+      refreshCombinedMeshFromComponents();
+      window.previewSolidMeshComponents?.(state.nifMeshComponents, { visible: true, opacity: 1 });
+      renderMeshComponents(state.nifMeshComponents);
+      console.error('[Studio mesh] Could not record component transform:', error);
+      meshStatus('Component transform was rolled back: ' + (error.message || String(error)));
+      return;
+    }
     updateComponentTransformButtons();
     meshStatus('Applied transform to ' + component.id + '. Export the NIF to preserve this component edit; the Gaussian source is unchanged.');
   });
@@ -1518,17 +1594,33 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       },
     };
     const replacement = [positive, negative].sort((a, b) => meanPlaneDistance(a) - meanPlaneDistance(b));
-    state.meshComponentSplitUndo = {
-      source: { ...component, vertices: component.vertices.slice(), triangles: component.triangles.slice(), colours: component.colours?.slice(), gaussianIds: component.gaussianIds?.slice?.() || component.gaussianIds },
+    const sourceIndex = (state.nifMeshComponents || []).findIndex(item => item.id === component.id);
+    const cloneForSplitHistory = source => ({
+      ...source,
+      vertices: (source.vertices || source.positions || []).slice(),
+      ...(source.positions ? { positions: source.positions.slice() } : {}),
+      triangles: (source.triangles || source.faces || []).slice(),
+      ...(source.faces ? { faces: source.faces.slice() } : {}),
+      ...(source.colours ? { colours: source.colours.slice() } : {}),
+      ...(source.colors ? { colors: source.colors.slice() } : {}),
+      ...(source.gaussianIds ? { gaussianIds: Uint32Array.from(source.gaussianIds) } : {}),
+      ...(source.parentIds ? { parentIds: [...source.parentIds] } : {}),
+      ...(source.diagnostics ? { diagnostics: { ...source.diagnostics } } : {}),
+      ...(source.provenance ? { provenance: { ...source.provenance } } : {}),
+    });
+    const beforePatch = {
+      sourceId: component.id,
       partIds: [positive.id, negative.id],
+      index: sourceIndex,
+      components: [cloneForSplitHistory(component)],
+      activeId: state.activeMeshComponentId,
+      meshComponentsEdited: state.nifMeta?.mesh_components_edited === true,
+      splitRecords: (state.nifMeta?.mesh_component_splits || []).map(item => ({ ...item })),
     };
-    state.nifMeshComponents = (state.nifMeshComponents || []).filter(item => item.id !== component.id)
-      .concat(replacement);
+    state.nifMeshComponents = (state.nifMeshComponents || []).filter(item => item.id !== component.id);
+    state.nifMeshComponents.splice(Math.min(sourceIndex, state.nifMeshComponents.length), 0, ...replacement);
     state.activeMeshComponentId = positive.id;
     state.nifMesh = null;
-    supportLevelUndo = null;
-    updateSupportPlaneControls();
-    syncComponentDiagnosticsToMeta();
     state.nifMeta = {
       ...(state.nifMeta || {}),
       mesh_components_edited: true,
@@ -1537,50 +1629,72 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         { source: component.id, axis: axis.toUpperCase(), offset: splitOffset, normal, cut_is_open: true },
       ],
     };
-    refreshCombinedMeshFromComponents();
-    window.previewSolidMeshComponents?.(state.nifMeshComponents, { visible: true, opacity: 1 });
-    window.highlightSolidMeshComponent?.(state.activeMeshComponentId);
-    renderMeshComponents(state.nifMeshComponents);
-    updateComponentTransformButtons();
-    meshStatus(axis === 'support'
-      ? `Split ${component.id} using the detected oriented support plane. The two surfaces are independent; the new boundary remains open and no cap was invented.`
-      : `Split ${component.id} into two independent surfaces at ${axis.toUpperCase()}=${splitOffset}. The new boundary remains open and no cap was invented.`);
-  });
-  container.querySelector('#meshComponentUndoSplit')?.addEventListener('click', () => {
-    const state = window.S, snapshot = state?.meshComponentSplitUndo;
-    if (!state || !snapshot) return;
-    state.nifMeshComponents = (state.nifMeshComponents || []).filter(component => !snapshot.partIds.includes(component.id));
-    state.nifMeshComponents.push(snapshot.source);
-    state.activeMeshComponentId = snapshot.source.id;
-    state.meshComponentSplitUndo = null;
-    state.nifMesh = null;
-    syncComponentDiagnosticsToMeta();
-    state.nifMeta = {
-      ...(state.nifMeta || {}),
-      mesh_components_edited: true,
-      mesh_component_splits: (state.nifMeta?.mesh_component_splits || []).slice(0, -1),
+    const idsForSplit = new Set([component.id, positive.id, negative.id]);
+    const afterPatch = {
+      ...beforePatch,
+      components: replacement.map(cloneForSplitHistory),
+      activeId: positive.id,
+      meshComponentsEdited: true,
+      splitRecords: state.nifMeta.mesh_component_splits.map(item => ({ ...item })),
+    };
+    const applySplitPatch = patch => {
+      const live = window.S;
+      if (!live) throw new Error('Studio state is unavailable');
+      const ids = new Set([patch.sourceId, ...patch.partIds]);
+      live.nifMeshComponents = (live.nifMeshComponents || []).filter(item => !ids.has(item.id));
+      live.nifMeshComponents.splice(Math.min(patch.index, live.nifMeshComponents.length), 0,
+        ...patch.components.map(cloneForSplitHistory));
+      live.activeMeshComponentId = patch.activeId;
+      live.nifMesh = null;
+      live.nifMeta = {
+        ...(live.nifMeta || {}),
+        mesh_components_edited: patch.meshComponentsEdited,
+        mesh_component_splits: patch.splitRecords.map(item => ({ ...item })),
+      };
+      syncComponentDiagnosticsToMeta();
+      refreshCombinedMeshFromComponents();
+      window.previewSolidMeshComponents?.(live.nifMeshComponents, { visible: true, opacity: 1 });
+      window.highlightSolidMeshComponent?.(live.activeMeshComponentId);
+      renderMeshComponents(live.nifMeshComponents);
+      updateComponentTransformButtons();
+      updateSupportPlaneControls();
     };
     refreshCombinedMeshFromComponents();
     window.previewSolidMeshComponents?.(state.nifMeshComponents, { visible: true, opacity: 1 });
     window.highlightSolidMeshComponent?.(state.activeMeshComponentId);
     renderMeshComponents(state.nifMeshComponents);
+    try {
+      const committed = window.commitStudioPatch?.('Split mesh component', {
+        before: beforePatch,
+        after: afterPatch,
+        capturePatch: () => {
+          const live = window.S;
+          const indices = [];
+          live.nifMeshComponents.forEach((item, index) => {
+            if (beforePatch.partIds.includes(item.id) || item.id === beforePatch.sourceId) indices.push(index);
+          });
+          const current = live.nifMeshComponents.filter(item => idsForSplit.has(item.id));
+          return {
+            ...afterPatch,
+            index: indices.length ? Math.min(...indices) : afterPatch.index,
+            components: current.map(cloneForSplitHistory),
+            activeId: live.activeMeshComponentId,
+            meshComponentsEdited: live.nifMeta?.mesh_components_edited === true,
+            splitRecords: (live.nifMeta?.mesh_component_splits || []).map(item => ({ ...item })),
+          };
+        },
+        applyPatch: applySplitPatch,
+      });
+      if (committed === false) throw new Error('The split could not be retained in Studio Undo history');
+    } catch (error) {
+      applySplitPatch(beforePatch);
+      meshStatus('Split was rolled back: ' + (error.message || String(error)));
+      return;
+    }
     updateComponentTransformButtons();
-    meshStatus('Undid the most recent plane split. The original component geometry has been restored.');
-  });
-  container.querySelector('#meshComponentUndoTransform')?.addEventListener('click', () => {
-    const state = window.S, component = selectedMeshComponent();
-    if (!state || !component?.transformUndoVertices) return;
-    const vertices = component.vertices || component.positions;
-    vertices.set(component.transformUndoVertices);
-    component.transformUndoVertices = null;
-    state.nifMesh = null;
-    state.nifMeta = { ...(state.nifMeta || {}), mesh_components_edited: true };
-    refreshCombinedMeshFromComponents();
-    window.previewSolidMeshComponents?.(state.nifMeshComponents, { visible: true, opacity: 1 });
-    window.highlightSolidMeshComponent?.(component.id);
-    renderMeshComponents(state.nifMeshComponents);
-    updateComponentTransformButtons();
-    meshStatus('Undid the last transform for ' + component.id + '.');
+    meshStatus(axis === 'support'
+      ? `Split ${component.id} using the detected oriented support plane. The two surfaces are independent; the new boundary remains open and no cap was invented.`
+      : `Split ${component.id} into two independent surfaces at ${axis.toUpperCase()}=${splitOffset}. The new boundary remains open and no cap was invented.`);
   });
   container.querySelector('#meshComponentDelete')?.addEventListener('click', () => {
     const state = window.S;
@@ -1588,19 +1702,36 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     const id = state.activeMeshComponentId;
     const componentIndex = (state.nifMeshComponents || []).findIndex(component => component.id === id);
     const deletedComponent = (state.nifMeshComponents || [])[componentIndex];
-    if (!deletedComponent) return;
-    state.meshComponentDeleteUndo = {
-      source: { ...deletedComponent, vertices: deletedComponent.vertices.slice(), triangles: deletedComponent.triangles.slice(), colours: deletedComponent.colours?.slice(), gaussianIds: deletedComponent.gaussianIds?.slice?.() || deletedComponent.gaussianIds },
+    // Validate the target before opening a history transaction. A stale active
+    // component ID must never leave an empty pending transaction in Studio.
+    if (!deletedComponent) {
+      meshStatus('The active mesh component no longer exists. Select a component and try again.');
+      return;
+    }
+    const cloneComponentForHistory = source => ({
+      ...source,
+      vertices: (source.vertices || source.positions || []).slice(),
+      ...(source.positions ? { positions: source.positions.slice() } : {}),
+      triangles: (source.triangles || source.faces || []).slice(),
+      ...(source.faces ? { faces: source.faces.slice() } : {}),
+      ...(source.colours ? { colours: source.colours.slice() } : {}),
+      ...(source.colors ? { colors: source.colors.slice() } : {}),
+      ...(source.gaussianIds ? { gaussianIds: source.gaussianIds.slice?.() || source.gaussianIds } : {}),
+      ...(source.parentIds ? { parentIds: [...source.parentIds] } : {}),
+      ...(source.diagnostics ? { diagnostics: { ...source.diagnostics } } : {}),
+      ...(source.provenance ? { provenance: { ...source.provenance } } : {}),
+    });
+    const beforePatch = {
+      id,
       index: componentIndex,
-      previousActiveId: state.activeMeshComponentId,
+      component: cloneComponentForHistory(deletedComponent),
+      activeId: state.activeMeshComponentId,
+      meshComponentsEdited: state.nifMeta?.mesh_components_edited === true,
     };
-    supportLevelUndo = null;
-    state.meshComponentSplitUndo = null;
     state.nifMeshComponents = (state.nifMeshComponents || []).filter(component => component.id !== id);
     state.activeMeshComponentId = state.nifMeshComponents[0]?.id || null;
     syncComponentDiagnosticsToMeta();
-    // The old combined mesh is derived data; discard it so NIF export rebuilds
-    // the compatibility mesh from the remaining independent components.
+    state.nifMeta = { ...(state.nifMeta || {}), mesh_components_edited: true };
     state.nifMesh = null;
     refreshCombinedMeshFromComponents();
     container.querySelector('#meshPreviewToggle').checked = true;
@@ -1608,161 +1739,68 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     window.highlightSolidMeshComponent?.(state.activeMeshComponentId);
     window.setSolidMeshComponentsVisibility?.(true);
     renderMeshComponents(state.nifMeshComponents);
+    try {
+      const committed = window.commitStudioPatch?.('Delete mesh component', {
+        before: beforePatch,
+        after: {
+          id,
+          index: componentIndex,
+          component: null,
+          activeId: state.activeMeshComponentId,
+          meshComponentsEdited: true,
+        },
+        capturePatch: () => {
+          const currentState = window.S;
+          const index = (currentState?.nifMeshComponents || []).findIndex(item => item.id === id);
+          return {
+            id,
+            index,
+            component: index >= 0 ? cloneComponentForHistory(currentState.nifMeshComponents[index]) : null,
+            activeId: currentState?.activeMeshComponentId || null,
+            meshComponentsEdited: currentState?.nifMeta?.mesh_components_edited === true,
+          };
+        },
+        applyPatch: patch => {
+          const currentState = window.S;
+          if (!currentState) throw new Error('Studio document is unavailable');
+          const currentIndex = (currentState.nifMeshComponents || []).findIndex(item => item.id === patch.id);
+          const components = (currentState.nifMeshComponents || []).filter(item => item.id !== patch.id);
+          if (patch.component) {
+            if (currentIndex >= 0) components.splice(currentIndex, 0, cloneComponentForHistory(patch.component));
+            else components.splice(Math.max(0, Math.min(patch.index, components.length)), 0, cloneComponentForHistory(patch.component));
+          }
+          currentState.nifMeshComponents = components;
+          currentState.activeMeshComponentId = patch.activeId && components.some(item => item.id === patch.activeId)
+            ? patch.activeId : (components[0]?.id || null);
+          currentState.nifMesh = null;
+          syncComponentDiagnosticsToMeta();
+          currentState.nifMeta = { ...(currentState.nifMeta || {}), mesh_components_edited: patch.meshComponentsEdited === true };
+          refreshCombinedMeshFromComponents();
+          window.previewSolidMeshComponents?.(components, { visible: true, opacity: 1 });
+          window.highlightSolidMeshComponent?.(currentState.activeMeshComponentId);
+          renderMeshComponents(components);
+          updateComponentTransformButtons();
+          updateSupportPlaneControls();
+        },
+      });
+      if (committed === false) throw new Error('The deletion could not be retained in Undo history');
+    } catch (error) {
+      const components = state.nifMeshComponents || [];
+      components.splice(Math.min(componentIndex, components.length), 0, cloneComponentForHistory(beforePatch.component));
+      state.nifMeshComponents = components;
+      state.activeMeshComponentId = beforePatch.activeId;
+      state.nifMeta = { ...(state.nifMeta || {}), mesh_components_edited: beforePatch.meshComponentsEdited };
+      syncComponentDiagnosticsToMeta();
+      refreshCombinedMeshFromComponents();
+      renderMeshComponents(components);
+      console.error('[Studio mesh] Could not record component deletion:', error);
+      meshStatus('Component deletion was rolled back: ' + (error.message || String(error)));
+      return;
+    }
     updateComponentTransformButtons();
     updateSupportPlaneControls();
     meshStatus('Deleted component ' + id + '. Its geometry and Gaussian membership are retained in one-step undo and document lineage.');
   });
-  container.querySelector('#meshComponentUndoDelete')?.addEventListener('click', () => {
-    const state = window.S, snapshot = state?.meshComponentDeleteUndo;
-    if (!state || !snapshot) return;
-    const components = state.nifMeshComponents || [];
-    if (components.some(component => component.id === snapshot.source.id)) {
-      state.meshComponentDeleteUndo = null;
-      updateComponentTransformButtons();
-      return;
-    }
-    components.splice(Math.min(snapshot.index, components.length), 0, snapshot.source);
-    state.nifMeshComponents = components;
-    state.activeMeshComponentId = components.some(component => component.id === snapshot.previousActiveId)
-      ? snapshot.previousActiveId : snapshot.source.id;
-    state.meshComponentDeleteUndo = null;
-    state.nifMesh = null;
-    state.nifMeta = { ...(state.nifMeta || {}), mesh_components_edited: true };
-    refreshCombinedMeshFromComponents();
-    window.previewSolidMeshComponents?.(components, { visible: true, opacity: 1 });
-    window.highlightSolidMeshComponent?.(state.activeMeshComponentId);
-    renderMeshComponents(components);
-    updateComponentTransformButtons();
-    updateSupportPlaneControls();
-    meshStatus('Restored deleted component ' + snapshot.source.id + ' with its geometry and Gaussian membership.');
-  });
-  container.querySelector('#meshComponentUndoLink')?.addEventListener('click', undoGaussianMembershipLink);
-  container.querySelector('#meshComponentUnlinkSelection')?.addEventListener('click', unlinkSelectedGaussiansFromComponents);
-  const updateMeshPreview = () => {
-    const visible = !!container.querySelector('#meshPreviewToggle')?.checked;
-    if (window.S?.nifMeshComponents?.length) {
-      window.setSolidMeshComponentsVisibility?.(visible);
-      window.previewSolidMeshComponents?.(window.S.nifMeshComponents, {
-        visible, opacity: Number(container.querySelector('#meshPreviewOpacity')?.value || 0.95),
-        light: Number(container.querySelector('#meshPreviewLight')?.value || 0.25),
-        roughness: Number(container.querySelector('#meshPreviewRoughness')?.value || 0.72),
-        metalness: Number(container.querySelector('#meshPreviewMetalness')?.value || 0.05),
-      });
-    } else {
-      window.previewSolidMesh?.(lastMeshData, {
-        visible,
-        light: Number(container.querySelector('#meshPreviewLight')?.value || 0.25),
-        roughness: Number(container.querySelector('#meshPreviewRoughness')?.value || 0.72),
-        metalness: Number(container.querySelector('#meshPreviewMetalness')?.value || 0.05),
-        opacity: Number(container.querySelector('#meshPreviewOpacity')?.value || 0.38),
-      });
-    }
-  };
-  container.querySelector('#meshPreviewToggle')?.addEventListener('change', updateMeshPreview);
-  container.querySelector('#meshPreviewOpacity')?.addEventListener('input', (event) => {
-    const value = Number(event.target.value);
-    const label = container.querySelector('#meshPreviewOpacityVal');
-    if (label) label.textContent = Math.round(value * 100) + '%';
-    updateMeshPreview();
-  });
-  container.querySelector('#meshSplatLayerToggle')?.addEventListener('change', (event) => {
-    if (window.S?.points) window.S.points.visible = event.target.checked;
-  });
-  ['#meshPreviewLight', '#meshPreviewRoughness', '#meshPreviewMetalness'].forEach(selector => container.querySelector(selector)?.addEventListener('input', updateMeshPreview));
-  const meshStatus = (message) => {
-    const el = container.querySelector('#meshPrintStatus');
-    if (el) el.textContent = message;
-    onStatus?.(message);
-  };
-  const renderMeshDiagnostics = (stats) => {
-    const el = container.querySelector('#meshDiagnostics');
-    if (!el) return;
-    if (!stats) {
-      el.textContent = 'No mesh diagnostics yet. Extract a mesh to inspect its topology.';
-      return;
-    }
-    const components = Number(stats.components ?? stats.n_connected_components ?? 0);
-    const open = Number(stats.openEdges ?? stats.n_boundary_edges ?? 0);
-    const nonManifold = Number(stats.nonManifoldEdges ?? stats.n_nonmanifold_edges ?? 0);
-    const triangles = Number(stats.triangles ?? stats.n_faces ?? 0);
-    const watertight = stats.watertight ?? stats.is_watertight;
-    const coverage = Number.isFinite(Number(stats.tsdf_coverage_ratio))
-      ? ` · TSDF support ${(Number(stats.tsdf_coverage_ratio) * 100).toFixed(1)}%` : '';
-    const confidence = Number.isFinite(Number(stats.mean_surfel_confidence))
-      ? ` · Surfel confidence ${(Number(stats.mean_surfel_confidence) * 100).toFixed(1)}%` : '';
-    const normalComponents = Number.isFinite(Number(stats.normal_component_count))
-      ? ` · Normal regions ${Number(stats.normal_component_count)}` : '';
-    const batches = Number.isFinite(Number(stats.tsdf_fusion_batches))
-      ? ` · TSDF batches ${Number(stats.tsdf_fusion_batches)}` : '';
-    const repair = stats.surface_repair
-      ? ` · Evidence-gated repair ${Number(stats.surface_repair.filled_loops || 0)} filled / ${Number(stats.surface_repair.rejected_loops || 0)} rejected` : '';
-    const support = stats.support_plane_candidate?.detected
-      ? ` · Support plane Y=${Number(stats.support_plane_candidate.y).toFixed(4)} (${Math.round(Number(stats.support_plane_candidate.confidence || 0) * 100)}%)` : '';
-    el.textContent = `Components: ${components} · Triangles: ${triangles.toLocaleString()} · Open edges: ${open.toLocaleString()} · Non-manifold edges: ${nonManifold.toLocaleString()} · ${watertight ? 'Watertight' : 'Open surface'}${coverage}${confidence}${normalComponents}${batches}${repair}${support}`;
-  };
-  const refreshCombinedMeshFromComponents = (message = '') => {
-    const state = window.S;
-    if (!state) return null;
-    const components = state.nifMeshComponents || [];
-    const allComponentsMesh = combineMeshComponents(components, { visibleOnly: false });
-    const visibleComponentsMesh = combineMeshComponents(components, { visibleOnly: true });
-    state.nifMesh = allComponentsMesh.triangles.length ? allComponentsMesh : null;
-    lastMeshData = visibleComponentsMesh.triangles.length ? visibleComponentsMesh : null;
-    lastMeshFormat = container.querySelector('#meshFormat')?.value || 'ply';
-    if (lastMeshData) {
-      const topology = FumocMeshExtractor.validateWatertight(lastMeshData);
-      lastMeshStats = {
-        ...topology,
-        printable: topology.watertight === true && Number(topology.nonManifoldEdges || 0) === 0
-          && Number(topology.components ?? visibleComponentsMesh.componentCount) === 1
-          && visibleComponentsMesh.componentCount === 1,
-        vertices: lastMeshData.vertices.length / 3,
-        triangles: lastMeshData.triangles.length / 3,
-        components: lastMeshData.componentCount,
-        componentIds: lastMeshData.componentIds,
-        extractionMode: 'component-edited',
-      };
-      lastMesh = makeMeshBlob();
-      renderMeshDiagnostics(lastMeshStats);
-    } else {
-      lastMeshStats = null;
-      lastMesh = null;
-    }
-    const signature = computeGaussianSourceSignature(state);
-    lastMeshSourceSignature = signature;
-    state.nifMeta = {
-      ...(state.nifMeta || {}),
-      ...(signature ? { dual_surface_source_signature: signature } : {}),
-    };
-    const saveButton = container.querySelector('#saveMeshBtn');
-    const printButton = container.querySelector('#printStlBtn');
-    if (saveButton) saveButton.disabled = !lastMeshData?.colours;
-    if (printButton) printButton.disabled = !lastMesh || (lastMeshFormat === 'stl' && !lastMeshStats?.printable);
-    if (lastMeshData) {
-      window.dispatchEvent(new CustomEvent('fumoca:solidMeshReady', {
-        detail: { mesh: lastMeshData, stats: lastMeshStats },
-      }));
-    }
-    syncComponentDiagnosticsToMeta();
-    if (message) meshStatus(message);
-    return lastMeshData;
-  };
-
-  const makeMeshBlob = () => {
-    if (!lastMeshData) return null;
-    if (lastMeshFormat === 'obj') return FumocMeshExtractor.exportOBJ(lastMeshData, 'fumoca-mesh');
-    if (lastMeshFormat === 'ply') return FumocMeshExtractor.exportPLY(lastMeshData, 'fumoca-mesh');
-    const printMesh = { ...lastMeshData, vertices: lastMeshData.vertices.slice() };
-    let minY = Infinity, maxY = -Infinity;
-    for (let i = 1; i < printMesh.vertices.length; i += 3) { minY = Math.min(minY, printMesh.vertices[i]); maxY = Math.max(maxY, printMesh.vertices[i]); }
-    const factor = Number(height?.value || 120) / Math.max(maxY - minY, 1e-6);
-    for (let i = 0; i < printMesh.vertices.length; i += 3) {
-      printMesh.vertices[i] *= factor;
-      printMesh.vertices[i + 1] = (printMesh.vertices[i + 1] - minY) * factor;
-      printMesh.vertices[i + 2] *= factor;
-    }
-    return FumocMeshExtractor.exportSTL(printMesh, 'fumoca-mesh');
-  };
   const repairMeshComponents = (operation, threshold) => {
     const state = window.S;
     const components = state?.nifMeshComponents || [];
@@ -1819,12 +1857,6 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     }
     state.nifMeshComponents = normalizeMeshComponents(nextComponents);
     state.nifMesh = null;
-    state.meshComponentSplitUndo = null;
-    state.meshComponentDeleteUndo = null;
-    state.meshComponentCapUndo = null;
-    state.meshComponentMembershipUndo = null;
-    state.supportPlaneTrimUndo = null;
-    supportLevelUndo = null;
     state.nifMeta = { ...(state.nifMeta || {}), mesh_components_edited: true };
     refreshCombinedMeshFromComponents();
     window.previewSolidMeshComponents?.(state.nifMeshComponents, { visible: true, opacity: 0.95 });
@@ -1987,14 +2019,8 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
       lastMeshFormat = format;
       lastMeshStats = stagedStats;
       lastMeshSourceSignature = extractionSourceSignature;
-      supportLevelUndo = null;
       updateSupportPlaneControls();
       if (window.S) {
-        window.S.meshComponentDeleteUndo = null;
-        window.S.meshComponentSplitUndo = null;
-        window.S.meshComponentCapUndo = null;
-        window.S.meshComponentMembershipUndo = null;
-        window.S.supportPlaneTrimUndo = null;
         window.S.supportPlaneTrimPreview = null;
         window.S.nifMesh = stagedMeshData;
         window.S.nifMeshComponents = extractedComponents;
@@ -2056,15 +2082,11 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     get lastStats() { return lastMeshStats; },
     getSourceSignature: () => computeGaussianSourceSignature(window.S),
     levelToSupportPlane,
-    undoSupportPlaneLevel,
     previewSupportPlaneTrim,
     linkSelectedGaussiansToComponent,
-    undoGaussianMembershipLink,
     unlinkSelectedGaussiansFromComponents,
     applySupportPlaneTrim,
-    undoSupportPlaneTrim,
     capSupportPlaneBase,
-    undoSupportPlaneCap,
   };
   container.querySelector('#meshOrientedReconstructBtn')?.addEventListener('click', async () => {
     const button = container.querySelector('#meshOrientedReconstructBtn');
@@ -2124,9 +2146,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
           };
           state.nifMeshComponents = components;
           state.activeMeshComponentId = components[0]?.id || null;
-          state.meshComponentSplitUndo = null;
-          state.meshComponentDeleteUndo = null;
-          state.nifMeta = {
+                      state.nifMeta = {
             ...(state.nifMeta || {}),
             ...(decoded.meta || {}),
             dual_surface_source_signature: sourceSignature,
@@ -2173,12 +2193,9 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
   });
   container.querySelector('#meshExtractBtn')?.addEventListener('click', extractMesh);
   container.querySelector('#meshLevelSupportPlane')?.addEventListener('click', levelToSupportPlane);
-  container.querySelector('#meshUndoSupportLevel')?.addEventListener('click', undoSupportPlaneLevel);
   container.querySelector('#meshPreviewSupportTrim')?.addEventListener('click', previewSupportPlaneTrim);
   container.querySelector('#meshApplySupportTrim')?.addEventListener('click', applySupportPlaneTrim);
-  container.querySelector('#meshUndoSupportTrim')?.addEventListener('click', undoSupportPlaneTrim);
   container.querySelector('#meshCapSupportBase')?.addEventListener('click', capSupportPlaneBase);
-  container.querySelector('#meshUndoSupportCap')?.addEventListener('click', undoSupportPlaneCap);
 
   container.querySelector('#meshFillHolesBtn')?.addEventListener('click', () => {
     const threshold = Number(container.querySelector('#meshHoleSize')?.value || 48);

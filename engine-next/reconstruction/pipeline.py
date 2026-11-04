@@ -48,6 +48,8 @@ Requirements:
               imageio[ffmpeg] Pillow requests
 """
 
+from __future__ import annotations
+
 import os
 import sys
 import math
@@ -62,9 +64,21 @@ import zipfile
 from pathlib import Path
 
 import numpy as np
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
+
+# Mesh-only reconstruction is a CPU operation. Keep PyTorch optional at import
+# time so the mesh worker can run in a CPU-only environment without installing
+# CUDA, gsplat, torchvision, or the neural capture stack.
+try:
+    import torch
+    import torch.nn as nn
+    import torch.nn.functional as F
+except ImportError:
+    torch = None
+    F = None
+    class _TorchUnavailable:
+        Module = object
+    nn = _TorchUnavailable()
+
 from PIL import Image, ImageFilter
 
 # ─── Environment ─────────────────────────────────────────────────────────────
@@ -74,7 +88,7 @@ _missing = [k for k in REQUIRED if not os.environ.get(k)]
 if _missing:
     raise EnvironmentError(f"Missing env vars: {', '.join(_missing)}")
 
-DEVICE     = 'cuda' if torch.cuda.is_available() else 'cpu'
+DEVICE     = 'cuda' if torch is not None and torch.cuda.is_available() else 'cpu'
 # fumoca-production's real R2 layout is 5 separate buckets (see wrangler.jsonc),
 # not one. Raw captures land in nif-videos (uploaded by js/modules/upload-page.js);
 # everything this pipeline produces (.nif, proxy video, thumbnail, STL) goes to
@@ -97,12 +111,15 @@ R2 = boto3.client('s3',
 from supabase import create_client as _sb_create
 SB = _sb_create(os.environ['SUPABASE_URL'], os.environ['SUPABASE_SECRET_KEY'])
 
-# ─── Dependency check ─────────────────────────────────────────────────────────
+# ─── Optional neural-training dependency ──────────────────────────────────────
+# gsplat is checked only by _train_gaussians(). Existing-geometry mesh jobs
+# must not fail merely because the optional training stack is absent.
 try:
     import gsplat
     print(f'[NIF] gsplat {getattr(gsplat,"__version__","?")} ready')
 except ImportError:
-    raise ImportError("gsplat required: pip install gsplat")
+    gsplat = None
+    print('[NIF] gsplat unavailable; mesh-only CPU jobs remain supported')
 
 # ─── NIF binary constants ─────────────────────────────────────────────────────
 NIF_MAGIC    = 0x4E494600
@@ -2179,11 +2196,18 @@ def _build_nif_meta_payload(author: str, vertical: str, meta: dict,
 
 class ReconstructionWorker:
 
-    def __init__(self, job_id: str, user_id: str):
+    def __init__(self, job_id: str, user_id: str, initialize_deblur: bool = True):
         self.job_id  = job_id
         self.user_id = user_id
         self.tmp     = Path(tempfile.mkdtemp(prefix=f'nif_{job_id[:8]}_'))
-        self.deblur  = DeblurNet().to(DEVICE).eval()
+        self.deblur  = None
+        if initialize_deblur:
+            if torch is None:
+                raise RuntimeError(
+                    'Full capture reconstruction requires PyTorch. '
+                    'Use the CPU mesh-only worker for existing Gaussian geometry.'
+                )
+            self.deblur = DeblurNet().to(DEVICE).eval()
 
     def _tick(self, status: str, pct: int, **kw):
         _patch(self.job_id, {'status': status, 'progress': pct, **kw})
@@ -3355,6 +3379,11 @@ class ReconstructionWorker:
                           sparse_points: np.ndarray | None = None,
                           pose_source: str = 'colmap',
                           object_masks: list | None = None) -> tuple:
+        if torch is None or gsplat is None:
+            raise RuntimeError(
+                'Gaussian training requires PyTorch and gsplat. '
+                'This dependency is not needed for mesh-only reconstruction.'
+            )
         # Configurable so quality can be dialed back up later without a code
         # change — defaults tuned for fast turnaround during testing rather
         # than final quality. n=50k/3000 iters (the old fixed values) is a
