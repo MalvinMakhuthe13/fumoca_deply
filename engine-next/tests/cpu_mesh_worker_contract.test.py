@@ -19,8 +19,17 @@ def main():
     assert "numpy" in top_level_imports
     assert "torch" not in top_level_imports, "torch must be optional"
     assert "gsplat" not in top_level_imports, "gsplat must be optional"
-    assert "try:\\n    import torch" in pipeline_text
-    assert "except ImportError:" in pipeline_text
+    optional_imports = [
+        node for node in tree.body
+        if isinstance(node, ast.Try)
+        and any(
+            isinstance(child, ast.Import) and any(alias.name == "torch" for alias in child.names)
+            for child in node.body
+        )
+        and any(handler.type and isinstance(handler.type, ast.Name) and handler.type.id == "ImportError"
+                for handler in node.handlers)
+    ]
+    assert optional_imports, "torch import must be guarded by ImportError"
     assert "gsplat unavailable; mesh-only CPU jobs remain supported" in pipeline_text
     assert "initialize_deblur: bool = True" in pipeline_text
     assert "if initialize_deblur:" in pipeline_text
