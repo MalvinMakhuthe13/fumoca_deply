@@ -3376,14 +3376,14 @@ class ReconstructionWorker:
 
     # ── Training ───────────────────────────────────────────────────────────────
     def _train_gaussians(self, frames: list, poses: list,
+                          sparse_points: np.ndarray | None = None,
+                          pose_source: str = 'colmap',
+                          object_masks: list | None = None) -> tuple:
         if torch is None or gsplat is None:
             raise RuntimeError(
                 'Gaussian training requires PyTorch and gsplat. '
                 'This dependency is not needed for mesh-only reconstruction.'
             )
-                          sparse_points: np.ndarray | None = None,
-                          pose_source: str = 'colmap',
-                          object_masks: list | None = None) -> tuple:
         # Configurable so quality can be dialed back up later without a code
         # change — defaults tuned for fast turnaround during testing rather
         # than final quality. n=50k/3000 iters (the old fixed values) is a
