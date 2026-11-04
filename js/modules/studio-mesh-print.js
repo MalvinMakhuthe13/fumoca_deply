@@ -174,6 +174,15 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     </div>
   `;
 
+  // Central status reporter used by extraction, repair, support-plane and print actions.
+  // Keep it in the mount scope so every event handler and async operation can report progress.
+  const meshStatus = (message) => {
+    const text = String(message ?? '');
+    const el = container.querySelector('#meshPrintStatus');
+    if (el) el.textContent = text;
+    onStatus?.(text);
+  };
+
   container.querySelector('#meshRes')?.addEventListener('input', (e) => {
     const el = container.querySelector('#meshResVal');
     if (el) el.textContent = `${e.target.value}³`;
