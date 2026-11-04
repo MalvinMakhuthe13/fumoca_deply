@@ -183,6 +183,99 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     onStatus?.(text);
   };
 
+  // Keep the component records authoritative and rebuild the legacy combined
+  // mesh whenever a component changes. This is required by NIF persistence,
+  // export, preview and the unified history replay paths.
+  const makeMeshBlob = () => {
+    if (!lastMeshData) return null;
+    if (lastMeshFormat === 'obj') return FumocMeshExtractor.exportOBJ(lastMeshData, 'fumoca-mesh');
+    if (lastMeshFormat === 'stl') return FumocMeshExtractor.exportSTL(lastMeshData, 'fumoca-mesh');
+    return FumocMeshExtractor.exportPLY(lastMeshData, 'fumoca-mesh');
+  };
+
+  const renderMeshDiagnostics = (stats = {}) => {
+    const el = container.querySelector('#meshDiagnostics');
+    if (!el) return;
+    const vertices = Number(stats.vertices ?? lastMeshData?.vertices?.length / 3 ?? 0);
+    const triangles = Number(stats.triangles ?? lastMeshData?.triangles?.length / 3 ?? 0);
+    const components = Number(stats.components ?? window.S?.nifMeshComponents?.length ?? 0);
+    const openEdges = Number(stats.openEdges ?? 0);
+    const nonManifoldEdges = Number(stats.nonManifoldEdges ?? 0);
+    const watertight = stats.watertight === true;
+    el.textContent = [
+      `Vertices: ${vertices.toLocaleString()}`,
+      `Triangles: ${triangles.toLocaleString()}`,
+      `Components: ${components.toLocaleString()}`,
+      watertight ? 'Topology: watertight' : `Topology: open surface (${openEdges.toLocaleString()} open edges)`,
+      `Non-manifold edges: ${nonManifoldEdges.toLocaleString()}`,
+    ].join(' · ');
+  };
+
+  const updateMeshPreview = () => {
+    const visible = !!container.querySelector('#meshPreviewToggle')?.checked;
+    const opacity = Number(container.querySelector('#meshPreviewOpacity')?.value ?? 0.38);
+    const components = window.S?.nifMeshComponents || [];
+    if (components.length) {
+      window.previewSolidMesh?.(lastMeshData, { visible: false });
+      window.previewSolidMeshComponents?.(components, {
+        visible: true,
+        opacity,
+        light: Number(container.querySelector('#meshPreviewLight')?.value ?? 0.25),
+        roughness: Number(container.querySelector('#meshPreviewRoughness')?.value ?? 0.72),
+        metalness: Number(container.querySelector('#meshPreviewMetalness')?.value ?? 0.05),
+      });
+    } else if (lastMeshData) {
+      window.previewSolidMesh?.(lastMeshData, {
+        visible, opacity,
+        light: Number(container.querySelector('#meshPreviewLight')?.value ?? 0.25),
+        roughness: Number(container.querySelector('#meshPreviewRoughness')?.value ?? 0.72),
+        metalness: Number(container.querySelector('#meshPreviewMetalness')?.value ?? 0.05),
+      });
+    }
+    return !!lastMeshData;
+  };
+
+  const refreshCombinedMeshFromComponents = () => {
+    const state = window.S;
+    if (!state) return null;
+    const components = Array.isArray(state.nifMeshComponents) ? state.nifMeshComponents : [];
+    const combined = components.length ? combineMeshComponents(components) : null;
+    state.nifMesh = combined;
+    lastMeshData = combined;
+    lastMeshStats = combined ? {
+      ...FumocMeshExtractor.validateWatertight(combined),
+      vertices: combined.vertices.length / 3,
+      triangles: combined.triangles.length / 3,
+      components: components.length,
+    } : null;
+    if (combined) {
+      lastMesh = makeMeshBlob();
+      renderMeshDiagnostics(lastMeshStats);
+    } else {
+      lastMesh = null;
+      const diagnostics = container.querySelector('#meshDiagnostics');
+      if (diagnostics) diagnostics.textContent = 'No mesh diagnostics yet. Extract a mesh to inspect its topology.';
+    }
+    const previewToggle = container.querySelector('#meshPreviewToggle');
+    if (previewToggle) {
+      previewToggle.disabled = !combined;
+      if (!combined) previewToggle.checked = false;
+    }
+    const saveButton = container.querySelector('#saveMeshBtn');
+    if (saveButton) saveButton.disabled = !combined?.colours;
+    const printButton = container.querySelector('#printStlBtn');
+    if (printButton) printButton.disabled = !combined || !lastMeshStats?.printable;
+    return combined;
+  };
+
+  container.querySelector('#meshPreviewToggle')?.addEventListener('change', updateMeshPreview);
+  container.querySelector('#meshPreviewOpacity')?.addEventListener('input', updateMeshPreview);
+  ['#meshPreviewLight', '#meshPreviewRoughness', '#meshPreviewMetalness'].forEach(selector =>
+    container.querySelector(selector)?.addEventListener('input', updateMeshPreview));
+  container.querySelector('#meshSplatLayerToggle')?.addEventListener('change', event => {
+    if (window.S?.points) window.S.points.visible = event.target.checked;
+  });
+
   container.querySelector('#meshRes')?.addEventListener('input', (e) => {
     const el = container.querySelector('#meshResVal');
     if (el) el.textContent = `${e.target.value}³`;
