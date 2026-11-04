@@ -20,17 +20,35 @@ The function only claims `queued` rows whose `capture_mode` is
    - `CF_ACCOUNT_ID`
    - `R2_ACCESS_KEY_ID`
    - `R2_SECRET_ACCESS_KEY`
-4. Clone the FUMOCA repository or upload the worker files.
+4. In a notebook cell, clone the repository:
+
+   ```bash
+   !git clone https://github.com/MalvinMakhuthe13/fumoca_deply.git
+   %cd fumoca_deply
+   ```
+
 5. Install only the mesh dependencies:
 
    ```bash
    pip install -r engine-next/reconstruction/requirements-mesh-only.txt
    ```
 
-6. Start the worker:
+6. Load Kaggle secrets into the notebook process, then start the worker:
+
+   ```python
+   import os
+   from kaggle_secrets import UserSecretsClient
+
+   secrets = UserSecretsClient()
+   for name in (
+       "SUPABASE_URL", "SUPABASE_SECRET_KEY", "CF_ACCOUNT_ID",
+       "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY",
+   ):
+       os.environ[name] = secrets.get_secret(name)
+   ```
 
    ```bash
-   python kaggle/fumoca_cpu_mesh_worker.py
+   !python kaggle/fumoca_cpu_mesh_worker.py
    ```
 
 Keep the notebook session running while Studio jobs are processed. The worker
