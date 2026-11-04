@@ -48,6 +48,8 @@ Requirements:
               imageio[ffmpeg] Pillow requests
 """
 
+from __future__ import annotations
+
 import os
 import sys
 import math
