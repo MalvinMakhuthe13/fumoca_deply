@@ -163,10 +163,10 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
           <span class="ctrl-val" id="printHVal">120</span>
         </div>
         <input type="range" id="printH" min="30" max="400" value="120">
-        <div class="hint">STL is enabled only for one connected, watertight shell. The worker reports mesh repairs and limitations.</div>
+        <div class="hint">STL is enabled only for one connected, watertight shell. The CPU worker reports mesh repairs and limitations; no GPU training is used.</div>
         <div class="btn-grid col2">
           <button type="button" class="ac-btn cyan full" id="printStlBtn" disabled>Download STL</button>
-          <button type="button" class="ac-btn full" id="printQueueBtn">Queue GPU print</button>
+          <button type="button" class="ac-btn full" id="printQueueBtn">Queue CPU print mesh</button>
         </div>
         <button type="button" class="ac-btn lime full" id="saveMeshBtn" disabled style="margin-top:7px">Save colored PLY to Library</button>
         <div class="hint" id="meshPrintStatus" style="margin-top:8px">Load a splat or PLY to begin.</div>
