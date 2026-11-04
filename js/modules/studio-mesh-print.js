@@ -136,7 +136,7 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
         <label style="display:block;font-size:11px;margin:8px 0">Cap boundary loops up to <input id="meshHoleSize" type="number" min="3" max="128" step="1" value="48" style="width:64px;padding:4px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#fff"> edges</label>
         <label style="display:block;font-size:11px;margin:8px 0">Remove noise islands smaller than <input id="meshFloaterSize" type="number" min="0" max="10000" step="1" value="0" style="width:72px;padding:4px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#fff"> faces</label>
         <div class="hint">Set to 0 to preserve every disconnected component during full-scene extraction. Remove tiny islands later only after inspecting the scene; small components may be real objects or details.</div>
-        <div class="hint" style="margin:8px 0">For the oriented-surfel TSDF path, send the complete live scene to the reconstruction worker. It preserves scene coordinates, returns separate mesh components, and leaves the original Gaussian layer untouched.</div>
+        <div class="hint" style="margin:8px 0">The oriented-surfel TSDF path runs on CPU against the existing Gaussian scene. It preserves scene coordinates, returns separate mesh components, and leaves the original Gaussian layer untouched. No GPU training is involved.</div>
         <button type="button" class="ac-btn cyan full" id="meshOrientedReconstructBtn">Reconstruct full scene · oriented surfels</button>
         <div class="btn-grid col2" style="margin-top:8px">
           <button type="button" class="ac-btn lime full" id="meshExtractBtn">Extract mesh</button>
