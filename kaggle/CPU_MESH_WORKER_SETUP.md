@@ -25,7 +25,7 @@ A ready-to-run notebook is included at `kaggle/FUMOCA_CPU_Mesh_Worker.ipynb`. Up
 4. In a notebook cell, clone the repository:
 
    ```bash
-   !git clone https://github.com/MalvinMakhuthe13/fumoca_deply.git
+   !git clone --single-branch --branch feature/unified-studio-history-2026-11-03 https://github.com/MalvinMakhuthe13/fumoca_deply.git
    %cd fumoca_deply
    ```
 
