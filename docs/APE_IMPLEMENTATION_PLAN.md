@@ -39,6 +39,8 @@ The bridge now fits against the narrower horizontal/vertical field of view, obse
 - Camera framing/zoom settings and zoom bounds are applied to the Spark companion path; public API `window.FumocaAPE.getSettings()` exposes the active settings for integration/testing.
 - Ad embed now defaults to responsive 100% width and 16:9 aspect ratio, accepts explicit aspect ratio or fixed height, and observes its host container for resizes.
 - Publish panel exposes poster/embed ratio, initial zoom and frame-padding controls; publish persists the validated settings to `meta.presentation`.
+- Ad Studio now has a responsive preview simulator with desktop/tablet/mobile width presets and 16:9, 1:1, 4:5, and 9:16 aspect ratios. It fits the selected frame inside the available preview area without distorting the ratio.
+- Viewer reads presentation presets from either the NIF `meta` or `metadata` JSON column shape.
 - Embed Manager now generates a responsive wrapper/iframe snippet using the saved presentation aspect ratio, with optional fixed height.
 
 ## Required next integration steps
