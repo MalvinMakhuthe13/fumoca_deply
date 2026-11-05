@@ -1163,6 +1163,29 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
 
     <!-- TAB: PRESENT (camera paths + break the frame) -->
     <div class="panel-body" id="tab-present" style="display:none">
+      <div class="section" id="apeMainStudioPanel" style="margin-bottom:12px;border-color:rgba(212,255,0,.38);background:linear-gradient(145deg,rgba(212,255,0,.075),rgba(255,255,255,.018));">
+        <div class="sec-head"><span class="sec-label">Adaptive Presentation Engine</span><span class="sec-badge">LIVE · RESPONSIVE</span></div>
+        <div class="hint" style="padding:7px 0 10px">Set how this experience is framed in posters, website embeds and mobile placements. Camera zoom updates the live 3D viewport without stretching the scene.</div>
+        <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:5px">Poster / embed aspect ratio</label>
+        <select id="apeMainAspect" style="width:100%;padding:9px;border-radius:8px;background:var(--surface2);color:var(--text);border:1px solid var(--border2);margin-bottom:10px">
+          <option value="16 / 9">Landscape · 16:9</option>
+          <option value="1 / 1">Square · 1:1</option>
+          <option value="4 / 5">Portrait · 4:5</option>
+          <option value="9 / 16">Story · 9:16</option>
+        </select>
+        <div class="ctrl-row"><span class="ctrl-label">Live camera zoom</span><span class="ctrl-val" id="apeMainZoomVal">1.00×</span></div>
+        <input type="range" id="apeMainZoom" min="0.5" max="2.5" step="0.05" value="1">
+        <div class="ctrl-row" style="margin-top:8px"><span class="ctrl-label">Frame breathing room</span><span class="ctrl-val" id="apeMainPaddingVal">1.55×</span></div>
+        <input type="range" id="apeMainPadding" min="1.1" max="2.5" step="0.05" value="1.55">
+        <div style="display:flex;gap:10px;align-items:center;margin-top:10px">
+          <div id="apeMainRatioPreview" aria-hidden="true" style="width:76px;aspect-ratio:16 / 9;max-height:48px;border:1px solid rgba(212,255,0,.6);border-radius:5px;background:repeating-linear-gradient(135deg,rgba(212,255,0,.08) 0 5px,transparent 5px 10px);flex:none"></div>
+          <div class="hint" style="font-size:10px;padding:0">This sets the intended composition frame. It does not crop the model or interfere with free rotation and zoom in the published viewer.</div>
+        </div>
+        <div style="display:flex;gap:7px;margin-top:11px">
+          <button type="button" class="ac-btn" id="apeMainReset" style="flex:1">Reset framing</button>
+          <span id="apeMainStatus" class="hint" style="align-self:center;font-size:10px">Draft · not yet published</span>
+        </div>
+      </div>
       <div class="section" style="margin-bottom:10px;border-color:rgba(212,255,0,.28)">
         <div class="sec-head"><span class="sec-label">Media Studio</span><span class="sec-badge">IMAGE · VIDEO</span></div>
         <div class="hint" style="padding:8px 10px">Create the “subject leaving the screen” image, iPhone-style depth text, or a short escape-loop video here. Adjust the effect in <b>Break the frame</b> below.</div>
@@ -7369,5 +7392,106 @@ if (!window._fumocaBooted) {
 </script>
 
 <script src="js/modules/platform-tab.js?v=20261031-look"></script>
+<script>
+(function () {
+  'use strict';
+  const aspect = document.getElementById('apeMainAspect');
+  const zoom = document.getElementById('apeMainZoom');
+  const padding = document.getElementById('apeMainPadding');
+  const zoomVal = document.getElementById('apeMainZoomVal');
+  const paddingVal = document.getElementById('apeMainPaddingVal');
+  const ratioPreview = document.getElementById('apeMainRatioPreview');
+  const status = document.getElementById('apeMainStatus');
+  const reset = document.getElementById('apeMainReset');
+  if (!aspect || !zoom || !padding) return;
+
+  const draft = window._fumocaApePresentationDraft || {};
+  aspect.value = draft.aspectRatio || '16 / 9';
+  zoom.value = String(draft.initialZoom || 1);
+  padding.value = String(draft.framePadding || 1.55);
+  let baseOffset = null;
+  let gestureActive = false;
+
+  function cameraParts() {
+    const camera = window._fumocaViewerCamera || window.camera || null;
+    const controls = window._fumocaViewerControls || window.controls || null;
+    if (!camera?.position || !controls?.target) return null;
+    return { camera, controls };
+  }
+  function captureBase() {
+    const parts = cameraParts();
+    if (!parts) return;
+    const { camera, controls } = parts;
+    const target = controls.target;
+    const dx = camera.position.x - target.x;
+    const dy = camera.position.y - target.y;
+    const dz = camera.position.z - target.z;
+    const length = Math.hypot(dx, dy, dz);
+    if (length > 0.0001) baseOffset = { x: dx, y: dy, z: dz, length };
+  }
+  function applyFraming() {
+    const parts = cameraParts();
+    if (!parts) {
+      if (status) status.textContent = 'Waiting for 3D camera';
+      return;
+    }
+    if (!baseOffset) captureBase();
+    if (!baseOffset) return;
+    const { camera, controls } = parts;
+    const target = controls.target;
+    const zoomFactor = Number(zoom.value) / (Number(padding.value) / 1.55);
+    const distanceScale = 1 / Math.max(0.2, zoomFactor);
+    camera.position.set(
+      target.x + baseOffset.x * distanceScale,
+      target.y + baseOffset.y * distanceScale,
+      target.z + baseOffset.z * distanceScale
+    );
+    controls.minDistance = Math.max(0.0001, baseOffset.length / 12);
+    controls.maxDistance = Math.max(baseOffset.length * 12, controls.minDistance * 2);
+    controls.update?.();
+  }
+  function sync() {
+    const ratio = aspect.value;
+    const z = Number(zoom.value);
+    const p = Number(padding.value);
+    if (zoomVal) zoomVal.textContent = z.toFixed(2) + '×';
+    if (paddingVal) paddingVal.textContent = p.toFixed(2) + '×';
+    if (ratioPreview) ratioPreview.style.aspectRatio = ratio;
+    window._fumocaApePresentationDraft = {
+      version: 1,
+      aspectRatio: ratio,
+      initialZoom: z,
+      framePadding: p,
+      damping: 0.08,
+      maxDpr: 2
+    };
+    applyFraming();
+    if (status) status.textContent = 'Draft · ready to publish';
+    window.dispatchEvent(new CustomEvent('fumoca:apePresentationChanged', {
+      detail: window._fumocaApePresentationDraft
+    }));
+  }
+  [zoom, padding].forEach(input => {
+    input.addEventListener('pointerdown', () => { captureBase(); gestureActive = true; });
+    input.addEventListener('pointerup', () => { gestureActive = false; });
+    input.addEventListener('keydown', () => { captureBase(); });
+    input.addEventListener('input', sync);
+  });
+  aspect.addEventListener('change', sync);
+  reset?.addEventListener('click', () => {
+    aspect.value = '16 / 9';
+    zoom.value = '1';
+    padding.value = '1.55';
+    captureBase();
+    sync();
+  });
+  window.addEventListener('fumoca:viewerReady', () => {
+    baseOffset = null;
+    setTimeout(() => { captureBase(); applyFraming(); }, 100);
+  });
+  window.addEventListener('resize', () => { if (!gestureActive) applyFraming(); }, { passive: true });
+  sync();
+})();
+</script>
 </body>
 </html>
