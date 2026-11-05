@@ -74,6 +74,43 @@ function persist() {
   return data;
 }
 
+async function savePosterToCloud() {
+  const status = document.getElementById('ptpPosterCloudStatus');
+  const setStatus = (message, failed = false) => {
+    if (!status) return;
+    status.textContent = message;
+    status.dataset.state = failed ? 'error' : 'ok';
+  };
+  const record = window._fumocaCurrentRecord;
+  const supabase = window._fumocaSupabase || window.supabase;
+  if (!record?.id) {
+    setStatus('Open a saved NIF asset before saving a poster to the cloud.', true);
+    return false;
+  }
+  if (!supabase?.auth?.getUser || !supabase?.from) {
+    setStatus('Account connection is not ready. Your local composition is still saved.', true);
+    return false;
+  }
+  setStatus('Saving poster to this asset…');
+  try {
+    const { data: authData, error: authError } = await supabase.auth.getUser();
+    if (authError || !authData?.user) throw new Error('Sign in before saving this poster to the cloud.');
+    const data = payload();
+    const metadata = { ...(record.meta || {}), present: data };
+    const { error } = await supabase.from('nif_files').update({ meta: metadata }).eq('id', record.id);
+    if (error) throw error;
+    record.meta = metadata;
+    record.metadata = { ...(record.metadata || {}), present: data };
+    window._fumocaCurrentRecord = record;
+    setStatus('Saved to this NIF asset · available to its public viewer.');
+    return true;
+  } catch (error) {
+    console.warn('[Poster Composer] Cloud save failed', error);
+    setStatus(error?.message || 'Cloud save failed. Your local composition is still saved.', true);
+    return false;
+  }
+}
+
 function copyViewerLink() {
   const data = persist();
   let json;
@@ -201,7 +238,9 @@ function mountPanel() {
         <label class="ptp-poster-field">Subject scale <input type="range" min="10" max="400" value="100" data-poster-field="scale"><output data-poster-value="scale">1.00×</output></label>
         <label class="ptp-poster-field">Subject rotation <input type="range" min="-180" max="180" value="0" data-poster-field="rotation"><output data-poster-value="rotation">0°</output></label>
       </div>
-      <div class="ptp-poster-status" id="ptpPosterStatus">Composition model ready · not yet applied to the live 3D renderer.</div>
+      <div class="ptp-poster-status" id="ptpPosterStatus">Composition model ready · live 3D transforms are not yet connected.</div>
+      <div class="ptp-poster-actions"><button type="button" data-act="poster-cloud-save" class="primary">Save poster to asset</button><button type="button" data-act="copy" class="ptp-poster-copy">Copy viewer link</button></div>
+      <div class="ptp-poster-status" id="ptpPosterCloudStatus">Local composition is saved automatically. Cloud save is a separate action.</div>
     </div>
     <div class="ptp-section">
       <div class="ptp-title">Magazine cover text</div>
@@ -264,6 +303,10 @@ function mountPanel() {
       #ptpPosterComposer .ptp-poster-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px 12px}
       #ptpPosterComposer .ptp-poster-field output{color:#c8ff00;font:10px monospace}
       #ptpPosterComposer .ptp-poster-status{padding:8px 10px;border:1px solid rgba(200,255,0,.16);border-radius:8px;background:rgba(200,255,0,.045);color:rgba(255,255,255,.55);font-size:10px;line-height:1.45}
+      #ptpPosterComposer .ptp-poster-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+      #ptpPosterComposer .ptp-poster-actions button{border:1px solid rgba(200,255,0,.28);border-radius:8px;padding:8px 10px;background:rgba(200,255,0,.09);color:#eaffb0;font:inherit;font-size:10px;cursor:pointer}
+      #ptpPosterComposer .ptp-poster-actions button.primary{background:#c8ff00;color:#10131a;font-weight:700}
+      #ptpPosterComposer #ptpPosterCloudStatus[data-state="error"]{border-color:rgba(255,90,90,.35);color:#ffb1b1}
       #ptpPosterComposer .ptp-title{color:#c8ff00}
       @media(max-width:520px){#ptpPosterComposer .ptp-poster-grid{grid-template-columns:1fr}}
     `;
@@ -362,6 +405,7 @@ function mountPanel() {
     if (act === 'product') applyPreset('product');
     if (act === 'hero') applyPreset('hero');
     if (['weekly','48hours','product','hero'].includes(act)) renderTextManager();
+    if (act === 'poster-cloud-save') { savePosterToCloud(); return; }
     if (act === 'clear-text') { clearText(); renderTextManager(); }
     if (act === 'add-custom-text') {
       const value = prompt('Text to display in the scene', 'Your text');
