@@ -397,6 +397,13 @@ const FumocaPublish = (() => {
                background:rgba(200,255,0,.08);border:1px solid rgba(200,255,0,.3);font-size:12px;"></div>
         </div>
       </div>`;
+    const apeDraft = window._fumocaApePresentationDraft || {};
+    const aspectInput = el.querySelector('#pubApeAspect');
+    const zoomInput = el.querySelector('#pubApeZoom');
+    const paddingInput = el.querySelector('#pubApePadding');
+    if (aspectInput && apeDraft.aspectRatio) aspectInput.value = apeDraft.aspectRatio;
+    if (zoomInput && Number.isFinite(Number(apeDraft.initialZoom))) zoomInput.value = String(apeDraft.initialZoom);
+    if (paddingInput && Number.isFinite(Number(apeDraft.framePadding))) paddingInput.value = String(apeDraft.framePadding);
     const zoom = el.querySelector('#pubApeZoom');
     const zoomValue = el.querySelector('#pubApeZoomValue');
     const padding = el.querySelector('#pubApePadding');
