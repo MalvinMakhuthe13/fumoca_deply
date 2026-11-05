@@ -1192,6 +1192,7 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
         <label for="apeLayerWidth" style="display:block;font-size:11px;color:var(--muted);margin:10px 0 5px">Selected layer width <span id="apeLayerWidthValue">45%</span></label>
         <input id="apeLayerWidth" type="range" min="5" max="90" step="1" value="45" style="width:100%">
         <div style="display:flex;gap:7px;margin-top:7px"><button type="button" class="ac-btn" id="apeLayerBack" style="flex:1">Send backward</button><button type="button" class="ac-btn" id="apeLayerForward" style="flex:1">Bring forward</button></div>
+        <button type="button" class="ac-btn" id="apeLayerLock" style="width:100%;margin-top:7px" aria-pressed="false" disabled>Lock selected layer</button>
         <label for="apeLayerFontSize" style="display:block;font-size:11px;color:var(--muted);margin:10px 0 5px">Text size <span id="apeLayerFontSizeValue">32px</span></label>
         <input id="apeLayerFontSize" type="range" min="12" max="72" step="1" value="32" style="width:100%">
         <div style="display:flex;gap:7px;margin-top:7px"><input id="apeLayerColor" type="color" value="#ffffff" aria-label="Text colour" style="width:48px;height:34px;padding:2px"><select id="apeLayerAlign" aria-label="Text alignment" style="flex:1;padding:7px;border-radius:8px;background:var(--surface2);color:var(--text);border:1px solid var(--border2)"><option value="left">Align left</option><option value="center">Align center</option><option value="right">Align right</option></select></div>
@@ -7454,6 +7455,7 @@ if (!window._fumocaBooted) {
   const fontSizeValue = document.getElementById('apeLayerFontSizeValue');
   const colorInput = document.getElementById('apeLayerColor');
   const alignInput = document.getElementById('apeLayerAlign');
+  const lockButton = document.getElementById('apeLayerLock');
   const guidesToggle = document.getElementById('apeGuidesToggle');
   const snapToggle = document.getElementById('apeSnapToggle');
   let showGuides = false;
@@ -7462,11 +7464,19 @@ if (!window._fumocaBooted) {
   let selected = null;
   let drag = null;
   const clamp = n => Math.max(0.03, Math.min(0.97, n));
-  const snapPosition = value => {
+  const snapPosition = (value, axis, movingItem) => {
     if (!snapEnabled) return clamp(value);
     const targets = [0.05, 0.5, 0.95];
-    let result = clamp(value);
-    for (const target of targets) if (Math.abs(result - target) <= 0.015) { result = target; break; }
+    for (const other of items) {
+      if (other.id === movingItem?.id) continue;
+      const coordinate = Number(other[axis]);
+      if (Number.isFinite(coordinate)) targets.push(coordinate);
+    }
+    let result = clamp(value), nearest = 0.015;
+    for (const target of targets) {
+      const distance = Math.abs(result - target);
+      if (distance <= nearest) { nearest = distance; result = target; }
+    }
     return result;
   };
   const selectedItem = () => items.find(item => item.id === selected) || null;
@@ -7484,7 +7494,7 @@ if (!window._fumocaBooted) {
   }
   function publishDraft() {
     const prev = window._fumocaApePresentationDraft || {};
-    window._fumocaApePresentationDraft = { ...prev, version:1, layers:items.map(({id,type,content,x,y,width,fontSize,color,textAlign})=>({id,type,content,x,y,width,fontSize,color,textAlign})) };
+    window._fumocaApePresentationDraft = { ...prev, version:1, layers:items.map(({id,type,content,x,y,width,fontSize,color,textAlign,locked})=>({id,type,content,x,y,width,fontSize,color,textAlign,locked:Boolean(locked)})) };
     window.dispatchEvent(new CustomEvent('fumoca:apePresentationChanged',{detail:window._fumocaApePresentationDraft}));
   }
   function syncControls() {
@@ -7492,6 +7502,9 @@ if (!window._fumocaBooted) {
     widthInput.disabled = !item;
     backBtn.disabled = !item || items.indexOf(item) <= 0;
     forwardBtn.disabled = !item || items.indexOf(item) >= items.length - 1;
+    lockButton.disabled = !item;
+    lockButton.textContent = item?.locked ? 'Unlock selected layer' : 'Lock selected layer';
+    lockButton.setAttribute('aria-pressed',String(Boolean(item?.locked)));
     if (item) {
       widthInput.value = String(Math.round(Number(item.width) || (item.type === 'image' ? 18 : 45)));
       fontSizeInput.disabled = item.type !== 'text'; colorInput.disabled = item.type !== 'text'; alignInput.disabled = item.type !== 'text';
@@ -7508,9 +7521,9 @@ if (!window._fumocaBooted) {
       const el = document.createElement(item.type === 'image' ? 'img' : 'div');
       if (item.type === 'image') { el.src = item.content; el.alt = 'Presentation artwork'; el.style.width = (item.width || 18) + '%'; el.style.maxHeight = '80%'; el.style.objectFit = 'contain'; }
       else { el.textContent = item.content; el.style.font = '700 clamp(8px,' + (Math.max(12,Math.min(72,Number(item.fontSize)||32)) * 0.1) + 'cqw,72px)/1.15 system-ui,sans-serif'; el.style.color = /^#[0-9a-f]{6}$/i.test(item.color||'') ? item.color : '#ffffff'; el.style.textAlign = ['left','center','right'].includes(item.textAlign) ? item.textAlign : 'left'; el.style.textShadow = '0 2px 8px #000'; el.style.maxWidth = (item.width || 45) + '%'; }
-      Object.assign(el.style,{position:'absolute',left:(item.x*100)+'%',top:(item.y*100)+'%',transform:'translate(-50%,-50%)',pointerEvents:'auto',cursor:'move',padding:'4px',outline:selected===item.id?'1px dashed #d4ff00':'none',touchAction:'none',zIndex:String(index+1)});
-      el.addEventListener('pointerdown',ev=>{ selected=item.id; drag={id:item.id,x:ev.clientX,y:ev.clientY,rect:overlay.getBoundingClientRect(),sx:item.x,sy:item.y}; el.setPointerCapture(ev.pointerId); renderList(); syncControls(); });
-      el.addEventListener('pointermove',ev=>{if(!drag||drag.id!==item.id)return;item.x=snapPosition(drag.sx+(ev.clientX-drag.x)/Math.max(1,drag.rect.width));item.y=snapPosition(drag.sy+(ev.clientY-drag.y)/Math.max(1,drag.rect.height));el.style.left=(item.x*100)+'%';el.style.top=(item.y*100)+'%';});
+      Object.assign(el.style,{position:'absolute',left:(item.x*100)+'%',top:(item.y*100)+'%',transform:'translate(-50%,-50%)',pointerEvents:item.locked?'none':'auto',cursor:item.locked?'default':'move',padding:'4px',outline:selected===item.id?'1px dashed #d4ff00':'none',touchAction:'none',zIndex:String(index+1),opacity:item.locked?'0.82':'1'});
+      el.addEventListener('pointerdown',ev=>{ if(item.locked)return; selected=item.id; drag={id:item.id,x:ev.clientX,y:ev.clientY,rect:overlay.getBoundingClientRect(),sx:item.x,sy:item.y}; el.setPointerCapture(ev.pointerId); renderList(); syncControls(); });
+      el.addEventListener('pointermove',ev=>{if(!drag||drag.id!==item.id)return;item.x=snapPosition(drag.sx+(ev.clientX-drag.x)/Math.max(1,drag.rect.width),'x',item);item.y=snapPosition(drag.sy+(ev.clientY-drag.y)/Math.max(1,drag.rect.height),'y',item);el.style.left=(item.x*100)+'%';el.style.top=(item.y*100)+'%';});
       el.addEventListener('pointerup',()=>{if(drag?.id===item.id){drag=null;publishDraft();}});
       el.addEventListener('pointercancel',()=>{if(drag?.id===item.id){drag=null;publishDraft();}});
       overlay.appendChild(el);
@@ -7521,10 +7534,11 @@ if (!window._fumocaBooted) {
   }
   function renderList() {
     list.replaceChildren();
-    items.forEach(item=>{const b=document.createElement('button');b.type='button';b.className='ac-btn';b.textContent=(selected===item.id?'✓ ':'')+(item.type==='image'?'Logo / artwork':item.content.slice(0,35));b.addEventListener('click',()=>{selected=item.id;render();});list.appendChild(b);});
+    items.forEach(item=>{const b=document.createElement('button');b.type='button';b.className='ac-btn';b.textContent=(selected===item.id?'✓ ':'')+(item.locked?'🔒 ':'')+(item.type==='image'?'Logo / artwork':item.content.slice(0,35));b.addEventListener('click',()=>{selected=item.id;render();});list.appendChild(b);});
   }
   guidesToggle.addEventListener('click',()=>{showGuides=!showGuides;guidesToggle.textContent=showGuides?'Hide safe guides':'Show safe guides';guidesToggle.setAttribute('aria-pressed',String(showGuides));render();});
   snapToggle.addEventListener('click',()=>{snapEnabled=!snapEnabled;snapToggle.textContent='Snap: '+(snapEnabled?'on':'off');snapToggle.setAttribute('aria-pressed',String(snapEnabled));});
+  lockButton.addEventListener('click',()=>{const item=selectedItem();if(!item)return;item.locked=!item.locked;if(item.locked&&drag?.id===item.id)drag=null;publishDraft();render();});
   addText.addEventListener('click',()=>{const value=textInput.value.trim();if(!value)return;const item={id:'layer-'+Date.now(),type:'text',content:value,x:.5,y:.18,width:45,fontSize:32,color:'#ffffff',textAlign:'left'};items.push(item);selected=item.id;textInput.value='';publishDraft();render();});
   imageInput.addEventListener('change',()=>{const file=imageInput.files?.[0];if(!file)return;if(file.size>5*1024*1024){alert('Please choose an image smaller than 5 MB.');imageInput.value='';return;}const reader=new FileReader();reader.onload=()=>{const item={id:'layer-'+Date.now(),type:'image',content:String(reader.result),x:.5,y:.82,width:18};items.push(item);selected=item.id;publishDraft();render();};reader.readAsDataURL(file);});
   deleteBtn.addEventListener('click',()=>{if(!selected)return;items=items.filter(x=>x.id!==selected);selected=null;publishDraft();render();});
