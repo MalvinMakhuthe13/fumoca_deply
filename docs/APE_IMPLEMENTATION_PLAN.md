@@ -41,9 +41,9 @@ The bridge now fits against the narrower horizontal/vertical field of view, obse
 - Publish panel exposes poster/embed ratio, initial zoom and frame-padding controls; publish persists the validated settings to `meta.presentation`.
 - Ad Studio now has a responsive preview simulator with desktop/tablet/mobile width presets and 16:9, 1:1, 4:5, and 9:16 aspect ratios. It fits the selected frame inside the available preview area without distorting the ratio.
 - UCE v1 now publishes a canonical normalized composition plane (top-left origin, safe area, contain fit, clipped overflow and responsive host sizing).
-- APE Composition Layers supports adding and dragging text and local image artwork in the editor preview, with normalized x/y coordinates, selection/deletion, selected-layer width resizing, and forward/backward stacking order.
-- Publish uploads local image artwork through the existing `r2.from('nif-files').upload()` worker-backed client and stores durable asset references; Base64 data URLs are not persisted in NIF metadata. The data-URL MIME detector is syntax-corrected.
-- Public viewer renders published text and image composition layers as display-only presentation overlays.
+- APE Composition Layers supports adding and dragging text and local image artwork in the editor preview, with normalized x/y coordinates, selection/deletion, selected-layer width resizing, forward/backward stacking order, and editable text size, colour, and alignment.
+- Publish uploads local image artwork through the existing `r2.from('nif-files').upload()` worker-backed client and stores durable asset references; Base64 data URLs are not persisted in NIF metadata. The data-URL MIME detector is syntax-corrected. Text typography settings are validated and persisted.
+- Public viewer renders published text and image composition layers as display-only presentation overlays, including saved text size, colour, and alignment.
 - Hotspot Pro adds a versioned normalized `compositionAnchor` (`u`/`v`, top-left origin) while retaining legacy `x`/`y` percentages and all world-space anchor fields.
 - Legacy screen-only hotspots are upgraded through an explicit adapter at load/render time; original percentage fields remain intact for older clients.
 - Both Hotspot Pro and the fallback viewer hotspot renderer map normalized anchors through the actual viewer-stage rectangle into the overlay layer, avoiding viewport-vs-stage coordinate drift.
