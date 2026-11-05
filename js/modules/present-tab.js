@@ -10,8 +10,8 @@ import {
   initPresentNav, setNavStops, addNavStop, removeNavStop, clearNavStops, flyToStop,
   stopsFromHotspots, exportStops, importStops,
 } from './present-nav.js';
-import './poster-composer.js';
-import { mountPosterEditorOverlay as createPosterEditorOverlay } from './poster-editor-overlay.js';
+import './poster-composer.js?v=20261106-typography01';
+import { mountPosterEditorOverlay as createPosterEditorOverlay } from './poster-editor-overlay.js?v=20261106-drag01';
 
 const STORAGE_KEY = 'fumoca_present_v1';
 
