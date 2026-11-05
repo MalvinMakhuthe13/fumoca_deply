@@ -94,3 +94,11 @@ Animation authoring and timeline work remain paused. APE is a presentation and i
 - Guides are editor-only overlays and are not serialized into published composition metadata.
 - Existing group movement, safe-zone snapping, locking, presets, and publish contracts remain unchanged.
 - Validation: inline composition-editor script passed a JavaScript syntax parse. GitHub reports no workflow runs or status checks for the latest implementation commits. Browser pointer/touch QA remains outstanding, including grouped dragging, guide visibility, numeric field behaviour, and publish/reload.
+
+## UCE composition undo/redo — 2026-11-06
+
+- Added a bounded 60-state in-memory undo/redo history for composition layers.
+- Added Studio controls for Undo and Redo, plus Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z and Ctrl/Cmd+Y shortcuts when focus is outside editable form fields.
+- Captures layer additions, image imports, deletion, movement (one history point per drag), numeric position changes, width/style edits, locking, grouping, ungrouping, alignment, distribution, stacking-order changes, and preset loading.
+- Undo/redo restores the draft and selection, republishes the restored draft event, and rerenders the composition editor. History is intentionally session-local; it does not alter the published viewer until the user publishes.
+- Validation: the complete inline UCE composition-editor script passed JavaScript syntax parsing after correcting escaped newline characters introduced during editing. Browser interaction and regression QA remain outstanding.
