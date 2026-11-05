@@ -7426,7 +7426,7 @@ if (!window._fumocaBooted) {
   if (!host || !panel) return;
   const overlay = document.createElement('div');
   overlay.id = 'apeCompositionOverlay';
-  Object.assign(overlay.style, { position:'absolute', inset:'0', zIndex:'20', pointerEvents:'none', overflow:'hidden' });
+  Object.assign(overlay.style, { position:'absolute', inset:'0', zIndex:'20', pointerEvents:'none', overflow:'hidden', containerType:'inline-size' });
   host.appendChild(overlay);
   const textInput = document.getElementById('apeLayerText');
   const addText = document.getElementById('apeAddText');
@@ -7477,7 +7477,7 @@ if (!window._fumocaBooted) {
     items.forEach((item,index) => {
       const el = document.createElement(item.type === 'image' ? 'img' : 'div');
       if (item.type === 'image') { el.src = item.content; el.alt = 'Presentation artwork'; el.style.width = (item.width || 18) + '%'; el.style.objectFit = 'contain'; }
-      else { el.textContent = item.content; el.style.font = '700 ' + Math.max(12,Math.min(72,Number(item.fontSize)||32)) + 'px/1.15 system-ui,sans-serif'; el.style.color = /^#[0-9a-f]{6}$/i.test(item.color||'') ? item.color : '#ffffff'; el.style.textAlign = ['left','center','right'].includes(item.textAlign) ? item.textAlign : 'left'; el.style.textShadow = '0 2px 8px #000'; el.style.maxWidth = (item.width || 45) + '%'; }
+      else { el.textContent = item.content; el.style.font = '700 clamp(8px,' + (Math.max(12,Math.min(72,Number(item.fontSize)||32)) * 0.1) + 'cqw,72px)/1.15 system-ui,sans-serif'; el.style.color = /^#[0-9a-f]{6}$/i.test(item.color||'') ? item.color : '#ffffff'; el.style.textAlign = ['left','center','right'].includes(item.textAlign) ? item.textAlign : 'left'; el.style.textShadow = '0 2px 8px #000'; el.style.maxWidth = (item.width || 45) + '%'; }
       Object.assign(el.style,{position:'absolute',left:(item.x*100)+'%',top:(item.y*100)+'%',transform:'translate(-50%,-50%)',pointerEvents:'auto',cursor:'move',padding:'4px',outline:selected===item.id?'1px dashed #d4ff00':'none',touchAction:'none',zIndex:String(index+1)});
       el.addEventListener('pointerdown',ev=>{ selected=item.id; drag={id:item.id,x:ev.clientX,y:ev.clientY,rect:overlay.getBoundingClientRect(),sx:item.x,sy:item.y}; el.setPointerCapture(ev.pointerId); renderList(); syncControls(); });
       el.addEventListener('pointermove',ev=>{if(!drag||drag.id!==item.id)return;item.x=clamp(drag.sx+(ev.clientX-drag.x)/Math.max(1,drag.rect.width));item.y=clamp(drag.sy+(ev.clientY-drag.y)/Math.max(1,drag.rect.height));el.style.left=(item.x*100)+'%';el.style.top=(item.y*100)+'%';});
@@ -7520,7 +7520,13 @@ if (!window._fumocaBooted) {
     presetLoad.disabled = !presets.length; presetDelete.disabled = !presets.length;
   }
   async function getPresetStore() {
-    const sb=window._fumocaSupabase || window.supabase;
+    // Studio bootstraps auth asynchronously; wait briefly before falling back
+    // to guest storage so first-load presets are not stranded under the guest key.
+    let sb=window._fumocaSupabase || window.supabase;
+    for(let attempt=0;!sb && attempt<12;attempt++) {
+      await new Promise(resolve=>setTimeout(resolve,250));
+      sb=window._fumocaSupabase || window.supabase;
+    }
     if(!sb) return null;
     try {
       const {data:{user},error:authError}=await sb.auth.getUser();
