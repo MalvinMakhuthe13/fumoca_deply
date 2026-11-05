@@ -10,6 +10,7 @@ import {
   initPresentNav, setNavStops, addNavStop, removeNavStop, clearNavStops, flyToStop,
   stopsFromHotspots, exportStops, importStops,
 } from './present-nav.js';
+import './poster-composer.js';
 
 const STORAGE_KEY = 'fumoca_present_v1';
 
@@ -48,6 +49,7 @@ function payload() {
     reviewUrl: (window.FumocaReviewVideo?.getSrc?.() && !String(window.FumocaReviewVideo.getSrc()).startsWith('blob:'))
       ? window.FumocaReviewVideo.getSrc()
       : null,
+    poster: window.FumocaPoster?.getState?.() || null,
     updatedAt: Date.now(),
   };
 }
@@ -185,6 +187,21 @@ function mountPanel() {
   panel = document.createElement('div');
   panel.id = 'fumocaPresentTabPanel';
   panel.innerHTML = `
+    <div class="ptp-section" id="ptpPosterComposer">
+      <div class="ptp-title">Poster Composer · fixed canvas</div>
+      <div class="ptp-hint">The poster keeps its chosen aspect ratio. These controls edit the composition model; live 3D subject rendering and drag handles are the next integration step.</div>
+      <label class="ptp-poster-field">Preset<select data-poster-field="preset"><option value="product">Product · 4:5</option><option value="story">Story · 9:16</option><option value="editorial">Editorial · 3:4</option><option value="landscape">Landscape · 16:9</option></select></label>
+      <label class="ptp-poster-toggle"><input type="checkbox" data-poster-field="enabled"> Enable poster composition</label>
+      <label class="ptp-poster-field">Headline<input type="text" maxlength="160" data-poster-field="title" placeholder="Product title"></label>
+      <label class="ptp-poster-field">Background colour<input type="color" data-poster-field="background" value="#10131a"></label>
+      <div class="ptp-poster-grid">
+        <label class="ptp-poster-field">Subject X <input type="range" min="0" max="100" value="50" data-poster-field="x"><output data-poster-value="x">50%</output></label>
+        <label class="ptp-poster-field">Subject Y <input type="range" min="0" max="100" value="53" data-poster-field="y"><output data-poster-value="y">53%</output></label>
+        <label class="ptp-poster-field">Subject scale <input type="range" min="10" max="400" value="100" data-poster-field="scale"><output data-poster-value="scale">1.00×</output></label>
+        <label class="ptp-poster-field">Subject rotation <input type="range" min="-180" max="180" value="0" data-poster-field="rotation"><output data-poster-value="rotation">0°</output></label>
+      </div>
+      <div class="ptp-poster-status" id="ptpPosterStatus">Composition model ready · not yet applied to the live 3D renderer.</div>
+    </div>
     <div class="ptp-section">
       <div class="ptp-title">Magazine cover text</div>
       <div class="ptp-row">
@@ -237,6 +254,44 @@ function mountPanel() {
   const host = findPresentHost();
   host.appendChild(panel);
   syncPresentActive();
+
+  const posterRoot = panel.querySelector('#ptpPosterComposer');
+  const syncPosterControls = () => {
+    const state = window.FumocaPoster?.getState?.();
+    if (!state || !posterRoot) return;
+    const c = state.composition;
+    posterRoot.querySelector('[data-poster-field="preset"]').value = state.preset;
+    posterRoot.querySelector('[data-poster-field="enabled"]').checked = state.enabled;
+    posterRoot.querySelector('[data-poster-field="title"]').value = c.title?.text || '';
+    posterRoot.querySelector('[data-poster-field="background"]').value = /^#[0-9a-f]{6}$/i.test(c.background?.value || '') ? c.background.value : '#10131a';
+    for (const key of ['x','y','scale','rotation']) {
+      const value = c.object?.[key] ?? 0;
+      const input = posterRoot.querySelector(`[data-poster-field="${key}"]`);
+      const output = posterRoot.querySelector(`[data-poster-value="${key}"]`);
+      if (input) input.value = String(key === 'x' || key === 'y' ? Math.round(value * 100) : key === 'scale' ? Math.round(value * 100) : Math.round(value));
+      if (output) output.textContent = key === 'scale' ? `${Number(value).toFixed(2)}×` : key === 'rotation' ? `${Math.round(value)}°` : `${Math.round(value * 100)}%`;
+    }
+  };
+  const applyPosterField = (e) => {
+    const field = e.target.closest?.('[data-poster-field]');
+    if (!field || !posterRoot?.contains(field) || !window.FumocaPoster) return;
+    const key = field.dataset.posterField;
+    if (key === 'preset') window.FumocaPoster.setPreset(field.value);
+    else if (key === 'enabled') window.FumocaPoster.setEnabled(field.checked);
+    else if (key === 'title') window.FumocaPoster.updateComposition({ title: { text: field.value } });
+    else if (key === 'background') window.FumocaPoster.updateComposition({ background: { type: 'solid', value: field.value } });
+    else if (['x','y','scale','rotation'].includes(key)) {
+      const raw = Number(field.value);
+      const value = key === 'x' || key === 'y' || key === 'scale' ? raw / 100 : raw;
+      window.FumocaPoster.updateComposition({ object: { [key]: value } });
+    } else return;
+    syncPosterControls();
+    persist();
+  };
+  posterRoot.addEventListener('input', applyPosterField);
+  posterRoot.addEventListener('change', applyPosterField);
+  window.addEventListener('fumoca:posterChange', syncPosterControls);
+  syncPosterControls();
 
   const applyTextField = (e) => {
     const field = e.target.closest?.('[data-text-id][data-text-field]');
@@ -356,6 +411,13 @@ export function initPresentTab() {
   setMagEditable(true);
 
   const saved = loadLocal();
+  if (saved?.poster && window.FumocaPoster) {
+    try {
+      if (saved.poster.preset) window.FumocaPoster.setPreset(saved.poster.preset);
+      if (saved.poster.composition) window.FumocaPoster.updateComposition(saved.poster.composition);
+      window.FumocaPoster.setEnabled(!!saved.poster.enabled);
+    } catch (error) { console.warn('[Poster Composer] Could not restore saved composition', error); }
+  }
   if (saved?.magazine?.length) importMagazine(saved.magazine);
   if (saved?.nav?.length) importStops(saved.nav);
 
