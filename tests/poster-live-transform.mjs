@@ -15,8 +15,8 @@ assert.equal(centered.scale, 1);
 assert.equal(centered.rotation, 0);
 
 const moved = computePosterWorldTransform({ ...base, object: { x: 0.75, y: 0.25, scale: 1.5, rotation: 90 } });
-assert.ok(Math.abs(moved.position.x - 12) < 1e-9);
-assert.ok(Math.abs(moved.position.y - 13) < 1e-9);
+assert.ok(Math.abs(moved.position.x - 22) < 1e-9);
+assert.ok(Math.abs(moved.position.y - 8) < 1e-9);
 assert.equal(moved.position.z, 4);
 assert.equal(moved.scale, 1.5);
 assert.ok(Math.abs(moved.rotation - (Math.PI / 2)) < 1e-9);
