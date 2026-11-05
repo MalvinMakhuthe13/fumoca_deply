@@ -38,12 +38,14 @@ The bridge now fits against the narrower horizontal/vertical field of view, obse
 - Renderer pixel ratio is capped; camera aspect and drawing-buffer dimensions follow the actual host element.
 - Camera framing/zoom settings and zoom bounds are applied to the Spark companion path; public API `window.FumocaAPE.getSettings()` exposes the active settings for integration/testing.
 - Ad embed now defaults to responsive 100% width and 16:9 aspect ratio, accepts explicit aspect ratio or fixed height, and observes its host container for resizes.
+- Publish panel exposes poster/embed ratio, initial zoom and frame-padding controls; publish persists the validated settings to `meta.presentation`.
+- Embed Manager now generates a responsive wrapper/iframe snippet using the saved presentation aspect ratio, with optional fixed height.
 
 ## Required next integration steps
 
-- Add Studio authoring controls and persist `meta.presentation` when the owner publishes or updates a NIF.
+- Extend APE settings beyond the publish panel with live Studio preview and an update-existing-publication workflow.
 - Ensure poster typography, hotspots, and interactive overlays share the same normalized composition coordinate system.
-- Generate/update embed snippets with responsive width and an explicit aspect-ratio container; support a fixed-height option.
+- Add browser-level checks for responsive iframe snippets, host resizing, camera preservation and touch interactions.
 - Audit showroom and public viewer CSS for viewport-fixed assumptions and nested iframe overflow.
 - Verify all render paths in real browsers and devices; this branch has not yet undergone browser/device QA.
 
