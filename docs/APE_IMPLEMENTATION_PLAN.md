@@ -80,3 +80,5 @@ Test at minimum:
 ## Non-goals for this phase
 
 Animation authoring and timeline work remain paused. APE is a presentation and interaction layer, not a replacement renderer or a separate scene format.
+
+- UCE composition grouping is the next Studio editing capability: multi-select layers, group/ungroup, and move grouped layers together while preserving each layer's independent styling. Group identifiers remain authoring metadata; published composition output continues to use absolute normalized positions.
