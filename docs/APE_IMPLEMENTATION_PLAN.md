@@ -41,8 +41,8 @@ The bridge now fits against the narrower horizontal/vertical field of view, obse
 - Publish panel exposes poster/embed ratio, initial zoom and frame-padding controls; publish persists the validated settings to `meta.presentation`.
 - Ad Studio now has a responsive preview simulator with desktop/tablet/mobile width presets and 16:9, 1:1, 4:5, and 9:16 aspect ratios. It fits the selected frame inside the available preview area without distorting the ratio.
 - UCE v1 now publishes a canonical normalized composition plane (top-left origin, safe area, contain fit, clipped overflow and responsive host sizing).
-- APE Composition Layers now supports adding and dragging text and local image artwork in the editor preview, with normalized x/y coordinates and selection/deletion.
-- Publish uploads local image artwork to R2 and stores durable asset references; Base64 data URLs are not persisted in NIF metadata.
+- APE Composition Layers supports adding and dragging text and local image artwork in the editor preview, with normalized x/y coordinates, selection/deletion, selected-layer width resizing, and forward/backward stacking order.
+- Publish uploads local image artwork through the existing `r2.from('nif-files').upload()` worker-backed client and stores durable asset references; Base64 data URLs are not persisted in NIF metadata. The data-URL MIME detector is syntax-corrected.
 - Public viewer renders published text and image composition layers as display-only presentation overlays.
 - Hotspot Pro adds a versioned normalized `compositionAnchor` (`u`/`v`, top-left origin) while retaining legacy `x`/`y` percentages and all world-space anchor fields.
 - Legacy screen-only hotspots are upgraded through an explicit adapter at load/render time; original percentage fields remain intact for older clients.
@@ -55,9 +55,9 @@ The bridge now fits against the narrower horizontal/vertical field of view, obse
 ## Required next integration steps
 
 - Extend APE settings beyond the publish panel with live Studio preview and an update-existing-publication workflow.
-- Add browser-level verification for durable R2 artwork upload, public-viewer layer rendering, and failure/retry behavior.
+- Add browser-level verification for durable R2 artwork upload, public-viewer layer rendering, layer resizing/order persistence, and failure/retry behavior.
 - Add public-viewer editing only if a concrete creator workflow requires it; published layers are currently display-only.
-- Adapt hotspot markers and Hotspot Pro to the same normalized composition plane; existing hotspots remain percentage-based until migrated through an explicit adapter.
+- Continue validating hotspot placement/editing against the normalized composition plane; legacy x/y percentages remain supported through the explicit adapter.
 - Add browser-level checks for responsive iframe snippets, host resizing, camera preservation and touch interactions.
 - Audit showroom and public viewer CSS for viewport-fixed assumptions and nested iframe overflow.
 - Verify all render paths in real browsers and devices; this branch has not yet undergone browser/device QA.
