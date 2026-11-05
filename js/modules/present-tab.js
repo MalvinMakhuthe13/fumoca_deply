@@ -83,6 +83,7 @@ function copyViewerLink() {
       nav: data.nav,
       reviewUrl: data.reviewUrl,
       reviewLayout: data.reviewLayout || 'stack',
+      poster: data.poster || null,
     }))));
   } catch {
     json = '';
