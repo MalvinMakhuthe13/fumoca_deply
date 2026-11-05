@@ -149,13 +149,36 @@ function getLayout(width, height) {
   const ratio = state.composition.aspectRatio;
   const fitWidth = Math.min(w, h * ratio);
   const fitHeight = fitWidth / ratio;
+  const left = (w - fitWidth) / 2;
+  const top = (h - fitHeight) / 2;
+  const safeInset = fitWidth * state.composition.safeArea;
+  const object = state.composition.object;
   return {
     width: fitWidth,
     height: fitHeight,
-    left: (w - fitWidth) / 2,
-    top: (h - fitHeight) / 2,
+    left,
+    top,
     scale: fitWidth,
     aspectRatio: ratio,
+    // Pixel-space geometry is the stable contract consumed by the poster
+    // renderer. Keep the designed canvas separate from the surrounding page.
+    safe: {
+      left: safeInset,
+      top: safeInset,
+      right: fitWidth - safeInset,
+      bottom: fitHeight - safeInset,
+      width: fitWidth - (safeInset * 2),
+      height: fitHeight - (safeInset * 2),
+    },
+    object: {
+      x: object.x * fitWidth,
+      y: object.y * fitHeight,
+      scale: object.scale,
+      rotation: object.rotation,
+      anchor: 'center',
+    },
+    background: clone(state.composition.background),
+    title: clone(state.composition.title),
   };
 }
 
