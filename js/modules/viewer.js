@@ -2063,21 +2063,25 @@ if (cam) {
       cx /= n; cy /= n; cz /= n;
       const dx = maxX - minX, dy = maxY - minY, dz = maxZ - minZ;
       const radius = Math.max(0.15, 0.5 * Math.sqrt(dx * dx + dy * dy + dz * dz));
-      const idealDist = Math.max(radius * 2.6, 1.0);
+      const idealDist = Math.max(radius * 2.6, 1.0); // fallback for older viewer contexts
 
-      controls.target.set(cx, cy, cz);
-
-      const px = cam.position.x, py = cam.position.y, pz = cam.position.z;
-      let ox = px - cx, oy = py - cy, oz = pz - cz;
-      let olen = Math.sqrt(ox * ox + oy * oy + oz * oz);
-      if (!Number.isFinite(olen) || olen < 1e-4) {
-        ox = 0; oy = radius * 0.2; oz = idealDist; olen = idealDist;
+      const adaptiveFit = window.FumocaPresentation?.fitSphere?.(
+        { x: cx, y: cy, z: cz }, radius, { padding: 1.18 }
+      );
+      if (!adaptiveFit) {
+        controls.target.set(cx, cy, cz);
+        const px = cam.position.x, py = cam.position.y, pz = cam.position.z;
+        let ox = px - cx, oy = py - cy, oz = pz - cz;
+        let olen = Math.sqrt(ox * ox + oy * oy + oz * oz);
+        if (!Number.isFinite(olen) || olen < 1e-4) {
+          ox = 0; oy = radius * 0.2; oz = idealDist; olen = idealDist;
+        }
+        const scale = idealDist / olen;
+        cam.position.set(cx + ox * scale, cy + oy * scale, cz + oz * scale);
+        if (typeof cam.lookAt === 'function') cam.lookAt(cx, cy, cz);
+        if (typeof cam.updateMatrixWorld === 'function') cam.updateMatrixWorld(true);
+        if (typeof cam.updateProjectionMatrix === 'function') cam.updateProjectionMatrix();
       }
-      const scale = idealDist / olen;
-      cam.position.set(cx + ox * scale, cy + oy * scale, cz + oz * scale);
-      if (typeof cam.lookAt === 'function') cam.lookAt(cx, cy, cz);
-      if (typeof cam.updateMatrixWorld === 'function') cam.updateMatrixWorld(true);
-      if (typeof cam.updateProjectionMatrix === 'function') cam.updateProjectionMatrix();
 
       // Published Spark splats must remain zoomable beyond the default fit range.
       // Do not let this delayed auto-fit routine reintroduce distance clamps.
