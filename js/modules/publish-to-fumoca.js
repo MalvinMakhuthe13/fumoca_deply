@@ -128,7 +128,7 @@ const FumocaPublish = (() => {
   }
 
   // ── Main publish function ─────────────────────────────
-  async function publish({ title, description, visibility = 'public', includeReview = false, onProgress } = {}) {
+  async function publish({ title, description, visibility = 'public', includeReview = false, presentation = {}, onProgress } = {}) {
     // Try every possible location for the Supabase client
     let sb = window._fumocaSupabase || window.supabase;
     if (!sb) {
@@ -149,6 +149,17 @@ const FumocaPublish = (() => {
 
     const splatId = rec?.id || new URLSearchParams(location.search).get('splatId');
     const aliveCount = Array.from(S.alive).filter(Boolean).length;
+    const clamp = (value, fallback, min, max) => Number.isFinite(Number(value)) ? Math.max(min, Math.min(max, Number(value))) : fallback;
+    const apePresentation = {
+      version: 1,
+      aspectRatio: ['16 / 9', '1 / 1', '4 / 5', '9 / 16'].includes(presentation.aspectRatio) ? presentation.aspectRatio : '16 / 9',
+      initialZoom: clamp(presentation.initialZoom, 1, 0.25, 4),
+      minZoom: clamp(presentation.minZoom, 0, 0, 1),
+      maxZoom: clamp(presentation.maxZoom, 0, 0, 30),
+      framePadding: clamp(presentation.framePadding, 1.55, 1.05, 3.5),
+      damping: clamp(presentation.damping, 0.08, 0.02, 0.2),
+      maxDpr: clamp(presentation.maxDpr, 2, 1, 2),
+    };
 
     onProgress?.(includeReview ? 'Uploading review video…' : 'Publishing without video…', 8);
     let review = null;
@@ -251,12 +262,14 @@ const FumocaPublish = (() => {
       cleaned.includeReview = false;
       payload.meta = cleaned;
     }
+    payload.meta = { ...(payload.meta || rec?.meta || rec?.metadata || {}), presentation: apePresentation };
     if (viewPlyKey) {
       payload.meta = {
         ...(payload.meta || rec?.meta || rec?.metadata || {}),
         view_ply_r2_key: viewPlyKey,
         viewer_engine: 'spark',
         published_from: 'studio_gaussian',
+        presentation: apePresentation,
       };
     }
 
@@ -290,6 +303,7 @@ const FumocaPublish = (() => {
       splatId: finalId,
       publicUrl,
       gaussianCount: aliveCount,
+      presentation: apePresentation,
       feedUrl: `feed.html`,
       viewerUrl: `viewer.html?nifId=${encodeURIComponent(finalId)}`,
     };
@@ -335,6 +349,22 @@ const FumocaPublish = (() => {
                      background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#ccc;">🔒 Private</button>
           </div>
 
+          <div class="section" style="margin:10px 0;padding:10px;border:1px solid rgba(200,255,0,.22);border-radius:10px;background:rgba(200,255,0,.035);">
+            <div style="font-size:11px;font-weight:800;letter-spacing:.08em;color:#c8ff00;margin-bottom:8px;">ADAPTIVE PRESENTATION</div>
+            <label style="display:block;font-size:11px;color:#ccc;margin-bottom:4px;">Poster / embed aspect ratio</label>
+            <select id="pubApeAspect" style="width:100%;padding:8px;border-radius:7px;background:#111820;border:1px solid rgba(255,255,255,.14);color:#fff;margin-bottom:9px;">
+              <option value="16 / 9">Landscape · 16:9</option>
+              <option value="1 / 1">Square · 1:1</option>
+              <option value="4 / 5">Portrait · 4:5</option>
+              <option value="9 / 16">Story · 9:16</option>
+            </select>
+            <label style="display:flex;justify-content:space-between;font-size:11px;color:#ccc;">Initial zoom <output id="pubApeZoomValue">1.00×</output></label>
+            <input id="pubApeZoom" type="range" min="0.5" max="2.5" step="0.05" value="1" style="width:100%;accent-color:#c8ff00;margin:5px 0 9px;">
+            <label style="display:flex;justify-content:space-between;font-size:11px;color:#ccc;">Frame breathing room <output id="pubApePaddingValue">1.55×</output></label>
+            <input id="pubApePadding" type="range" min="1.1" max="2.5" step="0.05" value="1.55" style="width:100%;accent-color:#c8ff00;margin:5px 0 5px;">
+            <div style="font-size:10px;color:rgba(255,255,255,.5);line-height:1.45;">These settings are saved with the published NIF. Embed layout follows its host container; this does not crop or reposition the authored poster artwork.</div>
+          </div>
+
           <div class="ctrl-row" style="margin-bottom:6px;">
             <span class="ctrl-label">Review video</span>
           </div>
@@ -366,6 +396,12 @@ const FumocaPublish = (() => {
                background:rgba(200,255,0,.08);border:1px solid rgba(200,255,0,.3);font-size:12px;"></div>
         </div>
       </div>`;
+    const zoom = el.querySelector('#pubApeZoom');
+    const zoomValue = el.querySelector('#pubApeZoomValue');
+    const padding = el.querySelector('#pubApePadding');
+    const paddingValue = el.querySelector('#pubApePaddingValue');
+    zoom?.addEventListener('input', () => { if (zoomValue) zoomValue.textContent = Number(zoom.value).toFixed(2) + '×'; });
+    padding?.addEventListener('input', () => { if (paddingValue) paddingValue.textContent = Number(padding.value).toFixed(2) + '×'; });
     el.querySelectorAll('.pub-review-btn').forEach((btn) => {
       btn.addEventListener('click', () => {
         el.querySelectorAll('.pub-review-btn').forEach((b) => {
@@ -391,6 +427,11 @@ const FumocaPublish = (() => {
     const visBtn = document.querySelector('.pub-vis-btn.active');
     const visibility = visBtn?.dataset.vis || 'public';
     const includeReview = document.querySelector('.pub-review-btn.active')?.dataset.review === 'with';
+    const presentation = {
+      aspectRatio: document.getElementById('pubApeAspect')?.value || '16 / 9',
+      initialZoom: Number(document.getElementById('pubApeZoom')?.value || 1),
+      framePadding: Number(document.getElementById('pubApePadding')?.value || 1.55),
+    };
 
     if (btn) { btn.disabled = true; btn.textContent = '⏳ Publishing…'; }
     if (progress) progress.style.display = 'block';
@@ -401,6 +442,7 @@ const FumocaPublish = (() => {
         title,
         visibility,
         includeReview,
+        presentation,
         onProgress: (label, pct) => {
           const lbl = document.getElementById('pubProgressLabel');
           const p = document.getElementById('pubProgressPct');
