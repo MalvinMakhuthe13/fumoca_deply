@@ -62,6 +62,7 @@ The bridge now fits against the narrower horizontal/vertical field of view, obse
 - Add public-viewer editing only if a concrete creator workflow requires it; published layers are currently display-only.
 - Add direct stage placement/editing for new screen-space hotspots and verify drag-save behaviour; world-space anchors must remain projected from 3D and must not be overwritten by screen coordinates.
 - Add browser-level checks for responsive iframe snippets, host resizing, camera preservation and touch interactions.
+- Verify multi-select, group/ungroup, grouped pointer/touch dragging, edge clamping, lock interactions, preset round-tripping and published output in a real browser.
 - Audit showroom and public viewer CSS for viewport-fixed assumptions and nested iframe overflow.
 - Verify all render paths in real browsers and devices; this branch has not yet undergone browser/device QA.
 
@@ -81,4 +82,4 @@ Test at minimum:
 
 Animation authoring and timeline work remain paused. APE is a presentation and interaction layer, not a replacement renderer or a separate scene format.
 
-- UCE composition grouping is the next Studio editing capability: multi-select layers, group/ungroup, and move grouped layers together while preserving each layer's independent styling. Group identifiers remain authoring metadata; published composition output continues to use absolute normalized positions.
+- UCE composition layers support Ctrl/Cmd/Shift multi-selection, grouping and ungrouping, and moving a grouped set as one unit while preserving each layer's independent styling, size, stacking order and lock state. Group membership is retained in the Studio draft and reusable presets as authoring metadata; the publisher continues to emit each layer's absolute normalized position without exposing group IDs to the public viewer.
