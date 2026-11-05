@@ -7504,7 +7504,7 @@ if (!window._fumocaBooted) {
   function moveSelected(delta){const item=selectedItem();if(!item)return;const from=items.indexOf(item),to=Math.max(0,Math.min(items.length-1,from+delta));if(from===to)return;items.splice(from,1);items.splice(to,0,item);publishDraft();render();}
   backBtn.addEventListener('click',()=>moveSelected(-1));
   forwardBtn.addEventListener('click',()=>moveSelected(1));
-  const presetStorageKey = 'fumoca:uce-presets:v1:' + (window._fumocaSession?.user?.id || 'local');
+  let presetStorageKey = 'fumoca:uce-presets:v1:guest';
   let presetMode = 'local';
   let cloudPresetUserId = null;
   function readLocalPresets() {
@@ -7526,6 +7526,7 @@ if (!window._fumocaBooted) {
       const {data:{user},error:authError}=await sb.auth.getUser();
       if(authError || !user) return null;
       cloudPresetUserId=user.id;
+      presetStorageKey='fumoca:uce-presets:v1:'+user.id;
       return {sb,user};
     } catch (_) { return null; }
   }
