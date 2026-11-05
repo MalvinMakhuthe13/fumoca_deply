@@ -48,7 +48,7 @@ html, body {
 #apePreviewLabel { font-size: 10px; color: rgba(255,255,255,.35); padding-left: 4px; }
 #viewerFrame {
   width: min(760px, calc(100% - 32px)); aspect-ratio: 16 / 9; height: auto;
-  max-height: calc(100% - 104px); border-radius: 14px; overflow: hidden;
+  border-radius: 14px; overflow: hidden;
   border: 1px solid rgba(255,255,255,.08); background: #000;
   position: relative; transition: width .22s ease, aspect-ratio .22s ease;
   flex: 0 1 auto; min-width: 0;
@@ -350,6 +350,12 @@ function updateApePreview() {
   const ratio = apeAspect?.value || '16 / 9';
   apeFrame.dataset.device = apeDevice;
   apeFrame.style.aspectRatio = ratio;
+  const [rw, rh] = ratio.split('/').map(value => Number(value.trim()));
+  const availableWidth = Math.max(160, (document.getElementById('previewPane')?.clientWidth || 800) - 32);
+  const availableHeight = Math.max(160, (document.getElementById('previewPane')?.clientHeight || 600) - 112);
+  const maxWidth = apeDevice === 'mobile' ? 390 : apeDevice === 'tablet' ? 768 : 900;
+  const fittedWidth = Math.min(maxWidth, availableWidth, availableHeight * (rw / rh));
+  apeFrame.style.width = Math.max(160, fittedWidth) + 'px';
   const label = ratio.replace(/\\s/g, '');
   apeLabel.textContent = apeDevice[0].toUpperCase() + apeDevice.slice(1) + ' · ' + label;
   apeFrame.setAttribute('aria-label', apeLabel.textContent + ' responsive preview');
@@ -366,6 +372,11 @@ document.querySelectorAll('.ape-device').forEach(button => {
   });
 });
 apeAspect?.addEventListener('change', updateApePreview);
+if (typeof ResizeObserver !== 'undefined') {
+  const apePaneObserver = new ResizeObserver(updateApePreview);
+  apePaneObserver.observe(document.getElementById('previewPane'));
+}
+window.addEventListener('resize', updateApePreview, { passive: true });
 updateApePreview();
 
 // ── State ──────────────────────────────────────────────────────────────────
