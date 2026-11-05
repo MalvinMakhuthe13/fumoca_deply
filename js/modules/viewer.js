@@ -692,11 +692,20 @@ function renderHotspots() {
   if (window._fumocaUseHotspotPro) return;
   hotspotLayer.innerHTML = '';
   hotspotLayer.style.pointerEvents = hotspotEditMode ? 'auto' : 'none';
+  const viewRect = (document.querySelector('#stageHost canvas') || document.querySelector('#stage canvas') || document.querySelector('canvas') || document.getElementById('stageHost') || document.getElementById('stage'))?.getBoundingClientRect?.();
+  const layerRect = hotspotLayer.getBoundingClientRect();
   hotspots.forEach((spot, index) => {
+    const anchor = spot.compositionAnchor?.version === 1
+      ? { u: Math.max(0, Math.min(1, Number(spot.compositionAnchor.u) || 0)), v: Math.max(0, Math.min(1, Number(spot.compositionAnchor.v) || 0)) }
+      : { u: Math.max(0, Math.min(1, (Number(spot.x) || 50) / 100)), v: Math.max(0, Math.min(1, (Number(spot.y) || 50) / 100)) };
+    const px = viewRect?.width > 1 ? viewRect.left + anchor.u * viewRect.width : layerRect.left + anchor.u * layerRect.width;
+    const py = viewRect?.height > 1 ? viewRect.top + anchor.v * viewRect.height : layerRect.top + anchor.v * layerRect.height;
+    const left = layerRect.width > 1 ? ((px - layerRect.left) / layerRect.width) * 100 : anchor.u * 100;
+    const top = layerRect.height > 1 ? ((py - layerRect.top) / layerRect.height) * 100 : anchor.v * 100;
     const btn = document.createElement('button');
     btn.className = 'hotspot-marker';
-    btn.style.left = `${spot.x}%`;
-    btn.style.top = `${spot.y}%`;
+    btn.style.left = `${left}%`;
+    btn.style.top = `${top}%`;
     btn.type = 'button';
     btn.innerHTML = `<span class="hotspot-pill">${spot.title || `Hotspot ${index + 1}`}</span>`;
     btn.addEventListener('click', (e) => {
