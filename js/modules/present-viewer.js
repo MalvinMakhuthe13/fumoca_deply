@@ -44,30 +44,43 @@ export function initPresentViewer() {
   initMagazineText({ editable: false });
   initPresentNav({ editable: false });
 
-  let applied = false;
+  // Restore each presentation feature independently. The poster module and
+  // review-video API may become ready after the magazine text, so one global
+  // "applied" flag would permanently skip late-loading features.
+  let magazineApplied = false;
+  let navApplied = false;
+  let posterApplied = false;
+  let reviewApplied = false;
   const tryApply = () => {
-    if (applied) return;
     const data = resolvePresent();
     if (!data) return;
-    if (data.magazine?.length) {
+
+    if (!magazineApplied && Array.isArray(data.magazine) && data.magazine.length) {
       importMagazine(data.magazine);
-      applied = true;
+      magazineApplied = true;
       console.info('[present-viewer] magazine text restored');
     }
-    if (data.nav?.length) setNavStops(data.nav);
+
+    if (!navApplied && Array.isArray(data.nav)) {
+      setNavStops(data.nav);
+      navApplied = true;
+    }
 
     // Restore the same poster composition used in Studio and in the share URL.
-    // This changes presentation state only; it does not mutate Gaussian data.
+    // Wait for the module instead of silently losing the restore on early boot.
     const poster = data.poster;
-    if (poster && window.FumocaPoster) {
+    if (!posterApplied && poster && window.FumocaPoster) {
       try {
         if (poster.preset) window.FumocaPoster.setPreset(poster.preset);
         if (poster.composition) window.FumocaPoster.updateComposition(poster.composition);
         window.FumocaPoster.setEnabled(!!poster.enabled);
+        posterApplied = true;
         console.info('[present-viewer] poster composition restored', poster.preset || 'product');
       } catch (error) {
         console.warn('[present-viewer] poster composition could not be restored', error);
       }
+    } else if (!poster) {
+      posterApplied = true;
     }
 
     const review =
@@ -78,8 +91,10 @@ export function initPresentViewer() {
       data.reviewLayout ||
       new URLSearchParams(location.search).get('rvLayout') ||
       'stack';
-    if (review && window.FumocaReviewVideo?.set) {
+    if (!review) reviewApplied = true;
+    if (!reviewApplied && review && window.FumocaReviewVideo?.set) {
       window.FumocaReviewVideo.set(review, { layout });
+      reviewApplied = true;
     }
   };
 
@@ -87,7 +102,15 @@ export function initPresentViewer() {
   [500, 1500, 3000].forEach((ms) => setTimeout(tryApply, ms));
   window.addEventListener('fumoca:recordLoaded', tryApply);
   window.addEventListener('fumoca:splatLoaded', tryApply);
-  window.FumocaPresentViewer = { reload: () => { applied = false; tryApply(); } };
+  window.FumocaPresentViewer = {
+    reload: () => {
+      magazineApplied = false;
+      navApplied = false;
+      posterApplied = false;
+      reviewApplied = false;
+      tryApply();
+    },
+  };
 }
 
 if (typeof window !== 'undefined') {
