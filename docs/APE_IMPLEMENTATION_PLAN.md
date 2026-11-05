@@ -40,8 +40,8 @@ The bridge now fits against the narrower horizontal/vertical field of view, obse
 - Ad embed now defaults to responsive 100% width and 16:9 aspect ratio, accepts explicit aspect ratio or fixed height, and observes its host container for resizes.
 - Publish panel exposes poster/embed ratio, initial zoom and frame-padding controls; publish persists the validated settings to `meta.presentation`.
 - Ad Studio now has a responsive preview simulator with desktop/tablet/mobile width presets and 16:9, 1:1, 4:5, and 9:16 aspect ratios. It fits the selected frame inside the available preview area without distorting the ratio.
-- Main Capture Studio now exposes APE controls for aspect ratio, live camera zoom, and frame breathing room. The framing sliders update the active viewer camera while preserving its look direction and target.
-- Capture Studio maintains a presentation draft on `window._fumocaApePresentationDraft`; the publish module merges that draft into its presentation settings before saving `meta.presentation`.
+- Main reconstruction editor (`edit.html`, Present tab) now exposes APE controls for aspect ratio, live camera zoom, and frame breathing room. The framing sliders update the active editor camera while preserving its look direction and target; changing aspect ratio does not snap or rotate the camera.
+- The editor maintains a presentation draft on `window._fumocaApePresentationDraft`; the publish panel initializes from that draft and the publish module merges it into the saved `meta.presentation`.
 - Viewer reads presentation presets from either the NIF `meta` or `metadata` JSON column shape.
 - Embed Manager now generates a responsive wrapper/iframe snippet using the saved presentation aspect ratio, with optional fixed height.
 
