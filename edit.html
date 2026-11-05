@@ -1175,6 +1175,13 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
         <label style="display:block;font-size:11px;color:var(--muted);margin:10px 0 5px">Logo / artwork</label>
         <input id="apeLayerImage" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" style="width:100%;font-size:11px;color:var(--muted)">
         <div id="apeLayerList" style="display:flex;flex-direction:column;gap:5px;margin-top:9px"></div>
+        <div style="border-top:1px solid var(--border2);margin-top:10px;padding-top:9px">
+          <div style="display:flex;gap:7px">
+            <button type="button" class="ac-btn" id="apeGuidesToggle" aria-pressed="false" style="flex:1">Show safe guides</button>
+            <button type="button" class="ac-btn" id="apeSnapToggle" aria-pressed="true" style="flex:1">Snap: on</button>
+          </div>
+          <div class="hint" style="font-size:10px;padding-top:5px">Guides show the 5% safe margin and centre lines. Snapping gently aligns layers to safe edges and centre points; neither is published.</div>
+        </div>
         <div style="border-top:1px solid var(--border2);margin-top:12px;padding-top:10px">
           <label for="apePresetName" style="display:block;font-size:11px;color:var(--muted);margin-bottom:5px">Reusable composition preset</label>
           <input id="apePresetName" type="text" maxlength="40" placeholder="e.g. Product hero layout" style="width:100%;padding:8px;border-radius:8px;background:var(--surface2);color:var(--text);border:1px solid var(--border2)">
@@ -7447,11 +7454,34 @@ if (!window._fumocaBooted) {
   const fontSizeValue = document.getElementById('apeLayerFontSizeValue');
   const colorInput = document.getElementById('apeLayerColor');
   const alignInput = document.getElementById('apeLayerAlign');
+  const guidesToggle = document.getElementById('apeGuidesToggle');
+  const snapToggle = document.getElementById('apeSnapToggle');
+  let showGuides = false;
+  let snapEnabled = true;
   let items = Array.isArray(window._fumocaApePresentationDraft?.layers) ? window._fumocaApePresentationDraft.layers : [];
   let selected = null;
   let drag = null;
   const clamp = n => Math.max(0.03, Math.min(0.97, n));
+  const snapPosition = value => {
+    if (!snapEnabled) return clamp(value);
+    const targets = [0.05, 0.5, 0.95];
+    let result = clamp(value);
+    for (const target of targets) if (Math.abs(result - target) <= 0.015) { result = target; break; }
+    return result;
+  };
   const selectedItem = () => items.find(item => item.id === selected) || null;
+  function renderGuides() {
+    if (!showGuides) return;
+    const guide = document.createElement('div');
+    guide.setAttribute('aria-hidden','true');
+    Object.assign(guide.style,{position:'absolute',inset:'5%',border:'1px dashed rgba(212,255,0,.8)',pointerEvents:'none',zIndex:'9999',boxSizing:'border-box'});
+    const vertical = document.createElement('div');
+    Object.assign(vertical.style,{position:'absolute',left:'50%',top:'0',bottom:'0',borderLeft:'1px dashed rgba(255,255,255,.55)'});
+    const horizontal = document.createElement('div');
+    Object.assign(horizontal.style,{position:'absolute',top:'50%',left:'0',right:'0',borderTop:'1px dashed rgba(255,255,255,.55)'});
+    guide.append(vertical,horizontal);
+    overlay.appendChild(guide);
+  }
   function publishDraft() {
     const prev = window._fumocaApePresentationDraft || {};
     window._fumocaApePresentationDraft = { ...prev, version:1, layers:items.map(({id,type,content,x,y,width,fontSize,color,textAlign})=>({id,type,content,x,y,width,fontSize,color,textAlign})) };
@@ -7480,11 +7510,12 @@ if (!window._fumocaBooted) {
       else { el.textContent = item.content; el.style.font = '700 clamp(8px,' + (Math.max(12,Math.min(72,Number(item.fontSize)||32)) * 0.1) + 'cqw,72px)/1.15 system-ui,sans-serif'; el.style.color = /^#[0-9a-f]{6}$/i.test(item.color||'') ? item.color : '#ffffff'; el.style.textAlign = ['left','center','right'].includes(item.textAlign) ? item.textAlign : 'left'; el.style.textShadow = '0 2px 8px #000'; el.style.maxWidth = (item.width || 45) + '%'; }
       Object.assign(el.style,{position:'absolute',left:(item.x*100)+'%',top:(item.y*100)+'%',transform:'translate(-50%,-50%)',pointerEvents:'auto',cursor:'move',padding:'4px',outline:selected===item.id?'1px dashed #d4ff00':'none',touchAction:'none',zIndex:String(index+1)});
       el.addEventListener('pointerdown',ev=>{ selected=item.id; drag={id:item.id,x:ev.clientX,y:ev.clientY,rect:overlay.getBoundingClientRect(),sx:item.x,sy:item.y}; el.setPointerCapture(ev.pointerId); renderList(); syncControls(); });
-      el.addEventListener('pointermove',ev=>{if(!drag||drag.id!==item.id)return;item.x=clamp(drag.sx+(ev.clientX-drag.x)/Math.max(1,drag.rect.width));item.y=clamp(drag.sy+(ev.clientY-drag.y)/Math.max(1,drag.rect.height));el.style.left=(item.x*100)+'%';el.style.top=(item.y*100)+'%';});
+      el.addEventListener('pointermove',ev=>{if(!drag||drag.id!==item.id)return;item.x=snapPosition(drag.sx+(ev.clientX-drag.x)/Math.max(1,drag.rect.width));item.y=snapPosition(drag.sy+(ev.clientY-drag.y)/Math.max(1,drag.rect.height));el.style.left=(item.x*100)+'%';el.style.top=(item.y*100)+'%';});
       el.addEventListener('pointerup',()=>{if(drag?.id===item.id){drag=null;publishDraft();}});
       el.addEventListener('pointercancel',()=>{if(drag?.id===item.id){drag=null;publishDraft();}});
       overlay.appendChild(el);
     });
+    renderGuides();
     renderList();
     syncControls();
   }
@@ -7492,6 +7523,8 @@ if (!window._fumocaBooted) {
     list.replaceChildren();
     items.forEach(item=>{const b=document.createElement('button');b.type='button';b.className='ac-btn';b.textContent=(selected===item.id?'✓ ':'')+(item.type==='image'?'Logo / artwork':item.content.slice(0,35));b.addEventListener('click',()=>{selected=item.id;render();});list.appendChild(b);});
   }
+  guidesToggle.addEventListener('click',()=>{showGuides=!showGuides;guidesToggle.textContent=showGuides?'Hide safe guides':'Show safe guides';guidesToggle.setAttribute('aria-pressed',String(showGuides));render();});
+  snapToggle.addEventListener('click',()=>{snapEnabled=!snapEnabled;snapToggle.textContent='Snap: '+(snapEnabled?'on':'off');snapToggle.setAttribute('aria-pressed',String(snapEnabled));});
   addText.addEventListener('click',()=>{const value=textInput.value.trim();if(!value)return;const item={id:'layer-'+Date.now(),type:'text',content:value,x:.5,y:.18,width:45,fontSize:32,color:'#ffffff',textAlign:'left'};items.push(item);selected=item.id;textInput.value='';publishDraft();render();});
   imageInput.addEventListener('change',()=>{const file=imageInput.files?.[0];if(!file)return;if(file.size>5*1024*1024){alert('Please choose an image smaller than 5 MB.');imageInput.value='';return;}const reader=new FileReader();reader.onload=()=>{const item={id:'layer-'+Date.now(),type:'image',content:String(reader.result),x:.5,y:.82,width:18};items.push(item);selected=item.id;publishDraft();render();};reader.readAsDataURL(file);});
   deleteBtn.addEventListener('click',()=>{if(!selected)return;items=items.filter(x=>x.id!==selected);selected=null;publishDraft();render();});
