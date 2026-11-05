@@ -7470,6 +7470,14 @@ if (!window._fumocaBooted) {
   const alignmentButtons = ['apeAlignLeft','apeAlignCenter','apeAlignRight','apeAlignTop','apeAlignMiddle','apeAlignBottom','apeDistributeH','apeDistributeV'].map(id=>document.getElementById(id));
   const guidesToggle = document.getElementById('apeGuidesToggle');
   const snapToggle = document.getElementById('apeSnapToggle');
+  const precisionPanel = document.createElement('div');
+  precisionPanel.className = 'section';
+  precisionPanel.innerHTML = '<div class="sec-head"><span class="sec-label">Precise placement</span><span class="sec-badge">UCE</span></div><div class="sec-body"><div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px"><label class="ctrl-label">X position %<input id="apeLayerX" type="number" min="0" max="100" step="0.1" style="display:block;width:100%;margin-top:4px;padding:7px;border:1px solid var(--border2);border-radius:7px;background:var(--surface2);color:var(--text)"></label><label class="ctrl-label">Y position %<input id="apeLayerY" type="number" min="0" max="100" step="0.1" style="display:block;width:100%;margin-top:4px;padding:7px;border:1px solid var(--border2);border-radius:7px;background:var(--surface2);color:var(--text)"></label></div><div class="hint">Coordinates are measured from the composition frame.</div></div>';
+  panel.appendChild(precisionPanel);
+  const positionXInput=precisionPanel.querySelector('#apeLayerX'),positionYInput=precisionPanel.querySelector('#apeLayerY');
+  const smartGuideLayer=document.createElement('div');
+  Object.assign(smartGuideLayer.style,{position:'absolute',inset:'0',pointerEvents:'none',zIndex:'10000'});
+  overlay.appendChild(smartGuideLayer);
   let showGuides = false;
   let snapEnabled = true;
   let items = Array.isArray(window._fumocaApePresentationDraft?.layers) ? window._fumocaApePresentationDraft.layers : [];
@@ -7493,6 +7501,21 @@ if (!window._fumocaBooted) {
     return result;
   };
   const selectedItem = () => items.find(item => item.id === selected) || null;
+  function renderSmartGuides(item) {
+    smartGuideLayer.replaceChildren(); if(!drag||!item)return;
+    const close=(a,b)=>Math.abs(a-b)<=0.009;
+    const add=(axis,value,label)=>{
+      const line=document.createElement('div');
+      Object.assign(line.style,{position:'absolute',background:'#ff4bd8',boxShadow:'0 0 5px rgba(255,75,216,.8)',...(axis==='x'?{left:(value*100)+'%',top:'0',bottom:'0',width:'1px'}:{top:(value*100)+'%',left:'0',right:'0',height:'1px'})});
+      const tag=document.createElement('span');tag.textContent=label;Object.assign(tag.style,{position:'absolute',font:'10px var(--font-mono)',color:'#ff8be5',background:'rgba(10,8,15,.9)',padding:'2px 4px',borderRadius:'3px',left:'4px',top:'4px'});line.appendChild(tag);smartGuideLayer.appendChild(line);
+    };
+    const primary=items.find(layer=>layer.id===drag.id);if(!primary)return;
+    if(close(primary.x,.5))add('x',.5,'CENTER');if(close(primary.y,.5))add('y',.5,'MIDDLE');
+    const peers=items.filter(layer=>!selectedIds.has(layer.id));
+    peers.forEach(peer=>{if(close(primary.x,peer.x))add('x',peer.x,'ALIGN');if(close(primary.y,peer.y))add('y',peer.y,'ALIGN');});
+    const left=peers.filter(layer=>layer.x<primary.x).sort((a,b)=>b.x-a.x)[0],right=peers.filter(layer=>layer.x>primary.x).sort((a,b)=>a.x-b.x)[0];
+    if(left&&right&&Math.abs((primary.x-left.x)-(right.x-primary.x))<0.012)add('x',primary.x,'EVEN SPACING');
+  }
   function renderGuides() {
     if (!showGuides) return;
     const guide = document.createElement('div');
@@ -7523,7 +7546,7 @@ if (!window._fumocaBooted) {
     groupButton.disabled=selectedItems.length<2||selectedItems.some(layer=>layer.locked);
     ungroupButton.disabled=!selectedItems.some(layer=>layer.groupId);
     alignmentButtons.forEach((button,index)=>{button.disabled=selectedItems.length<(index>=6?3:2)||selectedItems.some(layer=>layer.locked);});
-    if (item) {
+    if (item) {\n      positionXInput.value=(Number(item.x||0)*100).toFixed(1);positionYInput.value=(Number(item.y||0)*100).toFixed(1);positionXInput.disabled=positionYInput.disabled=Boolean(item.locked);
       widthInput.value = String(Math.round(Number(item.width) || (item.type === 'image' ? 18 : 45)));
       fontSizeInput.disabled = item.type !== 'text' || Boolean(item.locked); colorInput.disabled = item.type !== 'text' || Boolean(item.locked); alignInput.disabled = item.type !== 'text' || Boolean(item.locked);
       fontSizeInput.value = String(Math.max(12,Math.min(72,Number(item.fontSize)||32)));
@@ -7556,9 +7579,9 @@ if (!window._fumocaBooted) {
         let dx=snapPosition(primary.x+rawX,'x',item)-primary.x,dy=snapPosition(primary.y+rawY,'y',item)-primary.y;
         dx=Math.max(Math.max(...drag.members.map(member=>0.03-member.x)),Math.min(Math.min(...drag.members.map(member=>0.97-member.x)),dx));
         dy=Math.max(Math.max(...drag.members.map(member=>0.03-member.y)),Math.min(Math.min(...drag.members.map(member=>0.97-member.y)),dy));
-        drag.members.forEach(member=>{const layer=items.find(entry=>entry.id===member.id);if(!layer)return;layer.x=member.x+dx;layer.y=member.y+dy;const node=overlay.querySelector('[data-layer-id="'+member.id+'"]');if(node){node.style.left=(layer.x*100)+'%';node.style.top=(layer.y*100)+'%';}});
+        drag.members.forEach(member=>{const layer=items.find(entry=>entry.id===member.id);if(!layer)return;layer.x=member.x+dx;layer.y=member.y+dy;const node=overlay.querySelector('[data-layer-id="'+member.id+'"]');if(node){node.style.left=(layer.x*100)+'%';node.style.top=(layer.y*100)+'%';}});\n        renderSmartGuides(item);
       });
-      el.addEventListener('pointerup',()=>{if(drag?.id===item.id){drag=null;publishDraft();}});
+      el.addEventListener('pointerup',()=>{if(drag?.id===item.id){drag=null;smartGuideLayer.replaceChildren();publishDraft();}});
       el.addEventListener('pointercancel',()=>{if(drag?.id===item.id){drag=null;publishDraft();}});
       overlay.appendChild(el);
     });
@@ -7608,6 +7631,9 @@ if (!window._fumocaBooted) {
   deleteBtn.addEventListener('click',()=>{if(!selected||selectedItem()?.locked)return;items=items.filter(x=>!(selectedIds.has(x.id)&&!x.locked));selected=null;selectedIds.clear();publishDraft();render();});
   widthInput.addEventListener('input',()=>{const item=selectedItem();if(!item||item.locked)return;item.width=Number(widthInput.value);widthValue.textContent=widthInput.value+'%';const el=[...overlay.children].find(node=>node.style.outlineStyle==='dashed');if(el){if(item.type==='image')el.style.width=item.width+'%';else el.style.maxWidth=item.width+'%';}});
   widthInput.addEventListener('change',publishDraft);
+  function applyNumericPosition(axis,input){const item=selectedItem();if(!item||item.locked)return;const value=Number(input.value);if(!Number.isFinite(value))return;item[axis]=clamp(value/100);input.value=(item[axis]*100).toFixed(1);const node=overlay.querySelector('[data-layer-id="'+item.id+'"]');if(node)node.style[axis==='x'?'left':'top']=(item[axis]*100)+'%';publishDraft();syncControls();}
+  positionXInput.addEventListener('change',()=>applyNumericPosition('x',positionXInput));
+  positionYInput.addEventListener('change',()=>applyNumericPosition('y',positionYInput));
   function updateSelectedStyle(key,value){const item=selectedItem();if(!item||item.locked||item.type!=='text')return;item[key]=value;const index=items.indexOf(item);const el=overlay.children[index];if(el){if(key==='fontSize')el.style.fontSize='clamp(8px,'+(Math.max(12,Math.min(72,Number(value)||32))*0.1)+'cqw,72px)';if(key==='color')el.style.color=value;if(key==='textAlign')el.style.textAlign=value;}publishDraft();}
   fontSizeInput.addEventListener('input',()=>{fontSizeValue.textContent=fontSizeInput.value+'px';updateSelectedStyle('fontSize',Number(fontSizeInput.value));});
   colorInput.addEventListener('input',()=>updateSelectedStyle('color',colorInput.value));
