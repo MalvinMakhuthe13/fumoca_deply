@@ -86,3 +86,11 @@ Animation authoring and timeline work remain paused. APE is a presentation and i
 
 - UCE Studio alignment tools now support left/centre/right alignment, top/middle/bottom alignment, and even horizontal/vertical distribution for selected unlocked layers. Alignment requires at least two selected layers; distribution requires at least three. The operations update normalized composition positions and preserve independent layer styling and stacking order.
 - Browser QA still required for alignment geometry across text/image combinations, boundary clamping, touch interaction and publish-preview parity.
+
+## Precision editing and live smart guides — 2026-11-06
+
+- Added numeric X/Y position fields to the UCE composition editor. Values are percentages of the composition frame and update the selected unlocked layer without changing its styling or stacking order.
+- Added transient live guides while dragging: vertical/horizontal centre alignment, alignment with peer layer centres, and an equal-spacing cue when the selected layer sits between two evenly spaced peers.
+- Guides are editor-only overlays and are not serialized into published composition metadata.
+- Existing group movement, safe-zone snapping, locking, presets, and publish contracts remain unchanged.
+- Validation: inline composition-editor script passed a JavaScript syntax parse. GitHub reports no workflow runs or status checks for the latest implementation commits. Browser pointer/touch QA remains outstanding, including grouped dragging, guide visibility, numeric field behaviour, and publish/reload.
