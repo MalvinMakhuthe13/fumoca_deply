@@ -2340,7 +2340,8 @@ async function boot() {
   currentRecord = (await fetchRecord()) || sessionRecord;
   // Published presentation settings travel with the NIF record. URL overrides
   // remain useful for preview/debugging; record metadata supplies the defaults.
-  FUMOCA_APE.configure(currentRecord?.meta?.presentation || currentRecord?.meta?.ape_presentation || {});
+  const publishedPresentation = currentRecord?.meta?.presentation || currentRecord?.meta?.ape_presentation || currentRecord?.metadata?.presentation || currentRecord?.metadata?.ape_presentation || {};
+  FUMOCA_APE.configure(publishedPresentation);
   window.FumocaAPE = {
     getSettings: () => ({ ...FUMOCA_APE.settings }),
     configure: (settings) => FUMOCA_APE.configure(settings),
