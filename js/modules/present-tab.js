@@ -227,7 +227,7 @@ function mountPanel() {
   panel.innerHTML = `
     <div class="ptp-section" id="ptpPosterComposer">
       <div class="ptp-title">Poster Composer · fixed canvas</div>
-      <div class="ptp-hint">The poster keeps its chosen aspect ratio. These controls edit the composition model; live 3D subject rendering and drag handles are the next integration step.</div>
+      <div class="ptp-hint">The poster keeps its chosen aspect ratio while the 3D subject can be repositioned, scaled and rotated. Live transforms work in published Spark PLY, legacy PLY and decoded NIF cloud viewers.</div>
       <label class="ptp-poster-field">Preset<select data-poster-field="preset"><option value="product">Product · 4:5</option><option value="story">Story · 9:16</option><option value="editorial">Editorial · 3:4</option><option value="landscape">Landscape · 16:9</option></select></label>
       <label class="ptp-poster-toggle"><input type="checkbox" data-poster-field="enabled"> Enable poster composition</label>
       <label class="ptp-poster-field">Headline<input type="text" maxlength="160" data-poster-field="title" placeholder="Product title"></label>
@@ -238,7 +238,7 @@ function mountPanel() {
         <label class="ptp-poster-field">Subject scale <input type="range" min="10" max="400" value="100" data-poster-field="scale"><output data-poster-value="scale">1.00×</output></label>
         <label class="ptp-poster-field">Subject rotation <input type="range" min="-180" max="180" value="0" data-poster-field="rotation"><output data-poster-value="rotation">0°</output></label>
       </div>
-      <div class="ptp-poster-status" id="ptpPosterStatus">Live 3D subject transforms are connected for published Spark PLY assets. Other viewer paths are still pending.</div>
+      <div class="ptp-poster-status" id="ptpPosterStatus">Live subject transforms are connected for published Spark PLY, legacy PLY and decoded NIF cloud assets. Drag handles and the finished poster overlay are next.</div>
       <div class="ptp-poster-actions"><button type="button" data-act="poster-cloud-save" class="primary">Save poster to asset</button><button type="button" data-act="copy" class="ptp-poster-copy">Copy viewer link</button></div>
       <div class="ptp-poster-status" id="ptpPosterCloudStatus">Local composition is saved automatically. Cloud save is a separate action.</div>
     </div>
