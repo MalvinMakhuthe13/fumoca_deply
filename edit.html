@@ -1178,6 +1178,9 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
         <label for="apeLayerWidth" style="display:block;font-size:11px;color:var(--muted);margin:10px 0 5px">Selected layer width <span id="apeLayerWidthValue">45%</span></label>
         <input id="apeLayerWidth" type="range" min="5" max="90" step="1" value="45" style="width:100%">
         <div style="display:flex;gap:7px;margin-top:7px"><button type="button" class="ac-btn" id="apeLayerBack" style="flex:1">Send backward</button><button type="button" class="ac-btn" id="apeLayerForward" style="flex:1">Bring forward</button></div>
+        <label for="apeLayerFontSize" style="display:block;font-size:11px;color:var(--muted);margin:10px 0 5px">Text size <span id="apeLayerFontSizeValue">32px</span></label>
+        <input id="apeLayerFontSize" type="range" min="12" max="72" step="1" value="32" style="width:100%">
+        <div style="display:flex;gap:7px;margin-top:7px"><input id="apeLayerColor" type="color" value="#ffffff" aria-label="Text colour" style="width:48px;height:34px;padding:2px"><select id="apeLayerAlign" aria-label="Text alignment" style="flex:1;padding:7px;border-radius:8px;background:var(--surface2);color:var(--text);border:1px solid var(--border2)"><option value="left">Align left</option><option value="center">Align center</option><option value="right">Align right</option></select></div>
         <div class="hint" style="font-size:10px;padding-top:8px">Artwork previews locally, then uploads to FUMOCA storage when published. Published text and artwork render in the public viewer; layer editing remains in Studio.</div>
       </div>
       <div class="section" id="apeMainStudioPanel" style="margin-bottom:12px;border-color:rgba(212,255,0,.38);background:linear-gradient(145deg,rgba(212,255,0,.075),rgba(255,255,255,.018));">
@@ -7427,6 +7430,10 @@ if (!window._fumocaBooted) {
   const widthValue = document.getElementById('apeLayerWidthValue');
   const backBtn = document.getElementById('apeLayerBack');
   const forwardBtn = document.getElementById('apeLayerForward');
+  const fontSizeInput = document.getElementById('apeLayerFontSize');
+  const fontSizeValue = document.getElementById('apeLayerFontSizeValue');
+  const colorInput = document.getElementById('apeLayerColor');
+  const alignInput = document.getElementById('apeLayerAlign');
   let items = Array.isArray(window._fumocaApePresentationDraft?.layers) ? window._fumocaApePresentationDraft.layers : [];
   let selected = null;
   let drag = null;
@@ -7434,7 +7441,7 @@ if (!window._fumocaBooted) {
   const selectedItem = () => items.find(item => item.id === selected) || null;
   function publishDraft() {
     const prev = window._fumocaApePresentationDraft || {};
-    window._fumocaApePresentationDraft = { ...prev, version:1, layers:items.map(({id,type,content,x,y,width})=>({id,type,content,x,y,width})) };
+    window._fumocaApePresentationDraft = { ...prev, version:1, layers:items.map(({id,type,content,x,y,width,fontSize,color,textAlign})=>({id,type,content,x,y,width,fontSize,color,textAlign})) };
     window.dispatchEvent(new CustomEvent('fumoca:apePresentationChanged',{detail:window._fumocaApePresentationDraft}));
   }
   function syncControls() {
@@ -7442,7 +7449,14 @@ if (!window._fumocaBooted) {
     widthInput.disabled = !item;
     backBtn.disabled = !item || items.indexOf(item) <= 0;
     forwardBtn.disabled = !item || items.indexOf(item) >= items.length - 1;
-    if (item) widthInput.value = String(Math.round(Number(item.width) || (item.type === 'image' ? 18 : 45)));
+    if (item) {
+      widthInput.value = String(Math.round(Number(item.width) || (item.type === 'image' ? 18 : 45)));
+      fontSizeInput.disabled = item.type !== 'text'; colorInput.disabled = item.type !== 'text'; alignInput.disabled = item.type !== 'text';
+      fontSizeInput.value = String(Math.max(12,Math.min(72,Number(item.fontSize)||32)));
+      colorInput.value = /^#[0-9a-f]{6}$/i.test(item.color||'') ? item.color : '#ffffff';
+      alignInput.value = ['left','center','right'].includes(item.textAlign) ? item.textAlign : 'left';
+    } else { fontSizeInput.disabled = true; colorInput.disabled = true; alignInput.disabled = true; }
+    fontSizeValue.textContent = fontSizeInput.value + 'px';
     widthValue.textContent = widthInput.value + '%';
   }
   function render() {
@@ -7450,7 +7464,7 @@ if (!window._fumocaBooted) {
     items.forEach((item,index) => {
       const el = document.createElement(item.type === 'image' ? 'img' : 'div');
       if (item.type === 'image') { el.src = item.content; el.alt = 'Presentation artwork'; el.style.width = (item.width || 18) + '%'; el.style.objectFit = 'contain'; }
-      else { el.textContent = item.content; el.style.font = '700 clamp(14px,2.5vw,34px)/1.15 system-ui,sans-serif'; el.style.color = '#fff'; el.style.textShadow = '0 2px 8px #000'; el.style.maxWidth = (item.width || 45) + '%'; }
+      else { el.textContent = item.content; el.style.font = '700 ' + Math.max(12,Math.min(72,Number(item.fontSize)||32)) + 'px/1.15 system-ui,sans-serif'; el.style.color = /^#[0-9a-f]{6}$/i.test(item.color||'') ? item.color : '#ffffff'; el.style.textAlign = ['left','center','right'].includes(item.textAlign) ? item.textAlign : 'left'; el.style.textShadow = '0 2px 8px #000'; el.style.maxWidth = (item.width || 45) + '%'; }
       Object.assign(el.style,{position:'absolute',left:(item.x*100)+'%',top:(item.y*100)+'%',transform:'translate(-50%,-50%)',pointerEvents:'auto',cursor:'move',padding:'4px',outline:selected===item.id?'1px dashed #d4ff00':'none',touchAction:'none',zIndex:String(index+1)});
       el.addEventListener('pointerdown',ev=>{ selected=item.id; drag={id:item.id,x:ev.clientX,y:ev.clientY,rect:overlay.getBoundingClientRect(),sx:item.x,sy:item.y}; el.setPointerCapture(ev.pointerId); renderList(); syncControls(); });
       el.addEventListener('pointermove',ev=>{if(!drag||drag.id!==item.id)return;item.x=clamp(drag.sx+(ev.clientX-drag.x)/Math.max(1,drag.rect.width));item.y=clamp(drag.sy+(ev.clientY-drag.y)/Math.max(1,drag.rect.height));el.style.left=(item.x*100)+'%';el.style.top=(item.y*100)+'%';});
@@ -7465,11 +7479,15 @@ if (!window._fumocaBooted) {
     list.replaceChildren();
     items.forEach(item=>{const b=document.createElement('button');b.type='button';b.className='ac-btn';b.textContent=(selected===item.id?'✓ ':'')+(item.type==='image'?'Logo / artwork':item.content.slice(0,35));b.addEventListener('click',()=>{selected=item.id;render();});list.appendChild(b);});
   }
-  addText.addEventListener('click',()=>{const value=textInput.value.trim();if(!value)return;const item={id:'layer-'+Date.now(),type:'text',content:value,x:.5,y:.18,width:45};items.push(item);selected=item.id;textInput.value='';publishDraft();render();});
+  addText.addEventListener('click',()=>{const value=textInput.value.trim();if(!value)return;const item={id:'layer-'+Date.now(),type:'text',content:value,x:.5,y:.18,width:45,fontSize:32,color:'#ffffff',textAlign:'left'};items.push(item);selected=item.id;textInput.value='';publishDraft();render();});
   imageInput.addEventListener('change',()=>{const file=imageInput.files?.[0];if(!file)return;if(file.size>5*1024*1024){alert('Please choose an image smaller than 5 MB.');imageInput.value='';return;}const reader=new FileReader();reader.onload=()=>{const item={id:'layer-'+Date.now(),type:'image',content:String(reader.result),x:.5,y:.82,width:18};items.push(item);selected=item.id;publishDraft();render();};reader.readAsDataURL(file);});
   deleteBtn.addEventListener('click',()=>{if(!selected)return;items=items.filter(x=>x.id!==selected);selected=null;publishDraft();render();});
   widthInput.addEventListener('input',()=>{const item=selectedItem();if(!item)return;item.width=Number(widthInput.value);widthValue.textContent=widthInput.value+'%';const el=[...overlay.children].find(node=>node.style.outlineStyle==='dashed');if(el){if(item.type==='image')el.style.width=item.width+'%';else el.style.maxWidth=item.width+'%';}});
   widthInput.addEventListener('change',publishDraft);
+  function updateSelectedStyle(key,value){const item=selectedItem();if(!item||item.type!=='text')return;item[key]=value;const index=items.indexOf(item);const el=overlay.children[index];if(el){if(key==='fontSize')el.style.fontSize=value+'px';if(key==='color')el.style.color=value;if(key==='textAlign')el.style.textAlign=value;}publishDraft();}
+  fontSizeInput.addEventListener('input',()=>{fontSizeValue.textContent=fontSizeInput.value+'px';updateSelectedStyle('fontSize',Number(fontSizeInput.value));});
+  colorInput.addEventListener('input',()=>updateSelectedStyle('color',colorInput.value));
+  alignInput.addEventListener('change',()=>updateSelectedStyle('textAlign',alignInput.value));
   function moveSelected(delta){const item=selectedItem();if(!item)return;const from=items.indexOf(item),to=Math.max(0,Math.min(items.length-1,from+delta));if(from===to)return;items.splice(from,1);items.splice(to,0,item);publishDraft();render();}
   backBtn.addEventListener('click',()=>moveSelected(-1));
   forwardBtn.addEventListener('click',()=>moveSelected(1));
