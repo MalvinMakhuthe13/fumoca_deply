@@ -208,13 +208,14 @@
     container.classList.add('fumoca-ad-embed');
     container.style.position = 'relative';
     container.style.display = 'block';
-    container.style.width = typeof width === 'number' ? width + 'px' : String(width);
+    const toCssLength = (value) => typeof value === 'number' || /^\\d+(?:\\.\\d+)?$/.test(String(value).trim()) ? String(value) + 'px' : String(value);
+    container.style.width = toCssLength(width);
     container.style.maxWidth = '100%';
     container.style.minWidth = '0';
     container.style.overflow = 'hidden';
     container.style.boxSizing = 'border-box';
     if (height) {
-      container.style.height = typeof height === 'number' ? height + 'px' : String(height);
+      container.style.height = toCssLength(height);
       container.style.aspectRatio = 'auto';
     } else {
       container.style.height = 'auto';
