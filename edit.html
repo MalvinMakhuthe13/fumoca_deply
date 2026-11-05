@@ -7476,7 +7476,7 @@ if (!window._fumocaBooted) {
     overlay.replaceChildren();
     items.forEach((item,index) => {
       const el = document.createElement(item.type === 'image' ? 'img' : 'div');
-      if (item.type === 'image') { el.src = item.content; el.alt = 'Presentation artwork'; el.style.width = (item.width || 18) + '%'; el.style.objectFit = 'contain'; }
+      if (item.type === 'image') { el.src = item.content; el.alt = 'Presentation artwork'; el.style.width = (item.width || 18) + '%'; el.style.maxHeight = '80%'; el.style.objectFit = 'contain'; }
       else { el.textContent = item.content; el.style.font = '700 clamp(8px,' + (Math.max(12,Math.min(72,Number(item.fontSize)||32)) * 0.1) + 'cqw,72px)/1.15 system-ui,sans-serif'; el.style.color = /^#[0-9a-f]{6}$/i.test(item.color||'') ? item.color : '#ffffff'; el.style.textAlign = ['left','center','right'].includes(item.textAlign) ? item.textAlign : 'left'; el.style.textShadow = '0 2px 8px #000'; el.style.maxWidth = (item.width || 45) + '%'; }
       Object.assign(el.style,{position:'absolute',left:(item.x*100)+'%',top:(item.y*100)+'%',transform:'translate(-50%,-50%)',pointerEvents:'auto',cursor:'move',padding:'4px',outline:selected===item.id?'1px dashed #d4ff00':'none',touchAction:'none',zIndex:String(index+1)});
       el.addEventListener('pointerdown',ev=>{ selected=item.id; drag={id:item.id,x:ev.clientX,y:ev.clientY,rect:overlay.getBoundingClientRect(),sx:item.x,sy:item.y}; el.setPointerCapture(ev.pointerId); renderList(); syncControls(); });
@@ -7497,7 +7497,7 @@ if (!window._fumocaBooted) {
   deleteBtn.addEventListener('click',()=>{if(!selected)return;items=items.filter(x=>x.id!==selected);selected=null;publishDraft();render();});
   widthInput.addEventListener('input',()=>{const item=selectedItem();if(!item)return;item.width=Number(widthInput.value);widthValue.textContent=widthInput.value+'%';const el=[...overlay.children].find(node=>node.style.outlineStyle==='dashed');if(el){if(item.type==='image')el.style.width=item.width+'%';else el.style.maxWidth=item.width+'%';}});
   widthInput.addEventListener('change',publishDraft);
-  function updateSelectedStyle(key,value){const item=selectedItem();if(!item||item.type!=='text')return;item[key]=value;const index=items.indexOf(item);const el=overlay.children[index];if(el){if(key==='fontSize')el.style.fontSize=value+'px';if(key==='color')el.style.color=value;if(key==='textAlign')el.style.textAlign=value;}publishDraft();}
+  function updateSelectedStyle(key,value){const item=selectedItem();if(!item||item.type!=='text')return;item[key]=value;const index=items.indexOf(item);const el=overlay.children[index];if(el){if(key==='fontSize')el.style.fontSize='clamp(8px,'+(Math.max(12,Math.min(72,Number(value)||32))*0.1)+'cqw,72px)';if(key==='color')el.style.color=value;if(key==='textAlign')el.style.textAlign=value;}publishDraft();}
   fontSizeInput.addEventListener('input',()=>{fontSizeValue.textContent=fontSizeInput.value+'px';updateSelectedStyle('fontSize',Number(fontSizeInput.value));});
   colorInput.addEventListener('input',()=>updateSelectedStyle('color',colorInput.value));
   alignInput.addEventListener('change',()=>updateSelectedStyle('textAlign',alignInput.value));
