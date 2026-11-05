@@ -1157,6 +1157,7 @@ function renderUceComposition(record) {
       el.alt = layer.alt || 'Presentation artwork';
       el.draggable = false;
       el.style.objectFit = 'contain';
+      el.style.maxHeight = '80%';
     } else {
       el.textContent = String(layer.content || '').slice(0, 240);
       el.style.cssText += ';font:700 clamp(8px,' + (Math.max(12,Math.min(72,Number(layer.fontSize)||32)) * 0.1) + 'cqw,72px)/1.15 system-ui,sans-serif;color:' + (/^#[0-9a-f]{6}$/i.test(String(layer.color||'')) ? layer.color : '#ffffff') + ';text-align:' + (['left','center','right'].includes(layer.textAlign) ? layer.textAlign : 'left') + ';text-shadow:0 2px 8px rgba(0,0,0,.85);white-space:pre-wrap;overflow-wrap:anywhere';
