@@ -129,6 +129,7 @@ const FumocaPublish = (() => {
 
   // ── Main publish function ─────────────────────────────
   async function publish({ title, description, visibility = 'public', includeReview = false, presentation = {}, onProgress } = {}) {
+    presentation = { ...(window._fumocaApePresentationDraft || {}), ...(presentation || {}) };
     // Try every possible location for the Supabase client
     let sb = window._fumocaSupabase || window.supabase;
     if (!sb) {
