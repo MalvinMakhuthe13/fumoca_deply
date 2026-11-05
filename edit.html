@@ -7522,7 +7522,7 @@ if (!window._fumocaBooted) {
     const selectedItems=items.filter(layer=>selectedIds.has(layer.id));
     groupButton.disabled=selectedItems.length<2||selectedItems.some(layer=>layer.locked);
     ungroupButton.disabled=!selectedItems.some(layer=>layer.groupId);
-    alignmentButtons.forEach(button=>{button.disabled=selectedItems.length<2||selectedItems.some(layer=>layer.locked);});
+    alignmentButtons.forEach((button,index)=>{button.disabled=selectedItems.length<(index>=6?3:2)||selectedItems.some(layer=>layer.locked);});
     if (item) {
       widthInput.value = String(Math.round(Number(item.width) || (item.type === 'image' ? 18 : 45)));
       fontSizeInput.disabled = item.type !== 'text' || Boolean(item.locked); colorInput.disabled = item.type !== 'text' || Boolean(item.locked); alignInput.disabled = item.type !== 'text' || Boolean(item.locked);
