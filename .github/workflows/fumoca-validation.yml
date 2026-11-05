@@ -31,6 +31,7 @@ jobs:
         run: |
           node --input-type=module --check < js/modules/adaptive-presentation.js
           node --input-type=module --check < js/modules/poster-composer.js
+          node --input-type=module --check < js/modules/poster-editor-overlay.js
           node --input-type=module --check < js/modules/present-tab.js
           node --input-type=module --check < js/modules/present-viewer.js
       - name: Check persistence-sensitive editor modules
@@ -135,6 +136,8 @@ jobs:
           node --experimental-default-type=module tests/ply-conversion-metadata.mjs
       - name: Test Poster Composer model and responsive layout
         run: node --experimental-default-type=module tests/poster-composer.mjs
+      - name: Test Studio poster editor overlay geometry
+        run: node --experimental-default-type=module tests/poster-editor-overlay.mjs
       - name: Test Adaptive Presentation Engine framing and responsive sizing
         run: node --experimental-default-type=module tests/adaptive-presentation.mjs
       - name: Test live poster camera-plane transforms
