@@ -139,6 +139,8 @@ jobs:
         run: node --experimental-default-type=module tests/adaptive-presentation.mjs
       - name: Test live poster camera-plane transforms
         run: node --experimental-default-type=module tests/poster-live-transform.mjs
+      - name: Test poster viewer integration across rendering paths
+        run: node --experimental-default-type=module tests/poster-viewer-integration.mjs
       - name: Test CPU-only splat to NIF conversion
         run: node --experimental-default-type=module tests/splat-to-nif-smoke.mjs
       - name: Compile Kaggle preflight script
