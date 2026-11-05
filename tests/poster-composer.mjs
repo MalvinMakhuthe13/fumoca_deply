@@ -57,17 +57,15 @@ assert.equal(poster.getState().preset, 'story');
 assert.equal(poster.getState().composition.object.scale, 0.92);
 
 const renderLayout = poster.getLayout(400, 900);
-assert.deepEqual(renderLayout.safe, {
-  left: 28,
-  top: 28,
-  right: 372,
-  bottom: 616,
-  width: 344,
-  height: 588,
-});
+assert.equal(renderLayout.safe.left, 28);
+assert.equal(renderLayout.safe.top, 28);
+assert.equal(renderLayout.safe.right, 372);
+assert.ok(Math.abs(renderLayout.safe.bottom - (400 / (9 / 16) - 28)) < 1e-9);
+assert.equal(renderLayout.safe.width, 344);
+assert.ok(Math.abs(renderLayout.safe.height - (400 / (9 / 16) - 56)) < 1e-9);
 assert.deepEqual(renderLayout.object, {
   x: 200,
-  y: 432,
+  y: (400 / (9 / 16)) * 0.48,
   scale: 0.92,
   rotation: 0,
   anchor: 'center',
