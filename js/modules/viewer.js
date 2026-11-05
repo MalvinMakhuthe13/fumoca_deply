@@ -1493,6 +1493,8 @@ function destroyPlyViewer() {
   _plyAttributeControl?.remove(); _plyAttributeControl = null;
   _publishedSparkGroup = null;
   _publishedSparkMesh = null;
+  _publishedSparkRenderer = null;
+  if (window._fumocaPublishedSpark) window._fumocaPublishedSpark = null;
   _plyScene = _plyCamera = _plyControls = null;
 }
 async function mountPlyViewer(url) {
