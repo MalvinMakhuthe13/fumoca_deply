@@ -60,11 +60,18 @@ const FumocaEmbedManager = (() => {
     const url = `${base}/embed/viewer.html?token=${encodeURIComponent(embed.token)}`;
     const width = options.width || '100%';
     const height = options.height || '';
-    const savedRatio = splatRecord?.meta?.presentation?.aspectRatio;
+    const savedPresentation = splatRecord?.meta?.presentation || splatRecord?.metadata?.presentation || {};
+    const savedRatio = savedPresentation.aspectRatio;
     const allowedRatios = ['16 / 9', '1 / 1', '4 / 5', '9 / 16'];
     const aspectRatio = allowedRatios.includes(options.aspectRatio || savedRatio)
       ? (options.aspectRatio || savedRatio)
       : '16 / 9';
+    const composition = savedPresentation.composition || {
+      version: 1, coordinateSpace: 'normalized', origin: 'top-left',
+      width: 1, height: 1, fit: 'contain', overflow: 'clip',
+      hotspotSpace: 'normalized',
+      safeArea: { top: 0.05, right: 0.05, bottom: 0.05, left: 0.05 },
+    };
     const title = String(splatRecord?.title || 'FUMOCA 3D Experience').replace(/[<>&"]/g, '');
     const widthCss = typeof width === 'number' || /^\\d+(?:\\.\\d+)?$/.test(String(width)) ? String(width) + 'px' : String(width);
     const heightCss = height ? (typeof height === 'number' || /^\\d+(?:\\.\\d+)?$/.test(String(height)) ? String(height) + 'px' : String(height)) : '';
@@ -72,8 +79,8 @@ const FumocaEmbedManager = (() => {
       ? `width:${widthCss};max-width:100%;height:${heightCss};`
       : `width:${widthCss};max-width:100%;aspect-ratio:${aspectRatio};`;
 
-    return `<!-- FUMOCA Adaptive Experience: ${title} -->
-<div class="fumoca-responsive-embed" style="position:relative;display:block;${frameStyle}overflow:hidden;border-radius:16px;contain:layout paint;">
+    return `<!-- FUMOCA Adaptive Experience: ${title} | UCE v${composition.version || 1} | normalized composition -->
+<div class="fumoca-responsive-embed" style="position:relative;display:block;box-sizing:border-box;min-width:0;${frameStyle}overflow:hidden;border-radius:16px;contain:layout paint;">
   <iframe
     src="${url}"
     title="${title}"
