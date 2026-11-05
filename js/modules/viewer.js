@@ -1831,7 +1831,12 @@ function mountDecodedCloud(g) {
       }`,
     transparent: false, depthWrite: true, depthTest: true,
   });
-  _plyScene.add(new THREE.Points(geo, mat));
+  const decodedPoints = new THREE.Points(geo, mat);
+  _legacyPosterGroup = new THREE.Group();
+  _legacyPosterGroup.position.set(cx, cy, cz);
+  decodedPoints.position.set(-cx, -cy, -cz);
+  _legacyPosterGroup.add(decodedPoints);
+  _plyScene.add(_legacyPosterGroup);
   window._fumocaPointMaterial = mat;
   window.__fumocaViewerMaterial = mat;
   window._fumocaPointBase = mat.uniforms.uBaseSize.value;
@@ -1862,6 +1867,14 @@ function mountDecodedCloud(g) {
   const loop = () => {
     _plyFrame = requestAnimationFrame(loop);
     _plyControls.update();
+    const posterState = window.FumocaPoster?.getState?.() || _fumocaPosterStateCache;
+    if (posterState?.composition && _legacyPosterGroup) {
+      applyPosterLiveTransform({
+        THREE, group: _legacyPosterGroup, camera: _plyCamera,
+        center: { x: cx, y: cy, z: cz },
+        composition: posterState.composition, enabled: !!posterState.enabled,
+      });
+    }
     _plyRenderer.render(_plyScene, _plyCamera);
   };
   loop();
@@ -1943,7 +1956,7 @@ async function mountPublishedSparkPly(url) {
     if (!_plyRenderer || !_publishedSparkRenderer) return;
     _plyFrame = requestAnimationFrame(loop);
     _plyControls?.update();
-    const posterState = _fumocaPosterStateCache;
+    const posterState = window.FumocaPoster?.getState?.() || _fumocaPosterStateCache;
     if (posterState?.composition && _publishedSparkGroup) {
       applyPosterLiveTransform({
         THREE, group: _publishedSparkGroup, camera: _plyCamera, center,
