@@ -183,7 +183,30 @@ const FUMOCA_APE = (() => {
     controls.minDistance = settings.maxZoom > 0 ? referenceDistance / settings.maxZoom : 0;
     controls.maxDistance = settings.minZoom > 0 ? referenceDistance / settings.minZoom : Infinity;
   }
-  return { get settings() { return settings; }, configure, prepareHost, observe, applyZoomBounds };
+  let cameraReference = null;
+  function resetCameraReference() {
+    const camera = window._fumocaViewerCamera || window._fumocaViewerInstance?.camera || null;
+    const controls = window._fumocaViewerControls || window._fumocaViewerInstance?.controls || null;
+    if (!camera?.position) { cameraReference = null; return false; }
+    const target = controls?.target || new THREE.Vector3(0, 0, 0);
+    cameraReference = camera.position.clone().sub(target);
+    return cameraReference.length() > 0;
+  }
+  function applyLiveFraming() {
+    const camera = window._fumocaViewerCamera || window._fumocaViewerInstance?.camera || null;
+    const controls = window._fumocaViewerControls || window._fumocaViewerInstance?.controls || null;
+    if (!camera?.position || !controls?.target) return false;
+    if (!cameraReference?.length?.()) resetCameraReference();
+    if (!cameraReference?.length?.()) return false;
+    const zoomFactor = settings.initialZoom / Math.max(1.05, settings.framePadding);
+    const offset = cameraReference.clone().multiplyScalar(1 / Math.max(0.2, zoomFactor));
+    camera.position.copy(controls.target).add(offset);
+    controls.minDistance = Math.max(0.0001, cameraReference.length() / 8);
+    controls.maxDistance = Math.max(controls.minDistance * 2, cameraReference.length() * 12);
+    controls.update?.();
+    return true;
+  }
+  return { get settings() { return settings; }, configure, prepareHost, observe, applyZoomBounds, resetCameraReference, applyLiveFraming };
 })();
 
 // Validate the file= param â€” if the file doesn't exist (400/404), ignore it
