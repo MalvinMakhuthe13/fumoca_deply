@@ -195,18 +195,32 @@
 
     const src      = opts.src      || container.dataset.src;
     const width    = opts.width    || container.dataset.width    || '100%';
-    const height   = opts.height   || container.dataset.height   || '360';
+    const height   = opts.height   || container.dataset.height   || '';
+    const aspectRatio = opts.aspectRatio || container.dataset.aspectRatio || '16 / 9';
     const autoplay = opts.autoplay !== false && container.dataset.autoplay !== 'false';
     const ctaUrl   = opts.ctaUrl   || container.dataset.ctaUrl;
     const brand    = opts.brand    || container.dataset.brand    || '';
 
     if (!src) { console.warn('[FumocAdEmbed] No src provided'); return; }
 
-    // Size the container
+    // APE: size to the host page's layout. Never force a desktop pixel width
+    // onto an embed; use a responsive width and a stable authored aspect ratio.
     container.classList.add('fumoca-ad-embed');
-    if (width  !== '100%') container.style.width  = width  + 'px';
-    if (height !== '100%') container.style.height = height + 'px';
-    container.style.aspectRatio = container.style.height ? '' : '16/9';
+    container.style.position = 'relative';
+    container.style.display = 'block';
+    container.style.width = typeof width === 'number' ? width + 'px' : String(width);
+    container.style.maxWidth = '100%';
+    container.style.minWidth = '0';
+    container.style.overflow = 'hidden';
+    container.style.boxSizing = 'border-box';
+    if (height) {
+      container.style.height = typeof height === 'number' ? height + 'px' : String(height);
+      container.style.aspectRatio = 'auto';
+    } else {
+      container.style.height = 'auto';
+      container.style.aspectRatio = String(aspectRatio).replace(':', ' / ');
+    }
+    container.style.touchAction = 'pan-y';
 
     // Loader spinner
     const loader = document.createElement('div');
@@ -366,16 +380,29 @@
   function _buildMinimalThreeScene(container) {
     // This is a minimal THREE setup for the embed context.
     // In a full viewer.html context, we use the existing scene/camera/controls.
-    const w = container.offsetWidth, h = container.offsetHeight;
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.setSize(w, h);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.domElement.style.cssText = 'position:absolute;inset:0;z-index:1;opacity:0;transition:opacity .4s;';
+    const w = Math.max(2, container.clientWidth), h = Math.max(2, container.clientHeight);
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
+    renderer.setSize(w, h, false);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.domElement.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;z-index:1;opacity:0;transition:opacity .4s;display:block;';
     container.appendChild(renderer.domElement);
 
     const scene    = new THREE.Scene();
     const camera   = new THREE.PerspectiveCamera(60, w/h, 0.01, 1000);
     camera.position.set(0, 1, 5);
+    const resize = () => {
+      const width = Math.max(0, container.clientWidth || 0);
+      const height = Math.max(0, container.clientHeight || 0);
+      if (width < 2 || height < 2) return;
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+      renderer.setSize(width, height, false);
+    };
+    const resizeObserver = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(resize) : null;
+    resizeObserver?.observe(container);
+    window.addEventListener('resize', resize, { passive: true });
+    resize();
 
     // Minimal OrbitControls (inline, no import needed)
     let controls = null;
@@ -389,7 +416,7 @@
       }
     } catch {}
 
-    return { scene, camera, renderer, controls };
+    return { scene, camera, renderer, controls, resizeObserver, resize };
   }
 
   // ── Auto-mount all [data-src] elements ────────────────────────────────────
