@@ -1277,6 +1277,7 @@ function renderHotspots() {
     el.setAttribute('aria-label', h.title || 'Hotspot');
     el.innerHTML = `<span class="hotspot-pill">${escapeHtml(h.title)}</span>`;
     let markerDrag = null;
+    let suppressMarkerClick = false;
     el.addEventListener('pointerdown', (e) => {
       if (!state.canManage || [h.wx, h.wy, h.wz].every(v => v != null && Number.isFinite(Number(v)))) return;
       const rect = _getViewRect();
@@ -1301,12 +1302,13 @@ function renderHotspots() {
       if (!markerDrag || markerDrag.pointerId !== e.pointerId) return;
       const moved = markerDrag.moved;
       markerDrag = null;
-      if (moved) { e.preventDefault(); e.stopPropagation(); await saveRemote(); renderHotspots(); }
+      if (moved) { suppressMarkerClick = true; e.preventDefault(); e.stopPropagation(); await saveRemote(); renderHotspots(); }
     });
     el.addEventListener('pointercancel', () => { markerDrag = null; renderHotspots(); });
     el.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
+      if (suppressMarkerClick) { suppressMarkerClick = false; return; }
       if (state.canManage && ![h.wx, h.wy, h.wz].every(v => v != null && Number.isFinite(Number(v)))) {
         openHotspotEditor(h, { isNew:false });
         return;
