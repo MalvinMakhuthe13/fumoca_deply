@@ -56,6 +56,20 @@ export function initPresentViewer() {
     }
     if (data.nav?.length) setNavStops(data.nav);
 
+    // Restore the same poster composition used in Studio and in the share URL.
+    // This changes presentation state only; it does not mutate Gaussian data.
+    const poster = data.poster;
+    if (poster && window.FumocaPoster) {
+      try {
+        if (poster.preset) window.FumocaPoster.setPreset(poster.preset);
+        if (poster.composition) window.FumocaPoster.updateComposition(poster.composition);
+        window.FumocaPoster.setEnabled(!!poster.enabled);
+        console.info('[present-viewer] poster composition restored', poster.preset || 'product');
+      } catch (error) {
+        console.warn('[present-viewer] poster composition could not be restored', error);
+      }
+    }
+
     const review =
       data.reviewUrl ||
       new URLSearchParams(location.search).get('review') ||
