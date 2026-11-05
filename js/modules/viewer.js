@@ -114,6 +114,65 @@ const maskEraseGroup = document.getElementById('maskEraseGroup');
 const maskLassoRemoveGroup = document.getElementById('maskLassoRemoveGroup');
 const cropHandles = Array.from(document.querySelectorAll('.crop-handle'));
 const params = new URLSearchParams(window.location.search);
+
+// FUMOCA Adaptive Presentation Engine — shared public-viewer container contract.
+// The renderer follows its host element (including iframe/embed resizes), never
+// the outer browser viewport. Camera state is preserved when the host changes size.
+const FUMOCA_APE = (() => {
+  const readNumber = (key, fallback, min, max) => {
+    const raw = Number(params.get('ape_' + key));
+    return Number.isFinite(raw) && params.has('ape_' + key) ? Math.max(min, Math.min(max, raw)) : fallback;
+  };
+  const settings = Object.freeze({
+    initialZoom: readNumber('zoom', 1, 0.25, 4),
+    minZoom: readNumber('min_zoom', 0, 0, 1),
+    maxZoom: readNumber('max_zoom', 0, 0, 30),
+    maxDpr: readNumber('max_dpr', 2, 1, 2),
+    damping: readNumber('damping', 0.08, 0.02, 0.2),
+    framePadding: readNumber('frame_padding', 1.55, 1.05, 3.5),
+  });
+  const observers = new WeakMap();
+  function prepareHost(host) {
+    if (!host) return;
+    host.style.minWidth = '0';
+    host.style.minHeight = '0';
+    host.style.maxWidth = '100%';
+    host.style.overflow = 'hidden';
+    host.style.contain = 'layout paint';
+  }
+  function observe(host, renderer, camera, controls) {
+    if (!host || !renderer || !camera) return () => {};
+    prepareHost(host);
+    observers.get(renderer)?.disconnect?.();
+    const resize = () => {
+      const width = Math.max(0, host.clientWidth || 0);
+      const height = Math.max(0, host.clientHeight || 0);
+      if (width < 2 || height < 2) return;
+      renderer.setPixelRatio?.(Math.min(window.devicePixelRatio || 1, settings.maxDpr));
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix?.();
+      renderer.setSize?.(width, height, false);
+      controls?.update?.();
+    };
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(resize) : null;
+    observer?.observe(host);
+    observers.set(renderer, observer);
+    window.addEventListener('resize', resize, { passive: true });
+    resize();
+    return () => {
+      observer?.disconnect?.();
+      window.removeEventListener('resize', resize);
+      if (observers.get(renderer) === observer) observers.delete(renderer);
+    };
+  }
+  function applyZoomBounds(controls, referenceDistance) {
+    if (!controls || !(referenceDistance > 0)) return;
+    controls.minDistance = settings.maxZoom > 0 ? referenceDistance / settings.maxZoom : 0;
+    controls.maxDistance = settings.minZoom > 0 ? referenceDistance / settings.minZoom : Infinity;
+  }
+  return { settings, prepareHost, observe, applyZoomBounds };
+})();
+
 // Validate the file= param â€” if the file doesn't exist (400/404), ignore it
 // and let the viewer fall back to nif_url from the DB record
 // v92: also check sessionStorage for a pending .fumoc nif URL (from open.html handoff)
@@ -1354,6 +1413,7 @@ function destroyMeshViewer() {
 function mountMeshViewer(mesh, calibration) {
   destroyMeshViewer();
   const container = stageHost || stageEl;
+  FUMOCA_APE.prepareHost(container);
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(mesh.positions, 3));
   // Colors arrive as 0-255 uint8 â€” THREE wants 0-1 floats for vertexColors.
@@ -1385,7 +1445,7 @@ function mountMeshViewer(mesh, calibration) {
   _meshCamera = new THREE.PerspectiveCamera(55, container.clientWidth / container.clientHeight, 0.001, 2000);
   _meshCamera.up.set(0, -1, -0.6).normalize();  // match the splat renderer's convention (see mountPlyViewer)
   _meshRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
-  _meshRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  _meshRenderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, FUMOCA_APE.settings.maxDpr));
   _meshRenderer.setSize(container.clientWidth, container.clientHeight);
   _meshRenderer.setClearColor(0x000000, 0);
   _meshRenderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -1405,12 +1465,8 @@ function mountMeshViewer(mesh, calibration) {
   _meshControls.minDistance = Math.max(r * 0.008, 0.0005);
   _meshControls.maxDistance = r * 24;
   _meshControls.update();
-  window.addEventListener('resize', () => {
-    if (!_meshRenderer) return;
-    _meshCamera.aspect = container.clientWidth / container.clientHeight;
-    _meshCamera.updateProjectionMatrix();
-    _meshRenderer.setSize(container.clientWidth, container.clientHeight);
-  });
+  window._fumocaMeshApeCleanup?.();
+  window._fumocaMeshApeCleanup = FUMOCA_APE.observe(container, _meshRenderer, _meshCamera, _meshControls);
   function loop() {
     _meshFrame = requestAnimationFrame(loop);
     _meshControls.update();
@@ -1481,6 +1537,7 @@ function mountMeshViewer(mesh, calibration) {
 // Called when fileUrl is a .ply â€” renders via THREE.js with Gaussian shader
 let _plyRenderer = null, _plyScene = null, _plyCamera = null, _plyControls = null, _plyFrame = null, _plyAttributeControl = null;
 function destroyPlyViewer() {
+  window._fumocaApeCleanup?.(); window._fumocaApeCleanup = null;
   if (_plyFrame) { cancelAnimationFrame(_plyFrame); _plyFrame = null; }
   if (_plyRenderer) { _plyRenderer.dispose(); _plyRenderer.domElement.remove(); _plyRenderer = null; }
   _plyAttributeControl?.remove(); _plyAttributeControl = null;
@@ -1489,19 +1546,20 @@ function destroyPlyViewer() {
 async function mountPlyViewer(url) {
   destroyPlyViewer();
   const container = stageHost || stageEl;
+  FUMOCA_APE.prepareHost(container);
   _plyScene = new THREE.Scene();
   _plyCamera = new THREE.PerspectiveCamera(55, container.clientWidth / container.clientHeight, 0.001, 2000);
   // nerfstudio/COLMAP uses OpenCV convention: Y is DOWN, Z into scene.
   // Match the Gaussiannif_files3D cameraUp of [0,-1,-0.6] so nif_files sit upright.
   _plyCamera.up.set(0, -1, -0.6).normalize();
   _plyRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
-  _plyRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  _plyRenderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, FUMOCA_APE.settings.maxDpr));
   _plyRenderer.setSize(container.clientWidth, container.clientHeight);
   _plyRenderer.setClearColor(0x000000, 0);
   Object.assign(_plyRenderer.domElement.style, { position:'absolute', inset:'0', width:'100%', height:'100%', zIndex:'2' });
   container.appendChild(_plyRenderer.domElement);
   _plyControls = new OrbitControls(_plyCamera, _plyRenderer.domElement);
-  _plyControls.enableDamping = true; _plyControls.dampingFactor = 0.028;
+  _plyControls.enableDamping = true; _plyControls.dampingFactor = FUMOCA_APE.settings.damping;
   _plyControls.rotateSpeed = 1.15; _plyControls.zoomSpeed = 1.05;
   _plyControls.enablePan = false;
   _plyControls.minPolarAngle = 0; _plyControls.maxPolarAngle = Math.PI;
@@ -1833,7 +1891,8 @@ function mountDecodedCloud(g) {
   };
   resize();
   if (typeof ResizeObserver !== 'undefined') new ResizeObserver(resize).observe(stageEl || container);
-  window.addEventListener('resize', resize);
+  const stopApeResize = FUMOCA_APE.observe(container, _plyRenderer, _plyCamera, _plyControls);
+  window._fumocaApeCleanup = stopApeResize;
   const loop = () => {
     _plyFrame = requestAnimationFrame(loop);
     _plyControls.update();
@@ -1855,6 +1914,7 @@ async function mountPublishedSparkPly(url) {
   destroyPlyViewer();
   const container = stageHost || stageEl;
   if (!container) throw new Error('Viewer stage is unavailable');
+  FUMOCA_APE.prepareHost(container);
   const response = await fetch(url);
   if (!response.ok) throw new Error('Published Gaussian source returned HTTP ' + response.status);
   const bytes = new Uint8Array(await response.arrayBuffer());
@@ -1884,7 +1944,8 @@ async function mountPublishedSparkPly(url) {
   const bounds = new THREE.Box3().setFromBufferAttribute(position);
   const center = bounds.getCenter(new THREE.Vector3());
   const radius = Math.max(bounds.getBoundingSphere(new THREE.Sphere()).radius, 0.01);
-  _plyCamera.position.set(center.x, center.y + radius * 0.35, center.z + radius * 2.3);
+  const initialDistance = radius * 2.3 * FUMOCA_APE.settings.framePadding / FUMOCA_APE.settings.initialZoom;
+  _plyCamera.position.set(center.x, center.y + radius * 0.35, center.z + initialDistance);
   _plyCamera.lookAt(center);
   _plyControls = new TrackballControls(_plyCamera, _plyRenderer.domElement);
   _plyControls.rotateSpeed = 3.15; _plyControls.zoomSpeed = 1.5; _plyControls.panSpeed = 0;
@@ -1897,7 +1958,9 @@ async function mountPublishedSparkPly(url) {
   _plyCamera.near = 0.000001;
   _plyCamera.far = 1e9;
   _plyCamera.updateProjectionMatrix();
-  _plyControls.target.copy(center); _plyControls.update();
+  _plyControls.target.copy(center);
+  FUMOCA_APE.applyZoomBounds(_plyControls, initialDistance);
+  _plyControls.update();
   const resize = () => {
     if (!_plyRenderer || !_plyCamera) return;
     const w = container.clientWidth || window.innerWidth, h = container.clientHeight || window.innerHeight;
@@ -1928,6 +1991,7 @@ async function mountInteractiveViewer(forceReload = false) {
   if (forceReload) await destroyViewer();
   setLoading(forceReload ? 'Refreshing cleanupâ€¦' : 'Loading interactive nifâ€¦');
   try {
+    FUMOCA_APE.prepareHost(stageHost || stageEl);
     viewerInstance = new Gaussiannif_files3D.Viewer({
       rootElement: stageHost || stageEl,
       cameraUp: [0, -1, -0.6],
@@ -1966,6 +2030,10 @@ async function mountInteractiveViewer(forceReload = false) {
       const h = host?.clientHeight || window.innerHeight;
       if (w > 2 && h > 2) viewerInstance.renderer?.setSize?.(w, h, false);
       const canvas = viewerInstance.renderer?.domElement || host?.querySelector?.('canvas');
+      if (viewerInstance.renderer && viewerInstance.camera) {
+        window._fumocaGaussianApeCleanup?.();
+        window._fumocaGaussianApeCleanup = FUMOCA_APE.observe(host, viewerInstance.renderer, viewerInstance.camera, viewerInstance.controls || viewerInstance.orbitControls);
+      }
       if (canvas) {
         canvas.style.setProperty('display', 'block', 'important');
         canvas.style.setProperty('width', '100%', 'important');
