@@ -238,7 +238,7 @@ function mountPanel() {
         <label class="ptp-poster-field">Subject scale <input type="range" min="10" max="400" value="100" data-poster-field="scale"><output data-poster-value="scale">1.00×</output></label>
         <label class="ptp-poster-field">Subject rotation <input type="range" min="-180" max="180" value="0" data-poster-field="rotation"><output data-poster-value="rotation">0°</output></label>
       </div>
-      <div class="ptp-poster-status" id="ptpPosterStatus">Live subject transforms are connected for published Spark PLY, legacy PLY and decoded NIF cloud assets. Drag handles and the finished poster overlay are next.</div>
+      <div class="ptp-poster-status" id="ptpPosterStatus">Live subject transforms and the poster background/headline overlay are active for published Spark PLY, legacy PLY and decoded NIF cloud assets. Drag handles and a visual Studio preview are next.</div>
       <div class="ptp-poster-actions"><button type="button" data-act="poster-cloud-save" class="primary">Save poster to asset</button><button type="button" data-act="copy" class="ptp-poster-copy">Copy viewer link</button></div>
       <div class="ptp-poster-status" id="ptpPosterCloudStatus">Local composition is saved automatically. Cloud save is a separate action.</div>
     </div>
