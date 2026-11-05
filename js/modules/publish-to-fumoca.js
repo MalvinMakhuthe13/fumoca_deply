@@ -130,6 +130,20 @@ const FumocaPublish = (() => {
   // ── Main publish function ─────────────────────────────
   async function publish({ title, description, visibility = 'public', includeReview = false, presentation = {}, onProgress } = {}) {
     presentation = { ...(window._fumocaApePresentationDraft || {}), ...(presentation || {}) };
+    // Local image previews are data URLs until uploaded to durable storage.
+    // Never serialize those large, session-only payloads into NIF metadata.
+    if (Array.isArray(presentation.layers)) {
+      presentation.layers = presentation.layers
+        .filter(layer => layer && layer.type === 'text')
+        .map(layer => ({
+          id: String(layer.id || ''),
+          type: 'text',
+          content: String(layer.content || '').slice(0, 240),
+          x: Math.max(0.03, Math.min(0.97, Number(layer.x) || 0.5)),
+          y: Math.max(0.03, Math.min(0.97, Number(layer.y) || 0.5)),
+          width: Math.max(5, Math.min(90, Number(layer.width) || 45)),
+        }));
+    }
     // Try every possible location for the Supabase client
     let sb = window._fumocaSupabase || window.supabase;
     if (!sb) {
