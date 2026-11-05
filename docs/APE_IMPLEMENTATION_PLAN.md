@@ -51,8 +51,8 @@ The bridge now fits against the narrower horizontal/vertical field of view, obse
 ## Required next integration steps
 
 - Extend APE settings beyond the publish panel with live Studio preview and an update-existing-publication workflow.
-- Add durable R2 upload and public-viewer rendering for composition artwork; current logo/image layers are editor-session previews only.
-- Implement public-viewer rendering and editing of normalized text/artwork layers.
+- Add browser-level verification for durable R2 artwork upload, public-viewer layer rendering, and failure/retry behavior.
+- Add public-viewer editing only if a concrete creator workflow requires it; published layers are currently display-only.
 - Adapt hotspot markers and Hotspot Pro to the same normalized composition plane; existing hotspots remain percentage-based until migrated through an explicit adapter.
 - Add browser-level checks for responsive iframe snippets, host resizing, camera preservation and touch interactions.
 - Audit showroom and public viewer CSS for viewport-fixed assumptions and nested iframe overflow.
