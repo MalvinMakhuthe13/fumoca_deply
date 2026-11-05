@@ -1141,7 +1141,7 @@ function renderUceComposition(record) {
     root = document.createElement('div');
     root.id = 'fumocaUceComposition';
     root.setAttribute('aria-label', 'Interactive presentation composition');
-    root.style.cssText = 'position:absolute;inset:0;z-index:8;overflow:hidden;pointer-events:none;contain:layout paint;';
+    root.style.cssText = 'position:absolute;inset:0;z-index:8;overflow:hidden;pointer-events:none;contain:layout paint;container-type:inline-size;';
     host.appendChild(root);
   }
   root.replaceChildren();
@@ -1159,7 +1159,7 @@ function renderUceComposition(record) {
       el.style.objectFit = 'contain';
     } else {
       el.textContent = String(layer.content || '').slice(0, 240);
-      el.style.cssText += ';font:700 ' + Math.max(12,Math.min(72,Number(layer.fontSize)||32)) + 'px/1.15 system-ui,sans-serif;color:' + (/^#[0-9a-f]{6}$/i.test(String(layer.color||'')) ? layer.color : '#ffffff') + ';text-align:' + (['left','center','right'].includes(layer.textAlign) ? layer.textAlign : 'left') + ';text-shadow:0 2px 8px rgba(0,0,0,.85);white-space:pre-wrap;overflow-wrap:anywhere';
+      el.style.cssText += ';font:700 clamp(8px,' + (Math.max(12,Math.min(72,Number(layer.fontSize)||32)) * 0.1) + 'cqw,72px)/1.15 system-ui,sans-serif;color:' + (/^#[0-9a-f]{6}$/i.test(String(layer.color||'')) ? layer.color : '#ffffff') + ';text-align:' + (['left','center','right'].includes(layer.textAlign) ? layer.textAlign : 'left') + ';text-shadow:0 2px 8px rgba(0,0,0,.85);white-space:pre-wrap;overflow-wrap:anywhere';
     }
     el.style.position = 'absolute';
     el.style.left = (x * 100) + '%';
