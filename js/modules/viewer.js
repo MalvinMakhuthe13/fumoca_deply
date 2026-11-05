@@ -11,6 +11,7 @@ import { decodeNif, geometryToSplatRows } from './nif-format.js?v=20261024-reals
 import { chooseRenderMode, solidPointScale } from './industry-math.js';
 import './adaptive-presentation.js';
 import './poster-composer.js';
+import { applyPosterLiveTransform } from './poster-live-transform.js';
 window._fumocaSupabase = window._fumocaSupabase || supabase;
 const stageEl = document.getElementById('stage');
 let stageHost = document.getElementById('stageHost');
@@ -1486,6 +1487,8 @@ function destroyPlyViewer() {
   if (_plyFrame) { cancelAnimationFrame(_plyFrame); _plyFrame = null; }
   if (_plyRenderer) { _plyRenderer.dispose(); _plyRenderer.domElement.remove(); _plyRenderer = null; }
   _plyAttributeControl?.remove(); _plyAttributeControl = null;
+  _publishedSparkGroup = null;
+  _publishedSparkMesh = null;
   _plyScene = _plyCamera = _plyControls = null;
 }
 async function mountPlyViewer(url) {
@@ -1852,7 +1855,7 @@ function mountDecodedCloud(g) {
 }
 // High-fidelity published path: render the edited companion Gaussian PLY with
 // Spark, matching the editor renderer instead of flattening NIF geometry to legacy .splat rows.
-let _publishedSparkRenderer = null, _publishedSparkMesh = null;
+let _publishedSparkRenderer = null, _publishedSparkMesh = null, _publishedSparkGroup = null;
 async function mountPublishedSparkPly(url) {
   destroyPlyViewer();
   const container = stageHost || stageEl;
@@ -1877,7 +1880,6 @@ async function mountPublishedSparkPly(url) {
   _plyScene.add(_publishedSparkRenderer);
   _publishedSparkMesh = new SplatMesh({ fileBytes: bytes, fileName: 'published-edited.ply', enableLod: false });
   _publishedSparkMesh.name = 'fumoca-published-spark-splat';
-  _plyScene.add(_publishedSparkMesh);
   if (_publishedSparkMesh.initialized) await _publishedSparkMesh.initialized;
   // Use PLY positions only to calculate a stable framing; Spark handles the actual splat rendering.
   const parsed = new PLYLoader().parse(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
@@ -1886,6 +1888,13 @@ async function mountPublishedSparkPly(url) {
   const bounds = new THREE.Box3().setFromBufferAttribute(position);
   const center = bounds.getCenter(new THREE.Vector3());
   const radius = Math.max(bounds.getBoundingSphere(new THREE.Sphere()).radius, 0.01);
+  // Keep the source Gaussian data untouched; a parent group provides a reversible
+  // presentation-only pivot for poster position, scale and rotation.
+  _publishedSparkGroup = new THREE.Group();
+  _publishedSparkGroup.position.copy(center);
+  _publishedSparkMesh.position.sub(center);
+  _publishedSparkGroup.add(_publishedSparkMesh);
+  _plyScene.add(_publishedSparkGroup);
   _plyCamera.position.set(center.x, center.y + radius * 0.35, center.z + radius * 2.3);
   _plyCamera.lookAt(center);
   _plyControls = new TrackballControls(_plyCamera, _plyRenderer.domElement);
@@ -1912,6 +1921,13 @@ async function mountPublishedSparkPly(url) {
     if (!_plyRenderer || !_publishedSparkRenderer) return;
     _plyFrame = requestAnimationFrame(loop);
     _plyControls?.update();
+    const posterState = window.FumocaPoster?.getState?.();
+    if (posterState?.composition && _publishedSparkGroup) {
+      applyPosterLiveTransform({
+        THREE, group: _publishedSparkGroup, camera: _plyCamera, center,
+        composition: posterState.composition, enabled: !!posterState.enabled,
+      });
+    }
     _plyRenderer.render(_plyScene, _plyCamera);
   };
   loop();
