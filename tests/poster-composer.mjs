@@ -36,7 +36,7 @@ assert.equal(poster.getLayout(0, 600).scale, 0);
 
 poster.updateComposition({
   object: { x: 1.5, y: -1, scale: 9, rotation: 720 },
-  title: { text: 'x'.repeat(200), align: 'invalid' },
+  title: { text: 'x'.repeat(200), align: 'invalid', fontFamily: 'Comic Sans', fontSize: 500, color: 'red', weight: 1200 },
   background: { type: 'image', value: 'javascript:alert(1)' },
 });
 state = poster.getState();
@@ -46,6 +46,10 @@ assert.equal(state.composition.object.scale, 4);
 assert.equal(state.composition.object.rotation, 360);
 assert.equal(state.composition.title.text.length, 160);
 assert.equal(state.composition.title.align, 'center');
+assert.equal(state.composition.title.fontFamily, 'system-ui, sans-serif');
+assert.equal(state.composition.title.fontSize, 120);
+assert.equal(state.composition.title.color, '#ffffff');
+assert.equal(state.composition.title.weight, 900);
 assert.equal(state.composition.background.type, 'solid', 'Unsafe image URL should fall back to solid background');
 
 poster.setEnabled(true);
