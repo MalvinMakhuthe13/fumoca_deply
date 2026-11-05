@@ -56,4 +56,23 @@ poster.reset();
 assert.equal(poster.getState().preset, 'story');
 assert.equal(poster.getState().composition.object.scale, 0.92);
 
+const renderLayout = poster.getLayout(400, 900);
+assert.deepEqual(renderLayout.safe, {
+  left: 28,
+  top: 28,
+  right: 372,
+  bottom: 616,
+  width: 344,
+  height: 588,
+});
+assert.deepEqual(renderLayout.object, {
+  x: 200,
+  y: 432,
+  scale: 0.92,
+  rotation: 0,
+  anchor: 'center',
+});
+assert.equal(renderLayout.background.value, '#10131a');
+assert.equal(renderLayout.title.text, 'Your story');
+
 console.log('Poster Composer model tests passed.');
