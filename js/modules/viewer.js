@@ -1899,6 +1899,7 @@ async function mountPublishedSparkPly(url) {
   _plyCamera.far = 1e9;
   _plyCamera.updateProjectionMatrix();
   _plyControls.target.copy(center); _plyControls.update();
+  window.FumocaPresentation?.fitSphere?.(center, radius, { padding: 1.18 });
   const resize = () => {
     if (!_plyRenderer || !_plyCamera) return;
     const w = container.clientWidth || window.innerWidth, h = container.clientHeight || window.innerHeight;
