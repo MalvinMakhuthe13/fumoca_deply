@@ -1163,6 +1163,20 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
 
     <!-- TAB: PRESENT (camera paths + break the frame) -->
     <div class="panel-body" id="tab-present" style="display:none">
+      <div class="section" id="apeCompositionPanel" style="margin-bottom:12px;border-color:rgba(212,255,0,.3)">
+        <div class="sec-head"><span class="sec-label">Composition layers</span><span class="sec-badge">UCE · V1</span></div>
+        <div class="hint" style="padding:6px 0 10px">Add poster text or a logo to the presentation overlay. Drag the selected layer in the preview; the 3D scene remains independently interactive.</div>
+        <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:5px">Text layer</label>
+        <input id="apeLayerText" type="text" maxlength="80" placeholder="Add a headline or product label" style="width:100%;padding:9px;border-radius:8px;background:var(--surface2);color:var(--text);border:1px solid var(--border2);margin-bottom:7px">
+        <div style="display:flex;gap:7px">
+          <button type="button" class="ac-btn" id="apeAddText" style="flex:1">Add text</button>
+          <button type="button" class="ac-btn" id="apeDeleteLayer" style="flex:1">Delete selected</button>
+        </div>
+        <label style="display:block;font-size:11px;color:var(--muted);margin:10px 0 5px">Logo / artwork</label>
+        <input id="apeLayerImage" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" style="width:100%;font-size:11px;color:var(--muted)">
+        <div id="apeLayerList" style="display:flex;flex-direction:column;gap:5px;margin-top:9px"></div>
+        <div class="hint" style="font-size:10px;padding-top:8px">Artwork is currently a local editor preview. Persistent asset upload and public-viewer rendering are the next integration step.</div>
+      </div>
       <div class="section" id="apeMainStudioPanel" style="margin-bottom:12px;border-color:rgba(212,255,0,.38);background:linear-gradient(145deg,rgba(212,255,0,.075),rgba(255,255,255,.018));">
         <div class="sec-head"><span class="sec-label">Adaptive Presentation Engine</span><span class="sec-badge">LIVE · RESPONSIVE</span></div>
         <div class="hint" style="padding:7px 0 10px">Set how this experience is framed in posters, website embeds and mobile placements. Camera zoom updates the live 3D viewport without stretching the scene.</div>
@@ -7391,6 +7405,54 @@ if (!window._fumocaBooted) {
   });
 </script>
 
+<script>
+(function () {
+  'use strict';
+  const host = document.getElementById('canvasHost');
+  const panel = document.getElementById('apeCompositionPanel');
+  if (!host || !panel) return;
+  const overlay = document.createElement('div');
+  overlay.id = 'apeCompositionOverlay';
+  Object.assign(overlay.style, { position:'absolute', inset:'0', zIndex:'20', pointerEvents:'none', overflow:'hidden' });
+  host.appendChild(overlay);
+  const textInput = document.getElementById('apeLayerText');
+  const addText = document.getElementById('apeAddText');
+  const imageInput = document.getElementById('apeLayerImage');
+  const deleteBtn = document.getElementById('apeDeleteLayer');
+  const list = document.getElementById('apeLayerList');
+  let items = Array.isArray(window._fumocaApePresentationDraft?.layers) ? window._fumocaApePresentationDraft.layers : [];
+  let selected = null;
+  let drag = null;
+  const clamp = n => Math.max(0.03, Math.min(0.97, n));
+  function publishDraft() {
+    const prev = window._fumocaApePresentationDraft || {};
+    window._fumocaApePresentationDraft = { ...prev, version:1, layers:items.map(({id,type,content,x,y,width})=>({id,type,content,x,y,width})) };
+    window.dispatchEvent(new CustomEvent('fumoca:apePresentationChanged',{detail:window._fumocaApePresentationDraft}));
+  }
+  function render() {
+    overlay.innerHTML = '';
+    items.forEach(item => {
+      const el = document.createElement(item.type === 'image' ? 'img' : 'div');
+      if (item.type === 'image') { el.src = item.content; el.alt = 'Presentation artwork'; el.style.width = (item.width || 18) + '%'; el.style.objectFit = 'contain'; }
+      else { el.textContent = item.content; el.style.font = '700 clamp(14px,2.5vw,34px)/1.15 system-ui,sans-serif'; el.style.color = '#fff'; el.style.textShadow = '0 2px 8px #000'; el.style.maxWidth = '70%'; }
+      Object.assign(el.style,{position:'absolute',left:(item.x*100)+'%',top:(item.y*100)+'%',transform:'translate(-50%,-50%)',pointerEvents:'auto',cursor:'move',padding:'4px',outline:selected===item.id?'1px dashed #d4ff00':'none',touchAction:'none'});
+      el.addEventListener('pointerdown',ev=>{ selected=item.id; drag={id:item.id,x:ev.clientX,y:ev.clientY,rect:overlay.getBoundingClientRect(),sx:item.x,sy:item.y}; el.setPointerCapture(ev.pointerId); renderList(); });
+      el.addEventListener('pointermove',ev=>{if(!drag||drag.id!==item.id)return;item.x=clamp(drag.sx+(ev.clientX-drag.x)/Math.max(1,drag.rect.width));item.y=clamp(drag.sy+(ev.clientY-drag.y)/Math.max(1,drag.rect.height));el.style.left=(item.x*100)+'%';el.style.top=(item.y*100)+'%';});
+      el.addEventListener('pointerup',()=>{if(drag?.id===item.id){drag=null;publishDraft();}});
+      overlay.appendChild(el);
+    });
+    renderList();
+  }
+  function renderList() {
+    list.innerHTML='';
+    items.forEach((item,i)=>{const b=document.createElement('button');b.type='button';b.className='ac-btn';b.textContent=(selected===item.id?'✓ ':'')+(item.type==='image'?'Logo / artwork':item.content.slice(0,35));b.addEventListener('click',()=>{selected=item.id;render();});list.appendChild(b);});
+  }
+  addText.addEventListener('click',()=>{const value=textInput.value.trim();if(!value)return;const item={id:'layer-'+Date.now(),type:'text',content:value,x:.5,y:.18,width:45};items.push(item);selected=item.id;textInput.value='';publishDraft();render();});
+  imageInput.addEventListener('change',()=>{const file=imageInput.files?.[0];if(!file)return;if(file.size>5*1024*1024){alert('Please choose an image smaller than 5 MB.');imageInput.value='';return;}const reader=new FileReader();reader.onload=()=>{const item={id:'layer-'+Date.now(),type:'image',content:String(reader.result),x:.5,y:.82,width:18};items.push(item);selected=item.id;publishDraft();render();};reader.readAsDataURL(file);});
+  deleteBtn.addEventListener('click',()=>{if(!selected)return;items=items.filter(x=>x.id!==selected);selected=null;publishDraft();render();});
+  render();
+})();
+</script>
 <script src="js/modules/platform-tab.js?v=20261031-look"></script>
 <script>
 (function () {
