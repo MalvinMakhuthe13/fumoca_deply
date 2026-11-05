@@ -145,6 +145,9 @@ const FumocaPublish = (() => {
         };
         if (layer.type === 'text') {
           base.content = String(layer.content || '').slice(0, 240);
+          base.fontSize = Math.max(12, Math.min(72, Number(layer.fontSize) || 32));
+          base.color = /^#[0-9a-f]{6}$/i.test(String(layer.color || '')) ? String(layer.color) : '#ffffff';
+          base.textAlign = ['left', 'center', 'right'].includes(layer.textAlign) ? layer.textAlign : 'left';
         } else {
           let artworkUrl = String(layer.url || '');
           if (/^data:image\/(png|jpeg|webp|svg\+xml);base64,/i.test(String(layer.content || ''))) {
