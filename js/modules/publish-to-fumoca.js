@@ -147,7 +147,7 @@ const FumocaPublish = (() => {
           base.content = String(layer.content || '').slice(0, 240);
         } else {
           let artworkUrl = String(layer.url || '');
-          if (/^data:image\\/(png|jpeg|webp|svg\\+xml);base64,/i.test(String(layer.content || ''))) {
+          if (/^data:image\/(png|jpeg|webp|svg\+xml);base64,/i.test(String(layer.content || ''))) {
             const dataUrl = String(layer.content);
             const response = await fetch(dataUrl);
             const blob = await response.blob();
