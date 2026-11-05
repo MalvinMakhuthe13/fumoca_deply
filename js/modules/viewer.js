@@ -123,7 +123,7 @@ const FUMOCA_APE = (() => {
     const raw = Number(params.get('ape_' + key));
     return Number.isFinite(raw) && params.has('ape_' + key) ? Math.max(min, Math.min(max, raw)) : fallback;
   };
-  const settings = Object.freeze({
+  let settings = Object.freeze({
     initialZoom: readNumber('zoom', 1, 0.25, 4),
     minZoom: readNumber('min_zoom', 0, 0, 1),
     maxZoom: readNumber('max_zoom', 0, 0, 30),
@@ -131,6 +131,19 @@ const FUMOCA_APE = (() => {
     damping: readNumber('damping', 0.08, 0.02, 0.2),
     framePadding: readNumber('frame_padding', 1.55, 1.05, 3.5),
   });
+  function configure(input = {}) {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) return settings;
+    const clamp = (value, fallback, min, max) => Number.isFinite(Number(value)) ? Math.max(min, Math.min(max, Number(value))) : fallback;
+    settings = Object.freeze({
+      initialZoom: clamp(input.initialZoom, settings.initialZoom, 0.25, 4),
+      minZoom: clamp(input.minZoom, settings.minZoom, 0, 1),
+      maxZoom: clamp(input.maxZoom, settings.maxZoom, 0, 30),
+      maxDpr: clamp(input.maxDpr, settings.maxDpr, 1, 2),
+      damping: clamp(input.damping, settings.damping, 0.02, 0.2),
+      framePadding: clamp(input.framePadding, settings.framePadding, 1.05, 3.5),
+    });
+    return settings;
+  }
   const observers = new WeakMap();
   function prepareHost(host) {
     if (!host) return;
@@ -170,7 +183,7 @@ const FUMOCA_APE = (() => {
     controls.minDistance = settings.maxZoom > 0 ? referenceDistance / settings.maxZoom : 0;
     controls.maxDistance = settings.minZoom > 0 ? referenceDistance / settings.minZoom : Infinity;
   }
-  return { settings, prepareHost, observe, applyZoomBounds };
+  return { get settings() { return settings; }, configure, prepareHost, observe, applyZoomBounds };
 })();
 
 // Validate the file= param â€” if the file doesn't exist (400/404), ignore it
@@ -2325,6 +2338,13 @@ async function boot() {
   setLoading('Fetching nifâ€¦');
   const sessionRecord = hydrateFromSession();
   currentRecord = (await fetchRecord()) || sessionRecord;
+  // Published presentation settings travel with the NIF record. URL overrides
+  // remain useful for preview/debugging; record metadata supplies the defaults.
+  FUMOCA_APE.configure(currentRecord?.meta?.presentation || currentRecord?.meta?.ape_presentation || {});
+  window.FumocaAPE = {
+    getSettings: () => ({ ...FUMOCA_APE.settings }),
+    configure: (settings) => FUMOCA_APE.configure(settings),
+  };
   if (sessionRecord) {
     thumbnailUrl = thumbnailUrl || sessionRecord.thumbnail || '';
     previewVideoUrl = previewVideoUrl || sessionRecord.previewVideo || '';
