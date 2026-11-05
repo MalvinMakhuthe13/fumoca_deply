@@ -1494,6 +1494,10 @@ function destroyPlyViewer() {
   _plyAttributeControl?.remove(); _plyAttributeControl = null;
   _publishedSparkGroup = null;
   _legacyPosterGroup = null;
+  if (_posterClearColorHandler) {
+    window.removeEventListener('fumoca:posterChange', _posterClearColorHandler);
+    _posterClearColorHandler = null;
+  }
   _publishedSparkMesh = null;
   _publishedSparkRenderer = null;
   if (window._fumocaPublishedSpark) window._fumocaPublishedSpark = null;
@@ -1793,9 +1797,15 @@ function mountDecodedCloud(g) {
   _plyScene = new THREE.Scene();
   _plyCamera = new THREE.PerspectiveCamera(50, 1, Math.max(0.01, radius / 200), radius * 80);
   _plyCamera.up.set(0, 1, 0);
-  _plyRenderer = new THREE.WebGLRenderer({ antialias: false, alpha: false, powerPreference: 'high-performance' });
+  _plyRenderer = new THREE.WebGLRenderer({ antialias: false, alpha: true, powerPreference: 'high-performance' });
   _plyRenderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-  _plyRenderer.setClearColor(0x07090d, 1);
+  const setDecodedClearColor = () => {
+    const posterEnabled = !!window.FumocaPoster?.getState?.().enabled;
+    _plyRenderer?.setClearColor(posterEnabled ? 0x000000 : 0x07090d, posterEnabled ? 0 : 1);
+  };
+  setDecodedClearColor();
+  _posterClearColorHandler = setDecodedClearColor;
+  window.addEventListener('fumoca:posterChange', _posterClearColorHandler);
   Object.assign(_plyRenderer.domElement.style, {
     position: 'absolute', inset: '0', width: '100%', height: '100%', zIndex: '2', display: 'block',
   });
@@ -1891,6 +1901,7 @@ function mountDecodedCloud(g) {
 // Spark, matching the editor renderer instead of flattening NIF geometry to legacy .splat rows.
 let _publishedSparkRenderer = null, _publishedSparkMesh = null, _publishedSparkGroup = null;
 let _legacyPosterGroup = null;
+let _posterClearColorHandler = null;
 async function mountPublishedSparkPly(url) {
   destroyPlyViewer();
   const container = stageHost || stageEl;
