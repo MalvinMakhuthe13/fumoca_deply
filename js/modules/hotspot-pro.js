@@ -1276,9 +1276,41 @@ function renderHotspots() {
     el.title = h.title;
     el.setAttribute('aria-label', h.title || 'Hotspot');
     el.innerHTML = `<span class="hotspot-pill">${escapeHtml(h.title)}</span>`;
+    let markerDrag = null;
+    el.addEventListener('pointerdown', (e) => {
+      if (!state.canManage || [h.wx, h.wy, h.wz].every(v => v != null && Number.isFinite(Number(v)))) return;
+      const rect = _getViewRect();
+      if (!rect || rect.width < 2 || rect.height < 2) return;
+      markerDrag = { pointerId:e.pointerId, startX:e.clientX, startY:e.clientY, rect, moved:false };
+      el.setPointerCapture?.(e.pointerId);
+    });
+    el.addEventListener('pointermove', (e) => {
+      if (!markerDrag || markerDrag.pointerId !== e.pointerId) return;
+      const dx = e.clientX - markerDrag.startX, dy = e.clientY - markerDrag.startY;
+      if (Math.abs(dx) + Math.abs(dy) > 4) markerDrag.moved = true;
+      if (!markerDrag.moved) return;
+      const u = Math.max(0, Math.min(1, (e.clientX - markerDrag.rect.left) / markerDrag.rect.width));
+      const v = Math.max(0, Math.min(1, (e.clientY - markerDrag.rect.top) / markerDrag.rect.height));
+      h.x = u * 100; h.y = v * 100;
+      h.compositionAnchor = { version:1, coordinateSpace:'normalized', origin:'top-left', u, v };
+      const pos = getRenderPosition(h);
+      el.style.left = `${pos.x}%`;
+      el.style.top = `${pos.y}%`;
+    });
+    el.addEventListener('pointerup', async (e) => {
+      if (!markerDrag || markerDrag.pointerId !== e.pointerId) return;
+      const moved = markerDrag.moved;
+      markerDrag = null;
+      if (moved) { e.preventDefault(); e.stopPropagation(); await saveRemote(); renderHotspots(); }
+    });
+    el.addEventListener('pointercancel', () => { markerDrag = null; renderHotspots(); });
     el.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
+      if (state.canManage && ![h.wx, h.wy, h.wz].every(v => v != null && Number.isFinite(Number(v)))) {
+        openHotspotEditor(h, { isNew:false });
+        return;
+      }
       activateHotspot(h);
     });
     hotspotLayer.appendChild(el);
