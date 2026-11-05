@@ -83,3 +83,6 @@ Test at minimum:
 Animation authoring and timeline work remain paused. APE is a presentation and interaction layer, not a replacement renderer or a separate scene format.
 
 - UCE composition layers support Ctrl/Cmd/Shift multi-selection, grouping and ungrouping, and moving a grouped set as one unit while preserving each layer's independent styling, size, stacking order and lock state. Group membership is retained in the Studio draft and reusable presets as authoring metadata; the publisher continues to emit each layer's absolute normalized position without exposing group IDs to the public viewer.
+
+- UCE Studio alignment tools now support left/centre/right alignment, top/middle/bottom alignment, and even horizontal/vertical distribution for selected unlocked layers. Alignment requires at least two selected layers; distribution requires at least three. The operations update normalized composition positions and preserve independent layer styling and stacking order.
+- Browser QA still required for alignment geometry across text/image combinations, boundary clamping, touch interaction and publish-preview parity.
