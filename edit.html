@@ -1175,6 +1175,13 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
         <label style="display:block;font-size:11px;color:var(--muted);margin:10px 0 5px">Logo / artwork</label>
         <input id="apeLayerImage" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" style="width:100%;font-size:11px;color:var(--muted)">
         <div id="apeLayerList" style="display:flex;flex-direction:column;gap:5px;margin-top:9px"></div>
+        <div style="border-top:1px solid var(--border2);margin-top:12px;padding-top:10px">
+          <label for="apePresetName" style="display:block;font-size:11px;color:var(--muted);margin-bottom:5px">Reusable composition preset</label>
+          <input id="apePresetName" type="text" maxlength="40" placeholder="e.g. Product hero layout" style="width:100%;padding:8px;border-radius:8px;background:var(--surface2);color:var(--text);border:1px solid var(--border2)">
+          <div style="display:flex;gap:6px;margin-top:7px"><button type="button" class="ac-btn" id="apePresetSave" style="flex:1">Save preset</button><button type="button" class="ac-btn" id="apePresetLoad" style="flex:1">Load selected</button><button type="button" class="ac-btn" id="apePresetDelete">Delete</button></div>
+          <select id="apePresetSelect" aria-label="Saved composition presets" style="width:100%;margin-top:7px;padding:8px;border-radius:8px;background:var(--surface2);color:var(--text);border:1px solid var(--border2)"><option value="">No saved presets</option></select>
+          <div id="apePresetStatus" class="hint" style="padding-top:5px">Presets are saved in this browser profile.</div>
+        </div>
         <label for="apeLayerWidth" style="display:block;font-size:11px;color:var(--muted);margin:10px 0 5px">Selected layer width <span id="apeLayerWidthValue">45%</span></label>
         <input id="apeLayerWidth" type="range" min="5" max="90" step="1" value="45" style="width:100%">
         <div style="display:flex;gap:7px;margin-top:7px"><button type="button" class="ac-btn" id="apeLayerBack" style="flex:1">Send backward</button><button type="button" class="ac-btn" id="apeLayerForward" style="flex:1">Bring forward</button></div>
@@ -7430,6 +7437,12 @@ if (!window._fumocaBooted) {
   const widthValue = document.getElementById('apeLayerWidthValue');
   const backBtn = document.getElementById('apeLayerBack');
   const forwardBtn = document.getElementById('apeLayerForward');
+  const presetName = document.getElementById('apePresetName');
+  const presetSelect = document.getElementById('apePresetSelect');
+  const presetStatus = document.getElementById('apePresetStatus');
+  const presetSave = document.getElementById('apePresetSave');
+  const presetLoad = document.getElementById('apePresetLoad');
+  const presetDelete = document.getElementById('apePresetDelete');
   const fontSizeInput = document.getElementById('apeLayerFontSize');
   const fontSizeValue = document.getElementById('apeLayerFontSizeValue');
   const colorInput = document.getElementById('apeLayerColor');
@@ -7491,6 +7504,44 @@ if (!window._fumocaBooted) {
   function moveSelected(delta){const item=selectedItem();if(!item)return;const from=items.indexOf(item),to=Math.max(0,Math.min(items.length-1,from+delta));if(from===to)return;items.splice(from,1);items.splice(to,0,item);publishDraft();render();}
   backBtn.addEventListener('click',()=>moveSelected(-1));
   forwardBtn.addEventListener('click',()=>moveSelected(1));
+  const presetStorageKey = 'fumoca:uce-presets:v1:' + (window._fumocaSession?.user?.id || 'local');
+  function readPresets() {
+    try { const value = JSON.parse(localStorage.getItem(presetStorageKey) || '[]'); return Array.isArray(value) ? value.filter(p => p && typeof p.id === 'string' && typeof p.name === 'string' && Array.isArray(p.layers)) : []; }
+    catch (_) { return []; }
+  }
+  function refreshPresets(selectedId) {
+    const presets = readPresets();
+    presetSelect.replaceChildren();
+    if (!presets.length) { const opt=document.createElement('option'); opt.value=''; opt.textContent='No saved presets'; presetSelect.appendChild(opt); }
+    presets.forEach(p=>{const opt=document.createElement('option');opt.value=p.id;opt.textContent=p.name;presetSelect.appendChild(opt);});
+    if (selectedId && presets.some(p=>p.id===selectedId)) presetSelect.value=selectedId;
+    presetLoad.disabled = !presets.length;
+    presetDelete.disabled = !presets.length;
+  }
+  presetSave.addEventListener('click',()=>{
+    const name=presetName.value.trim();
+    if(!name){presetStatus.textContent='Enter a name before saving.';return;}
+    const snapshot=items.map(({id,type,content,x,y,width,fontSize,color,textAlign})=>({id,type,content,x,y,width,fontSize,color,textAlign}));
+    const payload=JSON.stringify(snapshot);
+    if(payload.length>1400000){presetStatus.textContent='This layout contains large embedded artwork. Publish the artwork first, then save a preset using its published asset URL.';return;}
+    const presets=readPresets();
+    const id='uce-'+Date.now();
+    presets.push({id,name:name.slice(0,40),layers:snapshot,updatedAt:new Date().toISOString()});
+    try { localStorage.setItem(presetStorageKey,JSON.stringify(presets)); refreshPresets(id); presetStatus.textContent='Preset saved in this browser profile.'; }
+    catch (_) { presetStatus.textContent='Could not save: browser storage is full or unavailable.'; }
+  });
+  presetLoad.addEventListener('click',()=>{
+    const preset=readPresets().find(p=>p.id===presetSelect.value);
+    if(!preset)return;
+    items=preset.layers.map(layer=>({...layer,id:'layer-'+Date.now()+'-'+Math.random().toString(36).slice(2,7)}));
+    selected=null; publishDraft(); render(); presetStatus.textContent='Preset loaded into the current composition draft. Publish to apply it to the viewer.';
+  });
+  presetDelete.addEventListener('click',()=>{
+    const id=presetSelect.value;if(!id)return;
+    try { localStorage.setItem(presetStorageKey,JSON.stringify(readPresets().filter(p=>p.id!==id)));refreshPresets();presetStatus.textContent='Preset deleted from this browser profile.'; }
+    catch (_) { presetStatus.textContent='Could not update browser storage.'; }
+  });
+  refreshPresets();
   render();
 })();
 </script>
