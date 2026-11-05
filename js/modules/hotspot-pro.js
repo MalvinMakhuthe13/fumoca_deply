@@ -384,8 +384,8 @@ function hotspotCompositionAnchor(h) {
     return { u: Math.max(0, Math.min(1, Number(anchor.u))), v: Math.max(0, Math.min(1, Number(anchor.v))) };
   }
   return {
-    u: Math.max(0, Math.min(1, (Number(h?.x) || 0) / 100)),
-    v: Math.max(0, Math.min(1, (Number(h?.y) || 0) / 100)),
+    u: Math.max(0, Math.min(1, (Number.isFinite(Number(h?.x)) ? Number(h.x) : 50) / 100)),
+    v: Math.max(0, Math.min(1, (Number.isFinite(Number(h?.y)) ? Number(h.y) : 50) / 100)),
   };
 }
 function getStagePercentFromEvent(event) {
