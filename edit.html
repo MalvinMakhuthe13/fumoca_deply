@@ -7558,6 +7558,7 @@ if (!window._fumocaBooted) {
   }
   function render() {
     overlay.replaceChildren();
+    overlay.appendChild(smartGuideLayer);
     items.forEach((item,index) => {
       const el = document.createElement(item.type === 'image' ? 'img' : 'div');
       if (item.type === 'image') { el.src = item.content; el.alt = 'Presentation artwork'; el.style.width = (item.width || 18) + '%'; el.style.maxHeight = '80%'; el.style.objectFit = 'contain'; }
