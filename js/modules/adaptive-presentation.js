@@ -2,24 +2,47 @@
  * FUMOCA Adaptive Presentation Engine (APE)
  *
  * Phase 1: responsive stage measurement and camera-aspect synchronization.
- * This module deliberately does not touch Gaussian data, renderer internals,
- * reconstruction jobs, camera pose, or user interaction controls.
+ * Phase 2: named presentation profiles and aspect-aware subject framing.
  *
- * It observes the actual viewer container (not the browser window), which is
- * essential for embedded viewers, split layouts, and responsive product pages.
+ * This layer does not modify Gaussian data, renderer internals, or reconstruction
+ * jobs. It observes the actual viewer container for embedded and split layouts.
  */
-const APE_VERSION = '0.1.0';
+const APE_VERSION = '0.2.0';
 
 const stage = document.getElementById('stage');
 const getHost = () => document.getElementById('stageHost') || stage;
 const params = new URLSearchParams(window.location.search);
 
+const PROFILE_PRESETS = Object.freeze({
+  product: Object.freeze({ label: 'Product', padding: 1.12 }),
+  automotive: Object.freeze({ label: 'Automotive', padding: 1.16 }),
+  realEstate: Object.freeze({ label: 'Real Estate', padding: 1.22 }),
+  portrait: Object.freeze({ label: 'Portrait', padding: 1.12 }),
+  immersive: Object.freeze({ label: 'Immersive', padding: 1.04 }),
+  default: Object.freeze({ label: 'Default', padding: 1.18 }),
+});
+
+function normalizeProfileName(name) {
+  const value = String(name || 'default').trim();
+  if (PROFILE_PRESETS[value]) return value;
+  const normalized = value.toLowerCase().replace(/[\\s_-]+/g, '');
+  return Object.keys(PROFILE_PRESETS).find((key) => key.toLowerCase() === normalized) || 'default';
+}
+
+function clampPadding(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.max(1, Math.min(2.5, number)) : fallback;
+}
+
+const initialProfile = normalizeProfileName(params.get('profile'));
 const state = {
   version: APE_VERSION,
   width: 0,
   height: 0,
   aspect: 0,
   mode: params.get('embed') === '1' ? 'embed' : (params.get('public') === '1' ? 'public' : 'viewer'),
+  profileName: initialProfile,
+  profile: { ...PROFILE_PRESETS[initialProfile] },
   camera: null,
   controls: null,
   observer: null,
@@ -49,12 +72,9 @@ function measure() {
   state.aspect = width / height;
   state.lastResizeAt = performance.now();
 
-  // Keep the stage and render surfaces constrained by their real embed box.
-  // Renderer-specific ResizeObservers remain responsible for backing buffers.
   host.style.minWidth = '0';
   host.style.maxWidth = '100%';
   host.style.boxSizing = 'border-box';
-
   host.querySelectorAll('canvas').forEach((canvas) => {
     canvas.style.maxWidth = '100%';
     canvas.style.maxHeight = '100%';
@@ -69,6 +89,7 @@ function measure() {
         height: state.height,
         aspect: state.aspect,
         mode: state.mode,
+        profile: state.profileName,
         version: APE_VERSION,
       },
     }));
@@ -100,15 +121,35 @@ function start() {
   window.addEventListener('fumoca:recordLoaded', measure);
   window.addEventListener('orientationchange', () => requestAnimationFrame(measure), { passive: true });
 
-  // Viewer renderers can mount after this module; attach to their ready event.
   if (window._fumocaViewerCamera) state.camera = window._fumocaViewerCamera;
   if (window._fumocaViewerControls) state.controls = window._fumocaViewerControls;
-
   requestAnimationFrame(measure);
 }
 
+function setProfile(name, options = {}) {
+  const profileName = normalizeProfileName(name);
+  const preset = PROFILE_PRESETS[profileName];
+  const previous = state.profileName;
+  state.profileName = profileName;
+  state.profile = {
+    label: preset.label,
+    padding: clampPadding(options.padding, preset.padding),
+  };
+
+  if (previous !== profileName || options.padding !== undefined) {
+    window.dispatchEvent(new CustomEvent('fumoca:presentationProfileChange', {
+      detail: { name: state.profileName, ...state.profile, version: APE_VERSION },
+    }));
+  }
+  return getProfile();
+}
+
+function getProfile() {
+  return { name: state.profileName, ...state.profile };
+}
+
 function fitSphere(center, radius, options = {}) {
-  const camera = state.camera || window._fumocaViewerCamera;
+  const camera = window._fumocaViewerCamera || state.camera;
   const controls = window._fumocaViewerControls || state.controls;
   if (!camera?.position || !controls?.target || !center) return false;
 
@@ -122,10 +163,9 @@ function fitSphere(center, radius, options = {}) {
   const verticalFov = THREE_FOV(camera.fov);
   const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * aspect);
   const limitingFov = Math.max(0.01, Math.min(verticalFov, horizontalFov));
-  const padding = Math.max(1, Number(options.padding) || 1.18);
+  const padding = clampPadding(options.padding, state.profile.padding);
   const distance = (r / Math.sin(limitingFov / 2)) * padding;
 
-  const target = controls.target;
   const px = camera.position.x, py = camera.position.y, pz = camera.position.z;
   let dx = px - cx, dy = py - cy, dz = pz - cz;
   let length = Math.hypot(dx, dy, dz);
@@ -133,7 +173,7 @@ function fitSphere(center, radius, options = {}) {
     dx = 0; dy = 0; dz = 1; length = 1;
   }
   const scale = distance / length;
-  target.set(cx, cy, cz);
+  controls.target.set(cx, cy, cz);
   camera.position.set(cx + dx * scale, cy + dy * scale, cz + dz * scale);
   camera.lookAt?.(cx, cy, cz);
   camera.updateMatrixWorld?.(true);
@@ -141,7 +181,15 @@ function fitSphere(center, radius, options = {}) {
   controls.update?.();
 
   window.dispatchEvent(new CustomEvent('fumoca:presentationFramed', {
-    detail: { center: { x: cx, y: cy, z: cz }, radius: r, distance, aspect, padding, version: APE_VERSION },
+    detail: {
+      center: { x: cx, y: cy, z: cz },
+      radius: r,
+      distance,
+      aspect,
+      padding,
+      profile: state.profileName,
+      version: APE_VERSION,
+    },
   }));
   return true;
 }
@@ -159,10 +207,14 @@ window.FumocaPresentation = Object.freeze({
     height: state.height,
     aspect: state.aspect,
     mode: state.mode,
+    profile: getProfile(),
   }),
+  getProfile,
+  setProfile,
+  getProfiles: () => Object.entries(PROFILE_PRESETS).map(([name, profile]) => ({ name, ...profile })),
   refresh: measure,
   fitSphere,
 });
 
 start();
-console.info('[FUMOCA APE] Responsive presentation layer ready', APE_VERSION);
+console.info('[FUMOCA APE] Adaptive presentation layer ready', APE_VERSION, state.profileName);
