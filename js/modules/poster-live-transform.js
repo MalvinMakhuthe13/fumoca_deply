@@ -42,3 +42,30 @@ export function computePosterWorldTransform({
     rotation: Math.min(360, Math.max(-360, safe(object.rotation, 0))) * Math.PI / 180,
   };
 }
+
+/**
+ * Apply the normalized poster state to a THREE.Group that pivots around the
+ * Gaussian subject's original center. Call after controls.update() each frame
+ * so poster-space offsets remain aligned with the camera during free orbit.
+ */
+export function applyPosterLiveTransform({ THREE, group, camera, center, composition, enabled }) {
+  if (!THREE?.Vector3 || !group?.position?.set || !camera?.position || !composition) return false;
+  camera.updateMatrixWorld?.(true);
+  const cameraRight = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion).normalize();
+  const cameraUp = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion).normalize();
+  const transform = computePosterWorldTransform({
+    center,
+    cameraPosition: camera.position,
+    cameraRight,
+    cameraUp,
+    fov: camera.fov,
+    aspect: camera.aspect,
+    object: composition.object,
+    enabled,
+  });
+  group.position.set(transform.position.x, transform.position.y, transform.position.z);
+  group.scale.setScalar(transform.scale);
+  const viewAxis = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion).normalize();
+  group.quaternion.setFromAxisAngle(viewAxis, transform.rotation);
+  return true;
+}
