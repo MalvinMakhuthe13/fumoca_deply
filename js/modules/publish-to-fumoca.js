@@ -160,6 +160,21 @@ const FumocaPublish = (() => {
       framePadding: clamp(presentation.framePadding, 1.55, 1.05, 3.5),
       damping: clamp(presentation.damping, 0.08, 0.02, 0.2),
       maxDpr: clamp(presentation.maxDpr, 2, 1, 2),
+      // UCE v1: one canonical 0..1 composition plane for posters, overlays,
+      // hotspot anchors and responsive embeds. Device dimensions never become
+      // authored coordinates; consumers scale this plane into their viewport.
+      composition: {
+        version: 1,
+        coordinateSpace: 'normalized',
+        origin: 'top-left',
+        width: 1,
+        height: 1,
+        safeArea: { top: 0.05, right: 0.05, bottom: 0.05, left: 0.05 },
+        fit: 'contain',
+        overflow: 'clip',
+        hotspotSpace: 'normalized',
+        responsive: { preserveAspectRatio: true, allowHostResize: true, minWidth: 0 },
+      },
     };
 
     onProgress?.(includeReview ? 'Uploading review video…' : 'Publishing without video…', 8);
