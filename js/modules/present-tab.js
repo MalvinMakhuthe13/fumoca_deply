@@ -241,6 +241,13 @@ function mountPanel() {
       <label class="ptp-poster-field">Preset<select data-poster-field="preset"><option value="product">Product · 4:5</option><option value="story">Story · 9:16</option><option value="editorial">Editorial · 3:4</option><option value="landscape">Landscape · 16:9</option></select></label>
       <label class="ptp-poster-toggle"><input type="checkbox" data-poster-field="enabled"> Enable poster composition</label>
       <label class="ptp-poster-field">Headline<input type="text" maxlength="160" data-poster-field="title" placeholder="Product title"></label>
+      <label class="ptp-poster-toggle"><input type="checkbox" data-poster-field="titleVisible" checked> Show headline</label>
+      <div class="ptp-poster-grid">
+        <label class="ptp-poster-field">Headline alignment<select data-poster-field="titleAlign"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></label>
+        <label class="ptp-poster-field">Headline font<select data-poster-field="titleFont"><option value="system-ui, sans-serif">Modern Sans</option><option value="Arial, sans-serif">Arial</option><option value="Georgia, serif">Editorial Serif</option><option value="Impact, sans-serif">Impact</option><option value="monospace">Mono</option></select></label>
+        <label class="ptp-poster-field">Headline size<input type="range" min="12" max="120" value="42" data-poster-field="titleSize"><output data-poster-value="titleSize">42 px</output></label>
+        <label class="ptp-poster-field">Headline colour<input type="color" value="#ffffff" data-poster-field="titleColor"></label>
+      </div>
       <label class="ptp-poster-field">Background colour<input type="color" data-poster-field="background" value="#10131a"></label>
       <div class="ptp-poster-grid">
         <label class="ptp-poster-field">Subject X <input type="range" min="0" max="100" value="50" data-poster-field="x"><output data-poster-value="x">50%</output></label>
@@ -336,6 +343,13 @@ function mountPanel() {
     posterRoot.querySelector('[data-poster-field="preset"]').value = state.preset;
     posterRoot.querySelector('[data-poster-field="enabled"]').checked = state.enabled;
     posterRoot.querySelector('[data-poster-field="title"]').value = c.title?.text || '';
+    posterRoot.querySelector('[data-poster-field="titleVisible"]').checked = c.title?.visible !== false;
+    posterRoot.querySelector('[data-poster-field="titleAlign"]').value = c.title?.align || 'center';
+    posterRoot.querySelector('[data-poster-field="titleFont"]').value = c.title?.fontFamily || 'system-ui, sans-serif';
+    posterRoot.querySelector('[data-poster-field="titleSize"]').value = String(c.title?.fontSize || 42);
+    posterRoot.querySelector('[data-poster-field="titleColor"]').value = /^#[0-9a-f]{6}$/i.test(c.title?.color || '') ? c.title.color : '#ffffff';
+    const titleSizeOutput = posterRoot.querySelector('[data-poster-value="titleSize"]');
+    if (titleSizeOutput) titleSizeOutput.textContent = (c.title?.fontSize || 42) + ' px';
     posterRoot.querySelector('[data-poster-field="background"]').value = /^#[0-9a-f]{6}$/i.test(c.background?.value || '') ? c.background.value : '#10131a';
     for (const key of ['x','y','scale','rotation']) {
       const value = c.object?.[key] ?? 0;
@@ -352,6 +366,11 @@ function mountPanel() {
     if (key === 'preset') window.FumocaPoster.setPreset(field.value);
     else if (key === 'enabled') window.FumocaPoster.setEnabled(field.checked);
     else if (key === 'title') window.FumocaPoster.updateComposition({ title: { text: field.value } });
+    else if (key === 'titleVisible') window.FumocaPoster.updateComposition({ title: { visible: field.checked } });
+    else if (key === 'titleAlign') window.FumocaPoster.updateComposition({ title: { align: field.value } });
+    else if (key === 'titleFont') window.FumocaPoster.updateComposition({ title: { fontFamily: field.value } });
+    else if (key === 'titleSize') window.FumocaPoster.updateComposition({ title: { fontSize: Number(field.value) } });
+    else if (key === 'titleColor') window.FumocaPoster.updateComposition({ title: { color: field.value } });
     else if (key === 'background') window.FumocaPoster.updateComposition({ background: { type: 'solid', value: field.value } });
     else if (['x','y','scale','rotation'].includes(key)) {
       const raw = Number(field.value);
