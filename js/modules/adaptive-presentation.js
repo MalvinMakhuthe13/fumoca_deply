@@ -27,7 +27,7 @@ const state = {
 };
 
 function syncCameraAspect() {
-  const camera = state.camera || window._fumocaViewerCamera;
+  const camera = window._fumocaViewerCamera || state.camera;
   if (!camera || !state.aspect || !Number.isFinite(state.aspect)) return;
   if (Math.abs((camera.aspect || 0) - state.aspect) < 0.0001) return;
   camera.aspect = state.aspect;
@@ -109,7 +109,7 @@ function start() {
 
 function fitSphere(center, radius, options = {}) {
   const camera = state.camera || window._fumocaViewerCamera;
-  const controls = state.controls || window._fumocaViewerControls;
+  const controls = window._fumocaViewerControls || state.controls;
   if (!camera?.position || !controls?.target || !center) return false;
 
   const cx = Number(center.x), cy = Number(center.y), cz = Number(center.z);
