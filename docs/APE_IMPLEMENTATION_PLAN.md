@@ -46,7 +46,7 @@ The bridge now fits against the narrower horizontal/vertical field of view, obse
 - Public viewer renders published text and image composition layers as display-only presentation overlays, including saved text size, colour, and alignment.
 - Hotspot Pro adds a versioned normalized `compositionAnchor` (`u`/`v`, top-left origin) while retaining legacy `x`/`y` percentages and all world-space anchor fields.
 - Legacy screen-only hotspots are upgraded through an explicit adapter at load/render time; original percentage fields remain intact for older clients.
-- Both Hotspot Pro and the fallback viewer hotspot renderer map normalized anchors through the actual viewer-stage rectangle into the overlay layer, avoiding viewport-vs-stage coordinate drift.
+- Both Hotspot Pro and the fallback viewer hotspot renderer map normalized anchors through the actual viewer-stage rectangle into the overlay layer, avoiding viewport-vs-stage coordinate drift. In management mode, screen-anchored hotspots can be dragged directly on the stage and saved; world-anchored hotspots retain their 3D projection and are not silently converted to screen anchors.
 - Main reconstruction editor (`edit.html`, Present tab) now exposes APE controls for aspect ratio, live camera zoom, and frame breathing room. The framing sliders update the active editor camera while preserving its look direction and target; changing aspect ratio does not snap or rotate the camera.
 - The editor maintains a presentation draft on `window._fumocaApePresentationDraft`; the publish panel initializes from that draft and the publish module merges it into the saved `meta.presentation`.
 - Viewer reads presentation presets from either the NIF `meta` or `metadata` JSON column shape.
@@ -57,7 +57,7 @@ The bridge now fits against the narrower horizontal/vertical field of view, obse
 - Extend APE settings beyond the publish panel with live Studio preview and an update-existing-publication workflow.
 - Add browser-level verification for durable R2 artwork upload, public-viewer layer rendering, layer resizing/order persistence, and failure/retry behavior.
 - Add public-viewer editing only if a concrete creator workflow requires it; published layers are currently display-only.
-- Continue validating hotspot placement/editing against the normalized composition plane; legacy x/y percentages remain supported through the explicit adapter.
+- Add direct stage placement/editing for new screen-space hotspots and verify drag-save behaviour; world-space anchors must remain projected from 3D and must not be overwritten by screen coordinates.
 - Add browser-level checks for responsive iframe snippets, host resizing, camera preservation and touch interactions.
 - Audit showroom and public viewer CSS for viewport-fixed assumptions and nested iframe overflow.
 - Verify all render paths in real browsers and devices; this branch has not yet undergone browser/device QA.
