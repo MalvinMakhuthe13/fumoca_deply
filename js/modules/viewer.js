@@ -10,6 +10,7 @@ import FumocDecoder from './fumoc-decoder.js';
 import { decodeNif, geometryToSplatRows } from './nif-format.js?v=20261024-realscale';
 import { chooseRenderMode, solidPointScale } from './industry-math.js';
 import './adaptive-presentation.js';
+import './poster-composer.js';
 window._fumocaSupabase = window._fumocaSupabase || supabase;
 const stageEl = document.getElementById('stage');
 let stageHost = document.getElementById('stageHost');
