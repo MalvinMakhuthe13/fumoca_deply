@@ -130,19 +130,41 @@ const FumocaPublish = (() => {
   // ── Main publish function ─────────────────────────────
   async function publish({ title, description, visibility = 'public', includeReview = false, presentation = {}, onProgress } = {}) {
     presentation = { ...(window._fumocaApePresentationDraft || {}), ...(presentation || {}) };
-    // Local image previews are data URLs until uploaded to durable storage.
-    // Never serialize those large, session-only payloads into NIF metadata.
+    // Upload local artwork previews to R2 before building the published composition.
+    // Persist only durable object keys/URLs; never put Base64 data URLs in NIF metadata.
     if (Array.isArray(presentation.layers)) {
-      presentation.layers = presentation.layers
-        .filter(layer => layer && layer.type === 'text')
-        .map(layer => ({
-          id: String(layer.id || ''),
-          type: 'text',
-          content: String(layer.content || '').slice(0, 240),
+      const layers = [];
+      for (const layer of presentation.layers) {
+        if (!layer || !['text', 'image'].includes(layer.type)) continue;
+        const base = {
+          id: String(layer.id || `layer-${Date.now()}`),
+          type: layer.type,
           x: Math.max(0.03, Math.min(0.97, Number(layer.x) || 0.5)),
           y: Math.max(0.03, Math.min(0.97, Number(layer.y) || 0.5)),
           width: Math.max(5, Math.min(90, Number(layer.width) || 45)),
-        }));
+        };
+        if (layer.type === 'text') {
+          base.content = String(layer.content || '').slice(0, 240);
+        } else {
+          let artworkUrl = String(layer.url || '');
+          if (/^data:image\\/(png|jpeg|webp|svg\\+xml);base64,/i.test(String(layer.content || ''))) {
+            const dataUrl = String(layer.content);
+            const response = await fetch(dataUrl);
+            const blob = await response.blob();
+            if (blob.size > 5 * 1024 * 1024) throw new Error('Composition artwork exceeds 5 MB.');
+            const ext = blob.type.includes('svg') ? 'svg' : blob.type.includes('webp') ? 'webp' : blob.type.includes('png') ? 'png' : 'jpg';
+            const key = `composition/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
+            const uploaded = await r2.from('nif-files').upload(key, blob, { contentType: blob.type || 'image/png' });
+            if (uploaded.error || !uploaded.fileKey) throw new Error('Composition artwork upload failed: ' + (uploaded.error?.message || 'no storage key returned'));
+            artworkUrl = uploaded.publicUrl || '';
+            base.assetKey = uploaded.fileKey;
+          }
+          if (!artworkUrl && !base.assetKey) continue;
+          base.url = artworkUrl;
+        }
+        layers.push(base);
+      }
+      presentation.layers = layers;
     }
     // Try every possible location for the Supabase client
     let sb = window._fumocaSupabase || window.supabase;
