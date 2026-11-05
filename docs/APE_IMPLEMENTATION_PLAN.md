@@ -1,6 +1,6 @@
 # FUMOCA Adaptive Presentation Engine (APE)
 
-Status: foundation integrated in public viewer paths; Studio authoring and browser QA pending
+Status: APE/UCE foundation and hotspot coordinate adapter integrated; browser/device QA pending
 Branch: `ape-foundation-2026-11-05`
 
 ## Product contract
@@ -42,7 +42,11 @@ The bridge now fits against the narrower horizontal/vertical field of view, obse
 - Ad Studio now has a responsive preview simulator with desktop/tablet/mobile width presets and 16:9, 1:1, 4:5, and 9:16 aspect ratios. It fits the selected frame inside the available preview area without distorting the ratio.
 - UCE v1 now publishes a canonical normalized composition plane (top-left origin, safe area, contain fit, clipped overflow and responsive host sizing).
 - APE Composition Layers now supports adding and dragging text and local image artwork in the editor preview, with normalized x/y coordinates and selection/deletion.
-- Publish sanitizes composition layers and excludes local image data URLs from NIF metadata; text layers can be persisted, while artwork requires the next durable R2 upload integration. Legacy hotspot coordinates are explicitly tagged as 0–100 percentages to avoid misinterpreting existing records.
+- Publish uploads local image artwork to R2 and stores durable asset references; Base64 data URLs are not persisted in NIF metadata.
+- Public viewer renders published text and image composition layers as display-only presentation overlays.
+- Hotspot Pro adds a versioned normalized `compositionAnchor` (`u`/`v`, top-left origin) while retaining legacy `x`/`y` percentages and all world-space anchor fields.
+- Legacy screen-only hotspots are upgraded through an explicit adapter at load/render time; original percentage fields remain intact for older clients.
+- Both Hotspot Pro and the fallback viewer hotspot renderer map normalized anchors through the actual viewer-stage rectangle into the overlay layer, avoiding viewport-vs-stage coordinate drift.
 - Main reconstruction editor (`edit.html`, Present tab) now exposes APE controls for aspect ratio, live camera zoom, and frame breathing room. The framing sliders update the active editor camera while preserving its look direction and target; changing aspect ratio does not snap or rotate the camera.
 - The editor maintains a presentation draft on `window._fumocaApePresentationDraft`; the publish panel initializes from that draft and the publish module merges it into the saved `meta.presentation`.
 - Viewer reads presentation presets from either the NIF `meta` or `metadata` JSON column shape.
