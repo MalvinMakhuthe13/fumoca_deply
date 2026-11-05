@@ -10,7 +10,7 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
-function containRect(width, height, aspect) {
+export function calculatePosterEditorFrame(width, height, aspect) {
   const safeAspect = Number(aspect) > 0 ? Number(aspect) : 4 / 5;
   let w = width;
   let h = w / safeAspect;
@@ -71,7 +71,7 @@ export function mountPosterEditorOverlay(options = {}) {
     if (!enabled) return;
     const bounds = host.getBoundingClientRect();
     if (!bounds.width || !bounds.height) return;
-    const poster = containRect(bounds.width, bounds.height, composition.aspectRatio || state?.aspectRatio || 4 / 5);
+    const poster = calculatePosterEditorFrame(bounds.width, bounds.height, composition.aspectRatio || state?.aspectRatio || 4 / 5);
     rect = poster;
     Object.assign(frame.style, {
       left: poster.left + 'px', top: poster.top + 'px',
