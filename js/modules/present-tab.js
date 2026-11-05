@@ -251,6 +251,24 @@ function mountPanel() {
     </div>
   `;
 
+  if (!document.getElementById('fumocaPosterComposerStyles')) {
+    const style = document.createElement('style');
+    style.id = 'fumocaPosterComposerStyles';
+    style.textContent = `
+      #ptpPosterComposer .ptp-poster-field{display:flex;flex-direction:column;gap:5px;margin:9px 0;color:rgba(255,255,255,.72);font-size:11px}
+      #ptpPosterComposer .ptp-poster-field input:not([type=range]),#ptpPosterComposer .ptp-poster-field select{width:100%;min-width:0;padding:8px 9px;border:1px solid rgba(255,255,255,.12);border-radius:8px;background:rgba(255,255,255,.05);color:#fff;font:inherit}
+      #ptpPosterComposer .ptp-poster-field input[type=color]{height:34px;padding:3px}
+      #ptpPosterComposer .ptp-poster-toggle{display:flex;align-items:center;gap:8px;margin:10px 0;color:rgba(255,255,255,.8);font-size:11px}
+      #ptpPosterComposer .ptp-poster-toggle input{accent-color:#c8ff00}
+      #ptpPosterComposer .ptp-poster-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px 12px}
+      #ptpPosterComposer .ptp-poster-field output{color:#c8ff00;font:10px monospace}
+      #ptpPosterComposer .ptp-poster-status{padding:8px 10px;border:1px solid rgba(200,255,0,.16);border-radius:8px;background:rgba(200,255,0,.045);color:rgba(255,255,255,.55);font-size:10px;line-height:1.45}
+      #ptpPosterComposer .ptp-title{color:#c8ff00}
+      @media(max-width:520px){#ptpPosterComposer .ptp-poster-grid{grid-template-columns:1fr}}
+    `;
+    document.head.appendChild(style);
+  }
+
   const host = findPresentHost();
   host.appendChild(panel);
   syncPresentActive();
