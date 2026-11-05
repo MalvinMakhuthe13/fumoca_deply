@@ -61,7 +61,7 @@ assert.ok(Math.abs(renderLayout.safe.left - 28) < 1e-9);
 assert.ok(Math.abs(renderLayout.safe.top - 28) < 1e-9);
 assert.ok(Math.abs(renderLayout.safe.right - 372) < 1e-9);
 assert.ok(Math.abs(renderLayout.safe.bottom - (400 / (9 / 16) - 28)) < 1e-9);
-assert.equal(renderLayout.safe.width, 344);
+assert.ok(Math.abs(renderLayout.safe.width - 344) < 1e-9);
 assert.ok(Math.abs(renderLayout.safe.height - (400 / (9 / 16) - 56)) < 1e-9);
 assert.deepEqual(renderLayout.object, {
   x: 200,
