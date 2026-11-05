@@ -1403,6 +1403,7 @@ function getActivenifUrl() {
 let _meshRenderer = null, _meshScene = null, _meshCamera = null, _meshControls = null, _meshFrame = null;
 let _meshLights = null, _meshLightingPanel = null;
 function destroyMeshViewer() {
+  window._fumocaMeshApeCleanup?.(); window._fumocaMeshApeCleanup = null;
   if (_meshFrame) { cancelAnimationFrame(_meshFrame); _meshFrame = null; }
   if (_meshRenderer) { _meshRenderer.dispose(); _meshRenderer.domElement.remove(); _meshRenderer = null; }
   _meshScene = _meshCamera = _meshControls = null;
@@ -1464,8 +1465,8 @@ function mountMeshViewer(mesh, calibration) {
   _meshControls.target.set(c.x, c.y, c.z);
   _meshControls.minDistance = Math.max(r * 0.008, 0.0005);
   _meshControls.maxDistance = r * 24;
+  FUMOCA_APE.applyZoomBounds(_meshControls, r * 2.4);
   _meshControls.update();
-  window._fumocaMeshApeCleanup?.();
   window._fumocaMeshApeCleanup = FUMOCA_APE.observe(container, _meshRenderer, _meshCamera, _meshControls);
   function loop() {
     _meshFrame = requestAnimationFrame(loop);
@@ -1563,6 +1564,7 @@ async function mountPlyViewer(url) {
   _plyControls.rotateSpeed = 1.15; _plyControls.zoomSpeed = 1.05;
   _plyControls.enablePan = false;
   _plyControls.minPolarAngle = 0; _plyControls.maxPolarAngle = Math.PI;
+  window._fumocaApeCleanup = FUMOCA_APE.observe(container, _plyRenderer, _plyCamera, _plyControls);
   setLoading('Loading point cloudâ€¦');
   try {
     // Fetch manually so PLYLoader.parse() can access ALL attributes including f_dc_*
