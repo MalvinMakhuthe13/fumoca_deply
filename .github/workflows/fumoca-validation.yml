@@ -31,6 +31,7 @@ jobs:
         run: |
           node --input-type=module --check < js/modules/adaptive-presentation.js
           node --input-type=module --check < js/modules/poster-composer.js
+          node --input-type=module --check < js/modules/present-tab.js
       - name: Check persistence-sensitive editor modules
         run: |
           node --input-type=module --check < js/modules/edit-engine.js
