@@ -40,7 +40,9 @@ The bridge now fits against the narrower horizontal/vertical field of view, obse
 - Ad embed now defaults to responsive 100% width and 16:9 aspect ratio, accepts explicit aspect ratio or fixed height, and observes its host container for resizes.
 - Publish panel exposes poster/embed ratio, initial zoom and frame-padding controls; publish persists the validated settings to `meta.presentation`.
 - Ad Studio now has a responsive preview simulator with desktop/tablet/mobile width presets and 16:9, 1:1, 4:5, and 9:16 aspect ratios. It fits the selected frame inside the available preview area without distorting the ratio.
-- UCE v1 now publishes a canonical normalized composition plane (top-left origin, safe area, contain fit, clipped overflow and responsive host sizing). Legacy hotspot coordinates are explicitly tagged as 0–100 percentages to avoid misinterpreting existing records.
+- UCE v1 now publishes a canonical normalized composition plane (top-left origin, safe area, contain fit, clipped overflow and responsive host sizing).
+- APE Composition Layers now supports adding and dragging text and local image artwork in the editor preview, with normalized x/y coordinates and selection/deletion.
+- Publish sanitizes composition layers and excludes local image data URLs from NIF metadata; text layers can be persisted, while artwork requires the next durable R2 upload integration. Legacy hotspot coordinates are explicitly tagged as 0–100 percentages to avoid misinterpreting existing records.
 - Main reconstruction editor (`edit.html`, Present tab) now exposes APE controls for aspect ratio, live camera zoom, and frame breathing room. The framing sliders update the active editor camera while preserving its look direction and target; changing aspect ratio does not snap or rotate the camera.
 - The editor maintains a presentation draft on `window._fumocaApePresentationDraft`; the publish panel initializes from that draft and the publish module merges it into the saved `meta.presentation`.
 - Viewer reads presentation presets from either the NIF `meta` or `metadata` JSON column shape.
@@ -49,7 +51,9 @@ The bridge now fits against the narrower horizontal/vertical field of view, obse
 ## Required next integration steps
 
 - Extend APE settings beyond the publish panel with live Studio preview and an update-existing-publication workflow.
-- Ensure poster typography, hotspots, and interactive overlays share the same normalized composition coordinate system.
+- Add durable R2 upload and public-viewer rendering for composition artwork; current logo/image layers are editor-session previews only.
+- Implement public-viewer rendering and editing of normalized text/artwork layers.
+- Adapt hotspot markers and Hotspot Pro to the same normalized composition plane; existing hotspots remain percentage-based until migrated through an explicit adapter.
 - Add browser-level checks for responsive iframe snippets, host resizing, camera preservation and touch interactions.
 - Audit showroom and public viewer CSS for viewport-fixed assumptions and nested iframe overflow.
 - Verify all render paths in real browsers and devices; this branch has not yet undergone browser/device QA.
