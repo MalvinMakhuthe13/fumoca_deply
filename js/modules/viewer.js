@@ -12,6 +12,10 @@ import { chooseRenderMode, solidPointScale } from './industry-math.js';
 import './adaptive-presentation.js';
 import './poster-composer.js';
 import { applyPosterLiveTransform } from './poster-live-transform.js';
+let _fumocaPosterStateCache = null;
+window.addEventListener('fumoca:posterChange', (event) => {
+  _fumocaPosterStateCache = event.detail || window.FumocaPoster?.getState?.() || null;
+});
 window._fumocaSupabase = window._fumocaSupabase || supabase;
 const stageEl = document.getElementById('stage');
 let stageHost = document.getElementById('stageHost');
@@ -1863,6 +1867,7 @@ async function mountPublishedSparkPly(url) {
   const response = await fetch(url);
   if (!response.ok) throw new Error('Published Gaussian source returned HTTP ' + response.status);
   const bytes = new Uint8Array(await response.arrayBuffer());
+  _fumocaPosterStateCache = window.FumocaPoster?.getState?.() || null;
   const { SplatMesh, SparkRenderer } = await import('@sparkjsdev/spark');
   _plyScene = new THREE.Scene();
   _plyCamera = new THREE.PerspectiveCamera(55, Math.max(1, container.clientWidth) / Math.max(1, container.clientHeight), 0.001, 2000);
@@ -1921,7 +1926,7 @@ async function mountPublishedSparkPly(url) {
     if (!_plyRenderer || !_publishedSparkRenderer) return;
     _plyFrame = requestAnimationFrame(loop);
     _plyControls?.update();
-    const posterState = window.FumocaPoster?.getState?.();
+    const posterState = _fumocaPosterStateCache;
     if (posterState?.composition && _publishedSparkGroup) {
       applyPosterLiveTransform({
         THREE, group: _publishedSparkGroup, camera: _plyCamera, center,
