@@ -25,7 +25,7 @@ const PROFILE_PRESETS = Object.freeze({
 function normalizeProfileName(name) {
   const value = String(name || 'default').trim();
   if (PROFILE_PRESETS[value]) return value;
-  const normalized = value.toLowerCase().replace(/[\\s_-]+/g, '');
+  const normalized = value.toLowerCase().replace(/[\s_-]+/g, '');
   return Object.keys(PROFILE_PRESETS).find((key) => key.toLowerCase() === normalized) || 'default';
 }
 
