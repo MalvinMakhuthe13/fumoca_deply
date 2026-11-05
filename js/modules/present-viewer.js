@@ -79,8 +79,6 @@ export function initPresentViewer() {
       } catch (error) {
         console.warn('[present-viewer] poster composition could not be restored', error);
       }
-    } else if (!poster) {
-      posterApplied = true;
     }
 
     const review =
@@ -91,7 +89,6 @@ export function initPresentViewer() {
       data.reviewLayout ||
       new URLSearchParams(location.search).get('rvLayout') ||
       'stack';
-    if (!review) reviewApplied = true;
     if (!reviewApplied && review && window.FumocaReviewVideo?.set) {
       window.FumocaReviewVideo.set(review, { layout });
       reviewApplied = true;
