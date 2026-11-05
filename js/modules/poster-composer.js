@@ -16,7 +16,7 @@ const POSTER_PRESETS = Object.freeze({
     background: { type: 'solid', value: '#10131a' },
     safeArea: 0.06,
     object: { x: 0.5, y: 0.53, scale: 1, rotation: 0 },
-    title: { visible: true, text: 'Product title', align: 'center' },
+    title: { visible: true, text: 'Product title', align: 'center', fontFamily: 'system-ui, sans-serif', fontSize: 42, color: '#ffffff', weight: 750 },
   }),
   story: Object.freeze({
     label: 'Story',
@@ -24,7 +24,7 @@ const POSTER_PRESETS = Object.freeze({
     background: { type: 'solid', value: '#10131a' },
     safeArea: 0.07,
     object: { x: 0.5, y: 0.48, scale: 0.92, rotation: 0 },
-    title: { visible: true, text: 'Your story', align: 'center' },
+    title: { visible: true, text: 'Your story', align: 'center', fontFamily: 'system-ui, sans-serif', fontSize: 42, color: '#ffffff', weight: 750 },
   }),
   editorial: Object.freeze({
     label: 'Editorial',
@@ -32,7 +32,7 @@ const POSTER_PRESETS = Object.freeze({
     background: { type: 'solid', value: '#171717' },
     safeArea: 0.065,
     object: { x: 0.5, y: 0.55, scale: 1, rotation: 0 },
-    title: { visible: true, text: 'Edition', align: 'left' },
+    title: { visible: true, text: 'Edition', align: 'left', fontFamily: 'Georgia, serif', fontSize: 42, color: '#ffffff', weight: 700 },
   }),
   landscape: Object.freeze({
     label: 'Landscape Feature',
@@ -40,7 +40,7 @@ const POSTER_PRESETS = Object.freeze({
     background: { type: 'solid', value: '#10131a' },
     safeArea: 0.055,
     object: { x: 0.58, y: 0.5, scale: 1, rotation: 0 },
-    title: { visible: true, text: 'Featured experience', align: 'left' },
+    title: { visible: true, text: 'Featured experience', align: 'left', fontFamily: 'system-ui, sans-serif', fontSize: 42, color: '#ffffff', weight: 750 },
   }),
 });
 
@@ -126,6 +126,10 @@ function updateComposition(patch = {}) {
       visible: patch.title.visible === undefined ? current.title.visible : Boolean(patch.title.visible),
       text: patch.title.text === undefined ? current.title.text : String(patch.title.text).slice(0, 160),
       align: ['left', 'center', 'right'].includes(patch.title.align) ? patch.title.align : current.title.align,
+      fontFamily: ['system-ui, sans-serif', 'Arial, sans-serif', 'Georgia, serif', 'Impact, sans-serif', 'monospace'].includes(patch.title.fontFamily) ? patch.title.fontFamily : current.title.fontFamily,
+      fontSize: clamp(patch.title.fontSize, 12, 120, current.title.fontSize || 42),
+      color: /^#[0-9a-f]{6}$/i.test(String(patch.title.color || '')) ? patch.title.color : current.title.color,
+      weight: clamp(patch.title.weight, 400, 900, current.title.weight || 750),
     };
   }
   emit('composition');
