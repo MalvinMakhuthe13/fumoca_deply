@@ -2262,9 +2262,14 @@ if (cam) {
     if ('autoRotateSpeed' in controls) controls.autoRotateSpeed = 0;
   }
 
+  window.dispatchEvent(new CustomEvent('fumoca:viewerReady', { detail: { camera: cam, controls } }));
   setTimeout(fitSubjectInView, 200);
   setTimeout(fitSubjectInView, 800);
-  setTimeout(fitSubjectInView, 2000);
+  setTimeout(() => {
+    fitSubjectInView();
+    FUMOCA_APE.resetCameraReference();
+    FUMOCA_APE.applyLiveFraming();
+  }, 2000);
 
   if (!window._fumocaOrbitDampRaf) {
     const tick = () => {
@@ -2368,7 +2373,57 @@ async function boot() {
   window.FumocaAPE = {
     getSettings: () => ({ ...FUMOCA_APE.settings }),
     configure: (settings) => FUMOCA_APE.configure(settings),
+    applyLiveFraming: () => FUMOCA_APE.applyLiveFraming(),
   };
+  const apeAspect = document.getElementById('apeStudioAspect');
+  const apeZoom = document.getElementById('apeStudioZoom');
+  const apePadding = document.getElementById('apeStudioPadding');
+  const apeZoomValue = document.getElementById('apeStudioZoomValue');
+  const apePaddingValue = document.getElementById('apeStudioPaddingValue');
+  const apeRatioPreview = document.getElementById('apeRatioPreview');
+  const apeReset = document.getElementById('apeStudioReset');
+  const savedApe = FUMOCA_APE.settings;
+  if (apeAspect) apeAspect.value = publishedPresentation.aspectRatio || '16 / 9';
+  if (apeZoom) apeZoom.value = String(savedApe.initialZoom);
+  if (apePadding) apePadding.value = String(savedApe.framePadding);
+  const syncApeLabels = () => {
+    if (apeZoomValue && apeZoom) apeZoomValue.textContent = Number(apeZoom.value).toFixed(2) + '×';
+    if (apePaddingValue && apePadding) apePaddingValue.textContent = Number(apePadding.value).toFixed(2) + '×';
+    if (apeRatioPreview && apeAspect) apeRatioPreview.style.aspectRatio = apeAspect.value;
+  };
+  const saveApeDraft = () => {
+    const draft = {
+      version: 1,
+      aspectRatio: apeAspect?.value || '16 / 9',
+      initialZoom: Number(apeZoom?.value || 1),
+      framePadding: Number(apePadding?.value || 1.55),
+      damping: FUMOCA_APE.settings.damping,
+      maxDpr: FUMOCA_APE.settings.maxDpr,
+    };
+    window._fumocaApePresentationDraft = draft;
+    FUMOCA_APE.configure(draft);
+    FUMOCA_APE.applyLiveFraming();
+    syncApeLabels();
+    const status = document.getElementById('apeLiveStatus');
+    if (status) status.textContent = 'Live · unsaved';
+    window.dispatchEvent(new CustomEvent('fumoca:apePresentationChanged', { detail: draft }));
+  };
+  [apeAspect, apeZoom, apePadding].forEach(control => {
+    control?.addEventListener('input', saveApeDraft);
+    control?.addEventListener('change', saveApeDraft);
+  });
+  apeReset?.addEventListener('click', () => {
+    if (apeAspect) apeAspect.value = '16 / 9';
+    if (apeZoom) apeZoom.value = '1';
+    if (apePadding) apePadding.value = '1.55';
+    FUMOCA_APE.resetCameraReference();
+    saveApeDraft();
+  });
+  syncApeLabels();
+  window.addEventListener('fumoca:viewerReady', () => {
+    FUMOCA_APE.resetCameraReference();
+    setTimeout(() => FUMOCA_APE.applyLiveFraming(), 2100);
+  });
   if (sessionRecord) {
     thumbnailUrl = thumbnailUrl || sessionRecord.thumbnail || '';
     previewVideoUrl = previewVideoUrl || sessionRecord.previewVideo || '';
