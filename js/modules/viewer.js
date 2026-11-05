@@ -1492,6 +1492,7 @@ function destroyPlyViewer() {
   if (_plyRenderer) { _plyRenderer.dispose(); _plyRenderer.domElement.remove(); _plyRenderer = null; }
   _plyAttributeControl?.remove(); _plyAttributeControl = null;
   _publishedSparkGroup = null;
+  _legacyPosterGroup = null;
   _publishedSparkMesh = null;
   _publishedSparkRenderer = null;
   if (window._fumocaPublishedSpark) window._fumocaPublishedSpark = null;
@@ -1696,13 +1697,19 @@ async function mountPlyViewer(url) {
       vertexColors: false,
     });
     const pts = new THREE.Points(geo, mat);
-    _plyScene.add(pts);
     // Auto-fit camera â€” match nerfstudio convention used by Gaussiannif_files3D:
     // cameraUp=[0,-1,-0.6], initialCameraPosition=[0,1,4], lookAt=[0,0,0]
     // Offset everything by the bounding center so the subject is centered.
     geo.computeBoundingSphere();
     const r = geo.boundingSphere.radius || 1;
     const c = geo.boundingSphere.center;
+    // Give the legacy PLY path the same presentation-only pivot as published Spark.
+    // Geometry stays unchanged; only the Points object's parent is transformed.
+    _legacyPosterGroup = new THREE.Group();
+    _legacyPosterGroup.position.copy(c);
+    pts.position.sub(c);
+    _legacyPosterGroup.add(pts);
+    _plyScene.add(_legacyPosterGroup);
     // Normalise per-point sizes to 0â€“1 range using the median as anchor,
     // then set uBaseSize so nif_files cover ~0.8% of the scene radius at 1Ã— distance.
     const sArr = geo.getAttribute('aSize').array;
@@ -1735,6 +1742,13 @@ async function mountPlyViewer(url) {
     function loop() {
       _plyFrame = requestAnimationFrame(loop);
       _plyControls.update();
+      const posterState = window.FumocaPoster?.getState?.();
+      if (posterState?.composition && _legacyPosterGroup) {
+        applyPosterLiveTransform({
+          THREE, group: _legacyPosterGroup, camera: _plyCamera, center: c,
+          composition: posterState.composition, enabled: !!posterState.enabled,
+        });
+      }
       _plyRenderer.render(_plyScene, _plyCamera);
     }
     loop();
@@ -1862,6 +1876,7 @@ function mountDecodedCloud(g) {
 // High-fidelity published path: render the edited companion Gaussian PLY with
 // Spark, matching the editor renderer instead of flattening NIF geometry to legacy .splat rows.
 let _publishedSparkRenderer = null, _publishedSparkMesh = null, _publishedSparkGroup = null;
+let _legacyPosterGroup = null;
 async function mountPublishedSparkPly(url) {
   destroyPlyViewer();
   const container = stageHost || stageEl;
