@@ -172,7 +172,7 @@ const FumocaPublish = (() => {
         safeArea: { top: 0.05, right: 0.05, bottom: 0.05, left: 0.05 },
         fit: 'contain',
         overflow: 'clip',
-        hotspotSpace: 'normalized',
+        hotspotSpace: 'percent-0-100',
         responsive: { preserveAspectRatio: true, allowHostResize: true, minWidth: 0 },
       },
     };
