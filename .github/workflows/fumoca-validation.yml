@@ -135,6 +135,8 @@ jobs:
           node --experimental-default-type=module tests/ply-conversion-metadata.mjs
       - name: Test Poster Composer model and responsive layout
         run: node --experimental-default-type=module tests/poster-composer.mjs
+      - name: Test Adaptive Presentation Engine framing and responsive sizing
+        run: node --experimental-default-type=module tests/adaptive-presentation.mjs
       - name: Test CPU-only splat to NIF conversion
         run: node --experimental-default-type=module tests/splat-to-nif-smoke.mjs
       - name: Compile Kaggle preflight script
