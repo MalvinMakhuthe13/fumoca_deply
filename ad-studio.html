@@ -30,14 +30,32 @@ html, body {
 }
 
 /* ── Viewer embed ── */
+#previewPane { flex-direction: column; min-width: 0; overflow: hidden; }
+#apePreviewToolbar {
+  position: absolute; top: 16px; left: 50%; transform: translateX(-50%); z-index: 60;
+  display: flex; align-items: center; flex-wrap: wrap; justify-content: center; gap: 7px;
+  width: max-content; max-width: calc(100% - 24px); padding: 8px 10px;
+  border: 1px solid rgba(255,255,255,.12); border-radius: 12px;
+  background: rgba(8,10,16,.92); backdrop-filter: blur(12px);
+}
+.ape-device, #apeAspect {
+  border: 1px solid rgba(255,255,255,.14); border-radius: 8px; padding: 7px 9px;
+  color: rgba(255,255,255,.7); background: rgba(255,255,255,.05);
+  font: 700 11px var(--font); cursor: pointer;
+}
+.ape-device.active { color: var(--neon); border-color: rgba(200,255,0,.5); background: rgba(200,255,0,.1); }
+#apeAspect { outline: none; }
+#apePreviewLabel { font-size: 10px; color: rgba(255,255,255,.35); padding-left: 4px; }
 #viewerFrame {
-  width: 640px; height: 360px; border-radius: 14px; overflow: hidden;
+  width: min(760px, calc(100% - 32px)); aspect-ratio: 16 / 9; height: auto;
+  max-height: calc(100% - 104px); border-radius: 14px; overflow: hidden;
   border: 1px solid rgba(255,255,255,.08); background: #000;
-  position: relative;
+  position: relative; transition: width .22s ease, aspect-ratio .22s ease;
+  flex: 0 1 auto; min-width: 0;
 }
-#viewerFrame iframe {
-  width: 100%; height: 100%; border: none;
-}
+#viewerFrame[data-device="tablet"] { width: min(768px, calc(100% - 32px)); }
+#viewerFrame[data-device="mobile"] { width: min(390px, calc(100% - 32px)); }
+#viewerFrame iframe { position:absolute;inset:0;width:100%;height:100%;border:0;display:block; }
 
 /* ── Sidebar sections ── */
 .sb-section { padding: 16px; border-bottom: 1px solid var(--border); }
@@ -180,7 +198,19 @@ html, body {
 
   <!-- ── Preview pane ── -->
   <div id="previewPane">
-    <div id="viewerFrame">
+    <div id="apePreviewToolbar" role="group" aria-label="Responsive preview controls">
+      <button class="ape-device active" type="button" data-device="desktop" aria-pressed="true">Desktop</button>
+      <button class="ape-device" type="button" data-device="tablet" aria-pressed="false">Tablet</button>
+      <button class="ape-device" type="button" data-device="mobile" aria-pressed="false">Mobile</button>
+      <select id="apeAspect" aria-label="Preview aspect ratio">
+        <option value="16 / 9">16:9 Landscape</option>
+        <option value="1 / 1">1:1 Square</option>
+        <option value="4 / 5">4:5 Portrait</option>
+        <option value="9 / 16">9:16 Story</option>
+      </select>
+      <span id="apePreviewLabel">Desktop · 16:9</span>
+    </div>
+    <div id="viewerFrame" data-device="desktop">
       <iframe id="viewerIframe" src="/viewer.html?embed=ad-studio" title="FUMOCA Ad Preview"></iframe>
       <div id="ppOverlay" style="position:absolute;inset:0;z-index:50;pointer-events:none;"></div>
     </div>
@@ -309,6 +339,34 @@ import FumocAdEngine from './js/modules/fumoc-ad-engine.js';
 import FumocEncoder  from './js/modules/fumoc-encoder.js';
 import FumocDecoder  from './js/modules/fumoc-decoder.js';
 import { supabase }  from './js/supabaseClient.js';
+
+// ── APE responsive preview simulator ───────────────────────────────────────
+const apeFrame = document.getElementById('viewerFrame');
+const apeLabel = document.getElementById('apePreviewLabel');
+const apeAspect = document.getElementById('apeAspect');
+let apeDevice = 'desktop';
+function updateApePreview() {
+  if (!apeFrame) return;
+  const ratio = apeAspect?.value || '16 / 9';
+  apeFrame.dataset.device = apeDevice;
+  apeFrame.style.aspectRatio = ratio;
+  const label = ratio.replace(/\\s/g, '');
+  apeLabel.textContent = apeDevice[0].toUpperCase() + apeDevice.slice(1) + ' · ' + label;
+  apeFrame.setAttribute('aria-label', apeLabel.textContent + ' responsive preview');
+}
+document.querySelectorAll('.ape-device').forEach(button => {
+  button.addEventListener('click', () => {
+    apeDevice = button.dataset.device || 'desktop';
+    document.querySelectorAll('.ape-device').forEach(item => {
+      const active = item === button;
+      item.classList.toggle('active', active);
+      item.setAttribute('aria-pressed', String(active));
+    });
+    updateApePreview();
+  });
+});
+apeAspect?.addEventListener('change', updateApePreview);
+updateApePreview();
 
 // ── State ──────────────────────────────────────────────────────────────────
 let _pausePoints   = [];
