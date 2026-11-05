@@ -1194,6 +1194,13 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
         <div style="display:flex;gap:7px;margin-top:7px"><button type="button" class="ac-btn" id="apeLayerBack" style="flex:1">Send backward</button><button type="button" class="ac-btn" id="apeLayerForward" style="flex:1">Bring forward</button></div>
         <button type="button" class="ac-btn" id="apeLayerLock" style="width:100%;margin-top:7px" aria-pressed="false" disabled>Lock selected layer</button>
         <div style="display:flex;gap:7px;margin-top:7px"><button type="button" class="ac-btn" id="apeLayerGroup" style="flex:1" disabled>Group selected</button><button type="button" class="ac-btn" id="apeLayerUngroup" style="flex:1" disabled>Ungroup</button></div>
+        <div style="font-size:10px;color:var(--muted);margin-top:10px">ALIGN SELECTED LAYERS</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin-top:5px">
+          <button type="button" class="ac-btn" id="apeAlignLeft" disabled>Left</button><button type="button" class="ac-btn" id="apeAlignCenter" disabled>Centre</button><button type="button" class="ac-btn" id="apeAlignRight" disabled>Right</button>
+          <button type="button" class="ac-btn" id="apeAlignTop" disabled>Top</button><button type="button" class="ac-btn" id="apeAlignMiddle" disabled>Middle</button><button type="button" class="ac-btn" id="apeAlignBottom" disabled>Bottom</button>
+        </div>
+        <div style="font-size:10px;color:var(--muted);margin-top:10px">DISTRIBUTE EVENLY</div>
+        <div style="display:flex;gap:7px;margin-top:5px"><button type="button" class="ac-btn" id="apeDistributeH" style="flex:1" disabled>Horizontal</button><button type="button" class="ac-btn" id="apeDistributeV" style="flex:1" disabled>Vertical</button></div>
         <div class="hint" style="padding-top:4px">Ctrl/Cmd-click layers in the list to multi-select. Drag any grouped layer to move the group together.</div>
         <label for="apeLayerFontSize" style="display:block;font-size:11px;color:var(--muted);margin:10px 0 5px">Text size <span id="apeLayerFontSizeValue">32px</span></label>
         <input id="apeLayerFontSize" type="range" min="12" max="72" step="1" value="32" style="width:100%">
@@ -7460,6 +7467,7 @@ if (!window._fumocaBooted) {
   const lockButton = document.getElementById('apeLayerLock');
   const groupButton = document.getElementById('apeLayerGroup');
   const ungroupButton = document.getElementById('apeLayerUngroup');
+  const alignmentButtons = ['apeAlignLeft','apeAlignCenter','apeAlignRight','apeAlignTop','apeAlignMiddle','apeAlignBottom','apeDistributeH','apeDistributeV'].map(id=>document.getElementById(id));
   const guidesToggle = document.getElementById('apeGuidesToggle');
   const snapToggle = document.getElementById('apeSnapToggle');
   let showGuides = false;
@@ -7514,6 +7522,7 @@ if (!window._fumocaBooted) {
     const selectedItems=items.filter(layer=>selectedIds.has(layer.id));
     groupButton.disabled=selectedItems.length<2||selectedItems.some(layer=>layer.locked);
     ungroupButton.disabled=!selectedItems.some(layer=>layer.groupId);
+    alignmentButtons.forEach(button=>{button.disabled=selectedItems.length<2||selectedItems.some(layer=>layer.locked);});
     if (item) {
       widthInput.value = String(Math.round(Number(item.width) || (item.type === 'image' ? 18 : 45)));
       fontSizeInput.disabled = item.type !== 'text' || Boolean(item.locked); colorInput.disabled = item.type !== 'text' || Boolean(item.locked); alignInput.disabled = item.type !== 'text' || Boolean(item.locked);
@@ -7566,6 +7575,34 @@ if (!window._fumocaBooted) {
   lockButton.addEventListener('click',()=>{const item=selectedItem();if(!item)return;item.locked=!item.locked;if(item.locked&&drag?.id===item.id)drag=null;publishDraft();render();});
   groupButton.addEventListener('click',()=>{const members=items.filter(item=>selectedIds.has(item.id));if(members.length<2||members.some(item=>item.locked))return;const groupId='uce-group-'+Date.now();members.forEach(item=>item.groupId=groupId);publishDraft();render();});
   ungroupButton.addEventListener('click',()=>{const ids=new Set(items.filter(item=>selectedIds.has(item.id)&&item.groupId).map(item=>item.groupId));if(!ids.size)return;items.forEach(item=>{if(ids.has(item.groupId))delete item.groupId;});publishDraft();render();});
+  const selectedMovable=()=>items.filter(item=>selectedIds.has(item.id)&&!item.locked);
+  const applyAlignment=(axis,mode)=>{
+    const chosen=selectedMovable();if(chosen.length<2)return;
+    if(axis==='x'){
+      const edge=item=>Math.max(0,Number(item.width)|| (item.type==='image'?18:45))/200;
+      const lefts=chosen.map(item=>item.x-edge(item)),rights=chosen.map(item=>item.x+edge(item));
+      const target=mode==='left'?Math.min(...lefts):mode==='right'?Math.max(...rights):(Math.min(...chosen.map(item=>item.x))+Math.max(...chosen.map(item=>item.x)))/2;
+      chosen.forEach(item=>{item.x=clamp(mode==='left'?target+edge(item):mode==='right'?target-edge(item):target);});
+    }else{
+      const target=mode==='top'?Math.min(...chosen.map(item=>item.y)):mode==='bottom'?Math.max(...chosen.map(item=>item.y)):(Math.min(...chosen.map(item=>item.y))+Math.max(...chosen.map(item=>item.y)))/2;
+      chosen.forEach(item=>{item.y=clamp(target);});
+    }
+    publishDraft();render();
+  };
+  const distribute=(axis)=>{
+    const chosen=selectedMovable().slice().sort((a,b)=>a[axis]-b[axis]);if(chosen.length<3)return;
+    const start=chosen[0][axis],end=chosen[chosen.length-1][axis],step=(end-start)/(chosen.length-1);
+    chosen.forEach((item,index)=>{item[axis]=clamp(start+step*index);});
+    publishDraft();render();
+  };
+  document.getElementById('apeAlignLeft').addEventListener('click',()=>applyAlignment('x','left'));
+  document.getElementById('apeAlignCenter').addEventListener('click',()=>applyAlignment('x','center'));
+  document.getElementById('apeAlignRight').addEventListener('click',()=>applyAlignment('x','right'));
+  document.getElementById('apeAlignTop').addEventListener('click',()=>applyAlignment('y','top'));
+  document.getElementById('apeAlignMiddle').addEventListener('click',()=>applyAlignment('y','middle'));
+  document.getElementById('apeAlignBottom').addEventListener('click',()=>applyAlignment('y','bottom'));
+  document.getElementById('apeDistributeH').addEventListener('click',()=>distribute('x'));
+  document.getElementById('apeDistributeV').addEventListener('click',()=>distribute('y'));
   addText.addEventListener('click',()=>{const value=textInput.value.trim();if(!value)return;const item={id:'layer-'+Date.now(),type:'text',content:value,x:.5,y:.18,width:45,fontSize:32,color:'#ffffff',textAlign:'left'};items.push(item);selected=item.id;selectedIds=new Set([item.id]);textInput.value='';publishDraft();render();});
   imageInput.addEventListener('change',()=>{const file=imageInput.files?.[0];if(!file)return;if(file.size>5*1024*1024){alert('Please choose an image smaller than 5 MB.');imageInput.value='';return;}const reader=new FileReader();reader.onload=()=>{const item={id:'layer-'+Date.now(),type:'image',content:String(reader.result),x:.5,y:.82,width:18};items.push(item);selected=item.id;selectedIds=new Set([item.id]);publishDraft();render();};reader.readAsDataURL(file);});
   deleteBtn.addEventListener('click',()=>{if(!selected||selectedItem()?.locked)return;items=items.filter(x=>!(selectedIds.has(x.id)&&!x.locked));selected=null;selectedIds.clear();publishDraft();render();});
