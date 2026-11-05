@@ -128,7 +128,47 @@ const FumocaPublish = (() => {
   }
 
   // ── Main publish function ─────────────────────────────
-  async function publish({ title, description, visibility = 'public', includeReview = false, onProgress } = {}) {
+  async function publish({ title, description, visibility = 'public', includeReview = false, presentation = {}, onProgress } = {}) {
+    presentation = { ...(window._fumocaApePresentationDraft || {}), ...(presentation || {}) };
+    // Upload local artwork previews to R2 before building the published composition.
+    // Persist only durable object keys/URLs; never put Base64 data URLs in NIF metadata.
+    if (Array.isArray(presentation.layers)) {
+      const layers = [];
+      for (const layer of presentation.layers) {
+        if (!layer || !['text', 'image'].includes(layer.type)) continue;
+        const base = {
+          id: String(layer.id || `layer-${Date.now()}`),
+          type: layer.type,
+          x: Math.max(0.03, Math.min(0.97, Number(layer.x) || 0.5)),
+          y: Math.max(0.03, Math.min(0.97, Number(layer.y) || 0.5)),
+          width: Math.max(5, Math.min(90, Number(layer.width) || 45)),
+        };
+        if (layer.type === 'text') {
+          base.content = String(layer.content || '').slice(0, 240);
+          base.fontSize = Math.max(12, Math.min(72, Number(layer.fontSize) || 32));
+          base.color = /^#[0-9a-f]{6}$/i.test(String(layer.color || '')) ? String(layer.color) : '#ffffff';
+          base.textAlign = ['left', 'center', 'right'].includes(layer.textAlign) ? layer.textAlign : 'left';
+        } else {
+          let artworkUrl = String(layer.url || '');
+          if (/^data:image\/(png|jpeg|webp|svg\+xml);base64,/i.test(String(layer.content || ''))) {
+            const dataUrl = String(layer.content);
+            const response = await fetch(dataUrl);
+            const blob = await response.blob();
+            if (blob.size > 5 * 1024 * 1024) throw new Error('Composition artwork exceeds 5 MB.');
+            const ext = blob.type.includes('svg') ? 'svg' : blob.type.includes('webp') ? 'webp' : blob.type.includes('png') ? 'png' : 'jpg';
+            const key = `composition/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
+            const uploaded = await r2.from('nif-files').upload(key, blob, { contentType: blob.type || 'image/png' });
+            if (uploaded.error || !uploaded.fileKey) throw new Error('Composition artwork upload failed: ' + (uploaded.error?.message || 'no storage key returned'));
+            artworkUrl = uploaded.publicUrl || '';
+            base.assetKey = uploaded.fileKey;
+          }
+          if (!artworkUrl && !base.assetKey) continue;
+          base.url = artworkUrl;
+        }
+        layers.push(base);
+      }
+      presentation.layers = layers;
+    }
     // Try every possible location for the Supabase client
     let sb = window._fumocaSupabase || window.supabase;
     if (!sb) {
@@ -149,6 +189,32 @@ const FumocaPublish = (() => {
 
     const splatId = rec?.id || new URLSearchParams(location.search).get('splatId');
     const aliveCount = Array.from(S.alive).filter(Boolean).length;
+    const clamp = (value, fallback, min, max) => Number.isFinite(Number(value)) ? Math.max(min, Math.min(max, Number(value))) : fallback;
+    const apePresentation = {
+      version: 1,
+      aspectRatio: ['16 / 9', '1 / 1', '4 / 5', '9 / 16'].includes(presentation.aspectRatio) ? presentation.aspectRatio : '16 / 9',
+      initialZoom: clamp(presentation.initialZoom, 1, 0.25, 4),
+      minZoom: clamp(presentation.minZoom, 0, 0, 1),
+      maxZoom: clamp(presentation.maxZoom, 0, 0, 30),
+      framePadding: clamp(presentation.framePadding, 1.55, 1.05, 3.5),
+      damping: clamp(presentation.damping, 0.08, 0.02, 0.2),
+      maxDpr: clamp(presentation.maxDpr, 2, 1, 2),
+      // UCE v1: one canonical 0..1 composition plane for posters, overlays,
+      // hotspot anchors and responsive embeds. Device dimensions never become
+      // authored coordinates; consumers scale this plane into their viewport.
+      composition: {
+        version: 1,
+        coordinateSpace: 'normalized',
+        origin: 'top-left',
+        width: 1,
+        height: 1,
+        safeArea: { top: 0.05, right: 0.05, bottom: 0.05, left: 0.05 },
+        fit: 'contain',
+        overflow: 'clip',
+        hotspotSpace: 'percent-0-100',
+        responsive: { preserveAspectRatio: true, allowHostResize: true, minWidth: 0 },
+      },
+    };
 
     onProgress?.(includeReview ? 'Uploading review video…' : 'Publishing without video…', 8);
     let review = null;
@@ -251,12 +317,14 @@ const FumocaPublish = (() => {
       cleaned.includeReview = false;
       payload.meta = cleaned;
     }
+    payload.meta = { ...(payload.meta || rec?.meta || rec?.metadata || {}), presentation: apePresentation };
     if (viewPlyKey) {
       payload.meta = {
         ...(payload.meta || rec?.meta || rec?.metadata || {}),
         view_ply_r2_key: viewPlyKey,
         viewer_engine: 'spark',
         published_from: 'studio_gaussian',
+        presentation: apePresentation,
       };
     }
 
@@ -290,6 +358,7 @@ const FumocaPublish = (() => {
       splatId: finalId,
       publicUrl,
       gaussianCount: aliveCount,
+      presentation: apePresentation,
       feedUrl: `feed.html`,
       viewerUrl: `viewer.html?nifId=${encodeURIComponent(finalId)}`,
     };
@@ -335,6 +404,22 @@ const FumocaPublish = (() => {
                      background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#ccc;">🔒 Private</button>
           </div>
 
+          <div class="section" style="margin:10px 0;padding:10px;border:1px solid rgba(200,255,0,.22);border-radius:10px;background:rgba(200,255,0,.035);">
+            <div style="font-size:11px;font-weight:800;letter-spacing:.08em;color:#c8ff00;margin-bottom:8px;">ADAPTIVE PRESENTATION</div>
+            <label style="display:block;font-size:11px;color:#ccc;margin-bottom:4px;">Poster / embed aspect ratio</label>
+            <select id="pubApeAspect" style="width:100%;padding:8px;border-radius:7px;background:#111820;border:1px solid rgba(255,255,255,.14);color:#fff;margin-bottom:9px;">
+              <option value="16 / 9">Landscape · 16:9</option>
+              <option value="1 / 1">Square · 1:1</option>
+              <option value="4 / 5">Portrait · 4:5</option>
+              <option value="9 / 16">Story · 9:16</option>
+            </select>
+            <label style="display:flex;justify-content:space-between;font-size:11px;color:#ccc;">Initial zoom <output id="pubApeZoomValue">1.00×</output></label>
+            <input id="pubApeZoom" type="range" min="0.5" max="2.5" step="0.05" value="1" style="width:100%;accent-color:#c8ff00;margin:5px 0 9px;">
+            <label style="display:flex;justify-content:space-between;font-size:11px;color:#ccc;">Frame breathing room <output id="pubApePaddingValue">1.55×</output></label>
+            <input id="pubApePadding" type="range" min="1.1" max="2.5" step="0.05" value="1.55" style="width:100%;accent-color:#c8ff00;margin:5px 0 5px;">
+            <div style="font-size:10px;color:rgba(255,255,255,.5);line-height:1.45;">These settings are saved with the published NIF. Embed layout follows its host container; this does not crop or reposition the authored poster artwork.</div>
+          </div>
+
           <div class="ctrl-row" style="margin-bottom:6px;">
             <span class="ctrl-label">Review video</span>
           </div>
@@ -366,6 +451,19 @@ const FumocaPublish = (() => {
                background:rgba(200,255,0,.08);border:1px solid rgba(200,255,0,.3);font-size:12px;"></div>
         </div>
       </div>`;
+    const apeDraft = window._fumocaApePresentationDraft || {};
+    const aspectInput = el.querySelector('#pubApeAspect');
+    const zoomInput = el.querySelector('#pubApeZoom');
+    const paddingInput = el.querySelector('#pubApePadding');
+    if (aspectInput && apeDraft.aspectRatio) aspectInput.value = apeDraft.aspectRatio;
+    if (zoomInput && Number.isFinite(Number(apeDraft.initialZoom))) zoomInput.value = String(apeDraft.initialZoom);
+    if (paddingInput && Number.isFinite(Number(apeDraft.framePadding))) paddingInput.value = String(apeDraft.framePadding);
+    const zoom = el.querySelector('#pubApeZoom');
+    const zoomValue = el.querySelector('#pubApeZoomValue');
+    const padding = el.querySelector('#pubApePadding');
+    const paddingValue = el.querySelector('#pubApePaddingValue');
+    zoom?.addEventListener('input', () => { if (zoomValue) zoomValue.textContent = Number(zoom.value).toFixed(2) + '×'; });
+    padding?.addEventListener('input', () => { if (paddingValue) paddingValue.textContent = Number(padding.value).toFixed(2) + '×'; });
     el.querySelectorAll('.pub-review-btn').forEach((btn) => {
       btn.addEventListener('click', () => {
         el.querySelectorAll('.pub-review-btn').forEach((b) => {
@@ -391,6 +489,11 @@ const FumocaPublish = (() => {
     const visBtn = document.querySelector('.pub-vis-btn.active');
     const visibility = visBtn?.dataset.vis || 'public';
     const includeReview = document.querySelector('.pub-review-btn.active')?.dataset.review === 'with';
+    const presentation = {
+      aspectRatio: document.getElementById('pubApeAspect')?.value || '16 / 9',
+      initialZoom: Number(document.getElementById('pubApeZoom')?.value || 1),
+      framePadding: Number(document.getElementById('pubApePadding')?.value || 1.55),
+    };
 
     if (btn) { btn.disabled = true; btn.textContent = '⏳ Publishing…'; }
     if (progress) progress.style.display = 'block';
@@ -401,6 +504,7 @@ const FumocaPublish = (() => {
         title,
         visibility,
         includeReview,
+        presentation,
         onProgress: (label, pct) => {
           const lbl = document.getElementById('pubProgressLabel');
           const p = document.getElementById('pubProgressPct');

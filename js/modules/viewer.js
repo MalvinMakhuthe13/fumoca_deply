@@ -114,6 +114,101 @@ const maskEraseGroup = document.getElementById('maskEraseGroup');
 const maskLassoRemoveGroup = document.getElementById('maskLassoRemoveGroup');
 const cropHandles = Array.from(document.querySelectorAll('.crop-handle'));
 const params = new URLSearchParams(window.location.search);
+
+// FUMOCA Adaptive Presentation Engine — shared public-viewer container contract.
+// The renderer follows its host element (including iframe/embed resizes), never
+// the outer browser viewport. Camera state is preserved when the host changes size.
+const FUMOCA_APE = (() => {
+  const readNumber = (key, fallback, min, max) => {
+    const raw = Number(params.get('ape_' + key));
+    return Number.isFinite(raw) && params.has('ape_' + key) ? Math.max(min, Math.min(max, raw)) : fallback;
+  };
+  let settings = Object.freeze({
+    initialZoom: readNumber('zoom', 1, 0.25, 4),
+    minZoom: readNumber('min_zoom', 0, 0, 1),
+    maxZoom: readNumber('max_zoom', 0, 0, 30),
+    maxDpr: readNumber('max_dpr', 2, 1, 2),
+    damping: readNumber('damping', 0.08, 0.02, 0.2),
+    framePadding: readNumber('frame_padding', 1.55, 1.05, 3.5),
+  });
+  function configure(input = {}) {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) return settings;
+    const clamp = (value, fallback, min, max) => Number.isFinite(Number(value)) ? Math.max(min, Math.min(max, Number(value))) : fallback;
+    settings = Object.freeze({
+      initialZoom: clamp(input.initialZoom, settings.initialZoom, 0.25, 4),
+      minZoom: clamp(input.minZoom, settings.minZoom, 0, 1),
+      maxZoom: clamp(input.maxZoom, settings.maxZoom, 0, 30),
+      maxDpr: clamp(input.maxDpr, settings.maxDpr, 1, 2),
+      damping: clamp(input.damping, settings.damping, 0.02, 0.2),
+      framePadding: clamp(input.framePadding, settings.framePadding, 1.05, 3.5),
+    });
+    return settings;
+  }
+  const observers = new WeakMap();
+  function prepareHost(host) {
+    if (!host) return;
+    host.style.minWidth = '0';
+    host.style.minHeight = '0';
+    host.style.maxWidth = '100%';
+    host.style.overflow = 'hidden';
+    host.style.contain = 'layout paint';
+  }
+  function observe(host, renderer, camera, controls) {
+    if (!host || !renderer || !camera) return () => {};
+    prepareHost(host);
+    observers.get(renderer)?.disconnect?.();
+    const resize = () => {
+      const width = Math.max(0, host.clientWidth || 0);
+      const height = Math.max(0, host.clientHeight || 0);
+      if (width < 2 || height < 2) return;
+      renderer.setPixelRatio?.(Math.min(window.devicePixelRatio || 1, settings.maxDpr));
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix?.();
+      renderer.setSize?.(width, height, false);
+      controls?.update?.();
+    };
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(resize) : null;
+    observer?.observe(host);
+    observers.set(renderer, observer);
+    window.addEventListener('resize', resize, { passive: true });
+    resize();
+    return () => {
+      observer?.disconnect?.();
+      window.removeEventListener('resize', resize);
+      if (observers.get(renderer) === observer) observers.delete(renderer);
+    };
+  }
+  function applyZoomBounds(controls, referenceDistance) {
+    if (!controls || !(referenceDistance > 0)) return;
+    controls.minDistance = settings.maxZoom > 0 ? referenceDistance / settings.maxZoom : 0;
+    controls.maxDistance = settings.minZoom > 0 ? referenceDistance / settings.minZoom : Infinity;
+  }
+  let cameraReference = null;
+  function resetCameraReference() {
+    const camera = window._fumocaViewerCamera || window._fumocaViewerInstance?.camera || null;
+    const controls = window._fumocaViewerControls || window._fumocaViewerInstance?.controls || null;
+    if (!camera?.position) { cameraReference = null; return false; }
+    const target = controls?.target || new THREE.Vector3(0, 0, 0);
+    cameraReference = camera.position.clone().sub(target);
+    return cameraReference.length() > 0;
+  }
+  function applyLiveFraming() {
+    const camera = window._fumocaViewerCamera || window._fumocaViewerInstance?.camera || null;
+    const controls = window._fumocaViewerControls || window._fumocaViewerInstance?.controls || null;
+    if (!camera?.position || !controls?.target) return false;
+    if (!cameraReference?.length?.()) resetCameraReference();
+    if (!cameraReference?.length?.()) return false;
+    const zoomFactor = settings.initialZoom / Math.max(1.05, settings.framePadding);
+    const offset = cameraReference.clone().multiplyScalar(1 / Math.max(0.2, zoomFactor));
+    camera.position.copy(controls.target).add(offset);
+    controls.minDistance = Math.max(0.0001, cameraReference.length() / 8);
+    controls.maxDistance = Math.max(controls.minDistance * 2, cameraReference.length() * 12);
+    controls.update?.();
+    return true;
+  }
+  return { get settings() { return settings; }, configure, prepareHost, observe, applyZoomBounds, resetCameraReference, applyLiveFraming };
+})();
+
 // Validate the file= param â€” if the file doesn't exist (400/404), ignore it
 // and let the viewer fall back to nif_url from the DB record
 // v92: also check sessionStorage for a pending .fumoc nif URL (from open.html handoff)
@@ -597,11 +692,20 @@ function renderHotspots() {
   if (window._fumocaUseHotspotPro) return;
   hotspotLayer.innerHTML = '';
   hotspotLayer.style.pointerEvents = hotspotEditMode ? 'auto' : 'none';
+  const viewRect = (document.querySelector('#stageHost canvas') || document.querySelector('#stage canvas') || document.querySelector('canvas') || document.getElementById('stageHost') || document.getElementById('stage'))?.getBoundingClientRect?.();
+  const layerRect = hotspotLayer.getBoundingClientRect();
   hotspots.forEach((spot, index) => {
+    const anchor = spot.compositionAnchor?.version === 1
+      ? { u: Math.max(0, Math.min(1, Number(spot.compositionAnchor.u) || 0)), v: Math.max(0, Math.min(1, Number(spot.compositionAnchor.v) || 0)) }
+      : { u: Math.max(0, Math.min(1, (Number(spot.x) || 50) / 100)), v: Math.max(0, Math.min(1, (Number(spot.y) || 50) / 100)) };
+    const px = viewRect?.width > 1 ? viewRect.left + anchor.u * viewRect.width : layerRect.left + anchor.u * layerRect.width;
+    const py = viewRect?.height > 1 ? viewRect.top + anchor.v * viewRect.height : layerRect.top + anchor.v * layerRect.height;
+    const left = layerRect.width > 1 ? ((px - layerRect.left) / layerRect.width) * 100 : anchor.u * 100;
+    const top = layerRect.height > 1 ? ((py - layerRect.top) / layerRect.height) * 100 : anchor.v * 100;
     const btn = document.createElement('button');
     btn.className = 'hotspot-marker';
-    btn.style.left = `${spot.x}%`;
-    btn.style.top = `${spot.y}%`;
+    btn.style.left = `${left}%`;
+    btn.style.top = `${top}%`;
     btn.type = 'button';
     btn.innerHTML = `<span class="hotspot-pill">${spot.title || `Hotspot ${index + 1}`}</span>`;
     btn.addEventListener('click', (e) => {
@@ -1026,6 +1130,48 @@ function mountDepthText(record) {
   stage.insertBefore(el, host || null);
 }
 
+function renderUceComposition(record) {
+  const meta = record?.meta || record?.metadata || {};
+  const presentation = meta.presentation || meta.ape_presentation || {};
+  const layers = Array.isArray(presentation.layers) ? presentation.layers : [];
+  const host = document.getElementById('stageHost') || document.getElementById('stage');
+  if (!host) return;
+  let root = document.getElementById('fumocaUceComposition');
+  if (!root) {
+    root = document.createElement('div');
+    root.id = 'fumocaUceComposition';
+    root.setAttribute('aria-label', 'Interactive presentation composition');
+    root.style.cssText = 'position:absolute;inset:0;z-index:8;overflow:hidden;pointer-events:none;contain:layout paint;container-type:inline-size;';
+    host.appendChild(root);
+  }
+  root.replaceChildren();
+  layers.forEach(layer => {
+    if (!layer || !['text','image'].includes(layer.type)) return;
+    const x = Math.max(0.03, Math.min(0.97, Number(layer.x) || 0.5));
+    const y = Math.max(0.03, Math.min(0.97, Number(layer.y) || 0.5));
+    const width = Math.max(5, Math.min(90, Number(layer.width) || 45));
+    const el = layer.type === 'image' ? document.createElement('img') : document.createElement('div');
+    if (layer.type === 'image') {
+      if (!layer.url) return;
+      el.src = layer.url;
+      el.alt = layer.alt || 'Presentation artwork';
+      el.draggable = false;
+      el.style.objectFit = 'contain';
+      el.style.maxHeight = '80%';
+    } else {
+      el.textContent = String(layer.content || '').slice(0, 240);
+      el.style.cssText += ';font:700 clamp(8px,' + (Math.max(12,Math.min(72,Number(layer.fontSize)||32)) * 0.1) + 'cqw,72px)/1.15 system-ui,sans-serif;color:' + (/^#[0-9a-f]{6}$/i.test(String(layer.color||'')) ? layer.color : '#ffffff') + ';text-align:' + (['left','center','right'].includes(layer.textAlign) ? layer.textAlign : 'left') + ';text-shadow:0 2px 8px rgba(0,0,0,.85);white-space:pre-wrap;overflow-wrap:anywhere';
+    }
+    el.style.position = 'absolute';
+    el.style.left = (x * 100) + '%';
+    el.style.top = (y * 100) + '%';
+    el.style.width = width + '%';
+    el.style.maxHeight = '80%';
+    el.style.transform = 'translate(-50%,-50%)';
+    el.style.pointerEvents = 'none';
+    root.appendChild(el);
+  });
+}
 function configurePreview(record) {
   previewVideoUrl = previewVideoUrl || resolvePreviewVideo(record);
   thumbnailUrl = thumbnailUrl || resolveThumbnail(record);
@@ -1034,6 +1180,7 @@ function configurePreview(record) {
   window._fumocaPublicTeaserUrl = resolvePublicTeaserUrl(record);
   applyThumbnailSurfaces();
   const recordMeta = record?.meta || record?.metadata || {};
+  renderUceComposition(record);
   const review = recordMeta.includeReview ? recordMeta.reviewVideo : null;
   window._fumocaPendingReview = review?.url ? review : null;
   if (review?.url) {
@@ -1344,6 +1491,7 @@ function getActivenifUrl() {
 let _meshRenderer = null, _meshScene = null, _meshCamera = null, _meshControls = null, _meshFrame = null;
 let _meshLights = null, _meshLightingPanel = null;
 function destroyMeshViewer() {
+  window._fumocaMeshApeCleanup?.(); window._fumocaMeshApeCleanup = null;
   if (_meshFrame) { cancelAnimationFrame(_meshFrame); _meshFrame = null; }
   if (_meshRenderer) { _meshRenderer.dispose(); _meshRenderer.domElement.remove(); _meshRenderer = null; }
   _meshScene = _meshCamera = _meshControls = null;
@@ -1354,6 +1502,7 @@ function destroyMeshViewer() {
 function mountMeshViewer(mesh, calibration) {
   destroyMeshViewer();
   const container = stageHost || stageEl;
+  FUMOCA_APE.prepareHost(container);
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(mesh.positions, 3));
   // Colors arrive as 0-255 uint8 â€” THREE wants 0-1 floats for vertexColors.
@@ -1385,7 +1534,7 @@ function mountMeshViewer(mesh, calibration) {
   _meshCamera = new THREE.PerspectiveCamera(55, container.clientWidth / container.clientHeight, 0.001, 2000);
   _meshCamera.up.set(0, -1, -0.6).normalize();  // match the splat renderer's convention (see mountPlyViewer)
   _meshRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
-  _meshRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  _meshRenderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, FUMOCA_APE.settings.maxDpr));
   _meshRenderer.setSize(container.clientWidth, container.clientHeight);
   _meshRenderer.setClearColor(0x000000, 0);
   _meshRenderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -1404,13 +1553,9 @@ function mountMeshViewer(mesh, calibration) {
   _meshControls.target.set(c.x, c.y, c.z);
   _meshControls.minDistance = Math.max(r * 0.008, 0.0005);
   _meshControls.maxDistance = r * 24;
+  FUMOCA_APE.applyZoomBounds(_meshControls, r * 2.4);
   _meshControls.update();
-  window.addEventListener('resize', () => {
-    if (!_meshRenderer) return;
-    _meshCamera.aspect = container.clientWidth / container.clientHeight;
-    _meshCamera.updateProjectionMatrix();
-    _meshRenderer.setSize(container.clientWidth, container.clientHeight);
-  });
+  window._fumocaMeshApeCleanup = FUMOCA_APE.observe(container, _meshRenderer, _meshCamera, _meshControls);
   function loop() {
     _meshFrame = requestAnimationFrame(loop);
     _meshControls.update();
@@ -1481,6 +1626,7 @@ function mountMeshViewer(mesh, calibration) {
 // Called when fileUrl is a .ply â€” renders via THREE.js with Gaussian shader
 let _plyRenderer = null, _plyScene = null, _plyCamera = null, _plyControls = null, _plyFrame = null, _plyAttributeControl = null;
 function destroyPlyViewer() {
+  window._fumocaApeCleanup?.(); window._fumocaApeCleanup = null;
   if (_plyFrame) { cancelAnimationFrame(_plyFrame); _plyFrame = null; }
   if (_plyRenderer) { _plyRenderer.dispose(); _plyRenderer.domElement.remove(); _plyRenderer = null; }
   _plyAttributeControl?.remove(); _plyAttributeControl = null;
@@ -1489,22 +1635,24 @@ function destroyPlyViewer() {
 async function mountPlyViewer(url) {
   destroyPlyViewer();
   const container = stageHost || stageEl;
+  FUMOCA_APE.prepareHost(container);
   _plyScene = new THREE.Scene();
   _plyCamera = new THREE.PerspectiveCamera(55, container.clientWidth / container.clientHeight, 0.001, 2000);
   // nerfstudio/COLMAP uses OpenCV convention: Y is DOWN, Z into scene.
   // Match the Gaussiannif_files3D cameraUp of [0,-1,-0.6] so nif_files sit upright.
   _plyCamera.up.set(0, -1, -0.6).normalize();
   _plyRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
-  _plyRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  _plyRenderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, FUMOCA_APE.settings.maxDpr));
   _plyRenderer.setSize(container.clientWidth, container.clientHeight);
   _plyRenderer.setClearColor(0x000000, 0);
   Object.assign(_plyRenderer.domElement.style, { position:'absolute', inset:'0', width:'100%', height:'100%', zIndex:'2' });
   container.appendChild(_plyRenderer.domElement);
   _plyControls = new OrbitControls(_plyCamera, _plyRenderer.domElement);
-  _plyControls.enableDamping = true; _plyControls.dampingFactor = 0.028;
+  _plyControls.enableDamping = true; _plyControls.dampingFactor = FUMOCA_APE.settings.damping;
   _plyControls.rotateSpeed = 1.15; _plyControls.zoomSpeed = 1.05;
   _plyControls.enablePan = false;
   _plyControls.minPolarAngle = 0; _plyControls.maxPolarAngle = Math.PI;
+  window._fumocaApeCleanup = FUMOCA_APE.observe(container, _plyRenderer, _plyCamera, _plyControls);
   setLoading('Loading point cloudâ€¦');
   try {
     // Fetch manually so PLYLoader.parse() can access ALL attributes including f_dc_*
@@ -1833,7 +1981,8 @@ function mountDecodedCloud(g) {
   };
   resize();
   if (typeof ResizeObserver !== 'undefined') new ResizeObserver(resize).observe(stageEl || container);
-  window.addEventListener('resize', resize);
+  const stopApeResize = FUMOCA_APE.observe(container, _plyRenderer, _plyCamera, _plyControls);
+  window._fumocaApeCleanup = stopApeResize;
   const loop = () => {
     _plyFrame = requestAnimationFrame(loop);
     _plyControls.update();
@@ -1855,6 +2004,7 @@ async function mountPublishedSparkPly(url) {
   destroyPlyViewer();
   const container = stageHost || stageEl;
   if (!container) throw new Error('Viewer stage is unavailable');
+  FUMOCA_APE.prepareHost(container);
   const response = await fetch(url);
   if (!response.ok) throw new Error('Published Gaussian source returned HTTP ' + response.status);
   const bytes = new Uint8Array(await response.arrayBuffer());
@@ -1884,7 +2034,8 @@ async function mountPublishedSparkPly(url) {
   const bounds = new THREE.Box3().setFromBufferAttribute(position);
   const center = bounds.getCenter(new THREE.Vector3());
   const radius = Math.max(bounds.getBoundingSphere(new THREE.Sphere()).radius, 0.01);
-  _plyCamera.position.set(center.x, center.y + radius * 0.35, center.z + radius * 2.3);
+  const initialDistance = radius * 2.3 * FUMOCA_APE.settings.framePadding / FUMOCA_APE.settings.initialZoom;
+  _plyCamera.position.set(center.x, center.y + radius * 0.35, center.z + initialDistance);
   _plyCamera.lookAt(center);
   _plyControls = new TrackballControls(_plyCamera, _plyRenderer.domElement);
   _plyControls.rotateSpeed = 3.15; _plyControls.zoomSpeed = 1.5; _plyControls.panSpeed = 0;
@@ -1897,7 +2048,9 @@ async function mountPublishedSparkPly(url) {
   _plyCamera.near = 0.000001;
   _plyCamera.far = 1e9;
   _plyCamera.updateProjectionMatrix();
-  _plyControls.target.copy(center); _plyControls.update();
+  _plyControls.target.copy(center);
+  FUMOCA_APE.applyZoomBounds(_plyControls, initialDistance);
+  _plyControls.update();
   const resize = () => {
     if (!_plyRenderer || !_plyCamera) return;
     const w = container.clientWidth || window.innerWidth, h = container.clientHeight || window.innerHeight;
@@ -1928,6 +2081,7 @@ async function mountInteractiveViewer(forceReload = false) {
   if (forceReload) await destroyViewer();
   setLoading(forceReload ? 'Refreshing cleanupâ€¦' : 'Loading interactive nifâ€¦');
   try {
+    FUMOCA_APE.prepareHost(stageHost || stageEl);
     viewerInstance = new Gaussiannif_files3D.Viewer({
       rootElement: stageHost || stageEl,
       cameraUp: [0, -1, -0.6],
@@ -1966,6 +2120,10 @@ async function mountInteractiveViewer(forceReload = false) {
       const h = host?.clientHeight || window.innerHeight;
       if (w > 2 && h > 2) viewerInstance.renderer?.setSize?.(w, h, false);
       const canvas = viewerInstance.renderer?.domElement || host?.querySelector?.('canvas');
+      if (viewerInstance.renderer && viewerInstance.camera) {
+        window._fumocaGaussianApeCleanup?.();
+        window._fumocaGaussianApeCleanup = FUMOCA_APE.observe(host, viewerInstance.renderer, viewerInstance.camera, viewerInstance.controls || viewerInstance.orbitControls);
+      }
       if (canvas) {
         canvas.style.setProperty('display', 'block', 'important');
         canvas.style.setProperty('width', '100%', 'important');
@@ -2156,9 +2314,14 @@ if (cam) {
     if ('autoRotateSpeed' in controls) controls.autoRotateSpeed = 0;
   }
 
+  window.dispatchEvent(new CustomEvent('fumoca:viewerReady', { detail: { camera: cam, controls } }));
   setTimeout(fitSubjectInView, 200);
   setTimeout(fitSubjectInView, 800);
-  setTimeout(fitSubjectInView, 2000);
+  setTimeout(() => {
+    fitSubjectInView();
+    FUMOCA_APE.resetCameraReference();
+    FUMOCA_APE.applyLiveFraming();
+  }, 2000);
 
   if (!window._fumocaOrbitDampRaf) {
     const tick = () => {
@@ -2255,6 +2418,64 @@ async function boot() {
   setLoading('Fetching nifâ€¦');
   const sessionRecord = hydrateFromSession();
   currentRecord = (await fetchRecord()) || sessionRecord;
+  // Published presentation settings travel with the NIF record. URL overrides
+  // remain useful for preview/debugging; record metadata supplies the defaults.
+  const publishedPresentation = currentRecord?.meta?.presentation || currentRecord?.meta?.ape_presentation || currentRecord?.metadata?.presentation || currentRecord?.metadata?.ape_presentation || {};
+  FUMOCA_APE.configure(publishedPresentation);
+  window.FumocaAPE = {
+    getSettings: () => ({ ...FUMOCA_APE.settings }),
+    configure: (settings) => FUMOCA_APE.configure(settings),
+    applyLiveFraming: () => FUMOCA_APE.applyLiveFraming(),
+  };
+  const apeAspect = document.getElementById('apeStudioAspect');
+  const apeZoom = document.getElementById('apeStudioZoom');
+  const apePadding = document.getElementById('apeStudioPadding');
+  const apeZoomValue = document.getElementById('apeStudioZoomValue');
+  const apePaddingValue = document.getElementById('apeStudioPaddingValue');
+  const apeRatioPreview = document.getElementById('apeRatioPreview');
+  const apeReset = document.getElementById('apeStudioReset');
+  const savedApe = FUMOCA_APE.settings;
+  if (apeAspect) apeAspect.value = publishedPresentation.aspectRatio || '16 / 9';
+  if (apeZoom) apeZoom.value = String(savedApe.initialZoom);
+  if (apePadding) apePadding.value = String(savedApe.framePadding);
+  const syncApeLabels = () => {
+    if (apeZoomValue && apeZoom) apeZoomValue.textContent = Number(apeZoom.value).toFixed(2) + '×';
+    if (apePaddingValue && apePadding) apePaddingValue.textContent = Number(apePadding.value).toFixed(2) + '×';
+    if (apeRatioPreview && apeAspect) apeRatioPreview.style.aspectRatio = apeAspect.value;
+  };
+  const saveApeDraft = () => {
+    const draft = {
+      version: 1,
+      aspectRatio: apeAspect?.value || '16 / 9',
+      initialZoom: Number(apeZoom?.value || 1),
+      framePadding: Number(apePadding?.value || 1.55),
+      damping: FUMOCA_APE.settings.damping,
+      maxDpr: FUMOCA_APE.settings.maxDpr,
+    };
+    window._fumocaApePresentationDraft = draft;
+    FUMOCA_APE.configure(draft);
+    FUMOCA_APE.applyLiveFraming();
+    syncApeLabels();
+    const status = document.getElementById('apeLiveStatus');
+    if (status) status.textContent = 'Live · unsaved';
+    window.dispatchEvent(new CustomEvent('fumoca:apePresentationChanged', { detail: draft }));
+  };
+  [apeAspect, apeZoom, apePadding].forEach(control => {
+    control?.addEventListener('input', saveApeDraft);
+    control?.addEventListener('change', saveApeDraft);
+  });
+  apeReset?.addEventListener('click', () => {
+    if (apeAspect) apeAspect.value = '16 / 9';
+    if (apeZoom) apeZoom.value = '1';
+    if (apePadding) apePadding.value = '1.55';
+    FUMOCA_APE.resetCameraReference();
+    saveApeDraft();
+  });
+  syncApeLabels();
+  window.addEventListener('fumoca:viewerReady', () => {
+    FUMOCA_APE.resetCameraReference();
+    setTimeout(() => FUMOCA_APE.applyLiveFraming(), 2100);
+  });
   if (sessionRecord) {
     thumbnailUrl = thumbnailUrl || sessionRecord.thumbnail || '';
     previewVideoUrl = previewVideoUrl || sessionRecord.previewVideo || '';

@@ -374,12 +374,26 @@ async function pickWorldAnchorFromEvent(event) {
   return null;
 }
 
+// UCE v1 adapter. Legacy hotspot x/y stay in percent-0-100 for old
+// records and tools; compositionAnchor stores the equivalent normalized
+// top-left-origin coordinate without changing world-space anchors.
+function hotspotCompositionAnchor(h) {
+  const anchor = h?.compositionAnchor;
+  if (anchor?.version === 1 && anchor.coordinateSpace === 'normalized'
+      && Number.isFinite(Number(anchor.u)) && Number.isFinite(Number(anchor.v))) {
+    return { u: Math.max(0, Math.min(1, Number(anchor.u))), v: Math.max(0, Math.min(1, Number(anchor.v))) };
+  }
+  return {
+    u: Math.max(0, Math.min(1, (Number.isFinite(Number(h?.x)) ? Number(h.x) : 50) / 100)),
+    v: Math.max(0, Math.min(1, (Number.isFinite(Number(h?.y)) ? Number(h.y) : 50) / 100)),
+  };
+}
 function getStagePercentFromEvent(event) {
   const rect = _getViewRect();
-  if (!rect || rect.width < 2) return { x: 50, y: 50 };
-  const x = ((event.clientX - rect.left) / rect.width) * 100;
-  const y = ((event.clientY - rect.top) / rect.height) * 100;
-  return { x: Math.max(0, Math.min(100, x)), y: Math.max(0, Math.min(100, y)) };
+  if (!rect || rect.width < 2 || rect.height < 2) return { x: 50, y: 50, compositionAnchor: { version: 1, coordinateSpace: 'normalized', origin: 'top-left', u: 0.5, v: 0.5 } };
+  const x = Math.max(0, Math.min(100, ((event.clientX - rect.left) / rect.width) * 100));
+  const y = Math.max(0, Math.min(100, ((event.clientY - rect.top) / rect.height) * 100));
+  return { x, y, compositionAnchor: { version: 1, coordinateSpace: 'normalized', origin: 'top-left', u: x / 100, v: y / 100 } };
 }
 
 async function captureEventHotspotAnchor(event) {
@@ -391,6 +405,7 @@ async function captureEventHotspotAnchor(event) {
     ...live,
     x: screen.x,
     y: screen.y,
+    compositionAnchor: screen.compositionAnchor,
     // Only the click's picked surface point is a valid 3D anchor.
     // Never substitute the camera target, which makes hotspots drift.
     wx: Number.isFinite(picked?.x) ? Number(picked.x) : null,
@@ -409,6 +424,8 @@ function normalizeHotspot(h, index = 0) {
     zoom: Number.isFinite(+h?.zoom) ? +h.zoom : 1.12,
     x: Number.isFinite(+h?.x) ? +h.x : 50,
     y: Number.isFinite(+h?.y) ? +h.y : 50,
+    // Preserve authored UCE coordinates; upgrade legacy percentages explicitly.
+    compositionAnchor: hotspotCompositionAnchor(h),
     wx: Number.isFinite(+h?.wx) ? +h.wx : null,
     wy: Number.isFinite(+h?.wy) ? +h.wy : null,
     wz: Number.isFinite(+h?.wz) ? +h.wz : null,
@@ -645,8 +662,9 @@ function getRenderPosition(h) {
   const view = _getViewRect();
   const layer = hotspotLayer?.getBoundingClientRect?.();
   if (view && layer && layer.width > 2 && Number.isFinite(+h.x) && Number.isFinite(+h.y)) {
-    const px = view.left + (+h.x / 100) * view.width;
-    const py = view.top + (+h.y / 100) * view.height;
+    const anchor = hotspotCompositionAnchor(h);
+    const px = view.left + anchor.u * view.width;
+    const py = view.top + anchor.v * view.height;
     return {
       x: ((px - layer.left) / layer.width) * 100,
       y: ((py - layer.top) / layer.height) * 100,
@@ -1258,9 +1276,43 @@ function renderHotspots() {
     el.title = h.title;
     el.setAttribute('aria-label', h.title || 'Hotspot');
     el.innerHTML = `<span class="hotspot-pill">${escapeHtml(h.title)}</span>`;
+    let markerDrag = null;
+    let suppressMarkerClick = false;
+    el.addEventListener('pointerdown', (e) => {
+      if (!state.canManage || [h.wx, h.wy, h.wz].every(v => v != null && Number.isFinite(Number(v)))) return;
+      const rect = _getViewRect();
+      if (!rect || rect.width < 2 || rect.height < 2) return;
+      markerDrag = { pointerId:e.pointerId, startX:e.clientX, startY:e.clientY, rect, moved:false };
+      el.setPointerCapture?.(e.pointerId);
+    });
+    el.addEventListener('pointermove', (e) => {
+      if (!markerDrag || markerDrag.pointerId !== e.pointerId) return;
+      const dx = e.clientX - markerDrag.startX, dy = e.clientY - markerDrag.startY;
+      if (Math.abs(dx) + Math.abs(dy) > 4) markerDrag.moved = true;
+      if (!markerDrag.moved) return;
+      const u = Math.max(0, Math.min(1, (e.clientX - markerDrag.rect.left) / markerDrag.rect.width));
+      const v = Math.max(0, Math.min(1, (e.clientY - markerDrag.rect.top) / markerDrag.rect.height));
+      h.x = u * 100; h.y = v * 100;
+      h.compositionAnchor = { version:1, coordinateSpace:'normalized', origin:'top-left', u, v };
+      const pos = getRenderPosition(h);
+      el.style.left = `${pos.x}%`;
+      el.style.top = `${pos.y}%`;
+    });
+    el.addEventListener('pointerup', async (e) => {
+      if (!markerDrag || markerDrag.pointerId !== e.pointerId) return;
+      const moved = markerDrag.moved;
+      markerDrag = null;
+      if (moved) { suppressMarkerClick = true; e.preventDefault(); e.stopPropagation(); await saveRemote(); renderHotspots(); }
+    });
+    el.addEventListener('pointercancel', () => { markerDrag = null; renderHotspots(); });
     el.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
+      if (suppressMarkerClick) { suppressMarkerClick = false; return; }
+      if (state.canManage && ![h.wx, h.wy, h.wz].every(v => v != null && Number.isFinite(Number(v)))) {
+        openHotspotEditor(h, { isNew:false });
+        return;
+      }
       activateHotspot(h);
     });
     hotspotLayer.appendChild(el);
