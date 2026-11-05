@@ -7450,7 +7450,7 @@ if (!window._fumocaBooted) {
     controls.maxDistance = Math.max(baseOffset.length * 12, controls.minDistance * 2);
     controls.update?.();
   }
-  function sync() {
+  function sync(applyCamera = true) {
     const ratio = aspect.value;
     const z = Number(zoom.value);
     const p = Number(padding.value);
@@ -7465,7 +7465,7 @@ if (!window._fumocaBooted) {
       damping: 0.08,
       maxDpr: 2
     };
-    applyFraming();
+    if (applyCamera) applyFraming();
     if (status) status.textContent = 'Draft · ready to publish';
     window.dispatchEvent(new CustomEvent('fumoca:apePresentationChanged', {
       detail: window._fumocaApePresentationDraft
@@ -7477,7 +7477,7 @@ if (!window._fumocaBooted) {
     input.addEventListener('keydown', () => { captureBase(); });
     input.addEventListener('input', sync);
   });
-  aspect.addEventListener('change', sync);
+  aspect.addEventListener('change', () => sync(false));
   reset?.addEventListener('click', () => {
     aspect.value = '16 / 9';
     zoom.value = '1';
@@ -7489,8 +7489,7 @@ if (!window._fumocaBooted) {
     baseOffset = null;
     setTimeout(() => { captureBase(); applyFraming(); }, 100);
   });
-  window.addEventListener('resize', () => { if (!gestureActive) applyFraming(); }, { passive: true });
-  sync();
+  sync(false);
 })();
 </script>
 </body>
