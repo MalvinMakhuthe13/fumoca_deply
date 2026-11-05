@@ -1121,6 +1121,47 @@ function mountDepthText(record) {
   stage.insertBefore(el, host || null);
 }
 
+function renderUceComposition(record) {
+  const meta = record?.meta || record?.metadata || {};
+  const presentation = meta.presentation || meta.ape_presentation || {};
+  const layers = Array.isArray(presentation.layers) ? presentation.layers : [];
+  const host = document.getElementById('stageHost') || document.getElementById('stage');
+  if (!host) return;
+  let root = document.getElementById('fumocaUceComposition');
+  if (!root) {
+    root = document.createElement('div');
+    root.id = 'fumocaUceComposition';
+    root.setAttribute('aria-label', 'Interactive presentation composition');
+    root.style.cssText = 'position:absolute;inset:0;z-index:8;overflow:hidden;pointer-events:none;contain:layout paint;';
+    host.appendChild(root);
+  }
+  root.replaceChildren();
+  layers.forEach(layer => {
+    if (!layer || !['text','image'].includes(layer.type)) return;
+    const x = Math.max(0.03, Math.min(0.97, Number(layer.x) || 0.5));
+    const y = Math.max(0.03, Math.min(0.97, Number(layer.y) || 0.5));
+    const width = Math.max(5, Math.min(90, Number(layer.width) || 45));
+    const el = layer.type === 'image' ? document.createElement('img') : document.createElement('div');
+    if (layer.type === 'image') {
+      if (!layer.url) return;
+      el.src = layer.url;
+      el.alt = layer.alt || 'Presentation artwork';
+      el.draggable = false;
+      el.style.objectFit = 'contain';
+    } else {
+      el.textContent = String(layer.content || '').slice(0, 240);
+      el.style.cssText += ';font:700 clamp(14px,2.5vw,34px)/1.15 system-ui,sans-serif;color:#fff;text-shadow:0 2px 8px rgba(0,0,0,.85);white-space:pre-wrap;overflow-wrap:anywhere';
+    }
+    el.style.position = 'absolute';
+    el.style.left = (x * 100) + '%';
+    el.style.top = (y * 100) + '%';
+    el.style.width = width + '%';
+    el.style.maxHeight = '80%';
+    el.style.transform = 'translate(-50%,-50%)';
+    el.style.pointerEvents = 'none';
+    root.appendChild(el);
+  });
+}
 function configurePreview(record) {
   previewVideoUrl = previewVideoUrl || resolvePreviewVideo(record);
   thumbnailUrl = thumbnailUrl || resolveThumbnail(record);
@@ -1129,6 +1170,7 @@ function configurePreview(record) {
   window._fumocaPublicTeaserUrl = resolvePublicTeaserUrl(record);
   applyThumbnailSurfaces();
   const recordMeta = record?.meta || record?.metadata || {};
+  renderUceComposition(record);
   const review = recordMeta.includeReview ? recordMeta.reviewVideo : null;
   window._fumocaPendingReview = review?.url ? review : null;
   if (review?.url) {
