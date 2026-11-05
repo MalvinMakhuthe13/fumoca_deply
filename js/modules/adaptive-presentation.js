@@ -107,6 +107,50 @@ function start() {
   requestAnimationFrame(measure);
 }
 
+function fitSphere(center, radius, options = {}) {
+  const camera = state.camera || window._fumocaViewerCamera;
+  const controls = state.controls || window._fumocaViewerControls;
+  if (!camera?.position || !controls?.target || !center) return false;
+
+  const cx = Number(center.x), cy = Number(center.y), cz = Number(center.z);
+  const r = Math.max(Number(radius) || 0, 0.0001);
+  if (![cx, cy, cz, r].every(Number.isFinite)) return false;
+
+  const host = getHost();
+  const rect = host?.getBoundingClientRect?.();
+  const aspect = Math.max(0.01, rect?.width && rect?.height ? rect.width / rect.height : state.aspect || camera.aspect || 1);
+  const verticalFov = THREE_FOV(camera.fov);
+  const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * aspect);
+  const limitingFov = Math.max(0.01, Math.min(verticalFov, horizontalFov));
+  const padding = Math.max(1, Number(options.padding) || 1.18);
+  const distance = (r / Math.sin(limitingFov / 2)) * padding;
+
+  const target = controls.target;
+  const px = camera.position.x, py = camera.position.y, pz = camera.position.z;
+  let dx = px - cx, dy = py - cy, dz = pz - cz;
+  let length = Math.hypot(dx, dy, dz);
+  if (!Number.isFinite(length) || length < 1e-6) {
+    dx = 0; dy = 0; dz = 1; length = 1;
+  }
+  const scale = distance / length;
+  target.set(cx, cy, cz);
+  camera.position.set(cx + dx * scale, cy + dy * scale, cz + dz * scale);
+  camera.lookAt?.(cx, cy, cz);
+  camera.updateMatrixWorld?.(true);
+  camera.updateProjectionMatrix?.();
+  controls.update?.();
+
+  window.dispatchEvent(new CustomEvent('fumoca:presentationFramed', {
+    detail: { center: { x: cx, y: cy, z: cz }, radius: r, distance, aspect, padding, version: APE_VERSION },
+  }));
+  return true;
+}
+
+function THREE_FOV(degrees) {
+  const value = Number(degrees);
+  return (Math.max(1, Math.min(179, Number.isFinite(value) ? value : 50)) * Math.PI) / 180;
+}
+
 window.FumocaPresentation = Object.freeze({
   version: APE_VERSION,
   getState: () => ({
@@ -117,6 +161,7 @@ window.FumocaPresentation = Object.freeze({
     mode: state.mode,
   }),
   refresh: measure,
+  fitSphere,
 });
 
 start();
