@@ -1,6 +1,6 @@
 # FUMOCA Adaptive Presentation Engine (APE)
 
-Status: foundation in progress
+Status: foundation integrated in public viewer paths; Studio authoring and browser QA pending
 Branch: `ape-foundation-2026-11-05`
 
 ## Product contract
@@ -31,15 +31,21 @@ The Spark public-viewer bridge now accepts an optional `presentation` object:
 
 The bridge now fits against the narrower horizontal/vertical field of view, observes the actual host element with ResizeObserver, and re-fits only until the visitor begins changing the camera.
 
+## Implemented in this branch
+
+- Shared APE configuration reads validated URL preview overrides and persisted NIF metadata (`meta.presentation` or `meta.ape_presentation`).
+- Public viewer applies host sizing and ResizeObserver updates to the Spark companion PLY, legacy PLY, solid mesh overlay, and the primary Gaussian viewer when its renderer/camera are exposed.
+- Renderer pixel ratio is capped; camera aspect and drawing-buffer dimensions follow the actual host element.
+- Camera framing/zoom settings and zoom bounds are applied to the Spark companion path; public API `window.FumocaAPE.getSettings()` exposes the active settings for integration/testing.
+- Ad embed now defaults to responsive 100% width and 16:9 aspect ratio, accepts explicit aspect ratio or fixed height, and observes its host container for resizes.
+
 ## Required next integration steps
 
-- Find and verify the production Spark bridge mount callsite; pass the published presentation settings into it.
-- Define and validate a versioned presentation-settings schema in the publish metadata.
-- Wire Studio controls for aspect ratio, default framing, initial zoom, zoom bounds, and interaction sensitivity.
+- Add Studio authoring controls and persist `meta.presentation` when the owner publishes or updates a NIF.
 - Ensure poster typography, hotspots, and interactive overlays share the same normalized composition coordinate system.
-- Generate embed snippets with responsive width and an explicit aspect-ratio container; support a fixed-height option.
+- Generate/update embed snippets with responsive width and an explicit aspect-ratio container; support a fixed-height option.
 - Audit showroom and public viewer CSS for viewport-fixed assumptions and nested iframe overflow.
-- Verify that the embed never changes the host page's scroll position or dimensions.
+- Verify all render paths in real browsers and devices; this branch has not yet undergone browser/device QA.
 
 ## Acceptance matrix
 
