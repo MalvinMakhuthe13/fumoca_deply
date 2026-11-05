@@ -7505,43 +7505,84 @@ if (!window._fumocaBooted) {
   backBtn.addEventListener('click',()=>moveSelected(-1));
   forwardBtn.addEventListener('click',()=>moveSelected(1));
   const presetStorageKey = 'fumoca:uce-presets:v1:' + (window._fumocaSession?.user?.id || 'local');
-  function readPresets() {
+  let presetMode = 'local';
+  let cloudPresetUserId = null;
+  function readLocalPresets() {
     try { const value = JSON.parse(localStorage.getItem(presetStorageKey) || '[]'); return Array.isArray(value) ? value.filter(p => p && typeof p.id === 'string' && typeof p.name === 'string' && Array.isArray(p.layers)) : []; }
     catch (_) { return []; }
   }
-  function refreshPresets(selectedId) {
-    const presets = readPresets();
+  function writeLocalPresets(presets) { localStorage.setItem(presetStorageKey, JSON.stringify(presets)); }
+  function refreshPresets(presets, selectedId) {
     presetSelect.replaceChildren();
     if (!presets.length) { const opt=document.createElement('option'); opt.value=''; opt.textContent='No saved presets'; presetSelect.appendChild(opt); }
     presets.forEach(p=>{const opt=document.createElement('option');opt.value=p.id;opt.textContent=p.name;presetSelect.appendChild(opt);});
     if (selectedId && presets.some(p=>p.id===selectedId)) presetSelect.value=selectedId;
-    presetLoad.disabled = !presets.length;
-    presetDelete.disabled = !presets.length;
+    presetLoad.disabled = !presets.length; presetDelete.disabled = !presets.length;
   }
-  presetSave.addEventListener('click',()=>{
+  async function getPresetStore() {
+    const sb=window._fumocaSupabase || window.supabase;
+    if(!sb) return null;
+    try {
+      const {data:{user},error:authError}=await sb.auth.getUser();
+      if(authError || !user) return null;
+      cloudPresetUserId=user.id;
+      return {sb,user};
+    } catch (_) { return null; }
+  }
+  async function loadPresets(selectedId) {
+    const store=await getPresetStore();
+    if(store) {
+      const {data,error}=await store.sb.from('uce_composition_presets').select('id,name,layers,updated_at').eq('user_id',store.user.id).order('updated_at',{ascending:false});
+      if(!error) {
+        presetMode='cloud'; const rows=(data||[]).map(p=>({id:p.id,name:p.name,layers:Array.isArray(p.layers)?p.layers:[]}));
+        refreshPresets(rows,selectedId); presetStatus.textContent='Cloud-synced presets · available on your signed-in devices.'; return rows;
+      }
+      if(error.code!=='42P01' && error.code!=='PGRST205') console.warn('[UCE] Preset cloud load failed:',error.message);
+      presetMode='local';
+      presetStatus.textContent='Cloud preset table is not ready yet. Using this browser until the database migration is applied.';
+    } else {
+      presetMode='local'; presetStatus.textContent='Sign in to sync presets. Saved presets currently stay in this browser.';
+    }
+    const rows=readLocalPresets(); refreshPresets(rows,selectedId); return rows;
+  }
+  let presetCache=readLocalPresets();
+  loadPresets();
+  presetSave.addEventListener('click',async()=>{
     const name=presetName.value.trim();
     if(!name){presetStatus.textContent='Enter a name before saving.';return;}
     const snapshot=items.map(({id,type,content,x,y,width,fontSize,color,textAlign})=>({id,type,content,x,y,width,fontSize,color,textAlign}));
-    const payload=JSON.stringify(snapshot);
-    if(payload.length>1400000){presetStatus.textContent='This layout contains large embedded artwork. Publish the artwork first, then save a preset using its published asset URL.';return;}
-    const presets=readPresets();
-    const id='uce-'+Date.now();
+    if(snapshot.some(layer=>typeof layer.content==='string' && layer.content.startsWith('data:'))) {
+      presetStatus.textContent='Publish the artwork first so the preset can reference its durable asset URL.';return;
+    }
+    const store=await getPresetStore();
+    if(store) {
+      const {data,error}=await store.sb.from('uce_composition_presets').insert({user_id:store.user.id,name:name.slice(0,40),layers:snapshot}).select('id,name,layers').single();
+      if(!error){presetMode='cloud';presetName.value='';presetStatus.textContent='Preset saved to your account and synced.';await loadPresets(data.id);return;}
+      if(error.code!=='42P01' && error.code!=='PGRST205') console.warn('[UCE] Cloud preset save failed:',error.message);
+      presetStatus.textContent='Cloud save unavailable. Saving locally in this browser instead.';
+    }
+    const presets=readLocalPresets(); const id='uce-'+Date.now();
     presets.push({id,name:name.slice(0,40),layers:snapshot,updatedAt:new Date().toISOString()});
-    try { localStorage.setItem(presetStorageKey,JSON.stringify(presets)); refreshPresets(id); presetStatus.textContent='Preset saved in this browser profile.'; }
+    try { writeLocalPresets(presets); presetName.value=''; presetMode='local'; await loadPresets(id); presetStatus.textContent='Preset saved in this browser profile.'; }
     catch (_) { presetStatus.textContent='Could not save: browser storage is full or unavailable.'; }
   });
-  presetLoad.addEventListener('click',()=>{
-    const preset=readPresets().find(p=>p.id===presetSelect.value);
-    if(!preset)return;
+  presetLoad.addEventListener('click',async()=>{
+    const presets=presetMode==='cloud' ? await loadPresets(presetSelect.value) : readLocalPresets();
+    const preset=presets.find(p=>p.id===presetSelect.value); if(!preset)return;
     items=preset.layers.map(layer=>({...layer,id:'layer-'+Date.now()+'-'+Math.random().toString(36).slice(2,7)}));
     selected=null; publishDraft(); render(); presetStatus.textContent='Preset loaded into the current composition draft. Publish to apply it to the viewer.';
   });
-  presetDelete.addEventListener('click',()=>{
+  presetDelete.addEventListener('click',async()=>{
     const id=presetSelect.value;if(!id)return;
-    try { localStorage.setItem(presetStorageKey,JSON.stringify(readPresets().filter(p=>p.id!==id)));refreshPresets();presetStatus.textContent='Preset deleted from this browser profile.'; }
+    if(presetMode==='cloud') {
+      const store=await getPresetStore();
+      if(store){const {error}=await store.sb.from('uce_composition_presets').delete().eq('id',id).eq('user_id',store.user.id);
+        if(!error){await loadPresets();presetStatus.textContent='Cloud preset deleted.';return;}
+        presetStatus.textContent='Could not delete the cloud preset: '+error.message;return;}
+    }
+    try { writeLocalPresets(readLocalPresets().filter(p=>p.id!==id));await loadPresets();presetStatus.textContent='Preset deleted from this browser profile.'; }
     catch (_) { presetStatus.textContent='Could not update browser storage.'; }
   });
-  refreshPresets();
   render();
 })();
 </script>
