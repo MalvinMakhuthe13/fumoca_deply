@@ -10,7 +10,7 @@ const fixture = `<!doctype html>
 <style>html,body{margin:0;width:100%;height:100%;background:#111}#viewport{position:relative;width:100%;height:100%;overflow:hidden}</style>
 <div id="viewport"></div>
 <script>
-const composition={aspectRatio:.8,subjects:[{id:'subject_main',label:'Main subject',x:.5,y:.5,scale:1,rotation:0,visible:true,locked:false,z:1}],title:{visible:true,text:'A poster headline'}};
+const composition={aspectRatio:.8,subjects:[{id:'subject_main',label:'Main subject',x:.5,y:.5,scale:1,rotation:0,visible:true,locked:false,z:1},{id:'subject_second',label:'Side product',x:.78,y:.62,scale:1,rotation:0,visible:true,locked:false,z:2}],title:{visible:true,text:'A poster headline'}};
 window.FumocaPoster={
  getState:()=>({enabled:true,selectedSubjectId:'subject_main',composition}),
  updateSubject(id,patch){const subject=composition.subjects.find(item=>item.id===id);if(subject&&!subject.locked){Object.assign(subject,patch);window.dispatchEvent(new CustomEvent('fumoca:posterChange'));}return true;},
@@ -41,6 +41,11 @@ try{
  await page.goto(`http://127.0.0.1:${port}/edit.html`);
  const move=page.getByRole('button',{name:'Move Main subject'});
  await move.waitFor();
+ const sidePick=page.getByRole('button',{name:'Select Side product'});
+ await sidePick.click();
+ assert.equal(await page.evaluate(()=>window.FumocaPoster.getState().selectedSubjectId),'subject_second','clicking a visible poster subject should select that 3D object');
+ assert.ok(await page.getByRole('button',{name:'Move Side product'}).count(),'transform controls should follow the directly selected object');
+ await page.evaluate(()=>window.FumocaPoster.selectSubject('subject_main'));
  assert.equal(await page.locator('.fpe-title').count(),0,'overlay must not duplicate the poster viewport headline');
  const drag=async(locator,dx,dy)=>{
    const box=await locator.boundingBox();assert.ok(box,'transform handle should be visible');
@@ -66,7 +71,7 @@ try{
  await page.evaluate(()=>window.overlay.refresh());
  const frame=await page.locator('.fpe-frame').boundingBox();
  assert.ok(frame&&Math.abs(frame.width-390)<1,'poster controls should recalculate against a mobile-sized host');
- console.log('Browser test passed: direct subject move, resize, rotate, lock protection, headline de-duplication and mobile frame sizing.');
+ console.log('Browser test passed: direct subject selection, move, resize, rotate, lock protection, headline de-duplication and mobile frame sizing.');
 }finally{
  if(browser)await browser.close();
  await new Promise(resolve=>server.close(resolve));
