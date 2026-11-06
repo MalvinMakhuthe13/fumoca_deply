@@ -102,7 +102,7 @@ function persist() {
 }
 
 function posterDataUrlToBlob(dataUrl) {
-  const match = String(dataUrl || '').match(/^data:(image\\/(?:webp|png|jpeg));base64,([A-Za-z0-9+/=]+)$/i);
+  const match = String(dataUrl || '').match(/^data:(image\/(?:webp|png|jpeg));base64,([A-Za-z0-9+/=]+)$/i);
   if (!match) throw new Error('Poster image data is invalid. Please upload the image again.');
   const binary = atob(match[2]);
   const bytes = new Uint8Array(binary.length);
@@ -126,7 +126,7 @@ async function persistPosterImagesToR2(poster, userId, recordId) {
   const composition = poster?.composition;
   if (!composition) return uploadedKeys;
   const background = composition.background;
-  if (/^data:image\\//i.test(background?.value || '')) {
+  if (/^data:image\//i.test(background?.value || '')) {
     const stored = await uploadDataUrl(
       background.value,
       'poster-assets/' + userId + '/' + recordId + '/background-' + Date.now() + '.webp'
@@ -136,7 +136,7 @@ async function persistPosterImagesToR2(poster, userId, recordId) {
 
   const images = composition.assets?.images || [];
   for (const image of images) {
-    if (!/^data:image\\//i.test(image.src || '')) continue;
+    if (!/^data:image\//i.test(image.src || '')) continue;
     const safeId = String(image.id || Math.random().toString(36).slice(2, 10)).replace(/[^a-z0-9_-]/gi, '').slice(0, 64);
     const stored = await uploadDataUrl(
       image.src,
