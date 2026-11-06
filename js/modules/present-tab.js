@@ -13,6 +13,7 @@ import {
 import './poster-composer.js?v=20261106-layercontrols02';
 import './poster-assets.js?v=20261106-layercontrols02';
 import { mountPosterEditorOverlay as createPosterEditorOverlay } from './poster-editor-overlay.js?v=20261106-headlinepreview01';
+import { mountPosterSceneManager } from './poster-scene-manager.js?v=20261106-multiscene01';
 
 const STORAGE_KEY = 'fumoca_present_v1';
 
@@ -404,6 +405,7 @@ function mountPanel() {
 
   const host = findPresentHost();
   host.appendChild(panel);
+  mountPosterSceneManager();
   syncPresentActive();
   mountStudioPosterOverlay();
 
