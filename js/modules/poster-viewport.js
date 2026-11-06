@@ -43,6 +43,13 @@ function mount() {
   let lastSignature = '';
   let frame = 0;
   let title = host.querySelector('[data-fumoca-poster-title]');
+  let backgroundNode = host.querySelector('[data-fumoca-poster-background]');
+  if (!backgroundNode) {
+    backgroundNode = document.createElement('div');
+    backgroundNode.dataset.fumocaPosterBackground = '1';
+    Object.assign(backgroundNode.style, { position: 'absolute', inset: '0', zIndex: '0', pointerEvents: 'none' });
+    host.insertBefore(backgroundNode, host.firstChild);
+  }
   const ensureTitle = () => {
     if (title?.isConnected) return title;
     title = document.createElement('div');
@@ -62,6 +69,8 @@ function mount() {
     }
     title?.remove();
     title = null;
+    backgroundNode?.remove();
+    backgroundNode = null;
     host.removeAttribute('data-fumoca-poster-viewport');
   };
   const update = () => {
@@ -79,7 +88,7 @@ function mount() {
     }
     const signature = JSON.stringify({
       width: layout.width, height: layout.height, left: layout.left, top: layout.top,
-      background: layout.background, title: layout.title,
+      background: layout.background, assets: layout.assets, title: layout.title,
     });
     if (signature === lastSignature) return;
     lastSignature = signature;
@@ -94,9 +103,20 @@ function mount() {
     const background = layout.background || {};
     host.style.background = background.type === 'gradient' ? background.value : '';
     host.style.backgroundColor = background.type === 'solid' ? (background.value || '#10131a') : 'transparent';
-    host.style.backgroundImage = background.type === 'image' ? 'url("' + String(background.value).replace(/["\\\\]/g, '') + '")' : '';
+    host.style.backgroundImage = '';
     host.style.backgroundSize = 'cover';
     host.style.backgroundPosition = 'center';
+    if (backgroundNode) {
+      backgroundNode.style.backgroundImage = background.type === 'image' ? 'url("' + String(background.value).replace(/["\\\\]/g, '') + '")' : '';
+      backgroundNode.style.background = background.type === 'gradient' ? background.value : '';
+      backgroundNode.style.backgroundColor = background.type === 'solid' ? (background.value || '#10131a') : 'transparent';
+      backgroundNode.style.backgroundSize = background.fit === 'contain' ? 'contain' : background.fit === 'fill' ? '100% 100%' : 'cover';
+      backgroundNode.style.backgroundPosition = background.position || 'center';
+      backgroundNode.style.backgroundRepeat = 'no-repeat';
+      backgroundNode.style.opacity = String(Math.max(0, Math.min(1, Number(background.opacity ?? 1))));
+      backgroundNode.style.filter = 'blur(' + Math.max(0, Math.min(40, Number(background.blur) || 0)) + 'px) brightness(' + Math.max(0.2, Math.min(2, Number(background.brightness) || 1)) + ')';
+      backgroundNode.style.transform = Number(background.blur) > 0 ? 'scale(1.04)' : 'none';
+    }
     host.dataset.fumocaPosterViewport = '1';
     const heading = layout.title || {};
     if (heading.visible && String(heading.text || '').trim()) {
