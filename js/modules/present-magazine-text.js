@@ -238,7 +238,7 @@ function tick() {
     el.style.left = (item.sx ?? 50) + '%';
     el.style.top = (item.sy ?? 30) + '%';
     el.style.opacity = String(item.opacity ?? 1);
-    el.style.transform = textAnchorTransform(item.align);
+    el.style.transform = itemTransform(item);
   });
   raf = requestAnimationFrame(tick);
 }
