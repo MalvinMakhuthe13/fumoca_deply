@@ -103,6 +103,7 @@ function renderItem(item) {
   const el = document.createElement('div');
   el.className = `mt-item mt-${item.style || 'cover'} mt-mode-${item.mode || 'billboard'}`;
   el.dataset.id = item.id;
+  el.textContent = item.text || '';
   if (editing && selectedTextId === item.id) {
     el.classList.add('mt-selected');
     ['nw', 'ne', 'sw', 'se'].forEach(position => {
@@ -113,7 +114,7 @@ function renderItem(item) {
       el.appendChild(handle);
     });
   }
-  el.textContent = item.text || '';
+
   Object.assign(el.style, {
     position: 'absolute',
     left: '0',
