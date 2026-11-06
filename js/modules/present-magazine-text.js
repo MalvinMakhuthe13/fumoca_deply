@@ -101,7 +101,13 @@ function renderItem(item) {
     top: '0',
     transform: 'translate(-50%, -50%)',
     pointerEvents: editing ? 'auto' : 'none',
-    whiteSpace: item.wrap ? 'pre-line' : item.style === 'deck' ? 'normal' : 'nowrap',
+    // Text must wrap within the poster canvas. Previously cover/kicker items
+    // defaulted to nowrap, so long headlines could paint beyond the safe frame
+    // even though the viewport itself was correctly clipped.
+    whiteSpace: item.wrap ? 'pre-line' : 'normal',
+    overflowWrap: 'anywhere',
+    wordBreak: 'normal',
+    boxSizing: 'border-box',
     maxWidth: item.maxWidth || (item.style === 'deck' ? '28ch' : '42%'),
     userSelect: 'none',
     cursor: editing ? 'move' : 'default',
