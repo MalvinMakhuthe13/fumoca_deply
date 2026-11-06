@@ -4,8 +4,12 @@ import { readFile } from 'node:fs/promises';
 const viewer = await readFile(new URL('../js/modules/viewer.js', import.meta.url), 'utf8');
 const helper = await readFile(new URL('../js/modules/poster-live-transform.js', import.meta.url), 'utf8');
 const sceneManager = await readFile(new URL('../js/modules/poster-scene-manager.js', import.meta.url), 'utf8');
+const presentViewer = await readFile(new URL('../js/modules/present-viewer.js', import.meta.url), 'utf8');
+const composer = await readFile(new URL('../js/modules/poster-composer.js', import.meta.url), 'utf8');
 
 assert.match(viewer, /import \{ applyPosterLiveTransform \} from '\.\/poster-live-transform\.js';/);
+assert.ok(composer.includes("new CustomEvent('fumoca:posterReady'"), 'Poster composer must announce when its public API is ready');
+assert.ok(presentViewer.includes("addEventListener('fumoca:posterReady', tryApply)"), 'Public viewer must retry restoration when poster composer loads late');
 assert.match(viewer, /import '\.\/poster-viewport\.js(?:\\?[^']*)?';/);
 assert.match(viewer, /posterEnabled \? 0 : 1/);
 assert.match(viewer, /_publishedSparkGroup\.add\(_publishedSparkMesh\)/);
