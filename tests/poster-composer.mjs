@@ -13,7 +13,7 @@ await import('../js/modules/poster-composer.js');
 
 const poster = window.FumocaPoster;
 assert.ok(poster, 'Poster Composer API should be exposed');
-assert.equal(poster.version, '0.2.0');
+assert.equal(poster.version, '0.2.1');
 
 const presets = poster.getPresets();
 assert.deepEqual(presets.map((item) => item.name), ['product', 'story', 'editorial', 'landscape']);
@@ -43,6 +43,15 @@ poster.updateComposition({
 });
 assert.equal(poster.getState().composition.background.r2Key, 'poster-assets/user/asset/background.webp', 'Background R2 key must survive composition normalization');
 assert.equal(poster.getState().composition.background.bucket, 'thumbnails', 'Background bucket must survive composition normalization');
+const largeBackgroundDataUrl = 'data:image/jpeg;base64,' + 'A'.repeat(220000);
+poster.updateComposition({ background: { type: 'image', value: largeBackgroundDataUrl } });
+assert.equal(poster.getState().composition.background.value.length, largeBackgroundDataUrl.length,
+  'Compressed background data URLs must not be silently truncated');
+poster.updateComposition({ assets: { images: [{
+  id: 'large-logo', name: 'Large logo', src: largeBackgroundDataUrl,
+}] } });
+assert.equal(poster.getState().composition.assets.images[0].src.length, largeBackgroundDataUrl.length,
+  'Supporting image data URLs must not be silently truncated');
 poster.updateComposition({ background: { type: 'solid', value: '#10131a' } });
 poster.updateComposition({
   object: { x: 1.5, y: -1, scale: 9, rotation: 720 },
