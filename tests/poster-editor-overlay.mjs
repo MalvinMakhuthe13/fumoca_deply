@@ -33,6 +33,7 @@ assert.ok(overlaySource.includes('heading.visible !== false'), 'Studio overlay m
 assert.ok(overlaySource.includes('heading.fontFamily'), 'Studio overlay must apply headline typography');
 assert.ok(overlaySource.includes('heading.fontSize'), 'Studio overlay must apply headline size');
 assert.ok(overlaySource.includes('heading.color'), 'Studio overlay must apply headline colour');
-assert.ok(overlaySource.includes('(Number(heading.fontSize) || 42) * (poster.width / 1080)'), 'Studio headline size must scale with the poster canvas rather than the editor screen');
+const normalizedOverlaySource = overlaySource.replace(/\\s+/g, '');
+assert.ok(normalizedOverlaySource.includes('(Number(heading.fontSize)||42)*(poster.width/1080)'), 'Studio headline size must scale with the poster canvas rather than the editor screen');
 
 console.log('Poster editor overlay geometry and headline integration tests passed.');
