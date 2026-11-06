@@ -96,14 +96,14 @@ jobs:
           from pathlib import Path
           import re
           html = Path("edit.html").read_text(encoding="utf-8")
-          matches = re.findall(r"<script\b([^>]*)>(.*?)</script\s*>", html, re.I | re.S)
-          scripts = [(attrs, source) for attrs, source in matches if not re.search(r"\bsrc\s*=", attrs, re.I) and not re.search(r"\btype\s*=\s*['\"]?(?:importmap|application/json)", attrs, re.I)]
+          matches = re.findall(r"<script\\b([^>]*)>(.*?)</script\\s*>", html, re.I | re.S)
+          scripts = [(attrs, source) for attrs, source in matches if not re.search(r"\\bsrc\\s*=", attrs, re.I) and not re.search(r"\\btype\\s*=\\s*['\\"]?(?:importmap|application/json)", attrs, re.I)]
           if not scripts:
               raise SystemExit("No inline Studio scripts found")
           out = Path("/tmp/fumoca-inline-scripts")
           out.mkdir(exist_ok=True)
           for i, (attrs, source) in enumerate(scripts):
-              suffix = ".mjs" if re.search(r"type\s*=\s*['\"]?module", attrs, re.I) else ".js"
+              suffix = ".mjs" if re.search(r"type\\s*=\\s*['\\"]?module", attrs, re.I) else ".js"
               (out / f"script-{i}{suffix}").write_text(source, encoding="utf-8")
           print(f"Extracted {len(scripts)} inline Studio scripts for syntax validation")
           PY
@@ -165,6 +165,8 @@ jobs:
         run: node tests/browser/poster-assets.browser.mjs
       - name: Test public viewer restores saved poster compositions in Chromium
         run: node tests/browser/poster-viewer-restore.browser.mjs
+      - name: Test poster visual layer stacking in Chromium
+        run: node tests/browser/poster-layer-stack.browser.mjs
       - name: Test CPU-only splat to NIF conversion
         run: node --experimental-default-type=module tests/splat-to-nif-smoke.mjs
       - name: Compile Kaggle preflight script
