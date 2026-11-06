@@ -1956,7 +1956,7 @@ async function mountPublishedSparkPly(url) {
   const syncPosterSubjects = async () => {
     const subjects = window.FumocaPoster?.getState?.().composition?.subjects || [];
     const wanted = new Set(subjects.filter(item => item.id !== 'subject_main' &&
-      (['ply','url'].includes(item.source?.type) && /^https?:\\/\\//i.test(item.source?.url || '') ||
+      (['ply','url'].includes(item.source?.type) && /^https?:\/\//i.test(item.source?.url || '') ||
        item.source?.type === 'nif' && item.source?.assetId)).map(item => item.id));
     for (const [id, entry] of posterSubjectMeshes) {
       if (!wanted.has(id)) {
@@ -1981,7 +1981,7 @@ async function mountPublishedSparkPly(url) {
           if (!companionKey) throw new Error('This NIF has no published Gaussian PLY companion yet. Publish it from Studio first.');
           url = r2.publicUrl('nif-files', companionKey) || '';
         }
-        if (!/^https?:\\/\\//i.test(url)) throw new Error('The additional source did not resolve to a public HTTP(S) URL.');
+        if (!/^https?:\/\//i.test(url)) throw new Error('The additional source did not resolve to a public HTTP(S) URL.');
         entry.url = url;
         const response = await fetch(url);
         if (!response.ok) throw new Error('HTTP ' + response.status);
