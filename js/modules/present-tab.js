@@ -16,7 +16,7 @@ import { mountPosterEditorOverlay as createPosterEditorOverlay } from './poster-
 
 const STORAGE_KEY = 'fumoca_present_v1';
 
-async function compressEditorialImage(file, maxEdge = 1600) {
+async function compressEditorialImage(file, maxEdge = 1600, preserveAlpha = false) {
   if (!file || !/^image\/(png|jpeg|webp|gif)$/i.test(file.type)) throw new Error('Choose a PNG, JPG, WEBP or GIF image.');
   const bitmap = await createImageBitmap(file);
   let scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));
@@ -29,7 +29,7 @@ async function compressEditorialImage(file, maxEdge = 1600) {
     canvas.height = Math.max(1, Math.round(bitmap.height * scale));
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-    dataUrl = canvas.toDataURL('image/jpeg', quality);
+    dataUrl = preserveAlpha ? canvas.toDataURL('image/webp', quality) : canvas.toDataURL('image/jpeg', quality);
     if (dataUrl.length <= 170000) break;
     scale *= 0.84;
     quality = Math.max(0.48, quality - 0.06);
@@ -295,6 +295,7 @@ function mountPanel() {
       </div>
       <div class="ptp-poster-subtitle">BACKGROUND & ART DIRECTION</div>
       <label class="ptp-poster-field">Background colour<input type="color" data-poster-field="background" value="#10131a"></label>
+      <label class="ptp-poster-field">Background style<select data-poster-field="backgroundGradient"><option value="solid">Solid colour</option><option value="sunset">Warm sunset</option><option value="midnight">Midnight editorial</option><option value="ocean">Ocean depth</option><option value="emerald">Emerald luxury</option><option value="paper">Soft paper</option></select></label>
       <label class="ptp-poster-field">Background image<input type="file" accept="image/png,image/jpeg,image/webp" data-poster-field="backgroundFile"></label>
       <label class="ptp-poster-field">Or background image URL<input type="url" placeholder="https://…" data-poster-field="backgroundUrl"></label>
       <div class="ptp-poster-grid">
@@ -422,6 +423,19 @@ function mountPanel() {
     const titleSizeOutput = posterRoot.querySelector('[data-poster-value="titleSize"]');
     if (titleSizeOutput) titleSizeOutput.textContent = (c.title?.fontSize || 42) + ' px';
     posterRoot.querySelector('[data-poster-field="background"]').value = /^#[0-9a-f]{6}$/i.test(c.background?.value || '') ? c.background.value : '#10131a';
+    const gradientSelect = posterRoot.querySelector('[data-poster-field="backgroundGradient"]');
+    if (gradientSelect) {
+      const gradients = {
+        sunset: 'linear-gradient(145deg,#2a1427 0%,#8f3b42 48%,#f1a66a 100%)',
+        midnight: 'radial-gradient(circle at 50% 35%,#27364b 0%,#111722 58%,#07090e 100%)',
+        ocean: 'linear-gradient(145deg,#061a2b 0%,#07516a 55%,#0a9b9a 100%)',
+        emerald: 'radial-gradient(circle at 70% 20%,#315b49 0%,#102a25 48%,#071310 100%)',
+        paper: 'linear-gradient(145deg,#f0e8d8 0%,#d7cbb5 100%)',
+      };
+      gradientSelect.value = c.background?.type === 'gradient'
+        ? (Object.entries(gradients).find(([, value]) => value === c.background.value)?.[0] || 'solid')
+        : 'solid';
+    }
     for (const [key, value] of Object.entries({
       backgroundFit: c.background?.fit || 'cover',
       backgroundPosition: c.background?.position || 'center',
@@ -526,6 +540,17 @@ function mountPanel() {
     else if (key === 'titleSize') window.FumocaPoster.updateComposition({ title: { fontSize: Number(field.value) } });
     else if (key === 'titleColor') window.FumocaPoster.updateComposition({ title: { color: field.value } });
     else if (key === 'background') window.FumocaPoster.updateComposition({ background: { ...window.FumocaPoster.getState().composition.background, type: 'solid', value: field.value } });
+    else if (key === 'backgroundGradient') {
+      const gradients = {
+        sunset: 'linear-gradient(145deg,#2a1427 0%,#8f3b42 48%,#f1a66a 100%)',
+        midnight: 'radial-gradient(circle at 50% 35%,#27364b 0%,#111722 58%,#07090e 100%)',
+        ocean: 'linear-gradient(145deg,#061a2b 0%,#07516a 55%,#0a9b9a 100%)',
+        emerald: 'radial-gradient(circle at 70% 20%,#315b49 0%,#102a25 48%,#071310 100%)',
+        paper: 'linear-gradient(145deg,#f0e8d8 0%,#d7cbb5 100%)',
+      };
+      if (gradients[field.value]) window.FumocaPoster.updateComposition({ background: { type: 'gradient', value: gradients[field.value] } });
+      else window.FumocaPoster.updateComposition({ background: { type: 'solid', value: posterRoot.querySelector('[data-poster-field="background"]').value } });
+    }
     else if (key === 'backgroundFit') window.FumocaPoster.updateComposition({ background: { fit: field.value } });
     else if (key === 'backgroundPosition') window.FumocaPoster.updateComposition({ background: { position: field.value } });
     else if (key === 'backgroundOpacity') window.FumocaPoster.updateComposition({ background: { opacity: Number(field.value) / 100 } });
@@ -549,7 +574,7 @@ function mountPanel() {
         const incoming = await Promise.all(Array.from(field.files).slice(0, 12 - existing.length).map(async (file) => ({
           id: 'img_' + Math.random().toString(36).slice(2, 10),
           name: file.name || 'Supporting image',
-          src: await compressEditorialImage(file, 1400),
+          src: await compressEditorialImage(file, 1400, true),
           x: 0.5, y: 0.5, width: 0.22, sizeMode: 'proportional',
           fixedWidthPx: 240, minWidthPx: 72, maxWidthPx: 720, anchor: 'free', locked: false,
           rotation: 0, opacity: 1, z: existing.length + 1,
