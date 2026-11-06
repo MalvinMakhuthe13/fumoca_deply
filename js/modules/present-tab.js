@@ -359,6 +359,12 @@ function mountPanel() {
   panel = document.createElement('div');
   panel.id = 'fumocaPresentTabPanel';
   panel.innerHTML = `
+    <header class="ptp-workspace-intro">
+      <div class="ptp-workspace-eyebrow">FUMOCA · CREATIVE STUDIO</div>
+      <div class="ptp-workspace-heading">Build your scene</div>
+      <p>Compose a product experience with 3D subjects, art direction and editorial layers.</p>
+      <div class="ptp-workspace-steps"><span>01 · Scene</span><span>02 · Style</span><span>03 · Publish</span></div>
+    </header>
     <div class="ptp-section" id="ptpPosterComposer">
       <div class="ptp-title">Poster Composer · fixed canvas</div>
       <div class="ptp-hint">The poster keeps its chosen aspect ratio while the 3D subject can be repositioned, scaled and rotated. Live transforms work in published Spark PLY, legacy PLY and decoded NIF cloud viewers.</div>
