@@ -19,6 +19,8 @@ for (const field of ['weight', 'tracking', 'wrap', 'maxWidth', 'uppercase', 'sha
   assert.ok(magazine.includes(field), `Magazine text model must preserve ${field}`);
 }
 assert.ok(magazine.includes("whiteSpace: item.wrap ? 'pre-line'"), 'Intentional line breaks must render in editorial headlines');
+assert.ok(magazine.includes('const subjectLayouts = {'), 'Editorial presets must coordinate subject framing with text columns');
+assert.ok(magazine.includes('window.FumocaPoster.updateComposition({ object: subjectLayouts[name] })'), 'Editorial presets must reposition the live subject when poster mode is enabled');
 assert.ok(viewer.includes('importAll as importMagazine'), 'Public viewer must restore saved editorial layers');
 for (const font of ['Bebas Neue', 'Cormorant Garamond', 'Playfair Display', 'DM Sans', 'Space Grotesk']) {
   const googleFontName = font.replaceAll(' ', '+');
