@@ -27,12 +27,12 @@ export function mountPosterSceneManager() {
     list.replaceChildren();
     (state.composition.subjects || []).forEach(subject => {
       const row = document.createElement('div');
-      row.style.cssText = 'display:flex;gap:5px;align-items:center;margin:5px 0';
+      row.className = 'ptp-scene-row';
       const button = document.createElement('button');
       button.type = 'button'; button.dataset.sceneAction = 'select'; button.dataset.id = subject.id;
       button.textContent = subject.label + (subject.source.type === 'current' ? ' · Current' : ' · ' + subject.source.type.toUpperCase());
-      button.style.cssText = 'flex:1;min-width:0;text-align:left;overflow:hidden;text-overflow:ellipsis';
-      if (subject.id === state.selectedSubjectId) button.style.borderColor = '#c8ff00';
+      button.className = 'ptp-scene-select';
+      if (subject.id === state.selectedSubjectId) button.classList.add('is-selected');
       const visibility = document.createElement('button');
       visibility.type = 'button'; visibility.dataset.sceneAction = 'visibility'; visibility.dataset.id = subject.id;
       visibility.textContent = subject.visible ? 'Hide' : 'Show';
@@ -42,9 +42,9 @@ export function mountPosterSceneManager() {
       const remove = document.createElement('button');
       remove.type = 'button'; remove.dataset.sceneAction = 'remove'; remove.dataset.id = subject.id;
       remove.textContent = '×'; remove.disabled = subject.id === 'subject_main';
-      [button, visibility, lock, remove].forEach(node => {
-        Object.assign(node.style, { padding:'5px 7px', border:'1px solid rgba(255,255,255,.16)', borderRadius:'6px', background:'#20242b', color:'#fff', fontSize:'10px' });
-      });
+      visibility.className = 'ptp-scene-action';
+      lock.className = 'ptp-scene-action';
+      remove.className = 'ptp-scene-action ptp-scene-remove';
       row.append(button, visibility, lock, remove); list.appendChild(row);
     });
     const selected = (state.composition.subjects || []).find(item => item.id === state.selectedSubjectId);
