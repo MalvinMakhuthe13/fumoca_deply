@@ -1955,7 +1955,9 @@ async function mountPublishedSparkPly(url) {
   const subjectScene = _plyScene;
   const syncPosterSubjects = async () => {
     const subjects = window.FumocaPoster?.getState?.().composition?.subjects || [];
-    const wanted = new Set(subjects.filter(item => item.id !== 'subject_main' && item.visible !== false && ['ply','url'].includes(item.source?.type) && /^https?:\\/\\//i.test(item.source?.url || '')).map(item => item.id));
+    const wanted = new Set(subjects.filter(item => item.id !== 'subject_main' && item.visible !== false &&
+      (['ply','url'].includes(item.source?.type) && /^https?:\\/\\//i.test(item.source?.url || '') ||
+       item.source?.type === 'nif' && item.source?.assetId)).map(item => item.id));
     for (const [id, entry] of posterSubjectMeshes) {
       if (!wanted.has(id)) {
         entry.group.visible = false;
@@ -1964,11 +1966,22 @@ async function mountPublishedSparkPly(url) {
     }
     for (const subject of subjects) {
       if (subject.id === 'subject_main' || !subject.visible || !['ply','url'].includes(subject.source?.type)) continue;
-      const url = subject.source?.url;
-      if (!/^https?:\\/\\//i.test(url || '') || posterSubjectMeshes.has(subject.id)) continue;
-      const entry = { status: 'loading', group: null, url };
+      if (posterSubjectMeshes.has(subject.id)) continue;
+      const entry = { status: 'loading', group: null, url: '' };
       posterSubjectMeshes.set(subject.id, entry);
       try {
+        let url = subject.source?.url || '';
+        if (subject.source?.type === 'nif') {
+          const sb = window._fumocaSupabase || supabase;
+          const { data: asset, error: assetError } = await sb.from('nif_files')
+            .select('id,title,r2_key,meta').eq('id', subject.source.assetId).maybeSingle();
+          if (assetError) throw assetError;
+          const companionKey = asset?.meta?.view_ply_r2_key;
+          if (!companionKey) throw new Error('This NIF has no published Gaussian PLY companion yet. Publish it from Studio first.');
+          url = r2.publicUrl('nif-files', companionKey) || '';
+        }
+        if (!/^https?:\\/\\//i.test(url)) throw new Error('The additional source did not resolve to a public HTTP(S) URL.');
+        entry.url = url;
         const response = await fetch(url);
         if (!response.ok) throw new Error('HTTP ' + response.status);
         const subjectBytes = new Uint8Array(await response.arrayBuffer());
