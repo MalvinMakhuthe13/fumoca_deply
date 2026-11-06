@@ -10,9 +10,6 @@ export function mountPosterSceneManager() {
   section.dataset.fumocaSceneManager = '1';
   section.innerHTML = '<div class="ptp-poster-subtitle">3D SCENE OBJECTS</div>' +
     '<p class="ptp-poster-hint">Manage the objects in this composition. The current viewer is the primary subject. Additional published Gaussian PLY and NIF companion assets load as independent objects in the Spark viewer.</p>' +
-    '<div class="ptp-poster-subtitle">LOCAL IMAGE LAYERS</div>' +
-    '<label class="ptp-poster-field">Upload images from this device<input type="file" accept="image/png,image/jpeg,image/webp" data-scene-local-images multiple></label>' +
-    '<p class="ptp-poster-hint">Images are added directly to the poster as movable, resizable layers. No URL or external hosting required.</p>' +
     '<label class="ptp-poster-field">Choose from your saved NIF assets<select data-scene-asset-select><option value="">Load your saved assets first</option></select></label>' +
     '<div class="ptp-poster-actions"><button type="button" data-scene-load-assets>Load my saved NIFs</button></div>' +
     '<label class="ptp-poster-field">Or paste a NIF asset ID<input type="text" data-scene-asset-id placeholder="Saved NIF asset ID"></label>' +
@@ -65,55 +62,6 @@ export function mountPosterSceneManager() {
       if (output) output.textContent = key === 'scale' ? value.toFixed(2) + '×' : key === 'rotation' ? Math.round(value) + '°' : Math.round(value * 100) + '%';
     }
   };
-  const localImages = section.querySelector('[data-scene-local-images]');
-  localImages.addEventListener('change', async () => {
-    const files = Array.from(localImages.files || []).slice(0, 12);
-    if (!files.length) return;
-    const status = section.querySelector('[data-scene-status]');
-    localImages.disabled = true;
-    try {
-      const existing = api.getState().composition.assets?.images || [];
-      if (existing.length + files.length > 12) throw new Error('A poster can contain up to 12 supporting image layers. Remove an image before adding more.');
-      const incoming = [];
-      for (const file of files) {
-        if (!/^image\/(png|jpeg|webp)$/i.test(file.type)) throw new Error('Choose PNG, JPG or WEBP images.');
-        const bitmap = await createImageBitmap(file);
-        let scale = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
-        let quality = 0.82;
-        const canvas = document.createElement('canvas');
-        const context = canvas.getContext('2d');
-        let src = '';
-        for (let attempt = 0; attempt < 8; attempt++) {
-          canvas.width = Math.max(1, Math.round(bitmap.width * scale));
-          canvas.height = Math.max(1, Math.round(bitmap.height * scale));
-          context.clearRect(0, 0, canvas.width, canvas.height);
-          context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-          src = canvas.toDataURL('image/webp', quality);
-          if (src.length <= 170000) break;
-          scale *= 0.84;
-          quality = Math.max(0.48, quality - 0.06);
-        }
-        bitmap.close?.();
-        if (src.length > 180000) throw new Error(file.name + ' is too large to embed safely. Choose a smaller image.');
-        incoming.push({
-          id: 'img_' + Math.random().toString(36).slice(2, 10),
-          name: file.name || 'Supporting image', src,
-          x: 0.5, y: 0.5, width: 0.22, sizeMode: 'proportional',
-          fixedWidthPx: 240, minWidthPx: 72, maxWidthPx: 720,
-          anchor: 'free', locked: false, rotation: 0, opacity: 1,
-          z: existing.length + incoming.length + 1, fit: 'contain', visible: true,
-        });
-      }
-      api.updateComposition({ assets: { images: [...existing, ...incoming] } });
-      window.FumocaPresent?.save?.();
-      status.textContent = incoming.length + ' local image layer(s) added. Drag and resize them on the poster.';
-    } catch (error) {
-      status.textContent = error.message || 'Could not upload local image.';
-    } finally {
-      localImages.disabled = false;
-      localImages.value = '';
-    }
-  });
 
   section.addEventListener('click', async event => {
     const loadAssets = event.target.closest('[data-scene-load-assets]');
