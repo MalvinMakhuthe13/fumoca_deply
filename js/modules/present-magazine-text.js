@@ -268,6 +268,20 @@ function rebuild() {
 /** Editorial systems — balanced hierarchy with deliberate safe-area placement. */
 export function applyPreset(name) {
   clearText();
+  // Editorial covers reserve a clean text column and move the live 3D subject
+  // into the opposing visual column when fixed-canvas presentation is enabled.
+  const poster = window.FumocaPoster?.getState?.();
+  const subjectLayouts = {
+    product: { x: 0.69, y: 0.52, scale: 0.94 },
+    luxury: { x: 0.69, y: 0.52, scale: 0.94 },
+    fashion: { x: 0.68, y: 0.53, scale: 0.9 },
+    launch: { x: 0.69, y: 0.52, scale: 0.96 },
+    architecture: { x: 0.68, y: 0.52, scale: 0.9 },
+    hero: { x: 0.5, y: 0.55, scale: 1.08 },
+  };
+  if (poster?.enabled && subjectLayouts[name]) {
+    window.FumocaPoster.updateComposition({ object: subjectLayouts[name] });
+  }
   const add = (text, style, sx, sy, fontSize, color, extra = {}) =>
     addText({ text, style, mode: 'locked', sx, sy, fontSize, color, ...extra });
 
