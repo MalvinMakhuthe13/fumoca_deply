@@ -34,6 +34,7 @@ function ensureStyles() {
     #${ROOT_ID} .fpe-subject:before{width:48px;height:1px}
     #${ROOT_ID} .fpe-subject:after{width:1px;height:48px}
     #${ROOT_ID} .fpe-subject:active{cursor:grabbing}
+    #${ROOT_ID} .fpe-title{position:absolute;z-index:2;pointer-events:none;line-height:1.12;text-shadow:0 2px 18px rgba(0,0,0,.5);overflow-wrap:anywhere;white-space:pre-wrap}
     #${ROOT_ID} .fpe-hint{position:absolute;right:8px;bottom:8px;padding:5px 8px;border:1px solid rgba(255,255,255,.14);border-radius:6px;background:rgba(8,10,14,.82);color:rgba(255,255,255,.72);font:10px/1.3 system-ui,sans-serif}
     #${ROOT_ID}[hidden]{display:none}
   `;
@@ -54,10 +55,11 @@ export function mountPosterEditorOverlay(options = {}) {
   if (!root) {
     root = document.createElement('div');
     root.id = ROOT_ID;
-    root.innerHTML = '<div class="fpe-frame"></div><div class="fpe-subject" role="slider" aria-label="Drag to position 3D subject" aria-valuemin="0" aria-valuemax="100" tabindex="0"></div><div class="fpe-hint">Drag the ring to position the real 3D subject</div>';
+    root.innerHTML = '<div class="fpe-frame"></div><div class="fpe-title" aria-hidden="true"></div><div class="fpe-subject" role="slider" aria-label="Drag to position 3D subject" aria-valuemin="0" aria-valuemax="100" tabindex="0"></div><div class="fpe-hint">Drag the ring to position the real 3D subject</div>';
     host.appendChild(root);
   }
   const frame = root.querySelector('.fpe-frame');
+  const titleNode = root.querySelector('.fpe-title');
   const handle = root.querySelector('.fpe-subject');
   let rect = null;
   let dragging = false;
@@ -77,6 +79,27 @@ export function mountPosterEditorOverlay(options = {}) {
       left: poster.left + 'px', top: poster.top + 'px',
       width: poster.width + 'px', height: poster.height + 'px',
     });
+    const heading = composition.title || {};
+    const headingText = String(heading.text || '').trim().slice(0, 160);
+    if (heading.visible !== false && headingText) {
+      const safeArea = clamp(Number(composition.safeArea) || 0, 0, 0.2);
+      const inset = poster.width * safeArea;
+      Object.assign(titleNode.style, {
+        display: 'block',
+        left: (poster.left + inset) + 'px',
+        top: (poster.top + inset) + 'px',
+        width: Math.max(0, poster.width - inset * 2) + 'px',
+        textAlign: ['left', 'center', 'right'].includes(heading.align) ? heading.align : 'center',
+        fontFamily: ['system-ui, sans-serif', 'Arial, sans-serif', 'Georgia, serif', 'Impact, sans-serif', 'monospace'].includes(heading.fontFamily) ? heading.fontFamily : 'system-ui, sans-serif',
+        fontSize: clamp(Number(heading.fontSize) || 42, 12, 120) + 'px',
+        fontWeight: String(clamp(Number(heading.weight) || 750, 400, 900)),
+        color: /^#[0-9a-f]{6}$/i.test(String(heading.color || '')) ? heading.color : '#ffffff',
+      });
+      titleNode.textContent = headingText;
+    } else {
+      titleNode.style.display = 'none';
+      titleNode.textContent = '';
+    }
     const object = composition.object || {};
     const x = clamp(Number(object.x ?? .5), 0, 1);
     const y = clamp(Number(object.y ?? .53), 0, 1);
