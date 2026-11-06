@@ -3,12 +3,12 @@
  */
 
 const FONT_STACK = {
-  cover:    '"Anton","Impact",sans-serif',
-  masthead: '"Anton","Impact",sans-serif',
+  cover:    '"Bebas Neue","Impact",sans-serif',
+  masthead: '"Cormorant Garamond","Georgia",serif',
   kicker:   '"IBM Plex Mono","SF Mono",monospace',
-  deck:     '"Inter",system-ui,sans-serif',
-  badge:    '"Inter",system-ui,sans-serif',
-  caption:  '"Inter",system-ui,sans-serif',
+  deck:     '"DM Sans",system-ui,sans-serif',
+  badge:    '"DM Sans",system-ui,sans-serif',
+  caption:  '"DM Sans",system-ui,sans-serif',
 };
 
 let layer = null;
