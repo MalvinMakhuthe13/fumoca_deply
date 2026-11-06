@@ -11,7 +11,7 @@ import {
   stopsFromHotspots, exportStops, importStops,
 } from './present-nav.js';
 import './poster-composer.js?v=20261106-typography01';
-import { mountPosterEditorOverlay as createPosterEditorOverlay } from './poster-editor-overlay.js?v=20261106-drag01';
+import { mountPosterEditorOverlay as createPosterEditorOverlay } from './poster-editor-overlay.js?v=20261106-headlinepreview01';
 
 const STORAGE_KEY = 'fumoca_present_v1';
 
