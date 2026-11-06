@@ -52,6 +52,18 @@ assert.equal(state.composition.title.color, '#ffffff');
 assert.equal(state.composition.title.weight, 900);
 assert.equal(state.composition.background.type, 'solid', 'Unsafe image URL should fall back to solid background');
 
+poster.updateComposition({ assets: { images: [{
+  id: 'layer-fixed', name: 'Logo', src: 'https://example.com/logo.png',
+  x: 0.2, y: 0.3, width: 0.25, sizeMode: 'fixed', fixedWidthPx: 320,
+  minWidthPx: 90, maxWidthPx: 640, anchor: 'top-left', locked: true,
+}] } });
+const imageLayer = poster.getState().composition.assets.images[0];
+assert.equal(imageLayer.sizeMode, 'fixed');
+assert.equal(imageLayer.fixedWidthPx, 320);
+assert.equal(imageLayer.anchor, 'top-left');
+assert.equal(imageLayer.locked, true);
+assert.equal(poster.getLayout(400, 900).assets.images[0].fixedWidthPx, 320, 'Layer sizing metadata must survive responsive layout calculation');
+
 poster.setEnabled(true);
 assert.equal(poster.getState().enabled, true);
 assert.ok(events.some((event) => event.type === 'fumoca:posterChange'));
