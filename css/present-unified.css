@@ -296,3 +296,12 @@
 .ptp-text-layer-actions button{min-width:0;padding:7px 6px;border:1px solid rgba(255,255,255,.14);border-radius:7px;background:rgba(255,255,255,.045);color:inherit;font:600 10px/1.2 var(--font-body);cursor:pointer}
 .ptp-text-layer-actions button:hover:not(:disabled){border-color:rgba(200,255,0,.5);color:#d9ff62}
 .ptp-text-layer-actions button:disabled{opacity:.35;cursor:not-allowed}
+
+/* Direct-manipulation handles for selected poster text */
+.mt-layer .mt-item.mt-selected{pointer-events:auto!important;outline:1px solid rgba(200,255,0,.9);outline-offset:5px;cursor:move;touch-action:none}
+.mt-layer .mt-item.mt-selected .mt-resize-handle{position:absolute;z-index:5;width:10px;height:10px;border:1px solid #111;background:#c8ff00;border-radius:2px;box-shadow:0 0 0 1px rgba(200,255,0,.35);pointer-events:auto;touch-action:none}
+.mt-layer .mt-item.mt-selected .mt-resize-nw{left:-6px;top:-6px;cursor:nwse-resize}
+.mt-layer .mt-item.mt-selected .mt-resize-ne{right:-6px;top:-6px;cursor:nesw-resize}
+.mt-layer .mt-item.mt-selected .mt-resize-sw{left:-6px;bottom:-6px;cursor:nesw-resize}
+.mt-layer .mt-item.mt-selected .mt-resize-se{right:-6px;bottom:-6px;cursor:nwse-resize}
+.mt-layer .mt-item.mt-selected .mt-resize-handle:focus-visible{outline:2px solid #fff;outline-offset:2px}
