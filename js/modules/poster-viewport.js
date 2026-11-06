@@ -106,7 +106,7 @@ function mount() {
         top: layout.safe.top + 'px',
         width: layout.safe.width + 'px',
         textAlign: ['left','center','right'].includes(heading.align) ? heading.align : 'center',
-        fontSize: Math.max(12, Math.min(120, Number(heading.fontSize) || layout.width * 0.055)) + 'px',
+        fontSize: Math.max(10, Math.min(layout.width * 0.14, (Number(heading.fontSize) || 42) * (layout.width / 1080))) + 'px',
         fontFamily: ['system-ui, sans-serif','Arial, sans-serif','Georgia, serif','Impact, sans-serif','monospace'].includes(heading.fontFamily) ? heading.fontFamily : 'system-ui, sans-serif',
         fontWeight: String(Math.max(400, Math.min(900, Number(heading.weight) || 750))),
         color: /^#[0-9a-f]{6}$/i.test(heading.color || '') ? heading.color : '#ffffff',
