@@ -19,14 +19,24 @@ const STORAGE_KEY = 'fumoca_present_v1';
 async function compressEditorialImage(file, maxEdge = 1600) {
   if (!file || !/^image\/(png|jpeg|webp|gif)$/i.test(file.type)) throw new Error('Choose a PNG, JPG, WEBP or GIF image.');
   const bitmap = await createImageBitmap(file);
-  const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));
+  let scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));
+  let quality = 0.82;
   const canvas = document.createElement('canvas');
-  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
-  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
   const ctx = canvas.getContext('2d');
-  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  let dataUrl = '';
+  for (let attempt = 0; attempt < 8; attempt++) {
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    dataUrl = canvas.toDataURL('image/jpeg', quality);
+    if (dataUrl.length <= 170000) break;
+    scale *= 0.84;
+    quality = Math.max(0.48, quality - 0.06);
+  }
   bitmap.close?.();
-  return canvas.toDataURL('image/jpeg', 0.84);
+  if (dataUrl.length > 180000) throw new Error('Image is too detailed to embed safely. Please choose a smaller image.');
+  return dataUrl;
 }
 
 function idKey() {
