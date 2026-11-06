@@ -16,6 +16,7 @@ import './poster-assets.js?v=20261106-postercoordinates01';
 import { mountPosterEditorOverlay as createPosterEditorOverlay } from './poster-editor-overlay.js?v=20261106-directmanipulation01';
 import { mountPosterSceneManager } from './poster-scene-manager.js?v=20261106-unifiedimages02';
 import r2 from '../r2Client.js';
+import { savePosterSnapshot } from './poster-cloud-persistence.js';
 
 const STORAGE_KEY = 'fumoca_present_v1';
 
@@ -102,70 +103,6 @@ function persist() {
   return data;
 }
 
-function posterDataUrlToBlob(dataUrl) {
-  const match = String(dataUrl || '').match(/^data:(image\/(?:webp|png|jpeg));base64,([A-Za-z0-9+/=]+)$/i);
-  if (!match) throw new Error('Poster image data is invalid. Please upload the image again.');
-  const binary = atob(match[2]);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return new Blob([bytes], { type: match[1].toLowerCase() });
-}
-
-async function persistPosterImagesToR2(poster, userId, recordId) {
-  const uploadedKeys = [];
-  const bucket = r2.from('thumbnails');
-  const uploadDataUrl = async (dataUrl, fileKey) => {
-    const blob = posterDataUrlToBlob(dataUrl);
-    const result = await bucket.upload(fileKey, blob, { contentType: blob.type });
-    if (result.error || !result.publicUrl || !result.fileKey) {
-      throw result.error || new Error('Image upload did not return a public asset URL.');
-    }
-    uploadedKeys.push(result.fileKey);
-    return { src: result.publicUrl, r2Key: result.fileKey, bucket: 'thumbnails' };
-  };
-
-  const composition = poster?.composition;
-  if (!composition) return uploadedKeys;
-
-  try {
-    const background = composition.background;
-    if (/^data:image\//i.test(background?.value || '')) {
-      const stored = await uploadDataUrl(
-        background.value,
-        'poster-assets/' + userId + '/' + recordId + '/background-' + Date.now() + '.webp'
-      );
-      composition.background = {
-        ...background,
-        value: stored.src,
-        r2Key: stored.r2Key,
-        bucket: stored.bucket,
-      };
-    }
-
-    const images = composition.assets?.images || [];
-    for (const image of images) {
-      if (!/^data:image\//i.test(image.src || '')) continue;
-      const safeId = String(image.id || Math.random().toString(36).slice(2, 10))
-        .replace(/[^a-z0-9_-]/gi, '')
-        .slice(0, 64);
-      const stored = await uploadDataUrl(
-        image.src,
-        'poster-assets/' + userId + '/' + recordId + '/' + (safeId || 'image') + '-' + Date.now() + '.webp'
-      );
-      image.src = stored.src;
-      image.r2Key = stored.r2Key;
-      image.bucket = stored.bucket;
-    }
-    return uploadedKeys;
-  } catch (error) {
-    if (uploadedKeys.length) {
-      const cleanup = await bucket.remove(uploadedKeys);
-      if (cleanup.error) console.warn('[Poster Composer] Could not clean up partial R2 uploads:', cleanup.error);
-    }
-    throw error;
-  }
-}
-
 async function savePosterToCloud() {
   const status = document.getElementById('ptpPosterCloudStatus');
   const setStatus = (message, failed = false) => {
@@ -179,30 +116,10 @@ async function savePosterToCloud() {
     setStatus('Open a saved NIF asset before saving a poster to the cloud.', true);
     return false;
   }
-  if (!supabase?.auth?.getUser || !supabase?.from) {
-    setStatus('Account connection is not ready. Your local composition is still saved.', true);
-    return false;
-  }
   setStatus('Saving poster to this asset…');
-  let uploadedKeys = [];
-  let metadataCommitted = false;
   try {
-    const { data: authData, error: authError } = await supabase.auth.getUser();
-    if (authError || !authData?.user) throw new Error('Sign in before saving this poster to the cloud.');
-    if (!record.user_id || record.user_id !== authData.user.id) {
-      throw new Error('You can only save poster media to a NIF asset owned by your signed-in account.');
-    }
-    const data = payload();
-    uploadedKeys = await persistPosterImagesToR2(data.poster, authData.user.id, record.id);
-
-    // Persist the R2-backed snapshot before changing live editor state. If the
-    // database write fails, the editor keeps its original data URLs and can retry.
-    const savedData = data;
-    const metadata = { ...(record.metadata || {}), ...(record.meta || {}), present: savedData };
-    const { error } = await supabase.from('nif_files').update({ meta: metadata }).eq('id', record.id);
-    if (error) throw error;
-    metadataCommitted = true;
-
+    const result = await savePosterSnapshot({ record, supabase, r2Client: r2, createSnapshot: payload });
+    const { savedData, metadata } = result;
     if (savedData.poster?.composition) {
       try {
         window.FumocaPoster?.updateComposition?.({
@@ -220,14 +137,6 @@ async function savePosterToCloud() {
     setStatus('Images uploaded to Cloudflare R2 and poster saved to this NIF asset.');
     return true;
   } catch (error) {
-    if (!metadataCommitted && uploadedKeys.length) {
-      try {
-        const cleanup = await r2.from('thumbnails').remove(uploadedKeys);
-        if (cleanup.error) console.warn('[Poster Composer] Could not clean up failed cloud-save uploads:', cleanup.error);
-      } catch (cleanupError) {
-        console.warn('[Poster Composer] Could not clean up failed cloud-save uploads:', cleanupError);
-      }
-    }
     console.warn('[Poster Composer] Cloud save failed', error);
     setStatus(error?.message || 'Cloud save failed. Your local composition is still saved.', true);
     return false;
