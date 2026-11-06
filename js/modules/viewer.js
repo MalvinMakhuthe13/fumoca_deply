@@ -1507,7 +1507,7 @@ function destroyPlyViewer() {
   }
   _publishedSparkMesh = null;
   _publishedSparkRenderer = null;
-  if (window._fumocaPublishedSpark) window._fumocaPublishedSpark = null;
+  if (window._fumocaPublishedSpark) window._fumocaPublishedSpark = null;\n  if (window.FumocaPosterPicking) window.FumocaPosterPicking = null;
   _plyScene = _plyCamera = _plyControls = null;
 }
 async function mountPlyViewer(url) {
@@ -2101,6 +2101,54 @@ async function mountPublishedSparkPly(url) {
     _plyRenderer.render(_plyScene, _plyCamera);
   };
   loop();
+  // Screen-space picking for independently transformed poster splat groups.
+  // Spark splats are not ordinary raycastable meshes, so project each real
+  // subject pivot and its world-space bounds into the active camera instead.
+  const getPosterSubjectTargets = () => {
+    if (!_plyCamera || !_plyRenderer || !_publishedSparkGroup) return [];
+    _plyCamera.updateMatrixWorld();
+    const canvasRect = _plyRenderer.domElement.getBoundingClientRect();
+    const state = window.FumocaPoster?.getState?.();
+    const subjects = state?.composition?.subjects || [];
+    const targets = [];
+    const addTarget = (id, label, group, radius, visible, locked) => {
+      if (!group || !visible) return;
+      group.updateWorldMatrix(true, false);
+      const worldCenter = new THREE.Vector3();
+      group.getWorldPosition(worldCenter);
+      const projected = worldCenter.clone().project(_plyCamera);
+      if (!Number.isFinite(projected.x) || !Number.isFinite(projected.y) || projected.z < -1 || projected.z > 1) return;
+      const distance = _plyCamera.position.distanceTo(worldCenter);
+      const worldRadius = Math.max(0.01, Number(radius) || 0.01) * Math.max(group.scale.x, group.scale.y, group.scale.z, 0.001);
+      const focalPixels = Math.abs(canvasRect.height / (2 * Math.tan(THREE.MathUtils.degToRad(_plyCamera.fov) / 2)));
+      const screenRadius = Math.max(18, Math.min(180, focalPixels * worldRadius / Math.max(distance, 0.001)));
+      targets.push({
+        id, label, x: canvasRect.left + (projected.x * 0.5 + 0.5) * canvasRect.width,
+        y: canvasRect.top + (-projected.y * 0.5 + 0.5) * canvasRect.height,
+        radius: screenRadius, depth: projected.z, locked: !!locked,
+      });
+    };
+    const main = subjects.find(item => item.id === 'subject_main');
+    addTarget('subject_main', main?.label || 'Main subject', _publishedSparkGroup, radius, main?.visible !== false, main?.locked);
+    for (const subject of subjects) {
+      if (subject.id === 'subject_main') continue;
+      const entry = posterSubjectMeshes.get(subject.id);
+      if (entry?.status === 'ready') {
+        const boundsRadius = entry.mesh?.geometry?.boundingSphere?.radius || radius;
+        addTarget(subject.id, subject.label || '3D subject', entry.group, boundsRadius, subject.visible !== false && entry.group.visible, subject.locked);
+      }
+    }
+    return targets;
+  };
+  window.FumocaPosterPicking = Object.freeze({
+    getTargets: getPosterSubjectTargets,
+    pick(clientX, clientY) {
+      return getPosterSubjectTargets()
+        .map(target => ({ ...target, distance2: (target.x-clientX)**2 + (target.y-clientY)**2 }))
+        .filter(target => target.distance2 <= target.radius**2)
+        .sort((a,b) => a.distance2-b.distance2 || a.depth-b.depth)[0] || null;
+    },
+  });
   window._fumocaPublishedSpark = _publishedSparkRenderer;
   window._fumocaViewerCamera = _plyCamera;
   window._fumocaViewerControls = _plyControls;
