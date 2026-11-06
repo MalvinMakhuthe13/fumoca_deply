@@ -32,6 +32,9 @@ assert.ok(overlaySource.includes('class="fpe-control fpe-scale"'), 'Studio overl
 assert.ok(overlaySource.includes('class="fpe-control fpe-rotate"'), 'Studio overlay must expose a direct rotation handle');
 assert.ok(overlaySource.includes('api.updateSubject(subject.id, patch)'), 'Direct manipulation must target the selected scene subject, not always the primary subject');
 assert.ok(overlaySource.includes('subject.locked'), 'Direct manipulation must respect locked subjects');
+assert.ok(overlaySource.includes('window.FumocaPosterPicking?.getTargets?.()'), 'Editor selection markers should use projected live 3D subject positions when available');
+assert.ok(overlaySource.includes('window.FumocaPosterPicking?.pick?.(event.clientX, event.clientY)'), 'Pointer taps on the rendered scene should resolve to a live 3D subject');
+assert.ok(overlaySource.includes('Math.hypot(event.clientX - start.x, event.clientY - start.y) > 7'), 'Camera orbit drags must not be mistaken for subject-selection taps');
 assert.ok(overlaySource.includes('calculatePosterEditorFrame(bounds.width, bounds.height'), 'Transform handles must use the displayed poster frame, not the outer workspace');
 assert.ok(overlaySource.includes('(p.x-g.start.x)/rect.width'), 'Subject movement must be normalized to the poster width');
 assert.ok(overlaySource.includes('(p.y-g.start.y)/rect.height'), 'Subject movement must be normalized to the poster height');
