@@ -1,7 +1,7 @@
 /**
  * Public viewer: restore magazine text + review video from ?present= / localStorage / meta
  */
-import { initMagazineText, importAll as importMagazine } from './present-magazine-text.js?v=20261106-editorialstudio02';
+import { initMagazineText, importAll as importMagazine } from './present-magazine-text.js?v=20261107-rotationrestore01';
 import { initPresentNav, setNavStops } from './present-nav.js';
 
 function b64Json(s) {
