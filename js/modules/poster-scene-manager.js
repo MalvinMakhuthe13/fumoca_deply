@@ -1,7 +1,6 @@
 /**
  * FUMOCA Poster Scene Manager
- * UI for staging and managing independently transformable composition subjects.
- * Additional source loading/rendering is intentionally delegated to the scene renderer.
+ * UI for managing independently transformable composition subjects.
  */
 export function mountPosterSceneManager() {
   const root = document.getElementById('ptpPosterComposer');
@@ -10,7 +9,7 @@ export function mountPosterSceneManager() {
   const section = document.createElement('section');
   section.dataset.fumocaSceneManager = '1';
   section.innerHTML = '<div class="ptp-poster-subtitle">3D SCENE OBJECTS</div>' +
-    '<p class="ptp-poster-hint">Manage the objects in this composition. The current viewer is the primary subject. Additional assets are staged here for the multi-splat renderer integration.</p>' +
+    '<p class="ptp-poster-hint">Manage the objects in this composition. The current viewer is the primary subject. Additional published Gaussian PLY and NIF companion assets load as independent objects in the Spark viewer.</p>' +
     '<label class="ptp-poster-field">Saved NIF asset ID<input type="text" data-scene-asset-id placeholder="Paste a saved NIF asset ID"></label>' +
     '<label class="ptp-poster-field">Object label<input type="text" data-scene-label placeholder="Product, vehicle, room…"></label>' +
     '<div class="ptp-poster-actions"><button type="button" data-scene-add="nif">Add NIF object</button><button type="button" data-scene-add="ply">Add Gaussian PLY URL</button></div>' +
@@ -49,7 +48,7 @@ export function mountPosterSceneManager() {
     const selected = (state.composition.subjects || []).find(item => item.id === state.selectedSubjectId);
     section.querySelector('[data-scene-status]').textContent = selected
       ? selected.label + ' selected · ' + (selected.locked ? 'locked' : 'unlocked') + ' · ' +
-        (selected.source.type === 'current' ? 'current viewer source' : 'source staged; renderer integration pending')
+        (selected.source.type === 'current' ? 'current viewer source' : 'loads independently in the published Spark viewer')
       : 'Select an object.';
     const transform = selected || state.composition.object;
     for (const key of ['x','y','scale','rotation']) {
@@ -88,7 +87,7 @@ export function mountPosterSceneManager() {
       api.addSubject({ label:label || (source.type === 'nif' ? 'NIF object' : 'PLY object'), source });
       section.querySelector('[data-scene-asset-id]').value = '';
       section.querySelector('[data-scene-label]').value = '';
-      render(); window.dispatchEvent(new Event('fumoca:presentPersist'));
+      render(); window.FumocaPresent?.save?.();
     } catch (error) { alert(error.message || 'Could not add object.'); }
   });
   window.addEventListener('fumoca:posterChange', render);
