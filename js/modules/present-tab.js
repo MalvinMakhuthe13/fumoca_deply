@@ -186,7 +186,11 @@ function renderTextManager() {
     ['kicker', 'Mono / Kicker'], ['badge', 'Badge'], ['caption', 'Caption'],
   ];
   const fonts = [
-    ['Anton, Impact, sans-serif', 'Anton / Impact'],
+    ['"Bebas Neue", Impact, sans-serif', 'Bebas Neue'],
+    ['"Cormorant Garamond", Georgia, serif', 'Cormorant Garamond'],
+    ['"Playfair Display", Georgia, serif', 'Playfair Display'],
+    ['"DM Sans", system-ui, sans-serif', 'DM Sans'],
+    ['"Space Grotesk", system-ui, sans-serif', 'Space Grotesk'],
     ['Inter, system-ui, sans-serif', 'Inter'],
     ['Arial, Helvetica, sans-serif', 'Arial'],
     ['Georgia, serif', 'Georgia'],
