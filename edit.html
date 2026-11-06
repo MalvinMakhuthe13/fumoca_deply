@@ -6049,15 +6049,14 @@ $('mobilePanelBackdrop')?.addEventListener('click', closeMobilePanels);
   let fileUrl   = params.get('file');
   const splatId = params.get('splatId') || params.get('nifId');
 
-  // Wait up to 3s for Supabase client to initialise (loaded via dynamic import)
-  await new Promise(resolve => {
-    if (window._fumocaSupabase) { resolve(); return; }
-    let waited = 0;
-    const check = setInterval(() => {
-      waited += 50;
-      if (window._fumocaSupabase || waited >= 3000) { clearInterval(check); resolve(); }
-    }, 50);
-  });
+  // Await the same module import used by the early bootstrap. The previous
+  // polling loop could add a full 3-second delay before every cloud NIF lookup.
+  if (!window._fumocaSupabase) {
+    try {
+      const mod = await import('./js/supabaseClient.js');
+      window._fumocaSupabase = mod.supabase;
+    } catch (_) { /* local file editing remains available without cloud auth */ }
+  }
 
   // Load the live NIF record even when the editor was opened with a direct
   // file URL, so source-capture links and metadata survive later edits.
@@ -6070,6 +6069,18 @@ $('mobilePanelBackdrop')?.addEventListener('click', closeMobilePanels);
           window._fumocaCurrentRecord = { ...data, ...(window._fumocaCurrentRecord || {}) };
           window._fumocaCurrentRecord.meta = data.meta || window._fumocaCurrentRecord.meta || {};
           if (!fileUrl) fileUrl = data.output_url || data.nif_url || data.splat_url || null;
+          // Current pipeline records store canonical R2 keys rather than a
+          // hydrated URL. Resolve that key directly instead of falling into
+          // the legacy splats-table lookup (which adds a needless round trip).
+          if (!fileUrl && data.r2_key) {
+            try {
+              const r2mod = await import('./js/r2Client.js');
+              const client = r2mod.default || r2mod;
+              fileUrl = client.publicUrl('nif-files', data.r2_key);
+            } catch (resolveError) {
+              console.warn('[Bootstrap] Could not resolve NIF R2 key:', resolveError);
+            }
+          }
           _renderLidarSourceLinks(data.meta || {});
         }
       }
