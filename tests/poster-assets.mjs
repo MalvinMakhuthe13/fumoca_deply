@@ -14,6 +14,8 @@ assert.ok(viewport.includes('data-fumoca-poster-background'), 'Poster viewport m
 assert.ok(viewport.includes("document.getElementById('viewport')"), 'Studio poster background must mount against the editor poster viewport');
 assert.ok(viewport.includes('const isStudioEditor'), 'Studio and public viewer must choose their own poster coordinate hosts');
 assert.ok(viewport.includes('? stage'), 'Studio poster background must share the same coordinate host as editorial image layers');
+assert.ok(viewport.includes("document.getElementById('panelLeft')"), 'Studio poster viewport must account for the editor left panel when switching to absolute positioning');
+assert.ok(viewport.includes('(editorOriginLeft + layout.left)'), 'Studio poster viewport must retain its original horizontal shell offset');
 
 assert.ok(viewport.includes('data-fumoca-poster-background-image'), 'Background must use a dedicated image element');
 assert.ok(viewport.includes('backgroundImage.src = background.value'), 'Background source must be assigned to the image element');
