@@ -1495,6 +1495,10 @@ function destroyPlyViewer() {
   _plyAttributeControl?.remove(); _plyAttributeControl = null;
   _publishedSparkGroup = null;
   _legacyPosterGroup = null;
+  if (_posterSubjectChangeHandler) {
+    window.removeEventListener('fumoca:posterChange', _posterSubjectChangeHandler);
+    _posterSubjectChangeHandler = null;
+  }
   if (_posterClearColorHandler) {
     window.removeEventListener('fumoca:posterChange', _posterClearColorHandler);
     _posterClearColorHandler = null;
@@ -1902,6 +1906,7 @@ function mountDecodedCloud(g) {
 // Spark, matching the editor renderer instead of flattening NIF geometry to legacy .splat rows.
 let _publishedSparkRenderer = null, _publishedSparkMesh = null, _publishedSparkGroup = null;
 let _legacyPosterGroup = null;
+let _posterSubjectChangeHandler = null;
 let _posterClearColorHandler = null;
 async function mountPublishedSparkPly(url) {
   destroyPlyViewer();
@@ -1947,6 +1952,7 @@ async function mountPublishedSparkPly(url) {
   // Additional Gaussian PLY subjects share this Spark renderer but retain
   // independent pivot groups and poster-space transforms.
   const posterSubjectMeshes = new Map();
+  const subjectScene = _plyScene;
   const syncPosterSubjects = async () => {
     const subjects = window.FumocaPoster?.getState?.().composition?.subjects || [];
     const wanted = new Set(subjects.filter(item => item.id !== 'subject_main' && item.visible !== false && ['ply','url'].includes(item.source?.type) && /^https?:\\/\\//i.test(item.source?.url || '')).map(item => item.id));
@@ -1979,7 +1985,7 @@ async function mountPublishedSparkPly(url) {
         group.add(subjectMesh);
         group.name = 'fumoca-poster-subject-' + subject.id;
         const latest = window.FumocaPoster?.getState?.().composition?.subjects?.find(item => item.id === subject.id);
-        if (!latest) {
+        if (!latest || _plyScene !== subjectScene || posterSubjectMeshes.get(subject.id) !== entry) {
           subjectMesh.dispose?.();
           continue;
         }
@@ -1996,8 +2002,8 @@ async function mountPublishedSparkPly(url) {
       }
     }
   };
-  const posterSubjectChange = () => { syncPosterSubjects(); };
-  window.addEventListener('fumoca:posterChange', posterSubjectChange);
+  _posterSubjectChangeHandler = () => { syncPosterSubjects(); };
+  window.addEventListener('fumoca:posterChange', _posterSubjectChangeHandler);
   syncPosterSubjects();
 
   _plyCamera.position.set(center.x, center.y + radius * 0.35, center.z + radius * 2.3);
