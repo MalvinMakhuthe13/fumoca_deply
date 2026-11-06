@@ -22,7 +22,8 @@ function ensureStyles() {
     #${ROOT_ID} .fpe-frame{position:absolute;border:1px solid rgba(200,255,0,.72);box-shadow:0 0 0 9999px rgba(0,0,0,.16);pointer-events:none}
     #${ROOT_ID} .fpe-frame:before{content:"POSTER SAFE FRAME";position:absolute;left:8px;top:7px;padding:3px 6px;border-radius:4px;background:rgba(8,10,14,.82);color:#d9ff67;font:700 8px/1.2 system-ui,sans-serif;letter-spacing:.12em}
     #${ROOT_ID} .fpe-control{position:absolute;pointer-events:auto;touch-action:none;display:grid;place-items:center;color:#10130a;background:#d4ff00;border:2px solid #fff;border-radius:50%;box-shadow:0 2px 14px #0009;cursor:grab}
-    #${ROOT_ID} .fpe-subject{width:34px;height:34px;transform:translate(-50%,-50%);background:rgba(8,10,14,.8);border:2px solid #d4ff00;color:#d4ff00}\n    #${ROOT_ID} .fpe-select{width:28px;height:28px;transform:translate(-50%,-50%);background:rgba(8,10,14,.72);border:1px solid rgba(212,255,0,.8);color:#d4ff00;font:700 11px/1 system-ui,sans-serif}
+    #${ROOT_ID} .fpe-subject{width:34px;height:34px;transform:translate(-50%,-50%);background:rgba(8,10,14,.8);border:2px solid #d4ff00;color:#d4ff00}
+    #${ROOT_ID} .fpe-select{width:28px;height:28px;transform:translate(-50%,-50%);background:rgba(8,10,14,.72);border:1px solid rgba(212,255,0,.8);color:#d4ff00;font:700 11px/1 system-ui,sans-serif}
     #${ROOT_ID} .fpe-subject:before,#${ROOT_ID} .fpe-subject:after{content:"";position:absolute;background:#d4ff00;left:50%;top:50%;transform:translate(-50%,-50%)}
     #${ROOT_ID} .fpe-subject:before{width:48px;height:1px}#${ROOT_ID} .fpe-subject:after{width:1px;height:48px}
     #${ROOT_ID} .fpe-scale{width:22px;height:22px;transform:translate(-50%,-50%);font:700 15px/1 system-ui}
@@ -47,7 +48,8 @@ export function mountPosterEditorOverlay(options = {}) {
     root.innerHTML = '<div class="fpe-frame"></div><div class="fpe-pick-layer" aria-label="3D object selection"></div><button type="button" class="fpe-control fpe-subject" aria-label="Drag selected 3D object"></button><button type="button" class="fpe-control fpe-scale" aria-label="Drag to resize selected object">↗</button><button type="button" class="fpe-control fpe-rotate" aria-label="Drag to rotate selected object">↻</button><div class="fpe-hint">Select an object on the poster · Drag centre to move · ↗ resize · ↻ rotate</div>';
     host.appendChild(root);
   }
-  const frame = root.querySelector('.fpe-frame');\n  const pickLayer = root.querySelector('.fpe-pick-layer');
+  const frame = root.querySelector('.fpe-frame');
+  const pickLayer = root.querySelector('.fpe-pick-layer');
   const moveHandle = root.querySelector('.fpe-subject');
   const scaleHandle = root.querySelector('.fpe-scale');
   const rotateHandle = root.querySelector('.fpe-rotate');
@@ -75,7 +77,24 @@ export function mountPosterEditorOverlay(options = {}) {
     rect = poster;
     Object.assign(frame.style, { left: poster.left+'px', top: poster.top+'px', width: poster.width+'px', height: poster.height+'px' });
     // The poster viewport already renders the live headline; do not paint a second copy here.
-    const subjects = composition.subjects || [];\n    pickLayer.replaceChildren();\n    for (const candidate of subjects) {\n      if (!candidate.visible || candidate.id === state.selectedSubjectId) continue;\n      const pick = document.createElement('button');\n      pick.type = 'button'; pick.className = 'fpe-control fpe-select';\n      pick.textContent = String(candidate.label || '3D').trim().slice(0, 2).toUpperCase();\n      pick.setAttribute('aria-label', 'Select ' + (candidate.label || '3D object'));\n      pick.title = 'Select ' + (candidate.label || '3D object');\n      pick.style.left = (poster.left + clamp(Number(candidate.x ?? .5),0,1)*poster.width) + 'px';\n      pick.style.top = (poster.top + clamp(Number(candidate.y ?? .53),0,1)*poster.height) + 'px';\n      pick.addEventListener('click', () => { api.selectSubject?.(candidate.id); refresh(); });\n      pickLayer.appendChild(pick);\n    }\n    const subject = selectedSubject(), x=clamp(Number(subject.x??.5),0,1), y=clamp(Number(subject.y??.53),0,1);
+    const subjects = composition.subjects || [];
+    pickLayer.replaceChildren();
+    const hostRect = host.getBoundingClientRect();
+    const projectedTargets = window.FumocaPosterPicking?.getTargets?.() || [];
+    for (const candidate of subjects) {
+      if (!candidate.visible || candidate.id === state.selectedSubjectId) continue;
+      const projected = projectedTargets.find(target => target.id === candidate.id);
+      const pick = document.createElement('button');
+      pick.type = 'button'; pick.className = 'fpe-control fpe-select';
+      pick.textContent = String(candidate.label || '3D').trim().slice(0, 2).toUpperCase();
+      pick.setAttribute('aria-label', 'Select ' + (candidate.label || '3D object'));
+      pick.title = 'Select ' + (candidate.label || '3D object');
+      pick.style.left = (projected ? projected.x - hostRect.left : poster.left + clamp(Number(candidate.x ?? .5),0,1)*poster.width) + 'px';
+      pick.style.top = (projected ? projected.y - hostRect.top : poster.top + clamp(Number(candidate.y ?? .53),0,1)*poster.height) + 'px';
+      pick.addEventListener('click', () => { api.selectSubject?.(candidate.id); refresh(); });
+      pickLayer.appendChild(pick);
+    }
+    const subject = selectedSubject(), x=clamp(Number(subject.x??.5),0,1), y=clamp(Number(subject.y??.53),0,1);
     const px=poster.left+x*poster.width, py=poster.top+y*poster.height;
     moveHandle.style.left=px+'px'; moveHandle.style.top=py+'px';
     const radians=(Number(subject.rotation)||0)*Math.PI/180, radius=clamp(42*(Number(subject.scale)||1),34,100);
@@ -124,7 +143,21 @@ export function mountPosterEditorOverlay(options = {}) {
   const bindings=[[moveHandle,'move'],[scaleHandle,'scale'],[rotateHandle,'rotate']].map(([handle,mode])=>({handle,down:start(mode)}));
   for(const {handle,down} of bindings){handle.addEventListener('pointerdown',down);handle.addEventListener('pointermove',move);handle.addEventListener('pointerup',stop);handle.addEventListener('pointercancel',stop);}
   moveHandle.addEventListener('keydown',keyMove);
+  let pickPointer = null;
+  const onPickPointerDown = event => {
+    if (root.contains(event.target) || event.button !== 0) { pickPointer = null; return; }
+    pickPointer = { x: event.clientX, y: event.clientY, pointerId: event.pointerId };
+  };
+  const onPickPointerUp = event => {
+    if (!pickPointer || pickPointer.pointerId !== event.pointerId) return;
+    const start = pickPointer; pickPointer = null;
+    if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > 7) return;
+    const picked = window.FumocaPosterPicking?.pick?.(event.clientX, event.clientY);
+    if (picked?.id) { api.selectSubject?.(picked.id); refresh(); }
+  };
+  host.addEventListener('pointerdown',onPickPointerDown,true);
+  host.addEventListener('pointerup',onPickPointerUp,true);
   const onChange=()=>refresh();window.addEventListener('fumoca:posterChange',onChange);window.addEventListener('resize',onChange);
   const observer=typeof ResizeObserver!=='undefined'?new ResizeObserver(refresh):null;observer?.observe(host);refresh();
-  return {root,refresh,destroy(){observer?.disconnect();window.removeEventListener('fumoca:posterChange',onChange);window.removeEventListener('resize',onChange);for(const {handle,down} of bindings){handle.removeEventListener('pointerdown',down);handle.removeEventListener('pointermove',move);handle.removeEventListener('pointerup',stop);handle.removeEventListener('pointercancel',stop);}moveHandle.removeEventListener('keydown',keyMove);root.remove();}};
+  return {root,refresh,destroy(){observer?.disconnect();host.removeEventListener('pointerdown',onPickPointerDown,true);host.removeEventListener('pointerup',onPickPointerUp,true);window.removeEventListener('fumoca:posterChange',onChange);window.removeEventListener('resize',onChange);for(const {handle,down} of bindings){handle.removeEventListener('pointerdown',down);handle.removeEventListener('pointermove',move);handle.removeEventListener('pointerup',stop);handle.removeEventListener('pointercancel',stop);}moveHandle.removeEventListener('keydown',keyMove);root.remove();}};
 }
