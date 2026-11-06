@@ -38,7 +38,7 @@ export function calculatePosterViewport(posterState, width, height) {
 }
 
 function mount() {
-  const stage = document.getElementById('stage');
+  const stage = document.getElementById('stage') || document.getElementById('canvasHost') || document.getElementById('splatHost');
   const host = document.getElementById('stageHost') || stage;
   if (!stage || !host || !window.FumocaPoster) return;
   let lastSignature = '';
