@@ -62,7 +62,7 @@ export async function savePosterSnapshot({ record, supabase, r2Client, createSna
     const savedData = createSnapshot();
     uploadedKeys = await persistPosterImagesToR2(savedData.poster, authData.user.id, record.id, r2Client);
     const metadata = { ...(record.metadata || {}), ...(record.meta || {}), present: savedData };
-    const { error } = await supabase.from('nif_files').update({ meta: metadata }).eq('id', record.id);
+    const { error } = await supabase.from('nif_files').update({ meta: metadata }).eq('id', record.id).eq('user_id', authData.user.id);
     if (error) throw error;
     metadataCommitted = true;
     return { savedData, metadata, uploadedKeys };
