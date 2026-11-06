@@ -39,13 +39,24 @@ export function mountPosterSceneManager() {
       const lock = document.createElement('button');
       lock.type = 'button'; lock.dataset.sceneAction = 'lock'; lock.dataset.id = subject.id;
       lock.textContent = subject.locked ? 'Unlock' : 'Lock';
+      const back = document.createElement('button');
+      back.type = 'button'; back.dataset.sceneAction = 'back'; back.dataset.id = subject.id;
+      back.textContent = '↓'; back.title = 'Send backward'; back.className = 'ptp-scene-action';
+      back.disabled = subject.z <= 1 || subject.locked;
+      const front = document.createElement('button');
+      front.type = 'button'; front.dataset.sceneAction = 'front'; front.dataset.id = subject.id;
+      front.textContent = '↑'; front.title = 'Bring forward'; front.className = 'ptp-scene-action';
+      front.disabled = subject.z >= 99 || subject.locked;
       const remove = document.createElement('button');
       remove.type = 'button'; remove.dataset.sceneAction = 'remove'; remove.dataset.id = subject.id;
       remove.textContent = '×'; remove.disabled = subject.id === 'subject_main';
       visibility.className = 'ptp-scene-action';
       lock.className = 'ptp-scene-action';
       remove.className = 'ptp-scene-action ptp-scene-remove';
-      row.append(button, visibility, lock, remove); list.appendChild(row);
+      const layer = document.createElement('span');
+      layer.className = 'ptp-scene-layer'; layer.textContent = 'L' + subject.z;
+      layer.title = 'Layer depth';
+      row.append(button, layer, back, front, visibility, lock, remove); list.appendChild(row);
     });
     const selected = (state.composition.subjects || []).find(item => item.id === state.selectedSubjectId);
     section.querySelector('[data-scene-status]').textContent = selected
@@ -93,6 +104,8 @@ export function mountPosterSceneManager() {
       if (action.dataset.sceneAction === 'select') api.selectSubject(id);
       if (action.dataset.sceneAction === 'visibility') api.updateSubject(id, { visible: !subject.visible });
       if (action.dataset.sceneAction === 'lock') api.updateSubject(id, { locked: !subject.locked });
+      if (action.dataset.sceneAction === 'back') api.updateSubject(id, { z: Math.max(1, subject.z - 1) });
+      if (action.dataset.sceneAction === 'front') api.updateSubject(id, { z: Math.min(99, subject.z + 1) });
       if (action.dataset.sceneAction === 'remove') api.removeSubject(id);
       render(); window.FumocaPresent?.save?.(); return;
     }
