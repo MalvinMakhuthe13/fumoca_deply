@@ -131,22 +131,26 @@ async function persistPosterImagesToR2(poster, userId, recordId) {
       background.value,
       'poster-assets/' + userId + '/' + recordId + '/background-' + Date.now() + '.webp'
     );
-    composition.background = { ...background, value: stored.src, r2Key: stored.r2Key, bucket: stored.bucket };
-  }
+      composition.background = { ...background, value: stored.src, r2Key: stored.r2Key, bucket: stored.bucket };
+    }
 
-  const images = composition.assets?.images || [];
-  for (const image of images) {
+      const images = composition.assets?.images || [];
+    for (const image of images) {
     if (!/^data:image\//i.test(image.src || '')) continue;
-    const safeId = String(image.id || Math.random().toString(36).slice(2, 10)).replace(/[^a-z0-9_-]/gi, '').slice(0, 64);
-    const stored = await uploadDataUrl(
-      image.src,
-      'poster-assets/' + userId + '/' + recordId + '/' + (safeId || 'image') + '-' + Date.now() + '.webp'
-    );
-    image.src = stored.src;
-    image.r2Key = stored.r2Key;
-    image.bucket = stored.bucket;
+      const safeId = String(image.id || Math.random().toString(36).slice(2, 10)).replace(/[^a-z0-9_-]/gi, '').slice(0, 64);
+      const stored = await uploadDataUrl(
+        image.src,
+        'poster-assets/' + userId + '/' + recordId + '/' + (safeId || 'image') + '-' + Date.now() + '.webp'
+      );
+      image.src = stored.src;
+      image.r2Key = stored.r2Key;
+      image.bucket = stored.bucket;
+    }
+    return uploadedKeys;
+  } catch (error) {
+    if (uploadedKeys.length) await bucket.remove(uploadedKeys);
+    throw error;
   }
-  return uploadedKeys;
 }
 
 async function savePosterToCloud() {
