@@ -188,7 +188,7 @@ function tick() {
       el.style.left = ((item.sx ?? 50) + px) + '%';
       el.style.top = ((item.sy ?? 30) + py) + '%';
       el.style.opacity = String(item.opacity ?? 1);
-      el.style.transform = textAnchorTransform(item.align);
+      el.style.transform = itemTransform(item);
       return;
     }
 
@@ -238,6 +238,7 @@ export function addText(partial = {}) {
     shadow: partial.shadow,
   };
   items.push(item);
+  selectedTextId = item.id;
   rebuild();
   onChange?.(exportAll());
   return item;
