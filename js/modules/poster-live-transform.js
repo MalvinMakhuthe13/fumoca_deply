@@ -36,9 +36,9 @@ export function computePosterWorldTransform({
   const up = cameraUp || { x: 0, y: 1, z: 0 };
   return {
     position: {
-      x: cx + safe(right.x, 1) * offsetX + safe(up.x, 0) * offsetY - dx / distance * depthOffset,
-      y: cy + safe(right.y, 0) * offsetX + safe(up.y, 1) * offsetY - dy / distance * depthOffset,
-      z: cz + safe(right.z, 0) * offsetX + safe(up.z, 0) * offsetY - dz / distance * depthOffset,
+      x: cx + safe(right.x, 1) * offsetX + safe(up.x, 0) * offsetY + dx / distance * depthOffset,
+      y: cy + safe(right.y, 0) * offsetX + safe(up.y, 1) * offsetY + dy / distance * depthOffset,
+      z: cz + safe(right.z, 0) * offsetX + safe(up.z, 0) * offsetY + dz / distance * depthOffset,
     },
     scale: Math.min(4, Math.max(0.1, safe(object.scale, 1))),
     rotation: Math.min(360, Math.max(-360, safe(object.rotation, 0))) * Math.PI / 180,
