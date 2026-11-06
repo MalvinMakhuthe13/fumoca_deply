@@ -23,7 +23,9 @@ assert.match(viewer, /window\.FumocaPoster\?\.getState\?\.\(\) \|\| _fumocaPoste
 assert.match(helper, /group\.scale\.setScalar\(transform\.scale\)/);
 assert.match(helper, /group\.quaternion\.setFromAxisAngle\(viewAxis, transform\.rotation\)/);
 assert.match(helper, /const depthOffset = \(layer - 1\) \* halfHeight \* 0\.01/);
-assert.match(viewer, /object: \{ \.\.\.posterState\.composition\.object, z: mainSubject\?\.z \?\? 1 \}/);
+assert.match(viewer, /object: \{ \.\.\.posterState\.composition\.object, z: mainSubject\?\.z \?\? 1 \}/, 'Main splat must receive its saved depth layer');
+assert.match(viewer, /const subjectComposition = \{ \.\.\.posterState\.composition, object: subject \}/, 'Every additional splat must receive its own saved position, scale, rotation and depth layer');
+assert.match(viewer, /composition: subjectComposition, enabled: !!posterState\.enabled/, 'Additional splats must apply their independent transforms in the live renderer');
 assert.match(sceneManager, /dataset\.sceneAction = 'front'/);
 assert.match(sceneManager, /dataset\.sceneAction = 'back'/);
 assert.match(viewer, /Prefer Spark for Gaussian PLY/);
