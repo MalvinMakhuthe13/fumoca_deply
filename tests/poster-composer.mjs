@@ -73,6 +73,14 @@ assert.equal(poster.getLayout(400, 900).assets.images[0].fixedWidthPx, 320, 'Lay
 const mainSubject = poster.getState().composition.subjects.find(item => item.id === 'subject_main');
 assert.ok(mainSubject, 'Legacy single subject must migrate into the scene contract');
 assert.equal(mainSubject.source.type, 'current');
+poster.updateComposition({ object: { x: 0.61, y: 0.44, scale: 1.25, rotation: 15 } });
+const syncedPrimary = poster.getState().composition.subjects.find(item => item.id === 'subject_main');
+assert.deepEqual(
+  { x: syncedPrimary.x, y: syncedPrimary.y, scale: syncedPrimary.scale, rotation: syncedPrimary.rotation },
+  { x: 0.61, y: 0.44, scale: 1.25, rotation: 15 },
+  'Existing single-subject controls must stay in sync with the new scene model',
+);
+assert.equal(poster.getLayout(800, 1000).subjects.length, 1, 'Responsive layout exposes normalized scene subjects');
 const secondary = poster.addSubject({
   id: 'subject_secondary', label: 'Secondary product',
   source: { type: 'nif', assetId: 'nif-asset-123' },
