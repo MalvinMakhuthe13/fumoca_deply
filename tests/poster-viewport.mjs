@@ -21,6 +21,8 @@ assert.equal(portrait.title.fontFamily, 'Georgia, serif');
 assert.equal(portrait.title.fontSize, 64);
 assert.equal(portrait.title.color, '#ffeeaa');
 assert.equal(portrait.title.weight, 800);
+const responsiveHeadlinePx = portrait.title.fontSize * (portrait.width / 1080);
+assert.ok(Math.abs(responsiveHeadlinePx - (64 * 450 / 1080)) < 1e-9, 'Headline design size should scale against the 1080px poster reference canvas');
 
 const landscape = calculatePosterViewport({
   enabled: true,
