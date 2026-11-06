@@ -68,6 +68,18 @@ try {
   const movedX = await page.evaluate(() => window.FumocaPoster.getState().composition.assets.images.find(x => x.id === 'fixed').x);
   assert.ok(Math.abs(movedX - 0.6) < 0.002, `drag should use 640px poster coordinates; got x=${movedX}`);
 
+  await page.locator('[data-poster-asset-id="fixed"]').click();
+  const rotateHandle = page.getByRole('button', { name: 'Rotate Fixed logo' });
+  await rotateHandle.waitFor();
+  const handleBox = await rotateHandle.boundingBox();
+  assert.ok(handleBox, 'selected image should expose a visible rotation handle');
+  await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(524, 400, { steps:5 });
+  await page.mouse.up();
+  const rotation = await page.evaluate(() => window.FumocaPoster.getState().composition.assets.images.find(x => x.id === 'fixed').rotation);
+  assert.ok(Math.abs(rotation) > 20, `rotation handle should update the image rotation; got ${rotation}`);
+
   await page.setViewportSize({ width:390, height:844 });
   await page.evaluate(() => window.FumocaPosterAssets.refresh());
   const mobile = await page.evaluate(() => ({
@@ -79,7 +91,7 @@ try {
   assert.equal(mobile.fixed, 200, 'fixed-pixel image should retain its size on mobile');
   assert.equal(mobile.responsive, 195, 'responsive image should scale with the mobile poster width');
 
-  console.log('Browser test passed: letterboxed drag coordinates, fixed-pixel sizing and responsive sizing on desktop/mobile.');
+  console.log('Browser test passed: letterboxed drag coordinates, fixed-pixel sizing, direct image rotation and responsive sizing on desktop/mobile.');
 } finally {
   if (browser) await browser.close();
   await new Promise(resolve => server.close(resolve));
