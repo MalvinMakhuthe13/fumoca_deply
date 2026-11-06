@@ -4,13 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { chromium } from 'playwright';
 
-const fixture = `<!doctype html>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<style>html,body,#stageHost{margin:0;width:100%;height:100%;background:#111}</style>
-<div id="stageHost"></div>
-<script type="module">
-  import '/modules/poster-composer.js';
-  window._fumocaCurrentRecord = {
+const savedNifRecord = {
     id:'nif-browser-fixture',
     meta:{present:{
       poster:{
@@ -30,12 +24,26 @@ const fixture = `<!doctype html>
       }
     }}
   };
+
+const fixture = `<!doctype html>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>html,body,#stageHost{margin:0;width:100%;height:100%;background:#111}</style>
+<div id="stageHost"></div>
+<script type="module">
+  import '/modules/poster-composer.js';
+  const response = await fetch('/api/nif');
+  if (!response.ok) throw new Error('Saved NIF metadata request failed');
+  window._fumocaCurrentRecord = await response.json();
   const viewer = await import('/modules/present-viewer.js');
   viewer.initPresentViewer();
   window.__restoreReady = true;
 </script>`;
 
 const server = http.createServer(async (req,res) => {
+  if (req.url === '/api/nif') {
+    res.writeHead(200, {'content-type':'application/json','cache-control':'no-store'});
+    res.end(JSON.stringify(savedNifRecord)); return;
+  }
   if (req.url === '/' || req.url === '/viewer.html') {
     res.writeHead(200, {'content-type':'text/html'}); res.end(fixture); return;
   }
@@ -66,10 +74,15 @@ await new Promise(resolve=>server.once('listening',resolve));
 let browser;
 try {
   browser=await chromium.launch({headless:true});
-  const page=await browser.newPage({viewport:{width:900,height:900}});
+  const context=await browser.newContext({viewport:{width:900,height:900}});
+  const page=await context.newPage();
   const pageErrors=[];
+  const nifRequests=[];
   page.on('pageerror',error=>pageErrors.push(error.message));
+  page.on('request',request=>{ if(request.url().includes('/api/nif')) nifRequests.push(request.url()); });
   await page.goto(`http://127.0.0.1:${port}/viewer.html`);
+  assert.equal(await page.evaluate(()=>localStorage.length),0,'Fresh viewer session must not depend on previously saved browser storage');
+  assert.equal(nifRequests.length,1,'Viewer must retrieve the saved NIF metadata from the server fixture');
   await page.waitForFunction(()=>window.__restoreReady && window.FumocaPresentViewer && window.FumocaPoster);
   await page.waitForFunction(()=>window.FumocaPoster.getState().enabled === true);
   const restored=await page.evaluate(()=>window.FumocaPoster.getState());
@@ -97,7 +110,7 @@ try {
   assert.equal(restored.composition.subjects.length,2);
   assert.equal(restored.composition.subjects[1].source.assetId,'nif-secondary');
   assert.equal(restored.composition.subjects[1].rotation,-12);
-  console.log('Browser test passed: public viewer restores poster background, fixed-size supporting image and multiple independently transformed subjects from saved NIF metadata.');
+  console.log('Browser test passed: a clean browser session fetches saved NIF metadata from the server fixture and restores R2-backed poster media, layer settings and multiple independently transformed subjects.');
 } finally {
   if(browser) await browser.close();
   await new Promise(resolve=>server.close(resolve));
