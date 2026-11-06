@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { savePosterSnapshot } from '../js/modules/poster-cloud-persistence.js';
 
-const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p6sAAAAASUVORK5CYII=';
+const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p6sAAAAASUVORK5CYII=';\nconst gif = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
 function fixture({ dbError = null, owner = 'user-1' } = {}) {
   const uploads = [], removals = [], writes = [];
   const r2 = { from(bucket) {
@@ -36,6 +36,7 @@ function fixture({ dbError = null, owner = 'user-1' } = {}) {
   const f = fixture();
   const result = await savePosterSnapshot({ ...f, createSnapshot: () => structuredClone(f.snapshot) });
   assert.equal(f.uploads.length, 2, 'background and supporting image should both upload');
+  assert.equal(f.uploads[0].type, 'image/png');
   assert.equal(f.writes.length, 1, 'one metadata commit should occur');
   assert.equal(f.writes[0].column, 'id');
   assert.equal(f.writes[0].id, 'nif-1');
@@ -62,6 +63,16 @@ function fixture({ dbError = null, owner = 'user-1' } = {}) {
   assert.equal(f.removals[0].length, 2);
   assert.equal(f.snapshot.poster.composition.background.value, png, 'editor source snapshot remains retryable');
   assert.equal(f.snapshot.poster.composition.assets.images[0].src, png, 'editor image source remains retryable');
+}
+
+
+{
+  const f = fixture();
+  const snapshot = structuredClone(f.snapshot);
+  snapshot.poster.composition.background.value = gif;
+  const result = await savePosterSnapshot({ ...f, createSnapshot: () => snapshot });
+  assert.equal(f.uploads[0].type, 'image/gif', 'GIF backgrounds supported by the composer must persist as GIF');
+  assert.match(result.savedData.poster.composition.background.value, /^https:\/\/cdn\.example\.test\//);
 }
 
 console.log('Poster cloud persistence integration contract passed with mocked Supabase and R2.');
