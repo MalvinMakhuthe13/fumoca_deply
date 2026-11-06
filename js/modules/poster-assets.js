@@ -42,11 +42,17 @@ export function initPosterAssets({ editable = false } = {}) {
       if (!item.visible || !item.src) return;
       const layer = document.createElement('div');
       layer.dataset.posterAssetId = item.id;
+      const anchorTransforms = {
+        free: 'translate(-50%,-50%)', 'top-left': 'translate(0,0)', top: 'translate(-50%,0)',
+        'top-right': 'translate(-100%,0)', left: 'translate(0,-50%)', center: 'translate(-50%,-50%)',
+        right: 'translate(-100%,-50%)', 'bottom-left': 'translate(0,-100%)',
+        bottom: 'translate(-50%,-100%)', 'bottom-right': 'translate(-100%,-100%)',
+      };
       Object.assign(layer.style, {
         position: 'absolute',
         left: (item.x * 100) + '%',
         top: (item.y * 100) + '%',
-        transform: 'translate(-50%,-50%) rotate(' + (item.rotation || 0) + 'deg)',
+        transform: (anchorTransforms[item.anchor || 'free'] || anchorTransforms.free) + ' rotate(' + (item.rotation || 0) + 'deg)',
         transformOrigin: 'center',
         zIndex: String(item.z || 1),
         pointerEvents: editable ? 'auto' : 'none',
@@ -153,15 +159,19 @@ export function initPosterAssets({ editable = false } = {}) {
   function resizeTarget(event) { return event.target.closest?.('[aria-label^="Resize "]'); }
 
   window.addEventListener('fumoca:posterChange', render);
-  render();
-  return {
-    refresh: render,
+  window.FumocaPosterAssets = Object.freeze({
     select(id) {
       selectedId = id || null;
       const item = (window.FumocaPoster.getState().composition.assets.images || []).find(x => x.id === selectedId);
       emitSelection(item || null); render();
     },
-    destroy() { window.removeEventListener('fumoca:posterChange', render); root.remove(); },
+    refresh: render,
+  });
+  render();
+  return {
+    refresh: render,
+    select(id) { window.FumocaPosterAssets.select(id); },
+    destroy() { window.removeEventListener('fumoca:posterChange', render); root.remove(); delete window.FumocaPosterAssets; },
   };
 }
 
