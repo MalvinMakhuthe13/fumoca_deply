@@ -7,7 +7,8 @@
  *
  * This module does not change renderer internals or persist metadata by itself.
  */
-const POSTER_VERSION = '0.2.0';
+const POSTER_VERSION = '0.2.1';
+const MAX_IMAGE_DATA_URL_CHARS = 8 * 1024 * 1024;
 
 const POSTER_PRESETS = Object.freeze({
   product: Object.freeze({
@@ -66,8 +67,9 @@ function normalizeBackground(background, fallback) {
       if (!['https:', 'http:'].includes(url.protocol)) return clone(fallback);
     } catch (_) { return clone(fallback); }
   }
+  if (type === 'image' && value.startsWith('data:') && value.length > MAX_IMAGE_DATA_URL_CHARS) return clone(fallback);
   return {
-    type, value: value.slice(0, 180000),
+    type, value,
     r2Key: String(background.r2Key || '').slice(0, 500),
     bucket: String(background.bucket || '').slice(0, 80),
     fit: ['cover','contain','fill'].includes(background.fit) ? background.fit : 'cover',
@@ -162,7 +164,7 @@ function updateComposition(patch = {}) {
     current.assets = {
       images: images.slice(0, 12).map((item, index) => ({
         id: String(item.id || ('asset_' + index)).slice(0, 80),
-        src: String(item.src || '').slice(0, 180000),
+        src: String(item.src || ''),
         r2Key: String(item.r2Key || '').slice(0, 500),
         bucket: String(item.bucket || '').slice(0, 80),
         name: String(item.name || 'Image').slice(0, 120),
