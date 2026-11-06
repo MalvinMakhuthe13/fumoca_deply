@@ -26,6 +26,8 @@ export function computePosterWorldTransform({
   const safeAspect = Math.max(1e-4, safe(aspect, 1));
   const halfHeight = distance * Math.tan((safeFov * Math.PI / 180) / 2);
   const halfWidth = halfHeight * safeAspect;
+  const layer = Math.min(99, Math.max(1, safe(object.z, 1)));
+  const depthOffset = (layer - 1) * halfHeight * 0.01;
   const x = Math.min(1, Math.max(0, safe(object.x, 0.5)));
   const y = Math.min(1, Math.max(0, safe(object.y, 0.5)));
   const offsetX = (x - 0.5) * 2 * halfWidth;
@@ -34,9 +36,9 @@ export function computePosterWorldTransform({
   const up = cameraUp || { x: 0, y: 1, z: 0 };
   return {
     position: {
-      x: cx + safe(right.x, 1) * offsetX + safe(up.x, 0) * offsetY,
-      y: cy + safe(right.y, 0) * offsetX + safe(up.y, 1) * offsetY,
-      z: cz + safe(right.z, 0) * offsetX + safe(up.z, 0) * offsetY,
+      x: cx + safe(right.x, 1) * offsetX + safe(up.x, 0) * offsetY - safe(cameraPosition.x, 0) / distance * depthOffset,
+      y: cy + safe(right.y, 0) * offsetX + safe(up.y, 1) * offsetY - safe(cameraPosition.y, 0) / distance * depthOffset,
+      z: cz + safe(right.z, 0) * offsetX + safe(up.z, 0) * offsetY - safe(cameraPosition.z, 0) / distance * depthOffset,
     },
     scale: Math.min(4, Math.max(0.1, safe(object.scale, 1))),
     rotation: Math.min(360, Math.max(-360, safe(object.rotation, 0))) * Math.PI / 180,
