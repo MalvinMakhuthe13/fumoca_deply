@@ -3,8 +3,9 @@ import { savePosterSnapshot } from '../js/modules/poster-cloud-persistence.js';
 
 const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p6sAAAAASUVORK5CYII=';
 const gif = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
-function fixture({ dbError = null, owner = 'user-1', uploadErrorAt = 0, cleanupError = null } = {}) {
+function fixture({ dbError = null, owner = 'user-1', uploadErrorAt = 0, cleanupError = null, switchUserAfterUpload = false } = {}) {
   const uploads = [], removals = [], writes = [];
+  let authReads = 0;
   const r2 = { from(bucket) {
     assert.equal(bucket, 'thumbnails');
     return {
@@ -17,7 +18,7 @@ function fixture({ dbError = null, owner = 'user-1', uploadErrorAt = 0, cleanupE
     };
   }};
   const supabase = {
-    auth: { async getUser() { return { data: { user: { id: 'user-1' } }, error: null }; } },
+    auth: { async getUser() { authReads++; return { data: { user: { id: switchUserAfterUpload && authReads > 1 ? 'user-2' : 'user-1' } }, error: null }; } },
     from(table) {
       assert.equal(table, 'nif_files');
       return { update(value) {
@@ -106,6 +107,19 @@ function fixture({ dbError = null, owner = 'user-1', uploadErrorAt = 0, cleanupE
   );
   assert.equal(f.uploads.length, 2);
   assert.equal(f.removals.length, 1, 'partial successful uploads should still trigger cleanup');
+}
+
+
+{
+  const f = fixture({ switchUserAfterUpload: true });
+  await assert.rejects(
+    () => savePosterSnapshot({ ...f, createSnapshot: () => structuredClone(f.snapshot) }),
+    /account changed while the poster was uploading/,
+    'a session switch during upload must prevent the metadata commit',
+  );
+  assert.equal(f.uploads.length, 2, 'the test must reach the post-upload identity check');
+  assert.equal(f.writes.length, 0, 'no metadata may be committed under a changed session');
+  assert.equal(f.removals.length, 1, 'uploads from the abandoned session must be rolled back');
 }
 
 console.log('Poster cloud persistence integration contract passed with mocked Supabase and R2.');
