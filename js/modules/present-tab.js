@@ -279,18 +279,9 @@ function escapeAttr(value) {
   return String(value).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-let posterEditorOverlay = null;
-
-function mountStudioPosterOverlay() {
-  if (posterEditorOverlay) { posterEditorOverlay.refresh(); return; }
-  posterEditorOverlay = createPosterEditorOverlay({
-    onCommit: () => persist(),
-  });
-}
-
 function mountPanel() {
   let panel = document.getElementById('fumocaPresentTabPanel');
-  if (panel) { mountPosterSceneManager(); mountStudioPosterOverlay(); return panel; }
+  if (panel) { mountPosterSceneManager(); return panel; }
 
   panel = document.createElement('div');
   panel.id = 'fumocaPresentTabPanel';
