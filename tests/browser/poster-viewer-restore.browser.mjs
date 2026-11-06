@@ -94,6 +94,11 @@ try {
   const restoredText=await page.evaluate(()=>({text:document.querySelector('#magazineTextLayer .mt-item')?.textContent,style:document.querySelector('#magazineTextLayer .mt-item')?.style.cssText}));
   assert.equal(restoredText.text,'MADE TO MOVE','saved editorial typography must restore in a fresh viewer session');
   assert.match(restoredText.style,/rotate\(-?8deg\)/,'saved text rotation must survive viewer restoration');
+  assert.match(restoredText.style,/left: 18%/,'saved text horizontal position must survive viewer restoration');
+  assert.match(restoredText.style,/top: 24%/,'saved text vertical position must survive viewer restoration');
+  assert.match(restoredText.style,/font-size: calc\\(64px/,'saved text font size must survive viewer restoration');
+  assert.match(restoredText.style,/z-index: 32/,'saved text stacking order must survive viewer restoration');
+  assert.match(restoredText.style,/text-align: left/,'saved text alignment must survive viewer restoration');
   const restoredNav=await page.evaluate(()=>window.__restoredNavStops);
   assert.equal(restoredNav[0].id,'restored-stop');
   assert.equal(restoredNav[0].label,'Front entrance');
