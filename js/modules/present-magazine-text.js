@@ -207,6 +207,12 @@ export function addText(partial = {}) {
     maxWidth: partial.maxWidth,
     uppercase: partial.uppercase,
     z: partial.z || 0,
+    weight: partial.weight,
+    tracking: partial.tracking,
+    wrap: !!partial.wrap,
+    maxWidth: partial.maxWidth,
+    uppercase: partial.uppercase,
+    shadow: partial.shadow,
   };
   items.push(item);
   rebuild();
@@ -250,6 +256,7 @@ export function importAll(list = []) {
     fontSize: i.fontSize, fontFamily: i.fontFamily, color: i.color,
     opacity: i.opacity ?? 1, align: i.align,
     maxWidth: i.maxWidth, uppercase: i.uppercase, z: i.z || 0,
+    weight: i.weight, tracking: i.tracking, wrap: !!i.wrap, shadow: i.shadow,
   }));
   rebuild();
 }
@@ -260,23 +267,44 @@ function rebuild() {
   items.forEach((item) => root.appendChild(renderItem(item)));
 }
 
-/** Clean cover layouts — one focal block, not scattered words */
+/** Editorial systems — balanced hierarchy with deliberate safe-area placement. */
 export function applyPreset(name) {
   clearText();
+  const add = (text, style, sx, sy, fontSize, color, extra = {}) =>
+    addText({ text, style, mode: 'locked', sx, sy, fontSize, color, ...extra });
+
   if (name === 'weekly') {
-    // One big centered title only
-    addText({ text: 'WEEKLY', style: 'cover', mode: 'locked', sx: 50, sy: 22, fontSize: 88, color: '#FFFFFF', align: 'center' });
+    add('WEEKLY', 'cover', 50, 22, 88, '#FFFFFF', { align: 'center', weight: 800 });
   } else if (name === '48hours') {
-    addText({ text: '48 HOURS', style: 'cover', mode: 'locked', sx: 50, sy: 20, fontSize: 72, color: '#F5C518', align: 'center' });
-    addText({ text: 'In SA', style: 'kicker', mode: 'locked', sx: 50, sy: 32, fontSize: 14, color: '#F5C518', align: 'center' });
-  } else if (name === 'product') {
-    // Left stack — magazine column, leaves car clear in center-right
-    addText({ text: 'FEATURED', style: 'badge', mode: 'locked', sx: 16, sy: 14, fontSize: 11, color: '#C8FF00', align: 'left' });
-    addText({ text: 'THE DETAIL', style: 'masthead', mode: 'locked', sx: 22, sy: 24, fontSize: 40, color: '#F2EFE6', align: 'left' });
-    addText({ text: 'Spin to inspect every angle', style: 'deck', mode: 'locked', sx: 22, sy: 34, fontSize: 14, color: '#B8B4A8', align: 'left', maxWidth: '22ch' });
+    add('48 HOURS', 'cover', 50, 20, 72, '#F5C518', { align: 'center', weight: 800 });
+    add('IN SOUTH AFRICA', 'kicker', 50, 32, 14, '#F5C518', { align: 'center' });
+  } else if (name === 'product' || name === 'luxury') {
+    add('OBJECTS OF DESIRE', 'kicker', 12, 12, 12, '#D8C6A0', { tracking: 0.18, weight: 700 });
+    add(name === 'luxury' ? 'THE ART OF\nDETAIL' : 'THE DETAIL', 'masthead', 12, 23, name === 'luxury' ? 54 : 48, '#F4EFE5', { weight: 700, maxWidth: '44%', wrap: true, tracking: -0.035 });
+    add('A closer look at form, finish and function.', 'deck', 12, 37, 16, '#D1CCC2', { maxWidth: '38%', wrap: true, weight: 400 });
+    add('360° · INTERACTIVE', 'badge', 12, 88, 11, '#E7D7B5', { tracking: 0.12 });
+    add('FUMOCA EDITION 01', 'caption', 88, 92, 10, '#B7B0A2', { align: 'right', tracking: 0.12 });
   } else if (name === 'hero') {
-    // Bottom title bar style
-    addText({ text: 'TAZZ', style: 'cover', mode: 'locked', sx: 50, sy: 82, fontSize: 64, color: '#FFFFFF', align: 'center' });
+    add('THE NEXT ICON', 'kicker', 50, 72, 12, '#E8E1D2', { align: 'center', tracking: 0.2 });
+    add('MADE TO MOVE', 'cover', 50, 82, 58, '#FFFFFF', { align: 'center', weight: 800, maxWidth: '86%' });
+  } else if (name === 'fashion') {
+    add('FUMOCA', 'masthead', 50, 10, 48, '#F4EFE8', { align: 'center', weight: 800, tracking: -0.04 });
+    add('THE NEW FORM', 'kicker', 50, 17, 10, '#E5C9B1', { align: 'center', tracking: 0.24 });
+    add('FORM\nWITHOUT\nLIMITS', 'cover', 10, 70, 48, '#FFFFFF', { maxWidth: '46%', wrap: true, weight: 800, tracking: -0.03 });
+    add('ISSUE 01  /  AUTUMN', 'caption', 90, 93, 9, '#E5C9B1', { align: 'right', tracking: 0.14 });
+    add('STYLE · OBJECT · CULTURE', 'kicker', 10, 93, 9, '#E5C9B1', { tracking: 0.12 });
+  } else if (name === 'launch') {
+    add('INTRODUCING', 'kicker', 10, 12, 12, '#C8FF00', { tracking: 0.2, weight: 700 });
+    add('A NEW\nPERSPECTIVE', 'cover', 10, 25, 52, '#FFFFFF', { maxWidth: '66%', wrap: true, weight: 800, tracking: -0.04 });
+    add('Explore every angle. Discover every detail.', 'deck', 10, 43, 15, '#D5D8D1', { maxWidth: '58%', wrap: true });
+    add('AVAILABLE NOW', 'badge', 10, 88, 11, '#10131A', { weight: 800, color: '#C8FF00' });
+    add('FUMOCA / PRODUCT STUDIO', 'caption', 90, 93, 9, '#AEB5AA', { align: 'right', tracking: 0.12 });
+  } else if (name === 'architecture') {
+    add('SPACES / 001', 'kicker', 9, 10, 11, '#D8D1C5', { tracking: 0.18 });
+    add('FORM FOLLOWS\nFEELING', 'masthead', 9, 20, 42, '#F4F0E8', { maxWidth: '58%', wrap: true, weight: 500, tracking: -0.025 });
+    add('A study in light, material and proportion.', 'deck', 9, 35, 14, '#D0CBC2', { maxWidth: '46%', wrap: true });
+    add('ARCHITECTURE · DESIGN · PLACE', 'caption', 9, 92, 9, '#D8D1C5', { tracking: 0.1 });
+    add('FUMOCA FIELD NOTES', 'caption', 91, 92, 9, '#D8D1C5', { align: 'right', tracking: 0.1 });
   }
 }
 
