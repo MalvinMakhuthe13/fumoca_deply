@@ -184,32 +184,47 @@ async function savePosterToCloud() {
     return false;
   }
   setStatus('Saving poster to this asset…');
+  let uploadedKeys = [];
+  let metadataCommitted = false;
   try {
     const { data: authData, error: authError } = await supabase.auth.getUser();
     if (authError || !authData?.user) throw new Error('Sign in before saving this poster to the cloud.');
     const data = payload();
-    const uploadedKeys = await persistPosterImagesToR2(data.poster, authData.user.id, record.id);
-    const savedPoster = data.poster;
-    if (savedPoster?.composition) {
-      window.FumocaPoster?.updateComposition?.({
-        background: savedPoster.composition.background,
-        assets: savedPoster.composition.assets,
-      });
-    }
-    const savedData = payload();
-    const metadata = { ...(record.meta || {}), present: savedData };
+    uploadedKeys = await persistPosterImagesToR2(data.poster, authData.user.id, record.id);
+
+    // Persist the R2-backed snapshot before changing live editor state. If the
+    // database write fails, the editor keeps its original data URLs and can retry.
+    const savedData = data;
+    const metadata = { ...(record.metadata || {}), ...(record.meta || {}), present: savedData };
     const { error } = await supabase.from('nif_files').update({ meta: metadata }).eq('id', record.id);
-    if (error) {
-      if (uploadedKeys.length) await r2.from('thumbnails').remove(uploadedKeys);
-      throw error;
+    if (error) throw error;
+    metadataCommitted = true;
+
+    if (savedData.poster?.composition) {
+      try {
+        window.FumocaPoster?.updateComposition?.({
+          background: savedData.poster.composition.background,
+          assets: savedData.poster.composition.assets,
+        });
+      } catch (syncError) {
+        console.warn('[Poster Composer] Cloud save succeeded but live preview could not refresh:', syncError);
+      }
     }
     record.meta = metadata;
-    record.metadata = { ...(record.metadata || {}), present: savedData };
+    record.metadata = { ...metadata };
     window._fumocaCurrentRecord = record;
     persist();
     setStatus('Images uploaded to Cloudflare R2 and poster saved to this NIF asset.');
     return true;
   } catch (error) {
+    if (!metadataCommitted && uploadedKeys.length) {
+      try {
+        const cleanup = await r2.from('thumbnails').remove(uploadedKeys);
+        if (cleanup.error) console.warn('[Poster Composer] Could not clean up failed cloud-save uploads:', cleanup.error);
+      } catch (cleanupError) {
+        console.warn('[Poster Composer] Could not clean up failed cloud-save uploads:', cleanupError);
+      }
+    }
     console.warn('[Poster Composer] Cloud save failed', error);
     setStatus(error?.message || 'Cloud save failed. Your local composition is still saved.', true);
     return false;
