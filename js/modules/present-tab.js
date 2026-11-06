@@ -189,6 +189,9 @@ async function savePosterToCloud() {
   try {
     const { data: authData, error: authError } = await supabase.auth.getUser();
     if (authError || !authData?.user) throw new Error('Sign in before saving this poster to the cloud.');
+    if (!record.user_id || record.user_id !== authData.user.id) {
+      throw new Error('You can only save poster media to a NIF asset owned by your signed-in account.');
+    }
     const data = payload();
     uploadedKeys = await persistPosterImagesToR2(data.poster, authData.user.id, record.id);
 
