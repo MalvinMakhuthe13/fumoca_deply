@@ -3,7 +3,7 @@
  * UI for staging and managing independently transformable composition subjects.
  * Additional source loading/rendering is intentionally delegated to the scene renderer.
  */
-function mountPosterSceneManager() {
+export function mountPosterSceneManager() {
   const root = document.getElementById('ptpPosterComposer');
   const api = window.FumocaPoster;
   if (!root || !api || root.querySelector('[data-fumoca-scene-manager]')) return;
@@ -71,7 +71,7 @@ function mountPosterSceneManager() {
       if (action.dataset.sceneAction === 'visibility') api.updateSubject(id, { visible: !subject.visible });
       if (action.dataset.sceneAction === 'lock') api.updateSubject(id, { locked: !subject.locked });
       if (action.dataset.sceneAction === 'remove') api.removeSubject(id);
-      render(); window.dispatchEvent(new Event('fumoca:presentPersist')); return;
+      render(); window.FumocaPresent?.save?.(); return;
     }
     const add = event.target.closest('[data-scene-add]');
     if (!add) return;
@@ -92,10 +92,6 @@ function mountPosterSceneManager() {
     } catch (error) { alert(error.message || 'Could not add object.'); }
   });
   window.addEventListener('fumoca:posterChange', render);
-  window.addEventListener('fumoca:presentPersist', () => {
-    const save = document.querySelector('#ptpPosterComposer [data-act="poster-cloud-save"]');
-    if (save) save.dispatchEvent(new Event('click', { bubbles:true }));
-  });
   render();
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mountPosterSceneManager, { once:true });
