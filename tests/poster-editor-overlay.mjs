@@ -27,17 +27,13 @@ const presentTabSource = await readFile(new URL('../js/modules/present-tab.js', 
 assert.ok(overlaySource.includes('return {root,refresh,destroy(){'), 'Overlay must expose its root so Studio can safely remount it');
 assert.ok(presentTabSource.includes('createPosterEditorOverlay({ host: viewport, onCommit: () => persist() })'), 'Present tab must mount direct manipulation controls over the Studio viewport');
 assert.ok(presentTabSource.includes('posterEditorOverlay.refresh?.()'), 'Repeated Present-tab mounts must refresh rather than duplicate overlay listeners');
-assert.ok(overlaySource.includes('class="fpe-title"'), 'Studio overlay must include a headline layer');
+assert.ok(!overlaySource.includes('class="fpe-title"'), 'Studio overlay must not duplicate the headline already rendered by the poster viewport');
 assert.ok(overlaySource.includes('class="fpe-control fpe-scale"'), 'Studio overlay must expose a direct resize handle');
 assert.ok(overlaySource.includes('class="fpe-control fpe-rotate"'), 'Studio overlay must expose a direct rotation handle');
 assert.ok(overlaySource.includes('api.updateSubject(subject.id, patch)'), 'Direct manipulation must target the selected scene subject, not always the primary subject');
 assert.ok(overlaySource.includes('subject.locked'), 'Direct manipulation must respect locked subjects');
-assert.ok(overlaySource.includes('composition.title'), 'Studio overlay must read the shared poster title state');
-assert.ok(overlaySource.includes('heading.visible !== false'), 'Studio overlay must respect the headline visibility toggle');
-assert.ok(overlaySource.includes('heading.fontFamily'), 'Studio overlay must apply headline typography');
-assert.ok(overlaySource.includes('heading.fontSize'), 'Studio overlay must apply headline size');
-assert.ok(overlaySource.includes('heading.color'), 'Studio overlay must apply headline colour');
-const normalizedOverlaySource = overlaySource.replace(/\\s+/g, '');
-assert.ok(normalizedOverlaySource.includes('(Number(heading.fontSize)||42)*(poster.width/1080)'), 'Studio headline size must scale with the poster canvas rather than the editor screen');
+assert.ok(overlaySource.includes('calculatePosterEditorFrame(bounds.width, bounds.height'), 'Transform handles must use the displayed poster frame, not the outer workspace');
+assert.ok(overlaySource.includes('(p.x-g.start.x)/rect.width'), 'Subject movement must be normalized to the poster width');
+assert.ok(overlaySource.includes('(p.y-g.start.y)/rect.height'), 'Subject movement must be normalized to the poster height');
 
 console.log('Poster editor overlay geometry and headline integration tests passed.');
