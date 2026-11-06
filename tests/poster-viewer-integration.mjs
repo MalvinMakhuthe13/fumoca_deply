@@ -21,6 +21,9 @@ assert.match(helper, /group\.quaternion\.setFromAxisAngle\(viewAxis, transform\.
 assert.match(viewer, /Prefer Spark for Gaussian PLY/);
 assert.match(viewer, /new SplatMesh\(\{ fileBytes: subjectBytes/);
 assert.match(viewer, /meta\?\.view_ply_r2_key/);
+assert.match(viewer, /decodeNif\(await response\.arrayBuffer\(\)\)/);
+assert.match(viewer, /geometryToSplatRows\(decoded\.gaussians, \{ preserveScales: true \}\)/);
+assert.match(viewer, /poster-subject-' \+ subject\.id \+ '\.splat/);
 assert.match(viewer, /applyPosterLiveTransform\(\{[\s\S]*?group: entry\.group/);
 assert.match(viewer, /mainSubject\?\.visible !== false/);
 assert.match(sceneManager, /data-scene-load-assets/);
