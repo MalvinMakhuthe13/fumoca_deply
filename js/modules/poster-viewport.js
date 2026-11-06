@@ -117,7 +117,8 @@ function mount() {
     host.style.backgroundSize = 'cover';
     host.style.backgroundPosition = 'center';
     if (backgroundNode) {
-      const isImage = background.type === 'image' && /^data:image\\/(png|jpeg|webp|gif);base64,|^https?:\\/\\//i.test(String(background.value || ''));
+      const imageSource = String(background.value || '');
+      const isImage = background.type === 'image' && (imageSource.startsWith('data:image/') || imageSource.startsWith('https://') || imageSource.startsWith('http://'));
       backgroundNode.style.background = background.type === 'gradient' ? background.value : '';
       backgroundNode.style.backgroundColor = background.type === 'solid' ? (background.value || '#10131a') : 'transparent';
       backgroundNode.style.opacity = String(Math.max(0, Math.min(1, Number(background.opacity ?? 1))));
