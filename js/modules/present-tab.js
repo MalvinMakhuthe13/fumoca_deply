@@ -125,19 +125,28 @@ async function persistPosterImagesToR2(poster, userId, recordId) {
 
   const composition = poster?.composition;
   if (!composition) return uploadedKeys;
-  const background = composition.background;
-  if (/^data:image\//i.test(background?.value || '')) {
-    const stored = await uploadDataUrl(
-      background.value,
-      'poster-assets/' + userId + '/' + recordId + '/background-' + Date.now() + '.webp'
-    );
-      composition.background = { ...background, value: stored.src, r2Key: stored.r2Key, bucket: stored.bucket };
+
+  try {
+    const background = composition.background;
+    if (/^data:image\//i.test(background?.value || '')) {
+      const stored = await uploadDataUrl(
+        background.value,
+        'poster-assets/' + userId + '/' + recordId + '/background-' + Date.now() + '.webp'
+      );
+      composition.background = {
+        ...background,
+        value: stored.src,
+        r2Key: stored.r2Key,
+        bucket: stored.bucket,
+      };
     }
 
-      const images = composition.assets?.images || [];
+    const images = composition.assets?.images || [];
     for (const image of images) {
-    if (!/^data:image\//i.test(image.src || '')) continue;
-      const safeId = String(image.id || Math.random().toString(36).slice(2, 10)).replace(/[^a-z0-9_-]/gi, '').slice(0, 64);
+      if (!/^data:image\//i.test(image.src || '')) continue;
+      const safeId = String(image.id || Math.random().toString(36).slice(2, 10))
+        .replace(/[^a-z0-9_-]/gi, '')
+        .slice(0, 64);
       const stored = await uploadDataUrl(
         image.src,
         'poster-assets/' + userId + '/' + recordId + '/' + (safeId || 'image') + '-' + Date.now() + '.webp'
@@ -148,7 +157,10 @@ async function persistPosterImagesToR2(poster, userId, recordId) {
     }
     return uploadedKeys;
   } catch (error) {
-    if (uploadedKeys.length) await bucket.remove(uploadedKeys);
+    if (uploadedKeys.length) {
+      const cleanup = await bucket.remove(uploadedKeys);
+      if (cleanup.error) console.warn('[Poster Composer] Could not clean up partial R2 uploads:', cleanup.error);
+    }
     throw error;
   }
 }
