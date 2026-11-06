@@ -97,6 +97,8 @@ function textAnchorTransform(align = 'center') {
   return 'translate(-50%, -50%)';
 }
 
+function itemTransform(item) { return textAnchorTransform(item.align) + ' rotate(' + (Number(item.rotation) || 0) + 'deg)'; }
+
 function renderItem(item) {
   const el = document.createElement('div');
   el.className = `mt-item mt-${item.style || 'cover'} mt-mode-${item.mode || 'billboard'}`;
@@ -111,7 +113,7 @@ function renderItem(item) {
     // aligned cover copy starts at its X coordinate instead of extending
     // half its width to the left of the poster; centered/right copy anchor
     // on their corresponding edges.
-    transform: textAnchorTransform(item.align),
+    transform: itemTransform(item),
     pointerEvents: editing ? 'auto' : 'none',
     // Text must wrap within the poster canvas. Previously cover/kicker items
     // defaulted to nowrap, so long headlines could paint beyond the safe frame
@@ -143,7 +145,7 @@ function startDrag(e, item, el) {
     if (item.mode !== 'world') item.mode = 'locked';
     el.style.left = item.sx + '%';
     el.style.top = item.sy + '%';
-    el.style.transform = textAnchorTransform(item.align);
+    el.style.transform = itemTransform(item);
   };
   const up = () => {
     window.removeEventListener('pointermove', move);
@@ -172,7 +174,7 @@ function tick() {
       el.style.left = p.x + '%';
       el.style.top = p.y + '%';
       const s = 1 - Math.min(0.3, Math.max(0, p.depth) * 0.2);
-      el.style.transform = `translate(-50%, -50%) scale(${s})`;
+      el.style.transform = `translate(-50%, -50%) scale(${s}) rotate(${Number(item.rotation) || 0}deg)`;
       return;
     }
 
