@@ -23,11 +23,11 @@ assert.equal(fallback.left, 50);
 assert.equal(fallback.top, 0);
 
 const overlaySource = await readFile(new URL('../js/modules/poster-editor-overlay.js', import.meta.url), 'utf8');
-assert.match(overlaySource, /class=\\"fpe-title\\"/, 'Studio overlay must include a headline layer');
-assert.match(overlaySource, /composition\\.title/, 'Studio overlay must read the shared poster title state');
-assert.match(overlaySource, /heading\\.visible !== false/, 'Studio overlay must respect the headline visibility toggle');
-assert.match(overlaySource, /heading\\.fontFamily/, 'Studio overlay must apply headline typography');
-assert.match(overlaySource, /heading\\.fontSize/, 'Studio overlay must apply headline size');
-assert.match(overlaySource, /heading\\.color/, 'Studio overlay must apply headline colour');
+assert.ok(overlaySource.includes('class="fpe-title"'), 'Studio overlay must include a headline layer');
+assert.ok(overlaySource.includes('composition.title'), 'Studio overlay must read the shared poster title state');
+assert.ok(overlaySource.includes('heading.visible !== false'), 'Studio overlay must respect the headline visibility toggle');
+assert.ok(overlaySource.includes('heading.fontFamily'), 'Studio overlay must apply headline typography');
+assert.ok(overlaySource.includes('heading.fontSize'), 'Studio overlay must apply headline size');
+assert.ok(overlaySource.includes('heading.color'), 'Studio overlay must apply headline colour');
 
 console.log('Poster editor overlay geometry and headline integration tests passed.');
