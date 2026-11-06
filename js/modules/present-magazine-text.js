@@ -16,6 +16,7 @@ let items = [];
 let raf = 0;
 let editing = false;
 let onChange = null;
+let selectedTextId = null;
 
 function uid() {
   return 'mt_' + Math.random().toString(36).slice(2, 10);
@@ -100,6 +101,7 @@ function renderItem(item) {
   const el = document.createElement('div');
   el.className = `mt-item mt-${item.style || 'cover'} mt-mode-${item.mode || 'billboard'}`;
   el.dataset.id = item.id;
+  if (editing && selectedTextId === item.id) el.style.outline = '1px dashed #c8ff00';
   el.textContent = item.text || '';
   Object.assign(el.style, {
     position: 'absolute',
@@ -125,12 +127,12 @@ function renderItem(item) {
     transition: 'opacity .25s ease',
     ...styleFor(item),
   });
-  if (editing) el.addEventListener('pointerdown', (e) => startDrag(e, item, el));
+  if (editing) el.addEventListener('pointerdown', (e) => { if (item.locked) return; selectText(item.id); startDrag(e, item, el); });
   return el;
 }
 
 function startDrag(e, item, el) {
-  if (!editing) return;
+  if (!editing || item.locked) return;
   e.preventDefault();
   e.stopPropagation();
   const host = ensureLayer().parentElement;
@@ -224,6 +226,8 @@ export function addText(partial = {}) {
     opacity: partial.opacity ?? 1,
     align: partial.align || 'left',
     z: partial.z || 0,
+    rotation: Number(partial.rotation) || 0,
+    locked: !!partial.locked,
     weight: partial.weight,
     tracking: partial.tracking,
     wrap: !!partial.wrap,
@@ -248,14 +252,34 @@ export function updateText(id, patch) {
 
 export function removeText(id) {
   items = items.filter((i) => i.id !== id);
+  if (selectedTextId === id) selectedTextId = items.length ? items[items.length - 1].id : null;
   rebuild();
   onChange?.(exportAll());
 }
 
 export function clearText() {
   items = [];
+  selectedTextId = null;
   rebuild();
   onChange?.(exportAll());
+}
+
+export function selectText(id) {
+  selectedTextId = items.some(item => item.id === id) ? id : null;
+  rebuild();
+  return selectedTextId;
+}
+
+export function getSelectedTextId() { return selectedTextId; }
+
+export function moveTextLayer(id, direction) {
+  const item = items.find(entry => entry.id === id);
+  if (!item || item.locked) return null;
+  const levels = items.map(entry => Number(entry.z) || 0);
+  item.z = direction === 'front' ? Math.max(0, ...levels) + 1 : Math.min(0, ...levels) - 1;
+  rebuild();
+  onChange?.(exportAll());
+  return item;
 }
 
 export function exportAll() {
@@ -274,6 +298,7 @@ export function importAll(list = []) {
     opacity: i.opacity ?? 1, align: i.align,
     maxWidth: i.maxWidth, uppercase: i.uppercase, z: i.z || 0,
     weight: i.weight, tracking: i.tracking, wrap: !!i.wrap, shadow: i.shadow,
+    rotation: Number(i.rotation) || 0, locked: !!i.locked,
   }));
   rebuild();
 }
@@ -343,7 +368,7 @@ export { textAnchorTransform };
 
 const api = {
   initMagazineText, setEditable, addText, updateText, removeText, clearText,
-  exportAll, importAll, applyPreset,
+  exportAll, importAll, applyPreset, selectText, getSelectedTextId, moveTextLayer,
 };
 
 export default api;
