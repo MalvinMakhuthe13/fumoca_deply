@@ -99,7 +99,13 @@ function renderItem(item) {
     position: 'absolute',
     left: '0',
     top: '0',
-    transform: 'translate(-50%, -50%)',
+    // Treat the authored X coordinate as the text alignment anchor. Left-
+    // aligned cover copy starts at its X coordinate instead of extending
+    // half its width to the left of the poster; centered/right copy anchor
+    // on their corresponding edges.
+    transform: item.align === 'left' ? 'translate(0, -50%)'
+      : item.align === 'right' ? 'translate(-100%, -50%)'
+      : 'translate(-50%, -50%)',
     pointerEvents: editing ? 'auto' : 'none',
     // Text must wrap within the poster canvas. Previously cover/kicker items
     // defaulted to nowrap, so long headlines could paint beyond the safe frame
@@ -131,6 +137,9 @@ function startDrag(e, item, el) {
     if (item.mode !== 'world') item.mode = 'locked';
     el.style.left = item.sx + '%';
     el.style.top = item.sy + '%';
+    el.style.transform = item.align === 'left' ? 'translate(0, -50%)'
+      : item.align === 'right' ? 'translate(-100%, -50%)'
+      : 'translate(-50%, -50%)';
   };
   const up = () => {
     window.removeEventListener('pointermove', move);
