@@ -2048,6 +2048,8 @@ async function mountPublishedSparkPly(url) {
     _plyControls?.update();
     const posterState = window.FumocaPoster?.getState?.() || _fumocaPosterStateCache;
     if (posterState?.composition && _publishedSparkGroup) {
+      const mainSubject = (posterState.composition.subjects || []).find(item => item.id === 'subject_main');
+      _publishedSparkGroup.visible = mainSubject?.visible !== false;
       applyPosterLiveTransform({
         THREE, group: _publishedSparkGroup, camera: _plyCamera, center,
         composition: posterState.composition, enabled: !!posterState.enabled,
