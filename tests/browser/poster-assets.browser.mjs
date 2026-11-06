@@ -28,7 +28,7 @@ const fixture = `<!doctype html>
 <script type="module" src="/poster-assets.js"></script>`;
 
 const server = http.createServer((req, res) => {
-  if (req.url === '/') { res.writeHead(200, {'content-type':'text/html'}); res.end(fixture); return; }
+  if (req.url === '/' || req.url === '/edit.html') { res.writeHead(200, {'content-type':'text/html'}); res.end(fixture); return; }
   if (req.url === '/poster-assets.js') { res.writeHead(200, {'content-type':'text/javascript'}); res.end(moduleSource); return; }
   res.writeHead(404); res.end('not found');
 });
