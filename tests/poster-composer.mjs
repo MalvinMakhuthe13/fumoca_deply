@@ -34,6 +34,10 @@ assert.equal(landscapeLayout.height, 600);
 assert.ok(landscapeLayout.width < 1200);
 assert.equal(poster.getLayout(0, 600).scale, 0);
 
+poster.updateComposition({ background: { type: 'gradient', value: 'linear-gradient(145deg,#111111 0%,#eeeeee 100%)' } });
+assert.equal(poster.getState().composition.background.type, 'gradient', 'Safe gradient art direction must be accepted');
+poster.updateComposition({ background: { type: 'gradient', value: 'url(https://example.com/track)' } });
+assert.equal(poster.getState().composition.background.type, 'gradient', 'Invalid CSS background must not replace the accepted gradient');
 poster.updateComposition({
   object: { x: 1.5, y: -1, scale: 9, rotation: 720 },
   title: { text: 'x'.repeat(200), align: 'invalid', fontFamily: 'Comic Sans', fontSize: 500, color: 'red', weight: 1200 },
