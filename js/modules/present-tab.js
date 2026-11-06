@@ -399,6 +399,17 @@ function mountPanel() {
     const titleSizeOutput = posterRoot.querySelector('[data-poster-value="titleSize"]');
     if (titleSizeOutput) titleSizeOutput.textContent = (c.title?.fontSize || 42) + ' px';
     posterRoot.querySelector('[data-poster-field="background"]').value = /^#[0-9a-f]{6}$/i.test(c.background?.value || '') ? c.background.value : '#10131a';
+    for (const [key, value] of Object.entries({
+      backgroundFit: c.background?.fit || 'cover',
+      backgroundPosition: c.background?.position || 'center',
+      backgroundOpacity: Math.round((c.background?.opacity ?? 1) * 100),
+      backgroundBlur: c.background?.blur || 0,
+      backgroundBrightness: Math.round((c.background?.brightness ?? 1) * 100),
+    })) {
+      const input = posterRoot.querySelector(`[data-poster-field="${key}"]`);
+      if (input) input.value = String(value);
+    }
+    renderPosterAssetList();
     for (const key of ['x','y','scale','rotation']) {
       const value = c.object?.[key] ?? 0;
       const input = posterRoot.querySelector(`[data-poster-field="${key}"]`);
@@ -407,7 +418,24 @@ function mountPanel() {
       if (output) output.textContent = key === 'scale' ? `${Number(value).toFixed(2)}×` : key === 'rotation' ? `${Math.round(value)}°` : `${Math.round(value * 100)}%`;
     }
   };
-  const applyPosterField = (e) => {
+  const renderPosterAssetList = () => {
+    const root = posterRoot.querySelector('#ptpPosterAssetList');
+    if (!root) return;
+    const images = window.FumocaPoster?.getState?.()?.composition?.assets?.images || [];
+    root.replaceChildren();
+    if (!images.length) { root.textContent = 'No supporting images added yet.'; return; }
+    images.forEach((item, index) => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;margin:4px 0';
+      const label = document.createElement('span');
+      label.textContent = (index + 1) + '. ' + item.name;
+      const remove = document.createElement('button');
+      remove.type = 'button'; remove.textContent = 'Remove';
+      remove.dataset.removePosterAsset = item.id;
+      row.append(label, remove); root.appendChild(row);
+    });
+  };
+  const applyPosterField = async (e) => {
     const field = e.target.closest?.('[data-poster-field]');
     if (!field || !posterRoot?.contains(field) || !window.FumocaPoster) return;
     const key = field.dataset.posterField;
@@ -419,7 +447,38 @@ function mountPanel() {
     else if (key === 'titleFont') window.FumocaPoster.updateComposition({ title: { fontFamily: field.value } });
     else if (key === 'titleSize') window.FumocaPoster.updateComposition({ title: { fontSize: Number(field.value) } });
     else if (key === 'titleColor') window.FumocaPoster.updateComposition({ title: { color: field.value } });
-    else if (key === 'background') window.FumocaPoster.updateComposition({ background: { type: 'solid', value: field.value } });
+    else if (key === 'background') window.FumocaPoster.updateComposition({ background: { ...window.FumocaPoster.getState().composition.background, type: 'solid', value: field.value } });
+    else if (key === 'backgroundFit') window.FumocaPoster.updateComposition({ background: { fit: field.value } });
+    else if (key === 'backgroundPosition') window.FumocaPoster.updateComposition({ background: { position: field.value } });
+    else if (key === 'backgroundOpacity') window.FumocaPoster.updateComposition({ background: { opacity: Number(field.value) / 100 } });
+    else if (key === 'backgroundBlur') window.FumocaPoster.updateComposition({ background: { blur: Number(field.value) } });
+    else if (key === 'backgroundBrightness') window.FumocaPoster.updateComposition({ background: { brightness: Number(field.value) / 100 } });
+    else if (key === 'backgroundUrl') {
+      if (!/^https?:\/\//i.test(field.value)) { alert('Enter a valid HTTP or HTTPS image URL.'); return; }
+      window.FumocaPoster.updateComposition({ background: { type: 'image', value: field.value } });
+      field.value = '';
+    }
+    else if (key === 'backgroundFile' && field.files?.[0]) {
+      try {
+        const src = await compressEditorialImage(field.files[0], 2200);
+        window.FumocaPoster.updateComposition({ background: { type: 'image', value: src, fit: 'cover' } });
+      } catch (error) { alert(error.message || 'Could not load that background image.'); }
+      field.value = '';
+    }
+    else if (key === 'overlayFile' && field.files?.length) {
+      try {
+        const existing = window.FumocaPoster.getState().composition.assets?.images || [];
+        const incoming = await Promise.all(Array.from(field.files).slice(0, 12 - existing.length).map(async (file) => ({
+          id: 'img_' + Math.random().toString(36).slice(2, 10),
+          name: file.name || 'Supporting image',
+          src: await compressEditorialImage(file, 1400),
+          x: 0.5, y: 0.5, width: 0.22, rotation: 0, opacity: 1, z: existing.length + 1,
+          fit: 'contain', visible: true,
+        })));
+        window.FumocaPoster.updateComposition({ assets: { images: [...existing, ...incoming] } });
+      } catch (error) { alert(error.message || 'Could not load supporting image.'); }
+      field.value = '';
+    }
     else if (['x','y','scale','rotation'].includes(key)) {
       const raw = Number(field.value);
       const value = key === 'x' || key === 'y' || key === 'scale' ? raw / 100 : raw;
@@ -430,6 +489,14 @@ function mountPanel() {
   };
   posterRoot.addEventListener('input', applyPosterField);
   posterRoot.addEventListener('change', applyPosterField);
+  posterRoot.addEventListener('click', (event) => {
+    const remove = event.target.closest('[data-remove-poster-asset]');
+    if (remove) {
+      const images = window.FumocaPoster.getState().composition.assets?.images || [];
+      window.FumocaPoster.updateComposition({ assets: { images: images.filter(item => item.id !== remove.dataset.removePosterAsset) } });
+      persist(); renderPosterAssetList();
+    }
+  });
   window.addEventListener('fumoca:posterChange', syncPosterControls);
   syncPosterControls();
 
@@ -484,6 +551,19 @@ function mountPanel() {
     const btn = e.target.closest('button[data-act]');
     if (!btn) return;
     const act = btn.dataset.act;
+    if (act === 'add-overlay-url') {
+      const url = prompt('Direct image URL (HTTPS recommended)', 'https://');
+      if (url && /^https?:\/\//i.test(url)) {
+        const images = window.FumocaPoster.getState().composition.assets?.images || [];
+        if (images.length >= 12) { alert('A poster can contain up to 12 supporting images.'); return; }
+        images.push({ id: 'img_' + Math.random().toString(36).slice(2, 10), name: 'Linked image', src: url, x: 0.5, y: 0.5, width: 0.22, rotation: 0, opacity: 1, z: images.length + 1, fit: 'contain', visible: true });
+        window.FumocaPoster.updateComposition({ assets: { images } }); persist(); renderPosterAssetList();
+      }
+      return;
+    }
+    if (act === 'clear-overlays') {
+      window.FumocaPoster.updateComposition({ assets: { images: [] } }); persist(); renderPosterAssetList(); return;
+    }
     if (act === 'weekly') applyPreset('weekly');
     if (act === '48hours') applyPreset('48hours');
     if (act === 'product') applyPreset('product');
