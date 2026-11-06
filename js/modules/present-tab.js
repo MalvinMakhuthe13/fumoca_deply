@@ -10,10 +10,24 @@ import {
   initPresentNav, setNavStops, addNavStop, removeNavStop, clearNavStops, flyToStop,
   stopsFromHotspots, exportStops, importStops,
 } from './present-nav.js';
-import './poster-composer.js?v=20261106-typography01';
+import './poster-composer.js?v=20261106-assets01';
+import './poster-assets.js?v=20261106-backgroundlayers01';
 import { mountPosterEditorOverlay as createPosterEditorOverlay } from './poster-editor-overlay.js?v=20261106-headlinepreview01';
 
 const STORAGE_KEY = 'fumoca_present_v1';
+
+async function compressEditorialImage(file, maxEdge = 1600) {
+  if (!file || !/^image\/(png|jpeg|webp|gif)$/i.test(file.type)) throw new Error('Choose a PNG, JPG, WEBP or GIF image.');
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close?.();
+  return canvas.toDataURL('image/jpeg', 0.84);
+}
 
 function idKey() {
   const q = new URLSearchParams(location.search);
@@ -260,7 +274,22 @@ function mountPanel() {
         <label class="ptp-poster-field">Headline size<input type="range" min="12" max="120" value="42" data-poster-field="titleSize"><output data-poster-value="titleSize">42 px</output></label>
         <label class="ptp-poster-field">Headline colour<input type="color" value="#ffffff" data-poster-field="titleColor"></label>
       </div>
+      <div class="ptp-poster-subtitle">BACKGROUND & ART DIRECTION</div>
       <label class="ptp-poster-field">Background colour<input type="color" data-poster-field="background" value="#10131a"></label>
+      <label class="ptp-poster-field">Background image<input type="file" accept="image/png,image/jpeg,image/webp" data-poster-field="backgroundFile"></label>
+      <label class="ptp-poster-field">Or background image URL<input type="url" placeholder="https://…" data-poster-field="backgroundUrl"></label>
+      <div class="ptp-poster-grid">
+        <label class="ptp-poster-field">Image fit<select data-poster-field="backgroundFit"><option value="cover">Fill canvas</option><option value="contain">Contain</option><option value="fill">Stretch</option></select></label>
+        <label class="ptp-poster-field">Image position<select data-poster-field="backgroundPosition"><option value="center">Center</option><option value="top">Top</option><option value="bottom">Bottom</option><option value="left">Left</option><option value="right">Right</option></select></label>
+        <label class="ptp-poster-field">Background opacity<input type="range" min="0" max="100" value="100" data-poster-field="backgroundOpacity"></label>
+        <label class="ptp-poster-field">Background blur<input type="range" min="0" max="30" value="0" data-poster-field="backgroundBlur"></label>
+        <label class="ptp-poster-field">Brightness<input type="range" min="20" max="200" value="100" data-poster-field="backgroundBrightness"></label>
+      </div>
+      <div class="ptp-poster-subtitle">SUPPORTING IMAGES</div>
+      <label class="ptp-poster-field">Add image / logo / texture<input type="file" accept="image/png,image/jpeg,image/webp" data-poster-field="overlayFile" multiple></label>
+      <div class="ptp-poster-actions"><button type="button" data-act="add-overlay-url">Add image from URL</button><button type="button" data-act="clear-overlays">Remove all images</button></div>
+      <div id="ptpPosterAssetList" class="ptp-poster-status">No supporting images added yet.</div>
+      <div class="ptp-poster-hint">Drag an image directly on the poster to reposition it. Supporting images stay separate from the 3D splat.</div>
       <div class="ptp-poster-grid">
         <label class="ptp-poster-field">Subject X <input type="range" min="0" max="100" value="50" data-poster-field="x"><output data-poster-value="x">50%</output></label>
         <label class="ptp-poster-field">Subject Y <input type="range" min="0" max="100" value="53" data-poster-field="y"><output data-poster-value="y">53%</output></label>
