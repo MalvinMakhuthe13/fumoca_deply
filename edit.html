@@ -620,6 +620,15 @@ body.rv-layout-split #fumocaReviewRoot.layout-split { background: transparent !i
 body.rv-layout-stack #fumocaReviewRoot.layout-stack video,
 body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px !important; box-shadow: 0 6px 24px rgba(0,0,0,.35) !important; }
 </style>
+
+<style id="fumoca-scene-layer-controls">
+  #ptpPosterComposer .ptp-scene-row{display:grid;grid-template-columns:minmax(0,1fr) 24px 28px 28px 42px 42px 28px;align-items:center;gap:4px;margin:6px 0;padding:6px;border:1px solid rgba(255,255,255,.08);border-radius:9px;background:rgba(255,255,255,.025)}
+  #ptpPosterComposer .ptp-scene-row button{min-width:0;min-height:28px;padding:4px 5px;font-size:11px;line-height:1.1}
+  #ptpPosterComposer .ptp-scene-select{text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #ptpPosterComposer .ptp-scene-layer{font-size:10px;color:#c8ff00;text-align:center}
+  #ptpPosterComposer .ptp-scene-action:disabled{opacity:.3;cursor:not-allowed}
+  @media(max-width:700px){#ptpPosterComposer .ptp-scene-row{grid-template-columns:minmax(0,1fr) 22px 26px 26px 38px 38px 26px;gap:3px}}
+</style>
 </head>
 <body data-nav="none">
 
