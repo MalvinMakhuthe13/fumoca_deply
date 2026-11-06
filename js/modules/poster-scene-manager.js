@@ -76,7 +76,7 @@ export function mountPosterSceneManager() {
       if (existing.length + files.length > 12) throw new Error('A poster can contain up to 12 supporting image layers. Remove an image before adding more.');
       const incoming = [];
       for (const file of files) {
-        if (!/^image\\/(png|jpeg|webp)$/i.test(file.type)) throw new Error('Choose PNG, JPG or WEBP images.');
+        if (!/^image\/(png|jpeg|webp)$/i.test(file.type)) throw new Error('Choose PNG, JPG or WEBP images.');
         const bitmap = await createImageBitmap(file);
         let scale = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
         let quality = 0.82;
