@@ -1955,7 +1955,7 @@ async function mountPublishedSparkPly(url) {
   const subjectScene = _plyScene;
   const syncPosterSubjects = async () => {
     const subjects = window.FumocaPoster?.getState?.().composition?.subjects || [];
-    const wanted = new Set(subjects.filter(item => item.id !== 'subject_main' && item.visible !== false &&
+    const wanted = new Set(subjects.filter(item => item.id !== 'subject_main' &&
       (['ply','url'].includes(item.source?.type) && /^https?:\\/\\//i.test(item.source?.url || '') ||
        item.source?.type === 'nif' && item.source?.assetId)).map(item => item.id));
     for (const [id, entry] of posterSubjectMeshes) {
