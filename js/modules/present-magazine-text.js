@@ -90,6 +90,12 @@ function styleFor(item) {
   };
 }
 
+function textAnchorTransform(align = 'center') {
+  if (align === 'left') return 'translate(0, -50%)';
+  if (align === 'right') return 'translate(-100%, -50%)';
+  return 'translate(-50%, -50%)';
+}
+
 function renderItem(item) {
   const el = document.createElement('div');
   el.className = `mt-item mt-${item.style || 'cover'} mt-mode-${item.mode || 'billboard'}`;
@@ -103,9 +109,7 @@ function renderItem(item) {
     // aligned cover copy starts at its X coordinate instead of extending
     // half its width to the left of the poster; centered/right copy anchor
     // on their corresponding edges.
-    transform: item.align === 'left' ? 'translate(0, -50%)'
-      : item.align === 'right' ? 'translate(-100%, -50%)'
-      : 'translate(-50%, -50%)',
+    transform: textAnchorTransform(item.align),
     pointerEvents: editing ? 'auto' : 'none',
     // Text must wrap within the poster canvas. Previously cover/kicker items
     // defaulted to nowrap, so long headlines could paint beyond the safe frame
@@ -132,14 +136,12 @@ function startDrag(e, item, el) {
   const host = ensureLayer().parentElement;
   const rect = host.getBoundingClientRect();
   const move = (ev) => {
-    item.sx = Math.max(4, Math.min(96, ((ev.clientX - rect.left) / rect.width) * 100));
-    item.sy = Math.max(4, Math.min(96, ((ev.clientY - rect.top) / rect.height) * 100));
+    item.sx = Math.max(0, Math.min(100, ((ev.clientX - rect.left) / rect.width) * 100));
+    item.sy = Math.max(0, Math.min(100, ((ev.clientY - rect.top) / rect.height) * 100));
     if (item.mode !== 'world') item.mode = 'locked';
     el.style.left = item.sx + '%';
     el.style.top = item.sy + '%';
-    el.style.transform = item.align === 'left' ? 'translate(0, -50%)'
-      : item.align === 'right' ? 'translate(-100%, -50%)'
-      : 'translate(-50%, -50%)';
+    el.style.transform = textAnchorTransform(item.align);
   };
   const up = () => {
     window.removeEventListener('pointermove', move);
@@ -182,14 +184,14 @@ function tick() {
       el.style.left = ((item.sx ?? 50) + px) + '%';
       el.style.top = ((item.sy ?? 30) + py) + '%';
       el.style.opacity = String(item.opacity ?? 1);
-      el.style.transform = 'translate(-50%, -50%)';
+      el.style.transform = textAnchorTransform(item.align);
       return;
     }
 
     el.style.left = (item.sx ?? 50) + '%';
     el.style.top = (item.sy ?? 30) + '%';
     el.style.opacity = String(item.opacity ?? 1);
-    el.style.transform = 'translate(-50%, -50%)';
+    el.style.transform = textAnchorTransform(item.align);
   });
   raf = requestAnimationFrame(tick);
 }
@@ -336,6 +338,8 @@ export function applyPreset(name) {
     add('FUMOCA FIELD NOTES', 'caption', 91, 92, 9, '#D8D1C5', { align: 'right', tracking: 0.1 });
   }
 }
+
+export { textAnchorTransform };
 
 const api = {
   initMagazineText, setEditable, addText, updateText, removeText, clearText,
