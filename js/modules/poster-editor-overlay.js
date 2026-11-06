@@ -28,7 +28,6 @@ function ensureStyles() {
     #${ROOT_ID} .fpe-scale{width:22px;height:22px;transform:translate(-50%,-50%);font:700 15px/1 system-ui}
     #${ROOT_ID} .fpe-rotate{width:22px;height:22px;transform:translate(-50%,-50%);font:700 15px/1 system-ui}
     #${ROOT_ID} .fpe-control:active{cursor:grabbing}
-    #${ROOT_ID} .fpe-title{position:absolute;z-index:2;pointer-events:none;line-height:1.12;text-shadow:0 2px 18px rgba(0,0,0,.5);overflow-wrap:anywhere;white-space:pre-wrap}
     #${ROOT_ID} .fpe-hint{position:absolute;right:8px;bottom:8px;padding:5px 8px;border:1px solid rgba(255,255,255,.14);border-radius:6px;background:rgba(8,10,14,.88);color:rgba(255,255,255,.82);font:10px/1.4 system-ui,sans-serif}
     #${ROOT_ID}[hidden]{display:none}
   `;
@@ -45,11 +44,10 @@ export function mountPosterEditorOverlay(options = {}) {
   if (!root) {
     root = document.createElement('div');
     root.id = ROOT_ID;
-    root.innerHTML = '<div class="fpe-frame"></div><div class="fpe-title" aria-hidden="true"></div><button type="button" class="fpe-control fpe-subject" aria-label="Drag selected 3D object"></button><button type="button" class="fpe-control fpe-scale" aria-label="Drag to resize selected object">↗</button><button type="button" class="fpe-control fpe-rotate" aria-label="Drag to rotate selected object">↻</button><div class="fpe-hint">Drag centre to move · ↗ resize · ↻ rotate · Select objects in 3D Scene Objects</div>';
+    root.innerHTML = '<div class="fpe-frame"></div><button type="button" class="fpe-control fpe-subject" aria-label="Drag selected 3D object"></button><button type="button" class="fpe-control fpe-scale" aria-label="Drag to resize selected object">↗</button><button type="button" class="fpe-control fpe-rotate" aria-label="Drag to rotate selected object">↻</button><div class="fpe-hint">Drag centre to move · ↗ resize · ↻ rotate · Select objects in 3D Scene Objects</div>';
     host.appendChild(root);
   }
   const frame = root.querySelector('.fpe-frame');
-  const titleNode = root.querySelector('.fpe-title');
   const moveHandle = root.querySelector('.fpe-subject');
   const scaleHandle = root.querySelector('.fpe-scale');
   const rotateHandle = root.querySelector('.fpe-rotate');
@@ -76,12 +74,7 @@ export function mountPosterEditorOverlay(options = {}) {
     const poster = calculatePosterEditorFrame(bounds.width, bounds.height, composition.aspectRatio || 4 / 5);
     rect = poster;
     Object.assign(frame.style, { left: poster.left+'px', top: poster.top+'px', width: poster.width+'px', height: poster.height+'px' });
-    const heading = composition.title || {}, headingText = String(heading.text || '').trim().slice(0,160);
-    if (heading.visible !== false && headingText) {
-      const inset = poster.width * clamp(Number(composition.safeArea)||0,0,.2);
-      Object.assign(titleNode.style,{display:'block',left:(poster.left+inset)+'px',top:(poster.top+inset)+'px',width:Math.max(0,poster.width-inset*2)+'px',textAlign:['left','center','right'].includes(heading.align)?heading.align:'center',fontFamily:['system-ui, sans-serif','Arial, sans-serif','Georgia, serif','Impact, sans-serif','monospace'].includes(heading.fontFamily)?heading.fontFamily:'system-ui, sans-serif',fontSize:clamp((Number(heading.fontSize)||42)*(poster.width/1080),10,poster.width*.14)+'px',fontWeight:String(clamp(Number(heading.weight)||750,400,900)),color:/^#[0-9a-f]{6}$/i.test(String(heading.color||''))?heading.color:'#fff'});
-      titleNode.textContent=headingText;
-    } else { titleNode.style.display='none'; titleNode.textContent=''; }
+    // The poster viewport already renders the live headline; do not paint a second copy here.
     const subject = selectedSubject(), x=clamp(Number(subject.x??.5),0,1), y=clamp(Number(subject.y??.53),0,1);
     const px=poster.left+x*poster.width, py=poster.top+y*poster.height;
     moveHandle.style.left=px+'px'; moveHandle.style.top=py+'px';
