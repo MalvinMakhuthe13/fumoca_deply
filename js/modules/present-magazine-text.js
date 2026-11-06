@@ -31,11 +31,13 @@ function ensureLayer() {
     // Keep editorial layers inside the same measured surface as the live poster.
     // In poster mode stageHost is resized to the contain-fit canvas, so text cannot
     // drift into the surrounding workspace or escape the poster crop.
-    const host =
-      document.getElementById('stageHost') ||
-      document.getElementById('stage') ||
-      document.getElementById('viewport') ||
-      document.body;
+    // Studio's poster viewport is the authoritative editorial canvas.
+    // Prefer it over stageHost: stageHost can remain the full workspace while
+    // #viewport is contain-fitted to the selected poster aspect ratio.
+    const isStudioEditor = /\/edit(?:\.html)?\/?$/i.test(window.location.pathname);
+    const host = isStudioEditor
+      ? (document.getElementById('viewport') || document.getElementById('stageHost') || document.getElementById('stage') || document.body)
+      : (document.getElementById('stageHost') || document.getElementById('stage') || document.getElementById('viewport') || document.body);
     host.appendChild(layer);
   }
   return layer;
