@@ -139,7 +139,7 @@ const FumocaPublish = (() => {
       } catch(e) { /* config missing — will throw below with a helpful message */ }
     }
     const S = window.S;
-    const rec = window._fumocaCurrentRecord;
+    let rec = window._fumocaCurrentRecord || null;
 
     if (!sb) throw new Error(
       'Supabase not connected — make sure config.js is loaded before edit.html modules. ' +
@@ -152,9 +152,30 @@ const FumocaPublish = (() => {
     const { data: authData, error: authError } = await sb.auth.getUser();
     const user = authData?.user;
     if (authError || !user?.id) throw new Error('Sign in before publishing this asset.');
-    const splatId = rec?.id || new URLSearchParams(location.search).get('splatId') || null;
-    if (splatId && rec?.user_id && rec.user_id !== user.id) {
-      throw new Error('You can only publish changes to an asset owned by your signed-in account.');
+    // Never trust an editor URL parameter or an in-memory record as proof
+    // of ownership. Resolve the candidate against nif_files before preparing
+    // or uploading any bytes. If it is not an asset owned by this user, treat
+    // this as a new publish rather than attempting an update that will fail
+    // only after storage has already been written.
+    const candidateId = rec?.id || new URLSearchParams(location.search).get('splatId') || null;
+    let splatId = null;
+    if (candidateId) {
+      const { data: ownedRecord, error: ownershipLookupError } = await sb
+        .from('nif_files')
+        .select('id,user_id,meta,title')
+        .eq('id', candidateId)
+        .eq('user_id', user.id)
+        .maybeSingle();
+      if (ownershipLookupError) {
+        throw new Error('Could not verify ownership of the saved NIF asset: ' + ownershipLookupError.message);
+      }
+      if (ownedRecord?.id) {
+        splatId = ownedRecord.id;
+        rec = ownedRecord;
+      } else {
+        console.warn('[Publish] Editor asset ID is not owned by the signed-in user; publishing as a new NIF asset instead.');
+        rec = null;
+      }
     }
     const aliveCount = Array.from(S.alive).filter(Boolean).length;
 
