@@ -4,6 +4,7 @@
  * Layer geometry is stored in poster coordinates so compositions survive resize.
  */
 function hostNode() {
+  if (/\/edit/i.test(location.pathname)) return document.getElementById('viewport') || document.getElementById('stageHost') || document.getElementById('stage');
   return document.getElementById('stageHost') || document.getElementById('stage') || document.getElementById('viewport');
 }
 const clamp = (n, a, b) => Math.max(a, Math.min(b, Number(n) || 0));
@@ -37,6 +38,19 @@ export function initPosterAssets({ editable = false } = {}) {
     if (dragging) return;
     const images = state?.composition?.assets?.images || [];
     root.style.display = state?.enabled ? 'block' : 'none';
+    if (/\/edit/i.test(location.pathname)) {
+      const bounds = host.getBoundingClientRect();
+      const ratio = Number(state?.composition?.aspectRatio) || 4 / 5;
+      let width = bounds.width, height = width / ratio;
+      if (height > bounds.height) { height = bounds.height; width = height * ratio; }
+      Object.assign(root.style, {
+        inset: 'auto', left: ((bounds.width - width) / 2) + 'px',
+        top: ((bounds.height - height) / 2) + 'px',
+        width: width + 'px', height: height + 'px',
+      });
+    } else {
+      Object.assign(root.style, { inset: '0', left: '0', top: '0', width: '100%', height: '100%' });
+    }
     root.replaceChildren();
     images.forEach((item) => {
       if (!item.visible || !item.src) return;
