@@ -11,6 +11,13 @@ assert.ok(composer.includes('current.assets ='), 'Poster composition must persis
 assert.ok(composer.includes('assets: clone(state.composition.assets'), 'Poster snapshot must export image layers');
 assert.ok(composer.includes('data:image\\/'), 'Local image backgrounds must be accepted');
 assert.ok(viewport.includes('data-fumoca-poster-background'), 'Poster viewport must render a dedicated background layer');
+assert.ok(viewport.includes('data-fumoca-poster-background-image'), 'Background must use a dedicated image element');
+assert.ok(viewport.includes('backgroundImage.src = background.value'), 'Background source must be assigned to the image element');
+assert.ok(viewport.includes('backgroundImage.onerror'), 'Background decode/load failures must be observable');
+assert.ok(viewport.includes('fumoca:posterBackgroundLoaded'), 'Successful background loads must be observable');
+assert.ok(viewport.includes('zIndex: \'0\''), 'Background must remain behind scene content');
+assert.ok(viewport.includes("zIndex: '3'"), 'Headline must render above the background');
+
 assert.ok(viewport.includes('background.blur'), 'Background blur control must reach the renderer');
 assert.ok(viewport.includes('background.brightness'), 'Background brightness control must reach the renderer');
 assert.ok(assets.includes('data-fumoca-poster-assets'), 'Supporting images must render in a separate presentation layer');
