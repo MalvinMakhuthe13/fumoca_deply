@@ -2579,7 +2579,14 @@ async function boot() {
     }
   }
   if (_isPlyUrl(fileUrl) && _blobType !== 'nif') {
-    await mountPlyViewer(fileUrl);
+    // Prefer Spark for Gaussian PLY so Studio and published scenes use the
+    // same high-fidelity renderer and can host independent poster subjects.
+    try {
+      await mountPublishedSparkPly(fileUrl);
+    } catch (sparkError) {
+      console.warn('[FUMOCA Viewer] Spark PLY path unavailable; using legacy PLY renderer:', sparkError);
+      await mountPlyViewer(fileUrl);
+    }
   } else {
     await mountInteractiveViewer();
     // Mesh overlay goes on top of the splat renderer once it's mounted, not
