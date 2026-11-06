@@ -114,7 +114,7 @@ function updateComposition(patch = {}) {
     current.safeArea = clamp(patch.safeArea, 0, 0.2, current.safeArea);
   }
   if (patch.background !== undefined) {
-    current.background = normalizeBackground(patch.background, current.background);
+    current.background = normalizeBackground({ ...current.background, ...patch.background }, current.background);
   }
   if (patch.object && typeof patch.object === 'object') {
     current.object = {
