@@ -133,7 +133,11 @@ async function savePosterToCloud() {
     record.meta = metadata;
     record.metadata = { ...metadata };
     window._fumocaCurrentRecord = record;
-    persist();
+    // Keep the exact committed snapshot as the local source of truth. Do not
+    // rebuild it from live editor state after upload: that could reintroduce
+    // browser-local data URLs or drop fields from the cloud-committed payload.
+    saveLocal(savedData);
+    window.__FUMOCA_PRESENT__ = savedData;
     setStatus('Images uploaded to Cloudflare R2 and poster saved to this NIF asset.');
     return true;
   } catch (error) {
