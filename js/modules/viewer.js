@@ -1960,12 +1960,12 @@ async function mountPublishedSparkPly(url) {
        item.source?.type === 'nif' && item.source?.assetId)).map(item => item.id));
     for (const [id, entry] of posterSubjectMeshes) {
       if (!wanted.has(id)) {
-        entry.group.visible = false;
-        if (entry.status === 'ready') posterSubjectMeshes.delete(id);
+        if (entry.group) entry.group.visible = false;
+        posterSubjectMeshes.delete(id);
       }
     }
     for (const subject of subjects) {
-      if (subject.id === 'subject_main' || !subject.visible || !['ply','url'].includes(subject.source?.type)) continue;
+      if (subject.id === 'subject_main' || !subject.visible || !(['ply','url'].includes(subject.source?.type) || subject.source?.type === 'nif')) continue;
       if (posterSubjectMeshes.has(subject.id)) continue;
       const entry = { status: 'loading', group: null, url: '' };
       posterSubjectMeshes.set(subject.id, entry);
