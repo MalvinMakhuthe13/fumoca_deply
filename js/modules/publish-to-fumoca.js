@@ -211,7 +211,10 @@ const FumocaPublish = (() => {
       }
     }
 
-    if (sourcePlyBytes && (isGaussianPly || sourceName.endsWith('.ply') || sourceName.endsWith('.splat'))) {
+    // Spark's companion endpoint expects a Gaussian PLY, not the legacy
+    // 32-byte .splat row format. Never upload raw .splat bytes with a .ply key.
+    // Legacy .splat assets remain fully publishable through the converted NIF.
+    if (sourcePlyBytes && (isGaussianPly || sourceName.endsWith('.ply'))) {
       const viewPath = splatId
         ? `${splatId}/view_${timestamp}.ply`
         : `new/view_${timestamp}.ply`;
@@ -221,7 +224,7 @@ const FumocaPublish = (() => {
         .upload(viewPath, viewBlob, { contentType: 'application/octet-stream' });
       if (companionError || !companionKey) {
         console.error('[Publish] Companion PLY upload failed; refusing a degraded publish:', companionError?.message || 'no key returned');
-        throw new Error('High-fidelity publish stopped: the Spark companion PLY could not be uploaded. The NIF was uploaded but no new published record was registered. Please retry.');
+        throw new Error('High-fidelity publish stopped: the Spark companion PLY could not be uploaded. No NIF was uploaded and no new asset record was registered. Please retry.');
       }
       viewPlyKey = companionKey;
       console.info('[Publish] Spark companion PLY uploaded:', viewPlyKey);
