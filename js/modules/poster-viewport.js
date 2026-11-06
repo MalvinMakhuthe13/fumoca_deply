@@ -51,14 +51,22 @@ function mount() {
   if (!backgroundNode) {
     backgroundNode = document.createElement('div');
     backgroundNode.dataset.fumocaPosterBackground = '1';
-    Object.assign(backgroundNode.style, { position: 'absolute', inset: '0', zIndex: '0', pointerEvents: 'none', overflow: 'hidden' });
+    host.insertBefore(backgroundNode, host.firstChild);
+  }
+  Object.assign(backgroundNode.style, {
+    position: 'absolute', inset: '0', zIndex: '0',
+    pointerEvents: 'none', overflow: 'hidden',
+  });
+  if (!backgroundImage) {
     backgroundImage = document.createElement('img');
     backgroundImage.dataset.fumocaPosterBackgroundImage = '1';
     backgroundImage.alt = '';
     backgroundImage.draggable = false;
-    Object.assign(backgroundImage.style, { display: 'block', width: '100%', height: '100%', objectPosition: 'center', pointerEvents: 'none' });
+    Object.assign(backgroundImage.style, {
+      display: 'block', width: '100%', height: '100%',
+      objectPosition: 'center', pointerEvents: 'none',
+    });
     backgroundNode.appendChild(backgroundImage);
-    host.insertBefore(backgroundNode, host.firstChild);
   }
   const ensureTitle = () => {
     if (title?.isConnected) return title;
