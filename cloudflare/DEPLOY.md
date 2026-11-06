@@ -68,11 +68,16 @@ curl -X DELETE https://cdn.fumoca.co.za/file/splats/test \
   -H "X-Fumoca-Secret: fumoca-r2-2026-xK9mP3qL"
 ```
 
-## Known remaining gap
-Delete currently only checks that *some* authenticated user is calling, not that they
-own the specific file — see the `NOTE` comment in `workers/r2-storage.js` above the
-DELETE route. Closing that needs a query against your `splats` table with your actual
-schema/RLS setup, which wasn't safe to guess at here.
+## R2 delete ownership
+Browser-authenticated deletes are restricted to the caller's storage namespace:
+- NIF/PLY publish objects: `<supabase-user-id>/...`
+- Poster backgrounds and supporting images: `poster-assets/<supabase-user-id>/...`
+
+The Worker rejects browser delete requests outside those prefixes with HTTP 403.
+Server-to-server maintenance remains separately authenticated by `FUMOCA_API_SECRET`.
+Older objects stored under legacy non-user-prefixed paths cannot be deleted through
+the browser endpoint; migrate or clean those only through an authorized server-side
+maintenance process. Do not weaken the namespace check to restore legacy deletion.
 
 ## What changed from v76
 | Module | Change |
