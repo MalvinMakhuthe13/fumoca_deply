@@ -118,9 +118,15 @@ function mount() {
     });
     if (signature === lastSignature) return;
     lastSignature = signature;
+    // In Studio, #viewport is a flex child of #shell. Once we make it
+    // absolute, its left coordinate is relative to #shell rather than its
+    // former flex slot, so preserve the left panel's current width.
+    const editorOriginLeft = isStudioEditor
+      ? (document.getElementById('panelLeft')?.getBoundingClientRect().width || 0)
+      : 0;
     Object.assign(host.style, {
       position: 'absolute', inset: 'auto',
-      left: layout.left + 'px', top: layout.top + 'px',
+      left: (editorOriginLeft + layout.left) + 'px', top: layout.top + 'px',
       right: 'auto', bottom: 'auto',
       width: layout.width + 'px', height: layout.height + 'px',
       maxWidth: '100%', maxHeight: '100%', overflow: 'hidden',
