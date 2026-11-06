@@ -68,6 +68,8 @@ function normalizeBackground(background, fallback) {
   }
   return {
     type, value: value.slice(0, 180000),
+    r2Key: String(background.r2Key || '').slice(0, 500),
+    bucket: String(background.bucket || '').slice(0, 80),
     fit: ['cover','contain','fill'].includes(background.fit) ? background.fit : 'cover',
     position: String(background.position || 'center').slice(0, 80),
     opacity: clamp(background.opacity, 0, 1, 1),
@@ -161,6 +163,8 @@ function updateComposition(patch = {}) {
       images: images.slice(0, 12).map((item, index) => ({
         id: String(item.id || ('asset_' + index)).slice(0, 80),
         src: String(item.src || '').slice(0, 180000),
+        r2Key: String(item.r2Key || '').slice(0, 500),
+        bucket: String(item.bucket || '').slice(0, 80),
         name: String(item.name || 'Image').slice(0, 120),
         x: clamp(item.x, 0, 1, 0.5), y: clamp(item.y, 0, 1, 0.5),
         width: clamp(item.width, 0.05, 1, 0.24),
