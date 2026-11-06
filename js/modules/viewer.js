@@ -2082,7 +2082,7 @@ async function mountPublishedSparkPly(url) {
       _publishedSparkGroup.visible = mainSubject?.visible !== false;
       applyPosterLiveTransform({
         THREE, group: _publishedSparkGroup, camera: _plyCamera, center,
-        composition: posterState.composition, enabled: !!posterState.enabled,
+        composition: { ...posterState.composition, object: { ...posterState.composition.object, z: mainSubject?.z ?? 1 } }, enabled: !!posterState.enabled,
       });
       for (const subject of posterState.composition.subjects || []) {
         if (subject.id === 'subject_main') continue;
