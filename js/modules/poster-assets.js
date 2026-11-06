@@ -108,6 +108,7 @@ export function initPosterAssets({ editable = false } = {}) {
             node.style.outline = node.dataset.posterAssetId === selectedId ? '1px solid #c8ff00' : 'none';
           });
           emitSelection(item);
+          render();
         });
         if (!item.locked) {
           const resize = document.createElement('button');
@@ -141,6 +142,44 @@ export function initPosterAssets({ editable = false } = {}) {
             window.addEventListener('pointerup', up, { once: true });
           });
           layer.appendChild(resize);
+
+          if (selectedId === item.id) {
+            const rotate = document.createElement('button');
+            rotate.type = 'button';
+            rotate.setAttribute('aria-label', 'Rotate ' + (item.name || 'image'));
+            rotate.title = 'Drag to rotate';
+            Object.assign(rotate.style, {
+              position: 'absolute', left: '50%', top: '-24px', transform: 'translateX(-50%)',
+              width: '14px', height: '14px', border: '2px solid #111', borderRadius: '50%',
+              background: '#7cecff', padding: '0', cursor: 'grab', pointerEvents: 'auto', touchAction: 'none',
+            });
+            rotate.addEventListener('pointerdown', event => {
+              event.preventDefault(); event.stopPropagation();
+              selectedId = item.id; dragging = true;
+              const bounds = layer.getBoundingClientRect();
+              const center = { x: bounds.left + bounds.width / 2, y: bounds.top + bounds.height / 2 };
+              const angle = (x, y) => Math.atan2(y - center.y, x - center.x) * 180 / Math.PI;
+              const startAngle = angle(event.clientX, event.clientY);
+              const startRotation = Number(item.rotation) || 0;
+              const move = ev => {
+                const rotation = clamp(startRotation + angle(ev.clientX, ev.clientY) - startAngle, -180, 180);
+                patchItem(item.id, { rotation });
+                layer.style.transform = (anchorTransforms[item.anchor || 'free'] || anchorTransforms.free) + ' rotate(' + rotation + 'deg)';
+              };
+              const up = () => {
+                window.removeEventListener('pointermove', move);
+                window.removeEventListener('pointerup', up);
+                window.removeEventListener('pointercancel', up);
+                dragging = false; render();
+                const current = window.FumocaPoster.getState().composition.assets.images.find(x => x.id === item.id);
+                emitSelection(current);
+              };
+              window.addEventListener('pointermove', move);
+              window.addEventListener('pointerup', up);
+              window.addEventListener('pointercancel', up);
+            });
+            layer.appendChild(rotate);
+          }
         }
         layer.addEventListener('pointerdown', (event) => {
           if (event.target === resizeTarget(event) || item.locked) return;
@@ -173,7 +212,7 @@ export function initPosterAssets({ editable = false } = {}) {
   };
 
   // Avoid a resize handle being mistaken for the image drag target.
-  function resizeTarget(event) { return event.target.closest?.('[aria-label^="Resize "]'); }
+  function resizeTarget(event) { return event.target.closest?.('[aria-label^="Resize "], [aria-label^="Rotate "]'); }
 
   window.addEventListener('fumoca:posterChange', render);
   window.FumocaPosterAssets = Object.freeze({
