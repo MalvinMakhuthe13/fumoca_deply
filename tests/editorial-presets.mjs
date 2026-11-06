@@ -21,8 +21,9 @@ for (const field of ['weight', 'tracking', 'wrap', 'maxWidth', 'uppercase', 'sha
 assert.ok(magazine.includes("whiteSpace: item.wrap ? 'pre-line'"), 'Intentional line breaks must render in editorial headlines');
 assert.ok(viewer.includes('importAll as importMagazine'), 'Public viewer must restore saved editorial layers');
 for (const font of ['Bebas Neue', 'Cormorant Garamond', 'Playfair Display', 'DM Sans', 'Space Grotesk']) {
-  assert.ok(editorHtml.includes(font), `Studio must load ${font}`);
-  assert.ok(viewerHtml.includes(font), `Public viewer must load ${font}`);
+  const googleFontName = font.replaceAll(' ', '+');
+  assert.ok(editorHtml.includes(googleFontName), `Studio must load ${font}`);
+  assert.ok(viewerHtml.includes(googleFontName), `Public viewer must load ${font}`);
 }
 
 console.log('Editorial presets, text controls and persistence contract passed.');
