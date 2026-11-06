@@ -128,6 +128,8 @@ function updateComposition(patch = {}) {
       scale: clamp(patch.object.scale, 0.1, 4, current.object.scale),
       rotation: clamp(patch.object.rotation, -360, 360, current.object.rotation),
     };
+    const primary = current.subjects?.find(item => item.id === 'subject_main') || current.subjects?.[0];
+    if (primary) Object.assign(primary, current.object);
   }
   if (patch.subjects !== undefined) {
     const incoming = Array.isArray(patch.subjects) ? patch.subjects : [];
@@ -299,6 +301,7 @@ function getLayout(width, height) {
     },
     background: clone(state.composition.background),
     assets: clone(state.composition.assets || { images: [] }),
+    subjects: clone(state.composition.subjects || []),
     title: clone(state.composition.title),
   };
 }
