@@ -91,6 +91,12 @@ export function mountPosterSceneManager() {
     } catch (error) { alert(error.message || 'Could not add object.'); }
   });
   window.addEventListener('fumoca:posterChange', render);
+  window.addEventListener('fumoca:posterSubjectError', event => {
+    const status = section.querySelector('[data-scene-status]');
+    if (status && event.detail?.id) {
+      status.textContent = 'Could not load ' + event.detail.id + ': ' + (event.detail.message || 'unknown error');
+    }
+  });
   render();
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mountPosterSceneManager, { once:true });
