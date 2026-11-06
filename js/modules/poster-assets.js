@@ -79,8 +79,9 @@ export function initPosterAssets({ editable = false } = {}) {
         boxSizing: 'border-box',
       });
       if (item.sizeMode === 'fixed') {
+        // Fixed-pixel layers deliberately retain their CSS-pixel size on every
+        // device. Use Responsive mode when a layer should shrink to fit.
         layer.style.width = Math.max(24, Number(item.fixedWidthPx) || 240) + 'px';
-        layer.style.maxWidth = '100%';
       } else if (item.sizeMode === 'responsive') {
         layer.style.width = 'clamp(' + (Number(item.minWidthPx) || 72) + 'px, ' +
           (item.width * 100) + '%, ' + (Number(item.maxWidthPx) || 720) + 'px)';
