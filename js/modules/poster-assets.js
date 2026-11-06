@@ -9,6 +9,7 @@ function clamp(n, a, b) { return Math.max(a, Math.min(b, Number(n) || 0)); }
 export function initPosterAssets({ editable = false } = {}) {
   const host = hostNode();
   if (!host || !window.FumocaPoster) return null;
+  let dragging = false;
   let root = host.querySelector('[data-fumoca-poster-assets]');
   if (!root) {
     root = document.createElement('div');
@@ -18,7 +19,9 @@ export function initPosterAssets({ editable = false } = {}) {
   }
   const render = () => {
     const state = window.FumocaPoster?.getState?.();
+    if (dragging) return;
     const images = state?.composition?.assets?.images || [];
+    root.style.display = state?.enabled ? 'block' : 'none';
     root.replaceChildren();
     images.forEach((item) => {
       if (!item.visible || !item.src) return;
@@ -39,13 +42,14 @@ export function initPosterAssets({ editable = false } = {}) {
       if (editable) {
         img.addEventListener('pointerdown', (event) => {
           event.preventDefault(); event.stopPropagation();
+          dragging = true;
           const rect = host.getBoundingClientRect();
           const move = (ev) => {
             const x = clamp((ev.clientX - rect.left) / rect.width, 0.02, 0.98);
             const y = clamp((ev.clientY - rect.top) / rect.height, 0.02, 0.98);
             window.FumocaPoster.updateComposition({ assets: { images: images.map((entry) => entry.id === item.id ? { ...entry, x, y } : entry) } });
           };
-          const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+          const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); dragging = false; render(); };
           window.addEventListener('pointermove', move);
           window.addEventListener('pointerup', up, { once: true });
         });
