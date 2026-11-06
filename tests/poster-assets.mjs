@@ -26,6 +26,10 @@ for (const field of ['backgroundFile','backgroundFit','backgroundPosition','back
   assert.ok(studio.includes(`data-poster-field="${field}"`), `Missing Studio control: ${field}`);
 }
 assert.ok(studio.includes('savePosterToCloud()'), 'Uploaded image media must be saved to the NIF asset before sharing');
+assert.ok(studio.includes("import r2 from '../r2Client.js'"), 'Poster media must use the authenticated FUMOCA R2 client');
+assert.ok(studio.includes("r2.from('thumbnails')"), 'Poster media must be stored in the existing R2 image bucket');
+assert.ok(studio.includes('persistPosterImagesToR2'), 'Cloud save must externalize local image data before writing NIF metadata');
+assert.ok(studio.includes('r2Key: stored.r2Key'), 'Saved poster media must retain its R2 object key');
 assert.ok(studio.includes('Upload background from your device'), 'Background must offer direct local-device upload');
 assert.ok(studio.includes('Upload images, logos or textures from your device'), 'Supporting image layers must offer direct local-device upload');
 assert.ok(!studio.includes('data-poster-field="backgroundUrl"'), 'Background upload must not require an externally hosted URL');
