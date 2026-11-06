@@ -22,10 +22,14 @@ assert.ok(assets.includes('anchorTransforms'), 'Image layers must support anchor
 assert.ok(assets.includes('item.locked'), 'Image layers must support locking');
 assert.ok(assets.includes('window.FumocaPosterAssets'), 'Studio must be able to select image layers through a public API');
 assert.ok(assets.includes('window.FumocaPoster.updateComposition'), 'Image transforms must persist to composition state');
-for (const field of ['backgroundFile','backgroundUrl','backgroundFit','backgroundPosition','backgroundOpacity','backgroundBlur','backgroundBrightness','overlayFile']) {
+for (const field of ['backgroundFile','backgroundFit','backgroundPosition','backgroundOpacity','backgroundBlur','backgroundBrightness','overlayFile']) {
   assert.ok(studio.includes(`data-poster-field="${field}"`), `Missing Studio control: ${field}`);
 }
 assert.ok(studio.includes('savePosterToCloud()'), 'Uploaded image media must be saved to the NIF asset before sharing');
+assert.ok(studio.includes('Upload background from your device'), 'Background must offer direct local-device upload');
+assert.ok(studio.includes('Upload images, logos or textures from your device'), 'Supporting image layers must offer direct local-device upload');
+assert.ok(!studio.includes('data-poster-field="backgroundUrl"'), 'Background upload must not require an externally hosted URL');
+assert.ok(!studio.includes('data-act="add-overlay-url"'), 'Supporting image upload must not require an externally hosted URL');
 assert.ok(studio.includes('backgroundGradient'), 'Studio must offer art-directed gradient backgrounds');
 assert.ok(studio.includes('preserveAlpha ? canvas.toDataURL(\'image/webp\''), 'Supporting PNG/logo layers must preserve transparency');
 assert.ok(studio.includes("selectField('Size behaviour','sizeMode'"), 'Missing layer size mode selector');
