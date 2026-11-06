@@ -4,7 +4,7 @@
  */
 import {
   initMagazineText, addText, updateText, removeText, applyPreset, clearText,
-  exportAll as exportMagazine, importAll as importMagazine, setEditable as setMagEditable,
+  exportAll as exportMagazine, importAll as importMagazine, setEditable as setMagEditable, selectText, getSelectedTextId, moveTextLayer,
 } from './present-magazine-text.js?v=20261106-editorialstudio02';
 import {
   initPresentNav, setNavStops, addNavStop, removeNavStop, clearNavStops, flyToStop,
@@ -248,6 +248,8 @@ function renderTextManager() {
     const heading = document.createElement('div');
     heading.className = 'ptp-text-heading';
     heading.textContent = (index + 1) + '. ' + (item.text || 'Text');
+    const selected = getSelectedTextId() === item.id;
+    card.classList.toggle('is-selected', selected);
     const fields = document.createElement('div');
     fields.className = 'ptp-text-fields';
     fields.innerHTML = `
@@ -262,9 +264,11 @@ function renderTextManager() {
       <label>Weight<select data-text-id="${item.id}" data-text-field="weight">${[300,400,500,600,700,800,900].map(v => `<option value="${v}" ${Number(item.weight || (item.style === 'cover' ? 800 : 600)) === v ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
       <label>Tracking (em)<input type="number" min="-0.08" max="0.4" step="0.01" data-text-id="${item.id}" data-text-field="tracking" value="${Number(item.tracking ?? 0.02)}" /></label>
       <label>Opacity %<input type="number" min="0" max="100" step="5" data-text-id="${item.id}" data-text-field="opacity" value="${Math.round((item.opacity ?? 1) * 100)}" /></label>
+      <label>Rotation °<input type="number" min="-180" max="180" step="1" data-text-id="${item.id}" data-text-field="rotation" value="${Number(item.rotation) || 0}" /></label>
       <label>Max width %<input type="number" min="10" max="100" step="1" data-text-id="${item.id}" data-text-field="maxWidth" value="${parseFloat(item.maxWidth) || (item.style === 'deck' ? 38 : 42)}" /></label>
       <label class="ptp-text-check"><input type="checkbox" data-text-id="${item.id}" data-text-field="wrap" ${item.wrap ? 'checked' : ''}> Wrap lines</label>
       <label class="ptp-text-check"><input type="checkbox" data-text-id="${item.id}" data-text-field="uppercase" ${item.uppercase !== false ? 'checked' : ''}> Uppercase</label>
+      <div class="ptp-text-layer-actions"><button type="button" data-select-text="${item.id}">${selected ? 'Selected' : 'Select layer'}</button><button type="button" data-text-layer="front" data-id="${item.id}" ${item.locked ? 'disabled' : ''}>Bring forward</button><button type="button" data-text-layer="back" data-id="${item.id}" ${item.locked ? 'disabled' : ''}>Send backward</button><button type="button" data-text-layer="lock" data-id="${item.id}">${item.locked ? 'Unlock' : 'Lock'}</button></div>
       <button type="button" data-remove-text="${item.id}" class="ptp-danger">Delete text</button>
     `;
     card.append(heading, fields);
@@ -687,6 +691,7 @@ function mountPanel() {
     else if (key === 'weight') patch.weight = Math.max(100, Math.min(900, Number(field.value) || 600));
     else if (key === 'tracking') patch.tracking = Math.max(-0.08, Math.min(0.4, Number(field.value) || 0));
     else if (key === 'opacity') patch.opacity = Math.max(0, Math.min(1, Number(field.value) / 100));
+    else if (key === 'rotation') patch.rotation = Math.max(-180, Math.min(180, Number(field.value) || 0));
     else if (key === 'maxWidth') patch.maxWidth = Math.max(10, Math.min(100, Number(field.value) || 42)) + '%';
     else if (key === 'wrap' || key === 'uppercase') patch[key] = field.checked;
     else return;
@@ -705,6 +710,17 @@ function mountPanel() {
       const key = uploadAction.dataset.act === 'choose-background' ? 'backgroundFile' : 'overlayFile';
       posterRoot.querySelector('[data-poster-field="' + key + '"]')?.click();
       return;
+    }
+    const selectTextBtn = e.target.closest('button[data-select-text]');
+    if (selectTextBtn) { selectText(selectTextBtn.dataset.selectText); renderTextManager(); return; }
+    const layerAction = e.target.closest('button[data-text-layer]');
+    if (layerAction) {
+      const id = layerAction.dataset.id;
+      const item = exportMagazine().find(entry => entry.id === id);
+      if (!item) return;
+      if (layerAction.dataset.textLayer === 'lock') updateText(id, { locked: !item.locked });
+      else moveTextLayer(id, layerAction.dataset.textLayer);
+      renderTextManager(); persist(); return;
     }
     const removeTextBtn = e.target.closest('button[data-remove-text]');
     if (removeTextBtn) { removeText(removeTextBtn.dataset.removeText); renderTextManager(); persist(); return; }
