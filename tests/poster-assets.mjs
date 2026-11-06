@@ -15,6 +15,8 @@ assert.ok(viewport.includes("document.getElementById('viewport')"), 'Studio post
 assert.ok(viewport.includes('const isStudioEditor'), 'Studio and public viewer must choose their own poster coordinate hosts');
 assert.ok(viewport.includes('? stage'), 'Studio poster background must share the same coordinate host as editorial image layers');
 assert.ok(viewport.includes("document.getElementById('panelLeft')"), 'Studio poster viewport must account for the editor left panel when switching to absolute positioning');
+assert.ok(viewport.includes("window.getComputedStyle(panel).position === 'fixed'"), 'Mobile fixed panels must not shift the Studio poster coordinate origin');
+assert.ok(viewport.includes('panel.getBoundingClientRect().right - shell.getBoundingClientRect().left'), 'Studio poster viewport must use the panel edge relative to its shell as the desktop offset');
 assert.ok(viewport.includes('(editorOriginLeft + layout.left)'), 'Studio poster viewport must retain its original horizontal shell offset');
 
 assert.ok(viewport.includes('data-fumoca-poster-background-image'), 'Background must use a dedicated image element');
