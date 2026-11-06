@@ -796,7 +796,7 @@ export function initPresentTab() {
   if (saved?.magazine?.length) importMagazine(saved.magazine);
   if (saved?.nav?.length) importStops(saved.nav);
 
-  const tryMount = () => { mountPanel(); renderNavManager(); renderTextManager(); };
+  const tryMount = () => { mountPanel(); mountPosterSceneManager(); renderNavManager(); renderTextManager(); };
   tryMount();
   [500, 1200, 2500].forEach((t) => setTimeout(tryMount, t));
 
