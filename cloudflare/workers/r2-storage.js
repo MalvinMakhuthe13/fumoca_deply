@@ -655,14 +655,20 @@ export default {
       if (!principal) {
         return json({ error: 'Unauthorized — sign in and try again' }, 401, cors);
       }
-      // NOTE — remaining gap, not fixed here: this only confirms the caller is SOME
-      // authenticated user, not that they own this specific file. Any signed-in user
-      // can currently delete any file if they know/guess its key. Closing that fully
-      // needs a lookup against your DB (matching this fileKey to a row's user_id)
-      // before this is trusted with real user data at scale.
-
       const fileKey = sanitiseKey(decodeURIComponent(path.slice('/file/'.length)));
       if (!fileKey) return json({ error: 'Missing key' }, 400, cors);
+
+      // Browser users may delete only objects inside their own namespace.
+      // New NIF/PLY publish objects use <user-id>/..., while poster media
+      // uses poster-assets/<user-id>/.... Server-to-server maintenance calls
+      // remain authorized through the separate shared-secret principal.
+      if (principal.kind !== 'server-to-server') {
+        const ownedPrefix = `${principal.id}/`;
+        const posterPrefix = `poster-assets/${principal.id}/`;
+        if (!fileKey.startsWith(ownedPrefix) && !fileKey.startsWith(posterPrefix)) {
+          return json({ error: 'Forbidden — you can only delete files in your own storage namespace' }, 403, cors);
+        }
+      }
 
       const r2Bucket = getBucket(bucketParam, env);
       if (!r2Bucket) {
