@@ -37,6 +37,9 @@ assert.ok(assets.includes('data-fumoca-poster-assets'), 'Supporting images must 
 assert.ok(assets.includes('pointermove'), 'Supporting images must be draggable');
 assert.ok(assets.includes('const rect = root.getBoundingClientRect();'), 'Supporting image dragging must use poster-root coordinates, not the outer editor host');
 assert.ok(assets.includes('Resize '), 'Supporting images must expose a resize handle');
+assert.ok(assets.includes('Rotate '), 'Selected supporting images must expose a direct rotation handle');
+assert.ok(assets.includes("patchItem(item.id, { rotation })"), 'Image rotation must update the saved poster composition');
+assert.ok(assets.includes("[aria-label^=\"Rotate \"]"), 'Rotation control must not initiate image dragging');
 assert.ok(assets.includes('sizeMode === \'fixed\''), 'Image layers must support fixed-pixel sizing');
 assert.ok(assets.includes('sizeMode === \'responsive\''), 'Image layers must support responsive min/max sizing');
 assert.ok(assets.includes('anchorTransforms'), 'Image layers must support anchor positioning');
