@@ -20,10 +20,11 @@ function fixture({ dbError = null, owner = 'user-1', uploadErrorAt = 0, cleanupE
     auth: { async getUser() { return { data: { user: { id: 'user-1' } }, error: null }; } },
     from(table) {
       assert.equal(table, 'nif_files');
-      return { update(value) { return { async eq(column, id) {
-        writes.push({ value, column, id });
-        return { error: dbError };
-      }}; }};
+      return { update(value) {
+        const filters = [];
+        const query = { eq(column, id) { filters.push({ column, id }); return query; }, then(resolve, reject) { writes.push({ value, filters }); return Promise.resolve({ error: dbError }).then(resolve, reject); } };
+        return query;
+      }};
     },
   };
   const record = { id: 'nif-1', user_id: owner, meta: { retained: 'yes' }, metadata: { legacy: 'kept' } };
@@ -48,8 +49,7 @@ function fixture({ dbError = null, owner = 'user-1', uploadErrorAt = 0, cleanupE
   assert.equal(f.uploads.length, 2, 'background and supporting image should both upload');
   assert.equal(f.uploads[0].type, 'image/png');
   assert.equal(f.writes.length, 1, 'one metadata commit should occur');
-  assert.equal(f.writes[0].column, 'id');
-  assert.equal(f.writes[0].id, 'nif-1');
+  assert.deepEqual(f.writes[0].filters, [{ column: 'id', id: 'nif-1' }, { column: 'user_id', id: 'user-1' }], 'metadata update must be scoped to both asset ID and authenticated owner');
   assert.equal(result.metadata.retained, 'yes');
   assert.equal(result.metadata.legacy, 'kept');
   assert.match(result.savedData.poster.composition.background.value, /^https:\/\/cdn\.example\.test\//);
