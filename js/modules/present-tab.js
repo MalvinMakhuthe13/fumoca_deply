@@ -151,6 +151,7 @@ async function copyViewerLink() {
   const id = idKey();
   let base = window._fumocaShareUrl || `${location.origin}/viewer?nifId=${encodeURIComponent(id === 'default' ? '' : id)}`;
   const url = new URL(base, location.origin);
+  if (hasLocalMedia) url.searchParams.delete('present');
   if (json) url.searchParams.set('present', json);
   if (data.reviewUrl) url.searchParams.set('review', data.reviewUrl);
   if (data.reviewLayout) url.searchParams.set('rvLayout', data.reviewLayout);
@@ -373,6 +374,10 @@ function mountPanel() {
       #ptpPosterComposer .ptp-poster-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px 12px}
       #ptpPosterComposer .ptp-poster-field output{color:#c8ff00;font:10px monospace}
       #ptpPosterComposer .ptp-poster-status{padding:8px 10px;border:1px solid rgba(200,255,0,.16);border-radius:8px;background:rgba(200,255,0,.045);color:rgba(255,255,255,.55);font-size:10px;line-height:1.45}
+      #ptpPosterComposer .ptp-poster-subtitle{margin:14px 0 7px;color:#c8ff00;font:700 10px/1.3 monospace;letter-spacing:.1em}
+      #ptpPosterComposer .ptp-poster-hint{font-size:10px;line-height:1.45;color:rgba(255,255,255,.55);margin-top:7px}
+      #ptpPosterComposer input[type=file]{font-size:10px;padding:7px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.12);border-radius:8px;color:#ddd;width:100%}
+      #ptpPosterAssetList button{margin:5px 5px 0 0;padding:5px 7px;border-radius:6px;border:1px solid rgba(255,255,255,.16);background:#20242b;color:#fff;font-size:10px;cursor:pointer}
       #ptpPosterComposer .ptp-poster-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
       #ptpPosterComposer .ptp-poster-actions button{border:1px solid rgba(200,255,0,.28);border-radius:8px;padding:8px 10px;background:rgba(200,255,0,.09);color:#eaffb0;font:inherit;font-size:10px;cursor:pointer}
       #ptpPosterComposer .ptp-poster-actions button.primary{background:#c8ff00;color:#10131a;font-weight:700}
