@@ -38,7 +38,7 @@ assert.ok(overlaySource.includes('window.FumocaPosterPicking?.pick?.(event.clien
 assert.ok(viewerSource.includes('window.FumocaPosterPicking = Object.freeze({'), 'Published Spark viewer must expose screen-space subject picking');
 assert.ok(viewerSource.includes('entry.radius = Math.max(subjectBounds.getBoundingSphere(new THREE.Sphere()).radius, 0.01)'), 'Additional subjects must retain their own bounds for accurate screen-space hit targets');
 assert.ok(viewerSource.includes('if (window.FumocaPosterPicking) window.FumocaPosterPicking = null;'), 'Viewer teardown must clear stale picking references');
-assert.ok(!viewerSource.includes('window._fumocaPublishedSpark = null;\\\\n'), 'Viewer teardown must not contain escaped newline tokens that break module parsing');
+assert.ok(!viewerSource.includes('window._fumocaPublishedSpark = null;\\n'), 'Viewer teardown must not contain escaped newline tokens that break module parsing');
 assert.ok(overlaySource.includes('Math.hypot(event.clientX - start.x, event.clientY - start.y) > 7'), 'Camera orbit drags must not be mistaken for subject-selection taps');
 assert.ok(overlaySource.includes('calculatePosterEditorFrame(bounds.width, bounds.height'), 'Transform handles must use the displayed poster frame, not the outer workspace');
 assert.ok(overlaySource.includes('(p.x-g.start.x)/rect.width'), 'Subject movement must be normalized to the poster width');
