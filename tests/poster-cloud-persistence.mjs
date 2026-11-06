@@ -27,7 +27,10 @@ function fixture({ dbError = null, owner = 'user-1', uploadErrorAt = 0, cleanupE
     },
   };
   const record = { id: 'nif-1', user_id: owner, meta: { retained: 'yes' }, metadata: { legacy: 'kept' } };
-  const snapshot = { poster: { composition: {
+  const snapshot = { magazine: [
+    { id: 'headline-1', text: 'MADE TO MOVE', style: 'cover', mode: 'locked', sx: 12, sy: 24, fontSize: 72, align: 'left', rotation: -8, z: 12, locked: false, wrap: true },
+    { id: 'caption-2', text: 'FUMOCA EDITION 01', style: 'caption', sx: 88, sy: 92, fontSize: 12, align: 'right', rotation: 0, z: 14, locked: true },
+  ], nav: [{ id: 'scene-1', label: 'Front', target: 'subject_main' }], poster: { composition: {
     background: { type: 'image', value: png },
     assets: { images: [{ id: 'logo', src: png, x: 0.82, y: 0.17, width: 0.31, rotation: 23, z: 7, visible: true, locked: false, sizeMode: 'fixed', fixedWidthPx: 310 }] },
     subjects: [
@@ -59,7 +62,10 @@ function fixture({ dbError = null, owner = 'user-1', uploadErrorAt = 0, cleanupE
     sizeMode: 'fixed', fixedWidthPx: 310, r2Key: result.savedData.poster.composition.assets.images[0].r2Key,
     bucket: 'thumbnails',
   }, 'supporting image transforms and responsive sizing must survive image upload');
-  assert.deepEqual(result.savedData.poster.composition.title, f.snapshot.poster.composition.title, 'poster typography settings must survive persistence');
+  assert.deepEqual(result.savedData.poster.composition.title, f.snapshot.poster.composition.title, 'poster headline settings must survive persistence');
+  assert.deepEqual(result.savedData.magazine, f.snapshot.magazine, 'independently positioned, rotated, resized and locked text layers must survive cloud snapshotting');
+  assert.deepEqual(result.savedData.nav, f.snapshot.nav, 'presentation navigation metadata must survive cloud snapshotting');
+  assert.deepEqual(f.writes[0].value.meta.present.magazine, f.snapshot.magazine, 'all text layers must be committed alongside the poster composition');
   assert.deepEqual(f.writes[0].value.meta.present.poster.composition.subjects, f.snapshot.poster.composition.subjects, 'the complete subject stack must be committed to nif_files.meta.present');
   assert.equal(f.removals.length, 0);
 }
