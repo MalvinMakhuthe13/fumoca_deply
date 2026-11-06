@@ -14,6 +14,7 @@ import './poster-composer.js?v=20261106-layercontrols02';
 import './poster-assets.js?v=20261106-layercontrols02';
 import { mountPosterEditorOverlay as createPosterEditorOverlay } from './poster-editor-overlay.js?v=20261106-headlinepreview01';
 import { mountPosterSceneManager } from './poster-scene-manager.js?v=20261106-unifiedimages02';
+import r2 from '../r2Client.js';
 
 const STORAGE_KEY = 'fumoca_present_v1';
 
@@ -100,6 +101,54 @@ function persist() {
   return data;
 }
 
+function posterDataUrlToBlob(dataUrl) {
+  const match = String(dataUrl || '').match(/^data:(image\\/(?:webp|png|jpeg));base64,([A-Za-z0-9+/=]+)$/i);
+  if (!match) throw new Error('Poster image data is invalid. Please upload the image again.');
+  const binary = atob(match[2]);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: match[1].toLowerCase() });
+}
+
+async function persistPosterImagesToR2(poster, userId, recordId) {
+  const uploadedKeys = [];
+  const bucket = r2.from('thumbnails');
+  const uploadDataUrl = async (dataUrl, fileKey) => {
+    const blob = posterDataUrlToBlob(dataUrl);
+    const result = await bucket.upload(fileKey, blob, { contentType: blob.type });
+    if (result.error || !result.publicUrl || !result.fileKey) {
+      throw result.error || new Error('Image upload did not return a public asset URL.');
+    }
+    uploadedKeys.push(result.fileKey);
+    return { src: result.publicUrl, r2Key: result.fileKey, bucket: 'thumbnails' };
+  };
+
+  const composition = poster?.composition;
+  if (!composition) return uploadedKeys;
+  const background = composition.background;
+  if (/^data:image\\//i.test(background?.value || '')) {
+    const stored = await uploadDataUrl(
+      background.value,
+      'poster-assets/' + userId + '/' + recordId + '/background-' + Date.now() + '.webp'
+    );
+    composition.background = { ...background, value: stored.src, r2Key: stored.r2Key, bucket: stored.bucket };
+  }
+
+  const images = composition.assets?.images || [];
+  for (const image of images) {
+    if (!/^data:image\\//i.test(image.src || '')) continue;
+    const safeId = String(image.id || Math.random().toString(36).slice(2, 10)).replace(/[^a-z0-9_-]/gi, '').slice(0, 64);
+    const stored = await uploadDataUrl(
+      image.src,
+      'poster-assets/' + userId + '/' + recordId + '/' + (safeId || 'image') + '-' + Date.now() + '.webp'
+    );
+    image.src = stored.src;
+    image.r2Key = stored.r2Key;
+    image.bucket = stored.bucket;
+  }
+  return uploadedKeys;
+}
+
 async function savePosterToCloud() {
   const status = document.getElementById('ptpPosterCloudStatus');
   const setStatus = (message, failed = false) => {
@@ -122,13 +171,26 @@ async function savePosterToCloud() {
     const { data: authData, error: authError } = await supabase.auth.getUser();
     if (authError || !authData?.user) throw new Error('Sign in before saving this poster to the cloud.');
     const data = payload();
-    const metadata = { ...(record.meta || {}), present: data };
+    const uploadedKeys = await persistPosterImagesToR2(data.poster, authData.user.id, record.id);
+    const savedPoster = data.poster;
+    if (savedPoster?.composition) {
+      window.FumocaPoster?.updateComposition?.({
+        background: savedPoster.composition.background,
+        assets: savedPoster.composition.assets,
+      });
+    }
+    const savedData = payload();
+    const metadata = { ...(record.meta || {}), present: savedData };
     const { error } = await supabase.from('nif_files').update({ meta: metadata }).eq('id', record.id);
-    if (error) throw error;
+    if (error) {
+      if (uploadedKeys.length) await r2.from('thumbnails').remove(uploadedKeys);
+      throw error;
+    }
     record.meta = metadata;
-    record.metadata = { ...(record.metadata || {}), present: data };
+    record.metadata = { ...(record.metadata || {}), present: savedData };
     window._fumocaCurrentRecord = record;
-    setStatus('Saved to this NIF asset · available to its public viewer.');
+    persist();
+    setStatus('Images uploaded to Cloudflare R2 and poster saved to this NIF asset.');
     return true;
   } catch (error) {
     console.warn('[Poster Composer] Cloud save failed', error);
