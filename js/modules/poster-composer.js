@@ -58,7 +58,8 @@ function normalizePreset(name) {
 function normalizeBackground(background, fallback) {
   if (!background || typeof background !== 'object') return clone(fallback);
   const type = ['solid', 'gradient', 'image'].includes(background.type) ? background.type : 'solid';
-  const value = String(background.value ?? fallback.value).trim();
+  let value = String(background.value ?? fallback.value).trim();
+  if (type === 'gradient' && !/^(linear|radial)-gradient\\([#0-9a-fA-F\\s.,%()\\-]+\\)$/i.test(value)) return clone(fallback);
   if (type === 'image' && !/^data:image\/(png|jpeg|webp|gif);base64,/i.test(value)) {
     try {
       const url = new URL(value, window.location.origin);
