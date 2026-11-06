@@ -24,7 +24,7 @@ function resolvePresent() {
   }
   if (window.__FUMOCA_PRESENT__) return window.__FUMOCA_PRESENT__;
   const rec = window._fumocaCurrentRecord;
-  const meta = rec?.meta || rec?.metadata || {};
+  const meta = { ...(rec?.metadata || {}), ...(rec?.meta || {}) };
   if (meta.present) return meta.present;
   try {
     const all = JSON.parse(localStorage.getItem('fumoca_present_v1') || '{}');
