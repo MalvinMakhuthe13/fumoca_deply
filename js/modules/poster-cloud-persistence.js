@@ -4,7 +4,7 @@
  * production Supabase or Cloudflare credentials.
  */
 function dataUrlToBlob(dataUrl) {
-  const match = String(dataUrl || '').match(/^data:(image\/(?:webp|png|jpeg));base64,([A-Za-z0-9+/=]+)$/i);
+  const match = String(dataUrl || '').match(/^data:(image\/(?:webp|png|jpeg|gif));base64,([A-Za-z0-9+/=]+)$/i);
   if (!match) throw new Error('Poster image data is invalid. Please upload the image again.');
   const binary = atob(match[2]);
   const bytes = new Uint8Array(binary.length);
