@@ -13,7 +13,7 @@ import {
 import './poster-composer.js?v=20261106-backgrounddata03';
 import './poster-viewport.js?v=20261106-studio-background05';
 import './poster-assets.js?v=20261107-image-rotate01';
-import { mountPosterEditorOverlay as createPosterEditorOverlay } from './poster-editor-overlay.js?v=20261106-directmanipulation01';
+import { mountPosterEditorOverlay as createPosterEditorOverlay } from './poster-editor-overlay.js?v=20261107-overlaymount01';
 import { mountPosterSceneManager } from './poster-scene-manager.js?v=20261106-unifiedimages02';
 import r2 from '../r2Client.js';
 import { savePosterSnapshot } from './poster-cloud-persistence.js';
@@ -846,7 +846,20 @@ export function initPresentTab() {
   if (saved?.magazine?.length) importMagazine(saved.magazine);
   if (saved?.nav?.length) importStops(saved.nav);
 
-  const tryMount = () => { mountPanel(); mountPosterSceneManager(); renderNavManager(); renderTextManager(); };
+  let posterEditorOverlay = null;
+  const tryMount = () => {
+    mountPanel();
+    mountPosterSceneManager();
+    renderNavManager();
+    renderTextManager();
+    const viewport = document.getElementById('viewport');
+    if (viewport && window.FumocaPoster) {
+      if (!posterEditorOverlay || !viewport.contains(posterEditorOverlay.root)) {
+        posterEditorOverlay?.destroy?.();
+        posterEditorOverlay = createPosterEditorOverlay({ host: viewport, onCommit: () => persist() });
+      } else posterEditorOverlay.refresh?.();
+    }
+  };
   tryMount();
   [500, 1200, 2500].forEach((t) => setTimeout(tryMount, t));
 
