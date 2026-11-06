@@ -123,8 +123,8 @@ export function initPosterAssets({ editable = false } = {}) {
             const startX = event.clientX;
             const startWidth = item.sizeMode === 'fixed'
               ? (Number(item.fixedWidthPx) || 240)
-              : host.getBoundingClientRect().width * item.width;
-            const rect = host.getBoundingClientRect();
+              : root.getBoundingClientRect().width * item.width;
+            const rect = root.getBoundingClientRect();
             const move = (ev) => {
               const delta = ev.clientX - startX;
               const nextWidth = clamp(startWidth + delta, 24, Math.max(24, rect.width * 1.5));
