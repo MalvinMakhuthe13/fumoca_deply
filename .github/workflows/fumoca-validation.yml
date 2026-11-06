@@ -138,7 +138,8 @@ jobs:
           grep -q "principal.kind !== 'server-to-server'" cloudflare/workers/r2-storage.js
           grep -q "const ownedPrefix = \`\${principal.id}/\`;" cloudflare/workers/r2-storage.js
           grep -q "const posterPrefix = \`poster-assets/\${principal.id}/\`;" cloudflare/workers/r2-storage.js
-          grep -q "Forbidden — you can only delete files in your own storage namespace" cloudflare/workers/r2-storage.js
+          grep -q "userOwnsNifStorageKey(principal, fileKey, env)" cloudflare/workers/r2-storage.js
+          grep -q "Forbidden — you can only delete files owned by your account" cloudflare/workers/r2-storage.js
           grep -q "const assetPath = \`\${user.id}/\${splatId || 'new'}\`;" js/modules/publish-to-fumoca.js
       - name: Test PLY conversion fidelity disclosure
         run: |
