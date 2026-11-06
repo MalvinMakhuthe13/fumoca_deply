@@ -1,6 +1,41 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { textAnchorTransform, addText, exportAll, selectText, getSelectedTextId, moveTextLayer, updateText, removeText } from '../js/modules/present-magazine-text.js';
+// Minimal DOM fixture: this test exercises the text-layer data model in Node,
+ // while the browser interaction suite covers real pointer behavior.
+class FixtureElement {
+  constructor(tag = 'div') {
+    this.tagName = tag.toUpperCase();
+    this.children = [];
+    this.dataset = {};
+    this.style = { setProperty() {} };
+    this.attributes = {};
+    this._innerHTML = '';
+    this.classList = {
+      add: () => {},
+      toggle: () => {},
+      remove: () => {},
+    };
+  }
+  appendChild(node) { this.children.push(node); return node; }
+  set innerHTML(value) { this._innerHTML = value; this.children = []; }
+  get innerHTML() { return this._innerHTML; }
+  setAttribute(name, value) { this.attributes[name] = value; }
+  addEventListener() {}
+  querySelectorAll(selector) {
+    if (selector === '.mt-item') return this.children.filter(node => node.className?.includes('mt-item'));
+    return [];
+  }
+  closest() { return null; }
+}
+const elements = new Map();
+globalThis.document = {
+  body: new FixtureElement('body'),
+  getElementById(id) { return elements.get(id) || null; },
+  createElement(tag) { return new FixtureElement(tag); },
+};
+globalThis.window = { location: { pathname: '/edit.html' } };
+const { textAnchorTransform, addText, exportAll, selectText, getSelectedTextId, moveTextLayer, updateText, removeText } =
+  await import('../js/modules/present-magazine-text.js');
 
 const magazine = await readFile(new URL('../js/modules/present-magazine-text.js', import.meta.url), 'utf8');
 const viewer = await readFile(new URL('../js/modules/poster-viewport.js', import.meta.url), 'utf8');
