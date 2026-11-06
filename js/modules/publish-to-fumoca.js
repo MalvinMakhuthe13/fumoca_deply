@@ -295,7 +295,7 @@ const FumocaPublish = (() => {
       if (payload.meta?.reviewVideo) {
         payload.meta.reviewVideo.boundId = newRec.id;
         const { error: metaError } = await sb.from('nif_files').update({ meta: payload.meta }).eq('id', newRec.id).eq('user_id', user.id);
-        if (metaError) throw new Error('The NIF was registered, but its review-video metadata could not be saved: ' + metaError.message);
+        if (metaError) console.warn('[Publish] Asset registered, but review-video binding metadata could not be refreshed:', metaError.message);
       }
       }
     } catch (registrationError) {
