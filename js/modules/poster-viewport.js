@@ -32,6 +32,7 @@ export function calculatePosterViewport(posterState, width, height) {
       height: fitHeight - inset * 2,
     },
     background: composition.background || { type: 'solid', value: '#10131a' },
+    assets: composition.assets || { images: [] },
     title: composition.title || { visible: false, text: '', align: 'center' },
   };
 }
