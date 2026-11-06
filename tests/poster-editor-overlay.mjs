@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { calculatePosterEditorFrame } from '../js/modules/poster-editor-overlay.js';
 
 const portrait = calculatePosterEditorFrame(1200, 800, 4 / 5);
@@ -21,4 +22,12 @@ assert.equal(fallback.height, 500);
 assert.equal(fallback.left, 50);
 assert.equal(fallback.top, 0);
 
-console.log('Poster editor overlay geometry tests passed.');
+const overlaySource = await readFile(new URL('../js/modules/poster-editor-overlay.js', import.meta.url), 'utf8');
+assert.match(overlaySource, /class=\\"fpe-title\\"/, 'Studio overlay must include a headline layer');
+assert.match(overlaySource, /composition\\.title/, 'Studio overlay must read the shared poster title state');
+assert.match(overlaySource, /heading\\.visible !== false/, 'Studio overlay must respect the headline visibility toggle');
+assert.match(overlaySource, /heading\\.fontFamily/, 'Studio overlay must apply headline typography');
+assert.match(overlaySource, /heading\\.fontSize/, 'Studio overlay must apply headline size');
+assert.match(overlaySource, /heading\\.color/, 'Studio overlay must apply headline colour');
+
+console.log('Poster editor overlay geometry and headline integration tests passed.');
