@@ -375,7 +375,7 @@ function mountPanel() {
       <div class="ptp-poster-subtitle">BACKGROUND & ART DIRECTION</div>
       <label class="ptp-poster-field">Background colour<input type="color" data-poster-field="background" value="#10131a"></label>
       <label class="ptp-poster-field">Background style<select data-poster-field="backgroundGradient"><option value="solid">Solid colour</option><option value="sunset">Warm sunset</option><option value="midnight">Midnight editorial</option><option value="ocean">Ocean depth</option><option value="emerald">Emerald luxury</option><option value="paper">Soft paper</option></select></label>
-      <label class="ptp-poster-field">Upload background from your device<input type="file" accept="image/png,image/jpeg,image/webp" data-poster-field="backgroundFile"></label>
+      <div class="ptp-upload-card"><div><strong>Background image</strong><small>Use a photo or texture from your computer</small></div><button type="button" data-act="choose-background" class="ptp-upload-button">＋ Choose image</button><input type="file" accept="image/png,image/jpeg,image/webp" data-poster-field="backgroundFile" hidden><span data-upload-name="background">No image selected</span></div>
       <div class="ptp-poster-grid">
         <label class="ptp-poster-field">Image fit<select data-poster-field="backgroundFit"><option value="cover">Fill canvas</option><option value="contain">Contain</option><option value="fill">Stretch</option></select></label>
         <label class="ptp-poster-field">Image position<select data-poster-field="backgroundPosition"><option value="center">Center</option><option value="top">Top</option><option value="bottom">Bottom</option><option value="left">Left</option><option value="right">Right</option></select></label>
@@ -384,7 +384,7 @@ function mountPanel() {
         <label class="ptp-poster-field">Brightness<input type="range" min="20" max="200" value="100" data-poster-field="backgroundBrightness"></label>
       </div>
       <div class="ptp-poster-subtitle">SUPPORTING IMAGES</div>
-      <label class="ptp-poster-field">Upload images, logos or textures from your device<input type="file" accept="image/png,image/jpeg,image/webp" data-poster-field="overlayFile" multiple></label>
+      <div class="ptp-upload-card"><div><strong>Supporting images</strong><small>Add logos, cut-outs, textures or product photos</small></div><button type="button" data-act="choose-overlays" class="ptp-upload-button">＋ Add images</button><input type="file" accept="image/png,image/jpeg,image/webp" data-poster-field="overlayFile" multiple hidden><span data-upload-name="overlays">Up to 12 images · PNG, JPG or WEBP</span></div>
       <div class="ptp-poster-actions"><button type="button" data-act="clear-overlays">Remove all supporting images</button></div>
       <div id="ptpPosterAssetList" class="ptp-poster-status">No supporting images added yet.</div>
       <div class="ptp-poster-hint">Select, drag and resize image layers on the poster. Set proportional, fixed-pixel or responsive min/max sizing, lock layers, hide them and change their stacking order. These are presentation layers and do not alter the source splat.</div>
@@ -456,6 +456,11 @@ function mountPanel() {
     style.id = 'fumocaPosterComposerStyles';
     style.textContent = `
       #ptpPosterComposer .ptp-poster-field{display:flex;flex-direction:column;gap:5px;margin:9px 0;color:rgba(255,255,255,.72);font-size:11px}
+      #ptpPosterComposer .ptp-upload-card{display:grid;gap:8px;margin:10px 0;padding:12px;border:1px solid rgba(200,255,0,.2);border-radius:11px;background:linear-gradient(145deg,rgba(200,255,0,.07),rgba(255,255,255,.025))}
+      #ptpPosterComposer .ptp-upload-card strong{display:block;color:#f3f5eb;font-size:11px;font-weight:700}
+      #ptpPosterComposer .ptp-upload-card small,#ptpPosterComposer .ptp-upload-card span{display:block;color:rgba(255,255,255,.48);font-size:10px;line-height:1.4}
+      #ptpPosterComposer .ptp-upload-card .ptp-upload-button{justify-self:start;min-width:132px;padding:9px 13px;border:1px solid rgba(200,255,0,.42);border-radius:8px;background:#c8ff00;color:#10131a;font:700 11px Inter,system-ui,sans-serif;cursor:pointer}
+      #ptpPosterComposer .ptp-upload-card .ptp-upload-button:hover{background:#d9ff4d;color:#10131a;box-shadow:0 0 18px rgba(200,255,0,.15)}
       #ptpPosterComposer .ptp-poster-field input:not([type=range]),#ptpPosterComposer .ptp-poster-field select{width:100%;min-width:0;padding:8px 9px;border:1px solid rgba(255,255,255,.12);border-radius:8px;background:rgba(255,255,255,.05);color:#fff;font:inherit}
       #ptpPosterComposer .ptp-poster-field input[type=color]{height:34px;padding:3px}
       #ptpPosterComposer .ptp-poster-toggle{display:flex;align-items:center;gap:8px;margin:10px 0;color:rgba(255,255,255,.8);font-size:11px}
@@ -749,6 +754,12 @@ function mountPanel() {
   panel.addEventListener('change', applyTextField);
 
   panel.addEventListener('click', (e) => {
+    const uploadAction = e.target.closest?.('[data-act="choose-background"],[data-act="choose-overlays"]');
+    if (uploadAction) {
+      const key = uploadAction.dataset.act === 'choose-background' ? 'backgroundFile' : 'overlayFile';
+      posterRoot.querySelector('[data-poster-field="' + key + '"]')?.click();
+      return;
+    }
     const removeTextBtn = e.target.closest('button[data-remove-text]');
     if (removeTextBtn) { removeText(removeTextBtn.dataset.removeText); renderTextManager(); persist(); return; }
     const removeNavBtn = e.target.closest('button[data-remove-nav]');
