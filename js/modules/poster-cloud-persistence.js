@@ -38,8 +38,14 @@ export async function persistPosterImagesToR2(poster, userId, recordId, r2Client
     return uploadedKeys;
   } catch (error) {
     if (uploadedKeys.length) {
-      const cleanup = await bucket.remove(uploadedKeys);
-      if (cleanup.error) console.warn('[Poster Composer] Could not clean up partial R2 uploads:', cleanup.error);
+      try {
+        const cleanup = await bucket.remove(uploadedKeys);
+        if (cleanup?.error) console.warn('[Poster Composer] Could not clean up partial R2 uploads:', cleanup.error);
+      } catch (cleanupError) {
+        // Preserve the original upload/conversion failure so the user sees the
+        // actionable cause; cleanup can be retried independently.
+        console.warn('[Poster Composer] Partial R2 upload cleanup failed:', cleanupError);
+      }
     }
     throw error;
   }
