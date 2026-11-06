@@ -34,6 +34,7 @@ jobs:
           node --input-type=module --check < js/modules/poster-editor-overlay.js
           node --input-type=module --check < js/modules/present-magazine-text.js
           node --input-type=module --check < js/modules/present-viewer.js
+          node --input-type=module --check < js/modules/poster-assets.js
           node --input-type=module --check < js/modules/present-tab.js
           node --input-type=module --check < js/modules/present-viewer.js
       - name: Check persistence-sensitive editor modules
@@ -144,6 +145,8 @@ jobs:
         run: node --experimental-default-type=module tests/editorial-text-layout.mjs
       - name: Test editorial preset coverage and saved text controls
         run: node --experimental-default-type=module tests/editorial-presets.mjs
+      - name: Test poster background and supporting image contract
+        run: node --experimental-default-type=module tests/poster-assets.mjs
       - name: Test Adaptive Presentation Engine framing and responsive sizing
         run: node --experimental-default-type=module tests/adaptive-presentation.mjs
       - name: Test live poster camera-plane transforms
