@@ -6,6 +6,7 @@ const viewport = await readFile(new URL('../js/modules/poster-viewport.js', impo
 const assets = await readFile(new URL('../js/modules/poster-assets.js', import.meta.url), 'utf8');
 const studio = await readFile(new URL('../js/modules/present-tab.js', import.meta.url), 'utf8');
 const viewer = await readFile(new URL('../js/modules/viewer.js', import.meta.url), 'utf8');
+const presentViewer = await readFile(new URL('../js/modules/present-viewer.js', import.meta.url), 'utf8');
 
 assert.ok(composer.includes('current.assets ='), 'Poster composition must persist supporting image layers');
 assert.ok(composer.includes('assets: clone(state.composition.assets'), 'Poster snapshot must export image layers');
@@ -47,6 +48,13 @@ for (const field of ['backgroundFile','backgroundFit','backgroundPosition','back
 }
 assert.ok(studio.includes('savePosterToCloud()'), 'Uploaded image media must be saved to the NIF asset before sharing');
 assert.ok(studio.includes("import r2 from '../r2Client.js'"), 'Poster media must use the authenticated FUMOCA R2 client');
+const cloudSave = studio.slice(studio.indexOf('async function savePosterToCloud()'), studio.indexOf('async function copyViewerLink()'));
+assert.ok(cloudSave.includes('await supabase.auth.getUser()'), 'Cloud poster save must require an authenticated user');
+assert.ok(cloudSave.indexOf('await persistPosterImagesToR2') < cloudSave.indexOf(".from('nif_files').update"), 'R2 media must upload before NIF metadata is committed');
+assert.ok(cloudSave.indexOf(".from('nif_files').update") < cloudSave.indexOf('window.FumocaPoster?.updateComposition'), 'Live poster state must update only after cloud metadata commits');
+assert.ok(cloudSave.includes('metadataCommitted'), 'Failed database writes must leave the local composition retryable');
+assert.ok(cloudSave.includes("r2.from('thumbnails').remove(uploadedKeys)"), 'Failed cloud saves must clean up uploaded R2 objects');
+assert.ok(presentViewer.includes('...(rec?.metadata || {}), ...(rec?.meta || {})'), 'Public viewer must restore presentation metadata from either supported record shape');
 assert.ok(studio.includes("r2.from('thumbnails')"), 'Poster media must be stored in the existing R2 image bucket');
 assert.ok(studio.includes('persistPosterImagesToR2'), 'Cloud save must externalize local image data before writing NIF metadata');
 assert.ok(studio.includes('r2Key: stored.r2Key'), 'Saved poster media must retain its R2 object key');
