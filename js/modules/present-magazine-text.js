@@ -28,10 +28,13 @@ function ensureLayer() {
     layer = document.createElement('div');
     layer.id = 'magazineTextLayer';
     layer.className = 'mt-layer';
+    // Keep editorial layers inside the same measured surface as the live poster.
+    // In poster mode stageHost is resized to the contain-fit canvas, so text cannot
+    // drift into the surrounding workspace or escape the poster crop.
     const host =
+      document.getElementById('stageHost') ||
       document.getElementById('stage') ||
       document.getElementById('viewport') ||
-      document.getElementById('stageHost') ||
       document.body;
     host.appendChild(layer);
   }
@@ -73,7 +76,7 @@ function styleFor(item) {
       : item.shadow || '0 2px 24px rgba(0,0,0,.55), 0 0 1px rgba(0,0,0,.8)';
   return {
     fontFamily: item.fontFamily || FONT_STACK[kind] || FONT_STACK.deck,
-    fontSize: `${size}px`,
+    fontSize: `calc(${size}px * var(--mt-scale, 1))`,
     fontWeight: weight,
     letterSpacing: `${tracking}em`,
     color,
@@ -97,7 +100,7 @@ function renderItem(item) {
     transform: 'translate(-50%, -50%)',
     pointerEvents: editing ? 'auto' : 'none',
     whiteSpace: item.wrap ? 'normal' : item.style === 'deck' ? 'normal' : 'nowrap',
-    maxWidth: item.maxWidth || (item.style === 'deck' ? '28ch' : 'min(42vw, 520px)'),
+    maxWidth: item.maxWidth || (item.style === 'deck' ? '28ch' : '42%'),
     userSelect: 'none',
     cursor: editing ? 'move' : 'default',
     zIndex: 20 + (item.z || 0),
@@ -133,6 +136,10 @@ function startDrag(e, item, el) {
 function tick() {
   raf = 0;
   const root = ensureLayer();
+  const layerWidth = root.getBoundingClientRect().width || root.parentElement?.getBoundingClientRect().width || 0;
+  // All magazine typography is authored against a 1080px editorial canvas,
+  // then scaled uniformly with the actual poster viewport on every device.
+  root.style.setProperty('--mt-scale', String(Math.max(0.28, Math.min(1.5, layerWidth / 1080))));
   root.querySelectorAll('.mt-item').forEach((el) => {
     const item = items.find((i) => i.id === el.dataset.id);
     if (!item) return;
