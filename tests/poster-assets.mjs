@@ -34,6 +34,7 @@ assert.ok(viewport.includes('background.blur'), 'Background blur control must re
 assert.ok(viewport.includes('background.brightness'), 'Background brightness control must reach the renderer');
 assert.ok(assets.includes('data-fumoca-poster-assets'), 'Supporting images must render in a separate presentation layer');
 assert.ok(assets.includes('pointermove'), 'Supporting images must be draggable');
+assert.ok(assets.includes('const rect = root.getBoundingClientRect();'), 'Supporting image dragging must use poster-root coordinates, not the outer editor host');
 assert.ok(assets.includes('Resize '), 'Supporting images must expose a resize handle');
 assert.ok(assets.includes('sizeMode === \'fixed\''), 'Image layers must support fixed-pixel sizing');
 assert.ok(assets.includes('sizeMode === \'responsive\''), 'Image layers must support responsive min/max sizing');
