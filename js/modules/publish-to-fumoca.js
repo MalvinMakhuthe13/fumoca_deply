@@ -275,8 +275,9 @@ const FumocaPublish = (() => {
     }
 
     let finalId = splatId;
-    if (payload.meta?.reviewVideo) payload.meta.reviewVideo.boundId = splatId || null;
-    if (splatId) {
+    try {
+      if (payload.meta?.reviewVideo) payload.meta.reviewVideo.boundId = splatId || null;
+      if (splatId) {
       const { data: updated, error } = await sb.from('nif_files')
         .update(payload).eq('id', splatId).eq('user_id', user.id).select('id').maybeSingle();
       if (error) throw new Error('The NIF was uploaded, but its asset record could not be updated: ' + error.message);
@@ -296,6 +297,19 @@ const FumocaPublish = (() => {
         const { error: metaError } = await sb.from('nif_files').update({ meta: payload.meta }).eq('id', newRec.id).eq('user_id', user.id);
         if (metaError) throw new Error('The NIF was registered, but its review-video metadata could not be saved: ' + metaError.message);
       }
+      }
+    } catch (registrationError) {
+      // A failed DB write must not leave inaccessible NIF/PLY objects behind.
+      const orphanKeys = [fileKey, viewPlyKey].filter(Boolean);
+      if (orphanKeys.length) {
+        try {
+          const cleanup = await r2.from('nif-files').remove(orphanKeys);
+          if (cleanup.error) console.warn('[Publish] Could not clean up unregistered uploads:', cleanup.error);
+        } catch (cleanupError) {
+          console.warn('[Publish] Could not clean up unregistered uploads:', cleanupError);
+        }
+      }
+      throw registrationError;
     }
 
     // Make the newly published record available to poster cloud-save immediately.
