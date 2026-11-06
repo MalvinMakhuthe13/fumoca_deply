@@ -146,8 +146,8 @@ function updateComposition(patch = {}) {
       visible: item.visible !== false, locked: Boolean(item.locked),
       z: clamp(item.z, 1, 99, index + 1),
     })).filter(item => item.source.type === 'current' || (item.source.type === 'nif' && item.source.assetId) ||
-      (item.source.type === 'ply' && item.source.url && /^https?:\\/\\//i.test(item.source.url)) ||
-      (item.source.type === 'url' && item.source.url && /^https?:\\/\\//i.test(item.source.url)));
+      (item.source.type === 'ply' && item.source.url && /^https?:\/\//i.test(item.source.url)) ||
+      (item.source.type === 'url' && item.source.url && /^https?:\/\//i.test(item.source.url)));
     if (!current.subjects.length) {
       current.subjects = [{ id: 'subject_main', label: 'Main subject', source: { type: 'current' }, ...clone(current.object), visible: true, locked: false, z: 1 }];
     }
@@ -209,7 +209,7 @@ function addSubject(input = {}) {
     visible: input.visible !== false, locked: Boolean(input.locked), z: clamp(input.z,current.subjects.length+1,99,current.subjects.length+1),
   };
   if ((subject.source.type === 'nif' && !subject.source.assetId) ||
-      (['ply','url'].includes(subject.source.type) && !/^https?:\\/\\//i.test(subject.source.url))) {
+      (['ply','url'].includes(subject.source.type) && !/^https?:\/\//i.test(subject.source.url))) {
     throw new Error('An additional subject needs a saved NIF asset ID or an HTTP(S) PLY/source URL.');
   }
   current.subjects.push(subject);
