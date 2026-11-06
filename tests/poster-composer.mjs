@@ -38,6 +38,7 @@ poster.updateComposition({ background: { type: 'gradient', value: 'linear-gradie
 assert.equal(poster.getState().composition.background.type, 'gradient', 'Safe gradient art direction must be accepted');
 poster.updateComposition({ background: { type: 'gradient', value: 'url(https://example.com/track)' } });
 assert.equal(poster.getState().composition.background.type, 'gradient', 'Invalid CSS background must not replace the accepted gradient');
+poster.updateComposition({ background: { type: 'solid', value: '#10131a' } });
 poster.updateComposition({
   object: { x: 1.5, y: -1, scale: 9, rotation: 720 },
   title: { text: 'x'.repeat(200), align: 'invalid', fontFamily: 'Comic Sans', fontSize: 500, color: 'red', weight: 1200 },
