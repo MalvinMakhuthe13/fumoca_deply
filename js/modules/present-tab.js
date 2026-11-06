@@ -449,8 +449,9 @@ function mountPanel() {
       if (input) input.value = String(value);
     }
     renderPosterAssetList();
+    const selectedSubject = (c.subjects || []).find(item => item.id === state.selectedSubjectId) || c.object;
     for (const key of ['x','y','scale','rotation']) {
-      const value = c.object?.[key] ?? 0;
+      const value = selectedSubject?.[key] ?? 0;
       const input = posterRoot.querySelector(`[data-poster-field="${key}"]`);
       const output = posterRoot.querySelector(`[data-poster-value="${key}"]`);
       if (input) input.value = String(key === 'x' || key === 'y' ? Math.round(value * 100) : key === 'scale' ? Math.round(value * 100) : Math.round(value));
@@ -589,7 +590,9 @@ function mountPanel() {
     else if (['x','y','scale','rotation'].includes(key)) {
       const raw = Number(field.value);
       const value = key === 'x' || key === 'y' || key === 'scale' ? raw / 100 : raw;
-      window.FumocaPoster.updateComposition({ object: { [key]: value } });
+      const selectedId = window.FumocaPoster.getState().selectedSubjectId;
+      if (selectedId) window.FumocaPoster.updateSubject(selectedId, { [key]: value });
+      else window.FumocaPoster.updateComposition({ object: { [key]: value } });
     } else return;
     syncPosterControls();
     persist();
