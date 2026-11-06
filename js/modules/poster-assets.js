@@ -147,7 +147,9 @@ export function initPosterAssets({ editable = false } = {}) {
           if (event.button !== 0) return;
           event.preventDefault(); event.stopPropagation();
           selectedId = item.id; dragging = true;
-          const rect = host.getBoundingClientRect();
+          // Image x/y are normalized to the poster root, not the larger editor host.
+          // Measuring against the host causes drift whenever the poster is letterboxed.
+          const rect = root.getBoundingClientRect();
           const startX = event.clientX, startY = event.clientY;
           const startItemX = item.x, startItemY = item.y;
           const move = (ev) => {
