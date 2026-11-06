@@ -329,4 +329,5 @@ window.FumocaPoster = Object.freeze({
   reset: () => setPreset(state.preset),
 });
 
+window.dispatchEvent(new CustomEvent('fumoca:posterReady', { detail: { version: POSTER_VERSION } }));
 console.info('[FUMOCA Poster] Composition model ready', POSTER_VERSION);
