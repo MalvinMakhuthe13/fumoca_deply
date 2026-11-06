@@ -1507,7 +1507,8 @@ function destroyPlyViewer() {
   }
   _publishedSparkMesh = null;
   _publishedSparkRenderer = null;
-  if (window._fumocaPublishedSpark) window._fumocaPublishedSpark = null;\n  if (window.FumocaPosterPicking) window.FumocaPosterPicking = null;
+  if (window._fumocaPublishedSpark) window._fumocaPublishedSpark = null;
+  if (window.FumocaPosterPicking) window.FumocaPosterPicking = null;
   _plyScene = _plyCamera = _plyControls = null;
 }
 async function mountPlyViewer(url) {
@@ -2037,6 +2038,7 @@ async function mountPublishedSparkPly(url) {
         }
         entry.group = group;
         entry.center = subjectCenter;
+        entry.radius = Math.max(subjectBounds.getBoundingSphere(new THREE.Sphere()).radius, 0.01);
         entry.mesh = subjectMesh;
         entry.status = 'ready';
         _plyScene.add(group);
@@ -2134,7 +2136,7 @@ async function mountPublishedSparkPly(url) {
       if (subject.id === 'subject_main') continue;
       const entry = posterSubjectMeshes.get(subject.id);
       if (entry?.status === 'ready') {
-        const boundsRadius = entry.mesh?.geometry?.boundingSphere?.radius || radius;
+        const boundsRadius = entry.radius || radius;
         addTarget(subject.id, subject.label || '3D subject', entry.group, boundsRadius, subject.visible !== false && entry.group.visible, subject.locked);
       }
     }
