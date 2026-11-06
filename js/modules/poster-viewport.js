@@ -87,8 +87,9 @@ function mount() {
     }
     title?.remove();
     title = null;
-    backgroundNode?.remove();
-    backgroundNode = null;
+    // Keep the background layer mounted so disabling and re-enabling poster
+    // composition does not leave the renderer without its background element.
+    if (backgroundNode) backgroundNode.style.display = 'none';
     host.removeAttribute('data-fumoca-poster-viewport');
   };
   const update = () => {
@@ -125,6 +126,7 @@ function mount() {
     host.style.backgroundSize = 'cover';
     host.style.backgroundPosition = 'center';
     if (backgroundNode) {
+      backgroundNode.style.display = 'block';
       const imageSource = String(background.value || '');
       const isImage = background.type === 'image' && (imageSource.startsWith('data:image/') || imageSource.startsWith('https://') || imageSource.startsWith('http://'));
       backgroundNode.style.background = background.type === 'gradient' ? background.value : '';
