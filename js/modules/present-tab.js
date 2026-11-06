@@ -10,7 +10,8 @@ import {
   initPresentNav, setNavStops, addNavStop, removeNavStop, clearNavStops, flyToStop,
   stopsFromHotspots, exportStops, importStops,
 } from './present-nav.js';
-import './poster-composer.js?v=20261106-backgrounddata02';
+import './poster-composer.js?v=20261106-backgrounddata03';
+import './poster-viewport.js?v=20261106-studio-background03';
 import './poster-assets.js?v=20261106-layercontrols02';
 import { mountPosterEditorOverlay as createPosterEditorOverlay } from './poster-editor-overlay.js?v=20261106-directmanipulation01';
 import { mountPosterSceneManager } from './poster-scene-manager.js?v=20261106-unifiedimages02';
@@ -32,12 +33,12 @@ async function compressEditorialImage(file, maxEdge = 1600, preserveAlpha = fals
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
     dataUrl = preserveAlpha ? canvas.toDataURL('image/webp', quality) : canvas.toDataURL('image/jpeg', quality);
-    if (dataUrl.length <= 170000) break;
-    scale *= 0.84;
-    quality = Math.max(0.48, quality - 0.06);
+    if (dataUrl.length <= 7 * 1024 * 1024) break;
+    scale *= 0.88;
+    quality = Math.max(0.48, quality - 0.04);
   }
   bitmap.close?.();
-  if (dataUrl.length > 180000) throw new Error('Image is too detailed to embed safely. Please choose a smaller image.');
+  if (!dataUrl || dataUrl.length > 8 * 1024 * 1024) throw new Error('This image is too large to prepare. Try a smaller image or a lower-resolution copy.');
   return dataUrl;
 }
 
