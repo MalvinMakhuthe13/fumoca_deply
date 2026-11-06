@@ -24,6 +24,10 @@ assert.equal(fallback.top, 0);
 
 const overlaySource = await readFile(new URL('../js/modules/poster-editor-overlay.js', import.meta.url), 'utf8');
 assert.ok(overlaySource.includes('class="fpe-title"'), 'Studio overlay must include a headline layer');
+assert.ok(overlaySource.includes('class="fpe-control fpe-scale"'), 'Studio overlay must expose a direct resize handle');
+assert.ok(overlaySource.includes('class="fpe-control fpe-rotate"'), 'Studio overlay must expose a direct rotation handle');
+assert.ok(overlaySource.includes('api.updateSubject(subject.id, patch)'), 'Direct manipulation must target the selected scene subject, not always the primary subject');
+assert.ok(overlaySource.includes('subject.locked'), 'Direct manipulation must respect locked subjects');
 assert.ok(overlaySource.includes('composition.title'), 'Studio overlay must read the shared poster title state');
 assert.ok(overlaySource.includes('heading.visible !== false'), 'Studio overlay must respect the headline visibility toggle');
 assert.ok(overlaySource.includes('heading.fontFamily'), 'Studio overlay must apply headline typography');
