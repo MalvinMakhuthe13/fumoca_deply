@@ -59,13 +59,11 @@ function normalizeBackground(background, fallback) {
   if (!background || typeof background !== 'object') return clone(fallback);
   const type = ['solid', 'gradient', 'image'].includes(background.type) ? background.type : 'solid';
   const value = String(background.value ?? fallback.value).trim();
-  if (type === 'image') {
+  if (type === 'image' && !/^data:image\/(png|jpeg|webp|gif);base64,/i.test(value)) {
     try {
       const url = new URL(value, window.location.origin);
       if (!['https:', 'http:'].includes(url.protocol)) return clone(fallback);
-    } catch (_) {
-      return clone(fallback);
-    }
+    } catch (_) { return clone(fallback); }
   }
   return {
     type, value: value.slice(0, 180000),
@@ -80,7 +78,7 @@ function normalizeBackground(background, fallback) {
 const initialPreset = normalizePreset(new URLSearchParams(window.location.search).get('poster'));
 const state = {
   preset: initialPreset,
-  composition: clone(POSTER_PRESETS[initialPreset]),
+  composition: { ...clone(POSTER_PRESETS[initialPreset]), assets: { images: [] } },
   enabled: new URLSearchParams(window.location.search).get('posterMode') === '1',
 };
 
