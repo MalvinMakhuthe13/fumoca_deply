@@ -26,9 +26,10 @@ for (const field of ['backgroundFile','backgroundUrl','backgroundFit','backgroun
   assert.ok(studio.includes(`data-poster-field="${field}"`), `Missing Studio control: ${field}`);
 }
 assert.ok(studio.includes('savePosterToCloud()'), 'Uploaded image media must be saved to the NIF asset before sharing');
-for (const field of ['sizeMode','width','fixedWidthPx','minWidthPx','maxWidthPx','rotation','opacity','anchor']) {
-  assert.ok(studio.includes(`data-poster-asset-field=\"${field}\"`) || studio.includes(`data-poster-asset-field = \"${field}\"`) || studio.includes(`field(\'${field === 'width' ? 'Width %' : field === 'fixedWidthPx' ? 'Fixed width px' : field === 'minWidthPx' ? 'Minimum px' : field === 'maxWidthPx' ? 'Maximum px' : field === 'rotation' ? 'Rotation °' : field === 'opacity' ? 'Opacity %' : field === 'sizeMode' ? 'Size behaviour' : 'Anchor'}\',\'${field}'`), `Missing layer editing control: ${field}`);
+assert.ok(studio.includes("selectField('Size behaviour','sizeMode'"), 'Missing layer size mode selector');
+for (const field of ["field('Width %','width'", "field('Fixed width px','fixedWidthPx'", "field('Minimum px','minWidthPx'", "field('Maximum px','maxWidthPx'", "field('Rotation °','rotation'", "field('Opacity %','opacity'", "selectField('Anchor','anchor'"]) {
+  assert.ok(studio.includes(field), `Missing layer property control: ${field}`);
 }
-for (const action of ['visibility','lock','up','down','remove']) assert.ok(studio.includes(`' ${action}'`) || studio.includes(`'${action}'`), `Missing layer action: ${action}`);
+for (const action of ['visibility','lock','up','down','remove']) assert.ok(studio.includes(`'${action}'`), `Missing layer action: ${action}`);
 assert.ok(viewer.includes("import './poster-assets.js"), 'Public viewer must load the supporting image renderer');
 console.log('Poster background, image-layer, persistence and viewer integration contract passed.');
