@@ -50,6 +50,10 @@ assert.ok(studio.includes('savePosterToCloud()'), 'Uploaded image media must be 
 assert.ok(studio.includes("import r2 from '../r2Client.js'"), 'Poster media must use the authenticated FUMOCA R2 client');
 assert.ok(studio.includes("from './poster-cloud-persistence.js'"), 'Studio must use the independently testable cloud persistence module');
 assert.ok(studio.indexOf('savePosterSnapshot') < studio.indexOf('window.FumocaPoster?.updateComposition'), 'Live poster state must update only after cloud metadata commits');
+assert.ok(studio.includes('saveLocal(savedData);'), 'Cloud save must store the exact R2-backed snapshot locally');
+assert.ok(studio.includes('window.__FUMOCA_PRESENT__ = savedData;'), 'Cloud save must keep the committed snapshot as the in-memory source of truth');
+assert.ok(studio.indexOf('saveLocal(savedData);') > studio.indexOf('window.FumocaPoster?.updateComposition'), 'Local snapshot must synchronize after the live poster receives permanent media URLs');
+assert.ok(!studio.slice(studio.indexOf('async function savePosterToCloud()'), studio.indexOf('async function copyViewerLink()')).includes('    persist();'), 'Cloud save must not rebuild the committed snapshot from live editor state');
 const cloudPersistence = await readFile(new URL('../js/modules/poster-cloud-persistence.js', import.meta.url), 'utf8');
 assert.ok(cloudPersistence.includes('await supabase.auth.getUser()'), 'Cloud poster save must require an authenticated user');
 assert.ok(cloudPersistence.includes("record.user_id !== authData.user.id"), 'Cloud poster save must verify NIF ownership before uploading media');
