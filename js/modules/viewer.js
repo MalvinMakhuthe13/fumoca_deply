@@ -1960,7 +1960,8 @@ async function mountPublishedSparkPly(url) {
        item.source?.type === 'nif' && item.source?.assetId)).map(item => item.id));
     for (const [id, entry] of posterSubjectMeshes) {
       if (!wanted.has(id)) {
-        if (entry.group) entry.group.visible = false;
+        if (entry.group) entry.group.removeFromParent();
+        entry.mesh?.dispose?.();
         posterSubjectMeshes.delete(id);
       }
     }
