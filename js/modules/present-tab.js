@@ -5,7 +5,7 @@
 import {
   initMagazineText, addText, updateText, removeText, applyPreset, clearText,
   exportAll as exportMagazine, importAll as importMagazine, setEditable as setMagEditable,
-} from './present-magazine-text.js?v=20261106-editorialscale01';
+} from './present-magazine-text.js?v=20261106-editorialstudio02';
 import {
   initPresentNav, setNavStops, addNavStop, removeNavStop, clearNavStops, flyToStop,
   stopsFromHotspots, exportStops, importStops,
@@ -209,6 +209,14 @@ function renderTextManager() {
       <label>Size (px)<input type="number" min="8" max="240" step="1" data-text-id="${item.id}" data-text-field="fontSize" value="${Number(item.fontSize || (item.style === 'cover' ? 64 : item.style === 'masthead' ? 36 : 14))}" /></label>
       <label>Color<input type="color" data-text-id="${item.id}" data-text-field="color" value="${/^#[0-9a-f]{6}$/i.test(item.color || '') ? item.color : '#F2EFE6'}" /></label>
       <label>Align<select data-text-id="${item.id}" data-text-field="align"><option value="left" ${(item.align || 'left') === 'left' ? 'selected' : ''}>Left</option><option value="center" ${item.align === 'center' ? 'selected' : ''}>Center</option><option value="right" ${item.align === 'right' ? 'selected' : ''}>Right</option></select></label>
+      <label>Position X<input type="number" min="0" max="100" step="1" data-text-id="${item.id}" data-text-field="sx" value="${Math.round(item.sx ?? 50)}" /></label>
+      <label>Position Y<input type="number" min="0" max="100" step="1" data-text-id="${item.id}" data-text-field="sy" value="${Math.round(item.sy ?? 30)}" /></label>
+      <label>Weight<select data-text-id="${item.id}" data-text-field="weight">${[300,400,500,600,700,800,900].map(v => `<option value="${v}" ${Number(item.weight || (item.style === 'cover' ? 800 : 600)) === v ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+      <label>Tracking (em)<input type="number" min="-0.08" max="0.4" step="0.01" data-text-id="${item.id}" data-text-field="tracking" value="${Number(item.tracking ?? 0.02)}" /></label>
+      <label>Opacity %<input type="number" min="0" max="100" step="5" data-text-id="${item.id}" data-text-field="opacity" value="${Math.round((item.opacity ?? 1) * 100)}" /></label>
+      <label>Max width %<input type="number" min="10" max="100" step="1" data-text-id="${item.id}" data-text-field="maxWidth" value="${parseFloat(item.maxWidth) || (item.style === 'deck' ? 38 : 42)}" /></label>
+      <label class="ptp-text-check"><input type="checkbox" data-text-id="${item.id}" data-text-field="wrap" ${item.wrap ? 'checked' : ''}> Wrap lines</label>
+      <label class="ptp-text-check"><input type="checkbox" data-text-id="${item.id}" data-text-field="uppercase" ${item.uppercase !== false ? 'checked' : ''}> Uppercase</label>
       <button type="button" data-remove-text="${item.id}" class="ptp-danger">Delete text</button>
     `;
     card.append(heading, fields);
@@ -266,10 +274,14 @@ function mountPanel() {
         <button type="button" data-act="48hours">48 HOURS</button>
         <button type="button" data-act="product">Product</button>
         <button type="button" data-act="hero">Hero title</button>
+        <button type="button" data-act="luxury">Luxury</button>
+        <button type="button" data-act="fashion">Fashion</button>
+        <button type="button" data-act="launch">Product launch</button>
+        <button type="button" data-act="architecture">Architecture</button>
         <button type="button" data-act="clear-text">Clear text</button>
         <button type="button" data-act="add-custom-text" class="primary">+ Custom text</button>
       </div>
-      <div class="ptp-hint">Add custom text, then drag it in the viewport to position it. Select text below to change its wording, font, size, color and alignment.</div>
+      <div class="ptp-hint">Choose a complete editorial direction, then refine every text layer. Drag text on the canvas or set exact position, typography, width and opacity below.</div>
     </div>
     <div class="ptp-section">
       <div class="ptp-title">Text styling · edit each item</div>
@@ -325,6 +337,9 @@ function mountPanel() {
       #ptpPosterComposer .ptp-poster-actions button.primary{background:#c8ff00;color:#10131a;font-weight:700}
       #ptpPosterComposer #ptpPosterCloudStatus[data-state="error"]{border-color:rgba(255,90,90,.35);color:#ffb1b1}
       #ptpPosterComposer .ptp-title{color:#c8ff00}
+      #fumocaPresentTabPanel .ptp-text-fields .ptp-text-check{display:flex;flex-direction:row;align-items:center;gap:6px;min-height:30px}
+      #fumocaPresentTabPanel .ptp-text-fields .ptp-text-check input{accent-color:#c8ff00}
+      #fumocaPresentTabPanel .ptp-text-fields .ptp-danger{grid-column:1/-1}
       @media(max-width:520px){#ptpPosterComposer .ptp-poster-grid{grid-template-columns:1fr}}
     `;
     document.head.appendChild(style);
@@ -396,6 +411,12 @@ function mountPanel() {
     else if (key === 'fontFamily') patch.fontFamily = field.value;
     else if (key === 'color') patch.color = field.value;
     else if (key === 'align') patch.align = field.value;
+    else if (key === 'sx' || key === 'sy') patch[key] = Math.max(0, Math.min(100, Number(field.value) || 0));
+    else if (key === 'weight') patch.weight = Math.max(100, Math.min(900, Number(field.value) || 600));
+    else if (key === 'tracking') patch.tracking = Math.max(-0.08, Math.min(0.4, Number(field.value) || 0));
+    else if (key === 'opacity') patch.opacity = Math.max(0, Math.min(1, Number(field.value) / 100));
+    else if (key === 'maxWidth') patch.maxWidth = Math.max(10, Math.min(100, Number(field.value) || 42)) + '%';
+    else if (key === 'wrap' || key === 'uppercase') patch[key] = field.checked;
     else return;
     updateText(field.dataset.textId, patch);
     const heading = field.closest('.ptp-text-item')?.querySelector('.ptp-text-heading');
@@ -434,7 +455,11 @@ function mountPanel() {
     if (act === '48hours') applyPreset('48hours');
     if (act === 'product') applyPreset('product');
     if (act === 'hero') applyPreset('hero');
-    if (['weekly','48hours','product','hero'].includes(act)) renderTextManager();
+    if (act === 'luxury') applyPreset('luxury');
+    if (act === 'fashion') applyPreset('fashion');
+    if (act === 'launch') applyPreset('launch');
+    if (act === 'architecture') applyPreset('architecture');
+    if (['weekly','48hours','product','hero','luxury','fashion','launch','architecture'].includes(act)) renderTextManager();
     if (act === 'poster-cloud-save') { savePosterToCloud(); return; }
     if (act === 'clear-text') { clearText(); renderTextManager(); }
     if (act === 'add-custom-text') {
