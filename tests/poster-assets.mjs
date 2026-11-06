@@ -50,6 +50,7 @@ assert.ok(studio.includes('savePosterToCloud()'), 'Uploaded image media must be 
 assert.ok(studio.includes("import r2 from '../r2Client.js'"), 'Poster media must use the authenticated FUMOCA R2 client');
 const cloudSave = studio.slice(studio.indexOf('async function savePosterToCloud()'), studio.indexOf('async function copyViewerLink()'));
 assert.ok(cloudSave.includes('await supabase.auth.getUser()'), 'Cloud poster save must require an authenticated user');
+assert.ok(cloudSave.includes("record.user_id !== authData.user.id"), 'Cloud poster save must verify the NIF asset belongs to the signed-in user before uploading media');
 assert.ok(cloudSave.indexOf('await persistPosterImagesToR2') < cloudSave.indexOf(".from('nif_files').update"), 'R2 media must upload before NIF metadata is committed');
 assert.ok(cloudSave.indexOf(".from('nif_files').update") < cloudSave.indexOf('window.FumocaPoster?.updateComposition'), 'Live poster state must update only after cloud metadata commits');
 assert.ok(cloudSave.includes('metadataCommitted'), 'Failed database writes must leave the local composition retryable');
