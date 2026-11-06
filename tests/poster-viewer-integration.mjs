@@ -5,7 +5,7 @@ const viewer = await readFile(new URL('../js/modules/viewer.js', import.meta.url
 const helper = await readFile(new URL('../js/modules/poster-live-transform.js', import.meta.url), 'utf8');
 
 assert.match(viewer, /import \{ applyPosterLiveTransform \} from '\.\/poster-live-transform\.js';/);
-assert.match(viewer, /import '\.\/poster-viewport\.js';/);
+assert.match(viewer, /import '\.\/poster-viewport\.js(?:\\?[^']*)?';/);
 assert.match(viewer, /posterEnabled \? 0 : 1/);
 assert.match(viewer, /_publishedSparkGroup\.add\(_publishedSparkMesh\)/);
 assert.match(viewer, /group: _publishedSparkGroup, camera: _plyCamera/);
