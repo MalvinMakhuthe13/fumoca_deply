@@ -128,10 +128,10 @@ export function mountPosterEditorOverlay(options = {}) {
     if(event.key==='ArrowLeft')x-=step;else if(event.key==='ArrowRight')x+=step;else if(event.key==='ArrowUp')y-=step;else if(event.key==='ArrowDown')y+=step;else return;
     event.preventDefault();patchSelected({x:clamp(x,0,1),y:clamp(y,0,1)});refresh();options.onCommit?.();
   };
-  const bindings=[[moveHandle,'move'],[scaleHandle,'scale'],[rotateHandle,'rotate']];
-  for(const [handle,mode] of bindings){handle.addEventListener('pointerdown',start(mode));handle.addEventListener('pointermove',move);handle.addEventListener('pointerup',stop);handle.addEventListener('pointercancel',stop);}
+  const bindings=[[moveHandle,'move'],[scaleHandle,'scale'],[rotateHandle,'rotate']].map(([handle,mode])=>({handle,down:start(mode)}));
+  for(const {handle,down} of bindings){handle.addEventListener('pointerdown',down);handle.addEventListener('pointermove',move);handle.addEventListener('pointerup',stop);handle.addEventListener('pointercancel',stop);}
   moveHandle.addEventListener('keydown',keyMove);
   const onChange=()=>refresh();window.addEventListener('fumoca:posterChange',onChange);window.addEventListener('resize',onChange);
   const observer=typeof ResizeObserver!=='undefined'?new ResizeObserver(refresh):null;observer?.observe(host);refresh();
-  return {refresh,destroy(){observer?.disconnect();window.removeEventListener('fumoca:posterChange',onChange);window.removeEventListener('resize',onChange);for(const [handle] of bindings){handle.removeEventListener('pointerdown',start(bindings.find(x=>x[0]===handle)?.[1]));handle.removeEventListener('pointermove',move);handle.removeEventListener('pointerup',stop);handle.removeEventListener('pointercancel',stop);}moveHandle.removeEventListener('keydown',keyMove);root.remove();}};
+  return {refresh,destroy(){observer?.disconnect();window.removeEventListener('fumoca:posterChange',onChange);window.removeEventListener('resize',onChange);for(const {handle,down} of bindings){handle.removeEventListener('pointerdown',down);handle.removeEventListener('pointermove',move);handle.removeEventListener('pointerup',stop);handle.removeEventListener('pointercancel',stop);}moveHandle.removeEventListener('keydown',keyMove);root.remove();}};
 }
