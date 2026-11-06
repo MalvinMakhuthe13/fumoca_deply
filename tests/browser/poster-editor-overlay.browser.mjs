@@ -10,11 +10,12 @@ const fixture = `<!doctype html>
 <style>html,body{margin:0;width:100%;height:100%;background:#111}#viewport{position:relative;width:100%;height:100%;overflow:hidden}</style>
 <div id="viewport"></div>
 <script>
+let selectedSubjectId='subject_main';
 const composition={aspectRatio:.8,subjects:[{id:'subject_main',label:'Main subject',x:.5,y:.5,scale:1,rotation:0,visible:true,locked:false,z:1},{id:'subject_second',label:'Side product',x:.78,y:.62,scale:1,rotation:0,visible:true,locked:false,z:2}],title:{visible:true,text:'A poster headline'}};
 window.FumocaPoster={
- getState:()=>({enabled:true,selectedSubjectId:'subject_main',composition}),
+ getState:()=>({enabled:true,selectedSubjectId,composition}),
  updateSubject(id,patch){const subject=composition.subjects.find(item=>item.id===id);if(subject&&!subject.locked){Object.assign(subject,patch);window.dispatchEvent(new CustomEvent('fumoca:posterChange'));}return true;},
- selectSubject(id){this.getState().selectedSubjectId=id;window.dispatchEvent(new CustomEvent('fumoca:posterChange'));},
+ selectSubject(id){selectedSubjectId=id;window.dispatchEvent(new CustomEvent('fumoca:posterChange'));},
  updateComposition(patch){Object.assign(composition,patch);window.dispatchEvent(new CustomEvent('fumoca:posterChange'));}
 };
 window.FumocaPosterPicking={pick(x,y){return x<350?{id:'subject_second'}:null;},getTargets(){return [];}};
