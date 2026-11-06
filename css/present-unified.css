@@ -293,6 +293,6 @@
 /* Poster text layer selection and stacking controls */
 .ptp-text-item.is-selected{border-color:rgba(200,255,0,.58);box-shadow:0 0 0 1px rgba(200,255,0,.12)}
 .ptp-text-layer-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px;margin:8px 0}
-.ptp-text-layer-actions button{min-width:0;padding:7px 6px;border:1px solid rgba(255,255,255,.14);border-radius:7px;background:rgba(255,255,255,.045);color:inherit;font:600 10px/1.2 inherit;cursor:pointer}
+.ptp-text-layer-actions button{min-width:0;padding:7px 6px;border:1px solid rgba(255,255,255,.14);border-radius:7px;background:rgba(255,255,255,.045);color:inherit;font:600 10px/1.2 var(--font-body);cursor:pointer}
 .ptp-text-layer-actions button:hover:not(:disabled){border-color:rgba(200,255,0,.5);color:#d9ff62}
 .ptp-text-layer-actions button:disabled{opacity:.35;cursor:not-allowed}
