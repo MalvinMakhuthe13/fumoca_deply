@@ -73,11 +73,10 @@ Browser-authenticated deletes are restricted to the caller's storage namespace:
 - NIF/PLY publish objects: `<supabase-user-id>/...`
 - Poster backgrounds and supporting images: `poster-assets/<supabase-user-id>/...`
 
-The Worker rejects browser delete requests outside those prefixes with HTTP 403.
-Server-to-server maintenance remains separately authenticated by `FUMOCA_API_SECRET`.
-Older objects stored under legacy non-user-prefixed paths cannot be deleted through
-the browser endpoint; migrate or clean those only through an authorized server-side
-maintenance process. Do not weaken the namespace check to restore legacy deletion.
+The Worker rejects browser delete requests unless the key is in the caller's namespace
+or is still referenced by a row in that caller's own `nif_files` records (checked using
+the caller's Supabase session and RLS). Server-to-server maintenance remains separately
+authenticated by `FUMOCA_API_SECRET`. If the ownership lookup fails, deletion is denied.
 
 ## What changed from v76
 | Module | Change |
