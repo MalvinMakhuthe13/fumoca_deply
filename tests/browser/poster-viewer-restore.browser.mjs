@@ -7,6 +7,8 @@ import { chromium } from 'playwright';
 const savedNifRecord = {
     id:'nif-browser-fixture',
     meta:{present:{
+      magazine:[{id:'restored-headline',text:'MADE TO MOVE',style:'cover',mode:'locked',sx:18,sy:24,fontSize:64,align:'left',rotation:-8,z:12,locked:true,wrap:true}],
+      nav:[{id:'restored-stop',label:'Front entrance',sx:42,sy:58,zoom:1.4}],
       poster:{
         enabled:true,
         preset:'editorial',
@@ -49,7 +51,7 @@ const server = http.createServer(async (req,res) => {
   }
   if (req.url?.split('?')[0] === '/modules/present-nav.js') {
     res.writeHead(200, {'content-type':'text/javascript'});
-    res.end('export function initPresentNav(){}; export function setNavStops(){};'); return;
+    res.end('export function initPresentNav(){}; export function setNavStops(stops){ window.__restoredNavStops = stops; };'); return;
   }
   const modules = {
     '/modules/poster-composer.js':'js/modules/poster-composer.js',
@@ -85,9 +87,17 @@ try {
   assert.equal(nifRequests.length,1,'Viewer must retrieve the saved NIF metadata from the server fixture');
   await page.waitForFunction(()=>window.__restoreReady && window.FumocaPresentViewer && window.FumocaPoster);
   await page.waitForFunction(()=>window.FumocaPoster.getState().enabled === true);
+  await page.waitForFunction(()=>document.querySelector('#magazineTextLayer .mt-item')?.textContent === 'MADE TO MOVE' && window.__restoredNavStops?.length === 1);
   const restored=await page.evaluate(()=>window.FumocaPoster.getState());
   assert.deepEqual(pageErrors,[]);
   assert.equal(restored.preset,'editorial');
+  const restoredText=await page.evaluate(()=>({text:document.querySelector('#magazineTextLayer .mt-item')?.textContent,style:document.querySelector('#magazineTextLayer .mt-item')?.style.cssText}));
+  assert.equal(restoredText.text,'MADE TO MOVE','saved editorial typography must restore in a fresh viewer session');
+  assert.match(restoredText.style,/rotate\(-?8deg\)/,'saved text rotation must survive viewer restoration');
+  const restoredNav=await page.evaluate(()=>window.__restoredNavStops);
+  assert.equal(restoredNav[0].id,'restored-stop');
+  assert.equal(restoredNav[0].label,'Front entrance');
+  assert.equal(restoredNav[0].zoom,1.4);
   assert.equal(restored.composition.background.type,'image');
   assert.equal(restored.composition.background.value,'https://assets.example.test/poster-bg.webp');
   assert.equal(restored.composition.background.r2Key,'poster-assets/user-1/nif-browser-fixture/background.webp');
@@ -110,7 +120,7 @@ try {
   assert.equal(restored.composition.subjects.length,2);
   assert.equal(restored.composition.subjects[1].source.assetId,'nif-secondary');
   assert.equal(restored.composition.subjects[1].rotation,-12);
-  console.log('Browser test passed: a clean browser session fetches saved NIF metadata from the server fixture and restores R2-backed poster media, layer settings and multiple independently transformed subjects.');
+  console.log('Browser test passed: a clean browser session fetches saved NIF metadata from the server fixture and restores R2-backed poster media, multiple independently transformed subjects, editorial text and navigation stops.');
 } finally {
   if(browser) await browser.close();
   await new Promise(resolve=>server.close(resolve));
