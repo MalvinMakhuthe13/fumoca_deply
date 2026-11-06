@@ -126,20 +126,28 @@ async function savePosterToCloud() {
   }
 }
 
-function copyViewerLink() {
+async function copyViewerLink() {
   const data = persist();
+  const media = data.poster?.composition;
+  const hasLocalMedia = /^data:image\//i.test(media?.background?.value || '') ||
+    (media?.assets?.images || []).some(item => /^data:image\//i.test(item.src || ''));
+  if (hasLocalMedia) {
+    const saved = await savePosterToCloud();
+    if (!saved) {
+      alert('This composition contains uploaded images. Save it to a saved NIF asset first; then copy a clean viewer link.');
+      return;
+    }
+  }
   let json;
   try {
-    json = btoa(unescape(encodeURIComponent(JSON.stringify({
+    json = hasLocalMedia ? '' : btoa(unescape(encodeURIComponent(JSON.stringify({
       magazine: data.magazine,
       nav: data.nav,
       reviewUrl: data.reviewUrl,
       reviewLayout: data.reviewLayout || 'stack',
       poster: data.poster || null,
     }))));
-  } catch {
-    json = '';
-  }
+  } catch { json = ''; }
   const id = idKey();
   let base = window._fumocaShareUrl || `${location.origin}/viewer?nifId=${encodeURIComponent(id === 'default' ? '' : id)}`;
   const url = new URL(base, location.origin);
@@ -439,6 +447,7 @@ function mountPanel() {
     const field = e.target.closest?.('[data-poster-field]');
     if (!field || !posterRoot?.contains(field) || !window.FumocaPoster) return;
     const key = field.dataset.posterField;
+    if (e.type === 'input' && ['backgroundUrl','backgroundFile','overlayFile'].includes(key)) return;
     if (key === 'preset') window.FumocaPoster.setPreset(field.value);
     else if (key === 'enabled') window.FumocaPoster.setEnabled(field.checked);
     else if (key === 'title') window.FumocaPoster.updateComposition({ title: { text: field.value } });
