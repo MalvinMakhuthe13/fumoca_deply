@@ -1943,6 +1943,63 @@ async function mountPublishedSparkPly(url) {
   _publishedSparkMesh.position.sub(center);
   _publishedSparkGroup.add(_publishedSparkMesh);
   _plyScene.add(_publishedSparkGroup);
+
+  // Additional Gaussian PLY subjects share this Spark renderer but retain
+  // independent pivot groups and poster-space transforms.
+  const posterSubjectMeshes = new Map();
+  const syncPosterSubjects = async () => {
+    const subjects = window.FumocaPoster?.getState?.().composition?.subjects || [];
+    const wanted = new Set(subjects.filter(item => item.id !== 'subject_main' && item.visible !== false && ['ply','url'].includes(item.source?.type) && /^https?:\\/\\//i.test(item.source?.url || '')).map(item => item.id));
+    for (const [id, entry] of posterSubjectMeshes) {
+      if (!wanted.has(id)) {
+        entry.group.visible = false;
+        if (entry.status === 'ready') posterSubjectMeshes.delete(id);
+      }
+    }
+    for (const subject of subjects) {
+      if (subject.id === 'subject_main' || !subject.visible || !['ply','url'].includes(subject.source?.type)) continue;
+      const url = subject.source?.url;
+      if (!/^https?:\\/\\//i.test(url || '') || posterSubjectMeshes.has(subject.id)) continue;
+      const entry = { status: 'loading', group: null, url };
+      posterSubjectMeshes.set(subject.id, entry);
+      try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        const subjectBytes = new Uint8Array(await response.arrayBuffer());
+        const subjectMesh = new SplatMesh({ fileBytes: subjectBytes, fileName: 'poster-subject-' + subject.id + '.ply', enableLod: false });
+        if (subjectMesh.initialized) await subjectMesh.initialized;
+        const parsedSubject = new PLYLoader().parse(subjectBytes.buffer.slice(subjectBytes.byteOffset, subjectBytes.byteOffset + subjectBytes.byteLength));
+        const subjectPosition = parsedSubject.getAttribute('position');
+        if (!subjectPosition?.count) throw new Error('PLY has no position attribute');
+        const subjectBounds = new THREE.Box3().setFromBufferAttribute(subjectPosition);
+        const subjectCenter = subjectBounds.getCenter(new THREE.Vector3());
+        const group = new THREE.Group();
+        group.position.copy(subjectCenter);
+        subjectMesh.position.sub(subjectCenter);
+        group.add(subjectMesh);
+        group.name = 'fumoca-poster-subject-' + subject.id;
+        const latest = window.FumocaPoster?.getState?.().composition?.subjects?.find(item => item.id === subject.id);
+        if (!latest) {
+          subjectMesh.dispose?.();
+          continue;
+        }
+        entry.group = group;
+        entry.center = subjectCenter;
+        entry.mesh = subjectMesh;
+        entry.status = 'ready';
+        _plyScene.add(group);
+        console.info('[FUMOCA Poster] Additional Gaussian subject loaded', subject.id, subjectPosition.count);
+      } catch (error) {
+        posterSubjectMeshes.delete(subject.id);
+        console.warn('[FUMOCA Poster] Could not load additional PLY subject', subject.id, error);
+        window.dispatchEvent(new CustomEvent('fumoca:posterSubjectError', { detail: { id: subject.id, message: error.message } }));
+      }
+    }
+  };
+  const posterSubjectChange = () => { syncPosterSubjects(); };
+  window.addEventListener('fumoca:posterChange', posterSubjectChange);
+  syncPosterSubjects();
+
   _plyCamera.position.set(center.x, center.y + radius * 0.35, center.z + radius * 2.3);
   _plyCamera.lookAt(center);
   _plyControls = new TrackballControls(_plyCamera, _plyRenderer.domElement);
@@ -1975,6 +2032,17 @@ async function mountPublishedSparkPly(url) {
         THREE, group: _publishedSparkGroup, camera: _plyCamera, center,
         composition: posterState.composition, enabled: !!posterState.enabled,
       });
+      for (const subject of posterState.composition.subjects || []) {
+        if (subject.id === 'subject_main') continue;
+        const entry = posterSubjectMeshes.get(subject.id);
+        if (!entry?.group || entry.status !== 'ready') continue;
+        entry.group.visible = subject.visible !== false;
+        const subjectComposition = { ...posterState.composition, object: subject };
+        applyPosterLiveTransform({
+          THREE, group: entry.group, camera: _plyCamera, center: entry.center,
+          composition: subjectComposition, enabled: !!posterState.enabled,
+        });
+      }
     }
     _plyRenderer.render(_plyScene, _plyCamera);
   };
