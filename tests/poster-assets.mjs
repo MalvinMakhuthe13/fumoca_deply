@@ -11,6 +11,10 @@ assert.ok(composer.includes('current.assets ='), 'Poster composition must persis
 assert.ok(composer.includes('assets: clone(state.composition.assets'), 'Poster snapshot must export image layers');
 assert.ok(composer.includes('data:image\\/'), 'Local image backgrounds must be accepted');
 assert.ok(viewport.includes('data-fumoca-poster-background'), 'Poster viewport must render a dedicated background layer');
+assert.ok(viewport.includes("document.getElementById('viewport')"), 'Studio poster background must mount against the editor poster viewport');
+assert.ok(viewport.includes('const isStudioEditor'), 'Studio and public viewer must choose their own poster coordinate hosts');
+assert.ok(viewport.includes('? stage'), 'Studio poster background must share the same coordinate host as editorial image layers');
+
 assert.ok(viewport.includes('data-fumoca-poster-background-image'), 'Background must use a dedicated image element');
 assert.ok(viewport.includes('backgroundImage.src = background.value'), 'Background source must be assigned to the image element');
 assert.ok(viewport.includes('backgroundImage.onerror'), 'Background decode/load failures must be observable');
