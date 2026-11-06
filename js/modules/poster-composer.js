@@ -7,7 +7,7 @@
  *
  * This module does not change renderer internals or persist metadata by itself.
  */
-const POSTER_VERSION = '0.1.0';
+const POSTER_VERSION = '0.2.0';
 
 const POSTER_PRESETS = Object.freeze({
   product: Object.freeze({
@@ -79,7 +79,8 @@ function normalizeBackground(background, fallback) {
 const initialPreset = normalizePreset(new URLSearchParams(window.location.search).get('poster'));
 const state = {
   preset: initialPreset,
-  composition: { ...clone(POSTER_PRESETS[initialPreset]), assets: { images: [] } },
+  composition: { ...clone(POSTER_PRESETS[initialPreset]), assets: { images: [] }, subjects: [{ id: 'subject_main', label: 'Main subject', source: { type: 'current' }, x: POSTER_PRESETS[initialPreset].object.x, y: POSTER_PRESETS[initialPreset].object.y, scale: POSTER_PRESETS[initialPreset].object.scale, rotation: POSTER_PRESETS[initialPreset].object.rotation, visible: true, locked: false, z: 1 }] },
+  selectedSubjectId: 'subject_main',
   enabled: new URLSearchParams(window.location.search).get('posterMode') === '1',
 };
 
@@ -89,6 +90,7 @@ function snapshot() {
     enabled: state.enabled,
     preset: state.preset,
     composition: clone(state.composition),
+    selectedSubjectId: state.selectedSubjectId,
   };
 }
 
@@ -101,7 +103,8 @@ function emit(reason) {
 function setPreset(name) {
   const preset = normalizePreset(name);
   state.preset = preset;
-  state.composition = clone(POSTER_PRESETS[preset]);
+  state.composition = { ...clone(POSTER_PRESETS[preset]), assets: { images: [] }, subjects: [{ id: 'subject_main', label: 'Main subject', source: { type: 'current' }, ...clone(POSTER_PRESETS[preset].object), visible: true, locked: false, z: 1 }] };
+  state.selectedSubjectId = 'subject_main';
   emit('preset');
   return snapshot();
 }
@@ -125,6 +128,30 @@ function updateComposition(patch = {}) {
       scale: clamp(patch.object.scale, 0.1, 4, current.object.scale),
       rotation: clamp(patch.object.rotation, -360, 360, current.object.rotation),
     };
+  }
+  if (patch.subjects !== undefined) {
+    const incoming = Array.isArray(patch.subjects) ? patch.subjects : [];
+    current.subjects = incoming.slice(0, 24).map((item, index) => ({
+      id: String(item.id || ('subject_' + index)).slice(0, 80),
+      label: String(item.label || ('Subject ' + (index + 1))).slice(0, 100),
+      source: {
+        type: ['current', 'nif', 'ply', 'url'].includes(item.source?.type) ? item.source.type : 'current',
+        assetId: String(item.source?.assetId || '').slice(0, 160),
+        url: String(item.source?.url || '').slice(0, 2000),
+      },
+      x: clamp(item.x, 0, 1, 0.5), y: clamp(item.y, 0, 1, 0.5),
+      scale: clamp(item.scale, 0.1, 4, 1), rotation: clamp(item.rotation, -360, 360, 0),
+      visible: item.visible !== false, locked: Boolean(item.locked),
+      z: clamp(item.z, 1, 99, index + 1),
+    })).filter(item => item.source.type === 'current' || (item.source.type === 'nif' && item.source.assetId) ||
+      (item.source.type === 'ply' && item.source.url && /^https?:\\/\\//i.test(item.source.url)) ||
+      (item.source.type === 'url' && item.source.url && /^https?:\\/\\//i.test(item.source.url)));
+    if (!current.subjects.length) {
+      current.subjects = [{ id: 'subject_main', label: 'Main subject', source: { type: 'current' }, ...clone(current.object), visible: true, locked: false, z: 1 }];
+    }
+    if (!current.subjects.some(item => item.id === state.selectedSubjectId)) state.selectedSubjectId = current.subjects[0].id;
+    const primary = current.subjects.find(item => item.id === 'subject_main') || current.subjects[0];
+    current.object = { x: primary.x, y: primary.y, scale: primary.scale, rotation: primary.rotation };
   }
   if (patch.assets && typeof patch.assets === 'object') {
     const images = Array.isArray(patch.assets.images) ? patch.assets.images : current.assets?.images || [];
@@ -163,6 +190,66 @@ function updateComposition(patch = {}) {
   }
   emit('composition');
   return snapshot();
+}
+
+function addSubject(input = {}) {
+  const current = state.composition;
+  if (!Array.isArray(current.subjects)) current.subjects = [];
+  if (current.subjects.length >= 24) throw new Error('A composition can contain up to 24 subjects.');
+  const id = String(input.id || ('subject_' + Math.random().toString(36).slice(2, 11)));
+  if (current.subjects.some(item => item.id === id)) throw new Error('A subject with this ID already exists.');
+  const subject = {
+    id, label: String(input.label || ('Subject ' + (current.subjects.length + 1))).slice(0, 100),
+    source: { type: ['nif','ply','url'].includes(input.source?.type) ? input.source.type : 'nif',
+      assetId: String(input.source?.assetId || '').slice(0,160), url: String(input.source?.url || '').slice(0,2000) },
+    x: clamp(input.x,0,1,0.5), y: clamp(input.y,0,1,0.5),
+    scale: clamp(input.scale,0.1,4,1), rotation: clamp(input.rotation,-360,360,0),
+    visible: input.visible !== false, locked: Boolean(input.locked), z: clamp(input.z,current.subjects.length+1,99,current.subjects.length+1),
+  };
+  if ((subject.source.type === 'nif' && !subject.source.assetId) ||
+      (['ply','url'].includes(subject.source.type) && !/^https?:\\/\\//i.test(subject.source.url))) {
+    throw new Error('An additional subject needs a saved NIF asset ID or an HTTP(S) PLY/source URL.');
+  }
+  current.subjects.push(subject);
+  state.selectedSubjectId = id;
+  emit('subject-added');
+  return clone(subject);
+}
+
+function updateSubject(id, patch = {}) {
+  const subject = state.composition.subjects?.find(item => item.id === id);
+  if (!subject) return false;
+  if (!subject.locked || patch.locked !== undefined) {
+    if (patch.label !== undefined) subject.label = String(patch.label).slice(0,100);
+    if (patch.x !== undefined) subject.x = clamp(patch.x,0,1,subject.x);
+    if (patch.y !== undefined) subject.y = clamp(patch.y,0,1,subject.y);
+    if (patch.scale !== undefined) subject.scale = clamp(patch.scale,0.1,4,subject.scale);
+    if (patch.rotation !== undefined) subject.rotation = clamp(patch.rotation,-360,360,subject.rotation);
+    if (patch.visible !== undefined) subject.visible = Boolean(patch.visible);
+    if (patch.locked !== undefined) subject.locked = Boolean(patch.locked);
+    if (patch.z !== undefined) subject.z = clamp(patch.z,1,99,subject.z);
+    if (id === 'subject_main') state.composition.object = { x: subject.x, y: subject.y, scale: subject.scale, rotation: subject.rotation };
+  }
+  emit('subject-updated');
+  return true;
+}
+
+function removeSubject(id) {
+  if (id === 'subject_main') return false;
+  const subjects = state.composition.subjects || [];
+  const next = subjects.filter(item => item.id !== id);
+  if (next.length === subjects.length) return false;
+  state.composition.subjects = next;
+  if (state.selectedSubjectId === id) state.selectedSubjectId = 'subject_main';
+  emit('subject-removed');
+  return true;
+}
+
+function selectSubject(id) {
+  if (!state.composition.subjects?.some(item => item.id === id)) return false;
+  state.selectedSubjectId = id;
+  emit('subject-selected');
+  return true;
 }
 
 function setEnabled(enabled) {
@@ -224,6 +311,10 @@ window.FumocaPoster = Object.freeze({
   })),
   setPreset,
   updateComposition,
+  addSubject,
+  updateSubject,
+  removeSubject,
+  selectSubject,
   setEnabled,
   getLayout,
   reset: () => setPreset(state.preset),
