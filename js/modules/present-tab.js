@@ -276,7 +276,7 @@ function mountStudioPosterOverlay() {
 
 function mountPanel() {
   let panel = document.getElementById('fumocaPresentTabPanel');
-  if (panel) { mountStudioPosterOverlay(); return panel; }
+  if (panel) { mountPosterSceneManager(); mountStudioPosterOverlay(); return panel; }
 
   panel = document.createElement('div');
   panel.id = 'fumocaPresentTabPanel';
