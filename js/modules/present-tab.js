@@ -616,6 +616,14 @@ function mountPanel() {
     if (!field || !posterRoot?.contains(field) || !window.FumocaPoster) return;
     const key = field.dataset.posterField;
     if (e.type === 'input' && ['backgroundUrl','backgroundFile','overlayFile'].includes(key)) return;
+    if (e.type === 'change' && key === 'backgroundFile' && field.files?.[0]) {
+      const label = posterRoot.querySelector('[data-upload-name="background"]');
+      if (label) label.textContent = field.files[0].name;
+    }
+    if (e.type === 'change' && key === 'overlayFile' && field.files?.length) {
+      const label = posterRoot.querySelector('[data-upload-name="overlays"]');
+      if (label) label.textContent = field.files.length + ' image' + (field.files.length === 1 ? '' : 's') + ' selected';
+    }
     if (key === 'preset') window.FumocaPoster.setPreset(field.value);
     else if (key === 'enabled') window.FumocaPoster.setEnabled(field.checked);
     else if (key === 'title') window.FumocaPoster.updateComposition({ title: { text: field.value } });
