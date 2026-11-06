@@ -569,7 +569,7 @@ function mountPanel() {
   };
   posterRoot.addEventListener('input', applyPosterField);
   posterRoot.addEventListener('change', applyPosterField);
-  posterRoot.addEventListener('input', (event) => {
+  posterRoot.addEventListener('change', (event) => {
     const field = event.target.closest('[data-poster-asset-field]');
     if (!field) return;
     const id = field.dataset.posterAssetId, key = field.dataset.posterAssetField;
@@ -583,10 +583,6 @@ function mountPanel() {
     else if (['fixedWidthPx','minWidthPx','maxWidthPx','rotation'].includes(key)) item[key] = Number(value);
     window.FumocaPoster.updateComposition({ assets: { images } });
     persist();
-  });
-  posterRoot.addEventListener('change', (event) => {
-    const field = event.target.closest('[data-poster-asset-field]');
-    if (field) renderPosterAssetList();
   });
   posterRoot.addEventListener('click', (event) => {
     const action = event.target.closest('[data-poster-asset-action]');
