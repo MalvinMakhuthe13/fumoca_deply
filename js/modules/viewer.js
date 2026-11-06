@@ -1972,25 +1972,55 @@ async function mountPublishedSparkPly(url) {
       posterSubjectMeshes.set(subject.id, entry);
       try {
         let url = subject.source?.url || '';
+        let subjectBytes, subjectFileName = 'poster-subject-' + subject.id + '.ply';
+        let subjectPosition = null;
         if (subject.source?.type === 'nif') {
           const sb = window._fumocaSupabase || supabase;
           const { data: asset, error: assetError } = await sb.from('nif_files')
             .select('id,title,r2_key,meta').eq('id', subject.source.assetId).maybeSingle();
           if (assetError) throw assetError;
-          const companionKey = asset?.meta?.view_ply_r2_key;
-          if (!companionKey) throw new Error('This NIF has no published Gaussian PLY companion yet. Publish it from Studio first.');
-          url = r2.publicUrl('nif-files', companionKey) || '';
+          if (!asset) throw new Error('Saved NIF asset was not found or is not accessible to this account.');
+          const companionKey = asset.meta?.view_ply_r2_key;
+          if (companionKey) {
+            url = r2.publicUrl('nif-files', companionKey) || '';
+            if (!/^https?:\/\//i.test(url)) throw new Error('The published Gaussian companion URL could not be resolved.');
+            entry.url = url;
+            const response = await fetch(url);
+            if (!response.ok) throw new Error('Published Gaussian companion returned HTTP ' + response.status);
+            subjectBytes = new Uint8Array(await response.arrayBuffer());
+            const parsedSubject = new PLYLoader().parse(subjectBytes.buffer.slice(subjectBytes.byteOffset, subjectBytes.byteOffset + subjectBytes.byteLength));
+            subjectPosition = parsedSubject.getAttribute('position');
+            if (!subjectPosition?.count) throw new Error('Published Gaussian PLY has no position attribute');
+          } else {
+            url = r2.publicUrl('nif-files', asset.r2_key) || '';
+            if (!/^https?:\/\//i.test(url)) throw new Error('The saved NIF source URL could not be resolved.');
+            entry.url = url;
+            const response = await fetch(url);
+            if (!response.ok) throw new Error('Saved NIF source returned HTTP ' + response.status);
+            const decoded = await decodeNif(await response.arrayBuffer());
+            subjectBytes = geometryToSplatRows(decoded.gaussians, { preserveScales: true });
+            subjectFileName = 'poster-subject-' + subject.id + '.splat';
+            const positions = new Float32Array(decoded.gaussians.count * 3);
+            for (let i = 0; i < decoded.gaussians.count; i++) {
+              const offset = i * 14;
+              positions[i * 3] = decoded.gaussians.data[offset];
+              positions[i * 3 + 1] = decoded.gaussians.data[offset + 1];
+              positions[i * 3 + 2] = decoded.gaussians.data[offset + 2];
+            }
+            subjectPosition = new THREE.BufferAttribute(positions, 3);
+          }
+        } else {
+          if (!/^https?:\/\//i.test(url)) throw new Error('The additional source did not resolve to a public HTTP(S) URL.');
+          entry.url = url;
+          const response = await fetch(url);
+          if (!response.ok) throw new Error('HTTP ' + response.status);
+          subjectBytes = new Uint8Array(await response.arrayBuffer());
+          const parsedSubject = new PLYLoader().parse(subjectBytes.buffer.slice(subjectBytes.byteOffset, subjectBytes.byteOffset + subjectBytes.byteLength));
+          subjectPosition = parsedSubject.getAttribute('position');
+          if (!subjectPosition?.count) throw new Error('PLY has no position attribute');
         }
-        if (!/^https?:\/\//i.test(url)) throw new Error('The additional source did not resolve to a public HTTP(S) URL.');
-        entry.url = url;
-        const response = await fetch(url);
-        if (!response.ok) throw new Error('HTTP ' + response.status);
-        const subjectBytes = new Uint8Array(await response.arrayBuffer());
-        const subjectMesh = new SplatMesh({ fileBytes: subjectBytes, fileName: 'poster-subject-' + subject.id + '.ply', enableLod: false });
+        const subjectMesh = new SplatMesh({ fileBytes: subjectBytes, fileName: subjectFileName, enableLod: false });
         if (subjectMesh.initialized) await subjectMesh.initialized;
-        const parsedSubject = new PLYLoader().parse(subjectBytes.buffer.slice(subjectBytes.byteOffset, subjectBytes.byteOffset + subjectBytes.byteLength));
-        const subjectPosition = parsedSubject.getAttribute('position');
-        if (!subjectPosition?.count) throw new Error('PLY has no position attribute');
         const subjectBounds = new THREE.Box3().setFromBufferAttribute(subjectPosition);
         const subjectCenter = subjectBounds.getCenter(new THREE.Vector3());
         const group = new THREE.Group();
