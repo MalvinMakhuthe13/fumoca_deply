@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { chromium } from 'playwright';
 
+const pixel = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVR4nGNgAAAAAgABSK+kcQAAAABJRU5ErkJggg==';
 const fixture = `<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="/css/present-magazine.css">
@@ -20,10 +21,11 @@ const fixture = `<!doctype html>
   import {initMagazineText,addText} from '/modules/present-magazine-text.js';
   window.FumocaPoster.setPreset('editorial');
   window.FumocaPoster.updateComposition({
-    background:{type:'image',value:'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="8" height="8"%3E%3Crect width="8" height="8" fill="%23223344"/%3E%3C/svg%3E',fit:'cover',position:'center'},
+    background:{type:'image',value:'${pixel}',fit:'cover',position:'center'},
     title:{visible:true,text:'POSTER HEADLINE',fontSize:42,color:'#ffffff'},
-    assets:{images:[{id:'logo',name:'Brand logo',src:'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="60"%3E%3Crect width="100" height="60" fill="%23c8ff00"/%3E%3C/svg%3E',x:.82,y:.12,width:.2,z:2,visible:true}]}
+    assets:{images:[{id:'logo',name:'Brand logo',src:'${pixel}',x:.82,y:.12,width:.2,z:2,visible:true}]}
   });
+  window.FumocaPoster.setEnabled(true);
   initPosterAssets({editable:false});
   initMagazineText({editable:false});
   addText({id:'editorial-headline',text:'EDITORIAL TITLE',style:'cover',mode:'locked',sx:50,sy:30,fontSize:48,color:'#ffffff'});
@@ -53,41 +55,51 @@ await new Promise(resolve=>server.once('listening',resolve));
 let browser;
 try{
   browser=await chromium.launch({headless:true});
-  const page=await browser.newPage({viewport:{width:1000,height:800}});
-  const errors=[];
-  page.on('pageerror',e=>errors.push(e.message));
-  await page.goto(`http://127.0.0.1:${port}/viewer.html`);
-  await page.waitForFunction(()=>window.__layersReady&&document.querySelector('[data-fumoca-poster-background]')&&document.querySelector('[data-fumoca-poster-assets]')&&document.querySelector('#magazineTextLayer .mt-item'));
-  await page.waitForFunction(()=>document.querySelector('#stageHost').dataset.fumocaPosterViewport==='1');
-  const result=await page.evaluate(()=>{
-    const host=document.querySelector('#stageHost');
-    const rect=host.getBoundingClientRect();
-    const z=selector=>getComputedStyle(document.querySelector(selector)).zIndex;
-    return {
-      poster:{x:rect.x,y:rect.y,width:rect.width,height:rect.height},
-      backgroundZ:z('[data-fumoca-poster-background]'),
-      sceneZ:z('#stage'),
-      titleZ:z('[data-fumoca-poster-title]'),
-      assetsZ:z('[data-fumoca-poster-assets]'),
-      magazineZ:z('#magazineTextLayer'),
-      backgroundVisible:getComputedStyle(document.querySelector('[data-fumoca-poster-background]')).display!=='none',
-      logoRect:(()=>{const r=document.querySelector('[data-poster-asset-id="logo"]').getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height};})(),
-      headlineText:document.querySelector('#magazineTextLayer .mt-item').textContent
-    };
-  });
-  assert.deepEqual(errors,[]);
-  assert.ok(Math.abs(result.poster.width-640)<1,'editorial poster should be contain-fitted to 4:5');
-  assert.ok(Math.abs(result.poster.x-180)<1,'poster should remain centred in wide viewer host');
-  assert.equal(result.backgroundVisible,true);
-  assert.equal(result.backgroundZ,'0');
-  assert.equal(result.sceneZ,'1');
-  assert.equal(result.titleZ,'3');
-  assert.equal(result.assetsZ,'8');
-  assert.equal(result.magazineZ,'18');
-  assert.ok(result.backgroundZ<result.sceneZ&&result.sceneZ<result.titleZ&&result.titleZ<result.assetsZ&&result.assetsZ<result.magazineZ,'visual layers must stack background → 3D scene → viewport title → supporting images → magazine typography');
-  assert.equal(result.logoRect.width,128,'supporting logo should size against the 640px poster canvas');
-  assert.equal(result.headlineText,'EDITORIAL TITLE');
-  console.log('Browser test passed: real poster viewport, background, supporting image and magazine modules preserve poster framing and expected visual stacking.');
+  for (const viewport of [{width:1000,height:800},{width:768,height:1024},{width:390,height:844}]) {
+    const page=await browser.newPage({viewport});
+    const errors=[];
+    page.on('pageerror',e=>errors.push(e.message));
+    await page.goto(`http://127.0.0.1:${port}/viewer.html`);
+    await page.waitForFunction(()=>window.__layersReady&&document.querySelector('[data-fumoca-poster-background]')&&document.querySelector('[data-fumoca-poster-assets]')&&document.querySelector('#magazineTextLayer .mt-item'));
+    await page.waitForFunction(()=>document.querySelector('#stageHost').dataset.fumocaPosterViewport==='1');
+    const result=await page.evaluate(()=>{
+      const host=document.querySelector('#stageHost');
+      const rect=host.getBoundingClientRect();
+      const z=selector=>getComputedStyle(document.querySelector(selector)).zIndex;
+      const logo=document.querySelector('[data-poster-asset-id="logo"]');
+      const logoRect=logo.getBoundingClientRect();
+      return {
+        poster:{x:rect.x,y:rect.y,width:rect.width,height:rect.height},
+        backgroundZ:z('[data-fumoca-poster-background]'),
+        sceneZ:z('#stage'),
+        titleZ:z('[data-fumoca-poster-title]'),
+        assetsZ:z('[data-fumoca-poster-assets]'),
+        magazineZ:z('#magazineTextLayer'),
+        backgroundVisible:getComputedStyle(document.querySelector('[data-fumoca-poster-background]')).display!=='none',
+        backgroundImageLoaded:document.querySelector('[data-fumoca-poster-background-image]').complete,
+        logoRect:{x:logoRect.x,y:logoRect.y,width:logoRect.width},
+        headlineText:document.querySelector('#magazineTextLayer .mt-item').textContent
+      };
+    });
+    assert.deepEqual(errors,[],`browser errors at ${viewport.width}x${viewport.height}`);
+    const expectedWidth=Math.min(viewport.width,viewport.height*0.75);
+    const expectedHeight=expectedWidth/0.75;
+    assert.ok(Math.abs(result.poster.width-expectedWidth)<1,`poster width should contain-fit at ${viewport.width}x${viewport.height}`);
+    assert.ok(Math.abs(result.poster.height-expectedHeight)<1,`poster height should contain-fit at ${viewport.width}x${viewport.height}`);
+    assert.ok(Math.abs(result.poster.x-(viewport.width-expectedWidth)/2)<1,'poster should remain horizontally centred');
+    assert.equal(result.backgroundVisible,true);
+    assert.equal(result.backgroundImageLoaded,true);
+    assert.equal(result.backgroundZ,'0');
+    assert.equal(result.sceneZ,'1');
+    assert.equal(result.titleZ,'3');
+    assert.equal(result.assetsZ,'8');
+    assert.equal(result.magazineZ,'18');
+    assert.ok(Number(result.backgroundZ)<Number(result.sceneZ)&&Number(result.sceneZ)<Number(result.titleZ)&&Number(result.titleZ)<Number(result.assetsZ)&&Number(result.assetsZ)<Number(result.magazineZ),'visual layers must stack background → 3D scene → viewport title → supporting images → magazine typography');
+    assert.ok(Math.abs(result.logoRect.width-expectedWidth*0.2)<1,'supporting logo should size against the poster canvas');
+    assert.equal(result.headlineText,'EDITORIAL TITLE');
+    await page.close();
+  }
+  console.log('Browser test passed at desktop, tablet and mobile sizes: poster framing, background, supporting image and editorial layer stacking are preserved.');
 }finally{
   if(browser)await browser.close();
   await new Promise(resolve=>server.close(resolve));
