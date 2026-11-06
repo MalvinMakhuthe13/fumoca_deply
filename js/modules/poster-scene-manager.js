@@ -10,7 +10,9 @@ export function mountPosterSceneManager() {
   section.dataset.fumocaSceneManager = '1';
   section.innerHTML = '<div class="ptp-poster-subtitle">3D SCENE OBJECTS</div>' +
     '<p class="ptp-poster-hint">Manage the objects in this composition. The current viewer is the primary subject. Additional published Gaussian PLY and NIF companion assets load as independent objects in the Spark viewer.</p>' +
-    '<label class="ptp-poster-field">Saved NIF asset ID<input type="text" data-scene-asset-id placeholder="Paste a saved NIF asset ID"></label>' +
+    '<label class="ptp-poster-field">Choose from your saved NIF assets<select data-scene-asset-select><option value="">Load your saved assets first</option></select></label>' +
+    '<div class="ptp-poster-actions"><button type="button" data-scene-load-assets>Load my saved NIFs</button></div>' +
+    '<label class="ptp-poster-field">Or paste a NIF asset ID<input type="text" data-scene-asset-id placeholder="Saved NIF asset ID"></label>' +
     '<label class="ptp-poster-field">Object label<input type="text" data-scene-label placeholder="Product, vehicle, room…"></label>' +
     '<div class="ptp-poster-actions"><button type="button" data-scene-add="nif">Add NIF object</button><button type="button" data-scene-add="ply">Add Gaussian PLY URL</button></div>' +
     '<div data-scene-list class="ptp-poster-status">Main subject is ready.</div>' +
@@ -60,7 +62,28 @@ export function mountPosterSceneManager() {
       if (output) output.textContent = key === 'scale' ? value.toFixed(2) + '×' : key === 'rotation' ? Math.round(value) + '°' : Math.round(value * 100) + '%';
     }
   };
-  section.addEventListener('click', event => {
+  section.addEventListener('click', async event => {
+    const loadAssets = event.target.closest('[data-scene-load-assets]');
+    if (loadAssets) {
+      const select = section.querySelector('[data-scene-asset-select]');
+      const client = window._fumocaSupabase || window.supabase;
+      loadAssets.disabled = true; loadAssets.textContent = 'Loading…';
+      try {
+        if (!client?.auth?.getUser || !client?.from) throw new Error('Account connection is not ready.');
+        const { data: auth, error: authError } = await client.auth.getUser();
+        if (authError || !auth?.user) throw new Error('Sign in to load your saved NIF assets.');
+        const { data, error } = await client.from('nif_files').select('id,title')
+          .eq('user_id', auth.user.id).limit(50);
+        if (error) throw error;
+        select.replaceChildren(new Option('Choose a saved NIF…', ''));
+        (data || []).forEach(asset => select.add(new Option(asset.title || 'Untitled NIF', asset.id)));
+        if (!data?.length) select.add(new Option('No saved NIF assets found', ''));
+        section.querySelector('[data-scene-status]').textContent = (data?.length || 0) + ' saved NIF assets loaded. Choose one to add it.';
+      } catch (error) {
+        section.querySelector('[data-scene-status]').textContent = error.message || 'Could not load saved NIF assets.';
+      } finally { loadAssets.disabled = false; loadAssets.textContent = 'Load my saved NIFs'; }
+      return;
+    }
     const action = event.target.closest('[data-scene-action]');
     if (action) {
       const id = action.dataset.id;
@@ -77,7 +100,7 @@ export function mountPosterSceneManager() {
     const label = section.querySelector('[data-scene-label]').value.trim();
     let source;
     if (add.dataset.sceneAdd === 'nif') {
-      source = { type:'nif', assetId:section.querySelector('[data-scene-asset-id]').value.trim() };
+      source = { type:'nif', assetId:section.querySelector('[data-scene-asset-select]').value || section.querySelector('[data-scene-asset-id]').value.trim() };
     } else {
       const url = prompt('Enter a public HTTPS URL for a Gaussian PLY file:');
       if (!url) return;
@@ -86,6 +109,7 @@ export function mountPosterSceneManager() {
     try {
       api.addSubject({ label:label || (source.type === 'nif' ? 'NIF object' : 'PLY object'), source });
       section.querySelector('[data-scene-asset-id]').value = '';
+      section.querySelector('[data-scene-asset-select]').value = '';
       section.querySelector('[data-scene-label]').value = '';
       render(); window.FumocaPresent?.save?.();
     } catch (error) { alert(error.message || 'Could not add object.'); }
