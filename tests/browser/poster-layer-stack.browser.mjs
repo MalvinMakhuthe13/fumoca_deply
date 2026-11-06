@@ -10,10 +10,10 @@ const fixture = `<!doctype html>
 <link rel="stylesheet" href="/css/present-magazine.css">
 <style>
   html,body{margin:0;width:100%;height:100%;background:#111}
-  #stageHost{position:absolute;left:0;top:0;width:100%;height:100%;overflow:hidden}
-  #stage{position:absolute;inset:0;width:100%;height:100%;z-index:1}
+  #stage{position:absolute;inset:0;width:100%;height:100%;z-index:1;overflow:hidden}
+  #stageHost{position:absolute;inset:0;width:100%;height:100%;overflow:hidden}
 </style>
-<div id="stageHost"><canvas id="stage"></canvas></div>
+<div id="stage"><div id="stageHost"></div></div>
 <script type="module">
   import '/modules/poster-composer.js';
   import '/modules/poster-viewport.js';
