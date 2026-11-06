@@ -11,7 +11,7 @@ import {
   stopsFromHotspots, exportStops, importStops,
 } from './present-nav.js';
 import './poster-composer.js?v=20261106-assets01';
-import './poster-assets.js?v=20261106-backgroundlayers01';
+import './poster-assets.js?v=20261106-layercontrols01';
 import { mountPosterEditorOverlay as createPosterEditorOverlay } from './poster-editor-overlay.js?v=20261106-headlinepreview01';
 
 const STORAGE_KEY = 'fumoca_present_v1';
@@ -308,7 +308,7 @@ function mountPanel() {
       <label class="ptp-poster-field">Add image / logo / texture<input type="file" accept="image/png,image/jpeg,image/webp" data-poster-field="overlayFile" multiple></label>
       <div class="ptp-poster-actions"><button type="button" data-act="add-overlay-url">Add image from URL</button><button type="button" data-act="clear-overlays">Remove all images</button></div>
       <div id="ptpPosterAssetList" class="ptp-poster-status">No supporting images added yet.</div>
-      <div class="ptp-poster-hint">Drag an image directly on the poster to reposition it. Supporting images stay separate from the 3D splat.</div>
+      <div class="ptp-poster-hint">Select, drag and resize image layers on the poster. Set proportional, fixed-pixel or responsive min/max sizing, lock layers, hide them and change their stacking order. These are presentation layers and do not alter the source splat.</div>
       <div class="ptp-poster-grid">
         <label class="ptp-poster-field">Subject X <input type="range" min="0" max="100" value="50" data-poster-field="x"><output data-poster-value="x">50%</output></label>
         <label class="ptp-poster-field">Subject Y <input type="range" min="0" max="100" value="53" data-poster-field="y"><output data-poster-value="y">53%</output></label>
@@ -441,22 +441,76 @@ function mountPanel() {
       if (output) output.textContent = key === 'scale' ? `${Number(value).toFixed(2)}×` : key === 'rotation' ? `${Math.round(value)}°` : `${Math.round(value * 100)}%`;
     }
   };
+  let selectedPosterAssetId = null;
   const renderPosterAssetList = () => {
     const root = posterRoot.querySelector('#ptpPosterAssetList');
     if (!root) return;
     const images = window.FumocaPoster?.getState?.()?.composition?.assets?.images || [];
     root.replaceChildren();
     if (!images.length) { root.textContent = 'No supporting images added yet.'; return; }
-    images.forEach((item, index) => {
+    images.slice().sort((a,b) => (b.z || 0) - (a.z || 0)).forEach((item) => {
       const row = document.createElement('div');
-      row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;margin:4px 0';
-      const label = document.createElement('span');
-      label.textContent = (index + 1) + '. ' + item.name;
+      row.className = 'ptp-poster-layer-row';
+      row.style.cssText = 'display:flex;align-items:center;gap:6px;margin:5px 0;padding:6px;border:1px solid rgba(255,255,255,.1);border-radius:7px';
+      const select = document.createElement('button');
+      select.type = 'button'; select.textContent = item.name || 'Image layer';
+      select.dataset.posterAssetAction = 'select'; select.dataset.posterAssetId = item.id;
+      select.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left';
+      const visible = document.createElement('button');
+      visible.type = 'button'; visible.textContent = item.visible === false ? 'Show' : 'Hide';
+      visible.dataset.posterAssetAction = 'visibility'; visible.dataset.posterAssetId = item.id;
+      const lock = document.createElement('button');
+      lock.type = 'button'; lock.textContent = item.locked ? 'Unlock' : 'Lock';
+      lock.dataset.posterAssetAction = 'lock'; lock.dataset.posterAssetId = item.id;
+      const up = document.createElement('button');
+      up.type = 'button'; up.textContent = '↑'; up.title = 'Bring forward';
+      up.dataset.posterAssetAction = 'up'; up.dataset.posterAssetId = item.id;
+      const down = document.createElement('button');
+      down.type = 'button'; down.textContent = '↓'; down.title = 'Send backward';
+      down.dataset.posterAssetAction = 'down'; down.dataset.posterAssetId = item.id;
       const remove = document.createElement('button');
-      remove.type = 'button'; remove.textContent = 'Remove';
-      remove.dataset.removePosterAsset = item.id;
-      row.append(label, remove); root.appendChild(row);
+      remove.type = 'button'; remove.textContent = '×'; remove.title = 'Remove image';
+      remove.dataset.posterAssetAction = 'remove'; remove.dataset.posterAssetId = item.id;
+      row.append(select, visible, lock, up, down, remove);
+      root.appendChild(row);
     });
+    const selected = images.find(item => item.id === selectedPosterAssetId);
+    if (!selected) return;
+    const editor = document.createElement('div');
+    editor.className = 'ptp-poster-layer-editor';
+    editor.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:8px;padding:9px;border:1px solid rgba(200,255,0,.25);border-radius:8px';
+    const field = (label, key, value, type = 'number', attrs = '') => {
+      const wrap = document.createElement('label');
+      wrap.className = 'ptp-poster-field';
+      wrap.textContent = label;
+      const input = document.createElement('input');
+      input.type = type; input.dataset.posterAssetField = key; input.dataset.posterAssetId = selected.id;
+      input.value = String(value ?? '');
+      if (attrs) input.setAttribute('aria-label', label);
+      if (type === 'number') { input.min = key === 'opacity' ? '0' : '1'; input.max = key === 'opacity' ? '100' : key === 'rotation' ? '180' : '4000'; input.step = '1'; }
+      wrap.appendChild(input); editor.appendChild(wrap);
+    };
+    const selectField = (label, key, value, options) => {
+      const wrap = document.createElement('label'); wrap.className = 'ptp-poster-field'; wrap.textContent = label;
+      const input = document.createElement('select'); input.dataset.posterAssetField = key; input.dataset.posterAssetId = selected.id;
+      options.forEach(([v,t]) => { const option = document.createElement('option'); option.value = v; option.textContent = t; input.appendChild(option); });
+      input.value = value; wrap.appendChild(input); editor.appendChild(wrap);
+    };
+    selectField('Size behaviour','sizeMode',selected.sizeMode || 'proportional',[
+      ['proportional','Proportional'],['fixed','Fixed pixels'],['responsive','Responsive min/max'],
+    ]);
+    field('Width %','width',Math.round((selected.width || .22)*100));
+    field('Fixed width px','fixedWidthPx',selected.fixedWidthPx || 240);
+    field('Minimum px','minWidthPx',selected.minWidthPx || 72);
+    field('Maximum px','maxWidthPx',selected.maxWidthPx || 720);
+    field('Rotation °','rotation',selected.rotation || 0);
+    field('Opacity %','opacity',Math.round((selected.opacity ?? 1)*100));
+    selectField('Anchor','anchor',selected.anchor || 'free',[
+      ['free','Free'],['top-left','Top left'],['top','Top'],['top-right','Top right'],
+      ['left','Left'],['center','Center'],['right','Right'],
+      ['bottom-left','Bottom left'],['bottom','Bottom'],['bottom-right','Bottom right'],
+    ]);
+    root.appendChild(editor);
   };
   const applyPosterField = async (e) => {
     const field = e.target.closest?.('[data-poster-field]');
@@ -496,7 +550,9 @@ function mountPanel() {
           id: 'img_' + Math.random().toString(36).slice(2, 10),
           name: file.name || 'Supporting image',
           src: await compressEditorialImage(file, 1400),
-          x: 0.5, y: 0.5, width: 0.22, rotation: 0, opacity: 1, z: existing.length + 1,
+          x: 0.5, y: 0.5, width: 0.22, sizeMode: 'proportional',
+          fixedWidthPx: 240, minWidthPx: 72, maxWidthPx: 720, anchor: 'free', locked: false,
+          rotation: 0, opacity: 1, z: existing.length + 1,
           fit: 'contain', visible: true,
         })));
         window.FumocaPoster.updateComposition({ assets: { images: [...existing, ...incoming] } });
@@ -513,13 +569,51 @@ function mountPanel() {
   };
   posterRoot.addEventListener('input', applyPosterField);
   posterRoot.addEventListener('change', applyPosterField);
+  posterRoot.addEventListener('input', (event) => {
+    const field = event.target.closest('[data-poster-asset-field]');
+    if (!field) return;
+    const id = field.dataset.posterAssetId, key = field.dataset.posterAssetField;
+    const images = window.FumocaPoster.getState().composition.assets?.images || [];
+    const item = images.find(entry => entry.id === id);
+    if (!item) return;
+    let value = field.value;
+    if (key === 'sizeMode' || key === 'anchor') item[key] = value;
+    else if (key === 'opacity') item.opacity = Math.max(0, Math.min(1, Number(value) / 100));
+    else if (key === 'width') item.width = Math.max(.05, Math.min(1, Number(value) / 100));
+    else if (['fixedWidthPx','minWidthPx','maxWidthPx','rotation'].includes(key)) item[key] = Number(value);
+    window.FumocaPoster.updateComposition({ assets: { images } });
+    persist();
+  });
+  posterRoot.addEventListener('change', (event) => {
+    const field = event.target.closest('[data-poster-asset-field]');
+    if (field) renderPosterAssetList();
+  });
   posterRoot.addEventListener('click', (event) => {
-    const remove = event.target.closest('[data-remove-poster-asset]');
-    if (remove) {
-      const images = window.FumocaPoster.getState().composition.assets?.images || [];
-      window.FumocaPoster.updateComposition({ assets: { images: images.filter(item => item.id !== remove.dataset.removePosterAsset) } });
-      persist(); renderPosterAssetList();
+    const action = event.target.closest('[data-poster-asset-action]');
+    if (!action) return;
+    const id = action.dataset.posterAssetId;
+    const images = window.FumocaPoster.getState().composition.assets?.images || [];
+    const index = images.findIndex(item => item.id === id);
+    if (index < 0) return;
+    if (action.dataset.posterAssetAction === 'select') {
+      selectedPosterAssetId = id;
+      window.FumocaPosterAssets?.select?.(id);
+      renderPosterAssetList(); return;
     }
+    if (action.dataset.posterAssetAction === 'remove') {
+      images.splice(index, 1);
+      if (selectedPosterAssetId === id) selectedPosterAssetId = null;
+    } else if (action.dataset.posterAssetAction === 'visibility') images[index].visible = images[index].visible === false;
+    else if (action.dataset.posterAssetAction === 'lock') images[index].locked = !images[index].locked;
+    else if (action.dataset.posterAssetAction === 'up' && index < images.length - 1) [images[index], images[index + 1]] = [images[index + 1], images[index]];
+    else if (action.dataset.posterAssetAction === 'down' && index > 0) [images[index], images[index - 1]] = [images[index - 1], images[index]];
+    images.forEach((item, i) => { item.z = i + 1; });
+    window.FumocaPoster.updateComposition({ assets: { images } });
+    persist(); renderPosterAssetList();
+  });
+  window.addEventListener('fumoca:posterAssetSelected', (event) => {
+    selectedPosterAssetId = event.detail?.id || null;
+    renderPosterAssetList();
   });
   window.addEventListener('fumoca:posterChange', syncPosterControls);
   syncPosterControls();
@@ -580,7 +674,7 @@ function mountPanel() {
       if (url && /^https?:\/\//i.test(url)) {
         const images = window.FumocaPoster.getState().composition.assets?.images || [];
         if (images.length >= 12) { alert('A poster can contain up to 12 supporting images.'); return; }
-        images.push({ id: 'img_' + Math.random().toString(36).slice(2, 10), name: 'Linked image', src: url, x: 0.5, y: 0.5, width: 0.22, rotation: 0, opacity: 1, z: images.length + 1, fit: 'contain', visible: true });
+        images.push({ id: 'img_' + Math.random().toString(36).slice(2, 10), name: 'Linked image', src: url, x: 0.5, y: 0.5, width: 0.22, sizeMode: 'proportional', fixedWidthPx: 240, minWidthPx: 72, maxWidthPx: 720, anchor: 'free', locked: false, rotation: 0, opacity: 1, z: images.length + 1, fit: 'contain', visible: true });
         window.FumocaPoster.updateComposition({ assets: { images } }); persist(); renderPosterAssetList();
       }
       return;
