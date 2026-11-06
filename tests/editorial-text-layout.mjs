@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { textAnchorTransform } from '../js/modules/present-magazine-text.js';
+import { textAnchorTransform, addText, exportAll, selectText, getSelectedTextId, moveTextLayer, updateText, removeText } from '../js/modules/present-magazine-text.js';
 
 const magazine = await readFile(new URL('../js/modules/present-magazine-text.js', import.meta.url), 'utf8');
 const viewer = await readFile(new URL('../js/modules/poster-viewport.js', import.meta.url), 'utf8');
@@ -18,3 +18,19 @@ assert.ok(magazine.includes('el.style.transform = textAnchorTransform(item.align
 assert.ok(magazine.includes("if (item.mode !== 'world') item.mode = 'locked'"), 'Dragging world-anchored text must convert it to a freely positioned poster layer');
 
 console.log('Responsive editorial text layout checks passed.');
+
+const first = addText({ text: 'First', z: 1 });
+const second = addText({ text: 'Second', z: 2 });
+assert.equal(getSelectedTextId(), second.id, 'New text should become the selected layer');
+selectText(first.id);
+assert.equal(getSelectedTextId(), first.id, 'A text layer can be selected from its controls');
+const beforeFront = exportAll().find(item => item.id === first.id).z;
+moveTextLayer(first.id, 'front');
+assert.ok(exportAll().find(item => item.id === first.id).z > beforeFront, 'Bring forward must raise the text layer');
+updateText(first.id, { locked: true });
+assert.equal(moveTextLayer(first.id, 'back'), null, 'Locked text layers cannot be reordered');
+assert.equal(exportAll().find(item => item.id === first.id).locked, true, 'Lock state is retained in the text model');
+updateText(first.id, { locked: false, rotation: 27 });
+assert.equal(exportAll().find(item => item.id === first.id).rotation, 27, 'Text rotation is part of the saved text model');
+removeText(first.id);
+removeText(second.id);
