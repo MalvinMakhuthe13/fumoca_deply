@@ -67,7 +67,14 @@ function normalizeBackground(background, fallback) {
       return clone(fallback);
     }
   }
-  return { type, value: value.slice(0, 2048) };
+  return {
+    type, value: value.slice(0, 180000),
+    fit: ['cover','contain','fill'].includes(background.fit) ? background.fit : 'cover',
+    position: String(background.position || 'center').slice(0, 80),
+    opacity: clamp(background.opacity, 0, 1, 1),
+    blur: clamp(background.blur, 0, 40, 0),
+    brightness: clamp(background.brightness, 0.2, 2, 1),
+  };
 }
 
 const initialPreset = normalizePreset(new URLSearchParams(window.location.search).get('poster'));
@@ -118,6 +125,23 @@ function updateComposition(patch = {}) {
       y: clamp(patch.object.y, 0, 1, current.object.y),
       scale: clamp(patch.object.scale, 0.1, 4, current.object.scale),
       rotation: clamp(patch.object.rotation, -360, 360, current.object.rotation),
+    };
+  }
+  if (patch.assets && typeof patch.assets === 'object') {
+    const images = Array.isArray(patch.assets.images) ? patch.assets.images : current.assets?.images || [];
+    current.assets = {
+      images: images.slice(0, 12).map((item, index) => ({
+        id: String(item.id || ('asset_' + index)).slice(0, 80),
+        src: String(item.src || '').slice(0, 180000),
+        name: String(item.name || 'Image').slice(0, 120),
+        x: clamp(item.x, 0, 1, 0.5), y: clamp(item.y, 0, 1, 0.5),
+        width: clamp(item.width, 0.05, 1, 0.24),
+        rotation: clamp(item.rotation, -180, 180, 0),
+        opacity: clamp(item.opacity, 0, 1, 1),
+        z: clamp(item.z, 1, 19, index + 1),
+        fit: ['contain','cover'].includes(item.fit) ? item.fit : 'contain',
+        visible: item.visible !== false,
+      })).filter(item => /^data:image\/(png|jpeg|webp|gif);base64,/.test(item.src) || /^https?:\/\//.test(item.src)),
     };
   }
   if (patch.title && typeof patch.title === 'object') {
@@ -182,6 +206,7 @@ function getLayout(width, height) {
       anchor: 'center',
     },
     background: clone(state.composition.background),
+    assets: clone(state.composition.assets || { images: [] }),
     title: clone(state.composition.title),
   };
 }
