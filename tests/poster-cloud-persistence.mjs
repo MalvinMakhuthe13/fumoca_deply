@@ -3,16 +3,17 @@ import { savePosterSnapshot } from '../js/modules/poster-cloud-persistence.js';
 
 const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p6sAAAAASUVORK5CYII=';
 const gif = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
-function fixture({ dbError = null, owner = 'user-1' } = {}) {
+function fixture({ dbError = null, owner = 'user-1', uploadErrorAt = 0, cleanupError = null } = {}) {
   const uploads = [], removals = [], writes = [];
   const r2 = { from(bucket) {
     assert.equal(bucket, 'thumbnails');
     return {
       async upload(key, blob) {
         uploads.push({ key, type: blob.type, size: blob.size });
+        if (uploadErrorAt && uploads.length === uploadErrorAt) throw new Error('simulated image upload failure');
         return { publicUrl: 'https://cdn.example.test/' + key, fileKey: key };
       },
-      async remove(keys) { removals.push([...keys]); return { error: null }; },
+      async remove(keys) { removals.push([...keys]); if (cleanupError) throw cleanupError; return { error: null }; },
     };
   }};
   const supabase = {
@@ -88,6 +89,17 @@ function fixture({ dbError = null, owner = 'user-1' } = {}) {
   const result = await savePosterSnapshot({ ...f, createSnapshot: () => snapshot });
   assert.equal(f.uploads[0].type, 'image/gif', 'GIF backgrounds supported by the composer must persist as GIF');
   assert.match(result.savedData.poster.composition.background.value, /^https:\/\/cdn\.example\.test\//);
+}
+
+{
+  const f = fixture({ uploadErrorAt: 2, cleanupError: new Error('simulated R2 cleanup failure') });
+  await assert.rejects(
+    () => savePosterSnapshot({ ...f, createSnapshot: () => structuredClone(f.snapshot) }),
+    /simulated image upload failure/,
+    'a rollback failure must not hide the original upload failure',
+  );
+  assert.equal(f.uploads.length, 2);
+  assert.equal(f.removals.length, 1, 'partial successful uploads should still trigger cleanup');
 }
 
 console.log('Poster cloud persistence integration contract passed with mocked Supabase and R2.');
