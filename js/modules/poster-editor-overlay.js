@@ -91,7 +91,7 @@ export function mountPosterEditorOverlay(options = {}) {
         width: Math.max(0, poster.width - inset * 2) + 'px',
         textAlign: ['left', 'center', 'right'].includes(heading.align) ? heading.align : 'center',
         fontFamily: ['system-ui, sans-serif', 'Arial, sans-serif', 'Georgia, serif', 'Impact, sans-serif', 'monospace'].includes(heading.fontFamily) ? heading.fontFamily : 'system-ui, sans-serif',
-        fontSize: clamp(Number(heading.fontSize) || 42, 12, 120) + 'px',
+        fontSize: clamp((Number(heading.fontSize) || 42) * (poster.width / 1080), 10, poster.width * 0.14) + 'px',
         fontWeight: String(clamp(Number(heading.weight) || 750, 400, 900)),
         color: /^#[0-9a-f]{6}$/i.test(String(heading.color || '')) ? heading.color : '#ffffff',
       });
