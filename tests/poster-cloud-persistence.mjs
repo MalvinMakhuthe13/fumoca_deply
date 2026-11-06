@@ -29,7 +29,7 @@ function fixture({ dbError = null, owner = 'user-1' } = {}) {
     background: { type: 'image', value: png },
     assets: { images: [{ id: 'logo', src: png }] },
   }}};
-  return { r2, supabase, record, snapshot, uploads, removals, writes };
+  return { r2Client: r2, supabase, record, snapshot, uploads, removals, writes };
 }
 
 {
