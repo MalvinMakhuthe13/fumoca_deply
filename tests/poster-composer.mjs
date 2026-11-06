@@ -38,6 +38,11 @@ poster.updateComposition({ background: { type: 'gradient', value: 'linear-gradie
 assert.equal(poster.getState().composition.background.type, 'gradient', 'Safe gradient art direction must be accepted');
 poster.updateComposition({ background: { type: 'gradient', value: 'url(https://example.com/track)' } });
 assert.equal(poster.getState().composition.background.type, 'gradient', 'Invalid CSS background must not replace the accepted gradient');
+poster.updateComposition({
+  background: { type: 'image', value: 'https://cdn.fumoca.co.za/poster-bg.webp', r2Key: 'poster-assets/user/asset/background.webp', bucket: 'thumbnails' },
+});
+assert.equal(poster.getState().composition.background.r2Key, 'poster-assets/user/asset/background.webp', 'Background R2 key must survive composition normalization');
+assert.equal(poster.getState().composition.background.bucket, 'thumbnails', 'Background bucket must survive composition normalization');
 poster.updateComposition({ background: { type: 'solid', value: '#10131a' } });
 poster.updateComposition({
   object: { x: 1.5, y: -1, scale: 9, rotation: 720 },
@@ -58,7 +63,7 @@ assert.equal(state.composition.title.weight, 900);
 assert.equal(state.composition.background.type, 'solid', 'Unsafe image URL should fall back to solid background');
 
 poster.updateComposition({ assets: { images: [{
-  id: 'layer-fixed', name: 'Logo', src: 'https://example.com/logo.png',
+  id: 'layer-fixed', name: 'Logo', src: 'https://example.com/logo.png', r2Key: 'poster-assets/user/asset/logo.webp', bucket: 'thumbnails',
   x: 0.2, y: 0.3, width: 0.25, sizeMode: 'fixed', fixedWidthPx: 320,
   minWidthPx: 90, maxWidthPx: 640, anchor: 'top-left', locked: true,
 }] } });
@@ -67,6 +72,8 @@ assert.equal(imageLayer.sizeMode, 'fixed');
 assert.equal(imageLayer.fixedWidthPx, 320);
 assert.equal(imageLayer.anchor, 'top-left');
 assert.equal(imageLayer.locked, true);
+assert.equal(imageLayer.r2Key, 'poster-assets/user/asset/logo.webp', 'Image layer R2 key must survive composition normalization');
+assert.equal(imageLayer.bucket, 'thumbnails', 'Image layer bucket must survive composition normalization');
 assert.equal(poster.getLayout(400, 900).assets.images[0].fixedWidthPx, 320, 'Layer sizing metadata must survive responsive layout calculation');
 
 // Multi-subject scene contract: every subject owns independent normalized transforms.
