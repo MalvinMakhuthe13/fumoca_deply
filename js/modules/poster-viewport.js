@@ -121,9 +121,15 @@ function mount() {
     // In Studio, #viewport is a flex child of #shell. Once we make it
     // absolute, its left coordinate is relative to #shell rather than its
     // former flex slot, so preserve the left panel's current width.
-    const editorOriginLeft = isStudioEditor
-      ? (document.getElementById('panelLeft')?.getBoundingClientRect().width || 0)
-      : 0;
+    const editorOriginLeft = (() => {
+      if (!isStudioEditor) return 0;
+      const panel = document.getElementById('panelLeft');
+      const shell = document.getElementById('shell');
+      // On mobile the left panel is a fixed, sliding overlay, not a flex
+      // column. It must not shift the poster's coordinate origin.
+      if (!panel || !shell || window.getComputedStyle(panel).position === 'fixed') return 0;
+      return Math.max(0, panel.getBoundingClientRect().right - shell.getBoundingClientRect().left);
+    })();
     Object.assign(host.style, {
       position: 'absolute', inset: 'auto',
       left: (editorOriginLeft + layout.left) + 'px', top: layout.top + 'px',
