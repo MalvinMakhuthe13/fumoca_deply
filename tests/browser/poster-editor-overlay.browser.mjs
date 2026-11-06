@@ -14,8 +14,10 @@ const composition={aspectRatio:.8,subjects:[{id:'subject_main',label:'Main subje
 window.FumocaPoster={
  getState:()=>({enabled:true,selectedSubjectId:'subject_main',composition}),
  updateSubject(id,patch){const subject=composition.subjects.find(item=>item.id===id);if(subject&&!subject.locked){Object.assign(subject,patch);window.dispatchEvent(new CustomEvent('fumoca:posterChange'));}return true;},
+ selectSubject(id){this.getState().selectedSubjectId=id;window.dispatchEvent(new CustomEvent('fumoca:posterChange'));},
  updateComposition(patch){Object.assign(composition,patch);window.dispatchEvent(new CustomEvent('fumoca:posterChange'));}
 };
+window.FumocaPosterPicking={pick(x,y){return x<350?{id:'subject_second'}:null;},getTargets(){return [];}};
 </script>
 <script type="module">
 import {mountPosterEditorOverlay} from '/poster-editor-overlay.js';
@@ -41,6 +43,19 @@ try{
  await page.goto(`http://127.0.0.1:${port}/edit.html`);
  const move=page.getByRole('button',{name:'Move Main subject'});
  await move.waitFor();
+ await page.evaluate(()=>{
+   const host=document.getElementById('viewport');
+   host.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,button:0,pointerId:11,clientX:300,clientY:300}));
+   host.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,button:0,pointerId:11,clientX:300,clientY:300}));
+ });
+ assert.equal(await page.evaluate(()=>window.FumocaPoster.getState().selectedSubjectId),'subject_second','tapping the live splat canvas should select the projected 3D subject');
+ await page.evaluate(()=>window.FumocaPoster.selectSubject('subject_main'));
+ await page.evaluate(()=>{
+   const host=document.getElementById('viewport');
+   host.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,button:0,pointerId:12,clientX:300,clientY:300}));
+   host.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,button:0,pointerId:12,clientX:320,clientY:320}));
+ });
+ assert.equal(await page.evaluate(()=>window.FumocaPoster.getState().selectedSubjectId),'subject_main','camera orbit drags must not be interpreted as subject selection');
  const sidePick=page.getByRole('button',{name:'Select Side product'});
  await sidePick.click();
  assert.equal(await page.evaluate(()=>window.FumocaPoster.getState().selectedSubjectId),'subject_second','clicking a visible poster subject should select that 3D object');
