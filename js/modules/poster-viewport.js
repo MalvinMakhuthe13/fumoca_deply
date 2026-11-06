@@ -57,7 +57,7 @@ function mount() {
     return title;
   };
   const restore = () => {
-    for (const property of ['position','inset','left','top','right','bottom','width','height','overflow','background','backgroundColor','backgroundImage','backgroundSize','backgroundPosition']) {
+    for (const property of ['position','inset','left','top','right','bottom','width','height','maxWidth','maxHeight','boxSizing','overflow','background','backgroundColor','backgroundImage','backgroundSize','backgroundPosition']) {
       host.style.removeProperty(property.replace(/[A-Z]/g, (m) => '-' + m.toLowerCase()));
     }
     title?.remove();
