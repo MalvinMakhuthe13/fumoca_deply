@@ -14,6 +14,10 @@ assert.ok(viewport.includes('data-fumoca-poster-background'), 'Poster viewport m
 assert.ok(viewport.includes('data-fumoca-poster-background-image'), 'Background must use a dedicated image element');
 assert.ok(viewport.includes('backgroundImage.src = background.value'), 'Background source must be assigned to the image element');
 assert.ok(viewport.includes('backgroundImage.onerror'), 'Background decode/load failures must be observable');
+assert.ok(viewport.includes("backgroundNode.style.display = 'none'"), 'Disabling poster composition must hide, not destroy, the background layer');
+assert.ok(viewport.includes("backgroundNode.style.display = 'block'"), 'Re-enabling poster composition must restore the existing background layer');
+assert.ok(!viewport.includes('backgroundNode?.remove();'), 'Poster toggle must not discard the background image element');
+
 assert.ok(viewport.includes('fumoca:posterBackgroundLoaded'), 'Successful background loads must be observable');
 assert.ok(viewport.includes('zIndex: \'0\''), 'Background must remain behind scene content');
 assert.ok(viewport.includes("zIndex: '3'"), 'Headline must render above the background');
