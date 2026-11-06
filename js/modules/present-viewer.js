@@ -99,6 +99,9 @@ export function initPresentViewer() {
   [500, 1500, 3000].forEach((ms) => setTimeout(tryApply, ms));
   window.addEventListener('fumoca:recordLoaded', tryApply);
   window.addEventListener('fumoca:splatLoaded', tryApply);
+  // viewer.js imports poster-composer asynchronously; restore immediately when
+  // its API becomes available, even if the initial boot retries have elapsed.
+  window.addEventListener('fumoca:posterReady', tryApply);
   window.FumocaPresentViewer = {
     reload: () => {
       magazineApplied = false;
