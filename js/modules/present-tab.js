@@ -297,8 +297,7 @@ function mountPanel() {
       <div class="ptp-poster-subtitle">BACKGROUND & ART DIRECTION</div>
       <label class="ptp-poster-field">Background colour<input type="color" data-poster-field="background" value="#10131a"></label>
       <label class="ptp-poster-field">Background style<select data-poster-field="backgroundGradient"><option value="solid">Solid colour</option><option value="sunset">Warm sunset</option><option value="midnight">Midnight editorial</option><option value="ocean">Ocean depth</option><option value="emerald">Emerald luxury</option><option value="paper">Soft paper</option></select></label>
-      <label class="ptp-poster-field">Background image<input type="file" accept="image/png,image/jpeg,image/webp" data-poster-field="backgroundFile"></label>
-      <label class="ptp-poster-field">Or background image URL<input type="url" placeholder="https://…" data-poster-field="backgroundUrl"></label>
+      <label class="ptp-poster-field">Upload background from your device<input type="file" accept="image/png,image/jpeg,image/webp" data-poster-field="backgroundFile"></label>
       <div class="ptp-poster-grid">
         <label class="ptp-poster-field">Image fit<select data-poster-field="backgroundFit"><option value="cover">Fill canvas</option><option value="contain">Contain</option><option value="fill">Stretch</option></select></label>
         <label class="ptp-poster-field">Image position<select data-poster-field="backgroundPosition"><option value="center">Center</option><option value="top">Top</option><option value="bottom">Bottom</option><option value="left">Left</option><option value="right">Right</option></select></label>
@@ -307,8 +306,8 @@ function mountPanel() {
         <label class="ptp-poster-field">Brightness<input type="range" min="20" max="200" value="100" data-poster-field="backgroundBrightness"></label>
       </div>
       <div class="ptp-poster-subtitle">SUPPORTING IMAGES</div>
-      <label class="ptp-poster-field">Add image / logo / texture<input type="file" accept="image/png,image/jpeg,image/webp" data-poster-field="overlayFile" multiple></label>
-      <div class="ptp-poster-actions"><button type="button" data-act="add-overlay-url">Add image from URL</button><button type="button" data-act="clear-overlays">Remove all images</button></div>
+      <label class="ptp-poster-field">Upload images, logos or textures from your device<input type="file" accept="image/png,image/jpeg,image/webp" data-poster-field="overlayFile" multiple></label>
+      <div class="ptp-poster-actions"><button type="button" data-act="clear-overlays">Remove all supporting images</button></div>
       <div id="ptpPosterAssetList" class="ptp-poster-status">No supporting images added yet.</div>
       <div class="ptp-poster-hint">Select, drag and resize image layers on the poster. Set proportional, fixed-pixel or responsive min/max sizing, lock layers, hide them and change their stacking order. These are presentation layers and do not alter the source splat.</div>
       <div class="ptp-poster-grid">
