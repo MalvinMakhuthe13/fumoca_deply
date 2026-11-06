@@ -240,7 +240,19 @@ const FumocaPublish = (() => {
       .from('nif-files')
       .upload(path, blob, { contentType: 'application/octet-stream' });
     if (uploadError || !fileKey) {
-      throw new Error('NIF upload failed: ' + (uploadError?.message || 'storage returned no file key'));
+      // If the Gaussian companion was uploaded first, remove it when the
+      // primary NIF upload fails. A companion without a registered NIF cannot
+      // be opened by the viewer and would otherwise become orphaned storage.
+      if (viewPlyKey) {
+        try {
+          const cleanup = await r2.from('nif-files').remove([viewPlyKey]);
+          if (cleanup.error) console.warn('[Publish] Could not clean up companion after NIF upload failure:', cleanup.error);
+        } catch (cleanupError) {
+          console.warn('[Publish] Could not clean up companion after NIF upload failure:', cleanupError);
+        }
+      }
+      throw new Error('NIF upload failed: ' + (uploadError?.message || 'storage returned no file key') +
+        (viewPlyKey ? ' The companion upload was also rolled back where possible.' : ''));
     }
 
     onProgress?.('Registering…', 70);
