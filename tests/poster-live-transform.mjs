@@ -13,6 +13,9 @@ const centered = computePosterWorldTransform({ ...base, object: { x: 0.5, y: 0.5
 assert.deepEqual(centered.position, { x: 2, y: 3, z: 4 });
 assert.equal(centered.scale, 1);
 assert.equal(centered.rotation, 0);
+const layered = computePosterWorldTransform({ ...base, object: { x: 0.5, y: 0.5, scale: 1, rotation: 0, z: 11 } });
+assert.ok(layered.position.z > centered.position.z, 'Higher layer depth moves the subject toward the camera');
+assert.ok(Math.abs(layered.position.z - 5) < 1e-9);
 
 const moved = computePosterWorldTransform({ ...base, object: { x: 0.75, y: 0.25, scale: 1.5, rotation: 90 } });
 assert.ok(Math.abs(moved.position.x - 12) < 1e-9);
