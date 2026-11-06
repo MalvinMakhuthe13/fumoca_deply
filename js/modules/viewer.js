@@ -321,26 +321,28 @@ async function deleteCurrentUpload() {
   const original = btn?.textContent || 'Delete upload';
   if (btn) { btn.disabled = true; btn.textContent = 'Deletingâ€¦'; }
   try {
-    // nif_files stores canonical R2 keys; CDN URLs cannot be parsed as
-    // Supabase Storage URLs. Delete the owned record first, then clean its
-    // known NIF/source/thumbnail objects from the correct R2 bucket.
+    // Keep the owned row available for Worker-side legacy-key verification
+    // until storage cleanup succeeds. A failure leaves the record retryable.
+    const meta = currentRecord.meta || {};
+    const groups = {
+      'nif-files': [currentRecord.r2_key, meta.source_r2_key, meta.source_capture?.r2_key],
+      'thumbnails': [
+        meta.thumbnail_r2_key, meta.capture_thumbnail_r2_key,
+        meta.present?.poster?.composition?.background?.r2Key,
+        ...(meta.present?.poster?.composition?.assets?.images || []).map(image => image?.r2Key),
+      ],
+    };
+    for (const [bucket, values] of Object.entries(groups)) {
+      const keys = [...new Set(values.filter(key => typeof key === 'string' && key.trim()))];
+      if (!keys.length) continue;
+      const cleanup = await Promise.allSettled(keys.map(key => r2.from(bucket).remove([key])));
+      if (cleanup.some(result => result.status === 'rejected' || result.value?.error)) {
+        throw new Error('Some linked storage files could not be deleted. Your NIF record was kept; please retry.');
+      }
+    }
     const { error } = await supabase.from('nif_files')
       .delete().eq('id', currentRecord.id).eq('user_id', currentRecord.user_id);
     if (error) throw error;
-
-    const keys = [
-      currentRecord.r2_key,
-      currentRecord.meta?.source_r2_key,
-      currentRecord.meta?.source_capture?.r2_key,
-      currentRecord.meta?.thumbnail_r2_key,
-      currentRecord.meta?.capture_thumbnail_r2_key,
-    ].filter((key, index, all) => typeof key === 'string' && key.trim() && all.indexOf(key) === index);
-    const cleanup = await Promise.allSettled(
-      keys.map(key => r2.from('nif-files').remove([key]))
-    );
-    if (cleanup.some(result => result.status === 'rejected' || result.value?.error)) {
-      console.warn('[FUMOCA viewer] NIF row deleted; some R2 objects may need cleanup', currentRecord.id);
-    }
     window.location.href = 'feed.html';
   } catch (err) {
     console.error('[FUMOCA delete upload]', err);
