@@ -11,7 +11,7 @@ import { decodeNif, geometryToSplatRows } from './nif-format.js?v=20261024-reals
 import { chooseRenderMode, solidPointScale } from './industry-math.js';
 import './adaptive-presentation.js';
 import './poster-composer.js';
-import './poster-viewport.js';
+import './poster-viewport.js?v=20261106-restore-cleanup01';
 import { applyPosterLiveTransform } from './poster-live-transform.js';
 let _fumocaPosterStateCache = null;
 window.addEventListener('fumoca:posterChange', (event) => {
