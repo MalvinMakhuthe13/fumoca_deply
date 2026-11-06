@@ -38,8 +38,15 @@ export function calculatePosterViewport(posterState, width, height) {
 }
 
 function mount() {
-  const stage = document.getElementById('stage') || document.getElementById('canvasHost') || document.getElementById('splatHost');
-  const host = document.getElementById('stageHost') || stage;
+  const isStudioEditor = /\/edit(?:\.html)?\/?$/i.test(window.location.pathname);
+  // Studio's poster layers and editable image assets share #viewport.
+  // The public viewer uses the dedicated #stageHost inside its WebGL canvas host.
+  const stage = isStudioEditor
+    ? (document.getElementById('viewport') || document.getElementById('canvasHost'))
+    : (document.getElementById('stage') || document.getElementById('canvasHost') || document.getElementById('splatHost'));
+  const host = isStudioEditor
+    ? stage
+    : (document.getElementById('stageHost') || stage);
   if (!stage || !host || !window.FumocaPoster) return;
   if (host.dataset.fumocaPosterViewportMounted === '1') return;
   host.dataset.fumocaPosterViewportMounted = '1';
