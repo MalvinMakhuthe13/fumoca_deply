@@ -18,13 +18,13 @@ const fixture = `<!doctype html>
         preset:'editorial',
         composition:{
           aspectRatio:0.75,
-          background:{type:'image',value:'https://assets.example.test/poster-bg.webp',fit:'cover',position:'center'},
+          background:{type:'image',value:'https://assets.example.test/poster-bg.webp',r2Key:'poster-assets/user-1/nif-browser-fixture/background.webp',bucket:'thumbnails',fit:'cover',position:'center',opacity:0.92,blur:3,brightness:1.15},
           subjects:[
             {id:'subject_main',label:'Main subject',source:{type:'current'},x:0.62,y:0.5,scale:1.1,rotation:8,z:1,visible:true},
             {id:'subject_second',label:'Second product',source:{type:'nif',assetId:'nif-secondary'},x:0.28,y:0.66,scale:0.7,rotation:-12,z:2,visible:true}
           ],
           assets:{images:[
-            {id:'brand-mark',name:'Brand mark',src:'https://assets.example.test/logo.webp',x:0.12,y:0.12,width:0.2,sizeMode:'fixed',fixedWidthPx:144,visible:true}
+            {id:'brand-mark',name:'Brand mark',src:'https://assets.example.test/logo.webp',r2Key:'poster-assets/user-1/nif-browser-fixture/brand-mark.webp',bucket:'thumbnails',x:0.12,y:0.12,width:0.2,sizeMode:'fixed',fixedWidthPx:144,minWidthPx:96,maxWidthPx:360,anchor:'bottom-right',rotation:13,opacity:0.85,z:5,fit:'cover',visible:true}
           ]}
         }
       }
@@ -77,8 +77,23 @@ try {
   assert.equal(restored.preset,'editorial');
   assert.equal(restored.composition.background.type,'image');
   assert.equal(restored.composition.background.value,'https://assets.example.test/poster-bg.webp');
+  assert.equal(restored.composition.background.r2Key,'poster-assets/user-1/nif-browser-fixture/background.webp');
+  assert.equal(restored.composition.background.bucket,'thumbnails');
+  assert.equal(restored.composition.background.opacity,0.92);
+  assert.equal(restored.composition.background.blur,3);
+  assert.equal(restored.composition.background.brightness,1.15);
   assert.equal(restored.composition.assets.images[0].id,'brand-mark');
+  assert.equal(restored.composition.assets.images[0].src,'https://assets.example.test/logo.webp');
+  assert.equal(restored.composition.assets.images[0].r2Key,'poster-assets/user-1/nif-browser-fixture/brand-mark.webp');
+  assert.equal(restored.composition.assets.images[0].bucket,'thumbnails');
   assert.equal(restored.composition.assets.images[0].fixedWidthPx,144);
+  assert.equal(restored.composition.assets.images[0].minWidthPx,96);
+  assert.equal(restored.composition.assets.images[0].maxWidthPx,360);
+  assert.equal(restored.composition.assets.images[0].anchor,'bottom-right');
+  assert.equal(restored.composition.assets.images[0].rotation,13);
+  assert.equal(restored.composition.assets.images[0].opacity,0.85);
+  assert.equal(restored.composition.assets.images[0].z,5);
+  assert.equal(restored.composition.assets.images[0].fit,'cover');
   assert.equal(restored.composition.subjects.length,2);
   assert.equal(restored.composition.subjects[1].source.assetId,'nif-secondary');
   assert.equal(restored.composition.subjects[1].rotation,-12);
