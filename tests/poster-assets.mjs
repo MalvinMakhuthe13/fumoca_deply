@@ -26,6 +26,8 @@ for (const field of ['backgroundFile','backgroundUrl','backgroundFit','backgroun
   assert.ok(studio.includes(`data-poster-field="${field}"`), `Missing Studio control: ${field}`);
 }
 assert.ok(studio.includes('savePosterToCloud()'), 'Uploaded image media must be saved to the NIF asset before sharing');
+assert.ok(studio.includes('backgroundGradient'), 'Studio must offer art-directed gradient backgrounds');
+assert.ok(studio.includes('preserveAlpha ? canvas.toDataURL(\'image/webp\''), 'Supporting PNG/logo layers must preserve transparency');
 assert.ok(studio.includes("selectField('Size behaviour','sizeMode'"), 'Missing layer size mode selector');
 for (const field of ["field('Width %','width'", "field('Fixed width px','fixedWidthPx'", "field('Minimum px','minWidthPx'", "field('Maximum px','maxWidthPx'", "field('Rotation °','rotation'", "field('Opacity %','opacity'", "selectField('Anchor','anchor'"]) {
   assert.ok(studio.includes(field), `Missing layer property control: ${field}`);
