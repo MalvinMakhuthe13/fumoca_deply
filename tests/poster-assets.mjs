@@ -57,8 +57,8 @@ assert.ok(cloudPersistence.indexOf('persistPosterImagesToR2') < cloudPersistence
 assert.ok(cloudPersistence.includes('metadataCommitted'), 'Failed database writes must leave the local composition retryable');
 assert.ok(cloudPersistence.includes("r2Client.from('thumbnails').remove(uploadedKeys)"), 'Failed cloud saves must clean up uploaded R2 objects');
 assert.ok(presentViewer.includes('...(rec?.metadata || {}), ...(rec?.meta || {})'), 'Public viewer must restore presentation metadata from either supported record shape');
-assert.ok(studio.includes("r2.from('thumbnails')"), 'Poster media must be stored in the existing R2 image bucket');
-assert.ok(studio.includes('persistPosterImagesToR2'), 'Cloud save must externalize local image data before writing NIF metadata');
+assert.ok(cloudPersistence.includes("r2Client.from('thumbnails')"), 'Poster media must be stored in the existing R2 image bucket');
+assert.ok(cloudPersistence.includes('persistPosterImagesToR2'), 'Cloud save must externalize local image data before writing NIF metadata');
 assert.ok(studio.includes('r2Key: stored.r2Key'), 'Saved poster media must retain its R2 object key');
 assert.ok(studio.includes('Upload background from your device'), 'Background must offer direct local-device upload');
 assert.ok(studio.includes('Upload images, logos or textures from your device'), 'Supporting image layers must offer direct local-device upload');
