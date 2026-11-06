@@ -30,8 +30,8 @@ const fixture = `<!doctype html>
       }
     }}
   };
-  await import('/modules/present-viewer.js');
-  window.FumocaPresentViewer.reload();
+  const viewer = await import('/modules/present-viewer.js');
+  viewer.initPresentViewer();
   window.__restoreReady = true;
 </script>`;
 
@@ -39,7 +39,7 @@ const server = http.createServer(async (req,res) => {
   if (req.url === '/' || req.url === '/viewer.html') {
     res.writeHead(200, {'content-type':'text/html'}); res.end(fixture); return;
   }
-  if (req.url === '/modules/present-nav.js') {
+  if (req.url?.split('?')[0] === '/modules/present-nav.js') {
     res.writeHead(200, {'content-type':'text/javascript'});
     res.end('export function initPresentNav(){}; export function setNavStops(){};'); return;
   }
@@ -67,10 +67,13 @@ let browser;
 try {
   browser=await chromium.launch({headless:true});
   const page=await browser.newPage({viewport:{width:900,height:900}});
+  const pageErrors=[];
+  page.on('pageerror',error=>pageErrors.push(error.message));
   await page.goto(`http://127.0.0.1:${port}/viewer.html`);
   await page.waitForFunction(()=>window.__restoreReady && window.FumocaPresentViewer && window.FumocaPoster);
   await page.waitForFunction(()=>window.FumocaPoster.getState().enabled === true);
   const restored=await page.evaluate(()=>window.FumocaPoster.getState());
+  assert.deepEqual(pageErrors,[]);
   assert.equal(restored.preset,'editorial');
   assert.equal(restored.composition.background.type,'image');
   assert.equal(restored.composition.background.value,'https://assets.example.test/poster-bg.webp');
