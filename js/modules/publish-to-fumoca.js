@@ -204,9 +204,10 @@ const FumocaPublish = (() => {
     // (comment previously said "splat-files", a pre-R2-migration bucket name
     // that doesn't exist — the actual .from('nif-files') call below was
     // already correct, just the comment was stale).
-    const path = splatId
-      ? `${splatId}/edited_${timestamp}.nif`
-      : `new/upload_${timestamp}.nif`;
+    // All new browser-created objects live under the authenticated user's
+    // namespace so the R2 Worker can enforce per-user deletion safely.
+    const assetPath = `${user.id}/${splatId || 'new'}`;
+    const path = `${assetPath}/edited_${timestamp}.nif`;
 
     // Upload only after every required companion has been prepared successfully.
     // A Gaussian PLY must publish its edited full-fidelity companion. Do not
@@ -236,9 +237,7 @@ const FumocaPublish = (() => {
     // 32-byte .splat row format. Never upload raw .splat bytes with a .ply key.
     // Legacy .splat assets remain fully publishable through the converted NIF.
     if (sourcePlyBytes && (isGaussianPly || sourceName.endsWith('.ply'))) {
-      const viewPath = splatId
-        ? `${splatId}/view_${timestamp}.ply`
-        : `new/view_${timestamp}.ply`;
+      const viewPath = `${assetPath}/view_${timestamp}.ply`;
       const viewBlob = new Blob([sourcePlyBytes], { type: 'application/octet-stream' });
       const { fileKey: companionKey, error: companionError } = await r2
         .from('nif-files')
