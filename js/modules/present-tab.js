@@ -10,7 +10,7 @@ import {
   initPresentNav, setNavStops, addNavStop, removeNavStop, clearNavStops, flyToStop,
   stopsFromHotspots, exportStops, importStops,
 } from './present-nav.js';
-import './poster-composer.js?v=20261106-r2metadata01';
+import './poster-composer.js?v=20261106-backgrounddata02';
 import './poster-assets.js?v=20261106-layercontrols02';
 import { mountPosterEditorOverlay as createPosterEditorOverlay } from './poster-editor-overlay.js?v=20261106-directmanipulation01';
 import { mountPosterSceneManager } from './poster-scene-manager.js?v=20261106-unifiedimages02';
