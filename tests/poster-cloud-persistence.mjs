@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { savePosterSnapshot } from '../js/modules/poster-cloud-persistence.js';
 
-const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p6sAAAAASUVORK5CYII=';\nconst gif = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
+const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p6sAAAAASUVORK5CYII=';
+const gif = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
 function fixture({ dbError = null, owner = 'user-1' } = {}) {
   const uploads = [], removals = [], writes = [];
   const r2 = { from(bucket) {
@@ -27,7 +28,12 @@ function fixture({ dbError = null, owner = 'user-1' } = {}) {
   const record = { id: 'nif-1', user_id: owner, meta: { retained: 'yes' }, metadata: { legacy: 'kept' } };
   const snapshot = { poster: { composition: {
     background: { type: 'image', value: png },
-    assets: { images: [{ id: 'logo', src: png }] },
+    assets: { images: [{ id: 'logo', src: png, x: 0.82, y: 0.17, width: 0.31, rotation: 23, z: 7, visible: true, locked: false, sizeMode: 'fixed', fixedWidthPx: 310 }] },
+    subjects: [
+      { id: 'subject_main', label: 'Main product', source: { type: 'current' }, x: 0.41, y: 0.62, scale: 1.35, rotation: 18, visible: true, locked: false, z: 2 },
+      { id: 'subject_side', label: 'Side product', source: { type: 'nif', assetId: 'nif-side-22' }, x: 0.78, y: 0.48, scale: 0.72, rotation: -31, visible: false, locked: true, z: 5 },
+    ],
+    title: { visible: true, text: 'MADE TO MOVE', align: 'right', fontSize: 64, color: '#ffffff' },
   }}};
   return { r2Client: r2, supabase, record, snapshot, uploads, removals, writes };
 }
@@ -45,6 +51,15 @@ function fixture({ dbError = null, owner = 'user-1' } = {}) {
   assert.match(result.savedData.poster.composition.background.value, /^https:\/\/cdn\.example\.test\//);
   assert.match(result.savedData.poster.composition.assets.images[0].src, /^https:\/\/cdn\.example\.test\//);
   assert.ok(result.savedData.poster.composition.assets.images[0].r2Key);
+  assert.deepEqual(result.savedData.poster.composition.subjects, f.snapshot.poster.composition.subjects, 'all splat source IDs, transforms, visibility, lock state and layer order must survive cloud snapshotting');
+  assert.deepEqual(result.savedData.poster.composition.assets.images[0], {
+    id: 'logo', src: result.savedData.poster.composition.assets.images[0].src,
+    x: 0.82, y: 0.17, width: 0.31, rotation: 23, z: 7, visible: true, locked: false,
+    sizeMode: 'fixed', fixedWidthPx: 310, r2Key: result.savedData.poster.composition.assets.images[0].r2Key,
+    bucket: 'thumbnails',
+  }, 'supporting image transforms and responsive sizing must survive image upload');
+  assert.deepEqual(result.savedData.poster.composition.title, f.snapshot.poster.composition.title, 'poster typography settings must survive persistence');
+  assert.deepEqual(f.writes[0].value.meta.present.poster.composition.subjects, f.snapshot.poster.composition.subjects, 'the complete subject stack must be committed to nif_files.meta.present');
   assert.equal(f.removals.length, 0);
 }
 
