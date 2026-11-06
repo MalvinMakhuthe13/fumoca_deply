@@ -36,27 +36,26 @@ function extractStoragePath(urlString) {
 
 async function deleteUploadRecord(item) {
   if (item.source === 'nif_files') {
-    // The NIF row stores R2 object keys, not Supabase Storage URLs. Prefer
-    // those keys directly so CDN URLs do not leave orphaned source/thumbnail
-    // objects behind. Delete the database row first; a storage failure should
-    // never destroy the only database reference to the remaining objects.
+    // Keep the row available for ownership verification until all storage
+    // cleanup succeeds. Failed deletes leave the asset visible and retryable.
+    const meta = item.meta || {};
+    const groups = {
+      'nif-files': [item.r2_key, meta.source_r2_key, meta.source_capture?.r2_key],
+      'thumbnails': [
+        meta.thumbnail_r2_key, meta.capture_thumbnail_r2_key,
+        meta.present?.poster?.composition?.background?.r2Key,
+        ...(meta.present?.poster?.composition?.assets?.images || []).map(image => image?.r2Key),
+      ],
+    };
+    for (const [bucket, values] of Object.entries(groups)) {
+      const keys = [...new Set(values.filter(key => typeof key === 'string' && key.trim()))];
+      if (!keys.length) continue;
+      const results = await Promise.allSettled(keys.map(key => r2.from(bucket).remove([key])));
+      const failed = results.filter(result => result.status === 'rejected' || result.value?.error);
+      if (failed.length) throw new Error('Some linked storage files could not be deleted. Your NIF record was kept; please retry.');
+    }
     const { error } = await supabase.from('nif_files').delete().eq('id', item.id).eq('user_id', item.user_id);
     if (error) throw error;
-
-    const keys = [
-      item.r2_key,
-      item.meta?.source_r2_key,
-      item.meta?.source_capture?.r2_key,
-      item.meta?.thumbnail_r2_key,
-      item.meta?.capture_thumbnail_r2_key,
-    ].filter((key, index, all) => typeof key === 'string' && key.trim() && all.indexOf(key) === index);
-    const results = await Promise.allSettled(keys.map(key => r2.from('nif-files').remove([key])));
-    const failed = results.filter(result => result.status === 'rejected' || result.value?.error);
-    if (failed.length) {
-      console.warn('[FUMOCA profile] NIF record deleted; some R2 objects may need cleanup', {
-        nifId: item.id, failedCount: failed.length,
-      });
-    }
     return;
   }
   const candidates = [
