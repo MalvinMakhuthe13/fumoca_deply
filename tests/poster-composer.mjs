@@ -13,7 +13,7 @@ await import('../js/modules/poster-composer.js');
 
 const poster = window.FumocaPoster;
 assert.ok(poster, 'Poster Composer API should be exposed');
-assert.equal(poster.version, '0.1.0');
+assert.equal(poster.version, '0.2.0');
 
 const presets = poster.getPresets();
 assert.deepEqual(presets.map((item) => item.name), ['product', 'story', 'editorial', 'landscape']);
@@ -68,6 +68,30 @@ assert.equal(imageLayer.fixedWidthPx, 320);
 assert.equal(imageLayer.anchor, 'top-left');
 assert.equal(imageLayer.locked, true);
 assert.equal(poster.getLayout(400, 900).assets.images[0].fixedWidthPx, 320, 'Layer sizing metadata must survive responsive layout calculation');
+
+// Multi-subject scene contract: every subject owns independent normalized transforms.
+const mainSubject = poster.getState().composition.subjects.find(item => item.id === 'subject_main');
+assert.ok(mainSubject, 'Legacy single subject must migrate into the scene contract');
+assert.equal(mainSubject.source.type, 'current');
+const secondary = poster.addSubject({
+  id: 'subject_secondary', label: 'Secondary product',
+  source: { type: 'nif', assetId: 'nif-asset-123' },
+  x: 0.72, y: 0.38, scale: 1.4, rotation: 22,
+});
+assert.equal(secondary.id, 'subject_secondary');
+assert.equal(poster.getState().selectedSubjectId, 'subject_secondary');
+poster.updateSubject('subject_secondary', { x: 2, scale: 8, rotation: -500 });
+const changedSecondary = poster.getState().composition.subjects.find(item => item.id === 'subject_secondary');
+assert.equal(changedSecondary.x, 1);
+assert.equal(changedSecondary.scale, 4);
+assert.equal(changedSecondary.rotation, -360);
+poster.updateSubject('subject_secondary', { locked: true });
+poster.updateSubject('subject_secondary', { x: 0.1 });
+assert.equal(poster.getState().composition.subjects.find(item => item.id === 'subject_secondary').x, 1, 'Locked subjects reject transform edits');
+assert.equal(poster.removeSubject('subject_main'), false, 'The primary compatibility subject cannot be removed');
+assert.equal(poster.removeSubject('subject_secondary'), true);
+assert.equal(poster.getState().selectedSubjectId, 'subject_main');
+assert.throws(() => poster.addSubject({ source: { type: 'ply', url: 'javascript:alert(1)' } }), /HTTP\(S\) PLY/);
 
 poster.setEnabled(true);
 assert.equal(poster.getState().enabled, true);
