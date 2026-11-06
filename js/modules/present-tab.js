@@ -19,6 +19,7 @@ import r2 from '../r2Client.js';
 import { savePosterSnapshot } from './poster-cloud-persistence.js';
 
 const STORAGE_KEY = 'fumoca_present_v1';
+let posterCloudSaveInFlight = false;
 
 async function compressEditorialImage(file, maxEdge = 1600, preserveAlpha = false) {
   if (!file || !/^image\/(png|jpeg|webp|gif)$/i.test(file.type)) throw new Error('Choose a PNG, JPG, WEBP or GIF image.');
@@ -104,6 +105,8 @@ function persist() {
 }
 
 async function savePosterToCloud() {
+  if (posterCloudSaveInFlight) return false;
+  const button = document.querySelector('[data-act="poster-cloud-save"]');
   const status = document.getElementById('ptpPosterCloudStatus');
   const setStatus = (message, failed = false) => {
     if (!status) return;
@@ -116,6 +119,8 @@ async function savePosterToCloud() {
     setStatus('Open a saved NIF asset before saving a poster to the cloud.', true);
     return false;
   }
+  posterCloudSaveInFlight = true;
+  if (button) { button.disabled = true; button.textContent = 'Saving…'; }
   setStatus('Saving poster to this asset…');
   try {
     const result = await savePosterSnapshot({ record, supabase, r2Client: r2, createSnapshot: payload });
@@ -144,6 +149,9 @@ async function savePosterToCloud() {
     console.warn('[Poster Composer] Cloud save failed', error);
     setStatus(error?.message || 'Cloud save failed. Your local composition is still saved.', true);
     return false;
+  } finally {
+    posterCloudSaveInFlight = false;
+    if (button) { button.disabled = false; button.textContent = 'Save poster to asset'; }
   }
 }
 
