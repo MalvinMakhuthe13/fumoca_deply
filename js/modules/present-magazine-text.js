@@ -103,7 +103,16 @@ function renderItem(item) {
   const el = document.createElement('div');
   el.className = `mt-item mt-${item.style || 'cover'} mt-mode-${item.mode || 'billboard'}`;
   el.dataset.id = item.id;
-  if (editing && selectedTextId === item.id) el.style.outline = '1px dashed #c8ff00';
+  if (editing && selectedTextId === item.id) {
+    el.classList.add('mt-selected');
+    ['nw', 'ne', 'sw', 'se'].forEach(position => {
+      const handle = document.createElement('span');
+      handle.className = 'mt-resize-handle mt-resize-' + position;
+      handle.dataset.resize = position;
+      handle.setAttribute('aria-label', 'Resize text');
+      el.appendChild(handle);
+    });
+  }
   el.textContent = item.text || '';
   Object.assign(el.style, {
     position: 'absolute',
@@ -129,8 +138,40 @@ function renderItem(item) {
     transition: 'opacity .25s ease',
     ...styleFor(item),
   });
-  if (editing) el.addEventListener('pointerdown', (e) => { if (item.locked) return; selectText(item.id); startDrag(e, item, el); });
+  if (editing) el.addEventListener('pointerdown', (e) => {
+    const handle = e.target.closest?.('[data-resize]');
+    if (handle) { startResize(e, item, handle.dataset.resize); return; }
+    if (item.locked) return;
+    selectedTextId = item.id;
+    ensureLayer().querySelectorAll('.mt-item').forEach(node => node.classList.toggle('mt-selected', node.dataset.id === item.id));
+    startDrag(e, item, el);
+  });
   return el;
+}
+
+function startResize(e, item, position) {
+  if (!editing || item.locked) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const host = ensureLayer().parentElement;
+  const startX = e.clientX, startY = e.clientY;
+  const startSize = Number(item.fontSize) || (item.style === 'cover' ? 64 : 24);
+  const direction = position.includes('e') ? 1 : -1;
+  const startWidth = host.getBoundingClientRect().width || 1080;
+  const move = ev => {
+    const delta = ((ev.clientX - startX) * direction + (ev.clientY - startY)) / 2;
+    item.fontSize = Math.max(8, Math.min(240, startSize + delta * 2 * (1080 / startWidth)));
+    const el = ensureLayer().querySelector('[data-id="' + item.id + '"]');
+    if (el) el.style.fontSize = 'calc(' + item.fontSize + 'px * var(--mt-scale, 1))';
+  };
+  const up = () => {
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', up);
+    onChange?.(exportAll());
+    rebuild();
+  };
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', up);
 }
 
 function startDrag(e, item, el) {
@@ -151,6 +192,7 @@ function startDrag(e, item, el) {
     window.removeEventListener('pointermove', move);
     window.removeEventListener('pointerup', up);
     onChange?.(exportAll());
+    rebuild();
   };
   window.addEventListener('pointermove', move);
   window.addEventListener('pointerup', up);
