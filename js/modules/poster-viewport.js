@@ -41,14 +41,23 @@ function mount() {
   const stage = document.getElementById('stage') || document.getElementById('canvasHost') || document.getElementById('splatHost');
   const host = document.getElementById('stageHost') || stage;
   if (!stage || !host || !window.FumocaPoster) return;
+  if (host.dataset.fumocaPosterViewportMounted === '1') return;
+  host.dataset.fumocaPosterViewportMounted = '1';
   let lastSignature = '';
   let frame = 0;
   let title = host.querySelector('[data-fumoca-poster-title]');
   let backgroundNode = host.querySelector('[data-fumoca-poster-background]');
+  let backgroundImage = backgroundNode?.querySelector?.('[data-fumoca-poster-background-image]');
   if (!backgroundNode) {
     backgroundNode = document.createElement('div');
     backgroundNode.dataset.fumocaPosterBackground = '1';
-    Object.assign(backgroundNode.style, { position: 'absolute', inset: '0', zIndex: '0', pointerEvents: 'none' });
+    Object.assign(backgroundNode.style, { position: 'absolute', inset: '0', zIndex: '0', pointerEvents: 'none', overflow: 'hidden' });
+    backgroundImage = document.createElement('img');
+    backgroundImage.dataset.fumocaPosterBackgroundImage = '1';
+    backgroundImage.alt = '';
+    backgroundImage.draggable = false;
+    Object.assign(backgroundImage.style, { display: 'block', width: '100%', height: '100%', objectPosition: 'center', pointerEvents: 'none' });
+    backgroundNode.appendChild(backgroundImage);
     host.insertBefore(backgroundNode, host.firstChild);
   }
   const ensureTitle = () => {
@@ -108,15 +117,29 @@ function mount() {
     host.style.backgroundSize = 'cover';
     host.style.backgroundPosition = 'center';
     if (backgroundNode) {
-      backgroundNode.style.backgroundImage = background.type === 'image' ? 'url("' + String(background.value).replace(/["\\\\]/g, '') + '")' : '';
+      const isImage = background.type === 'image' && /^data:image\\/(png|jpeg|webp|gif);base64,|^https?:\\/\\//i.test(String(background.value || ''));
       backgroundNode.style.background = background.type === 'gradient' ? background.value : '';
       backgroundNode.style.backgroundColor = background.type === 'solid' ? (background.value || '#10131a') : 'transparent';
-      backgroundNode.style.backgroundSize = background.fit === 'contain' ? 'contain' : background.fit === 'fill' ? '100% 100%' : 'cover';
-      backgroundNode.style.backgroundPosition = background.position || 'center';
-      backgroundNode.style.backgroundRepeat = 'no-repeat';
       backgroundNode.style.opacity = String(Math.max(0, Math.min(1, Number(background.opacity ?? 1))));
       backgroundNode.style.filter = 'blur(' + Math.max(0, Math.min(40, Number(background.blur) || 0)) + 'px) brightness(' + Math.max(0.2, Math.min(2, Number(background.brightness) || 1)) + ')';
       backgroundNode.style.transform = Number(background.blur) > 0 ? 'scale(1.04)' : 'none';
+      if (backgroundImage) {
+        backgroundImage.style.display = isImage ? 'block' : 'none';
+        backgroundImage.style.objectFit = background.fit === 'contain' ? 'contain' : background.fit === 'fill' ? 'fill' : 'cover';
+        backgroundImage.style.objectPosition = background.position || 'center';
+        if (isImage && backgroundImage.dataset.source !== background.value) {
+          backgroundImage.dataset.source = background.value;
+          backgroundImage.onload = () => window.dispatchEvent(new CustomEvent('fumoca:posterBackgroundLoaded'));
+          backgroundImage.onerror = () => {
+            console.error('[FUMOCA Poster] Background image failed to decode or load.');
+            window.dispatchEvent(new CustomEvent('fumoca:posterBackgroundError', { detail: { source: 'background' } }));
+          };
+          backgroundImage.src = background.value;
+        } else if (!isImage) {
+          backgroundImage.removeAttribute('src');
+          delete backgroundImage.dataset.source;
+        }
+      }
     }
     host.dataset.fumocaPosterViewport = '1';
     const heading = layout.title || {};
