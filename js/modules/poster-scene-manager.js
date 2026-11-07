@@ -69,7 +69,8 @@ export function mountPosterSceneManager() {
       const output = root.querySelector('[data-poster-value="' + key + '"]');
       if (!input || !transform) continue;
       const value = Number(transform[key] || 0);
-      input.value = String(['x','y','scale'].includes(key) ? Math.round(value * 100) : Math.round(value));
+      // Do not reset a slider during its active drag; posterChange fires on every tick.
+      if (document.activeElement !== input) input.value = String(['x','y','scale'].includes(key) ? Math.round(value * 100) : Math.round(value));
       if (output) output.textContent = key === 'scale' ? value.toFixed(2) + '×' : key === 'rotation' ? Math.round(value) + '°' : Math.round(value * 100) + '%';
     }
   };
