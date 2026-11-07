@@ -1325,6 +1325,10 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
         <button type="button" data-hud-mode="scale-tool" title="Scale selected points">Scale</button>
         <button type="button" data-hud-mode="measure" title="Measure between two points">Measure</button>
       </div>
+      <div class="hud-axis" aria-label="Transform scope">
+        <button type="button" data-transform-scope="selection" title="Transform only selected points">Selected</button>
+        <button type="button" data-transform-scope="scene" title="Transform every live point in this splat">Whole scene</button>
+      </div>
       <div class="hud-axis" aria-label="Camera views">
         <button type="button" data-hud-view="front" title="View from the front">Front</button>
         <button type="button" data-hud-view="side" title="View from the side">Side</button>
@@ -1946,6 +1950,7 @@ const S = {
   lidarIntensity: null, lidarClassification: null, lidarReturnNumber: null, lidarDisplayColors: null,
   points: null, geometry: null,
   mode: 'orbit',
+  transformScope: 'selection',
   displayMode: 'blob',
   brushSize: 28, brushStrength: 1.0, brushHardness: 0.8,
   brightness: 1.0, ptScale: 1.0, blobSoftness: 0.6,
@@ -2054,7 +2059,11 @@ function _syncViewportHud() {
   const ready = !!(S.positions && S.alive?.length);
   const selected = selectedPointCount();
   const count = $('hudSelectionCount');
-  if (count) count.textContent = ready ? (selected ? `${fmt(selected)} selected` : 'Whole scene') : 'No scene';
+  if (count) count.textContent = ready ? (S.transformScope === 'scene' ? 'Whole scene' : (selected ? `${fmt(selected)} selected` : 'No selection')) : 'No scene';
+  document.querySelectorAll('[data-transform-scope]').forEach(button => {
+    button.disabled = !ready;
+    button.classList.toggle('active', button.dataset.transformScope === S.transformScope);
+  });
   document.querySelectorAll('[data-hud-mode]').forEach(button => {
     button.disabled = !ready;
     button.classList.toggle('active', button.dataset.hudMode === S.mode);
@@ -2065,9 +2074,11 @@ function _syncViewportHud() {
     if (!ready) hint.textContent = 'Open a splat to enable viewport tools.';
     else if (S.mode === 'measure') hint.textContent = 'Click two points on the model to measure.';
     else if (['move', 'rotate', 'scale-tool'].includes(S.mode)) {
-      hint.textContent = selected
-        ? `Transforming ${fmt(selected)} selected points. Only this selection will change.`
-        : 'Nothing selected. Select an object or points first; the whole scene stays untouched.';
+      hint.textContent = S.transformScope === 'scene'
+        ? 'Transforming the whole splat. Every live point will change.'
+        : selected
+          ? `Transforming ${fmt(selected)} selected points. Only this selection will change.`
+          : 'Nothing selected. Select points or switch scope to Whole scene.';
     } else if (S.mode === 'pan') hint.textContent = 'Drag the viewport to pan the camera. Scroll or use Zoom to change distance.';
     else if (S.mode === 'zoom-tool') hint.textContent = 'Drag up or down to zoom the camera.';
     else hint.textContent = 'Drag to orbit. Use Front, Side or Top for a fixed camera view.';
@@ -2076,9 +2087,8 @@ function _syncViewportHud() {
 function syncTransformGizmo() {
   const count = S.alive?.length || 0;
   const selectedCount = selectedPointCount();
-  // Never expose a scene-wide transform gizmo: transforms require an explicit point selection.
-  // Never translate the camera target or whole scene as a fallback when selection is empty.
-  if (!count || !S.positions || !selectedCount || !['move','scale-tool','rotate'].includes(S.mode)) {
+  const canTransform = S.transformScope === 'scene' ? count > 0 : selectedCount > 0;
+  if (!count || !S.positions || !canTransform || !['move','scale-tool','rotate'].includes(S.mode)) {
     transformControls.detach();
     transformControls.enabled = false;
     transformGizmo.visible = false;
@@ -2086,9 +2096,9 @@ function syncTransformGizmo() {
     return;
   }
   let x=0,y=0,z=0,n=0;
-  const useSelection = true;
+  const useSelection = S.transformScope === 'selection';
   for (let i = 0; i < count; i++) {
-    if (!S.alive[i] || !S.selected[i]) continue;
+    if (!S.alive[i] || (useSelection && !S.selected[i])) continue;
     x += S.positions[i * 3];
     y += S.positions[i * 3 + 1];
     z += S.positions[i * 3 + 2];
@@ -2134,10 +2144,11 @@ let _gizmoGestureSnap = null; // { indices:number[], positions:Float32Array, cen
 function _gizmoCollectIndices() {
   const indices = [];
   if (!S.alive || !S.positions) return indices;
-  const hasSel = selectedPointCount() > 0;
+  const useSelection = S.transformScope === 'selection';
+  if (useSelection && !selectedPointCount()) return indices;
   for (let i = 0; i < S.alive.length; i++) {
     if (!S.alive[i]) continue;
-    if (hasSel && !(S.selected && S.selected[i])) continue;
+    if (useSelection && !(S.selected && S.selected[i])) continue;
     indices.push(i);
   }
   return indices;
@@ -4257,6 +4268,16 @@ async function startCapture() {
 }
 
 // ─── MODE SWITCHING ──────────────────────────────────────────────────────────
+document.querySelectorAll('[data-transform-scope]').forEach(button => {
+  button.addEventListener('click', () => {
+    const scope = button.dataset.transformScope;
+    if (!['selection', 'scene'].includes(scope)) return;
+    S.transformScope = scope;
+    syncTransformGizmo();
+    setStatus(scope === 'scene' ? 'Transform scope: whole scene' : 'Transform scope: selected points');
+  });
+});
+
 const toolMap = {
   toolOrbit: 'orbit', toolPan: 'pan', toolZoom: 'zoom-tool',
   toolBox: 'box', toolSphere: 'sphere', toolLasso: 'lasso', toolMagic: 'magic',
@@ -4267,7 +4288,7 @@ const toolMap = {
 
 function setMode(mode) {
   S.mode = mode;
-  if (['move','scale-tool','rotate'].includes(mode) && !selectedPointCount()) {
+  if (['move','scale-tool','rotate'].includes(mode) && S.transformScope === 'selection' && !selectedPointCount()) {
     setStatus('Select an object or points first. The whole scene will not be moved automatically.', 'warn');
   }
   const orbiting = mode === 'orbit' || mode === 'pan' || mode === 'zoom-tool';
