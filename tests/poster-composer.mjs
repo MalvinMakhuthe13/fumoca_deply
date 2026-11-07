@@ -21,6 +21,7 @@ assert.deepEqual(presets.map((item) => item.name), ['product', 'story', 'editori
 poster.setPreset('story');
 let state = poster.getState();
 assert.equal(state.preset, 'story');
+assert.equal(state.composition.framing.zoom, 1, 'Poster framing starts at a neutral camera zoom');
 assert.ok(Math.abs(state.composition.aspectRatio - (9 / 16)) < 1e-9);
 
 const portraitLayout = poster.getLayout(400, 900);
@@ -52,6 +53,11 @@ poster.updateComposition({ assets: { images: [{
 }] } });
 assert.equal(poster.getState().composition.assets.images[0].src.length, largeBackgroundDataUrl.length,
   'Supporting image data URLs must not be silently truncated');
+poster.updateComposition({ framing: { zoom: 1.75 } });
+assert.equal(poster.getState().composition.framing.zoom, 1.75, 'Poster camera zoom is saved in composition state');
+poster.updateComposition({ framing: { zoom: 9 } });
+assert.equal(poster.getState().composition.framing.zoom, 2.5, 'Poster camera zoom is clamped to a safe maximum');
+poster.updateComposition({ framing: { zoom: 1 } });
 poster.updateComposition({ background: { type: 'solid', value: '#10131a' } });
 poster.updateComposition({
   object: { x: 1.5, y: -1, scale: 9, rotation: 720 },
