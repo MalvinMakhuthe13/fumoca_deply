@@ -4,7 +4,11 @@
  * Layer geometry is stored in poster coordinates so compositions survive resize.
  */
 function hostNode() {
-  if (/\/edit/i.test(location.pathname)) return document.getElementById('viewport') || document.getElementById('stageHost') || document.getElementById('stage');
+  if (/\/edit/i.test(location.pathname)) {
+    const viewport = document.getElementById('viewport') || document.getElementById('stageHost') || document.getElementById('stage');
+    // Studio poster is a distinct adapting layer. Attach image layers to it when present.
+    return viewport?.querySelector('[data-fumoca-poster-canvas]') || viewport;
+  }
   return document.getElementById('stageHost') || document.getElementById('stage') || document.getElementById('viewport');
 }
 const clamp = (n, a, b) => Math.max(a, Math.min(b, Number(n) || 0));
