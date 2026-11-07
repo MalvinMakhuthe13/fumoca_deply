@@ -2061,9 +2061,17 @@ function _syncViewportHud() {
   });
   document.querySelectorAll('[data-hud-view]').forEach(button => { button.disabled = !ready; });
   const hint = $('viewportHudHint');
-  if (hint) hint.textContent = !ready ? 'Open a splat to enable viewport tools.' :
-    S.mode === 'measure' ? 'Click two points on the model to measure.' :
-    selected ? `Gizmo edits ${fmt(selected)} selected points.` : 'Select points before moving, rotating, or scaling.';
+  if (hint) {
+    if (!ready) hint.textContent = 'Open a splat to enable viewport tools.';
+    else if (S.mode === 'measure') hint.textContent = 'Click two points on the model to measure.';
+    else if (['move', 'rotate', 'scale-tool'].includes(S.mode)) {
+      hint.textContent = selected
+        ? `Transforming ${fmt(selected)} points. Drag the model for free movement or use the gizmo handles.`
+        : 'Choose a transform tool to select the visible subject automatically.';
+    } else if (S.mode === 'pan') hint.textContent = 'Drag the viewport to pan the camera. Scroll or use Zoom to change distance.';
+    else if (S.mode === 'zoom-tool') hint.textContent = 'Drag up or down to zoom the camera.';
+    else hint.textContent = 'Drag to orbit. Use Front, Side or Top for a fixed camera view.';
+  }
 }
 function syncTransformGizmo() {
   const count = S.alive?.length || 0;
