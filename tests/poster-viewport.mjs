@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { calculatePosterViewport } from '../js/modules/poster-viewport.js';
 
 const portrait = calculatePosterViewport({
@@ -36,4 +37,9 @@ assert.ok(Math.abs(landscape.top - 312.3125) < 1e-9);
 assert.equal(calculatePosterViewport({ enabled: false, composition: { aspectRatio: 1 } }, 800, 600), null);
 assert.equal(calculatePosterViewport({ enabled: true, composition: { aspectRatio: 0 } }, 800, 600), null);
 
-console.log('Poster viewport geometry tests passed.');
+const viewportModule = readFileSync(new URL('../js/modules/poster-viewport.js', import.meta.url), 'utf8');
+assert.match(viewportModule, /const host = isStudioEditor\\s*\\? \\(document\\.getElementById\\('stageHost'\\) \\|\\| stage\\)/,
+  'Studio poster framing must resize the actual WebGL #stageHost, not only the editor #viewport');
+assert.match(viewportModule, /const originLeft = isStudioEditor \\? rect\\.left - parentRect\\.left : 0/);
+assert.match(viewportModule, /const originTop = isStudioEditor \\? rect\\.top - parentRect\\.top : 0/);
+console.log('Poster viewport geometry and Studio renderer-host tests passed.');
