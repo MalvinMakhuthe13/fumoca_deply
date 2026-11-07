@@ -66,14 +66,21 @@ export function mountPosterViewport() {
   let originalZoomEnabled;
   let viewerReadyCamera = null;
   let viewerReadyControls = null;
-  let camera = isStudioEditor
+  // Keep the unmodified zoom for each camera. viewerReady can fire more than
+  // once; capturing an already poster-zoomed value compounds the zoom and can
+  // push the subject out of frame on the next composition update.
+  const cameraBaseZoom = new WeakMap();
+  let camera = viewerReadyCamera || (isStudioEditor
     ? (window._fumocaCamera || window.camera || window._fumocaRenderer?.camera || null)
-    : (window._fumocaRenderer?.camera || null);
-  let originalCameraZoom = camera && Number.isFinite(camera.zoom) ? camera.zoom : null;
+    : (window._fumocaRenderer?.camera || null));
   const getCamera = () => {
-    camera = (isStudioEditor ? (window._fumocaCamera || window.camera) : null) ||
-      viewerReadyCamera || window._fumocaRenderer?.camera || camera || null;
-    if (camera && originalCameraZoom === null && Number.isFinite(camera.zoom)) originalCameraZoom = camera.zoom;
+    // The camera announced by the live viewer is authoritative. Editor globals
+    // may still point at a previous scene after a viewer remount.
+    camera = viewerReadyCamera || (isStudioEditor ? (window._fumocaCamera || window.camera) : null) ||
+      window._fumocaRenderer?.camera || camera || null;
+    if (camera && !cameraBaseZoom.has(camera) && Number.isFinite(camera.zoom)) {
+      cameraBaseZoom.set(camera, camera.zoom);
+    }
     return camera;
   };
   const syncRendererBindings = () => {
@@ -108,7 +115,8 @@ export function mountPosterViewport() {
     if (orbitControls && originalPan !== undefined) orbitControls.enablePan = originalPan;
     if (orbitControls && originalZoomEnabled !== undefined) orbitControls.enableZoom = originalZoomEnabled;
     const activeCamera = getCamera();
-    if (activeCamera && Number.isFinite(originalCameraZoom)) { activeCamera.zoom = originalCameraZoom; activeCamera.updateProjectionMatrix?.(); }
+    const baseZoom = activeCamera && cameraBaseZoom.get(activeCamera);
+    if (activeCamera && Number.isFinite(baseZoom)) { activeCamera.zoom = baseZoom; activeCamera.updateProjectionMatrix?.(); }
   };
 
   if (!backgroundNode) {
@@ -314,7 +322,8 @@ export function mountPosterViewport() {
     const activeCamera = getCamera();
     if (activeCamera) {
       const framingZoom = Math.max(0.5, Math.min(2.5, Number(state.composition?.framing?.zoom) || 1));
-      activeCamera.zoom = (Number.isFinite(originalCameraZoom) ? originalCameraZoom : 1) * framingZoom;
+      const baseZoom = cameraBaseZoom.get(activeCamera);
+      activeCamera.zoom = (Number.isFinite(baseZoom) ? baseZoom : 1) * framingZoom;
       activeCamera.updateProjectionMatrix?.();
     }
 
@@ -352,8 +361,10 @@ export function mountPosterViewport() {
     // is currently displaying the splat (including non-Studio viewer routes).
     viewerReadyCamera = event.detail?.camera || viewerReadyCamera;
     viewerReadyControls = event.detail?.controls || event.detail?.viewer?.controls || viewerReadyControls;
-    if (viewerReadyCamera && Number.isFinite(viewerReadyCamera.zoom)) {
-      originalCameraZoom = viewerReadyCamera.zoom;
+    // Do not overwrite the baseline when readiness is re-announced after a
+    // poster zoom has already been applied to this same camera.
+    if (viewerReadyCamera && !cameraBaseZoom.has(viewerReadyCamera) && Number.isFinite(viewerReadyCamera.zoom)) {
+      cameraBaseZoom.set(viewerReadyCamera, viewerReadyCamera.zoom);
     }
     syncRendererBindings();
     schedule();
