@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+
+const html = readFileSync(new URL('../edit.html', import.meta.url), 'utf8');
+const toolbar = html.match(/const toolMap = \{([\s\S]*?)\n\};/);
+assert.ok(toolbar, 'toolbar mode map must exist');
+const toolIds = [...toolbar[1].matchAll(/(tool[A-Za-z]+):\s*'([^']+)'/g)];
+assert.ok(toolIds.length >= 12, 'expected navigation, selection and transform tools');
+for (const [, id] of toolIds) assert.match(html, new RegExp('id="' + id + '"'), id + ' button must exist');
+assert.match(html, /Object\.entries\(toolMap\)\.forEach\(\(\[id, mode\]\) => \{[\s\S]*?addEventListener\('click', \(\) => setMode\(mode\)\)/);
+for (const mode of ['orbit','pan','move','rotate','scale-tool','measure']) assert.match(html,new RegExp('data-hud-mode="' + mode + '"'));
+assert.match(html,/querySelectorAll\('\[data-hud-mode\]'\)[\s\S]*?setMode\(button\.dataset\.hudMode\)/);
+for (const view of ['front','side','top']) assert.match(html,new RegExp('data-hud-view="' + view + '"'));
+assert.match(html,/querySelectorAll\('\[data-hud-view\]'\)[\s\S]*?camera\.position\.copy\(target\)[\s\S]*?controls\.update\(\)/);
+assert.match(html,/if \(\['move','scale-tool','rotate'\]\.includes\(mode\)[\s\S]*?Auto-selected subject/);
+assert.match(html,/if \(\(S\.mode === 'pan' \|\| S\.mode === 'zoom-tool'\)[\s\S]*?camera\.position\.add\(delta\)[\s\S]*?camera\.position\.copy\(controls\.target\)\.add\(offset\)/);
+assert.match(html,/controls\.enabled = mode === 'orbit'/);
+console.log('Viewport toolbar contract passed: navigation, HUD modes, camera views, transforms, pan and zoom.');
