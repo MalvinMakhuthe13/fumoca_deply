@@ -121,4 +121,8 @@ assert.match(viewportModule, /!cameraBaseZoom\.has\(viewerReadyCamera\)/,
 assert.match(viewportModule, /cameraBaseZoom\.get\(activeCamera\)/,
   'Poster zoom must always be calculated from the original camera zoom');
 
-assert.match(viewportModule, /motionLevel = state\.composition\?\.motion\?\.level/, 'Poster motion level is read from the saved composition');\nassert.match(viewportModule, /still: 0, gentle: 0\.35, normal: 0\.8, dynamic: 1\.5/, 'Poster motion levels map to predictable automatic rotation speeds');\nassert.match(viewportModule, /orbitControls\.autoRotate = motionSpeed > 0/, 'Still mode disables automatic rotation and other levels enable it');\nassert.match(viewportModule, /originalAutoRotateSpeed/, 'Disabling poster mode restores the viewer automatic rotation speed');\nconsole.log('Poster viewport geometry and Studio renderer-host tests passed.');
+assert.match(viewportModule, /motionLevel = state\.composition\?\.motion\?\.level/, 'Poster motion level is read from the saved composition');
+assert.match(viewportModule, /still: 0, gentle: 0\.35, normal: 0\.8, dynamic: 1\.5/, 'Poster motion levels map to predictable automatic rotation speeds');
+assert.match(viewportModule, /orbitControls\.autoRotate = motionSpeed > 0/, 'Still mode disables automatic rotation and other levels enable it');
+assert.match(viewportModule, /originalAutoRotateSpeed/, 'Disabling poster mode restores the viewer automatic rotation speed');
+console.log('Poster viewport geometry and Studio renderer-host tests passed.');
