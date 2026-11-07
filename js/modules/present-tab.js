@@ -11,7 +11,7 @@ import {
   stopsFromHotspots, exportStops, importStops,
 } from './present-nav.js';
 import './poster-composer.js?v=20261106-backgrounddata03';
-import './poster-viewport.js?v=20261106-studio-background05';
+import { mountPosterViewport } from './poster-viewport.js?v=20261107-studio-mount01';
 import './poster-assets.js?v=20261107-image-rotate01';
 import { mountPosterEditorOverlay as createPosterEditorOverlay } from './poster-editor-overlay.js?v=20261107-overlay03';
 import { mountPosterSceneManager } from './poster-scene-manager.js?v=20261106-unifiedimages02';
@@ -847,6 +847,9 @@ export function initPresentTab() {
 
   let posterEditorOverlay = null;
   const tryMount = () => {
+    // The viewport module can evaluate before the editor's #viewport exists.
+    // Re-run its idempotent mount once the Present workspace and viewer are ready.
+    mountPosterViewport();
     mountPanel();
     mountPosterSceneManager();
     renderNavManager();
