@@ -111,4 +111,14 @@ assert.match(posterAssets, /const minY = clamp\(-topInset/,
 assert.match(posterAssets, /const maxY = clamp\(\(rect\.height - bottomInset\)/,
   'Image-layer dragging must keep its complete bottom edge inside the poster');
 
+
+assert.match(viewportModule, /const cameraBaseZoom = new WeakMap\(\)/,
+  'Each live camera must retain its original zoom so repeated viewerReady events cannot compound poster zoom');
+assert.match(viewportModule, /viewerReadyCamera \|\| \(isStudioEditor/,
+  'The camera announced by the active viewer takes precedence over stale editor globals');
+assert.match(viewportModule, /!cameraBaseZoom\.has\(viewerReadyCamera\)/,
+  'Repeated viewerReady events must not replace the unmodified camera zoom baseline');
+assert.match(viewportModule, /cameraBaseZoom\.get\(activeCamera\)/,
+  'Poster zoom must always be calculated from the original camera zoom');
+
 console.log('Poster viewport geometry and Studio renderer-host tests passed.');
