@@ -46,6 +46,6 @@ assert.ok(viewportModule.includes("zIndex: '3'"), 'Editorial canvas sits above t
 assert.ok(viewportModule.includes("zIndex: '1'"), 'Poster background sits behind the live WebGL scene');
 assert.ok(viewportModule.includes("host.insertBefore(backgroundNode, host.firstChild)"), 'Studio background is a sibling behind the renderer, not an opaque child above it');
 assert.ok(viewportModule.includes("width: layout.width + 'px'"), 'Poster background and editorial canvas use the calculated poster dimensions');
-assert.ok(viewportModule.includes("display: 'none'"), 'Poster editorial canvas is hidden when poster composition is disabled');
+assert.ok(viewportModule.includes("posterCanvas.style.display = 'none'"), 'Poster editorial canvas is hidden when poster composition is disabled');
 assert.ok(viewportModule.includes("measureEl"), 'Available space is measured from the stable host without resizing the main viewport');
 console.log('Poster viewport geometry and Studio renderer-host tests passed.');
