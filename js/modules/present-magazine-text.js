@@ -34,7 +34,7 @@ function ensureLayer() {
   // The Studio poster canvas is created by poster-viewport after module boot.
   // Reparent the text layer when it appears so all editorial layers share the
   // exact poster-local coordinate system, rather than the wider editor stage.
-  const isStudioEditor = /\\/edit(?:\\.html)?\\/?$/i.test(window.location.pathname);
+  const isStudioEditor = /\/edit(?:\.html)?\/?$/i.test(window.location.pathname);
   const viewport = isStudioEditor
     ? (document.getElementById('viewport') || document.getElementById('stageHost') || document.getElementById('stage') || document.body)
     : (document.getElementById('stageHost') || document.getElementById('stage') || document.getElementById('viewport') || document.body);
