@@ -25,4 +25,14 @@ assert.match(html,/data-transform-scope="selection"/);
 assert.match(html,/data-transform-scope="scene"/);
 assert.match(html,/const canTransform = S\.transformScope === 'scene'/);
 assert.match(html,/Transforming the whole splat\. Every live point will change\./);
+
+// Save/reopen integrity: exported rows must be encoded from the live editor buffers,
+// not copied from the original source buffer after transforms have been applied.
+assert.match(html,/function _encodeSplatRows\(indices\)[\s\S]*?S\.positions\[i \* 3 \+ c\][\s\S]*?S\.scaleXYZ\?\.\[i \* 3 \+ c\][\s\S]*?_rotationAt\(i\)/);
+assert.match(html,/window\.saveLiveEdit = async function saveLiveEdit\(extra = \{\}\)[\s\S]*?rowBytes = _encodeSplatRows\(aliveIdx\)/);
+assert.match(html,/const savedBlob = hasSh \? _encodeGaussianPly\(aliveIdx\) : new Blob\(\[encodeNif\([\s\S]*?sourceBuffer: rowBytes/);
+assert.match(html,/\.from\('nif-files'\)[\s\S]*?\.upload\(path, savedBlob/);
+assert.match(html,/\.from\('nif_files'\)[\s\S]*?\.update\(\{ r2_key: fileKey, gaussian_count: aliveCount, meta \}\)/);
+assert.match(html,/if \(savedToNifFiles\) return true/);
+
 console.log('Viewport toolbar contract passed: navigation, HUD modes, camera views, transforms, pan and zoom.');
