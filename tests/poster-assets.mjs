@@ -15,7 +15,7 @@ assert.ok(viewport.includes('data-fumoca-poster-background'), 'Poster viewport m
 assert.ok(viewport.includes("document.getElementById('viewport')"), 'Studio poster background must mount against the editor poster viewport');
 assert.ok(viewport.includes('const isStudioEditor'), 'Studio and public viewer must choose their own poster coordinate hosts');
 assert.ok(viewport.includes('const host = stage;'), 'Editorial background must share #viewport coordinates with supporting image layers');
-assert.ok(viewport.includes("document.getElementById('stageHost') || stage"), 'Studio WebGL renderer must be sized independently in #stageHost');
+assert.ok(viewport.includes("const rendererHost = document.getElementById('stageHost') || host"), 'WebGL renderer host must be sized independently from editorial DOM layers');
 assert.ok(viewport.includes('(isStudioEditor ? rect.left : 0) + layout.left'), 'WebGL poster frame must align to the visible editor viewport origin');
 assert.ok(viewport.includes('(isStudioEditor ? rect.top : 0) + layout.top'), 'WebGL poster frame must align vertically to the visible editor viewport');
 
