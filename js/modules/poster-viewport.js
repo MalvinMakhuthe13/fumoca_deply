@@ -47,9 +47,7 @@ export function mountPosterViewport() {
   // Editorial DOM layers remain in #viewport beside supporting image layers.
   // The WebGL renderer itself lives in #stageHost, which spans the full page.
   const host = stage;
-  const rendererHost = isStudioEditor
-    ? (document.getElementById('stageHost') || stage)
-    : host;
+  const rendererHost = document.getElementById('stageHost') || host;
   if (!stage || !host || !rendererHost || !window.FumocaPoster) return;
   if (host.dataset.fumocaPosterViewportMounted === '1') return;
   host.dataset.fumocaPosterViewportMounted = '1';
@@ -103,6 +101,7 @@ export function mountPosterViewport() {
     // composition does not leave the renderer without its background element.
     if (backgroundNode) backgroundNode.style.display = 'none';
     host.removeAttribute('data-fumoca-poster-viewport');
+    rendererHost.removeAttribute('data-fumoca-poster-viewport');
   };
   const update = () => {
     frame = 0;
@@ -173,6 +172,7 @@ export function mountPosterViewport() {
       }
     }
     host.dataset.fumocaPosterViewport = '1';
+    rendererHost.dataset.fumocaPosterViewport = '1';
     const heading = layout.title || {};
     if (heading.visible && String(heading.text || '').trim()) {
       const node = ensureTitle();
