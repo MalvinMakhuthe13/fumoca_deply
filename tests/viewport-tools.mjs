@@ -13,7 +13,7 @@ assert.match(html,/querySelectorAll\('\[data-hud-mode\]'\)[\s\S]*?setMode\(butto
 for (const view of ['front','side','top']) assert.match(html,new RegExp('data-hud-view="' + view + '"'));
 assert.match(html,/querySelectorAll\('\[data-hud-view\]'\)[\s\S]*?camera\.position\.copy\(target\)[\s\S]*?controls\.update\(\)/);
 assert.match(html,/if \(\['move','scale-tool','rotate'\]\.includes\(mode\) && !selectedPointCount\(\)[\s\S]*?Select an object or points first/);
-assert.match(html,/Nothing selected\. Select an object or points first; the whole scene stays untouched/);
+assert.match(html,/Nothing selected\. Select points or switch scope to Whole scene/);
 assert.match(html,/if \(\(S\.mode === 'pan' \|\| S\.mode === 'zoom-tool'\)[\s\S]*?camera\.position\.add\(delta\)[\s\S]*?camera\.position\.copy\(controls\.target\)\.add\(offset\)/);
 assert.match(html,/controls\.enabled = mode === 'orbit'/);
 assert.match(html,/transformScope: 'selection'/);
