@@ -82,6 +82,16 @@ assert.match(editorOverlay, /scaleHandle\.style\.left=clampToFrame/,
 assert.match(editorOverlay, /rotateHandle\.style\.left=clampToFrame/,
   'The rotate handle cannot drift outside the poster frame');
 
+const editorSubject = readFileSync(new URL('../js/modules/poster-editor-overlay.js', import.meta.url), 'utf8');
+assert.match(editorSubject, /const subjectInset = clamp\(\.08 \* subjectScale, \.04, \.35\)/,
+  'The selected 3D subject gets a scale-aware inset so it cannot be dragged to the poster edge');
+assert.match(editorSubject, /x:clamp\(g\.origin\.x[\s\S]*?inset,1-inset\)/,
+  'Pointer movement keeps the 3D subject inside the horizontal poster boundary');
+assert.match(editorSubject, /y:clamp\(g\.origin\.y[\s\S]*?inset,1-inset\)/,
+  'Pointer movement keeps the 3D subject inside the vertical poster boundary');
+assert.match(editorSubject, /patchSelected\(\{x:clamp\(x,inset,1-inset\),y:clamp\(y,inset,1-inset\)\}\)/,
+  'Keyboard nudging obeys the same poster-safe subject boundary');
+
 const posterAssets = readFileSync(new URL('../js/modules/poster-assets.js', import.meta.url), 'utf8');
 assert.match(posterAssets, /const layerRect = layer\.getBoundingClientRect\(\)/,
   'Image-layer drag bounds must use the actual rendered layer dimensions');
