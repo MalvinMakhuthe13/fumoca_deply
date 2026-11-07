@@ -56,17 +56,20 @@ try {
       responsiveWidth: responsive.getBoundingClientRect().width
     };
   });
-  assert.equal(initial.root.width, 640, '4:5 poster should be letterboxed inside a 1000×800 host');
-  assert.equal(initial.root.x, 180, 'poster should be centred horizontally');
+  // The assets root fills the selected host. Letterboxing is the viewport
+  // module's job; this test verifies that interactions use the host's own
+  // coordinate system and that fixed/responsive sizing still works.
+  assert.equal(initial.root.width, 1000, 'supporting images must fill the selected host width');
+  assert.equal(initial.root.x, 0, 'supporting images must share the host origin');
   assert.equal(initial.fixedWidth, 200, 'fixed layer must retain its configured CSS-pixel width');
-  assert.equal(initial.responsiveWidth, 320, 'responsive layer should use 50% of poster width');
+  assert.equal(initial.responsiveWidth, 500, 'responsive layer should use 50% of the host width');
 
   await page.mouse.move(500, 400);
   await page.mouse.down();
   await page.mouse.move(564, 400, { steps:4 });
   await page.mouse.up();
   const movedX = await page.evaluate(() => window.FumocaPoster.getState().composition.assets.images.find(x => x.id === 'fixed').x);
-  assert.ok(Math.abs(movedX - 0.6) < 0.002, `drag should use 640px poster coordinates; got x=${movedX}`);
+  assert.ok(Math.abs(movedX - 0.564) < 0.002, `drag should use 1000px host coordinates; got x=${movedX}`);
 
   await page.locator('[data-poster-asset-id="fixed"]').click();
   const rotateHandle = page.getByRole('button', { name: 'Rotate Fixed logo' });
@@ -87,11 +90,11 @@ try {
     responsive: document.querySelector('[data-poster-asset-id="responsive"]').getBoundingClientRect().width,
     root: (() => { const r=document.querySelector('[data-fumoca-poster-assets]').getBoundingClientRect(); return {width:r.width,height:r.height}; })()
   }));
-  assert.equal(mobile.root.width, 390, 'mobile poster should fit the available host width');
+  assert.equal(mobile.root.width, 390, 'supporting images must fill the resized host width');
   assert.equal(mobile.fixed, 200, 'fixed-pixel image should retain its size on mobile');
-  assert.equal(mobile.responsive, 195, 'responsive image should scale with the mobile poster width');
+  assert.equal(mobile.responsive, 195, 'responsive image should scale with the host width');
 
-  console.log('Browser test passed: letterboxed drag coordinates, fixed-pixel sizing, direct image rotation and responsive sizing on desktop/mobile.');
+  console.log('Browser test passed: host-filling coordinates, fixed-pixel sizing, direct image rotation and responsive sizing on desktop/mobile.');
 } finally {
   if (browser) await browser.close();
   await new Promise(resolve => server.close(resolve));

@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 const composer = await readFile(new URL('../js/modules/poster-composer.js', import.meta.url), 'utf8');
 const viewport = await readFile(new URL('../js/modules/poster-viewport.js', import.meta.url), 'utf8');
 const assets = await readFile(new URL('../js/modules/poster-assets.js', import.meta.url), 'utf8');
+const magazine = await readFile(new URL('../js/modules/present-magazine-text.js', import.meta.url), 'utf8');
 const studio = await readFile(new URL('../js/modules/present-tab.js', import.meta.url), 'utf8');
 const viewer = await readFile(new URL('../js/modules/viewer.js', import.meta.url), 'utf8');
 const presentViewer = await readFile(new URL('../js/modules/present-viewer.js', import.meta.url), 'utf8');
@@ -12,12 +13,53 @@ assert.ok(composer.includes('current.assets ='), 'Poster composition must persis
 assert.ok(composer.includes('assets: clone(state.composition.assets'), 'Poster snapshot must export image layers');
 assert.ok(composer.includes('data:image\\/'), 'Local image backgrounds must be accepted');
 assert.ok(viewport.includes('data-fumoca-poster-background'), 'Poster viewport must render a dedicated background layer');
-assert.ok(viewport.includes("document.getElementById('viewport')"), 'Studio poster background must mount against the editor poster viewport');
+// Single authoritative poster host: Studio uses #viewport, the public viewer uses #stageHost.
 assert.ok(viewport.includes('const isStudioEditor'), 'Studio and public viewer must choose their own poster coordinate hosts');
-assert.ok(viewport.includes('const host = stage;'), 'Editorial background must share #viewport coordinates with supporting image layers');
-assert.ok(viewport.includes("// #stageHost is only an overlay layer"), 'Poster viewport must not mistake the overlay for the WebGL renderer');
-assert.ok(viewport.includes("width: layout.width + 'px', height: layout.height + 'px'"), 'Poster frame must size the actual #viewport renderer surface');
-assert.ok(viewport.includes("margin: 'auto', flex: '0 0 auto'"), 'Poster viewport must remain centered in the editor workspace');
+const studioHostSelect = viewport.indexOf("document.getElementById('viewport')");
+const viewerHostSelect = viewport.indexOf("document.getElementById('stageHost')");
+assert.ok(studioHostSelect > -1 && viewerHostSelect > studioHostSelect, 'Studio must select #viewport before the public viewer selects #stageHost');
+assert.ok(viewport.includes("isStudioEditor\n    ? (document.getElementById('viewport')") ||
+          viewport.includes("isStudioEditor\n    ? (document.getElementById('viewport') || document.getElementById('canvasHost'))"),
+  'Studio poster host must be #viewport');
+assert.ok(viewport.includes("document.getElementById('stageHost') || document.getElementById('stage')"),
+  'Public viewer poster host must be #stageHost');
+assert.ok(assets.includes("document.getElementById('viewport')") && assets.includes("document.getElementById('stageHost')"),
+  'Supporting images must select the same Studio #viewport and viewer #stageHost');
+assert.ok(magazine.includes("document.getElementById('viewport')") && magazine.includes("document.getElementById('stageHost')"),
+  'Magazine text must select the same Studio #viewport and viewer #stageHost');
+assert.ok(viewport.includes('const host = stage;'), 'Background, canvas and overlays share one host');
+assert.ok(assets.includes('const host = hostNode();'), 'Supporting images mount into the selected poster host');
+assert.ok(magazine.includes('host.appendChild(layer);'), 'Magazine text mounts into the selected poster host');
+
+// Available space is measured from the stable parent; the ResizeObserver watches that parent.
+assert.ok(viewport.includes('const measureEl = host.parentElement || document.documentElement'),
+  'Available space must be measured from the stable parent, not the resized host');
+assert.ok(viewport.includes('const rect = measureEl.getBoundingClientRect()'),
+  'Layout calculation must use the parent bounds');
+assert.ok(viewport.includes('observer.observe(measureEl)'),
+  'ResizeObserver must watch the parent to avoid a feedback loop on the resized host');
+
+// The outer contain-fit position is applied exactly once, to the host itself.
+assert.ok(viewport.includes("left: layout.left + 'px'"), 'Host must receive the outer contain-fit left offset');
+assert.ok(viewport.includes("top: layout.top + 'px'"), 'Host must receive the outer contain-fit top offset');
+assert.ok(viewport.includes("width: layout.width + 'px'"), 'Host must be sized to the contain-fit width');
+assert.ok(viewport.includes("height: layout.height + 'px'"), 'Host must be sized to the contain-fit height');
+assert.ok(!viewport.includes("backgroundNode.style.left = layout.left") &&
+          !viewport.includes("left: layout.left + 'px', top: layout.top + 'px'"),
+  'Outer offset must not be re-applied to the background node');
+
+// Background and overlay layers use local coordinates that fill the host.
+assert.ok(viewport.includes("inset: '0'") && viewport.includes("left: '0'") && viewport.includes("top: '0'") &&
+          viewport.includes("width: '100%'") && viewport.includes("height: '100%'"),
+  'Background must fill the poster host with local coordinates');
+assert.ok(assets.includes("inset: '0', left: '0', top: '0', width: '100%', height: '100%'"),
+  'Supporting images must fill the poster host and use local coordinates');
+assert.ok(magazine.includes("position: 'absolute'") && magazine.includes('host.appendChild(layer);'),
+  'Magazine text items are absolutely positioned inside the selected poster host');
+assert.ok(magazine.includes("document.getElementById('viewport') || document.getElementById('stageHost')"),
+  'Magazine text prefers Studio #viewport and falls back to #stageHost');
+assert.ok(magazine.includes("document.getElementById('stageHost') || document.getElementById('stage')"),
+  'Magazine text prefers public-viewer #stageHost');
 
 assert.ok(viewport.includes('data-fumoca-poster-background-image'), 'Background must use a dedicated image element');
 assert.ok(viewport.includes('backgroundImage.src = background.value'), 'Background source must be assigned to the image element');
