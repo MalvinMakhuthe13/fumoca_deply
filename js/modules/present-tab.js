@@ -287,9 +287,18 @@ function escapeAttr(value) {
   return String(value).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+const initializedPresentPanels = new WeakSet();
+
 function mountPanel() {
   let panel = document.getElementById('fumocaPresentTabPanel');
-  if (panel) { mountPosterSceneManager(); return panel; }
+  if (panel && initializedPresentPanels.has(panel)) {
+    mountPosterSceneManager();
+    return panel;
+  }
+  // A panel can survive a partial Studio initialization without its listeners.
+  // Rebuild only that incomplete shell; the composition itself lives in
+  // FumocaPoster/local persistence and is not discarded here.
+  if (panel) panel.remove();
 
   panel = document.createElement('div');
   panel.id = 'fumocaPresentTabPanel';
@@ -656,6 +665,7 @@ function mountPanel() {
   };
   posterRoot.addEventListener('input', handlePosterFieldEvent, true);
   posterRoot.addEventListener('change', handlePosterFieldEvent, true);
+  initializedPresentPanels.add(panel);
   posterRoot.addEventListener('change', (event) => {
     const field = event.target.closest('[data-poster-asset-field]');
     if (!field) return;
