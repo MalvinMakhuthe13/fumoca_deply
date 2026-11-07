@@ -128,9 +128,23 @@ export function initPosterAssets({ editable = false } = {}) {
             const rect = root.getBoundingClientRect();
             const move = (ev) => {
               const delta = ev.clientX - startX;
-              // Never let a resized supporting image extend beyond the poster artboard.
-              // Fixed mode still keeps CSS-pixel sizing; the frame is its upper bound.
-              const nextWidth = clamp(startWidth + delta, 24, Math.max(24, rect.width));
+              // Keep the complete rotated image inside the artboard, not merely
+              // its unrotated CSS box. A square image at 45deg needs substantially
+              // less width than the artboard itself to keep its corners in frame.
+              const image = layer.querySelector('img');
+              const aspect = Math.max(0.05, (image?.naturalWidth || 1) / Math.max(1, image?.naturalHeight || 1));
+              const radians = (Number(item.rotation) || 0) * Math.PI / 180;
+              const cos = Math.abs(Math.cos(radians));
+              const sin = Math.abs(Math.sin(radians));
+              const factorX = cos + sin / aspect;
+              const factorY = sin + cos / aspect;
+              const bounds = layer.getBoundingClientRect();
+              const centerX = bounds.left + bounds.width / 2 - rect.left;
+              const centerY = bounds.top + bounds.height / 2 - rect.top;
+              const maxByWidth = (2 * Math.min(centerX, rect.width - centerX)) / Math.max(0.001, factorX);
+              const maxByHeight = (2 * Math.min(centerY, rect.height - centerY)) / Math.max(0.001, factorY);
+              const maxWidth = Math.max(24, Math.min(rect.width, maxByWidth, maxByHeight));
+              const nextWidth = clamp(startWidth + delta, 24, maxWidth);
               if (item.sizeMode === 'fixed') patchItem(item.id, { fixedWidthPx: Math.round(nextWidth) });
               else patchItem(item.id, { width: clamp(nextWidth / Math.max(1, rect.width), 0.05, 1) });
             };
