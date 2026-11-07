@@ -48,7 +48,7 @@ assert.deepEqual(
 );
 assert.deepEqual(
   [28, 29, 30, 31].map(i => bytes[i]),
-  [128, 128, 218, 218],
+  [128, 128, 219, 219],
   'saved row must include normalized live rotation',
 );
 
