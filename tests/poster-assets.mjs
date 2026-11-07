@@ -14,11 +14,10 @@ assert.ok(composer.includes('data:image\\/'), 'Local image backgrounds must be a
 assert.ok(viewport.includes('data-fumoca-poster-background'), 'Poster viewport must render a dedicated background layer');
 assert.ok(viewport.includes("document.getElementById('viewport')"), 'Studio poster background must mount against the editor poster viewport');
 assert.ok(viewport.includes('const isStudioEditor'), 'Studio and public viewer must choose their own poster coordinate hosts');
-assert.ok(viewport.includes('? stage'), 'Studio poster background must share the same coordinate host as editorial image layers');
-assert.ok(viewport.includes("document.getElementById('panelLeft')"), 'Studio poster viewport must account for the editor left panel when switching to absolute positioning');
-assert.ok(viewport.includes("window.getComputedStyle(panel).position === 'fixed'"), 'Mobile fixed panels must not shift the Studio poster coordinate origin');
-assert.ok(viewport.includes('panel.getBoundingClientRect().right - shell.getBoundingClientRect().left'), 'Studio poster viewport must use the panel edge relative to its shell as the desktop offset');
-assert.ok(viewport.includes('(editorOriginLeft + layout.left)'), 'Studio poster viewport must retain its original horizontal shell offset');
+assert.ok(viewport.includes('const host = stage;'), 'Editorial background must share #viewport coordinates with supporting image layers');
+assert.ok(viewport.includes("document.getElementById('stageHost') || stage"), 'Studio WebGL renderer must be sized independently in #stageHost');
+assert.ok(viewport.includes('(isStudioEditor ? rect.left : 0) + layout.left'), 'WebGL poster frame must align to the visible editor viewport origin');
+assert.ok(viewport.includes('(isStudioEditor ? rect.top : 0) + layout.top'), 'WebGL poster frame must align vertically to the visible editor viewport');
 
 assert.ok(viewport.includes('data-fumoca-poster-background-image'), 'Background must use a dedicated image element');
 assert.ok(viewport.includes('backgroundImage.src = background.value'), 'Background source must be assigned to the image element');
