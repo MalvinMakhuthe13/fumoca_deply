@@ -104,7 +104,14 @@ export function mountPosterEditorOverlay(options = {}) {
       pick.addEventListener('click', () => { api.selectSubject?.(candidate.id); refresh(); });
       pickLayer.appendChild(pick);
     }
-    const subject = selectedSubject(), x=clamp(Number(subject.x??.5),0,1), y=clamp(Number(subject.y??.53),0,1);
+    const subject = selectedSubject();
+    // Keep the subject's centre away from the edge by a scale-aware safety
+    // margin. The renderer is clipped to the poster, while this guard prevents
+    // direct manipulation from deliberately pushing the subject out of frame.
+    const subjectScale = clamp(Number(subject.scale) || 1, .1, 4);
+    const subjectInset = clamp(.08 * subjectScale, .04, .35);
+    const x=clamp(Number(subject.x??.5),subjectInset,1-subjectInset);
+    const y=clamp(Number(subject.y??.53),subjectInset,1-subjectInset);
     const px=clampToFrame(poster.left+x*poster.width, poster.left, poster.width, 22);
     const py=clampToFrame(poster.top+y*poster.height, poster.top, poster.height, 22);
     moveHandle.style.left=px+'px'; moveHandle.style.top=py+'px';
@@ -131,7 +138,13 @@ export function mountPosterEditorOverlay(options = {}) {
   const move = event => {
     if(!gesture || event.pointerId!==gesture.pointerId || !rect) return;
     const p=point(event), g=gesture;
-    if(g.mode==='move') patchSelected({x:clamp(g.origin.x+(p.x-g.start.x)/rect.width,0,1),y:clamp(g.origin.y+(p.y-g.start.y)/rect.height,0,1)});
+    if(g.mode==='move') {
+      const inset=clamp(.08*clamp(g.origin.scale,.1,4),.04,.35);
+      patchSelected({
+        x:clamp(g.origin.x+(p.x-g.start.x)/rect.width,inset,1-inset),
+        y:clamp(g.origin.y+(p.y-g.start.y)/rect.height,inset,1-inset),
+      });
+    }
     else {
       const a=Math.atan2(p.y-g.center.y,p.x-g.center.x)*180/Math.PI;
       const startA=Math.atan2(g.start.y-g.center.y,g.start.x-g.center.x)*180/Math.PI;
@@ -149,9 +162,9 @@ export function mountPosterEditorOverlay(options = {}) {
   };
   const keyMove = event => {
     const subject=selectedSubject(); if(subject.locked) return;
-    const step=event.shiftKey?.02:.005; let {x,y}=subject;
+    const step=event.shiftKey?.02:.005, inset=clamp(.08*clamp(Number(subject.scale)||1,.1,4),.04,.35); let {x,y}=subject;
     if(event.key==='ArrowLeft')x-=step;else if(event.key==='ArrowRight')x+=step;else if(event.key==='ArrowUp')y-=step;else if(event.key==='ArrowDown')y+=step;else return;
-    event.preventDefault();patchSelected({x:clamp(x,0,1),y:clamp(y,0,1)});refresh();options.onCommit?.();
+    event.preventDefault();patchSelected({x:clamp(x,inset,1-inset),y:clamp(y,inset,1-inset)});refresh();options.onCommit?.();
   };
   const bindings=[[moveHandle,'move'],[scaleHandle,'scale'],[rotateHandle,'rotate']].map(([handle,mode])=>({handle,down:start(mode)}));
   for(const {handle,down} of bindings){handle.addEventListener('pointerdown',down);handle.addEventListener('pointermove',move);handle.addEventListener('pointerup',stop);handle.addEventListener('pointercancel',stop);}
