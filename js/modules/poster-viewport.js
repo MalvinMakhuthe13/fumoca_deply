@@ -64,6 +64,8 @@ export function mountPosterViewport() {
   let orbitControls = null;
   let originalPan;
   let originalZoomEnabled;
+  let originalAutoRotate;
+  let originalAutoRotateSpeed;
   let viewerReadyCamera = null;
   let viewerReadyControls = null;
   // Keep the unmodified zoom for each camera. viewerReady can fire more than
@@ -98,6 +100,8 @@ export function mountPosterViewport() {
       if (orbitControls) {
         if (originalPan !== undefined) orbitControls.enablePan = originalPan;
         if (originalZoomEnabled !== undefined) orbitControls.enableZoom = originalZoomEnabled;
+        if (originalAutoRotate !== undefined) orbitControls.autoRotate = originalAutoRotate;
+        if (originalAutoRotateSpeed !== undefined) orbitControls.autoRotateSpeed = originalAutoRotateSpeed;
       }
       orbitControls = nextControls;
       originalPan = orbitControls ? orbitControls.enablePan : undefined;
@@ -318,7 +322,14 @@ export function mountPosterViewport() {
     }
     // Panning can move the subject beyond the designed frame. Keep orbit and
     // zoom available, but make pan an explicit poster-layout operation instead.
-    if (orbitControls) { orbitControls.enablePan = false; orbitControls.enableZoom = false; }
+    if (orbitControls) {
+      orbitControls.enablePan = false;
+      orbitControls.enableZoom = false;
+      const motionLevel = state.composition?.motion?.level || 'still';
+      const motionSpeed = ({ still: 0, gentle: 0.35, normal: 0.8, dynamic: 1.5 })[motionLevel] ?? 0;
+      orbitControls.autoRotate = motionSpeed > 0;
+      if (motionSpeed > 0) orbitControls.autoRotateSpeed = motionSpeed;
+    }
     const activeCamera = getCamera();
     if (activeCamera) {
       const framingZoom = Math.max(0.5, Math.min(2.5, Number(state.composition?.framing?.zoom) || 1));
