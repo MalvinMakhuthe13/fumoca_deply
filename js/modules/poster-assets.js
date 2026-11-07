@@ -40,6 +40,10 @@ export function initPosterAssets({ editable = false } = {}) {
   const render = () => {
     const state = window.FumocaPoster?.getState?.();
     if (dragging) return;
+    // Poster viewport may mount after this module. Follow the authoritative
+    // canvas when it appears instead of leaving image layers on the full editor.
+    const currentHost = hostNode();
+    if (currentHost && root.parentElement !== currentHost) currentHost.appendChild(root);
     const images = state?.composition?.assets?.images || [];
     root.style.display = state?.enabled ? 'block' : 'none';
     // The poster host is the single coordinate system. Supporting images fill
