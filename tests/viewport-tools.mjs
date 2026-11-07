@@ -12,7 +12,8 @@ for (const mode of ['orbit','pan','move','rotate','scale-tool','measure']) asser
 assert.match(html,/querySelectorAll\('\[data-hud-mode\]'\)[\s\S]*?setMode\(button\.dataset\.hudMode\)/);
 for (const view of ['front','side','top']) assert.match(html,new RegExp('data-hud-view="' + view + '"'));
 assert.match(html,/querySelectorAll\('\[data-hud-view\]'\)[\s\S]*?camera\.position\.copy\(target\)[\s\S]*?controls\.update\(\)/);
-assert.match(html,/if \(\['move','scale-tool','rotate'\]\.includes\(mode\)[\s\S]*?Auto-selected subject/);
+assert.match(html,/if \(\['move','scale-tool','rotate'\]\.includes\(mode\) && !selectedPointCount\(\)[\s\S]*?Select an object or points first/);
+assert.match(html,/Nothing selected\. Select an object or points first; the whole scene stays untouched/);
 assert.match(html,/if \(\(S\.mode === 'pan' \|\| S\.mode === 'zoom-tool'\)[\s\S]*?camera\.position\.add\(delta\)[\s\S]*?camera\.position\.copy\(controls\.target\)\.add\(offset\)/);
 assert.match(html,/controls\.enabled = mode === 'orbit'/);
 console.log('Viewport toolbar contract passed: navigation, HUD modes, camera views, transforms, pan and zoom.');
