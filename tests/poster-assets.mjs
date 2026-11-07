@@ -71,7 +71,7 @@ assert.ok(viewport.includes("backgroundNode.style.display = 'block'"), 'Re-enabl
 assert.ok(!viewport.includes('backgroundNode?.remove();'), 'Poster toggle must not discard the background image element');
 
 assert.ok(viewport.includes('fumoca:posterBackgroundLoaded'), 'Successful background loads must be observable');
-assert.ok(viewport.includes('zIndex: \'0\''), 'Background must remain behind scene content');
+assert.ok(viewport.includes("zIndex: isStudioEditor ? '1' : '0'"), 'Studio background sits below WebGL while the public viewer keeps its background layer at its established depth');
 assert.ok(viewport.includes("zIndex: '3'"), 'Headline must render above the background');
 
 assert.ok(viewport.includes('background.blur'), 'Background blur control must reach the renderer');
