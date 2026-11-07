@@ -133,7 +133,7 @@ async function authorize(request, env) {
     }
 
     const user = await resp.json();
-    return user?.id ? { id: user.id, kind: 'user' } : null;
+    return user?.id ? { id: user.id, kind: 'user', accessToken: token } : null;
   } catch (e) {
     console.error('[R2 auth] check failed', e);
     return null;
@@ -211,6 +211,53 @@ async function generatePresignedPut(bucketName, key, contentType, env) {
   } catch (error) {
     console.error('[R2 presign] failed', error);
     return null;
+  }
+}
+
+/**
+ * Check whether a browser user owns an R2 key referenced by one of their
+ * nif_files rows. This preserves safe deletion for older UUID-based keys
+ * while new, unregistered uploads can be cleaned up via the user namespace.
+ * A failed DB lookup is a denial, never an authorization bypass.
+ */
+async function userOwnsNifStorageKey(principal, fileKey, env) {
+  if (!principal?.accessToken || !env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) return false;
+  try {
+    const endpoint = new URL('/rest/v1/nif_files', env.SUPABASE_URL);
+    endpoint.searchParams.set('select', 'r2_key,meta');
+    endpoint.searchParams.set('user_id', `eq.${principal.id}`);
+    endpoint.searchParams.set('limit', '1000');
+    const response = await fetch(endpoint.toString(), {
+      headers: {
+        apikey: env.SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${principal.accessToken}`,
+      },
+    });
+    if (!response.ok) {
+      console.error('[R2 delete] Could not verify NIF key ownership:', response.status);
+      return false;
+    }
+    const rows = await response.json();
+    const matches = (value) => {
+      if (typeof value === 'string') {
+        if (value === fileKey) return true;
+        try {
+          const url = new URL(value);
+          const marker = '/file/';
+          const index = url.pathname.indexOf(marker);
+          return index >= 0 && decodeURIComponent(url.pathname.slice(index + marker.length)) === fileKey;
+        } catch {
+          return false;
+        }
+      }
+      if (Array.isArray(value)) return value.some(matches);
+      if (value && typeof value === 'object') return Object.values(value).some(matches);
+      return false;
+    };
+    return Array.isArray(rows) && rows.some((row) => row.r2_key === fileKey || matches(row.meta));
+  } catch (error) {
+    console.error('[R2 delete] Ownership lookup failed:', error);
+    return false;
   }
 }
 
@@ -655,14 +702,21 @@ export default {
       if (!principal) {
         return json({ error: 'Unauthorized — sign in and try again' }, 401, cors);
       }
-      // NOTE — remaining gap, not fixed here: this only confirms the caller is SOME
-      // authenticated user, not that they own this specific file. Any signed-in user
-      // can currently delete any file if they know/guess its key. Closing that fully
-      // needs a lookup against your DB (matching this fileKey to a row's user_id)
-      // before this is trusted with real user data at scale.
-
       const fileKey = sanitiseKey(decodeURIComponent(path.slice('/file/'.length)));
       if (!fileKey) return json({ error: 'Missing key' }, 400, cors);
+
+      // Server maintenance is separately authorized by the shared secret.
+      // Browser users may delete newly namespaced objects or legacy keys that
+      // are still referenced by one of their own nif_files rows.
+      if (principal.kind !== 'server-to-server') {
+        const ownedPrefix = `${principal.id}/`;
+        const posterPrefix = `poster-assets/${principal.id}/`;
+        const namespaceOwned = fileKey.startsWith(ownedPrefix) || fileKey.startsWith(posterPrefix);
+        const databaseOwned = namespaceOwned ? false : await userOwnsNifStorageKey(principal, fileKey, env);
+        if (!namespaceOwned && !databaseOwned) {
+          return json({ error: 'Forbidden — you can only delete files owned by your account' }, 403, cors);
+        }
+      }
 
       const r2Bucket = getBucket(bucketParam, env);
       if (!r2Bucket) {

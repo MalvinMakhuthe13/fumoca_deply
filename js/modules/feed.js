@@ -130,22 +130,23 @@ function showToast(msg, isError = false) {
 async function deletePostRecord(post, opts = {}) {
   const { silent = false } = opts;
 
-  // Delete the database row first so an RLS/schema failure cannot leave a
-  // live feed card pointing at objects that were already removed.
-  const { error } = await supabase.from('nif_files').delete().eq('id', post.id).eq('user_id', post.user_id);
-  if (error) throw error;
-
-  // The canonical table stores R2 keys. CDN URLs are not Supabase Storage
-  // URLs, so URL parsing alone misses the main NIF, original source and poster.
+  // Keep the row available for Worker-side legacy-key ownership verification
+  // until all referenced storage objects have been removed successfully.
   const filesToDelete = [];
   for (const key of [
     post.r2_key,
     post.meta?.source_r2_key,
     post.meta?.source_capture?.r2_key,
-    post.meta?.thumbnail_r2_key,
-    post.meta?.capture_thumbnail_r2_key,
   ]) {
     if (typeof key === 'string' && key.trim()) filesToDelete.push({ bucket: 'nif-files', path: key });
+  }
+  for (const key of [
+    post.meta?.thumbnail_r2_key,
+    post.meta?.capture_thumbnail_r2_key,
+    post.meta?.present?.poster?.composition?.background?.r2Key,
+    ...(post.meta?.present?.poster?.composition?.assets?.images || []).map(image => image?.r2Key),
+  ]) {
+    if (typeof key === 'string' && key.trim()) filesToDelete.push({ bucket: 'thumbnails', path: key });
   }
   if (post.video_path && post.video_bucket) {
     filesToDelete.push({ bucket: post.video_bucket, path: post.video_path });
@@ -173,8 +174,11 @@ async function deletePostRecord(post, opts = {}) {
   );
   const failedCleanup = cleanup.some(result => result.status === 'rejected' || result.value?.error);
   if (failedCleanup) {
-    console.warn('[FUMOCA feed] Capture record deleted; some R2 objects may need cleanup', post.id);
+    throw new Error('Some linked storage files could not be deleted. Your capture record was kept; please retry.');
   }
+
+  const { error } = await supabase.from('nif_files').delete().eq('id', post.id).eq('user_id', post.user_id);
+  if (error) throw error;
 
   // 5. Animate card out
   const card = document.querySelector(`article[data-id="${post.id}"]`);

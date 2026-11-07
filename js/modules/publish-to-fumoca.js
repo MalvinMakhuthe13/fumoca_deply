@@ -139,7 +139,7 @@ const FumocaPublish = (() => {
       } catch(e) { /* config missing — will throw below with a helpful message */ }
     }
     const S = window.S;
-    const rec = window._fumocaCurrentRecord;
+    let rec = window._fumocaCurrentRecord || null;
 
     if (!sb) throw new Error(
       'Supabase not connected — make sure config.js is loaded before edit.html modules. ' +
@@ -147,7 +147,36 @@ const FumocaPublish = (() => {
     );
     if (!S?.alive) throw new Error('No splat loaded in editor');
 
-    const splatId = rec?.id || new URLSearchParams(location.search).get('splatId');
+    // Publishing always creates or updates a real NIF asset. Local .splat/.ply
+    // sessions are supported: they receive a new nif_files row after conversion.
+    const { data: authData, error: authError } = await sb.auth.getUser();
+    const user = authData?.user;
+    if (authError || !user?.id) throw new Error('Sign in before publishing this asset.');
+    // Never trust an editor URL parameter or an in-memory record as proof
+    // of ownership. Resolve the candidate against nif_files before preparing
+    // or uploading any bytes. If it is not an asset owned by this user, treat
+    // this as a new publish rather than attempting an update that will fail
+    // only after storage has already been written.
+    const candidateId = rec?.id || new URLSearchParams(location.search).get('splatId') || null;
+    let splatId = null;
+    if (candidateId) {
+      const { data: ownedRecord, error: ownershipLookupError } = await sb
+        .from('nif_files')
+        .select('id,user_id,meta,title')
+        .eq('id', candidateId)
+        .eq('user_id', user.id)
+        .maybeSingle();
+      if (ownershipLookupError) {
+        throw new Error('Could not verify ownership of the saved NIF asset: ' + ownershipLookupError.message);
+      }
+      if (ownedRecord?.id) {
+        splatId = ownedRecord.id;
+        rec = ownedRecord;
+      } else {
+        console.warn('[Publish] Editor asset ID is not owned by the signed-in user; publishing as a new NIF asset instead.');
+        rec = null;
+      }
+    }
     const aliveCount = Array.from(S.alive).filter(Boolean).length;
 
     onProgress?.(includeReview ? 'Uploading review video…' : 'Publishing without video…', 8);
@@ -175,17 +204,12 @@ const FumocaPublish = (() => {
     // (comment previously said "splat-files", a pre-R2-migration bucket name
     // that doesn't exist — the actual .from('nif-files') call below was
     // already correct, just the comment was stale).
-    const path = splatId
-      ? `${splatId}/edited_${timestamp}.nif`
-      : `new/upload_${timestamp}.nif`;
+    // All new browser-created objects live under the authenticated user's
+    // namespace so the R2 Worker can enforce per-user deletion safely.
+    const assetPath = `${user.id}/${splatId || 'new'}`;
+    const path = `${assetPath}/edited_${timestamp}.nif`;
 
-    // ── Upload to Cloudflare R2 (replaces supabase.storage) ─────────────────
-    const { publicUrl, fileKey, error: uploadError } = await r2
-      .from('nif-files')
-      .upload(path, blob, { contentType: 'application/octet-stream' });
-
-    if (uploadError) throw new Error('R2 upload failed: ' + uploadError.message);
-
+    // Upload only after every required companion has been prepared successfully.
     // A Gaussian PLY must publish its edited full-fidelity companion. Do not
     // silently publish a degraded NIF-only result and tell the user it succeeded.
     let viewPlyKey = null;
@@ -209,17 +233,18 @@ const FumocaPublish = (() => {
       }
     }
 
-    if (sourcePlyBytes && (isGaussianPly || sourceName.endsWith('.ply') || sourceName.endsWith('.splat'))) {
-      const viewPath = splatId
-        ? `${splatId}/view_${timestamp}.ply`
-        : `new/view_${timestamp}.ply`;
+    // Spark's companion endpoint expects a Gaussian PLY, not the legacy
+    // 32-byte .splat row format. Never upload raw .splat bytes with a .ply key.
+    // Legacy .splat assets remain fully publishable through the converted NIF.
+    if (sourcePlyBytes && (isGaussianPly || sourceName.endsWith('.ply'))) {
+      const viewPath = `${assetPath}/view_${timestamp}.ply`;
       const viewBlob = new Blob([sourcePlyBytes], { type: 'application/octet-stream' });
       const { fileKey: companionKey, error: companionError } = await r2
         .from('nif-files')
         .upload(viewPath, viewBlob, { contentType: 'application/octet-stream' });
       if (companionError || !companionKey) {
         console.error('[Publish] Companion PLY upload failed; refusing a degraded publish:', companionError?.message || 'no key returned');
-        throw new Error('High-fidelity publish stopped: the Spark companion PLY could not be uploaded. The NIF was uploaded but no new published record was registered. Please retry.');
+        throw new Error('High-fidelity publish stopped: the Spark companion PLY could not be uploaded. No NIF was uploaded and no new asset record was registered. Please retry.');
       }
       viewPlyKey = companionKey;
       console.info('[Publish] Spark companion PLY uploaded:', viewPlyKey);
@@ -227,6 +252,27 @@ const FumocaPublish = (() => {
       throw new Error('High-fidelity publish stopped: no Gaussian PLY bytes were available.');
     } else {
       console.info('[Publish] No Gaussian PLY companion required; publishing compatible NIF.');
+    }
+
+    // Upload the converted NIF after its optional high-fidelity companion.
+    // This avoids leaving an orphan NIF behind when Gaussian export/upload fails.
+    const { publicUrl, fileKey, error: uploadError } = await r2
+      .from('nif-files')
+      .upload(path, blob, { contentType: 'application/octet-stream' });
+    if (uploadError || !fileKey) {
+      // If the Gaussian companion was uploaded first, remove it when the
+      // primary NIF upload fails. A companion without a registered NIF cannot
+      // be opened by the viewer and would otherwise become orphaned storage.
+      if (viewPlyKey) {
+        try {
+          const cleanup = await r2.from('nif-files').remove([viewPlyKey]);
+          if (cleanup.error) console.warn('[Publish] Could not clean up companion after NIF upload failure:', cleanup.error);
+        } catch (cleanupError) {
+          console.warn('[Publish] Could not clean up companion after NIF upload failure:', cleanupError);
+        }
+      }
+      throw new Error('NIF upload failed: ' + (uploadError?.message || 'storage returned no file key') +
+        (viewPlyKey ? ' The companion upload was also rolled back where possible.' : ''));
     }
 
     onProgress?.('Registering…', 70);
@@ -261,28 +307,49 @@ const FumocaPublish = (() => {
     }
 
     let finalId = splatId;
-    if (payload.meta?.reviewVideo) payload.meta.reviewVideo.boundId = splatId || null;
-    if (splatId) {
-      const { error } = await sb.from('nif_files').update(payload).eq('id', splatId);
-      if (error) console.warn('[Publish] DB update failed:', error.message);
+    try {
+      if (payload.meta?.reviewVideo) payload.meta.reviewVideo.boundId = splatId || null;
+      if (splatId) {
+      const { data: updated, error } = await sb.from('nif_files')
+        .update(payload).eq('id', splatId).eq('user_id', user.id).select('id').maybeSingle();
+      if (error) throw new Error('The NIF was uploaded, but its asset record could not be updated: ' + error.message);
+      if (!updated?.id) throw new Error('The NIF was uploaded, but no owned asset record was updated. Open the asset from your account and retry.');
+      finalId = updated.id;
     } else {
-      // Create new record
-      const { data: { user } } = await sb.auth.getUser().catch(() => ({ data: {} }));
       const { data: newRec, error } = await sb.from('nif_files').insert({
         ...payload,
-        user_id: user?.id,
+        user_id: user.id,
         title: title || S.fileName || 'Untitled Splat',
         created_at: new Date().toISOString(),
-      }).select().single();
-      if (!error && newRec) {
-        finalId = newRec.id;
-        if (payload.meta?.reviewVideo) {
-          payload.meta.reviewVideo.boundId = newRec.id;
-          await sb.from('nif_files').update({ meta: payload.meta }).eq('id', newRec.id);
+      }).select('id').single();
+      if (error || !newRec?.id) throw new Error('The NIF was uploaded, but FUMOCA could not register the new asset: ' + (error?.message || 'no asset ID returned'));
+      finalId = newRec.id;
+      if (payload.meta?.reviewVideo) {
+        payload.meta.reviewVideo.boundId = newRec.id;
+        const { error: metaError } = await sb.from('nif_files').update({ meta: payload.meta }).eq('id', newRec.id).eq('user_id', user.id);
+        if (metaError) console.warn('[Publish] Asset registered, but review-video binding metadata could not be refreshed:', metaError.message);
+      }
+      }
+    } catch (registrationError) {
+      // A failed DB write must not leave inaccessible NIF/PLY objects behind.
+      const orphanKeys = [fileKey, viewPlyKey].filter(Boolean);
+      if (orphanKeys.length) {
+        try {
+          const cleanup = await r2.from('nif-files').remove(orphanKeys);
+          if (cleanup.error) console.warn('[Publish] Could not clean up unregistered uploads:', cleanup.error);
+        } catch (cleanupError) {
+          console.warn('[Publish] Could not clean up unregistered uploads:', cleanupError);
         }
       }
+      throw registrationError;
     }
 
+    // Make the newly published record available to poster cloud-save immediately.
+    window._fumocaCurrentRecord = {
+      ...(rec || {}), id: finalId, user_id: user.id, r2_key: fileKey,
+      title: title || rec?.title || S.fileName || 'Untitled Splat',
+      meta: payload.meta || {}, metadata: payload.meta || {},
+    };
     onProgress?.('Published!', 100);
 
     return {

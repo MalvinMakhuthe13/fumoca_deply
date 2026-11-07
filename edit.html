@@ -5,18 +5,18 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>FUMOCA Studio — World-Class Splat Editor</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Oxanium:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Oxanium:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Bebas+Neue&family=Cormorant+Garamond:wght@400;500;600;700&family=Playfair+Display:wght@400;500;600;700;800&family=DM+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <!-- config.js MUST load before any ES modules so window.FUMOCA_CONFIG is set -->
 <script src="config.js"></script>
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/","@sparkjsdev/spark":"https://sparkjs.dev/releases/spark/2.4.0/spark.module.js"}}</script>
 <link rel="stylesheet" href="css/present-magazine.css"/>
 <link rel="stylesheet" href="css/review-video.css?v=20261025-bglayer"/>
-<link rel="stylesheet" href="css/present-unified.css?v=20261029-textstyle5"/>
+<link rel="stylesheet" href="css/present-unified.css?v=20261106-creativeworkspace01"/>
 <link rel="stylesheet" href="css/anim-studio.css"/>
 <link rel="stylesheet" href="css/fumoca-layouts.css"/>
 <script type="module" src="js/modules/anim-studio.js"></script>
 <script type="module" src="js/modules/review-video.js?v=20261025-bglayer"></script>
-<script type="module" src="js/modules/present-tab.js?v=20261029-textstyle5"></script>
+<script type="module" src="js/modules/present-tab.js?v=20261107-rendererhost02"></script>
 
 <style>
 /* ═══════════════════════════════════════════════════════
@@ -601,7 +601,7 @@ input[type=range].amber::-webkit-slider-thumb{background:var(--amber);box-shadow
 
 /* editor-breathe-2026 */
 :root {
-  --panel-l: 260px !important;
+  --panel-l: clamp(330px, 25vw, 390px) !important;
   --panel-r: 240px !important;
   --topbar-h: 48px !important;
   --toolbar-h: 40px !important;
@@ -619,6 +619,15 @@ body.rv-layout-stack #fumocaReviewRoot.layout-stack,
 body.rv-layout-split #fumocaReviewRoot.layout-split { background: transparent !important; }
 body.rv-layout-stack #fumocaReviewRoot.layout-stack video,
 body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px !important; box-shadow: 0 6px 24px rgba(0,0,0,.35) !important; }
+</style>
+
+<style id="fumoca-scene-layer-controls">
+  #ptpPosterComposer .ptp-scene-row{display:grid;grid-template-columns:minmax(0,1fr) 24px 28px 28px 42px 42px 28px;align-items:center;gap:4px;margin:6px 0;padding:6px;border:1px solid rgba(255,255,255,.08);border-radius:9px;background:rgba(255,255,255,.025)}
+  #ptpPosterComposer .ptp-scene-row button{min-width:0;min-height:28px;padding:4px 5px;font-size:11px;line-height:1.1}
+  #ptpPosterComposer .ptp-scene-select{text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #ptpPosterComposer .ptp-scene-layer{font-size:10px;color:#c8ff00;text-align:center}
+  #ptpPosterComposer .ptp-scene-action:disabled{opacity:.3;cursor:not-allowed}
+  @media(max-width:700px){#ptpPosterComposer .ptp-scene-row{grid-template-columns:minmax(0,1fr) 22px 26px 26px 38px 38px 26px;gap:3px}}
 </style>
 </head>
 <body data-nav="none">
@@ -2052,9 +2061,17 @@ function _syncViewportHud() {
   });
   document.querySelectorAll('[data-hud-view]').forEach(button => { button.disabled = !ready; });
   const hint = $('viewportHudHint');
-  if (hint) hint.textContent = !ready ? 'Open a splat to enable viewport tools.' :
-    S.mode === 'measure' ? 'Click two points on the model to measure.' :
-    selected ? `Gizmo edits ${fmt(selected)} selected points.` : 'Select points before moving, rotating, or scaling.';
+  if (hint) {
+    if (!ready) hint.textContent = 'Open a splat to enable viewport tools.';
+    else if (S.mode === 'measure') hint.textContent = 'Click two points on the model to measure.';
+    else if (['move', 'rotate', 'scale-tool'].includes(S.mode)) {
+      hint.textContent = selected
+        ? `Transforming ${fmt(selected)} selected points. Only this selection will change.`
+        : 'Nothing selected. Select an object or points first; the whole scene stays untouched.';
+    } else if (S.mode === 'pan') hint.textContent = 'Drag the viewport to pan the camera. Scroll or use Zoom to change distance.';
+    else if (S.mode === 'zoom-tool') hint.textContent = 'Drag up or down to zoom the camera.';
+    else hint.textContent = 'Drag to orbit. Use Front, Side or Top for a fixed camera view.';
+  }
 }
 function syncTransformGizmo() {
   const count = S.alive?.length || 0;
@@ -4250,13 +4267,8 @@ const toolMap = {
 
 function setMode(mode) {
   S.mode = mode;
-  if (['move','scale-tool','rotate'].includes(mode) && S.alive?.length && S.selected && !S.selected.some(Boolean)) {
-    for (let i = 0; i < S.alive.length; i++) {
-      if (S.alive[i] && !S.layerHidden?.[i]) S.selected[i] = 1;
-    }
-    rebuildGeometry();
-    if (typeof refreshTransformSourceMap === 'function') refreshTransformSourceMap();
-    setStatus(`Auto-selected subject (${fmt(selectedPointCount())} points) for ${mode}`, 'ok');
+  if (['move','scale-tool','rotate'].includes(mode) && !selectedPointCount()) {
+    setStatus('Select an object or points first. The whole scene will not be moved automatically.', 'warn');
   }
   const orbiting = mode === 'orbit' || mode === 'pan' || mode === 'zoom-tool';
   controls.enabled = mode === 'orbit';
@@ -6040,15 +6052,14 @@ $('mobilePanelBackdrop')?.addEventListener('click', closeMobilePanels);
   let fileUrl   = params.get('file');
   const splatId = params.get('splatId') || params.get('nifId');
 
-  // Wait up to 3s for Supabase client to initialise (loaded via dynamic import)
-  await new Promise(resolve => {
-    if (window._fumocaSupabase) { resolve(); return; }
-    let waited = 0;
-    const check = setInterval(() => {
-      waited += 50;
-      if (window._fumocaSupabase || waited >= 3000) { clearInterval(check); resolve(); }
-    }, 50);
-  });
+  // Await the same module import used by the early bootstrap. The previous
+  // polling loop could add a full 3-second delay before every cloud NIF lookup.
+  if (!window._fumocaSupabase) {
+    try {
+      const mod = await import('./js/supabaseClient.js');
+      window._fumocaSupabase = mod.supabase;
+    } catch (_) { /* local file editing remains available without cloud auth */ }
+  }
 
   // Load the live NIF record even when the editor was opened with a direct
   // file URL, so source-capture links and metadata survive later edits.
@@ -6061,6 +6072,18 @@ $('mobilePanelBackdrop')?.addEventListener('click', closeMobilePanels);
           window._fumocaCurrentRecord = { ...data, ...(window._fumocaCurrentRecord || {}) };
           window._fumocaCurrentRecord.meta = data.meta || window._fumocaCurrentRecord.meta || {};
           if (!fileUrl) fileUrl = data.output_url || data.nif_url || data.splat_url || null;
+          // Current pipeline records store canonical R2 keys rather than a
+          // hydrated URL. Resolve that key directly instead of falling into
+          // the legacy splats-table lookup (which adds a needless round trip).
+          if (!fileUrl && data.r2_key) {
+            try {
+              const r2mod = await import('./js/r2Client.js');
+              const client = r2mod.default || r2mod;
+              fileUrl = client.publicUrl('nif-files', data.r2_key);
+            } catch (resolveError) {
+              console.warn('[Bootstrap] Could not resolve NIF R2 key:', resolveError);
+            }
+          }
           _renderLidarSourceLinks(data.meta || {});
         }
       }
