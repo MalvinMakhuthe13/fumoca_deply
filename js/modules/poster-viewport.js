@@ -86,7 +86,7 @@ export function mountPosterViewport() {
       lineHeight: '1.12', textShadow: '0 2px 18px rgba(0,0,0,.45)',
       overflowWrap: 'anywhere',
     });
-    host.appendChild(title);
+    (posterCanvas || host).appendChild(title);
     return title;
   };
   const restore = () => {
@@ -125,39 +125,54 @@ export function mountPosterViewport() {
     });
     if (signature === lastSignature) return;
     lastSignature = signature;
-    // The host is the poster canvas. Position and size it to the contain-fit
-    // rectangle. Children (background, canvas, assets, text) fill the host and
-    // use its local coordinate system — the outer left/top is applied only once,
-    // to the host itself.
-    const hostIsAbsolute = !isStudioEditor || getComputedStyle(host).position === 'absolute';
-    Object.assign(host.style, {
-      width: layout.width + 'px',
-      height: layout.height + 'px',
-      maxWidth: '100%',
-      maxHeight: '100%',
-      overflow: 'hidden',
-      boxSizing: 'border-box',
-      margin: 'auto',
-      flex: '0 0 auto',
-    });
-    if (hostIsAbsolute) {
-      Object.assign(host.style, {
-        position: 'absolute',
+    // Studio: keep the main #viewport full-size. The poster is a distinct
+    // adapting layer on top. Public viewer: the host itself is the poster
+    // canvas so the WebGL surface matches the composition.
+    let posterCanvas = host;
+    if (isStudioEditor) {
+      posterCanvas = host.querySelector('[data-fumoca-poster-canvas]');
+      if (!posterCanvas) {
+        posterCanvas = document.createElement('div');
+        posterCanvas.dataset.fumocaPosterCanvas = '1';
+        Object.assign(posterCanvas.style, {
+          position: 'absolute', zIndex: '2', pointerEvents: 'none', overflow: 'hidden',
+        });
+        host.appendChild(posterCanvas);
+      }
+      Object.assign(posterCanvas.style, {
         left: layout.left + 'px',
         top: layout.top + 'px',
-        right: 'auto',
-        bottom: 'auto',
+        width: layout.width + 'px',
+        height: layout.height + 'px',
       });
+      // Do not resize the main stage.
+      for (const property of ['width','height','left','top','right','bottom','maxWidth','maxHeight','flex']) {
+        host.style.removeProperty(property.replace(/[A-Z]/g, m => '-' + m.toLowerCase()));
+      }
     } else {
+      const hostIsAbsolute = getComputedStyle(host).position === 'absolute';
       Object.assign(host.style, {
-        position: 'relative',
-        left: 'auto',
-        top: 'auto',
-        right: 'auto',
-        bottom: 'auto',
+        width: layout.width + 'px',
+        height: layout.height + 'px',
+        maxWidth: '100%',
+        maxHeight: '100%',
+        overflow: 'hidden',
+        boxSizing: 'border-box',
+        margin: 'auto',
+        flex: '0 0 auto',
       });
+      if (hostIsAbsolute) {
+        Object.assign(host.style, {
+          position: 'absolute',
+          left: layout.left + 'px',
+          top: layout.top + 'px',
+          right: 'auto',
+          bottom: 'auto',
+        });
+      }
     }
-    // Background fills the poster host. Do not re-apply the outer centering offset.
+    if (backgroundNode.parentElement !== posterCanvas) posterCanvas.appendChild(backgroundNode);
+    // Background fills the poster canvas only. Do not re-apply the outer offset.
     Object.assign(backgroundNode.style, {
       position: 'absolute',
       inset: '0',
@@ -166,6 +181,7 @@ export function mountPosterViewport() {
       width: '100%',
       height: '100%',
       zIndex: '0',
+      display: 'block',
     });
     const background = layout.background || {};
     host.style.background = background.type === 'gradient' ? background.value : '';
