@@ -15,9 +15,9 @@ assert.ok(viewport.includes('data-fumoca-poster-background'), 'Poster viewport m
 assert.ok(viewport.includes("document.getElementById('viewport')"), 'Studio poster background must mount against the editor poster viewport');
 assert.ok(viewport.includes('const isStudioEditor'), 'Studio and public viewer must choose their own poster coordinate hosts');
 assert.ok(viewport.includes('const host = stage;'), 'Editorial background must share #viewport coordinates with supporting image layers');
-assert.ok(viewport.includes("const rendererHost = document.getElementById('stageHost') || host"), 'WebGL renderer host must be sized independently from editorial DOM layers');
-assert.ok(viewport.includes('(isStudioEditor ? rect.left : 0) + layout.left'), 'WebGL poster frame must align to the visible editor viewport origin');
-assert.ok(viewport.includes('(isStudioEditor ? rect.top : 0) + layout.top'), 'WebGL poster frame must align vertically to the visible editor viewport');
+assert.ok(viewport.includes("// #stageHost is only an overlay layer"), 'Poster viewport must not mistake the overlay for the WebGL renderer');
+assert.ok(viewport.includes("width: layout.width + 'px', height: layout.height + 'px'"), 'Poster frame must size the actual #viewport renderer surface');
+assert.ok(viewport.includes("margin: 'auto', flex: '0 0 auto'"), 'Poster viewport must remain centered in the editor workspace');
 
 assert.ok(viewport.includes('data-fumoca-poster-background-image'), 'Background must use a dedicated image element');
 assert.ok(viewport.includes('backgroundImage.src = background.value'), 'Background source must be assigned to the image element');
