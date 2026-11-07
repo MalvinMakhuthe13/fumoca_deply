@@ -30,7 +30,7 @@ assert.ok(magazine.includes("document.getElementById('viewport')") && magazine.i
 assert.ok(viewport.includes('const host = stage;'), 'Background, canvas and overlays share one host');
 assert.ok(assets.includes('const host = hostNode();'), 'Supporting images mount into the selected poster host');
 assert.ok(magazine.includes('host.appendChild(layer);'), 'Magazine text mounts into the selected poster host');
-assert.ok(magazine.includes("viewport.querySelector('[data-fumoca-poster-canvas]')"),
+assert.ok(magazine.includes("viewport.querySelector?.('[data-fumoca-poster-canvas]')"),
   'Studio magazine text must reparent into the fixed poster canvas when it becomes available');
 assert.ok(magazine.includes("if (layer.parentElement !== host) host.appendChild(layer);"),
   'Magazine text must follow the authoritative poster host after asynchronous viewport mounting');
