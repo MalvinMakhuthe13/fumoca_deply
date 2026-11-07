@@ -54,6 +54,7 @@ export function mountPosterViewport() {
   let lastSignature = '';
   let frame = 0;
   let title = host.querySelector('[data-fumoca-poster-title]');
+  let posterCanvas = host.querySelector('[data-fumoca-poster-canvas]');
   let backgroundNode = host.querySelector('[data-fumoca-poster-background]');
   let backgroundImage = backgroundNode?.querySelector?.('[data-fumoca-poster-background-image]');
   if (!backgroundNode) {
@@ -62,7 +63,7 @@ export function mountPosterViewport() {
     host.insertBefore(backgroundNode, host.firstChild);
   }
   Object.assign(backgroundNode.style, {
-    position: 'absolute', inset: '0', zIndex: '0',
+    position: 'absolute', zIndex: '1',
     pointerEvents: 'none', overflow: 'hidden',
   });
   if (!backgroundImage) {
@@ -101,6 +102,7 @@ export function mountPosterViewport() {
     // Keep the background layer mounted so disabling and re-enabling poster
     // composition does not leave the renderer without its background element.
     if (backgroundNode) backgroundNode.style.display = 'none';
+    if (posterCanvas) posterCanvas.style.display = 'none';
     host.removeAttribute('data-fumoca-poster-viewport');
 
   };
@@ -129,18 +131,20 @@ export function mountPosterViewport() {
     // Studio: keep the main #viewport full-size. The poster is a distinct
     // adapting layer on top. Public viewer: the host itself is the poster
     // canvas so the WebGL surface matches the composition.
-    let posterCanvas = host;
+    posterCanvas = host;
     if (isStudioEditor) {
       posterCanvas = host.querySelector('[data-fumoca-poster-canvas]');
       if (!posterCanvas) {
         posterCanvas = document.createElement('div');
         posterCanvas.dataset.fumocaPosterCanvas = '1';
         Object.assign(posterCanvas.style, {
-          position: 'absolute', zIndex: '2', pointerEvents: 'none', overflow: 'hidden',
+          position: 'absolute', zIndex: '3', pointerEvents: 'none', overflow: 'hidden',
         });
         host.appendChild(posterCanvas);
       }
       Object.assign(posterCanvas.style, {
+        display: 'block',
+        zIndex: '3',
         left: layout.left + 'px',
         top: layout.top + 'px',
         width: layout.width + 'px',
@@ -172,16 +176,26 @@ export function mountPosterViewport() {
         });
       }
     }
-    if (backgroundNode.parentElement !== posterCanvas) posterCanvas.appendChild(backgroundNode);
-    // Background fills the poster canvas only. Do not re-apply the outer offset.
+    // Studio background is a clipped poster-sized layer BEHIND the transparent
+    // WebGL canvas. The editorial canvas stays above WebGL for text and images.
+    // Keeping these siblings prevents an opaque poster background from hiding
+    // the live splat while preserving an independent printable composition.
+    if (isStudioEditor) {
+      if (backgroundNode.parentElement !== host) host.insertBefore(backgroundNode, host.firstChild);
+      Object.assign(backgroundNode.style, {
+        left: layout.left + 'px', top: layout.top + 'px',
+        width: layout.width + 'px', height: layout.height + 'px',
+        zIndex: '1',
+      });
+    } else if (backgroundNode.parentElement !== posterCanvas) posterCanvas.appendChild(backgroundNode);
     Object.assign(backgroundNode.style, {
       position: 'absolute',
-      inset: '0',
-      left: '0',
-      top: '0',
-      width: '100%',
-      height: '100%',
-      zIndex: '0',
+      inset: isStudioEditor ? 'auto' : '0',
+      left: isStudioEditor ? layout.left + 'px' : '0',
+      top: isStudioEditor ? layout.top + 'px' : '0',
+      width: isStudioEditor ? layout.width + 'px' : '100%',
+      height: isStudioEditor ? layout.height + 'px' : '100%',
+      zIndex: isStudioEditor ? '1' : '0',
       display: 'block',
     });
     const background = layout.background || {};
