@@ -48,4 +48,13 @@ assert.ok(viewportModule.includes("host.insertBefore(backgroundNode, host.firstC
 assert.ok(viewportModule.includes("width: layout.width + 'px'"), 'Poster background and editorial canvas use the calculated poster dimensions');
 assert.ok(viewportModule.includes("posterCanvas.style.display = 'none'"), 'Poster editorial canvas is hidden when poster composition is disabled');
 assert.ok(viewportModule.includes("measureEl"), 'Available space is measured from the stable host without resizing the main viewport');
+assert.match(viewportModule, /rendererCanvas\.style\.clipPath = clip/,
+  'Studio WebGL pixels must be clipped to the poster frame');
+assert.match(viewportModule, /const clip = `inset\(\$\{layout\.top\}px \$\{right\}px \$\{bottom\}px \$\{layout\.left\}px\)`/,
+  'The renderer clip must use the measured poster frame edges');
+assert.match(viewportModule, /if \(orbitControls\) orbitControls\.enablePan = false/,
+  'Poster mode must prevent camera panning from carrying the scene outside the frame');
+assert.match(viewportModule, /restoreRendererBounds\(\)/,
+  'Disabling poster mode must restore the normal renderer and camera controls');
+
 console.log('Poster viewport geometry and Studio renderer-host tests passed.');
