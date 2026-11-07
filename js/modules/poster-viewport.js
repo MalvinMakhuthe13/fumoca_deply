@@ -59,10 +59,16 @@ export function mountPosterViewport() {
   let backgroundImage = backgroundNode?.querySelector?.('[data-fumoca-poster-background-image]');
   const rendererCanvas = host.querySelector('canvas');
   const orbitControls = isStudioEditor ? window._fumocaOrbitControls : null;
-  const camera = isStudioEditor ? (window._fumocaCamera || window.camera) : null;
+  let camera = isStudioEditor ? (window._fumocaCamera || window.camera) : null;
+  let originalCameraZoom = camera && Number.isFinite(camera.zoom) ? camera.zoom : null;
+  const getCamera = () => {
+    if (!camera && isStudioEditor) camera = window._fumocaCamera || window.camera || null;
+    if (camera && originalCameraZoom === null && Number.isFinite(camera.zoom)) originalCameraZoom = camera.zoom;
+    return camera;
+  };
   const originalPan = orbitControls ? orbitControls.enablePan : undefined;
   const originalZoomEnabled = orbitControls ? orbitControls.enableZoom : undefined;
-  const originalCameraZoom = camera && Number.isFinite(camera.zoom) ? camera.zoom : 1;
+  
   const restoreRendererBounds = () => {
     if (rendererCanvas) {
       rendererCanvas.style.clipPath = '';
@@ -70,7 +76,8 @@ export function mountPosterViewport() {
     }
     if (orbitControls && originalPan !== undefined) orbitControls.enablePan = originalPan;
     if (orbitControls && originalZoomEnabled !== undefined) orbitControls.enableZoom = originalZoomEnabled;
-    if (camera && Number.isFinite(originalCameraZoom)) { camera.zoom = originalCameraZoom; camera.updateProjectionMatrix?.(); }
+    const activeCamera = getCamera();
+    if (activeCamera && Number.isFinite(originalCameraZoom)) { activeCamera.zoom = originalCameraZoom; activeCamera.updateProjectionMatrix?.(); }
   };
 
   if (!backgroundNode) {
@@ -269,10 +276,11 @@ export function mountPosterViewport() {
     // Panning can move the subject beyond the designed frame. Keep orbit and
     // zoom available, but make pan an explicit poster-layout operation instead.
     if (orbitControls) { orbitControls.enablePan = false; orbitControls.enableZoom = false; }
-    if (camera) {
+    const activeCamera = getCamera();
+    if (activeCamera) {
       const framingZoom = Math.max(0.5, Math.min(2.5, Number(state.composition?.framing?.zoom) || 1));
-      camera.zoom = originalCameraZoom * framingZoom;
-      camera.updateProjectionMatrix?.();
+      activeCamera.zoom = (Number.isFinite(originalCameraZoom) ? originalCameraZoom : 1) * framingZoom;
+      activeCamera.updateProjectionMatrix?.();
     }
 
     host.dataset.fumocaPosterViewport = '1';
