@@ -39,7 +39,7 @@ function ensureLayer() {
     ? (document.getElementById('viewport') || document.getElementById('stageHost') || document.getElementById('stage') || document.body)
     : (document.getElementById('stageHost') || document.getElementById('stage') || document.getElementById('viewport') || document.body);
   const host = isStudioEditor
-    ? (viewport.querySelector('[data-fumoca-poster-canvas]') || viewport)
+    ? (viewport.querySelector?.('[data-fumoca-poster-canvas]') || viewport)
     : viewport;
   if (layer.parentElement !== host) host.appendChild(layer);
   Object.assign(layer.style, {
