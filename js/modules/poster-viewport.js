@@ -106,6 +106,8 @@ export function mountPosterViewport() {
       orbitControls = nextControls;
       originalPan = orbitControls ? orbitControls.enablePan : undefined;
       originalZoomEnabled = orbitControls ? orbitControls.enableZoom : undefined;
+      originalAutoRotate = orbitControls ? orbitControls.autoRotate : undefined;
+      originalAutoRotateSpeed = orbitControls ? orbitControls.autoRotateSpeed : undefined;
     }
     getCamera();
   };
@@ -118,6 +120,8 @@ export function mountPosterViewport() {
     }
     if (orbitControls && originalPan !== undefined) orbitControls.enablePan = originalPan;
     if (orbitControls && originalZoomEnabled !== undefined) orbitControls.enableZoom = originalZoomEnabled;
+    if (orbitControls && originalAutoRotate !== undefined) orbitControls.autoRotate = originalAutoRotate;
+    if (orbitControls && originalAutoRotateSpeed !== undefined) orbitControls.autoRotateSpeed = originalAutoRotateSpeed;
     const activeCamera = getCamera();
     const baseZoom = activeCamera && cameraBaseZoom.get(activeCamera);
     if (activeCamera && Number.isFinite(baseZoom)) { activeCamera.zoom = baseZoom; activeCamera.updateProjectionMatrix?.(); }
@@ -194,6 +198,7 @@ export function mountPosterViewport() {
       width: layout.width, height: layout.height, left: layout.left, top: layout.top,
       background: layout.background, assets: layout.assets, title: layout.title,
       framing: state.composition?.framing,
+      motion: state.composition?.motion,
     });
     if (signature === lastSignature) return;
     lastSignature = signature;
