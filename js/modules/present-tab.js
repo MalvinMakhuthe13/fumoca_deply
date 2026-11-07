@@ -628,8 +628,29 @@ function mountPanel() {
     syncPosterControls();
     persist();
   };
-  posterRoot.addEventListener('input', applyPosterField);
-  posterRoot.addEventListener('change', applyPosterField);
+  // Capture poster field events at the composer boundary. Some Studio controls
+  // sit inside nested panels that stop bubbling; capture keeps every control
+  // connected to the same composition API.
+  const handlePosterFieldEvent = (event) => {
+    const field = event.target.closest?.('[data-poster-field]');
+    if (!field || !posterRoot.contains(field)) return;
+    Promise.resolve(applyPosterField(event)).then(() => {
+      const status = posterRoot.querySelector('#ptpPosterStatus');
+      if (status && event.type === 'change') {
+        status.textContent = 'Poster updated. Changes are saved locally; use Save poster to asset to publish uploaded media.';
+        status.dataset.state = 'ok';
+      }
+    }).catch((error) => {
+      console.error('[FUMOCA Poster] Control update failed:', error);
+      const status = posterRoot.querySelector('#ptpPosterStatus');
+      if (status) {
+        status.textContent = error?.message || 'This poster control could not be applied. Check the browser console for details.';
+        status.dataset.state = 'error';
+      }
+    });
+  };
+  posterRoot.addEventListener('input', handlePosterFieldEvent, true);
+  posterRoot.addEventListener('change', handlePosterFieldEvent, true);
   posterRoot.addEventListener('change', (event) => {
     const field = event.target.closest('[data-poster-asset-field]');
     if (!field) return;
