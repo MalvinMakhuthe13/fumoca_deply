@@ -120,8 +120,9 @@ jobs:
           grep -q "S.layers.push({" edit.html
           grep -q "mask: newMask" edit.html
           grep -q "const selectedCount = selectedPointCount();" edit.html
-          grep -q "Never expose a scene-wide transform gizmo" edit.html
-          grep -q "Never translate the camera target or whole scene as a fallback" edit.html
+          grep -q "const canTransform = S.transformScope === 'scene' ? count > 0 : selectedCount > 0" edit.html
+          grep -q "const useSelection = S.transformScope === 'selection'" edit.html
+          grep -q "if (useSelection && !selectedPointCount()) return indices" edit.html
       - name: Guard independent subject transform attachment
         run: |
           grep -q "Selecting a layer must select only its live, visible points" edit.html || grep -q "Selecting a layer must select only its live, visible points and attach" edit.html
