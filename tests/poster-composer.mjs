@@ -21,7 +21,8 @@ assert.deepEqual(presets.map((item) => item.name), ['product', 'story', 'editori
 poster.setPreset('story');
 let state = poster.getState();
 assert.equal(state.preset, 'story');
-assert.equal(state.composition.framing.zoom, 1, 'Poster framing starts at a neutral camera zoom');\nassert.equal(state.composition.motion.level, 'still', 'Poster motion defaults to still');
+assert.equal(state.composition.framing.zoom, 1, 'Poster framing starts at a neutral camera zoom');
+assert.equal(state.composition.motion.level, 'still', 'Poster motion defaults to still');
 assert.ok(Math.abs(state.composition.aspectRatio - (9 / 16)) < 1e-9);
 
 const portraitLayout = poster.getLayout(400, 900);
@@ -57,7 +58,12 @@ poster.updateComposition({ framing: { zoom: 1.75 } });
 assert.equal(poster.getState().composition.framing.zoom, 1.75, 'Poster camera zoom is saved in composition state');
 poster.updateComposition({ framing: { zoom: 9 } });
 assert.equal(poster.getState().composition.framing.zoom, 2.5, 'Poster camera zoom is clamped to a safe maximum');
-poster.updateComposition({ framing: { zoom: 1 } });\nposter.updateComposition({ motion: { level: 'dynamic' } });\nassert.equal(poster.getState().composition.motion.level, 'dynamic', 'Motion intensity is stored in poster composition');\nposter.updateComposition({ motion: { level: 'invalid' } });\nassert.equal(poster.getState().composition.motion.level, 'dynamic', 'Invalid motion levels cannot overwrite the last valid setting');\nposter.updateComposition({ motion: { level: 'still' } });
+poster.updateComposition({ framing: { zoom: 1 } });
+poster.updateComposition({ motion: { level: 'dynamic' } });
+assert.equal(poster.getState().composition.motion.level, 'dynamic', 'Motion intensity is stored in poster composition');
+poster.updateComposition({ motion: { level: 'invalid' } });
+assert.equal(poster.getState().composition.motion.level, 'dynamic', 'Invalid motion levels cannot overwrite the last valid setting');
+poster.updateComposition({ motion: { level: 'still' } });
 poster.updateComposition({ background: { type: 'solid', value: '#10131a' } });
 poster.updateComposition({
   object: { x: 1.5, y: -1, scale: 9, rotation: 720 },
