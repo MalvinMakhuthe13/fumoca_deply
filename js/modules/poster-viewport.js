@@ -37,7 +37,7 @@ export function calculatePosterViewport(posterState, width, height) {
   };
 }
 
-function mount() {
+export function mountPosterViewport() {
   const isStudioEditor = /\/edit(?:\.html)?\/?$/i.test(window.location.pathname);
   // Studio's poster layers and editable image assets share #viewport.
   // The public viewer uses the dedicated #stageHost inside its WebGL canvas host.
@@ -209,8 +209,8 @@ function mount() {
 
 if (typeof window !== 'undefined' && typeof document !== 'undefined') {
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', mount, { once: true });
+    document.addEventListener('DOMContentLoaded', mountPosterViewport, { once: true });
   } else {
-    mount();
+    mountPosterViewport();
   }
 }
