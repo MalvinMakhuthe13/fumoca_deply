@@ -40,7 +40,7 @@ assert.equal(calculatePosterViewport({ enabled: true, composition: { aspectRatio
 const viewportModule = readFileSync(new URL('../js/modules/poster-viewport.js', import.meta.url), 'utf8');
 assert.match(viewportModule, /const host = stage;/,
   'Editorial DOM layers must remain in #viewport alongside supporting images and text');
-assert.match(viewportModule, /const rendererHost = isStudioEditor\\s*\\? \\(document\\.getElementById\\('stageHost'\\) \\|\\| stage\\)/,
+assert.ok(viewportModule.includes("const rendererHost = isStudioEditor\n    ? (document.getElementById('stageHost') || stage)"),
   'Studio poster framing must resize the actual WebGL #stageHost');
 assert.match(viewportModule, /left: \\(isStudioEditor \\? rect\\.left : 0\\) \\+ layout\\.left/);
 assert.match(viewportModule, /top: \\(isStudioEditor \\? rect\\.top : 0\\) \\+ layout\\.top/);
