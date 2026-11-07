@@ -334,6 +334,27 @@ function getLayout(width, height) {
   };
 }
 
+function resetComposition() {
+  const preset = normalizePreset(state.preset);
+  const base = clone(POSTER_PRESETS[preset]);
+  state.composition = {
+    ...base,
+    assets: { images: [] },
+    subjects: [{
+      id: 'subject_main',
+      label: 'Main subject',
+      source: { type: 'current' },
+      ...clone(base.object),
+      visible: true,
+      locked: false,
+      z: 1,
+    }],
+  };
+  state.selectedSubjectId = 'subject_main';
+  emit('reset');
+  return snapshot();
+}
+
 window.FumocaPoster = Object.freeze({
   version: POSTER_VERSION,
   getState: snapshot,
@@ -348,7 +369,7 @@ window.FumocaPoster = Object.freeze({
   selectSubject,
   setEnabled,
   getLayout,
-  reset: () => setPreset(state.preset),
+  reset: resetComposition,
 });
 
 window.dispatchEvent(new CustomEvent('fumoca:posterReady', { detail: { version: POSTER_VERSION } }));
