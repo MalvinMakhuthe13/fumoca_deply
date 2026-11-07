@@ -38,19 +38,10 @@ export function initPosterAssets({ editable = false } = {}) {
     if (dragging) return;
     const images = state?.composition?.assets?.images || [];
     root.style.display = state?.enabled ? 'block' : 'none';
-    if (/\/edit/i.test(location.pathname)) {
-      const bounds = host.getBoundingClientRect();
-      const ratio = Number(state?.composition?.aspectRatio) || 4 / 5;
-      let width = bounds.width, height = width / ratio;
-      if (height > bounds.height) { height = bounds.height; width = height * ratio; }
-      Object.assign(root.style, {
-        inset: 'auto', left: ((bounds.width - width) / 2) + 'px',
-        top: ((bounds.height - height) / 2) + 'px',
-        width: width + 'px', height: height + 'px',
-      });
-    } else {
-      Object.assign(root.style, { inset: '0', left: '0', top: '0', width: '100%', height: '100%' });
-    }
+    // The poster host is the single coordinate system. Supporting images fill
+    // the host and use normalized coordinates relative to it. Do not compute a
+    // second contain-fit inside an already-framed host.
+    Object.assign(root.style, { inset: '0', left: '0', top: '0', width: '100%', height: '100%' });
     root.replaceChildren();
     images.forEach((item) => {
       if (!item.visible || !item.src) return;

@@ -44,11 +44,10 @@ export function mountPosterViewport() {
   const stage = isStudioEditor
     ? (document.getElementById('viewport') || document.getElementById('canvasHost'))
     : (document.getElementById('stageHost') || document.getElementById('stage') || document.getElementById('canvasHost') || document.getElementById('splatHost'));
-  // Editorial DOM layers remain in #viewport beside supporting image layers.
-  // The WebGL renderer itself lives in #stageHost, which spans the full page.
+  // The host is the single authoritative poster coordinate system.
+  // Background, 3D canvas, supporting images and typography all live inside it
+  // and use local coordinates. We never apply the outer centering offset to children.
   const host = stage;
-  // In Studio, the Three.js renderer canvas is appended directly to #viewport.
-  // #stageHost is only an overlay layer and must never be resized as the renderer.
   if (!stage || !host || !window.FumocaPoster) return;
   if (host.dataset.fumocaPosterViewportMounted === '1') return;
   host.dataset.fumocaPosterViewportMounted = '1';
@@ -104,10 +103,13 @@ export function mountPosterViewport() {
     host.removeAttribute('data-fumoca-poster-viewport');
 
   };
+  // Measure from the stable parent, never from the host after we have resized it.
+  // Observing the parent also avoids a ResizeObserver feedback loop.
+  const measureEl = host.parentElement || document.documentElement;
   const update = () => {
     frame = 0;
     const state = window.FumocaPoster?.getState?.();
-    const rect = stage.getBoundingClientRect();
+    const rect = measureEl.getBoundingClientRect();
     const layout = calculatePosterViewport(state, rect.width, rect.height);
     if (!layout) {
       if (lastSignature) {
@@ -123,18 +125,47 @@ export function mountPosterViewport() {
     });
     if (signature === lastSignature) return;
     lastSignature = signature;
-    // The Three.js canvas is a direct child of #viewport in Studio. Resize
-    // that real renderer surface; #stageHost is only an overlay and stays full-size.
+    // The host is the poster canvas. Position and size it to the contain-fit
+    // rectangle. Children (background, canvas, assets, text) fill the host and
+    // use its local coordinate system — the outer left/top is applied only once,
+    // to the host itself.
+    const hostIsAbsolute = !isStudioEditor || getComputedStyle(host).position === 'absolute';
     Object.assign(host.style, {
-      position: 'relative', inset: 'auto',
-      left: 'auto', top: 'auto', right: 'auto', bottom: 'auto',
-      width: layout.width + 'px', height: layout.height + 'px',
-      maxWidth: '100%', maxHeight: '100%', overflow: 'hidden',
-      boxSizing: 'border-box', margin: 'auto', flex: '0 0 auto',
+      width: layout.width + 'px',
+      height: layout.height + 'px',
+      maxWidth: '100%',
+      maxHeight: '100%',
+      overflow: 'hidden',
+      boxSizing: 'border-box',
+      margin: 'auto',
+      flex: '0 0 auto',
     });
+    if (hostIsAbsolute) {
+      Object.assign(host.style, {
+        position: 'absolute',
+        left: layout.left + 'px',
+        top: layout.top + 'px',
+        right: 'auto',
+        bottom: 'auto',
+      });
+    } else {
+      Object.assign(host.style, {
+        position: 'relative',
+        left: 'auto',
+        top: 'auto',
+        right: 'auto',
+        bottom: 'auto',
+      });
+    }
+    // Background fills the poster host. Do not re-apply the outer centering offset.
     Object.assign(backgroundNode.style, {
-      left: layout.left + 'px', top: layout.top + 'px',
-      width: layout.width + 'px', height: layout.height + 'px',
+      position: 'absolute',
+      inset: '0',
+      left: '0',
+      top: '0',
+      width: '100%',
+      height: '100%',
+      zIndex: '0',
     });
     const background = layout.background || {};
     host.style.background = background.type === 'gradient' ? background.value : '';
@@ -201,7 +232,7 @@ export function mountPosterViewport() {
   window.addEventListener('orientationchange', schedule, { passive: true });
   if (typeof ResizeObserver !== 'undefined') {
     const observer = new ResizeObserver(schedule);
-    observer.observe(stage);
+    observer.observe(measureEl);
   }
   schedule();
 }

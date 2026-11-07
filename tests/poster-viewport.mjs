@@ -39,9 +39,10 @@ assert.equal(calculatePosterViewport({ enabled: true, composition: { aspectRatio
 
 const viewportModule = readFileSync(new URL('../js/modules/poster-viewport.js', import.meta.url), 'utf8');
 assert.match(viewportModule, /const host = stage;/,
-  'Editorial DOM layers must remain in #viewport alongside supporting images and text');
-assert.ok(viewportModule.includes("const host = stage;"), 'Editorial and WebGL layers share the Studio viewport');
+  'Editorial DOM layers must remain in the poster host alongside supporting images and text');
+assert.ok(viewportModule.includes("const host = stage;"), 'Editorial and WebGL layers share the poster host');
 assert.ok(viewportModule.includes("const renderer = new THREE.WebGLRenderer") === false, 'Viewport module remains renderer-agnostic');
-assert.ok(viewportModule.includes("width: layout.width + 'px', height: layout.height + 'px'"), 'Poster frame resizes the actual viewport surface');
-assert.ok(viewportModule.includes("margin: 'auto', flex: '0 0 auto'"), 'Poster frame remains centered inside the Studio workspace');
+assert.ok(viewportModule.includes("width: layout.width + 'px'"), 'Poster frame resizes the actual viewport surface');
+assert.ok(viewportModule.includes("measureEl"), 'Available space is measured from the stable parent, not the resized host');
+assert.ok(viewportModule.includes("inset: '0'"), 'Background fills the poster host instead of re-applying the outer offset');
 console.log('Poster viewport geometry and Studio renderer-host tests passed.');

@@ -65,38 +65,55 @@ try{
     const result=await page.evaluate(()=>{
       const host=document.querySelector('#stageHost');
       const rect=host.getBoundingClientRect();
+      const bg=document.querySelector('[data-fumoca-poster-background]');
+      const bgRect=bg.getBoundingClientRect();
+      const assets=document.querySelector('[data-fumoca-poster-assets]');
+      const assetsRect=assets.getBoundingClientRect();
+      const mag=document.querySelector('#magazineTextLayer');
+      const magRect=mag.getBoundingClientRect();
       const z=selector=>getComputedStyle(document.querySelector(selector)).zIndex;
       const logo=document.querySelector('[data-poster-asset-id="logo"]');
       const logoRect=logo.getBoundingClientRect();
       return {
         poster:{x:rect.x,y:rect.y,width:rect.width,height:rect.height},
+        background:{x:bgRect.x,y:bgRect.y,width:bgRect.width,height:bgRect.height},
+        assets:{x:assetsRect.x,y:assetsRect.y,width:assetsRect.width,height:assetsRect.height},
+        magazine:{x:magRect.x,y:magRect.y,width:magRect.width,height:magRect.height},
         backgroundZ:z('[data-fumoca-poster-background]'),
-        sceneZ:z('#stage'),
         titleZ:z('[data-fumoca-poster-title]'),
         assetsZ:z('[data-fumoca-poster-assets]'),
         magazineZ:z('#magazineTextLayer'),
-        backgroundVisible:getComputedStyle(document.querySelector('[data-fumoca-poster-background]')).display!=='none',
+        backgroundVisible:getComputedStyle(bg).display!=='none',
         backgroundImageLoaded:document.querySelector('[data-fumoca-poster-background-image]').complete,
-        logoRect:{x:logoRect.x,y:logoRect.y,width:logoRect.width},
-        headlineText:document.querySelector('#magazineTextLayer .mt-item').textContent
+        logoRect:{x:logoRect.x,y:logoRect.y,width:logoRect.width,height:logoRect.height},
+        headlineText:document.querySelector('#magazineTextLayer .mt-item').textContent,
+        layersInsideHost: bg.parentElement===host && assets.parentElement===host && mag.parentElement===host
       };
     });
     assert.deepEqual(errors,[],`browser errors at ${viewport.width}x${viewport.height}`);
     const expectedWidth=Math.min(viewport.width,viewport.height*0.75);
     const expectedHeight=expectedWidth/0.75;
+    const expectedX=(viewport.width-expectedWidth)/2;
+    const expectedY=(viewport.height-expectedHeight)/2;
     assert.ok(Math.abs(result.poster.width-expectedWidth)<1,`poster width should contain-fit at ${viewport.width}x${viewport.height}`);
     assert.ok(Math.abs(result.poster.height-expectedHeight)<1,`poster height should contain-fit at ${viewport.width}x${viewport.height}`);
-    assert.ok(Math.abs(result.poster.x-(viewport.width-expectedWidth)/2)<1,'poster should remain horizontally centred');
+    assert.ok(Math.abs(result.poster.x-expectedX)<1,'poster should remain horizontally centred');
+    assert.ok(Math.abs(result.poster.y-expectedY)<1,'poster should remain vertically centred');
     assert.equal(result.backgroundVisible,true);
     assert.equal(result.backgroundImageLoaded,true);
+    assert.equal(result.layersInsideHost,true,'background, assets and magazine text must share the poster host');
+    assert.ok(Math.abs(result.background.x-result.poster.x)<1 && Math.abs(result.background.y-result.poster.y)<1 && Math.abs(result.background.width-result.poster.width)<1 && Math.abs(result.background.height-result.poster.height)<1,'background must fill the poster, not the outer viewer or an offset region');
+    assert.ok(Math.abs(result.assets.x-result.poster.x)<1 && Math.abs(result.assets.width-result.poster.width)<1,'supporting images must use the poster coordinate system');
+    assert.ok(Math.abs(result.magazine.x-result.poster.x)<1 && Math.abs(result.magazine.width-result.poster.width)<1,'magazine text must use the poster coordinate system');
     assert.equal(result.backgroundZ,'0');
-    assert.equal(result.sceneZ,'1');
     assert.equal(result.titleZ,'3');
     assert.equal(result.assetsZ,'8');
     assert.equal(result.magazineZ,'18');
-    assert.ok(Number(result.backgroundZ)<Number(result.sceneZ)&&Number(result.sceneZ)<Number(result.titleZ)&&Number(result.titleZ)<Number(result.assetsZ)&&Number(result.assetsZ)<Number(result.magazineZ),'visual layers must stack background → 3D scene → viewport title → supporting images → magazine typography');
+    assert.ok(Number(result.backgroundZ)<Number(result.titleZ)&&Number(result.titleZ)<Number(result.assetsZ)&&Number(result.assetsZ)<Number(result.magazineZ),'within the poster host, layers stack background → title → supporting images → magazine typography');
     assert.ok(Math.abs(result.logoRect.width-expectedWidth*0.2)<1,'supporting logo should size against the poster canvas');
+    assert.ok(result.logoRect.x>=result.poster.x-1 && result.logoRect.x+result.logoRect.width<=result.poster.x+result.poster.width+1,'logo must stay inside the poster canvas');
     assert.equal(result.headlineText,'EDITORIAL TITLE');
+    console.log(`measured ${viewport.width}x${viewport.height}: poster=${JSON.stringify(result.poster)} background=${JSON.stringify(result.background)} logo=${JSON.stringify(result.logoRect)}`);
     await page.close();
   }
   console.log('Browser test passed at desktop, tablet and mobile sizes: poster framing, background, supporting image and editorial layer stacking are preserved.');
