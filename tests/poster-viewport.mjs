@@ -82,4 +82,16 @@ assert.match(editorOverlay, /scaleHandle\.style\.left=clampToFrame/,
 assert.match(editorOverlay, /rotateHandle\.style\.left=clampToFrame/,
   'The rotate handle cannot drift outside the poster frame');
 
+const posterAssets = readFileSync(new URL('../js/modules/poster-assets.js', import.meta.url), 'utf8');
+assert.match(posterAssets, /const layerRect = layer\.getBoundingClientRect\(\)/,
+  'Image-layer drag bounds must use the actual rendered layer dimensions');
+assert.match(posterAssets, /const minX = clamp\(-leftInset/,
+  'Image-layer dragging must keep its complete left edge inside the poster');
+assert.match(posterAssets, /const maxX = clamp\(\(rect\.width - rightInset\)/,
+  'Image-layer dragging must keep its complete right edge inside the poster');
+assert.match(posterAssets, /const minY = clamp\(-topInset/,
+  'Image-layer dragging must keep its complete top edge inside the poster');
+assert.match(posterAssets, /const maxY = clamp\(\(rect\.height - bottomInset\)/,
+  'Image-layer dragging must keep its complete bottom edge inside the poster');
+
 console.log('Poster viewport geometry and Studio renderer-host tests passed.');
