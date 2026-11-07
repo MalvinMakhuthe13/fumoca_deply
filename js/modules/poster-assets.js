@@ -128,7 +128,7 @@ export function initPosterAssets({ editable = false } = {}) {
             const rect = root.getBoundingClientRect();
             const move = (ev) => {
               const delta = ev.clientX - startX;
-              const nextWidth = clamp(startWidth + delta, 24, Math.max(24, rect.width * 1.5));
+              // Never let a resized supporting image extend beyond the poster artboard.\n              // Fixed mode still keeps CSS-pixel sizing; the frame is its upper bound.\n              const nextWidth = clamp(startWidth + delta, 24, Math.max(24, rect.width));
               if (item.sizeMode === 'fixed') patchItem(item.id, { fixedWidthPx: Math.round(nextWidth) });
               else patchItem(item.id, { width: clamp(nextWidth / Math.max(1, rect.width), 0.05, 1) });
             };
