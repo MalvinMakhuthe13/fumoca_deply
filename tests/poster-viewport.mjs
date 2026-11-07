@@ -43,6 +43,12 @@ assert.match(viewportModule, /const host = stage;/,
 assert.ok(viewportModule.includes("const host = stage;"), 'Editorial and WebGL layers share the Studio viewport host');
 assert.ok(viewportModule.includes("const renderer = new THREE.WebGLRenderer") === false, 'Viewport module remains renderer-agnostic');
 assert.ok(viewportModule.includes("zIndex: '3'"), 'Editorial canvas sits above the live WebGL scene');
+assert.match(viewportModule, /overflow: 'hidden', clipPath: 'inset\(0\)', isolation: 'isolate', contain: 'layout paint'/,
+  'The poster artboard is an isolated clipping boundary for every editorial layer');
+assert.match(viewportModule, /pointerEvents: 'none', overflow: 'hidden', clipPath: 'inset\(0\)'/,
+  'Poster background effects must be clipped to the artboard');
+assert.match(viewportModule, /backgroundNode\.style\.transform = 'none'/,
+  'Background blur must not scale the background layer beyond the poster boundary');
 assert.ok(viewportModule.includes("zIndex: '1'"), 'Poster background sits behind the live WebGL scene');
 assert.ok(viewportModule.includes("host.insertBefore(backgroundNode, host.firstChild)"), 'Studio background is a sibling behind the renderer, not an opaque child above it');
 assert.ok(viewportModule.includes("width: layout.width + 'px'"), 'Poster background and editorial canvas use the calculated poster dimensions');
