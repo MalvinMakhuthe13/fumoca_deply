@@ -57,8 +57,13 @@ export function mountPosterViewport() {
   let posterCanvas = host.querySelector('[data-fumoca-poster-canvas]');
   let backgroundNode = host.querySelector('[data-fumoca-poster-background]');
   let backgroundImage = backgroundNode?.querySelector?.('[data-fumoca-poster-background-image]');
-  const rendererCanvas = host.querySelector('canvas');
-  const orbitControls = isStudioEditor ? window._fumocaOrbitControls : null;
+  // Viewer startup is asynchronous in some Studio routes. Resolve the live
+  // renderer/camera/controls at each layout pass instead of capturing null
+  // references before the viewer has finished mounting.
+  let rendererCanvas = null;
+  let orbitControls = null;
+  let originalPan;
+  let originalZoomEnabled;
   let camera = isStudioEditor ? (window._fumocaCamera || window.camera) : null;
   let originalCameraZoom = camera && Number.isFinite(camera.zoom) ? camera.zoom : null;
   const getCamera = () => {
@@ -66,10 +71,30 @@ export function mountPosterViewport() {
     if (camera && originalCameraZoom === null && Number.isFinite(camera.zoom)) originalCameraZoom = camera.zoom;
     return camera;
   };
-  const originalPan = orbitControls ? orbitControls.enablePan : undefined;
-  const originalZoomEnabled = orbitControls ? orbitControls.enableZoom : undefined;
-  
+  const syncRendererBindings = () => {
+    const nextCanvas = host.querySelector('canvas');
+    if (nextCanvas !== rendererCanvas) {
+      if (rendererCanvas) {
+        rendererCanvas.style.clipPath = '';
+        rendererCanvas.style.webkitClipPath = '';
+      }
+      rendererCanvas = nextCanvas;
+    }
+    const nextControls = isStudioEditor ? window._fumocaOrbitControls || null : null;
+    if (nextControls !== orbitControls) {
+      if (orbitControls) {
+        if (originalPan !== undefined) orbitControls.enablePan = originalPan;
+        if (originalZoomEnabled !== undefined) orbitControls.enableZoom = originalZoomEnabled;
+      }
+      orbitControls = nextControls;
+      originalPan = orbitControls ? orbitControls.enablePan : undefined;
+      originalZoomEnabled = orbitControls ? orbitControls.enableZoom : undefined;
+    }
+    getCamera();
+  };
+
   const restoreRendererBounds = () => {
+    syncRendererBindings();
     if (rendererCanvas) {
       rendererCanvas.style.clipPath = '';
       rendererCanvas.style.webkitClipPath = '';
@@ -137,6 +162,7 @@ export function mountPosterViewport() {
   const update = () => {
     frame = 0;
     const state = window.FumocaPoster?.getState?.();
+    syncRendererBindings();
     const rect = measureEl.getBoundingClientRect();
     const layout = calculatePosterViewport(state, rect.width, rect.height);
     if (!layout) {
@@ -313,6 +339,7 @@ export function mountPosterViewport() {
   const schedule = () => {
     if (!frame) frame = requestAnimationFrame(update);
   };
+  window.addEventListener('fumoca:viewerReady', () => { syncRendererBindings(); schedule(); });
   window.addEventListener('fumoca:posterChange', schedule);
   window.addEventListener('fumoca:presentationResize', schedule);
   window.addEventListener('resize', schedule, { passive: true });
