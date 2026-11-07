@@ -31,22 +31,21 @@ assert.ok(viewport.includes('const host = stage;'), 'Background, canvas and over
 assert.ok(assets.includes('const host = hostNode();'), 'Supporting images mount into the selected poster host');
 assert.ok(magazine.includes('host.appendChild(layer);'), 'Magazine text mounts into the selected poster host');
 
-// Available space is measured from the stable parent; the ResizeObserver watches that parent.
-assert.ok(viewport.includes('const measureEl = host.parentElement || document.documentElement'),
-  'Available space must be measured from the stable parent, not the resized host');
+// Studio keeps #viewport full-size, so measuring it is stable; public viewer measures its parent.
+assert.ok(viewport.includes('const measureEl = isStudioEditor ? host : (host.parentElement || document.documentElement)'),
+  'Studio must measure its unchanged viewport while public viewer measures its stable parent');
 assert.ok(viewport.includes('const rect = measureEl.getBoundingClientRect()'),
-  'Layout calculation must use the parent bounds');
+  'Layout calculation must use the appropriate stable measurement element');
 assert.ok(viewport.includes('observer.observe(measureEl)'),
-  'ResizeObserver must watch the parent to avoid a feedback loop on the resized host');
+  'ResizeObserver must watch the same stable measurement element');
 
-// The outer contain-fit position is applied exactly once, to the host itself.
-assert.ok(viewport.includes("left: layout.left + 'px'"), 'Host must receive the outer contain-fit left offset');
-assert.ok(viewport.includes("top: layout.top + 'px'"), 'Host must receive the outer contain-fit top offset');
-assert.ok(viewport.includes("width: layout.width + 'px'"), 'Host must be sized to the contain-fit width');
-assert.ok(viewport.includes("height: layout.height + 'px'"), 'Host must be sized to the contain-fit height');
-assert.ok(!viewport.includes("backgroundNode.style.left = layout.left") &&
-          !viewport.includes("left: layout.left + 'px', top: layout.top + 'px'"),
-  'Outer offset must not be re-applied to the background node');
+// The Studio host remains full-size; only the independent poster and background layers are contain-fit.
+assert.ok(viewport.includes("left: layout.left + 'px'"), 'Poster layers must receive the contain-fit left offset');
+assert.ok(viewport.includes("top: layout.top + 'px'"), 'Poster layers must receive the contain-fit top offset');
+assert.ok(viewport.includes("width: layout.width + 'px'"), 'Poster layers must use the contain-fit width');
+assert.ok(viewport.includes("height: layout.height + 'px'"), 'Poster layers must use the contain-fit height');
+assert.ok(viewport.includes("host.insertBefore(backgroundNode, host.firstChild)"),
+  'Studio background must be a viewport sibling behind WebGL, clipped to the poster frame');
 
 // Background and overlay layers use local coordinates that fill the host.
 assert.ok(viewport.includes("inset: '0'") && viewport.includes("left: '0'") && viewport.includes("top: '0'") &&
