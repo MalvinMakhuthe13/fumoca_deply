@@ -47,8 +47,9 @@ export function mountPosterViewport() {
   // Editorial DOM layers remain in #viewport beside supporting image layers.
   // The WebGL renderer itself lives in #stageHost, which spans the full page.
   const host = stage;
-  const rendererHost = document.getElementById('stageHost') || host;
-  if (!stage || !host || !rendererHost || !window.FumocaPoster) return;
+  // In Studio, the Three.js renderer canvas is appended directly to #viewport.
+  // #stageHost is only an overlay layer and must never be resized as the renderer.
+  if (!stage || !host || !window.FumocaPoster) return;
   if (host.dataset.fumocaPosterViewportMounted === '1') return;
   host.dataset.fumocaPosterViewportMounted = '1';
   let lastSignature = '';
@@ -91,7 +92,7 @@ export function mountPosterViewport() {
   };
   const restore = () => {
     for (const property of ['position','inset','left','top','right','bottom','width','height','maxWidth','maxHeight','boxSizing','overflow']) {
-      rendererHost.style.removeProperty(property.replace(/[A-Z]/g, (m) => '-' + m.toLowerCase()));
+      host.style.removeProperty(property.replace(/[A-Z]/g, (m) => '-' + m.toLowerCase()));
     }
     backgroundNode.style.left = '0'; backgroundNode.style.top = '0';
     backgroundNode.style.width = '100%'; backgroundNode.style.height = '100%';
@@ -101,7 +102,7 @@ export function mountPosterViewport() {
     // composition does not leave the renderer without its background element.
     if (backgroundNode) backgroundNode.style.display = 'none';
     host.removeAttribute('data-fumoca-poster-viewport');
-    rendererHost.removeAttribute('data-fumoca-poster-viewport');
+
   };
   const update = () => {
     frame = 0;
@@ -122,17 +123,14 @@ export function mountPosterViewport() {
     });
     if (signature === lastSignature) return;
     lastSignature = signature;
-    // Keep editorial layers inside #viewport so they share coordinates with
-    // supporting images and text. Independently size the actual WebGL host in
-    // #canvasHost to the same screen-space poster rectangle.
-    Object.assign(rendererHost.style, {
-      position: 'absolute', inset: 'auto',
-      left: (isStudioEditor ? rect.left : 0) + layout.left + 'px',
-      top: (isStudioEditor ? rect.top : 0) + layout.top + 'px',
-      right: 'auto', bottom: 'auto',
+    // The Three.js canvas is a direct child of #viewport in Studio. Resize
+    // that real renderer surface; #stageHost is only an overlay and stays full-size.
+    Object.assign(host.style, {
+      position: 'relative', inset: 'auto',
+      left: 'auto', top: 'auto', right: 'auto', bottom: 'auto',
       width: layout.width + 'px', height: layout.height + 'px',
       maxWidth: '100%', maxHeight: '100%', overflow: 'hidden',
-      boxSizing: 'border-box',
+      boxSizing: 'border-box', margin: 'auto', flex: '0 0 auto',
     });
     Object.assign(backgroundNode.style, {
       left: layout.left + 'px', top: layout.top + 'px',
@@ -172,7 +170,7 @@ export function mountPosterViewport() {
       }
     }
     host.dataset.fumocaPosterViewport = '1';
-    rendererHost.dataset.fumocaPosterViewport = '1';
+
     const heading = layout.title || {};
     if (heading.visible && String(heading.text || '').trim()) {
       const node = ensureTitle();
