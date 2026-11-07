@@ -167,6 +167,8 @@ jobs:
         run: node --experimental-default-type=module tests/poster-viewer-integration.mjs
       - name: Test responsive poster viewport geometry
         run: node --experimental-default-type=module tests/poster-viewport.mjs
+      - name: Test Studio viewport toolbar wiring
+        run: node tests/viewport-tools.mjs
       - name: Install browser test runner
         run: npm install --no-save playwright@1.58.2
       - name: Install Chromium for browser tests
