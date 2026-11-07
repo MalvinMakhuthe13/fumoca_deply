@@ -43,7 +43,7 @@ export function mountPosterViewport() {
   // The public viewer uses the dedicated #stageHost inside its WebGL canvas host.
   const stage = isStudioEditor
     ? (document.getElementById('viewport') || document.getElementById('canvasHost'))
-    : (document.getElementById('stage') || document.getElementById('canvasHost') || document.getElementById('splatHost'));
+    : (document.getElementById('stageHost') || document.getElementById('stage') || document.getElementById('canvasHost') || document.getElementById('splatHost'));
   // Editorial DOM layers remain in #viewport beside supporting image layers.
   // The WebGL renderer itself lives in #stageHost, which spans the full page.
   const host = stage;
