@@ -17,6 +17,7 @@ const POSTER_PRESETS = Object.freeze({
     background: { type: 'solid', value: '#10131a' },
     safeArea: 0.06,
     framing: { zoom: 1 },
+    motion: { level: 'still' },
     object: { x: 0.5, y: 0.53, scale: 1, rotation: 0 },
     title: { visible: true, text: 'Product title', align: 'center', fontFamily: 'system-ui, sans-serif', fontSize: 42, color: '#ffffff', weight: 750 },
   }),
@@ -149,6 +150,9 @@ function updateComposition(patch = {}) {
   }
   if (patch.framing && typeof patch.framing === 'object') {
     current.framing = { ...current.framing, zoom: clamp(patch.framing.zoom, 0.5, 2.5, current.framing?.zoom || 1) };
+  }
+  if (patch.motion && typeof patch.motion === 'object') {
+    current.motion = { level: ['still', 'gentle', 'normal', 'dynamic'].includes(patch.motion.level) ? patch.motion.level : (current.motion?.level || 'still') };
   }
   if (patch.background !== undefined) {
     current.background = normalizeBackground({ ...current.background, ...patch.background }, current.background);
