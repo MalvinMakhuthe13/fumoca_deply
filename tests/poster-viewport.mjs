@@ -64,4 +64,16 @@ assert.match(viewportModule, /framing: state\.composition\?\.framing/, 'Framing 
 assert.match(viewportModule, /restoreRendererBounds\(\)/,
   'Disabling poster mode must restore the normal renderer and camera controls');
 
+const editorOverlay = readFileSync(new URL('../js/modules/poster-editor-overlay.js', import.meta.url), 'utf8');
+assert.match(editorOverlay, /const clampToFrame =/,
+  'Poster editor handles must have a shared frame-boundary clamp');
+assert.match(editorOverlay, /pick\.style\.left = clampToFrame/,
+  'Secondary-object selection handles stay inside the poster frame');
+assert.match(editorOverlay, /const px=clampToFrame/,
+  'The selected subject move handle stays inside the poster frame');
+assert.match(editorOverlay, /scaleHandle\.style\.left=clampToFrame/,
+  'The scale handle cannot drift outside the poster frame');
+assert.match(editorOverlay, /rotateHandle\.style\.left=clampToFrame/,
+  'The rotate handle cannot drift outside the poster frame');
+
 console.log('Poster viewport geometry and Studio renderer-host tests passed.');
