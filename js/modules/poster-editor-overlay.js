@@ -73,7 +73,15 @@ export function mountPosterEditorOverlay(options = {}) {
     if (!state?.enabled) return;
     const bounds = host.getBoundingClientRect();
     if (!bounds.width || !bounds.height) return;
-    const poster = calculatePosterEditorFrame(bounds.width, bounds.height, composition.aspectRatio || 4 / 5);
+    // Prefer the real poster canvas bounds so the frame matches the adapting layer.
+    const canvas = host.querySelector('[data-fumoca-poster-canvas]');
+    let poster;
+    if (canvas) {
+      const c = canvas.getBoundingClientRect();
+      poster = { left: c.left - bounds.left, top: c.top - bounds.top, width: c.width, height: c.height };
+    } else {
+      poster = calculatePosterEditorFrame(bounds.width, bounds.height, composition.aspectRatio || 4 / 5);
+    }
     rect = poster;
     Object.assign(frame.style, { left: poster.left+'px', top: poster.top+'px', width: poster.width+'px', height: poster.height+'px' });
     // The poster viewport already renders the live headline; do not paint a second copy here.
