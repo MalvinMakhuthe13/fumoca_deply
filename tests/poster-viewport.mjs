@@ -74,6 +74,9 @@ assert.match(viewportModule, /orbitControls\.enablePan = false/,
 assert.match(viewportModule, /orbitControls\.enableZoom = false/, 'Poster framing disables free wheel zoom in favour of the fixed zoom control');
 assert.match(viewportModule, /activeCamera\.zoom = .*framingZoom/, 'The poster zoom control is applied to the Studio camera projection');
 assert.match(viewportModule, /framing: state\.composition\?\.framing/, 'Framing changes invalidate the viewport render signature');
+assert.match(viewportModule, /motion: state\.composition\?\.motion/, 'Motion changes invalidate the viewport render signature and are applied without a remount');
+assert.match(viewportModule, /originalAutoRotate = orbitControls \? orbitControls\.autoRotate/, 'The viewer automatic-rotation state is captured before poster mode changes it');
+assert.match(viewportModule, /originalAutoRotateSpeed = orbitControls \? orbitControls\.autoRotateSpeed/, 'The viewer automatic-rotation speed is captured before poster mode changes it');
 assert.match(viewportModule, /restoreRendererBounds\(\)/,
   'Disabling poster mode must restore the normal renderer and camera controls');
 
@@ -125,4 +128,5 @@ assert.match(viewportModule, /motionLevel = state\.composition\?\.motion\?\.leve
 assert.match(viewportModule, /still: 0, gentle: 0\.35, normal: 0\.8, dynamic: 1\.5/, 'Poster motion levels map to predictable automatic rotation speeds');
 assert.match(viewportModule, /orbitControls\.autoRotate = motionSpeed > 0/, 'Still mode disables automatic rotation and other levels enable it');
 assert.match(viewportModule, /originalAutoRotateSpeed/, 'Disabling poster mode restores the viewer automatic rotation speed');
+assert.match(viewportModule, /orbitControls\.autoRotate = originalAutoRotate/, 'Disabling poster mode restores the viewer automatic-rotation enabled state');
 console.log('Poster viewport geometry and Studio renderer-host tests passed.');
