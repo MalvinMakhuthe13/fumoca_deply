@@ -57,6 +57,17 @@ export function mountPosterViewport() {
   let posterCanvas = host.querySelector('[data-fumoca-poster-canvas]');
   let backgroundNode = host.querySelector('[data-fumoca-poster-background]');
   let backgroundImage = backgroundNode?.querySelector?.('[data-fumoca-poster-background-image]');
+  const rendererCanvas = host.querySelector('canvas');
+  const orbitControls = isStudioEditor ? window._fumocaOrbitControls : null;
+  const originalPan = orbitControls ? orbitControls.enablePan : undefined;
+  const restoreRendererBounds = () => {
+    if (rendererCanvas) {
+      rendererCanvas.style.clipPath = '';
+      rendererCanvas.style.webkitClipPath = '';
+    }
+    if (orbitControls && originalPan !== undefined) orbitControls.enablePan = originalPan;
+  };
+
   if (!backgroundNode) {
     backgroundNode = document.createElement('div');
     backgroundNode.dataset.fumocaPosterBackground = '1';
@@ -103,6 +114,7 @@ export function mountPosterViewport() {
     // composition does not leave the renderer without its background element.
     if (backgroundNode) backgroundNode.style.display = 'none';
     if (posterCanvas) posterCanvas.style.display = 'none';
+    restoreRendererBounds();
     host.removeAttribute('data-fumoca-poster-viewport');
 
   };
@@ -237,6 +249,21 @@ export function mountPosterViewport() {
         }
       }
     }
+
+    // The live WebGL canvas remains full-size for renderer stability, but its
+    // visible pixels are clipped to the exact poster rectangle. This keeps the
+    // splat inside the printable composition without resizing the 3D renderer.
+    if (isStudioEditor && rendererCanvas) {
+      const right = Math.max(0, bounds.width - layout.left - layout.width);
+      const bottom = Math.max(0, bounds.height - layout.top - layout.height);
+      const clip = `inset(${layout.top}px ${right}px ${bottom}px ${layout.left}px)`;
+      rendererCanvas.style.clipPath = clip;
+      rendererCanvas.style.webkitClipPath = clip;
+    }
+    // Panning can move the subject beyond the designed frame. Keep orbit and
+    // zoom available, but make pan an explicit poster-layout operation instead.
+    if (orbitControls) orbitControls.enablePan = false;
+
     host.dataset.fumocaPosterViewport = '1';
 
     const heading = layout.title || {};
