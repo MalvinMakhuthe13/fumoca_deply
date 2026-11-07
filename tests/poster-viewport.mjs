@@ -63,6 +63,10 @@ assert.match(viewportModule, /rendererCanvas\.style\.clipPath = clip/,
 assert.match(viewportModule, /const clip = `inset\(\$\{layout\.top\}px \$\{right\}px \$\{bottom\}px \$\{layout\.left\}px\)`/,
   'The renderer clip must use the measured poster frame edges');
 assert.match(viewportModule, /const syncRendererBindings = \(\) =>/, 'Poster mode must discover late-mounted renderer and controls');
+assert.match(viewportModule, /viewerReadyCamera = event\.detail\?\.camera \|\| viewerReadyCamera/, 'Poster zoom must bind to the actual camera announced by viewerReady');
+assert.match(viewportModule, /viewerReadyControls = event\.detail\?\.controls \|\| event\.detail\?\.viewer\?\.controls/, 'Poster mode must bind to the active viewer controls');
+assert.match(viewportModule, /window\._fumocaRenderer\?\.camera/, 'Poster zoom can resolve the renderer camera even when the editor globals are absent');
+assert.match(viewportModule, /window\._fumocaViewerControls/, 'Poster mode can resolve the active viewer controls outside Studio');
 assert.match(viewportModule, /window\.addEventListener\('fumoca:viewerReady'/, 'Viewer readiness must trigger a fresh renderer binding pass');
 assert.match(viewportModule, /const nextCanvas = host\.querySelector\('canvas'\)/, 'The WebGL canvas must be resolved after asynchronous viewer mounting');
 assert.match(viewportModule, /orbitControls\.enablePan = false/,
