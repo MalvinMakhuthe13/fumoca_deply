@@ -87,7 +87,8 @@ export function mountPosterViewport() {
   }
   Object.assign(backgroundNode.style, {
     position: 'absolute', zIndex: '1',
-    pointerEvents: 'none', overflow: 'hidden',
+    pointerEvents: 'none', overflow: 'hidden', clipPath: 'inset(0)',
+    contain: 'layout paint',
   });
   if (!backgroundImage) {
     backgroundImage = document.createElement('img');
@@ -164,12 +165,14 @@ export function mountPosterViewport() {
         posterCanvas.dataset.fumocaPosterCanvas = '1';
         Object.assign(posterCanvas.style, {
           position: 'absolute', zIndex: '3', pointerEvents: 'none', overflow: 'hidden',
+          clipPath: 'inset(0)', isolation: 'isolate', contain: 'layout paint',
         });
         host.appendChild(posterCanvas);
       }
       Object.assign(posterCanvas.style, {
         display: 'block',
         zIndex: '3',
+        overflow: 'hidden', clipPath: 'inset(0)', isolation: 'isolate', contain: 'layout paint',
         left: layout.left + 'px',
         top: layout.top + 'px',
         width: layout.width + 'px',
@@ -243,7 +246,8 @@ export function mountPosterViewport() {
       backgroundNode.style.backgroundColor = background.type === 'solid' ? (background.value || '#10131a') : 'transparent';
       backgroundNode.style.opacity = String(Math.max(0, Math.min(1, Number(background.opacity ?? 1))));
       backgroundNode.style.filter = 'blur(' + Math.max(0, Math.min(40, Number(background.blur) || 0)) + 'px) brightness(' + Math.max(0.2, Math.min(2, Number(background.brightness) || 1)) + ')';
-      backgroundNode.style.transform = Number(background.blur) > 0 ? 'scale(1.04)' : 'none';
+      backgroundNode.style.transform = 'none';
+      backgroundNode.style.clipPath = 'inset(0)';
       if (backgroundImage) {
         backgroundImage.style.display = isImage ? 'block' : 'none';
         backgroundImage.style.objectFit = background.fit === 'contain' ? 'contain' : background.fit === 'fill' ? 'fill' : 'cover';
