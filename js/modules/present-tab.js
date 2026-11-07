@@ -437,17 +437,21 @@ function mountPanel() {
     const state = window.FumocaPoster?.getState?.();
     if (!state || !posterRoot) return;
     const c = state.composition;
-    posterRoot.querySelector('[data-poster-field="preset"]').value = state.preset;
-    posterRoot.querySelector('[data-poster-field="enabled"]').checked = state.enabled;
-    posterRoot.querySelector('[data-poster-field="title"]').value = c.title?.text || '';
-    posterRoot.querySelector('[data-poster-field="titleVisible"]').checked = c.title?.visible !== false;
-    posterRoot.querySelector('[data-poster-field="titleAlign"]').value = c.title?.align || 'center';
-    posterRoot.querySelector('[data-poster-field="titleFont"]').value = c.title?.fontFamily || 'system-ui, sans-serif';
-    posterRoot.querySelector('[data-poster-field="titleSize"]').value = String(c.title?.fontSize || 42);
-    posterRoot.querySelector('[data-poster-field="titleColor"]').value = /^#[0-9a-f]{6}$/i.test(c.title?.color || '') ? c.title.color : '#ffffff';
+    const syncField = (selector, value, property = 'value') => {
+      const input = posterRoot.querySelector(selector);
+      if (input && document.activeElement !== input) input[property] = value;
+    };
+    syncField('[data-poster-field="preset"]', state.preset);
+    syncField('[data-poster-field="enabled"]', state.enabled, 'checked');
+    syncField('[data-poster-field="title"]', c.title?.text || '');
+    syncField('[data-poster-field="titleVisible"]', c.title?.visible !== false, 'checked');
+    syncField('[data-poster-field="titleAlign"]', c.title?.align || 'center');
+    syncField('[data-poster-field="titleFont"]', c.title?.fontFamily || 'system-ui, sans-serif');
+    syncField('[data-poster-field="titleSize"]', String(c.title?.fontSize || 42));
+    syncField('[data-poster-field="titleColor"]', /^#[0-9a-f]{6}$/i.test(c.title?.color || '') ? c.title.color : '#ffffff');
     const titleSizeOutput = posterRoot.querySelector('[data-poster-value="titleSize"]');
     if (titleSizeOutput) titleSizeOutput.textContent = (c.title?.fontSize || 42) + ' px';
-    posterRoot.querySelector('[data-poster-field="background"]').value = /^#[0-9a-f]{6}$/i.test(c.background?.value || '') ? c.background.value : '#10131a';
+    syncField('[data-poster-field="background"]', /^#[0-9a-f]{6}$/i.test(c.background?.value || '') ? c.background.value : '#10131a');
     const gradientSelect = posterRoot.querySelector('[data-poster-field="backgroundGradient"]');
     if (gradientSelect) {
       const gradients = {
@@ -469,7 +473,8 @@ function mountPanel() {
       backgroundBrightness: Math.round((c.background?.brightness ?? 1) * 100),
     })) {
       const input = posterRoot.querySelector(`[data-poster-field="${key}"]`);
-      if (input) input.value = String(value);
+      // Preserve the live pointer/keyboard interaction while posterChange fires.
+      if (input && document.activeElement !== input) input.value = String(value);
     }
     renderPosterAssetList();
     const selectedSubject = (c.subjects || []).find(item => item.id === state.selectedSubjectId) || c.object;
@@ -477,7 +482,7 @@ function mountPanel() {
       const value = selectedSubject?.[key] ?? 0;
       const input = posterRoot.querySelector(`[data-poster-field="${key}"]`);
       const output = posterRoot.querySelector(`[data-poster-value="${key}"]`);
-      if (input) input.value = String(key === 'x' || key === 'y' ? Math.round(value * 100) : key === 'scale' ? Math.round(value * 100) : Math.round(value));
+      if (input && document.activeElement !== input) input.value = String(key === 'x' || key === 'y' ? Math.round(value * 100) : key === 'scale' ? Math.round(value * 100) : Math.round(value));
       if (output) output.textContent = key === 'scale' ? `${Number(value).toFixed(2)}×` : key === 'rotation' ? `${Math.round(value)}°` : `${Math.round(value * 100)}%`;
     }
   };
