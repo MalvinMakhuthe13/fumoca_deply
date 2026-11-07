@@ -254,8 +254,8 @@ export function mountPosterViewport() {
     // visible pixels are clipped to the exact poster rectangle. This keeps the
     // splat inside the printable composition without resizing the 3D renderer.
     if (isStudioEditor && rendererCanvas) {
-      const right = Math.max(0, bounds.width - layout.left - layout.width);
-      const bottom = Math.max(0, bounds.height - layout.top - layout.height);
+      const right = Math.max(0, rect.width - layout.left - layout.width);
+      const bottom = Math.max(0, rect.height - layout.top - layout.height);
       const clip = `inset(${layout.top}px ${right}px ${bottom}px ${layout.left}px)`;
       rendererCanvas.style.clipPath = clip;
       rendererCanvas.style.webkitClipPath = clip;
