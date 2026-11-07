@@ -44,8 +44,12 @@ export function mountPosterViewport() {
   const stage = isStudioEditor
     ? (document.getElementById('viewport') || document.getElementById('canvasHost'))
     : (document.getElementById('stage') || document.getElementById('canvasHost') || document.getElementById('splatHost'));
+  // Studio's WebGL renderer is mounted in #stageHost (inside #canvasHost),
+  // while #viewport is the visible editor work area used for layout measurements.
+  // Styling #viewport alone only frames the editor chrome; it does not constrain
+  // the actual renderer. Keep the renderer host sized to the poster frame.
   const host = isStudioEditor
-    ? stage
+    ? (document.getElementById('stageHost') || stage)
     : (document.getElementById('stageHost') || stage);
   if (!stage || !host || !window.FumocaPoster) return;
   if (host.dataset.fumocaPosterViewportMounted === '1') return;
@@ -118,21 +122,16 @@ export function mountPosterViewport() {
     });
     if (signature === lastSignature) return;
     lastSignature = signature;
-    // In Studio, #viewport is a flex child of #shell. Once we make it
-    // absolute, its left coordinate is relative to #shell rather than its
-    // former flex slot, so preserve the left panel's current width.
-    const editorOriginLeft = (() => {
-      if (!isStudioEditor) return 0;
-      const panel = document.getElementById('panelLeft');
-      const shell = document.getElementById('shell');
-      // On mobile the left panel is a fixed, sliding overlay, not a flex
-      // column. It must not shift the poster's coordinate origin.
-      if (!panel || !shell || window.getComputedStyle(panel).position === 'fixed') return 0;
-      return Math.max(0, panel.getBoundingClientRect().right - shell.getBoundingClientRect().left);
-    })();
+    // #stageHost is positioned inside the full-screen #canvasHost, whereas
+    // layout is measured against the smaller #viewport work area. Convert the
+    // viewport's screen origin into the host parent's coordinate space so the
+    // WebGL canvas and poster DOM layers occupy exactly the same poster frame.
+    const parentRect = host.parentElement?.getBoundingClientRect?.() || { left: 0, top: 0 };
+    const originLeft = isStudioEditor ? rect.left - parentRect.left : 0;
+    const originTop = isStudioEditor ? rect.top - parentRect.top : 0;
     Object.assign(host.style, {
       position: 'absolute', inset: 'auto',
-      left: (editorOriginLeft + layout.left) + 'px', top: layout.top + 'px',
+      left: (originLeft + layout.left) + 'px', top: (originTop + layout.top) + 'px',
       right: 'auto', bottom: 'auto',
       width: layout.width + 'px', height: layout.height + 'px',
       maxWidth: '100%', maxHeight: '100%', overflow: 'hidden',
