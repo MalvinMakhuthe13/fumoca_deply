@@ -47,10 +47,13 @@ assert.ok(viewport.includes("height: layout.height + 'px'"), 'Poster layers must
 assert.ok(viewport.includes("host.insertBefore(backgroundNode, host.firstChild)"),
   'Studio background must be a viewport sibling behind WebGL, clipped to the poster frame');
 
-// Background and overlay layers use local coordinates that fill the host.
-assert.ok(viewport.includes("inset: '0'") && viewport.includes("left: '0'") && viewport.includes("top: '0'") &&
-          viewport.includes("width: '100%'") && viewport.includes("height: '100%'"),
-  'Background must fill the poster host with local coordinates');
+// Studio background is clipped to the poster frame; public viewer background fills its host.
+assert.ok(viewport.includes("inset: isStudioEditor ? 'auto' : '0'") &&
+          viewport.includes("left: isStudioEditor ? layout.left + 'px' : '0'") &&
+          viewport.includes("top: isStudioEditor ? layout.top + 'px' : '0'") &&
+          viewport.includes("width: isStudioEditor ? layout.width + 'px' : '100%'") &&
+          viewport.includes("height: isStudioEditor ? layout.height + 'px' : '100%'"),
+  'Studio background uses poster-frame coordinates while public viewer background fills its host');
 assert.ok(assets.includes("inset: '0', left: '0', top: '0', width: '100%', height: '100%'"),
   'Supporting images must fill the poster host and use local coordinates');
 assert.ok(magazine.includes("position: 'absolute'") && magazine.includes('host.appendChild(layer);'),
