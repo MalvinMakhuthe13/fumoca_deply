@@ -2066,8 +2066,8 @@ function _syncViewportHud() {
     else if (S.mode === 'measure') hint.textContent = 'Click two points on the model to measure.';
     else if (['move', 'rotate', 'scale-tool'].includes(S.mode)) {
       hint.textContent = selected
-        ? `Transforming ${fmt(selected)} points. Drag the model for free movement or use the gizmo handles.`
-        : 'Choose a transform tool to select the visible subject automatically.';
+        ? `Transforming ${fmt(selected)} selected points. Only this selection will change.`
+        : 'Nothing selected. Select an object or points first; the whole scene stays untouched.';
     } else if (S.mode === 'pan') hint.textContent = 'Drag the viewport to pan the camera. Scroll or use Zoom to change distance.';
     else if (S.mode === 'zoom-tool') hint.textContent = 'Drag up or down to zoom the camera.';
     else hint.textContent = 'Drag to orbit. Use Front, Side or Top for a fixed camera view.';
@@ -4267,13 +4267,8 @@ const toolMap = {
 
 function setMode(mode) {
   S.mode = mode;
-  if (['move','scale-tool','rotate'].includes(mode) && S.alive?.length && S.selected && !S.selected.some(Boolean)) {
-    for (let i = 0; i < S.alive.length; i++) {
-      if (S.alive[i] && !S.layerHidden?.[i]) S.selected[i] = 1;
-    }
-    rebuildGeometry();
-    if (typeof refreshTransformSourceMap === 'function') refreshTransformSourceMap();
-    setStatus(`Auto-selected subject (${fmt(selectedPointCount())} points) for ${mode}`, 'ok');
+  if (['move','scale-tool','rotate'].includes(mode) && !selectedPointCount()) {
+    setStatus('Select an object or points first. The whole scene will not be moved automatically.', 'warn');
   }
   const orbiting = mode === 'orbit' || mode === 'pan' || mode === 'zoom-tool';
   controls.enabled = mode === 'orbit';
