@@ -23,24 +23,29 @@ function uid() {
 }
 
 function ensureLayer() {
-  if (layer) return layer;
-  layer = document.getElementById('magazineTextLayer');
   if (!layer) {
-    layer = document.createElement('div');
-    layer.id = 'magazineTextLayer';
-    layer.className = 'mt-layer';
-    // Keep editorial layers inside the same measured surface as the live poster.
-    // In poster mode stageHost is resized to the contain-fit canvas, so text cannot
-    // drift into the surrounding workspace or escape the poster crop.
-    // Studio's poster viewport is the authoritative editorial canvas.
-    // Prefer it over stageHost: stageHost can remain the full workspace while
-    // #viewport is contain-fitted to the selected poster aspect ratio.
-    const isStudioEditor = /\/edit(?:\.html)?\/?$/i.test(window.location.pathname);
-    const host = isStudioEditor
-      ? (document.getElementById('viewport') || document.getElementById('stageHost') || document.getElementById('stage') || document.body)
-      : (document.getElementById('stageHost') || document.getElementById('stage') || document.getElementById('viewport') || document.body);
-    host.appendChild(layer);
+    layer = document.getElementById('magazineTextLayer');
+    if (!layer) {
+      layer = document.createElement('div');
+      layer.id = 'magazineTextLayer';
+      layer.className = 'mt-layer';
+    }
   }
+  // The Studio poster canvas is created by poster-viewport after module boot.
+  // Reparent the text layer when it appears so all editorial layers share the
+  // exact poster-local coordinate system, rather than the wider editor stage.
+  const isStudioEditor = /\\/edit(?:\\.html)?\\/?$/i.test(window.location.pathname);
+  const viewport = isStudioEditor
+    ? (document.getElementById('viewport') || document.getElementById('stageHost') || document.getElementById('stage') || document.body)
+    : (document.getElementById('stageHost') || document.getElementById('stage') || document.getElementById('viewport') || document.body);
+  const host = isStudioEditor
+    ? (viewport.querySelector('[data-fumoca-poster-canvas]') || viewport)
+    : viewport;
+  if (layer.parentElement !== host) host.appendChild(layer);
+  Object.assign(layer.style, {
+    position: 'absolute', inset: '0', width: '100%', height: '100%',
+    overflow: 'hidden', pointerEvents: editing ? 'auto' : 'none',
+  });
   return layer;
 }
 
@@ -214,8 +219,13 @@ function tick() {
       const p = projectWorld(item.wx, item.wy, item.wz);
       if (!p) { el.style.opacity = '0'; return; }
       el.style.opacity = String(item.opacity ?? 1);
-      el.style.left = p.x + '%';
-      el.style.top = p.y + '%';
+      const viewport = root.parentElement;
+      const viewportRect = viewport?.getBoundingClientRect();
+      const layerRect = root.getBoundingClientRect();
+      const screenX = (p.x / 100) * (viewportRect?.width || layerRect.width);
+      const screenY = (p.y / 100) * (viewportRect?.height || layerRect.height);
+      el.style.left = (((screenX + (viewportRect?.left || 0) - layerRect.left) / Math.max(1, layerRect.width)) * 100) + '%';
+      el.style.top = (((screenY + (viewportRect?.top || 0) - layerRect.top) / Math.max(1, layerRect.height)) * 100) + '%';
       const s = 1 - Math.min(0.3, Math.max(0, p.depth) * 0.2);
       el.style.transform = `translate(-50%, -50%) scale(${s}) rotate(${Number(item.rotation) || 0}deg)`;
       return;
