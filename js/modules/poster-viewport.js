@@ -169,7 +169,6 @@ export function mountPosterViewport() {
       if (lastSignature) {
         lastSignature = '';
         restore();
-        window.dispatchEvent(new Event('resize'));
       }
       return;
     }
@@ -333,8 +332,10 @@ export function mountPosterViewport() {
       title?.remove();
       title = null;
     }
-    // Existing renderer resize handlers use the host's measured dimensions.
-    window.dispatchEvent(new Event('resize'));
+    // The renderer canvas deliberately remains full-size in Studio. Updating
+    // poster framing must not broadcast a global resize: the main editor's
+    // resize listeners can rebuild camera/scene state and cause the viewer to
+    // jump out of the active scene while the zoom slider is being dragged.
   };
   const schedule = () => {
     if (!frame) frame = requestAnimationFrame(update);
