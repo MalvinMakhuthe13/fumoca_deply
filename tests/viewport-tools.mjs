@@ -15,6 +15,8 @@ assert.match(html,/querySelectorAll\('\[data-hud-view\]'\)[\s\S]*?camera\.positi
 assert.match(html,/const canTransform = S\.transformScope === 'scene' \? count > 0 : selectedCount > 0/);
 assert.match(html,/const useSelection = S\.transformScope === 'selection'/);
 assert.match(html,/if \(!S\.alive\[i\] \|\| \(useSelection && !S\.selected\[i\]\)\) continue/);
+assert.match(html,/function _gizmoCollectIndices\(\)[\s\S]*?const useSelection = S\.transformScope === 'selection'[\s\S]*?if \(useSelection && !selectedPointCount\(\)\) return indices[\s\S]*?if \(useSelection && !\(S\.selected && S\.selected\[i\]\)\) continue[\s\S]*?indices\.push\(i\)/);
+assert.match(html,/function beginGizmoGesture\(\)[\s\S]*?const indices = _gizmoCollectIndices\(\)/);
 assert.match(html,/Nothing selected\. Select points or switch scope to Whole scene/);
 assert.match(html,/if \(\(S\.mode === 'pan' \|\| S\.mode === 'zoom-tool'\)[\s\S]*?camera\.position\.add\(delta\)[\s\S]*?camera\.position\.copy\(controls\.target\)\.add\(offset\)/);
 assert.match(html,/controls\.enabled = mode === 'orbit'/);
