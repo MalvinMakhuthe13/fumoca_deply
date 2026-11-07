@@ -137,10 +137,12 @@ export function initPosterAssets({ editable = false } = {}) {
             const up = () => {
               window.removeEventListener('pointermove', move);
               window.removeEventListener('pointerup', up);
+              window.removeEventListener('pointercancel', up);
               dragging = false; render(); emitSelection(window.FumocaPoster.getState().composition.assets.images.find(x => x.id === item.id));
             };
             window.addEventListener('pointermove', move);
             window.addEventListener('pointerup', up, { once: true });
+            window.addEventListener('pointercancel', up, { once: true });
           });
           layer.appendChild(resize);
 
@@ -212,6 +214,7 @@ export function initPosterAssets({ editable = false } = {}) {
           const up = () => {
             window.removeEventListener('pointermove', move);
             window.removeEventListener('pointerup', up);
+            window.removeEventListener('pointercancel', up);
             dragging = false; render();
             const current = window.FumocaPoster.getState().composition.assets.images.find(x => x.id === item.id);
             emitSelection(current);
