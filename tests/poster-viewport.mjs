@@ -40,9 +40,12 @@ assert.equal(calculatePosterViewport({ enabled: true, composition: { aspectRatio
 const viewportModule = readFileSync(new URL('../js/modules/poster-viewport.js', import.meta.url), 'utf8');
 assert.match(viewportModule, /const host = stage;/,
   'Editorial DOM layers must remain in the poster host alongside supporting images and text');
-assert.ok(viewportModule.includes("const host = stage;"), 'Editorial and WebGL layers share the poster host');
+assert.ok(viewportModule.includes("const host = stage;"), 'Editorial and WebGL layers share the Studio viewport host');
 assert.ok(viewportModule.includes("const renderer = new THREE.WebGLRenderer") === false, 'Viewport module remains renderer-agnostic');
-assert.ok(viewportModule.includes("width: layout.width + 'px'"), 'Poster frame resizes the actual viewport surface');
-assert.ok(viewportModule.includes("measureEl"), 'Available space is measured from the stable parent, not the resized host');
-assert.ok(viewportModule.includes("inset: '0'"), 'Background fills the poster host instead of re-applying the outer offset');
+assert.ok(viewportModule.includes("zIndex: '3'"), 'Editorial canvas sits above the live WebGL scene');
+assert.ok(viewportModule.includes("zIndex: '1'"), 'Poster background sits behind the live WebGL scene');
+assert.ok(viewportModule.includes("host.insertBefore(backgroundNode, host.firstChild)"), 'Studio background is a sibling behind the renderer, not an opaque child above it');
+assert.ok(viewportModule.includes("width: layout.width + 'px'"), 'Poster background and editorial canvas use the calculated poster dimensions');
+assert.ok(viewportModule.includes("display: 'none'"), 'Poster editorial canvas is hidden when poster composition is disabled');
+assert.ok(viewportModule.includes("measureEl"), 'Available space is measured from the stable host without resizing the main viewport');
 console.log('Poster viewport geometry and Studio renderer-host tests passed.');
