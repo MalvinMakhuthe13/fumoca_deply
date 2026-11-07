@@ -103,11 +103,13 @@ try {
   await page.evaluate(() => window.FumocaPosterAssets.refresh());
   const mobile = await page.evaluate(() => ({
     fixed: document.querySelector('[data-poster-asset-id="fixed"]').getBoundingClientRect().width,
+    savedFixed: window.FumocaPoster.getState().composition.assets.images.find(x => x.id === 'fixed').fixedWidthPx,
     responsive: document.querySelector('[data-poster-asset-id="responsive"]').getBoundingClientRect().width,
     root: (() => { const r=document.querySelector('[data-fumoca-poster-assets]').getBoundingClientRect(); return {width:r.width,height:r.height}; })()
   }));
   assert.equal(mobile.root.width, 390, 'supporting images must fill the resized host width');
-  assert.equal(mobile.fixed, 200, 'fixed-pixel image should retain its size on mobile');
+  assert.equal(mobile.fixed, resized.width, 'fixed-pixel image should retain its resized desktop CSS-pixel width on mobile');
+  assert.equal(mobile.fixed, mobile.savedFixed, 'fixed-pixel rendering must match the persisted fixed width');
   assert.equal(mobile.responsive, 195, 'responsive image should scale with the host width');
 
   console.log('Browser test passed: host-filling coordinates, fixed-pixel sizing, direct image rotation and responsive sizing on desktop/mobile.');
