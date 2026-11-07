@@ -42,6 +42,6 @@ assert.match(viewportModule, /const host = stage;/,
   'Editorial DOM layers must remain in #viewport alongside supporting images and text');
 assert.ok(viewportModule.includes("const rendererHost = isStudioEditor\n    ? (document.getElementById('stageHost') || stage)"),
   'Studio poster framing must resize the actual WebGL #stageHost');
-assert.match(viewportModule, /left: \\(isStudioEditor \\? rect\\.left : 0\\) \\+ layout\\.left/);
-assert.match(viewportModule, /top: \\(isStudioEditor \\? rect\\.top : 0\\) \\+ layout\\.top/);
+assert.ok(viewportModule.includes("left: (isStudioEditor ? rect.left : 0) + layout.left"));
+assert.ok(viewportModule.includes("top: (isStudioEditor ? rect.top : 0) + layout.top"));
 console.log('Poster viewport geometry and Studio renderer-host tests passed.');
