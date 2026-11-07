@@ -35,4 +35,11 @@ assert.match(html,/\.from\('nif-files'\)[\s\S]*?\.upload\(path, savedBlob/);
 assert.match(html,/\.from\('nif_files'\)[\s\S]*?\.update\(\{ r2_key: fileKey, gaussian_count: aliveCount, meta \}\)/);
 assert.match(html,/if \(savedToNifFiles\) return true/);
 
+// Reopen must trust the freshly fetched nif_files row and its current immutable
+// R2 object, not a stale URL or cached in-memory r2_key from before the save.
+assert.match(html,/window\._fumocaCurrentRecord = \{ \.\.\.\(window\._fumocaCurrentRecord \|\| \{\}\), \.\.\.data \}/);
+assert.match(html,/if \(data\.r2_key\) \{[\s\S]*?fileUrl = client\.publicUrl\('nif-files', data\.r2_key\)/);
+assert.match(html,/else if \(!fileUrl\) \{[\s\S]*?fileUrl = data\.output_url \|\| data\.nif_url \|\| data\.splat_url/);
+
+
 console.log('Viewport toolbar contract passed: navigation, HUD modes, camera views, transforms, pan and zoom.');
