@@ -44,14 +44,13 @@ export function mountPosterViewport() {
   const stage = isStudioEditor
     ? (document.getElementById('viewport') || document.getElementById('canvasHost'))
     : (document.getElementById('stage') || document.getElementById('canvasHost') || document.getElementById('splatHost'));
-  // Studio's WebGL renderer is mounted in #stageHost (inside #canvasHost),
-  // while #viewport is the visible editor work area used for layout measurements.
-  // Styling #viewport alone only frames the editor chrome; it does not constrain
-  // the actual renderer. Keep the renderer host sized to the poster frame.
-  const host = isStudioEditor
+  // Editorial DOM layers remain in #viewport beside supporting image layers.
+  // The WebGL renderer itself lives in #stageHost, which spans the full page.
+  const host = stage;
+  const rendererHost = isStudioEditor
     ? (document.getElementById('stageHost') || stage)
-    : (document.getElementById('stageHost') || stage);
-  if (!stage || !host || !window.FumocaPoster) return;
+    : host;
+  if (!stage || !host || !rendererHost || !window.FumocaPoster) return;
   if (host.dataset.fumocaPosterViewportMounted === '1') return;
   host.dataset.fumocaPosterViewportMounted = '1';
   let lastSignature = '';
@@ -93,9 +92,11 @@ export function mountPosterViewport() {
     return title;
   };
   const restore = () => {
-    for (const property of ['position','inset','left','top','right','bottom','width','height','maxWidth','maxHeight','boxSizing','overflow','background','backgroundColor','backgroundImage','backgroundSize','backgroundPosition']) {
-      host.style.removeProperty(property.replace(/[A-Z]/g, (m) => '-' + m.toLowerCase()));
+    for (const property of ['position','inset','left','top','right','bottom','width','height','maxWidth','maxHeight','boxSizing','overflow']) {
+      rendererHost.style.removeProperty(property.replace(/[A-Z]/g, (m) => '-' + m.toLowerCase()));
     }
+    backgroundNode.style.left = '0'; backgroundNode.style.top = '0';
+    backgroundNode.style.width = '100%'; backgroundNode.style.height = '100%';
     title?.remove();
     title = null;
     // Keep the background layer mounted so disabling and re-enabling poster
@@ -122,20 +123,21 @@ export function mountPosterViewport() {
     });
     if (signature === lastSignature) return;
     lastSignature = signature;
-    // #stageHost is positioned inside the full-screen #canvasHost, whereas
-    // layout is measured against the smaller #viewport work area. Convert the
-    // viewport's screen origin into the host parent's coordinate space so the
-    // WebGL canvas and poster DOM layers occupy exactly the same poster frame.
-    const parentRect = host.parentElement?.getBoundingClientRect?.() || { left: 0, top: 0 };
-    const originLeft = isStudioEditor ? rect.left - parentRect.left : 0;
-    const originTop = isStudioEditor ? rect.top - parentRect.top : 0;
-    Object.assign(host.style, {
+    // Keep editorial layers inside #viewport so they share coordinates with
+    // supporting images and text. Independently size the actual WebGL host in
+    // #canvasHost to the same screen-space poster rectangle.
+    Object.assign(rendererHost.style, {
       position: 'absolute', inset: 'auto',
-      left: (originLeft + layout.left) + 'px', top: (originTop + layout.top) + 'px',
+      left: (isStudioEditor ? rect.left : 0) + layout.left + 'px',
+      top: (isStudioEditor ? rect.top : 0) + layout.top + 'px',
       right: 'auto', bottom: 'auto',
       width: layout.width + 'px', height: layout.height + 'px',
       maxWidth: '100%', maxHeight: '100%', overflow: 'hidden',
       boxSizing: 'border-box',
+    });
+    Object.assign(backgroundNode.style, {
+      left: layout.left + 'px', top: layout.top + 'px',
+      width: layout.width + 'px', height: layout.height + 'px',
     });
     const background = layout.background || {};
     host.style.background = background.type === 'gradient' ? background.value : '';
