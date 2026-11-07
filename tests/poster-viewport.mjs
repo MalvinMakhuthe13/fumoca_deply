@@ -56,8 +56,11 @@ assert.match(viewportModule, /rendererCanvas\.style\.clipPath = clip/,
   'Studio WebGL pixels must be clipped to the poster frame');
 assert.match(viewportModule, /const clip = `inset\(\$\{layout\.top\}px \$\{right\}px \$\{bottom\}px \$\{layout\.left\}px\)`/,
   'The renderer clip must use the measured poster frame edges');
-assert.match(viewportModule, /if \(orbitControls\) orbitControls\.enablePan = false/,
+assert.match(viewportModule, /orbitControls\.enablePan = false/,
   'Poster mode must prevent camera panning from carrying the scene outside the frame');
+assert.match(viewportModule, /orbitControls\.enableZoom = false/, 'Poster framing disables free wheel zoom in favour of the fixed zoom control');
+assert.match(viewportModule, /activeCamera\.zoom = .*framingZoom/, 'The poster zoom control is applied to the Studio camera projection');
+assert.match(viewportModule, /framing: state\.composition\?\.framing/, 'Framing changes invalidate the viewport render signature');
 assert.match(viewportModule, /restoreRendererBounds\(\)/,
   'Disabling poster mode must restore the normal renderer and camera controls');
 
