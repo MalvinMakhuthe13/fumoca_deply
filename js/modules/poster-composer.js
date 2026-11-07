@@ -106,9 +106,31 @@ function emit(reason) {
 
 function setPreset(name) {
   const preset = normalizePreset(name);
+  const previous = state.composition || {};
+  const previousAssets = clone(previous.assets || { images: [] });
+  const previousSubjects = clone(previous.subjects || []);
+  const previousObject = clone(previous.object || POSTER_PRESETS[preset].object);
+  const next = clone(POSTER_PRESETS[preset]);
+
+  // Changing the canvas format must not destroy the user's editorial work.
+  // Keep uploaded layers and all independently positioned subjects intact.
+  next.assets = previousAssets;
+  next.subjects = previousSubjects.length ? previousSubjects : [{
+    id: 'subject_main',
+    label: 'Main subject',
+    source: { type: 'current' },
+    ...previousObject,
+    visible: true,
+    locked: false,
+    z: 1,
+  }];
+  next.object = previousObject;
   state.preset = preset;
-  state.composition = { ...clone(POSTER_PRESETS[preset]), assets: { images: [] }, subjects: [{ id: 'subject_main', label: 'Main subject', source: { type: 'current' }, ...clone(POSTER_PRESETS[preset].object), visible: true, locked: false, z: 1 }] };
-  state.selectedSubjectId = 'subject_main';
+  state.composition = next;
+
+  if (!next.subjects.some(item => item.id === state.selectedSubjectId)) {
+    state.selectedSubjectId = next.subjects[0]?.id || 'subject_main';
+  }
   emit('preset');
   return snapshot();
 }
