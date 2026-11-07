@@ -314,6 +314,8 @@ function mountPanel() {
       <div class="ptp-hint">The poster keeps its chosen aspect ratio while the 3D subject can be repositioned, scaled and rotated. Live transforms work in published Spark PLY, legacy PLY and decoded NIF cloud viewers.</div>
       <label class="ptp-poster-field">Preset<select data-poster-field="preset"><option value="product">Product · 4:5</option><option value="story">Story · 9:16</option><option value="editorial">Editorial · 3:4</option><option value="landscape">Landscape · 16:9</option></select></label>
       <label class="ptp-poster-toggle"><input type="checkbox" data-poster-field="enabled"> Enable poster composition</label>
+      <label class="ptp-poster-field">Poster zoom <input type="range" min="50" max="250" step="1" value="100" data-poster-field="zoom"><output data-poster-value="zoom">100%</output></label>
+      <div class="ptp-poster-hint">Set the exact subject framing here. Poster mode locks free camera pan and wheel zoom so the composition cannot drift outside the frame.</div>
       <label class="ptp-poster-field">Headline<input type="text" maxlength="160" data-poster-field="title" placeholder="Product title"></label>
       <label class="ptp-poster-toggle"><input type="checkbox" data-poster-field="titleVisible" checked> Show headline</label>
       <div class="ptp-poster-grid">
@@ -452,6 +454,9 @@ function mountPanel() {
     };
     syncField('[data-poster-field="preset"]', state.preset);
     syncField('[data-poster-field="enabled"]', state.enabled, 'checked');
+    syncField('[data-poster-field="zoom"]', String(Math.round((c.framing?.zoom || 1) * 100)));
+    const zoomOutput = posterRoot.querySelector('[data-poster-value="zoom"]');
+    if (zoomOutput) zoomOutput.textContent = Math.round((c.framing?.zoom || 1) * 100) + '%';
     syncField('[data-poster-field="title"]', c.title?.text || '');
     syncField('[data-poster-field="titleVisible"]', c.title?.visible !== false, 'checked');
     syncField('[data-poster-field="titleAlign"]', c.title?.align || 'center');
@@ -581,6 +586,7 @@ function mountPanel() {
     }
     if (key === 'preset') window.FumocaPoster.setPreset(field.value);
     else if (key === 'enabled') window.FumocaPoster.setEnabled(field.checked);
+    else if (key === 'zoom') window.FumocaPoster.updateComposition({ framing: { zoom: Number(field.value) / 100 } });
     else if (key === 'title') window.FumocaPoster.updateComposition({ title: { text: field.value } });
     else if (key === 'titleVisible') window.FumocaPoster.updateComposition({ title: { visible: field.checked } });
     else if (key === 'titleAlign') window.FumocaPoster.updateComposition({ title: { align: field.value } });
