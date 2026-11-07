@@ -430,7 +430,7 @@ function mountPanel() {
   host.appendChild(panel);
   mountPosterSceneManager();
   syncPresentActive();
-  mountStudioPosterOverlay();
+  // Poster editor overlay is mounted by tryMount() after #viewport exists.
 
   const posterRoot = panel.querySelector('#ptpPosterComposer');
   const syncPosterControls = () => {
