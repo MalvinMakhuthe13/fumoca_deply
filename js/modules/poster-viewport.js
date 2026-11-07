@@ -142,6 +142,7 @@ export function mountPosterViewport() {
     const signature = JSON.stringify({
       width: layout.width, height: layout.height, left: layout.left, top: layout.top,
       background: layout.background, assets: layout.assets, title: layout.title,
+      framing: state.composition?.framing,
     });
     if (signature === lastSignature) return;
     lastSignature = signature;
