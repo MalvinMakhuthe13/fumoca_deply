@@ -83,6 +83,22 @@ try {
   const rotation = await page.evaluate(() => window.FumocaPoster.getState().composition.assets.images.find(x => x.id === 'fixed').rotation);
   assert.ok(Math.abs(rotation) > 20, `rotation handle should update the image rotation; got ${rotation}`);
 
+  const resizeHandle = page.getByRole('button', { name: 'Resize Fixed logo' });
+  const resizeBox = await resizeHandle.boundingBox();
+  assert.ok(resizeBox, 'selected image should expose a visible resize handle');
+  await page.mouse.move(resizeBox.x + resizeBox.width / 2, resizeBox.y + resizeBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(resizeBox.x + resizeBox.width / 2 + 1400, resizeBox.y + resizeBox.height / 2, { steps: 8 });
+  await page.mouse.up();
+  const resized = await page.evaluate(() => {
+    const layer = document.querySelector('[data-poster-asset-id="fixed"]');
+    const root = document.querySelector('[data-fumoca-poster-assets]');
+    const a = layer.getBoundingClientRect(), b = root.getBoundingClientRect();
+    return { width: a.width, left: a.left, right: a.right, rootLeft: b.left, rootRight: b.right };
+  });
+  assert.ok(resized.width <= 1000, 'resizing must never create a fixed-pixel image wider than the poster artboard');
+  assert.ok(resized.left >= resized.rootLeft - 1 && resized.right <= resized.rootRight + 1, 'resized image must remain inside the poster artboard');
+
   await page.setViewportSize({ width:390, height:844 });
   await page.evaluate(() => window.FumocaPosterAssets.refresh());
   const mobile = await page.evaluate(() => ({
