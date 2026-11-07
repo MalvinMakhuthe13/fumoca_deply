@@ -16,4 +16,9 @@ assert.match(html,/if \(\['move','scale-tool','rotate'\]\.includes\(mode\) && !s
 assert.match(html,/Nothing selected\. Select an object or points first; the whole scene stays untouched/);
 assert.match(html,/if \(\(S\.mode === 'pan' \|\| S\.mode === 'zoom-tool'\)[\s\S]*?camera\.position\.add\(delta\)[\s\S]*?camera\.position\.copy\(controls\.target\)\.add\(offset\)/);
 assert.match(html,/controls\.enabled = mode === 'orbit'/);
+assert.match(html,/transformScope: 'selection'/);
+assert.match(html,/data-transform-scope="selection"/);
+assert.match(html,/data-transform-scope="scene"/);
+assert.match(html,/const canTransform = S\.transformScope === 'scene'/);
+assert.match(html,/Transforming the whole splat\. Every live point will change\./);
 console.log('Viewport toolbar contract passed: navigation, HUD modes, camera views, transforms, pan and zoom.');
