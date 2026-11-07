@@ -6090,20 +6090,25 @@ $('mobilePanelBackdrop')?.addEventListener('click', closeMobilePanels);
       if (sb) {
         const { data } = await sb.from('nif_files').select('*').eq('id', params.get('nifId')).maybeSingle();
         if (data) {
-          window._fumocaCurrentRecord = { ...data, ...(window._fumocaCurrentRecord || {}) };
-          window._fumocaCurrentRecord.meta = data.meta || window._fumocaCurrentRecord.meta || {};
-          if (!fileUrl) fileUrl = data.output_url || data.nif_url || data.splat_url || null;
-          // Current pipeline records store canonical R2 keys rather than a
-          // hydrated URL. Resolve that key directly instead of falling into
-          // the legacy splats-table lookup (which adds a needless round trip).
-          if (!fileUrl && data.r2_key) {
+          // The database row is authoritative. A page may already hold an
+          // older in-memory record (or a stale URL from a shared link), so
+          // never let that cached r2_key overwrite the freshly fetched one.
+          window._fumocaCurrentRecord = { ...(window._fumocaCurrentRecord || {}), ...data };
+          window._fumocaCurrentRecord.meta = data.meta || {};
+          // Always prefer the canonical R2 key for a NIF record. saveLiveEdit
+          // writes a new immutable object and advances nif_files.r2_key; using
+          // an old output_url/fileUrl here would silently reopen the old scan.
+          if (data.r2_key) {
             try {
               const r2mod = await import('./js/r2Client.js');
               const client = r2mod.default || r2mod;
               fileUrl = client.publicUrl('nif-files', data.r2_key);
             } catch (resolveError) {
-              console.warn('[Bootstrap] Could not resolve NIF R2 key:', resolveError);
+              console.warn('[Bootstrap] Could not resolve current NIF R2 key:', resolveError);
+              fileUrl = data.output_url || data.nif_url || data.splat_url || null;
             }
+          } else if (!fileUrl) {
+            fileUrl = data.output_url || data.nif_url || data.splat_url || null;
           }
           _renderLidarSourceLinks(data.meta || {});
         }
