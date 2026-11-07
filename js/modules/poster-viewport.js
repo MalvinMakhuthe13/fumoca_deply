@@ -76,18 +76,18 @@ export function mountPosterViewport() {
     });
     backgroundNode.appendChild(backgroundImage);
   }
-  let posterCanvas = host;
   const ensureTitle = () => {
     if (title?.isConnected) return title;
     title = document.createElement('div');
     title.dataset.fumocaPosterTitle = '1';
     Object.assign(title.style, {
-      position: 'absolute', zIndex: '4', pointerEvents: 'none',
+      position: 'absolute', zIndex: '3', pointerEvents: 'none',
       color: '#fff', fontFamily: 'system-ui, sans-serif', fontWeight: '750',
       lineHeight: '1.12', textShadow: '0 2px 18px rgba(0,0,0,.45)',
       overflowWrap: 'anywhere',
     });
-    (posterCanvas || host).appendChild(title);
+    const target = host.querySelector('[data-fumoca-poster-canvas]') || host;
+    target.appendChild(title);
     return title;
   };
   const restore = () => {
@@ -104,8 +104,8 @@ export function mountPosterViewport() {
     host.removeAttribute('data-fumoca-poster-viewport');
 
   };
-  // Studio: measure the host itself (it is no longer resized, so no feedback loop).
-  // Public viewer: measure the parent because the host is resized to the poster.
+  // Studio measures the stage itself so the poster layer is centered in the
+  // editing area. Public viewer measures the parent to avoid a resize feedback loop.
   const measureEl = isStudioEditor ? host : (host.parentElement || document.documentElement);
   const update = () => {
     frame = 0;
@@ -129,7 +129,7 @@ export function mountPosterViewport() {
     // Studio: keep the main #viewport full-size. The poster is a distinct
     // adapting layer on top. Public viewer: the host itself is the poster
     // canvas so the WebGL surface matches the composition.
-    posterCanvas = host;
+    let posterCanvas = host;
     if (isStudioEditor) {
       posterCanvas = host.querySelector('[data-fumoca-poster-canvas]');
       if (!posterCanvas) {
@@ -189,16 +189,19 @@ export function mountPosterViewport() {
       host.style.background = background.type === 'gradient' ? background.value : '';
       host.style.backgroundColor = background.type === 'solid' ? (background.value || '#10131a') : 'transparent';
       host.style.backgroundImage = '';
-      host.style.backgroundSize = 'cover';
-      host.style.backgroundPosition = 'center';
+    } else {
+      host.style.background = '';
+      host.style.backgroundColor = '';
+      host.style.backgroundImage = '';
     }
+    host.style.backgroundSize = 'cover';
+    host.style.backgroundPosition = 'center';
     if (backgroundNode) {
       backgroundNode.style.display = 'block';
       const imageSource = String(background.value || '');
       const isImage = background.type === 'image' && (imageSource.startsWith('data:image/') || imageSource.startsWith('https://') || imageSource.startsWith('http://'));
-      const explicit = background.type === 'gradient' || background.type === 'image' || (background.type === 'solid' && background.value && background.value !== '#10131a');
       backgroundNode.style.background = background.type === 'gradient' ? background.value : '';
-      backgroundNode.style.backgroundColor = (isStudioEditor && !explicit) ? 'transparent' : (background.type === 'solid' ? (background.value || '#10131a') : 'transparent');
+      backgroundNode.style.backgroundColor = background.type === 'solid' ? (background.value || '#10131a') : 'transparent';
       backgroundNode.style.opacity = String(Math.max(0, Math.min(1, Number(background.opacity ?? 1))));
       backgroundNode.style.filter = 'blur(' + Math.max(0, Math.min(40, Number(background.blur) || 0)) + 'px) brightness(' + Math.max(0.2, Math.min(2, Number(background.brightness) || 1)) + ')';
       backgroundNode.style.transform = Number(background.blur) > 0 ? 'scale(1.04)' : 'none';
