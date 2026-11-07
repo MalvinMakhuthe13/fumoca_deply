@@ -64,10 +64,15 @@ export function mountPosterViewport() {
   let orbitControls = null;
   let originalPan;
   let originalZoomEnabled;
-  let camera = isStudioEditor ? (window._fumocaCamera || window.camera) : null;
+  let viewerReadyCamera = null;
+  let viewerReadyControls = null;
+  let camera = isStudioEditor
+    ? (window._fumocaCamera || window.camera || window._fumocaRenderer?.camera || null)
+    : (window._fumocaRenderer?.camera || null);
   let originalCameraZoom = camera && Number.isFinite(camera.zoom) ? camera.zoom : null;
   const getCamera = () => {
-    if (!camera && isStudioEditor) camera = window._fumocaCamera || window.camera || null;
+    camera = (isStudioEditor ? (window._fumocaCamera || window.camera) : null) ||
+      viewerReadyCamera || window._fumocaRenderer?.camera || camera || null;
     if (camera && originalCameraZoom === null && Number.isFinite(camera.zoom)) originalCameraZoom = camera.zoom;
     return camera;
   };
@@ -80,7 +85,8 @@ export function mountPosterViewport() {
       }
       rendererCanvas = nextCanvas;
     }
-    const nextControls = isStudioEditor ? window._fumocaOrbitControls || null : null;
+    const nextControls = (isStudioEditor ? window._fumocaOrbitControls : null) ||
+      viewerReadyControls || window._fumocaViewerControls || window._fumocaRenderer?.controls || null;
     if (nextControls !== orbitControls) {
       if (orbitControls) {
         if (originalPan !== undefined) orbitControls.enablePan = originalPan;
@@ -340,7 +346,18 @@ export function mountPosterViewport() {
   const schedule = () => {
     if (!frame) frame = requestAnimationFrame(update);
   };
-  window.addEventListener('fumoca:viewerReady', () => { syncRendererBindings(); schedule(); });
+  window.addEventListener('fumoca:viewerReady', event => {
+    // The viewer announces its actual live camera and controls. Prefer these
+    // references over guessed globals so poster zoom reaches the renderer that
+    // is currently displaying the splat (including non-Studio viewer routes).
+    viewerReadyCamera = event.detail?.camera || viewerReadyCamera;
+    viewerReadyControls = event.detail?.controls || event.detail?.viewer?.controls || viewerReadyControls;
+    if (viewerReadyCamera && Number.isFinite(viewerReadyCamera.zoom)) {
+      originalCameraZoom = viewerReadyCamera.zoom;
+    }
+    syncRendererBindings();
+    schedule();
+  });
   window.addEventListener('fumoca:posterChange', schedule);
   window.addEventListener('fumoca:presentationResize', schedule);
   window.addEventListener('resize', schedule, { passive: true });
