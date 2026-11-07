@@ -59,13 +59,18 @@ export function mountPosterViewport() {
   let backgroundImage = backgroundNode?.querySelector?.('[data-fumoca-poster-background-image]');
   const rendererCanvas = host.querySelector('canvas');
   const orbitControls = isStudioEditor ? window._fumocaOrbitControls : null;
+  const camera = isStudioEditor ? (window._fumocaCamera || window.camera) : null;
   const originalPan = orbitControls ? orbitControls.enablePan : undefined;
+  const originalZoomEnabled = orbitControls ? orbitControls.enableZoom : undefined;
+  const originalCameraZoom = camera && Number.isFinite(camera.zoom) ? camera.zoom : 1;
   const restoreRendererBounds = () => {
     if (rendererCanvas) {
       rendererCanvas.style.clipPath = '';
       rendererCanvas.style.webkitClipPath = '';
     }
     if (orbitControls && originalPan !== undefined) orbitControls.enablePan = originalPan;
+    if (orbitControls && originalZoomEnabled !== undefined) orbitControls.enableZoom = originalZoomEnabled;
+    if (camera && Number.isFinite(originalCameraZoom)) { camera.zoom = originalCameraZoom; camera.updateProjectionMatrix?.(); }
   };
 
   if (!backgroundNode) {
@@ -262,7 +267,12 @@ export function mountPosterViewport() {
     }
     // Panning can move the subject beyond the designed frame. Keep orbit and
     // zoom available, but make pan an explicit poster-layout operation instead.
-    if (orbitControls) orbitControls.enablePan = false;
+    if (orbitControls) { orbitControls.enablePan = false; orbitControls.enableZoom = false; }
+    if (camera) {
+      const framingZoom = Math.max(0.5, Math.min(2.5, Number(state.composition?.framing?.zoom) || 1));
+      camera.zoom = originalCameraZoom * framingZoom;
+      camera.updateProjectionMatrix?.();
+    }
 
     host.dataset.fumocaPosterViewport = '1';
 
