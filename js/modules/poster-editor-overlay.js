@@ -5,6 +5,8 @@
 const STYLE_ID = 'fumocaPosterEditorOverlayStyles';
 const ROOT_ID = 'fumocaPosterEditorOverlay';
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+const clampToFrame = (value, start, size, inset = 16) =>
+  clamp(value, start + Math.min(inset, size / 2), start + size - Math.min(inset, size / 2));
 
 export function calculatePosterEditorFrame(width, height, aspect) {
   const safeAspect = Number(aspect) > 0 ? Number(aspect) : 4 / 5;
@@ -97,17 +99,20 @@ export function mountPosterEditorOverlay(options = {}) {
       pick.textContent = String(candidate.label || '3D').trim().slice(0, 2).toUpperCase();
       pick.setAttribute('aria-label', 'Select ' + (candidate.label || '3D object'));
       pick.title = 'Select ' + (candidate.label || '3D object');
-      pick.style.left = (projected ? projected.x - hostRect.left : poster.left + clamp(Number(candidate.x ?? .5),0,1)*poster.width) + 'px';
-      pick.style.top = (projected ? projected.y - hostRect.top : poster.top + clamp(Number(candidate.y ?? .53),0,1)*poster.height) + 'px';
+      pick.style.left = clampToFrame(projected ? projected.x - hostRect.left : poster.left + clamp(Number(candidate.x ?? .5),0,1)*poster.width, poster.left, poster.width) + 'px';
+      pick.style.top = clampToFrame(projected ? projected.y - hostRect.top : poster.top + clamp(Number(candidate.y ?? .53),0,1)*poster.height, poster.top, poster.height) + 'px';
       pick.addEventListener('click', () => { api.selectSubject?.(candidate.id); refresh(); });
       pickLayer.appendChild(pick);
     }
     const subject = selectedSubject(), x=clamp(Number(subject.x??.5),0,1), y=clamp(Number(subject.y??.53),0,1);
-    const px=poster.left+x*poster.width, py=poster.top+y*poster.height;
+    const px=clampToFrame(poster.left+x*poster.width, poster.left, poster.width, 22);
+    const py=clampToFrame(poster.top+y*poster.height, poster.top, poster.height, 22);
     moveHandle.style.left=px+'px'; moveHandle.style.top=py+'px';
     const radians=(Number(subject.rotation)||0)*Math.PI/180, radius=clamp(42*(Number(subject.scale)||1),34,100);
-    scaleHandle.style.left=(px+Math.cos(radians)*radius)+'px'; scaleHandle.style.top=(py+Math.sin(radians)*radius)+'px';
-    rotateHandle.style.left=(px+Math.cos(radians-Math.PI/2)*(radius+26))+'px'; rotateHandle.style.top=(py+Math.sin(radians-Math.PI/2)*(radius+26))+'px';
+    scaleHandle.style.left=clampToFrame(px+Math.cos(radians)*radius, poster.left, poster.width, 14)+'px';
+    scaleHandle.style.top=clampToFrame(py+Math.sin(radians)*radius, poster.top, poster.height, 14)+'px';
+    rotateHandle.style.left=clampToFrame(px+Math.cos(radians-Math.PI/2)*(radius+26), poster.left, poster.width, 14)+'px';
+    rotateHandle.style.top=clampToFrame(py+Math.sin(radians-Math.PI/2)*(radius+26), poster.top, poster.height, 14)+'px';
     for (const handle of [moveHandle,scaleHandle,rotateHandle]) handle.disabled=!!subject.locked;
     moveHandle.title=subject.label+(subject.locked?' · Locked':' · Move');
     moveHandle.setAttribute('aria-label','Move '+subject.label);
