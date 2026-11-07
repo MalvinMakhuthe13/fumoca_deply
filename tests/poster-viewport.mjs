@@ -62,6 +62,9 @@ assert.match(viewportModule, /rendererCanvas\.style\.clipPath = clip/,
   'Studio WebGL pixels must be clipped to the poster frame');
 assert.match(viewportModule, /const clip = `inset\(\$\{layout\.top\}px \$\{right\}px \$\{bottom\}px \$\{layout\.left\}px\)`/,
   'The renderer clip must use the measured poster frame edges');
+assert.match(viewportModule, /const syncRendererBindings = \(\) =>/, 'Poster mode must discover late-mounted renderer and controls');
+assert.match(viewportModule, /window\.addEventListener\('fumoca:viewerReady'/, 'Viewer readiness must trigger a fresh renderer binding pass');
+assert.match(viewportModule, /const nextCanvas = host\.querySelector\('canvas'\)/, 'The WebGL canvas must be resolved after asynchronous viewer mounting');
 assert.match(viewportModule, /orbitControls\.enablePan = false/,
   'Poster mode must prevent camera panning from carrying the scene outside the frame');
 assert.match(viewportModule, /orbitControls\.enableZoom = false/, 'Poster framing disables free wheel zoom in favour of the fixed zoom control');
