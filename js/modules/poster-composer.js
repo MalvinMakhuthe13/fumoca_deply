@@ -16,6 +16,7 @@ const POSTER_PRESETS = Object.freeze({
     aspectRatio: 4 / 5,
     background: { type: 'solid', value: '#10131a' },
     safeArea: 0.06,
+    framing: { zoom: 1 },
     object: { x: 0.5, y: 0.53, scale: 1, rotation: 0 },
     title: { visible: true, text: 'Product title', align: 'center', fontFamily: 'system-ui, sans-serif', fontSize: 42, color: '#ffffff', weight: 750 },
   }),
@@ -24,6 +25,7 @@ const POSTER_PRESETS = Object.freeze({
     aspectRatio: 9 / 16,
     background: { type: 'solid', value: '#10131a' },
     safeArea: 0.07,
+    framing: { zoom: 1 },
     object: { x: 0.5, y: 0.48, scale: 0.92, rotation: 0 },
     title: { visible: true, text: 'Your story', align: 'center', fontFamily: 'system-ui, sans-serif', fontSize: 42, color: '#ffffff', weight: 750 },
   }),
@@ -32,6 +34,7 @@ const POSTER_PRESETS = Object.freeze({
     aspectRatio: 3 / 4,
     background: { type: 'solid', value: '#171717' },
     safeArea: 0.065,
+    framing: { zoom: 1 },
     object: { x: 0.5, y: 0.55, scale: 1, rotation: 0 },
     title: { visible: true, text: 'Edition', align: 'left', fontFamily: 'Georgia, serif', fontSize: 42, color: '#ffffff', weight: 700 },
   }),
@@ -40,6 +43,7 @@ const POSTER_PRESETS = Object.freeze({
     aspectRatio: 16 / 9,
     background: { type: 'solid', value: '#10131a' },
     safeArea: 0.055,
+    framing: { zoom: 1 },
     object: { x: 0.58, y: 0.5, scale: 1, rotation: 0 },
     title: { visible: true, text: 'Featured experience', align: 'left', fontFamily: 'system-ui, sans-serif', fontSize: 42, color: '#ffffff', weight: 750 },
   }),
@@ -142,6 +146,9 @@ function updateComposition(patch = {}) {
   }
   if (patch.safeArea !== undefined) {
     current.safeArea = clamp(patch.safeArea, 0, 0.2, current.safeArea);
+  }
+  if (patch.framing && typeof patch.framing === 'object') {
+    current.framing = { ...current.framing, zoom: clamp(patch.framing.zoom, 0.5, 2.5, current.framing?.zoom || 1) };
   }
   if (patch.background !== undefined) {
     current.background = normalizeBackground({ ...current.background, ...patch.background }, current.background);
