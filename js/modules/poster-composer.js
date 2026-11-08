@@ -185,6 +185,7 @@ function updateComposition(patch = {}) {
       scale: clamp(item.scale, 0.1, 4, 1), rotation: clamp(item.rotation, -360, 360, 0),
       visible: item.visible !== false, locked: Boolean(item.locked),
       z: clamp(item.z, 1, 99, index + 1),
+      motion: ['still', 'gentle', 'normal', 'dynamic'].includes(item.motion?.level) ? { level: item.motion.level } : null,
     })).filter(item => item.source.type === 'current' || (item.source.type === 'nif' && item.source.assetId) ||
       (item.source.type === 'ply' && item.source.url && /^https?:\/\//i.test(item.source.url)) ||
       (item.source.type === 'url' && item.source.url && /^https?:\/\//i.test(item.source.url)));
@@ -249,6 +250,7 @@ function addSubject(input = {}) {
     x: clamp(input.x,0,1,0.5), y: clamp(input.y,0,1,0.5),
     scale: clamp(input.scale,0.1,4,1), rotation: clamp(input.rotation,-360,360,0),
     visible: input.visible !== false, locked: Boolean(input.locked), z: clamp(input.z,current.subjects.length+1,99,current.subjects.length+1),
+    motion: ['still', 'gentle', 'normal', 'dynamic'].includes(input.motion?.level) ? { level: input.motion.level } : null,
   };
   if ((subject.source.type === 'nif' && !subject.source.assetId) ||
       (['ply','url'].includes(subject.source.type) && !/^https?:\/\//i.test(subject.source.url))) {
@@ -272,6 +274,7 @@ function updateSubject(id, patch = {}) {
     if (patch.visible !== undefined) subject.visible = Boolean(patch.visible);
     if (patch.locked !== undefined) subject.locked = Boolean(patch.locked);
     if (patch.z !== undefined) subject.z = clamp(patch.z,1,99,subject.z);
+    if (patch.motion !== undefined) subject.motion = ['still', 'gentle', 'normal', 'dynamic'].includes(patch.motion?.level) ? { level: patch.motion.level } : null;
     if (id === 'subject_main') state.composition.object = { x: subject.x, y: subject.y, scale: subject.scale, rotation: subject.rotation };
   }
   emit('subject-updated');
