@@ -318,7 +318,11 @@ function mountPanel() {
       <label class="ptp-poster-field">Poster zoom <input type="range" min="50" max="250" step="1" value="100" data-poster-field="zoom"><output data-poster-value="zoom">100%</output></label>\n      <label class="ptp-poster-field">3D motion<select data-poster-field="motion"><option value="still">Still · no automatic rotation</option><option value="gentle">Gentle · slow rotation</option><option value="normal">Normal · steady rotation</option><option value="dynamic">Dynamic · faster rotation</option></select></label>
       <div class="ptp-poster-hint">Set the exact subject framing here. Poster mode locks free camera pan and wheel zoom so the composition cannot drift outside the frame.</div>
       <label class="ptp-poster-field">Headline<input type="text" maxlength="160" data-poster-field="title" placeholder="Product title"></label>
-      <label class="ptp-poster-toggle"><input type="checkbox" data-poster-field="titleVisible" checked> Show headline</label>
+      <label class="ptp-poster-toggle"><input type="checkbox" data-poster-field="titleVisible" checked> Show headline · drag it anywhere on the poster</label>
+      <div class="ptp-poster-grid">
+        <label class="ptp-poster-field">Headline X %<input type="number" min="0" max="100" step="1" value="50" data-poster-field="titleX"></label>
+        <label class="ptp-poster-field">Headline Y %<input type="number" min="0" max="100" step="1" value="12" data-poster-field="titleY"></label>
+      </div>
       <div class="ptp-poster-grid">
         <label class="ptp-poster-field">Headline alignment<select data-poster-field="titleAlign"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></label>
         <label class="ptp-poster-field">Headline font<select data-poster-field="titleFont"><option value="system-ui, sans-serif">Modern Sans</option><option value="Arial, sans-serif">Arial</option><option value="Georgia, serif">Editorial Serif</option><option value="Impact, sans-serif">Impact</option><option value="monospace">Mono</option></select></label>
@@ -594,6 +598,8 @@ function mountPanel() {
     else if (key === 'titleFont') window.FumocaPoster.updateComposition({ title: { fontFamily: field.value } });
     else if (key === 'titleSize') window.FumocaPoster.updateComposition({ title: { fontSize: Number(field.value) } });
     else if (key === 'titleColor') window.FumocaPoster.updateComposition({ title: { color: field.value } });
+    else if (key === 'titleX') window.FumocaPoster.updateComposition({ title: { x: Math.max(0, Math.min(100, Number(field.value))) / 100 } });
+    else if (key === 'titleY') window.FumocaPoster.updateComposition({ title: { y: Math.max(0, Math.min(100, Number(field.value))) / 100 } });
     else if (key === 'background') window.FumocaPoster.updateComposition({ background: { ...window.FumocaPoster.getState().composition.background, type: 'solid', value: field.value } });
     else if (key === 'backgroundGradient') {
       const gradients = {
@@ -812,8 +818,12 @@ function mountPanel() {
     if (act === 'poster-cloud-save') { savePosterToCloud(); return; }
     if (act === 'clear-text') { clearText(); renderTextManager(); }
     if (act === 'add-custom-text') {
-      const value = prompt('Text to display in the scene', 'Your text');
-      if (value && value.trim()) { addText({ text: value.trim(), style: 'deck', mode: 'locked', sx: 50, sy: 30, fontSize: 24, align: 'center', wrap: true }); renderTextManager(); }
+      const value = prompt('Additional poster text', 'Your text');
+      if (value && value.trim()) {
+        const item = addText({ text: value.trim(), style: 'deck', mode: 'locked', sx: 50, sy: 30, fontSize: 24, align: 'center', wrap: true });
+        selectText(item.id);
+        renderTextManager();
+      }
     }
     if (act === 'clear-nav') {
       if (confirm('Remove all navigation stops for this asset?')) clearNavStops();
