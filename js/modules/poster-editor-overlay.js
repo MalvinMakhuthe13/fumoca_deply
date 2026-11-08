@@ -167,7 +167,9 @@ export function mountPosterEditorOverlay(options = {}) {
   moveHandle.addEventListener('keydown',keyMove);
   let pickPointer = null;
   const onPickPointerDown = event => {
-    if (root.contains(event.target) || event.button !== 0) { pickPointer = null; return; }
+    // Alt+left-drag is reserved for camera orbit even when the pointer is
+    // over the Gaussian; ordinary left-drag moves the object itself.
+    if (root.contains(event.target) || event.button !== 0 || event.altKey) { pickPointer = null; return; }
     const picked = window.FumocaPosterPicking?.pick?.(event.clientX, event.clientY);
     if (!picked?.id) { pickPointer = null; return; }
     const subject = (api.getState().composition?.subjects || []).find(item => item.id === picked.id);
