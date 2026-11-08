@@ -16,7 +16,7 @@ import './poster-assets.js?v=20261108-edgeanchor02';
 import { mountPosterEditorOverlay as createPosterEditorOverlay } from './poster-editor-overlay.js?v=20261108-posterinput03';
 import { mountPosterSceneManager } from './poster-scene-manager.js?v=20261108-multisubject02';
 import './poster-studio-transform.js?v=20261108-livecanvas01';
-import './poster-multi-subject-studio.js?v=20261108-multisubject02';
+import './poster-multi-subject-studio.js?v=20261108-multisubject03';
 import r2 from '../r2Client.js';
 import { savePosterSnapshot } from './poster-cloud-persistence.js';
 
@@ -445,7 +445,12 @@ function mountPanel() {
   }
 
   const host = findPresentHost();
-  host.appendChild(panel);
+  // Keep the poster workspace at the top of the Present sidebar. The legacy
+  // scene-music/share-video controls may still be mounted in this host; appending
+  // after them pushed the entire poster composer below the visible panel area.
+  if (panel.parentElement !== host || panel !== host.firstElementChild) {
+    host.insertBefore(panel, host.firstElementChild);
+  }
   mountPosterSceneManager();
   syncPresentActive();
   // Poster editor overlay is mounted by tryMount() after #viewport exists.
