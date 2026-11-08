@@ -159,7 +159,7 @@ assert.equal(yawA, 0.25, 'Subject A must receive only its own motion phase');
 assert.equal(yawB, 1.1, 'Subject B must receive only its own motion phase');
 
 const multiSubjectBridge = readFileSync(new URL('../js/modules/poster-multi-subject-studio.js', import.meta.url), 'utf8');
-assert.match(multiSubjectBridge, /import \\* as THREE from 'three'/, 'The multi-subject bridge must import the same Three.js module used by Studio');
-assert.doesNotMatch(multiSubjectBridge, /window\\.THREE/, 'Multi-subject loading must not depend on an uninitialised window.THREE global');
+assert.match(multiSubjectBridge, /import \* as THREE from 'three'/, 'The multi-subject bridge must import the same Three.js module used by Studio');
+assert.doesNotMatch(multiSubjectBridge, /window\.THREE/, 'Multi-subject loading must not depend on an uninitialised window.THREE global');
 
 console.log('Poster live transform math tests passed.');
