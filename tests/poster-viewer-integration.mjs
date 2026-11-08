@@ -7,14 +7,14 @@ const sceneManager = await readFile(new URL('../js/modules/poster-scene-manager.
 const presentViewer = await readFile(new URL('../js/modules/present-viewer.js', import.meta.url), 'utf8');
 const composer = await readFile(new URL('../js/modules/poster-composer.js', import.meta.url), 'utf8');
 
-assert.match(viewer, /import \{ advancePosterMotionPhase, applyPosterLiveTransform, posterMotionSpeed \} from '\.\/poster-live-transform\.js';/);
+assert.match(viewer, /import \{ advancePosterMotionPhase, applyPosterLiveTransform, applyPosterMotionRotation, posterMotionSpeed \} from '\.\/poster-live-transform\.js';/);
 assert.match(viewer, /const motionSpeed = posterState\?\.enabled \? posterMotionSpeed\(posterState\.composition\?\.motion\?\.level\) : 0/,
   'The live Spark viewer must read the saved poster motion level only when poster mode is enabled');
 assert.match(viewer, /posterMotionPhase = advancePosterMotionPhase\(posterMotionPhase, motionSpeed, frameDelta\)/,
   'Poster motion must advance smoothly using elapsed frame time');
-assert.match(viewer, /_publishedSparkGroup\.rotateY\(posterMotionPhase\)/,
+assert.match(viewer, /applyPosterMotionRotation\(THREE, _publishedSparkGroup, posterMotionPhase\)/,
   'The main Spark Gaussian subject must receive live motion independently of TrackballControls');
-assert.match(viewer, /entry\.group\.rotateY\(posterMotionPhase\)/,
+assert.match(viewer, /applyPosterMotionRotation\(THREE, entry\.group, posterMotionPhase\)/,
   'Additional poster Gaussian subjects must receive the same live motion phase');
 assert.ok(composer.includes("new CustomEvent('fumoca:posterReady'"), 'Poster composer must announce when its public API is ready');
 assert.ok(presentViewer.includes("addEventListener('fumoca:posterReady', tryApply)"), 'Public viewer must retry restoration when poster composer loads late');
