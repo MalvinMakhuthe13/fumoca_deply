@@ -46,25 +46,29 @@ function ensureLayer() {
     position: 'absolute', inset: '0', width: '100%', height: '100%',
     overflow: 'hidden', pointerEvents: 'none', zIndex: '20',
   });
-  // Delegate from document capture rather than the overlay itself. The poster
-  // renderer creates/remounts several positioned canvases and some browsers
-  // do not dispatch pointer events through a pointer-events:none overlay
-  // ancestor consistently. A document capture listener survives those
-  // remounts and still only handles actual magazine text nodes.
-  if (!document.documentElement.dataset.fumocaMagazineDragDelegate) {
-    document.documentElement.dataset.fumocaMagazineDragDelegate = '1';
+  // Keep one stable document listener, but route every event through the
+  // latest module instance. Studio can load this module through more than one
+  // entrypoint/cache URL; a dataset-only guard captured the FIRST instance's
+  // stale items array, so visible text could no longer be dragged.
+  const runtime = window.__fumocaMagazineTextRuntime || (window.__fumocaMagazineTextRuntime = {});
+  runtime.onPointerDown = (event) => {
+    if (!editing || event.button !== 0) return;
+    const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
+    const el = event.target?.closest?.('.mt-item') || path.find(node => node?.classList?.contains?.('mt-item'));
+    const activeLayer = document.getElementById('magazineTextLayer');
+    if (!el || !activeLayer?.contains(el)) return;
+    const item = items.find(entry => entry.id === el.dataset.id);
+    if (!item || item.locked) return;
+    const handle = event.target?.closest?.('[data-resize]') || path.find(node => node?.dataset?.resize);
+    if (handle) { startResize(event, item, handle.dataset.resize); return; }
+    selectedTextId = item.id;
+    activeLayer.querySelectorAll('.mt-item').forEach(node => node.classList.toggle('mt-selected', node === el));
+    startDrag(event, item, el);
+  };
+  if (!runtime.bound) {
+    runtime.bound = true;
     document.addEventListener('pointerdown', event => {
-      if (!editing || event.button !== 0) return;
-      const el = event.target.closest?.('.mt-item');
-      const activeLayer = document.getElementById('magazineTextLayer');
-      if (!el || !activeLayer?.contains(el)) return;
-      const item = items.find(entry => entry.id === el.dataset.id);
-      if (!item || item.locked) return;
-      const handle = event.target.closest?.('[data-resize]');
-      if (handle) { startResize(event, item, handle.dataset.resize); return; }
-      selectedTextId = item.id;
-      activeLayer.querySelectorAll('.mt-item').forEach(node => node.classList.toggle('mt-selected', node === el));
-      startDrag(event, item, el);
+      window.__fumocaMagazineTextRuntime?.onPointerDown?.(event);
     }, true);
   }
   return layer;
@@ -154,6 +158,7 @@ function renderItem(item) {
     // on their corresponding edges.
     transform: itemTransform(item),
     pointerEvents: editing ? 'auto' : 'none',
+    touchAction: editing ? 'none' : 'auto',
     // Text must wrap within the poster canvas. Previously cover/kicker items
     // defaulted to nowrap, so long headlines could paint beyond the safe frame
     // even though the viewport itself was correctly clipped.
@@ -202,6 +207,9 @@ function startDrag(e, item, el) {
   e.stopPropagation();
   const target = ensureLayer();
   const rect = target.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+  // Prevent the Studio camera controls from stealing the same pointer gesture.
+  try { el.style.touchAction = 'none'; } catch (_) {}
   // Capture the pointer on the actual text element so moving outside the glyph
   // bounds never drops the drag. Coordinates are measured against the same
   // poster-local layer used by the rendered text.
@@ -213,8 +221,11 @@ function startDrag(e, item, el) {
   const startX = Number(item.sx ?? 50), startY = Number(item.sy ?? 30);
   const pointerX = e.clientX, pointerY = e.clientY;
   const move = (ev) => {
-    item.sx = Math.max(0, Math.min(100, startX + ((ev.clientX - pointerX) / Math.max(1, rect.width)) * 100));
-    item.sy = Math.max(0, Math.min(100, startY + ((ev.clientY - pointerY) / Math.max(1, rect.height)) * 100));
+    const currentRect = target.getBoundingClientRect();
+    const width = Math.max(1, currentRect.width || rect.width);
+    const height = Math.max(1, currentRect.height || rect.height);
+    item.sx = Math.max(0, Math.min(100, startX + ((ev.clientX - pointerX) / width) * 100));
+    item.sy = Math.max(0, Math.min(100, startY + ((ev.clientY - pointerY) / height) * 100));
     // A manual drag converts even world-anchored copy into a freely placed poster layer.
     item.mode = 'locked';
     el.style.left = item.sx + '%';
