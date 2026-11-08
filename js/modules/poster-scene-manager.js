@@ -2,7 +2,6 @@
  * FUMOCA Poster Scene Manager
  * UI for managing independently transformable composition subjects.
  */
-import r2 from '../r2Client.js';
 export function mountPosterSceneManager() {
   const root = document.getElementById('ptpPosterComposer');
   const api = window.FumocaPoster;
@@ -113,6 +112,7 @@ export function mountPosterSceneManager() {
       const safeName = file.name.replace(/[^a-z0-9._-]/gi, '_').slice(-100) || 'subject.ply';
       const key = 'poster-subjects/' + userId + '/' + recordId + '/' + Date.now() + '-' + safeName;
       setStatus('Uploading ' + file.name + ' · 0%');
+      const { default: r2 } = await import('../r2Client.js');
       const result = await r2.from('nif-files').upload(key, file, {
         contentType: 'application/octet-stream',
         onProgress: pct => setStatus('Uploading ' + file.name + ' · ' + pct + '%'),
