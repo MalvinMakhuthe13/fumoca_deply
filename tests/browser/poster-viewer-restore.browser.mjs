@@ -14,6 +14,7 @@ const savedNifRecord = {
         preset:'editorial',
         composition:{
           aspectRatio:0.75,
+          motion:{level:'dynamic'},
           background:{type:'image',value:'https://assets.example.test/poster-bg.webp',r2Key:'poster-assets/user-1/nif-browser-fixture/background.webp',bucket:'thumbnails',fit:'cover',position:'center',opacity:0.92,blur:3,brightness:1.15},
           subjects:[
             {id:'subject_main',label:'Main subject',source:{type:'current'},x:0.62,y:0.5,scale:1.1,rotation:8,z:1,visible:true},
@@ -91,6 +92,7 @@ try {
   const restored=await page.evaluate(()=>window.FumocaPoster.getState());
   assert.deepEqual(pageErrors,[]);
   assert.equal(restored.preset,'editorial');
+  assert.equal(restored.composition.motion.level,'dynamic','saved motion intensity must survive viewer restoration');
   const restoredText=await page.evaluate(()=>({text:document.querySelector('#magazineTextLayer .mt-item')?.textContent,style:document.querySelector('#magazineTextLayer .mt-item')?.style.cssText}));
   assert.equal(restoredText.text,'MADE TO MOVE','saved editorial typography must restore in a fresh viewer session');
   assert.match(restoredText.style,/rotate\(-?8deg\)/,'saved text rotation must survive viewer restoration');
