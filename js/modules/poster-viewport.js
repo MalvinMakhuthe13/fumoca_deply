@@ -135,8 +135,14 @@ export function mountPosterViewport() {
       }
       rendererCanvas = nextCanvas;
     }
-    const nextControls = (isStudioEditor ? window._fumocaOrbitControls : null) ||
-      viewerReadyControls || window._fumocaViewerControls || window._fumocaRenderer?.controls || null;
+    // The viewerReady event is emitted by the renderer that is actually
+    // drawing the current scene (Spark PLY in the poster workflow). Studio's
+    // legacy orbit global can point at an older canvas and must never win.
+    const nextControls = viewerReadyControls ||
+      window._fumocaViewerControls ||
+      window._fumocaRenderer?.controls ||
+      (isStudioEditor ? window._fumocaOrbitControls : null) ||
+      null;
     if (nextControls !== orbitControls) {
       if (orbitControls) {
         if (originalPan !== undefined) orbitControls.enablePan = originalPan;
@@ -376,11 +382,16 @@ export function mountPosterViewport() {
       rendererCanvas.style.clipPath = clip;
       rendererCanvas.style.webkitClipPath = clip;
     }
-    // Panning can move the subject beyond the designed frame. Keep orbit and
-    // zoom available, but make pan an explicit poster-layout operation instead.
+    // Keep all camera gestures alive in poster mode. Object placement is a
+    // separate direct-manipulation gesture: dragging a Gaussian moves it,
+    // while dragging empty canvas orbits/pans the camera.
     if (orbitControls) {
-      orbitControls.enablePan = false;
-      orbitControls.enableZoom = false;
+      orbitControls.enabled = true;
+      if ('enableRotate' in orbitControls) orbitControls.enableRotate = true;
+      if ('enablePan' in orbitControls) orbitControls.enablePan = true;
+      if ('noPan' in orbitControls) orbitControls.noPan = false;
+      if ('enableZoom' in orbitControls) orbitControls.enableZoom = true;
+      if ('noZoom' in orbitControls) orbitControls.noZoom = false;
       const motionLevel = state.composition?.motion?.level || 'still';
       const motionSpeed = ({ still: 0, gentle: 0.35, normal: 0.8, dynamic: 1.5 })[motionLevel] ?? 0;
       orbitControls.autoRotate = motionSpeed > 0;
