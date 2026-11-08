@@ -6,8 +6,8 @@ import { chromium } from 'playwright';
 
 const source = await readFile(new URL('../../js/modules/present-magazine-text.js', import.meta.url), 'utf8');
 const fixture = `<!doctype html>
-<style>html,body{margin:0;width:100%;height:100%}#viewport{position:relative;width:1000px;height:800px}#poster{position:absolute;inset:0;pointer-events:none}</style>
-<div id="viewport"><div id="poster" data-fumoca-poster-canvas></div></div>
+<style>html,body{margin:0;width:100%;height:100%}#viewport{position:relative;width:1000px;height:800px}#poster{position:absolute;inset:0;z-index:9;pointer-events:none}#assetOverlay{position:absolute;inset:0;z-index:8;pointer-events:none}#assetHit{position:absolute;inset:0;width:100%;height:100%;pointer-events:auto;opacity:0}</style>
+<div id="viewport"><div id="poster" data-fumoca-poster-canvas></div><div id="assetOverlay"><button id="assetHit" type="button"></button></div></div>
 <script type="module">
 import {initMagazineText,addText,exportAll} from '/present-magazine-text.js';
 initMagazineText({editable:true});
@@ -31,6 +31,9 @@ try{
  const before=await page.evaluate(()=>window.__getText());
  const box=await page.locator('.mt-item').boundingBox();
  assert.ok(box,'additional text must render as an editable poster layer');
+ assert.equal(await page.locator('.mt-item').evaluate(el=>getComputedStyle(el).pointerEvents),'auto','text layers must remain pointer-interactive in Studio');
+ const hit=await page.evaluate(({x,y})=>document.elementFromPoint(x,y)?.closest?.('.mt-item')?.classList.contains('mt-item')||false,{x:box.x+box.width*.8,y:box.y+box.height*.5});
+ assert.equal(hit,true,'editable text must receive pointer input above the supporting-image hit surface');
  await page.mouse.move(box.x+box.width*.8,box.y+box.height*.5);
  await page.mouse.down();
  await page.mouse.move(box.x+box.width*.8+100,box.y+box.height*.5+80,{steps:6});
