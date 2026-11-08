@@ -98,6 +98,8 @@ export function mountPosterViewport() {
   let originalAutoRotateSpeed;
   let viewerReadyCamera = null;
   let viewerReadyControls = null;
+  let posterBounds = null;
+  let trackballGesture = null;
   // Keep the unmodified zoom for each camera. viewerReady can fire more than
   // once; capturing an already poster-zoomed value compounds the zoom and can
   // push the subject out of frame on the next composition update.
@@ -362,6 +364,12 @@ export function mountPosterViewport() {
       }
     }
 
+    posterBounds = {
+      left: rect.left + layout.left,
+      top: rect.top + layout.top,
+      right: rect.left + layout.left + layout.width,
+      bottom: rect.top + layout.top + layout.height,
+    };
     // The live WebGL canvas remains full-size for renderer stability, but its
     // visible pixels are clipped to the exact poster rectangle. This keeps the
     // splat inside the printable composition without resizing the 3D renderer.
@@ -391,7 +399,7 @@ export function mountPosterViewport() {
       // OrbitControls enabled there causes competing gestures and truncated-feeling
       // rotations. The public viewer keeps its normal camera controls enabled.
       const studioMode = window.S?.mode || window._fumocaStudioMode || 'orbit';
-      orbitControls.enabled = !isStudioEditor || studioMode === 'orbit';
+      // Studio uses the free-trackball pointer handler below; OrbitControls'\n      // Y-up orbit model cannot roll/tumble freely through all three axes.\n      orbitControls.enabled = !isStudioEditor;
       if ('enableRotate' in orbitControls) orbitControls.enableRotate = true;
       if ('enablePan' in orbitControls) orbitControls.enablePan = true;
       if ('enableZoom' in orbitControls) orbitControls.enableZoom = true;
@@ -440,6 +448,72 @@ export function mountPosterViewport() {
     // resize listeners can rebuild camera/scene state and cause the viewer to
     // jump out of the active scene while the zoom slider is being dragged.
   };
+  // True arcball/trackball navigation for the Studio poster. Unlike
+  // OrbitControls this rotates the camera's complete orientation quaternion,
+  // including roll, so the subject can tumble freely around screen X/Y/Z.
+  const trackballVector = (clientX, clientY) => {
+    if (!posterBounds) return null;
+    const width = Math.max(1, posterBounds.right - posterBounds.left);
+    const height = Math.max(1, posterBounds.bottom - posterBounds.top);
+    const x = ((clientX - posterBounds.left) / width) * 2 - 1;
+    const y = 1 - ((clientY - posterBounds.top) / height) * 2;
+    const d = x * x + y * y;
+    const z = d <= 1 ? Math.sqrt(1 - d) : 0;
+    const vector = camera.position.clone().set(x, y, z);
+    return vector.normalize();
+  };
+  const onTrackballDown = event => {
+    if (!isStudioEditor || event.button !== 0 || event.altKey || !posterBounds) return;
+    const mode = window.S?.mode || window._fumocaStudioMode || 'orbit';
+    if (mode !== 'orbit') return;
+    if (event.target?.closest?.('[data-fumoca-poster-editor-overlay],button,input,select,textarea')) return;
+    if (event.clientX < posterBounds.left || event.clientX > posterBounds.right ||
+        event.clientY < posterBounds.top || event.clientY > posterBounds.bottom) return;
+    const activeCamera = getCamera();
+    if (!activeCamera?.position || !activeCamera?.quaternion) return;
+    const point = trackballVector(event.clientX, event.clientY);
+    if (!point) return;
+    trackballGesture = { pointerId: event.pointerId, previous: point };
+    try { host.setPointerCapture?.(event.pointerId); } catch (_) {}
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  };
+  const onTrackballMove = event => {
+    if (!trackballGesture || event.pointerId !== trackballGesture.pointerId) return;
+    const activeCamera = getCamera();
+    const current = trackballVector(event.clientX, event.clientY);
+    if (!activeCamera || !current) return;
+    // Convert both arcball points from camera-local to world space before
+    // deriving the incremental rotation quaternion.
+    const previousWorld = trackballGesture.previous.clone().applyQuaternion(activeCamera.quaternion);
+    const currentWorld = current.clone().applyQuaternion(activeCamera.quaternion);
+    const delta = activeCamera.quaternion.clone().setFromUnitVectors(currentWorld, previousWorld);
+    const target = orbitControls?.target;
+    if (target && activeCamera.position?.sub && activeCamera.position?.add) {
+      const offset = activeCamera.position.clone().sub(target).applyQuaternion(delta);
+      activeCamera.position.copy(target).add(offset);
+    }
+    activeCamera.quaternion.premultiply(delta).normalize();
+    if (activeCamera.up?.applyQuaternion) activeCamera.up.applyQuaternion(delta).normalize();
+    activeCamera.updateMatrixWorld?.();
+    trackballGesture.previous = current;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  };
+  const onTrackballUp = event => {
+    if (!trackballGesture || event.pointerId !== trackballGesture.pointerId) return;
+    trackballGesture = null;
+    try { host.releasePointerCapture?.(event.pointerId); } catch (_) {}
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  };
+  if (isStudioEditor) {
+    host.addEventListener('pointerdown', onTrackballDown, true);
+    host.addEventListener('pointermove', onTrackballMove, true);
+    host.addEventListener('pointerup', onTrackballUp, true);
+    host.addEventListener('pointercancel', onTrackballUp, true);
+  }
+
   const schedule = () => {
     if (!frame) frame = requestAnimationFrame(update);
   };
