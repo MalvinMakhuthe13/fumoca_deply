@@ -687,7 +687,32 @@ function mountPanel() {
     const item = images.find(entry => entry.id === id);
     if (!item) return;
     let value = field.value;
-    if (key === 'sizeMode' || key === 'anchor') item[key] = value;
+    if (key === 'sizeMode') item.sizeMode = value;
+    else if (key === 'anchor') {
+      // Changing an anchor must not teleport the image. Preserve its visible
+      // centre, then solve the new anchor point from the unrotated layer size.
+      const layer = [...document.querySelectorAll('[data-poster-asset-id]')].find(node => node.dataset.posterAssetId === id);
+      const root = layer?.closest('[data-fumoca-poster-assets]');
+      const rootRect = root?.getBoundingClientRect();
+      if (layer && rootRect?.width && rootRect?.height) {
+        const bounds = layer.getBoundingClientRect();
+        const width = layer.offsetWidth || bounds.width, height = layer.offsetHeight || bounds.height;
+        const angle = (Number(item.rotation) || 0) * Math.PI / 180;
+        const anchors = {
+          free:[.5,.5], 'top-left':[0,0], top:[.5,0], 'top-right':[1,0],
+          left:[0,.5], center:[.5,.5], right:[1,.5],
+          'bottom-left':[0,1], bottom:[.5,1], 'bottom-right':[1,1],
+        };
+        const [ax, ay] = anchors[value] || anchors.free;
+        const dx = (.5 - ax) * width, dy = (.5 - ay) * height;
+        const centerX = bounds.left + bounds.width / 2, centerY = bounds.top + bounds.height / 2;
+        const anchorX = centerX + Math.cos(angle) * dx - Math.sin(angle) * dy;
+        const anchorY = centerY + Math.sin(angle) * dx + Math.cos(angle) * dy;
+        item.x = Math.max(0, Math.min(1, (anchorX - rootRect.left) / rootRect.width));
+        item.y = Math.max(0, Math.min(1, (anchorY - rootRect.top) / rootRect.height));
+      }
+      item.anchor = value;
+    }
     else if (key === 'opacity') item.opacity = Math.max(0, Math.min(1, Number(value) / 100));
     else if (key === 'width') item.width = Math.max(.05, Math.min(1, Number(value) / 100));
     else if (['fixedWidthPx','minWidthPx','maxWidthPx','rotation'].includes(key)) item[key] = Number(value);
