@@ -8,14 +8,20 @@ const presentViewer = await readFile(new URL('../js/modules/present-viewer.js', 
 const composer = await readFile(new URL('../js/modules/poster-composer.js', import.meta.url), 'utf8');
 
 assert.match(viewer, /import \{ advancePosterMotionPhase, applyPosterLiveTransform, applyPosterMotionRotation, posterMotionSpeed \} from '\.\/poster-live-transform\.js';/);
-assert.match(viewer, /const motionSpeed = posterState\?\.enabled \? posterMotionSpeed\(posterState\.composition\?\.motion\?\.level\) : 0/,
-  'The live Spark viewer must read the saved poster motion level only when poster mode is enabled');
-assert.match(viewer, /posterMotionPhase = advancePosterMotionPhase\(posterMotionPhase, motionSpeed, frameDelta\)/,
-  'Poster motion must advance smoothly using elapsed frame time');
-assert.match(viewer, /applyPosterMotionRotation\(THREE, _publishedSparkGroup, posterMotionPhase\)/,
-  'The main Spark Gaussian subject must receive live motion independently of TrackballControls');
-assert.match(viewer, /applyPosterMotionRotation\(THREE, entry\.group, posterMotionPhase\)/,
-  'Additional poster Gaussian subjects must receive the same live motion phase');
+assert.match(viewer, /const subjectMotion = \(subject\) => \{/,
+  'Each Spark subject must resolve its own motion override or inherit the poster default');
+assert.match(viewer, /const level = subject\?\.motion\?\.level \|\| defaultMotionLevel/,
+  'Per-subject motion must fall back to the saved poster-wide motion level');
+assert.match(viewer, /posterMotionPhases = new Map\(\)/,
+  'Each subject must retain an independent motion phase');
+assert.match(viewer, /applyPosterMotionRotation\(THREE, _publishedSparkGroup, mainMotion\.phase\)/,
+  'The main Spark Gaussian subject must receive its own live motion phase');
+assert.match(viewer, /applyPosterMotionRotation\(THREE, entry\.group, motion\.phase\)/,
+  'Additional poster Gaussian subjects must receive their own live motion phase');
+assert.match(sceneManager, /data-scene-motion/,
+  'The scene manager must expose a per-object motion selector');
+assert.match(composer, /motion: \['still', 'gentle', 'normal', 'dynamic'\]/,
+  'The composition model must normalize per-object motion overrides');
 assert.ok(composer.includes("new CustomEvent('fumoca:posterReady'"), 'Poster composer must announce when its public API is ready');
 assert.ok(presentViewer.includes("addEventListener('fumoca:posterReady', tryApply)"), 'Public viewer must retry restoration when poster composer loads late');
 assert.match(viewer, /import '\.\/poster-viewport\.js(?:\\?[^']*)?';/);
