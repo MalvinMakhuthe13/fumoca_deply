@@ -124,6 +124,11 @@ assert.match(editorSubject, /y:clamp\(g\.origin\.y[\s\S]*?0,1\)/,
 assert.match(editorSubject, /patchSelected\(\{x:clamp\(x,0,1\),y:clamp\(y,0,1\)\}\)/,
   'Keyboard nudging obeys the same poster-safe subject boundary');
 
+const magazineText = readFileSync(new URL('../js/modules/present-magazine-text.js', import.meta.url), 'utf8');
+assert.match(magazineText, /startX \+ \(\(ev\.clientX - pointerX\) \/ Math\.max\(1, rect\.width\)\) \* 100/,
+  'Dragging text must preserve the original grab offset instead of snapping its anchor to the pointer');
+assert.match(magazineText, /overflow: 'hidden', pointerEvents: 'none', zIndex: '20'/,
+  'The full-size text layer must not block pointer events for image and headline layers');
 const posterAssets = readFileSync(new URL('../js/modules/poster-assets.js', import.meta.url), 'utf8');
 assert.match(posterAssets, /const layerRect = layer\.getBoundingClientRect\(\)/,
   'Image-layer drag bounds must use the actual rendered layer dimensions');
@@ -131,12 +136,10 @@ assert.match(posterAssets, /const startItemX = clamp\(\(layerRect\.left \+ layer
   'Image-layer dragging must convert corner/edge anchors to the rendered centre before movement');
 assert.match(posterAssets, /patchItem\(item\.id, \{ anchor: 'free', x: startItemX, y: startItemY \}\)/,
   'Dragging an anchored image must switch it to a free centre anchor');
-assert.match(posterAssets, /const minX = clamp\(halfWidth/,
-  'Image-layer dragging must keep the rotated layer inside the poster while moving freely');
-assert.match(posterAssets, /const maxX = clamp\(1 - halfWidth/,
-  'Image-layer dragging must preserve the complete right edge inside the poster');
-assert.match(posterAssets, /const minY = clamp\(halfHeight/,
-  'Image-layer dragging must preserve the complete top edge inside the poster');
+assert.match(posterAssets, /const x = clamp\(startItemX \+ \(ev\.clientX - startX\) \/ Math\.max\(1, rect\.width\), 0, 1\)/,
+  'Image-layer anchors must be movable to either horizontal edge of the poster');
+assert.match(posterAssets, /const y = clamp\(startItemY \+ \(ev\.clientY - startY\) \/ Math\.max\(1, rect\.height\), 0, 1\)/,
+  'Image-layer anchors must be movable to either vertical edge of the poster');
 assert.match(posterAssets, /const maxY = clamp\(1 - halfHeight/,
   'Image-layer dragging must preserve the complete bottom edge inside the poster');
 
