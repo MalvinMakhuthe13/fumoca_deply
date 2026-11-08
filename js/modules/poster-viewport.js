@@ -166,6 +166,23 @@ export function mountPosterViewport() {
     if (rendererCanvas) {
       rendererCanvas.style.clipPath = '';
       rendererCanvas.style.webkitClipPath = '';
+      if (isStudioEditor) {
+        Object.assign(rendererCanvas.style, {
+          position: 'absolute', left: '0px', top: '0px',
+          right: 'auto', bottom: 'auto', width: '100%', height: '100%',
+        });
+      }
+    }
+    if (isStudioEditor) {
+      const width = Math.max(2, host.clientWidth || 2);
+      const height = Math.max(2, host.clientHeight || 2);
+      const renderer = window._fumocaGlRenderer || window.renderer;
+      renderer?.setSize?.(width, height, false);
+      const activeCamera = getCamera();
+      if (activeCamera) {
+        activeCamera.aspect = width / height;
+        activeCamera.updateProjectionMatrix?.();
+      }
     }
     if (orbitControls && originalPan !== undefined) orbitControls.enablePan = originalPan;
     if (orbitControls && originalZoomEnabled !== undefined) orbitControls.enableZoom = originalZoomEnabled;
@@ -397,25 +414,35 @@ export function mountPosterViewport() {
       right: rect.left + layout.left + layout.width,
       bottom: rect.top + layout.top + layout.height,
     };
-    // The live WebGL canvas remains full-size for renderer stability, but its
-    // visible pixels are clipped to the exact poster rectangle. This keeps the
-    // splat inside the printable composition without resizing the 3D renderer.
+    // Studio's live WebGL canvas is the poster's 3D viewport, not a
+    // full-editor canvas hidden behind a CSS crop. Give the renderer, drawing
+    // buffer, camera frustum and pointer surface the exact same poster bounds.
     if (isStudioEditor && rendererCanvas) {
-      // clip-path insets are relative to the canvas itself, not #viewport.
-      // The Spark canvas can be offset or sized differently from the Studio
-      // host; using host-relative insets here leaves the live splat unmasked.
-      const canvasRect = rendererCanvas.getBoundingClientRect();
-      const posterRect = {
-        left: rect.left + layout.left,
-        top: rect.top + layout.top,
-        right: rect.left + layout.left + layout.width,
-        bottom: rect.top + layout.top + layout.height,
-      };
-      const clip = calculatePosterCanvasClip(
-        canvasRect, posterRect, rendererCanvas.offsetWidth, rendererCanvas.offsetHeight
-      );
-      rendererCanvas.style.clipPath = clip;
-      rendererCanvas.style.webkitClipPath = clip;
+      Object.assign(rendererCanvas.style, {
+        position: 'absolute',
+        left: layout.left + 'px',
+        top: layout.top + 'px',
+        right: 'auto',
+        bottom: 'auto',
+        width: layout.width + 'px',
+        height: layout.height + 'px',
+        clipPath: 'none',
+        webkitClipPath: 'none',
+      });
+      const renderer = window._fumocaGlRenderer || window.renderer;
+      const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+      const bufferWidth = Math.max(2, Math.round(layout.width * pixelRatio));
+      const bufferHeight = Math.max(2, Math.round(layout.height * pixelRatio));
+      if (renderer?.setSize) renderer.setSize(layout.width, layout.height, false);
+      else {
+        rendererCanvas.width = bufferWidth;
+        rendererCanvas.height = bufferHeight;
+      }
+      const activeCamera = getCamera();
+      if (activeCamera) {
+        activeCamera.aspect = layout.aspectRatio;
+        activeCamera.updateProjectionMatrix?.();
+      }
     }
     // Keep all camera gestures alive in poster mode. Object placement is a
     // separate direct-manipulation gesture: dragging a Gaussian moves it,
