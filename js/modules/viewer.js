@@ -2142,7 +2142,9 @@ async function mountPublishedSparkPly(url) {
       const distance = _plyCamera.position.distanceTo(worldCenter);
       const worldRadius = Math.max(0.01, Number(radius) || 0.01) * Math.max(group.scale.x, group.scale.y, group.scale.z, 0.001);
       const focalPixels = Math.abs(canvasRect.height / (2 * Math.tan(THREE.MathUtils.degToRad(_plyCamera.fov) / 2)));
-      const screenRadius = Math.max(18, Math.min(180, focalPixels * worldRadius / Math.max(distance, 0.001)));
+      // Large Gaussian subjects can occupy most of a poster. A small fixed
+      // 180px hit radius makes their visible outer area impossible to select.
+      const screenRadius = Math.max(28, Math.min(canvasRect.height * 0.48, focalPixels * worldRadius / Math.max(distance, 0.001)));
       targets.push({
         id, label, x: canvasRect.left + (projected.x * 0.5 + 0.5) * canvasRect.width,
         y: canvasRect.top + (-projected.y * 0.5 + 0.5) * canvasRect.height,
