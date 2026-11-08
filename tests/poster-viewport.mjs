@@ -183,7 +183,7 @@ console.log('Poster viewport geometry and Studio renderer-host tests passed.');
 
 assert.match(viewportModule, /rendererCanvas\.style, \{[\s\S]*?left: layout\.left \+ 'px'[\s\S]*?width: layout\.width \+ 'px'[\s\S]*?height: layout\.height \+ 'px'/,
   'Studio WebGL canvas must occupy the actual poster artboard instead of being clipped from a full-size editor canvas');
-assert.match(viewportModule, /renderer\?\.setSize\?\.\(layout\.width, layout\.height, false\)/,
+assert.match(viewportModule, /if \(renderer\?\.setSize\) renderer\.setSize\(layout\.width, layout\.height, false\)/,
   'Studio renderer drawing buffer must be resized to the poster artboard dimensions');
 assert.match(viewportModule, /activeCamera\.aspect = layout\.aspectRatio/,
   'Studio camera frustum must match the poster artboard aspect ratio');
