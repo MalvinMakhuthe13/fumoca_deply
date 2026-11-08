@@ -446,7 +446,14 @@ function mountPanel() {
   }
 
   const host = findPresentHost();
-  host.appendChild(panel);
+  // #tab-present already contains legacy Media Studio, audio and interaction
+  // sections. Append placed the restored Poster Composer after all of them,
+  // below the currently visible controls. Put the original composer first so
+  // its existing preset/text/image/layer controls are immediately visible.
+  if (panel.parentElement !== host || panel !== host.firstElementChild) {
+    host.insertBefore(panel, host.firstElementChild);
+  }
+  host.scrollTop = 0;
   mountPosterSceneManager();
   syncPresentActive();
   // Poster editor overlay is mounted by tryMount() after #viewport exists.
