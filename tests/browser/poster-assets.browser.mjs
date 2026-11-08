@@ -95,7 +95,7 @@ try {
     const layer = document.querySelector('[data-poster-asset-id="fixed"]');
     const root = document.querySelector('[data-fumoca-poster-assets]');
     const a = layer.getBoundingClientRect(), b = root.getBoundingClientRect();
-    return { width: a.width, left: a.left, right: a.right, rootLeft: b.left, rootRight: b.right };
+    return { width: a.width, cssWidth: layer.offsetWidth, left: a.left, right: a.right, rootLeft: b.left, rootRight: b.right };
   });
   assert.ok(resized.width <= 1000, 'resizing must never create a fixed-pixel image wider than the poster artboard');
   assert.ok(resized.left >= resized.rootLeft - 1 && resized.right <= resized.rootRight + 1, 'resized image must remain inside the poster artboard');
@@ -103,13 +103,13 @@ try {
   await page.setViewportSize({ width:390, height:844 });
   await page.evaluate(() => window.FumocaPosterAssets.refresh());
   const mobile = await page.evaluate(() => ({
-    fixed: document.querySelector('[data-poster-asset-id="fixed"]').getBoundingClientRect().width,
+    fixed: document.querySelector('[data-poster-asset-id="fixed"]').offsetWidth,
     savedFixed: window.FumocaPoster.getState().composition.assets.images.find(x => x.id === 'fixed').fixedWidthPx,
     responsive: document.querySelector('[data-poster-asset-id="responsive"]').getBoundingClientRect().width,
     root: (() => { const r=document.querySelector('[data-fumoca-poster-assets]').getBoundingClientRect(); return {width:r.width,height:r.height}; })()
   }));
   assert.equal(mobile.root.width, 390, 'supporting images must fill the resized host width');
-  assert.equal(mobile.fixed, resized.width, 'fixed-pixel image should retain its resized desktop CSS-pixel width on mobile');
+  assert.equal(mobile.fixed, resized.cssWidth, 'fixed-pixel image should retain its resized desktop CSS-pixel width on mobile');
   assert.equal(mobile.fixed, mobile.savedFixed, 'fixed-pixel rendering must match the persisted fixed width');
   assert.equal(mobile.responsive, 195, 'responsive image should scale with the host width');
 
