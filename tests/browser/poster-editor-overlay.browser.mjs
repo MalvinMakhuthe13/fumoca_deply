@@ -78,6 +78,26 @@ try{
  assert.deepEqual(await page.evaluate(()=>window.FumocaPoster.getState().composition.subjects[0]),beforePan,
    'Pan mode must not accidentally reposition the poster subject');
  await page.evaluate(()=>{window._fumocaStudioMode='move';});
+ // Background/image/editor layers may sit above the WebGL canvas. They must
+ // not make poster Move stop working merely because the event target is a DIV.
+ const layer=await page.evaluateHandle(()=>{
+   const node=document.createElement('div');
+   node.id='poster-background-layer';
+   Object.assign(node.style,{position:'absolute',left:'0',top:'0',width:'100%',height:'100%',zIndex:'5',pointerEvents:'auto'});
+   document.getElementById('viewport').appendChild(node);
+   return node;
+ });
+ const beforeLayerDrag=await page.evaluate(()=>({...window.FumocaPoster.getState().composition.subjects[0]}));
+ await page.evaluate(()=>{
+   const layer=document.getElementById('poster-background-layer');
+   layer.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,button:0,pointerId:14,clientX:300,clientY:300}));
+   layer.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,button:0,pointerId:14,clientX:340,clientY:330}));
+   layer.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,button:0,pointerId:14,clientX:340,clientY:330}));
+ });
+ const afterLayerDrag=await page.evaluate(()=>window.FumocaPoster.getState().composition.subjects[0]);
+ assert.ok(afterLayerDrag.x>beforeLayerDrag.x && afterLayerDrag.y>beforeLayerDrag.y,
+   'Poster Move must work when the pointer target is a background/editor layer DIV above the WebGL canvas');
+ await layer.dispose();
  const sidePick=page.getByRole('button',{name:'Select Side product'});
  await sidePick.click();
  assert.equal(await page.evaluate(()=>window.FumocaPoster.getState().selectedSubjectId),'subject_second','clicking a visible poster subject should select that 3D object');
