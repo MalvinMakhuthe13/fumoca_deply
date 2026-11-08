@@ -15,8 +15,9 @@ import { mountPosterViewport } from './poster-viewport.js?v=20261108-titlelayer0
 import './poster-assets.js?v=20261108-edgeanchor02';
 import { mountPosterEditorOverlay as createPosterEditorOverlay } from './poster-editor-overlay.js?v=20261108-posterinput03';
 import { mountPosterSceneManager } from './poster-scene-manager.js?v=20261108-multisubject02';
-import './poster-studio-transform.js?v=20261108-livecanvas01';
 import './poster-multi-subject-studio.js?v=20261108-multisubject03';
+import './poster-studio-transform.js?v=20261108-livecanvas01';
+import './poster-multi-subject-studio.js?v=20261108-multisubject02';
 import r2 from '../r2Client.js';
 import { savePosterSnapshot } from './poster-cloud-persistence.js';
 
@@ -294,22 +295,7 @@ const initializedPresentPanels = new WeakSet();
 function mountPanel() {
   let panel = document.getElementById('fumocaPresentTabPanel');
   if (panel && initializedPresentPanels.has(panel)) {
-    // An already-initialized panel can be left in the wrong location after
-    // Studio tab-shell remounts. Re-home it before returning; otherwise the
-    // legacy music/share controls remain visible and the poster workspace
-    // stays detached or buried even though its listeners are already wired.
-    const host = findPresentHost();
-    if (panel.parentElement !== host || panel !== host.firstElementChild) {
-      host.insertBefore(panel, host.firstElementChild);
-      // The actual scrolling element is #panelLeft, not the inner #tab-present
-      // panel body. Reset the real sidebar or users remain scrolled down at
-      // Scene Music / Status & Share Video and never see the composer.
-      // #tab-present is the scrolling .panel-body. #panelLeft itself
-      // has overflow:hidden, so changing its scrollTop does nothing.
-      host.scrollTop = 0;
-    }
     mountPosterSceneManager();
-    syncPresentActive();
     return panel;
   }
   // A panel can survive a partial Studio initialization without its listeners.
@@ -460,19 +446,7 @@ function mountPanel() {
   }
 
   const host = findPresentHost();
-  // Keep the poster workspace at the top of the Present sidebar. The legacy
-  // scene-music/share-video controls may still be mounted in this host; appending
-  // after them pushed the entire poster composer below the visible panel area.
-  const movedToTop = panel.parentElement !== host || panel !== host.firstElementChild;
-  if (movedToTop) {
-    host.insertBefore(panel, host.firstElementChild);
-    // The Present sidebar can retain its previous scroll offset when switching
-    // tabs. Reset only when we relocate the workspace so its Poster Composer
-    // controls are actually visible instead of leaving the user among legacy
-    // music/share tools further down the same panel.
-    // The active .panel-body (#tab-present) owns overflow-y:auto.
-    host.scrollTop = 0;
-  }
+  host.appendChild(panel);
   mountPosterSceneManager();
   syncPresentActive();
   // Poster editor overlay is mounted by tryMount() after #viewport exists.
@@ -941,30 +915,12 @@ export function initPresentTab() {
     document.head.appendChild(l);
   }
 
-  // Mount the Poster Composer before optional magazine/navigation systems.
-  // If either legacy subsystem fails during startup, the core poster controls
-  // must still be available in the Present tab.
-  try {
-    mountPanel();
-  } catch (error) {
-    console.error('[Poster Composer] Early mount failed:', error);
-  }
-
-  try {
-    initMagazineText({ editable: true, onChange: () => persist() });
-    setMagEditable(true);
-  } catch (error) {
-    console.error('[Magazine Text] Initialization failed; Poster Composer remains available:', error);
-  }
-
-  try {
-    initPresentNav({
-      onArrive: (s) => window.dispatchEvent(new CustomEvent('fumoca:navArrive', { detail: s })),
-      onChange: () => { renderNavManager(); persist(); },
-    });
-  } catch (error) {
-    console.error('[Present Navigation] Initialization failed; Poster Composer remains available:', error);
-  }
+  initMagazineText({ editable: true, onChange: () => persist() });
+  initPresentNav({
+    onArrive: (s) => window.dispatchEvent(new CustomEvent('fumoca:navArrive', { detail: s })),
+    onChange: () => { renderNavManager(); persist(); },
+  });
+  setMagEditable(true);
 
   const saved = loadLocal();
   if (saved?.poster && window.FumocaPoster) {
