@@ -114,7 +114,7 @@ export function mountPosterEditorOverlay(options = {}) {
     const hostRect = host.getBoundingClientRect();
     const projectedTargets = window.FumocaPosterPicking?.getTargets?.() || [];
     for (const candidate of subjects) {
-      if (!candidate.visible) continue;
+      if (pickPointer || !candidate.visible) continue;
       const projected = projectedTargets.find(target => target.id === candidate.id);
       const pick = document.createElement('button');
       pick.type = 'button'; pick.className = 'fpe-control fpe-select';
@@ -251,7 +251,11 @@ export function mountPosterEditorOverlay(options = {}) {
   const onPickPointerUp = event => {
     if (!pickPointer || pickPointer.pointerId !== event.pointerId) return;
     const start = pickPointer; pickPointer = null;
-    if (start.moved || Math.hypot(event.clientX - start.x, event.clientY - start.y) > 7) { options.onCommit?.(); return; }
+    if (start.moved || Math.hypot(event.clientX - start.x, event.clientY - start.y) > 7) {
+      options.onCommit?.();
+      refresh();
+      return;
+    }
     api.selectSubject?.(start.id);
     refresh();
   };
