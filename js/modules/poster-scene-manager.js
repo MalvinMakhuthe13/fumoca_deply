@@ -2,6 +2,7 @@
  * FUMOCA Poster Scene Manager
  * UI for managing independently transformable composition subjects.
  */
+import r2 from '../r2Client.js';
 export function mountPosterSceneManager() {
   const root = document.getElementById('ptpPosterComposer');
   const api = window.FumocaPoster;
@@ -14,7 +15,8 @@ export function mountPosterSceneManager() {
     '<div class="ptp-poster-actions"><button type="button" data-scene-load-assets>Load my saved NIFs</button></div>' +
     '<label class="ptp-poster-field">Or paste a NIF asset ID<input type="text" data-scene-asset-id placeholder="Saved NIF asset ID"></label>' +
     '<label class="ptp-poster-field">Object label<input type="text" data-scene-label placeholder="Product, vehicle, room…"></label>' +
-    '<div class="ptp-poster-actions"><button type="button" data-scene-add="nif">Add NIF object</button><button type="button" data-scene-add="ply">Add Gaussian PLY URL</button></div>' +
+    '<div class="ptp-upload-card"><div><strong>Add a splat from your device</strong><small>Choose a Gaussian PLY file (.ply). FUMOCA uploads it to your asset storage; no public URL needed.</small></div><button type="button" data-scene-pick-ply>＋ Choose PLY file</button><input type="file" accept=".ply,application/octet-stream" data-scene-ply-file hidden></div>' +
+    '<div class="ptp-poster-actions"><button type="button" data-scene-add="nif">Add saved NIF object</button><button type="button" data-scene-add="ply">Add Gaussian PLY URL</button></div>' +
     '<div data-scene-list class="ptp-poster-status">Main subject is ready.</div>' +
     '<label class="ptp-poster-field">Selected object motion<select data-scene-motion><option value="inherit">Use poster default</option><option value="still">Still</option><option value="gentle">Gentle</option><option value="normal">Normal</option><option value="dynamic">Dynamic</option></select></label>' +
     '<div data-scene-status class="ptp-poster-hint">Select an object to edit it with the Subject X/Y, scale and rotation controls.</div>';
@@ -84,6 +86,63 @@ export function mountPosterSceneManager() {
     api.updateSubject(selected.id, { motion: event.target.value === 'inherit' ? null : { level: event.target.value } });
     window.FumocaPresent?.save?.();
   });
+  const pickPlyButton = section.querySelector('[data-scene-pick-ply]');
+  const plyInput = section.querySelector('[data-scene-ply-file]');
+  pickPlyButton.addEventListener('click', () => plyInput.click());
+  plyInput.addEventListener('change', async () => {
+    const file = plyInput.files?.[0];
+    if (!file) return;
+    const status = section.querySelector('[data-scene-status]');
+    const labelInput = section.querySelector('[data-scene-label]');
+    const originalLabel = pickPlyButton.textContent;
+    const setStatus = message => { status.textContent = message; };
+    let uploadedKey = null;
+    pickPlyButton.disabled = true;
+    try {
+      if (!/\.ply$/i.test(file.name)) throw new Error('Choose a Gaussian PLY (.ply) file. Other formats are not yet supported by this local multi-object uploader.');
+      if (file.size < 16) throw new Error('This PLY file is empty or too small.');
+      // Confirm the file really is a PLY rather than trusting its extension.
+      const header = new TextDecoder().decode(await file.slice(0, 32).arrayBuffer());
+      if (!/^ply(?:\\r?\\n)/i.test(header)) throw new Error('This file does not have a valid PLY header.');
+      const client = window._fumocaSupabase || window.supabase;
+      if (!client?.auth?.getUser) throw new Error('Account connection is not ready. Sign in and try again.');
+      const { data: auth, error: authError } = await client.auth.getUser();
+      if (authError || !auth?.user) throw new Error('Sign in before uploading an additional splat.');
+      const userId = auth.user.id;
+      const recordId = window._fumocaCurrentRecord?.id || 'draft';
+      const safeName = file.name.replace(/[^a-z0-9._-]/gi, '_').slice(-100) || 'subject.ply';
+      const key = 'poster-subjects/' + userId + '/' + recordId + '/' + Date.now() + '-' + safeName;
+      setStatus('Uploading ' + file.name + ' · 0%');
+      const result = await r2.from('nif-files').upload(key, file, {
+        contentType: 'application/octet-stream',
+        onProgress: pct => setStatus('Uploading ' + file.name + ' · ' + pct + '%'),
+      });
+      if (result.error || !result.publicUrl || !result.fileKey) throw result.error || new Error('Storage did not return a usable file URL.');
+      uploadedKey = result.fileKey;
+      try {
+        api.addSubject({
+          label: labelInput.value.trim() || file.name.replace(/\\.ply$/i, ''),
+          source: { type: 'ply', url: result.publicUrl },
+        });
+      } catch (error) {
+        await r2.from('nif-files').remove([uploadedKey]);
+        uploadedKey = null;
+        throw error;
+      }
+      labelInput.value = '';
+      window.FumocaPresent?.save?.();
+      render();
+      setStatus(file.name + ' uploaded and added. Save the poster to this NIF asset to publish the composition.');
+    } catch (error) {
+      console.error('[Poster Scene Manager] Local PLY upload failed:', error);
+      setStatus(error?.message || 'Could not upload this PLY file.');
+    } finally {
+      pickPlyButton.disabled = false;
+      pickPlyButton.textContent = originalLabel;
+      plyInput.value = '';
+    }
+  });
+
   section.addEventListener('click', async event => {
     const loadAssets = event.target.closest('[data-scene-load-assets]');
     if (loadAssets) {
