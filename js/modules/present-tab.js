@@ -925,12 +925,30 @@ export function initPresentTab() {
     document.head.appendChild(l);
   }
 
-  initMagazineText({ editable: true, onChange: () => persist() });
-  initPresentNav({
-    onArrive: (s) => window.dispatchEvent(new CustomEvent('fumoca:navArrive', { detail: s })),
-    onChange: () => { renderNavManager(); persist(); },
-  });
-  setMagEditable(true);
+  // Mount the Poster Composer before optional magazine/navigation systems.
+  // If either legacy subsystem fails during startup, the core poster controls
+  // must still be available in the Present tab.
+  try {
+    mountPanel();
+  } catch (error) {
+    console.error('[Poster Composer] Early mount failed:', error);
+  }
+
+  try {
+    initMagazineText({ editable: true, onChange: () => persist() });
+    setMagEditable(true);
+  } catch (error) {
+    console.error('[Magazine Text] Initialization failed; Poster Composer remains available:', error);
+  }
+
+  try {
+    initPresentNav({
+      onArrive: (s) => window.dispatchEvent(new CustomEvent('fumoca:navArrive', { detail: s })),
+      onChange: () => { renderNavManager(); persist(); },
+    });
+  } catch (error) {
+    console.error('[Present Navigation] Initialization failed; Poster Composer remains available:', error);
+  }
 
   const saved = loadLocal();
   if (saved?.poster && window.FumocaPoster) {
