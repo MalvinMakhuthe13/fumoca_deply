@@ -3,6 +3,7 @@
  * Loads companion Gaussian PLYs as real Spark meshes in the Studio scene and
  * gives each one an independent poster-space transform.
  */
+import * as THREE from 'three';
 import { applyPosterLiveTransform } from './poster-live-transform.js';
 import { posterMotionSpeed, advancePosterMotionPhase, applyPosterMotionRotation } from './poster-live-transform.js';
 
@@ -27,8 +28,9 @@ async function loadSubject(subject) {
   const id = subject.id;
   if (entries.has(id)) return;
   if (subject.source?.type !== 'ply' && subject.source?.type !== 'url') {
+    entries.set(id, { id, signature: signature(subject), unsupported: true });
     window.dispatchEvent(new CustomEvent('fumoca:posterSubjectError', {
-      detail: { id, message: 'Studio multi-object loading currently supports Gaussian PLY URLs. Saved NIF asset resolution is being connected next.' },
+      detail: { id, message: 'Studio multi-object loading currently supports Gaussian PLY URLs. Saved NIF asset resolution is the next integration.' },
     }));
     return;
   }
@@ -44,7 +46,7 @@ async function loadSubject(subject) {
     const mesh = new SplatMesh({ fileBytes: bytes, fileName: url.split('/').pop() || (id + '.ply'), enableLod: false });
     mesh.name = 'fumoca-poster-subject-' + id;
     if (mesh.initialized) await mesh.initialized;
-    const scene = sceneRef(), THREE = window.THREE;
+    const scene = sceneRef();
     if (!scene || !THREE?.Group || entries.get(id) !== entry) {
       mesh.dispose?.();
       throw new Error('Studio 3D scene is not ready.');
@@ -77,8 +79,12 @@ function syncSubjects() {
 function applyFrame(now) {
   requestAnimationFrame(applyFrame);
   const state = window.FumocaPoster?.getState?.();
-  const camera = cameraRef(), scene = sceneRef(), THREE = window.THREE;
-  if (!state?.enabled || !camera || !scene || !THREE?.Vector3) { lastTime = now; return; }
+  const camera = cameraRef(), scene = sceneRef();
+  if (!state?.enabled || !camera || !scene || !THREE?.Vector3) {
+    for (const id of [...entries.keys()]) disposeEntry(id);
+    lastTime = now;
+    return;
+  }
   syncSubjects();
   const delta = lastTime ? Math.min(.05, Math.max(0, (now - lastTime) / 1000)) : 0;
   lastTime = now;
@@ -86,6 +92,7 @@ function applyFrame(now) {
     if (subject.id === 'subject_main' || !subject.visible) continue;
     const entry = entries.get(subject.id);
     if (!entry?.group || entry.loading) continue;
+    entry.group.visible = true;
     const composition = { ...state.composition, object: { x: subject.x, y: subject.y, scale: subject.scale, rotation: subject.rotation, z: subject.z } };
     applyPosterLiveTransform({ THREE, group: entry.group, camera, center: entry.center, composition, enabled: true });
     const speed = posterMotionSpeed(subject.motion?.level || 'still');
@@ -93,6 +100,52 @@ function applyFrame(now) {
     if (speed) applyPosterMotionRotation(THREE, entry.group, entry.phase);
   }
 }
+function projectedTarget(entry, subject) {
+  const camera = cameraRef();
+  const canvas = document.querySelector('#viewport canvas') || document.querySelector('canvas');
+  if (!camera || !canvas || !entry?.group) return null;
+  const bounds = canvas.getBoundingClientRect();
+  if (!bounds.width || !bounds.height) return null;
+  camera.updateMatrixWorld?.(true);
+  entry.group.updateMatrixWorld?.(true);
+  const box = new THREE.Box3().setFromObject(entry.group);
+  if (!Number.isFinite(box.min.x) || !Number.isFinite(box.max.x)) return null;
+  const corners = [];
+  for (const x of [box.min.x, box.max.x]) for (const y of [box.min.y, box.max.y]) for (const z of [box.min.z, box.max.z]) {
+    const point = new THREE.Vector3(x, y, z).project(camera);
+    if (Number.isFinite(point.x) && Number.isFinite(point.y) && point.z >= -1.2 && point.z <= 1.2) {
+      corners.push({ x: bounds.left + (point.x * .5 + .5) * bounds.width, y: bounds.top + (-point.y * .5 + .5) * bounds.height });
+    }
+  }
+  if (!corners.length) return null;
+  const xs = corners.map(point => point.x), ys = corners.map(point => point.y);
+  const left = Math.max(bounds.left, Math.min(...xs)), right = Math.min(bounds.right, Math.max(...xs));
+  const top = Math.max(bounds.top, Math.min(...ys)), bottom = Math.min(bounds.bottom, Math.max(...ys));
+  if (right - left < 8 || bottom - top < 8) return null;
+  return { id: entry.id, label: subject?.label || '3D object', x: (left + right) / 2, y: (top + bottom) / 2, left, top, width: right - left, height: bottom - top, z: Number(subject?.z || 0) };
+}
+function getTargets() {
+  const state = window.FumocaPoster?.getState?.();
+  return (state?.composition?.subjects || [])
+    .filter(subject => subject.id !== 'subject_main' && subject.visible !== false)
+    .map(subject => projectedTarget(entries.get(subject.id), subject))
+    .filter(Boolean)
+    .sort((a, b) => a.z - b.z);
+}
+function pickSubject(clientX, clientY) {
+  const targets = getTargets();
+  for (let i = targets.length - 1; i >= 0; i--) {
+    const target = targets[i];
+    if (clientX >= target.left && clientX <= target.left + target.width &&
+        clientY >= target.top && clientY <= target.top + target.height) return target;
+  }
+  return null;
+}
+window.FumocaPosterPicking = Object.freeze({
+  getTargets,
+  pick: pickSubject,
+});
+
 function start() {
   if (running) return;
   running = true;

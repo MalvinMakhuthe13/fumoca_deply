@@ -5,18 +5,42 @@
 import {
   initMagazineText, addText, updateText, removeText, applyPreset, clearText,
   exportAll as exportMagazine, importAll as importMagazine, setEditable as setMagEditable, selectText, getSelectedTextId, moveTextLayer,
-} from './present-magazine-text.js?v=20261107-canvasresize01';
+} from './present-magazine-text.js?v=20261108-textdragcapture03';
 import {
   initPresentNav, setNavStops, addNavStop, removeNavStop, clearNavStops, flyToStop,
   stopsFromHotspots, exportStops, importStops,
 } from './present-nav.js';
-import './poster-composer.js?v=20261106-backgrounddata03';
-import { mountPosterViewport } from './poster-viewport.js?v=20261107-studiolayer02';
-import './poster-assets.js?v=20261107-studiolayer01';
-import { mountPosterEditorOverlay as createPosterEditorOverlay } from './poster-editor-overlay.js?v=20261107-studiolayer01';
-import { mountPosterSceneManager } from './poster-scene-manager.js?v=20261106-unifiedimages02';
+import './poster-composer.js?v=20261108-headlinepos01';
+import { mountPosterViewport } from './poster-viewport.js?v=20261108-posterrealcanvas01';
+import './poster-assets.js?v=20261108-edgeanchor02';
+import { mountPosterEditorOverlay as createPosterEditorOverlay } from './poster-editor-overlay.js?v=20261108-splatpick01';
+import { mountPosterSceneManager } from './poster-scene-manager.js?v=20261108-multisubject02';
 import r2 from '../r2Client.js';
 import { savePosterSnapshot } from './poster-cloud-persistence.js';
+
+// Optional 3D editing bridges are loaded only after the original Composer UI
+// is mounted. A bridge import/runtime failure must never block the controls.
+let posterMultiSubjectReady = false;
+let posterStudioTransformReady = false;
+let posterBridgeLoadPromise = null;
+function loadPosterEditingBridges() {
+  if (posterBridgeLoadPromise) return posterBridgeLoadPromise;
+  posterBridgeLoadPromise = (async () => {
+    const results = await Promise.allSettled([
+      import('./poster-multi-subject-studio.js?v=20261108-splatpick01'),
+      import('./poster-studio-transform.js?v=20261108-livecanvas01'),
+    ]);
+    posterMultiSubjectReady = results[0].status === 'fulfilled';
+    posterStudioTransformReady = results[1].status === 'fulfilled';
+    results.forEach((result, index) => {
+      if (result.status === 'rejected') {
+        console.warn(index === 0 ? '[Poster Composer] Multi-splat bridge unavailable:' : '[Poster Composer] Studio transform bridge unavailable:', result.reason);
+      }
+    });
+    return { multiSubject: posterMultiSubjectReady, studioTransform: posterStudioTransformReady };
+  })();
+  return posterBridgeLoadPromise;
+}
 
 const STORAGE_KEY = 'fumoca_present_v1';
 let posterCloudSaveInFlight = false;
@@ -292,6 +316,11 @@ const initializedPresentPanels = new WeakSet();
 function mountPanel() {
   let panel = document.getElementById('fumocaPresentTabPanel');
   if (panel && initializedPresentPanels.has(panel)) {
+    const host = findPresentHost();
+    if (panel.parentElement !== host || panel !== host.firstElementChild) {
+      host.insertBefore(panel, host.firstElementChild);
+    }
+    host.scrollTop = 0;
     mountPosterSceneManager();
     return panel;
   }
@@ -317,7 +346,12 @@ function mountPanel() {
       <label class="ptp-poster-field">Poster zoom <input type="range" min="50" max="250" step="1" value="100" data-poster-field="zoom"><output data-poster-value="zoom">100%</output></label>\n      <label class="ptp-poster-field">3D motion<select data-poster-field="motion"><option value="still">Still · no automatic rotation</option><option value="gentle">Gentle · slow rotation</option><option value="normal">Normal · steady rotation</option><option value="dynamic">Dynamic · faster rotation</option></select></label>
       <div class="ptp-poster-hint">Set the exact subject framing here. Poster mode locks free camera pan and wheel zoom so the composition cannot drift outside the frame.</div>
       <label class="ptp-poster-field">Headline<input type="text" maxlength="160" data-poster-field="title" placeholder="Product title"></label>
-      <label class="ptp-poster-toggle"><input type="checkbox" data-poster-field="titleVisible" checked> Show headline</label>
+      <label class="ptp-poster-toggle"><input type="checkbox" data-poster-field="titleVisible" checked> Show headline · drag it anywhere on the poster</label>
+      <div class="ptp-poster-grid">
+        <label class="ptp-poster-field">Headline X %<input type="number" min="0" max="100" step="1" value="50" data-poster-field="titleX"></label>
+        <label class="ptp-poster-field">Headline Y %<input type="number" min="0" max="100" step="1" value="12" data-poster-field="titleY"></label>
+        <label class="ptp-poster-field">Headline rotation °<input type="number" min="-180" max="180" step="1" value="0" data-poster-field="titleRotation"></label>
+      </div>
       <div class="ptp-poster-grid">
         <label class="ptp-poster-field">Headline alignment<select data-poster-field="titleAlign"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></label>
         <label class="ptp-poster-field">Headline font<select data-poster-field="titleFont"><option value="system-ui, sans-serif">Modern Sans</option><option value="Arial, sans-serif">Arial</option><option value="Georgia, serif">Editorial Serif</option><option value="Impact, sans-serif">Impact</option><option value="monospace">Mono</option></select></label>
@@ -335,6 +369,26 @@ function mountPanel() {
         <label class="ptp-poster-field">Background blur<input type="range" min="0" max="30" value="0" data-poster-field="backgroundBlur"></label>
         <label class="ptp-poster-field">Brightness<input type="range" min="20" max="200" value="100" data-poster-field="backgroundBrightness"></label>
       </div>
+    <div class="ptp-section">
+      <div class="ptp-title">Additional text & copy layers</div>
+      <div class="ptp-row">
+        <button type="button" data-act="weekly">WEEKLY</button>
+        <button type="button" data-act="48hours">48 HOURS</button>
+        <button type="button" data-act="product">Product</button>
+        <button type="button" data-act="hero">Hero title</button>
+        <button type="button" data-act="luxury">Luxury</button>
+        <button type="button" data-act="fashion">Fashion</button>
+        <button type="button" data-act="launch">Product launch</button>
+        <button type="button" data-act="architecture">Architecture</button>
+        <button type="button" data-act="clear-text">Clear text</button>
+        <button type="button" data-act="add-custom-text" class="primary">+ Custom text</button>
+      </div>
+      <div class="ptp-hint">Add subtitles, descriptions, prices, labels and promotional copy. Select a layer, then drag it anywhere on the poster or set exact X/Y, size, rotation and styling.</div>
+    </div>
+    <div class="ptp-section">
+      <div class="ptp-title">Text styling · edit each item</div>
+      <div id="ptpTextManager" class="ptp-text-manager"></div>
+    </div>
       <div class="ptp-poster-subtitle">SUPPORTING IMAGES</div>
       <div class="ptp-upload-card"><div><strong>Supporting images</strong><small>Upload images, logos or textures from your device · Add logos, cut-outs, textures or product photos</small></div><button type="button" data-act="choose-overlays" class="ptp-upload-button">＋ Add images</button><input type="file" accept="image/png,image/jpeg,image/webp" data-poster-field="overlayFile" multiple hidden><span data-upload-name="overlays">Up to 12 images · PNG, JPG or WEBP</span></div>
       <div class="ptp-poster-actions"><button type="button" data-act="clear-overlays">Remove all supporting images</button></div>
@@ -349,26 +403,6 @@ function mountPanel() {
       <div class="ptp-poster-status" id="ptpPosterStatus">Studio now provides a drag handle over the real 3D viewport. Drag the ring or focus it and use arrow keys; the poster frame shows the selected composition bounds.</div>
       <div class="ptp-poster-actions"><button type="button" data-act="poster-cloud-save" class="primary">Save poster to asset</button><button type="button" data-act="copy" class="ptp-poster-copy">Copy viewer link</button></div>
       <div class="ptp-poster-status" id="ptpPosterCloudStatus">Local composition is saved automatically. Cloud save is a separate action.</div>
-    </div>
-    <div class="ptp-section">
-      <div class="ptp-title">Magazine cover text</div>
-      <div class="ptp-row">
-        <button type="button" data-act="weekly">WEEKLY</button>
-        <button type="button" data-act="48hours">48 HOURS</button>
-        <button type="button" data-act="product">Product</button>
-        <button type="button" data-act="hero">Hero title</button>
-        <button type="button" data-act="luxury">Luxury</button>
-        <button type="button" data-act="fashion">Fashion</button>
-        <button type="button" data-act="launch">Product launch</button>
-        <button type="button" data-act="architecture">Architecture</button>
-        <button type="button" data-act="clear-text">Clear text</button>
-        <button type="button" data-act="add-custom-text" class="primary">+ Custom text</button>
-      </div>
-      <div class="ptp-hint">Choose a complete editorial direction, then refine every text layer. Drag text on the canvas or set exact position, typography, width and opacity below.</div>
-    </div>
-    <div class="ptp-section">
-      <div class="ptp-title">Text styling · edit each item</div>
-      <div id="ptpTextManager" class="ptp-text-manager"></div>
     </div>
     <div class="ptp-section">
       <div class="ptp-title">Nav · Matterport style</div>
@@ -438,7 +472,21 @@ function mountPanel() {
   }
 
   const host = findPresentHost();
-  host.appendChild(panel);
+  // #tab-present already contains legacy Media Studio, audio and interaction
+  // sections. Append placed the restored Poster Composer after all of them,
+  // below the currently visible controls. Put the original composer first so
+  // its existing preset/text/image/layer controls are immediately visible.
+  if (panel.parentElement !== host || panel !== host.firstElementChild) {
+    host.insertBefore(panel, host.firstElementChild);
+  }
+  host.scrollTop = 0;
+  // The original Composer is now in the DOM before optional 3D bridges load.
+  console.info('[Poster Composer] Original controls mounted:', {
+    host: host.id || host.className || host.tagName,
+    panel: !!document.getElementById('fumocaPresentTabPanel'),
+    composer: !!panel.querySelector('#ptpPosterComposer'),
+    firstChild: host.firstElementChild === panel,
+  });
   mountPosterSceneManager();
   syncPresentActive();
   // Poster editor overlay is mounted by tryMount() after #viewport exists.
@@ -458,6 +506,9 @@ function mountPanel() {
     const zoomOutput = posterRoot.querySelector('[data-poster-value="zoom"]');
     if (zoomOutput) zoomOutput.textContent = Math.round((c.framing?.zoom || 1) * 100) + '%';
     syncField('[data-poster-field="title"]', c.title?.text || '');
+    syncField('[data-poster-field="titleX"]', String(Math.round((c.title?.x ?? .5) * 100)));
+    syncField('[data-poster-field="titleY"]', String(Math.round((c.title?.y ?? .12) * 100)));
+    syncField('[data-poster-field="titleRotation"]', String(Math.round(c.title?.rotation || 0)));
     syncField('[data-poster-field="titleVisible"]', c.title?.visible !== false, 'checked');
     syncField('[data-poster-field="titleAlign"]', c.title?.align || 'center');
     syncField('[data-poster-field="titleFont"]', c.title?.fontFamily || 'system-ui, sans-serif');
@@ -555,6 +606,8 @@ function mountPanel() {
       options.forEach(([v,t]) => { const option = document.createElement('option'); option.value = v; option.textContent = t; input.appendChild(option); });
       input.value = value; wrap.appendChild(input); editor.appendChild(wrap);
     };
+    field('Position X %','x',Math.round((selected.x ?? .5)*100));
+    field('Position Y %','y',Math.round((selected.y ?? .5)*100));
     selectField('Size behaviour','sizeMode',selected.sizeMode || 'proportional',[
       ['proportional','Proportional'],['fixed','Fixed pixels'],['responsive','Responsive min/max'],
     ]);
@@ -593,6 +646,9 @@ function mountPanel() {
     else if (key === 'titleFont') window.FumocaPoster.updateComposition({ title: { fontFamily: field.value } });
     else if (key === 'titleSize') window.FumocaPoster.updateComposition({ title: { fontSize: Number(field.value) } });
     else if (key === 'titleColor') window.FumocaPoster.updateComposition({ title: { color: field.value } });
+    else if (key === 'titleX') window.FumocaPoster.updateComposition({ title: { x: Math.max(0, Math.min(100, Number(field.value))) / 100 } });
+    else if (key === 'titleY') window.FumocaPoster.updateComposition({ title: { y: Math.max(0, Math.min(100, Number(field.value))) / 100 } });
+    else if (key === 'titleRotation') window.FumocaPoster.updateComposition({ title: { rotation: Math.max(-180, Math.min(180, Number(field.value) || 0)) } });
     else if (key === 'background') window.FumocaPoster.updateComposition({ background: { ...window.FumocaPoster.getState().composition.background, type: 'solid', value: field.value } });
     else if (key === 'backgroundGradient') {
       const gradients = {
@@ -680,7 +736,33 @@ function mountPanel() {
     const item = images.find(entry => entry.id === id);
     if (!item) return;
     let value = field.value;
-    if (key === 'sizeMode' || key === 'anchor') item[key] = value;
+    if (key === 'sizeMode') item.sizeMode = value;
+    else if (key === 'x' || key === 'y') item[key] = Math.max(0, Math.min(100, Number(value))) / 100;
+    else if (key === 'anchor') {
+      // Changing an anchor must not teleport the image. Preserve its visible
+      // centre, then solve the new anchor point from the unrotated layer size.
+      const layer = [...document.querySelectorAll('[data-poster-asset-id]')].find(node => node.dataset.posterAssetId === id);
+      const root = layer?.closest('[data-fumoca-poster-assets]');
+      const rootRect = root?.getBoundingClientRect();
+      if (layer && rootRect?.width && rootRect?.height) {
+        const bounds = layer.getBoundingClientRect();
+        const width = layer.offsetWidth || bounds.width, height = layer.offsetHeight || bounds.height;
+        const angle = (Number(item.rotation) || 0) * Math.PI / 180;
+        const anchors = {
+          free:[.5,.5], 'top-left':[0,0], top:[.5,0], 'top-right':[1,0],
+          left:[0,.5], center:[.5,.5], right:[1,.5],
+          'bottom-left':[0,1], bottom:[.5,1], 'bottom-right':[1,1],
+        };
+        const [ax, ay] = anchors[value] || anchors.free;
+        const dx = (.5 - ax) * width, dy = (.5 - ay) * height;
+        const centerX = bounds.left + bounds.width / 2, centerY = bounds.top + bounds.height / 2;
+        const anchorX = centerX + Math.cos(angle) * dx - Math.sin(angle) * dy;
+        const anchorY = centerY + Math.sin(angle) * dx + Math.cos(angle) * dy;
+        item.x = Math.max(0, Math.min(1, (anchorX - rootRect.left) / rootRect.width));
+        item.y = Math.max(0, Math.min(1, (anchorY - rootRect.top) / rootRect.height));
+      }
+      item.anchor = value;
+    }
     else if (key === 'opacity') item.opacity = Math.max(0, Math.min(1, Number(value) / 100));
     else if (key === 'width') item.width = Math.max(.05, Math.min(1, Number(value) / 100));
     else if (['fixedWidthPx','minWidthPx','maxWidthPx','rotation'].includes(key)) item[key] = Number(value);
@@ -811,8 +893,12 @@ function mountPanel() {
     if (act === 'poster-cloud-save') { savePosterToCloud(); return; }
     if (act === 'clear-text') { clearText(); renderTextManager(); }
     if (act === 'add-custom-text') {
-      const value = prompt('Text to display in the scene', 'Your text');
-      if (value && value.trim()) { addText({ text: value.trim(), style: 'deck', mode: 'locked', sx: 50, sy: 30, fontSize: 24, align: 'center', wrap: true }); renderTextManager(); }
+      const value = prompt('Additional poster text', 'Your text');
+      if (value && value.trim()) {
+        const item = addText({ text: value.trim(), style: 'deck', mode: 'locked', sx: 50, sy: 30, fontSize: 24, align: 'center', wrap: true });
+        selectText(item.id);
+        renderTextManager();
+      }
     }
     if (act === 'clear-nav') {
       if (confirm('Remove all navigation stops for this asset?')) clearNavStops();
@@ -891,8 +977,17 @@ export function initPresentTab() {
   const tryMount = () => {
     // The viewport module can evaluate before the editor's #viewport exists.
     // Re-run its idempotent mount once the Present workspace and viewer are ready.
-    mountPosterViewport();
     mountPanel();
+    // Load optional 3D bridges after the Composer UI is visible.
+    loadPosterEditingBridges().then(() => {
+      try { mountPosterSceneManager(); } catch (error) {
+        console.warn('[Poster Composer] Scene manager could not mount:', error);
+      }
+      try { mountPosterViewport(); } catch (error) {
+        console.warn('[Poster Composer] Viewport mount failed:', error);
+      }
+    }).catch(error => console.warn('[Poster Composer] Optional bridge loading failed:', error));
+    mountPosterViewport();
     mountPosterSceneManager();
     renderNavManager();
     renderTextManager();

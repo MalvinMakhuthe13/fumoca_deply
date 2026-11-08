@@ -108,7 +108,7 @@ try{
     assert.equal(result.backgroundZ,'0');
     assert.equal(result.titleZ,'3');
     assert.equal(result.assetsZ,'8');
-    assert.equal(result.magazineZ,'18');
+    assert.equal(result.magazineZ,'20');
     assert.ok(Number(result.backgroundZ)<Number(result.titleZ)&&Number(result.titleZ)<Number(result.assetsZ)&&Number(result.assetsZ)<Number(result.magazineZ),'within the poster host, layers stack background → title → supporting images → magazine typography');
     assert.ok(Math.abs(result.logoRect.width-expectedWidth*0.2)<1,'supporting logo should size against the poster canvas');
     assert.ok(result.logoRect.x>=result.poster.x-1 && result.logoRect.x+result.logoRect.width<=result.poster.x+result.poster.width+1,'logo must stay inside the poster canvas');

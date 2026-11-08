@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { calculatePosterViewport } from '../js/modules/poster-viewport.js';
+import { calculatePosterViewport, calculatePosterCanvasClip } from '../js/modules/poster-viewport.js';
 
 const portrait = calculatePosterViewport({
   enabled: true,
@@ -36,6 +36,25 @@ assert.ok(Math.abs(landscape.top - 312.3125) < 1e-9);
 
 assert.equal(calculatePosterViewport({ enabled: false, composition: { aspectRatio: 1 } }, 800, 600), null);
 assert.equal(calculatePosterViewport({ enabled: true, composition: { aspectRatio: 0 } }, 800, 600), null);
+assert.equal(
+  calculatePosterCanvasClip(
+    { left: 100, top: 50, right: 1100, bottom: 750, width: 1000, height: 700 },
+    { left: 250, top: 100, right: 850, bottom: 700 },
+    500, 350
+  ),
+  'inset(25px 125px 25px 75px)',
+  'Canvas-relative clipping must account for a renderer canvas whose CSS size differs from its rendered bounds'
+);
+assert.equal(
+  calculatePosterCanvasClip(
+    { left: 0, top: 0, right: 100, bottom: 100, width: 100, height: 100 },
+    { left: 120, top: 120, right: 220, bottom: 220 },
+    100, 100
+  ),
+  'inset(100%)',
+  'A renderer canvas outside the poster frame must be fully clipped'
+);
+
 
 const viewportModule = readFileSync(new URL('../js/modules/poster-viewport.js', import.meta.url), 'utf8');
 assert.match(viewportModule, /const host = stage;/,
@@ -54,24 +73,21 @@ assert.ok(viewportModule.includes("host.insertBefore(backgroundNode, host.firstC
 assert.ok(viewportModule.includes("width: layout.width + 'px'"), 'Poster background and editorial canvas use the calculated poster dimensions');
 assert.ok(viewportModule.includes("posterCanvas.style.display = 'none'"), 'Poster editorial canvas is hidden when poster composition is disabled');
 assert.ok(viewportModule.includes("measureEl"), 'Available space is measured from the stable host without resizing the main viewport');
-assert.match(viewportModule, /rect\.width - layout\.left - layout\.width/,
-  'The renderer clip must use the measured host width, not an undefined bounds variable');
-assert.match(viewportModule, /rect\.height - layout\.top - layout\.height/,
-  'The renderer clip must use the measured host height, not an undefined bounds variable');
-assert.match(viewportModule, /rendererCanvas\.style\.clipPath = clip/,
-  'Studio WebGL pixels must be clipped to the poster frame');
-assert.match(viewportModule, /const clip = `inset\(\$\{layout\.top\}px \$\{right\}px \$\{bottom\}px \$\{layout\.left\}px\)`/,
-  'The renderer clip must use the measured poster frame edges');
+
+
+
+
 assert.match(viewportModule, /const syncRendererBindings = \(\) =>/, 'Poster mode must discover late-mounted renderer and controls');
 assert.match(viewportModule, /viewerReadyCamera = event\.detail\?\.camera \|\| viewerReadyCamera/, 'Poster zoom must bind to the actual camera announced by viewerReady');
 assert.match(viewportModule, /viewerReadyControls = event\.detail\?\.controls \|\| event\.detail\?\.viewer\?\.controls/, 'Poster mode must bind to the active viewer controls');
 assert.match(viewportModule, /window\._fumocaRenderer\?\.camera/, 'Poster zoom can resolve the renderer camera even when the editor globals are absent');
 assert.match(viewportModule, /window\._fumocaViewerControls/, 'Poster mode can resolve the active viewer controls outside Studio');
 assert.match(viewportModule, /window\.addEventListener\('fumoca:viewerReady'/, 'Viewer readiness must trigger a fresh renderer binding pass');
-assert.match(viewportModule, /const nextCanvas = host\.querySelector\('canvas'\)/, 'The WebGL canvas must be resolved after asynchronous viewer mounting');
-assert.match(viewportModule, /orbitControls\.enablePan = false/,
-  'Poster mode must prevent camera panning from carrying the scene outside the frame');
-assert.match(viewportModule, /orbitControls\.enableZoom = false/, 'Poster framing disables free wheel zoom in favour of the fixed zoom control');
+assert.match(viewportModule, /const captureCanvas = window\._fumocaCaptureCanvas/, 'Poster clipping must prefer the exact active Spark canvas rather than the legacy placeholder');
+assert.match(viewportModule, /viewerReadyControls \|\|[\s\S]*?window\._fumocaOrbitControls/,
+  'Poster mode must bind the controls announced by the active viewer before any stale Studio controls');
+assert.match(viewportModule, /orbitControls\.enablePan = true[\s\S]*?orbitControls\.enableZoom = true/,
+  'Poster mode must preserve live camera pan and zoom as well as orbit');
 assert.match(viewportModule, /activeCamera\.zoom = .*framingZoom/, 'The poster zoom control is applied to the Studio camera projection');
 assert.match(viewportModule, /framing: state\.composition\?\.framing/, 'Framing changes invalidate the viewport render signature');
 assert.match(viewportModule, /motion: state\.composition\?\.motion/, 'Motion changes invalidate the viewport render signature and are applied without a remount');
@@ -104,21 +120,57 @@ assert.match(editorSubject, /y:clamp\(g\.origin\.y[\s\S]*?0,1\)/,
 assert.match(editorSubject, /patchSelected\(\{x:clamp\(x,0,1\),y:clamp\(y,0,1\)\}\)/,
   'Keyboard nudging obeys the same poster-safe subject boundary');
 
+const magazineText = readFileSync(new URL('../js/modules/present-magazine-text.js', import.meta.url), 'utf8');
+assert.match(magazineText, /startX \+ \(\(ev\.clientX - pointerX\) \/ width\) \* 100/,
+  'Dragging text must preserve the original grab offset and use the live poster-layer width');
+assert.match(magazineText, /const currentRect = target\.getBoundingClientRect\(\)/,
+  'Text dragging must measure the live poster layer after viewport layout changes');
+assert.match(magazineText, /__fumocaMagazineTextRuntime/,
+  'The stable document pointer listener must always dispatch to the latest magazine text module instance');
+assert.match(magazineText, /overflow: 'hidden', pointerEvents: 'none', zIndex: '20'/,
+  'The full-size text layer must not block pointer events for image and headline layers');
 const posterAssets = readFileSync(new URL('../js/modules/poster-assets.js', import.meta.url), 'utf8');
 assert.match(posterAssets, /const layerRect = layer\.getBoundingClientRect\(\)/,
   'Image-layer drag bounds must use the actual rendered layer dimensions');
-assert.match(posterAssets, /const minX = clamp\(-leftInset/,
-  'Image-layer dragging must keep its complete left edge inside the poster');
-assert.match(posterAssets, /const maxX = clamp\(\(rect\.width - rightInset\)/,
-  'Image-layer dragging must keep its complete right edge inside the poster');
-assert.match(posterAssets, /const minY = clamp\(-topInset/,
-  'Image-layer dragging must keep its complete top edge inside the poster');
-assert.match(posterAssets, /const maxY = clamp\(\(rect\.height - bottomInset\)/,
-  'Image-layer dragging must keep its complete bottom edge inside the poster');
+assert.match(posterAssets, /const startItemX = clamp\(\(layerRect\.left \+ layerRect\.width \/ 2/,
+  'Image-layer dragging must convert corner/edge anchors to the rendered centre before movement');
+assert.match(posterAssets, /patchItem\(item\.id, \{ anchor: 'free', x: startItemX, y: startItemY \}\)/,
+  'Dragging an anchored image must switch it to a free centre anchor');
+assert.match(posterAssets, /const x = clamp\(startItemX \+ \(ev\.clientX - startX\) \/ Math\.max\(1, rect\.width\), 0, 1\)/,
+  'Image-layer anchors must be movable to either horizontal edge of the poster');
+assert.match(posterAssets, /const y = clamp\(startItemY \+ \(ev\.clientY - startY\) \/ Math\.max\(1, rect\.height\), 0, 1\)/,
+  'Image-layer anchors must be movable to either vertical edge of the poster');
+assert.match(posterAssets, /const y = clamp\(startItemY \+ \(ev\.clientY - startY\) \/ Math\.max\(1, rect\.height\), 0, 1\)/,
+  'Image-layer anchors must be movable to the bottom edge of the poster');
 
 
+assert.match(viewportModule, /const Quaternion = activeCamera\?\.quaternion\?\.constructor/,
+  'Studio trackball must derive Quaternion from the active camera instead of requiring a window.THREE global');
+assert.doesNotMatch(viewportModule, /window\.THREE\?\.Quaternion|new window\.THREE\.Quaternion/,
+  'Studio trackball must work when the renderer imports Three.js as a module without exposing window.THREE');
+assert.match(viewportModule, /pointerEvents: isStudioEditor \? 'auto' : 'none'/,
+  'The Studio headline must receive direct manipulation input while remaining inert in the public viewer');
+assert.match(viewportModule, /title: \{\s*x: Math\.max\(0, Math\.min\(1, start\.x/,
+  'Dragging the headline must persist a free poster-local X/Y position');
+assert.match(viewportModule, /data-fumoca-poster-title/,
+  'Headline drags must be excluded from the 3D trackball gesture');
+assert.match(viewportModule, /data-poster-asset-id/,
+  'Dragging a supporting image must not also start a 3D camera orbit');
+
+assert.match(viewportModule, /previous: point\.clone\(\)/,
+  'Arcball drag state must retain the previous camera-local sphere point');
+assert.match(viewportModule, /trackballGesture\.previous\)/,
+  'Arcball movement must read the same previous-point field it stores');
+assert.match(viewportModule, /startQuaternion: activeCamera\.quaternion\.clone\(\)/,
+  'Arcball rotation must retain the gesture starting orientation for stable world-space deltas');
+assert.match(viewportModule, /base\.clone\(\)\.multiply\(deltaCamera\)\.multiply\(base\.clone\(\)\.invert\(\)\)/,
+  'Arcball deltas must be transformed into world space to allow unrestricted pitch, yaw and roll');
 assert.match(viewportModule, /const cameraBaseZoom = new WeakMap\(\)/,
   'Each live camera must retain its original zoom so repeated viewerReady events cannot compound poster zoom');
+assert.match(viewportModule, /const cameraBaseAspect = new WeakMap\(\)/,
+  'Each live camera must retain its original aspect ratio for restoration after poster mode');
+assert.match(viewportModule, /cameraBaseAspect\.get\(activeCamera\)/,
+  'Leaving poster mode must restore the camera aspect ratio that was active before poster framing');
 assert.match(viewportModule, /viewerReadyCamera \|\| \(isStudioEditor/,
   'The camera announced by the active viewer takes precedence over stale editor globals');
 assert.match(viewportModule, /!cameraBaseZoom\.has\(viewerReadyCamera\)/,
@@ -127,9 +179,21 @@ assert.match(viewportModule, /cameraBaseZoom\.get\(activeCamera\)/,
   'Poster zoom must always be calculated from the original camera zoom');
 
 assert.match(viewportModule, /motionLevel = state\.composition\?\.motion\?\.level/, 'Poster motion level is read from the saved composition');
-assert.match(viewportModule, /still: 0, gentle: 0\.35, normal: 0\.8, dynamic: 1\.5/, 'Poster motion levels map to predictable automatic rotation speeds');
+assert.match(viewportModule, /gentle: 0\.35, normal: 0\.8, dynamic: 1\.5/, 'Explicit poster motion levels map to predictable automatic rotation speeds');
 assert.match(viewportModule, /orbitControls\.autoRotate = true/, 'Explicit motion levels enable automatic rotation without disabling manual orbit');
 assert.match(viewportModule, /orbitControls\.autoRotate = originalAutoRotate/, 'Still mode preserves the viewer automatic-rotation default');
 assert.match(viewportModule, /originalAutoRotateSpeed/, 'Disabling poster mode restores the viewer automatic rotation speed');
 assert.match(viewportModule, /orbitControls\.autoRotate = originalAutoRotate/, 'Disabling poster mode restores the viewer automatic-rotation enabled state');
 console.log('Poster viewport geometry and Studio renderer-host tests passed.');
+
+assert.match(viewportModule, /rendererCanvas\.style, \{[\s\S]*?left: layout\.left \+ 'px'[\s\S]*?width: layout\.width \+ 'px'[\s\S]*?height: layout\.height \+ 'px'/,
+  'Studio WebGL canvas must occupy the actual poster artboard instead of being clipped from a full-size editor canvas');
+assert.match(viewportModule, /if \(renderer\?\.setSize\) renderer\.setSize\(layout\.width, layout\.height, false\)/,
+  'Studio renderer drawing buffer must be resized to the poster artboard dimensions');
+assert.match(viewportModule, /activeCamera\.aspect = layout\.aspectRatio/,
+  'Studio camera frustum must match the poster artboard aspect ratio');
+assert.match(viewportModule, /renderer\?\.setSize\?\.\(width, height, false\)/,
+  'Leaving poster mode must restore the normal full Studio renderer size');
+
+assert.match(viewportModule, /zIndex: '9', pointerEvents: 'none'/,
+  'The editorial poster canvas must sit above the supporting-image hit layer while remaining transparent to pointer events outside text items');

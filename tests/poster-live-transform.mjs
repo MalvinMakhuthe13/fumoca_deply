@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { advancePosterMotionPhase, applyPosterLiveTransform, applyPosterMotionRotation, computePosterWorldTransform, posterMotionSpeed } from '../js/modules/poster-live-transform.js';
 
 assert.equal(posterMotionSpeed('still'), 0);
@@ -91,6 +92,21 @@ assert.equal(mockGroup.scale.value, 1.5);
 assert.ok(Math.abs(mockGroup.quaternion.angle - Math.PI / 2) < 1e-9);
 assert.equal(applyPosterLiveTransform({}), false);
 
+const posterAspectApplied = applyPosterLiveTransform({
+  THREE: { Vector3: MockVector3 },
+  group: mockGroup,
+  camera: mockCamera,
+  center: base.center,
+  composition: { aspectRatio: 0.8, object: { x: 0.75, y: 0.25, scale: 1, rotation: 0 } },
+  enabled: true,
+});
+assert.equal(posterAspectApplied, true);
+assert.ok(Math.abs(mockGroup.position.x - 6) < 1e-9,
+  'Poster X coordinates must use the artboard aspect ratio instead of the wider editor camera aspect');
+assert.ok(Math.abs(mockGroup.position.y - 8) < 1e-9,
+  'Poster Y coordinates remain normalized to the same fixed artboard');
+
+
 
 // Multiple poster subjects must retain independent camera-plane transforms and
 // independent motion phases when they share one published Spark scene.
@@ -141,5 +157,12 @@ assert.equal(applyPosterMotionRotation({ Vector3: MockVector3, Quaternion: Captu
 assert.equal(applyPosterMotionRotation({ Vector3: MockVector3, Quaternion: CaptureQuaternion }, motionB, subjectPhases.get(subjectB.id)), true);
 assert.equal(yawA, 0.25, 'Subject A must receive only its own motion phase');
 assert.equal(yawB, 1.1, 'Subject B must receive only its own motion phase');
+
+const multiSubjectBridge = readFileSync(new URL('../js/modules/poster-multi-subject-studio.js', import.meta.url), 'utf8');
+assert.match(multiSubjectBridge, /import \* as THREE from 'three'/, 'The multi-subject bridge must import the same Three.js module used by Studio');
+assert.doesNotMatch(multiSubjectBridge, /window\.THREE/, 'Multi-subject loading must not depend on an uninitialised window.THREE global');
+assert.match(multiSubjectBridge, /function projectedTarget\(/, 'Each companion splat must publish its own projected screen-space hit bounds');
+assert.match(multiSubjectBridge, /window\.FumocaPosterPicking = Object\.freeze\(/, 'Studio must expose precise picking for independently rendered companion splats');
+assert.match(multiSubjectBridge, /function pickSubject\(/, 'Pointer picking must resolve actual projected splat bounds rather than only saved poster anchors');
 
 console.log('Poster live transform math tests passed.');

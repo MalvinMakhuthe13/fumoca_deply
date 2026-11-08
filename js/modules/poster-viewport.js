@@ -37,6 +37,36 @@ export function calculatePosterViewport(posterState, width, height) {
   };
 }
 
+export function calculatePosterCanvasClip(canvasRect, posterRect, canvasWidth = canvasRect?.width, canvasHeight = canvasRect?.height) {
+  if (!canvasRect || !posterRect) return 'inset(100%)';
+  const cLeft = Number(canvasRect.left) || 0;
+  const cTop = Number(canvasRect.top) || 0;
+  const cWidth = Math.max(0, Number(canvasRect.width) || 0);
+  const cHeight = Math.max(0, Number(canvasRect.height) || 0);
+  const cRight = Number.isFinite(Number(canvasRect.right)) ? Number(canvasRect.right) : cLeft + cWidth;
+  const cBottom = Number.isFinite(Number(canvasRect.bottom)) ? Number(canvasRect.bottom) : cTop + cHeight;
+  const pLeft = Number(posterRect.left) || 0;
+  const pTop = Number(posterRect.top) || 0;
+  const pRight = Number.isFinite(Number(posterRect.right)) ? Number(posterRect.right) : pLeft + (Number(posterRect.width) || 0);
+  const pBottom = Number.isFinite(Number(posterRect.bottom)) ? Number(posterRect.bottom) : pTop + (Number(posterRect.height) || 0);
+  const visibleLeft = Math.max(cLeft, pLeft);
+  const visibleTop = Math.max(cTop, pTop);
+  const visibleRight = Math.min(cRight, pRight);
+  const visibleBottom = Math.min(cBottom, pBottom);
+  if (cWidth < 1 || cHeight < 1 || visibleRight <= visibleLeft || visibleBottom <= visibleTop) return 'inset(100%)';
+  // getBoundingClientRect() includes CSS transforms; clip-path inset values use
+  // the canvas's untransformed CSS pixels, so convert by its rendered scale.
+  const scaleX = cWidth / Math.max(1, Number(canvasWidth) || cWidth);
+  const scaleY = cHeight / Math.max(1, Number(canvasHeight) || cHeight);
+  const px = value => Number((value / Math.max(0.0001, scaleX)).toFixed(3)) + 'px';
+  const py = value => Number((value / Math.max(0.0001, scaleY)).toFixed(3)) + 'px';
+  const top = py(visibleTop - cTop);
+  const right = px(cRight - visibleRight);
+  const bottom = py(cBottom - visibleBottom);
+  const left = px(visibleLeft - cLeft);
+  return 'inset(' + top + ' ' + right + ' ' + bottom + ' ' + left + ')';
+}
+
 export function mountPosterViewport() {
   const isStudioEditor = /\/edit(?:\.html)?\/?$/i.test(window.location.pathname);
   // Studio's poster layers and editable image assets share #viewport.
@@ -68,6 +98,8 @@ export function mountPosterViewport() {
   let originalAutoRotateSpeed;
   let viewerReadyCamera = null;
   let viewerReadyControls = null;
+  let posterBounds = null;
+  let trackballGesture = null;
   // Keep the unmodified zoom for each camera. viewerReady can fire more than
   // once; capturing an already poster-zoomed value compounds the zoom and can
   // push the subject out of frame on the next composition update.
@@ -90,7 +122,18 @@ export function mountPosterViewport() {
     return camera;
   };
   const syncRendererBindings = () => {
-    const nextCanvas = host.querySelector('canvas');
+    // #viewport contains a legacy placeholder canvas before the actual WebGL renderer canvas.
+    // querySelector('canvas') selects that placeholder, leaving the live splat canvas unclipped.
+    // Prefer the renderer's authoritative DOM element and only then fall back to a non-placeholder canvas.
+    // The Spark PLY renderer publishes its exact live canvas for capture.
+    // It is not always the first canvas under #viewport (Studio also mounts a
+    // legacy placeholder), so prefer this authoritative reference first.
+    const captureCanvas = window._fumocaCaptureCanvas;
+    const nextCanvas = (captureCanvas?.isConnected ? captureCanvas : null) ||
+      window._fumocaGlRenderer?.domElement ||
+      window.renderer?.domElement ||
+      Array.from(host.querySelectorAll('canvas')).find(canvas => canvas.id !== 'viewportCanvas') ||
+      null;
     if (nextCanvas !== rendererCanvas) {
       if (rendererCanvas) {
         rendererCanvas.style.clipPath = '';
@@ -98,8 +141,14 @@ export function mountPosterViewport() {
       }
       rendererCanvas = nextCanvas;
     }
-    const nextControls = (isStudioEditor ? window._fumocaOrbitControls : null) ||
-      viewerReadyControls || window._fumocaViewerControls || window._fumocaRenderer?.controls || null;
+    // The viewerReady event is emitted by the renderer that is actually
+    // drawing the current scene (Spark PLY in the poster workflow). Studio's
+    // legacy orbit global can point at an older canvas and must never win.
+    const nextControls = viewerReadyControls ||
+      window._fumocaViewerControls ||
+      window._fumocaRenderer?.controls ||
+      (isStudioEditor ? window._fumocaOrbitControls : null) ||
+      null;
     if (nextControls !== orbitControls) {
       if (orbitControls) {
         if (originalPan !== undefined) orbitControls.enablePan = originalPan;
@@ -121,6 +170,23 @@ export function mountPosterViewport() {
     if (rendererCanvas) {
       rendererCanvas.style.clipPath = '';
       rendererCanvas.style.webkitClipPath = '';
+      if (isStudioEditor) {
+        Object.assign(rendererCanvas.style, {
+          position: 'absolute', left: '0px', top: '0px',
+          right: 'auto', bottom: 'auto', width: '100%', height: '100%',
+        });
+      }
+    }
+    if (isStudioEditor) {
+      const width = Math.max(2, host.clientWidth || 2);
+      const height = Math.max(2, host.clientHeight || 2);
+      const renderer = window._fumocaGlRenderer || window.renderer;
+      renderer?.setSize?.(width, height, false);
+      const activeCamera = getCamera();
+      if (activeCamera) {
+        activeCamera.aspect = width / height;
+        activeCamera.updateProjectionMatrix?.();
+      }
     }
     if (orbitControls && originalPan !== undefined) orbitControls.enablePan = originalPan;
     if (orbitControls && originalZoomEnabled !== undefined) orbitControls.enableZoom = originalZoomEnabled;
@@ -160,13 +226,40 @@ export function mountPosterViewport() {
     title = document.createElement('div');
     title.dataset.fumocaPosterTitle = '1';
     Object.assign(title.style, {
-      position: 'absolute', zIndex: '3', pointerEvents: 'none',
+      position: 'absolute', zIndex: '3', pointerEvents: isStudioEditor ? 'auto' : 'none',
       color: '#fff', fontFamily: 'system-ui, sans-serif', fontWeight: '750',
       lineHeight: '1.12', textShadow: '0 2px 18px rgba(0,0,0,.45)',
-      overflowWrap: 'anywhere',
+      overflowWrap: 'anywhere', cursor: isStudioEditor ? 'move' : 'default',
+      userSelect: 'none', touchAction: 'none',
     });
     const target = host.querySelector('[data-fumoca-poster-canvas]') || host;
     target.appendChild(title);
+    if (isStudioEditor) {
+      title.addEventListener('pointerdown', event => {
+        if (event.button !== 0 || event.target !== title) return;
+        const current = window.FumocaPoster?.getState?.()?.composition?.title || {};
+        const start = { x: Number(current.x ?? .5), y: Number(current.y ?? .12) };
+        const bounds = target.getBoundingClientRect();
+        const origin = { x: event.clientX, y: event.clientY };
+        try { title.setPointerCapture?.(event.pointerId); } catch (_) {}
+        event.preventDefault(); event.stopPropagation();
+        const move = ev => {
+          window.FumocaPoster?.updateComposition?.({ title: {
+            x: Math.max(0, Math.min(1, start.x + (ev.clientX - origin.x) / Math.max(1, bounds.width))),
+            y: Math.max(0, Math.min(1, start.y + (ev.clientY - origin.y) / Math.max(1, bounds.height))),
+          }});
+        };
+        const up = ev => {
+          title.removeEventListener('pointermove', move);
+          title.removeEventListener('pointerup', up);
+          title.removeEventListener('pointercancel', up);
+          try { title.releasePointerCapture?.(ev.pointerId); } catch (_) {}
+        };
+        title.addEventListener('pointermove', move);
+        title.addEventListener('pointerup', up);
+        title.addEventListener('pointercancel', up);
+      });
+    }
     return title;
   };
   const restore = () => {
@@ -219,14 +312,17 @@ export function mountPosterViewport() {
         posterCanvas = document.createElement('div');
         posterCanvas.dataset.fumocaPosterCanvas = '1';
         Object.assign(posterCanvas.style, {
-          position: 'absolute', zIndex: '3', pointerEvents: 'none', overflow: 'hidden',
+          position: 'absolute', zIndex: '9', pointerEvents: 'none', overflow: 'hidden',
           clipPath: 'inset(0)', isolation: 'isolate', contain: 'layout paint',
         });
         host.appendChild(posterCanvas);
       }
       Object.assign(posterCanvas.style, {
         display: 'block',
-        zIndex: '3',
+        // Keep editable editorial text above the full-size supporting-image
+        // interaction surface. The canvas itself remains pointer-transparent;
+        // only individual text items opt into pointer events while editing.
+        zIndex: '9', pointerEvents: 'none',
         overflow: 'hidden', clipPath: 'inset(0)', isolation: 'isolate', contain: 'layout paint',
         left: layout.left + 'px',
         top: layout.top + 'px',
@@ -322,21 +418,62 @@ export function mountPosterViewport() {
       }
     }
 
-    // The live WebGL canvas remains full-size for renderer stability, but its
-    // visible pixels are clipped to the exact poster rectangle. This keeps the
-    // splat inside the printable composition without resizing the 3D renderer.
+    posterBounds = {
+      left: rect.left + layout.left,
+      top: rect.top + layout.top,
+      right: rect.left + layout.left + layout.width,
+      bottom: rect.top + layout.top + layout.height,
+    };
+    // Studio's live WebGL canvas is the poster's 3D viewport, not a
+    // full-editor canvas hidden behind a CSS crop. Give the renderer, drawing
+    // buffer, camera frustum and pointer surface the exact same poster bounds.
     if (isStudioEditor && rendererCanvas) {
-      const right = Math.max(0, rect.width - layout.left - layout.width);
-      const bottom = Math.max(0, rect.height - layout.top - layout.height);
-      const clip = `inset(${layout.top}px ${right}px ${bottom}px ${layout.left}px)`;
-      rendererCanvas.style.clipPath = clip;
-      rendererCanvas.style.webkitClipPath = clip;
+      Object.assign(rendererCanvas.style, {
+        position: 'absolute',
+        left: layout.left + 'px',
+        top: layout.top + 'px',
+        right: 'auto',
+        bottom: 'auto',
+        width: layout.width + 'px',
+        height: layout.height + 'px',
+        clipPath: 'none',
+        webkitClipPath: 'none',
+      });
+      const renderer = window._fumocaGlRenderer || window.renderer;
+      const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+      const bufferWidth = Math.max(2, Math.round(layout.width * pixelRatio));
+      const bufferHeight = Math.max(2, Math.round(layout.height * pixelRatio));
+      if (renderer?.setSize) renderer.setSize(layout.width, layout.height, false);
+      else {
+        rendererCanvas.width = bufferWidth;
+        rendererCanvas.height = bufferHeight;
+      }
+      const activeCamera = getCamera();
+      if (activeCamera) {
+        activeCamera.aspect = layout.aspectRatio;
+        activeCamera.updateProjectionMatrix?.();
+      }
     }
-    // Keep the viewer's original pointer controls. The poster frame clips the
-    // presentation, but must not take away free orbit, pan, or wheel zoom.
+    // Keep all camera gestures alive in poster mode. Object placement is a
+    // separate direct-manipulation gesture: dragging a Gaussian moves it,
+    // while dragging empty canvas orbits/pans the camera.
     if (orbitControls) {
-      if (originalPan !== undefined) orbitControls.enablePan = originalPan;
-      if (originalZoomEnabled !== undefined) orbitControls.enableZoom = originalZoomEnabled;
+      // In Studio, OrbitControls must only own pointer gestures in Orbit mode.
+      // Pan and Move are handled by their dedicated editor interactions; leaving
+      // OrbitControls enabled there causes competing gestures and truncated-feeling
+      // rotations. The public viewer keeps its normal camera controls enabled.
+      const studioMode = window.S?.mode || window._fumocaStudioMode || 'orbit';
+      // Studio uses the free-trackball pointer handler below; OrbitControls'\n      // Y-up orbit model cannot roll/tumble freely through all three axes.\n      orbitControls.enabled = !isStudioEditor;
+      if ('enableRotate' in orbitControls) orbitControls.enableRotate = true;
+      if ('enablePan' in orbitControls) orbitControls.enablePan = true;
+      if ('enableZoom' in orbitControls) orbitControls.enableZoom = true;
+      // Restore an unrestricted full 360° orbit around the subject, including
+      // looking directly over the poles. OrbitControls has no azimuth limit by default.
+      if ('minPolarAngle' in orbitControls) orbitControls.minPolarAngle = 0;
+      if ('maxPolarAngle' in orbitControls) orbitControls.maxPolarAngle = Math.PI;
+      if ('minAzimuthAngle' in orbitControls) orbitControls.minAzimuthAngle = -Infinity;
+      if ('maxAzimuthAngle' in orbitControls) orbitControls.maxAzimuthAngle = Infinity;
+      if ('rotateSpeed' in orbitControls) orbitControls.rotateSpeed = 1.2;
       const motionLevel = state.composition?.motion?.level || 'still';
       const motionSpeed = ({ gentle: 0.35, normal: 0.8, dynamic: 1.5 })[motionLevel];
       if (motionSpeed !== undefined) {
@@ -349,9 +486,6 @@ export function mountPosterViewport() {
     }
     const activeCamera = getCamera();
     if (activeCamera) {
-      // The visible poster rectangle can have a different aspect ratio from
-      // Studio's full-width renderer. Match the camera frustum to the actual
-      // clipped poster window so the subject is framed inside the artboard.
       activeCamera.aspect = layout.aspectRatio;
       const framingZoom = Math.max(0.5, Math.min(2.5, Number(state.composition?.framing?.zoom) || 1));
       const baseZoom = cameraBaseZoom.get(activeCamera);
@@ -365,9 +499,10 @@ export function mountPosterViewport() {
     if (heading.visible && String(heading.text || '').trim()) {
       const node = ensureTitle();
       Object.assign(node.style, {
-        left: layout.safe.left + 'px',
-        top: layout.safe.top + 'px',
+        left: (Math.max(0, Math.min(1, Number(heading.x ?? .5))) * layout.width) + 'px',
+        top: (Math.max(0, Math.min(1, Number(heading.y ?? .12))) * layout.height) + 'px',
         width: layout.safe.width + 'px',
+        transform: 'translate(-50%, -50%) rotate(' + (Number(heading.rotation) || 0) + 'deg)',
         textAlign: ['left','center','right'].includes(heading.align) ? heading.align : 'center',
         fontSize: Math.max(10, Math.min(layout.width * 0.14, (Number(heading.fontSize) || 42) * (layout.width / 1080))) + 'px',
         fontFamily: ['system-ui, sans-serif','Arial, sans-serif','Georgia, serif','Impact, sans-serif','monospace'].includes(heading.fontFamily) ? heading.fontFamily : 'system-ui, sans-serif',
@@ -384,6 +519,88 @@ export function mountPosterViewport() {
     // resize listeners can rebuild camera/scene state and cause the viewer to
     // jump out of the active scene while the zoom slider is being dragged.
   };
+  // True arcball/trackball navigation for the Studio poster. Unlike
+  // OrbitControls this rotates the camera's complete orientation quaternion,
+  // including roll, so the subject can tumble freely around screen X/Y/Z.
+  const trackballVector = (clientX, clientY) => {
+    if (!posterBounds) return null;
+    const width = Math.max(1, posterBounds.right - posterBounds.left);
+    const height = Math.max(1, posterBounds.bottom - posterBounds.top);
+    const x = ((clientX - posterBounds.left) / width) * 2 - 1;
+    const y = 1 - ((clientY - posterBounds.top) / height) * 2;
+    const d = x * x + y * y;
+    const z = d <= 1 ? Math.sqrt(1 - d) : 0;
+    const THREE = window.THREE;
+    const vector = THREE?.Vector3
+      ? new THREE.Vector3(x, y, z)
+      : getCamera()?.position?.clone?.().set(x, y, z);
+    return vector?.normalize?.() || null;
+  };
+  const onTrackballDown = event => {
+    if (!isStudioEditor || event.button !== 0 || event.altKey || !posterBounds) return;
+    const mode = window.S?.mode || window._fumocaStudioMode || 'orbit';
+    if (mode !== 'orbit') return;
+    if (event.target?.closest?.('[data-fumoca-poster-title],[data-poster-asset-id],[aria-label^="Resize "],[aria-label^="Rotate "],#fumocaPosterEditorOverlay .fpe-control,button,input,select,textarea')) return;
+    if (event.clientX < posterBounds.left || event.clientX > posterBounds.right ||
+        event.clientY < posterBounds.top || event.clientY > posterBounds.bottom) return;
+    const activeCamera = getCamera();
+    const Quaternion = activeCamera?.quaternion?.constructor;
+    if (!activeCamera?.position || !activeCamera?.quaternion || typeof Quaternion !== 'function' ||
+        typeof activeCamera.quaternion.clone !== 'function') return;
+    const point = trackballVector(event.clientX, event.clientY);
+    if (!point) return;
+    trackballGesture = {
+      pointerId: event.pointerId,
+      // Keep trackball points in the gesture's starting camera space. Reusing
+      // the newly rotated camera quaternion for the previous point compounds
+      // the transform and causes the drag to collapse into a constrained orbit.
+      previous: point.clone(),
+      startQuaternion: activeCamera.quaternion.clone(),
+      target: orbitControls?.target?.clone?.() || null,
+    };
+    try { host.setPointerCapture?.(event.pointerId); } catch (_) {}
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  };
+  const onTrackballMove = event => {
+    if (!trackballGesture || event.pointerId !== trackballGesture.pointerId) return;
+    const activeCamera = getCamera();
+    const current = trackballVector(event.clientX, event.clientY);
+    if (!activeCamera || !current) return;
+    // Build the incremental arcball delta in the original camera frame, then
+    // conjugate it into world space so yaw, pitch AND roll remain unrestricted.
+    const Quaternion = activeCamera.quaternion?.constructor;
+    if (typeof Quaternion !== 'function') return;
+    const deltaCamera = new Quaternion()
+      .setFromUnitVectors(current, trackballGesture.previous);
+    const base = trackballGesture.startQuaternion;
+    const deltaWorld = base.clone().multiply(deltaCamera).multiply(base.clone().invert());
+    const target = trackballGesture.target || orbitControls?.target;
+    if (target && activeCamera.position?.sub && activeCamera.position?.add) {
+      const offset = activeCamera.position.clone().sub(target).applyQuaternion(deltaWorld);
+      activeCamera.position.copy(target).add(offset);
+    }
+    activeCamera.quaternion.premultiply(deltaWorld).normalize();
+    if (activeCamera.up?.applyQuaternion) activeCamera.up.applyQuaternion(deltaWorld).normalize();
+    activeCamera.updateMatrixWorld?.();
+    trackballGesture.previous.copy(current);
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  };
+  const onTrackballUp = event => {
+    if (!trackballGesture || event.pointerId !== trackballGesture.pointerId) return;
+    trackballGesture = null;
+    try { host.releasePointerCapture?.(event.pointerId); } catch (_) {}
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  };
+  if (isStudioEditor) {
+    host.addEventListener('pointerdown', onTrackballDown, true);
+    host.addEventListener('pointermove', onTrackballMove, true);
+    host.addEventListener('pointerup', onTrackballUp, true);
+    host.addEventListener('pointercancel', onTrackballUp, true);
+  }
+
   const schedule = () => {
     if (!frame) frame = requestAnimationFrame(update);
   };

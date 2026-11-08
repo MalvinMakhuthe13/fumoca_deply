@@ -11,10 +11,10 @@ const fixture = `<!doctype html>
   html,body { margin:0; width:100%; height:100%; background:#111; }
   #viewport { position:relative; width:100%; height:100%; overflow:hidden; }
 </style>
-<div id="viewport"></div>
+<div id="viewport"><div data-fumoca-poster-canvas style="position:absolute;inset:0;pointer-events:none"></div></div>
 <script>
   const composition = { aspectRatio: 0.8, assets: { images: [
-    { id:'fixed', name:'Fixed logo', src:'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect width="100" height="100" fill="red"/%3E%3C/svg%3E', x:0.5, y:0.5, width:0.25, sizeMode:'fixed', fixedWidthPx:200, visible:true },
+    { id:'fixed', name:'Fixed logo', src:'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect width="100" height="100" fill="red"/%3E%3C/svg%3E', x:0.5, y:0.5, width:0.25, sizeMode:'fixed', fixedWidthPx:200, anchor:'top-right', visible:true },
     { id:'responsive', name:'Responsive logo', src:'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect width="100" height="100" fill="blue"/%3E%3C/svg%3E', x:0.2, y:0.2, width:0.5, sizeMode:'responsive', minWidthPx:72, maxWidthPx:720, visible:true }
   ] } };
   window.FumocaPoster = {
@@ -64,12 +64,13 @@ try {
   assert.equal(initial.fixedWidth, 200, 'fixed layer must retain its configured CSS-pixel width');
   assert.equal(initial.responsiveWidth, 500, 'responsive layer should use 50% of the host width');
 
-  await page.mouse.move(500, 400);
+  await page.mouse.move(400, 500);
   await page.mouse.down();
-  await page.mouse.move(564, 400, { steps:4 });
+  await page.mouse.move(464, 500, { steps:4 });
   await page.mouse.up();
-  const movedX = await page.evaluate(() => window.FumocaPoster.getState().composition.assets.images.find(x => x.id === 'fixed').x);
-  assert.ok(Math.abs(movedX - 0.564) < 0.002, `drag should use 1000px host coordinates; got x=${movedX}`);
+  const moved = await page.evaluate(() => window.FumocaPoster.getState().composition.assets.images.find(x => x.id === 'fixed'));
+  assert.equal(moved.anchor, 'free', 'dragging a top-right anchored image must switch it to a free centre anchor');
+  assert.ok(Math.abs(moved.x - 0.464) < 0.002, `drag should preserve the rendered centre and use 1000px host coordinates; got x=${moved.x}`);
 
   await page.locator('[data-poster-asset-id="fixed"]').click();
   const rotateHandle = page.getByRole('button', { name: 'Rotate Fixed logo' });
@@ -94,7 +95,7 @@ try {
     const layer = document.querySelector('[data-poster-asset-id="fixed"]');
     const root = document.querySelector('[data-fumoca-poster-assets]');
     const a = layer.getBoundingClientRect(), b = root.getBoundingClientRect();
-    return { width: a.width, left: a.left, right: a.right, rootLeft: b.left, rootRight: b.right };
+    return { width: a.width, cssWidth: layer.offsetWidth, left: a.left, right: a.right, rootLeft: b.left, rootRight: b.right };
   });
   assert.ok(resized.width <= 1000, 'resizing must never create a fixed-pixel image wider than the poster artboard');
   assert.ok(resized.left >= resized.rootLeft - 1 && resized.right <= resized.rootRight + 1, 'resized image must remain inside the poster artboard');
@@ -102,13 +103,13 @@ try {
   await page.setViewportSize({ width:390, height:844 });
   await page.evaluate(() => window.FumocaPosterAssets.refresh());
   const mobile = await page.evaluate(() => ({
-    fixed: document.querySelector('[data-poster-asset-id="fixed"]').getBoundingClientRect().width,
+    fixed: document.querySelector('[data-poster-asset-id="fixed"]').offsetWidth,
     savedFixed: window.FumocaPoster.getState().composition.assets.images.find(x => x.id === 'fixed').fixedWidthPx,
     responsive: document.querySelector('[data-poster-asset-id="responsive"]').getBoundingClientRect().width,
     root: (() => { const r=document.querySelector('[data-fumoca-poster-assets]').getBoundingClientRect(); return {width:r.width,height:r.height}; })()
   }));
   assert.equal(mobile.root.width, 390, 'supporting images must fill the resized host width');
-  assert.equal(mobile.fixed, resized.width, 'fixed-pixel image should retain its resized desktop CSS-pixel width on mobile');
+  assert.equal(mobile.fixed, resized.cssWidth, 'fixed-pixel image should retain its resized desktop CSS-pixel width on mobile');
   assert.equal(mobile.fixed, mobile.savedFixed, 'fixed-pixel rendering must match the persisted fixed width');
   assert.equal(mobile.responsive, 195, 'responsive image should scale with the host width');
 

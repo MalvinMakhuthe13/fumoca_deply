@@ -86,7 +86,11 @@ export function applyPosterLiveTransform({ THREE, group, camera, center, composi
     cameraRight,
     cameraUp,
     fov: camera.fov,
-    aspect: camera.aspect,
+    // Normalized X/Y are poster coordinates, not full editor-canvas
+    // coordinates. Use the fixed artboard ratio while poster mode is active.
+    aspect: enabled && Number.isFinite(Number(composition.aspectRatio)) && Number(composition.aspectRatio) > 0
+      ? Number(composition.aspectRatio)
+      : camera.aspect,
     object: composition.object,
     enabled,
   });

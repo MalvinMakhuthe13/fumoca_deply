@@ -16,7 +16,7 @@
 <link rel="stylesheet" href="css/fumoca-layouts.css"/>
 <script type="module" src="js/modules/anim-studio.js"></script>
 <script type="module" src="js/modules/review-video.js?v=20261025-bglayer"></script>
-<script type="module" src="js/modules/present-tab.js?v=20261107-rendererhost02"></script>
+<script type="module" src="js/modules/present-tab.js?v=20261108-splatpick01"></script>
 
 <style>
 /* ═══════════════════════════════════════════════════════
@@ -2058,20 +2058,34 @@ function _refreshSceneReference(recenter = false) {
 function _syncViewportHud() {
   const ready = !!(S.positions && S.alive?.length);
   const selected = selectedPointCount();
+  const posterState = window.FumocaPoster?.getState?.();
+  const posterActive = !!posterState?.enabled;
+  const posterSubjects = posterState?.composition?.subjects || [];
+  const posterSubject = posterSubjects.find(item => item.id === posterState?.selectedSubjectId) ||
+    posterSubjects.find(item => item.id === 'subject_main');
   const count = $('hudSelectionCount');
-  if (count) count.textContent = ready ? (S.transformScope === 'scene' ? 'Whole scene' : (selected ? `${fmt(selected)} selected` : 'No selection')) : 'No scene';
+  if (count) count.textContent = posterActive
+    ? (posterSubject?.label || '3D subject') + ' · Poster'
+    : ready ? (S.transformScope === 'scene' ? 'Whole scene' : (selected ? `${fmt(selected)} selected` : 'No selection')) : 'No scene';
   document.querySelectorAll('[data-transform-scope]').forEach(button => {
-    button.disabled = !ready;
+    button.disabled = !ready || posterActive;
     button.classList.toggle('active', button.dataset.transformScope === S.transformScope);
   });
   document.querySelectorAll('[data-hud-mode]').forEach(button => {
-    button.disabled = !ready;
+    const posterUnsupported = posterActive && ['rotate','scale-tool','measure'].includes(button.dataset.hudMode);
+    button.disabled = !ready || posterUnsupported;
     button.classList.toggle('active', button.dataset.hudMode === S.mode);
+    if (posterActive && button.dataset.hudMode === 'move') button.title = 'Move the poster 3D subject';
+    else if (button.dataset.hudMode === 'move') button.title = 'Move selected points (V)';
   });
   document.querySelectorAll('[data-hud-view]').forEach(button => { button.disabled = !ready; });
   const hint = $('viewportHudHint');
   if (hint) {
     if (!ready) hint.textContent = 'Open a splat to enable viewport tools.';
+    else if (posterActive && S.mode === 'move') hint.textContent = 'Drag anywhere on the poster to move the 3D subject. Use the ↗ and ↻ handles to resize and rotate.';
+    else if (posterActive && S.mode === 'pan') hint.textContent = 'Drag to pan the camera. The poster subject stays in place.';
+    else if (posterActive && S.mode === 'orbit') hint.textContent = 'Drag to orbit the 3D subject. The poster composition stays in place.';
+    else if (posterActive && S.mode === 'zoom-tool') hint.textContent = 'Drag up or down to zoom the 3D camera.';
     else if (S.mode === 'measure') hint.textContent = 'Click two points on the model to measure.';
     else if (['move', 'rotate', 'scale-tool'].includes(S.mode)) {
       hint.textContent = S.transformScope === 'scene'
@@ -4288,7 +4302,12 @@ const toolMap = {
 
 function setMode(mode) {
   S.mode = mode;
-  if (['move','scale-tool','rotate'].includes(mode) && S.transformScope === 'selection' && !selectedPointCount()) {
+  // Poster composition has its own object transform model. Publish the active
+  // Studio navigation mode so the poster overlay can route pointer gestures
+  // before the point-cloud editor tries to select or transform raw points.
+  window._fumocaStudioMode = mode;
+  const posterCompositionEnabled = !!window.FumocaPoster?.getState?.().enabled;
+  if (!posterCompositionEnabled && ['move','scale-tool','rotate'].includes(mode) && S.transformScope === 'selection' && !selectedPointCount()) {
     setStatus('Select an object or points first. The whole scene will not be moved automatically.', 'warn');
   }
   const orbiting = mode === 'orbit' || mode === 'pan' || mode === 'zoom-tool';
@@ -6194,7 +6213,7 @@ animBg();
 <script type="module" src="js/modules/ply-validator.js"></script>
 <script type="module" src="js/modules/camera-view.js"></script>
 <script type="module" src="js/modules/publish-to-fumoca.js?v=20261025-bglayer2"></script>
-<script type="module" src="js/modules/spark-gaussian-view.js?v=20261026-spark-native"></script>
+<script type="module" src="js/modules/spark-gaussian-view.js?v=20261108-postertransform01"></script>
 <script type="module" src="js/modules/gaussian-renderer.js"></script>
 <script type="module" src="js/modules/smart-select.js"></script>
 <script src="js/modules/gap-fill-engine.js"></script>
