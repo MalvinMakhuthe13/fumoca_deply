@@ -196,7 +196,8 @@ function startDrag(e, item, el) {
   const move = (ev) => {
     item.sx = Math.max(0, Math.min(100, startX + ((ev.clientX - pointerX) / Math.max(1, rect.width)) * 100));
     item.sy = Math.max(0, Math.min(100, startY + ((ev.clientY - pointerY) / Math.max(1, rect.height)) * 100));
-    if (item.mode !== 'world') item.mode = 'locked';
+    // A manual drag converts even world-anchored copy into a freely placed poster layer.
+    item.mode = 'locked';
     el.style.left = item.sx + '%';
     el.style.top = item.sy + '%';
     el.style.transform = itemTransform(item);
