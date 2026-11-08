@@ -148,6 +148,12 @@ assert.match(viewportModule, /const Quaternion = activeCamera\?\.quaternion\?\.c
   'Studio trackball must derive Quaternion from the active camera instead of requiring a window.THREE global');
 assert.doesNotMatch(viewportModule, /window\.THREE\?\.Quaternion|new window\.THREE\.Quaternion/,
   'Studio trackball must work when the renderer imports Three.js as a module without exposing window.THREE');
+assert.match(viewportModule, /pointerEvents: isStudioEditor \? 'auto' : 'none'/,
+  'The Studio headline must receive direct manipulation input while remaining inert in the public viewer');
+assert.match(viewportModule, /title: \{\s*x: Math\.max\(0, Math\.min\(1, start\.x/,
+  'Dragging the headline must persist a free poster-local X/Y position');
+assert.match(viewportModule, /data-fumoca-poster-title/,
+  'Headline drags must be excluded from the 3D trackball gesture');
 assert.match(viewportModule, /data-poster-asset-id/,
   'Dragging a supporting image must not also start a 3D camera orbit');
 
