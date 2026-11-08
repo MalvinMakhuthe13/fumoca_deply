@@ -184,3 +184,12 @@ assert.match(viewportModule, /orbitControls\.autoRotate = motionSpeed > 0/, 'Sti
 assert.match(viewportModule, /originalAutoRotateSpeed/, 'Disabling poster mode restores the viewer automatic rotation speed');
 assert.match(viewportModule, /orbitControls\.autoRotate = originalAutoRotate/, 'Disabling poster mode restores the viewer automatic-rotation enabled state');
 console.log('Poster viewport geometry and Studio renderer-host tests passed.');
+
+assert.match(viewportModule, /rendererCanvas\.style, \{[\s\S]*?left: layout\.left \+ 'px'[\s\S]*?width: layout\.width \+ 'px'[\s\S]*?height: layout\.height \+ 'px'/,
+  'Studio WebGL canvas must occupy the actual poster artboard instead of being clipped from a full-size editor canvas');
+assert.match(viewportModule, /renderer\?\.setSize\?\.\(layout\.width, layout\.height, false\)/,
+  'Studio renderer drawing buffer must be resized to the poster artboard dimensions');
+assert.match(viewportModule, /activeCamera\.aspect = layout\.aspectRatio/,
+  'Studio camera frustum must match the poster artboard aspect ratio');
+assert.match(viewportModule, /renderer\?\.setSize\?\.\(width, height, false\)/,
+  'Leaving poster mode must restore the normal full Studio renderer size');
