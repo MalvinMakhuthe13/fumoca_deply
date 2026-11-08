@@ -7,6 +7,13 @@ export function posterMotionSpeed(level) {
   return ({ still: 0, gentle: 0.35, normal: 0.8, dynamic: 1.5 })[String(level || 'still').toLowerCase()] ?? 0;
 }
 
+export function advancePosterMotionPhase(phase, speed, deltaSeconds) {
+  const current = Number.isFinite(Number(phase)) ? Number(phase) : 0;
+  const rate = Math.max(0, Number.isFinite(Number(speed)) ? Number(speed) : 0);
+  const delta = Math.min(0.05, Math.max(0, Number.isFinite(Number(deltaSeconds)) ? Number(deltaSeconds) : 0));
+  return rate > 0 ? (current + rate * delta) % (Math.PI * 2) : 0;
+}
+
 export function computePosterWorldTransform({
   center = { x: 0, y: 0, z: 0 },
   cameraPosition = { x: 0, y: 0, z: 10 },
