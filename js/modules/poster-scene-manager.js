@@ -9,7 +9,7 @@ export function mountPosterSceneManager() {
   const section = document.createElement('section');
   section.dataset.fumocaSceneManager = '1';
   section.innerHTML = '<div class="ptp-poster-subtitle">3D SCENE OBJECTS</div>' +
-    '<p class="ptp-poster-hint">Manage the objects in this composition. The current viewer is the primary subject. Additional published Gaussian PLY and NIF companion assets load as independent objects in the Spark viewer.</p>' +
+    '<p class="ptp-poster-hint">Manage the objects in this composition. The current viewer is the primary subject. Additional Gaussian PLY companions load as independent 3D objects in this Studio poster and the published Spark viewer. Saved NIF asset loading is being connected separately.</p>' +
     '<label class="ptp-poster-field">Choose from your saved NIF assets<select data-scene-asset-select><option value="">Load your saved assets first</option></select></label>' +
     '<div class="ptp-poster-actions"><button type="button" data-scene-load-assets>Load my saved NIFs</button></div>' +
     '<label class="ptp-poster-field">Or paste a NIF asset ID<input type="text" data-scene-asset-id placeholder="Saved NIF asset ID"></label>' +
@@ -63,7 +63,7 @@ export function mountPosterSceneManager() {
     const selected = (state.composition.subjects || []).find(item => item.id === state.selectedSubjectId);
     section.querySelector('[data-scene-status]').textContent = selected
       ? selected.label + ' selected · ' + (selected.locked ? 'locked' : 'unlocked') + ' · ' +
-        (selected.source.type === 'current' ? 'current viewer source' : 'loads independently in the published Spark viewer')
+        (selected.source.type === 'current' ? 'current viewer source' : 'loads as an independent Studio 3D object')
       : 'Select an object.';
     const motionSelect = section.querySelector('[data-scene-motion]');
     if (motionSelect && selected && document.activeElement !== motionSelect) motionSelect.value = selected.motion?.level || 'inherit';
