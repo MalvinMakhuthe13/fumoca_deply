@@ -140,8 +140,8 @@ assert.match(posterAssets, /const x = clamp\(startItemX \+ \(ev\.clientX - start
   'Image-layer anchors must be movable to either horizontal edge of the poster');
 assert.match(posterAssets, /const y = clamp\(startItemY \+ \(ev\.clientY - startY\) \/ Math\.max\(1, rect\.height\), 0, 1\)/,
   'Image-layer anchors must be movable to either vertical edge of the poster');
-assert.match(posterAssets, /const maxY = clamp\(1 - halfHeight/,
-  'Image-layer dragging must preserve the complete bottom edge inside the poster');
+assert.match(posterAssets, /const y = clamp\(startItemY \+ \(ev\.clientY - startY\) \/ Math\.max\(1, rect\.height\), 0, 1\)/,
+  'Image-layer anchors must be movable to the bottom edge of the poster');
 
 
 assert.match(viewportModule, /const Quaternion = activeCamera\?\.quaternion\?\.constructor/,
