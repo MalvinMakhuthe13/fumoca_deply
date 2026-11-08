@@ -231,6 +231,9 @@ function updateComposition(patch = {}) {
       fontSize: clamp(patch.title.fontSize, 12, 120, current.title.fontSize || 42),
       color: /^#[0-9a-f]{6}$/i.test(String(patch.title.color || '')) ? patch.title.color : current.title.color,
       weight: clamp(patch.title.weight, 400, 900, current.title.weight || 750),
+      x: clamp(patch.title.x, 0, 1, current.title.x ?? 0.5),
+      y: clamp(patch.title.y, 0, 1, current.title.y ?? 0.06),
+      rotation: clamp(patch.title.rotation, -180, 180, current.title.rotation || 0),
     };
   }
   emit('composition');
