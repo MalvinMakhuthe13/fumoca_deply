@@ -204,7 +204,7 @@ export function mountPosterEditorOverlay(options = {}) {
     const localY = event.clientY - bounds.top;
     if (localX < rect.left || localX > rect.left + rect.width ||
         localY < rect.top || localY > rect.top + rect.height) return;
-    const picked = pickPosterSubject(event.clientX, event.clientY);
+    const picked = window.FumocaPosterPicking?.pick?.(event.clientX, event.clientY) || pickPosterSubject(event.clientX, event.clientY);
     const subjects = state.composition?.subjects || [];
     const subject = subjects.find(item => item.id === picked?.id) ||
       subjects.find(item => item.id === state.selectedSubjectId) ||
