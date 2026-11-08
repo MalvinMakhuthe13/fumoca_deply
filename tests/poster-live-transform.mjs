@@ -46,6 +46,12 @@ assert.equal(clamped.scale, 4);
 assert.equal(clamped.rotation, 2 * Math.PI);
 
 
+class MockVector3 {
+  constructor(x, y, z) { this.x = x; this.y = y; this.z = z; }
+  applyQuaternion() { return this; }
+  normalize() { return this; }
+}
+
 let motionAxis, motionAngle, multiplied = false;
 const motionGroup = { quaternion: { multiply(q) { multiplied = true; this.last = q; } } };
 class MockQuaternion {
@@ -57,11 +63,6 @@ assert.equal(motionAngle,0.75);
 assert.equal(applyPosterMotionRotation({},motionGroup,0.75),false);
 
 let projectionUpdated = false;
-class MockVector3 {
-  constructor(x, y, z) { this.x = x; this.y = y; this.z = z; }
-  applyQuaternion() { return this; }
-  normalize() { return this; }
-}
 const mockGroup = {
   position: { set(x, y, z) { this.x = x; this.y = y; this.z = z; } },
   scale: { setScalar(value) { this.value = value; } },
