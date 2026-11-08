@@ -463,6 +463,8 @@ function mountPanel() {
     const zoomOutput = posterRoot.querySelector('[data-poster-value="zoom"]');
     if (zoomOutput) zoomOutput.textContent = Math.round((c.framing?.zoom || 1) * 100) + '%';
     syncField('[data-poster-field="title"]', c.title?.text || '');
+    syncField('[data-poster-field="titleX"]', String(Math.round((c.title?.x ?? .5) * 100)));
+    syncField('[data-poster-field="titleY"]', String(Math.round((c.title?.y ?? .12) * 100)));
     syncField('[data-poster-field="titleVisible"]', c.title?.visible !== false, 'checked');
     syncField('[data-poster-field="titleAlign"]', c.title?.align || 'center');
     syncField('[data-poster-field="titleFont"]', c.title?.fontFamily || 'system-ui, sans-serif');
