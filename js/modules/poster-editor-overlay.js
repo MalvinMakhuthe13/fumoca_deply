@@ -110,10 +110,11 @@ export function mountPosterEditorOverlay(options = {}) {
     Object.assign(frame.style, { left: poster.left+'px', top: poster.top+'px', width: poster.width+'px', height: poster.height+'px' });
     // The poster viewport already renders the live headline; do not paint a second copy here.
     const subjects = composition.subjects || [];
-    if (!pickPointer) pickLayer.replaceChildren();
-    const hostRect = host.getBoundingClientRect();
-    const projectedTargets = window.FumocaPosterPicking?.getTargets?.() || [];
-    for (const candidate of subjects) {
+    if (!pickPointer) {
+      pickLayer.replaceChildren();
+      const hostRect = host.getBoundingClientRect();
+      const projectedTargets = window.FumocaPosterPicking?.getTargets?.() || [];
+      for (const candidate of subjects) {
       if (pickPointer || !candidate.visible) continue;
       const projected = projectedTargets.find(target => target.id === candidate.id);
       const pick = document.createElement('button');
@@ -130,8 +131,9 @@ export function mountPosterEditorOverlay(options = {}) {
         pick.style.maxHeight = poster.height * .92 + 'px';
       }
       if (candidate.id === state.selectedSubjectId) pick.classList.add('is-selected');
-      pick.addEventListener('click', () => { api.selectSubject?.(candidate.id); refresh(); });
-      pickLayer.appendChild(pick);
+        pick.addEventListener('click', () => { api.selectSubject?.(candidate.id); refresh(); });
+        pickLayer.appendChild(pick);
+      }
     }
     const subject = selectedSubject();
     // The subject anchor may sit anywhere on the poster, including its edges.
