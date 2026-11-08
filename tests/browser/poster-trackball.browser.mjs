@@ -31,7 +31,7 @@ class Quaternion {
 const camera={position:new Vector3(0,0,5),quaternion:new Quaternion(0),up:new Vector3(0,1,0),zoom:1,updateProjectionMatrix(){},updateMatrixWorld(){}};
 const controls={target:new Vector3(0,0,0),enablePan:true,enableZoom:true,autoRotate:false,autoRotateSpeed:1};
 window._fumocaCaptureCanvas=document.getElementById('spark-canvas');
-window._fumocaViewerCamera=camera;window._fumocaViewerControls=controls;window.S={mode:'orbit'};
+window._fumocaViewerCamera=camera;window._fumocaCamera=camera;window._fumocaViewerControls=controls;window.S={mode:'orbit'};
 window.FumocaPoster={getState:()=>({enabled:true,composition:{aspectRatio:.8,safeArea:.04,background:{type:'solid',value:'#10131a'},assets:{images:[]},title:{visible:false},motion:{level:'still'},framing:{zoom:1}}}),updateComposition(){}};
 window.__camera=camera;
 // Intentionally no window.THREE: Spark imports Three.js as an ES module.
