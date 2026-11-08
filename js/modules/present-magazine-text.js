@@ -44,7 +44,7 @@ function ensureLayer() {
   if (layer.parentElement !== host) host.appendChild(layer);
   Object.assign(layer.style, {
     position: 'absolute', inset: '0', width: '100%', height: '100%',
-    overflow: 'hidden', pointerEvents: editing ? 'auto' : 'none',
+    overflow: 'hidden', pointerEvents: 'none', zIndex: '20',
   });
   return layer;
 }
