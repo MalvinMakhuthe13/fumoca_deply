@@ -122,8 +122,11 @@ function renderItem(item) {
 
   Object.assign(el.style, {
     position: 'absolute',
-    left: '0',
-    top: '0',
+    // Restore the saved poster-local anchor for every text item. The previous
+    // renderer initialized both coordinates to zero, so freshly restored
+    // public viewers silently stacked all copy at the upper-left corner.
+    left: (Number(item.sx ?? 50)) + '%',
+    top: (Number(item.sy ?? 30)) + '%',
     // Treat the authored X coordinate as the text alignment anchor. Left-
     // aligned cover copy starts at its X coordinate instead of extending
     // half its width to the left of the poster; centered/right copy anchor
