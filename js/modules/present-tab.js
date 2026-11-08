@@ -304,8 +304,9 @@ function mountPanel() {
       // The actual scrolling element is #panelLeft, not the inner #tab-present
       // panel body. Reset the real sidebar or users remain scrolled down at
       // Scene Music / Status & Share Video and never see the composer.
-      const sidebar = host.closest('#panelLeft') || host;
-      sidebar.scrollTop = 0;
+      // #tab-present is the scrolling .panel-body. #panelLeft itself
+      // has overflow:hidden, so changing its scrollTop does nothing.
+      host.scrollTop = 0;
     }
     mountPosterSceneManager();
     syncPresentActive();
@@ -469,8 +470,8 @@ function mountPanel() {
     // tabs. Reset only when we relocate the workspace so its Poster Composer
     // controls are actually visible instead of leaving the user among legacy
     // music/share tools further down the same panel.
-    const sidebar = host.closest('#panelLeft') || host;
-    sidebar.scrollTop = 0;
+    // The active .panel-body (#tab-present) owns overflow-y:auto.
+    host.scrollTop = 0;
   }
   mountPosterSceneManager();
   syncPresentActive();
