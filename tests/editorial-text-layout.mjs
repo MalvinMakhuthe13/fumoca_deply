@@ -50,7 +50,7 @@ assert.equal(textAnchorTransform('center'), 'translate(-50%, -50%)', 'centered t
 assert.equal(textAnchorTransform('right'), 'translate(-100%, -50%)', 'right-aligned text must keep its right edge anchored while moving');
 assert.ok(magazine.includes('Math.max(0, Math.min(100,'), 'Text can be positioned anywhere within the poster bounds');
 assert.ok(magazine.includes('el.style.transform = itemTransform(item)'), 'The animation/layout tick must preserve the chosen text anchor instead of snapping dragged text back to center');
-assert.ok(magazine.includes("if (item.mode !== 'world') item.mode = 'locked'"), 'Dragging world-anchored text must convert it to a freely positioned poster layer');
+assert.ok(magazine.includes("item.mode = 'locked';"), 'Dragging world-anchored text must convert it to a freely positioned poster layer');
 assert.ok(magazine.includes("handle.dataset.resize = position"), 'Selected text must expose direct resize handles');
 assert.ok(magazine.includes('function startResize(e, item, position)'), 'Text handles must resize text directly on the poster');
 assert.ok(magazine.includes("selectedTextId = item.id;"), 'Canvas selection must not rebuild and detach the active pointer target before dragging');
