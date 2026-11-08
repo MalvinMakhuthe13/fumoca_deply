@@ -104,6 +104,7 @@ export function mountPosterViewport() {
   // once; capturing an already poster-zoomed value compounds the zoom and can
   // push the subject out of frame on the next composition update.
   const cameraBaseZoom = new WeakMap();
+  const cameraBaseAspect = new WeakMap();
   let camera = viewerReadyCamera || (isStudioEditor
     ? (window._fumocaCamera || window.camera || window._fumocaRenderer?.camera || null)
     : (window._fumocaRenderer?.camera || null));
@@ -114,6 +115,9 @@ export function mountPosterViewport() {
       window._fumocaRenderer?.camera || camera || null;
     if (camera && !cameraBaseZoom.has(camera) && Number.isFinite(camera.zoom)) {
       cameraBaseZoom.set(camera, camera.zoom);
+    }
+    if (camera && !cameraBaseAspect.has(camera) && Number.isFinite(camera.aspect)) {
+      cameraBaseAspect.set(camera, camera.aspect);
     }
     return camera;
   };
@@ -190,7 +194,10 @@ export function mountPosterViewport() {
     if (orbitControls && originalAutoRotateSpeed !== undefined) orbitControls.autoRotateSpeed = originalAutoRotateSpeed;
     const activeCamera = getCamera();
     const baseZoom = activeCamera && cameraBaseZoom.get(activeCamera);
-    if (activeCamera && Number.isFinite(baseZoom)) { activeCamera.zoom = baseZoom; activeCamera.updateProjectionMatrix?.(); }
+    const baseAspect = activeCamera && cameraBaseAspect.get(activeCamera);
+    if (activeCamera && Number.isFinite(baseZoom)) activeCamera.zoom = baseZoom;
+    if (activeCamera && Number.isFinite(baseAspect)) activeCamera.aspect = baseAspect;
+    if (activeCamera) activeCamera.updateProjectionMatrix?.();
   };
 
   if (!backgroundNode) {
@@ -465,12 +472,18 @@ export function mountPosterViewport() {
       if ('maxAzimuthAngle' in orbitControls) orbitControls.maxAzimuthAngle = Infinity;
       if ('rotateSpeed' in orbitControls) orbitControls.rotateSpeed = 1.2;
       const motionLevel = state.composition?.motion?.level || 'still';
-      const motionSpeed = ({ still: 0, gentle: 0.35, normal: 0.8, dynamic: 1.5 })[motionLevel] ?? 0;
-      orbitControls.autoRotate = motionSpeed > 0;
-      if (motionSpeed > 0) orbitControls.autoRotateSpeed = motionSpeed;
+      const motionSpeed = ({ gentle: 0.35, normal: 0.8, dynamic: 1.5 })[motionLevel];
+      if (motionSpeed !== undefined) {
+        orbitControls.autoRotate = true;
+        orbitControls.autoRotateSpeed = motionSpeed;
+      } else {
+        orbitControls.autoRotate = originalAutoRotate ?? false;
+        if (originalAutoRotateSpeed !== undefined) orbitControls.autoRotateSpeed = originalAutoRotateSpeed;
+      }
     }
     const activeCamera = getCamera();
     if (activeCamera) {
+      activeCamera.aspect = layout.aspectRatio;
       const framingZoom = Math.max(0.5, Math.min(2.5, Number(state.composition?.framing?.zoom) || 1));
       const baseZoom = cameraBaseZoom.get(activeCamera);
       activeCamera.zoom = (Number.isFinite(baseZoom) ? baseZoom : 1) * framingZoom;
