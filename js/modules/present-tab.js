@@ -294,7 +294,17 @@ const initializedPresentPanels = new WeakSet();
 function mountPanel() {
   let panel = document.getElementById('fumocaPresentTabPanel');
   if (panel && initializedPresentPanels.has(panel)) {
+    // An already-initialized panel can be left in the wrong location after
+    // Studio tab-shell remounts. Re-home it before returning; otherwise the
+    // legacy music/share controls remain visible and the poster workspace
+    // stays detached or buried even though its listeners are already wired.
+    const host = findPresentHost();
+    if (panel.parentElement !== host || panel !== host.firstElementChild) {
+      host.insertBefore(panel, host.firstElementChild);
+      host.scrollTop = 0;
+    }
     mountPosterSceneManager();
+    syncPresentActive();
     return panel;
   }
   // A panel can survive a partial Studio initialization without its listeners.
