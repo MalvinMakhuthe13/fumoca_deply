@@ -16,7 +16,7 @@ import './poster-assets.js?v=20261108-edgeanchor02';
 import { mountPosterEditorOverlay as createPosterEditorOverlay } from './poster-editor-overlay.js?v=20261108-posterinput03';
 import { mountPosterSceneManager } from './poster-scene-manager.js?v=20261106-unifiedimages02';
 import './poster-studio-transform.js?v=20261108-livecanvas01';
-import './poster-multi-subject-studio.js?v=20261108-multisubject01';
+import './poster-multi-subject-studio.js?v=20261108-multisubject02';
 import r2 from '../r2Client.js';
 import { savePosterSnapshot } from './poster-cloud-persistence.js';
 
