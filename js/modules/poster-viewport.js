@@ -473,7 +473,10 @@ export function mountPosterViewport() {
     if (!activeCamera?.position || !activeCamera?.quaternion) return;
     const point = trackballVector(event.clientX, event.clientY);
     if (!point) return;
-    trackballGesture = {\n      pointerId: event.pointerId,\n      previousWorld: point.clone().applyQuaternion(activeCamera.quaternion),\n    };
+    trackballGesture = {
+      pointerId: event.pointerId,
+      previousWorld: point.clone().applyQuaternion(activeCamera.quaternion),
+    };
     try { host.setPointerCapture?.(event.pointerId); } catch (_) {}
     event.preventDefault();
     event.stopImmediatePropagation();
