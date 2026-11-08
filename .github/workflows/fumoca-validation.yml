@@ -184,6 +184,8 @@ jobs:
         run: node tests/browser/poster-viewer-restore.browser.mjs
       - name: Test poster motion levels and stable yaw in Chromium
         run: node tests/browser/poster-motion.browser.mjs
+      - name: Test poster scene object management in Chromium
+        run: node tests/browser/poster-scene-manager.browser.mjs
       - name: Test poster visual layer stacking in Chromium
         run: node tests/browser/poster-layer-stack.browser.mjs
       - name: Test CPU-only splat to NIF conversion
