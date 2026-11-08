@@ -202,7 +202,7 @@ export function mountPosterViewport() {
     title = document.createElement('div');
     title.dataset.fumocaPosterTitle = '1';
     Object.assign(title.style, {
-      position: 'absolute', zIndex: '12', pointerEvents: isStudioEditor ? 'auto' : 'none',
+      position: 'absolute', zIndex: '3', pointerEvents: isStudioEditor ? 'auto' : 'none',
       color: '#fff', fontFamily: 'system-ui, sans-serif', fontWeight: '750',
       lineHeight: '1.12', textShadow: '0 2px 18px rgba(0,0,0,.45)',
       overflowWrap: 'anywhere', cursor: isStudioEditor ? 'move' : 'default',
