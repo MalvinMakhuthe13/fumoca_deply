@@ -11,7 +11,7 @@ const fixture = `<!doctype html>
   html,body { margin:0; width:100%; height:100%; background:#111; }
   #viewport { position:relative; width:100%; height:100%; overflow:hidden; }
 </style>
-<div id="viewport"></div>
+<div id="viewport"><div data-fumoca-poster-canvas style="position:absolute;inset:0;pointer-events:none"></div></div>
 <script>
   const composition = { aspectRatio: 0.8, assets: { images: [
     { id:'fixed', name:'Fixed logo', src:'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect width="100" height="100" fill="red"/%3E%3C/svg%3E', x:0.5, y:0.5, width:0.25, sizeMode:'fixed', fixedWidthPx:200, anchor:'top-right', visible:true },
