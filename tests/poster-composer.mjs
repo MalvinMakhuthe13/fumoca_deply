@@ -112,9 +112,16 @@ assert.equal(poster.getLayout(800, 1000).subjects.length, 1, 'Responsive layout 
 const secondary = poster.addSubject({
   id: 'subject_secondary', label: 'Secondary product',
   source: { type: 'nif', assetId: 'nif-asset-123' },
-  x: 0.72, y: 0.38, scale: 1.4, rotation: 22,
+  x: 0.72, y: 0.38, scale: 1.4, rotation: 22, motion: { level: 'dynamic' },
 });
 assert.equal(secondary.id, 'subject_secondary');
+assert.deepEqual(secondary.motion, { level: 'dynamic' }, 'Each subject can store an independent motion level');
+poster.updateSubject('subject_main', { motion: { level: 'gentle' } });
+assert.deepEqual(poster.getState().composition.subjects.find(item => item.id === 'subject_main').motion, { level: 'gentle' });
+poster.updateSubject('subject_secondary', { motion: { level: 'still' } });
+assert.equal(poster.getState().composition.subjects.find(item => item.id === 'subject_secondary').motion.level, 'still', 'Still can override the global motion for one subject');
+poster.updateSubject('subject_secondary', { motion: null });
+assert.equal(poster.getState().composition.subjects.find(item => item.id === 'subject_secondary').motion, null, 'A subject can inherit the poster-wide motion setting');
 assert.equal(poster.getState().selectedSubjectId, 'subject_secondary');
 poster.updateSubject('subject_secondary', { x: 2, scale: 8, rotation: -500 });
 const changedSecondary = poster.getState().composition.subjects.find(item => item.id === 'subject_secondary');
