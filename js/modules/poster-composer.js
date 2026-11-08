@@ -250,8 +250,11 @@ function addSubject(input = {}) {
     id, label: String(input.label || ('Subject ' + (current.subjects.length + 1))).slice(0, 100),
     source: { type: ['nif','ply','url'].includes(input.source?.type) ? input.source.type : 'nif',
       assetId: String(input.source?.assetId || '').slice(0,160), url: String(input.source?.url || '').slice(0,2000) },
-    x: clamp(input.x,0,1,0.5), y: clamp(input.y,0,1,0.5),
-    scale: clamp(input.scale,0.1,4,1), rotation: clamp(input.rotation,-360,360,0),
+    // Stagger new subjects so each newly added splat is immediately visible
+    // and independently selectable instead of stacking every object at center.
+    x: clamp(input.x,0,1,0.5 + ((current.subjects.length % 3) - 1) * 0.16),
+    y: clamp(input.y,0,1,0.5 + (current.subjects.length % 2 ? 0.12 : -0.12)),
+    scale: clamp(input.scale,0.1,4,0.72), rotation: clamp(input.rotation,-360,360,0),
     visible: input.visible !== false, locked: Boolean(input.locked), z: clamp(input.z,current.subjects.length+1,99,current.subjects.length+1),
     motion: ['still', 'gentle', 'normal', 'dynamic'].includes(input.motion?.level) ? { level: input.motion.level } : null,
   };
