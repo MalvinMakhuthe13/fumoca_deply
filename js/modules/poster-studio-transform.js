@@ -7,7 +7,7 @@
  * without mutating the editable source positions.
  */
 import { applyPosterLiveTransform } from './poster-live-transform.js';
-import './spark-gaussian-view.js';
+import './spark-gaussian-view.js?v=20261108-postertransform01';
 
 let pivot = null;
 let attached = null;
