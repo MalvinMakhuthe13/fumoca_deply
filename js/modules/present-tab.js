@@ -15,6 +15,7 @@ import { mountPosterViewport } from './poster-viewport.js?v=20261107-studiolayer
 import './poster-assets.js?v=20261107-studiolayer01';
 import { mountPosterEditorOverlay as createPosterEditorOverlay } from './poster-editor-overlay.js?v=20261107-studiolayer01';
 import { mountPosterSceneManager } from './poster-scene-manager.js?v=20261106-unifiedimages02';
+import './poster-studio-transform.js?v=20261108-livecanvas01';
 import r2 from '../r2Client.js';
 import { savePosterSnapshot } from './poster-cloud-persistence.js';
 
