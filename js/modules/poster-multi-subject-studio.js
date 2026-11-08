@@ -100,6 +100,52 @@ function applyFrame(now) {
     if (speed) applyPosterMotionRotation(THREE, entry.group, entry.phase);
   }
 }
+function projectedTarget(entry, subject) {
+  const camera = cameraRef();
+  const canvas = document.querySelector('#viewport canvas') || document.querySelector('canvas');
+  if (!camera || !canvas || !entry?.group) return null;
+  const bounds = canvas.getBoundingClientRect();
+  if (!bounds.width || !bounds.height) return null;
+  camera.updateMatrixWorld?.(true);
+  entry.group.updateMatrixWorld?.(true);
+  const box = new THREE.Box3().setFromObject(entry.group);
+  if (!Number.isFinite(box.min.x) || !Number.isFinite(box.max.x)) return null;
+  const corners = [];
+  for (const x of [box.min.x, box.max.x]) for (const y of [box.min.y, box.max.y]) for (const z of [box.min.z, box.max.z]) {
+    const point = new THREE.Vector3(x, y, z).project(camera);
+    if (Number.isFinite(point.x) && Number.isFinite(point.y) && point.z >= -1.2 && point.z <= 1.2) {
+      corners.push({ x: bounds.left + (point.x * .5 + .5) * bounds.width, y: bounds.top + (-point.y * .5 + .5) * bounds.height });
+    }
+  }
+  if (!corners.length) return null;
+  const xs = corners.map(point => point.x), ys = corners.map(point => point.y);
+  const left = Math.max(bounds.left, Math.min(...xs)), right = Math.min(bounds.right, Math.max(...xs));
+  const top = Math.max(bounds.top, Math.min(...ys)), bottom = Math.min(bounds.bottom, Math.max(...ys));
+  if (right - left < 8 || bottom - top < 8) return null;
+  return { id: entry.id, label: subject?.label || '3D object', x: (left + right) / 2, y: (top + bottom) / 2, left, top, width: right - left, height: bottom - top, z: Number(subject?.z || 0) };
+}
+function getTargets() {
+  const state = window.FumocaPoster?.getState?.();
+  return (state?.composition?.subjects || [])
+    .filter(subject => subject.id !== 'subject_main' && subject.visible !== false)
+    .map(subject => projectedTarget(entries.get(subject.id), subject))
+    .filter(Boolean)
+    .sort((a, b) => a.z - b.z);
+}
+function pickSubject(clientX, clientY) {
+  const targets = getTargets();
+  for (let i = targets.length - 1; i >= 0; i--) {
+    const target = targets[i];
+    if (clientX >= target.left && clientX <= target.left + target.width &&
+        clientY >= target.top && clientY <= target.top + target.height) return target;
+  }
+  return null;
+}
+window.FumocaPosterPicking = Object.freeze({
+  getTargets,
+  pick: pickSubject,
+});
+
 function start() {
   if (running) return;
   running = true;
