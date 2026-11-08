@@ -100,6 +100,47 @@ export function initPosterAssets({ editable = false } = {}) {
       layer.appendChild(img);
 
       if (editable) {
+        const startMove = (event) => {
+          if (item.locked || event.button !== 0) return;
+          event.preventDefault();
+          event.stopPropagation();
+          selectedId = item.id;
+          dragging = true;
+          const rect = root.getBoundingClientRect();
+          const layerRect = layer.getBoundingClientRect();
+          const startX = event.clientX, startY = event.clientY;
+          const startItemX = item.x, startItemY = item.y;
+          // Preserve the complete visible layer inside the artboard, including
+          // its rotated bounds. All coordinates are relative to the poster root.
+          const leftInset = layerRect.left - rect.left - startItemX * rect.width;
+          const rightInset = layerRect.right - rect.left - startItemX * rect.width;
+          const topInset = layerRect.top - rect.top - startItemY * rect.height;
+          const bottomInset = layerRect.bottom - rect.top - startItemY * rect.height;
+          const minX = clamp(-leftInset / Math.max(1, rect.width), 0, 1);
+          const maxX = clamp((rect.width - rightInset) / Math.max(1, rect.width), 0, 1);
+          const minY = clamp(-topInset / Math.max(1, rect.height), 0, 1);
+          const maxY = clamp((rect.height - bottomInset) / Math.max(1, rect.height), 0, 1);
+          const move = (ev) => {
+            const x = clamp(startItemX + (ev.clientX - startX) / Math.max(1, rect.width), minX, maxX);
+            const y = clamp(startItemY + (ev.clientY - startY) / Math.max(1, rect.height), minY, maxY);
+            patchItem(item.id, { x, y });
+          };
+          const up = () => {
+            window.removeEventListener('pointermove', move);
+            window.removeEventListener('pointerup', up);
+            window.removeEventListener('pointercancel', up);
+            dragging = false;
+            render();
+            const current = window.FumocaPoster.getState().composition.assets.images.find(x => x.id === item.id);
+            emitSelection(current);
+          };
+          // Capture the pointer so movement remains reliable over the WebGL
+          // canvas, poster frame edges, and sibling editorial layers.
+          try { event.currentTarget?.setPointerCapture?.(event.pointerId); } catch (_) {}
+          window.addEventListener('pointermove', move);
+          window.addEventListener('pointerup', up, { once: true });
+          window.addEventListener('pointercancel', up, { once: true });
+        };
         layer.addEventListener('click', (event) => {
           event.stopPropagation();
           selectedId = item.id;
@@ -109,6 +150,23 @@ export function initPosterAssets({ editable = false } = {}) {
           emitSelection(item);
           render();
         });
+        if (selectedId === item.id && !item.locked) {
+          const moveHandle = document.createElement('button');
+          moveHandle.type = 'button';
+          moveHandle.dataset.posterAssetMove = item.id;
+          moveHandle.setAttribute('aria-label', 'Move ' + (item.name || 'image'));
+          moveHandle.title = 'Drag to move image';
+          moveHandle.textContent = '✥';
+          Object.assign(moveHandle.style, {
+            position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%,-50%)',
+            width: '30px', height: '30px', border: '2px solid #111', borderRadius: '50%',
+            background: '#c8ff00', color: '#111', font: '700 17px/1 system-ui,sans-serif',
+            padding: '0', cursor: 'move', pointerEvents: 'auto', touchAction: 'none',
+            zIndex: '20', boxShadow: '0 1px 8px rgba(0,0,0,.65)',
+          });
+          moveHandle.addEventListener('pointerdown', startMove);
+          layer.appendChild(moveHandle);
+        }
         if (!item.locked) {
           const resize = document.createElement('button');
           resize.type = 'button';
@@ -199,42 +257,8 @@ export function initPosterAssets({ editable = false } = {}) {
           }
         }
         layer.addEventListener('pointerdown', (event) => {
-          if (event.target === resizeTarget(event) || item.locked) return;
-          if (event.button !== 0) return;
-          event.preventDefault(); event.stopPropagation();
-          selectedId = item.id; dragging = true;
-          // Image x/y are normalized to the poster root, not the larger editor host.
-          // Measuring against the host causes drift whenever the poster is letterboxed.
-          const rect = root.getBoundingClientRect();
-          const layerRect = layer.getBoundingClientRect();
-          const startX = event.clientX, startY = event.clientY;
-          const startItemX = item.x, startItemY = item.y;
-          // Preserve the complete visible layer inside the artboard. Use its
-          // rendered (already rotation-aware) bounds so wide and rotated logos
-          // cannot be dragged halfway beyond the poster edge.
-          const leftInset = layerRect.left - rect.left - startItemX * rect.width;
-          const rightInset = layerRect.right - rect.left - startItemX * rect.width;
-          const topInset = layerRect.top - rect.top - startItemY * rect.height;
-          const bottomInset = layerRect.bottom - rect.top - startItemY * rect.height;
-          const minX = clamp(-leftInset / Math.max(1, rect.width), 0, 1);
-          const maxX = clamp((rect.width - rightInset) / Math.max(1, rect.width), 0, 1);
-          const minY = clamp(-topInset / Math.max(1, rect.height), 0, 1);
-          const maxY = clamp((rect.height - bottomInset) / Math.max(1, rect.height), 0, 1);
-          const move = (ev) => {
-            const x = clamp(startItemX + (ev.clientX - startX) / Math.max(1, rect.width), minX, maxX);
-            const y = clamp(startItemY + (ev.clientY - startY) / Math.max(1, rect.height), minY, maxY);
-            patchItem(item.id, { x, y });
-          };
-          const up = () => {
-            window.removeEventListener('pointermove', move);
-            window.removeEventListener('pointerup', up);
-            window.removeEventListener('pointercancel', up);
-            dragging = false; render();
-            const current = window.FumocaPoster.getState().composition.assets.images.find(x => x.id === item.id);
-            emitSelection(current);
-          };
-          window.addEventListener('pointermove', move);
-          window.addEventListener('pointerup', up, { once: true });
+          if (resizeTarget(event)) return;
+          startMove(event);
         });
       }
       root.appendChild(layer);
