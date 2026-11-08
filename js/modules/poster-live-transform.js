@@ -14,6 +14,20 @@ export function advancePosterMotionPhase(phase, speed, deltaSeconds) {
   return rate > 0 ? (current + rate * delta) % (Math.PI * 2) : 0;
 }
 
+/**
+ * Apply the current yaw phase relative to the poster's freshly-applied base
+ * orientation. The base transform is reset each render frame, so this must
+ * multiply the base quaternion rather than cumulatively rotating the group.
+ */
+export function applyPosterMotionRotation(THREE, group, phase) {
+  if (!THREE?.Vector3 || !THREE?.Quaternion || !group?.quaternion?.multiply) return false;
+  const angle = Number.isFinite(Number(phase)) ? Number(phase) : 0;
+  const axis = new THREE.Vector3(0, 1, 0).normalize();
+  const yaw = new THREE.Quaternion().setFromAxisAngle(axis, angle);
+  group.quaternion.multiply(yaw);
+  return true;
+}
+
 export function computePosterWorldTransform({
   center = { x: 0, y: 0, z: 0 },
   cameraPosition = { x: 0, y: 0, z: 10 },
