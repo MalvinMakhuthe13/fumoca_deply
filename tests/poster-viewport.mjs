@@ -141,6 +141,13 @@ assert.match(posterAssets, /const maxY = clamp\(1 - halfHeight/,
   'Image-layer dragging must preserve the complete bottom edge inside the poster');
 
 
+assert.match(viewportModule, /const Quaternion = activeCamera\?\.quaternion\?\.constructor/,
+  'Studio trackball must derive Quaternion from the active camera instead of requiring a window.THREE global');
+assert.doesNotMatch(viewportModule, /window\.THREE\?\.Quaternion|new window\.THREE\.Quaternion/,
+  'Studio trackball must work when the renderer imports Three.js as a module without exposing window.THREE');
+assert.match(viewportModule, /data-poster-asset-id/,
+  'Dragging a supporting image must not also start a 3D camera orbit');
+
 assert.match(viewportModule, /previous: point\.clone\(\)/,
   'Arcball drag state must retain the previous camera-local sphere point');
 assert.match(viewportModule, /trackballGesture\.previous\)/,
