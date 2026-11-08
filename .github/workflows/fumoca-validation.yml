@@ -9,7 +9,7 @@ on:
 
 jobs:
   static-and-glb-preflight:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -27,6 +27,16 @@ jobs:
         run: node --check js/modules/image-to-splat-studio.js
       - name: Check viewer ES module syntax
         run: node --input-type=module --check < js/modules/viewer.js
+      - name: Check presentation module syntax
+        run: |
+          node --input-type=module --check < js/modules/adaptive-presentation.js
+          node --input-type=module --check < js/modules/poster-composer.js
+          node --input-type=module --check < js/modules/poster-editor-overlay.js
+          node --input-type=module --check < js/modules/present-magazine-text.js
+          node --input-type=module --check < js/modules/present-viewer.js
+          node --input-type=module --check < js/modules/poster-assets.js
+          node --input-type=module --check < js/modules/present-tab.js
+          node --input-type=module --check < js/modules/present-viewer.js
       - name: Check persistence-sensitive editor modules
         run: |
           node --input-type=module --check < js/modules/edit-engine.js
@@ -62,7 +72,7 @@ jobs:
           grep -q "storage did not return a file key and URL" js/modules/upload-page.js
           ! grep -n "nif_file_id" js/modules/feed.js
           grep -q "post.meta?.source_r2_key" js/modules/feed.js
-          grep -q "item.meta?.source_capture?.r2_key" js/modules/profile.js
+          grep -q "meta.source_capture?.r2_key" js/modules/profile.js
           grep -q "from('reconstruction_jobs')" js/modules/feed.js
           grep -q "row.job_id || row.id" js/modules/feed.js
           grep -q "row.status = 'needs_retry'" js/modules/feed.js
@@ -74,9 +84,9 @@ jobs:
           grep -q "r2_key: filePath" js/modules/upload-page.js
           grep -q "capture_thumbnail_r2_key: uploadedThumbnail.fileKey" js/modules/upload-page.js
           grep -q "post.meta?.capture_thumbnail_r2_key" js/modules/feed.js
-          grep -q "item.meta?.capture_thumbnail_r2_key" js/modules/profile.js
-          grep -q "currentRecord.meta?.capture_thumbnail_r2_key" js/modules/viewer.js
-          grep -q "currentRecord.meta?.source_capture?.r2_key" js/modules/viewer.js
+          grep -q "meta.capture_thumbnail_r2_key" js/modules/profile.js
+          grep -q "meta.capture_thumbnail_r2_key" js/modules/viewer.js
+          grep -q "meta.source_capture?.r2_key" js/modules/viewer.js
           grep -q "if (!currentRecord.r2_key || !currentRecord.user_id)" js/modules/viewer.js
           grep -q "not a saved NIF artifact" js/modules/viewer.js
           ! grep -n "eq('nif_id'" js/modules/viewer.js
@@ -110,8 +120,9 @@ jobs:
           grep -q "S.layers.push({" edit.html
           grep -q "mask: newMask" edit.html
           grep -q "const selectedCount = selectedPointCount();" edit.html
-          grep -q "Never expose a scene-wide transform gizmo" edit.html
-          grep -q "Never translate the camera target or whole scene as a fallback" edit.html
+          grep -q "const canTransform = S.transformScope === 'scene' ? count > 0 : selectedCount > 0" edit.html
+          grep -q "const useSelection = S.transformScope === 'selection'" edit.html
+          grep -q "if (useSelection && !selectedPointCount()) return indices" edit.html
       - name: Guard independent subject transform attachment
         run: |
           grep -q "Selecting a layer must select only its live, visible points" edit.html || grep -q "Selecting a layer must select only its live, visible points and attach" edit.html
@@ -123,10 +134,64 @@ jobs:
           grep -q "Selected subject:" edit.html
           grep -q "if (dx <= 7 && dy <= 7)" edit.html
           grep -q "function selectSubjectAtScreen" edit.html
+      - name: Guard R2 delete ownership boundaries
+        run: |
+          grep -q "principal.kind !== 'server-to-server'" cloudflare/workers/r2-storage.js
+          grep -q "const ownedPrefix = \`\${principal.id}/\`;" cloudflare/workers/r2-storage.js
+          grep -q "const posterPrefix = \`poster-assets/\${principal.id}/\`;" cloudflare/workers/r2-storage.js
+          grep -q "userOwnsNifStorageKey(principal, fileKey, env)" cloudflare/workers/r2-storage.js
+          grep -q "Forbidden — you can only delete files owned by your account" cloudflare/workers/r2-storage.js
+          grep -q "const assetPath = \`\${user.id}/\${splatId || 'new'}\`;" js/modules/publish-to-fumoca.js
       - name: Test PLY conversion fidelity disclosure
         run: |
           node --input-type=module --check < js/modules/ply-conversion-metadata.js
           node --experimental-default-type=module tests/ply-conversion-metadata.mjs
+      - name: Test Poster Composer model and responsive layout
+        run: node --experimental-default-type=module tests/poster-composer.mjs
+      - name: Test Studio poster editor overlay geometry
+        run: node --experimental-default-type=module tests/poster-editor-overlay.mjs
+      - name: Test responsive editorial typography and poster clipping contract
+        run: node --experimental-default-type=module tests/editorial-text-layout.mjs
+      - name: Test editorial preset coverage and saved text controls
+        run: node --experimental-default-type=module tests/editorial-presets.mjs
+      - name: Test responsive editorial image layer contract
+        run: node --experimental-default-type=module tests/editorial-layers.mjs
+      - name: Test poster background and supporting image contract
+        run: node --experimental-default-type=module tests/poster-assets.mjs
+      - name: Test mocked poster cloud persistence and rollback
+        run: node --experimental-default-type=module tests/poster-cloud-persistence.mjs
+      - name: Test Adaptive Presentation Engine framing and responsive sizing
+        run: node --experimental-default-type=module tests/adaptive-presentation.mjs
+      - name: Test live poster camera-plane transforms
+        run: node --experimental-default-type=module tests/poster-live-transform.mjs
+      - name: Test poster viewer integration across rendering paths
+        run: node --experimental-default-type=module tests/poster-viewer-integration.mjs
+      - name: Test responsive poster viewport geometry
+        run: node --experimental-default-type=module tests/poster-viewport.mjs
+      - name: Test Studio viewport toolbar wiring
+        run: node tests/viewport-tools.mjs
+      - name: Test live transformed splat encoding and persistence
+        run: node tests/live-edit-encoding.mjs
+      - name: Test stable poster zoom and scene framing
+        run: node tests/poster-viewport.mjs
+      - name: Install browser test runner
+        run: npm install --no-save playwright@1.58.2
+      - name: Install Chromium for browser tests
+        run: npx playwright install --with-deps chromium
+      - name: Test free 3D poster trackball interactions in Chromium
+        run: node tests/browser/poster-trackball.browser.mjs
+      - name: Test poster asset interactions in Chromium
+        run: node tests/browser/poster-assets.browser.mjs
+      - name: Test freely positioned poster text in Chromium
+        run: node tests/browser/poster-text.browser.mjs
+      - name: Test public viewer restores saved poster compositions in Chromium
+        run: node tests/browser/poster-viewer-restore.browser.mjs
+      - name: Test poster motion levels and stable yaw in Chromium
+        run: node tests/browser/poster-motion.browser.mjs
+      - name: Test poster scene object management in Chromium
+        run: node tests/browser/poster-scene-manager.browser.mjs
+      - name: Test poster visual layer stacking in Chromium
+        run: node tests/browser/poster-layer-stack.browser.mjs
       - name: Test CPU-only splat to NIF conversion
         run: node --experimental-default-type=module tests/splat-to-nif-smoke.mjs
       - name: Compile Kaggle preflight script

@@ -9,6 +9,15 @@ import { triggerRevealForViewer } from './reveal-hook.js';
 import FumocDecoder from './fumoc-decoder.js';
 import { decodeNif, geometryToSplatRows } from './nif-format.js?v=20261024-realscale';
 import { chooseRenderMode, solidPointScale } from './industry-math.js';
+import './adaptive-presentation.js';
+import './poster-composer.js';
+import './poster-viewport.js?v=20261106-backgroundlayers01';
+import './poster-assets.js?v=20261106-layercontrols02';
+import { advancePosterMotionPhase, applyPosterLiveTransform, applyPosterMotionRotation, posterMotionSpeed } from './poster-live-transform.js';
+let _fumocaPosterStateCache = null;
+window.addEventListener('fumoca:posterChange', (event) => {
+  _fumocaPosterStateCache = event.detail || window.FumocaPoster?.getState?.() || null;
+});
 window._fumocaSupabase = window._fumocaSupabase || supabase;
 const stageEl = document.getElementById('stage');
 let stageHost = document.getElementById('stageHost');
@@ -312,26 +321,28 @@ async function deleteCurrentUpload() {
   const original = btn?.textContent || 'Delete upload';
   if (btn) { btn.disabled = true; btn.textContent = 'Deletingâ€¦'; }
   try {
-    // nif_files stores canonical R2 keys; CDN URLs cannot be parsed as
-    // Supabase Storage URLs. Delete the owned record first, then clean its
-    // known NIF/source/thumbnail objects from the correct R2 bucket.
+    // Keep the owned row available for Worker-side legacy-key verification
+    // until storage cleanup succeeds. A failure leaves the record retryable.
+    const meta = currentRecord.meta || {};
+    const groups = {
+      'nif-files': [currentRecord.r2_key, meta.source_r2_key, meta.source_capture?.r2_key],
+      'thumbnails': [
+        meta.thumbnail_r2_key, meta.capture_thumbnail_r2_key,
+        meta.present?.poster?.composition?.background?.r2Key,
+        ...(meta.present?.poster?.composition?.assets?.images || []).map(image => image?.r2Key),
+      ],
+    };
+    for (const [bucket, values] of Object.entries(groups)) {
+      const keys = [...new Set(values.filter(key => typeof key === 'string' && key.trim()))];
+      if (!keys.length) continue;
+      const cleanup = await Promise.allSettled(keys.map(key => r2.from(bucket).remove([key])));
+      if (cleanup.some(result => result.status === 'rejected' || result.value?.error)) {
+        throw new Error('Some linked storage files could not be deleted. Your NIF record was kept; please retry.');
+      }
+    }
     const { error } = await supabase.from('nif_files')
       .delete().eq('id', currentRecord.id).eq('user_id', currentRecord.user_id);
     if (error) throw error;
-
-    const keys = [
-      currentRecord.r2_key,
-      currentRecord.meta?.source_r2_key,
-      currentRecord.meta?.source_capture?.r2_key,
-      currentRecord.meta?.thumbnail_r2_key,
-      currentRecord.meta?.capture_thumbnail_r2_key,
-    ].filter((key, index, all) => typeof key === 'string' && key.trim() && all.indexOf(key) === index);
-    const cleanup = await Promise.allSettled(
-      keys.map(key => r2.from('nif-files').remove([key]))
-    );
-    if (cleanup.some(result => result.status === 'rejected' || result.value?.error)) {
-      console.warn('[FUMOCA viewer] NIF row deleted; some R2 objects may need cleanup', currentRecord.id);
-    }
     window.location.href = 'feed.html';
   } catch (err) {
     console.error('[FUMOCA delete upload]', err);
@@ -1484,6 +1495,20 @@ function destroyPlyViewer() {
   if (_plyFrame) { cancelAnimationFrame(_plyFrame); _plyFrame = null; }
   if (_plyRenderer) { _plyRenderer.dispose(); _plyRenderer.domElement.remove(); _plyRenderer = null; }
   _plyAttributeControl?.remove(); _plyAttributeControl = null;
+  _publishedSparkGroup = null;
+  _legacyPosterGroup = null;
+  if (_posterSubjectChangeHandler) {
+    window.removeEventListener('fumoca:posterChange', _posterSubjectChangeHandler);
+    _posterSubjectChangeHandler = null;
+  }
+  if (_posterClearColorHandler) {
+    window.removeEventListener('fumoca:posterChange', _posterClearColorHandler);
+    _posterClearColorHandler = null;
+  }
+  _publishedSparkMesh = null;
+  _publishedSparkRenderer = null;
+  if (window._fumocaPublishedSpark) window._fumocaPublishedSpark = null;
+  if (window.FumocaPosterPicking) window.FumocaPosterPicking = null;
   _plyScene = _plyCamera = _plyControls = null;
 }
 async function mountPlyViewer(url) {
@@ -1685,13 +1710,19 @@ async function mountPlyViewer(url) {
       vertexColors: false,
     });
     const pts = new THREE.Points(geo, mat);
-    _plyScene.add(pts);
     // Auto-fit camera â€” match nerfstudio convention used by Gaussiannif_files3D:
     // cameraUp=[0,-1,-0.6], initialCameraPosition=[0,1,4], lookAt=[0,0,0]
     // Offset everything by the bounding center so the subject is centered.
     geo.computeBoundingSphere();
     const r = geo.boundingSphere.radius || 1;
     const c = geo.boundingSphere.center;
+    // Give the legacy PLY path the same presentation-only pivot as published Spark.
+    // Geometry stays unchanged; only the Points object's parent is transformed.
+    _legacyPosterGroup = new THREE.Group();
+    _legacyPosterGroup.position.copy(c);
+    pts.position.sub(c);
+    _legacyPosterGroup.add(pts);
+    _plyScene.add(_legacyPosterGroup);
     // Normalise per-point sizes to 0â€“1 range using the median as anchor,
     // then set uBaseSize so nif_files cover ~0.8% of the scene radius at 1Ã— distance.
     const sArr = geo.getAttribute('aSize').array;
@@ -1724,6 +1755,13 @@ async function mountPlyViewer(url) {
     function loop() {
       _plyFrame = requestAnimationFrame(loop);
       _plyControls.update();
+      const posterState = window.FumocaPoster?.getState?.();
+      if (posterState?.composition && _legacyPosterGroup) {
+        applyPosterLiveTransform({
+          THREE, group: _legacyPosterGroup, camera: _plyCamera, center: c,
+          composition: posterState.composition, enabled: !!posterState.enabled,
+        });
+      }
       _plyRenderer.render(_plyScene, _plyCamera);
     }
     loop();
@@ -1767,9 +1805,15 @@ function mountDecodedCloud(g) {
   _plyScene = new THREE.Scene();
   _plyCamera = new THREE.PerspectiveCamera(50, 1, Math.max(0.01, radius / 200), radius * 80);
   _plyCamera.up.set(0, 1, 0);
-  _plyRenderer = new THREE.WebGLRenderer({ antialias: false, alpha: false, powerPreference: 'high-performance' });
+  _plyRenderer = new THREE.WebGLRenderer({ antialias: false, alpha: true, powerPreference: 'high-performance' });
   _plyRenderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-  _plyRenderer.setClearColor(0x07090d, 1);
+  const setDecodedClearColor = () => {
+    const posterEnabled = !!window.FumocaPoster?.getState?.().enabled;
+    _plyRenderer?.setClearColor(posterEnabled ? 0x000000 : 0x07090d, posterEnabled ? 0 : 1);
+  };
+  setDecodedClearColor();
+  _posterClearColorHandler = setDecodedClearColor;
+  window.addEventListener('fumoca:posterChange', _posterClearColorHandler);
   Object.assign(_plyRenderer.domElement.style, {
     position: 'absolute', inset: '0', width: '100%', height: '100%', zIndex: '2', display: 'block',
   });
@@ -1806,7 +1850,12 @@ function mountDecodedCloud(g) {
       }`,
     transparent: false, depthWrite: true, depthTest: true,
   });
-  _plyScene.add(new THREE.Points(geo, mat));
+  const decodedPoints = new THREE.Points(geo, mat);
+  _legacyPosterGroup = new THREE.Group();
+  _legacyPosterGroup.position.set(cx, cy, cz);
+  decodedPoints.position.set(-cx, -cy, -cz);
+  _legacyPosterGroup.add(decodedPoints);
+  _plyScene.add(_legacyPosterGroup);
   window._fumocaPointMaterial = mat;
   window.__fumocaViewerMaterial = mat;
   window._fumocaPointBase = mat.uniforms.uBaseSize.value;
@@ -1837,6 +1886,14 @@ function mountDecodedCloud(g) {
   const loop = () => {
     _plyFrame = requestAnimationFrame(loop);
     _plyControls.update();
+    const posterState = window.FumocaPoster?.getState?.() || _fumocaPosterStateCache;
+    if (posterState?.composition && _legacyPosterGroup) {
+      applyPosterLiveTransform({
+        THREE, group: _legacyPosterGroup, camera: _plyCamera,
+        center: { x: cx, y: cy, z: cz },
+        composition: posterState.composition, enabled: !!posterState.enabled,
+      });
+    }
     _plyRenderer.render(_plyScene, _plyCamera);
   };
   loop();
@@ -1850,7 +1907,10 @@ function mountDecodedCloud(g) {
 }
 // High-fidelity published path: render the edited companion Gaussian PLY with
 // Spark, matching the editor renderer instead of flattening NIF geometry to legacy .splat rows.
-let _publishedSparkRenderer = null, _publishedSparkMesh = null;
+let _publishedSparkRenderer = null, _publishedSparkMesh = null, _publishedSparkGroup = null;
+let _legacyPosterGroup = null;
+let _posterSubjectChangeHandler = null;
+let _posterClearColorHandler = null;
 async function mountPublishedSparkPly(url) {
   destroyPlyViewer();
   const container = stageHost || stageEl;
@@ -1858,6 +1918,7 @@ async function mountPublishedSparkPly(url) {
   const response = await fetch(url);
   if (!response.ok) throw new Error('Published Gaussian source returned HTTP ' + response.status);
   const bytes = new Uint8Array(await response.arrayBuffer());
+  _fumocaPosterStateCache = window.FumocaPoster?.getState?.() || null;
   const { SplatMesh, SparkRenderer } = await import('@sparkjsdev/spark');
   _plyScene = new THREE.Scene();
   _plyCamera = new THREE.PerspectiveCamera(55, Math.max(1, container.clientWidth) / Math.max(1, container.clientHeight), 0.001, 2000);
@@ -1875,7 +1936,6 @@ async function mountPublishedSparkPly(url) {
   _plyScene.add(_publishedSparkRenderer);
   _publishedSparkMesh = new SplatMesh({ fileBytes: bytes, fileName: 'published-edited.ply', enableLod: false });
   _publishedSparkMesh.name = 'fumoca-published-spark-splat';
-  _plyScene.add(_publishedSparkMesh);
   if (_publishedSparkMesh.initialized) await _publishedSparkMesh.initialized;
   // Use PLY positions only to calculate a stable framing; Spark handles the actual splat rendering.
   const parsed = new PLYLoader().parse(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
@@ -1884,6 +1944,116 @@ async function mountPublishedSparkPly(url) {
   const bounds = new THREE.Box3().setFromBufferAttribute(position);
   const center = bounds.getCenter(new THREE.Vector3());
   const radius = Math.max(bounds.getBoundingSphere(new THREE.Sphere()).radius, 0.01);
+  // Keep the source Gaussian data untouched; a parent group provides a reversible
+  // presentation-only pivot for poster position, scale and rotation.
+  _publishedSparkGroup = new THREE.Group();
+  _publishedSparkGroup.position.copy(center);
+  _publishedSparkMesh.position.sub(center);
+  _publishedSparkGroup.add(_publishedSparkMesh);
+  _plyScene.add(_publishedSparkGroup);
+
+  // Additional Gaussian PLY subjects share this Spark renderer but retain
+  // independent pivot groups and poster-space transforms.
+  const posterSubjectMeshes = new Map();
+  const subjectScene = _plyScene;
+  const syncPosterSubjects = async () => {
+    const subjects = window.FumocaPoster?.getState?.().composition?.subjects || [];
+    const wanted = new Set(subjects.filter(item => item.id !== 'subject_main' &&
+      (['ply','url'].includes(item.source?.type) && /^https?:\/\//i.test(item.source?.url || '') ||
+       item.source?.type === 'nif' && item.source?.assetId)).map(item => item.id));
+    for (const [id, entry] of posterSubjectMeshes) {
+      if (!wanted.has(id)) {
+        if (entry.group) entry.group.removeFromParent();
+        entry.mesh?.dispose?.();
+        posterSubjectMeshes.delete(id);
+      }
+    }
+    for (const subject of subjects) {
+      if (subject.id === 'subject_main' || !subject.visible || !(['ply','url'].includes(subject.source?.type) || subject.source?.type === 'nif')) continue;
+      if (posterSubjectMeshes.has(subject.id)) continue;
+      const entry = { status: 'loading', group: null, url: '' };
+      posterSubjectMeshes.set(subject.id, entry);
+      try {
+        let url = subject.source?.url || '';
+        let subjectBytes, subjectFileName = 'poster-subject-' + subject.id + '.ply';
+        let subjectPosition = null;
+        if (subject.source?.type === 'nif') {
+          const sb = window._fumocaSupabase || supabase;
+          const { data: asset, error: assetError } = await sb.from('nif_files')
+            .select('id,title,r2_key,meta').eq('id', subject.source.assetId).maybeSingle();
+          if (assetError) throw assetError;
+          if (!asset) throw new Error('Saved NIF asset was not found or is not accessible to this account.');
+          const companionKey = asset.meta?.view_ply_r2_key;
+          if (companionKey) {
+            url = r2.publicUrl('nif-files', companionKey) || '';
+            if (!/^https?:\/\//i.test(url)) throw new Error('The published Gaussian companion URL could not be resolved.');
+            entry.url = url;
+            const response = await fetch(url);
+            if (!response.ok) throw new Error('Published Gaussian companion returned HTTP ' + response.status);
+            subjectBytes = new Uint8Array(await response.arrayBuffer());
+            const parsedSubject = new PLYLoader().parse(subjectBytes.buffer.slice(subjectBytes.byteOffset, subjectBytes.byteOffset + subjectBytes.byteLength));
+            subjectPosition = parsedSubject.getAttribute('position');
+            if (!subjectPosition?.count) throw new Error('Published Gaussian PLY has no position attribute');
+          } else {
+            url = r2.publicUrl('nif-files', asset.r2_key) || '';
+            if (!/^https?:\/\//i.test(url)) throw new Error('The saved NIF source URL could not be resolved.');
+            entry.url = url;
+            const response = await fetch(url);
+            if (!response.ok) throw new Error('Saved NIF source returned HTTP ' + response.status);
+            const decoded = await decodeNif(await response.arrayBuffer());
+            subjectBytes = geometryToSplatRows(decoded.gaussians, { preserveScales: true });
+            subjectFileName = 'poster-subject-' + subject.id + '.splat';
+            const positions = new Float32Array(decoded.gaussians.count * 3);
+            for (let i = 0; i < decoded.gaussians.count; i++) {
+              const offset = i * 14;
+              positions[i * 3] = decoded.gaussians.data[offset];
+              positions[i * 3 + 1] = decoded.gaussians.data[offset + 1];
+              positions[i * 3 + 2] = decoded.gaussians.data[offset + 2];
+            }
+            subjectPosition = new THREE.BufferAttribute(positions, 3);
+          }
+        } else {
+          if (!/^https?:\/\//i.test(url)) throw new Error('The additional source did not resolve to a public HTTP(S) URL.');
+          entry.url = url;
+          const response = await fetch(url);
+          if (!response.ok) throw new Error('HTTP ' + response.status);
+          subjectBytes = new Uint8Array(await response.arrayBuffer());
+          const parsedSubject = new PLYLoader().parse(subjectBytes.buffer.slice(subjectBytes.byteOffset, subjectBytes.byteOffset + subjectBytes.byteLength));
+          subjectPosition = parsedSubject.getAttribute('position');
+          if (!subjectPosition?.count) throw new Error('PLY has no position attribute');
+        }
+        const subjectMesh = new SplatMesh({ fileBytes: subjectBytes, fileName: subjectFileName, enableLod: false });
+        if (subjectMesh.initialized) await subjectMesh.initialized;
+        const subjectBounds = new THREE.Box3().setFromBufferAttribute(subjectPosition);
+        const subjectCenter = subjectBounds.getCenter(new THREE.Vector3());
+        const group = new THREE.Group();
+        group.position.copy(subjectCenter);
+        subjectMesh.position.sub(subjectCenter);
+        group.add(subjectMesh);
+        group.name = 'fumoca-poster-subject-' + subject.id;
+        const latest = window.FumocaPoster?.getState?.().composition?.subjects?.find(item => item.id === subject.id);
+        if (!latest || _plyScene !== subjectScene || posterSubjectMeshes.get(subject.id) !== entry) {
+          subjectMesh.dispose?.();
+          continue;
+        }
+        entry.group = group;
+        entry.center = subjectCenter;
+        entry.radius = Math.max(subjectBounds.getBoundingSphere(new THREE.Sphere()).radius, 0.01);
+        entry.mesh = subjectMesh;
+        entry.status = 'ready';
+        _plyScene.add(group);
+        console.info('[FUMOCA Poster] Additional Gaussian subject loaded', subject.id, subjectPosition.count);
+      } catch (error) {
+        posterSubjectMeshes.delete(subject.id);
+        console.warn('[FUMOCA Poster] Could not load additional PLY subject', subject.id, error);
+        window.dispatchEvent(new CustomEvent('fumoca:posterSubjectError', { detail: { id: subject.id, message: error.message } }));
+      }
+    }
+  };
+  _posterSubjectChangeHandler = () => { syncPosterSubjects(); };
+  window.addEventListener('fumoca:posterChange', _posterSubjectChangeHandler);
+  syncPosterSubjects();
+
   _plyCamera.position.set(center.x, center.y + radius * 0.35, center.z + radius * 2.3);
   _plyCamera.lookAt(center);
   _plyControls = new TrackballControls(_plyCamera, _plyRenderer.domElement);
@@ -1898,6 +2068,7 @@ async function mountPublishedSparkPly(url) {
   _plyCamera.far = 1e9;
   _plyCamera.updateProjectionMatrix();
   _plyControls.target.copy(center); _plyControls.update();
+  window.FumocaPresentation?.fitSphere?.(center, radius, { padding: 1.18 });
   const resize = () => {
     if (!_plyRenderer || !_plyCamera) return;
     const w = container.clientWidth || window.innerWidth, h = container.clientHeight || window.innerHeight;
@@ -1905,13 +2076,102 @@ async function mountPublishedSparkPly(url) {
     _plyCamera.aspect = w / h; _plyCamera.updateProjectionMatrix(); _plyRenderer.setSize(w, h, false);
   };
   window.addEventListener('resize', resize);
-  const loop = () => {
+  // TrackballControls does not implement OrbitControls.autoRotate. Animate the
+  // presentation pivots directly so poster motion works on the high-fidelity
+  // Spark renderer without taking camera control away from the viewer.
+  const posterMotionPhases = new Map();
+  let lastPosterFrameAt = 0;
+  const loop = (frameTime = performance.now()) => {
     if (!_plyRenderer || !_publishedSparkRenderer) return;
     _plyFrame = requestAnimationFrame(loop);
     _plyControls?.update();
+    const posterState = window.FumocaPoster?.getState?.() || _fumocaPosterStateCache;
+    const frameDelta = lastPosterFrameAt ? Math.min(0.05, Math.max(0, (frameTime - lastPosterFrameAt) / 1000)) : 0;
+    lastPosterFrameAt = frameTime;
+    const defaultMotionLevel = posterState?.composition?.motion?.level || 'still';
+    const subjectMotion = (subject) => {
+      const level = subject?.motion?.level || defaultMotionLevel;
+      const speed = posterState?.enabled ? posterMotionSpeed(level) : 0;
+      const phase = advancePosterMotionPhase(posterMotionPhases.get(subject?.id) || 0, speed, frameDelta);
+      if (subject?.id) posterMotionPhases.set(subject.id, phase);
+      return { speed, phase };
+    };
+    if (posterState?.composition && _publishedSparkGroup) {
+      const mainSubject = (posterState.composition.subjects || []).find(item => item.id === 'subject_main');
+      const mainMotion = subjectMotion(mainSubject || { id: 'subject_main' });
+      _publishedSparkGroup.visible = mainSubject?.visible !== false;
+      applyPosterLiveTransform({
+        THREE, group: _publishedSparkGroup, camera: _plyCamera, center,
+        composition: { ...posterState.composition, object: { ...posterState.composition.object, z: mainSubject?.z ?? 1 } }, enabled: !!posterState.enabled,
+      });
+      if (mainMotion.speed > 0) applyPosterMotionRotation(THREE, _publishedSparkGroup, mainMotion.phase);
+      for (const subject of posterState.composition.subjects || []) {
+        if (subject.id === 'subject_main') continue;
+        const entry = posterSubjectMeshes.get(subject.id);
+        if (!entry?.group || entry.status !== 'ready') continue;
+        const motion = subjectMotion(subject);
+        entry.group.visible = subject.visible !== false;
+        const subjectComposition = { ...posterState.composition, object: subject };
+        applyPosterLiveTransform({
+          THREE, group: entry.group, camera: _plyCamera, center: entry.center,
+          composition: subjectComposition, enabled: !!posterState.enabled,
+        });
+        if (motion.speed > 0) applyPosterMotionRotation(THREE, entry.group, motion.phase);
+      }
+    }
     _plyRenderer.render(_plyScene, _plyCamera);
   };
   loop();
+  // Screen-space picking for independently transformed poster splat groups.
+  // Spark splats are not ordinary raycastable meshes, so project each real
+  // subject pivot and its world-space bounds into the active camera instead.
+  const getPosterSubjectTargets = () => {
+    if (!_plyCamera || !_plyRenderer || !_publishedSparkGroup) return [];
+    _plyCamera.updateMatrixWorld();
+    const canvasRect = _plyRenderer.domElement.getBoundingClientRect();
+    const state = window.FumocaPoster?.getState?.();
+    const subjects = state?.composition?.subjects || [];
+    const targets = [];
+    const addTarget = (id, label, group, radius, visible, locked) => {
+      if (!group || !visible) return;
+      group.updateWorldMatrix(true, false);
+      const worldCenter = new THREE.Vector3();
+      group.getWorldPosition(worldCenter);
+      const projected = worldCenter.clone().project(_plyCamera);
+      if (!Number.isFinite(projected.x) || !Number.isFinite(projected.y) || projected.z < -1 || projected.z > 1) return;
+      const distance = _plyCamera.position.distanceTo(worldCenter);
+      const worldRadius = Math.max(0.01, Number(radius) || 0.01) * Math.max(group.scale.x, group.scale.y, group.scale.z, 0.001);
+      const focalPixels = Math.abs(canvasRect.height / (2 * Math.tan(THREE.MathUtils.degToRad(_plyCamera.fov) / 2)));
+      // Large Gaussian subjects can occupy most of a poster. A small fixed
+      // 180px hit radius makes their visible outer area impossible to select.
+      const screenRadius = Math.max(28, Math.min(canvasRect.height * 0.48, focalPixels * worldRadius / Math.max(distance, 0.001)));
+      targets.push({
+        id, label, x: canvasRect.left + (projected.x * 0.5 + 0.5) * canvasRect.width,
+        y: canvasRect.top + (-projected.y * 0.5 + 0.5) * canvasRect.height,
+        radius: screenRadius, depth: projected.z, locked: !!locked,
+      });
+    };
+    const main = subjects.find(item => item.id === 'subject_main');
+    addTarget('subject_main', main?.label || 'Main subject', _publishedSparkGroup, radius, main?.visible !== false, main?.locked);
+    for (const subject of subjects) {
+      if (subject.id === 'subject_main') continue;
+      const entry = posterSubjectMeshes.get(subject.id);
+      if (entry?.status === 'ready') {
+        const boundsRadius = entry.radius || radius;
+        addTarget(subject.id, subject.label || '3D subject', entry.group, boundsRadius, subject.visible !== false && entry.group.visible, subject.locked);
+      }
+    }
+    return targets;
+  };
+  window.FumocaPosterPicking = Object.freeze({
+    getTargets: getPosterSubjectTargets,
+    pick(clientX, clientY) {
+      return getPosterSubjectTargets()
+        .map(target => ({ ...target, distance2: (target.x-clientX)**2 + (target.y-clientY)**2 }))
+        .filter(target => target.distance2 <= target.radius**2)
+        .sort((a,b) => a.distance2-b.distance2 || a.depth-b.depth)[0] || null;
+    },
+  });
   window._fumocaPublishedSpark = _publishedSparkRenderer;
   window._fumocaViewerCamera = _plyCamera;
   window._fumocaViewerControls = _plyControls;
@@ -2062,21 +2322,25 @@ if (cam) {
       cx /= n; cy /= n; cz /= n;
       const dx = maxX - minX, dy = maxY - minY, dz = maxZ - minZ;
       const radius = Math.max(0.15, 0.5 * Math.sqrt(dx * dx + dy * dy + dz * dz));
-      const idealDist = Math.max(radius * 2.6, 1.0);
+      const idealDist = Math.max(radius * 2.6, 1.0); // fallback for older viewer contexts
 
-      controls.target.set(cx, cy, cz);
-
-      const px = cam.position.x, py = cam.position.y, pz = cam.position.z;
-      let ox = px - cx, oy = py - cy, oz = pz - cz;
-      let olen = Math.sqrt(ox * ox + oy * oy + oz * oz);
-      if (!Number.isFinite(olen) || olen < 1e-4) {
-        ox = 0; oy = radius * 0.2; oz = idealDist; olen = idealDist;
+      const adaptiveFit = window.FumocaPresentation?.fitSphere?.(
+        { x: cx, y: cy, z: cz }, radius, { padding: 1.18 }
+      );
+      if (!adaptiveFit) {
+        controls.target.set(cx, cy, cz);
+        const px = cam.position.x, py = cam.position.y, pz = cam.position.z;
+        let ox = px - cx, oy = py - cy, oz = pz - cz;
+        let olen = Math.sqrt(ox * ox + oy * oy + oz * oz);
+        if (!Number.isFinite(olen) || olen < 1e-4) {
+          ox = 0; oy = radius * 0.2; oz = idealDist; olen = idealDist;
+        }
+        const scale = idealDist / olen;
+        cam.position.set(cx + ox * scale, cy + oy * scale, cz + oz * scale);
+        if (typeof cam.lookAt === 'function') cam.lookAt(cx, cy, cz);
+        if (typeof cam.updateMatrixWorld === 'function') cam.updateMatrixWorld(true);
+        if (typeof cam.updateProjectionMatrix === 'function') cam.updateProjectionMatrix();
       }
-      const scale = idealDist / olen;
-      cam.position.set(cx + ox * scale, cy + oy * scale, cz + oz * scale);
-      if (typeof cam.lookAt === 'function') cam.lookAt(cx, cy, cz);
-      if (typeof cam.updateMatrixWorld === 'function') cam.updateMatrixWorld(true);
-      if (typeof cam.updateProjectionMatrix === 'function') cam.updateProjectionMatrix();
 
       // Published Spark splats must remain zoomable beyond the default fit range.
       // Do not let this delayed auto-fit routine reintroduce distance clamps.
@@ -2418,7 +2682,14 @@ async function boot() {
     }
   }
   if (_isPlyUrl(fileUrl) && _blobType !== 'nif') {
-    await mountPlyViewer(fileUrl);
+    // Prefer Spark for Gaussian PLY so Studio and published scenes use the
+    // same high-fidelity renderer and can host independent poster subjects.
+    try {
+      await mountPublishedSparkPly(fileUrl);
+    } catch (sparkError) {
+      console.warn('[FUMOCA Viewer] Spark PLY path unavailable; using legacy PLY renderer:', sparkError);
+      await mountPlyViewer(fileUrl);
+    }
   } else {
     await mountInteractiveViewer();
     // Mesh overlay goes on top of the splat renderer once it's mounted, not

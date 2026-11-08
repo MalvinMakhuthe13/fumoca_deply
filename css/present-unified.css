@@ -138,3 +138,170 @@
 #fumocaPresentTabPanel .ptp-text-fields input:not([type=color]),#fumocaPresentTabPanel .ptp-text-fields select{width:100%;min-width:0;height:30px;padding:5px 7px;border-radius:6px;border:1px solid rgba(255,255,255,.14);background:#101218;color:#f4f4f4;font:500 11px Inter,system-ui,sans-serif}
 #fumocaPresentTabPanel .ptp-text-fields input[type=color]{width:100%;height:30px;padding:2px;border-radius:6px;border:1px solid rgba(255,255,255,.14);background:#101218}
 #fumocaPresentTabPanel .ptp-text-fields .ptp-danger{grid-column:1/-1;color:#ff9bad;border-color:rgba(255,80,110,.25)}
+
+
+/* ── Creative Studio workspace polish ───────────────────────── */
+#fumocaPresentTabPanel{gap:14px;padding:8px 8px 24px}
+#fumocaPresentTabPanel .ptp-workspace-intro{padding:17px 15px 14px;border:1px solid rgba(200,255,0,.18);border-radius:15px;background:radial-gradient(120% 140% at 0% 0%,rgba(200,255,0,.12),transparent 58%),linear-gradient(145deg,rgba(23,28,35,.98),rgba(10,12,17,.98));box-shadow:0 12px 32px rgba(0,0,0,.2)}
+#fumocaPresentTabPanel .ptp-workspace-eyebrow{font:700 9px/1.2 'IBM Plex Mono',monospace;letter-spacing:.16em;color:#c8ff00}
+#fumocaPresentTabPanel .ptp-workspace-heading{margin-top:8px;color:#f7f8f2;font:700 21px/1.05 Inter,system-ui,sans-serif;letter-spacing:-.04em}
+#fumocaPresentTabPanel .ptp-workspace-intro p{margin-top:7px;max-width:36ch;color:rgba(238,242,246,.58);font-size:11px;line-height:1.55}
+#fumocaPresentTabPanel .ptp-workspace-steps{display:flex;gap:5px;flex-wrap:wrap;margin-top:13px}
+#fumocaPresentTabPanel .ptp-workspace-steps span{padding:5px 7px;border:1px solid rgba(255,255,255,.09);border-radius:6px;background:rgba(255,255,255,.035);color:rgba(255,255,255,.58);font:600 8px/1 'IBM Plex Mono',monospace;letter-spacing:.04em}
+#fumocaPresentTabPanel .ptp-section{padding:14px;margin:0;border-color:rgba(255,255,255,.09);border-radius:13px;background:linear-gradient(160deg,rgba(255,255,255,.045),rgba(255,255,255,.018));box-shadow:0 8px 22px rgba(0,0,0,.12)}
+#fumocaPresentTabPanel .ptp-title{font-size:10px;letter-spacing:.13em;color:#d7ff36}
+#fumocaPresentTabPanel .ptp-hint,#fumocaPresentTabPanel .ptp-poster-hint{color:rgba(226,232,240,.52);font-size:10px;line-height:1.55}
+#fumocaPresentTabPanel .ptp-poster-subtitle{margin:18px 0 9px;padding-top:12px;border-top:1px solid rgba(255,255,255,.07);color:#d7ff36;font-size:9px;letter-spacing:.14em}
+#ptpPosterComposer .ptp-poster-field{gap:6px;margin:11px 0;color:rgba(232,237,244,.72);font-size:10px;font-weight:600}
+#ptpPosterComposer .ptp-poster-field input:not([type=range]),#ptpPosterComposer .ptp-poster-field select{min-height:36px;padding:8px 10px;border-color:rgba(255,255,255,.13);border-radius:9px;background:#11151c;color:#f4f6f8}
+#ptpPosterComposer .ptp-poster-field input:focus,#ptpPosterComposer .ptp-poster-field select:focus{outline:2px solid rgba(200,255,0,.22);border-color:rgba(200,255,0,.5)}
+#ptpPosterComposer .ptp-poster-grid{gap:7px 12px}
+#ptpPosterComposer .ptp-upload-card{grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:6px 10px;margin:12px 0;padding:13px;border-color:rgba(200,255,0,.18);border-radius:12px;background:linear-gradient(135deg,rgba(200,255,0,.065),rgba(255,255,255,.018))}
+#ptpPosterComposer .ptp-upload-card>div{min-width:0}
+#ptpPosterComposer .ptp-upload-card .ptp-upload-button{grid-column:2;grid-row:1/3;min-width:104px;padding:10px 12px;white-space:nowrap}
+#ptpPosterComposer .ptp-upload-card span{grid-column:1/-1;padding-top:4px;overflow-wrap:anywhere}
+#ptpPosterComposer .ptp-poster-actions button{min-height:34px;padding:9px 12px;border-radius:9px;font-size:10px}
+#ptpPosterComposer .ptp-poster-status{border-color:rgba(255,255,255,.09);background:rgba(255,255,255,.025);color:rgba(226,232,240,.58)}
+#ptpPosterComposer [data-fumoca-scene-manager]{margin:14px 0 4px;padding:13px;border:1px solid rgba(0,229,255,.16);border-radius:12px;background:linear-gradient(145deg,rgba(0,229,255,.045),rgba(255,255,255,.015))}
+#ptpPosterComposer [data-fumoca-scene-manager] .ptp-poster-subtitle{margin-top:0;padding-top:0;border-top:0;color:#65eaff}
+#ptpPosterComposer .ptp-scene-row{display:flex;align-items:center;gap:5px;margin:7px 0}
+#ptpPosterComposer .ptp-scene-row button{min-height:31px;padding:6px 8px;border:1px solid rgba(255,255,255,.11);border-radius:8px;background:rgba(255,255,255,.055);color:#e9edf2;font-size:9px}
+#ptpPosterComposer .ptp-scene-row .ptp-scene-select{flex:1;min-width:0;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#ptpPosterComposer .ptp-scene-row .ptp-scene-select.is-selected{border-color:rgba(200,255,0,.55);background:rgba(200,255,0,.1);color:#dfff69}
+#ptpPosterComposer .ptp-scene-row .ptp-scene-action:hover{border-color:rgba(0,229,255,.35);color:#7cecff}
+#ptpPosterComposer .ptp-scene-row .ptp-scene-remove{color:#ff9aaa}
+#ptpPosterComposer .ptp-scene-row button:disabled{opacity:.3;cursor:not-allowed}
+@media(max-width:520px){#fumocaPresentTabPanel{padding:6px}#ptpPosterComposer .ptp-upload-card{grid-template-columns:1fr}#ptpPosterComposer .ptp-upload-card .ptp-upload-button{grid-column:1;grid-row:auto;justify-self:start}#ptpPosterComposer .ptp-poster-grid{grid-template-columns:1fr}}
+
+
+/* ── FUMOCA Present workspace: legibility and panel rhythm ── */
+:root{--panel-l:clamp(320px,22vw,360px)}
+#fumocaPresentTabPanel{
+  gap:16px;
+  padding:12px 12px 30px;
+  color:#f2f4f7;
+  font-size:13px;
+}
+#fumocaPresentTabPanel .ptp-workspace-intro{
+  padding:20px 18px 17px;
+  border-radius:16px;
+  background:
+    radial-gradient(110% 130% at 0% 0%,rgba(200,255,0,.15),transparent 60%),
+    linear-gradient(145deg,#171d25 0%,#0b0e13 72%);
+}
+#fumocaPresentTabPanel .ptp-workspace-heading{font-size:24px;line-height:1.08}
+#fumocaPresentTabPanel .ptp-workspace-intro p{font-size:12px;line-height:1.6;max-width:42ch}
+#fumocaPresentTabPanel .ptp-workspace-steps span{font-size:9px;padding:6px 8px}
+#fumocaPresentTabPanel .ptp-section{
+  padding:16px;
+  border-radius:14px;
+  background:linear-gradient(155deg,rgba(26,32,41,.96),rgba(13,16,22,.98));
+  border-color:rgba(255,255,255,.1);
+}
+#fumocaPresentTabPanel .ptp-title{
+  margin-bottom:12px;
+  font-size:11px;
+  letter-spacing:.12em;
+  color:#dfff63;
+}
+#fumocaPresentTabPanel .ptp-hint,
+#fumocaPresentTabPanel .ptp-poster-hint{
+  color:rgba(230,236,244,.68);
+  font-size:11px;
+  line-height:1.6;
+}
+#ptpPosterComposer .ptp-poster-subtitle{
+  margin:20px 0 10px;
+  padding-top:15px;
+  font-size:10px;
+  color:#bde83a;
+}
+#ptpPosterComposer .ptp-poster-field{
+  margin:13px 0;
+  gap:7px;
+  color:rgba(239,243,248,.82);
+  font-size:12px;
+}
+#ptpPosterComposer .ptp-poster-field input:not([type=range]),
+#ptpPosterComposer .ptp-poster-field select{
+  min-height:40px;
+  padding:9px 11px;
+  border-radius:10px;
+  font-size:12px;
+}
+#ptpPosterComposer .ptp-poster-toggle{
+  min-height:38px;
+  font-size:12px;
+}
+#ptpPosterComposer .ptp-upload-card{
+  gap:9px 12px;
+  padding:15px;
+  border-radius:13px;
+}
+#ptpPosterComposer .ptp-upload-card strong{font-size:12px}
+#ptpPosterComposer .ptp-upload-card small,
+#ptpPosterComposer .ptp-upload-card span{font-size:11px;line-height:1.5}
+#ptpPosterComposer .ptp-upload-card .ptp-upload-button{
+  min-height:40px;
+  padding:10px 14px;
+  border-radius:10px;
+  font-size:11px;
+}
+#ptpPosterComposer .ptp-poster-grid{gap:10px 14px}
+#ptpPosterComposer .ptp-poster-field output{font-size:11px}
+#ptpPosterComposer .ptp-poster-actions{gap:9px}
+#ptpPosterComposer .ptp-poster-actions button,
+#fumocaPresentTabPanel button{
+  min-height:38px;
+  padding:10px 13px;
+  border-radius:10px;
+  font-size:11px;
+}
+#ptpPosterComposer .ptp-poster-status{
+  padding:11px 12px;
+  border-radius:10px;
+  font-size:11px;
+  line-height:1.55;
+}
+#ptpPosterComposer [data-fumoca-scene-manager]{
+  padding:15px;
+  border-radius:14px;
+}
+#ptpPosterComposer .ptp-scene-row{gap:7px;margin:9px 0}
+#ptpPosterComposer .ptp-scene-row button{min-height:36px;padding:8px 10px;font-size:10px}
+#fumocaPresentTabPanel .ptp-text-item{
+  padding:13px;
+  margin-top:10px;
+  border-radius:12px;
+  background:rgba(3,6,10,.38);
+}
+#fumocaPresentTabPanel .ptp-text-heading{font-size:12px;margin-bottom:10px}
+#fumocaPresentTabPanel .ptp-text-fields{gap:10px}
+#fumocaPresentTabPanel .ptp-text-fields label{font-size:11px}
+#fumocaPresentTabPanel .ptp-text-fields input:not([type=color]),
+#fumocaPresentTabPanel .ptp-text-fields select{height:36px;font-size:11px}
+@media(max-width:900px){
+  :root{--panel-l:320px}
+  #fumocaPresentTabPanel{padding:10px 10px 24px}
+}
+@media(max-width:520px){
+  #fumocaPresentTabPanel .ptp-workspace-heading{font-size:21px}
+  #fumocaPresentTabPanel .ptp-section{padding:13px}
+  #ptpPosterComposer .ptp-poster-grid{grid-template-columns:1fr}
+}
+
+/* Poster text layer selection and stacking controls */
+.ptp-text-item.is-selected{border-color:rgba(200,255,0,.58);box-shadow:0 0 0 1px rgba(200,255,0,.12)}
+.ptp-text-layer-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px;margin:8px 0}
+.ptp-text-layer-actions button{min-width:0;padding:7px 6px;border:1px solid rgba(255,255,255,.14);border-radius:7px;background:rgba(255,255,255,.045);color:inherit;font:600 10px/1.2 var(--font-body);cursor:pointer}
+.ptp-text-layer-actions button:hover:not(:disabled){border-color:rgba(200,255,0,.5);color:#d9ff62}
+.ptp-text-layer-actions button:disabled{opacity:.35;cursor:not-allowed}
+
+/* Direct-manipulation handles for selected poster text */
+.mt-layer .mt-item.mt-selected{pointer-events:auto!important;outline:1px solid rgba(200,255,0,.9);outline-offset:5px;cursor:move;touch-action:none}
+.mt-layer .mt-item.mt-selected .mt-resize-handle{position:absolute;z-index:5;width:10px;height:10px;border:1px solid #111;background:#c8ff00;border-radius:2px;box-shadow:0 0 0 1px rgba(200,255,0,.35);pointer-events:auto;touch-action:none}
+.mt-layer .mt-item.mt-selected .mt-resize-nw{left:-6px;top:-6px;cursor:nwse-resize}
+.mt-layer .mt-item.mt-selected .mt-resize-ne{right:-6px;top:-6px;cursor:nesw-resize}
+.mt-layer .mt-item.mt-selected .mt-resize-sw{left:-6px;bottom:-6px;cursor:nesw-resize}
+.mt-layer .mt-item.mt-selected .mt-resize-se{right:-6px;bottom:-6px;cursor:nwse-resize}
+.mt-layer .mt-item.mt-selected .mt-resize-handle:focus-visible{outline:2px solid #fff;outline-offset:2px}

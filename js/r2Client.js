@@ -451,12 +451,17 @@ function bucketRef(bucketName) {
       try {
         const token = await getAccessToken();
         const list = Array.isArray(paths) ? paths : [paths];
-        await Promise.all(list.map((p) =>
+        const responses = await Promise.all(list.map((p) =>
           fetch(`${WORKER_URL}/file/${encodeURIComponent(p)}?bucket=${encodeURIComponent(bucketName)}`, {
             method: 'DELETE',
             headers: { Authorization: `Bearer ${token}` },
           })
         ));
+        const failed = responses.find((response) => !response.ok);
+        if (failed) {
+          const detail = await failed.text().catch(() => '');
+          throw new Error(`R2 delete failed (${failed.status}): ${detail || failed.statusText || 'storage rejected the request'}`);
+        }
         return { error: null };
       } catch (err) {
         return { error: err instanceof Error ? err : new Error(String(err)) };

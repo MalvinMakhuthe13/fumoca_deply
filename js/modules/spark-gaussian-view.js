@@ -280,13 +280,14 @@ const SparkGaussianView = (() => {
   }
 
   function isEnabled() { return _enabled; }
+  function getMesh() { return _mesh; }
   function isAvailable() { return true; }
   function dispose() {
     disable();
     if (_spark) { try { _scene()?.remove(_spark); _spark.dispose?.(); } catch (_) {} _spark = null; }
   }
 
-  return { enable, disable, isEnabled, isAvailable, loadFromBytes, syncEditorState, refreshEditorState, exportEditedBytes, dispose };
+  return { enable, disable, isEnabled, getMesh, isAvailable, loadFromBytes, syncEditorState, refreshEditorState, exportEditedBytes, dispose };
 })();
 window.FumocaSparkGaussian = SparkGaussianView;
 export default SparkGaussianView;
