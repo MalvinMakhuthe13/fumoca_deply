@@ -10,6 +10,7 @@ import {
   initPresentNav, setNavStops, addNavStop, removeNavStop, clearNavStops, flyToStop,
   stopsFromHotspots, exportStops, importStops,
 } from './present-nav.js';
+import { initMagazineImages, addImage, removeImage, updateImage, armWorldPlacement, cancelPlacement, exportAll as exportImages, importAll as importImages, readImageFile } from './present-image-layer.js?v=20261030-decal8';
 
 const STORAGE_KEY = 'fumoca_present_v1';
 
@@ -43,6 +44,7 @@ function saveLocal(data) {
 function payload() {
   return {
     magazine: exportMagazine(),
+    images: exportImages(),
     nav: exportStops(),
     reviewLayout: window.FumocaReviewVideo?.getLayout?.() || null,
     reviewUrl: (window.FumocaReviewVideo?.getSrc?.() && !String(window.FumocaReviewVideo.getSrc()).startsWith('blob:'))
@@ -78,6 +80,7 @@ function copyViewerLink() {
   try {
     json = btoa(unescape(encodeURIComponent(JSON.stringify({
       magazine: data.magazine,
+      images: data.images || [],
       nav: data.nav,
       reviewUrl: data.reviewUrl,
       reviewLayout: data.reviewLayout || 'stack',
@@ -125,6 +128,37 @@ function renderNavManager() {
     const label = document.createElement('span'); label.textContent = (index + 1) + '. ' + (stop.label || 'View'); label.title = stop.id;
     const remove = document.createElement('button'); remove.type = 'button'; remove.dataset.removeNav = stop.id; remove.textContent = 'Remove';
     row.append(label, remove); root.appendChild(row);
+  });
+}
+
+function renderImageManager() {
+  const root = document.getElementById('ptpImageManager');
+  if (!root) return;
+  root.replaceChildren();
+  const items = exportImages();
+  if (!items.length) { const hint=document.createElement('div'); hint.className='ptp-hint'; hint.textContent='No image layers yet.'; root.appendChild(hint); return; }
+  items.forEach((item,index) => {
+    const card=document.createElement('div'); card.className='ptp-text-item';
+    const title=document.createElement('div'); title.className='ptp-text-heading'; title.textContent=(index+1)+'. '+(item.name||'Image layer');
+    const row=document.createElement('div'); row.className='ptp-row';
+    const anchor=document.createElement('button'); anchor.type='button'; anchor.dataset.anchorImage=item.id; anchor.textContent=item.mode==='world'?'Reposition 3D decal':'Attach to 3D surface';
+    const remove=document.createElement('button'); remove.type='button'; remove.dataset.removeImage=item.id; remove.className='ptp-danger'; remove.textContent='Remove';
+    row.append(anchor,remove);
+    const controls=document.createElement('div'); controls.className='ptp-image-fields';
+    const widthLabel=document.createElement('label'); widthLabel.textContent='Custom width · scene-relative (up to 1000%)';
+    const width=document.createElement('input'); width.type='range'; width.min='1'; width.max='1000'; width.step='0.5'; width.value=String(item.width||18); width.dataset.imageWidth=item.id;
+    widthLabel.appendChild(width);
+    const customSize=document.createElement('input'); customSize.type='number'; customSize.min='1'; customSize.max='1000'; customSize.step='0.5'; customSize.value=String(item.width||18); customSize.dataset.imageWidth=item.id; customSize.setAttribute('aria-label','Custom decal width');
+    const sizeRow=document.createElement('div'); sizeRow.className='ptp-row'; sizeRow.append(width,customSize);
+    const orientationLabel=document.createElement('div'); orientationLabel.className='ptp-image-mode'; orientationLabel.textContent='Surface alignment · follows the exact area you click';
+    const rotationLabel=document.createElement('label'); rotationLabel.textContent='Rotate on surface · '+(Number(item.rotation)||0)+'°';
+    const rotation=document.createElement('input'); rotation.type='range'; rotation.min='-180'; rotation.max='180'; rotation.step='1'; rotation.value=String(Number(item.rotation)||0); rotation.dataset.imageRotation=item.id; rotationLabel.appendChild(rotation);
+    const opacityLabel=document.createElement('label'); opacityLabel.textContent='Opacity';
+    const opacity=document.createElement('input'); opacity.type='range'; opacity.min='10'; opacity.max='100'; opacity.step='1'; opacity.value=String(Math.round((item.opacity??1)*100)); opacity.dataset.imageOpacity=item.id;
+    opacityLabel.appendChild(opacity);
+    const mode=document.createElement('div'); mode.className='ptp-image-mode'; mode.textContent=item.mode==='world'?'3D surface decal · attached to the scan':'Screen graphic · fixed to composition';
+    widthLabel.appendChild(sizeRow); controls.append(widthLabel,orientationLabel,rotationLabel,opacityLabel,mode);
+    card.append(title,row,controls); root.appendChild(card);
   });
 }
 
@@ -198,6 +232,13 @@ function mountPanel() {
       <div class="ptp-hint">Add custom text, then drag it in the viewport to position it. Select text below to change its wording, font, size, color and alignment.</div>
     </div>
     <div class="ptp-section">
+      <div class="ptp-title">Image & logo layers</div>
+      <div class="ptp-row"><button type="button" data-act="add-image" class="primary">＋ Add logo / image</button><button type="button" data-act="cancel-image">Cancel placement</button></div>
+      <input id="ptpImageFile" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" style="display:none"/>
+      <div class="ptp-hint">Upload a transparent PNG or other image. Screen graphics stay fixed to the composition. Choose “Attach to 3D surface”, then drag across the visible scan and release to place the decal. Fine-tune its size, flat orientation and rotation below.</div>
+      <div id="ptpImageManager"></div>
+    </div>
+    <div class="ptp-section">
       <div class="ptp-title">Text styling · edit each item</div>
       <div id="ptpTextManager" class="ptp-text-manager"></div>
     </div>
@@ -238,6 +279,13 @@ function mountPanel() {
   host.appendChild(panel);
   syncPresentActive();
 
+  const imageInput = panel.querySelector('#ptpImageFile');
+  imageInput?.addEventListener('change', async () => {
+    const file=imageInput.files?.[0]; if(!file)return;
+    try { const src=await readImageFile(file); addImage(src,{name:file.name.replace(/\.[^.]+$/,'')}); renderImageManager(); persist(); }
+    catch(err){ alert(err.message || 'Image upload failed.'); }
+    imageInput.value='';
+  });
   const applyTextField = (e) => {
     const field = e.target.closest?.('[data-text-id][data-text-field]');
     if (!field || !panel.contains(field)) return;
@@ -259,7 +307,25 @@ function mountPanel() {
   panel.addEventListener('input', applyTextField);
   panel.addEventListener('change', applyTextField);
 
+  const handleImageControl = e => {
+      };
+  panel.addEventListener('change', handleImageControl);
+  panel.addEventListener('input', e => {
+    const width=e.target.closest('[data-image-width]');
+    if(width){const value=Math.max(1,Math.min(1000,Number(width.value)||1));width.value=String(value);panel.querySelectorAll('[data-image-width]').forEach(el=>{if(el!==width&&el.dataset.imageWidth===width.dataset.imageWidth)el.value=String(value);});updateImage(width.dataset.imageWidth,{width:value});persist();return;}
+    const orientation=e.target.closest('[data-image-orientation]');
+    if(orientation){updateImage(orientation.dataset.imageOrientation,{orientation:orientation.value});persist();return;}
+    const rotation=e.target.closest('[data-image-rotation]');
+    if(rotation){const label=rotation.closest('label');if(label)label.firstChild.textContent='Rotate on surface · '+rotation.value+'°';updateImage(rotation.dataset.imageRotation,{rotation:Number(rotation.value)});persist();return;}
+    const opacity=e.target.closest('[data-image-opacity]');
+    if(opacity){updateImage(opacity.dataset.imageOpacity,{opacity:Number(opacity.value)/100});persist();}
+  });
   panel.addEventListener('click', (e) => {
+    const anchor=e.target.closest('button[data-anchor-image]');
+    if(anchor){armWorldPlacement(anchor.dataset.anchorImage);return;}
+    const removeImageBtn=e.target.closest('button[data-remove-image]');
+    if(removeImageBtn){removeImage(removeImageBtn.dataset.removeImage);renderImageManager();persist();return;}
+
     const removeTextBtn = e.target.closest('button[data-remove-text]');
     if (removeTextBtn) { removeText(removeTextBtn.dataset.removeText); renderTextManager(); persist(); return; }
     const removeNavBtn = e.target.closest('button[data-remove-nav]');
@@ -283,6 +349,8 @@ function mountPanel() {
     const btn = e.target.closest('button[data-act]');
     if (!btn) return;
     const act = btn.dataset.act;
+    if (act === 'add-image') { imageInput?.click(); return; }
+    if (act === 'cancel-image') { cancelPlacement(); return; }
     if (act === 'weekly') applyPreset('weekly');
     if (act === '48hours') applyPreset('48hours');
     if (act === 'product') applyPreset('product');
@@ -349,6 +417,7 @@ export function initPresentTab() {
   }
 
   initMagazineText({ editable: true, onChange: () => persist() });
+  initMagazineImages({ editable: true, onChange: () => persist() });
   initPresentNav({
     onArrive: (s) => window.dispatchEvent(new CustomEvent('fumoca:navArrive', { detail: s })),
     onChange: () => { renderNavManager(); persist(); },
@@ -357,9 +426,10 @@ export function initPresentTab() {
 
   const saved = loadLocal();
   if (saved?.magazine?.length) importMagazine(saved.magazine);
+  if (saved?.images?.length) importImages(saved.images);
   if (saved?.nav?.length) importStops(saved.nav);
 
-  const tryMount = () => { mountPanel(); renderNavManager(); renderTextManager(); };
+  const tryMount = () => { mountPanel(); renderNavManager(); renderTextManager(); renderImageManager(); };
   tryMount();
   [500, 1200, 2500].forEach((t) => setTimeout(tryMount, t));
 
@@ -386,6 +456,7 @@ export function initPresentTab() {
     applyPreset,
     clearText,
     exportMagazine,
+    exportImages,
     exportStops,
     addText,
     removeNavStop,
