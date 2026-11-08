@@ -194,3 +194,6 @@ assert.match(viewportModule, /activeCamera\.aspect = layout\.aspectRatio/,
   'Studio camera frustum must match the poster artboard aspect ratio');
 assert.match(viewportModule, /renderer\?\.setSize\?\.\(width, height, false\)/,
   'Leaving poster mode must restore the normal full Studio renderer size');
+
+assert.match(viewportModule, /zIndex: '9', pointerEvents: 'none'/,
+  'The editorial poster canvas must sit above the supporting-image hit layer while remaining transparent to pointer events outside text items');
