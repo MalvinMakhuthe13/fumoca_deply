@@ -202,13 +202,40 @@ export function mountPosterViewport() {
     title = document.createElement('div');
     title.dataset.fumocaPosterTitle = '1';
     Object.assign(title.style, {
-      position: 'absolute', zIndex: '3', pointerEvents: 'none',
+      position: 'absolute', zIndex: '12', pointerEvents: isStudioEditor ? 'auto' : 'none',
       color: '#fff', fontFamily: 'system-ui, sans-serif', fontWeight: '750',
       lineHeight: '1.12', textShadow: '0 2px 18px rgba(0,0,0,.45)',
-      overflowWrap: 'anywhere',
+      overflowWrap: 'anywhere', cursor: isStudioEditor ? 'move' : 'default',
+      userSelect: 'none', touchAction: 'none',
     });
     const target = host.querySelector('[data-fumoca-poster-canvas]') || host;
     target.appendChild(title);
+    if (isStudioEditor) {
+      title.addEventListener('pointerdown', event => {
+        if (event.button !== 0 || event.target !== title) return;
+        const current = window.FumocaPoster?.getState?.()?.composition?.title || {};
+        const start = { x: Number(current.x ?? .5), y: Number(current.y ?? .12) };
+        const bounds = target.getBoundingClientRect();
+        const origin = { x: event.clientX, y: event.clientY };
+        try { title.setPointerCapture?.(event.pointerId); } catch (_) {}
+        event.preventDefault(); event.stopPropagation();
+        const move = ev => {
+          window.FumocaPoster?.updateComposition?.({ title: {
+            x: Math.max(0, Math.min(1, start.x + (ev.clientX - origin.x) / Math.max(1, bounds.width))),
+            y: Math.max(0, Math.min(1, start.y + (ev.clientY - origin.y) / Math.max(1, bounds.height))),
+          }});
+        };
+        const up = ev => {
+          title.removeEventListener('pointermove', move);
+          title.removeEventListener('pointerup', up);
+          title.removeEventListener('pointercancel', up);
+          try { title.releasePointerCapture?.(ev.pointerId); } catch (_) {}
+        };
+        title.addEventListener('pointermove', move);
+        title.addEventListener('pointerup', up);
+        title.addEventListener('pointercancel', up);
+      });
+    }
     return title;
   };
   const restore = () => {
@@ -429,9 +456,10 @@ export function mountPosterViewport() {
     if (heading.visible && String(heading.text || '').trim()) {
       const node = ensureTitle();
       Object.assign(node.style, {
-        left: layout.safe.left + 'px',
-        top: layout.safe.top + 'px',
+        left: (Math.max(0, Math.min(1, Number(heading.x ?? .5))) * layout.width) + 'px',
+        top: (Math.max(0, Math.min(1, Number(heading.y ?? .12))) * layout.height) + 'px',
         width: layout.safe.width + 'px',
+        transform: 'translate(-50%, -50%) rotate(' + (Number(heading.rotation) || 0) + 'deg)',
         textAlign: ['left','center','right'].includes(heading.align) ? heading.align : 'center',
         fontSize: Math.max(10, Math.min(layout.width * 0.14, (Number(heading.fontSize) || 42) * (layout.width / 1080))) + 'px',
         fontFamily: ['system-ui, sans-serif','Arial, sans-serif','Georgia, serif','Impact, sans-serif','monospace'].includes(heading.fontFamily) ? heading.fontFamily : 'system-ui, sans-serif',
@@ -469,7 +497,7 @@ export function mountPosterViewport() {
     if (!isStudioEditor || event.button !== 0 || event.altKey || !posterBounds) return;
     const mode = window.S?.mode || window._fumocaStudioMode || 'orbit';
     if (mode !== 'orbit') return;
-    if (event.target?.closest?.('[data-poster-asset-id],[aria-label^="Resize "],[aria-label^="Rotate "],#fumocaPosterEditorOverlay .fpe-control,button,input,select,textarea')) return;
+    if (event.target?.closest?.('[data-fumoca-poster-title],[data-poster-asset-id],[aria-label^="Resize "],[aria-label^="Rotate "],#fumocaPosterEditorOverlay .fpe-control,button,input,select,textarea')) return;
     if (event.clientX < posterBounds.left || event.clientX > posterBounds.right ||
         event.clientY < posterBounds.top || event.clientY > posterBounds.bottom) return;
     const activeCamera = getCamera();
