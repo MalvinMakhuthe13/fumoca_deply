@@ -4288,7 +4288,12 @@ const toolMap = {
 
 function setMode(mode) {
   S.mode = mode;
-  if (['move','scale-tool','rotate'].includes(mode) && S.transformScope === 'selection' && !selectedPointCount()) {
+  // Poster composition has its own object transform model. Publish the active
+  // Studio navigation mode so the poster overlay can route pointer gestures
+  // before the point-cloud editor tries to select or transform raw points.
+  window._fumocaStudioMode = mode;
+  const posterCompositionEnabled = !!window.FumocaPoster?.getState?.().enabled;
+  if (!posterCompositionEnabled && ['move','scale-tool','rotate'].includes(mode) && S.transformScope === 'selection' && !selectedPointCount()) {
     setStatus('Select an object or points first. The whole scene will not be moved automatically.', 'warn');
   }
   const orbiting = mode === 'orbit' || mode === 'pan' || mode === 'zoom-tool';
