@@ -562,6 +562,8 @@ function mountPanel() {
       options.forEach(([v,t]) => { const option = document.createElement('option'); option.value = v; option.textContent = t; input.appendChild(option); });
       input.value = value; wrap.appendChild(input); editor.appendChild(wrap);
     };
+    field('Position X %','x',Math.round((selected.x ?? .5)*100));
+    field('Position Y %','y',Math.round((selected.y ?? .5)*100));
     selectField('Size behaviour','sizeMode',selected.sizeMode || 'proportional',[
       ['proportional','Proportional'],['fixed','Fixed pixels'],['responsive','Responsive min/max'],
     ]);
@@ -690,6 +692,7 @@ function mountPanel() {
     if (!item) return;
     let value = field.value;
     if (key === 'sizeMode') item.sizeMode = value;
+    else if (key === 'x' || key === 'y') item[key] = Math.max(0, Math.min(100, Number(value))) / 100;
     else if (key === 'anchor') {
       // Changing an anchor must not teleport the image. Preserve its visible
       // centre, then solve the new anchor point from the unrotated layer size.
