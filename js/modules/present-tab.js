@@ -5,14 +5,14 @@
 import {
   initMagazineText, addText, updateText, removeText, applyPreset, clearText,
   exportAll as exportMagazine, importAll as importMagazine, setEditable as setMagEditable, selectText, getSelectedTextId, moveTextLayer,
-} from './present-magazine-text.js?v=20261107-canvasresize01';
+} from './present-magazine-text.js?v=20261108-freecopy02';
 import {
   initPresentNav, setNavStops, addNavStop, removeNavStop, clearNavStops, flyToStop,
   stopsFromHotspots, exportStops, importStops,
 } from './present-nav.js';
-import './poster-composer.js?v=20261106-backgrounddata03';
-import { mountPosterViewport } from './poster-viewport.js?v=20261108-trackball05';
-import './poster-assets.js?v=20261108-freeanchor01';
+import './poster-composer.js?v=20261108-headlinepos01';
+import { mountPosterViewport } from './poster-viewport.js?v=20261108-headlinedrag02';
+import './poster-assets.js?v=20261108-edgeanchor02';
 import { mountPosterEditorOverlay as createPosterEditorOverlay } from './poster-editor-overlay.js?v=20261108-posterinput03';
 import { mountPosterSceneManager } from './poster-scene-manager.js?v=20261106-unifiedimages02';
 import './poster-studio-transform.js?v=20261108-livecanvas01';
