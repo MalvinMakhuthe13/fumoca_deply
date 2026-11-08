@@ -190,15 +190,20 @@ export function mountPosterEditorOverlay(options = {}) {
     if (root.contains(event.target) || event.button !== 0 || event.altKey) { pickPointer = null; return; }
     const state = api.getState();
     if (!state?.enabled) return;
-    const studioMode = window._fumocaStudioMode || 'orbit';
-    // Orbit, pan and zoom belong to the camera/editor controls. Never let
-    // poster picking swallow those gestures, even when the pointer is over
-    // the visible Gaussian.
+    const studioMode = window.S?.mode || window._fumocaStudioMode || 'orbit';
+    // Only the poster Move tool captures the subject. Pan, Orbit and Zoom
+    // remain owned by the Studio camera handlers.
     if (studioMode !== 'move') return;
-    // The poster Move tool moves the composition subject, not raw points.
-    // Accept a drag anywhere on the live canvas so a stale/missing GPU pick
-    // result cannot make the visible subject impossible to reposition.
-    if (event.target?.tagName !== 'CANVAS') return;
+    // Do not require the event target to be a CANVAS: background/image layers,
+    // transparent overlays and renderer remounts can place another element
+    // above the WebGL canvas. The host capture listener already scopes input
+    // to this viewport; additionally keep the gesture inside the poster frame.
+    if (!rect?.width || !rect?.height) return;
+    const bounds = host.getBoundingClientRect();
+    const localX = event.clientX - bounds.left;
+    const localY = event.clientY - bounds.top;
+    if (localX < rect.left || localX > rect.left + rect.width ||
+        localY < rect.top || localY > rect.top + rect.height) return;
     const picked = pickPosterSubject(event.clientX, event.clientY);
     const subjects = state.composition?.subjects || [];
     const subject = subjects.find(item => item.id === picked?.id) ||
