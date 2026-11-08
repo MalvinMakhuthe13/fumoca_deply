@@ -11,7 +11,7 @@ import {
   stopsFromHotspots, exportStops, importStops,
 } from './present-nav.js';
 import './poster-composer.js?v=20261106-backgrounddata03';
-import { mountPosterViewport } from './poster-viewport.js?v=20261108-trackball02';
+import { mountPosterViewport } from './poster-viewport.js?v=20261108-trackball03';
 import './poster-assets.js?v=20261107-studiolayer01';
 import { mountPosterEditorOverlay as createPosterEditorOverlay } from './poster-editor-overlay.js?v=20261108-posterinput03';
 import { mountPosterSceneManager } from './poster-scene-manager.js?v=20261106-unifiedimages02';
