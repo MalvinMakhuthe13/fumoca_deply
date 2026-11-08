@@ -13,7 +13,7 @@ import './adaptive-presentation.js';
 import './poster-composer.js';
 import './poster-viewport.js?v=20261106-backgroundlayers01';
 import './poster-assets.js?v=20261106-layercontrols02';
-import { advancePosterMotionPhase, applyPosterLiveTransform, posterMotionSpeed } from './poster-live-transform.js';
+import { advancePosterMotionPhase, applyPosterLiveTransform, applyPosterMotionRotation, posterMotionSpeed } from './poster-live-transform.js';
 let _fumocaPosterStateCache = null;
 window.addEventListener('fumoca:posterChange', (event) => {
   _fumocaPosterStateCache = event.detail || window.FumocaPoster?.getState?.() || null;
@@ -2097,7 +2097,7 @@ async function mountPublishedSparkPly(url) {
         THREE, group: _publishedSparkGroup, camera: _plyCamera, center,
         composition: { ...posterState.composition, object: { ...posterState.composition.object, z: mainSubject?.z ?? 1 } }, enabled: !!posterState.enabled,
       });
-      if (motionSpeed > 0) _publishedSparkGroup.rotateY(posterMotionPhase);
+      if (motionSpeed > 0) applyPosterMotionRotation(THREE, _publishedSparkGroup, posterMotionPhase);
       for (const subject of posterState.composition.subjects || []) {
         if (subject.id === 'subject_main') continue;
         const entry = posterSubjectMeshes.get(subject.id);
@@ -2108,7 +2108,7 @@ async function mountPublishedSparkPly(url) {
           THREE, group: entry.group, camera: _plyCamera, center: entry.center,
           composition: subjectComposition, enabled: !!posterState.enabled,
         });
-        if (motionSpeed > 0) entry.group.rotateY(posterMotionPhase);
+        if (motionSpeed > 0) applyPosterMotionRotation(THREE, entry.group, posterMotionPhase);
       }
     }
     _plyRenderer.render(_plyScene, _plyCamera);
