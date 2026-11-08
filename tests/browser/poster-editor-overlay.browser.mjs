@@ -8,8 +8,9 @@ const moduleSource = await readFile(new URL('../../js/modules/poster-editor-over
 const fixture = `<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>html,body{margin:0;width:100%;height:100%;background:#111}#viewport{position:relative;width:100%;height:100%;overflow:hidden}</style>
-<div id="viewport"></div>
+<div id="viewport"><canvas id="live-splat" style="width:100%;height:100%"></canvas></div>
 <script>
+window._fumocaStudioMode='move';
 let selectedSubjectId='subject_main';
 const composition={aspectRatio:.8,subjects:[{id:'subject_main',label:'Main subject',x:.5,y:.5,scale:1,rotation:0,visible:true,locked:false,z:1},{id:'subject_second',label:'Side product',x:.78,y:.62,scale:1,rotation:0,visible:true,locked:false,z:2}],title:{visible:true,text:'A poster headline'}};
 window.FumocaPoster={
@@ -45,18 +46,18 @@ try{
  const move=page.getByRole('button',{name:'Move Main subject'});
  await move.waitFor();
  await page.evaluate(()=>{
-   const host=document.getElementById('viewport');
-   host.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,button:0,pointerId:11,clientX:300,clientY:300}));
-   host.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,button:0,pointerId:11,clientX:300,clientY:300}));
+   const canvas=document.getElementById('live-splat');
+   canvas.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,button:0,pointerId:11,clientX:300,clientY:300}));
+   canvas.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,button:0,pointerId:11,clientX:300,clientY:300}));
  });
  assert.equal(await page.evaluate(()=>window.FumocaPoster.getState().selectedSubjectId),'subject_second','tapping the live splat canvas should select the projected 3D subject');
  await page.evaluate(()=>window.FumocaPoster.selectSubject('subject_main'));
  const beforeCanvasDrag=await page.evaluate(()=>({...window.FumocaPoster.getState().composition.subjects[1]}));
  await page.evaluate(()=>{
-   const host=document.getElementById('viewport');
-   host.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,button:0,pointerId:12,clientX:300,clientY:300}));
-   host.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,button:0,pointerId:12,clientX:360,clientY:340}));
-   host.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,button:0,pointerId:12,clientX:360,clientY:340}));
+   const canvas=document.getElementById('live-splat');
+   canvas.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,button:0,pointerId:12,clientX:300,clientY:300}));
+   canvas.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,button:0,pointerId:12,clientX:360,clientY:340}));
+   canvas.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,button:0,pointerId:12,clientX:360,clientY:340}));
  });
  const afterCanvasDrag=await page.evaluate(()=>window.FumocaPoster.getState().composition.subjects[1]);
  assert.ok(afterCanvasDrag.x>beforeCanvasDrag.x && afterCanvasDrag.y>beforeCanvasDrag.y,
