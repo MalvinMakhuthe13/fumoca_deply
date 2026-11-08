@@ -106,7 +106,7 @@ try{
     assert.ok(Math.abs(result.assets.x-result.poster.x)<1 && Math.abs(result.assets.width-result.poster.width)<1,'supporting images must use the poster coordinate system');
     assert.ok(Math.abs(result.magazine.x-result.poster.x)<1 && Math.abs(result.magazine.width-result.poster.width)<1,'magazine text must use the poster coordinate system');
     assert.equal(result.backgroundZ,'0');
-    assert.equal(result.titleZ,'12');
+    assert.equal(result.titleZ,'3');
     assert.equal(result.assetsZ,'8');
     assert.equal(result.magazineZ,'20');
     assert.ok(Number(result.backgroundZ)<Number(result.titleZ)&&Number(result.titleZ)<Number(result.assetsZ)&&Number(result.assetsZ)<Number(result.magazineZ),'within the poster host, layers stack background → title → supporting images → magazine typography');
