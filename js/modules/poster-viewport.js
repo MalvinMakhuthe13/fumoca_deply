@@ -312,14 +312,17 @@ export function mountPosterViewport() {
         posterCanvas = document.createElement('div');
         posterCanvas.dataset.fumocaPosterCanvas = '1';
         Object.assign(posterCanvas.style, {
-          position: 'absolute', zIndex: '3', pointerEvents: 'none', overflow: 'hidden',
+          position: 'absolute', zIndex: '9', pointerEvents: 'none', overflow: 'hidden',
           clipPath: 'inset(0)', isolation: 'isolate', contain: 'layout paint',
         });
         host.appendChild(posterCanvas);
       }
       Object.assign(posterCanvas.style, {
         display: 'block',
-        zIndex: '3',
+        // Keep editable editorial text above the full-size supporting-image
+        // interaction surface. The canvas itself remains pointer-transparent;
+        // only individual text items opt into pointer events while editing.
+        zIndex: '9', pointerEvents: 'none',
         overflow: 'hidden', clipPath: 'inset(0)', isolation: 'isolate', contain: 'layout paint',
         left: layout.left + 'px',
         top: layout.top + 'px',
