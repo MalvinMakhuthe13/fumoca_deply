@@ -88,9 +88,10 @@ assert.match(viewportModule, /window\._fumocaRenderer\?\.camera/, 'Poster zoom c
 assert.match(viewportModule, /window\._fumocaViewerControls/, 'Poster mode can resolve the active viewer controls outside Studio');
 assert.match(viewportModule, /window\.addEventListener\('fumoca:viewerReady'/, 'Viewer readiness must trigger a fresh renderer binding pass');
 assert.match(viewportModule, /const captureCanvas = window\._fumocaCaptureCanvas/, 'Poster clipping must prefer the exact active Spark canvas rather than the legacy placeholder');
-assert.match(viewportModule, /orbitControls\.enablePan = false/,
-  'Poster mode must prevent camera panning from carrying the scene outside the frame');
-assert.match(viewportModule, /orbitControls\.enableZoom = false/, 'Poster framing disables free wheel zoom in favour of the fixed zoom control');
+assert.match(viewportModule, /viewerReadyControls \|\|[\s\S]*?window\._fumocaOrbitControls/,
+  'Poster mode must bind the controls announced by the active viewer before any stale Studio controls');
+assert.match(viewportModule, /orbitControls\.enablePan = true[\s\S]*?orbitControls\.enableZoom = true/,
+  'Poster mode must preserve live camera pan and zoom as well as orbit');
 assert.match(viewportModule, /activeCamera\.zoom = .*framingZoom/, 'The poster zoom control is applied to the Studio camera projection');
 assert.match(viewportModule, /framing: state\.composition\?\.framing/, 'Framing changes invalidate the viewport render signature');
 assert.match(viewportModule, /motion: state\.composition\?\.motion/, 'Motion changes invalidate the viewport render signature and are applied without a remount');
