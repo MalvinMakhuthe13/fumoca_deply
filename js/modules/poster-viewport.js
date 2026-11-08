@@ -473,7 +473,7 @@ export function mountPosterViewport() {
     if (!activeCamera?.position || !activeCamera?.quaternion) return;
     const point = trackballVector(event.clientX, event.clientY);
     if (!point) return;
-    trackballGesture = { pointerId: event.pointerId, previous: point };
+    trackballGesture = {\n      pointerId: event.pointerId,\n      previousWorld: point.clone().applyQuaternion(activeCamera.quaternion),\n    };
     try { host.setPointerCapture?.(event.pointerId); } catch (_) {}
     event.preventDefault();
     event.stopImmediatePropagation();
@@ -496,7 +496,7 @@ export function mountPosterViewport() {
     activeCamera.quaternion.premultiply(delta).normalize();
     if (activeCamera.up?.applyQuaternion) activeCamera.up.applyQuaternion(delta).normalize();
     activeCamera.updateMatrixWorld?.();
-    trackballGesture.previous = current;
+    trackballGesture.previousWorld = currentWorld;
     event.preventDefault();
     event.stopImmediatePropagation();
   };
