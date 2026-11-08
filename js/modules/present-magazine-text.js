@@ -46,6 +46,24 @@ function ensureLayer() {
     position: 'absolute', inset: '0', width: '100%', height: '100%',
     overflow: 'hidden', pointerEvents: 'none', zIndex: '20',
   });
+  // Delegate pointer handling from the text layer in capture phase. This
+  // keeps text dragging reliable when poster canvas / renderer overlays are
+  // remounted, and avoids depending on a per-node handler surviving rebuilds.
+  if (!layer.dataset.dragDelegateBound) {
+    layer.dataset.dragDelegateBound = '1';
+    layer.addEventListener('pointerdown', event => {
+      if (!editing || event.button !== 0) return;
+      const el = event.target.closest?.('.mt-item');
+      if (!el || !layer.contains(el)) return;
+      const item = items.find(entry => entry.id === el.dataset.id);
+      if (!item || item.locked) return;
+      const handle = event.target.closest?.('[data-resize]');
+      if (handle) { startResize(event, item, handle.dataset.resize); return; }
+      selectedTextId = item.id;
+      layer.querySelectorAll('.mt-item').forEach(node => node.classList.toggle('mt-selected', node === el));
+      startDrag(event, item, el);
+    }, true);
+  }
   return layer;
 }
 
@@ -147,14 +165,6 @@ function renderItem(item) {
     transition: 'opacity .25s ease',
     ...styleFor(item),
   });
-  if (editing) el.addEventListener('pointerdown', (e) => {
-    const handle = e.target.closest?.('[data-resize]');
-    if (handle) { startResize(e, item, handle.dataset.resize); return; }
-    if (item.locked) return;
-    selectedTextId = item.id;
-    ensureLayer().querySelectorAll('.mt-item').forEach(node => node.classList.toggle('mt-selected', node.dataset.id === item.id));
-    startDrag(e, item, el);
-  });
   return el;
 }
 
@@ -187,8 +197,14 @@ function startDrag(e, item, el) {
   if (!editing || item.locked) return;
   e.preventDefault();
   e.stopPropagation();
-  const host = ensureLayer().parentElement;
-  const rect = host.getBoundingClientRect();
+  const target = ensureLayer();
+  const rect = target.getBoundingClientRect();
+  // Capture the pointer on the actual text element so moving outside the glyph
+  // bounds never drops the drag. Coordinates are measured against the same
+  // poster-local layer used by the rendered text.
+  try { el.setPointerCapture?.(e.pointerId); } catch (_) {}
+  e.preventDefault();
+  e.stopPropagation();
   // Keep the original grab point relative to the text anchor. Without this
   // offset the first pointer move snaps text so its anchor jumps under the cursor.
   const startX = Number(item.sx ?? 50), startY = Number(item.sy ?? 30);
@@ -202,14 +218,17 @@ function startDrag(e, item, el) {
     el.style.top = item.sy + '%';
     el.style.transform = itemTransform(item);
   };
-  const up = () => {
+  const up = (ev) => {
     window.removeEventListener('pointermove', move);
     window.removeEventListener('pointerup', up);
+    window.removeEventListener('pointercancel', up);
+    try { el.releasePointerCapture?.(ev.pointerId); } catch (_) {}
     onChange?.(exportAll());
     rebuild();
   };
   window.addEventListener('pointermove', move);
-  window.addEventListener('pointerup', up);
+  window.addEventListener('pointerup', up, { once: true });
+  window.addEventListener('pointercancel', up, { once: true });
 }
 
 function tick() {
