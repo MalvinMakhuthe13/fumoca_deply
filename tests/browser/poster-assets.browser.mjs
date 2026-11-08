@@ -14,7 +14,7 @@ const fixture = `<!doctype html>
 <div id="viewport"></div>
 <script>
   const composition = { aspectRatio: 0.8, assets: { images: [
-    { id:'fixed', name:'Fixed logo', src:'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect width="100" height="100" fill="red"/%3E%3C/svg%3E', x:0.5, y:0.5, width:0.25, sizeMode:'fixed', fixedWidthPx:200, visible:true },
+    { id:'fixed', name:'Fixed logo', src:'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect width="100" height="100" fill="red"/%3E%3C/svg%3E', x:0.5, y:0.5, width:0.25, sizeMode:'fixed', fixedWidthPx:200, anchor:'top-right', visible:true },
     { id:'responsive', name:'Responsive logo', src:'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect width="100" height="100" fill="blue"/%3E%3C/svg%3E', x:0.2, y:0.2, width:0.5, sizeMode:'responsive', minWidthPx:72, maxWidthPx:720, visible:true }
   ] } };
   window.FumocaPoster = {
@@ -64,12 +64,13 @@ try {
   assert.equal(initial.fixedWidth, 200, 'fixed layer must retain its configured CSS-pixel width');
   assert.equal(initial.responsiveWidth, 500, 'responsive layer should use 50% of the host width');
 
-  await page.mouse.move(500, 400);
+  await page.mouse.move(400, 400);
   await page.mouse.down();
-  await page.mouse.move(564, 400, { steps:4 });
+  await page.mouse.move(464, 400, { steps:4 });
   await page.mouse.up();
-  const movedX = await page.evaluate(() => window.FumocaPoster.getState().composition.assets.images.find(x => x.id === 'fixed').x);
-  assert.ok(Math.abs(movedX - 0.564) < 0.002, `drag should use 1000px host coordinates; got x=${movedX}`);
+  const moved = await page.evaluate(() => window.FumocaPoster.getState().composition.assets.images.find(x => x.id === 'fixed'));
+  assert.equal(moved.anchor, 'free', 'dragging a top-right anchored image must switch it to a free centre anchor');
+  assert.ok(Math.abs(moved.x - 0.464) < 0.002, `drag should preserve the rendered centre and use 1000px host coordinates; got x=${moved.x}`);
 
   await page.locator('[data-poster-asset-id="fixed"]').click();
   const rotateHandle = page.getByRole('button', { name: 'Rotate Fixed logo' });
