@@ -448,8 +448,14 @@ function mountPanel() {
   // Keep the poster workspace at the top of the Present sidebar. The legacy
   // scene-music/share-video controls may still be mounted in this host; appending
   // after them pushed the entire poster composer below the visible panel area.
-  if (panel.parentElement !== host || panel !== host.firstElementChild) {
+  const movedToTop = panel.parentElement !== host || panel !== host.firstElementChild;
+  if (movedToTop) {
     host.insertBefore(panel, host.firstElementChild);
+    // The Present sidebar can retain its previous scroll offset when switching
+    // tabs. Reset only when we relocate the workspace so its Poster Composer
+    // controls are actually visible instead of leaving the user among legacy
+    // music/share tools further down the same panel.
+    host.scrollTop = 0;
   }
   mountPosterSceneManager();
   syncPresentActive();
