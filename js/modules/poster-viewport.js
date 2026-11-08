@@ -386,12 +386,22 @@ export function mountPosterViewport() {
     // separate direct-manipulation gesture: dragging a Gaussian moves it,
     // while dragging empty canvas orbits/pans the camera.
     if (orbitControls) {
-      orbitControls.enabled = true;
+      // In Studio, OrbitControls must only own pointer gestures in Orbit mode.
+      // Pan and Move are handled by their dedicated editor interactions; leaving
+      // OrbitControls enabled there causes competing gestures and truncated-feeling
+      // rotations. The public viewer keeps its normal camera controls enabled.
+      const studioMode = window.S?.mode || window._fumocaStudioMode || 'orbit';
+      orbitControls.enabled = !isStudioEditor || studioMode === 'orbit';
       if ('enableRotate' in orbitControls) orbitControls.enableRotate = true;
       if ('enablePan' in orbitControls) orbitControls.enablePan = true;
-      if ('noPan' in orbitControls) orbitControls.noPan = false;
       if ('enableZoom' in orbitControls) orbitControls.enableZoom = true;
-      if ('noZoom' in orbitControls) orbitControls.noZoom = false;
+      // Restore an unrestricted full 360° orbit around the subject, including
+      // looking directly over the poles. OrbitControls has no azimuth limit by default.
+      if ('minPolarAngle' in orbitControls) orbitControls.minPolarAngle = 0;
+      if ('maxPolarAngle' in orbitControls) orbitControls.maxPolarAngle = Math.PI;
+      if ('minAzimuthAngle' in orbitControls) orbitControls.minAzimuthAngle = -Infinity;
+      if ('maxAzimuthAngle' in orbitControls) orbitControls.maxAzimuthAngle = Infinity;
+      if ('rotateSpeed' in orbitControls) orbitControls.rotateSpeed = 1.2;
       const motionLevel = state.composition?.motion?.level || 'still';
       const motionSpeed = ({ still: 0, gentle: 0.35, normal: 0.8, dynamic: 1.5 })[motionLevel] ?? 0;
       orbitControls.autoRotate = motionSpeed > 0;
