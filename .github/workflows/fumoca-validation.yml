@@ -178,6 +178,8 @@ jobs:
         run: npm install --no-save playwright@1.58.2
       - name: Install Chromium for browser tests
         run: npx playwright install --with-deps chromium
+      - name: Test free 3D poster trackball interactions in Chromium
+        run: node tests/browser/poster-trackball.browser.mjs
       - name: Test poster asset interactions in Chromium
         run: node tests/browser/poster-assets.browser.mjs
       - name: Test public viewer restores saved poster compositions in Chromium
