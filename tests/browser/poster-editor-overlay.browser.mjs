@@ -81,6 +81,24 @@ try{
  state=await page.evaluate(()=>window.FumocaPoster.getState().composition.subjects[0]);
  assert.ok(Math.abs(state.rotation)>30,'rotation handle should rotate the selected subject');
 
+ // Verify real pointer dragging can place the selected Gaussian at the poster edges.
+ await page.evaluate(()=>window.FumocaPoster.updateSubject('subject_main',{x:.5,y:.5,scale:1,rotation:0}));
+ await page.evaluate(()=>window.overlay.refresh());
+ await drag(move,-470,-370);
+ state=await page.evaluate(()=>window.FumocaPoster.getState().composition.subjects[0]);
+ assert.ok(state.x<=.03 && state.y<=.03,'dragging toward the upper-left poster edge must not be pulled back toward the centre');
+ await drag(move,940,740);
+ state=await page.evaluate(()=>window.FumocaPoster.getState().composition.subjects[0]);
+ assert.ok(state.x>=.97 && state.y>=.97,'dragging toward the lower-right poster edge must remain reachable');
+ await page.evaluate(()=>window.FumocaPoster.updateSubject('subject_main',{x:0,y:0}));
+ state=await page.evaluate(()=>window.FumocaPoster.getState().composition.subjects[0]);
+ assert.equal(state.x,0,'the model must preserve an exact left-edge anchor');
+ assert.equal(state.y,0,'the model must preserve an exact top-edge anchor');
+ await page.evaluate(()=>window.FumocaPoster.updateSubject('subject_main',{x:1,y:1}));
+ state=await page.evaluate(()=>window.FumocaPoster.getState().composition.subjects[0]);
+ assert.equal(state.x,1,'the model must preserve an exact right-edge anchor');
+ assert.equal(state.y,1,'the model must preserve an exact bottom-edge anchor');
+
  await page.evaluate(()=>window.FumocaPoster.updateSubject('subject_main',{locked:true}));
  assert.equal(await page.getByRole('button',{name:'Move Main subject'}).isDisabled(),true,'locked subject controls should be disabled');
  await page.setViewportSize({width:390,height:844});
