@@ -5,7 +5,7 @@
 import {
   initMagazineText, addText, updateText, removeText, applyPreset, clearText,
   exportAll as exportMagazine, importAll as importMagazine, setEditable as setMagEditable, selectText, getSelectedTextId, moveTextLayer,
-} from './present-magazine-text.js?v=20261108-textdragcapture01';
+} from './present-magazine-text.js?v=20261108-textdragcapture02';
 import {
   initPresentNav, setNavStops, addNavStop, removeNavStop, clearNavStops, flyToStop,
   stopsFromHotspots, exportStops, importStops,
