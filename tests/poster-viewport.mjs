@@ -167,6 +167,10 @@ assert.match(viewportModule, /base\.clone\(\)\.multiply\(deltaCamera\)\.multiply
   'Arcball deltas must be transformed into world space to allow unrestricted pitch, yaw and roll');
 assert.match(viewportModule, /const cameraBaseZoom = new WeakMap\(\)/,
   'Each live camera must retain its original zoom so repeated viewerReady events cannot compound poster zoom');
+assert.match(viewportModule, /const cameraBaseAspect = new WeakMap\(\)/,
+  'Each live camera must retain its original aspect ratio for restoration after poster mode');
+assert.match(viewportModule, /cameraBaseAspect\.get\(activeCamera\)/,
+  'Leaving poster mode must restore the camera aspect ratio that was active before poster framing');
 assert.match(viewportModule, /viewerReadyCamera \|\| \(isStudioEditor/,
   'The camera announced by the active viewer takes precedence over stale editor globals');
 assert.match(viewportModule, /!cameraBaseZoom\.has\(viewerReadyCamera\)/,
@@ -175,8 +179,9 @@ assert.match(viewportModule, /cameraBaseZoom\.get\(activeCamera\)/,
   'Poster zoom must always be calculated from the original camera zoom');
 
 assert.match(viewportModule, /motionLevel = state\.composition\?\.motion\?\.level/, 'Poster motion level is read from the saved composition');
-assert.match(viewportModule, /still: 0, gentle: 0\.35, normal: 0\.8, dynamic: 1\.5/, 'Poster motion levels map to predictable automatic rotation speeds');
-assert.match(viewportModule, /orbitControls\.autoRotate = motionSpeed > 0/, 'Still mode disables automatic rotation and other levels enable it');
+assert.match(viewportModule, /gentle: 0\.35, normal: 0\.8, dynamic: 1\.5/, 'Explicit poster motion levels map to predictable automatic rotation speeds');
+assert.match(viewportModule, /orbitControls\.autoRotate = true/, 'Explicit motion levels enable automatic rotation without disabling manual orbit');
+assert.match(viewportModule, /orbitControls\.autoRotate = originalAutoRotate/, 'Still mode preserves the viewer automatic-rotation default');
 assert.match(viewportModule, /originalAutoRotateSpeed/, 'Disabling poster mode restores the viewer automatic rotation speed');
 assert.match(viewportModule, /orbitControls\.autoRotate = originalAutoRotate/, 'Disabling poster mode restores the viewer automatic-rotation enabled state');
 console.log('Poster viewport geometry and Studio renderer-host tests passed.');
