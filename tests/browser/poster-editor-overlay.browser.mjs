@@ -64,6 +64,20 @@ try{
    'Dragging directly on a Gaussian must move the selected splat in poster coordinates');
  assert.equal(await page.evaluate(()=>window.FumocaPoster.getState().selectedSubjectId),'subject_second',
    'Dragging a splat keeps that object selected and must not orbit the camera');
+ const beforePan=await page.evaluate(()=>({...window.FumocaPoster.getState().composition.subjects[0]}));
+ const panPassedThrough=await page.evaluate(()=>{
+   window._fumocaStudioMode='pan';
+   let received=false;
+   const canvas=document.getElementById('live-splat');
+   canvas.addEventListener('pointerdown',()=>{received=true;},{once:true});
+   canvas.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,button:0,pointerId:13,clientX:500,clientY:400}));
+   canvas.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,button:0,pointerId:13,clientX:500,clientY:400}));
+   return received;
+ });
+ assert.equal(panPassedThrough,true,'Pan mode must pass pointer input through to the camera navigation handler');
+ assert.deepEqual(await page.evaluate(()=>window.FumocaPoster.getState().composition.subjects[0]),beforePan,
+   'Pan mode must not accidentally reposition the poster subject');
+ await page.evaluate(()=>{window._fumocaStudioMode='move';});
  const sidePick=page.getByRole('button',{name:'Select Side product'});
  await sidePick.click();
  assert.equal(await page.evaluate(()=>window.FumocaPoster.getState().selectedSubjectId),'subject_second','clicking a visible poster subject should select that 3D object');
