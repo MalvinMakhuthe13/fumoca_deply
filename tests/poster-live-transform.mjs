@@ -101,7 +101,7 @@ const subjectA = {
 };
 const subjectB = {
   id: 'subject-b',
-  center: { x: 3, y: 1, z: -2 },
+  center: { x: 0, y: 0, z: 0 },
   object: { x: 0.8, y: 0.7, scale: 1.8, rotation: 42, z: 8 },
 };
 const worldA = computePosterWorldTransform({
@@ -117,7 +117,13 @@ const worldB = computePosterWorldTransform({
 assert.notDeepEqual(worldA.position, worldB.position, 'Each subject must keep its own poster-space position and pivot');
 assert.notEqual(worldA.scale, worldB.scale, 'Each subject must keep its own scale');
 assert.notEqual(worldA.rotation, worldB.rotation, 'Each subject must keep its own base rotation');
-assert.ok(worldB.position.z > worldA.position.z, 'Each subject must keep its own depth layer');
+const distanceToCamera = (position) => Math.hypot(
+  base.cameraPosition.x - position.x,
+  base.cameraPosition.y - position.y,
+  base.cameraPosition.z - position.z,
+);
+assert.ok(distanceToCamera(worldB.position) < distanceToCamera(worldA.position),
+  'A higher poster depth layer moves the subject toward the camera along its view direction');
 
 const subjectPhases = new Map([['subject-a', 0.25], ['subject-b', 1.1]]);
 let yawA = null, yawB = null;
