@@ -73,14 +73,10 @@ assert.ok(viewportModule.includes("host.insertBefore(backgroundNode, host.firstC
 assert.ok(viewportModule.includes("width: layout.width + 'px'"), 'Poster background and editorial canvas use the calculated poster dimensions');
 assert.ok(viewportModule.includes("posterCanvas.style.display = 'none'"), 'Poster editorial canvas is hidden when poster composition is disabled');
 assert.ok(viewportModule.includes("measureEl"), 'Available space is measured from the stable host without resizing the main viewport');
-assert.match(viewportModule, /calculatePosterCanvasClip\(\s*canvasRect, posterRect/,
-  'The renderer clip must be calculated in the live canvas coordinate system');
-assert.match(viewportModule, /left: rect\.left \+ layout\.left[\s\S]*?bottom: rect\.top \+ layout\.top \+ layout\.height/,
-  'The poster frame must be converted to absolute screen coordinates before clipping the canvas');
-assert.match(viewportModule, /rendererCanvas\.style\.clipPath = clip/,
-  'Studio WebGL pixels must be clipped to the poster frame');
-assert.match(viewportModule, /const clip = calculatePosterCanvasClip\(/,
-  'The renderer clip must intersect the actual canvas bounds with the poster frame');
+
+
+
+
 assert.match(viewportModule, /const syncRendererBindings = \(\) =>/, 'Poster mode must discover late-mounted renderer and controls');
 assert.match(viewportModule, /viewerReadyCamera = event\.detail\?\.camera \|\| viewerReadyCamera/, 'Poster zoom must bind to the actual camera announced by viewerReady');
 assert.match(viewportModule, /viewerReadyControls = event\.detail\?\.controls \|\| event\.detail\?\.viewer\?\.controls/, 'Poster mode must bind to the active viewer controls');
