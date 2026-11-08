@@ -1,11 +1,17 @@
 import assert from 'node:assert/strict';
-import { applyPosterLiveTransform, computePosterWorldTransform, posterMotionSpeed } from '../js/modules/poster-live-transform.js';
+import { advancePosterMotionPhase, applyPosterLiveTransform, computePosterWorldTransform, posterMotionSpeed } from '../js/modules/poster-live-transform.js';
 
 assert.equal(posterMotionSpeed('still'), 0);
 assert.equal(posterMotionSpeed('gentle'), 0.35);
 assert.equal(posterMotionSpeed('normal'), 0.8);
 assert.equal(posterMotionSpeed('dynamic'), 1.5);
 assert.equal(posterMotionSpeed('unknown'), 0, 'Unknown motion levels safely remain still');
+
+assert.ok(advancePosterMotionPhase(0, 1, 0.016) > 0, 'Motion phase advances with elapsed frame time');
+assert.equal(advancePosterMotionPhase(1, 0, 0.016), 0, 'Still mode resets motion phase');
+assert.equal(advancePosterMotionPhase(1, 1, 0), 1, 'Zero elapsed time does not advance motion');
+assert.ok(advancePosterMotionPhase(6.27, 1, 0.05) < Math.PI * 2, 'Motion phase wraps without discontinuous overflow');
+assert.equal(advancePosterMotionPhase(0, 1, 1), 0.05, 'Frame delta is capped to prevent tab-resume jumps');
 
 const base = {
   center: { x: 2, y: 3, z: 4 },
