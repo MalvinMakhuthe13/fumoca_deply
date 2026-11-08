@@ -215,16 +215,13 @@ export function initPosterAssets({ editable = false } = {}) {
           const startItemY = clamp((layerRect.top + layerRect.height / 2 - rect.top) / Math.max(1, rect.height), 0, 1);
           // Preserve the complete visible (rotation-aware) layer inside the
           // artboard while allowing its centre to move freely across the frame.
-          const halfWidth = layerRect.width / 2;
-          const halfHeight = layerRect.height / 2;
-          const minX = clamp(halfWidth / Math.max(1, rect.width), 0, 1);
-          const maxX = clamp(1 - halfWidth / Math.max(1, rect.width), 0, 1);
-          const minY = clamp(halfHeight / Math.max(1, rect.height), 0, 1);
-          const maxY = clamp(1 - halfHeight / Math.max(1, rect.height), 0, 1);
+          // The poster itself clips overflow. Let the anchor reach every edge
+          // (and even crop intentionally) instead of trapping the image centre
+          // inside an invisible inset rectangle.
           patchItem(item.id, { anchor: 'free', x: startItemX, y: startItemY });
           const move = (ev) => {
-            const x = clamp(startItemX + (ev.clientX - startX) / Math.max(1, rect.width), minX, maxX);
-            const y = clamp(startItemY + (ev.clientY - startY) / Math.max(1, rect.height), minY, maxY);
+            const x = clamp(startItemX + (ev.clientX - startX) / Math.max(1, rect.width), 0, 1);
+            const y = clamp(startItemY + (ev.clientY - startY) / Math.max(1, rect.height), 0, 1);
             patchItem(item.id, { anchor: 'free', x, y });
           };
           const up = () => {
