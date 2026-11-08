@@ -69,6 +69,26 @@ export function mountPosterEditorOverlay(options = {}) {
     if (typeof api.updateSubject === 'function') api.updateSubject(subject.id, patch);
     else api.updateComposition({ object: patch });
   };
+  const pickPosterSubject = (clientX, clientY) => {
+    const precise = window.FumocaPosterPicking?.pick?.(clientX, clientY);
+    if (precise?.id) return precise;
+    // Fallback to each subject's saved poster anchor when the renderer has not
+    // published screen-space bounds yet (e.g. during a viewer remount).
+    if (!rect?.width || !rect?.height) return null;
+    const bounds = host.getBoundingClientRect();
+    const radius = Math.max(48, Math.min(rect.width, rect.height) * 0.24);
+    return (api.getState().composition?.subjects || [])
+      .filter(item => item.visible !== false)
+      .map(item => ({
+        id: item.id,
+        distance: Math.hypot(
+          clientX - (bounds.left + rect.left + Number(item.x ?? .5) * rect.width),
+          clientY - (bounds.top + rect.top + Number(item.y ?? .53) * rect.height)
+        ),
+      }))
+      .filter(item => item.distance <= radius)
+      .sort((a,b) => a.distance - b.distance)[0] || null;
+  };
   const refresh = () => {
     const state = api.getState(), composition = state?.composition || {};
     root.hidden = !state?.enabled;
@@ -170,7 +190,7 @@ export function mountPosterEditorOverlay(options = {}) {
     // Alt+left-drag is reserved for camera orbit even when the pointer is
     // over the Gaussian; ordinary left-drag moves the object itself.
     if (root.contains(event.target) || event.button !== 0 || event.altKey) { pickPointer = null; return; }
-    const picked = window.FumocaPosterPicking?.pick?.(event.clientX, event.clientY);
+    const picked = pickPosterSubject(event.clientX, event.clientY);
     if (!picked?.id) { pickPointer = null; return; }
     const subject = (api.getState().composition?.subjects || []).find(item => item.id === picked.id);
     if (!subject) { pickPointer = null; return; }
