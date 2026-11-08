@@ -46,21 +46,24 @@ function ensureLayer() {
     position: 'absolute', inset: '0', width: '100%', height: '100%',
     overflow: 'hidden', pointerEvents: 'none', zIndex: '20',
   });
-  // Delegate pointer handling from the text layer in capture phase. This
-  // keeps text dragging reliable when poster canvas / renderer overlays are
-  // remounted, and avoids depending on a per-node handler surviving rebuilds.
-  if (!layer.dataset.dragDelegateBound) {
-    layer.dataset.dragDelegateBound = '1';
-    layer.addEventListener('pointerdown', event => {
+  // Delegate from document capture rather than the overlay itself. The poster
+  // renderer creates/remounts several positioned canvases and some browsers
+  // do not dispatch pointer events through a pointer-events:none overlay
+  // ancestor consistently. A document capture listener survives those
+  // remounts and still only handles actual magazine text nodes.
+  if (!document.documentElement.dataset.fumocaMagazineDragDelegate) {
+    document.documentElement.dataset.fumocaMagazineDragDelegate = '1';
+    document.addEventListener('pointerdown', event => {
       if (!editing || event.button !== 0) return;
       const el = event.target.closest?.('.mt-item');
-      if (!el || !layer.contains(el)) return;
+      const activeLayer = document.getElementById('magazineTextLayer');
+      if (!el || !activeLayer?.contains(el)) return;
       const item = items.find(entry => entry.id === el.dataset.id);
       if (!item || item.locked) return;
       const handle = event.target.closest?.('[data-resize]');
       if (handle) { startResize(event, item, handle.dataset.resize); return; }
       selectedTextId = item.id;
-      layer.querySelectorAll('.mt-item').forEach(node => node.classList.toggle('mt-selected', node === el));
+      activeLayer.querySelectorAll('.mt-item').forEach(node => node.classList.toggle('mt-selected', node === el));
       startDrag(event, item, el);
     }, true);
   }
