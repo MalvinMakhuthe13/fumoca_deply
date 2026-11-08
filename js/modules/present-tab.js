@@ -340,6 +340,26 @@ function mountPanel() {
         <label class="ptp-poster-field">Background blur<input type="range" min="0" max="30" value="0" data-poster-field="backgroundBlur"></label>
         <label class="ptp-poster-field">Brightness<input type="range" min="20" max="200" value="100" data-poster-field="backgroundBrightness"></label>
       </div>
+    <div class="ptp-section">
+      <div class="ptp-title">Additional text & copy layers</div>
+      <div class="ptp-row">
+        <button type="button" data-act="weekly">WEEKLY</button>
+        <button type="button" data-act="48hours">48 HOURS</button>
+        <button type="button" data-act="product">Product</button>
+        <button type="button" data-act="hero">Hero title</button>
+        <button type="button" data-act="luxury">Luxury</button>
+        <button type="button" data-act="fashion">Fashion</button>
+        <button type="button" data-act="launch">Product launch</button>
+        <button type="button" data-act="architecture">Architecture</button>
+        <button type="button" data-act="clear-text">Clear text</button>
+        <button type="button" data-act="add-custom-text" class="primary">+ Custom text</button>
+      </div>
+      <div class="ptp-hint">Add subtitles, descriptions, prices, labels and promotional copy. Select a layer, then drag it anywhere on the poster or set exact X/Y, size, rotation and styling.</div>
+    </div>
+    <div class="ptp-section">
+      <div class="ptp-title">Text styling · edit each item</div>
+      <div id="ptpTextManager" class="ptp-text-manager"></div>
+    </div>
       <div class="ptp-poster-subtitle">SUPPORTING IMAGES</div>
       <div class="ptp-upload-card"><div><strong>Supporting images</strong><small>Upload images, logos or textures from your device · Add logos, cut-outs, textures or product photos</small></div><button type="button" data-act="choose-overlays" class="ptp-upload-button">＋ Add images</button><input type="file" accept="image/png,image/jpeg,image/webp" data-poster-field="overlayFile" multiple hidden><span data-upload-name="overlays">Up to 12 images · PNG, JPG or WEBP</span></div>
       <div class="ptp-poster-actions"><button type="button" data-act="clear-overlays">Remove all supporting images</button></div>
@@ -354,26 +374,6 @@ function mountPanel() {
       <div class="ptp-poster-status" id="ptpPosterStatus">Studio now provides a drag handle over the real 3D viewport. Drag the ring or focus it and use arrow keys; the poster frame shows the selected composition bounds.</div>
       <div class="ptp-poster-actions"><button type="button" data-act="poster-cloud-save" class="primary">Save poster to asset</button><button type="button" data-act="copy" class="ptp-poster-copy">Copy viewer link</button></div>
       <div class="ptp-poster-status" id="ptpPosterCloudStatus">Local composition is saved automatically. Cloud save is a separate action.</div>
-    </div>
-    <div class="ptp-section">
-      <div class="ptp-title">Magazine cover text</div>
-      <div class="ptp-row">
-        <button type="button" data-act="weekly">WEEKLY</button>
-        <button type="button" data-act="48hours">48 HOURS</button>
-        <button type="button" data-act="product">Product</button>
-        <button type="button" data-act="hero">Hero title</button>
-        <button type="button" data-act="luxury">Luxury</button>
-        <button type="button" data-act="fashion">Fashion</button>
-        <button type="button" data-act="launch">Product launch</button>
-        <button type="button" data-act="architecture">Architecture</button>
-        <button type="button" data-act="clear-text">Clear text</button>
-        <button type="button" data-act="add-custom-text" class="primary">+ Custom text</button>
-      </div>
-      <div class="ptp-hint">Choose a complete editorial direction, then refine every text layer. Drag text on the canvas or set exact position, typography, width and opacity below.</div>
-    </div>
-    <div class="ptp-section">
-      <div class="ptp-title">Text styling · edit each item</div>
-      <div id="ptpTextManager" class="ptp-text-manager"></div>
     </div>
     <div class="ptp-section">
       <div class="ptp-title">Nav · Matterport style</div>
