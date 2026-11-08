@@ -3,6 +3,10 @@
  * Converts normalized poster composition into a camera-plane world transform.
  * Renderer-agnostic: it never mutates Gaussian data or camera controls.
  */
+export function posterMotionSpeed(level) {
+  return ({ still: 0, gentle: 0.35, normal: 0.8, dynamic: 1.5 })[String(level || 'still').toLowerCase()] ?? 0;
+}
+
 export function computePosterWorldTransform({
   center = { x: 0, y: 0, z: 0 },
   cameraPosition = { x: 0, y: 0, z: 10 },
