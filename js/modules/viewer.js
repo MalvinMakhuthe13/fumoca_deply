@@ -2079,7 +2079,7 @@ async function mountPublishedSparkPly(url) {
   // TrackballControls does not implement OrbitControls.autoRotate. Animate the
   // presentation pivots directly so poster motion works on the high-fidelity
   // Spark renderer without taking camera control away from the viewer.
-  let posterMotionPhase = 0;
+  const posterMotionPhases = new Map();
   let lastPosterFrameAt = 0;
   const loop = (frameTime = performance.now()) => {
     if (!_plyRenderer || !_publishedSparkRenderer) return;
@@ -2088,27 +2088,35 @@ async function mountPublishedSparkPly(url) {
     const posterState = window.FumocaPoster?.getState?.() || _fumocaPosterStateCache;
     const frameDelta = lastPosterFrameAt ? Math.min(0.05, Math.max(0, (frameTime - lastPosterFrameAt) / 1000)) : 0;
     lastPosterFrameAt = frameTime;
-    const motionSpeed = posterState?.enabled ? posterMotionSpeed(posterState.composition?.motion?.level) : 0;
-    posterMotionPhase = advancePosterMotionPhase(posterMotionPhase, motionSpeed, frameDelta);
+    const defaultMotionLevel = posterState?.composition?.motion?.level || 'still';
+    const subjectMotion = (subject) => {
+      const level = subject?.motion?.level || defaultMotionLevel;
+      const speed = posterState?.enabled ? posterMotionSpeed(level) : 0;
+      const phase = advancePosterMotionPhase(posterMotionPhases.get(subject?.id) || 0, speed, frameDelta);
+      if (subject?.id) posterMotionPhases.set(subject.id, phase);
+      return { speed, phase };
+    };
     if (posterState?.composition && _publishedSparkGroup) {
       const mainSubject = (posterState.composition.subjects || []).find(item => item.id === 'subject_main');
+      const mainMotion = subjectMotion(mainSubject || { id: 'subject_main' });
       _publishedSparkGroup.visible = mainSubject?.visible !== false;
       applyPosterLiveTransform({
         THREE, group: _publishedSparkGroup, camera: _plyCamera, center,
         composition: { ...posterState.composition, object: { ...posterState.composition.object, z: mainSubject?.z ?? 1 } }, enabled: !!posterState.enabled,
       });
-      if (motionSpeed > 0) applyPosterMotionRotation(THREE, _publishedSparkGroup, posterMotionPhase);
+      if (mainMotion.speed > 0) applyPosterMotionRotation(THREE, _publishedSparkGroup, mainMotion.phase);
       for (const subject of posterState.composition.subjects || []) {
         if (subject.id === 'subject_main') continue;
         const entry = posterSubjectMeshes.get(subject.id);
         if (!entry?.group || entry.status !== 'ready') continue;
+        const motion = subjectMotion(subject);
         entry.group.visible = subject.visible !== false;
         const subjectComposition = { ...posterState.composition, object: subject };
         applyPosterLiveTransform({
           THREE, group: entry.group, camera: _plyCamera, center: entry.center,
           composition: subjectComposition, enabled: !!posterState.enabled,
         });
-        if (motionSpeed > 0) applyPosterMotionRotation(THREE, entry.group, posterMotionPhase);
+        if (motion.speed > 0) applyPosterMotionRotation(THREE, entry.group, motion.phase);
       }
     }
     _plyRenderer.render(_plyScene, _plyCamera);
