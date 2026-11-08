@@ -86,7 +86,13 @@ export function mountPosterViewport() {
     return camera;
   };
   const syncRendererBindings = () => {
-    const nextCanvas = host.querySelector('canvas');
+    // #viewport contains a legacy placeholder canvas before the actual WebGL renderer canvas.
+    // querySelector('canvas') selects that placeholder, leaving the live splat canvas unclipped.
+    // Prefer the renderer's authoritative DOM element and only then fall back to a non-placeholder canvas.
+    const nextCanvas = window._fumocaGlRenderer?.domElement ||
+      window.renderer?.domElement ||
+      Array.from(host.querySelectorAll('canvas')).find(canvas => canvas.id !== 'viewportCanvas') ||
+      null;
     if (nextCanvas !== rendererCanvas) {
       if (rendererCanvas) {
         rendererCanvas.style.clipPath = '';
