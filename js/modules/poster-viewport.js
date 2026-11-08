@@ -459,8 +459,11 @@ export function mountPosterViewport() {
     const y = 1 - ((clientY - posterBounds.top) / height) * 2;
     const d = x * x + y * y;
     const z = d <= 1 ? Math.sqrt(1 - d) : 0;
-    const vector = camera.position.clone().set(x, y, z);
-    return vector.normalize();
+    const THREE = window.THREE;
+    const vector = THREE?.Vector3
+      ? new THREE.Vector3(x, y, z)
+      : getCamera()?.position?.clone?.().set(x, y, z);
+    return vector?.normalize?.() || null;
   };
   const onTrackballDown = event => {
     if (!isStudioEditor || event.button !== 0 || event.altKey || !posterBounds) return;
@@ -470,12 +473,17 @@ export function mountPosterViewport() {
     if (event.clientX < posterBounds.left || event.clientX > posterBounds.right ||
         event.clientY < posterBounds.top || event.clientY > posterBounds.bottom) return;
     const activeCamera = getCamera();
-    if (!activeCamera?.position || !activeCamera?.quaternion) return;
+    if (!activeCamera?.position || !activeCamera?.quaternion || !window.THREE?.Quaternion) return;
     const point = trackballVector(event.clientX, event.clientY);
     if (!point) return;
     trackballGesture = {
       pointerId: event.pointerId,
-      previousWorld: point.clone().applyQuaternion(activeCamera.quaternion),
+      // Keep trackball points in the gesture's starting camera space. Reusing
+      // the newly rotated camera quaternion for the previous point compounds
+      // the transform and causes the drag to collapse into a constrained orbit.
+      previous: point.clone(),
+      startQuaternion: activeCamera.quaternion.clone(),
+      target: orbitControls?.target?.clone?.() || null,
     };
     try { host.setPointerCapture?.(event.pointerId); } catch (_) {}
     event.preventDefault();
@@ -486,20 +494,21 @@ export function mountPosterViewport() {
     const activeCamera = getCamera();
     const current = trackballVector(event.clientX, event.clientY);
     if (!activeCamera || !current) return;
-    // Convert both arcball points from camera-local to world space before
-    // deriving the incremental rotation quaternion.
-    const previousWorld = trackballGesture.previous.clone().applyQuaternion(activeCamera.quaternion);
-    const currentWorld = current.clone().applyQuaternion(activeCamera.quaternion);
-    const delta = activeCamera.quaternion.clone().setFromUnitVectors(currentWorld, previousWorld);
-    const target = orbitControls?.target;
+    // Build the incremental arcball delta in the original camera frame, then
+    // conjugate it into world space so yaw, pitch AND roll remain unrestricted.
+    const deltaCamera = new window.THREE.Quaternion()
+      .setFromUnitVectors(current, trackballGesture.previous);
+    const base = trackballGesture.startQuaternion;
+    const deltaWorld = base.clone().multiply(deltaCamera).multiply(base.clone().invert());
+    const target = trackballGesture.target || orbitControls?.target;
     if (target && activeCamera.position?.sub && activeCamera.position?.add) {
-      const offset = activeCamera.position.clone().sub(target).applyQuaternion(delta);
+      const offset = activeCamera.position.clone().sub(target).applyQuaternion(deltaWorld);
       activeCamera.position.copy(target).add(offset);
     }
-    activeCamera.quaternion.premultiply(delta).normalize();
-    if (activeCamera.up?.applyQuaternion) activeCamera.up.applyQuaternion(delta).normalize();
+    activeCamera.quaternion.premultiply(deltaWorld).normalize();
+    if (activeCamera.up?.applyQuaternion) activeCamera.up.applyQuaternion(deltaWorld).normalize();
     activeCamera.updateMatrixWorld?.();
-    trackballGesture.previousWorld = currentWorld;
+    trackballGesture.previous.copy(current);
     event.preventDefault();
     event.stopImmediatePropagation();
   };
