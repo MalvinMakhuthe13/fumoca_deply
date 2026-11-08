@@ -208,22 +208,24 @@ export function initPosterAssets({ editable = false } = {}) {
           const rect = root.getBoundingClientRect();
           const layerRect = layer.getBoundingClientRect();
           const startX = event.clientX, startY = event.clientY;
-          const startItemX = item.x, startItemY = item.y;
-          // Preserve the complete visible layer inside the artboard. Use its
-          // rendered (already rotation-aware) bounds so wide and rotated logos
-          // cannot be dragged halfway beyond the poster edge.
-          const leftInset = layerRect.left - rect.left - startItemX * rect.width;
-          const rightInset = layerRect.right - rect.left - startItemX * rect.width;
-          const topInset = layerRect.top - rect.top - startItemY * rect.height;
-          const bottomInset = layerRect.bottom - rect.top - startItemY * rect.height;
-          const minX = clamp(-leftInset / Math.max(1, rect.width), 0, 1);
-          const maxX = clamp((rect.width - rightInset) / Math.max(1, rect.width), 0, 1);
-          const minY = clamp(-topInset / Math.max(1, rect.height), 0, 1);
-          const maxY = clamp((rect.height - bottomInset) / Math.max(1, rect.height), 0, 1);
+          // Dragging always switches to a true free/centre anchor. This makes
+          // every image layer feel directly movable even if it was previously
+          // attached to a corner or edge anchor in the inspector.
+          const startItemX = clamp((layerRect.left + layerRect.width / 2 - rect.left) / Math.max(1, rect.width), 0, 1);
+          const startItemY = clamp((layerRect.top + layerRect.height / 2 - rect.top) / Math.max(1, rect.height), 0, 1);
+          // Preserve the complete visible (rotation-aware) layer inside the
+          // artboard while allowing its centre to move freely across the frame.
+          const halfWidth = layerRect.width / 2;
+          const halfHeight = layerRect.height / 2;
+          const minX = clamp(halfWidth / Math.max(1, rect.width), 0, 1);
+          const maxX = clamp(1 - halfWidth / Math.max(1, rect.width), 0, 1);
+          const minY = clamp(halfHeight / Math.max(1, rect.height), 0, 1);
+          const maxY = clamp(1 - halfHeight / Math.max(1, rect.height), 0, 1);
+          patchItem(item.id, { anchor: 'free', x: startItemX, y: startItemY });
           const move = (ev) => {
             const x = clamp(startItemX + (ev.clientX - startX) / Math.max(1, rect.width), minX, maxX);
             const y = clamp(startItemY + (ev.clientY - startY) / Math.max(1, rect.height), minY, maxY);
-            patchItem(item.id, { x, y });
+            patchItem(item.id, { anchor: 'free', x, y });
           };
           const up = () => {
             window.removeEventListener('pointermove', move);
