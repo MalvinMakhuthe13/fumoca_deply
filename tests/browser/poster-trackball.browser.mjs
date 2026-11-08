@@ -17,18 +17,22 @@ class Vector3 {
  sub(v){this.x-=v.x;this.y-=v.y;this.z-=v.z;return this}
  add(v){this.x+=v.x;this.y+=v.y;this.z+=v.z;return this}
  copy(v){this.x=v.x;this.y=v.y;this.z=v.z;return this}
- applyQuaternion(q){this.x+=q.value;this.y+=q.value/2;return this}
+ dot(v){return this.x*v.x+this.y*v.y+this.z*v.z}
+ cross(v){const x=this.y*v.z-this.z*v.y,y=this.z*v.x-this.x*v.z,z=this.x*v.y-this.y*v.x;this.x=x;this.y=y;this.z=z;return this}
+ applyQuaternion(q){const x=this.x,y=this.y,z=this.z,qx=q.x,qy=q.y,qz=q.z,qw=q.w;const ix=qw*x+qy*z-qz*y,iy=qw*y+qz*x-qx*z,iz=qw*z+qx*y-qy*x,iw=-qx*x-qy*y-qz*z;this.x=ix*qw+iw*-qx+iy*-qz-iz*-qy;this.y=iy*qw+iw*-qy+iz*-qx-ix*-qz;this.z=iz*qw+iw*-qz+ix*-qy-iy*-qx;return this}
 }
 class Quaternion {
- constructor(value=0){this.value=value}
- clone(){return new Quaternion(this.value)}
- setFromUnitVectors(a,b){this.value=(b.x-a.x)+(b.y-a.y)*2+(b.z-a.z)*3;return this}
- multiply(q){this.value+=q.value;return this}
- premultiply(q){this.value=q.value+this.value;return this}
- invert(){this.value=-this.value;return this}
- normalize(){return this}
+ constructor(x=0,y=0,z=0,w=1){this.x=x;this.y=y;this.z=z;this.w=w}
+ set(x,y,z,w){this.x=x;this.y=y;this.z=z;this.w=w;return this}
+ clone(){return new Quaternion(this.x,this.y,this.z,this.w)}
+ setFromUnitVectors(a,b){let r=a.dot(b)+1;if(r<1e-6){if(Math.abs(a.x)>Math.abs(a.z))this.set(-a.y,a.x,0,0);else this.set(0,-a.z,a.y,0)}else{const v=a.clone().cross(b);this.set(v.x,v.y,v.z,r)}return this.normalize()}
+ multiply(q){return this.multiplyQuaternions(this,q)}
+ premultiply(q){return this.multiplyQuaternions(q,this)}
+ multiplyQuaternions(a,b){const qax=a.x,qay=a.y,qaz=a.z,qaw=a.w,qbx=b.x,qby=b.y,qbz=b.z,qbw=b.w;this.x=qax*qbw+qaw*qbx+qay*qbz-qaz*qby;this.y=qay*qbw+qaw*qby+qaz*qbx-qax*qbz;this.z=qaz*qbw+qaw*qbz+qax*qby-qay*qbx;this.w=qaw*qbw-qax*qbx-qay*qby-qaz*qbz;return this}
+ invert(){this.x=-this.x;this.y=-this.y;this.z=-this.z;return this}
+ normalize(){const n=Math.hypot(this.x,this.y,this.z,this.w)||1;this.x/=n;this.y/=n;this.z/=n;this.w/=n;return this}
 }
-const camera={position:new Vector3(0,0,5),quaternion:new Quaternion(0),up:new Vector3(0,1,0),zoom:1,updateProjectionMatrix(){},updateMatrixWorld(){}};
+const camera={position:new Vector3(0,0,5),quaternion:new Quaternion(),up:new Vector3(0,1,0),zoom:1,updateProjectionMatrix(){},updateMatrixWorld(){}};
 const controls={target:new Vector3(0,0,0),enablePan:true,enableZoom:true,autoRotate:false,autoRotateSpeed:1};
 window._fumocaCaptureCanvas=document.getElementById('spark-canvas');
 window._fumocaViewerCamera=camera;window._fumocaCamera=camera;window._fumocaViewerControls=controls;window.S={mode:'orbit'};
@@ -56,14 +60,16 @@ try{
  const errors=[];page.on('pageerror',error=>errors.push(error.message));
  await page.goto('http://127.0.0.1:'+port+'/edit.html');
  await page.waitForFunction(()=>document.getElementById('viewport')?.dataset.fumocaPosterViewport==='1');
- const before=await page.evaluate(()=>window.__camera.quaternion.value);
+ const before=await page.evaluate(()=>[window.__camera.quaternion.x,window.__camera.quaternion.y,window.__camera.quaternion.z,window.__camera.quaternion.w]);
  await page.mouse.move(400,500);await page.mouse.down();await page.mouse.move(540,420,{steps:8});await page.mouse.up();
- const afterOrbit=await page.evaluate(()=>window.__camera.quaternion.value);
- assert.notEqual(afterOrbit,before,'poster Orbit mode must rotate the active camera without a window.THREE global');
- await page.evaluate(()=>{window.__camera.quaternion.value=0});
+ await page.mouse.move(799,500);await page.mouse.down();await page.mouse.move(400,999,{steps:10});await page.mouse.up();
+ const afterOrbit=await page.evaluate(()=>[window.__camera.quaternion.x,window.__camera.quaternion.y,window.__camera.quaternion.z,window.__camera.quaternion.w]);
+ assert.notDeepEqual(afterOrbit,before,'poster Orbit mode must rotate the active camera without a window.THREE global');
+ assert.ok(Math.abs(afterOrbit[0])>1e-4&&Math.abs(afterOrbit[1])>1e-4&&Math.abs(afterOrbit[2])>1e-4,'combined arcball drags must produce independent X, Y and Z quaternion components for full 3D tumble');
+ await page.evaluate(()=>{window.__camera.quaternion.set(0,0,0,1)});
  await page.mouse.move(70,70);await page.mouse.down();await page.mouse.move(180,160,{steps:6});await page.mouse.up();
- const afterImageDrag=await page.evaluate(()=>window.__camera.quaternion.value);
- assert.equal(afterImageDrag,0,'supporting-image dragging must not also rotate the 3D camera');
+ const afterImageDrag=await page.evaluate(()=>[window.__camera.quaternion.x,window.__camera.quaternion.y,window.__camera.quaternion.z]);
+ assert.deepEqual(afterImageDrag,[0,0,0],'supporting-image dragging must not also rotate the 3D camera');
  assert.deepEqual(errors,[]);
  console.log('Chromium trackball test passed: camera Quaternion is resolved from the active renderer and image drags do not start camera rotation.');
 }finally{
