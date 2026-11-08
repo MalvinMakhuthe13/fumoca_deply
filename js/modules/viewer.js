@@ -13,7 +13,7 @@ import './adaptive-presentation.js';
 import './poster-composer.js';
 import './poster-viewport.js?v=20261106-backgroundlayers01';
 import './poster-assets.js?v=20261106-layercontrols02';
-import { applyPosterLiveTransform } from './poster-live-transform.js';
+import { applyPosterLiveTransform, posterMotionSpeed } from './poster-live-transform.js';
 let _fumocaPosterStateCache = null;
 window.addEventListener('fumoca:posterChange', (event) => {
   _fumocaPosterStateCache = event.detail || window.FumocaPoster?.getState?.() || null;
@@ -2076,11 +2076,20 @@ async function mountPublishedSparkPly(url) {
     _plyCamera.aspect = w / h; _plyCamera.updateProjectionMatrix(); _plyRenderer.setSize(w, h, false);
   };
   window.addEventListener('resize', resize);
-  const loop = () => {
+  // TrackballControls does not implement OrbitControls.autoRotate. Animate the
+  // presentation pivots directly so poster motion works on the high-fidelity
+  // Spark renderer without taking camera control away from the viewer.
+  let posterMotionPhase = 0;
+  let lastPosterFrameAt = 0;
+  const loop = (frameTime = performance.now()) => {
     if (!_plyRenderer || !_publishedSparkRenderer) return;
     _plyFrame = requestAnimationFrame(loop);
     _plyControls?.update();
     const posterState = window.FumocaPoster?.getState?.() || _fumocaPosterStateCache;
+    const frameDelta = lastPosterFrameAt ? Math.min(0.05, Math.max(0, (frameTime - lastPosterFrameAt) / 1000)) : 0;
+    lastPosterFrameAt = frameTime;
+    const motionSpeed = posterState?.enabled ? posterMotionSpeed(posterState.composition?.motion?.level) : 0;
+    posterMotionPhase = motionSpeed > 0 ? (posterMotionPhase + motionSpeed * frameDelta) % (Math.PI * 2) : 0;
     if (posterState?.composition && _publishedSparkGroup) {
       const mainSubject = (posterState.composition.subjects || []).find(item => item.id === 'subject_main');
       _publishedSparkGroup.visible = mainSubject?.visible !== false;
@@ -2088,6 +2097,7 @@ async function mountPublishedSparkPly(url) {
         THREE, group: _publishedSparkGroup, camera: _plyCamera, center,
         composition: { ...posterState.composition, object: { ...posterState.composition.object, z: mainSubject?.z ?? 1 } }, enabled: !!posterState.enabled,
       });
+      if (motionSpeed > 0) _publishedSparkGroup.rotateY(posterMotionPhase);
       for (const subject of posterState.composition.subjects || []) {
         if (subject.id === 'subject_main') continue;
         const entry = posterSubjectMeshes.get(subject.id);
@@ -2098,6 +2108,7 @@ async function mountPublishedSparkPly(url) {
           THREE, group: entry.group, camera: _plyCamera, center: entry.center,
           composition: subjectComposition, enabled: !!posterState.enabled,
         });
+        if (motionSpeed > 0) entry.group.rotateY(posterMotionPhase);
       }
     }
     _plyRenderer.render(_plyScene, _plyCamera);
