@@ -18,7 +18,7 @@ const savedNifRecord = {
           background:{type:'image',value:'https://assets.example.test/poster-bg.webp',r2Key:'poster-assets/user-1/nif-browser-fixture/background.webp',bucket:'thumbnails',fit:'cover',position:'center',opacity:0.92,blur:3,brightness:1.15},
           subjects:[
             {id:'subject_main',label:'Main subject',source:{type:'current'},x:0.62,y:0.5,scale:1.1,rotation:8,z:1,visible:true},
-            {id:'subject_second',label:'Second product',source:{type:'nif',assetId:'nif-secondary'},x:0.28,y:0.66,scale:0.7,rotation:-12,z:2,visible:true}
+            {id:'subject_second',label:'Second product',source:{type:'nif',assetId:'nif-secondary'},x:0.28,y:0.66,scale:0.7,rotation:-12,z:2,visible:true,motion:{level:'gentle'}}
           ],
           assets:{images:[
             {id:'brand-mark',name:'Brand mark',src:'https://assets.example.test/logo.webp',r2Key:'poster-assets/user-1/nif-browser-fixture/brand-mark.webp',bucket:'thumbnails',x:0.12,y:0.12,width:0.2,sizeMode:'fixed',fixedWidthPx:144,minWidthPx:96,maxWidthPx:360,anchor:'bottom-right',rotation:13,opacity:0.85,z:5,fit:'cover',visible:true}
@@ -127,6 +127,8 @@ try {
   assert.equal(restored.composition.subjects.length,2);
   assert.equal(restored.composition.subjects[1].source.assetId,'nif-secondary');
   assert.equal(restored.composition.subjects[1].rotation,-12);
+  assert.equal(restored.composition.subjects[1].motion.level,'gentle','saved per-subject motion override must survive a fresh public viewer session');
+  assert.equal(restored.composition.subjects[0].motion,null,'main subject without an override must continue inheriting the poster-wide motion level');
   console.log('Browser test passed: a clean browser session fetches saved NIF metadata from the server fixture and restores R2-backed poster media, multiple independently transformed subjects, editorial text and navigation stops.');
 } finally {
   if(browser) await browser.close();
