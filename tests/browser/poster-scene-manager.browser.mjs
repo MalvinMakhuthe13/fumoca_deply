@@ -50,6 +50,16 @@ try{
   assert.equal(secondary.label,'Secondary product');
   assert.equal(secondary.source.assetId,'nif-secondary-001');
   assert.equal(state.selectedSubjectId,secondary.id,'New subject becomes selected');
+  await page.locator('[data-scene-motion]').selectOption('dynamic');
+  state=await page.evaluate(()=>window.FumocaPoster.getState());
+  assert.equal(state.composition.subjects.find(item=>item.id===secondary.id).motion.level,'dynamic','Selected object stores its own motion override');
+  await page.locator('[data-scene-action="select"][data-id="subject_main"]').click();
+  await page.locator('[data-scene-motion]').selectOption('gentle');
+  state=await page.evaluate(()=>window.FumocaPoster.getState());
+  assert.equal(state.composition.subjects.find(item=>item.id==='subject_main').motion.level,'gentle','Main subject motion is independent from secondary subject motion');
+  await page.locator('[data-scene-action="select"][data-id="'+secondary.id+'"]').click();
+  state=await page.evaluate(()=>window.FumocaPoster.getState());
+  assert.equal(state.composition.subjects.find(item=>item.id===secondary.id).motion.level,'dynamic','Switching selection preserves the other object motion');
   await page.locator('[data-scene-action="visibility"][data-id="'+secondary.id+'"]').click();
   state=await page.evaluate(()=>window.FumocaPoster.getState());
   assert.equal(state.composition.subjects.find(item=>item.id===secondary.id).visible,false,'Hide action updates visibility');
