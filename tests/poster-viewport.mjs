@@ -127,16 +127,28 @@ assert.match(editorSubject, /patchSelected\(\{x:clamp\(x,0,1\),y:clamp\(y,0,1\)\
 const posterAssets = readFileSync(new URL('../js/modules/poster-assets.js', import.meta.url), 'utf8');
 assert.match(posterAssets, /const layerRect = layer\.getBoundingClientRect\(\)/,
   'Image-layer drag bounds must use the actual rendered layer dimensions');
-assert.match(posterAssets, /const minX = clamp\(-leftInset/,
-  'Image-layer dragging must keep its complete left edge inside the poster');
-assert.match(posterAssets, /const maxX = clamp\(\(rect\.width - rightInset\)/,
-  'Image-layer dragging must keep its complete right edge inside the poster');
-assert.match(posterAssets, /const minY = clamp\(-topInset/,
-  'Image-layer dragging must keep its complete top edge inside the poster');
-assert.match(posterAssets, /const maxY = clamp\(\(rect\.height - bottomInset\)/,
-  'Image-layer dragging must keep its complete bottom edge inside the poster');
+assert.match(posterAssets, /const startItemX = clamp\(\(layerRect\.left \+ layerRect\.width \/ 2/,
+  'Image-layer dragging must convert corner/edge anchors to the rendered centre before movement');
+assert.match(posterAssets, /patchItem\(item\.id, \{ anchor: 'free', x: startItemX, y: startItemY \}\)/,
+  'Dragging an anchored image must switch it to a free centre anchor');
+assert.match(posterAssets, /const minX = clamp\(halfWidth/,
+  'Image-layer dragging must keep the rotated layer inside the poster while moving freely');
+assert.match(posterAssets, /const maxX = clamp\(1 - halfWidth/,
+  'Image-layer dragging must preserve the complete right edge inside the poster');
+assert.match(posterAssets, /const minY = clamp\(halfHeight/,
+  'Image-layer dragging must preserve the complete top edge inside the poster');
+assert.match(posterAssets, /const maxY = clamp\(1 - halfHeight/,
+  'Image-layer dragging must preserve the complete bottom edge inside the poster');
 
 
+assert.match(viewportModule, /previous: point\.clone\(\)/,
+  'Arcball drag state must retain the previous camera-local sphere point');
+assert.match(viewportModule, /trackballGesture\.previous\)/,
+  'Arcball movement must read the same previous-point field it stores');
+assert.match(viewportModule, /startQuaternion: activeCamera\.quaternion\.clone\(\)/,
+  'Arcball rotation must retain the gesture starting orientation for stable world-space deltas');
+assert.match(viewportModule, /base\.clone\(\)\.multiply\(deltaCamera\)\.multiply\(base\.clone\(\)\.invert\(\)\)/,
+  'Arcball deltas must be transformed into world space to allow unrestricted pitch, yaw and roll');
 assert.match(viewportModule, /const cameraBaseZoom = new WeakMap\(\)/,
   'Each live camera must retain its original zoom so repeated viewerReady events cannot compound poster zoom');
 assert.match(viewportModule, /viewerReadyCamera \|\| \(isStudioEditor/,
