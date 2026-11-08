@@ -103,7 +103,7 @@ export function mountPosterSceneManager() {
       if (file.size < 16) throw new Error('This PLY file is empty or too small.');
       // Confirm the file really is a PLY rather than trusting its extension.
       const header = new TextDecoder().decode(await file.slice(0, 32).arrayBuffer());
-      if (!/^ply(?:\\r?\\n)/i.test(header)) throw new Error('This file does not have a valid PLY header.');
+      if (!/^ply(?:\r?\n)/i.test(header)) throw new Error('This file does not have a valid PLY header.');
       const client = window._fumocaSupabase || window.supabase;
       if (!client?.auth?.getUser) throw new Error('Account connection is not ready. Sign in and try again.');
       const { data: auth, error: authError } = await client.auth.getUser();
@@ -121,7 +121,7 @@ export function mountPosterSceneManager() {
       uploadedKey = result.fileKey;
       try {
         api.addSubject({
-          label: labelInput.value.trim() || file.name.replace(/\\.ply$/i, ''),
+          label: labelInput.value.trim() || file.name.replace(/\.ply$/i, ''),
           source: { type: 'ply', url: result.publicUrl },
         });
       } catch (error) {
