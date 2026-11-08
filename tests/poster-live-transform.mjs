@@ -91,6 +91,21 @@ assert.equal(mockGroup.scale.value, 1.5);
 assert.ok(Math.abs(mockGroup.quaternion.angle - Math.PI / 2) < 1e-9);
 assert.equal(applyPosterLiveTransform({}), false);
 
+const posterAspectApplied = applyPosterLiveTransform({
+  THREE: { Vector3: MockVector3 },
+  group: mockGroup,
+  camera: mockCamera,
+  center: base.center,
+  composition: { aspectRatio: 0.8, object: { x: 0.75, y: 0.25, scale: 1, rotation: 0 } },
+  enabled: true,
+});
+assert.equal(posterAspectApplied, true);
+assert.ok(Math.abs(mockGroup.position.x - 6) < 1e-9,
+  'Poster X coordinates must use the artboard aspect ratio instead of the wider editor camera aspect');
+assert.ok(Math.abs(mockGroup.position.y - 8) < 1e-9,
+  'Poster Y coordinates remain normalized to the same fixed artboard');
+
+
 
 // Multiple poster subjects must retain independent camera-plane transforms and
 // independent motion phases when they share one published Spark scene.
