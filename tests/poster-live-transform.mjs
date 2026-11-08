@@ -1,5 +1,11 @@
 import assert from 'node:assert/strict';
-import { applyPosterLiveTransform, computePosterWorldTransform } from '../js/modules/poster-live-transform.js';
+import { applyPosterLiveTransform, computePosterWorldTransform, posterMotionSpeed } from '../js/modules/poster-live-transform.js';
+
+assert.equal(posterMotionSpeed('still'), 0);
+assert.equal(posterMotionSpeed('gentle'), 0.35);
+assert.equal(posterMotionSpeed('normal'), 0.8);
+assert.equal(posterMotionSpeed('dynamic'), 1.5);
+assert.equal(posterMotionSpeed('unknown'), 0, 'Unknown motion levels safely remain still');
 
 const base = {
   center: { x: 2, y: 3, z: 4 },
