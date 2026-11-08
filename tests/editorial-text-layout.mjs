@@ -30,6 +30,10 @@ class FixtureElement {
 const elements = new Map();
 globalThis.document = {
   body: new FixtureElement('body'),
+  // Magazine drag delegation is installed on documentElement/document in the
+  // browser. Model those browser primitives in this lightweight Node fixture.
+  documentElement: new FixtureElement('html'),
+  addEventListener() {},
   getElementById(id) { return elements.get(id) || null; },
   createElement(tag) { return new FixtureElement(tag); },
 };
