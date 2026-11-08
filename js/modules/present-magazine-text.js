@@ -189,9 +189,13 @@ function startDrag(e, item, el) {
   e.stopPropagation();
   const host = ensureLayer().parentElement;
   const rect = host.getBoundingClientRect();
+  // Keep the original grab point relative to the text anchor. Without this
+  // offset the first pointer move snaps text so its anchor jumps under the cursor.
+  const startX = Number(item.sx ?? 50), startY = Number(item.sy ?? 30);
+  const pointerX = e.clientX, pointerY = e.clientY;
   const move = (ev) => {
-    item.sx = Math.max(0, Math.min(100, ((ev.clientX - rect.left) / rect.width) * 100));
-    item.sy = Math.max(0, Math.min(100, ((ev.clientY - rect.top) / rect.height) * 100));
+    item.sx = Math.max(0, Math.min(100, startX + ((ev.clientX - pointerX) / Math.max(1, rect.width)) * 100));
+    item.sy = Math.max(0, Math.min(100, startY + ((ev.clientY - pointerY) / Math.max(1, rect.height)) * 100));
     if (item.mode !== 'world') item.mode = 'locked';
     el.style.left = item.sx + '%';
     el.style.top = item.sy + '%';
