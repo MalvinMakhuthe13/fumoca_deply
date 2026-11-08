@@ -13,7 +13,7 @@ import './adaptive-presentation.js';
 import './poster-composer.js';
 import './poster-viewport.js?v=20261106-backgroundlayers01';
 import './poster-assets.js?v=20261106-layercontrols02';
-import { applyPosterLiveTransform, posterMotionSpeed } from './poster-live-transform.js';
+import { advancePosterMotionPhase, applyPosterLiveTransform, posterMotionSpeed } from './poster-live-transform.js';
 let _fumocaPosterStateCache = null;
 window.addEventListener('fumoca:posterChange', (event) => {
   _fumocaPosterStateCache = event.detail || window.FumocaPoster?.getState?.() || null;
@@ -2089,7 +2089,7 @@ async function mountPublishedSparkPly(url) {
     const frameDelta = lastPosterFrameAt ? Math.min(0.05, Math.max(0, (frameTime - lastPosterFrameAt) / 1000)) : 0;
     lastPosterFrameAt = frameTime;
     const motionSpeed = posterState?.enabled ? posterMotionSpeed(posterState.composition?.motion?.level) : 0;
-    posterMotionPhase = motionSpeed > 0 ? (posterMotionPhase + motionSpeed * frameDelta) % (Math.PI * 2) : 0;
+    posterMotionPhase = advancePosterMotionPhase(posterMotionPhase, motionSpeed, frameDelta);
     if (posterState?.composition && _publishedSparkGroup) {
       const mainSubject = (posterState.composition.subjects || []).find(item => item.id === 'subject_main');
       _publishedSparkGroup.visible = mainSubject?.visible !== false;
