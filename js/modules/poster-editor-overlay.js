@@ -168,18 +168,52 @@ export function mountPosterEditorOverlay(options = {}) {
   let pickPointer = null;
   const onPickPointerDown = event => {
     if (root.contains(event.target) || event.button !== 0) { pickPointer = null; return; }
-    pickPointer = { x: event.clientX, y: event.clientY, pointerId: event.pointerId };
+    const picked = window.FumocaPosterPicking?.pick?.(event.clientX, event.clientY);
+    if (!picked?.id) { pickPointer = null; return; }
+    const subject = (api.getState().composition?.subjects || []).find(item => item.id === picked.id);
+    if (!subject) { pickPointer = null; return; }
+    // A drag that starts on a Gaussian belongs to the poster object, not the
+    // camera controls. Empty-space drags remain untouched and orbit normally.
+    pickPointer = {
+      id: picked.id, x: event.clientX, y: event.clientY,
+      pointerId: event.pointerId, moved: false,
+      origin: { x: Number(subject.x ?? .5), y: Number(subject.y ?? .53) },
+    };
+    try { host.setPointerCapture?.(event.pointerId); } catch (_) {}
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  };
+  const onPickPointerMove = event => {
+    if (!pickPointer || pickPointer.pointerId !== event.pointerId) return;
+    const dx = event.clientX - pickPointer.x, dy = event.clientY - pickPointer.y;
+    if (!pickPointer.moved && Math.hypot(dx, dy) < 5) return;
+    pickPointer.moved = true;
+    const subject = (api.getState().composition?.subjects || []).find(item => item.id === pickPointer.id);
+    if (!subject || subject.locked || !rect?.width || !rect?.height) return;
+    api.selectSubject?.(pickPointer.id);
+    api.updateSubject?.(pickPointer.id, {
+      x: clamp(pickPointer.origin.x + dx / rect.width, 0, 1),
+      y: clamp(pickPointer.origin.y + dy / rect.height, 0, 1),
+    });
+    refresh();
+    event.preventDefault();
+    event.stopImmediatePropagation();
   };
   const onPickPointerUp = event => {
     if (!pickPointer || pickPointer.pointerId !== event.pointerId) return;
     const start = pickPointer; pickPointer = null;
-    if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > 7) return;
-    const picked = window.FumocaPosterPicking?.pick?.(event.clientX, event.clientY);
-    if (picked?.id) { api.selectSubject?.(picked.id); refresh(); }
+    if (start.moved) { options.onCommit?.(); return; }
+    api.selectSubject?.(start.id);
+    refresh();
+  };
+  const onPickPointerCancel = event => {
+    if (pickPointer?.pointerId === event.pointerId) pickPointer = null;
   };
   host.addEventListener('pointerdown',onPickPointerDown,true);
+  host.addEventListener('pointermove',onPickPointerMove,true);
   host.addEventListener('pointerup',onPickPointerUp,true);
+  host.addEventListener('pointercancel',onPickPointerCancel,true);
   const onChange=()=>refresh();window.addEventListener('fumoca:posterChange',onChange);window.addEventListener('resize',onChange);
   const observer=typeof ResizeObserver!=='undefined'?new ResizeObserver(refresh):null;observer?.observe(host);refresh();
-  return {root,refresh,destroy(){observer?.disconnect();host.removeEventListener('pointerdown',onPickPointerDown,true);host.removeEventListener('pointerup',onPickPointerUp,true);window.removeEventListener('fumoca:posterChange',onChange);window.removeEventListener('resize',onChange);for(const {handle,down} of bindings){handle.removeEventListener('pointerdown',down);handle.removeEventListener('pointermove',move);handle.removeEventListener('pointerup',stop);handle.removeEventListener('pointercancel',stop);}moveHandle.removeEventListener('keydown',keyMove);root.remove();}};
+  return {root,refresh,destroy(){observer?.disconnect();host.removeEventListener('pointerdown',onPickPointerDown,true);host.removeEventListener('pointermove',onPickPointerMove,true);host.removeEventListener('pointerup',onPickPointerUp,true);host.removeEventListener('pointercancel',onPickPointerCancel,true);window.removeEventListener('fumoca:posterChange',onChange);window.removeEventListener('resize',onChange);for(const {handle,down} of bindings){handle.removeEventListener('pointerdown',down);handle.removeEventListener('pointermove',move);handle.removeEventListener('pointerup',stop);handle.removeEventListener('pointercancel',stop);}moveHandle.removeEventListener('keydown',keyMove);root.remove();}};
 }
