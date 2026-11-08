@@ -99,6 +99,29 @@ try{
  assert.equal(state.x,1,'the model must preserve an exact right-edge anchor');
  assert.equal(state.y,1,'the model must preserve an exact bottom-edge anchor');
 
+ // Each additional subject must have independent move, scale and rotation state.
+ await page.evaluate(()=>{
+   window.FumocaPoster.updateSubject('subject_main',{x:.4,y:.4,scale:1.2,rotation:15});
+   window.FumocaPoster.updateSubject('subject_second',{x:.7,y:.6,scale:.8,rotation:-10});
+   window.FumocaPoster.selectSubject('subject_second');
+   window.overlay.refresh();
+ });
+ const mainBefore=await page.evaluate(()=>({...window.FumocaPoster.getState().composition.subjects[0]}));
+ await drag(page.getByRole('button',{name:'Move Side product'}),48,32);
+ let sideState=await page.evaluate(()=>window.FumocaPoster.getState().composition.subjects[1]);
+ assert.ok(Math.abs(sideState.x-.76)<.003,'secondary subject move must use its own poster position');
+ assert.ok(Math.abs(sideState.y-.65)<.003,'secondary subject vertical move must be independent');
+ await drag(page.getByRole('button',{name:'Drag to resize selected object'}),24,0);
+ sideState=await page.evaluate(()=>window.FumocaPoster.getState().composition.subjects[1]);
+ assert.ok(sideState.scale>1,'secondary subject scale must update independently');
+ await drag(page.getByRole('button',{name:'Drag to rotate selected object'}),52,0);
+ sideState=await page.evaluate(()=>window.FumocaPoster.getState().composition.subjects[1]);
+ assert.ok(Math.abs(sideState.rotation)>20,'secondary subject rotation must update independently');
+ await page.evaluate(()=>{window.FumocaPoster.selectSubject('subject_main');window.overlay.refresh();});
+ const mainAfter=await page.evaluate(()=>window.FumocaPoster.getState().composition.subjects[0]);
+ assert.deepEqual(mainAfter,mainBefore,'transforming the secondary subject must not change the main subject');
+ assert.equal(await page.getByRole('button',{name:'Move Main subject'}).count(),1,'transform handles must return to the main subject after selection changes');
+
  await page.evaluate(()=>window.FumocaPoster.updateSubject('subject_main',{locked:true}));
  assert.equal(await page.getByRole('button',{name:'Move Main subject'}).isDisabled(),true,'locked subject controls should be disabled');
  await page.setViewportSize({width:390,height:844});
