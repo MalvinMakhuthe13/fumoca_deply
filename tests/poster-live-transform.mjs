@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { advancePosterMotionPhase, applyPosterLiveTransform, computePosterWorldTransform, posterMotionSpeed } from '../js/modules/poster-live-transform.js';
+import { advancePosterMotionPhase, applyPosterLiveTransform, applyPosterMotionRotation, computePosterWorldTransform, posterMotionSpeed } from '../js/modules/poster-live-transform.js';
 
 assert.equal(posterMotionSpeed('still'), 0);
 assert.equal(posterMotionSpeed('gentle'), 0.35);
@@ -45,6 +45,16 @@ assert.ok(clamped.position.y > 3);
 assert.equal(clamped.scale, 4);
 assert.equal(clamped.rotation, 2 * Math.PI);
 
+
+let motionAxis, motionAngle, multiplied = false;
+const motionGroup = { quaternion: { multiply(q) { multiplied = true; this.last = q; } } };
+class MockQuaternion {
+  setFromAxisAngle(axis, angle) { motionAxis = axis; motionAngle = angle; return this; }
+}
+assert.equal(applyPosterMotionRotation({Vector3:MockVector3,Quaternion:MockQuaternion},motionGroup,0.75),true);
+assert.equal(multiplied,true,'Motion yaw multiplies the freshly-applied base orientation');
+assert.equal(motionAngle,0.75);
+assert.equal(applyPosterMotionRotation({},motionGroup,0.75),false);
 
 let projectionUpdated = false;
 class MockVector3 {
