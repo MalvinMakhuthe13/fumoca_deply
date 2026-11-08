@@ -182,6 +182,8 @@ jobs:
         run: node tests/browser/poster-trackball.browser.mjs
       - name: Test poster asset interactions in Chromium
         run: node tests/browser/poster-assets.browser.mjs
+      - name: Test freely positioned poster text in Chromium
+        run: node tests/browser/poster-text.browser.mjs
       - name: Test public viewer restores saved poster compositions in Chromium
         run: node tests/browser/poster-viewer-restore.browser.mjs
       - name: Test poster motion levels and stable yaw in Chromium
