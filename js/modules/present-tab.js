@@ -322,6 +322,7 @@ function mountPanel() {
       <div class="ptp-poster-grid">
         <label class="ptp-poster-field">Headline X %<input type="number" min="0" max="100" step="1" value="50" data-poster-field="titleX"></label>
         <label class="ptp-poster-field">Headline Y %<input type="number" min="0" max="100" step="1" value="12" data-poster-field="titleY"></label>
+        <label class="ptp-poster-field">Headline rotation °<input type="number" min="-180" max="180" step="1" value="0" data-poster-field="titleRotation"></label>
       </div>
       <div class="ptp-poster-grid">
         <label class="ptp-poster-field">Headline alignment<select data-poster-field="titleAlign"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></label>
@@ -465,6 +466,7 @@ function mountPanel() {
     syncField('[data-poster-field="title"]', c.title?.text || '');
     syncField('[data-poster-field="titleX"]', String(Math.round((c.title?.x ?? .5) * 100)));
     syncField('[data-poster-field="titleY"]', String(Math.round((c.title?.y ?? .12) * 100)));
+    syncField('[data-poster-field="titleRotation"]', String(Math.round(c.title?.rotation || 0)));
     syncField('[data-poster-field="titleVisible"]', c.title?.visible !== false, 'checked');
     syncField('[data-poster-field="titleAlign"]', c.title?.align || 'center');
     syncField('[data-poster-field="titleFont"]', c.title?.fontFamily || 'system-ui, sans-serif');
@@ -604,6 +606,7 @@ function mountPanel() {
     else if (key === 'titleColor') window.FumocaPoster.updateComposition({ title: { color: field.value } });
     else if (key === 'titleX') window.FumocaPoster.updateComposition({ title: { x: Math.max(0, Math.min(100, Number(field.value))) / 100 } });
     else if (key === 'titleY') window.FumocaPoster.updateComposition({ title: { y: Math.max(0, Math.min(100, Number(field.value))) / 100 } });
+    else if (key === 'titleRotation') window.FumocaPoster.updateComposition({ title: { rotation: Math.max(-180, Math.min(180, Number(field.value) || 0)) } });
     else if (key === 'background') window.FumocaPoster.updateComposition({ background: { ...window.FumocaPoster.getState().composition.background, type: 'solid', value: field.value } });
     else if (key === 'backgroundGradient') {
       const gradients = {
