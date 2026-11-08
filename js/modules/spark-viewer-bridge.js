@@ -5,13 +5,19 @@
 import * as THREE from 'three';
 
 const SparkViewerBridge = (() => {
-  let _renderer, _scene, _camera, _spark, _mesh, _controls, _raf, _resize, _focusCenter, _lastProgressLog = -1;
+  let _renderer, _scene, _camera, _spark, _mesh, _controls, _raf, _resize, _resizeObserver, _focusCenter, _lastProgressLog = -1;
+  let _presentation = {}, _userAdjustedCamera = false, _fitDistance = 1;
 
   function destroy() {
     if (_raf) cancelAnimationFrame(_raf);
     _raf = 0;
     if (_resize) window.removeEventListener('resize', _resize);
     _resize = null;
+    try { _resizeObserver?.disconnect?.(); } catch (_) {}
+    _resizeObserver = null;
+    _presentation = {};
+    _userAdjustedCamera = false;
+    _fitDistance = 1;
     if (window._fumocaViewerControls === _controls) delete window._fumocaViewerControls;
     if (window._fumocaControls === _controls) delete window._fumocaControls;
     if (window._fumocaViewerCamera === _camera) delete window._fumocaViewerCamera;
@@ -76,7 +82,16 @@ const SparkViewerBridge = (() => {
     const size = bounds.getSize(new THREE.Vector3());
     const radius = Math.max(size.x, size.y, size.z, 0.05) * 0.5;
     const fov = THREE.MathUtils.degToRad(_camera.fov || 50);
-    const distance = Math.max((radius / Math.tan(fov * 0.5)) * 1.55, radius * 2.2, 0.15);
+    const aspect = Math.max(0.1, _camera.aspect || 1);
+    const horizontalFov = 2 * Math.atan(Math.tan(fov * 0.5) * aspect);
+    // Fit against the narrower field of view so portrait and narrow embeds
+    // never crop the subject. APE padding is a multiplier around the bounds.
+    const limitingFov = Math.min(fov, horizontalFov);
+    const padding = THREE.MathUtils.clamp(Number(_presentation.framePadding) || 1.55, 1.05, 3.5);
+    const initialZoom = THREE.MathUtils.clamp(Number(_presentation.initialZoom) || 1, 0.25, 4);
+    const baseDistance = Math.max((radius / Math.tan(limitingFov * 0.5)) * padding, radius * 2.2, 0.15);
+    _fitDistance = baseDistance;
+    const distance = baseDistance / initialZoom;
 
     _focusCenter = center.clone();
     // Place camera on a diagonal so thin objects (shoes) aren't edge-on
@@ -89,9 +104,11 @@ const SparkViewerBridge = (() => {
     _camera.lookAt(center);
     if (_controls) {
       _controls.target.copy(center);
-      // Preserve unrestricted zoom on published Spark splats.
-      _controls.minDistance = 0;
-      _controls.maxDistance = Infinity;
+      // Zoom is publisher-configurable while remaining unrestricted by default.
+      const minZoom = Number.isFinite(Number(_presentation.minZoom)) ? THREE.MathUtils.clamp(Number(_presentation.minZoom), 0.05, 1) : 0;
+      const maxZoom = Number.isFinite(Number(_presentation.maxZoom)) ? THREE.MathUtils.clamp(Number(_presentation.maxZoom), 1, 30) : Infinity;
+      _controls.minDistance = maxZoom === Infinity ? 0 : _fitDistance / maxZoom;
+      _controls.maxDistance = minZoom === 0 ? Infinity : _fitDistance / minZoom;
       _controls.update?.();
     }
     console.info('[Viewer] Spark camera fitted', {
@@ -102,15 +119,22 @@ const SparkViewerBridge = (() => {
     return true;
   }
 
-  async function mount(hostEl, { fileBytes = null, fileName = 'scene.ply', url = null } = {}) {
+  async function mount(hostEl, { fileBytes = null, fileName = 'scene.ply', url = null, presentation = {} } = {}) {
     if (!hostEl) throw new Error('SparkViewer: no host');
     destroy();
     _lastProgressLog = -1;
+    _presentation = { ...presentation };
 
     // Ensure host can show canvas above any residual overlays
     try {
       hostEl.style.position = hostEl.style.position || 'relative';
       hostEl.style.zIndex = hostEl.style.zIndex || '2';
+      hostEl.style.width = hostEl.style.width || '100%';
+      hostEl.style.height = hostEl.style.height || '100%';
+      hostEl.style.minWidth = '0';
+      hostEl.style.minHeight = '0';
+      hostEl.style.overflow = 'hidden';
+      hostEl.style.contain = 'layout paint size';
     } catch (_) {}
 
     const w = Math.max(2, hostEl.clientWidth || window.innerWidth);
@@ -178,7 +202,8 @@ const SparkViewerBridge = (() => {
       const { OrbitControls } = await import('three/addons/controls/OrbitControls.js');
       _controls = new OrbitControls(_camera, _renderer.domElement);
       _controls.enableDamping = true;
-      _controls.dampingFactor = 0.08;
+      _controls.dampingFactor = THREE.MathUtils.clamp(Number(_presentation.dampingFactor) || 0.08, 0.02, 0.2);
+      _controls.addEventListener('start', () => { _userAdjustedCamera = true; });
       _controls.minDistance = 0.02;
       _controls.maxDistance = 500;
     } catch (e) {
@@ -204,11 +229,19 @@ const SparkViewerBridge = (() => {
       if (!_renderer || !_camera || !hostEl) return;
       const ww = Math.max(2, hostEl.clientWidth || window.innerWidth);
       const hh = Math.max(2, hostEl.clientHeight || window.innerHeight);
+      const dpr = Math.min(window.devicePixelRatio || 1, Number(_presentation.maxDpr) || 2);
+      _renderer.setPixelRatio(dpr);
       _camera.aspect = ww / hh;
       _camera.updateProjectionMatrix();
       _renderer.setSize(ww, hh, false);
+      // Refit only before the visitor takes control; never fight their camera.
+      if (!_userAdjustedCamera && _mesh) fitCameraToMesh();
     };
-    window.addEventListener('resize', _resize);
+    window.addEventListener('resize', _resize, { passive: true });
+    if (typeof ResizeObserver !== 'undefined') {
+      _resizeObserver = new ResizeObserver(() => _resize?.());
+      _resizeObserver.observe(hostEl);
+    }
 
     const loop = () => {
       _raf = requestAnimationFrame(loop);

@@ -998,6 +998,33 @@
     <button id="resetStudioBtn" class="ghostBtn">Reset</button>
   </div>
   <div class="studio-scroll">
+    <section id="apeStudioPanel" style="margin:0 0 14px;padding:13px;border:1px solid rgba(200,255,0,.22);border-radius:13px;background:linear-gradient(145deg,rgba(200,255,0,.07),rgba(255,255,255,.018));">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:5px;">
+        <div style="font-size:12px;font-weight:850;letter-spacing:.09em;color:#c8ff00;">ADAPTIVE PRESENTATION</div>
+        <span id="apeLiveStatus" style="font-size:10px;color:rgba(255,255,255,.45);">Live preview</span>
+      </div>
+      <div style="font-size:11px;line-height:1.45;color:rgba(255,255,255,.58);margin-bottom:11px;">Set the composition target and camera framing used by your published experience and responsive embeds.</div>
+      <label for="apeStudioAspect" style="display:block;font-size:11px;color:rgba(255,255,255,.75);margin-bottom:5px;">Poster / embed composition</label>
+      <select id="apeStudioAspect" style="width:100%;padding:9px;border-radius:8px;background:#10151d;border:1px solid rgba(255,255,255,.15);color:#fff;margin-bottom:11px;">
+        <option value="16 / 9">Landscape · 16:9</option>
+        <option value="1 / 1">Square · 1:1</option>
+        <option value="4 / 5">Portrait · 4:5</option>
+        <option value="9 / 16">Story · 9:16</option>
+      </select>
+      <div style="display:flex;align-items:center;justify-content:space-between;font-size:11px;color:rgba(255,255,255,.78);">
+        <label for="apeStudioZoom">Live camera zoom</label><output id="apeStudioZoomValue">1.00×</output>
+      </div>
+      <input id="apeStudioZoom" type="range" min="0.5" max="2.5" step="0.05" value="1" style="width:100%;accent-color:#c8ff00;margin:6px 0 11px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;font-size:11px;color:rgba(255,255,255,.78);">
+        <label for="apeStudioPadding">Frame breathing room</label><output id="apeStudioPaddingValue">1.55×</output>
+      </div>
+      <input id="apeStudioPadding" type="range" min="1.1" max="2.5" step="0.05" value="1.55" style="width:100%;accent-color:#c8ff00;margin:6px 0 9px;">
+      <div style="display:flex;gap:9px;align-items:center;">
+        <div id="apeRatioPreview" aria-hidden="true" style="width:66px;aspect-ratio:16 / 9;max-height:46px;border:1px solid rgba(200,255,0,.55);border-radius:5px;background:repeating-linear-gradient(135deg,rgba(200,255,0,.08) 0 5px,transparent 5px 10px);flex:none;"></div>
+        <div style="font-size:10px;line-height:1.4;color:rgba(255,255,255,.48);">The ratio is saved as the intended poster and embed frame. Your 3D scene remains undistorted and independently interactive.</div>
+      </div>
+      <button id="apeStudioReset" type="button" class="segmented-btn" style="width:100%;margin-top:11px;">Reset presentation framing</button>
+    </section>
     <div class="studio-grid">
       <div class="control">
         <div class="control-head"><div class="control-label">Noise cleanup</div><div class="control-value" id="cleanupValue">5</div></div>
