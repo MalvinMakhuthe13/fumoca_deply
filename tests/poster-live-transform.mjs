@@ -161,5 +161,8 @@ assert.equal(yawB, 1.1, 'Subject B must receive only its own motion phase');
 const multiSubjectBridge = readFileSync(new URL('../js/modules/poster-multi-subject-studio.js', import.meta.url), 'utf8');
 assert.match(multiSubjectBridge, /import \* as THREE from 'three'/, 'The multi-subject bridge must import the same Three.js module used by Studio');
 assert.doesNotMatch(multiSubjectBridge, /window\.THREE/, 'Multi-subject loading must not depend on an uninitialised window.THREE global');
+assert.match(multiSubjectBridge, /function projectedTarget\(/, 'Each companion splat must publish its own projected screen-space hit bounds');
+assert.match(multiSubjectBridge, /window\.FumocaPosterPicking = Object\.freeze\(/, 'Studio must expose precise picking for independently rendered companion splats');
+assert.match(multiSubjectBridge, /function pickSubject\(/, 'Pointer picking must resolve actual projected splat bounds rather than only saved poster anchors');
 
 console.log('Poster live transform math tests passed.');
