@@ -5,6 +5,8 @@ import { createServer } from 'node:net';
 import { chromium } from 'playwright';
 
 const source = await readFile(new URL('../../js/modules/present-magazine-text.js', import.meta.url), 'utf8');
+const bridgeSource = await readFile(new URL('../../js/modules/present-bridge.js', import.meta.url), 'utf8');
+assert.match(bridgeSource, /from ['"]\.\/present-magazine-text\.js\?v=20261108-textdragcapture03['"]/, 'Studio bridge and Present tab must share one magazine-text module instance so pointer events act on the same item state as the visible text');
 const fixture = `<!doctype html>
 <style>html,body{margin:0;width:100%;height:100%}#viewport{position:relative;width:1000px;height:800px}#poster{position:absolute;inset:0;z-index:9;pointer-events:none}#assetOverlay{position:absolute;inset:0;z-index:8;pointer-events:none}#assetHit{position:absolute;inset:0;width:100%;height:100%;pointer-events:auto;opacity:0}</style>
 <div id="viewport"><div id="poster" data-fumoca-poster-canvas></div><div id="assetOverlay"><button id="assetHit" type="button"></button></div></div>
