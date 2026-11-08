@@ -3,6 +3,7 @@
  * Loads companion Gaussian PLYs as real Spark meshes in the Studio scene and
  * gives each one an independent poster-space transform.
  */
+import * as THREE from 'three';
 import { applyPosterLiveTransform } from './poster-live-transform.js';
 import { posterMotionSpeed, advancePosterMotionPhase, applyPosterMotionRotation } from './poster-live-transform.js';
 
@@ -45,7 +46,7 @@ async function loadSubject(subject) {
     const mesh = new SplatMesh({ fileBytes: bytes, fileName: url.split('/').pop() || (id + '.ply'), enableLod: false });
     mesh.name = 'fumoca-poster-subject-' + id;
     if (mesh.initialized) await mesh.initialized;
-    const scene = sceneRef(), THREE = window.THREE;
+    const scene = sceneRef();
     if (!scene || !THREE?.Group || entries.get(id) !== entry) {
       mesh.dispose?.();
       throw new Error('Studio 3D scene is not ready.');
@@ -78,7 +79,7 @@ function syncSubjects() {
 function applyFrame(now) {
   requestAnimationFrame(applyFrame);
   const state = window.FumocaPoster?.getState?.();
-  const camera = cameraRef(), scene = sceneRef(), THREE = window.THREE;
+  const camera = cameraRef(), scene = sceneRef();
   if (!state?.enabled || !camera || !scene || !THREE?.Vector3) {
     for (const id of [...entries.keys()]) disposeEntry(id);
     lastTime = now;
