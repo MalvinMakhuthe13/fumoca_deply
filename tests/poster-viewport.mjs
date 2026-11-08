@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { calculatePosterViewport } from '../js/modules/poster-viewport.js';
+import { calculatePosterViewport, calculatePosterCanvasClip } from '../js/modules/poster-viewport.js';
 
 const portrait = calculatePosterViewport({
   enabled: true,
@@ -36,6 +36,25 @@ assert.ok(Math.abs(landscape.top - 312.3125) < 1e-9);
 
 assert.equal(calculatePosterViewport({ enabled: false, composition: { aspectRatio: 1 } }, 800, 600), null);
 assert.equal(calculatePosterViewport({ enabled: true, composition: { aspectRatio: 0 } }, 800, 600), null);
+assert.equal(
+  calculatePosterCanvasClip(
+    { left: 100, top: 50, right: 1100, bottom: 750, width: 1000, height: 700 },
+    { left: 250, top: 100, right: 850, bottom: 700 },
+    500, 350
+  ),
+  'inset(25px 125px 25px 75px)',
+  'Canvas-relative clipping must account for a renderer canvas whose CSS size differs from its rendered bounds'
+);
+assert.equal(
+  calculatePosterCanvasClip(
+    { left: 0, top: 0, right: 100, bottom: 100, width: 100, height: 100 },
+    { left: 120, top: 120, right: 220, bottom: 220 },
+    100, 100
+  ),
+  'inset(100%)',
+  'A renderer canvas outside the poster frame must be fully clipped'
+);
+
 
 const viewportModule = readFileSync(new URL('../js/modules/poster-viewport.js', import.meta.url), 'utf8');
 assert.match(viewportModule, /const host = stage;/,
@@ -54,21 +73,21 @@ assert.ok(viewportModule.includes("host.insertBefore(backgroundNode, host.firstC
 assert.ok(viewportModule.includes("width: layout.width + 'px'"), 'Poster background and editorial canvas use the calculated poster dimensions');
 assert.ok(viewportModule.includes("posterCanvas.style.display = 'none'"), 'Poster editorial canvas is hidden when poster composition is disabled');
 assert.ok(viewportModule.includes("measureEl"), 'Available space is measured from the stable host without resizing the main viewport');
-assert.match(viewportModule, /rect\.width - layout\.left - layout\.width/,
-  'The renderer clip must use the measured host width, not an undefined bounds variable');
-assert.match(viewportModule, /rect\.height - layout\.top - layout\.height/,
-  'The renderer clip must use the measured host height, not an undefined bounds variable');
+assert.match(viewportModule, /calculatePosterCanvasClip\(\s*canvasRect, posterRect/,
+  'The renderer clip must be calculated in the live canvas coordinate system');
+assert.match(viewportModule, /left: rect\.left \+ layout\.left[\s\S]*?bottom: rect\.top \+ layout\.top \+ layout\.height/,
+  'The poster frame must be converted to absolute screen coordinates before clipping the canvas');
 assert.match(viewportModule, /rendererCanvas\.style\.clipPath = clip/,
   'Studio WebGL pixels must be clipped to the poster frame');
-assert.match(viewportModule, /const clip = `inset\(\$\{layout\.top\}px \$\{right\}px \$\{bottom\}px \$\{layout\.left\}px\)`/,
-  'The renderer clip must use the measured poster frame edges');
+assert.match(viewportModule, /const clip = calculatePosterCanvasClip\(/,
+  'The renderer clip must intersect the actual canvas bounds with the poster frame');
 assert.match(viewportModule, /const syncRendererBindings = \(\) =>/, 'Poster mode must discover late-mounted renderer and controls');
 assert.match(viewportModule, /viewerReadyCamera = event\.detail\?\.camera \|\| viewerReadyCamera/, 'Poster zoom must bind to the actual camera announced by viewerReady');
 assert.match(viewportModule, /viewerReadyControls = event\.detail\?\.controls \|\| event\.detail\?\.viewer\?\.controls/, 'Poster mode must bind to the active viewer controls');
 assert.match(viewportModule, /window\._fumocaRenderer\?\.camera/, 'Poster zoom can resolve the renderer camera even when the editor globals are absent');
 assert.match(viewportModule, /window\._fumocaViewerControls/, 'Poster mode can resolve the active viewer controls outside Studio');
 assert.match(viewportModule, /window\.addEventListener\('fumoca:viewerReady'/, 'Viewer readiness must trigger a fresh renderer binding pass');
-assert.match(viewportModule, /const nextCanvas = host\.querySelector\('canvas'\)/, 'The WebGL canvas must be resolved after asynchronous viewer mounting');
+assert.match(viewportModule, /const captureCanvas = window\._fumocaCaptureCanvas/, 'Poster clipping must prefer the exact active Spark canvas rather than the legacy placeholder');
 assert.match(viewportModule, /orbitControls\.enablePan = false/,
   'Poster mode must prevent camera panning from carrying the scene outside the frame');
 assert.match(viewportModule, /orbitControls\.enableZoom = false/, 'Poster framing disables free wheel zoom in favour of the fixed zoom control');
