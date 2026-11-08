@@ -158,6 +158,8 @@ jobs:
         run: node --experimental-default-type=module tests/editorial-layers.mjs
       - name: Test poster background and supporting image contract
         run: node --experimental-default-type=module tests/poster-assets.mjs
+      - name: Test composed poster capture includes text and supporting images
+        run: node --experimental-default-type=module tests/poster-capture-composition.mjs
       - name: Test mocked poster cloud persistence and rollback
         run: node --experimental-default-type=module tests/poster-cloud-persistence.mjs
       - name: Test Adaptive Presentation Engine framing and responsive sizing
