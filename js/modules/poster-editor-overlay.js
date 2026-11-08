@@ -239,7 +239,7 @@ export function mountPosterEditorOverlay(options = {}) {
   const onPickPointerUp = event => {
     if (!pickPointer || pickPointer.pointerId !== event.pointerId) return;
     const start = pickPointer; pickPointer = null;
-    if (start.moved) { options.onCommit?.(); return; }
+    if (start.moved || Math.hypot(event.clientX - start.x, event.clientY - start.y) > 7) { options.onCommit?.(); return; }
     api.selectSubject?.(start.id);
     refresh();
   };
