@@ -110,11 +110,11 @@ export function mountPosterEditorOverlay(options = {}) {
     Object.assign(frame.style, { left: poster.left+'px', top: poster.top+'px', width: poster.width+'px', height: poster.height+'px' });
     // The poster viewport already renders the live headline; do not paint a second copy here.
     const subjects = composition.subjects || [];
-    pickLayer.replaceChildren();
+    if (!pickPointer) pickLayer.replaceChildren();
     const hostRect = host.getBoundingClientRect();
     const projectedTargets = window.FumocaPosterPicking?.getTargets?.() || [];
     for (const candidate of subjects) {
-      if (!candidate.visible || candidate.id === state.selectedSubjectId) continue;
+      if (!candidate.visible) continue;
       const projected = projectedTargets.find(target => target.id === candidate.id);
       const pick = document.createElement('button');
       pick.type = 'button'; pick.className = 'fpe-control fpe-select';
@@ -217,14 +217,18 @@ export function mountPosterEditorOverlay(options = {}) {
       subjects.find(item => item.id === state.selectedSubjectId) ||
       subjects.find(item => item.id === 'subject_main');
     if (!subject) return;
-    api.selectSubject?.(subject.id);
-    if (studioMode !== 'move' || subject.locked) { refresh(); return; }
+    if (studioMode !== 'move' || subject.locked) {
+      api.selectSubject?.(subject.id);
+      refresh();
+      return;
+    }
     pickPointer = {
       id: subject.id, x: event.clientX, y: event.clientY,
       pointerId: event.pointerId, moved: false,
       origin: { x: Number(subject.x ?? .5), y: Number(subject.y ?? .53) },
     };
     try { event.target.setPointerCapture?.(event.pointerId); } catch (_) {}
+    api.selectSubject?.(subject.id);
     event.preventDefault();
     event.stopImmediatePropagation();
   };
