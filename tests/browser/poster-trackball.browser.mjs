@@ -5,7 +5,7 @@ import { createServer } from 'node:net';
 import { chromium } from 'playwright';
 
 const moduleSource = await readFile(new URL('../../js/modules/poster-viewport.js', import.meta.url), 'utf8');
-const fixture = \`<!doctype html>
+const fixture = `<!doctype html>
 <style>html,body{margin:0;width:100%;height:100%}#viewport{position:relative;width:800px;height:1000px;overflow:hidden}</style>
 <div id="viewport"><canvas id="spark-canvas"></canvas><div data-poster-asset-id="supporting-image" style="position:absolute;left:20px;top:20px;width:120px;height:100px;pointer-events:auto"></div></div>
 <script>
@@ -36,7 +36,7 @@ window.FumocaPoster={getState:()=>({enabled:true,composition:{aspectRatio:.8,saf
 window.__camera=camera;
 // Intentionally no window.THREE: Spark imports Three.js as an ES module.
 </script>
-<script type="module" src="/poster-viewport.js"></script>\`;
+<script type="module" src="/poster-viewport.js"></script>`;
 
 const server=http.createServer((req,res)=>{
  if(req.url==='/'||req.url==='/edit.html'){res.writeHead(200,{'content-type':'text/html'});res.end(fixture);return}
