@@ -16,6 +16,7 @@ export function mountPosterSceneManager() {
     '<label class="ptp-poster-field">Object label<input type="text" data-scene-label placeholder="Product, vehicle, room…"></label>' +
     '<div class="ptp-poster-actions"><button type="button" data-scene-add="nif">Add NIF object</button><button type="button" data-scene-add="ply">Add Gaussian PLY URL</button></div>' +
     '<div data-scene-list class="ptp-poster-status">Main subject is ready.</div>' +
+    '<label class="ptp-poster-field">Selected object motion<select data-scene-motion><option value="inherit">Use poster default</option><option value="still">Still</option><option value="gentle">Gentle</option><option value="normal">Normal</option><option value="dynamic">Dynamic</option></select></label>' +
     '<div data-scene-status class="ptp-poster-hint">Select an object to edit it with the Subject X/Y, scale and rotation controls.</div>';
   const controls = root.querySelector('[data-poster-field="x"]')?.closest('.ptp-poster-grid');
   if (controls) controls.before(section);
@@ -63,6 +64,8 @@ export function mountPosterSceneManager() {
       ? selected.label + ' selected · ' + (selected.locked ? 'locked' : 'unlocked') + ' · ' +
         (selected.source.type === 'current' ? 'current viewer source' : 'loads independently in the published Spark viewer')
       : 'Select an object.';
+    const motionSelect = section.querySelector('[data-scene-motion]');
+    if (motionSelect && selected && document.activeElement !== motionSelect) motionSelect.value = selected.motion?.level || 'inherit';
     const transform = selected || state.composition.object;
     for (const key of ['x','y','scale','rotation']) {
       const input = root.querySelector('[data-poster-field="' + key + '"]');
@@ -75,6 +78,12 @@ export function mountPosterSceneManager() {
     }
   };
 
+  section.querySelector('[data-scene-motion]').addEventListener('change', event => {
+    const selected = api.getState().composition.subjects.find(item => item.id === api.getState().selectedSubjectId);
+    if (!selected) return;
+    api.updateSubject(selected.id, { motion: event.target.value === 'inherit' ? null : { level: event.target.value } });
+    window.FumocaPresent?.save?.();
+  });
   section.addEventListener('click', async event => {
     const loadAssets = event.target.closest('[data-scene-load-assets]');
     if (loadAssets) {
