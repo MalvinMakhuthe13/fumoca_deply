@@ -187,21 +187,31 @@ export function mountPosterEditorOverlay(options = {}) {
   moveHandle.addEventListener('keydown',keyMove);
   let pickPointer = null;
   const onPickPointerDown = event => {
-    // Alt+left-drag is reserved for camera orbit even when the pointer is
-    // over the Gaussian; ordinary left-drag moves the object itself.
     if (root.contains(event.target) || event.button !== 0 || event.altKey) { pickPointer = null; return; }
+    const state = api.getState();
+    if (!state?.enabled) return;
+    const studioMode = window._fumocaStudioMode || 'orbit';
+    // Orbit, pan and zoom belong to the camera/editor controls. Never let
+    // poster picking swallow those gestures, even when the pointer is over
+    // the visible Gaussian.
+    if (studioMode !== 'move') return;
+    // The poster Move tool moves the composition subject, not raw points.
+    // Accept a drag anywhere on the live canvas so a stale/missing GPU pick
+    // result cannot make the visible subject impossible to reposition.
+    if (event.target?.tagName !== 'CANVAS') return;
     const picked = pickPosterSubject(event.clientX, event.clientY);
-    if (!picked?.id) { pickPointer = null; return; }
-    const subject = (api.getState().composition?.subjects || []).find(item => item.id === picked.id);
-    if (!subject) { pickPointer = null; return; }
-    // A drag that starts on a Gaussian belongs to the poster object, not the
-    // camera controls. Empty-space drags remain untouched and orbit normally.
+    const subjects = state.composition?.subjects || [];
+    const subject = subjects.find(item => item.id === picked?.id) ||
+      subjects.find(item => item.id === state.selectedSubjectId) ||
+      subjects.find(item => item.id === 'subject_main');
+    if (!subject || subject.locked) return;
     pickPointer = {
-      id: picked.id, x: event.clientX, y: event.clientY,
+      id: subject.id, x: event.clientX, y: event.clientY,
       pointerId: event.pointerId, moved: false,
       origin: { x: Number(subject.x ?? .5), y: Number(subject.y ?? .53) },
     };
-    try { host.setPointerCapture?.(event.pointerId); } catch (_) {}
+    try { event.target.setPointerCapture?.(event.pointerId); } catch (_) {}
+    api.selectSubject?.(subject.id);
     event.preventDefault();
     event.stopImmediatePropagation();
   };
