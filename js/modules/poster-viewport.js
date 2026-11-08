@@ -37,6 +37,36 @@ export function calculatePosterViewport(posterState, width, height) {
   };
 }
 
+export function calculatePosterCanvasClip(canvasRect, posterRect, canvasWidth = canvasRect?.width, canvasHeight = canvasRect?.height) {
+  if (!canvasRect || !posterRect) return 'inset(100%)';
+  const cLeft = Number(canvasRect.left) || 0;
+  const cTop = Number(canvasRect.top) || 0;
+  const cWidth = Math.max(0, Number(canvasRect.width) || 0);
+  const cHeight = Math.max(0, Number(canvasRect.height) || 0);
+  const cRight = Number.isFinite(Number(canvasRect.right)) ? Number(canvasRect.right) : cLeft + cWidth;
+  const cBottom = Number.isFinite(Number(canvasRect.bottom)) ? Number(canvasRect.bottom) : cTop + cHeight;
+  const pLeft = Number(posterRect.left) || 0;
+  const pTop = Number(posterRect.top) || 0;
+  const pRight = Number.isFinite(Number(posterRect.right)) ? Number(posterRect.right) : pLeft + (Number(posterRect.width) || 0);
+  const pBottom = Number.isFinite(Number(posterRect.bottom)) ? Number(posterRect.bottom) : pTop + (Number(posterRect.height) || 0);
+  const visibleLeft = Math.max(cLeft, pLeft);
+  const visibleTop = Math.max(cTop, pTop);
+  const visibleRight = Math.min(cRight, pRight);
+  const visibleBottom = Math.min(cBottom, pBottom);
+  if (cWidth < 1 || cHeight < 1 || visibleRight <= visibleLeft || visibleBottom <= visibleTop) return 'inset(100%)';
+  // getBoundingClientRect() includes CSS transforms; clip-path inset values use
+  // the canvas's untransformed CSS pixels, so convert by its rendered scale.
+  const scaleX = cWidth / Math.max(1, Number(canvasWidth) || cWidth);
+  const scaleY = cHeight / Math.max(1, Number(canvasHeight) || cHeight);
+  const px = value => Number((value / Math.max(0.0001, scaleX)).toFixed(3)) + 'px';
+  const py = value => Number((value / Math.max(0.0001, scaleY)).toFixed(3)) + 'px';
+  const top = py(visibleTop - cTop);
+  const right = px(cRight - visibleRight);
+  const bottom = py(cBottom - visibleBottom);
+  const left = px(visibleLeft - cLeft);
+  return 'inset(' + top + ' ' + right + ' ' + bottom + ' ' + left + ')';
+}
+
 export function mountPosterViewport() {
   const isStudioEditor = /\/edit(?:\.html)?\/?$/i.test(window.location.pathname);
   // Studio's poster layers and editable image assets share #viewport.
@@ -89,7 +119,12 @@ export function mountPosterViewport() {
     // #viewport contains a legacy placeholder canvas before the actual WebGL renderer canvas.
     // querySelector('canvas') selects that placeholder, leaving the live splat canvas unclipped.
     // Prefer the renderer's authoritative DOM element and only then fall back to a non-placeholder canvas.
-    const nextCanvas = window._fumocaGlRenderer?.domElement ||
+    // The Spark PLY renderer publishes its exact live canvas for capture.
+    // It is not always the first canvas under #viewport (Studio also mounts a
+    // legacy placeholder), so prefer this authoritative reference first.
+    const captureCanvas = window._fumocaCaptureCanvas;
+    const nextCanvas = (captureCanvas?.isConnected ? captureCanvas : null) ||
+      window._fumocaGlRenderer?.domElement ||
       window.renderer?.domElement ||
       Array.from(host.querySelectorAll('canvas')).find(canvas => canvas.id !== 'viewportCanvas') ||
       null;
@@ -325,9 +360,19 @@ export function mountPosterViewport() {
     // visible pixels are clipped to the exact poster rectangle. This keeps the
     // splat inside the printable composition without resizing the 3D renderer.
     if (isStudioEditor && rendererCanvas) {
-      const right = Math.max(0, rect.width - layout.left - layout.width);
-      const bottom = Math.max(0, rect.height - layout.top - layout.height);
-      const clip = `inset(${layout.top}px ${right}px ${bottom}px ${layout.left}px)`;
+      // clip-path insets are relative to the canvas itself, not #viewport.
+      // The Spark canvas can be offset or sized differently from the Studio
+      // host; using host-relative insets here leaves the live splat unmasked.
+      const canvasRect = rendererCanvas.getBoundingClientRect();
+      const posterRect = {
+        left: rect.left + layout.left,
+        top: rect.top + layout.top,
+        right: rect.left + layout.left + layout.width,
+        bottom: rect.top + layout.top + layout.height,
+      };
+      const clip = calculatePosterCanvasClip(
+        canvasRect, posterRect, rendererCanvas.offsetWidth, rendererCanvas.offsetHeight
+      );
       rendererCanvas.style.clipPath = clip;
       rendererCanvas.style.webkitClipPath = clip;
     }
