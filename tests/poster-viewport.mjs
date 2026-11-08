@@ -125,8 +125,12 @@ assert.match(editorSubject, /patchSelected\(\{x:clamp\(x,0,1\),y:clamp\(y,0,1\)\
   'Keyboard nudging obeys the same poster-safe subject boundary');
 
 const magazineText = readFileSync(new URL('../js/modules/present-magazine-text.js', import.meta.url), 'utf8');
-assert.match(magazineText, /startX \+ \(\(ev\.clientX - pointerX\) \/ Math\.max\(1, rect\.width\)\) \* 100/,
-  'Dragging text must preserve the original grab offset instead of snapping its anchor to the pointer');
+assert.match(magazineText, /startX \+ \(\(ev\.clientX - pointerX\) \/ width\) \* 100/,
+  'Dragging text must preserve the original grab offset and use the live poster-layer width');
+assert.match(magazineText, /const currentRect = target\.getBoundingClientRect\(\)/,
+  'Text dragging must measure the live poster layer after viewport layout changes');
+assert.match(magazineText, /__fumocaMagazineTextRuntime/,
+  'The stable document pointer listener must always dispatch to the latest magazine text module instance');
 assert.match(magazineText, /overflow: 'hidden', pointerEvents: 'none', zIndex: '20'/,
   'The full-size text layer must not block pointer events for image and headline layers');
 const posterAssets = readFileSync(new URL('../js/modules/poster-assets.js', import.meta.url), 'utf8');
