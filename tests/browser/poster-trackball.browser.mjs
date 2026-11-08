@@ -36,7 +36,8 @@ const camera={position:new Vector3(0,0,5),quaternion:new Quaternion(),up:new Vec
 const controls={target:new Vector3(0,0,0),enablePan:true,enableZoom:true,autoRotate:false,autoRotateSpeed:1};
 window._fumocaCaptureCanvas=document.getElementById('spark-canvas');
 window._fumocaViewerCamera=camera;window._fumocaCamera=camera;window._fumocaViewerControls=controls;window.S={mode:'orbit'};
-window.FumocaPoster={getState:()=>({enabled:true,composition:{aspectRatio:.8,safeArea:.04,background:{type:'solid',value:'#10131a'},assets:{images:[]},title:{visible:false},motion:{level:'still'},framing:{zoom:1}}}),updateComposition(){}};
+const posterComposition={aspectRatio:.8,safeArea:.04,background:{type:'solid',value:'#10131a'},assets:{images:[]},title:{visible:true,text:'Product title',x:.5,y:.12,align:'center',fontSize:42,color:'#ffffff'},motion:{level:'still'},framing:{zoom:1}};
+window.FumocaPoster={getState:()=>({enabled:true,composition:posterComposition}),updateComposition(patch){if(patch.title)Object.assign(posterComposition.title,patch.title);}};
 window.__camera=camera;
 // Intentionally no window.THREE: Spark imports Three.js as an ES module.
 </script>
@@ -67,6 +68,16 @@ try{
  assert.notDeepEqual(afterOrbit,before,'poster Orbit mode must rotate the active camera without a window.THREE global');
  assert.ok(Math.abs(afterOrbit[0])>1e-4&&Math.abs(afterOrbit[1])>1e-4&&Math.abs(afterOrbit[2])>1e-4,'combined arcball drags must produce independent X, Y and Z quaternion components for full 3D tumble');
  await page.evaluate(()=>{window.__camera.quaternion.set(0,0,0,1)});
+ const titleBefore=await page.evaluate(()=>({...window.FumocaPoster.getState().composition.title}));
+ const titleBox=await page.locator('[data-fumoca-poster-title]').boundingBox();
+ assert.ok(titleBox,'Studio headline must render on the poster canvas');
+ await page.mouse.move(titleBox.x+titleBox.width/2,titleBox.y+titleBox.height/2);
+ await page.mouse.down();
+ await page.mouse.move(titleBox.x+titleBox.width/2+80,titleBox.y+titleBox.height/2+60,{steps:6});
+ await page.mouse.up();
+ const titleAfter=await page.evaluate(()=>window.FumocaPoster.getState().composition.title);
+ assert.ok(titleAfter.x>titleBefore.x+.08&&titleAfter.y>titleBefore.y+.04,'headline must be freely draggable and persist its X/Y poster coordinates');
+ assert.deepEqual(await page.evaluate(()=>[window.__camera.quaternion.x,window.__camera.quaternion.y,window.__camera.quaternion.z]),[0,0,0],'dragging the headline must not rotate the 3D camera');
  await page.mouse.move(70,70);await page.mouse.down();await page.mouse.move(180,160,{steps:6});await page.mouse.up();
  const afterImageDrag=await page.evaluate(()=>[window.__camera.quaternion.x,window.__camera.quaternion.y,window.__camera.quaternion.z]);
  assert.deepEqual(afterImageDrag,[0,0,0],'supporting-image dragging must not also rotate the 3D camera');
