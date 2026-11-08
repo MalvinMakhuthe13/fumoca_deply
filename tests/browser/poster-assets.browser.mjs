@@ -64,9 +64,9 @@ try {
   assert.equal(initial.fixedWidth, 200, 'fixed layer must retain its configured CSS-pixel width');
   assert.equal(initial.responsiveWidth, 500, 'responsive layer should use 50% of the host width');
 
-  await page.mouse.move(400, 400);
+  await page.mouse.move(400, 500);
   await page.mouse.down();
-  await page.mouse.move(464, 400, { steps:4 });
+  await page.mouse.move(464, 500, { steps:4 });
   await page.mouse.up();
   const moved = await page.evaluate(() => window.FumocaPoster.getState().composition.assets.images.find(x => x.id === 'fixed'));
   assert.equal(moved.anchor, 'free', 'dragging a top-right anchored image must switch it to a free centre anchor');
