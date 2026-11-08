@@ -51,12 +51,18 @@ try{
  });
  assert.equal(await page.evaluate(()=>window.FumocaPoster.getState().selectedSubjectId),'subject_second','tapping the live splat canvas should select the projected 3D subject');
  await page.evaluate(()=>window.FumocaPoster.selectSubject('subject_main'));
+ const beforeCanvasDrag=await page.evaluate(()=>({...window.FumocaPoster.getState().composition.subjects[1]}));
  await page.evaluate(()=>{
    const host=document.getElementById('viewport');
    host.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,button:0,pointerId:12,clientX:300,clientY:300}));
-   host.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,button:0,pointerId:12,clientX:320,clientY:320}));
+   host.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,button:0,pointerId:12,clientX:360,clientY:340}));
+   host.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,button:0,pointerId:12,clientX:360,clientY:340}));
  });
- assert.equal(await page.evaluate(()=>window.FumocaPoster.getState().selectedSubjectId),'subject_main','camera orbit drags must not be interpreted as subject selection');
+ const afterCanvasDrag=await page.evaluate(()=>window.FumocaPoster.getState().composition.subjects[1]);
+ assert.ok(afterCanvasDrag.x>beforeCanvasDrag.x && afterCanvasDrag.y>beforeCanvasDrag.y,
+   'Dragging directly on a Gaussian must move the selected splat in poster coordinates');
+ assert.equal(await page.evaluate(()=>window.FumocaPoster.getState().selectedSubjectId),'subject_second',
+   'Dragging a splat keeps that object selected and must not orbit the camera');
  const sidePick=page.getByRole('button',{name:'Select Side product'});
  await sidePick.click();
  assert.equal(await page.evaluate(()=>window.FumocaPoster.getState().selectedSubjectId),'subject_second','clicking a visible poster subject should select that 3D object');
