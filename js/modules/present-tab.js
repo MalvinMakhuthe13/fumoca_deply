@@ -15,11 +15,32 @@ import { mountPosterViewport } from './poster-viewport.js?v=20261108-titlelayer0
 import './poster-assets.js?v=20261108-edgeanchor02';
 import { mountPosterEditorOverlay as createPosterEditorOverlay } from './poster-editor-overlay.js?v=20261108-posterinput03';
 import { mountPosterSceneManager } from './poster-scene-manager.js?v=20261108-multisubject02';
-import './poster-multi-subject-studio.js?v=20261108-multisubject03';
-import './poster-studio-transform.js?v=20261108-livecanvas01';
-import './poster-multi-subject-studio.js?v=20261108-multisubject02';
 import r2 from '../r2Client.js';
 import { savePosterSnapshot } from './poster-cloud-persistence.js';
+
+// Optional 3D editing bridges are loaded only after the original Composer UI
+// is mounted. A bridge import/runtime failure must never block the controls.
+let posterMultiSubjectReady = false;
+let posterStudioTransformReady = false;
+let posterBridgeLoadPromise = null;
+function loadPosterEditingBridges() {
+  if (posterBridgeLoadPromise) return posterBridgeLoadPromise;
+  posterBridgeLoadPromise = (async () => {
+    const results = await Promise.allSettled([
+      import('./poster-multi-subject-studio.js?v=20261108-multisubject03'),
+      import('./poster-studio-transform.js?v=20261108-livecanvas01'),
+    ]);
+    posterMultiSubjectReady = results[0].status === 'fulfilled';
+    posterStudioTransformReady = results[1].status === 'fulfilled';
+    results.forEach((result, index) => {
+      if (result.status === 'rejected') {
+        console.warn(index === 0 ? '[Poster Composer] Multi-splat bridge unavailable:' : '[Poster Composer] Studio transform bridge unavailable:', result.reason);
+      }
+    });
+    return { multiSubject: posterMultiSubjectReady, studioTransform: posterStudioTransformReady };
+  })();
+  return posterBridgeLoadPromise;
+}
 
 const STORAGE_KEY = 'fumoca_present_v1';
 let posterCloudSaveInFlight = false;
@@ -295,6 +316,11 @@ const initializedPresentPanels = new WeakSet();
 function mountPanel() {
   let panel = document.getElementById('fumocaPresentTabPanel');
   if (panel && initializedPresentPanels.has(panel)) {
+    const host = findPresentHost();
+    if (panel.parentElement !== host || panel !== host.firstElementChild) {
+      host.insertBefore(panel, host.firstElementChild);
+    }
+    host.scrollTop = 0;
     mountPosterSceneManager();
     return panel;
   }
@@ -454,6 +480,13 @@ function mountPanel() {
     host.insertBefore(panel, host.firstElementChild);
   }
   host.scrollTop = 0;
+  // The original Composer is now in the DOM before optional 3D bridges load.
+  console.info('[Poster Composer] Original controls mounted:', {
+    host: host.id || host.className || host.tagName,
+    panel: !!document.getElementById('fumocaPresentTabPanel'),
+    composer: !!panel.querySelector('#ptpPosterComposer'),
+    firstChild: host.firstElementChild === panel,
+  });
   mountPosterSceneManager();
   syncPresentActive();
   // Poster editor overlay is mounted by tryMount() after #viewport exists.
@@ -944,8 +977,17 @@ export function initPresentTab() {
   const tryMount = () => {
     // The viewport module can evaluate before the editor's #viewport exists.
     // Re-run its idempotent mount once the Present workspace and viewer are ready.
-    mountPosterViewport();
     mountPanel();
+    // Load optional 3D bridges after the Composer UI is visible.
+    loadPosterEditingBridges().then(() => {
+      try { mountPosterSceneManager(); } catch (error) {
+        console.warn('[Poster Composer] Scene manager could not mount:', error);
+      }
+      try { mountPosterViewport(); } catch (error) {
+        console.warn('[Poster Composer] Viewport mount failed:', error);
+      }
+    }).catch(error => console.warn('[Poster Composer] Optional bridge loading failed:', error));
+    mountPosterViewport();
     mountPosterSceneManager();
     renderNavManager();
     renderTextManager();
