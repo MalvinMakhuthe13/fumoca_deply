@@ -469,11 +469,13 @@ export function mountPosterViewport() {
     if (!isStudioEditor || event.button !== 0 || event.altKey || !posterBounds) return;
     const mode = window.S?.mode || window._fumocaStudioMode || 'orbit';
     if (mode !== 'orbit') return;
-    if (event.target?.closest?.('[data-fumoca-poster-editor-overlay],button,input,select,textarea')) return;
+    if (event.target?.closest?.('[data-poster-asset-id],[aria-label^="Resize "],[aria-label^="Rotate "],#fumocaPosterEditorOverlay .fpe-control,button,input,select,textarea')) return;
     if (event.clientX < posterBounds.left || event.clientX > posterBounds.right ||
         event.clientY < posterBounds.top || event.clientY > posterBounds.bottom) return;
     const activeCamera = getCamera();
-    if (!activeCamera?.position || !activeCamera?.quaternion || !window.THREE?.Quaternion) return;
+    const Quaternion = activeCamera?.quaternion?.constructor;
+    if (!activeCamera?.position || !activeCamera?.quaternion || typeof Quaternion !== 'function' ||
+        typeof activeCamera.quaternion.clone !== 'function') return;
     const point = trackballVector(event.clientX, event.clientY);
     if (!point) return;
     trackballGesture = {
@@ -496,7 +498,9 @@ export function mountPosterViewport() {
     if (!activeCamera || !current) return;
     // Build the incremental arcball delta in the original camera frame, then
     // conjugate it into world space so yaw, pitch AND roll remain unrestricted.
-    const deltaCamera = new window.THREE.Quaternion()
+    const Quaternion = activeCamera.quaternion?.constructor;
+    if (typeof Quaternion !== 'function') return;
+    const deltaCamera = new Quaternion()
       .setFromUnitVectors(current, trackballGesture.previous);
     const base = trackballGesture.startQuaternion;
     const deltaWorld = base.clone().multiply(deltaCamera).multiply(base.clone().invert());
