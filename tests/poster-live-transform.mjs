@@ -91,4 +91,49 @@ assert.equal(mockGroup.scale.value, 1.5);
 assert.ok(Math.abs(mockGroup.quaternion.angle - Math.PI / 2) < 1e-9);
 assert.equal(applyPosterLiveTransform({}), false);
 
+
+// Multiple poster subjects must retain independent camera-plane transforms and
+// independent motion phases when they share one published Spark scene.
+const subjectA = {
+  id: 'subject-a',
+  center: { x: 0, y: 0, z: 0 },
+  object: { x: 0.2, y: 0.3, scale: 0.65, rotation: -18, z: 2 },
+};
+const subjectB = {
+  id: 'subject-b',
+  center: { x: 3, y: 1, z: -2 },
+  object: { x: 0.8, y: 0.7, scale: 1.8, rotation: 42, z: 8 },
+};
+const worldA = computePosterWorldTransform({
+  center: subjectA.center, cameraPosition: base.cameraPosition,
+  cameraRight: base.cameraRight, cameraUp: base.cameraUp,
+  fov: base.fov, aspect: base.aspect, object: subjectA.object,
+});
+const worldB = computePosterWorldTransform({
+  center: subjectB.center, cameraPosition: base.cameraPosition,
+  cameraRight: base.cameraRight, cameraUp: base.cameraUp,
+  fov: base.fov, aspect: base.aspect, object: subjectB.object,
+});
+assert.notDeepEqual(worldA.position, worldB.position, 'Each subject must keep its own poster-space position and pivot');
+assert.notEqual(worldA.scale, worldB.scale, 'Each subject must keep its own scale');
+assert.notEqual(worldA.rotation, worldB.rotation, 'Each subject must keep its own base rotation');
+assert.ok(worldB.position.z > worldA.position.z, 'Each subject must keep its own depth layer');
+
+const subjectPhases = new Map([['subject-a', 0.25], ['subject-b', 1.1]]);
+let yawA = null, yawB = null;
+const makeMotionGroup = (capture) => ({
+  quaternion: {
+    multiply(q) { capture(q.angle); },
+  },
+});
+class CaptureQuaternion {
+  setFromAxisAngle(axis, angle) { this.angle = angle; return this; }
+}
+const motionA = makeMotionGroup(angle => { yawA = angle; });
+const motionB = makeMotionGroup(angle => { yawB = angle; });
+assert.equal(applyPosterMotionRotation({ Vector3: MockVector3, Quaternion: CaptureQuaternion }, motionA, subjectPhases.get(subjectA.id)), true);
+assert.equal(applyPosterMotionRotation({ Vector3: MockVector3, Quaternion: CaptureQuaternion }, motionB, subjectPhases.get(subjectB.id)), true);
+assert.equal(yawA, 0.25, 'Subject A must receive only its own motion phase');
+assert.equal(yawB, 1.1, 'Subject B must receive only its own motion phase');
+
 console.log('Poster live transform math tests passed.');
