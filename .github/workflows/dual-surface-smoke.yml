@@ -1,0 +1,31 @@
+name: Dual Surface Engine Smoke Tests
+
+on:
+  push:
+    branches:
+      - feature/dual-surface-engine-2026-11-02
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  dual-surface:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify JavaScript syntax
+        run: |
+          node --check --experimental-default-type=module js/modules/studio-mesh-print.js
+          node --check --experimental-default-type=module js/modules/dual-surface-contract.js
+          node --check --experimental-default-type=module js/modules/nif-format.js
+      - name: Verify dual-layer NIF round trip
+        run: node --experimental-default-type=module --test engine-next/tests/dual_surface_roundtrip.test.mjs
+      - name: Verify Gaussian-to-mesh source freshness contract
+        run: node --experimental-default-type=module --test engine-next/tests/dual_surface_source_contract.test.mjs
+      - name: Verify reconstruction worker syntax
+        run: python -m py_compile engine-next/reconstruction/pipeline.py
+      - name: Verify Studio inline scripts
+        run: python engine-next/tests/check_edit_inline_scripts.py
