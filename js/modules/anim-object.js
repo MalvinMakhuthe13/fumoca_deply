@@ -27,6 +27,14 @@ const FumocaObjectAnim = (() => {
       state: type === 'hinge' ? 'closed' : 'idle',
       rot: { x: 0, y: 0, z: 0 },
       pos: { x: 0, y: 0, z: 0 },
+      joint: {
+        kind: type === 'hinge' ? 'hinge' : 'fixed',
+        pivot: { x: 0, y: 0, z: 0 },
+        axis: { x: 1, y: 0, z: 0 },
+        limits: { min: -180, max: 180 },
+        rest: { pos: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0 } },
+        seat: null,
+      },
     };
     obj.components.push(c);
     return c;
@@ -92,6 +100,36 @@ const FumocaObjectAnim = (() => {
     return out;
   }
 
+  function defineJoint(objId, compId, joint = {}) {
+    const obj = objects.get(objId);
+    if (!obj) return { ok: false, reason: 'unknown_object' };
+    const c = obj.components.find(x => x.id === compId);
+    if (!c) return { ok: false, reason: 'unknown_component' };
+    const kinds = ['fixed', 'hinge', 'prismatic', 'free', 'lift', 'threaded', 'snap'];
+    if (joint.kind && !kinds.includes(joint.kind)) return { ok: false, reason: 'invalid_joint' };
+    c.joint = {
+      kind: joint.kind || c.joint?.kind || 'fixed',
+      pivot: joint.pivot || c.joint?.pivot || { x: 0, y: 0, z: 0 },
+      axis: joint.axis || c.joint?.axis || { x: 1, y: 0, z: 0 },
+      limits: joint.limits || c.joint?.limits || { min: -180, max: 180 },
+      rest: joint.rest || c.joint?.rest || { pos: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0 } },
+      seat: joint.seat || c.joint?.seat || null,
+    };
+    c.type = c.joint.kind;
+    return { ok: true, joint: c.joint };
+  }
+
+  function seatComponent(objId, compId) {
+    const obj = objects.get(objId);
+    if (!obj) return false;
+    const c = obj.components.find(x => x.id === compId);
+    if (!c?.joint?.seat) return false;
+    c.pos = { ...c.joint.seat.pos };
+    c.rot = { ...c.joint.seat.rot };
+    c.state = 'seated';
+    return true;
+  }
+
   function serialize(objId) {
     const o = objects.get(objId);
     return o ? JSON.parse(JSON.stringify(o)) : null;
@@ -104,7 +142,7 @@ const FumocaObjectAnim = (() => {
   }
 
   return {
-    createObject, addComponent, setComponentTransform, captureKeyframe, evaluate,
+    createObject, addComponent, setComponentTransform, defineJoint, seatComponent, captureKeyframe, evaluate,
     serialize, deserialize,
     list: () => Array.from(objects.values()),
     get: (id) => objects.get(id) || null,
