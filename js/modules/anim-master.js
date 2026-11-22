@@ -341,6 +341,7 @@ const FumocaMaster = (() => {
       if(!T.playing) return;
       const dt=((ts-T.lastTs)/1000)*T.speed; T.lastTs=ts;
       evaluate(wrapTime(T.time + dt));
+      if(window.FumocaPhysics?.step) window.FumocaPhysics.step(dt);
       T.raf=requestAnimationFrame(step);
     };
     T.raf=requestAnimationFrame(step);
