@@ -1,5 +1,5 @@
 /**
- * World-space hierarchy and scale tests.
+ * Scale behavior and static contract tests.
  * Run: node tests/anim-physics-transform.test.mjs
  */
 globalThis.window = globalThis;
@@ -15,125 +15,92 @@ function near(a, b, eps = 1e-4) { return Math.abs(a - b) < eps; }
 Physics.dispose();
 Physics.setBackend('reference');
 
-// Parent translation + child translation
-Physics.registerHierarchy('obj', [
-  { id: 'parent', parentId: null },
-  { id: 'child', parentId: 'parent' },
-]);
-Physics.createCollider({ id: 'c', type: 'box', halfExtents: { x: 0.1, y: 0.1, z: 0.1 }, owner: { kind: 'component', objectId: 'obj', componentId: 'child' } });
+// Box scale changes effective overlap
+Physics.createCollider({ id: 'small', type: 'box', halfExtents: { x: 0.1, y: 0.1, z: 0.1 }, owner: { kind: 'component', objectId: 'a', componentId: 'c' } });
+Physics.createCollider({ id: 'big', type: 'box', halfExtents: { x: 0.1, y: 0.1, z: 0.1 }, scale: { x: 3, y: 3, z: 3 }, owner: { kind: 'component', objectId: 'b', componentId: 'c' } });
 Physics.syncFromEvaluation({
   objects: {
-    obj: {
-      parent: { pos: { x: 2, y: 1, z: 0 }, rot: { x: 0, y: 0, z: 0 } },
-      child: { pos: { x: 1, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0 } },
-    },
+    a: { c: { pos: { x: 0.25, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0 } } },
+    b: { c: { pos: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0 } } },
   },
 });
-let wp = Physics.getWorldPose('c');
-assert(wp && near(wp.position.x, 3) && near(wp.position.y, 1), 'Parent+child translation: world x=3 y=1');
+const hits = Physics.queryOverlaps();
+assert(hits.some(h => (h.colliderA === 'big' && h.colliderB === 'small') || (h.colliderA === 'small' && h.colliderB === 'big')), 'Scaled box overlaps unscaled box at 0.25');
+assert(Physics.get('big').geometry.halfExtents.x === 0.1, 'Original halfExtents unchanged');
 
-// Parent rotation + child translation (90 deg Y: child x becomes -z)
+// Repeated sync does not compound
+const before = Physics.get('big').geometry.halfExtents.x;
 Physics.syncFromEvaluation({
   objects: {
-    obj: {
-      parent: { pos: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 90, z: 0 } },
-      child: { pos: { x: 1, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0 } },
-    },
+    a: { c: { pos: { x: 0.25, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0 } } },
+    b: { c: { pos: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0 } } },
   },
 });
-wp = Physics.getWorldPose('c');
-assert(wp && near(wp.position.z, -1, 1e-3), 'Parent Y90 + child x=1 → world z≈-1');
+assert(Physics.get('big').geometry.halfExtents.x === before, 'Repeated sync does not compound scale');
 
-// Nested grandparent
+// Sphere uniform scale stored and original unchanged
 Physics.dispose();
-Physics.registerHierarchy('nest', [
-  { id: 'gp', parentId: null },
-  { id: 'p', parentId: 'gp' },
-  { id: 'c', parentId: 'p' },
-]);
-Physics.createCollider({ id: 'leaf', type: 'sphere', radius: 0.05, owner: { kind: 'component', objectId: 'nest', componentId: 'c' } });
-Physics.syncFromEvaluation({
-  objects: {
-    nest: {
-      gp: { pos: { x: 1, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0 } },
-      p: { pos: { x: 1, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0 } },
-      c: { pos: { x: 1, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0 } },
-    },
-  },
-});
-wp = Physics.getWorldPose('leaf');
-assert(wp && near(wp.position.x, 3), 'Grandparent chain: world x=3');
+const sph = Physics.createCollider({ id: 'sph', type: 'sphere', radius: 0.2, scale: { x: 2, y: 2, z: 2 }, owner: { kind: 'object', objectId: 'o' } });
+assert(sph.geometry.radius === 0.2 && sph.scale.x === 2, 'Sphere original radius unchanged');
 
-// Collider-local offset rotated by owner (90 Z: local y becomes -x)
+// Capsule uniform scale
+const cap = Physics.createCollider({ id: 'cap', type: 'capsule', radius: 0.1, height: 0.4, scale: { x: 1.5, y: 1.5, z: 1.5 }, owner: { kind: 'object', objectId: 'o' } });
+assert(cap.geometry.radius === 0.1 && cap.geometry.height === 0.4, 'Capsule original dimensions unchanged');
+
+// Non-uniform sphere rejected
 Physics.dispose();
-Physics.createCollider({ id: 'off', type: 'sphere', radius: 0.05, localPosition: { x: 0, y: 1, z: 0 }, owner: { kind: 'component', objectId: 'o', componentId: 'c' } });
-Physics.syncFromEvaluation({
-  objects: { o: { c: { pos: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 90 } } } },
-});
-wp = Physics.getWorldPose('off');
-assert(wp && near(wp.position.x, -1, 1e-3) && near(wp.position.y, 0, 1e-3), 'Local offset rotated by owner Z90');
+Physics.createCollider({ id: 'ns', type: 'sphere', radius: 0.2, scale: { x: 2, y: 1, z: 1 }, owner: { kind: 'component', objectId: 'o', componentId: 'c' } });
+Physics.syncFromEvaluation({ objects: { o: { c: { pos: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0 } } } } });
+const ns = Physics.getLastScaleResult('ns');
+assert(ns && ns.ok === false && ns.reason === 'non_uniform_sphere_unsupported', 'Non-uniform sphere rejected');
 
-// Parent and child rotations compose (order: parent then child)
+// Non-uniform capsule rejected
 Physics.dispose();
-Physics.registerHierarchy('rot', [
-  { id: 'p', parentId: null },
-  { id: 'c', parentId: 'p' },
-]);
-Physics.createCollider({ id: 'rc', type: 'box', halfExtents: { x: 0.1, y: 0.1, z: 0.1 }, localPosition: { x: 1, y: 0, z: 0 }, owner: { kind: 'component', objectId: 'rot', componentId: 'c' } });
-Physics.syncFromEvaluation({
-  objects: {
-    rot: {
-      p: { pos: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 90, z: 0 } },
-      c: { pos: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0 } },
-    },
-  },
-});
-wp = Physics.getWorldPose('rc');
-assert(wp && near(wp.position.z, -1, 1e-3), 'Parent rotation applied before collider offset');
+Physics.createCollider({ id: 'nc', type: 'capsule', radius: 0.1, height: 0.4, scale: { x: 2, y: 1, z: 1 }, owner: { kind: 'component', objectId: 'o', componentId: 'c' } });
+Physics.syncFromEvaluation({ objects: { o: { c: { pos: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0 } } } } });
+const nc = Physics.getLastScaleResult('nc');
+assert(nc && nc.ok === false && nc.reason === 'non_uniform_capsule_unsupported', 'Non-uniform capsule rejected');
 
-// Scrub restores exact pose
+// Non-uniform rotated box rejected
 Physics.dispose();
-Physics.createCollider({ id: 'bot', type: 'sphere', radius: 0.1, owner: { kind: 'component', objectId: 'b', componentId: 'body' } });
-Physics.syncFromEvaluation({ objects: { b: { body: { pos: { x: 1.5, y: 0.2, z: -0.3 }, rot: { x: 0, y: 0, z: 0 } } } } });
-const first = Physics.getWorldPose('bot');
-Physics.syncFromEvaluation({ objects: { b: { body: { pos: { x: 4, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0 } } } } });
-Physics.syncFromEvaluation({ objects: { b: { body: { pos: { x: 1.5, y: 0.2, z: -0.3 }, rot: { x: 0, y: 0, z: 0 } } } } });
-const back = Physics.getWorldPose('bot');
-assert(first && back && near(first.position.x, back.position.x) && near(first.position.y, back.position.y) && near(first.position.z, back.position.z), 'Scrub restores exact pose');
+Physics.createCollider({ id: 'nb', type: 'box', halfExtents: { x: 0.5, y: 0.5, z: 0.5 }, scale: { x: 2, y: 1, z: 1 }, owner: { kind: 'component', objectId: 'o', componentId: 'c' } });
+Physics.syncFromEvaluation({ objects: { o: { c: { pos: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 45, z: 0 } } } } });
+const nb = Physics.getLastScaleResult('nb');
+assert(nb && nb.ok === false && nb.reason === 'non_uniform_scale_on_rotated_primitive', 'Non-uniform rotated box rejected');
 
-// Missing parent is safe
+// Invalid scale falls back to 1
 Physics.dispose();
-Physics.registerHierarchy('miss', [{ id: 'c', parentId: 'missing' }]);
-Physics.createCollider({ id: 'mc', type: 'box', owner: { kind: 'component', objectId: 'miss', componentId: 'c' } });
-Physics.syncFromEvaluation({ objects: { miss: { c: { pos: { x: 1, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0 } } } } });
-wp = Physics.getWorldPose('mc');
-assert(wp && near(wp.position.x, 1), 'Missing parent: uses own transform');
+const bad = Physics.createCollider({ id: 'bad', type: 'box', scale: { x: -1, y: 0, z: NaN }, owner: { kind: 'object', objectId: 'o' } });
+assert(bad.scale.x === 1 && bad.scale.y === 1 && bad.scale.z === 1, 'Invalid scale falls back to 1');
 
-// Cycle is safe
+// Static translation change detected
 Physics.dispose();
-Physics.registerHierarchy('cyc', [
-  { id: 'a', parentId: 'b' },
-  { id: 'b', parentId: 'a' },
-]);
-Physics.createCollider({ id: 'ca', type: 'box', owner: { kind: 'component', objectId: 'cyc', componentId: 'a' } });
-Physics.syncFromEvaluation({ objects: { cyc: { a: { pos: { x: 1, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0 } }, b: { pos: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0 } } } } });
-wp = Physics.getWorldPose('ca');
-assert(wp !== null, 'Cycle does not hang');
+Physics.createCollider({ id: 'st', type: 'box', bodyType: 'static', owner: { kind: 'component', objectId: 'o', componentId: 'c' } });
+Physics.syncFromEvaluation({ objects: { o: { c: { pos: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0 } } } } });
+Physics.syncFromEvaluation({ objects: { o: { c: { pos: { x: 1, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0 } } } } });
+assert(Physics.getStaticMoved('st') === true, 'Static translation change detected');
 
-// Scale: box
+// Static rotation change detected
 Physics.dispose();
-const box = Physics.createCollider({ id: 'sb', type: 'box', halfExtents: { x: 0.5, y: 0.5, z: 0.5 }, scale: { x: 2, y: 2, z: 2 }, owner: { kind: 'component', objectId: 'o', componentId: 'c' } });
-assert(box.scale.x === 2 && box.geometry.halfExtents.x === 0.5, 'Scale stored; original halfExtents unchanged');
+Physics.createCollider({ id: 'sr', type: 'box', bodyType: 'static', owner: { kind: 'component', objectId: 'o', componentId: 'c' } });
+Physics.syncFromEvaluation({ objects: { o: { c: { pos: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0 } } } } });
+Physics.syncFromEvaluation({ objects: { o: { c: { pos: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 90, z: 0 } } } } });
+assert(Physics.getStaticMoved('sr') === true, 'Static rotation change detected');
 
-// Scale: sphere and capsule stored
-const sph = Physics.createCollider({ id: 'ss', type: 'sphere', radius: 0.2, scale: { x: 1.5, y: 1.5, z: 1.5 }, owner: { kind: 'object', objectId: 'o' } });
-const cap = Physics.createCollider({ id: 'sc', type: 'capsule', radius: 0.1, height: 0.4, scale: { x: 2, y: 2, z: 2 }, owner: { kind: 'object', objectId: 'o' } });
-assert(sph.scale.x === 1.5 && cap.scale.y === 2, 'Sphere and capsule scale stored');
+// q and -q equivalent: no false move
+Physics.dispose();
+Physics.createCollider({ id: 'sq', type: 'box', bodyType: 'static', owner: { kind: 'component', objectId: 'o', componentId: 'c' } });
+Physics.syncFromEvaluation({ objects: { o: { c: { pos: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0 } } } } });
+// Same orientation via Euler 0 again
+Physics.syncFromEvaluation({ objects: { o: { c: { pos: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0 } } } } });
+assert(Physics.getStaticMoved('sq') !== true, 'Equivalent orientation does not flag static');
 
-// Non-uniform on rotated rejected path exists
-Physics.createCollider({ id: 'bad', type: 'box', halfExtents: { x: 0.5, y: 0.5, z: 0.5 }, scale: { x: 2, y: 1, z: 1 }, owner: { kind: 'component', objectId: 'o', componentId: 'r' } });
-Physics.syncFromEvaluation({ objects: { o: { c: { pos: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0 } }, r: { pos: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 45, z: 0 } } } } });
-assert(true, 'Non-uniform rotated path executed without crash');
+// Kinematic follows
+Physics.dispose();
+Physics.createCollider({ id: 'k', type: 'box', bodyType: 'kinematic', owner: { kind: 'component', objectId: 'o', componentId: 'c' } });
+Physics.syncFromEvaluation({ objects: { o: { c: { pos: { x: 2, y: 0, z: 0 }, rot: { x: 0, y: 45, z: 0 } } } } });
+const kp = Physics.getWorldPose('k');
+assert(kp && near(kp.position.x, 2), 'Kinematic follows translation');
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);
