@@ -63,6 +63,7 @@ const FumocaScenes = (() => {
       { name: 'DoorRL', kind: 'hinge', axis: { x: 0, y: 1, z: 0 }, pivot: { x: -0.9, y: 0, z: -0.45 }, limits: { min: 0, max: 1.2 }, open: 1.0, w: 0.06, h: 0.7, d: 0.85, color: 0xa0e0ff, x: -0.93, y: 0.15, z: -0.55, parent: 'Body' },
       { name: 'DoorRR', kind: 'hinge', axis: { x: 0, y: 1, z: 0 }, pivot: { x: 0.9, y: 0, z: -0.45 }, limits: { min: -1.2, max: 0 }, open: -1.0, w: 0.06, h: 0.7, d: 0.85, color: 0xffd0a0, x: 0.93, y: 0.15, z: -0.55, parent: 'Body' },
       { name: 'Bonnet', kind: 'hinge', axis: { x: 1, y: 0, z: 0 }, pivot: { x: 0, y: 0.2, z: 1.5 }, limits: { min: 0, max: 1.1 }, open: 0.9, w: 1.7, h: 0.06, d: 1.1, color: 0xff4d00, x: 0, y: 0.28, z: 1.35, parent: 'Body' },
+      { name: 'Headlamp', kind: 'fixed', w: 0.2, h: 0.08, d: 0.06, color: 0xffffaa, x: 0.6, y: 0.35, z: 2.0, parent: 'Body' },
       { name: 'Boot', kind: 'hinge', axis: { x: 1, y: 0, z: 0 }, pivot: { x: 0, y: 0.2, z: -1.6 }, limits: { min: -1.1, max: 0 }, open: -0.9, w: 1.7, h: 0.06, d: 0.9, color: 0x7b2fff, x: 0, y: 0.28, z: -1.45, parent: 'Body' },
     ], scene);
   }
@@ -73,6 +74,7 @@ const FumocaScenes = (() => {
       { name: 'Shell', w: 4, h: 2.4, d: 3.2, color: 0x3a3a3a, x: 0, y: 1.2, z: 0 },
       { name: 'FrontDoor', kind: 'hinge', axis: { x: 0, y: 1, z: 0 }, pivot: { x: -0.4, y: 0, z: 1.62 }, limits: { min: 0, max: 1.4 }, open: 1.2, w: 0.8, h: 1.9, d: 0.06, color: 0xc8ff00, x: 0, y: 0.95, z: 1.62, parent: 'Shell' },
       { name: 'BackDoor', kind: 'hinge', axis: { x: 0, y: 1, z: 0 }, pivot: { x: 0.4, y: 0, z: -1.62 }, limits: { min: -1.4, max: 0 }, open: -1.2, w: 0.8, h: 1.9, d: 0.06, color: 0xff4d00, x: 0, y: 0.95, z: -1.62, parent: 'Shell' },
+      { name: 'Window', kind: 'prismatic', axis: { x: 0, y: 1, z: 0 }, pivot: { x: 0, y: 0, z: 0 }, limits: { min: 0, max: 0.4 }, open: 0.3, w: 0.6, h: 0.5, d: 0.04, color: 0x88ddff, x: -1.2, y: 1.4, z: 1.62, parent: 'Shell' },
       { name: 'SideDoor', kind: 'hinge', axis: { x: 0, y: 1, z: 0 }, pivot: { x: 2.02, y: 0, z: 0.4 }, limits: { min: 0, max: 1.4 }, open: 1.1, w: 0.06, h: 1.9, d: 0.8, color: 0x9cf, x: 2.02, y: 0.95, z: 0, parent: 'Shell' },
     ], scene);
   }
