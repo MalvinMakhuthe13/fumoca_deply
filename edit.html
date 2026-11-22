@@ -1914,6 +1914,7 @@ window.controls = controls;
 // Expose for auto-fix.js and other modules
 window._fumocaViewerCamera = camera;
 window._fumocaViewerControls = controls;
+if (window.FumocaStudioInit) window.FumocaStudioInit.init();
 // rebuildGeometry stub — replaced by real function once main script runs
 window.rebuildGeometry = () => window.dispatchEvent(new CustomEvent('fumoca:rebuildGeometry'));
 // Stub renderer so auto-fix can get positions and camera distance info
@@ -6199,6 +6200,9 @@ animBg();
 <!-- ═══════════════════════════════════════════════════════════════
      FUMOCA v60 — New module imports
      ═══════════════════════════════════════════════════════════════ -->
+<script type="module" src="js/modules/anim-master.js"></script>
+<script type="module" src="js/modules/anim-studio-init.js"></script>
+<script type="module" src="js/modules/anim-light.js"></script>
 <script type="module" src="js/modules/4d-engine.js"></script>
 <script type="module" src="js/modules/auto-fix.js"></script>
 <script type="module" src="js/modules/visual-fx.js"></script>
@@ -6748,7 +6752,11 @@ function _wireButtons() {
   // 4D: Toggle
   document.getElementById('v604DToggleBtn')?.addEventListener('click', () => {
     const btn = document.getElementById('v604DToggleBtn');
-    if (window.Fumoca4D) {
+    if (window.FumocaStudioInit?.isInitialized?.() && window.FumocaStudioInit.isCameraBound?.()) {
+      if (window.FumocaStudioInit.isPlaying()) window.FumocaStudioInit.pause();
+      else window.FumocaStudioInit.play();
+      if (btn) btn.textContent = window.FumocaStudioInit.isPlaying() ? '⏸ Pause 4D Playback' : '⏳ Toggle 4D Playback';
+    } else if (window.Fumoca4D) {
       window.Fumoca4D.toggle4D();
       if (btn) btn.textContent = window.Fumoca4D.isActive() ? '⏸ Pause 4D Playback' : '⏳ Toggle 4D Playback';
     }
