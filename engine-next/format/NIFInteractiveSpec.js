@@ -251,7 +251,7 @@ export function validateInteractiveManifest(manifest) {
     if (assets.has(asset.id)) add(errors, p + '.id', 'duplicate asset ID');
     assets.set(asset.id, asset);
     if (typeof asset.storageKey !== 'string' || !STORAGE_KEY_RE.test(asset.storageKey) ||
-        asset.storageKey.startsWith('/') || asset.storageKey.split('/').includes('..') ||
+        asset.storageKey.startsWith('/') || asset.storageKey.split('/').some(part => !part || part === '.' || part === '..') ||
         asset.storageKey.includes('\\')) {
       add(errors, p + '.storageKey', 'must be a relative approved storage key, not a URL or path traversal');
     }
