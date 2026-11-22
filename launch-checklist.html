@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FUMOCA launch checklist</title>
+<style>
+  body { margin:0; background:#0b0d12; color:#f4f6f8; font:15px/1.5 system-ui; padding:28px; max-width:760px; }
+  h1 { font-size:28px; }
+  li { margin:8px 0; }
+  .no { color:#ffb4a8; }
+  .yes { color:#c8ff00; }
+  a { color:#c8ff00; }
+</style>
+</head>
+<body>
+<h1>First paid campaign checklist</h1>
+<p>Do not take a client until every item below is true on the production site.</p>
+<ol>
+  <li class="no">Production is running this branch, or the equivalent fixes are deployed. Currently unverified.</li>
+  <li class="no">Only the founder can open Studio. Public signup does not grant production access.</li>
+  <li class="no">Client originals are in a private bucket. The published link cannot fetch them.</li>
+  <li class="yes">Job rerun updates the existing nif_files row instead of colliding. Code is on this branch.</li>
+  <li class="no">A failed reconstruction is labelled. Synthetic poses are not delivered as a capture.</li>
+  <li class="yes">A published viewer link is the delivery. Test it on a phone before promising mobile.</li>
+  <li class="yes">Founder desk records leads, clients, projects, quotes. Stored in this browser until a schema is approved.</li>
+  <li class="yes">Studio can load a GLB, open a demo cooler, and drop a bottle. Browser acceptance still required.</li>
+  <li class="no">Backup and restore have been tried once.</li>
+  <li class="no">The public site no longer sells a social platform. Copy is updated on this branch only.</li>
+</ol>
+<p><a href="founder.html">Founder desk</a> · <a href="edit.html">Studio</a></p>
+</body>
+</html>
