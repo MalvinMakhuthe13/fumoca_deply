@@ -102,8 +102,8 @@ scene.world.children.push(bottle);
 Master.setObjectBinding('bottle', new Map([['body', bottle]]));
 Master.setSkeletonBinding('char1', new Map([['hand', scene.hand]]));
 Master.setInteractions([
-  { type: 'grasp', target: 'bottle', time: 1.0, params: { to: 'char1', bone: 'hand', offset: {x:0,y:0.1,z:0} } },
-  { type: 'release', target: 'bottle', time: 3.0 },
+  { type: 'grasp', time: 1.0, target: { objectId: 'bottle', componentId: 'body' }, parent: { skeletonId: 'char1', boneId: 'hand' }, offset: {x:0,y:0.1,z:0} },
+  { type: 'release', time: 3.0, target: { objectId: 'bottle', componentId: 'body' } },
 ]);
 
 Master.evaluate(0.5);
