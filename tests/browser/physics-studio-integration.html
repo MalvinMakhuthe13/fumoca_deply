@@ -37,15 +37,13 @@ const base = new THREE.Object3D();
 const lid = new THREE.Object3D();
 const bottle = new THREE.Object3D();
 lid.parent = base;
-Physics.registerSceneObject('cooler', 'base', { node: base });
-Physics.registerSceneObject('cooler', 'lid', { node: lid, parent: base });
-Physics.registerSceneObject('bottle', 'body', { node: bottle });
-
 Physics.createCollider({ id: 'floor', type: 'box', bodyType: 'static', halfExtents: { x: 2, y: 0.05, z: 2 }, owner: { kind: 'component', objectId: 'scene', componentId: 'floor' } });
 Physics.createCollider({ id: 'base', type: 'box', bodyType: 'static', halfExtents: { x: 0.4, y: 0.3, z: 0.3 }, owner: { kind: 'component', objectId: 'cooler', componentId: 'base' } });
 Physics.createCollider({ id: 'lid', type: 'box', bodyType: 'kinematic', halfExtents: { x: 0.4, y: 0.02, z: 0.3 }, owner: { kind: 'component', objectId: 'cooler', componentId: 'lid' } });
 Physics.createCollider({ id: 'bottle', type: 'capsule', bodyType: 'kinematic', radius: 0.04, height: 0.2, mass: 0.4, owner: { kind: 'component', objectId: 'bottle', componentId: 'body' } });
-Physics.bindSceneNode('bottle', { node: bottle, objectId: 'bottle', componentId: 'body' });
+Physics.bindSceneComponent('cooler', 'base', { node: base, colliderId: 'base' });
+Physics.bindSceneComponent('cooler', 'lid', { node: lid, parent: base, colliderId: 'lid' });
+Physics.bindSceneComponent('bottle', 'body', { node: bottle, colliderId: 'bottle' });
 
 Physics.syncFromEvaluation({
   objects: {
