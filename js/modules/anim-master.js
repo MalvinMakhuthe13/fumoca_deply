@@ -138,7 +138,11 @@ const FumocaMaster = (() => {
     for(const c of (obj.components||[])){
       const pa=a.components.find(x=>x.id===c.id)||c, pb=b.components.find(x=>x.id===c.id)||pa;
       const entry={ rot:_lerpVec(pa.rot,pb.rot,t), pos:_lerpVec(pa.pos,pb.pos,t), state:t<0.5?pa.state:pb.state, type:c.type, pivot:c.pivot||null, axis:c.axis||null, parentId:c.parentId||null, joint:c.joint||null, local:c.local||null };
-      if(typeof pa.jointValue==='number' && typeof pb.jointValue==='number'){ entry.jointValue=pa.jointValue+(pb.jointValue-pa.jointValue)*t; entry.animVersion=1; }
+      if((a.animVersion===1 || b.animVersion===1) && c.joint && c.joint.kind!=='fixed'){
+        entry.animVersion=1;
+        if(typeof pa.jointValue!=='number' || typeof pb.jointValue!=='number') entry.jointError='missing_joint_value';
+        else entry.jointValue=pa.jointValue+(pb.jointValue-pa.jointValue)*t;
+      }
       out[c.id]=entry;
     }
     return out;
@@ -231,13 +235,23 @@ const FumocaMaster = (() => {
       const node=binding.components.get(compId); if(!node) continue;
       if(window.FumocaPhysics?.isSimulationOwned && window.FumocaPhysics.isSimulationOwned(objId, compId)) continue;
       if(xf.animVersion===1 && window.FumocaJointEval){
+        if(xf.jointError){ continue; }
+        if(!xf.joint){ xf.jointError='missing_joint'; continue; }
+        if(xf.parentId && !evaluated[xf.parentId]){ xf.jointError='unknown_parent'; continue; }
         if(xf.parentId && !worlds[xf.parentId]){ xf.jointError='hierarchy_unresolved'; continue; }
         const parentWorld=xf.parentId?worlds[xf.parentId]:undefined;
-        const result=window.FumocaJointEval.evaluate({ joint:xf.joint, local:xf.local }, xf.jointValue, parentWorld);
+        const value=typeof xf.jointValue==='number'?xf.jointValue:0;
+        const result=window.FumocaJointEval.evaluate({ joint:xf.joint, local:xf.local }, value, parentWorld);
         if(!result.ok){ xf.jointError=result.reason; continue; }
         worlds[compId]=result.world;
         _applyJointLocal(node, result);
         continue;
+      }
+      if(xf.joint && xf.joint.kind==='fixed' && window.FumocaJointEval){
+        if(xf.parentId && !worlds[xf.parentId]){ continue; }
+        const parentWorld=xf.parentId?worlds[xf.parentId]:undefined;
+        const result=window.FumocaJointEval.evaluate({ joint:xf.joint, local:xf.local }, 0, parentWorld);
+        if(result.ok) worlds[compId]=result.world;
       }
       if(xf.type==='hinge' && xf.axis && node.rotation){
         const ang=(xf.rot?.x||0)*Math.PI/180;
