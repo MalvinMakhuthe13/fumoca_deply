@@ -358,8 +358,16 @@ const FumocaMaster = (() => {
     if(window.FumocaPhysics?.applyDynamicPoses) window.FumocaPhysics.applyDynamicPoses();
     return { ok: true, time: T.time };
   }
-  function stop(){ pause(); evaluate(0); }
-  function restart(){ pause(); T.time=T.loopStart; play(); }
+  function stop(){
+    pause();
+    evaluate(0);
+    return { ok: true, physicsReset: false, note: 'stop pauses and seeks time 0. It does not reset physics. Call reset() to restore dynamic bodies.' };
+  }
+  function restart(){
+    reset();
+    play();
+    return { ok: true, physicsReset: true };
+  }
   function stepFrames(n, fps=30){ evaluate(wrapTime(T.time + (n/fps)*T.speed)); }
 
   function serialize(){
