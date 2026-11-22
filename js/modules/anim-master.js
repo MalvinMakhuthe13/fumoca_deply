@@ -384,8 +384,8 @@ const FumocaMaster = (() => {
 
   function dispose(){
     pause();
-    T.tracks.skeletons.clear(); T.tracks.objects.clear();
-    T.bindings.skeletons.clear(); T.bindings.objects.clear();
+    T.tracks.skeletons.clear(); T.tracks.objects.clear(); T.tracks.lights.clear();
+    T.bindings.skeletons.clear(); T.bindings.objects.clear(); T.bindings.lights.clear();
     T.attachmentState.clear();
   }
 
