@@ -131,9 +131,9 @@ const FumocaPhysics = (() => {
   }
 
   async function initRapier() {
-    if (rapierReady) return { ok: true, already: true };
+    if (rapierReady && world) return { ok: true, already: true };
     try {
-      const mod = await import('@dimforge/rapier3d-compat');
+      const mod = await import('https://cdn.jsdelivr.net/npm/@dimforge/rapier3d-compat@0.21.0/dist/rapier.mjs');
       rapier = mod.default || mod;
       await rapier.init();
       world = new rapier.World({ x: 0, y: 0, z: 0 });
