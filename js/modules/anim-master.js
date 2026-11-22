@@ -23,7 +23,14 @@ const FumocaMaster = (() => {
     T.tracks.camera = Array.isArray(states) ? states.slice().sort((a,b) => (a.time_offset||0)-(b.time_offset||0)) : [];
   }
   function addSkeleton(skel) { if (skel?.id) T.tracks.skeletons.set(skel.id, skel); }
-  function addObject(obj) { if (obj?.id) T.tracks.objects.set(obj.id, obj); }
+  function addObject(obj) {
+    if (obj?.id) {
+      T.tracks.objects.set(obj.id, obj);
+      if (window.FumocaPhysics?.registerHierarchy && obj.components) {
+        window.FumocaPhysics.registerHierarchy(obj.id, obj.components);
+      }
+    }
+  }
   function setInteractions(events) { T.tracks.interactions = Array.isArray(events) ? events.slice().sort((a,b)=>a.time-b.time) : []; }
   function setAnchors(anchors) { T.tracks.anchors = Array.isArray(anchors) ? anchors.slice() : []; }
   function setAnnotations(anns) { T.tracks.annotations = Array.isArray(anns) ? anns.slice() : []; }
