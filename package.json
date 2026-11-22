@@ -6,12 +6,16 @@
   "scripts": {
     "start": "bash scripts/serve-local.sh",
     "serve": "bash scripts/serve-local.sh",
-    "serve:8080": "bash scripts/serve-local.sh 8080"
+    "serve:8080": "bash scripts/serve-local.sh 8080",
+    "test": "node tests/anim-live.test.mjs && node tests/anim-glb-bind.test.mjs && node tests/anim-joint-integration.test.mjs && node tests/anim-joint-eval.test.mjs"
   },
   "engines": {
     "node": ">=18"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "0.21.0"
+  },
+  "devDependencies": {
+    "three": "0.180.0"
   }
 }
