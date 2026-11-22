@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<title>FUMOCA Dynamic Physics Acceptance</title>
+<script type="importmap">{"imports":{"@dimforge/rapier3d-compat":"https://cdn.jsdelivr.net/npm/@dimforge/rapier3d-compat@0.21.0/dist/rapier.mjs"}}</script>
+<style>body{font:13px/1.4 monospace;background:#111;color:#eee;padding:16px}.pass{color:#8f8}.fail{color:#f66;font-weight:bold}</style>
+</head>
+<body>
+<pre id="out">Loading...</pre>
+<script type="module">
+import '../../js/modules/anim-physics.js';
+const out = document.getElementById('out');
+const lines = [];
+let failed = 0;
+function log(s, ok) {
+  const cls = ok === false ? 'fail' : ok === true ? 'pass' : '';
+  lines.push(cls ? `<span class="${cls}">${s}</span>` : s);
+  if (ok === false) failed++;
+  out.innerHTML = lines.join('\n');
+}
+function assert(cond, msg) { log((cond ? 'PASS: ' : 'FAIL: ') + msg, !!cond); }
+
+const Physics = window.FumocaPhysics;
+const init = await Physics.initRapier();
+assert(init.ok === true, 'Rapier initialized');
+assert(Physics.getBackend() === 'rapier', 'Backend is rapier');
+
+Physics.createCollider({ id: 'floor', type: 'box', bodyType: 'static', halfExtents: { x: 1, y: 0.05, z: 1 }, owner: { kind: 'component', objectId: 'cooler', componentId: 'base' } });
+Physics.createCollider({ id: 'bottle', type: 'capsule', bodyType: 'dynamic', mass: 0.5, gravityScale: 1, owner: { kind: 'component', objectId: 'bottle', componentId: 'body' } });
+
+Physics.syncFromEvaluation({
+  objects: {
+    cooler: { base: { pos: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0 } } },
+    bottle: { body: { pos: { x: 0, y: 1.2, z: 0 }, rot: { x: 0, y: 0, z: 0 } } },
+  },
+});
+const start = Physics.getDynamicPose('bottle');
+assert(start && start.position.y > 1, 'Bottle starts above floor');
+
+for (let i = 0; i < 120; i++) Physics.step(1/60);
+const settled = Physics.getDynamicPose('bottle');
+assert(settled && settled.position.y < start.position.y, 'Bottle fell');
+assert(settled && settled.position.y > 0, 'Bottle remains above floor');
+
+const reset = Physics.reset();
+const after = Physics.getDynamicPose('bottle');
+assert(reset.ok && after && Math.abs(after.position.y - start.position.y) < 0.05, 'Reset restores pose');
+assert(after && Math.abs(after.linvel.y) < 0.01, 'Reset clears velocity');
+
+const result = { status: failed === 0 ? 'PASS' : 'FAIL', failed, backend: Physics.getBackend(), rapierReady: Physics.isRapierReady(), bodies: 2, colliders: Physics.list().length };
+window.__PHYSICS_ACCEPTANCE__ = result;
+log('FINAL: ' + result.status, failed === 0);
+</script>
+</body>
+</html>
