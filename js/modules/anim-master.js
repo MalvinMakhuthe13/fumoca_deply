@@ -319,7 +319,12 @@ const FumocaMaster = (() => {
     const ix=evaluateInteractions(t);
     applyAttachments(ix);
     const anchors=T.tracks.anchors.map(a=>({...a, world:resolveAnchor(a)}));
-    return {time:t, camera:camPose, skeletons:skelOut, objects:objOut, lights:lightOut, interactions:ix, anchors};
+    let physics=null;
+    if(window.FumocaPhysics){
+      window.FumocaPhysics.syncFromEvaluation({objects:objOut, skeletons:skelOut});
+      physics=window.FumocaPhysics.queryOverlaps();
+    }
+    return {time:t, camera:camPose, skeletons:skelOut, objects:objOut, lights:lightOut, interactions:ix, anchors, physics};
   }
 
   function scrub(time){ return evaluate(time); }
