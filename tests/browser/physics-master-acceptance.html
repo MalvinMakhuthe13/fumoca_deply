@@ -4,6 +4,10 @@
 <meta charset="utf-8"/>
 <title>FUMOCA Physics Master Acceptance</title>
 <script type="importmap">{"imports":{"@dimforge/rapier3d-compat":"https://cdn.jsdelivr.net/npm/@dimforge/rapier3d-compat@0.21.0/dist/rapier.mjs"}}</script>
+<style>
+body { font: 13px/1.4 monospace; background: #111; color: #eee; padding: 16px; }
+.pass { color: #8f8; } .fail { color: #f66; font-weight: bold; }
+</style>
 </head>
 <body>
 <pre id="out">Loading...</pre>
@@ -14,7 +18,14 @@ import '../../js/modules/anim-object.js';
 
 const out = document.getElementById('out');
 const lines = [];
-function log(s) { lines.push(s); out.textContent = lines.join('\n'); }
+let failed = 0;
+function log(s, ok) {
+  const cls = ok === false ? 'fail' : ok === true ? 'pass' : '';
+  lines.push(cls ? `<span class="${cls}">${s}</span>` : s);
+  if (ok === false) failed++;
+  out.innerHTML = lines.join('\n');
+}
+function assert(cond, msg) { log((cond ? 'PASS: ' : 'FAIL: ') + msg, !!cond); return cond; }
 
 const Physics = window.FumocaPhysics;
 const Master = window.FumocaMaster;
@@ -22,8 +33,9 @@ const Objects = window.FumocaObjectAnim;
 
 const init = await Physics.initRapier();
 log('init: ' + JSON.stringify(init));
-log('backend: ' + Physics.getBackend());
-log('rapierReady: ' + Physics.isRapierReady());
+assert(init.ok === true, 'Rapier WASM initialized');
+assert(Physics.getBackend() === 'rapier', 'Backend is rapier');
+assert(Physics.isRapierReady() === true, 'Rapier ready');
 
 const cooler = Objects.createObject('cooler', 'Cooler');
 const base = Objects.addComponent('cooler', 'Base', 'transform');
@@ -40,7 +52,6 @@ Objects.captureKeyframe('bottle', 0);
 Objects.setComponentTransform('bottle', body.id, { x: 0, y: 0, z: 0 }, { x: 0.1, y: 0.2, z: 0 });
 Objects.captureKeyframe('bottle', 2);
 
-Master.addObject(Objects.serialize ? null : cooler);
 Master.addObject(cooler);
 Master.addObject(bottle);
 Master.setDuration(2);
@@ -49,21 +60,35 @@ Physics.createCollider({ id: 'base', type: 'box', bodyType: 'static', halfExtent
 Physics.createCollider({ id: 'lid', type: 'box', bodyType: 'kinematic', halfExtents: { x: 0.4, y: 0.02, z: 0.3 }, localPosition: { x: 0, y: 0.3, z: 0 }, owner: { kind: 'component', objectId: 'cooler', componentId: lid.id } });
 Physics.createCollider({ id: 'bottle', type: 'capsule', bodyType: 'kinematic', radius: 0.04, height: 0.2, owner: { kind: 'component', objectId: 'bottle', componentId: body.id } });
 
-function run(t, label) {
+assert(Physics.list().length === 3, 'Three colliders registered');
+assert(Physics.get('base').bodyType === 'static', 'Base is static');
+
+function poseAt(t) {
   const ev = Master.evaluate(t);
-  const overlaps = ev.physics || Physics.queryOverlaps();
-  const lidPose = Physics.getWorldPose('lid');
-  const botPose = Physics.getWorldPose('bottle');
-  log(label + ' t=' + t + ' overlaps=' + overlaps.length + ' lidY=' + (lidPose?.position.y?.toFixed(3) ?? '?') + ' botX=' + (botPose?.position.x?.toFixed(3) ?? '?'));
+  return {
+    overlaps: (ev.physics || []).length,
+    lid: Physics.getWorldPose('lid'),
+    bottle: Physics.getWorldPose('bottle'),
+    base: Physics.getWorldPose('base'),
+  };
 }
 
-run(0, 'closed');
-run(1, 'mid');
-run(2, 'open');
-run(0, 'scrub-back');
-run(2, 'scrub-forward');
-log('colliders: ' + Physics.list().length);
-log(Physics.isRapierReady() ? 'RESULT: RAPER_ACTIVE' : 'RESULT: REFERENCE_FALLBACK');
+const closed = poseAt(0);
+const mid = poseAt(1);
+const open = poseAt(2);
+const back = poseAt(0);
+const forward = poseAt(2);
+
+assert(closed.lid && open.lid, 'Lid poses exist');
+assert(Math.abs((open.lid?.quaternion.x || 0) - (closed.lid?.quaternion.x || 0)) > 0.01 || Math.abs((open.lid?.quaternion.w || 1) - (closed.lid?.quaternion.w || 1)) > 0.01, 'Lid rotation changes closed to open');
+assert(closed.bottle && Math.abs(closed.bottle.position.x - (-0.6)) < 0.15, 'Bottle starts near -0.6');
+assert(open.bottle && Math.abs(open.bottle.position.x - 0.1) < 0.15, 'Bottle ends near 0.1');
+assert(back.bottle && closed.bottle && Math.abs(back.bottle.position.x - closed.bottle.position.x) < 0.01, 'Scrub back restores bottle');
+assert(forward.bottle && open.bottle && Math.abs(forward.bottle.position.x - open.bottle.position.x) < 0.01, 'Scrub forward restores bottle');
+assert(Array.isArray(Master.evaluate(1).physics), 'Query results via master evaluate');
+assert(Physics.list().length === 3, 'No duplicate colliders after scrub');
+
+log(failed === 0 ? 'FINAL: PASS' : 'FINAL: FAIL (' + failed + ')', failed === 0);
 </script>
 </body>
 </html>
