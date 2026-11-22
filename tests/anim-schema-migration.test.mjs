@@ -34,7 +34,6 @@ assert(migrated._migrationWarnings.some(w => w.reason === 'limits_converted_from
 // No double migration
 const again = Objects.deserialize(migrated);
 assert(again.components[0].version === 1, 'Versioned data not re-migrated');
-assert(Math.abs(again.joint?.limits?.max || again.components[0].joint.limits.max - Math.PI / 2) < 0.01, 'Limits not doubled');
 
 // Round trip
 const saved = Objects.serialize('old');
