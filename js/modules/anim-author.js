@@ -24,7 +24,9 @@ const FumocaAuthor = (() => {
         <button id="faClose" style="background:none;border:0;color:#9cf;cursor:pointer;">close</button>
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">
-        <button id="faDemo">Demo cooler</button>
+        <button id="faDemo">Cooler</button>
+        <button id="faCar">Car</button>
+        <button id="faHouse">House</button>
         <button id="faDrop">Drop bottle</button>
         <button id="faPlay">Play</button>
         <button id="faStop">Stop</button>
@@ -46,6 +48,8 @@ const FumocaAuthor = (() => {
     document.body.appendChild(panel);
     panel.querySelector('#faClose').onclick = () => { panel.style.display = 'none'; };
     panel.querySelector('#faDemo').onclick = () => createDemo();
+    panel.querySelector('#faCar').onclick = () => loadScene('car');
+    panel.querySelector('#faHouse').onclick = () => loadScene('house');
     panel.querySelector('#faDrop').onclick = () => drop();
     panel.querySelector('#faPlay').onclick = () => togglePlay();
     panel.querySelector('#faStop').onclick = () => stop();
@@ -64,6 +68,15 @@ const FumocaAuthor = (() => {
   function status(msg) {
     const el = panel?.querySelector('#faStatus');
     if (el) el.textContent = msg;
+  }
+
+  function loadScene(kind) {
+    const scene = window.scene;
+    if (!scene || !window.FumocaScenes) return status('Scenes unavailable');
+    const r = kind === 'car' ? window.FumocaScenes.createCar(scene) : window.FumocaScenes.createHouse(scene);
+    currentObjectId = r.objectId;
+    status(r.ok ? (kind === 'car' ? 'Car: doors, bonnet, boot' : 'House: front, back, side doors') : 'Scene failed');
+    refresh();
   }
 
   function createDemo() {
