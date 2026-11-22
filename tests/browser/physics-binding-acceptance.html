@@ -39,26 +39,41 @@ Physics.syncFromEvaluation({
   },
 });
 const initialY = bottle.position.y || 1.2;
-for (let i = 0; i < 60; i++) { Physics.step(1/60); Physics.applyDynamicPoses(); }
+let lastApply = { applied: 0, skipped: 0, failed: 0, errors: [] };
+for (let i = 0; i < 60; i++) { Physics.step(1/60); lastApply = Physics.applyDynamicPoses(); }
 assert(bottle.position.y < initialY, 'Bottle node fell');
 assert(bottle.position.y > 0.05, 'Bottle node above floor');
 
-Physics.reset();
-Physics.applyDynamicPoses();
+const resetResult = Physics.reset();
+lastApply = Physics.applyDynamicPoses();
 assert(bottle.position.y > 1, 'Reset restores bottle node');
 
-for (let i = 0; i < 30; i++) { Physics.step(1/60); Physics.applyDynamicPoses(); }
+for (let i = 0; i < 30; i++) { Physics.step(1/60); lastApply = Physics.applyDynamicPoses(); }
 assert(bottle.position.y < 1.2, 'Falls again after reset');
+
+const parent = new THREE.Object3D();
+parent.position.set(2, 0, 0);
+parent.rotation.y = Math.PI / 4;
+parent.updateMatrixWorld(true);
+const nested = new THREE.Object3D();
+nested.parent = parent;
+Physics.createCollider({ id: 'nested', type: 'sphere', bodyType: 'dynamic', radius: 0.1, owner: { kind: 'object', objectId: 'n' } });
+Physics.bindSceneNode('nested', { node: nested, parent });
+Physics.syncFromEvaluation({ objects: { n: { c: { pos: { x: 2, y: 1, z: 0 }, rot: { x: 0, y: 0, z: 0 } } } } });
+const nestedApply = Physics.applyDynamicPoses();
+assert(nestedApply.applied >= 1, 'Translated and rotated parent applied');
 
 const result = {
   status: failed === 0 ? 'PASS' : 'FAIL',
   passed: lines.filter(l => l.includes('PASS:')).length,
   failed,
-  appliedCount: 1,
-  skippedCount: 0,
-  errors: [],
-  initialY,
-  finalY: bottle.position.y,
+  appliedCount: lastApply.applied,
+  skippedCount: lastApply.skipped,
+  failedCount: lastApply.failed,
+  errors: lastApply.errors || [],
+  initialWorld: { y: initialY },
+  finalWorld: { x: bottle.position.x, y: bottle.position.y, z: bottle.position.z },
+  reset: resetResult,
   backend: Physics.getBackend(),
   rapierReady: Physics.isRapierReady(),
 };
