@@ -3053,6 +3053,9 @@ async function loadFile(file, urlOverride) {
       title: file.name
     };
   }
+  if (window._fumocaCurrentRecord?.id && window.FumocaMaster?.load) {
+    window.FumocaMaster.load(window._fumocaCurrentRecord.id).catch(() => {});
+  }
 
   // Run PLY validation and load camera positions
   try {
