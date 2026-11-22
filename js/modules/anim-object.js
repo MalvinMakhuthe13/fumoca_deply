@@ -99,8 +99,20 @@ const FumocaObjectAnim = (() => {
     if (qlen < 1e-6) return { ok: false, reason: 'zero_quaternion' };
     if (Math.abs(qlen - 1) > 1e-3) return { ok: false, reason: 'quaternion_not_normalized' };
     if (!_finite(c.joint?.pivot)) return { ok: false, reason: 'invalid_pivot' };
-    if (c.joint.rest && !_finite(c.joint.rest.position)) return { ok: false, reason: 'invalid_rest' };
-    if (c.joint.seat && !_finite(c.joint.seat.position)) return { ok: false, reason: 'invalid_seat' };
+    if (c.joint.rest) {
+      if (!_finite(c.joint.rest.position)) return { ok: false, reason: 'invalid_rest' };
+      const rq = c.joint.rest.rotation;
+      if (!rq || ![rq.x, rq.y, rq.z, rq.w].every(Number.isFinite)) return { ok: false, reason: 'invalid_rest' };
+      const rl = Math.hypot(rq.x, rq.y, rq.z, rq.w);
+      if (rl < 1e-6 || Math.abs(rl - 1) > 1e-3) return { ok: false, reason: 'invalid_rest' };
+    }
+    if (c.joint.seat) {
+      if (!_finite(c.joint.seat.position)) return { ok: false, reason: 'invalid_seat' };
+      const sq = c.joint.seat.rotation;
+      if (!sq || ![sq.x, sq.y, sq.z, sq.w].every(Number.isFinite)) return { ok: false, reason: 'invalid_seat' };
+      const sl = Math.hypot(sq.x, sq.y, sq.z, sq.w);
+      if (sl < 1e-6 || Math.abs(sl - 1) > 1e-3) return { ok: false, reason: 'invalid_seat' };
+    }
     if (c.joint.limits && (![c.joint.limits.min, c.joint.limits.max].every(Number.isFinite))) return { ok: false, reason: 'non_finite_limits' };
     const q = c.joint?.axis;
     if (!q || Math.hypot(q.x, q.y, q.z) < 1e-6) return { ok: false, reason: 'zero_axis' };
