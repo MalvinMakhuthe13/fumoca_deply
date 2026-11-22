@@ -98,6 +98,11 @@ const FumocaPhysics = (() => {
       sensor: !!opts.sensor,
       enabled: opts.enabled !== false,
       bodyType: opts.bodyType || 'kinematic',
+      scale: {
+        x: Number.isFinite(opts.scale?.x) && opts.scale.x > 0 ? opts.scale.x : 1,
+        y: Number.isFinite(opts.scale?.y) && opts.scale.y > 0 ? opts.scale.y : 1,
+        z: Number.isFinite(opts.scale?.z) && opts.scale.z > 0 ? opts.scale.z : 1,
+      },
       material: {
         friction: Number.isFinite(opts.material?.friction) ? opts.material.friction : 0.5,
         restitution: Number.isFinite(opts.material?.restitution) ? opts.material.restitution : 0.0,
@@ -181,15 +186,11 @@ const FumocaPhysics = (() => {
   }
 
   function _makeDesc(col) {
-    const g = col.geometry;
+    const e = _effective(col);
     let desc = null;
-    if (col.type === 'box' && g.halfExtents) {
-      desc = rapier.ColliderDesc.cuboid(g.halfExtents.x, g.halfExtents.y, g.halfExtents.z);
-    } else if (col.type === 'sphere' && g.radius) {
-      desc = rapier.ColliderDesc.ball(g.radius);
-    } else if (col.type === 'capsule' && g.radius) {
-      desc = rapier.ColliderDesc.capsule((g.height || 1) / 2, g.radius);
-    }
+    if (e?.kind === 'box') desc = rapier.ColliderDesc.cuboid(e.hx, e.hy, e.hz);
+    else if (e?.kind === 'sphere') desc = rapier.ColliderDesc.ball(e.r);
+    else if (e?.kind === 'capsule') desc = rapier.ColliderDesc.capsule(e.h / 2, e.r);
     if (!desc) return null;
     desc.setCollisionGroups((col.groups & 0xffff) | ((col.mask & 0xffff) << 16));
     if (col.sensor) desc.setSensor(true);
@@ -244,27 +245,37 @@ const FumocaPhysics = (() => {
     return { position: { x: 0, y: 0, z: 0 }, quaternion: _quatIdentity() };
   }
 
+  function _effective(col) {
+    const s = col.scale || { x: 1, y: 1, z: 1 };
+    const g = col.geometry;
+    if (col.type === 'box' && g.halfExtents) {
+      return { kind: 'box', hx: g.halfExtents.x * s.x, hy: g.halfExtents.y * s.y, hz: g.halfExtents.z * s.z };
+    }
+    if (col.type === 'sphere' && g.radius) {
+      return { kind: 'sphere', r: g.radius * s.x };
+    }
+    if (col.type === 'capsule' && g.radius) {
+      return { kind: 'capsule', r: g.radius * s.x, h: (g.height || 1) * s.y };
+    }
+    return null;
+  }
+
   function _applyScale(col, worldPose) {
     const s = col.scale || { x: 1, y: 1, z: 1 };
     const uniform = Math.abs(s.x - s.y) < 1e-6 && Math.abs(s.y - s.z) < 1e-6;
-    if (!uniform && (Math.abs(worldPose.quaternion.x) > 1e-6 || Math.abs(worldPose.quaternion.y) > 1e-6 || Math.abs(worldPose.quaternion.z) > 1e-6)) {
-      return { ok: false, reason: 'non_uniform_scale_on_rotated_primitive' };
-    }
-    const g = col.geometry;
-    if (col.type === 'box' && g.halfExtents) {
-      g._scaled = { x: g.halfExtents.x * s.x, y: g.halfExtents.y * s.y, z: g.halfExtents.z * s.z };
-    } else if ((col.type === 'sphere' || col.type === 'capsule') && g.radius) {
-      g._scaledRadius = g.radius * s.x;
-    }
-    return { ok: true, uniform };
+    const rotated = Math.abs(worldPose.quaternion.x) > 1e-6 || Math.abs(worldPose.quaternion.y) > 1e-6 || Math.abs(worldPose.quaternion.z) > 1e-6;
+    if (!uniform && rotated) return { ok: false, reason: 'non_uniform_scale_on_rotated_primitive' };
+    if (s.x <= 0 || s.y <= 0 || s.z <= 0) return { ok: false, reason: 'non_positive_scale' };
+    return { ok: true, uniform, effective: _effective(col) };
   }
 
   function _aabbFromCollider(col, worldPose) {
     const g = col.geometry;
     let hx = 0.5, hy = 0.5, hz = 0.5;
-    if (col.type === 'box' && g.halfExtents) { hx = g.halfExtents.x; hy = g.halfExtents.y; hz = g.halfExtents.z; }
-    else if (col.type === 'sphere' && g.radius) { hx = hy = hz = g.radius; }
-    else if (col.type === 'capsule' && g.radius) { hx = hz = g.radius; hy = (g.height || 1) / 2 + g.radius; }
+    const e = _effective(col);
+    if (e?.kind === 'box') { hx = e.hx; hy = e.hy; hz = e.hz; }
+    else if (e?.kind === 'sphere') { hx = hy = hz = e.r; }
+    else if (e?.kind === 'capsule') { hx = hz = e.r; hy = e.h / 2 + e.r; }
     const corners = [
       { x: -hx, y: -hy, z: -hz }, { x: hx, y: -hy, z: -hz },
       { x: -hx, y: hy, z: -hz }, { x: hx, y: hy, z: -hz },
@@ -301,6 +312,15 @@ const FumocaPhysics = (() => {
               rt.body.setTranslation(worldPose.position, true);
               rt.body.setRotation(worldPose.quaternion, true);
               rt._staticPlaced = true;
+              rt._staticPose = worldPose;
+            } else if (rt._staticPose) {
+              const dx = Math.abs(worldPose.position.x - rt._staticPose.position.x);
+              const dy = Math.abs(worldPose.position.y - rt._staticPose.position.y);
+              const dz = Math.abs(worldPose.position.z - rt._staticPose.position.z);
+              if (dx > 1e-4 || dy > 1e-4 || dz > 1e-4) {
+                rt.staticMoved = true;
+                console.warn('[Physics] Static collider', col.id, 'owner moved. Static means fixed for scene lifetime.');
+              }
             }
           } else {
             rt.body.setNextKinematicTranslation(worldPose.position);
@@ -381,10 +401,10 @@ const FumocaPhysics = (() => {
   }
 
   function _shapeFor(col) {
-    const g = col.geometry;
-    if (col.type === 'box' && g.halfExtents) return new rapier.Cuboid(g.halfExtents.x, g.halfExtents.y, g.halfExtents.z);
-    if (col.type === 'sphere' && g.radius) return new rapier.Ball(g.radius);
-    if (col.type === 'capsule' && g.radius) return new rapier.Capsule((g.height || 1) / 2, g.radius);
+    const e = _effective(col);
+    if (e?.kind === 'box') return new rapier.Cuboid(e.hx, e.hy, e.hz);
+    if (e?.kind === 'sphere') return new rapier.Ball(e.r);
+    if (e?.kind === 'capsule') return new rapier.Capsule(e.h / 2, e.r);
     return null;
   }
 
@@ -428,6 +448,7 @@ const FumocaPhysics = (() => {
     getRapierError: () => rapierError,
     list: () => Array.from(colliders.values()),
     get: (id) => colliders.get(id) || null,
+    getWorldPose: (id) => runtime.get(id)?.world || null,
   };
 })();
 
