@@ -174,3 +174,28 @@ assert(gm.components[0].joint.seat.position.y === 0.12, 'Valid seat migrated');
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);
+
+// Direct radians
+Objects.createObject('rad', 'Rad');
+const h = Objects.addComponent('rad', 'H', 'hinge');
+Objects.defineJoint('rad', h.id, { kind: 'hinge', limits: { min: 0, max: Math.PI / 2 } });
+assert(Math.abs(h.joint.limits.max - Math.PI / 2) < 1e-9, 'Direct hinge limit stored as pi/2');
+const th = Objects.addComponent('rad', 'T', 'threaded');
+Objects.defineJoint('rad', th.id, { kind: 'threaded', limits: { min: -Math.PI, max: Math.PI } });
+assert(Math.abs(th.joint.limits.max - Math.PI) < 1e-9, 'Threaded limit stored as pi');
+
+// Rest/seat quaternion validation
+Objects.createObject('rs', 'RS');
+const rc = Objects.addComponent('rs', 'R', 'fixed');
+rc.joint.rest = { position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 } };
+assert(Objects.validateObject('rs').ok === true, 'Valid rest quaternion accepted');
+rc.joint.rest.rotation = { x: 0, y: 0, z: 0, w: 0 };
+assert(Objects.validateObject('rs').errors.some(e => e.reason === 'invalid_rest'), 'Zero rest quaternion rejected');
+rc.joint.rest.rotation = { x: 0, y: 0, z: 0, w: 1 };
+rc.joint.seat = { position: { x: 0, y: 0.1, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 } };
+assert(Objects.validateObject('rs').ok === true, 'Valid seat quaternion accepted');
+rc.joint.seat.rotation = { x: NaN, y: 0, z: 0, w: 1 };
+assert(Objects.validateObject('rs').errors.some(e => e.reason === 'invalid_seat'), 'NaN seat quaternion rejected');
+
+console.log(`\n${passed} passed, ${failed} failed`);
+if (failed) process.exit(1);
