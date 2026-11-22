@@ -33,14 +33,39 @@ const FumocaJointEval = (() => {
     return Math.max(lim.min, Math.min(lim.max, v));
   }
 
+  function _finite3(v) { return v && [v.x, v.y, v.z].every(Number.isFinite); }
+  function _finite4(q) { return q && [q.x, q.y, q.z, q.w].every(Number.isFinite); }
+
   function evaluate(component, value, parentWorld) {
     if (!component?.joint) return { ok: false, reason: 'missing_joint' };
+    if (component.joint.kind === 'threaded' || component.joint.kind === 'snap') return { ok: false, reason: 'unsupported_joint' };
+    if (!Number.isFinite(value) && value !== undefined && value !== null) return { ok: false, reason: 'non_finite_value' };
+    if (value !== undefined && value !== null && !Number.isFinite(Number(value))) return { ok: false, reason: 'non_finite_value' };
+    const local = component.local;
+    if (!local || !_finite3(local.position)) return { ok: false, reason: 'invalid_local_position' };
+    const lq = local.rotation;
+    if (!_finite4(lq)) return { ok: false, reason: 'invalid_quaternion' };
+    const qlen = Math.hypot(lq.x, lq.y, lq.z, lq.w);
+    if (qlen < 1e-6) return { ok: false, reason: 'zero_quaternion' };
+    if (Math.abs(qlen - 1) > 1e-3) return { ok: false, reason: 'quaternion_not_normalized' };
+    const axis = component.joint.axis;
+    if (!_finite3(axis)) return { ok: false, reason: 'invalid_axis' };
+    const alen = Math.hypot(axis.x, axis.y, axis.z);
+    if (alen < 1e-6) return { ok: false, reason: 'zero_axis' };
+    if (Math.abs(alen - 1) > 1e-3) return { ok: false, reason: 'axis_not_normalized' };
+    if (!_finite3(component.joint.pivot || { x: 0, y: 0, z: 0 })) return { ok: false, reason: 'invalid_pivot' };
+    const lim = component.joint.limits;
+    if (lim && (!Number.isFinite(lim.min) || !Number.isFinite(lim.max) || lim.min > lim.max)) return { ok: false, reason: 'invalid_limits' };
+    if (parentWorld) {
+      if (!_finite3(parentWorld.position || { x: 0, y: 0, z: 0 })) return { ok: false, reason: 'invalid_parent_position' };
+      const pq = parentWorld.rotation;
+      if (pq && (!_finite4(pq) || Math.hypot(pq.x, pq.y, pq.z, pq.w) < 1e-6 || Math.abs(Math.hypot(pq.x, pq.y, pq.z, pq.w) - 1) > 1e-3)) return { ok: false, reason: 'invalid_parent_quaternion' };
+    }
     const kind = component.joint.kind;
     if (kind === 'threaded' || kind === 'snap') return { ok: false, reason: 'unsupported_joint' };
     if (!['fixed', 'hinge', 'prismatic', 'lift'].includes(kind)) return { ok: false, reason: 'invalid_joint' };
-    const axis = component.joint.axis || { x: 1, y: 0, z: 0 };
     const pivot = component.joint.pivot || { x: 0, y: 0, z: 0 };
-    const local = component.local || { position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 } };
+
     const v = Number(value) || 0;
     const clamped = kind === 'fixed' ? 0 : _clamp(v, component.joint.limits);
 
