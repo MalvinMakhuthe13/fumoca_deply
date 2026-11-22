@@ -27,6 +27,9 @@ const FumocaAuthor = (() => {
         <button id="faDemo">Cooler</button>
         <button id="faCar">Car</button>
         <button id="faHouse">House</button>
+        <button id="faBottle">Bottle</button>
+        <button id="faPerson">Person</button>
+        <button id="faAnimal">Animal</button>
         <button id="faDrop">Drop bottle</button>
         <button id="faPlay">Play</button>
         <button id="faStop">Stop</button>
@@ -50,6 +53,9 @@ const FumocaAuthor = (() => {
     panel.querySelector('#faDemo').onclick = () => createDemo();
     panel.querySelector('#faCar').onclick = () => loadScene('car');
     panel.querySelector('#faHouse').onclick = () => loadScene('house');
+    panel.querySelector('#faBottle').onclick = () => loadScene('bottle');
+    panel.querySelector('#faPerson').onclick = () => addChar('human');
+    panel.querySelector('#faAnimal').onclick = () => addChar('animal');
     panel.querySelector('#faDrop').onclick = () => drop();
     panel.querySelector('#faPlay').onclick = () => togglePlay();
     panel.querySelector('#faStop').onclick = () => stop();
@@ -73,10 +79,18 @@ const FumocaAuthor = (() => {
   function loadScene(kind) {
     const scene = window.scene;
     if (!scene || !window.FumocaScenes) return status('Scenes unavailable');
-    const r = kind === 'car' ? window.FumocaScenes.createCar(scene) : window.FumocaScenes.createHouse(scene);
+    const r = kind === 'car' ? window.FumocaScenes.createCar(scene)
+      : kind === 'house' ? window.FumocaScenes.createHouse(scene)
+      : window.FumocaScenes.createBottle(scene);
     currentObjectId = r.objectId;
-    status(r.ok ? (kind === 'car' ? 'Car: doors, bonnet, boot' : 'House: front, back, side doors') : 'Scene failed');
+    if (r.ok) window.FumocaLive?.bind(r.objectId);
+    status(r.ok ? 'Press a part to open it' : 'Scene failed');
     refresh();
+  }
+
+  function addChar(kind) {
+    const r = window.FumocaLive?.addCharacter(window.scene, kind);
+    status(r?.ok ? (kind + ' added') : 'Character unavailable');
   }
 
   function createDemo() {
