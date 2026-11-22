@@ -247,11 +247,15 @@ const FumocaMaster = (() => {
         _applyJointLocal(node, result);
         continue;
       }
-      if(xf.joint && xf.joint.kind==='fixed' && window.FumocaJointEval){
-        if(xf.parentId && !worlds[xf.parentId]){ continue; }
+      if(xf.joint && xf.joint.kind==='fixed' && window.FumocaJointEval && xf.animVersion!==1){
+        if(xf.parentId && !evaluated[xf.parentId]){ xf.jointError='unknown_parent'; continue; }
+        if(xf.parentId && !worlds[xf.parentId]){ xf.jointError='hierarchy_unresolved'; continue; }
         const parentWorld=xf.parentId?worlds[xf.parentId]:undefined;
         const result=window.FumocaJointEval.evaluate({ joint:xf.joint, local:xf.local }, 0, parentWorld);
-        if(result.ok) worlds[compId]=result.world;
+        if(!result.ok){ xf.jointError=result.reason; continue; }
+        worlds[compId]=result.world;
+        _applyJointLocal(node, result);
+        continue;
       }
       if(xf.type==='hinge' && xf.axis && node.rotation){
         const ang=(xf.rot?.x||0)*Math.PI/180;
