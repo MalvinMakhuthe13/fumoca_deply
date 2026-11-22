@@ -229,3 +229,63 @@ assert(!Master.evaluate(0).objects.nest[nlid.id].jointError, 'Closed has no erro
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);
+
+// Complete articulated object: Root -> Frame -> HingedLid -> Handle, Frame -> Drawer
+const cab = Objects.createObject('cab', 'Cabinet');
+const cabRoot = Objects.addComponent('cab', 'Root', 'fixed');
+cabRoot.local = { position: { x: 1, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 } };
+const cabFrame = Objects.addComponent('cab', 'Frame', 'fixed', cabRoot.id);
+cabFrame.local = { position: { x: 1, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 } };
+const cabLid = Objects.addComponent('cab', 'HingedLid', 'hinge', cabFrame.id);
+Objects.defineJoint('cab', cabLid.id, { kind: 'hinge', axis: { x: 0, y: 1, z: 0 }, pivot: { x: 0, y: 0, z: 0 }, limits: { min: 0, max: Math.PI / 2 } });
+cabLid.local = { position: { x: 1, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 } };
+const cabHandle = Objects.addComponent('cab', 'Handle', 'fixed', cabLid.id);
+cabHandle.local = { position: { x: 0.2, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 } };
+const cabDrawer = Objects.addComponent('cab', 'Drawer', 'prismatic', cabFrame.id);
+Objects.defineJoint('cab', cabDrawer.id, { kind: 'prismatic', axis: { x: 0, y: 0, z: 1 }, limits: { min: 0, max: 0.4 } });
+cabDrawer.local = { position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 } };
+
+Objects.setJointValue('cab', cabLid.id, 0);
+Objects.setJointValue('cab', cabDrawer.id, 0);
+Objects.captureKeyframe('cab', 0);
+Objects.setJointValue('cab', cabLid.id, Math.PI / 4);
+Objects.setJointValue('cab', cabDrawer.id, 0.2);
+Objects.captureKeyframe('cab', 0.5);
+Objects.setJointValue('cab', cabLid.id, Math.PI / 2);
+Objects.setJointValue('cab', cabDrawer.id, 0.4);
+Objects.captureKeyframe('cab', 1);
+
+Master.addObject(Objects.get('cab'));
+const crn = new THREE.Object3D(), cfn = new THREE.Object3D(), cln = new THREE.Object3D(), chn = new THREE.Object3D(), cdn = new THREE.Object3D();
+crn.add(cfn); cfn.add(cln); cln.add(chn); cfn.add(cdn);
+Master.setObjectBinding('cab', new Map([[cabRoot.id, crn], [cabFrame.id, cfn], [cabLid.id, cln], [cabHandle.id, chn], [cabDrawer.id, cdn]]));
+
+function cabAt(t) {
+  const ev = Master.evaluate(t);
+  crn.updateMatrixWorld(true);
+  const lw = new THREE.Vector3(), dw = new THREE.Vector3();
+  cln.getWorldPosition(lw); cdn.getWorldPosition(dw);
+  return { ev, lid: cln.position.clone(), drawer: cdn.position.clone(), lidW: lw, drawerW: dw };
+}
+
+const t0 = cabAt(0);
+assert(!t0.ev.objects.cab[cabLid.id].jointError && !t0.ev.objects.cab[cabDrawer.id].jointError, 'Closed has no jointError');
+assert(near(t0.lid.x, 1) && near(t0.drawer.z, 0), 'Closed lid x=1, drawer z=0');
+assert(near(crn.position.x, 1) && near(cfn.position.x, 1), 'Ancestors retain local');
+
+const t1 = cabAt(1);
+assert(near(t1.lid.z, -1, 1e-3), 'Open lid local z is -1');
+assert(near(t1.drawer.z, 0.4), 'Drawer fully extended');
+assert(near(t1.lid.x, 0, 1e-3), 'Open lid local x is 0');
+
+// Scrub determinism
+const a = cabAt(0), b = cabAt(1), c = cabAt(0.5), d = cabAt(1), e = cabAt(0);
+assert(near(a.lid.x, e.lid.x) && near(a.drawer.z, e.drawer.z), 'Scrub back to 0 matches');
+assert(near(b.lid.z, d.lid.z) && near(b.drawer.z, d.drawer.z), 'Scrub to 1 matches');
+
+// Independent branches
+assert(near(t0.lid.x, 1) && near(t1.drawer.z, 0.4), 'Branches do not overwrite each other');
+assert(cln.parent === cfn && cdn.parent === cfn && cfn.parent === crn, 'Cabinet hierarchy intact');
+
+console.log(`\n${passed} passed, ${failed} failed`);
+if (failed) process.exit(1);
