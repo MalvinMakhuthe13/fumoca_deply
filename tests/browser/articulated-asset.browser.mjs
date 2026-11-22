@@ -118,7 +118,10 @@ if (!near(sample.open.tripod.px, sample.closed.tripod.px, 1e-4) || !near(sample.
 
 const live = page.locator('#fumocaLiveBar button[data-id]');
 await live.first().waitFor({ state: 'visible' });
-for (let i = 0; i < 20; i++) await live.first().click();
+for (let i = 0; i < 20; i++) {
+  await live.first().click();
+  await page.waitForFunction(() => window.FumocaMaster?.gesturesIdle?.(), null, { timeout: 5000 });
+}
 const after = await page.evaluate((ids) => {
   const THREE = window.THREE;
   let cameraNode = null;

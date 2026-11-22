@@ -12,6 +12,8 @@ const FumocaMaster = (() => {
     tracks: { camera: [], skeletons: new Map(), objects: new Map(), lights: new Map(), interactions: [], anchors: [], annotations: [] },
     bindings: { camera: null, skeletons: new Map(), objects: new Map(), lights: new Map() },
     attachmentState: new Map(),
+    gestures: new Map(),
+    appliedJoints: new Map(),
   };
 
   function setCameraBinding(cam, controls) { T.bindings.camera = { cam, controls }; }
@@ -265,7 +267,9 @@ const FumocaMaster = (() => {
         if(xf.parentId && !evaluated[xf.parentId]){ xf.jointError='unknown_parent'; continue; }
         if(xf.parentId && !worlds[xf.parentId]){ xf.jointError='hierarchy_unresolved'; continue; }
         const parentWorld=xf.parentId?worlds[xf.parentId]:undefined;
-        const value=typeof xf.jointValue==='number'?xf.jointValue:0;
+        const held=_gestureValue(objId, compId);
+        const value=held!=null?held:(typeof xf.jointValue==='number'?xf.jointValue:0);
+        T.appliedJoints.set(objId+':'+compId, value);
         const result=window.FumocaJointEval.evaluate({ joint:xf.joint, local:xf.local }, value, parentWorld);
         if(!result.ok){ xf.jointError=result.reason; continue; }
         worlds[compId]=result.world;
@@ -447,19 +451,95 @@ const FumocaMaster = (() => {
   }
 
   function scrub(time){ return evaluate(time); }
-  function play(){
-    if(T.playing) return; T.playing=true; T.lastTs=performance.now();
-    const step=(ts)=>{
-      if(!T.playing) return;
-      const dt=((ts-T.lastTs)/1000)*T.speed; T.lastTs=ts;
-      evaluate(wrapTime(T.time + dt));
-      if(window.FumocaPhysics?.step) window.FumocaPhysics.step(dt);
-      if(window.FumocaPhysics?.applyDynamicPoses) window.FumocaPhysics.applyDynamicPoses();
-      T.raf=requestAnimationFrame(step);
-    };
-    T.raf=requestAnimationFrame(step);
+
+  function _ease01(u){
+    const x=Math.max(0, Math.min(1, u));
+    return 0.5-0.5*Math.cos(Math.PI*x);
   }
-  function pause(){ T.playing=false; if(T.raf) cancelAnimationFrame(T.raf); }
+  function _gestureValue(objectId, componentId){
+    const g=T.gestures.get(objectId+':'+componentId);
+    return g&&!g.done&&typeof g.value==='number'?g.value:null;
+  }
+  function _jointNow(objectId, componentId){
+    const held=_gestureValue(objectId, componentId);
+    if(held!=null) return held;
+    const applied=T.appliedJoints.get(objectId+':'+componentId);
+    if(typeof applied==='number') return applied;
+    const obj=T.tracks.objects.get(objectId);
+    const c=obj?.components?.find(x=>x.id===componentId);
+    return typeof c?.jointValue==='number'?c.jointValue:0;
+  }
+  function advanceGestures(dt){
+    const step=Math.max(0, Number(dt)||0);
+    let endTime=null;
+    for(const [key, g] of Array.from(T.gestures.entries())){
+      g.elapsed+=step;
+      const u=g.duration<=0?1:Math.min(1, g.elapsed/g.duration);
+      if(u>=1){
+        g.value=g.to;
+        g.done=true;
+        const obj=T.tracks.objects.get(g.objectId);
+        const c=obj?.components?.find(x=>x.id===g.componentId);
+        if(c) c.jointValue=g.to;
+        T.gestures.delete(key);
+        endTime=g.endTime;
+        if(typeof window!=='undefined' && window.dispatchEvent){
+          window.dispatchEvent(new CustomEvent('fumoca:gesture', { detail:{ phase:'end', objectId:g.objectId, componentId:g.componentId, value:g.to, endTime:g.endTime } }));
+        }
+      } else {
+        g.value=g.from+(g.to-g.from)*_ease01(u);
+      }
+    }
+    if(endTime!=null) evaluate(endTime);
+    else if(T.gestures.size) evaluate(T.time);
+    return { active:T.gestures.size, endTime };
+  }
+  function easeJoint(objectId, componentId, to, duration=0.45, endTime=null){
+    if(!objectId||!componentId) return { ok:false, reason:'missing_id' };
+    if(typeof to!=='number' || !Number.isFinite(to)) return { ok:false, reason:'non_finite_value' };
+    const from=_jointNow(objectId, componentId);
+    const key=objectId+':'+componentId;
+    const g={ objectId, componentId, from, to, value:from, elapsed:0, duration:Math.max(0, Number(duration)||0), endTime:endTime==null?T.time:endTime, done:false };
+    T.gestures.set(key, g);
+    if(typeof window!=='undefined' && window.dispatchEvent){
+      window.dispatchEvent(new CustomEvent('fumoca:gesture', { detail:{ phase:'start', objectId, componentId, from, to } }));
+    }
+    _ensureClock();
+    if(g.duration===0) advanceGestures(0);
+    return { ok:true, from, to, duration:g.duration };
+  }
+  function _step(ts){
+    if(!T.playing && T.gestures.size===0){ T.raf=null; return; }
+    const dt=Math.min(0.05, Math.max(0, (ts-T.lastTs)/1000));
+    T.lastTs=ts;
+    if(T.playing){
+      evaluate(wrapTime(T.time + dt*T.speed));
+      if(window.FumocaPhysics?.step) window.FumocaPhysics.step(dt*T.speed);
+      if(window.FumocaPhysics?.applyDynamicPoses) window.FumocaPhysics.applyDynamicPoses();
+    }
+    advanceGestures(dt);
+    if(T.playing || T.gestures.size){
+      T.raf=requestAnimationFrame(_step);
+    } else T.raf=null;
+  }
+  function _ensureClock(){
+    if(T.raf) return;
+    if(typeof requestAnimationFrame!=='function') return;
+    T.lastTs=performance.now();
+    T.raf=requestAnimationFrame(_step);
+  }
+  function play(){
+    if(T.playing) return;
+    T.playing=true;
+    _ensureClock();
+  }
+  function pause(){
+    T.playing=false;
+    if(!T.gestures.size && T.raf){
+      cancelAnimationFrame(T.raf);
+      T.raf=null;
+    }
+  }
   function resume(){ if(!T.playing) play(); }
   function reset(){
     pause();
@@ -470,6 +550,7 @@ const FumocaMaster = (() => {
     return { ok: true, time: T.time };
   }
   function stop(){
+    T.gestures.clear();
     pause();
     evaluate(0);
     return { ok: true, physicsReset: false, note: 'stop pauses and seeks time 0. It does not reset physics. Call reset() to restore dynamic bodies.' };
@@ -525,6 +606,7 @@ const FumocaMaster = (() => {
   }
 
   function dispose(){
+    T.gestures.clear();
     pause();
     T.tracks.skeletons.clear(); T.tracks.objects.clear(); T.tracks.lights.clear();
     T.bindings.skeletons.clear(); T.bindings.objects.clear(); T.bindings.lights.clear();
@@ -536,6 +618,7 @@ const FumocaMaster = (() => {
     setCameraTrack, addSkeleton, addObject, addLight, setLightBinding, setInteractions, setAnchors, setAnnotations,
     setDuration, setSpeed, setLoopRange,
     evaluate, scrub, play, pause, resume, stop, restart, reset, stepFrames, wrapTime,
+    easeJoint, advanceGestures, gesturesIdle:()=>T.gestures.size===0, getGesture:(objectId, componentId)=>T.gestures.get(objectId+':'+componentId)||null,
     serialize, persist, load, dispose,
     getTime:()=>T.time, isPlaying:()=>T.playing, getRevision:()=>T.revision,
   };

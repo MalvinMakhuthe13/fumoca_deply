@@ -70,22 +70,50 @@ const FumocaLive = (() => {
     return found;
   }
 
+  function _ensureEnds(objectId, componentId, min, max) {
+    const Objects = window.FumocaObjectAnim;
+    const obj = Objects?.get(objectId);
+    if (!obj) return;
+    function write(time, value) {
+      let kf = obj.tracks.find(t => Math.abs(t.time - time) < 1e-6);
+      if (!kf) {
+        Objects.setJointValue(objectId, componentId, value);
+        Objects.captureKeyframe(objectId, time);
+        kf = obj.tracks.find(t => Math.abs(t.time - time) < 1e-6);
+      }
+      if (!kf) return;
+      kf.animVersion = 1;
+      let row = kf.components.find(c => c.id === componentId);
+      if (!row) {
+        row = { id: componentId, rot: { x: 0, y: 0, z: 0 }, pos: { x: 0, y: 0, z: 0 }, jointValue: value };
+        kf.components.push(row);
+      }
+      row.jointValue = value;
+    }
+    write(0, min);
+    write(2, max);
+    window.FumocaMaster?.addObject?.(Objects.get(objectId));
+  }
+
   function toggle(objectId, componentId) {
     const Objects = window.FumocaObjectAnim;
     const obj = Objects?.get(objectId);
     const c = obj?.components?.find(x => x.id === componentId);
     if (!c?.joint || c.joint.kind === 'fixed') return { ok: false, reason: 'not_movable' };
     const key = objectId + ':' + componentId;
-    const isOpen = openState.get(key) === true;
     const limits = c.joint.limits || { min: 0, max: 1 };
-    const value = isOpen ? (limits.min ?? 0) : (limits.max ?? 1);
-    Objects.setJointValue(objectId, componentId, value);
-    Objects.captureKeyframe(objectId, isOpen ? 0 : 2);
-    window.FumocaMaster?.addObject?.(Objects.get(objectId));
-    window.FumocaMaster?.evaluate?.(isOpen ? 0 : 2);
-    openState.set(key, !isOpen);
+    const min = limits.min ?? 0;
+    const max = limits.max ?? 1;
+    const active = window.FumocaMaster?.getGesture?.(objectId, componentId);
+    const headingOpen = active ? Math.abs(active.to - max) <= Math.abs(active.to - min) : openState.get(key) === true;
+    const open = !headingOpen;
+    const to = open ? max : min;
+    _ensureEnds(objectId, componentId, min, max);
+    const motion = window.FumocaMaster?.easeJoint?.(objectId, componentId, to, 0.45, open ? 2 : 0);
+    if (!motion?.ok) return motion || { ok: false, reason: 'ease_missing' };
+    openState.set(key, open);
     playSound(_soundFor(c.name));
-    return { ok: true, open: !isOpen, name: c.name };
+    return { ok: true, open, easing: true, from: motion.from, to: motion.to, name: c.name };
   }
 
   function startEngine(objectId) {
@@ -113,7 +141,7 @@ const FumocaLive = (() => {
       b.onclick = () => {
         const r = toggle(obj.id, b.dataset.id);
         const s = document.getElementById('fumocaLiveStatus');
-        if (s) s.textContent = r.ok ? `${r.name} ${r.open ? 'open' : 'closed'}` : 'Cannot move';
+        if (s) s.textContent = r.ok ? `${r.name} ${r.open ? 'opening' : 'closing'}` : 'Cannot move';
       };
     });
     bar.querySelector('#faEngine')?.addEventListener('click', () => startEngine(obj.id));
@@ -165,6 +193,19 @@ const FumocaLive = (() => {
     const arm = sk.bones?.find(b => /arm/i.test(b.name));
     if (arm && name === 'wave') arm.localEuler = { x: 0, y: 0, z: 40 };
     return { ok: true, gesture: name };
+  }
+
+  if (typeof document !== 'undefined') {
+    window.addEventListener('fumoca:gesture', (e) => {
+      if (e.detail?.phase !== 'end') return;
+      const s = document.getElementById('fumocaLiveStatus');
+      if (!s) return;
+      const obj = window.FumocaObjectAnim?.get(e.detail.objectId);
+      const c = obj?.components?.find(x => x.id === e.detail.componentId);
+      const max = c?.joint?.limits?.max ?? 1;
+      const open = Math.abs((e.detail.value ?? 0) - max) < 1e-3;
+      s.textContent = `${c?.name || 'Part'} ${open ? 'open' : 'closed'}`;
+    });
   }
 
   return { bind, toggle, startEngine, playSound, addCharacter, gesture };
