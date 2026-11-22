@@ -126,5 +126,46 @@ const skOpp = Skeleton.evaluate('qtest2', 1);
 const real = new THREE.Quaternion(q90.x, q90.y, q90.z, q90.w).slerp(qNeg, 0.5);
 assert(Math.abs(skOpp[b2.id].quat.y - real.y) < 0.02, 'Opposite-sign shortest path');
 
+// --- Cooler lid hinge animation through master ---
+const coolerObj = {
+  id: 'cooler',
+  components: [
+    { id: 'base', type: 'transform', rot: {x:0,y:0,z:0}, pos: {x:0,y:0,z:0} },
+    { id: 'lid', type: 'hinge', axis: 'x', pivot: {x:0,y:0.3,z:0}, rot: {x:0,y:0,z:0}, pos: {x:0,y:0.3,z:0} },
+  ],
+  tracks: [
+    { time: 0, components: [
+      { id: 'base', rot: {x:0,y:0,z:0}, pos: {x:0,y:0,z:0}, state: 'idle' },
+      { id: 'lid', rot: {x:0,y:0,z:0}, pos: {x:0,y:0.3,z:0}, state: 'closed' },
+    ]},
+    { time: 2, components: [
+      { id: 'base', rot: {x:0,y:0,z:0}, pos: {x:0,y:0,z:0}, state: 'idle' },
+      { id: 'lid', rot: {x:90,y:0,z:0}, pos: {x:0,y:0.3,z:0}, state: 'open' },
+    ]},
+  ],
+};
+Master.addObject(coolerObj);
+
+const lidNode = new THREE.Object3D();
+lidNode.name = 'lidMesh';
+lidNode.position.set(0, 0.3, 0);
+coolerBase.add(lidNode);
+Master.setObjectBinding('cooler', new Map([['base', coolerBase], ['lid', lidNode]]));
+
+Master.evaluate(0);
+assert(Math.abs(lidNode.rotation.x) < 0.01, 'Lid closed at t=0');
+assert(lidNode.parent === coolerBase, 'Lid parent is cooler base at t=0');
+
+Master.evaluate(1);
+assert(lidNode.rotation.x > 0.3 && lidNode.rotation.x < 1.6, 'Lid hinge interpolates at midpoint');
+assert(lidNode.parent === coolerBase, 'Lid remains on cooler base during animation');
+
+Master.evaluate(2);
+assert(Math.abs(lidNode.rotation.x - Math.PI/2) < 0.05, 'Lid fully open at t=2');
+
+Master.evaluate(0);
+assert(Math.abs(lidNode.rotation.x) < 0.01, 'Scrub back restores closed hinge state');
+assert(lidNode.parent === coolerBase, 'Parent unchanged after scrub');
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);
