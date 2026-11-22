@@ -190,6 +190,7 @@ const FumocaMaster = (() => {
     const binding=T.bindings.objects.get(objId); if(!binding?.components) return;
     for(const [compId, xf] of Object.entries(evaluated)){
       const node=binding.components.get(compId); if(!node) continue;
+      if(window.FumocaPhysics?.isSimulationOwned && window.FumocaPhysics.isSimulationOwned(objId, compId)) continue;
       if(xf.type==='hinge' && xf.axis && node.rotation){
         const ang=(xf.rot?.x||0)*Math.PI/180;
         node.rotation.set(0,0,0);
@@ -349,6 +350,14 @@ const FumocaMaster = (() => {
   }
   function pause(){ T.playing=false; if(T.raf) cancelAnimationFrame(T.raf); }
   function resume(){ if(!T.playing) play(); }
+  function reset(){
+    pause();
+    T.time = T.loopStart;
+    if(window.FumocaPhysics?.reset) window.FumocaPhysics.reset();
+    evaluate(T.time);
+    if(window.FumocaPhysics?.applyDynamicPoses) window.FumocaPhysics.applyDynamicPoses();
+    return { ok: true, time: T.time };
+  }
   function stop(){ pause(); evaluate(0); }
   function restart(){ pause(); T.time=T.loopStart; play(); }
   function stepFrames(n, fps=30){ evaluate(wrapTime(T.time + (n/fps)*T.speed)); }
@@ -407,7 +416,7 @@ const FumocaMaster = (() => {
     setCameraBinding, setSkeletonBinding, setObjectBinding,
     setCameraTrack, addSkeleton, addObject, addLight, setLightBinding, setInteractions, setAnchors, setAnnotations,
     setDuration, setSpeed, setLoopRange,
-    evaluate, scrub, play, pause, resume, stop, restart, stepFrames, wrapTime,
+    evaluate, scrub, play, pause, resume, stop, restart, reset, stepFrames, wrapTime,
     serialize, persist, load, dispose,
     getTime:()=>T.time, isPlaying:()=>T.playing, getRevision:()=>T.revision,
   };
