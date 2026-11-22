@@ -158,6 +158,14 @@ const FumocaMaster = (() => {
         };
       } else if(e.type==='release'||e.type==='detach'){
         state[key]={ attached:false, targetComponent: e.target?.componentId || null };
+        if(window.FumocaPhysics?.transitionBodyType && e.colliderId){
+          const col = window.FumocaPhysics.get?.(e.colliderId);
+          if(col && col.bodyType !== 'dynamic') window.FumocaPhysics.transitionBodyType(e.colliderId, 'dynamic');
+        }
+      }
+      if((e.type==='grasp'||e.type==='attach') && window.FumocaPhysics?.transitionBodyType && e.colliderId){
+        const col = window.FumocaPhysics.get?.(e.colliderId);
+        if(col && col.bodyType !== 'kinematic') window.FumocaPhysics.transitionBodyType(e.colliderId, 'kinematic');
       }
     }
     return state;
