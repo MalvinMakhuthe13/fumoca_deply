@@ -98,6 +98,13 @@ const FumocaPhysics = (() => {
       sensor: !!opts.sensor,
       enabled: opts.enabled !== false,
       bodyType: opts.bodyType || 'kinematic',
+      // Mass model: density if set, otherwise mass, otherwise 1. Density is preferred for volume-based bodies.
+      mass: Number.isFinite(opts.mass) && opts.mass > 0 ? opts.mass : null,
+      density: Number.isFinite(opts.density) && opts.density > 0 ? opts.density : null,
+      gravityScale: Number.isFinite(opts.gravityScale) ? opts.gravityScale : 1,
+      linearDamping: Number.isFinite(opts.linearDamping) ? opts.linearDamping : 0.1,
+      angularDamping: Number.isFinite(opts.angularDamping) ? opts.angularDamping : 0.1,
+      lockRotations: !!opts.lockRotations,
       scale: {
         x: Number.isFinite(opts.scale?.x) && opts.scale.x > 0 ? opts.scale.x : 1,
         y: Number.isFinite(opts.scale?.y) && opts.scale.y > 0 ? opts.scale.y : 1,
@@ -123,25 +130,13 @@ const FumocaPhysics = (() => {
     return col;
   }
 
-  function _removeRuntimeHandle(id) {
-    const rt = runtime.get(id);
-    if (rt?.body && world) {
-      try { world.removeRigidBody(rt.body); } catch (_) {}
-    }
-    runtime.delete(id);
-  }
-
   function setEnabled(id, enabled) {
     const c = colliders.get(id);
     if (!c) return false;
     c.enabled = !!enabled;
-    if (!c.enabled) {
-      // Remove the complete Rapier body/collider pair. Merely disabling the
-      // collider and deleting our handle leaks an unreachable body on re-enable.
-      _removeRuntimeHandle(id);
-    } else if (backend === 'rapier' && rapierReady) {
-      _ensureRapierHandle(c);
-    }
+    const rt = runtime.get(id);
+    if (rt?.collider && typeof rt.collider.setEnabled === 'function') rt.collider.setEnabled(c.enabled);
+    if (!c.enabled) runtime.delete(id);
     return true;
   }
 
@@ -181,7 +176,7 @@ const FumocaPhysics = (() => {
   }
 
   function _ensureRapierHandle(col) {
-    if (!rapierReady || !world || !col.enabled) return;
+    if (!rapierReady || !world) return;
     if (runtime.has(col.id)) return;
     if (col.type === 'convexHull' || col.type === 'trimesh' || col.type === 'compound') {
       runtime.set(col.id, { unsupported: true, reason: col.type + '_not_implemented' });
@@ -189,9 +184,18 @@ const FumocaPhysics = (() => {
     }
     const desc = _makeDesc(col);
     if (!desc) return;
-    const bodyDesc = col.bodyType === 'static'
-      ? rapier.RigidBodyDesc.fixed()
-      : rapier.RigidBodyDesc.kinematicPositionBased();
+    let bodyDesc;
+    if (col.bodyType === 'static') bodyDesc = rapier.RigidBodyDesc.fixed();
+    else if (col.bodyType === 'dynamic') bodyDesc = rapier.RigidBodyDesc.dynamic();
+    else bodyDesc = rapier.RigidBodyDesc.kinematicPositionBased();
+    if (col.bodyType === 'dynamic') {
+      if (col.density) bodyDesc.setDensity(col.density);
+      else bodyDesc.setAdditionalMass(col.mass || 1);
+      bodyDesc.setGravityScale(col.gravityScale);
+      bodyDesc.setLinearDamping(col.linearDamping);
+      bodyDesc.setAngularDamping(col.angularDamping);
+      if (col.lockRotations) bodyDesc.lockRotations();
+    }
     const body = world.createRigidBody(bodyDesc);
     const collider = world.createCollider(desc, body);
     runtime.set(col.id, { body, collider, col });
@@ -274,7 +278,6 @@ const FumocaPhysics = (() => {
 
   function _applyScale(col, worldPose) {
     const s = col.scale || { x: 1, y: 1, z: 1 };
-    if (!_effective(col)) return { ok: false, reason: col.type + '_not_implemented' };
     if (!(s.x > 0) || !(s.y > 0) || !(s.z > 0) || !Number.isFinite(s.x) || !Number.isFinite(s.y) || !Number.isFinite(s.z)) {
       return { ok: false, reason: 'non_positive_scale' };
     }
@@ -317,7 +320,7 @@ const FumocaPhysics = (() => {
 
   function syncFromEvaluation(evaluated) {
     for (const col of colliders.values()) {
-      if (!col.enabled) { _removeRuntimeHandle(col.id); continue; }
+      if (!col.enabled) { runtime.delete(col.id); continue; }
       const ownerPose = _ownerPose(col, evaluated);
       const worldPose = _worldFromOwner(ownerPose, col.localPosition, col.localRotation);
       if (backend === 'rapier' && rapierReady) {
@@ -346,6 +349,19 @@ const FumocaPhysics = (() => {
                 console.warn('[Physics] Static collider', col.id, 'owner transform changed. Static means fixed for scene lifetime.');
               }
             }
+          } else if (col.bodyType === 'dynamic') {
+            if (!rt._dynamicInit) {
+              rt.body.setTranslation(worldPose.position, true);
+              rt.body.setRotation(worldPose.quaternion, true);
+              rt.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+              rt.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+              rt._dynamicInit = true;
+              rt._initialPose = worldPose;
+            } else {
+              const t = rt.body.translation();
+              const r = rt.body.rotation();
+              worldPose = { position: { x: t.x, y: t.y, z: t.z }, quaternion: { x: r.x, y: r.y, z: r.z, w: r.w } };
+            }
           } else {
             rt.body.setNextKinematicTranslation(worldPose.position);
             rt.body.setNextKinematicRotation(worldPose.quaternion);
@@ -367,7 +383,7 @@ const FumocaPhysics = (() => {
         runtime.set(col.id, { world: worldPose, aabb: scaled.ok ? _aabbFromCollider(col, worldPose) : null, col, scaleResult: scaled, unsupported: !scaled.ok, reason: scaled.ok ? null : scaled.reason, staticMoved });
       }
     }
-    if (backend === 'rapier' && world) world.step();
+    // No world.step() here. Simulation advances only via step(dt).
   }
 
   function _masksAllow(a, b) {
@@ -380,7 +396,7 @@ const FumocaPhysics = (() => {
   }
 
   function _queryReference() {
-    const active = Array.from(runtime.values()).filter(r => r.col?.enabled && r.aabb && !r.unsupported);
+    const active = Array.from(runtime.values()).filter(r => r.col?.enabled && r.aabb);
     const results = [];
     for (let i = 0; i < active.length; i++) {
       for (let j = i + 1; j < active.length; j++) {
@@ -443,6 +459,51 @@ const FumocaPhysics = (() => {
     return null;
   }
 
+  const sim = { fixedDt: 1/60, accumulator: 0, maxSubsteps: 4, simTime: 0, maxFrameDt: 0.1 };
+
+  function setFixedTimestep(dt) { if (dt > 0) sim.fixedDt = dt; }
+  function setMaxSubsteps(n) { if (n > 0) sim.maxSubsteps = n; }
+
+  function step(frameDt) {
+    if (backend !== 'rapier' || !world) return { stepped: 0, reason: 'not_rapier' };
+    const dt = Math.min(Math.max(0, Number(frameDt) || 0), sim.maxFrameDt);
+    sim.accumulator += dt;
+    let stepped = 0;
+    while (sim.accumulator >= sim.fixedDt && stepped < sim.maxSubsteps) {
+      world.step();
+      sim.accumulator -= sim.fixedDt;
+      sim.simTime += sim.fixedDt;
+      stepped++;
+    }
+    if (stepped === sim.maxSubsteps) sim.accumulator = 0;
+    return { stepped, simTime: sim.simTime, accumulator: sim.accumulator };
+  }
+
+  function reset() {
+    sim.accumulator = 0;
+    sim.simTime = 0;
+    for (const rt of runtime.values()) {
+      if (!rt.body || rt.unsupported) continue;
+      if (rt.col.bodyType === 'dynamic' && rt._initialPose) {
+        rt.body.setTranslation(rt._initialPose.position, true);
+        rt.body.setRotation(rt._initialPose.quaternion, true);
+        rt.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+        rt.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
+        rt.world = rt._initialPose;
+      }
+    }
+    return { ok: true, simTime: 0 };
+  }
+
+  function getDynamicPose(id) {
+    const rt = runtime.get(id);
+    if (!rt?.body) return null;
+    const t = rt.body.translation();
+    const r = rt.body.rotation();
+    const v = rt.body.linvel();
+    return { position: { x: t.x, y: t.y, z: t.z }, quaternion: { x: r.x, y: r.y, z: r.z, w: r.w }, linvel: { x: v.x, y: v.y, z: v.z } };
+  }
+
   function serialize() {
     return {
       version: SCHEMA_VERSION,
@@ -476,7 +537,7 @@ const FumocaPhysics = (() => {
     SCHEMA_VERSION,
     registerHierarchy, createCollider, setEnabled, removeCollider,
     initRapier, setBackend,
-    syncFromEvaluation, queryOverlaps,
+    syncFromEvaluation, queryOverlaps, step, reset, getDynamicPose, setFixedTimestep, setMaxSubsteps,
     serialize, deserialize, dispose,
     getBackend: () => backend,
     isRapierReady: () => rapierReady,
@@ -486,10 +547,6 @@ const FumocaPhysics = (() => {
     getWorldPose: (id) => runtime.get(id)?.world || null,
     getStaticMoved: (id) => !!runtime.get(id)?.staticMoved,
     getLastScaleResult: (id) => runtime.get(id)?.scaleResult || null,
-    getRuntimeCounts: () => ({
-      bodies: world?.bodies?.len?.() ?? null,
-      colliders: world?.colliders?.len?.() ?? null,
-    }),
   };
 })();
 
