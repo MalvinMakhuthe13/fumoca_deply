@@ -910,6 +910,23 @@ function setSceneMode(mode) {
   setVariantDirty(true);
 }
 async function fetchRecord() {
+  const localNif = params.get('localNif');
+  if (localNif) {
+    try {
+      const res = await fetch(localNif, { cache: 'no-store' });
+      if (!res.ok) {
+        console.warn('[FUMOCA viewer] local NIF fetch failed', res.status);
+        return null;
+      }
+      const rec = await res.json();
+      rec.id = rec.id || 'local-nif';
+      rec._localMock = true;
+      return rec;
+    } catch (error) {
+      console.warn('[FUMOCA viewer] local NIF failed', error);
+      return null;
+    }
+  }
   if (!nifId) return null;
 
   console.log('[FUMOCA viewer] fetchRecord() starting', {
@@ -2550,6 +2567,10 @@ async function boot() {
   applyStageFilters();
   setVariantDirty(false);
   const status = normalizeStatus(currentRecord?.status, fileUrl);
+  if (!fileUrl && currentRecord?._localMock && currentRecord?.meta?.demo_glb) {
+    hideLoading();
+    return;
+  }
   if (!fileUrl) {
     if (status === 'processing' || status === 'queued') {
       showError('This nif is still processing. Open the teaser while the interactive version finishes.');

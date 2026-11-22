@@ -5,7 +5,7 @@
  */
 import { createRequire } from 'module';
 import { pathToFileURL } from 'url';
-const require = createRequire('/tmp/package.json');
+const require = createRequire(import.meta.url);
 const rapierUrl = pathToFileURL(require.resolve('@dimforge/rapier3d-compat')).href;
 const RAPIER = (await import(rapierUrl)).default;
 await RAPIER.init();

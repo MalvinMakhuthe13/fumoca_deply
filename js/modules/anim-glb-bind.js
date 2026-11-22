@@ -4,13 +4,40 @@
  * Does not replace the Gaussian scene. Does not create a second clock.
  */
 const FumocaGLBBind = (() => {
+  function _componentId(node) {
+    const chain = [];
+    let cur = node;
+    const seen = new Set();
+    while (cur && !seen.has(cur)) {
+      seen.add(cur);
+      const index = cur.parent ? cur.parent.children.indexOf(cur) : 0;
+      const name = String(cur.name || 'node').replace(/[^A-Za-z0-9_-]/g, '_') || 'node';
+      chain.push(index + '_' + name);
+      cur = cur.parent;
+    }
+    return 'p_' + chain.reverse().join('/');
+  }
+
+  function _overlayPrepared(components, prepared) {
+    if (!prepared?.components) return;
+    const byId = new Map(prepared.components.map(c => [c.id, c]));
+    for (const c of components) {
+      const prev = byId.get(c.id);
+      if (!prev) continue;
+      if (prev.name) c.name = prev.name;
+      if (prev.joint) c.joint = JSON.parse(JSON.stringify(prev.joint));
+      if (typeof prev.jointValue === 'number') c.jointValue = prev.jointValue;
+    }
+  }
+
   function _walk(node, parentId, components, map, objectId) {
-    const id = 'n_' + (node.uuid || Math.random().toString(36).slice(2, 8)).slice(0, 8);
+    const id = _componentId(node);
     const comp = {
       id,
       name: node.name || id,
       parentId,
       type: 'fixed',
+      version: 1,
       pos: { x: node.position.x, y: node.position.y, z: node.position.z },
       rot: { x: 0, y: 0, z: 0 },
       local: {
@@ -37,7 +64,9 @@ const FumocaGLBBind = (() => {
     const components = [];
     const map = new Map();
     _walk(rootNode, null, components, map, objectId);
-    const obj = { id: objectId, name: opts.name || 'GLB', version: 1, components, tracks: [] };
+    _overlayPrepared(components, opts.prepared);
+    const tracks = Array.isArray(opts.prepared?.tracks) ? JSON.parse(JSON.stringify(opts.prepared.tracks)) : [];
+    const obj = { id: objectId, name: opts.name || opts.prepared?.name || 'GLB', version: 1, components, tracks };
     window.FumocaObjectAnim.deserialize(obj);
     const reg = window.FumocaStudioInit.registerArticulatedObject(obj, map);
     return { ok: reg.ok, objectId, components: components.length, bound: reg.bound, missing: reg.missing, map };
@@ -61,13 +90,15 @@ const FumocaGLBBind = (() => {
     const components = [];
     const map = new Map();
     _walk(gltf.scene, null, components, map, objectId);
+    _overlayPrepared(components, opts.prepared);
+    const tracks = Array.isArray(opts.prepared?.tracks) ? JSON.parse(JSON.stringify(opts.prepared.tracks)) : [];
 
     const obj = {
       id: objectId,
-      name: opts.name || (fileOrUrl.name || 'GLB'),
+      name: opts.name || opts.prepared?.name || (fileOrUrl.name || 'GLB'),
       version: 1,
       components,
-      tracks: [],
+      tracks,
     };
     window.FumocaObjectAnim?.deserialize?.(obj);
     const reg = window.FumocaStudioInit.registerArticulatedObject(obj, map);
@@ -77,10 +108,10 @@ const FumocaGLBBind = (() => {
     return { ok: reg.ok, objectId, components: components.length, bound: reg.bound, missing: reg.missing, scene: gltf.scene };
   }
 
-  function setHinge(objectId, componentId, axis = { x: 0, y: 1, z: 0 }, limits = { min: 0, max: Math.PI / 2 }) {
+  function setHinge(objectId, componentId, axis = { x: 0, y: 1, z: 0 }, limits = { min: 0, max: Math.PI / 2 }, pivot = undefined) {
     const Objects = window.FumocaObjectAnim;
     if (!Objects) return { ok: false, reason: 'objects_missing' };
-    return Objects.defineJoint(objectId, componentId, { kind: 'hinge', axis, limits });
+    return Objects.defineJoint(objectId, componentId, { kind: 'hinge', axis, limits, pivot });
   }
 
   function keyframe(objectId, componentId, time, value) {

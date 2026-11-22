@@ -148,3 +148,21 @@ Status words mean only what this run and this reading established. "Unit-tested"
 ## What this audit does not claim
 
 No browser, phone, physics-in-Rapier, cloth, commercial-asset, or production success. The Animate button was not clicked. No GLB was loaded. No Supabase, R2, DNS, or Cloudflare change was made.
+
+## Follow-up on this same branch
+
+Written after the audit commit, once the code changes existed. This does not rewrite the table above.
+
+`registerArticulatedObject` now returns `parent_mismatch` when both nodes are bound and `node.parent` is not the parent component's node. It does not register that object. `tests/anim-parent-match.test.mjs` covers the match, the mismatch, and the old unknown-parent case.
+
+GLB component ids are paths (`p_<index>_<name>/...`) so a reload of the same file hits the same ids. `version: 1` is set on those components so migration does not replace the node's quaternion with a zero Euler. Fixed components whose keyframe rotation is still `(0,0,0)` but whose rest quaternion is not identity keep that rest pose, which is what stopped the tripod from being zeroed when the camera body was evaluated.
+
+The Articulate panel can name a part, pick an axis, and type a pivot. Apply keeps the selection. Save writes `sessionStorage` key `fumoca:preparedAnim` even when no NIF is open, and still calls `persist` when an id is open. Loading the same filename again restores joints and tracks.
+
+`viewer.html?localNif=<same-origin json>` loads that file instead of Supabase. `anim-viewer-runtime.js` mounts the GLB and uses the same master evaluator. A record without `localNif` still uses `nif_files`.
+
+Publish calls `GET /founder/me`, which now runs `canPublish` after `authorizeFounder`, when a worker URL and access token exist. Otherwise it uses the client email allowlist and refuses the upload if that fails. When a timeline has objects, `meta.anim_timeline` is included on the `nif_files` write. No live publish was performed.
+
+Animation tests resolve `three` and Rapier from this repo. CI installs `three@0.180.0` and `@dimforge/rapier3d-compat@0.21.0` and runs `node scripts/run-anim-tests.mjs`. Pull requests into `feature/**` are in the workflow trigger list.
+
+The browser proof and the manual steps are in `docs/CLIENT_DEMO.md`. Hotspots still add offsets in world space. Hinge and dynamic ownership are still two writers. Those were left in place after the browser proof passed.

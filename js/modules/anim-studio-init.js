@@ -132,6 +132,17 @@ const FumocaStudioInit = (() => {
     for (const c of obj.components) {
       if (c.parentId && !ids.has(c.parentId)) return { ok: false, reason: 'unknown_parent', componentId: c.id };
     }
+    // Component parentId must be the same node the mesh is parented to.
+    // An id that exists while node.parent points somewhere else used to return ok:true.
+    for (const c of obj.components) {
+      if (!c.parentId) continue;
+      const node = componentMap?.get?.(c.id);
+      const parentNode = componentMap?.get?.(c.parentId);
+      if (!node || !parentNode) continue;
+      if (node.parent !== parentNode) {
+        return { ok: false, reason: 'parent_mismatch', componentId: c.id, parentId: c.parentId };
+      }
+    }
     master.addObject(obj);
     master.setObjectBinding(obj.id, componentMap);
     const missing = obj.components.filter(c => !componentMap?.get?.(c.id)).map(c => c.id);

@@ -16,7 +16,7 @@ import { writeFileSync, mkdtempSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { pathToFileURL as toURL } from 'url';
-const require = createRequire('/workspace/artifacts/package.json');
+const require = createRequire(import.meta.url);
 const THREE = await import(pathToFileURL(require.resolve('three')).href);
 const { GLTFExporter } = await import(pathToFileURL(require.resolve('three/examples/jsm/exporters/GLTFExporter.js')).href);
 const { GLTFLoader } = await import(pathToFileURL(require.resolve('three/examples/jsm/loaders/GLTFLoader.js')).href);

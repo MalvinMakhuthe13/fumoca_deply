@@ -5,7 +5,7 @@
 globalThis.window = globalThis;
 import { createRequire } from 'module';
 import { pathToFileURL } from 'url';
-const require = createRequire('/workspace/artifacts/package.json');
+const require = createRequire(import.meta.url);
 const THREE = await import(pathToFileURL(require.resolve('three')).href);
 globalThis.THREE = THREE;
 await import('../js/modules/anim-joint-eval.js');
@@ -42,6 +42,26 @@ assert(!open.objects.cooler[lidId].jointError, 'Open has no error');
 assert(lid.rotation.x !== 0 || Math.abs(lid.quaternion.x) > 0.1 || Math.abs(lid.position.z) > 0.01, 'Lid moved');
 const back = Bind.scrub(0);
 assert(near(lid.position.y, 0.3), 'Scrub back restores');
+
+const rig = new THREE.Group(); rig.name = 'Rig';
+const tripod = new THREE.Object3D(); tripod.name = 'Tripod';
+tripod.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), 0.4);
+tripod.position.set(0.2, 0, 0);
+const body = new THREE.Object3D(); body.name = 'Body';
+body.position.set(0, 0.5, 0);
+rig.add(tripod); rig.add(body);
+const rigBound = Bind.bindFromScene(rig, { objectId: 'cam', name: 'Camera' });
+assert(rigBound.ok, 'Sibling rig bound');
+const bodyId = body.userData.fumocaComponentId;
+Bind.setHinge('cam', bodyId, { x: 1, y: 0, z: 0 }, { min: 0, max: 1 }, { x: 0, y: 0.2, z: 0 });
+Bind.keyframe('cam', bodyId, 0, 0);
+Bind.keyframe('cam', bodyId, 1, 1);
+const qBefore = tripod.quaternion.clone();
+const pBefore = tripod.position.clone();
+Bind.scrub(1);
+assert(near(tripod.quaternion.y, qBefore.y) && near(tripod.quaternion.w, qBefore.w), 'Static sibling quaternion stays');
+assert(near(tripod.position.x, pBefore.x) && near(tripod.position.y, pBefore.y), 'Static sibling position stays');
+assert(Math.abs(body.quaternion.x) > 0.1 || Math.abs(body.position.z) > 0.01, 'Hinged sibling moved');
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

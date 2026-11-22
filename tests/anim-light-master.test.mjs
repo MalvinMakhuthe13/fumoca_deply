@@ -2,14 +2,14 @@
  * Light track integration with master.
  * Run: node tests/anim-light-master.test.mjs
  */
-import * as THREE from '/tmp/three.esm.js';
+import * as THREE from 'three';
 globalThis.window = globalThis;
 globalThis.THREE = THREE;
 globalThis.requestAnimationFrame = (fn) => setTimeout(fn, 16);
 globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
 
-const { default: Master } = await import('/workspace/artifacts/js/modules/anim-master.js');
-const { default: Light } = await import('/workspace/artifacts/js/modules/anim-light.js');
+const { default: Master } = await import('../js/modules/anim-master.js');
+const { default: Light } = await import('../js/modules/anim-light.js');
 
 let passed = 0, failed = 0;
 function assert(cond, msg) {

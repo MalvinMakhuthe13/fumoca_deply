@@ -5,11 +5,11 @@
 globalThis.window = globalThis;
 import { createRequire } from 'module';
 import { pathToFileURL } from 'url';
-const require = createRequire('/workspace/artifacts/package.json');
+const require = createRequire(import.meta.url);
 const THREE = await import(pathToFileURL(require.resolve('three')).href);
 globalThis.THREE = THREE;
 
-const rapierRequire = createRequire('/tmp/package.json');
+const rapierRequire = createRequire(import.meta.url);
 const rapierUrl = pathToFileURL(rapierRequire.resolve('@dimforge/rapier3d-compat')).href;
 const rapierMod = await import(rapierUrl);
 const { default: Physics } = await import('../js/modules/anim-physics.js');

@@ -2,9 +2,9 @@ name: FUMOCA validation
 
 on:
   push:
-    branches: [main, "feat/**", "platform-integration-audit"]
+    branches: [main, "feat/**", "feature/**", "platform-integration-audit"]
   pull_request:
-    branches: [main]
+    branches: [main, "feature/**"]
   workflow_dispatch:
 
 jobs:
@@ -17,6 +17,10 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
+      - name: Install animation runtime dependencies
+        run: npm install --no-save --no-package-lock three@0.180.0 @dimforge/rapier3d-compat@0.21.0
+      - name: Run animation test suite
+        run: node scripts/run-anim-tests.mjs
       - name: Set up Python
         uses: actions/setup-python@v5
         with:

@@ -705,8 +705,11 @@ export default {
 
     if (request.method === 'GET' && path === '/founder/me') {
       const { authorizeFounder } = await import('./founder-auth.js');
-      const result = await authorizeFounder(request, env);
-      return json({ ok: result.ok, reason: result.reason || 'founder' }, result.status, cors);
+      const auth = await authorizeFounder(request, env);
+      if (!auth.ok) return json({ ok: false, reason: auth.reason }, auth.status, cors);
+      const { canPublish } = await import('./publish-auth.js');
+      const gate = canPublish({ id: auth.userId, kind: 'user' }, env);
+      return json({ ok: gate.ok, reason: gate.reason }, gate.status, cors);
     }
 
     if (request.method === 'DELETE' && path.startsWith('/file/')) {

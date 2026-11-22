@@ -6226,9 +6226,19 @@ document.getElementById('loadGlbBtn')?.addEventListener('click', () => document.
 document.getElementById('loadGlbFile')?.addEventListener('change', async (e) => {
   const file = e.target.files?.[0];
   if (!file || !window.FumocaGLBBind) return;
-  const result = await window.FumocaGLBBind.load(file);
+  window._fumocaLastGlbName = file.name;
+  const opts = { name: file.name };
+  try {
+    const saved = JSON.parse(sessionStorage.getItem('fumoca:preparedAnim') || 'null');
+    if (saved && saved.glbName === file.name && saved.object && saved.objectId) {
+      opts.prepared = saved.object;
+      opts.objectId = saved.objectId;
+    }
+  } catch (_) {}
+  const result = await window.FumocaGLBBind.load(file, opts);
   console.log('[FUMOCA] GLB bound', result);
-  alert(result.ok ? `Loaded ${result.components} components` : `Load failed: ${result.reason || 'unknown'}`);
+  if (result.ok && window.FumocaAuthor?.attach) window.FumocaAuthor.attach(result.objectId);
+  else alert(result.ok ? `Loaded ${result.components} components` : `Load failed: ${result.reason || 'unknown'}`);
 });
 </script>
 

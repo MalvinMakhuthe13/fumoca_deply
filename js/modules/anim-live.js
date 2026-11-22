@@ -100,7 +100,7 @@ const FumocaLive = (() => {
     if (!bar) {
       bar = document.createElement('div');
       bar.id = 'fumocaLiveBar';
-      bar.style.cssText = 'position:fixed;left:50%;bottom:88px;transform:translateX(-50%);display:flex;gap:8px;flex-wrap:wrap;justify-content:center;z-index:55;max-width:90vw;';
+      bar.style.cssText = 'position:fixed;left:50%;bottom:132px;transform:translateX(-50%);display:flex;gap:8px;flex-wrap:wrap;justify-content:center;z-index:1200;max-width:92vw;';
       document.body.appendChild(bar);
     }
     const aff = window.FumocaAfford?.affordances(obj) || [];
@@ -121,7 +121,7 @@ const FumocaLive = (() => {
     if (!status) {
       status = document.createElement('div');
       status.id = 'fumocaLiveStatus';
-      status.style.cssText = 'position:fixed;left:50%;bottom:58px;transform:translateX(-50%);color:#c8ff00;font:13px system-ui;z-index:55;';
+      status.style.cssText = 'position:fixed;left:50%;bottom:96px;transform:translateX(-50%);color:#c8ff00;font:13px system-ui;z-index:1200;';
       document.body.appendChild(status);
     }
     status.textContent = 'Press a part';

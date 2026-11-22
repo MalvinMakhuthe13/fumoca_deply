@@ -40,7 +40,14 @@ const FumocaAuthor = (() => {
       <div id="faComponents"></div>
       <div style="margin-top:10px;border-top:1px solid rgba(255,255,255,.1);padding-top:8px;">
         <div style="font-size:11px;opacity:.7;margin-bottom:4px;">Set joint on selected component</div>
+        <label>Name <input id="faName" type="text" placeholder="Moving part" style="width:140px"></label>
         <select id="faKind"><option>hinge</option><option>prismatic</option><option>lift</option><option>fixed</option></select>
+        <select id="faAxis"><option value="x">Axis X</option><option value="y">Axis Y</option><option value="z">Axis Z</option></select>
+        <div style="margin-top:6px;display:flex;gap:4px;flex-wrap:wrap;">
+          <label>Pivot x <input id="faPx" type="number" step="0.01" value="0" style="width:64px"></label>
+          <label>y <input id="faPy" type="number" step="0.01" value="0" style="width:64px"></label>
+          <label>z <input id="faPz" type="number" step="0.01" value="0" style="width:64px"></label>
+        </div>
         <button id="faApplyJoint">Apply joint</button>
         <div style="margin-top:6px;">
           <label>Value <input id="faValue" type="number" step="0.01" value="0" style="width:70px"></label>
@@ -69,6 +76,13 @@ const FumocaAuthor = (() => {
   function open() {
     _ensurePanel().style.display = 'block';
     refresh();
+  }
+
+  function attach(objectId) {
+    currentObjectId = objectId;
+    open();
+    window.FumocaLive?.bind?.(objectId);
+    status('Select the moving part, set a pivot, apply the joint');
   }
 
   function status(msg) {
@@ -110,9 +124,14 @@ const FumocaAuthor = (() => {
     if (!box || !currentObjectId || !window.FumocaObjectAnim) return;
     const obj = window.FumocaObjectAnim.get(currentObjectId);
     if (!obj) { box.innerHTML = ''; return; }
+    const selected = selectedId();
     box.innerHTML = obj.components.map(c =>
       `<label style="display:block;margin:2px 0;"><input type="radio" name="faComp" value="${c.id}"> ${c.name} <span style="opacity:.6">${c.joint?.kind || c.type}</span></label>`
     ).join('');
+    if (selected) {
+      const input = [...box.querySelectorAll('input')].find(el => el.value === selected);
+      if (input) input.checked = true;
+    }
   }
 
   function selectedId() {
@@ -123,11 +142,28 @@ const FumocaAuthor = (() => {
     const id = selectedId();
     if (!id || !currentObjectId) return status('Select a component');
     const kind = panel.querySelector('#faKind').value;
+    const axisName = panel.querySelector('#faAxis')?.value || 'x';
+    const axis = axisName === 'y' ? { x: 0, y: 1, z: 0 } : axisName === 'z' ? { x: 0, y: 0, z: 1 } : { x: 1, y: 0, z: 0 };
+    const name = panel.querySelector('#faName')?.value?.trim();
+    const obj = window.FumocaObjectAnim.get(currentObjectId);
+    const comp = obj?.components?.find(c => c.id === id);
+    if (comp && name) comp.name = name;
+    const pivot = {
+      x: Number(panel.querySelector('#faPx')?.value),
+      y: Number(panel.querySelector('#faPy')?.value),
+      z: Number(panel.querySelector('#faPz')?.value),
+    };
+    if (![pivot.x, pivot.y, pivot.z].every(Number.isFinite)) return status('Pivot must be numbers');
     const r = window.FumocaObjectAnim.defineJoint(currentObjectId, id, {
       kind,
-      axis: kind === 'prismatic' || kind === 'lift' ? { x: 0, y: 0, z: 1 } : { x: 1, y: 0, z: 0 },
+      axis,
+      pivot,
       limits: kind === 'hinge' ? { min: 0, max: Math.PI / 2 } : { min: 0, max: 0.4 },
     });
+    if (r.ok) {
+      window.FumocaMaster?.addObject?.(window.FumocaObjectAnim.get(currentObjectId));
+      window.FumocaLive?.bind?.(currentObjectId);
+    }
     status(r.ok ? `${kind} set` : (r.reason || 'failed'));
     refresh();
   }
@@ -168,13 +204,24 @@ const FumocaAuthor = (() => {
   }
 
   async function save() {
+    const snap = currentObjectId ? window.FumocaObjectAnim?.serialize?.(currentObjectId) : null;
+    const timeline = window.FumocaMaster?.serialize?.() || null;
+    const bundle = {
+      version: 1,
+      objectId: currentObjectId,
+      glbName: window._fumocaLastGlbName || null,
+      object: snap,
+      timeline,
+      savedAt: new Date().toISOString(),
+    };
+    try { sessionStorage.setItem('fumoca:preparedAnim', JSON.stringify(bundle)); } catch (_) {}
     const id = _recordId();
-    if (!id) return status('Open a NIF first');
+    if (!id) return status('Saved in this browser. Open a NIF to store it on the asset.');
     const r = await window.FumocaMaster.persist(id);
     status(r?.ok ? 'Saved' : (r?.error || 'Save failed'));
   }
 
-  return { open, createDemo, scrub, stop };
+  return { open, attach, createDemo, scrub, stop, save };
 })();
 
 window.FumocaAuthor = FumocaAuthor;

@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FUMOCA — Antique camera</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #10140f; color: #f4f6f2; font: 16px/1.4 system-ui, sans-serif; }
+  header { padding: 14px 16px 10px; display: flex; justify-content: space-between; gap: 12px; align-items: flex-end; }
+  h1 { font-size: 22px; line-height: 1; margin: 0; letter-spacing: -0.03em; }
+  p { margin: 4px 0 0; color: #c8ff00; font-size: 14px; }
+  a { color: #f4f6f2; }
+  iframe { width: 100%; height: calc(100% - 72px); border: 0; background: #10140f; }
+  @media (max-width: 640px) {
+    header { padding: 12px; }
+    h1 { font-size: 20px; }
+    iframe { height: calc(100% - 78px); }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Antique camera</h1>
+    <p>Press Camera body. The tripod stays still.</p>
+  </div>
+</header>
+<iframe title="FUMOCA viewer" src="../viewer.html?embed=1&localNif=/demo/records/antique-camera.json"></iframe>
+</body>
+</html>

@@ -7,7 +7,7 @@ globalThis.window = globalThis;
 // Point module resolution at the installed package
 import { createRequire } from 'module';
 import { pathToFileURL } from 'url';
-const require = createRequire('/tmp/package.json');
+const require = createRequire(import.meta.url);
 const rapierPath = require.resolve('@dimforge/rapier3d-compat');
 
 const { default: Physics } = await import('../js/modules/anim-physics.js');

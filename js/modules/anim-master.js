@@ -288,6 +288,18 @@ const FumocaMaster = (() => {
         _applyJointLocal(node, result);
         continue;
       }
+      const restQuat = xf.local?.rotation;
+      const rotPlaceholder = !xf.rot || ((xf.rot.x || 0) === 0 && (xf.rot.y || 0) === 0 && (xf.rot.z || 0) === 0);
+      const restIsOriented = restQuat && (Math.abs(restQuat.x) > 1e-6 || Math.abs(restQuat.y) > 1e-6 || Math.abs(restQuat.z) > 1e-6 || Math.abs((restQuat.w ?? 1) - 1) > 1e-6);
+      if (rotPlaceholder && restIsOriented && xf.joint?.kind === 'fixed' && window.FumocaJointEval && xf.local) {
+        const parentWorld = xf.parentId ? worlds[xf.parentId] : undefined;
+        const result = window.FumocaJointEval.evaluate({ joint: xf.joint, local: xf.local }, 0, parentWorld);
+        if (result.ok) {
+          worlds[compId] = result.world;
+          _applyJointLocal(node, result);
+          continue;
+        }
+      }
       if(xf.type==='hinge' && xf.axis && node.rotation){
         const ang=(xf.rot?.x||0)*Math.PI/180;
         node.rotation.set(0,0,0);
