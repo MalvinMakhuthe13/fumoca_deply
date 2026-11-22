@@ -247,8 +247,13 @@ const FumocaMaster = (() => {
         _applyJointLocal(node, result);
         continue;
       }
-      const neededByVersionedChild = Object.values(evaluated).some(c => c.parentId === compId && c.animVersion === 1);
-      if(neededByVersionedChild && xf.joint && xf.joint.kind==='fixed' && window.FumocaJointEval && xf.animVersion!==1){
+      function isAncestorOfVersioned(id, seen){
+        if(seen.has(id)) return false;
+        seen.add(id);
+        return Object.entries(evaluated).some(([cid, c]) => c.parentId === id && (c.animVersion === 1 || isAncestorOfVersioned(cid, seen)));
+      }
+      const neededByVersioned = isAncestorOfVersioned(compId, new Set());
+      if(neededByVersioned && xf.joint && xf.joint.kind==='fixed' && window.FumocaJointEval && xf.animVersion!==1){
         if(xf.parentId && !evaluated[xf.parentId]){ xf.jointError='unknown_parent'; continue; }
         if(xf.parentId && !worlds[xf.parentId]){ xf.jointError='hierarchy_unresolved'; continue; }
         const parentWorld=xf.parentId?worlds[xf.parentId]:undefined;
