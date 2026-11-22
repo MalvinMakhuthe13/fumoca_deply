@@ -32,6 +32,11 @@ const FumocaStudioInit = (() => {
 
     _master.setCameraBinding(cam, ctrls);
     _cameraBound = true;
+    if (window.FumocaPhysics?.initRapier) {
+      window.FumocaPhysics.initRapier().then(r => {
+        if (!r.ok) console.warn('[StudioInit] Rapier unavailable, using reference backend:', r.error);
+      });
+    }
 
     const states = window.Fumoca4D?.getStates?.() || [];
     if (states.length) {
@@ -48,6 +53,7 @@ const FumocaStudioInit = (() => {
 
   function destroy() {
     if (_retryTimer) { clearTimeout(_retryTimer); _retryTimer = null; }
+    if (window.FumocaPhysics?.dispose) window.FumocaPhysics.dispose();
     if (_master) _master.pause();
     const ctrls = _getControls();
     if (ctrls) ctrls.enabled = true;
