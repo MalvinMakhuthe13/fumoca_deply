@@ -181,7 +181,7 @@ const FumocaPhysics = (() => {
   }
 
   function _ensureRapierHandle(col) {
-    if (!rapierReady || !world) return;
+    if (!rapierReady || !world || !col.enabled) return;
     if (runtime.has(col.id)) return;
     if (col.type === 'convexHull' || col.type === 'trimesh' || col.type === 'compound') {
       runtime.set(col.id, { unsupported: true, reason: col.type + '_not_implemented' });
