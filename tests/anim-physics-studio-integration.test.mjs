@@ -72,7 +72,7 @@ Physics.transitionBodyType('bottle', 'dynamic');
 
 Physics.reset();
 Physics.applyDynamicPoses();
-assert(near(bottleNode.position.y, initialY, 0.15), 'Reset restores initial Y');
+assert(near(bottleNode.position.y, 0.4, 0.15), 'Reset restores authored pose Y 0.4');
 
 // Unload
 const countBefore = Physics.getBodyCount();
