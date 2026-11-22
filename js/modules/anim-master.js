@@ -137,7 +137,9 @@ const FumocaMaster = (() => {
     const out={};
     for(const c of (obj.components||[])){
       const pa=a.components.find(x=>x.id===c.id)||c, pb=b.components.find(x=>x.id===c.id)||pa;
-      out[c.id]={ rot:_lerpVec(pa.rot,pb.rot,t), pos:_lerpVec(pa.pos,pb.pos,t), state:t<0.5?pa.state:pb.state, type:c.type, pivot:c.pivot||null, axis:c.axis||null };
+      const entry={ rot:_lerpVec(pa.rot,pb.rot,t), pos:_lerpVec(pa.pos,pb.pos,t), state:t<0.5?pa.state:pb.state, type:c.type, pivot:c.pivot||null, axis:c.axis||null, parentId:c.parentId||null, joint:c.joint||null, local:c.local||null };
+      if(typeof pa.jointValue==='number' && typeof pb.jointValue==='number'){ entry.jointValue=pa.jointValue+(pb.jointValue-pa.jointValue)*t; entry.animVersion=1; }
+      out[c.id]=entry;
     }
     return out;
   }
@@ -207,11 +209,36 @@ const FumocaMaster = (() => {
     }
   }
 
+  function _applyJointLocal(node, result){
+    if(!node||!result?.local) return;
+    if(node.position && result.local.position) node.position.set(result.local.position.x, result.local.position.y, result.local.position.z);
+    if(node.quaternion && result.local.rotation) node.quaternion.set(result.local.rotation.x, result.local.rotation.y, result.local.rotation.z, result.local.rotation.w);
+  }
+
   function applyObject(objId, evaluated){
     const binding=T.bindings.objects.get(objId); if(!binding?.components) return;
-    for(const [compId, xf] of Object.entries(evaluated)){
+    const worlds={};
+    const ids=Object.keys(evaluated);
+    function depth(id, seen){
+      if(seen.has(id)) return 99;
+      seen.add(id);
+      const p=evaluated[id]?.parentId;
+      return p && evaluated[p] ? 1+depth(p, seen) : 0;
+    }
+    const ordered=ids.slice().sort((a,b)=>depth(a,new Set())-depth(b,new Set()));
+    for(const compId of ordered){
+      const xf=evaluated[compId];
       const node=binding.components.get(compId); if(!node) continue;
       if(window.FumocaPhysics?.isSimulationOwned && window.FumocaPhysics.isSimulationOwned(objId, compId)) continue;
+      if(xf.animVersion===1 && window.FumocaJointEval){
+        if(xf.parentId && !worlds[xf.parentId]){ xf.jointError='hierarchy_unresolved'; continue; }
+        const parentWorld=xf.parentId?worlds[xf.parentId]:undefined;
+        const result=window.FumocaJointEval.evaluate({ joint:xf.joint, local:xf.local }, xf.jointValue, parentWorld);
+        if(!result.ok){ xf.jointError=result.reason; continue; }
+        worlds[compId]=result.world;
+        _applyJointLocal(node, result);
+        continue;
+      }
       if(xf.type==='hinge' && xf.axis && node.rotation){
         const ang=(xf.rot?.x||0)*Math.PI/180;
         node.rotation.set(0,0,0);
