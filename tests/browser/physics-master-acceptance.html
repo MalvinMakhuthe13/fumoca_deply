@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<title>FUMOCA Physics Master Acceptance</title>
+<script type="importmap">{"imports":{"@dimforge/rapier3d-compat":"https://cdn.jsdelivr.net/npm/@dimforge/rapier3d-compat@0.21.0/dist/rapier.mjs"}}</script>
+</head>
+<body>
+<pre id="out">Loading...</pre>
+<script type="module">
+import '../../js/modules/anim-master.js';
+import '../../js/modules/anim-physics.js';
+import '../../js/modules/anim-object.js';
+
+const out = document.getElementById('out');
+const lines = [];
+function log(s) { lines.push(s); out.textContent = lines.join('\n'); }
+
+const Physics = window.FumocaPhysics;
+const Master = window.FumocaMaster;
+const Objects = window.FumocaObjectAnim;
+
+const init = await Physics.initRapier();
+log('init: ' + JSON.stringify(init));
+log('backend: ' + Physics.getBackend());
+log('rapierReady: ' + Physics.isRapierReady());
+
+const cooler = Objects.createObject('cooler', 'Cooler');
+const base = Objects.addComponent('cooler', 'Base', 'transform');
+const lid = Objects.addComponent('cooler', 'Lid', 'hinge', base.id);
+Objects.setComponentTransform('cooler', lid.id, { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }, 'closed');
+Objects.captureKeyframe('cooler', 0);
+Objects.setComponentTransform('cooler', lid.id, { x: 80, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }, 'open');
+Objects.captureKeyframe('cooler', 2);
+
+const bottle = Objects.createObject('bottle', 'Bottle');
+const body = Objects.addComponent('bottle', 'Body', 'transform');
+Objects.setComponentTransform('bottle', body.id, { x: 0, y: 0, z: 0 }, { x: -0.6, y: 0.2, z: 0 });
+Objects.captureKeyframe('bottle', 0);
+Objects.setComponentTransform('bottle', body.id, { x: 0, y: 0, z: 0 }, { x: 0.1, y: 0.2, z: 0 });
+Objects.captureKeyframe('bottle', 2);
+
+Master.addObject(Objects.serialize ? null : cooler);
+Master.addObject(cooler);
+Master.addObject(bottle);
+Master.setDuration(2);
+
+Physics.createCollider({ id: 'base', type: 'box', bodyType: 'static', halfExtents: { x: 0.4, y: 0.3, z: 0.3 }, owner: { kind: 'component', objectId: 'cooler', componentId: base.id } });
+Physics.createCollider({ id: 'lid', type: 'box', bodyType: 'kinematic', halfExtents: { x: 0.4, y: 0.02, z: 0.3 }, localPosition: { x: 0, y: 0.3, z: 0 }, owner: { kind: 'component', objectId: 'cooler', componentId: lid.id } });
+Physics.createCollider({ id: 'bottle', type: 'capsule', bodyType: 'kinematic', radius: 0.04, height: 0.2, owner: { kind: 'component', objectId: 'bottle', componentId: body.id } });
+
+function run(t, label) {
+  const ev = Master.evaluate(t);
+  const overlaps = ev.physics || Physics.queryOverlaps();
+  const lidPose = Physics.getWorldPose('lid');
+  const botPose = Physics.getWorldPose('bottle');
+  log(label + ' t=' + t + ' overlaps=' + overlaps.length + ' lidY=' + (lidPose?.position.y?.toFixed(3) ?? '?') + ' botX=' + (botPose?.position.x?.toFixed(3) ?? '?'));
+}
+
+run(0, 'closed');
+run(1, 'mid');
+run(2, 'open');
+run(0, 'scrub-back');
+run(2, 'scrub-forward');
+log('colliders: ' + Physics.list().length);
+log(Physics.isRapierReady() ? 'RESULT: RAPER_ACTIVE' : 'RESULT: REFERENCE_FALLBACK');
+</script>
+</body>
+</html>
