@@ -35,6 +35,7 @@ const FumocaScenes = (() => {
       const mesh = _box(window.THREE, p.w, p.h, p.d, p.color, p.x, p.y, p.z);
       mesh.name = p.name;
       mesh.userData.fumocaComponentId = c.id;
+      mesh.userData.fumocaObjectId = objectId;
       const parentNode = p.parent ? nodes[p.parent] : root;
       parentNode.add(mesh);
       nodes[p.name] = mesh;
@@ -76,7 +77,15 @@ const FumocaScenes = (() => {
     ], scene);
   }
 
-  return { createCar, createHouse };
+  function createBottle(scene) {
+    if (!scene || !window.THREE || !window.FumocaObjectAnim) return { ok: false, reason: 'missing' };
+    return _register('bottle_demo', 'Bottle', [
+      { name: 'Body', w: 0.22, h: 0.55, d: 0.22, color: 0xc8ff00, x: 0, y: 0.4, z: 0 },
+      { name: 'Cap', kind: 'lift', axis: { x: 0, y: 1, z: 0 }, pivot: { x: 0, y: 0.2, z: 0 }, limits: { min: 0, max: 0.15 }, open: 0.12, w: 0.12, h: 0.06, d: 0.12, color: 0xff4d00, x: 0, y: 0.72, z: 0, parent: 'Body' },
+    ], scene);
+  }
+
+  return { createCar, createHouse, createBottle };
 })();
 
 window.FumocaScenes = FumocaScenes;
