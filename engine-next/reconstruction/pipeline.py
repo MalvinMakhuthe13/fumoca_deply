@@ -3326,8 +3326,9 @@ class ReconstructionWorker:
             except Exception:
                 thumb_url = None  # non-fatal
 
-        SB.table('nif_files').insert({
-            'id':             self.job_id,
+        existing = SB.table('nif_files').select('id').eq('job_id', self.job_id).limit(1).execute()
+        row = {
+            'job_id':         self.job_id,
             'user_id':        self.user_id,
             'title':          title,
             'vertical':       vertical,
@@ -3341,7 +3342,11 @@ class ReconstructionWorker:
             'is_public':      False,
             'thumbnail_url':  thumb_url,
             'meta':           {**meta, **capabilities},
-        }).execute()
+        }
+        if existing.data:
+            SB.table('nif_files').update(row).eq('id', existing.data[0]['id']).execute()
+        else:
+            SB.table('nif_files').insert(row).execute()
         # status is set by the caller's self._tick() right after this
         # (either 'complete' or 'needs_retry') — _register() only creates
         # the nif_files row so a below-bar capture is still inspectable
