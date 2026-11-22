@@ -67,3 +67,42 @@ assert(JSON.stringify(bad) === before, 'Input not mutated');
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);
+
+// Non-zero pivot stays, offset rotates
+const pivotHinge = {
+  joint: { kind: 'hinge', axis: { x: 0, y: 1, z: 0 }, pivot: { x: 2, y: 0, z: 0 }, limits: { min: -Math.PI, max: Math.PI } },
+  local: { position: { x: 3, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 } },
+};
+const p0 = Eval.evaluate(pivotHinge, 0);
+assert(near(p0.local.position.x, 3), 'Offset at zero is 3');
+const p90 = Eval.evaluate(pivotHinge, Math.PI / 2);
+// Point at x=3 relative to pivot at x=2 is +1 on x. After 90 deg about Y: +1 on z (or -z depending on convention).
+assert(near(p90.local.position.x, 2, 1e-4), 'Pivot x stays 2');
+assert(near(Math.abs(p90.local.position.z), 1, 1e-4), 'Offset rotates to z=±1');
+
+// Translated and rotated parent, expected world
+const parentT = { position: { x: 5, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 } };
+const childT = Eval.evaluate(fixed, 0, parentT);
+assert(near(childT.world.position.x, 6), 'Translated parent: world x = 5 + 1');
+
+// Non-axis-aligned prismatic
+const diag = { joint: { kind: 'prismatic', axis: { x: 0.6, y: 0.8, z: 0 }, pivot: { x: 0, y: 0, z: 0 }, limits: { min: 0, max: 2 } }, local: { position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 } } };
+const d = Eval.evaluate(diag, 1);
+assert(near(d.local.position.x, 0.6) && near(d.local.position.y, 0.8), 'Non-aligned axis displacement');
+
+// Invalid values
+assert(Eval.evaluate(hinge, NaN).reason === 'non_finite_value', 'NaN value rejected');
+assert(Eval.evaluate(hinge, Infinity).reason === 'non_finite_value', 'Infinity value rejected');
+const zq = { joint: { kind: 'hinge', axis: { x: 0, y: 1, z: 0 }, pivot: { x: 0, y: 0, z: 0 } }, local: { position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 0 } } };
+assert(Eval.evaluate(zq, 0).reason === 'zero_quaternion', 'Zero quaternion rejected');
+const nq = { joint: { kind: 'hinge', axis: { x: 0, y: 1, z: 0 }, pivot: { x: 0, y: 0, z: 0 } }, local: { position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 2 } } };
+assert(Eval.evaluate(nq, 0).reason === 'quaternion_not_normalized', 'Non-normalized quaternion rejected');
+const za = { joint: { kind: 'hinge', axis: { x: 0, y: 0, z: 0 }, pivot: { x: 0, y: 0, z: 0 } }, local: { position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 } } };
+assert(Eval.evaluate(za, 0).reason === 'zero_axis', 'Zero axis rejected');
+const ul = { joint: { kind: 'hinge', axis: { x: 0, y: 1, z: 0 }, pivot: { x: 0, y: 0, z: 0 }, limits: { min: 1, max: 0 } }, local: { position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 } } };
+assert(Eval.evaluate(ul, 0).reason === 'invalid_limits', 'Unordered limits rejected');
+const badParent = { position: { x: NaN, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 } };
+assert(Eval.evaluate(hinge, 0, badParent).reason === 'invalid_parent_position', 'Malformed parent rejected');
+
+console.log(`\n${passed} passed, ${failed} failed`);
+if (failed) process.exit(1);
