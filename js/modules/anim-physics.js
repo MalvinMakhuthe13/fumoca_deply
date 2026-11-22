@@ -14,6 +14,7 @@ const FumocaPhysics = (() => {
   const runtime = new Map();
   const hierarchy = new Map(); // objId -> Map(compId -> parentId)
   const bindings = new Map(); // colliderId -> { node, parent, localPosition, localRotation }
+  const sceneRegistry = new Map(); // key objectId:componentId -> { objectId, componentId, node, parent, colliderId }
   let nextId = 1;
   let backend = 'reference';
   let rapier = null;
@@ -648,6 +649,62 @@ const FumocaPhysics = (() => {
     return { applied, skipped, failed, errors };
   }
 
+  function registerSceneObject(objectId, componentId, opts = {}) {
+    if (!objectId || !componentId) return { ok: false, reason: 'missing_ids' };
+    if (!opts.node) return { ok: false, reason: 'missing_node' };
+    const key = objectId + ':' + componentId;
+    if (sceneRegistry.has(key)) return { ok: false, reason: 'already_registered' };
+    sceneRegistry.set(key, {
+      objectId, componentId,
+      node: opts.node,
+      parent: opts.parent || opts.node.parent || null,
+      colliderId: opts.colliderId || null,
+    });
+    return { ok: true, key };
+  }
+
+  function unregisterSceneObject(objectId, componentId) {
+    const key = objectId + ':' + componentId;
+    const entry = sceneRegistry.get(key);
+    if (entry?.colliderId) bindings.delete(entry.colliderId);
+    return sceneRegistry.delete(key);
+  }
+
+  function getSceneObject(objectId, componentId) {
+    return sceneRegistry.get(objectId + ':' + componentId) || null;
+  }
+
+  function transitionBodyType(id, newType) {
+    const col = colliders.get(id);
+    if (!col) return { ok: false, reason: 'unknown_collider' };
+    if (!['static', 'kinematic', 'dynamic'].includes(newType)) return { ok: false, reason: 'invalid_type' };
+    const rt = runtime.get(id);
+    let pose = null, linvel = { x: 0, y: 0, z: 0 }, angvel = { x: 0, y: 0, z: 0 };
+    if (rt?.body) {
+      const t = rt.body.translation();
+      const r = rt.body.rotation();
+      pose = { position: { x: t.x, y: t.y, z: t.z }, quaternion: { x: r.x, y: r.y, z: r.z, w: r.w } };
+      try { const v = rt.body.linvel(); linvel = { x: v.x, y: v.y, z: v.z }; } catch (_) {}
+      try { const a = rt.body.angvel(); angvel = { x: a.x, y: a.y, z: a.z }; } catch (_) {}
+      if (world) { try { world.removeRigidBody(rt.body); } catch (_) {} }
+      runtime.delete(id);
+    }
+    col.bodyType = newType;
+    if (backend === 'rapier' && rapierReady) _ensureRapierHandle(col);
+    const next = runtime.get(id);
+    if (next?.body && pose) {
+      next.body.setTranslation(pose.position, true);
+      next.body.setRotation(pose.quaternion, true);
+      if (newType === 'dynamic') {
+        next.body.setLinvel(linvel, true);
+        next.body.setAngvel(angvel, true);
+        next._dynamicInit = true;
+        next._initialPose = next._initialPose || pose;
+      }
+    }
+    return { ok: true, id, bodyType: newType, pose };
+  }
+
   function serialize() {
     return {
       version: SCHEMA_VERSION,
@@ -676,13 +733,14 @@ const FumocaPhysics = (() => {
     runtime.clear();
     hierarchy.clear();
     bindings.clear();
+    sceneRegistry.clear();
   }
 
   return {
     SCHEMA_VERSION,
     registerHierarchy, createCollider, setEnabled, removeCollider,
     initRapier, setBackend,
-    syncFromEvaluation, queryOverlaps, step, reset, getDynamicPose, setFixedTimestep, setMaxSubsteps, setGravity, getGravity, getBodyCount, getColliderCount, worldToParentLocal, bindSceneNode, unbindSceneNode, getBinding, isSimulationOwned, applyDynamicPoses,
+    syncFromEvaluation, queryOverlaps, step, reset, getDynamicPose, setFixedTimestep, setMaxSubsteps, setGravity, getGravity, getBodyCount, getColliderCount, worldToParentLocal, bindSceneNode, unbindSceneNode, getBinding, isSimulationOwned, applyDynamicPoses, registerSceneObject, unregisterSceneObject, getSceneObject, transitionBodyType,
     serialize, deserialize, dispose,
     getBackend: () => backend,
     isRapierReady: () => rapierReady,
