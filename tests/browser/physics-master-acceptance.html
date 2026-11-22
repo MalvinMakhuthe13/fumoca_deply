@@ -12,83 +12,106 @@ body { font: 13px/1.4 monospace; background: #111; color: #eee; padding: 16px; }
 <body>
 <pre id="out">Loading...</pre>
 <script type="module">
-import '../../js/modules/anim-master.js';
-import '../../js/modules/anim-physics.js';
-import '../../js/modules/anim-object.js';
-
 const out = document.getElementById('out');
-const lines = [];
-let failed = 0;
-function log(s, ok) {
-  const cls = ok === false ? 'fail' : ok === true ? 'pass' : '';
-  lines.push(cls ? `<span class="${cls}">${s}</span>` : s);
-  if (ok === false) failed++;
-  out.innerHTML = lines.join('\n');
+const assertions = [];
+const errors = [];
+let passed = 0, failed = 0, backend = 'unknown', rapierReady = false;
+window.addEventListener('error', e => errors.push('window.error: ' + (e.message || e.error?.message || 'unknown')));
+window.addEventListener('unhandledrejection', e => errors.push('unhandledrejection: ' + (e.reason?.message || String(e.reason))));
+function render() {
+  out.innerHTML = assertions.map(a => '<span class="' + (a.ok ? 'pass' : 'fail') + '">' +
+    (a.ok ? 'PASS: ' : 'FAIL: ') + a.name.replaceAll('&','&amp;').replaceAll('<','&lt;') + '</span>').join('\n') +
+    '\n\n' + (window.__PHYSICS_ACCEPTANCE__?.status || 'RUNNING');
 }
-function assert(cond, msg) { log((cond ? 'PASS: ' : 'FAIL: ') + msg, !!cond); return cond; }
-
-const Physics = window.FumocaPhysics;
-const Master = window.FumocaMaster;
-const Objects = window.FumocaObjectAnim;
-
-const init = await Physics.initRapier();
-log('init: ' + JSON.stringify(init));
-assert(init.ok === true, 'Rapier WASM initialized');
-assert(Physics.getBackend() === 'rapier', 'Backend is rapier');
-assert(Physics.isRapierReady() === true, 'Rapier ready');
-
-const cooler = Objects.createObject('cooler', 'Cooler');
-const base = Objects.addComponent('cooler', 'Base', 'transform');
-const lid = Objects.addComponent('cooler', 'Lid', 'hinge', base.id);
-Objects.setComponentTransform('cooler', lid.id, { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }, 'closed');
-Objects.captureKeyframe('cooler', 0);
-Objects.setComponentTransform('cooler', lid.id, { x: 80, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }, 'open');
-Objects.captureKeyframe('cooler', 2);
-
-const bottle = Objects.createObject('bottle', 'Bottle');
-const body = Objects.addComponent('bottle', 'Body', 'transform');
-Objects.setComponentTransform('bottle', body.id, { x: 0, y: 0, z: 0 }, { x: -0.6, y: 0.2, z: 0 });
-Objects.captureKeyframe('bottle', 0);
-Objects.setComponentTransform('bottle', body.id, { x: 0, y: 0, z: 0 }, { x: 0.1, y: 0.2, z: 0 });
-Objects.captureKeyframe('bottle', 2);
-
-Master.addObject(cooler);
-Master.addObject(bottle);
-Master.setDuration(2);
-
-Physics.createCollider({ id: 'base', type: 'box', bodyType: 'static', halfExtents: { x: 0.4, y: 0.3, z: 0.3 }, owner: { kind: 'component', objectId: 'cooler', componentId: base.id } });
-Physics.createCollider({ id: 'lid', type: 'box', bodyType: 'kinematic', halfExtents: { x: 0.4, y: 0.02, z: 0.3 }, localPosition: { x: 0, y: 0.3, z: 0 }, owner: { kind: 'component', objectId: 'cooler', componentId: lid.id } });
-Physics.createCollider({ id: 'bottle', type: 'capsule', bodyType: 'kinematic', radius: 0.04, height: 0.2, owner: { kind: 'component', objectId: 'bottle', componentId: body.id } });
-
-assert(Physics.list().length === 3, 'Three colliders registered');
-assert(Physics.get('base').bodyType === 'static', 'Base is static');
-
-function poseAt(t) {
-  const ev = Master.evaluate(t);
-  return {
-    overlaps: (ev.physics || []).length,
-    lid: Physics.getWorldPose('lid'),
-    bottle: Physics.getWorldPose('bottle'),
-    base: Physics.getWorldPose('base'),
-  };
+function assert(ok, name) {
+  assertions.push({ ok: !!ok, name: String(name) });
+  if (ok) passed++; else failed++;
+  render();
+  return !!ok;
 }
+function counts() { return window.FumocaPhysics.getRuntimeCounts(); }
+function near(a,b,e=1e-3) { return Number.isFinite(a) && Math.abs(a-b) <= e; }
+function sameQuat(a,b,e=1e-4) {
+  if (!a || !b) return false;
+  const dot = a.x*b.x+a.y*b.y+a.z*b.z+a.w*b.w;
+  return Math.abs(Math.abs(dot)-1) <= e;
+}
+try {
+  await import('../../js/modules/anim-master.js');
+  await import('../../js/modules/anim-physics.js');
+  await import('../../js/modules/anim-object.js');
+  const Physics = window.FumocaPhysics, Master = window.FumocaMaster, Objects = window.FumocaObjectAnim;
+  if (!Physics || !Master || !Objects) throw new Error('Required FUMOCA modules did not expose globals');
 
-const closed = poseAt(0);
-const mid = poseAt(1);
-const open = poseAt(2);
-const back = poseAt(0);
-const forward = poseAt(2);
+  const init = await Physics.initRapier();
+  backend = Physics.getBackend();
+  rapierReady = Physics.isRapierReady() === true;
+  assert(init.ok === true, 'Rapier WASM initialization succeeded: ' + JSON.stringify(init));
+  assert(backend === 'rapier', 'Active backend is Rapier');
+  assert(rapierReady, 'Rapier WASM readiness is true');
 
-assert(closed.lid && open.lid, 'Lid poses exist');
-assert(Math.abs((open.lid?.quaternion.x || 0) - (closed.lid?.quaternion.x || 0)) > 0.01 || Math.abs((open.lid?.quaternion.w || 1) - (closed.lid?.quaternion.w || 1)) > 0.01, 'Lid rotation changes closed to open');
-assert(closed.bottle && Math.abs(closed.bottle.position.x - (-0.6)) < 0.15, 'Bottle starts near -0.6');
-assert(open.bottle && Math.abs(open.bottle.position.x - 0.1) < 0.15, 'Bottle ends near 0.1');
-assert(back.bottle && closed.bottle && Math.abs(back.bottle.position.x - closed.bottle.position.x) < 0.01, 'Scrub back restores bottle');
-assert(forward.bottle && open.bottle && Math.abs(forward.bottle.position.x - open.bottle.position.x) < 0.01, 'Scrub forward restores bottle');
-assert(Array.isArray(Master.evaluate(1).physics), 'Query results via master evaluate');
-assert(Physics.list().length === 3, 'No duplicate colliders after scrub');
+  const cooler = Objects.createObject('cooler', 'Cooler');
+  const base = Objects.addComponent('cooler', 'Base', 'transform');
+  const lid = Objects.addComponent('cooler', 'Lid', 'hinge', base.id);
+  Objects.setComponentTransform('cooler', lid.id, { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }, 'closed');
+  Objects.captureKeyframe('cooler', 0);
+  Objects.setComponentTransform('cooler', lid.id, { x: 80, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }, 'open');
+  Objects.captureKeyframe('cooler', 2);
+  const bottle = Objects.createObject('bottle', 'Bottle');
+  const body = Objects.addComponent('bottle', 'Body', 'transform');
+  Objects.setComponentTransform('bottle', body.id, { x: 0, y: 0, z: 0 }, { x: -0.6, y: 0.2, z: 0 });
+  Objects.captureKeyframe('bottle', 0);
+  Objects.setComponentTransform('bottle', body.id, { x: 0, y: 0, z: 0 }, { x: 0.1, y: 0.2, z: 0 });
+  Objects.captureKeyframe('bottle', 2);
+  Master.addObject(cooler); Master.addObject(bottle); Master.setDuration(2);
 
-log(failed === 0 ? 'FINAL: PASS' : 'FINAL: FAIL (' + failed + ')', failed === 0);
+  Physics.createCollider({ id: 'base', type: 'box', bodyType: 'static', halfExtents: { x: .4, y: .3, z: .3 }, owner: { kind: 'component', objectId: 'cooler', componentId: base.id } });
+  Physics.createCollider({ id: 'lid', type: 'box', bodyType: 'kinematic', halfExtents: { x: .4, y: .02, z: .3 }, localPosition: { x: 0, y: .3, z: 0 }, owner: { kind: 'component', objectId: 'cooler', componentId: lid.id } });
+  Physics.createCollider({ id: 'bottle', type: 'capsule', bodyType: 'kinematic', radius: .04, height: .2, owner: { kind: 'component', objectId: 'bottle', componentId: body.id } });
+  assert(Physics.list().length === 3, 'Exactly three collider definitions registered');
+
+  function poseAt(t) {
+    const ev = Master.evaluate(t);
+    return { physics: ev?.physics, lid: Physics.getWorldPose('lid'), bottle: Physics.getWorldPose('bottle'), base: Physics.getWorldPose('base') };
+  }
+  const start = poseAt(0), open = poseAt(2), back = poseAt(0), forward = poseAt(2);
+  const angle = 2 * Math.atan2(Math.abs(open.lid?.quaternion?.x || 0), Math.abs(open.lid?.quaternion?.w || 1)) * 180 / Math.PI;
+  assert(near(angle, 80, .5), 'Lid quaternion represents 80 degrees (actual ' + angle.toFixed(3) + '°)');
+  assert(near(start.bottle?.position?.x, -.6, .02), 'Bottle start position is -0.6');
+  assert(near(open.bottle?.position?.x, .1, .02), 'Bottle end position is 0.1');
+  assert(near(back.bottle?.position?.x, -.6, .02), 'Backward scrub restores bottle start');
+  assert(near(forward.bottle?.position?.x, .1, .02), 'Forward scrub restores bottle end');
+  assert(near(start.base?.position?.x, 0) && near(start.base?.position?.y, 0) && sameQuat(start.base?.quaternion, back.base?.quaternion), 'Static base position and rotation remain unchanged');
+  assert(Array.isArray(forward.physics), 'Master.evaluate returns physics query results');
+
+  for (let i=0;i<8;i++) { poseAt(0); poseAt(2); poseAt(1); }
+  const stableCounts = counts();
+  assert(Physics.list().length === 3, 'Three collider definitions remain registered after repeated scrubbing');
+  assert(stableCounts.bodies === 3 && stableCounts.colliders === 3, 'Rapier body/collider counts remain 3/3 after repeated scrubbing (actual ' + JSON.stringify(stableCounts) + ')');
+
+  Physics.setEnabled('bottle', false); Master.evaluate(1);
+  const disabledCounts = counts();
+  assert(disabledCounts.bodies === 2 && disabledCounts.colliders === 2, 'Disabling bottle removes its Rapier body and collider');
+  Physics.setEnabled('bottle', true); Master.evaluate(1);
+  const enabledCounts = counts();
+  assert(enabledCounts.bodies === 3 && enabledCounts.colliders === 3, 'Re-enabling bottle recreates exactly one Rapier body/collider');
+  for (let i=0;i<4;i++) { Physics.setEnabled('bottle', false); Master.evaluate(1); Physics.setEnabled('bottle', true); Master.evaluate(1); }
+  const cycleCounts = counts();
+  assert(cycleCounts.bodies === 3 && cycleCounts.colliders === 3, 'Repeated enable/disable cycles do not leak Rapier bodies or colliders');
+
+} catch (e) {
+  errors.push('acceptance exception: ' + (e?.stack || e?.message || String(e)));
+  failed++;
+  assertions.push({ok:false,name:'Harness completed without an uncaught exception'});
+}
+const status = failed === 0 ? 'PASS' : 'FAIL';
+window.__PHYSICS_ACCEPTANCE__ = {
+  status, passed, failed, backend, rapierReady, errors,
+  assertions: assertions.map(a => ({...a})),
+  browser: { userAgent: navigator.userAgent },
+  rapierCounts: window.FumocaPhysics?.getRuntimeCounts?.() || null,
+};
+out.textContent = JSON.stringify(window.__PHYSICS_ACCEPTANCE__, null, 2);
 </script>
 </body>
 </html>
