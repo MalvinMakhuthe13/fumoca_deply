@@ -344,6 +344,7 @@ const FumocaPhysics = (() => {
           const scaled = _applyScale(col, worldPose);
           rt.scaleResult = scaled;
           if (!scaled.ok) { rt.unsupported = true; rt.reason = scaled.reason; continue; }
+          if (!col._authoredPose) col._authoredPose = worldPose;
           if (col.bodyType === 'static') {
             if (!rt._staticPlaced) {
               rt.body.setTranslation(worldPose.position, true);
@@ -639,7 +640,8 @@ const FumocaPhysics = (() => {
       const pose = getDynamicPose(id);
       if (!pose) { skipped++; continue; }
       const nodeWorld = _invertOffset(pose, binding.localPosition, binding.localRotation);
-      const local = _toParentLocal(nodeWorld, binding.parent);
+      const currentParent = binding.node?.parent || binding.parent;
+      const local = _toParentLocal(nodeWorld, currentParent);
       if (!local.ok) { failed++; errors.push({ id, reason: local.reason }); continue; }
       if (binding.node.position) binding.node.position.set(local.position.x, local.position.y, local.position.z);
       if (binding.node.quaternion) binding.node.quaternion.set(local.quaternion.x, local.quaternion.y, local.quaternion.z, local.quaternion.w);
