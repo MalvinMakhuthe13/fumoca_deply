@@ -48,9 +48,10 @@ const hinge = Objects.defineJoint('cooler', coolerLid.id, {
   kind: 'hinge',
   pivot: { x: 0, y: 0.3, z: -0.3 },
   axis: { x: 1, y: 0, z: 0 },
-  limits: { min: 0, max: 90 },
+  limits: { min: 0, max: Math.PI / 2 },
 });
 assert(hinge.ok && coolerLid.joint.kind === 'hinge', 'Cooler lid is hinge');
+assert(Math.abs(coolerLid.joint.limits.max - Math.PI / 2) < 1e-9, 'Cooler hinge limit is pi/2 radians');
 
 Objects.createObject('drawer', 'Drawer Unit');
 const frame = Objects.addComponent('drawer', 'Frame', 'fixed');
