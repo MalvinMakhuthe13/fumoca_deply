@@ -181,16 +181,29 @@ const FumocaObjectAnim = (() => {
     return true;
   }
 
+  function setJointValue(objId, compId, value) {
+    const obj = objects.get(objId);
+    if (!obj) return { ok: false, reason: 'unknown_object' };
+    const c = obj.components.find(x => x.id === compId);
+    if (!c) return { ok: false, reason: 'unknown_component' };
+    if (typeof value !== 'number' || !Number.isFinite(value)) return { ok: false, reason: 'non_finite_value' };
+    c.jointValue = value;
+    return { ok: true, jointValue: value };
+  }
+
   function captureKeyframe(objId, time) {
     const obj = objects.get(objId);
     if (!obj) return null;
+    const hasJoint = obj.components.some(c => typeof c.jointValue === 'number');
     const kf = {
       time: Number(time) || 0,
+      animVersion: hasJoint ? 1 : undefined,
       components: obj.components.map(c => ({
         id: c.id,
         rot: { ...c.rot },
         pos: { ...c.pos },
         state: c.state,
+        jointValue: typeof c.jointValue === 'number' ? c.jointValue : undefined,
       })),
     };
     obj.tracks.push(kf);
@@ -213,7 +226,7 @@ const FumocaObjectAnim = (() => {
     for (const c of obj.components) {
       const pa = a.components.find(x => x.id === c.id) || c;
       const pb = b.components.find(x => x.id === c.id) || pa;
-      out[c.id] = {
+      const entry = {
         rot: {
           x: pa.rot.x + (pb.rot.x - pa.rot.x) * t,
           y: pa.rot.y + (pb.rot.y - pa.rot.y) * t,
@@ -226,6 +239,11 @@ const FumocaObjectAnim = (() => {
         },
         state: t < 0.5 ? pa.state : pb.state,
       };
+      if (typeof pa.jointValue === 'number' && typeof pb.jointValue === 'number') {
+        entry.jointValue = pa.jointValue + (pb.jointValue - pa.jointValue) * t;
+        entry.animVersion = 1;
+      }
+      out[c.id] = entry;
     }
     return out;
   }
@@ -304,7 +322,7 @@ const FumocaObjectAnim = (() => {
   }
 
   return {
-    createObject, addComponent, setComponentTransform, defineJoint, seatComponent, captureKeyframe, evaluate, validateObject, migrateComponent,
+    createObject, addComponent, setComponentTransform, defineJoint, setJointValue, seatComponent, captureKeyframe, evaluate, validateObject, migrateComponent,
     serialize, deserialize,
     list: () => Array.from(objects.values()),
     get: (id) => objects.get(id) || null,
