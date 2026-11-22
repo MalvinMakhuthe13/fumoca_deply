@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<title>FUMOCA Scene Binding Acceptance</title>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js","@dimforge/rapier3d-compat":"https://cdn.jsdelivr.net/npm/@dimforge/rapier3d-compat@0.21.0/dist/rapier.mjs"}}</script>
+<style>body{font:13px/1.4 monospace;background:#111;color:#eee;padding:16px}.pass{color:#8f8}.fail{color:#f66;font-weight:bold}</style>
+</head>
+<body>
+<pre id="out">Loading...</pre>
+<script type="module">
+import * as THREE from 'three';
+import '../../js/modules/anim-physics.js';
+window.THREE = THREE;
+const out = document.getElementById('out');
+const lines = [];
+let failed = 0;
+function log(s, ok) {
+  const cls = ok === false ? 'fail' : ok === true ? 'pass' : '';
+  lines.push(cls ? `<span class="${cls}">${s}</span>` : s);
+  if (ok === false) failed++;
+  out.innerHTML = lines.join('\n');
+}
+function assert(cond, msg) { log((cond ? 'PASS: ' : 'FAIL: ') + msg, !!cond); }
+
+const Physics = window.FumocaPhysics;
+const init = await Physics.initRapier();
+assert(init.ok === true, 'Rapier initialized');
+
+const floor = new THREE.Object3D();
+const bottle = new THREE.Object3D();
+Physics.createCollider({ id: 'floor', type: 'box', bodyType: 'static', halfExtents: { x: 1, y: 0.05, z: 1 }, owner: { kind: 'component', objectId: 'c', componentId: 'base' } });
+Physics.createCollider({ id: 'bottle', type: 'capsule', bodyType: 'dynamic', radius: 0.1, height: 0.3, mass: 0.5, owner: { kind: 'component', objectId: 'b', componentId: 'body' } });
+Physics.bindSceneNode('bottle', { node: bottle });
+Physics.syncFromEvaluation({
+  objects: {
+    c: { base: { pos: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0 } } },
+    b: { body: { pos: { x: 0, y: 1.2, z: 0 }, rot: { x: 0, y: 0, z: 0 } } },
+  },
+});
+const initialY = bottle.position.y || 1.2;
+for (let i = 0; i < 60; i++) { Physics.step(1/60); Physics.applyDynamicPoses(); }
+assert(bottle.position.y < initialY, 'Bottle node fell');
+assert(bottle.position.y > 0.05, 'Bottle node above floor');
+
+Physics.reset();
+Physics.applyDynamicPoses();
+assert(bottle.position.y > 1, 'Reset restores bottle node');
+
+for (let i = 0; i < 30; i++) { Physics.step(1/60); Physics.applyDynamicPoses(); }
+assert(bottle.position.y < 1.2, 'Falls again after reset');
+
+const result = {
+  status: failed === 0 ? 'PASS' : 'FAIL',
+  passed: lines.filter(l => l.includes('PASS:')).length,
+  failed,
+  appliedCount: 1,
+  skippedCount: 0,
+  errors: [],
+  initialY,
+  finalY: bottle.position.y,
+  backend: Physics.getBackend(),
+  rapierReady: Physics.isRapierReady(),
+};
+window.PHYSICS_SCENE_BINDING_ACCEPTANCE = result;
+log('FINAL: ' + result.status, failed === 0);
+</script>
+</body>
+</html>
