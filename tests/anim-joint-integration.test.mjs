@@ -287,5 +287,29 @@ assert(near(b.lid.z, d.lid.z) && near(b.drawer.z, d.drawer.z), 'Scrub to 1 match
 assert(near(t0.lid.x, 1) && near(t1.drawer.z, 0.4), 'Branches do not overwrite each other');
 assert(cln.parent === cfn && cdn.parent === cfn && cfn.parent === crn, 'Cabinet hierarchy intact');
 
+// Midpoint
+const cabMid = cabAt(0.5);
+assert(near(cabMid.ev.objects.cab[cabLid.id].jointValue, Math.PI / 4), 'Midpoint lid jointValue is pi/4');
+assert(near(cabMid.ev.objects.cab[cabDrawer.id].jointValue, 0.2), 'Midpoint drawer jointValue is 0.2');
+assert(near(cabMid.lid.x, 0.7071068, 1e-3) && near(cabMid.lid.y, 0, 1e-3) && near(cabMid.lid.z, -0.7071068, 1e-3), 'Midpoint lid local is (0.707,0,-0.707)');
+assert(near(cabMid.drawer.z, 0.2), 'Midpoint drawer z is 0.2');
+assert(near(crn.position.x, 1) && near(cfn.position.x, 1), 'Midpoint ancestors retain local');
+assert(!cabMid.ev.objects.cab[cabLid.id].jointError && !cabMid.ev.objects.cab[cabDrawer.id].jointError, 'Midpoint has no jointError');
+
+// Scrub sequence 0 -> 1 -> 0.5 -> 1 -> 0 -> 0.5 -> 0
+const seq = [0, 1, 0.5, 1, 0, 0.5, 0].map(t => cabAt(t));
+assert(near(seq[0].lid.x, seq[4].lid.x) && near(seq[0].drawer.z, seq[4].drawer.z) && near(seq[0].lid.x, seq[6].lid.x), 'Return to 0 is identical');
+assert(near(seq[1].lid.z, seq[3].lid.z) && near(seq[1].drawer.z, seq[3].drawer.z), 'Return to 1 is identical');
+assert(near(seq[2].lid.x, seq[5].lid.x, 1e-3) && near(seq[2].drawer.z, seq[5].drawer.z, 1e-3), 'Return to 0.5 is identical');
+assert(seq.every(s => !s.ev.objects.cab[cabLid.id].jointError), 'No jointError during scrub');
+
+// Branch isolation: compare closed and open keyframes
+const closedState = cabAt(0);
+const openState = cabAt(1);
+assert(near(closedState.lid.x, 1) && near(openState.lid.z, -1, 1e-3), 'Lid changes across timeline');
+assert(near(closedState.drawer.z, 0) && near(openState.drawer.z, 0.4), 'Drawer changes across timeline');
+assert(near(closedState.lid.x, 1) && near(openState.drawer.z, 0.4), 'Lid closed pose and drawer open pose are independent');
+assert(near(openState.lid.z, -1, 1e-3) && near(closedState.drawer.z, 0), 'Lid open pose and drawer closed pose are independent');
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);
