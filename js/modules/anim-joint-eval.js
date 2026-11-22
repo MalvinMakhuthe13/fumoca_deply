@@ -39,8 +39,7 @@ const FumocaJointEval = (() => {
   function evaluate(component, value, parentWorld) {
     if (!component?.joint) return { ok: false, reason: 'missing_joint' };
     if (component.joint.kind === 'threaded' || component.joint.kind === 'snap') return { ok: false, reason: 'unsupported_joint' };
-    if (!Number.isFinite(value) && value !== undefined && value !== null) return { ok: false, reason: 'non_finite_value' };
-    if (value !== undefined && value !== null && !Number.isFinite(Number(value))) return { ok: false, reason: 'non_finite_value' };
+    if (typeof value !== 'number' || !Number.isFinite(value)) return { ok: false, reason: 'non_finite_value' };
     const local = component.local;
     if (!local || !_finite3(local.position)) return { ok: false, reason: 'invalid_local_position' };
     const lq = local.rotation;
@@ -57,16 +56,18 @@ const FumocaJointEval = (() => {
     const lim = component.joint.limits;
     if (lim && (!Number.isFinite(lim.min) || !Number.isFinite(lim.max) || lim.min > lim.max)) return { ok: false, reason: 'invalid_limits' };
     if (parentWorld) {
-      if (!_finite3(parentWorld.position || { x: 0, y: 0, z: 0 })) return { ok: false, reason: 'invalid_parent_position' };
+      if (!_finite3(parentWorld.position)) return { ok: false, reason: 'invalid_parent_position' };
       const pq = parentWorld.rotation;
-      if (pq && (!_finite4(pq) || Math.hypot(pq.x, pq.y, pq.z, pq.w) < 1e-6 || Math.abs(Math.hypot(pq.x, pq.y, pq.z, pq.w) - 1) > 1e-3)) return { ok: false, reason: 'invalid_parent_quaternion' };
+      if (!_finite4(pq)) return { ok: false, reason: 'invalid_parent_quaternion' };
+      const plen = Math.hypot(pq.x, pq.y, pq.z, pq.w);
+      if (plen < 1e-6 || Math.abs(plen - 1) > 1e-3) return { ok: false, reason: 'invalid_parent_quaternion' };
     }
     const kind = component.joint.kind;
     if (kind === 'threaded' || kind === 'snap') return { ok: false, reason: 'unsupported_joint' };
     if (!['fixed', 'hinge', 'prismatic', 'lift'].includes(kind)) return { ok: false, reason: 'invalid_joint' };
     const pivot = component.joint.pivot || { x: 0, y: 0, z: 0 };
 
-    const v = Number(value) || 0;
+    const v = value;
     const clamped = kind === 'fixed' ? 0 : _clamp(v, component.joint.limits);
 
     let jointPos = { x: 0, y: 0, z: 0 };
@@ -90,8 +91,8 @@ const FumocaJointEval = (() => {
     let worldPos = localPos;
     let worldRot = localRot;
     if (parentWorld) {
-      const pr = parentWorld.rotation || { x: 0, y: 0, z: 0, w: 1 };
-      const pp = parentWorld.position || { x: 0, y: 0, z: 0 };
+      const pr = parentWorld.rotation;
+      const pp = parentWorld.position;
       const wr = _rotVec(pr, localPos);
       worldPos = { x: pp.x + wr.x, y: pp.y + wr.y, z: pp.z + wr.z };
       worldRot = _norm(_mulQuat(pr, localRot));
