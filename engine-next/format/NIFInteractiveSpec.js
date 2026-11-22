@@ -72,11 +72,19 @@ function checkId(value, path, errors) {
   return true;
 }
 
+function checkKeys(value, allowed, path, errors) {
+  if (!isRecord(value)) return;
+  for (const key of Object.keys(value)) {
+    if (!allowed.has(key)) add(errors, path + '.' + key, 'unknown field');
+  }
+}
+
 function checkTransform(value, path, errors) {
   if (!isRecord(value)) {
     add(errors, path, 'must be an object');
     return;
   }
+  checkKeys(value, new Set(['position', 'rotation', 'scale']), path, errors);
   if (value.position !== undefined && !isVec3(value.position)) {
     add(errors, path + '.position', 'must be a finite [x,y,z] vector');
   }
@@ -100,6 +108,12 @@ function checkCondition(condition, path, errors, depth = 0) {
     add(errors, path, 'must be a typed condition object');
     return;
   }
+  const conditionKeys = condition.type === 'state_is'
+    ? ['type', 'objectId', 'state']
+    : condition.type === 'zone_contains'
+      ? ['type', 'zoneId']
+      : ['type', 'conditions'];
+  checkKeys(condition, new Set(conditionKeys), path, errors);
   if (condition.type === 'state_is') {
     checkId(condition.objectId, path + '.objectId', errors);
     if (typeof condition.state !== 'string' || condition.state.length > 64) {
@@ -125,6 +139,18 @@ function checkAction(action, path, errors) {
     add(errors, path + '.type', 'unsupported action; executable actions are forbidden');
     return;
   }
+  const actionKeys = {
+    play_animation: ['type', 'animationId'],
+    set_visibility: ['type', 'objectId', 'visible'],
+    set_transform: ['type', 'objectId', 'transform', 'durationMs'],
+    set_state: ['type', 'objectId', 'state'],
+    attach_to_hand: ['type', 'objectId', 'hand'],
+    release_object: ['type', 'objectId'],
+    show_hint: ['type', 'text', 'durationMs'],
+    play_audio: ['type', 'assetId', 'volume'],
+    load_scene: ['type', 'sceneId'],
+  }[action.type];
+  checkKeys(action, new Set(actionKeys), path, errors);
   switch (action.type) {
     case 'play_animation':
       checkId(action.animationId, path + '.animationId', errors);
@@ -193,6 +219,7 @@ export function validateInteractiveManifest(manifest) {
   if (!isRecord(cs)) {
     add(errors, 'coordinateSystem', 'is required');
   } else {
+    checkKeys(cs, new Set(['units', 'upAxis', 'handedness', 'calibrationStatus']), 'coordinateSystem', errors);
     if (!['m', 'cm', 'mm', 'unknown'].includes(cs.units)) {
       add(errors, 'coordinateSystem.units', 'must be m, cm, mm, or unknown');
     }
@@ -219,6 +246,7 @@ export function validateInteractiveManifest(manifest) {
   (Array.isArray(manifest.assets) ? manifest.assets : []).forEach((asset, i) => {
     const p = `assets[${i}]`;
     if (!isRecord(asset)) { add(errors, p, 'must be an object'); return; }
+    checkKeys(asset, new Set(['id', 'storageKey', 'mimeType', 'sha256', 'byteLength']), p, errors);
     checkId(asset.id, p + '.id', errors);
     if (assets.has(asset.id)) add(errors, p + '.id', 'duplicate asset ID');
     assets.set(asset.id, asset);
@@ -242,6 +270,7 @@ export function validateInteractiveManifest(manifest) {
   (Array.isArray(manifest.objects) ? manifest.objects : []).forEach((object, i) => {
     const p = `objects[${i}]`;
     if (!isRecord(object)) { add(errors, p, 'must be an object'); return; }
+    checkKeys(object, new Set(['id', 'assetId', 'role', 'transform', 'parentObjectId', 'nodePath', 'collision']), p, errors);
     checkId(object.id, p + '.id', errors);
     if (objects.has(object.id)) add(errors, p + '.id', 'duplicate object ID');
     objects.set(object.id, object);
@@ -257,6 +286,7 @@ export function validateInteractiveManifest(manifest) {
     }
     if (object.collision !== undefined) {
       const c = object.collision;
+      if (isRecord(c)) checkKeys(c, new Set(['type', 'assetId']), p + '.collision', errors);
       if (!isRecord(c) || !['box', 'sphere', 'capsule', 'mesh'].includes(c.type)) {
         add(errors, p + '.collision', 'must declare box, sphere, capsule, or mesh');
       } else if (c.assetId !== undefined && !assets.has(c.assetId)) {
@@ -269,6 +299,7 @@ export function validateInteractiveManifest(manifest) {
   (Array.isArray(manifest.zones) ? manifest.zones : []).forEach((zone, i) => {
     const p = `zones[${i}]`;
     if (!isRecord(zone)) { add(errors, p, 'must be an object'); return; }
+    checkKeys(zone, new Set(['id', 'shape', 'objectId', 'transform', 'size', 'radius']), p, errors);
     checkId(zone.id, p + '.id', errors);
     if (zones.has(zone.id)) add(errors, p + '.id', 'duplicate zone ID');
     zones.set(zone.id, zone);
@@ -289,6 +320,7 @@ export function validateInteractiveManifest(manifest) {
   (Array.isArray(manifest.animations) ? manifest.animations : []).forEach((animation, i) => {
     const p = `animations[${i}]`;
     if (!isRecord(animation)) { add(errors, p, 'must be an object'); return; }
+    checkKeys(animation, new Set(['id', 'objectId', 'kind', 'durationMs', 'clipName', 'loop']), p, errors);
     checkId(animation.id, p + '.id', errors);
     if (animations.has(animation.id)) add(errors, p + '.id', 'duplicate animation ID');
     animations.set(animation.id, animation);
@@ -305,10 +337,14 @@ export function validateInteractiveManifest(manifest) {
     }
   });
 
+  const interactionIds = new Set();
   (Array.isArray(manifest.interactions) ? manifest.interactions : []).forEach((interaction, i) => {
     const p = `interactions[${i}]`;
     if (!isRecord(interaction)) { add(errors, p, 'must be an object'); return; }
+    checkKeys(interaction, new Set(['id', 'sourceObjectId', 'event', 'targetZoneId', 'condition', 'actions']), p, errors);
     checkId(interaction.id, p + '.id', errors);
+    if (interactionIds.has(interaction.id)) add(errors, p + '.id', 'duplicate interaction ID');
+    interactionIds.add(interaction.id);
     if (!objects.has(interaction.sourceObjectId)) {
       add(errors, p + '.sourceObjectId', 'must reference an object in this manifest');
     }
@@ -336,6 +372,19 @@ export function validateInteractiveManifest(manifest) {
     }
   });
   (Array.isArray(manifest.interactions) ? manifest.interactions : []).forEach((interaction, i) => {
+    const condition = interaction?.condition;
+    const validateConditionRefs = (node, path) => {
+      if (!isRecord(node)) return;
+      if (node.type === 'state_is' && !objects.has(node.objectId)) {
+        add(errors, path + '.objectId', 'references an unknown object');
+      } else if (node.type === 'zone_contains' && !zones.has(node.zoneId)) {
+        add(errors, path + '.zoneId', 'references an unknown zone');
+      } else if (node.type === 'all' || node.type === 'any') {
+        (node.conditions ?? []).forEach((child, index) =>
+          validateConditionRefs(child, path + '.conditions[' + index + ']'));
+      }
+    };
+    if (condition) validateConditionRefs(condition, `interactions[${i}].condition`);
     for (const [j, action] of (interaction?.actions ?? []).entries()) {
       if (action?.type === 'play_animation' && !animations.has(action.animationId)) {
         add(errors, `interactions[${i}].actions[${j}].animationId`, 'references an unknown animation');
