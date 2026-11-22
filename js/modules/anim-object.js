@@ -5,6 +5,95 @@
 const FumocaObjectAnim = (() => {
   const objects = new Map();
 
+  const KINDS = ['fixed', 'hinge', 'prismatic', 'free', 'lift', 'threaded', 'snap'];
+  const ANGULAR = new Set(['hinge', 'threaded']);
+
+  function _finite(v) { return v && [v.x, v.y, v.z].every(Number.isFinite); }
+  function _eulerDegToQuat(e) {
+    const x = ((e?.x || 0) * Math.PI / 180) / 2;
+    const y = ((e?.y || 0) * Math.PI / 180) / 2;
+    const z = ((e?.z || 0) * Math.PI / 180) / 2;
+    const cx = Math.cos(x), sx = Math.sin(x);
+    const cy = Math.cos(y), sy = Math.sin(y);
+    const cz = Math.cos(z), sz = Math.sin(z);
+    return {
+      x: sx * cy * cz - cx * sy * sz,
+      y: cx * sy * cz + sx * cy * sz,
+      z: cx * cy * sz - sx * sy * cz,
+      w: cx * cy * cz + sx * sy * sz,
+    };
+  }
+  function _normalizeQuat(q) {
+    const len = Math.hypot(q.x, q.y, q.z, q.w) || 1;
+    return { x: q.x / len, y: q.y / len, z: q.z / len, w: q.w / len };
+  }
+  function _unit(v) {
+    const len = Math.hypot(v.x, v.y, v.z);
+    if (len < 1e-6) return null;
+    return { x: v.x / len, y: v.y / len, z: v.z / len };
+  }
+  function _canonicalTransform(src) {
+    if (!src) return { position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 } };
+    const position = src.position || src.pos || { x: 0, y: 0, z: 0 };
+    let rotation = src.rotation;
+    if (!rotation && src.rot) rotation = _eulerDegToQuat(src.rot);
+    if (!rotation) rotation = { x: 0, y: 0, z: 0, w: 1 };
+    return { position: { x: position.x || 0, y: position.y || 0, z: position.z || 0 }, rotation: _normalizeQuat(rotation) };
+  }
+  function _defaultLimits(kind) {
+    if (kind === 'hinge' || kind === 'threaded') return { min: -Math.PI, max: Math.PI };
+    if (kind === 'prismatic' || kind === 'lift') return { min: 0, max: 1 };
+    return null;
+  }
+
+  function migrateComponent(c, warnings) {
+    if (c.version === 1 && c.local?.rotation) return c;
+    const local = _canonicalTransform({ position: c.position || c.pos, rotation: c.rotation, rot: c.rot });
+    const joint = c.joint || {};
+    const kind = joint.kind || (c.type === 'hinge' ? 'hinge' : 'fixed');
+    let limits = joint.limits || _defaultLimits(kind);
+    if (limits && ANGULAR.has(kind) && Math.abs(limits.max) > 2 * Math.PI + 0.1) {
+      limits = { min: limits.min * Math.PI / 180, max: limits.max * Math.PI / 180 };
+      warnings.push({ id: c.id, reason: 'limits_converted_from_degrees' });
+    }
+    const axis = _unit(joint.axis || { x: 1, y: 0, z: 0 }) || { x: 1, y: 0, z: 0 };
+    return {
+      ...c,
+      version: 1,
+      local,
+      joint: {
+        kind,
+        pivot: joint.pivot || { x: 0, y: 0, z: 0 },
+        axis,
+        limits,
+        rest: _canonicalTransform(joint.rest),
+        seat: joint.seat ? _canonicalTransform(joint.seat) : null,
+      },
+    };
+  }
+
+  function validateComponent(c, all) {
+    if (!KINDS.includes(c.joint?.kind)) return { ok: false, reason: 'invalid_joint' };
+    if (!_finite(c.local?.position)) return { ok: false, reason: 'non_finite_transform' };
+    const q = c.joint?.axis;
+    if (!q || Math.hypot(q.x, q.y, q.z) < 1e-6) return { ok: false, reason: 'zero_axis' };
+    if (Math.abs(Math.hypot(q.x, q.y, q.z) - 1) > 1e-3) return { ok: false, reason: 'axis_not_normalized' };
+    const lim = c.joint.limits;
+    if (lim && lim.min > lim.max) return { ok: false, reason: 'limits_unordered' };
+    if (c.parentId && !all.find(x => x.id === c.parentId)) return { ok: false, reason: 'unknown_parent' };
+    const seen = new Set();
+    function walk(id, stack) {
+      if (stack.has(id)) return true;
+      stack.add(id);
+      const node = all.find(x => x.id === id);
+      return node?.parentId ? walk(node.parentId, stack) : false;
+    }
+    if (walk(c.id, new Set())) return { ok: false, reason: 'parent_cycle' };
+    if (all.filter(x => x.id === c.id).length > 1) return { ok: false, reason: 'duplicate_component' };
+    return { ok: true };
+  }
+
+
   function createObject(id, name = 'Object') {
     const obj = {
       id,
@@ -27,12 +116,14 @@ const FumocaObjectAnim = (() => {
       state: type === 'hinge' ? 'closed' : 'idle',
       rot: { x: 0, y: 0, z: 0 },
       pos: { x: 0, y: 0, z: 0 },
+      version: 1,
+      local: { position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 } },
       joint: {
         kind: type === 'hinge' ? 'hinge' : 'fixed',
         pivot: { x: 0, y: 0, z: 0 },
         axis: { x: 1, y: 0, z: 0 },
-        limits: { min: -180, max: 180 },
-        rest: { pos: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0 } },
+        limits: type === 'hinge' ? { min: -Math.PI, max: Math.PI } : null,
+        rest: { position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 } },
         seat: null,
       },
     };
@@ -124,8 +215,11 @@ const FumocaObjectAnim = (() => {
     if (!obj) return false;
     const c = obj.components.find(x => x.id === compId);
     if (!c?.joint?.seat) return false;
-    c.pos = { ...c.joint.seat.pos };
-    c.rot = { ...c.joint.seat.rot };
+    const seat = c.joint.seat.position ? c.joint.seat : _canonicalTransform(c.joint.seat);
+    c.local = c.local || {};
+    c.local.position = { ...seat.position };
+    c.local.rotation = { ...seat.rotation };
+    c.pos = { ...seat.position };
     c.state = 'seated';
     return true;
   }
@@ -137,12 +231,28 @@ const FumocaObjectAnim = (() => {
 
   function deserialize(data) {
     if (!data?.id) return null;
-    objects.set(data.id, data);
-    return data;
+    const warnings = [];
+    const components = (data.components || []).map(c => migrateComponent(c, warnings));
+    const obj = { ...data, version: 1, components, _migrationWarnings: warnings };
+    objects.set(data.id, obj);
+    return obj;
+  }
+
+  function validateObject(objId) {
+    const obj = objects.get(objId);
+    if (!obj) return { ok: false, reason: 'unknown_object' };
+    const errors = [];
+    const ids = obj.components.map(c => c.id);
+    if (new Set(ids).size !== ids.length) errors.push({ reason: 'duplicate_component' });
+    for (const c of obj.components) {
+      const v = validateComponent(c, obj.components);
+      if (!v.ok) errors.push({ id: c.id, reason: v.reason });
+    }
+    return { ok: errors.length === 0, errors };
   }
 
   return {
-    createObject, addComponent, setComponentTransform, defineJoint, seatComponent, captureKeyframe, evaluate,
+    createObject, addComponent, setComponentTransform, defineJoint, seatComponent, captureKeyframe, evaluate, validateObject, migrateComponent,
     serialize, deserialize,
     list: () => Array.from(objects.values()),
     get: (id) => objects.get(id) || null,
