@@ -155,8 +155,8 @@ Master.addObject(cyc);
 const ca = new THREE.Object3D(), cb = new THREE.Object3D();
 Master.setObjectBinding('cyc', new Map([['a', ca], ['b', cb]]));
 const cev = Master.evaluate(0);
-assert(cev.objects.cyc.a.jointError === 'parent_cycle', 'Cycle error is parent_cycle');
-assert(near(ca.position.x, 0) && near(cb.position.x, 0), 'Cycle nodes unchanged');
+assert(cev.objects.cyc.a.jointError === 'parent_cycle' && cev.objects.cyc.b.jointError === 'parent_cycle', 'Both nodes report parent_cycle');
+assert(near(ca.position.x, 0) && near(ca.rotation.x, 0) && near(cb.position.x, 0) && near(cb.rotation.x, 0), 'Both cycle nodes unchanged');
 
 
 // Missing parent
@@ -179,6 +179,48 @@ const open = Master.evaluate(1);
 assert(!closed.objects.nest[nlid.id].jointError && !open.objects.nest[nlid.id].jointError, 'No error at either time');
 assert(near(rootNode.position.x, 1) && near(frameNode.position.x, 1), 'Ancestors unchanged');
 assert(Math.abs(nlidNode.quaternion.y) > 0.1 || Math.abs(nlidNode.position.z) > 0.1, 'Lid moved at open');
+
+
+// Multi-level missing parent: Root -> Frame -> Lid, Root parent missing
+const deep = Objects.createObject('deep', 'Deep');
+const droot = Objects.addComponent('deep', 'Root', 'fixed');
+droot.parentId = 'missing';
+droot.local = { position: { x: 2, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 } };
+const dframe = Objects.addComponent('deep', 'Frame', 'fixed', droot.id);
+dframe.local = { position: { x: 1, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 } };
+const dlid = Objects.addComponent('deep', 'Lid', 'hinge', dframe.id);
+Objects.defineJoint('deep', dlid.id, { kind: 'hinge', axis: { x: 0, y: 1, z: 0 }, pivot: { x: 0, y: 0, z: 0 }, limits: { min: 0, max: Math.PI } });
+dlid.local = { position: { x: 1, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 } };
+Objects.setJointValue('deep', dlid.id, 0);
+Objects.captureKeyframe('deep', 0);
+const dleg = Objects.addComponent('deep', 'Legacy', 'transform');
+Objects.setComponentTransform('deep', dleg.id, { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 });
+Objects.captureKeyframe('deep', 0);
+Objects.setComponentTransform('deep', dleg.id, { x: 30, y: 0, z: 0 }, { x: 4, y: 0, z: 0 });
+Objects.captureKeyframe('deep', 1);
+Master.addObject(Objects.get('deep'));
+const drn = new THREE.Object3D(), dfn = new THREE.Object3D(), dln = new THREE.Object3D(), dlegn = new THREE.Object3D();
+Master.setObjectBinding('deep', new Map([[droot.id, drn], [dframe.id, dfn], [dlid.id, dln], [dleg.id, dlegn]]));
+const dev = Master.evaluate(1);
+assert(dev.objects.deep[dlid.id].jointError === 'unknown_parent', 'Deep missing parent error');
+assert(near(drn.position.x, 0) && near(dfn.position.x, 0) && near(dln.position.x, 0), 'Invalid chain unchanged');
+assert(near(dlegn.position.x, 4), 'Unrelated legacy still applied');
+
+// Pivoted hinge numeric proof
+Master.evaluate(0);
+const closedQuat = nlidNode.quaternion.clone();
+const closedPos = nlidNode.position.clone();
+nlidNode.updateMatrixWorld(true);
+const closedWorld = new THREE.Vector3();
+nlidNode.getWorldPosition(closedWorld);
+Master.evaluate(1);
+nlidNode.updateMatrixWorld(true);
+const openWorld = new THREE.Vector3();
+nlidNode.getWorldPosition(openWorld);
+assert(Math.abs(nlidNode.quaternion.y - closedQuat.y) > 0.3, 'Lid quaternion changed by hinge');
+assert(near(rootNode.position.x, 1) && near(frameNode.position.x, 1), 'Ancestors retain local');
+assert(nlidNode.parent === frameNode && frameNode.parent === rootNode, 'Three.js hierarchy intact');
+assert(!Master.evaluate(0).objects.nest[nlid.id].jointError, 'Closed has no error');
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);
