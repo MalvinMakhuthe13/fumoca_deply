@@ -134,7 +134,7 @@ assert(Physics.getStaticMoved('sr') === true, 'Static rotation change detected')
 
 // q and -q equivalent: no false move
 Physics.dispose();
-Physics.createCollider({ id: 'sq', type: 'box', bodyType: 'static', owner: { kind: 'component', objectId: 'o', componentId: 'c' } });
+Physics.createCollider({ id: 'sq', type: 'box', bodyType: 'static', owner: { kind: 'bone', skeletonId: 'sk', boneId: 'bone' } });
 Physics.syncFromEvaluation({ skeletons: { sk: { bone: { pos: { x: 0, y: 0, z: 0 }, quat: { x: 0, y: 0, z: 0.7071067811865475, w: 0.7071067811865476 } } } } });
 Physics.syncFromEvaluation({ skeletons: { sk: { bone: { pos: { x: 0, y: 0, z: 0 }, quat: { x: 0, y: 0, z: -0.7071067811865475, w: -0.7071067811865476 } } } } });
 assert(Physics.getStaticMoved('sq') !== true, 'Opposite q/-q quaternion values represent equivalent static orientation');
