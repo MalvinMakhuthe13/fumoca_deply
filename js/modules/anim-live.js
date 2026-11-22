@@ -103,10 +103,12 @@ const FumocaLive = (() => {
       bar.style.cssText = 'position:fixed;left:50%;bottom:88px;transform:translateX(-50%);display:flex;gap:8px;flex-wrap:wrap;justify-content:center;z-index:55;max-width:90vw;';
       document.body.appendChild(bar);
     }
-    const movable = (obj.components || []).filter(c => c.joint && c.joint.kind !== 'fixed');
-    bar.innerHTML = movable.map(c =>
-      `<button data-id="${c.id}" style="background:#111;color:#c8ff00;border:1px solid #c8ff00;border-radius:999px;padding:8px 14px;cursor:pointer;">${c.name}</button>`
-    ).join('') + (obj.name === 'Car' ? `<button id="faEngine" style="background:#c8ff00;color:#111;border:0;border-radius:999px;padding:8px 14px;font-weight:700;cursor:pointer;">Start</button>` : '');
+    const aff = window.FumocaAfford?.affordances(obj) || [];
+    const movable = aff.filter(a => a.joint !== 'fixed');
+    const engine = aff.find(a => a.affordance === 'engine') || (obj.name === 'Car' ? { name: 'Engine' } : null);
+    bar.innerHTML = movable.map(a =>
+      `<button data-id="${a.componentId}" style="background:#111;color:#c8ff00;border:1px solid #c8ff00;border-radius:999px;padding:8px 14px;cursor:pointer;">${a.name}</button>`
+    ).join('') + (engine ? `<button id="faEngine" style="background:#c8ff00;color:#111;border:0;border-radius:999px;padding:8px 14px;font-weight:700;cursor:pointer;">Start</button>` : '');
     bar.querySelectorAll('button[data-id]').forEach(b => {
       b.onclick = () => {
         const r = toggle(obj.id, b.dataset.id);
@@ -157,7 +159,15 @@ const FumocaLive = (() => {
     return { ok: true, id, kind };
   }
 
-  return { bind, toggle, startEngine, playSound, addCharacter };
+  function gesture(skelId, name = 'wave') {
+    const sk = window.FumocaSkeleton?.get?.(skelId);
+    if (!sk) return { ok: false, reason: 'no_skeleton' };
+    const arm = sk.bones?.find(b => /arm/i.test(b.name));
+    if (arm && name === 'wave') arm.localEuler = { x: 0, y: 0, z: 40 };
+    return { ok: true, gesture: name };
+  }
+
+  return { bind, toggle, startEngine, playSound, addCharacter, gesture };
 })();
 
 window.FumocaLive = FumocaLive;
