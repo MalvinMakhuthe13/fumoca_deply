@@ -688,6 +688,8 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
     <div class="tb-sep"></div>
     <button class="tb-btn" id="compareBtn" title="Compare loaded scene with current edits" disabled>◧ Compare</button>
     <button class="tb-btn" id="screenshotBtn" title="Screenshot viewport">📷 Capture</button>
+    <button class="tb-btn" id="loadGlbBtn" title="Load a GLB to articulate" style="background:rgba(120,180,255,.12);border-color:rgba(120,180,255,.4);color:#9cf;">Load GLB</button>
+    <input type="file" id="loadGlbFile" accept=".glb,.gltf" style="display:none"/>
     <button class="tb-btn" id="hotspotBtn" title="Hotspots — place, edit, tour" style="background:rgba(200,255,0,.1);border-color:rgba(200,255,0,.4);color:#c8ff00;">📍 Hotspots</button>
     <button class="tb-btn" id="extractObjectBtn" title="Extract an object (e.g. a car) as its own 3D listing" style="background:rgba(0,200,255,.08);border-color:rgba(0,200,255,.35);color:#7ee2ff;">🎯 Extract</button>
     <button class="tb-btn cyan" id="captureVideoBtn">⏺ Record</button>
@@ -6202,9 +6204,51 @@ animBg();
      ═══════════════════════════════════════════════════════════════ -->
 <script type="module" src="js/modules/anim-joint-eval.js"></script>
 <script type="module" src="js/modules/anim-object.js"></script>
+<script type="module" src="js/modules/anim-glb-bind.js"></script>
+<script type="module">
+document.getElementById('loadGlbBtn')?.addEventListener('click', () => document.getElementById('loadGlbFile')?.click());
+document.getElementById('loadGlbFile')?.addEventListener('change', async (e) => {
+  const file = e.target.files?.[0];
+  if (!file || !window.FumocaGLBBind) return;
+  const result = await window.FumocaGLBBind.load(file);
+  console.log('[FUMOCA] GLB bound', result);
+  alert(result.ok ? `Loaded ${result.components} components` : `Load failed: ${result.reason || 'unknown'}`);
+});
+</script>
+
 <script type="module" src="js/modules/anim-master.js"></script>
 <script type="module" src="js/modules/anim-studio-init.js"></script>
+<script type="module">
+  // First live articulated object. Cooler base + hinged lid on the master timeline.
+  function bootArticulated() {
+    const scene = window.scene || window._fumocaScene;
+    if (!scene || !window.FumocaStudioInit?.createDemoCooler || !window.FumocaObjectAnim) {
+      setTimeout(bootArticulated, 300);
+      return;
+    }
+    window.FumocaStudioInit.init();
+    const result = window.FumocaStudioInit.createDemoCooler(scene);
+    console.log('[Articulated] demo cooler', result);
+
+    const bar = document.createElement('div');
+    bar.id = 'articulatedBar';
+    bar.style.cssText = 'position:fixed;bottom:196px;left:50%;transform:translateX(-50%);z-index:220;display:flex;gap:8px;align-items:center;background:rgba(7,10,16,.94);border:1px solid rgba(200,255,0,.35);border-radius:14px;padding:8px 12px;color:#c8ff00;font:12px/1.2 system-ui';
+    bar.innerHTML = '<strong>Cooler</strong><button id="artPlay" style="background:#c8ff00;color:#111;border:0;border-radius:8px;padding:6px 10px;font-weight:700;cursor:pointer">Play</button><input id="artScrub" type="range" min="0" max="2" step="0.01" value="0" style="width:160px">';
+    document.body.appendChild(bar);
+    document.getElementById('artPlay').onclick = () => {
+      const playing = window.FumocaStudioInit.isPlaying();
+      if (playing) window.FumocaStudioInit.pause();
+      else window.FumocaStudioInit.play();
+      document.getElementById('artPlay').textContent = playing ? 'Play' : 'Pause';
+    };
+    document.getElementById('artScrub').oninput = (e) => {
+      window.FumocaStudioInit.scrub(Number(e.target.value));
+    };
+  }
+  bootArticulated();
+</script>
 <script type="module" src="js/modules/anim-light.js"></script>
+<script type="module" src="js/modules/anim-physics.js"></script>
 <script type="module" src="js/modules/4d-engine.js"></script>
 <script type="module" src="js/modules/auto-fix.js"></script>
 <script type="module" src="js/modules/visual-fx.js"></script>
