@@ -51,10 +51,14 @@ const FumocaObjectAnim = (() => {
     const local = _canonicalTransform({ position: c.position || c.pos, rotation: c.rotation, rot: c.rot });
     const joint = c.joint || {};
     const kind = joint.kind || (c.type === 'hinge' ? 'hinge' : 'fixed');
-    let limits = joint.limits || _defaultLimits(kind);
-    if (limits && ANGULAR.has(kind) && Math.abs(limits.max) > 2 * Math.PI + 0.1) {
-      limits = { min: limits.min * Math.PI / 180, max: limits.max * Math.PI / 180 };
-      warnings.push({ id: c.id, reason: 'limits_converted_from_degrees' });
+    let limits = joint.limits != null ? joint.limits : _defaultLimits(kind);
+    if (limits && c.version !== 1) {
+      if (ANGULAR.has(kind)) {
+        limits = { min: limits.min * Math.PI / 180, max: limits.max * Math.PI / 180 };
+        warnings.push({ id: c.id, reason: 'limits_converted_from_degrees' });
+      } else if (!KINDS.includes(kind)) {
+        warnings.push({ id: c.id, reason: 'limits_unit_ambiguous' });
+      }
     }
     const axis = _unit(joint.axis || { x: 1, y: 0, z: 0 }) || { x: 1, y: 0, z: 0 };
     return {
@@ -75,6 +79,15 @@ const FumocaObjectAnim = (() => {
   function validateComponent(c, all) {
     if (!KINDS.includes(c.joint?.kind)) return { ok: false, reason: 'invalid_joint' };
     if (!_finite(c.local?.position)) return { ok: false, reason: 'non_finite_transform' };
+    const rq = c.local?.rotation;
+    if (!rq || ![rq.x, rq.y, rq.z, rq.w].every(Number.isFinite)) return { ok: false, reason: 'invalid_quaternion' };
+    const qlen = Math.hypot(rq.x, rq.y, rq.z, rq.w);
+    if (qlen < 1e-6) return { ok: false, reason: 'zero_quaternion' };
+    if (Math.abs(qlen - 1) > 1e-3) return { ok: false, reason: 'quaternion_not_normalized' };
+    if (!_finite(c.joint?.pivot)) return { ok: false, reason: 'invalid_pivot' };
+    if (c.joint.rest && !_finite(c.joint.rest.position)) return { ok: false, reason: 'invalid_rest' };
+    if (c.joint.seat && !_finite(c.joint.seat.position)) return { ok: false, reason: 'invalid_seat' };
+    if (c.joint.limits && (![c.joint.limits.min, c.joint.limits.max].every(Number.isFinite))) return { ok: false, reason: 'non_finite_limits' };
     const q = c.joint?.axis;
     if (!q || Math.hypot(q.x, q.y, q.z) < 1e-6) return { ok: false, reason: 'zero_axis' };
     if (Math.abs(Math.hypot(q.x, q.y, q.z) - 1) > 1e-3) return { ok: false, reason: 'axis_not_normalized' };
@@ -196,17 +209,24 @@ const FumocaObjectAnim = (() => {
     if (!obj) return { ok: false, reason: 'unknown_object' };
     const c = obj.components.find(x => x.id === compId);
     if (!c) return { ok: false, reason: 'unknown_component' };
-    const kinds = ['fixed', 'hinge', 'prismatic', 'free', 'lift', 'threaded', 'snap'];
-    if (joint.kind && !kinds.includes(joint.kind)) return { ok: false, reason: 'invalid_joint' };
+    const kind = joint.kind != null ? joint.kind : (c.joint?.kind || 'fixed');
+    if (!KINDS.includes(kind)) return { ok: false, reason: 'invalid_joint' };
+    const axisIn = joint.axis != null ? joint.axis : (c.joint?.axis || { x: 1, y: 0, z: 0 });
+    if (!_finite(axisIn)) return { ok: false, reason: 'non_finite_transform' };
+    const axis = _unit(axisIn);
+    if (!axis) return { ok: false, reason: 'zero_axis' };
+    const limits = joint.limits !== undefined ? joint.limits : (c.joint?.limits != null ? c.joint.limits : _defaultLimits(kind));
+    if (limits && (!_finite({ x: limits.min, y: limits.max, z: 0 }) || limits.min > limits.max)) {
+      return { ok: false, reason: 'limits_unordered' };
+    }
     c.joint = {
-      kind: joint.kind || c.joint?.kind || 'fixed',
-      pivot: joint.pivot || c.joint?.pivot || { x: 0, y: 0, z: 0 },
-      axis: joint.axis || c.joint?.axis || { x: 1, y: 0, z: 0 },
-      limits: joint.limits || c.joint?.limits || { min: -180, max: 180 },
-      rest: joint.rest || c.joint?.rest || { pos: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0 } },
-      seat: joint.seat || c.joint?.seat || null,
+      kind,
+      pivot: joint.pivot != null ? joint.pivot : (c.joint?.pivot || { x: 0, y: 0, z: 0 }),
+      axis,
+      limits,
+      rest: joint.rest != null ? _canonicalTransform(joint.rest) : (c.joint?.rest || _canonicalTransform(null)),
+      seat: joint.seat !== undefined ? (joint.seat ? _canonicalTransform(joint.seat) : null) : (c.joint?.seat || null),
     };
-    c.type = c.joint.kind;
     return { ok: true, joint: c.joint };
   }
 
