@@ -143,8 +143,9 @@ const FumocaMaster = (() => {
   }
 
   function evaluateInteractions(time){
+    const events = T.tracks.interactions.slice().sort((a,b)=> a.time - b.time || (a._seq||0) - (b._seq||0));
     const state={};
-    for(const e of T.tracks.interactions){
+    for(const e of events){
       if(e.time>time) break;
       const key = e.target?.objectId || e.target;
       if(!key) continue;
@@ -155,20 +156,32 @@ const FumocaMaster = (() => {
           parent: e.parent || null,
           offset: e.offset || {x:0,y:0,z:0},
           orientation: e.orientation || null,
+          colliderId: e.colliderId || null,
+          desiredType: 'kinematic',
         };
       } else if(e.type==='release'||e.type==='detach'){
-        state[key]={ attached:false, targetComponent: e.target?.componentId || null };
-        if(window.FumocaPhysics?.transitionBodyType && e.colliderId){
-          const col = window.FumocaPhysics.get?.(e.colliderId);
-          if(col && col.bodyType !== 'dynamic') window.FumocaPhysics.transitionBodyType(e.colliderId, 'dynamic');
-        }
-      }
-      if((e.type==='grasp'||e.type==='attach') && window.FumocaPhysics?.transitionBodyType && e.colliderId){
-        const col = window.FumocaPhysics.get?.(e.colliderId);
-        if(col && col.bodyType !== 'kinematic') window.FumocaPhysics.transitionBodyType(e.colliderId, 'kinematic');
+        state[key]={
+          attached:false,
+          targetComponent: e.target?.componentId || null,
+          colliderId: e.colliderId || null,
+          desiredType: 'dynamic',
+        };
       }
     }
+    _reconcileOwnership(state);
     return state;
+  }
+
+  function _reconcileOwnership(state){
+    if(!window.FumocaPhysics?.transitionBodyType) return;
+    const seen = new Set();
+    for(const s of Object.values(state)){
+      if(!s.colliderId || seen.has(s.colliderId)) continue;
+      seen.add(s.colliderId);
+      const col = window.FumocaPhysics.get?.(s.colliderId);
+      if(!col || !s.desiredType || col.bodyType === s.desiredType) continue;
+      window.FumocaPhysics.transitionBodyType(s.colliderId, s.desiredType);
+    }
   }
 
   function applyCamera(pose){
