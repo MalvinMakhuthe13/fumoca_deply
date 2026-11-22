@@ -19,3 +19,8 @@ export function assertUpload(principal, bucket, rawKey) {
   }
   return { ok: true, status: 200, key: prefix + key, reason: 'bound' };
 }
+
+/** Same prefix rule for presign, PUT /upload/:key, and multipart. */
+export function authorizeStoredKey(principal, bucket, rawKey) {
+  return assertUpload(principal, bucket, rawKey);
+}

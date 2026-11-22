@@ -260,7 +260,8 @@ const FumocaMaster = (() => {
       const xf=evaluated[compId];
       if(blocked.has(compId)) continue;
       const node=binding.components.get(compId); if(!node) continue;
-      if(window.FumocaPhysics?.isSimulationOwned && window.FumocaPhysics.isSimulationOwned(objId, compId)) continue;
+      if(window.FumocaPhysics?.setJointClaim) window.FumocaPhysics.setJointClaim(objId, compId, xf.joint?.kind || 'fixed');
+      if(window.FumocaPhysics?.poseOwner?.(objId, compId) === 'simulation') continue;
       if(xf.animVersion===1 && window.FumocaJointEval){
         if(xf.jointError){ continue; }
         if(!xf.joint){ xf.jointError='missing_joint'; continue; }
@@ -396,14 +397,13 @@ const FumocaMaster = (() => {
     }
     const binding=anchor.objectId?T.bindings.objects.get(anchor.objectId):null;
     const node=binding?.components?.get?.(anchor.componentId);
-    if(node && typeof node.getWorldPosition==='function' && typeof THREE!=='undefined'){
+    if(node && typeof node.matrixWorld!=='undefined' && typeof THREE!=='undefined'){
       if(typeof node.updateWorldMatrix==='function') node.updateWorldMatrix(true, false);
-      const wp=new THREE.Vector3(); node.getWorldPosition(wp);
+      const p=new THREE.Vector3(off.x||0, off.y||0, off.z||0).applyMatrix4(node.matrixWorld);
       const wq=new THREE.Quaternion();
       if(typeof node.getWorldQuaternion==='function') node.getWorldQuaternion(wq);
-      const v=new THREE.Vector3(off.x||0, off.y||0, off.z||0).applyQuaternion(wq);
       return {
-        x:wp.x+v.x, y:wp.y+v.y, z:wp.z+v.z,
+        x:p.x, y:p.y, z:p.z,
         quaternion:{ x:wq.x, y:wq.y, z:wq.z, w:wq.w },
         mode:'local',
       };

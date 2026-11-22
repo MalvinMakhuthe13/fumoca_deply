@@ -1,5 +1,6 @@
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { authorizeStoredKey } from './upload-auth.js';
 
 /**
  * FUMOCA R2 Storage Worker
@@ -387,10 +388,13 @@ export default {
         }, 400, cors);
       }
 
-      const fileKey = sanitiseKey(rawPath);
-      if (!fileKey) {
+      const cleanedPath = sanitiseKey(rawPath);
+      if (!cleanedPath) {
         return json({ error: 'Invalid path' }, 400, cors);
       }
+      const owned = authorizeStoredKey(principal, bucketParam, cleanedPath);
+      if (!owned.ok) return json({ error: owned.reason }, owned.status, cors);
+      const fileKey = owned.key;
 
       try {
         const upload = await r2Bucket.createMultipartUpload(fileKey, {
@@ -445,10 +449,13 @@ export default {
         return json({ error: 'Invalid partNumber' }, 400, cors);
       }
 
-      const safeFileKey = sanitiseKey(decodeURIComponent(fileKeyParam));
-      if (!safeFileKey) {
+      const cleanedPartKey = sanitiseKey(decodeURIComponent(fileKeyParam));
+      if (!cleanedPartKey) {
         return json({ error: 'Invalid key' }, 400, cors);
       }
+      const ownedPart = authorizeStoredKey(principal, bucketParam, cleanedPartKey);
+      if (!ownedPart.ok) return json({ error: ownedPart.reason }, ownedPart.status, cors);
+      const safeFileKey = ownedPart.key;
 
       try {
         const multipart = r2Bucket.resumeMultipartUpload(safeFileKey, uploadId);
@@ -501,10 +508,13 @@ export default {
         return json({ error: 'Missing multipart parts' }, 400, cors);
       }
 
-      const fileKey = sanitiseKey(rawKey);
-      if (!fileKey) {
+      const cleanedCompleteKey = sanitiseKey(rawKey);
+      if (!cleanedCompleteKey) {
         return json({ error: 'Invalid key' }, 400, cors);
       }
+      const ownedComplete = authorizeStoredKey(principal, bucketParam, cleanedCompleteKey);
+      if (!ownedComplete.ok) return json({ error: ownedComplete.reason }, ownedComplete.status, cors);
+      const fileKey = ownedComplete.key;
 
       const normalisedParts = parts.map((part) => ({
         partNumber: Number(part?.partNumber),
@@ -581,10 +591,13 @@ export default {
         return json({ error: 'Missing key' }, 400, cors);
       }
 
-      const fileKey = sanitiseKey(rawKey);
-      if (!fileKey) {
+      const cleanedAbortKey = sanitiseKey(rawKey);
+      if (!cleanedAbortKey) {
         return json({ error: 'Invalid key' }, 400, cors);
       }
+      const ownedAbort = authorizeStoredKey(principal, bucketParam, cleanedAbortKey);
+      if (!ownedAbort.ok) return json({ error: ownedAbort.reason }, ownedAbort.status, cors);
+      const fileKey = ownedAbort.key;
 
       const r2Bucket = getBucket(bucketParam, env);
       if (!r2Bucket) {
@@ -611,8 +624,11 @@ export default {
         return json({ error: 'Unauthorized — sign in and try again' }, 401, cors);
       }
 
-      const fileKey = sanitiseKey(decodeURIComponent(path.slice('/upload/'.length)));
-      if (!fileKey) return json({ error: 'Missing key' }, 400, cors);
+      const cleanedPutKey = sanitiseKey(decodeURIComponent(path.slice('/upload/'.length)));
+      if (!cleanedPutKey) return json({ error: 'Missing key' }, 400, cors);
+      const ownedPut = authorizeStoredKey(principal, bucketParam, cleanedPutKey);
+      if (!ownedPut.ok) return json({ error: ownedPut.reason }, ownedPut.status, cors);
+      const fileKey = ownedPut.key;
 
       const r2Bucket = getBucket(bucketParam, env);
       if (!r2Bucket) {

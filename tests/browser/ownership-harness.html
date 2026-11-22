@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Ownership harness</title>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js","@dimforge/rapier3d-compat":"https://cdn.jsdelivr.net/npm/@dimforge/rapier3d-compat@0.21.0/dist/rapier.mjs"}}</script>
+</head>
+<body>
+<script type="module">
+import * as THREE from 'three';
+import RAPIER from '@dimforge/rapier3d-compat';
+window.THREE = THREE;
+await import('../../js/modules/anim-joint-eval.js');
+const { default: Objects } = await import('../../js/modules/anim-object.js');
+const { default: Master } = await import('../../js/modules/anim-master.js');
+const { default: Physics } = await import('../../js/modules/anim-physics.js');
+const failures = [];
+function check(cond, msg) { if (!cond) failures.push(msg); }
+try {
+  await Physics.initRapier(RAPIER);
+  Physics.setGravity({ x: 0, y: -9.81, z: 0 });
+  const obj = Objects.createObject('cooler', 'Cooler');
+  const base = Objects.addComponent('cooler', 'Base', 'fixed');
+  base.local = { position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 } };
+  const lid = Objects.addComponent('cooler', 'Lid', 'hinge', base.id);
+  Objects.defineJoint('cooler', lid.id, { kind: 'hinge', axis: { x: 1, y: 0, z: 0 }, pivot: { x: 0, y: 0.2, z: 0 }, limits: { min: 0, max: 1 } });
+  lid.local = { position: { x: 0, y: 0.4, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 } };
+  const bottle = Objects.addComponent('cooler', 'Bottle', 'fixed', base.id);
+  bottle.local = { position: { x: 0.3, y: 1.2, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 } };
+  Objects.setJointValue('cooler', lid.id, 0);
+  Objects.captureKeyframe('cooler', 0);
+  Objects.setJointValue('cooler', lid.id, 1);
+  Objects.captureKeyframe('cooler', 1);
+  const baseNode = new THREE.Object3D();
+  const lidNode = new THREE.Object3D();
+  const bottleNode = new THREE.Object3D();
+  baseNode.add(lidNode); baseNode.add(bottleNode);
+  Master.addObject(Objects.get('cooler'));
+  Master.setObjectBinding('cooler', new Map([[base.id, baseNode], [lid.id, lidNode], [bottle.id, bottleNode]]));
+  Physics.createCollider({ id: 'floor-h', type: 'box', bodyType: 'static', halfExtents: { x: 2, y: 0.05, z: 2 }, localPosition: { x: 0, y: -0.05, z: 0 } });
+  Physics.createCollider({ id: 'lid-h', type: 'box', bodyType: 'dynamic', halfExtents: { x: 0.2, y: 0.02, z: 0.2 }, owner: { objectId: 'cooler', componentId: lid.id } });
+  Physics.createCollider({ id: 'bottle-h', type: 'box', bodyType: 'dynamic', halfExtents: { x: 0.05, y: 0.1, z: 0.05 }, owner: { objectId: 'cooler', componentId: bottle.id } });
+  Physics.bindSceneNode('lid-h', { node: lidNode, objectId: 'cooler', componentId: lid.id });
+  Physics.bindSceneNode('bottle-h', { node: bottleNode, objectId: 'cooler', componentId: bottle.id });
+  Master.evaluate(1);
+  check(Physics.poseOwner('cooler', lid.id) === 'authored', 'lid authored');
+  check(Physics.poseOwner('cooler', bottle.id) === 'simulation', 'bottle simulated');
+  const ly = lidNode.position.y;
+  const lx = lidNode.quaternion.x;
+  for (let i = 0; i < 20; i++) Physics.step(1 / 60);
+  Physics.applyDynamicPoses();
+  check(Math.abs(lidNode.position.y - ly) < 1e-4, 'lid position held');
+  check(Math.abs(lidNode.quaternion.x - lx) < 1e-4, 'lid rotation held');
+  check(bottleNode.position.y < 1.15, 'bottle moved');
+  window.__ownership = { ok: failures.length === 0, failures };
+} catch (err) {
+  window.__ownership = { ok: false, failures: [String(err)] };
+}
+</script>
+</body>
+</html>

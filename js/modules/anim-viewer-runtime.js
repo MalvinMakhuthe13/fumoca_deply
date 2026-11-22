@@ -102,11 +102,25 @@ const FumocaViewerRuntime = (() => {
     const pose = window.FumocaMaster?.evaluate?.(0);
     const moving = window.FumocaObjectAnim?.get(loaded.objectId)?.components?.find(c => c.joint && c.joint.kind !== 'fixed');
     if (moving) {
+      let offset = { x: 0, y: 0.35, z: 0 };
+      let boundNode = null;
+      loaded.scene?.traverse?.(n => {
+        if (n.userData?.fumocaComponentId === moving.id) boundNode = n;
+      });
+      if (boundNode) {
+        const THREE = window.THREE;
+        const box = new THREE.Box3().setFromObject(boundNode);
+        boundNode.updateWorldMatrix(true, false);
+        const center = box.getCenter(new THREE.Vector3()).applyMatrix4(boundNode.matrixWorld.clone().invert());
+        if ([center.x, center.y, center.z].every(Number.isFinite)) {
+          offset = { x: center.x, y: center.y, z: center.z };
+        }
+      }
       hotspotAnchor = {
         objectId: loaded.objectId,
         componentId: moving.id,
         label: moving.name || 'Part',
-        offset: { x: 0, y: 0.35, z: 0 },
+        offset,
       };
       window.FumocaMaster.setAnchors([hotspotAnchor]);
       hotspotEl = document.createElement('div');

@@ -2,7 +2,8 @@
  * Upload ownership and published delivery.
  * Run: node cloudflare/tests/upload-publish.test.mjs
  */
-import { assertUpload } from '../workers/upload-auth.js';
+import { readFileSync } from 'fs';
+import { assertUpload, authorizeStoredKey } from '../workers/upload-auth.js';
 import { canReadPublic, canPublish } from '../workers/publish-auth.js';
 
 let passed = 0, failed = 0;
@@ -33,6 +34,28 @@ assert(canReadPublic({ key: 'x', bucket: 'splat-videos', registry }).reason === 
 assert(canPublish(null, {}).status === 401, 'Publish needs auth');
 assert(canPublish(b, { FUMOCA_FOUNDER_IDS: 'user-a' }).status === 403, 'Non-founder cannot publish');
 assert(canPublish(a, { FUMOCA_FOUNDER_IDS: 'user-a' }).ok, 'Founder can publish');
+
+const putOwn = authorizeStoredKey(a, 'nif-files', 'user-a/edited.nif');
+assert(putOwn.ok && putOwn.key === 'user-a/edited.nif', 'PUT keeps an owned key');
+const putBound = authorizeStoredKey(a, 'nif-files', 'edited.nif');
+assert(putBound.ok && putBound.key === 'user-a/edited.nif', 'PUT binds a bare key');
+assert(authorizeStoredKey(a, 'nif-files', 'user-b/edited.nif').status === 403, 'PUT rejects a foreign key');
+assert(authorizeStoredKey(a, 'nif-files', 'user-b/part.bin').status === 403, 'Multipart part rejects a foreign key');
+assert(authorizeStoredKey(a, 'nif-files', 'user-b/upload.bin').status === 403, 'Multipart complete rejects a foreign key');
+assert(authorizeStoredKey(b, 'thumbnails', 'user-b/thumb.jpg').ok, 'Thumbnail prefix stays with its owner');
+
+const worker = readFileSync(new URL('../workers/r2-storage.js', import.meta.url), 'utf8');
+for (const route of [
+  "path === '/upload/multipart/create'",
+  "path === '/upload/multipart/part'",
+  "path === '/upload/multipart/complete'",
+  "path === '/upload/multipart/abort'",
+  "path.startsWith('/upload/')",
+]) {
+  const at = worker.indexOf(route);
+  assert(at >= 0, 'Route present: ' + route);
+  assert(worker.slice(at, at + 1600).includes('authorizeStoredKey'), 'Prefix check on ' + route);
+}
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

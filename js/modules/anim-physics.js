@@ -572,6 +572,18 @@ const FumocaPhysics = (() => {
     return bindings.delete(colliderId);
   }
 
+  const jointClaims = new Map();
+  function setJointClaim(objectId, componentId, kind) {
+    if (!objectId || !componentId) return { ok: false, reason: 'missing_ids' };
+    jointClaims.set(objectId + ':' + componentId, kind || 'fixed');
+    return { ok: true, kind: kind || 'fixed' };
+  }
+  function poseOwner(objectId, componentId) {
+    const kind = jointClaims.get(objectId + ':' + componentId);
+    if (kind && kind !== 'fixed') return 'authored';
+    if (isSimulationOwned(objectId, componentId)) return 'simulation';
+    return 'none';
+  }
   function isSimulationOwned(objectId, componentId) {
     for (const [id, b] of bindings) {
       const col = colliders.get(id);
@@ -638,6 +650,9 @@ const FumocaPhysics = (() => {
     for (const [id, binding] of bindings) {
       const col = colliders.get(id);
       if (!col || col.bodyType !== 'dynamic' || !col.enabled) { skipped++; continue; }
+      const ownerId = binding.objectId || col.owner?.objectId;
+      const compId = binding.componentId || col.owner?.componentId;
+      if (ownerId && compId && poseOwner(ownerId, compId) === 'authored') { skipped++; continue; }
       const pose = getDynamicPose(id);
       if (!pose) { skipped++; continue; }
       const nodeWorld = _invertOffset(pose, binding.localPosition, binding.localRotation);
@@ -757,13 +772,14 @@ const FumocaPhysics = (() => {
     hierarchy.clear();
     bindings.clear();
     sceneRegistry.clear();
+    jointClaims.clear();
   }
 
   return {
     SCHEMA_VERSION,
     registerHierarchy, createCollider, setEnabled, removeCollider,
     initRapier, setBackend,
-    syncFromEvaluation, queryOverlaps, step, reset, getDynamicPose, setFixedTimestep, setMaxSubsteps, setGravity, getGravity, getBodyCount, getColliderCount, getTransitionCount: () => transitionCount, worldToParentLocal, bindSceneNode, unbindSceneNode, getBinding, isSimulationOwned, applyDynamicPoses, registerSceneObject, unregisterSceneObject, getSceneObject, bindSceneComponent, transitionBodyType,
+    syncFromEvaluation, queryOverlaps, step, reset, getDynamicPose, setFixedTimestep, setMaxSubsteps, setGravity, getGravity, getBodyCount, getColliderCount, getTransitionCount: () => transitionCount, worldToParentLocal, bindSceneNode, unbindSceneNode, getBinding, isSimulationOwned, poseOwner, setJointClaim, applyDynamicPoses, registerSceneObject, unregisterSceneObject, getSceneObject, bindSceneComponent, transitionBodyType,
     serialize, deserialize, dispose,
     getBackend: () => backend,
     isRapierReady: () => rapierReady,
