@@ -342,6 +342,7 @@ const FumocaMaster = (() => {
       const dt=((ts-T.lastTs)/1000)*T.speed; T.lastTs=ts;
       evaluate(wrapTime(T.time + dt));
       if(window.FumocaPhysics?.step) window.FumocaPhysics.step(dt);
+      if(window.FumocaPhysics?.applyDynamicPoses) window.FumocaPhysics.applyDynamicPoses();
       T.raf=requestAnimationFrame(step);
     };
     T.raf=requestAnimationFrame(step);
