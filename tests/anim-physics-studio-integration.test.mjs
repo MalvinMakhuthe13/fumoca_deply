@@ -53,21 +53,26 @@ Physics.syncFromEvaluation({
   },
 });
 Physics.applyDynamicPoses();
-const before = bottleNode.position.y;
+const initialY = bottleNode.position.y;
 
-// Handoff kinematic -> dynamic
 const handoff = Physics.transitionBodyType('bottle', 'dynamic');
 assert(handoff.ok === true, 'Handoff to dynamic');
 Physics.applyDynamicPoses();
-assert(near(bottleNode.position.y, before, 0.15), 'No jump on handoff');
+assert(near(bottleNode.position.y, initialY, 0.15), 'No jump on kinematic-to-dynamic');
 
 for (let i = 0; i < 30; i++) { Physics.step(1/60); Physics.applyDynamicPoses(); }
-assert(bottleNode.position.y < before, 'Bottle falls after release');
+const fallenY = bottleNode.position.y;
+assert(fallenY < initialY, 'Bottle falls after release');
 
-// Reset
+const back = Physics.transitionBodyType('bottle', 'kinematic');
+assert(back.ok === true, 'Handoff to kinematic');
+Physics.applyDynamicPoses();
+assert(near(bottleNode.position.y, fallenY, 0.15), 'No jump on dynamic-to-kinematic');
+Physics.transitionBodyType('bottle', 'dynamic');
+
 Physics.reset();
 Physics.applyDynamicPoses();
-assert(bottleNode.position.y > bottleNode.position.y - 1, 'Reset applied');
+assert(near(bottleNode.position.y, initialY, 0.15), 'Reset restores initial Y');
 
 // Unload
 const countBefore = Physics.getBodyCount();
