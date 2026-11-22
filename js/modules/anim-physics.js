@@ -649,6 +649,24 @@ const FumocaPhysics = (() => {
     return { applied, skipped, failed, errors };
   }
 
+  function bindSceneComponent(objectId, componentId, opts = {}) {
+    if (!objectId || !componentId) return { ok: false, reason: 'missing_ids' };
+    if (!opts.node) return { ok: false, reason: 'missing_node' };
+    if (!opts.colliderId || !colliders.has(opts.colliderId)) return { ok: false, reason: 'missing_collider' };
+    const key = objectId + ':' + componentId;
+    if (sceneRegistry.has(key)) return { ok: false, reason: 'already_registered' };
+    const reg = registerSceneObject(objectId, componentId, opts);
+    if (!reg.ok) return reg;
+    const bind = bindSceneNode(opts.colliderId, { node: opts.node, parent: opts.parent, localPosition: opts.localPosition, localRotation: opts.localRotation, objectId, componentId });
+    if (!bind.ok) {
+      sceneRegistry.delete(key);
+      return { ok: false, reason: bind.reason, rolledBack: true };
+    }
+    const entry = sceneRegistry.get(key);
+    if (entry) entry.colliderId = opts.colliderId;
+    return { ok: true, key, colliderId: opts.colliderId };
+  }
+
   function registerSceneObject(objectId, componentId, opts = {}) {
     if (!objectId || !componentId) return { ok: false, reason: 'missing_ids' };
     if (!opts.node) return { ok: false, reason: 'missing_node' };
@@ -690,6 +708,7 @@ const FumocaPhysics = (() => {
       runtime.delete(id);
     }
     col.bodyType = newType;
+    if (!col._authoredPose && pose) col._authoredPose = pose;
     if (backend === 'rapier' && rapierReady) _ensureRapierHandle(col);
     const next = runtime.get(id);
     if (next?.body && pose) {
@@ -699,7 +718,7 @@ const FumocaPhysics = (() => {
         next.body.setLinvel(linvel, true);
         next.body.setAngvel(angvel, true);
         next._dynamicInit = true;
-        next._initialPose = next._initialPose || pose;
+        next._initialPose = col._authoredPose || pose;
       }
     }
     return { ok: true, id, bodyType: newType, pose };
@@ -740,7 +759,7 @@ const FumocaPhysics = (() => {
     SCHEMA_VERSION,
     registerHierarchy, createCollider, setEnabled, removeCollider,
     initRapier, setBackend,
-    syncFromEvaluation, queryOverlaps, step, reset, getDynamicPose, setFixedTimestep, setMaxSubsteps, setGravity, getGravity, getBodyCount, getColliderCount, worldToParentLocal, bindSceneNode, unbindSceneNode, getBinding, isSimulationOwned, applyDynamicPoses, registerSceneObject, unregisterSceneObject, getSceneObject, transitionBodyType,
+    syncFromEvaluation, queryOverlaps, step, reset, getDynamicPose, setFixedTimestep, setMaxSubsteps, setGravity, getGravity, getBodyCount, getColliderCount, worldToParentLocal, bindSceneNode, unbindSceneNode, getBinding, isSimulationOwned, applyDynamicPoses, registerSceneObject, unregisterSceneObject, getSceneObject, bindSceneComponent, transitionBodyType,
     serialize, deserialize, dispose,
     getBackend: () => backend,
     isRapierReady: () => rapierReady,
