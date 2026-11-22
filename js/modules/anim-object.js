@@ -71,6 +71,10 @@ const FumocaObjectAnim = (() => {
       }
     }
     const axis = _unit(joint.axis || { x: 1, y: 0, z: 0 }) || { x: 1, y: 0, z: 0 };
+    const restResult = _canonicalTransform(joint.rest);
+    if (joint.rest && !restResult.ok) { warnings.push({ id: c.id, reason: restResult.reason, field: 'rest' }); return c; }
+    const seatResult = joint.seat ? _canonicalTransform(joint.seat) : { ok: true, value: null };
+    if (!seatResult.ok) { warnings.push({ id: c.id, reason: seatResult.reason, field: 'seat' }); return c; }
     return {
       ...c,
       version: 1,
@@ -80,8 +84,8 @@ const FumocaObjectAnim = (() => {
         pivot: joint.pivot || { x: 0, y: 0, z: 0 },
         axis,
         limits,
-        rest: (_canonicalTransform(joint.rest).value) || _canonicalTransform(null).value,
-        seat: joint.seat ? (_canonicalTransform(joint.seat).value || null) : null,
+        rest: restResult.value,
+        seat: seatResult.value,
       },
     };
   }
