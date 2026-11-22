@@ -155,3 +155,22 @@ assert(badq._migrationWarnings.some(w => w.reason === 'invalid_quaternion'), 'Na
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);
+
+// Invalid rest/seat preserves original
+const badRest = { id: 'br', components: [{ id: 'c', pos: { x: 1, y: 0, z: 0 }, joint: { kind: 'fixed', axis: { x: 1, y: 0, z: 0 }, rest: { position: { x: NaN, y: 0, z: 0 } } } }] };
+const brm = Objects.deserialize(badRest);
+assert(brm.components[0].version !== 1 || brm._migrationWarnings.some(w => w.field === 'rest'), 'Invalid rest preserved with warning');
+assert(brm.components[0].pos?.x === 1 || brm.components[0].local?.position?.x === 1, 'Original position kept');
+
+const badSeat = { id: 'bs', components: [{ id: 'c', joint: { kind: 'lift', axis: { x: 0, y: 1, z: 0 }, seat: { rotation: { x: 0, y: 0, z: 0, w: 0 } } } }] };
+const bsm = Objects.deserialize(badSeat);
+assert(bsm._migrationWarnings.some(w => w.field === 'seat' && w.reason === 'zero_quaternion'), 'Invalid seat quaternion warned');
+
+// Valid rest/seat migrate
+const good = { id: 'good', components: [{ id: 'c', joint: { kind: 'lift', axis: { x: 0, y: 1, z: 0 }, rest: { pos: { x: 0, y: 0.1, z: 0 }, rot: { x: 0, y: 0, z: 0 } }, seat: { pos: { x: 0, y: 0.12, z: 0 }, rot: { x: 0, y: 0, z: 0 } } } }] };
+const gm = Objects.deserialize(good);
+assert(gm.components[0].joint.rest.position.y === 0.1, 'Valid rest migrated');
+assert(gm.components[0].joint.seat.position.y === 0.12, 'Valid seat migrated');
+
+console.log(`\n${passed} passed, ${failed} failed`);
+if (failed) process.exit(1);
