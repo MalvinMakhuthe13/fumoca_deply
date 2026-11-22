@@ -129,3 +129,29 @@ assert(Objects.validateObject('qbad').errors.some(e => e.reason === 'invalid_piv
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);
+
+// No double migration: direct limit comparison
+const once = Objects.deserialize({ id: 'once', components: [{ id: 'h', type: 'hinge', joint: { kind: 'hinge', limits: { min: -90, max: 90 }, axis: { x: 1, y: 0, z: 0 } } }] });
+const onceMax = once.components[0].joint.limits.max;
+const twice = Objects.deserialize(once);
+assert(Math.abs(twice.components[0].joint.limits.max - onceMax) < 1e-9, 'Re-deserialize does not convert again');
+assert(Math.abs(onceMax - Math.PI / 2) < 0.01, 'First conversion is pi/2');
+
+// Zero preserved
+const zc = { id: 'zeros', components: [{ id: 'z', pos: { x: 0, y: 0, z: 0 }, joint: { kind: 'prismatic', limits: { min: 0, max: 0 }, axis: { x: 0, y: 1, z: 0 } } }] };
+const zm = Objects.deserialize(zc);
+assert(zm.components[0].local.position.x === 0 && zm.components[0].joint.limits.max === 0, 'Zero coordinates and limits preserved');
+
+// Invalid defineJoint leaves previous joint
+Objects.createObject('keep', 'Keep');
+const kc = Objects.addComponent('keep', 'K', 'fixed');
+const prev = JSON.stringify(kc.joint);
+const bad = Objects.defineJoint('keep', kc.id, { kind: 'hinge', axis: { x: 0, y: 0, z: 0 } });
+assert(bad.ok === false && JSON.stringify(kc.joint) === prev, 'Invalid defineJoint leaves previous joint');
+
+// Invalid quaternion cannot become identity
+const badq = Objects.deserialize({ id: 'badq', components: [{ id: 'q', rotation: { x: NaN, y: 0, z: 0, w: 1 }, joint: { kind: 'fixed', axis: { x: 1, y: 0, z: 0 } } }] });
+assert(badq._migrationWarnings.some(w => w.reason === 'invalid_quaternion'), 'NaN quaternion reported, not repaired');
+
+console.log(`\n${passed} passed, ${failed} failed`);
+if (failed) process.exit(1);
