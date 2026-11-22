@@ -45,8 +45,9 @@ const FumocaViewerRuntime = (() => {
 
   async function mount(record) {
     const glbUrl = record?.meta?.demo_glb;
-    const timeline = record?.meta?.anim_timeline;
-    if (!glbUrl || !timeline || !window.THREE || !window.FumocaGLBBind) return { ok: false, reason: 'missing' };
+    const timeline = record?.meta?.anim_timeline || null;
+    if (!glbUrl || !window.THREE || !window.FumocaGLBBind) return { ok: false, reason: 'missing' };
+    if (!timeline && !record?.meta?.prepare) return { ok: false, reason: 'missing' };
     const THREE = window.THREE;
     const host = document.getElementById('stageHost') || document.getElementById('stage');
     if (!host) return { ok: false, reason: 'no_stage' };
@@ -75,7 +76,7 @@ const FumocaViewerRuntime = (() => {
     window._fumocaViewerCamera = camera;
     window._fumocaViewerControls = controls;
 
-    const prepared = (timeline.objects || []).find(o => o.id === record.meta.prepared_object_id) || timeline.objects?.[0];
+    const prepared = timeline ? ((timeline.objects || []).find(o => o.id === record.meta.prepared_object_id) || timeline.objects?.[0]) : null;
     const loaded = await window.FumocaGLBBind.load(glbUrl, {
       objectId: prepared?.id,
       name: prepared?.name || record.title || 'Prepared',
@@ -94,7 +95,42 @@ const FumocaViewerRuntime = (() => {
     camera.updateProjectionMatrix();
     controls.update();
 
-    window.FumocaMaster?.setDuration?.(timeline.duration || 2);
+    window.FumocaMaster?.setDuration?.(timeline?.duration || 2);
+    if (record.meta?.prepare && window.FumocaObjectAnim) {
+      const spec = record.meta.prepare;
+      const obj = window.FumocaObjectAnim.get(loaded.objectId);
+      const part = obj?.components?.find(c => c.name === spec.name || c.name === spec.label);
+      if (part) {
+        let pivot = spec.pivot || { x: 0, y: 0, z: 0 };
+        let boundNode = null;
+        loaded.scene?.traverse?.(n => { if (n.userData?.fumocaComponentId === part.id) boundNode = n; });
+        if (!spec.pivot && boundNode) {
+          const THREE = window.THREE;
+          const box = new THREE.Box3().setFromObject(boundNode);
+          boundNode.parent?.updateWorldMatrix?.(true, false);
+          const inv = boundNode.parent?.matrixWorld?.clone()?.invert?.();
+          if (inv) {
+            const min = box.min.clone().applyMatrix4(inv);
+            const max = box.max.clone().applyMatrix4(inv);
+            pivot = { x: (min.x + max.x) / 2, y: min.y, z: (min.z + max.z) / 2 };
+          }
+        }
+        if (spec.label) part.name = spec.label;
+        window.FumocaObjectAnim.defineJoint(loaded.objectId, part.id, {
+          kind: spec.kind || 'hinge',
+          axis: spec.axis || { x: 1, y: 0, z: 0 },
+          pivot,
+          limits: spec.limits || { min: 0, max: Math.PI / 2 },
+        });
+        const limits = spec.limits || { min: 0, max: Math.PI / 2 };
+        window.FumocaObjectAnim.setJointValue(loaded.objectId, part.id, limits.min ?? 0);
+        window.FumocaObjectAnim.captureKeyframe(loaded.objectId, 0);
+        window.FumocaObjectAnim.setJointValue(loaded.objectId, part.id, limits.max ?? 1);
+        window.FumocaObjectAnim.captureKeyframe(loaded.objectId, 2);
+        window.FumocaMaster.addObject(window.FumocaObjectAnim.get(loaded.objectId));
+        window.FumocaMaster.setDuration(2);
+      }
+    }
     window.FumocaLive?.bind?.(loaded.objectId);
     document.getElementById('fumocLoadingOverlay')?.remove();
     document.getElementById('loadingOverlay')?.classList.add('hidden');

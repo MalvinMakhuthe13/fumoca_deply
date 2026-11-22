@@ -1,0 +1,18 @@
+{
+  "id": "local-lantern",
+  "title": "Street lantern",
+  "description": "Press the lamp head. The pole stays still.",
+  "status": "done",
+  "meta": {
+    "demo_glb": "/demo/assets/Lantern.glb",
+    "local_only": true,
+    "license": "Lantern.glb is CC0. Khronos glTF-Sample-Assets. © 2017 Microsoft, Draco pass © 2018 Frank Galligan.",
+    "prepare": {
+      "name": "LanternPole_Lantern",
+      "label": "Lamp head",
+      "kind": "hinge",
+      "axis": { "x": 0, "y": 0, "z": 1 },
+      "limits": { "min": 0, "max": 0.6 }
+    }
+  }
+}

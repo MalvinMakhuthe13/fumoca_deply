@@ -165,4 +165,6 @@ Publish calls `GET /founder/me`, which now runs `canPublish` after `authorizeFou
 
 Animation tests resolve `three` and Rapier from this repo. CI installs `three@0.180.0` and `@dimforge/rapier3d-compat@0.21.0` and runs `node scripts/run-anim-tests.mjs`. Pull requests into `feature/**` are in the workflow trigger list.
 
-The browser proof and the manual steps are in `docs/CLIENT_DEMO.md`. Hotspots still add offsets in world space. Hinge and dynamic ownership are still two writers. Those were left in place after the browser proof passed.
+The browser proof and the manual steps are in `docs/CLIENT_DEMO.md`.
+
+Later on this same branch, press-to-open eases on the master clock, hotspot offsets use the component matrix, upload PUT and multipart call `authorizeStoredKey`, and a hinged component is not also written by a dynamic body. Those checks are listed in `docs/CLIENT_DEMO.md`. Cloth, soft body, characters, and AI motion were not started. Production is still not running this branch.

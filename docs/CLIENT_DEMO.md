@@ -12,7 +12,7 @@ From the repo root, on branch `cursor/anim-client-demo-c441`:
 
 Open `http://localhost:8000/demo/index.html` on the machine running that server. Do not open the HTML file by double-click. ES modules do not run on `file://`.
 
-Press **Camera body**. The camera tilts up. Press it again and it returns. The tripod does not move.
+Press **Camera body**. The camera eases open. Press it again and it eases shut, including if you press while it is still moving. The tripod does not move. A **Camera body** label sits on the body and moves with it. The **Lantern** control loads the second piece.
 
 Studio, if you need to show preparation rather than the client view, is `http://localhost:8000/edit.html`. Click **Animate**, then **Load GLB**. Studio also drops a procedural cooler into the scene on boot. The client page does not.
 
@@ -31,7 +31,14 @@ Command: `node tests/browser/articulated-asset.browser.mjs` against `http://127.
 
 That viewport is desktop Chromium with a phone-sized window. It is not a physical phone.
 
-Screenshots from that run:
+Later shots, after easing and the on-body label:
+
+- `/opt/cursor/artifacts/viewer-hotspot-closed.png`
+- `/opt/cursor/artifacts/viewer-hotspot-open.png`
+- `/opt/cursor/artifacts/demo-phone.png`
+- `/opt/cursor/artifacts/demo-phone-lantern.png`
+
+Screenshots from the first run:
 
 - `/opt/cursor/artifacts/viewer-camera-open.png`
 - `/opt/cursor/artifacts/viewer-camera-closed.png`
@@ -67,17 +74,38 @@ A Gaussian PLY is a cloud of oriented blobs. It is not a rig. The smallest prepa
 
 Counts from that run include joint-eval 47, schema-migration 43, articulated-pot 11, master (fake quaternion) 31, joint-integration 65, glb-bind 10, glb-real 7, scenes 12, physics query 15, physics studio integration 15, live 6, afford 7. CI (`.github/workflows/fumoca-validation.yml`) now installs those two packages and runs `node scripts/run-anim-tests.mjs` on pull requests into `feature/**` as well as `main`. The workflow still does not deploy.
 
+## Added after the first demo
+
+These were re-checked on this branch. Counts are from the commands named.
+
+| Check | Command | Result |
+| --- | --- | --- |
+| Ease, reverse, 20 cycles | `node tests/anim-ease.test.mjs` | 14 passed |
+| Ease in the viewer | `node tests/browser/articulated-ease.browser.mjs` | passed |
+| Anchor follows the hinge | `node tests/anim-anchor.test.mjs` | 5 passed |
+| Label in the viewer | `node tests/browser/articulated-hotspot.browser.mjs` | passed |
+| Upload prefix | `node cloudflare/tests/upload-publish.test.mjs` | 31 passed |
+| Hinge vs dynamic bottle | `node tests/anim-ownership-rule.test.mjs` | 7 passed |
+| Same rule in Chromium | `node tests/browser/articulated-ownership.browser.mjs` | passed |
+| Landing and lantern switch | `node tests/browser/demo-landing.browser.mjs` | passed |
+| Ordered sequence | `node tests/anim-sequence.test.mjs` | 8 passed |
+| Sequence in Chromium | `node tests/browser/articulated-sequence.browser.mjs` | passed |
+
+Presses use `FumocaMaster`'s existing loop. `PUT /upload/:key` and the multipart routes call `authorizeStoredKey`, the same prefix rule as presign. That code is not deployed. A hinged component is authored, so a dynamic body on that same node does not write it. The bottle in the ownership test is a different node and does fall.
+
+The sequence runs the lamp head, then the camera body, on that same loop. The browser sequence used a two-hinge test scene with those names. It did not load both GLB files into one view.
+
+GitHub Actions `static-and-glb-preflight` succeeded on `81e1aa8`. The Cloudflare Pages check on that commit failed immediately. Its log is only on the Cloudflare dashboard, which this session cannot read. No deploy was started from here.
+
 ## What is not proven
 
 - Production. fumoca.co.za does not run this branch.
-- A real phone, a real network client, or a published fumoca.co.za link.
-- Rapier in the demo. The demo is a hinge, not a falling bottle.
+- A real phone, a published fumoca.co.za link, or a deployed worker. The phone shots are Chromium at 390×844.
+- Rapier inside the client demo. The demo is a hinge. The falling bottle was a separate test.
 - Cloth, soft body, characters, or AI motion.
-- Hotspots that ride on a moving part. Anchors still add their offset in world space.
-- Smooth easing. Press sets the open or closed pose immediately.
-- One owner when a hinge and a dynamic body share a part. Dynamic bodies are skipped by the joint writer. They are not otherwise coordinated.
+- The two GLB files playing one sequence together. The sequence proof is the two-hinge test scene.
 - A Gaussian product with an articulated mesh in front of it.
-- `PUT /upload/:key` and multipart upload are still not prefix-bound the way presign is.
+- The upload prefix change on the live worker. The routes in this branch call the same check as presign. Nothing was deployed.
 
 ## What you have to do by hand before a client
 

@@ -1,32 +1,76 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FUMOCA — Antique camera</title>
+<meta name="description" content="Press the camera body. It opens on its hinge and the tripod stays still. A FUMOCA preview.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="FUMOCA — Antique camera">
+<meta property="og:description" content="Press the part. It opens. Press again and it closes.">
+<meta property="og:site_name" content="FUMOCA">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="FUMOCA — Antique camera">
+<meta name="twitter:description" content="Press the part. It opens. Press again and it closes.">
+<meta name="theme-color" content="#10140f">
 <style>
-  :root { color-scheme: dark; }
+  :root { color-scheme: dark; --bg:#10140f; --ink:#f4f6f2; --lime:#c8ff00; --muted:#b7c0b4; }
   * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; background: #10140f; color: #f4f6f2; font: 16px/1.4 system-ui, sans-serif; }
-  header { padding: 14px 16px 10px; display: flex; justify-content: space-between; gap: 12px; align-items: flex-end; }
-  h1 { font-size: 22px; line-height: 1; margin: 0; letter-spacing: -0.03em; }
-  p { margin: 4px 0 0; color: #c8ff00; font-size: 14px; }
-  a { color: #f4f6f2; }
-  iframe { width: 100%; height: calc(100% - 72px); border: 0; background: #10140f; }
-  @media (max-width: 640px) {
-    header { padding: 12px; }
-    h1 { font-size: 20px; }
-    iframe { height: calc(100% - 78px); }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font: 16px/1.4 "Segoe UI", system-ui, sans-serif; }
+  body { display: flex; flex-direction: column; min-height: 100%; }
+  header { padding: 16px 16px 8px; display: flex; flex-direction: column; gap: 6px; }
+  .mark { font-weight: 800; letter-spacing: 0.14em; font-size: 12px; color: var(--lime); }
+  h1 { margin: 0; font-size: 28px; letter-spacing: -0.04em; line-height: 1; }
+  #hint { margin: 0; color: var(--lime); font-size: 15px; }
+  .switch { display: flex; gap: 8px; padding: 0 16px 12px; }
+  .switch button { flex: 1; min-height: 44px; border-radius: 999px; border: 1px solid rgba(200,255,0,.45); background: transparent; color: var(--ink); font: 600 15px system-ui; }
+  .switch button[aria-pressed="true"] { background: var(--lime); color: #10140f; border-color: var(--lime); }
+  .stage { position: relative; flex: 1; min-height: 0; }
+  iframe { width: 100%; height: 100%; border: 0; background: var(--bg); }
+  #loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: var(--bg); color: var(--muted); z-index: 2; }
+  #loading[hidden] { display: none; }
+  @media (min-width: 800px) {
+    header { padding: 22px 28px 8px; }
+    h1 { font-size: 40px; }
+    .switch { max-width: 420px; padding-left: 28px; }
   }
 </style>
 </head>
 <body>
 <header>
-  <div>
-    <h1>Antique camera</h1>
-    <p>Press Camera body. The tripod stays still.</p>
-  </div>
+  <div class="mark">FUMOCA</div>
+  <h1 id="title">Antique camera</h1>
+  <p id="hint">Tap Camera body. The tripod stays still.</p>
 </header>
-<iframe title="FUMOCA viewer" src="../viewer.html?embed=1&localNif=/demo/records/antique-camera.json"></iframe>
+<div class="switch" role="tablist" aria-label="Prepared objects">
+  <button type="button" id="pickCamera" aria-pressed="true" data-title="Antique camera" data-hint="Tap Camera body. The tripod stays still." data-src="../viewer.html?embed=1&localNif=/demo/records/antique-camera.json">Camera</button>
+  <button type="button" id="pickLantern" aria-pressed="false" data-title="Street lantern" data-hint="Tap Lamp head. The pole stays still." data-src="../viewer.html?embed=1&localNif=/demo/records/lantern.json">Lantern</button>
+</div>
+<div class="stage">
+  <div id="loading">Loading the piece…</div>
+  <iframe id="view" title="FUMOCA viewer" src="../viewer.html?embed=1&localNif=/demo/records/antique-camera.json"></iframe>
+</div>
+<script>
+(function () {
+  var frame = document.getElementById('view');
+  var loading = document.getElementById('loading');
+  var title = document.getElementById('title');
+  var hint = document.getElementById('hint');
+  function show(btn) {
+    document.querySelectorAll('.switch button').forEach(function (b) { b.setAttribute('aria-pressed', b === btn ? 'true' : 'false'); });
+    title.textContent = btn.getAttribute('data-title');
+    hint.textContent = btn.getAttribute('data-hint');
+    document.title = 'FUMOCA — ' + btn.getAttribute('data-title');
+    var desc = document.querySelector('meta[name="description"]');
+    if (desc) desc.setAttribute('content', btn.getAttribute('data-hint'));
+    loading.hidden = false;
+    loading.textContent = 'Loading the piece…';
+    frame.src = btn.getAttribute('data-src');
+  }
+  frame.addEventListener('load', function () { loading.hidden = true; });
+  document.getElementById('pickCamera').addEventListener('click', function () { show(this); });
+  document.getElementById('pickLantern').addEventListener('click', function () { show(this); });
+})();
+</script>
 </body>
 </html>
