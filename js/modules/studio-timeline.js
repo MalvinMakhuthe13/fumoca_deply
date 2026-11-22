@@ -1,10 +1,11 @@
 /**
- * FUMOCA 4D Studio Timeline v60
- * ═══════════════════════════════════════════════════════════════════
+ * FUMOCA 4D Studio Timeline v61
+ * ═════════════════════════════════════════════════════════════════
  * Renders a visual keyframe timeline in the edit studio.
  * Shows all splat_motion_states as draggable diamond markers.
  * Connects to Fumoca4D for capture + auto-generate.
- * ═══════════════════════════════════════════════════════════════════
+ * Fly To restores full camera pose when available.
+ * ═════════════════════════════════════════════════════════════════
  */
 
 const FumocaStudio = (() => {
@@ -13,8 +14,9 @@ const FumocaStudio = (() => {
   let _ctx     = null;
   let _record  = null;
   let _raf     = null;
+  let _flyToAnim = null; // current animation frame id
 
-  // ── Init ─────────────────────────────────────────────────────────
+  // ── Init ─────────────────────────────────────────────────────────────
   async function init() {
     _canvas = document.getElementById('motionCanvas');
     if (!_canvas) return;
@@ -27,9 +29,10 @@ const FumocaStudio = (() => {
 
   function destroy() {
     if (_raf) clearInterval(_raf);
+    if (_flyToAnim) cancelAnimationFrame(_flyToAnim);
   }
 
-  // ── Render timeline ──────────────────────────────────────────────
+  // ── Render timeline ────────────────────────────────────────────────────────
   function _render() {
     if (!_ctx || !_canvas) return;
     const W = _canvas.width;
@@ -103,7 +106,6 @@ const FumocaStudio = (() => {
     const kf = await window.Fumoca4D?.captureKeyframe(label);
     if (kf) {
       _render();
-      // Update the list if one exists in DOM
       renderKeyframeList();
     }
   }
@@ -130,7 +132,70 @@ const FumocaStudio = (() => {
     }
   }
 
-  // ── Render keyframe list in DOM ───────────────────────────────────
+  // ── Smooth Fly To ──────────────────────────────────────────────────────
+  function _flyTo(idx) {
+    const states = window.Fumoca4D?.getStates?.() || [];
+    const st = states[idx];
+    if (!st) return;
+
+    const cam = window._fumocaViewerCamera || window._fumocaViewer?.camera;
+    const ctrls = window._fumocaViewerControls || window._fumocaViewer?.controls;
+    const pose = window.Fumoca4D?.getPoseFromState?.(st);
+
+    // Always restore CSS focus for compatibility
+    if (st.viewport_anchor) {
+      document.documentElement.style.setProperty('--focus-x', `${st.viewport_anchor.x || 50}%`);
+      document.documentElement.style.setProperty('--focus-y', `${st.viewport_anchor.y || 42}%`);
+    }
+
+    if (!cam || !pose || !pose.position) {
+      // Legacy or incomplete — CSS focus only
+      return;
+    }
+
+    // Cancel any in-progress fly
+    if (_flyToAnim) cancelAnimationFrame(_flyToAnim);
+
+    const startPos = cam.position.clone();
+    const startTarget = ctrls?.target?.clone?.() || startPos.clone();
+    const startQuat = cam.quaternion.clone();
+
+    const endPos = new THREE.Vector3(pose.position.x, pose.position.y, pose.position.z);
+    const endTarget = new THREE.Vector3(pose.target.x, pose.target.y, pose.target.z);
+    const endQuat = pose.quaternion
+      ? new THREE.Quaternion(pose.quaternion.x, pose.quaternion.y, pose.quaternion.z, pose.quaternion.w)
+      : null;
+
+    const duration = 800; // ms
+    const startTs = performance.now();
+
+    function step(now) {
+      const raw = Math.min(1, (now - startTs) / duration);
+      const t = 0.5 - 0.5 * Math.cos(raw * Math.PI); // sine ease
+
+      cam.position.lerpVectors(startPos, endPos, t);
+      if (ctrls?.target) {
+        ctrls.target.lerpVectors(startTarget, endTarget, t);
+        ctrls.update();
+      }
+      if (endQuat) {
+        cam.quaternion.slerpQuaternions(startQuat, endQuat, t);
+      }
+      if (Number.isFinite(pose.fov)) cam.fov = pose.fov;
+      if (Number.isFinite(pose.zoom)) cam.zoom = pose.zoom;
+      cam.updateProjectionMatrix?.();
+
+      if (raw < 1) {
+        _flyToAnim = requestAnimationFrame(step);
+      } else {
+        _flyToAnim = null;
+      }
+    }
+
+    _flyToAnim = requestAnimationFrame(step);
+  }
+
+  // ── Render keyframe list in DOM ───────────────────────────────────────
   function renderKeyframeList() {
     const container = document.getElementById('motionStepsList');
     if (!container) return;
@@ -146,16 +211,10 @@ const FumocaStudio = (() => {
       </div>
     `).join('');
 
-    window._fumoca4DFlyTo = (idx) => {
-      const st = states[idx];
-      if (st?.viewport_anchor) {
-        document.documentElement.style.setProperty('--focus-x', `${st.viewport_anchor.x || 50}%`);
-        document.documentElement.style.setProperty('--focus-y', `${st.viewport_anchor.y || 42}%`);
-      }
-    };
+    window._fumoca4DFlyTo = _flyTo;
   }
 
-  // ── Public API ───────────────────────────────────────────────────
+  // ── Public API ─────────────────────────────────────────────────────────
   return {
     init,
     destroy,
