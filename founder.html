@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FUMOCA — Founder desk</title>
+<style>
+  body { margin:0; background:#0b0d12; color:#f4f6f8; font:15px/1.5 system-ui; }
+  header { padding:18px 22px; border-bottom:1px solid #222; display:flex; justify-content:space-between; }
+  main { display:grid; grid-template-columns: 220px 1fr; min-height:calc(100vh - 64px); }
+  nav button { display:block; width:100%; text-align:left; background:none; border:0; color:#cde; padding:12px 16px; cursor:pointer; }
+  nav button.on { background:#182033; color:#fff; }
+  section { padding:22px; display:none; }
+  section.on { display:block; }
+  input, textarea, select { width:100%; background:#12151c; color:#fff; border:1px solid #333; border-radius:8px; padding:8px; margin:4px 0 10px; }
+  button.primary { background:#c8ff00; color:#111; border:0; border-radius:8px; padding:8px 14px; font-weight:700; cursor:pointer; }
+  .card { background:#12151c; border:1px solid #2a2f3a; border-radius:12px; padding:12px; margin:8px 0; }
+  .muted { opacity:.7; font-size:13px; }
+</style>
+</head>
+<body>
+<header>
+  <strong>FUMOCA founder desk</strong>
+  <a href="edit.html" style="color:#c8ff00;">Open Studio</a>
+</header>
+<main>
+  <nav>
+    <button class="on" data-tab="leads">Leads</button>
+    <button data-tab="clients">Clients</button>
+    <button data-tab="projects">Projects</button>
+    <button data-tab="commercial">Quotes</button>
+  </nav>
+  <div>
+    <section id="leads" class="on">
+      <h2>Leads</h2>
+      <p class="muted">Enquiries. Not a public signup.</p>
+      <input id="lName" placeholder="Business name">
+      <input id="lContact" placeholder="Contact person">
+      <input id="lEmail" placeholder="Email">
+      <input id="lPhone" placeholder="Phone">
+      <select id="lStatus"><option>new</option><option>contacted</option><option>quoted</option><option>won</option><option>lost</option></select>
+      <textarea id="lNotes" placeholder="Notes"></textarea>
+      <button class="primary" id="lAdd">Add lead</button>
+      <div id="lList"></div>
+    </section>
+    <section id="clients">
+      <h2>Clients</h2>
+      <input id="cName" placeholder="Client name">
+      <input id="cEmail" placeholder="Email">
+      <textarea id="cNotes" placeholder="Agreement notes"></textarea>
+      <button class="primary" id="cAdd">Add client</button>
+      <div id="cList"></div>
+    </section>
+    <section id="projects">
+      <h2>Projects</h2>
+      <input id="pName" placeholder="Project name">
+      <input id="pClient" placeholder="Client">
+      <select id="pStatus"><option>brief</option><option>assets</option><option>production</option><option>review</option><option>published</option><option>delivered</option></select>
+      <textarea id="pBrief" placeholder="Brief"></textarea>
+      <button class="primary" id="pAdd">Add project</button>
+      <div id="pList"></div>
+    </section>
+    <section id="commercial">
+      <h2>Quotes and delivery</h2>
+      <input id="qRef" placeholder="Quote reference">
+      <input id="qClient" placeholder="Client">
+      <input id="qAmount" type="number" placeholder="Amount">
+      <select id="qPay"><option>unpaid</option><option>deposit</option><option>paid</option></select>
+      <select id="qDel"><option>not delivered</option><option>delivered</option></select>
+      <button class="primary" id="qAdd">Record</button>
+      <div id="qList"></div>
+    </section>
+  </div>
+</main>
+<script>
+const KEY = 'fumoca:founder';
+function load() { try { return JSON.parse(localStorage.getItem(KEY)) || { leads:[], clients:[], projects:[], quotes:[] }; } catch { return { leads:[], clients:[], projects:[], quotes:[] }; } }
+function save(d) { localStorage.setItem(KEY, JSON.stringify(d)); }
+function card(html) { return `<div class="card">${html}</div>`; }
+function render() {
+  const d = load();
+  document.getElementById('lList').innerHTML = d.leads.map(x => card(`<strong>${x.name}</strong><div class="muted">${x.contact} · ${x.email} · ${x.status}</div><div>${x.notes||''}</div>`)).join('');
+  document.getElementById('cList').innerHTML = d.clients.map(x => card(`<strong>${x.name}</strong><div class="muted">${x.email}</div><div>${x.notes||''}</div>`)).join('');
+  document.getElementById('pList').innerHTML = d.projects.map(x => card(`<strong>${x.name}</strong><div class="muted">${x.client} · ${x.status}</div><div>${x.brief||''}</div>`)).join('');
+  document.getElementById('qList').innerHTML = d.quotes.map(x => card(`<strong>${x.ref}</strong> · ${x.client}<div class="muted">${x.amount} · ${x.pay} · ${x.del}</div>`)).join('');
+}
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav button').forEach(x => x.classList.remove('on'));
+  document.querySelectorAll('section').forEach(x => x.classList.remove('on'));
+  b.classList.add('on');
+  document.getElementById(b.dataset.tab).classList.add('on');
+});
+document.getElementById('lAdd').onclick = () => {
+  const d = load();
+  d.leads.unshift({ name: lName.value, contact: lContact.value, email: lEmail.value, phone: lPhone.value, status: lStatus.value, notes: lNotes.value, at: Date.now() });
+  save(d); render();
+};
+document.getElementById('cAdd').onclick = () => {
+  const d = load();
+  d.clients.unshift({ name: cName.value, email: cEmail.value, notes: cNotes.value, at: Date.now() });
+  save(d); render();
+};
+document.getElementById('pAdd').onclick = () => {
+  const d = load();
+  d.projects.unshift({ name: pName.value, client: pClient.value, status: pStatus.value, brief: pBrief.value, at: Date.now() });
+  save(d); render();
+};
+document.getElementById('qAdd').onclick = () => {
+  const d = load();
+  d.quotes.unshift({ ref: qRef.value, client: qClient.value, amount: qAmount.value, pay: qPay.value, del: qDel.value, at: Date.now() });
+  save(d); render();
+};
+render();
+</script>
+</body>
+</html>
