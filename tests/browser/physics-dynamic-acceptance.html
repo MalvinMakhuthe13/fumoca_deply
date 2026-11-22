@@ -26,9 +26,11 @@ const init = await Physics.initRapier();
 assert(init.ok === true, 'Rapier initialized');
 assert(Physics.getBackend() === 'rapier', 'Backend is rapier');
 
-Physics.createCollider({ id: 'floor', type: 'box', bodyType: 'static', halfExtents: { x: 1, y: 0.05, z: 1 }, owner: { kind: 'component', objectId: 'cooler', componentId: 'base' } });
-Physics.createCollider({ id: 'bottle', type: 'capsule', bodyType: 'dynamic', mass: 0.5, gravityScale: 1, owner: { kind: 'component', objectId: 'bottle', componentId: 'body' } });
+const g = Physics.getGravity();
+assert(g && Math.abs(g.y + 9.81) < 0.01, 'Gravity is -9.81');
 
+Physics.createCollider({ id: 'floor', type: 'box', bodyType: 'static', halfExtents: { x: 1, y: 0.05, z: 1 }, owner: { kind: 'component', objectId: 'cooler', componentId: 'base' } });
+Physics.createCollider({ id: 'bottle', type: 'capsule', bodyType: 'dynamic', mass: 0.5, owner: { kind: 'component', objectId: 'bottle', componentId: 'body' } });
 Physics.syncFromEvaluation({
   objects: {
     cooler: { base: { pos: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0 } } },
@@ -36,20 +38,41 @@ Physics.syncFromEvaluation({
   },
 });
 const start = Physics.getDynamicPose('bottle');
-assert(start && start.position.y > 1, 'Bottle starts above floor');
+for (let i = 0; i < 30; i++) Physics.step(1/60);
+const mid = Physics.getDynamicPose('bottle');
+assert(mid && mid.linvel.y < 0, 'Bottle gains downward velocity');
+assert(mid && mid.position.y < start.position.y, 'Bottle position decreases');
 
-for (let i = 0; i < 120; i++) Physics.step(1/60);
+for (let i = 0; i < 150; i++) Physics.step(1/60);
 const settled = Physics.getDynamicPose('bottle');
-assert(settled && settled.position.y < start.position.y, 'Bottle fell');
-assert(settled && settled.position.y > 0, 'Bottle remains above floor');
+assert(settled && settled.position.y > 0.02, 'Bottle settled above floor');
+assert(settled && settled.position.y < 0.6, 'Bottle is near floor');
 
 const reset = Physics.reset();
 const after = Physics.getDynamicPose('bottle');
 assert(reset.ok && after && Math.abs(after.position.y - start.position.y) < 0.05, 'Reset restores pose');
 assert(after && Math.abs(after.linvel.y) < 0.01, 'Reset clears velocity');
 
-const result = { status: failed === 0 ? 'PASS' : 'FAIL', failed, backend: Physics.getBackend(), rapierReady: Physics.isRapierReady(), bodies: 2, colliders: Physics.list().length };
-window.__PHYSICS_ACCEPTANCE__ = result;
+const baseBodies = Physics.getBodyCount();
+Physics.setEnabled('bottle', false);
+assert(Physics.getBodyCount() === baseBodies - 1, 'Disable decreases body count');
+Physics.setEnabled('bottle', true);
+assert(Physics.getBodyCount() === baseBodies, 'Re-enable restores body count');
+for (let i = 0; i < 10; i++) { Physics.setEnabled('bottle', false); Physics.setEnabled('bottle', true); }
+assert(Physics.getBodyCount() === baseBodies, '10 cycles do not increase body count');
+
+const result = {
+  status: failed === 0 ? 'PASS' : 'FAIL',
+  passed: lines.filter(l => l.includes('PASS:')).length,
+  failed,
+  backend: Physics.getBackend(),
+  rapierReady: Physics.isRapierReady(),
+  gravity: Physics.getGravity(),
+  bodyCount: Physics.getBodyCount(),
+  colliderCount: Physics.getColliderCount(),
+  errors: [],
+};
+window.PHYSICS_ACCEPTANCE = result;
 log('FINAL: ' + result.status, failed === 0);
 </script>
 </body>
