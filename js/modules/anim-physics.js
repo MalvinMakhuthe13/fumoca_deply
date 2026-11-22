@@ -153,10 +153,10 @@ const FumocaPhysics = (() => {
     runtime.delete(id);
   }
 
-  async function initRapier() {
+  async function initRapier(preloaded) {
     if (rapierReady && world) return { ok: true, already: true };
     try {
-      const mod = await import('https://cdn.jsdelivr.net/npm/@dimforge/rapier3d-compat@0.21.0/dist/rapier.mjs');
+      const mod = preloaded || await import('https://cdn.jsdelivr.net/npm/@dimforge/rapier3d-compat@0.21.0/dist/rapier.mjs');
       rapier = mod.default || mod;
       await rapier.init();
       world = new rapier.World({ x: 0, y: -9.81, z: 0 });
@@ -331,7 +331,8 @@ const FumocaPhysics = (() => {
         continue;
       }
       const ownerPose = _ownerPose(col, evaluated);
-      const worldPose = _worldFromOwner(ownerPose, col.localPosition, col.localRotation);
+      let worldPose = _worldFromOwner(ownerPose, col.localPosition, col.localRotation);
+      const authoredPose = worldPose;
       if (backend === 'rapier' && rapierReady) {
         let rt = runtime.get(col.id);
         if (!rt || rt.unsupported) _ensureRapierHandle(col);
