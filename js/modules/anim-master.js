@@ -219,8 +219,32 @@ const FumocaMaster = (() => {
     if(node.quaternion && result.local.rotation) node.quaternion.set(result.local.rotation.x, result.local.rotation.y, result.local.rotation.z, result.local.rotation.w);
   }
 
+  function _validateChain(evaluated){
+    const blocked = new Set();
+    for(const [id, xf] of Object.entries(evaluated)){
+      if(xf.animVersion !== 1) continue;
+      const chain = [];
+      let cur = id;
+      const seen = new Set();
+      let err = null;
+      while(cur){
+        if(seen.has(cur)){ err = 'parent_cycle'; break; }
+        seen.add(cur);
+        chain.push(cur);
+        const node = evaluated[cur];
+        if(!node){ err = 'unknown_parent'; break; }
+        if(!node.parentId) break;
+        if(!evaluated[node.parentId]){ err = 'unknown_parent'; break; }
+        cur = node.parentId;
+      }
+      if(err){ for(const cid of chain){ blocked.add(cid); if(evaluated[cid]) evaluated[cid].jointError = err; } }
+    }
+    return blocked;
+  }
+
   function applyObject(objId, evaluated){
     const binding=T.bindings.objects.get(objId); if(!binding?.components) return;
+    const blocked = _validateChain(evaluated);
     const worlds={};
     const ids=Object.keys(evaluated);
     function depth(id, seen){
@@ -232,6 +256,7 @@ const FumocaMaster = (() => {
     const ordered=ids.slice().sort((a,b)=>depth(a,new Set())-depth(b,new Set()));
     for(const compId of ordered){
       const xf=evaluated[compId];
+      if(blocked.has(compId)) continue;
       const node=binding.components.get(compId); if(!node) continue;
       if(window.FumocaPhysics?.isSimulationOwned && window.FumocaPhysics.isSimulationOwned(objId, compId)) continue;
       if(xf.animVersion===1 && window.FumocaJointEval){
