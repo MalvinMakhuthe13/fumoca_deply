@@ -126,3 +126,34 @@ assert(near(Math.abs(both.world.position.z), 1, 1e-4), 'Rotated+translated paren
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);
+
+// Three-level hierarchy. Expectations calculated independently.
+// Parent: local (1,0,0), rot 90° Y. Child: local (1,0,0), rot 90° X. Grandchild: local (0,1,0), identity.
+const qY90 = { x: 0, y: Math.sin(Math.PI / 4), z: 0, w: Math.cos(Math.PI / 4) };
+const qX90 = { x: Math.sin(Math.PI / 4), y: 0, z: 0, w: Math.cos(Math.PI / 4) };
+const parentComp = { joint: { kind: 'fixed', axis: { x: 1, y: 0, z: 0 }, pivot: { x: 0, y: 0, z: 0 } }, local: { position: { x: 1, y: 0, z: 0 }, rotation: qY90 } };
+const childComp = { joint: { kind: 'fixed', axis: { x: 1, y: 0, z: 0 }, pivot: { x: 0, y: 0, z: 0 } }, local: { position: { x: 1, y: 0, z: 0 }, rotation: qX90 } };
+const grandComp = { joint: { kind: 'fixed', axis: { x: 1, y: 0, z: 0 }, pivot: { x: 0, y: 0, z: 0 } }, local: { position: { x: 0, y: 1, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 } } };
+
+const parentResult = Eval.evaluate(parentComp, 0);
+const childResult = Eval.evaluate(childComp, 0, parentResult.world);
+const grandchildResult = Eval.evaluate(grandComp, 0, childResult.world);
+
+assert(near(parentResult.world.position.x, 1) && near(parentResult.world.position.y, 0) && near(parentResult.world.position.z, 0), 'Parent world position (1,0,0)');
+assert(near(parentResult.world.rotation.y, qY90.y, 1e-6) && near(parentResult.world.rotation.w, qY90.w, 1e-6), 'Parent world rotation 90° Y');
+
+// R_y(90)*(1,0,0) = (0,0,-1); parent pos (1,0,0) => child world (1,0,-1)
+assert(near(childResult.world.position.x, 1, 1e-4) && near(childResult.world.position.y, 0, 1e-4) && near(childResult.world.position.z, -1, 1e-4), 'Child world position (1,0,-1)');
+// qY * qX = (0.5, 0.5, -0.5, 0.5)
+assert(near(childResult.world.rotation.x, 0.5, 1e-4) && near(childResult.world.rotation.y, 0.5, 1e-4) && near(childResult.world.rotation.z, -0.5, 1e-4) && near(childResult.world.rotation.w, 0.5, 1e-4), 'Child world rotation qY*qX');
+
+// R_child*(0,1,0) = R_y(90)*R_x(90)*(0,1,0) = R_y(90)*(0,0,1) = (1,0,0)
+// child world (1,0,-1) + (1,0,0) = (2,0,-1)
+assert(near(grandchildResult.world.position.x, 2, 1e-4) && near(grandchildResult.world.position.y, 0, 1e-4) && near(grandchildResult.world.position.z, -1, 1e-4), 'Grandchild world position (2,0,-1)');
+assert(near(grandchildResult.world.rotation.x, 0.5, 1e-4) && near(grandchildResult.world.rotation.y, 0.5, 1e-4) && near(grandchildResult.world.rotation.z, -0.5, 1e-4) && near(grandchildResult.world.rotation.w, 0.5, 1e-4), 'Grandchild world rotation equals child');
+
+const again = Eval.evaluate(grandComp, 0, Eval.evaluate(childComp, 0, Eval.evaluate(parentComp, 0).world).world);
+assert(near(again.world.position.x, grandchildResult.world.position.x) && near(again.world.rotation.w, grandchildResult.world.rotation.w), 'Repeated hierarchy evaluation identical');
+
+console.log(`\n${passed} passed, ${failed} failed`);
+if (failed) process.exit(1);
