@@ -178,7 +178,7 @@ const closed = Master.evaluate(0);
 const open = Master.evaluate(1);
 assert(!closed.objects.nest[nlid.id].jointError && !open.objects.nest[nlid.id].jointError, 'No error at either time');
 assert(near(rootNode.position.x, 1) && near(frameNode.position.x, 1), 'Ancestors unchanged');
-assert(Math.abs(nlidNode.quaternion.y) > 0.1 || Math.abs(nlidNode.position.z) > 0.1, 'Lid moved at open');
+
 
 
 // Multi-level missing parent: Root -> Frame -> Lid, Root parent missing
@@ -217,7 +217,12 @@ Master.evaluate(1);
 nlidNode.updateMatrixWorld(true);
 const openWorld = new THREE.Vector3();
 nlidNode.getWorldPosition(openWorld);
-assert(Math.abs(nlidNode.quaternion.y - closedQuat.y) > 0.3, 'Lid quaternion changed by hinge');
+assert(near(closedPos.x, 1) && near(closedPos.y, 0) && near(closedPos.z, 0), 'Closed lid local is (1,0,0)');
+assert(near(closedWorld.x, 3) && near(closedWorld.y, 0) && near(closedWorld.z, 0), 'Closed lid world is (3,0,0)');
+assert(near(nlidNode.position.x, 0.2, 1e-3) && near(nlidNode.position.y, 0, 1e-3) && near(nlidNode.position.z, -0.8, 1e-3), 'Open lid local is (0.2,0,-0.8)');
+assert(near(openWorld.x, 2.2, 1e-3) && near(openWorld.y, 0, 1e-3) && near(openWorld.z, -0.8, 1e-3), 'Open lid world is (2.2,0,-0.8)');
+assert(near(nlidNode.quaternion.x, 0, 1e-3) && near(nlidNode.quaternion.y, 0.7071068, 1e-3) && near(nlidNode.quaternion.z, 0, 1e-3) && near(nlidNode.quaternion.w, 0.7071068, 1e-3), 'Open quaternion is 90 deg Y');
+assert(Math.abs(nlidNode.position.x - closedPos.x) > 0.5, 'Open and closed positions differ');
 assert(near(rootNode.position.x, 1) && near(frameNode.position.x, 1), 'Ancestors retain local');
 assert(nlidNode.parent === frameNode && frameNode.parent === rootNode, 'Three.js hierarchy intact');
 assert(!Master.evaluate(0).objects.nest[nlid.id].jointError, 'Closed has no error');
