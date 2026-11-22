@@ -12,6 +12,7 @@ const FumocaPhysics = (() => {
   const SCHEMA_VERSION = 1;
   const colliders = new Map();
   const runtime = new Map();
+  const hierarchy = new Map(); // objId -> Map(compId -> parentId)
   let nextId = 1;
   let backend = 'reference';
   let rapier = null;
@@ -68,6 +69,12 @@ const FumocaPhysics = (() => {
       position: { x: op.x + rotated.x, y: op.y + rotated.y, z: op.z + rotated.z },
       quaternion: _mulQuat(oq, localRot),
     };
+  }
+
+  function registerHierarchy(objId, components) {
+    const map = new Map();
+    for (const c of components || []) map.set(c.id, c.parentId || null);
+    hierarchy.set(objId, map);
   }
 
   function createCollider(opts = {}) {
@@ -191,20 +198,65 @@ const FumocaPhysics = (() => {
     return desc;
   }
 
+  function _compose(parent, local) {
+    const rotated = _rotateVec(parent.quaternion, local.position);
+    return {
+      position: { x: parent.position.x + rotated.x, y: parent.position.y + rotated.y, z: parent.position.z + rotated.z },
+      quaternion: _mulQuat(parent.quaternion, local.quaternion),
+    };
+  }
+
+  function _componentLocal(objId, compId, evaluated) {
+    const xf = evaluated?.objects?.[objId]?.[compId];
+    if (!xf) return { position: { x: 0, y: 0, z: 0 }, quaternion: _quatIdentity() };
+    return { position: xf.pos || { x: 0, y: 0, z: 0 }, quaternion: _eulerDegToQuat(xf.rot || {}) };
+  }
+
   function _ownerPose(col, evaluated) {
-    let ownerPose = { position: { x: 0, y: 0, z: 0 }, quaternion: _quatIdentity() };
-    if (col.owner.kind === 'component' && evaluated?.objects) {
-      const xf = evaluated.objects[col.owner.objectId]?.[col.owner.componentId];
-      if (xf) ownerPose = { position: xf.pos || ownerPose.position, quaternion: _eulerDegToQuat(xf.rot || {}) };
-    } else if (col.owner.kind === 'bone' && evaluated?.skeletons) {
+    if (col.owner.kind === 'bone' && evaluated?.skeletons) {
       const xf = evaluated.skeletons[col.owner.skeletonId]?.[col.owner.boneId];
-      if (xf) ownerPose = { position: xf.pos || ownerPose.position, quaternion: xf.quat || _quatIdentity() };
-    } else if (col.owner.kind === 'object' && evaluated?.objects) {
+      if (xf) return { position: xf.pos || { x: 0, y: 0, z: 0 }, quaternion: xf.quat || _quatIdentity() };
+      return { position: { x: 0, y: 0, z: 0 }, quaternion: _quatIdentity() };
+    }
+    if (col.owner.kind === 'component' && evaluated?.objects) {
+      const objId = col.owner.objectId;
+      const compId = col.owner.componentId;
+      const parents = hierarchy.get(objId);
+      // Walk parent chain (local transforms) then compose root-to-leaf
+      const chain = [];
+      let current = compId;
+      const seen = new Set();
+      while (current && !seen.has(current)) {
+        seen.add(current);
+        chain.push(current);
+        current = parents?.get(current) || null;
+      }
+      chain.reverse();
+      let pose = { position: { x: 0, y: 0, z: 0 }, quaternion: _quatIdentity() };
+      for (const id of chain) pose = _compose(pose, _componentLocal(objId, id, evaluated));
+      return pose;
+    }
+    if (col.owner.kind === 'object' && evaluated?.objects) {
       const comps = evaluated.objects[col.owner.objectId];
       const first = comps && Object.values(comps)[0];
-      if (first) ownerPose = { position: first.pos || ownerPose.position, quaternion: _eulerDegToQuat(first.rot || {}) };
+      if (first) return { position: first.pos || { x: 0, y: 0, z: 0 }, quaternion: _eulerDegToQuat(first.rot || {}) };
     }
-    return ownerPose;
+    return { position: { x: 0, y: 0, z: 0 }, quaternion: _quatIdentity() };
+  }
+
+  function _applyScale(col, worldPose) {
+    const s = col.scale || { x: 1, y: 1, z: 1 };
+    const uniform = Math.abs(s.x - s.y) < 1e-6 && Math.abs(s.y - s.z) < 1e-6;
+    if (!uniform && (Math.abs(worldPose.quaternion.x) > 1e-6 || Math.abs(worldPose.quaternion.y) > 1e-6 || Math.abs(worldPose.quaternion.z) > 1e-6)) {
+      return { ok: false, reason: 'non_uniform_scale_on_rotated_primitive' };
+    }
+    const g = col.geometry;
+    if (col.type === 'box' && g.halfExtents) {
+      g._scaled = { x: g.halfExtents.x * s.x, y: g.halfExtents.y * s.y, z: g.halfExtents.z * s.z };
+    } else if ((col.type === 'sphere' || col.type === 'capsule') && g.radius) {
+      g._scaledRadius = g.radius * s.x;
+    }
+    return { ok: true, uniform };
   }
 
   function _aabbFromCollider(col, worldPose) {
@@ -242,8 +294,18 @@ const FumocaPhysics = (() => {
         if (!rt || rt.unsupported) _ensureRapierHandle(col);
         rt = runtime.get(col.id);
         if (rt?.body && !rt.unsupported) {
-          rt.body.setNextKinematicTranslation(worldPose.position);
-          rt.body.setNextKinematicRotation(worldPose.quaternion);
+          const scaled = _applyScale(col, worldPose);
+          if (!scaled.ok) { rt.unsupported = true; rt.reason = scaled.reason; continue; }
+          if (col.bodyType === 'static') {
+            if (!rt._staticPlaced) {
+              rt.body.setTranslation(worldPose.position, true);
+              rt.body.setRotation(worldPose.quaternion, true);
+              rt._staticPlaced = true;
+            }
+          } else {
+            rt.body.setNextKinematicTranslation(worldPose.position);
+            rt.body.setNextKinematicRotation(worldPose.quaternion);
+          }
           rt.world = worldPose;
         }
       } else {
@@ -344,6 +406,7 @@ const FumocaPhysics = (() => {
   }
 
   function dispose() {
+    // Retain the initialized Rapier world for reuse. Remove all bodies and clear definitions.
     if (world) {
       for (const rt of runtime.values()) {
         if (rt.body) { try { world.removeRigidBody(rt.body); } catch (_) {} }
@@ -351,11 +414,12 @@ const FumocaPhysics = (() => {
     }
     colliders.clear();
     runtime.clear();
+    hierarchy.clear();
   }
 
   return {
     SCHEMA_VERSION,
-    createCollider, setEnabled, removeCollider,
+    registerHierarchy, createCollider, setEnabled, removeCollider,
     initRapier, setBackend,
     syncFromEvaluation, queryOverlaps,
     serialize, deserialize, dispose,
