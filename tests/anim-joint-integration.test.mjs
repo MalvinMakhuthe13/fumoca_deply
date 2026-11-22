@@ -118,5 +118,44 @@ Master.evaluate(1);
 assert(near(lidNode.position.x, owned.x) && near(lidNode.position.z, owned.z), 'Simulation-owned node unchanged');
 delete window.FumocaPhysics;
 
+
+// Nested: Root -> Frame -> Lid
+const nest = Objects.createObject('nest', 'Nest');
+const root = Objects.addComponent('nest', 'Root', 'fixed');
+root.local = { position: { x: 1, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 } };
+const nframe = Objects.addComponent('nest', 'Frame', 'fixed', root.id);
+nframe.local = { position: { x: 1, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 } };
+const nlid = Objects.addComponent('nest', 'Lid', 'hinge', nframe.id);
+Objects.defineJoint('nest', nlid.id, { kind: 'hinge', axis: { x: 0, y: 1, z: 0 }, pivot: { x: 0.2, y: 0, z: 0 }, limits: { min: 0, max: Math.PI / 2 } });
+nlid.local = { position: { x: 1, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 } };
+Objects.setJointValue('nest', nlid.id, 0);
+Objects.captureKeyframe('nest', 0);
+Master.addObject(Objects.get('nest'));
+const rootNode = new THREE.Object3D();
+const frameNode = new THREE.Object3D();
+const nlidNode = new THREE.Object3D();
+rootNode.add(frameNode);
+frameNode.add(nlidNode);
+Master.setObjectBinding('nest', new Map([[root.id, rootNode], [nframe.id, frameNode], [nlid.id, nlidNode]]));
+const nev = Master.evaluate(0);
+assert(!nev.objects.nest[nlid.id].jointError, 'Nested lid has no jointError');
+assert(near(rootNode.position.x, 1) && near(frameNode.position.x, 1) && near(nlidNode.position.x, 1), 'Each local applied once');
+rootNode.updateMatrixWorld(true);
+const nw = new THREE.Vector3();
+nlidNode.getWorldPosition(nw);
+assert(near(nw.x, 3), 'Nested world x is 3');
+
+// Cycle
+const cyc = { id: 'cyc', tracks: [{ time: 0, animVersion: 1, components: [{ id: 'a', jointValue: 0 }, { id: 'b', jointValue: 0 }] }], components: [
+  { id: 'a', parentId: 'b', joint: { kind: 'hinge', axis: { x: 1, y: 0, z: 0 }, pivot: { x: 0, y: 0, z: 0 } }, local: { position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 } } },
+  { id: 'b', parentId: 'a', joint: { kind: 'hinge', axis: { x: 1, y: 0, z: 0 }, pivot: { x: 0, y: 0, z: 0 } }, local: { position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 } } },
+]};
+Objects.deserialize(cyc);
+Master.addObject(cyc);
+const ca = new THREE.Object3D(), cb = new THREE.Object3D();
+Master.setObjectBinding('cyc', new Map([['a', ca], ['b', cb]]));
+const cev = Master.evaluate(0);
+assert(cev.objects.cyc.a.jointError || cev.objects.cyc.b.jointError, 'Cycle produces structured error');
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);
