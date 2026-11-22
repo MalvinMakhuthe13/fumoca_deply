@@ -13,6 +13,7 @@ const FumocaPhysics = (() => {
   const colliders = new Map();
   const runtime = new Map();
   const hierarchy = new Map(); // objId -> Map(compId -> parentId)
+  const bindings = new Map(); // colliderId -> { node, parent, localPosition, localRotation }
   let nextId = 1;
   let backend = 'reference';
   let rapier = null;
@@ -548,6 +549,78 @@ const FumocaPhysics = (() => {
     return { position: { x: t.x, y: t.y, z: t.z }, quaternion: { x: r.x, y: r.y, z: r.z, w: r.w }, linvel: { x: v.x, y: v.y, z: v.z } };
   }
 
+  function bindSceneNode(colliderId, opts = {}) {
+    if (!colliders.has(colliderId)) return { ok: false, reason: 'unknown_collider' };
+    if (!opts.node) return { ok: false, reason: 'missing_node' };
+    if (bindings.has(colliderId)) return { ok: false, reason: 'already_bound' };
+    bindings.set(colliderId, {
+      node: opts.node,
+      parent: opts.parent || opts.node.parent || null,
+      localPosition: _vec(opts.localPosition),
+      localRotation: _quat(opts.localRotation || _quatIdentity()),
+      objectId: opts.objectId || null,
+      componentId: opts.componentId || null,
+    });
+    return { ok: true, colliderId };
+  }
+
+  function unbindSceneNode(colliderId) {
+    return bindings.delete(colliderId);
+  }
+
+  function getBinding(colliderId) {
+    return bindings.get(colliderId) || null;
+  }
+
+  function _invertOffset(worldPose, localPos, localRot) {
+    // nodeWorld = bodyWorld * inverse(colliderLocal)
+    const invRot = { x: -localRot.x, y: -localRot.y, z: -localRot.z, w: localRot.w };
+    const nodeQuat = _mulQuat(worldPose.quaternion, invRot);
+    const rotated = _rotateVec(nodeQuat, localPos);
+    return {
+      position: { x: worldPose.position.x - rotated.x, y: worldPose.position.y - rotated.y, z: worldPose.position.z - rotated.z },
+      quaternion: nodeQuat,
+    };
+  }
+
+  function _toParentLocal(nodeWorld, parent) {
+    if (!parent || typeof parent.matrixWorld === 'undefined') {
+      return { ok: true, position: nodeWorld.position, quaternion: nodeWorld.quaternion };
+    }
+    if (typeof THREE === 'undefined') return { ok: false, reason: 'three_unavailable' };
+    try {
+      parent.updateWorldMatrix(true, false);
+      const inv = parent.matrixWorld.clone().invert();
+      if (!Number.isFinite(inv.elements[0])) return { ok: false, reason: 'singular_parent' };
+      const v = new THREE.Vector3(nodeWorld.position.x, nodeWorld.position.y, nodeWorld.position.z).applyMatrix4(inv);
+      const pq = new THREE.Quaternion().setFromRotationMatrix(inv);
+      const nq = new THREE.Quaternion(nodeWorld.quaternion.x, nodeWorld.quaternion.y, nodeWorld.quaternion.z, nodeWorld.quaternion.w);
+      pq.multiply(nq);
+      return { ok: true, position: { x: v.x, y: v.y, z: v.z }, quaternion: { x: pq.x, y: pq.y, z: pq.z, w: pq.w } };
+    } catch (e) {
+      return { ok: false, reason: 'conversion_failed', error: e.message };
+    }
+  }
+
+  function applyDynamicPoses() {
+    let applied = 0, skipped = 0, failed = 0;
+    const errors = [];
+    for (const [id, binding] of bindings) {
+      const col = colliders.get(id);
+      if (!col || col.bodyType !== 'dynamic' || !col.enabled) { skipped++; continue; }
+      const pose = getDynamicPose(id);
+      if (!pose) { skipped++; continue; }
+      const nodeWorld = _invertOffset(pose, binding.localPosition, binding.localRotation);
+      const local = _toParentLocal(nodeWorld, binding.parent);
+      if (!local.ok) { failed++; errors.push({ id, reason: local.reason }); continue; }
+      if (binding.node.position) binding.node.position.set(local.position.x, local.position.y, local.position.z);
+      if (binding.node.quaternion) binding.node.quaternion.set(local.quaternion.x, local.quaternion.y, local.quaternion.z, local.quaternion.w);
+      if (typeof binding.node.updateMatrixWorld === 'function') binding.node.updateMatrixWorld(true);
+      applied++;
+    }
+    return { applied, skipped, failed, errors };
+  }
+
   function serialize() {
     return {
       version: SCHEMA_VERSION,
@@ -575,13 +648,14 @@ const FumocaPhysics = (() => {
     colliders.clear();
     runtime.clear();
     hierarchy.clear();
+    bindings.clear();
   }
 
   return {
     SCHEMA_VERSION,
     registerHierarchy, createCollider, setEnabled, removeCollider,
     initRapier, setBackend,
-    syncFromEvaluation, queryOverlaps, step, reset, getDynamicPose, setFixedTimestep, setMaxSubsteps, setGravity, getGravity, getBodyCount, getColliderCount, worldToParentLocal,
+    syncFromEvaluation, queryOverlaps, step, reset, getDynamicPose, setFixedTimestep, setMaxSubsteps, setGravity, getGravity, getBodyCount, getColliderCount, worldToParentLocal, bindSceneNode, unbindSceneNode, getBinding, applyDynamicPoses,
     serialize, deserialize, dispose,
     getBackend: () => backend,
     isRapierReady: () => rapierReady,
