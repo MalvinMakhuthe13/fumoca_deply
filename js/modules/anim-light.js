@@ -2,38 +2,24 @@
  * FUMOCA Lighting Data Model
  * Manual lights for conventional Three.js meshes.
  * Gaussian splats do not respond to these lights.
- * Capability detection reports actual renderer support.
+ * Capability detection checks the actual active renderer.
  */
 const FumocaLight = (() => {
   const lights = new Map();
 
   function _defaultShadow() {
-    return {
-      enabled: false,
-      mapSize: 1024,
-      bias: -0.0005,
-      normalBias: 0.02,
-      radius: 1,
-      opacity: 1,
-    };
+    return { enabled: false, mapSize: 1024, bias: -0.0005, normalBias: 0.02, radius: 1, opacity: 1 };
   }
 
   function createLight(id, type = 'directional', name = 'Light') {
     const light = {
-      id,
-      type,
-      name,
-      enabled: true,
+      id, type, name, enabled: true,
       position: { x: 0, y: 5, z: 5 },
       rotation: { x: 0, y: 0, z: 0 },
       target: { x: 0, y: 0, z: 0 },
       color: { r: 1, g: 1, b: 1 },
-      intensity: 1,
-      temperature: 6500,
-      distance: 0,
-      decay: 2,
-      angle: Math.PI / 6,
-      penumbra: 0.1,
+      intensity: 1, temperature: 6500,
+      distance: 0, decay: 2, angle: Math.PI / 6, penumbra: 0.1,
       groundColor: { r: 0.3, g: 0.3, b: 0.3 },
       shadow: _defaultShadow(),
       tracks: [],
@@ -72,16 +58,10 @@ const FumocaLight = (() => {
     if (!light) return null;
     const kf = {
       time: Number(time) || 0,
-      position: { ...light.position },
-      rotation: { ...light.rotation },
-      target: { ...light.target },
-      color: { ...light.color },
-      intensity: light.intensity,
-      distance: light.distance,
-      angle: light.angle,
-      penumbra: light.penumbra,
-      enabled: light.enabled,
-      shadow: { ...light.shadow },
+      position: { ...light.position }, rotation: { ...light.rotation }, target: { ...light.target },
+      color: { ...light.color }, intensity: light.intensity,
+      distance: light.distance, angle: light.angle, penumbra: light.penumbra,
+      enabled: light.enabled, shadow: { ...light.shadow },
     };
     light.tracks.push(kf);
     light.tracks.sort((a, b) => a.time - b.time);
@@ -89,12 +69,8 @@ const FumocaLight = (() => {
   }
 
   function _lerp(a, b, t) { return a + (b - a) * t; }
-  function _lerpColor(a, b, t) {
-    return { r: _lerp(a.r, b.r, t), g: _lerp(a.g, b.g, t), b: _lerp(a.b, b.b, t) };
-  }
-  function _lerpVec(a, b, t) {
-    return { x: _lerp(a.x, b.x, t), y: _lerp(a.y, b.y, t), z: _lerp(a.z, b.z, t) };
-  }
+  function _lerpColor(a, b, t) { return { r: _lerp(a.r, b.r, t), g: _lerp(a.g, b.g, t), b: _lerp(a.b, b.b, t) }; }
+  function _lerpVec(a, b, t) { return { x: _lerp(a.x, b.x, t), y: _lerp(a.y, b.y, t), z: _lerp(a.z, b.z, t) }; }
 
   function evaluate(id, time) {
     const light = lights.get(id);
@@ -102,15 +78,12 @@ const FumocaLight = (() => {
     const tracks = light.tracks;
     let a = tracks[0], b = tracks[tracks.length - 1];
     for (let i = 0; i < tracks.length - 1; i++) {
-      if (time >= tracks[i].time && time <= tracks[i + 1].time) {
-        a = tracks[i]; b = tracks[i + 1]; break;
-      }
+      if (time >= tracks[i].time && time <= tracks[i + 1].time) { a = tracks[i]; b = tracks[i + 1]; break; }
     }
     const span = Math.max(0.001, b.time - a.time);
     const t = Math.max(0, Math.min(1, (time - a.time) / span));
     return {
-      ...light,
-      evaluated: true,
+      ...light, evaluated: true,
       position: _lerpVec(a.position, b.position, t),
       rotation: _lerpVec(a.rotation, b.rotation, t),
       target: _lerpVec(a.target, b.target, t),
@@ -136,26 +109,24 @@ const FumocaLight = (() => {
   }
 
   function getCapabilities() {
-    const hasThree = typeof THREE !== 'undefined';
-    const hasRenderer = typeof window !== 'undefined' && window._fumocaViewer?.renderer;
-    const shadowMap = hasRenderer && window._fumocaViewer.renderer.shadowMap;
+    const renderer = window._fumocaViewer?.renderer || window.renderer;
+    const hasRenderer = !!(renderer && typeof renderer.render === 'function');
+    const shadowMapEnabled = !!(renderer?.shadowMap?.enabled);
     return {
-      meshLighting: hasThree,
-      meshShadows: !!(shadowMap && shadowMap.enabled),
+      meshLighting: hasRenderer,
+      meshShadows: shadowMapEnabled,
       splatRelighting: false,
-      contactShadows: hasThree,
+      contactShadows: false,
       areaLights: false,
-      directional: hasThree,
-      point: hasThree,
-      spot: hasThree,
-      ambient: hasThree,
-      hemisphere: hasThree,
+      directional: hasRenderer,
+      point: hasRenderer,
+      spot: hasRenderer,
+      ambient: hasRenderer,
+      hemisphere: hasRenderer,
     };
   }
 
-  function dispose() {
-    lights.clear();
-  }
+  function dispose() { lights.clear(); }
 
   return {
     createLight, setLightParams, setShadowParams,
