@@ -59,7 +59,7 @@ const evOpen = Master.evaluate(1);
 assert(!evOpen.objects.cooler[lid.id].jointError, 'Open lid has no jointError');
 assert(near(lidNode.position.x, 0.5, 0.05), 'Non-zero pivot x stays near 0.5');
 
-// Legacy not promoted
+// Legacy runtime path
 const legacy = Objects.createObject('legacy', 'Legacy');
 const lc = Objects.addComponent('legacy', 'Part', 'transform');
 Objects.setComponentTransform('legacy', lc.id, { x: 10, y: 0, z: 0 }, { x: 1, y: 0, z: 0 });
@@ -67,6 +67,14 @@ Objects.captureKeyframe('legacy', 0);
 const leg = Objects.evaluate('legacy', 0);
 assert(leg[lc.id].animVersion === undefined, 'Legacy not promoted');
 assert(leg[lc.id].jointValue === undefined, 'Legacy has no jointValue');
+Objects.setComponentTransform('legacy', lc.id, { x: 20, y: 0, z: 0 }, { x: 3, y: 0, z: 0 });
+Objects.captureKeyframe('legacy', 1);
+Master.addObject(Objects.get('legacy'));
+const legNode = new THREE.Object3D();
+Master.setObjectBinding('legacy', new Map([[lc.id, legNode]]));
+Master.evaluate(1);
+assert(near(legNode.position.x, 3), 'Legacy second keyframe position applied');
+assert(near(legNode.rotation.x, 20 * Math.PI / 180, 0.01), 'Legacy second keyframe rotation applied');
 
 // Missing jointValue in version 1
 const broken = { id: 'broken', tracks: [{ time: 0, animVersion: 1, components: [{ id: 'x', rot: { x: 0, y: 0, z: 0 }, pos: { x: 0, y: 0, z: 0 } }] }], components: [{ id: 'x', joint: { kind: 'hinge', axis: { x: 1, y: 0, z: 0 }, pivot: { x: 0, y: 0, z: 0 } }, local: { position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 } } }] };
