@@ -688,6 +688,7 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
     <div class="tb-sep"></div>
     <button class="tb-btn" id="compareBtn" title="Compare loaded scene with current edits" disabled>◧ Compare</button>
     <button class="tb-btn" id="screenshotBtn" title="Screenshot viewport">📷 Capture</button>
+    <button class="tb-btn" id="authorBtn" title="Articulate objects">Animate</button>
     <button class="tb-btn" id="loadGlbBtn" title="Load a GLB to articulate" style="background:rgba(120,180,255,.12);border-color:rgba(120,180,255,.4);color:#9cf;">Load GLB</button>
     <input type="file" id="loadGlbFile" accept=".glb,.gltf" style="display:none"/>
     <button class="tb-btn" id="hotspotBtn" title="Hotspots — place, edit, tour" style="background:rgba(200,255,0,.1);border-color:rgba(200,255,0,.4);color:#c8ff00;">📍 Hotspots</button>
@@ -6205,7 +6206,12 @@ animBg();
 <script type="module" src="js/modules/anim-joint-eval.js"></script>
 <script type="module" src="js/modules/anim-object.js"></script>
 <script type="module" src="js/modules/anim-glb-bind.js"></script>
+<script type="module" src="js/modules/anim-physics.js"></script>
+<script type="module" src="js/modules/anim-physics-boot.js"></script>
+<script type="module" src="js/modules/anim-author.js"></script>
 <script type="module">
+document.getElementById('authorBtn')?.addEventListener('click', () => window.FumocaAuthor?.open());
+window.FumocaPhysicsBoot?.start?.();
 document.getElementById('loadGlbBtn')?.addEventListener('click', () => document.getElementById('loadGlbFile')?.click());
 document.getElementById('loadGlbFile')?.addEventListener('change', async (e) => {
   const file = e.target.files?.[0];
