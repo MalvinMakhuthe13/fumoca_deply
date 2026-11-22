@@ -1,60 +1,83 @@
 /**
  * FUMOCA Studio Initialization Bridge
- * Binds FumocaMaster to the existing Studio camera, OrbitControls, and timeline.
- * One authoritative playback clock. No competing RAF.
- * Preserves manual camera interaction after pause.
+ * Binds FumocaMaster to the existing Studio camera and OrbitControls.
+ * One authoritative playback clock. Safe retry. No duplicate init.
  */
 const FumocaStudioInit = (() => {
   let _master = null;
   let _initialized = false;
+  let _cameraBound = false;
+  let _retryTimer = null;
+
+  function _getCamera() {
+    return window._fumocaViewerCamera || window._fumocaViewer?.camera || null;
+  }
+  function _getControls() {
+    return window._fumocaViewerControls || window._fumocaViewer?.controls || null;
+  }
 
   function init() {
-    if (_initialized) return true;
+    if (_initialized) return { ok: true, already: true };
     _master = window.FumocaMaster;
-    if (!_master) {
-      console.warn('[StudioInit] FumocaMaster not loaded');
-      return false;
+    if (!_master) return { ok: false, reason: 'master_missing' };
+
+    const cam = _getCamera();
+    const ctrls = _getControls();
+    if (!cam || !ctrls) {
+      if (!_retryTimer) {
+        _retryTimer = setTimeout(() => { _retryTimer = null; init(); }, 250);
+      }
+      return { ok: false, reason: 'camera_not_ready', retrying: true };
     }
-    const cam = window._fumocaViewerCamera || window._fumocaViewer?.camera;
-    const ctrls = window._fumocaViewerControls || window._fumocaViewer?.controls;
-    if (cam && ctrls) {
-      _master.setCameraBinding(cam, ctrls);
-    }
+
+    _master.setCameraBinding(cam, ctrls);
+    _cameraBound = true;
+
     const states = window.Fumoca4D?.getStates?.() || [];
     if (states.length) {
       _master.setCameraTrack(states);
       const last = states[states.length - 1];
       _master.setDuration(Math.max(0.1, last.time_offset || 10));
     }
+
     _initialized = true;
+    window._fumocaMasterOwnsPlayback = true;
     console.log('[StudioInit] Bound to camera and controls');
-    return true;
+    return { ok: true, cameraBound: true };
   }
 
   function destroy() {
+    if (_retryTimer) { clearTimeout(_retryTimer); _retryTimer = null; }
     if (_master) _master.pause();
+    const ctrls = _getControls();
+    if (ctrls) ctrls.enabled = true;
     _initialized = false;
+    _cameraBound = false;
     _master = null;
+    window._fumocaMasterOwnsPlayback = false;
   }
 
   function play() {
-    if (!_master) return;
-    const ctrls = window._fumocaViewerControls || window._fumocaViewer?.controls;
+    if (!_initialized) init();
+    if (!_master || !_cameraBound) return false;
+    const ctrls = _getControls();
     if (ctrls) ctrls.enabled = false;
+    window._fumocaMasterOwnsPlayback = true;
     _master.play();
+    return true;
   }
 
   function pause() {
     if (!_master) return;
     _master.pause();
-    const ctrls = window._fumocaViewerControls || window._fumocaViewer?.controls;
+    const ctrls = _getControls();
     if (ctrls) ctrls.enabled = true;
   }
 
   function stop() {
     if (!_master) return;
     _master.stop();
-    const ctrls = window._fumocaViewerControls || window._fumocaViewer?.controls;
+    const ctrls = _getControls();
     if (ctrls) ctrls.enabled = true;
   }
 
@@ -63,17 +86,13 @@ const FumocaStudioInit = (() => {
     return _master.evaluate(time);
   }
 
-  function getTime() {
-    return _master?.getTime?.() ?? 0;
-  }
-
-  function isPlaying() {
-    return _master?.isPlaying?.() ?? false;
-  }
+  function getTime() { return _master?.getTime?.() ?? 0; }
+  function isPlaying() { return _master?.isPlaying?.() ?? false; }
+  function isCameraBound() { return _cameraBound; }
 
   return {
     init, destroy, play, pause, stop, scrub,
-    getTime, isPlaying,
+    getTime, isPlaying, isCameraBound,
     isInitialized: () => _initialized,
   };
 })();
