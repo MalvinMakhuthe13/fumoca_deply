@@ -25,7 +25,7 @@ const base = Objects.addComponent('cooler', 'Base', 'fixed');
 base.local = { position: { x: 2, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 } };
 const lid = Objects.addComponent('cooler', 'Lid', 'hinge', base.id);
 Objects.defineJoint('cooler', lid.id, {
-  kind: 'hinge', axis: { x: 0, y: 1, z: 0 }, pivot: { x: 0, y: 0, z: 0 },
+  kind: 'hinge', axis: { x: 0, y: 1, z: 0 }, pivot: { x: 0.5, y: 0, z: 0 },
   limits: { min: 0, max: Math.PI / 2 },
 });
 lid.local = { position: { x: 1, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 } };
@@ -43,13 +43,21 @@ assert(Objects.serialize('cooler').tracks[0].animVersion === 1, 'Version survive
 Master.addObject(Objects.get('cooler'));
 const baseNode = new THREE.Object3D();
 const lidNode = new THREE.Object3D();
+baseNode.add(lidNode);
 Master.setObjectBinding('cooler', new Map([[base.id, baseNode], [lid.id, lidNode]]));
 const ev = Master.evaluate(0);
-assert(ev.objects.cooler[lid.id].jointError !== 'hierarchy_unresolved', 'Lid hierarchy resolved');
-assert(near(lidNode.position.x, 1), 'Lid local x is 1, not world');
+assert(!ev.objects.cooler[lid.id].jointError, 'Lid has no jointError');
+assert(!ev.objects.cooler[base.id].jointError, 'Base has no jointError');
+assert(near(baseNode.position.x, 2), 'Base local x is 2');
+assert(near(lidNode.position.x, 1), 'Lid local x is 1');
+baseNode.updateMatrixWorld(true);
+const lidWorld = new THREE.Vector3();
+lidNode.getWorldPosition(lidWorld);
+assert(near(lidWorld.x, 3), 'Lid world x is 3, parent applied once');
 
 const evOpen = Master.evaluate(1);
-assert(near(Math.abs(lidNode.position.z), 1, 0.05) || near(lidNode.position.x, 0, 0.05), 'Lid rotated about hinge');
+assert(!evOpen.objects.cooler[lid.id].jointError, 'Open lid has no jointError');
+assert(near(lidNode.position.x, 0.5, 0.05), 'Non-zero pivot x stays near 0.5');
 
 // Legacy not promoted
 const legacy = Objects.createObject('legacy', 'Legacy');
