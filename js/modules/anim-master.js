@@ -332,12 +332,14 @@ const FumocaMaster = (() => {
       const node=T.bindings.lights.get(id);
       if(node) _applyLight(node, ev);
     }
+    if(window.FumocaPhysics?.syncFromEvaluation){
+      window.FumocaPhysics.syncFromEvaluation({objects:objOut, skeletons:skelOut});
+    }
     const ix=evaluateInteractions(t);
     applyAttachments(ix);
     const anchors=T.tracks.anchors.map(a=>({...a, world:resolveAnchor(a)}));
     let physics=null;
     if(window.FumocaPhysics){
-      window.FumocaPhysics.syncFromEvaluation({objects:objOut, skeletons:skelOut});
       physics=window.FumocaPhysics.queryOverlaps();
     }
     return {time:t, camera:camPose, skeletons:skelOut, objects:objOut, lights:lightOut, interactions:ix, anchors, physics};
