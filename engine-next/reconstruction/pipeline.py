@@ -3341,7 +3341,7 @@ class ReconstructionWorker:
             # needs-a-retry; it never auto-publishes anything either way.
             'is_public':      False,
             'thumbnail_url':  thumb_url,
-            'meta':           {**meta, **capabilities},
+            'meta':           {**meta, **capabilities, 'pose_quality': meta.get('pose_source', 'unknown')},
         }
         if existing.data:
             SB.table('nif_files').update(row).eq('id', existing.data[0]['id']).execute()
