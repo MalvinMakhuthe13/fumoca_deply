@@ -27,7 +27,21 @@ const FumocaStudioInit = (() => {
       if (!_retryTimer) {
         _retryTimer = setTimeout(() => { _retryTimer = null; init(); }, 250);
       }
-      return { ok: false, reason: 'camera_not_ready', retrying: true };
+      function registerArticulatedObject(obj, componentMap) {
+      const master = window.FumocaMaster;
+      if (!master) return { ok: false, reason: 'master_missing' };
+      if (!obj?.id || !obj.components) return { ok: false, reason: 'invalid_object' };
+      const ids = new Set(obj.components.map(c => c.id));
+      for (const c of obj.components) {
+        if (c.parentId && !ids.has(c.parentId)) return { ok: false, reason: 'unknown_parent', componentId: c.id };
+      }
+      master.addObject(obj);
+      master.setObjectBinding(obj.id, componentMap);
+      const missing = obj.components.filter(c => !componentMap?.get?.(c.id)).map(c => c.id);
+      return { ok: missing.length === 0, bound: obj.components.length - missing.length, missing };
+    }
+
+  return { ok: false, reason: 'camera_not_ready', retrying: true };
     }
 
     _master.setCameraBinding(cam, ctrls);
@@ -48,7 +62,21 @@ const FumocaStudioInit = (() => {
     _initialized = true;
     window._fumocaMasterOwnsPlayback = true;
     console.log('[StudioInit] Bound to camera and controls');
-    return { ok: true, cameraBound: true };
+    function registerArticulatedObject(obj, componentMap) {
+      const master = window.FumocaMaster;
+      if (!master) return { ok: false, reason: 'master_missing' };
+      if (!obj?.id || !obj.components) return { ok: false, reason: 'invalid_object' };
+      const ids = new Set(obj.components.map(c => c.id));
+      for (const c of obj.components) {
+        if (c.parentId && !ids.has(c.parentId)) return { ok: false, reason: 'unknown_parent', componentId: c.id };
+      }
+      master.addObject(obj);
+      master.setObjectBinding(obj.id, componentMap);
+      const missing = obj.components.filter(c => !componentMap?.get?.(c.id)).map(c => c.id);
+      return { ok: missing.length === 0, bound: obj.components.length - missing.length, missing };
+    }
+
+  return { ok: true, cameraBound: true };
   }
 
   function destroy() {
@@ -96,8 +124,22 @@ const FumocaStudioInit = (() => {
   function isPlaying() { return _master?.isPlaying?.() ?? false; }
   function isCameraBound() { return _cameraBound; }
 
+  function registerArticulatedObject(obj, componentMap) {
+      const master = window.FumocaMaster;
+      if (!master) return { ok: false, reason: 'master_missing' };
+      if (!obj?.id || !obj.components) return { ok: false, reason: 'invalid_object' };
+      const ids = new Set(obj.components.map(c => c.id));
+      for (const c of obj.components) {
+        if (c.parentId && !ids.has(c.parentId)) return { ok: false, reason: 'unknown_parent', componentId: c.id };
+      }
+      master.addObject(obj);
+      master.setObjectBinding(obj.id, componentMap);
+      const missing = obj.components.filter(c => !componentMap?.get?.(c.id)).map(c => c.id);
+      return { ok: missing.length === 0, bound: obj.components.length - missing.length, missing };
+    }
+
   return {
-    init, destroy, play, pause, stop, scrub,
+      init, destroy, play, pause, stop, scrub, registerArticulatedObject,
     getTime, isPlaying, isCameraBound,
     isInitialized: () => _initialized,
   };
