@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<title>FUMOCA Studio Integration Acceptance</title>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js","@dimforge/rapier3d-compat":"https://cdn.jsdelivr.net/npm/@dimforge/rapier3d-compat@0.21.0/dist/rapier.mjs"}}</script>
+<style>body{font:13px/1.4 monospace;background:#111;color:#eee;padding:16px}.pass{color:#8f8}.fail{color:#f66;font-weight:bold}</style>
+</head>
+<body>
+<pre id="out">Loading...</pre>
+<script type="module">
+import * as THREE from 'three';
+import '../../js/modules/anim-physics.js';
+window.THREE = THREE;
+const out = document.getElementById('out');
+const lines = [];
+let failed = 0;
+function log(s, ok) {
+  const cls = ok === false ? 'fail' : ok === true ? 'pass' : '';
+  lines.push(cls ? `<span class="${cls}">${s}</span>` : s);
+  if (ok === false) failed++;
+  out.innerHTML = lines.join('\n');
+}
+function assert(cond, msg) { log((cond ? 'PASS: ' : 'FAIL: ') + msg, !!cond); }
+function worldOf(node) {
+  node.updateMatrixWorld(true);
+  const p = new THREE.Vector3();
+  node.getWorldPosition(p);
+  return { x: p.x, y: p.y, z: p.z };
+}
+
+const Physics = window.FumocaPhysics;
+const init = await Physics.initRapier();
+assert(init.ok === true, 'Rapier initialized');
+
+const base = new THREE.Object3D();
+const lid = new THREE.Object3D();
+const bottle = new THREE.Object3D();
+lid.parent = base;
+Physics.registerSceneObject('cooler', 'base', { node: base });
+Physics.registerSceneObject('cooler', 'lid', { node: lid, parent: base });
+Physics.registerSceneObject('bottle', 'body', { node: bottle });
+
+Physics.createCollider({ id: 'floor', type: 'box', bodyType: 'static', halfExtents: { x: 2, y: 0.05, z: 2 }, owner: { kind: 'component', objectId: 'scene', componentId: 'floor' } });
+Physics.createCollider({ id: 'base', type: 'box', bodyType: 'static', halfExtents: { x: 0.4, y: 0.3, z: 0.3 }, owner: { kind: 'component', objectId: 'cooler', componentId: 'base' } });
+Physics.createCollider({ id: 'lid', type: 'box', bodyType: 'kinematic', halfExtents: { x: 0.4, y: 0.02, z: 0.3 }, owner: { kind: 'component', objectId: 'cooler', componentId: 'lid' } });
+Physics.createCollider({ id: 'bottle', type: 'capsule', bodyType: 'kinematic', radius: 0.04, height: 0.2, mass: 0.4, owner: { kind: 'component', objectId: 'bottle', componentId: 'body' } });
+Physics.bindSceneNode('bottle', { node: bottle, objectId: 'bottle', componentId: 'body' });
+
+Physics.syncFromEvaluation({
+  objects: {
+    cooler: { base: { pos: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0 } }, lid: { pos: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0 } } },
+    bottle: { body: { pos: { x: 0, y: 0.5, z: 0 }, rot: { x: 0, y: 0, z: 0 } } },
+  },
+});
+Physics.applyDynamicPoses();
+const initialWorld = worldOf(bottle);
+
+const handoff = Physics.transitionBodyType('bottle', 'dynamic');
+Physics.applyDynamicPoses();
+const handoffWorld = worldOf(bottle);
+assert(Math.abs(handoffWorld.y - initialWorld.y) < 0.1, 'Handoff no jump');
+
+for (let i = 0; i < 40; i++) { Physics.step(1/60); Physics.applyDynamicPoses(); }
+const fallenWorld = worldOf(bottle);
+assert(fallenWorld.y < handoffWorld.y, 'Bottle fell after release');
+
+Physics.reset();
+Physics.applyDynamicPoses();
+const resetWorld = worldOf(bottle);
+assert(Math.abs(resetWorld.y - initialWorld.y) < 0.1, 'Reset restores');
+
+const result = {
+  status: failed === 0 ? 'PASS' : 'FAIL',
+  passed: lines.filter(l => l.includes('PASS:')).length,
+  failed,
+  backend: Physics.getBackend(),
+  rapierReady: Physics.isRapierReady(),
+  ids: { objects: ['cooler', 'bottle'], colliders: ['floor', 'base', 'lid', 'bottle'] },
+  initialWorld, handoffWorld, fallenWorld, resetWorld,
+  bodyCount: Physics.getBodyCount(),
+  colliderCount: Physics.getColliderCount(),
+  errors: [],
+};
+window.PHYSICS_STUDIO_INTEGRATION_ACCEPTANCE = result;
+log('FINAL: ' + result.status, failed === 0);
+</script>
+</body>
+</html>
