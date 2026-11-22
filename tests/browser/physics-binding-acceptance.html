@@ -22,6 +22,14 @@ function log(s, ok) {
   out.innerHTML = lines.join('\n');
 }
 function assert(cond, msg) { log((cond ? 'PASS: ' : 'FAIL: ') + msg, !!cond); }
+function worldOf(node) {
+  node.updateMatrixWorld(true);
+  const p = new THREE.Vector3();
+  const q = new THREE.Quaternion();
+  node.getWorldPosition(p);
+  node.getWorldQuaternion(q);
+  return { position: { x: p.x, y: p.y, z: p.z }, quaternion: { x: q.x, y: q.y, z: q.z, w: q.w } };
+}
 
 const Physics = window.FumocaPhysics;
 const init = await Physics.initRapier();
