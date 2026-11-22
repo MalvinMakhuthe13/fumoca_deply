@@ -15,6 +15,7 @@ window.THREE = THREE;
 const out = document.getElementById('out');
 const lines = [];
 let failed = 0;
+const stages = [];
 function log(s, ok) {
   const cls = ok === false ? 'fail' : ok === true ? 'pass' : '';
   lines.push(cls ? `<span class="${cls}">${s}</span>` : s);
@@ -30,12 +31,12 @@ function worldOf(node) {
   node.getWorldQuaternion(q);
   return { position: { x: p.x, y: p.y, z: p.z }, quaternion: { x: q.x, y: q.y, z: q.z, w: q.w } };
 }
+function near(a, b, eps = 0.08) { return Math.abs(a - b) < eps; }
 
 const Physics = window.FumocaPhysics;
 const init = await Physics.initRapier();
 assert(init.ok === true, 'Rapier initialized');
 
-const floor = new THREE.Object3D();
 const bottle = new THREE.Object3D();
 Physics.createCollider({ id: 'floor', type: 'box', bodyType: 'static', halfExtents: { x: 1, y: 0.05, z: 1 }, owner: { kind: 'component', objectId: 'c', componentId: 'base' } });
 Physics.createCollider({ id: 'bottle', type: 'capsule', bodyType: 'dynamic', radius: 0.1, height: 0.3, mass: 0.5, owner: { kind: 'component', objectId: 'b', componentId: 'body' } });
@@ -46,18 +47,24 @@ Physics.syncFromEvaluation({
     b: { body: { pos: { x: 0, y: 1.2, z: 0 }, rot: { x: 0, y: 0, z: 0 } } },
   },
 });
-const initialY = bottle.position.y || 1.2;
-let lastApply = { applied: 0, skipped: 0, failed: 0, errors: [] };
-for (let i = 0; i < 60; i++) { Physics.step(1/60); lastApply = Physics.applyDynamicPoses(); }
-assert(bottle.position.y < initialY, 'Bottle node fell');
-assert(bottle.position.y > 0.05, 'Bottle node above floor');
+const initApply = Physics.applyDynamicPoses();
+stages.push(initApply);
+const initialWorld = worldOf(bottle);
+
+for (let i = 0; i < 60; i++) { Physics.step(1/60); stages.push(Physics.applyDynamicPoses()); }
+const fallenWorld = worldOf(bottle);
+assert(fallenWorld.position.y < initialWorld.position.y, 'Bottle fell');
+assert(fallenWorld.position.y > 0.05, 'Bottle above floor');
 
 const resetResult = Physics.reset();
-lastApply = Physics.applyDynamicPoses();
-assert(bottle.position.y > 1, 'Reset restores bottle node');
+const resetApply = Physics.applyDynamicPoses();
+stages.push(resetApply);
+const resetWorld = worldOf(bottle);
+assert(near(resetWorld.position.y, initialWorld.position.y), 'Reset matches initial Y');
 
-for (let i = 0; i < 30; i++) { Physics.step(1/60); lastApply = Physics.applyDynamicPoses(); }
-assert(bottle.position.y < 1.2, 'Falls again after reset');
+for (let i = 0; i < 30; i++) { Physics.step(1/60); stages.push(Physics.applyDynamicPoses()); }
+const replayWorld = worldOf(bottle);
+assert(replayWorld.position.y < resetWorld.position.y, 'Falls again after reset');
 
 const parent = new THREE.Object3D();
 parent.position.set(2, 0, 0);
@@ -69,18 +76,25 @@ Physics.createCollider({ id: 'nested', type: 'sphere', bodyType: 'dynamic', radi
 Physics.bindSceneNode('nested', { node: nested, parent });
 Physics.syncFromEvaluation({ objects: { n: { c: { pos: { x: 2, y: 1, z: 0 }, rot: { x: 0, y: 0, z: 0 } } } } });
 const nestedApply = Physics.applyDynamicPoses();
-assert(nestedApply.applied >= 1, 'Translated and rotated parent applied');
+stages.push(nestedApply);
+const nestedActualWorld = worldOf(nested);
+const nestedExpectedWorld = { position: { x: 2, y: 1, z: 0 } };
+assert(near(nestedActualWorld.position.x, nestedExpectedWorld.position.x, 0.15), 'Nested world x near 2');
+assert(near(nestedActualWorld.position.y, nestedExpectedWorld.position.y, 0.15), 'Nested world y near 1');
+
+const appliedCount = stages.reduce((s, a) => s + (a.applied || 0), 0);
+const skippedCount = stages.reduce((s, a) => s + (a.skipped || 0), 0);
+const failedCount = stages.reduce((s, a) => s + (a.failed || 0), 0);
+const errors = stages.flatMap(a => a.errors || []);
+if (failedCount > 0) failed++;
 
 const result = {
   status: failed === 0 ? 'PASS' : 'FAIL',
   passed: lines.filter(l => l.includes('PASS:')).length,
   failed,
-  appliedCount: lastApply.applied,
-  skippedCount: lastApply.skipped,
-  failedCount: lastApply.failed,
-  errors: lastApply.errors || [],
-  initialWorld: { y: initialY },
-  finalWorld: { x: bottle.position.x, y: bottle.position.y, z: bottle.position.z },
+  initialWorld, fallenWorld, resetWorld, replayWorld,
+  nestedExpectedWorld, nestedActualWorld,
+  appliedCount, skippedCount, failedCount, errors,
   reset: resetResult,
   backend: Physics.getBackend(),
   rapierReady: Physics.isRapierReady(),
