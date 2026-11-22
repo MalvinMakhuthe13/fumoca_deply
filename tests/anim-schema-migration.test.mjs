@@ -73,3 +73,59 @@ assert(vm.errors.some(e => e.reason === 'unknown_parent'), 'Missing parent rejec
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);
+
+// Per-kind defaults
+const obj = Objects.createObject('defs', 'Defaults');
+for (const kind of ['fixed', 'hinge', 'prismatic', 'free', 'lift', 'threaded', 'snap']) {
+  const c = Objects.addComponent('defs', kind, kind);
+  Objects.defineJoint('defs', c.id, { kind });
+  const lim = c.joint.limits;
+  if (kind === 'fixed' || kind === 'free' || kind === 'snap') {
+    assert(lim === null, kind + ' has no default limits');
+  } else if (kind === 'hinge' || kind === 'threaded') {
+    assert(lim && Math.abs(lim.max - Math.PI) < 0.01, kind + ' angular defaults');
+  } else {
+    assert(lim && lim.max === 1 && lim.min === 0, kind + ' linear defaults');
+  }
+}
+
+// Explicit zero preserved
+const z = Objects.addComponent('defs', 'zero', 'prismatic');
+Objects.defineJoint('defs', z.id, { kind: 'prismatic', limits: { min: 0, max: 0 } });
+assert(z.joint.limits.min === 0 && z.joint.limits.max === 0, 'Explicit zero limits preserved');
+
+// type preserved
+const t = Objects.addComponent('defs', 'typed', 'transform');
+const before = t.type;
+Objects.defineJoint('defs', t.id, { kind: 'hinge' });
+assert(t.type === before, 'defineJoint does not overwrite type');
+
+// Negative angular bound
+const neg = {
+  id: 'neg',
+  components: [{ id: 'h', type: 'hinge', joint: { kind: 'hinge', limits: { min: -90, max: 45 }, axis: { x: 1, y: 0, z: 0 } } }],
+};
+const nm = Objects.deserialize(neg);
+assert(Math.abs(nm.components[0].joint.limits.min + Math.PI / 2) < 0.01, 'Negative bound converted');
+assert(Math.abs(nm.components[0].joint.limits.max - Math.PI / 4) < 0.01, 'Positive bound converted');
+
+// Unknown fields survive
+const unk = { id: 'unk', components: [{ id: 'u', extra: { keep: true }, joint: { kind: 'fixed', axis: { x: 0, y: 1, z: 0 } } }] };
+const um = Objects.deserialize(unk);
+assert(um.components[0].extra?.keep === true, 'Unknown fields survive');
+
+// Invalid quaternion
+Objects.createObject('qbad', 'Q');
+const qb = Objects.addComponent('qbad', 'B', 'fixed');
+qb.local.rotation = { x: 0, y: 0, z: 0, w: 0 };
+assert(Objects.validateObject('qbad').errors.some(e => e.reason === 'zero_quaternion'), 'Zero quaternion rejected');
+qb.local.rotation = { x: 2, y: 0, z: 0, w: 0 };
+assert(Objects.validateObject('qbad').errors.some(e => e.reason === 'quaternion_not_normalized'), 'Non-normalized quaternion rejected');
+
+// Invalid pivot
+qb.local.rotation = { x: 0, y: 0, z: 0, w: 1 };
+qb.joint.pivot = { x: NaN, y: 0, z: 0 };
+assert(Objects.validateObject('qbad').errors.some(e => e.reason === 'invalid_pivot'), 'Invalid pivot rejected');
+
+console.log(`\n${passed} passed, ${failed} failed`);
+if (failed) process.exit(1);
