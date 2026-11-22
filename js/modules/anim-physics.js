@@ -123,13 +123,25 @@ const FumocaPhysics = (() => {
     return col;
   }
 
+  function _removeRuntimeHandle(id) {
+    const rt = runtime.get(id);
+    if (rt?.body && world) {
+      try { world.removeRigidBody(rt.body); } catch (_) {}
+    }
+    runtime.delete(id);
+  }
+
   function setEnabled(id, enabled) {
     const c = colliders.get(id);
     if (!c) return false;
     c.enabled = !!enabled;
-    const rt = runtime.get(id);
-    if (rt?.collider && typeof rt.collider.setEnabled === 'function') rt.collider.setEnabled(c.enabled);
-    if (!c.enabled) runtime.delete(id);
+    if (!c.enabled) {
+      // Remove the complete Rapier body/collider pair. Merely disabling the
+      // collider and deleting our handle leaks an unreachable body on re-enable.
+      _removeRuntimeHandle(id);
+    } else if (backend === 'rapier' && rapierReady) {
+      _ensureRapierHandle(c);
+    }
     return true;
   }
 
@@ -262,6 +274,7 @@ const FumocaPhysics = (() => {
 
   function _applyScale(col, worldPose) {
     const s = col.scale || { x: 1, y: 1, z: 1 };
+    if (!_effective(col)) return { ok: false, reason: col.type + '_not_implemented' };
     if (!(s.x > 0) || !(s.y > 0) || !(s.z > 0) || !Number.isFinite(s.x) || !Number.isFinite(s.y) || !Number.isFinite(s.z)) {
       return { ok: false, reason: 'non_positive_scale' };
     }
@@ -304,7 +317,7 @@ const FumocaPhysics = (() => {
 
   function syncFromEvaluation(evaluated) {
     for (const col of colliders.values()) {
-      if (!col.enabled) { runtime.delete(col.id); continue; }
+      if (!col.enabled) { _removeRuntimeHandle(col.id); continue; }
       const ownerPose = _ownerPose(col, evaluated);
       const worldPose = _worldFromOwner(ownerPose, col.localPosition, col.localRotation);
       if (backend === 'rapier' && rapierReady) {
@@ -367,7 +380,7 @@ const FumocaPhysics = (() => {
   }
 
   function _queryReference() {
-    const active = Array.from(runtime.values()).filter(r => r.col?.enabled && r.aabb);
+    const active = Array.from(runtime.values()).filter(r => r.col?.enabled && r.aabb && !r.unsupported);
     const results = [];
     for (let i = 0; i < active.length; i++) {
       for (let j = i + 1; j < active.length; j++) {
@@ -473,6 +486,10 @@ const FumocaPhysics = (() => {
     getWorldPose: (id) => runtime.get(id)?.world || null,
     getStaticMoved: (id) => !!runtime.get(id)?.staticMoved,
     getLastScaleResult: (id) => runtime.get(id)?.scaleResult || null,
+    getRuntimeCounts: () => ({
+      bodies: world?.bodies?.len?.() ?? null,
+      colliders: world?.colliders?.len?.() ?? null,
+    }),
   };
 })();
 
