@@ -331,8 +331,10 @@ export default {
         return json({ error: `Content type not allowed for bucket ${bucket}: ${contentType}` }, 400, cors);
       }
 
-      const fileKey = sanitiseKey(userPath);
-      if (!fileKey) return json({ error: 'Invalid path' }, 400, cors);
+      const { assertUpload } = await import('./upload-auth.js');
+      const upload = assertUpload(principal, bucket, userPath);
+      if (!upload.ok) return json({ error: upload.reason }, upload.status, cors);
+      const fileKey = upload.key;
 
       // Pass the bucket NAME (not the binding) — the S3-compat API needs a name.
       const presigned = await generatePresignedPut(bucket, fileKey, contentType, env);
@@ -670,6 +672,9 @@ export default {
         });
       }
 
+      if (bucketParam === 'splat-videos' || bucketParam === 'splat-files') {
+        return json({ error: 'Not found' }, 404, cors);
+      }
       const r2Bucket = getBucket(bucketParam, env);
       if (!r2Bucket) {
         return json({ error: `Unknown bucket: ${bucketParam}` }, 400, cors);
