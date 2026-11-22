@@ -17,6 +17,7 @@ const FumocaPhysics = (() => {
   const sceneRegistry = new Map(); // key objectId:componentId -> { objectId, componentId, node, parent, colliderId }
   let nextId = 1;
   let backend = 'reference';
+  let transitionCount = 0;
   let rapier = null;
   let world = null;
   let rapierReady = false;
@@ -723,7 +724,8 @@ const FumocaPhysics = (() => {
         next._initialPose = col._authoredPose || pose;
       }
     }
-    return { ok: true, id, bodyType: newType, pose };
+    transitionCount++;
+    return { ok: true, id, bodyType: newType, pose, transitionCount };
   }
 
   function serialize() {
@@ -761,7 +763,7 @@ const FumocaPhysics = (() => {
     SCHEMA_VERSION,
     registerHierarchy, createCollider, setEnabled, removeCollider,
     initRapier, setBackend,
-    syncFromEvaluation, queryOverlaps, step, reset, getDynamicPose, setFixedTimestep, setMaxSubsteps, setGravity, getGravity, getBodyCount, getColliderCount, worldToParentLocal, bindSceneNode, unbindSceneNode, getBinding, isSimulationOwned, applyDynamicPoses, registerSceneObject, unregisterSceneObject, getSceneObject, bindSceneComponent, transitionBodyType,
+    syncFromEvaluation, queryOverlaps, step, reset, getDynamicPose, setFixedTimestep, setMaxSubsteps, setGravity, getGravity, getBodyCount, getColliderCount, getTransitionCount: () => transitionCount, worldToParentLocal, bindSceneNode, unbindSceneNode, getBinding, isSimulationOwned, applyDynamicPoses, registerSceneObject, unregisterSceneObject, getSceneObject, bindSceneComponent, transitionBodyType,
     serialize, deserialize, dispose,
     getBackend: () => backend,
     isRapierReady: () => rapierReady,
