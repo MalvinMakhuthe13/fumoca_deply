@@ -239,9 +239,13 @@ const FumocaObjectAnim = (() => {
         },
         state: t < 0.5 ? pa.state : pb.state,
       };
-      if (typeof pa.jointValue === 'number' && typeof pb.jointValue === 'number') {
-        entry.jointValue = pa.jointValue + (pb.jointValue - pa.jointValue) * t;
+      if ((a.animVersion === 1 || b.animVersion === 1) && c.joint && c.joint.kind !== 'fixed') {
         entry.animVersion = 1;
+        if (typeof pa.jointValue !== 'number' || typeof pb.jointValue !== 'number') {
+          entry.jointError = 'missing_joint_value';
+        } else {
+          entry.jointValue = pa.jointValue + (pb.jointValue - pa.jointValue) * t;
+        }
       }
       out[c.id] = entry;
     }
