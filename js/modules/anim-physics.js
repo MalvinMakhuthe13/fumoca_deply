@@ -135,8 +135,12 @@ const FumocaPhysics = (() => {
     if (!c) return false;
     c.enabled = !!enabled;
     const rt = runtime.get(id);
-    if (rt?.collider && typeof rt.collider.setEnabled === 'function') rt.collider.setEnabled(c.enabled);
-    if (!c.enabled) runtime.delete(id);
+    if (!c.enabled) {
+      if (rt?.body && world) { try { world.removeRigidBody(rt.body); } catch (_) {} }
+      runtime.delete(id);
+    } else if (!rt && backend === 'rapier' && rapierReady) {
+      _ensureRapierHandle(c);
+    }
     return true;
   }
 
@@ -155,7 +159,7 @@ const FumocaPhysics = (() => {
       const mod = await import('https://cdn.jsdelivr.net/npm/@dimforge/rapier3d-compat@0.21.0/dist/rapier.mjs');
       rapier = mod.default || mod;
       await rapier.init();
-      world = new rapier.World({ x: 0, y: 0, z: 0 });
+      world = new rapier.World({ x: 0, y: -9.81, z: 0 });
       rapierReady = true;
       rapierError = null;
       backend = 'rapier';
@@ -320,7 +324,12 @@ const FumocaPhysics = (() => {
 
   function syncFromEvaluation(evaluated) {
     for (const col of colliders.values()) {
-      if (!col.enabled) { runtime.delete(col.id); continue; }
+      if (!col.enabled) {
+        const rt = runtime.get(col.id);
+        if (rt?.body && world) { try { world.removeRigidBody(rt.body); } catch (_) {} }
+        runtime.delete(col.id);
+        continue;
+      }
       const ownerPose = _ownerPose(col, evaluated);
       const worldPose = _worldFromOwner(ownerPose, col.localPosition, col.localRotation);
       if (backend === 'rapier' && rapierReady) {
@@ -461,6 +470,40 @@ const FumocaPhysics = (() => {
 
   const sim = { fixedDt: 1/60, accumulator: 0, maxSubsteps: 4, simTime: 0, maxFrameDt: 0.1 };
 
+  function setGravity(g) {
+    if (!g || !Number.isFinite(g.x) || !Number.isFinite(g.y) || !Number.isFinite(g.z)) return { ok: false, reason: 'invalid_gravity' };
+    if (world && typeof world.gravity === 'object') {
+      world.gravity = g;
+    }
+    return { ok: true, gravity: g };
+  }
+  function getGravity() {
+    if (world && world.gravity) return { x: world.gravity.x, y: world.gravity.y, z: world.gravity.z };
+    return { x: 0, y: -9.81, z: 0 };
+  }
+  function getBodyCount() {
+    if (!world) return 0;
+    try { return world.bodies.len(); } catch (_) { return runtime.size; }
+  }
+  function getColliderCount() {
+    if (!world) return 0;
+    try { return world.colliders.len(); } catch (_) { return runtime.size; }
+  }
+  function worldToParentLocal(worldPose, parentWorldMatrix) {
+    if (!parentWorldMatrix || typeof THREE === 'undefined') {
+      return { ok: false, reason: 'three_or_parent_unavailable', world: worldPose };
+    }
+    try {
+      const inv = parentWorldMatrix.clone().invert();
+      const v = new THREE.Vector3(worldPose.position.x, worldPose.position.y, worldPose.position.z).applyMatrix4(inv);
+      const q = new THREE.Quaternion().setFromRotationMatrix(inv);
+      const wq = new THREE.Quaternion(worldPose.quaternion.x, worldPose.quaternion.y, worldPose.quaternion.z, worldPose.quaternion.w);
+      q.multiply(wq);
+      return { ok: true, position: { x: v.x, y: v.y, z: v.z }, quaternion: { x: q.x, y: q.y, z: q.z, w: q.w } };
+    } catch (e) {
+      return { ok: false, reason: 'conversion_failed', error: e.message };
+    }
+  }
   function setFixedTimestep(dt) { if (dt > 0) sim.fixedDt = dt; }
   function setMaxSubsteps(n) { if (n > 0) sim.maxSubsteps = n; }
 
@@ -537,7 +580,7 @@ const FumocaPhysics = (() => {
     SCHEMA_VERSION,
     registerHierarchy, createCollider, setEnabled, removeCollider,
     initRapier, setBackend,
-    syncFromEvaluation, queryOverlaps, step, reset, getDynamicPose, setFixedTimestep, setMaxSubsteps,
+    syncFromEvaluation, queryOverlaps, step, reset, getDynamicPose, setFixedTimestep, setMaxSubsteps, setGravity, getGravity, getBodyCount, getColliderCount, worldToParentLocal,
     serialize, deserialize, dispose,
     getBackend: () => backend,
     isRapierReady: () => rapierReady,
