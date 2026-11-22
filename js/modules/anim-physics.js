@@ -262,10 +262,17 @@ const FumocaPhysics = (() => {
 
   function _applyScale(col, worldPose) {
     const s = col.scale || { x: 1, y: 1, z: 1 };
+    if (!(s.x > 0) || !(s.y > 0) || !(s.z > 0) || !Number.isFinite(s.x) || !Number.isFinite(s.y) || !Number.isFinite(s.z)) {
+      return { ok: false, reason: 'non_positive_scale' };
+    }
     const uniform = Math.abs(s.x - s.y) < 1e-6 && Math.abs(s.y - s.z) < 1e-6;
     const rotated = Math.abs(worldPose.quaternion.x) > 1e-6 || Math.abs(worldPose.quaternion.y) > 1e-6 || Math.abs(worldPose.quaternion.z) > 1e-6;
-    if (!uniform && rotated) return { ok: false, reason: 'non_uniform_scale_on_rotated_primitive' };
-    if (s.x <= 0 || s.y <= 0 || s.z <= 0) return { ok: false, reason: 'non_positive_scale' };
+    // Sphere cannot represent an ellipsoid. Capsule cannot represent non-uniform radial scale.
+    if (col.type === 'sphere' && !uniform) return { ok: false, reason: 'non_uniform_sphere_unsupported' };
+    if (col.type === 'capsule' && (Math.abs(s.x - s.z) > 1e-6 || (!uniform && rotated))) {
+      return { ok: false, reason: 'non_uniform_capsule_unsupported' };
+    }
+    if (col.type === 'box' && !uniform && rotated) return { ok: false, reason: 'non_uniform_scale_on_rotated_primitive' };
     return { ok: true, uniform, effective: _effective(col) };
   }
 
@@ -306,6 +313,7 @@ const FumocaPhysics = (() => {
         rt = runtime.get(col.id);
         if (rt?.body && !rt.unsupported) {
           const scaled = _applyScale(col, worldPose);
+          rt.scaleResult = scaled;
           if (!scaled.ok) { rt.unsupported = true; rt.reason = scaled.reason; continue; }
           if (col.bodyType === 'static') {
             if (!rt._staticPlaced) {
@@ -317,9 +325,12 @@ const FumocaPhysics = (() => {
               const dx = Math.abs(worldPose.position.x - rt._staticPose.position.x);
               const dy = Math.abs(worldPose.position.y - rt._staticPose.position.y);
               const dz = Math.abs(worldPose.position.z - rt._staticPose.position.z);
-              if (dx > 1e-4 || dy > 1e-4 || dz > 1e-4) {
+              const qa = rt._staticPose.quaternion, qb = worldPose.quaternion;
+              const dot = qa.x*qb.x + qa.y*qb.y + qa.z*qb.z + qa.w*qb.w;
+              const rotChanged = Math.abs(Math.abs(dot) - 1) > 1e-4;
+              if (dx > 1e-4 || dy > 1e-4 || dz > 1e-4 || rotChanged) {
                 rt.staticMoved = true;
-                console.warn('[Physics] Static collider', col.id, 'owner moved. Static means fixed for scene lifetime.');
+                console.warn('[Physics] Static collider', col.id, 'owner transform changed. Static means fixed for scene lifetime.');
               }
             }
           } else {
@@ -329,7 +340,18 @@ const FumocaPhysics = (() => {
           rt.world = worldPose;
         }
       } else {
-        runtime.set(col.id, { world: worldPose, aabb: _aabbFromCollider(col, worldPose), col });
+        const scaled = _applyScale(col, worldPose);
+        const prev = runtime.get(col.id);
+        let staticMoved = prev?.staticMoved || false;
+        if (col.bodyType === 'static' && prev?.world) {
+          const dx = Math.abs(worldPose.position.x - prev.world.position.x);
+          const dy = Math.abs(worldPose.position.y - prev.world.position.y);
+          const dz = Math.abs(worldPose.position.z - prev.world.position.z);
+          const qa = prev.world.quaternion, qb = worldPose.quaternion;
+          const dot = qa.x*qb.x + qa.y*qb.y + qa.z*qb.z + qa.w*qb.w;
+          if (dx > 1e-4 || dy > 1e-4 || dz > 1e-4 || Math.abs(Math.abs(dot) - 1) > 1e-4) staticMoved = true;
+        }
+        runtime.set(col.id, { world: worldPose, aabb: scaled.ok ? _aabbFromCollider(col, worldPose) : null, col, scaleResult: scaled, unsupported: !scaled.ok, reason: scaled.ok ? null : scaled.reason, staticMoved });
       }
     }
     if (backend === 'rapier' && world) world.step();
@@ -449,6 +471,8 @@ const FumocaPhysics = (() => {
     list: () => Array.from(colliders.values()),
     get: (id) => colliders.get(id) || null,
     getWorldPose: (id) => runtime.get(id)?.world || null,
+    getStaticMoved: (id) => !!runtime.get(id)?.staticMoved,
+    getLastScaleResult: (id) => runtime.get(id)?.scaleResult || null,
   };
 })();
 
