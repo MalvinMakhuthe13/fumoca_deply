@@ -9,10 +9,36 @@ const FumocaViewerRuntime = (() => {
   let camera = null;
   let controls = null;
   let playing = false;
+  let hotspotEl = null;
+  let hotspotAnchor = null;
+
+  function _placeHotspot() {
+    if (!hotspotEl || !hotspotAnchor || !camera || !renderer) return;
+    const world = window.FumocaMaster?.resolveAnchor?.(hotspotAnchor);
+    if (!world) return;
+    const THREE = window.THREE;
+    const v = new THREE.Vector3(world.x, world.y, world.z).project(camera);
+    const rect = renderer.domElement.getBoundingClientRect();
+    const x = rect.left + (v.x * 0.5 + 0.5) * rect.width;
+    const y = rect.top + (-v.y * 0.5 + 0.5) * rect.height;
+    hotspotEl.style.left = x + 'px';
+    hotspotEl.style.top = y + 'px';
+    hotspotEl.dataset.wx = String(world.x);
+    hotspotEl.dataset.wy = String(world.y);
+    hotspotEl.dataset.wz = String(world.z);
+    if (world.quaternion) {
+      hotspotEl.dataset.qx = String(world.quaternion.x);
+      hotspotEl.dataset.qy = String(world.quaternion.y);
+      hotspotEl.dataset.qz = String(world.quaternion.z);
+      hotspotEl.dataset.qw = String(world.quaternion.w);
+    }
+    hotspotEl.hidden = v.z < -1 || v.z > 1;
+  }
 
   function _draw() {
     if (!playing || !renderer || !scene || !camera) return;
     controls?.update?.();
+    _placeHotspot();
     renderer.render(scene, camera);
     requestAnimationFrame(_draw);
   }
@@ -74,6 +100,22 @@ const FumocaViewerRuntime = (() => {
     document.getElementById('loadingOverlay')?.classList.add('hidden');
     document.getElementById('errorBox')?.classList.remove('visible');
     const pose = window.FumocaMaster?.evaluate?.(0);
+    const moving = window.FumocaObjectAnim?.get(loaded.objectId)?.components?.find(c => c.joint && c.joint.kind !== 'fixed');
+    if (moving) {
+      hotspotAnchor = {
+        objectId: loaded.objectId,
+        componentId: moving.id,
+        label: moving.name || 'Part',
+        offset: { x: 0, y: 0.35, z: 0 },
+      };
+      window.FumocaMaster.setAnchors([hotspotAnchor]);
+      hotspotEl = document.createElement('div');
+      hotspotEl.id = 'fumocaPartHotspot';
+      hotspotEl.textContent = hotspotAnchor.label;
+      hotspotEl.style.cssText = 'position:fixed;z-index:1200;transform:translate(-50%,-130%);background:#111;color:#c8ff00;border:1px solid #c8ff00;border-radius:999px;padding:6px 10px;font:600 12px/1 system-ui;pointer-events:none;white-space:nowrap;';
+      document.body.appendChild(hotspotEl);
+      _placeHotspot();
+    }
     window._fumocaArticulation = { objectId: loaded.objectId, pose };
 
     playing = true;

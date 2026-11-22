@@ -390,15 +390,25 @@ const FumocaMaster = (() => {
 
   function resolveAnchor(anchor){
     if(!anchor) return null;
-    if(anchor.mode==='world') return anchor.offset||{x:0,y:0,z:0};
+    const off=anchor.offset||{x:0,y:0,z:0};
+    if(anchor.mode==='world'){
+      return { x:off.x||0, y:off.y||0, z:off.z||0, quaternion:{x:0,y:0,z:0,w:1}, mode:'world' };
+    }
     const binding=anchor.objectId?T.bindings.objects.get(anchor.objectId):null;
     const node=binding?.components?.get?.(anchor.componentId);
     if(node && typeof node.getWorldPosition==='function' && typeof THREE!=='undefined'){
+      if(typeof node.updateWorldMatrix==='function') node.updateWorldMatrix(true, false);
       const wp=new THREE.Vector3(); node.getWorldPosition(wp);
-      const off=anchor.offset||{x:0,y:0,z:0};
-      return {x:wp.x+off.x, y:wp.y+off.y, z:wp.z+off.z};
+      const wq=new THREE.Quaternion();
+      if(typeof node.getWorldQuaternion==='function') node.getWorldQuaternion(wq);
+      const v=new THREE.Vector3(off.x||0, off.y||0, off.z||0).applyQuaternion(wq);
+      return {
+        x:wp.x+v.x, y:wp.y+v.y, z:wp.z+v.z,
+        quaternion:{ x:wq.x, y:wq.y, z:wq.z, w:wq.w },
+        mode:'local',
+      };
     }
-    return anchor.offset||null;
+    return { x:off.x||0, y:off.y||0, z:off.z||0, quaternion:{x:0,y:0,z:0,w:1}, mode:'fallback' };
   }
 
   function _evalLight(light, time){
@@ -619,6 +629,7 @@ const FumocaMaster = (() => {
     setDuration, setSpeed, setLoopRange,
     evaluate, scrub, play, pause, resume, stop, restart, reset, stepFrames, wrapTime,
     easeJoint, advanceGestures, gesturesIdle:()=>T.gestures.size===0, getGesture:(objectId, componentId)=>T.gestures.get(objectId+':'+componentId)||null,
+    resolveAnchor,
     serialize, persist, load, dispose,
     getTime:()=>T.time, isPlaying:()=>T.playing, getRevision:()=>T.revision,
   };
