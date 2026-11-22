@@ -152,6 +152,7 @@ const FumocaPhysics = (() => {
     }
     colliders.delete(id);
     runtime.delete(id);
+    bindings.delete(id);
   }
 
   async function initRapier(preloaded) {
@@ -568,6 +569,16 @@ const FumocaPhysics = (() => {
     return bindings.delete(colliderId);
   }
 
+  function isSimulationOwned(objectId, componentId) {
+    for (const [id, b] of bindings) {
+      const col = colliders.get(id);
+      if (!col || col.bodyType !== 'dynamic' || !col.enabled) continue;
+      if ((b.objectId && b.objectId === objectId && b.componentId === componentId) ||
+          (col.owner?.objectId === objectId && col.owner?.componentId === componentId)) return true;
+    }
+    return false;
+  }
+
   function getBinding(colliderId) {
     return bindings.get(colliderId) || null;
   }
@@ -590,7 +601,14 @@ const FumocaPhysics = (() => {
     if (typeof THREE === 'undefined') return { ok: false, reason: 'three_unavailable' };
     try {
       parent.updateWorldMatrix(true, false);
-      const inv = parent.matrixWorld.clone().invert();
+      const m = parent.matrixWorld;
+      const det = m.determinant();
+      if (!Number.isFinite(det) || Math.abs(det) < 1e-8) return { ok: false, reason: 'singular_parent' };
+      const sx = Math.hypot(m.elements[0], m.elements[1], m.elements[2]);
+      const sy = Math.hypot(m.elements[4], m.elements[5], m.elements[6]);
+      const sz = Math.hypot(m.elements[8], m.elements[9], m.elements[10]);
+      if (Math.abs(sx - sy) > 1e-3 || Math.abs(sy - sz) > 1e-3) return { ok: false, reason: 'non_uniform_parent_scale' };
+      const inv = m.clone().invert();
       if (!Number.isFinite(inv.elements[0])) return { ok: false, reason: 'singular_parent' };
       const v = new THREE.Vector3(nodeWorld.position.x, nodeWorld.position.y, nodeWorld.position.z).applyMatrix4(inv);
       const pq = new THREE.Quaternion().setFromRotationMatrix(inv);
@@ -655,7 +673,7 @@ const FumocaPhysics = (() => {
     SCHEMA_VERSION,
     registerHierarchy, createCollider, setEnabled, removeCollider,
     initRapier, setBackend,
-    syncFromEvaluation, queryOverlaps, step, reset, getDynamicPose, setFixedTimestep, setMaxSubsteps, setGravity, getGravity, getBodyCount, getColliderCount, worldToParentLocal, bindSceneNode, unbindSceneNode, getBinding, applyDynamicPoses,
+    syncFromEvaluation, queryOverlaps, step, reset, getDynamicPose, setFixedTimestep, setMaxSubsteps, setGravity, getGravity, getBodyCount, getColliderCount, worldToParentLocal, bindSceneNode, unbindSceneNode, getBinding, isSimulationOwned, applyDynamicPoses,
     serialize, deserialize, dispose,
     getBackend: () => backend,
     isRapierReady: () => rapierReady,
