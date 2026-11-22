@@ -6206,6 +6206,7 @@ animBg();
 <!-- ═══════════════════════════════════════════════════════════════
      FUMOCA v60 — New module imports
      ═══════════════════════════════════════════════════════════════ -->
+<script type="module" src="js/modules/founder-gate.js"></script>
 <script type="module" src="js/modules/anim-joint-eval.js"></script>
 <script type="module" src="js/modules/anim-object.js"></script>
 <script type="module" src="js/modules/anim-glb-bind.js"></script>
@@ -6217,6 +6218,7 @@ animBg();
 <script type="module" src="js/modules/anim-live.js"></script>
 <script type="module" src="js/modules/anim-author.js"></script>
 <script type="module">
+window.FumocaFounderGate?.requireFounder?.();
 document.getElementById('authorBtn')?.addEventListener('click', () => window.FumocaAuthor?.open());
 window.FumocaPhysicsBoot?.start?.();
 document.getElementById('loadGlbBtn')?.addEventListener('click', () => document.getElementById('loadGlbFile')?.click());
