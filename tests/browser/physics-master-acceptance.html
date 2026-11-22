@@ -84,6 +84,27 @@ try {
   assert(near(start.base?.position?.x, 0) && near(start.base?.position?.y, 0) && sameQuat(start.base?.quaternion, back.base?.quaternion), 'Static base position and rotation remain unchanged');
   assert(Array.isArray(forward.physics), 'Master.evaluate returns physics query results');
 
+  // Exercise scaled primitives and unsupported geometry on the actual Rapier backend.
+  Physics.createCollider({ id: 'accept_sphere', type: 'sphere', radius: .2, scale: { x: 2, y: 2, z: 2 }, owner: { kind: 'component', objectId: 'scaleSphere', componentId: 'body' } });
+  Physics.createCollider({ id: 'accept_sphere_target', type: 'sphere', radius: .05, owner: { kind: 'component', objectId: 'scaleSphereTarget', componentId: 'body' } });
+  Physics.createCollider({ id: 'accept_capsule', type: 'capsule', radius: .1, height: .4, scale: { x: 2, y: 1.5, z: 2 }, owner: { kind: 'component', objectId: 'scaleCapsule', componentId: 'body' } });
+  Physics.createCollider({ id: 'accept_capsule_target', type: 'sphere', radius: .05, owner: { kind: 'component', objectId: 'scaleCapsuleTarget', componentId: 'body' } });
+  Physics.createCollider({ id: 'accept_unsupported', type: 'convexHull', points: [], owner: { kind: 'component', objectId: 'unsupported', componentId: 'body' } });
+  const shapeEval = { objects: {
+    scaleSphere: { body: { pos: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0 } } },
+    scaleSphereTarget: { body: { pos: { x: .35, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0 } } },
+    scaleCapsule: { body: { pos: { x: 3, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0 } } },
+    scaleCapsuleTarget: { body: { pos: { x: 3, y: .48, z: 0 }, rot: { x: 0, y: 0, z: 0 } } },
+    unsupported: { body: { pos: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0 } } },
+  } };
+  Physics.syncFromEvaluation(shapeEval);
+  const shapeHits = Physics.queryOverlaps();
+  assert(shapeHits.some(h => [h.colliderA,h.colliderB].includes('accept_sphere')), 'Rapier scaled sphere effective radius overlaps target');
+  assert(shapeHits.some(h => [h.colliderA,h.colliderB].includes('accept_capsule')), 'Rapier scaled capsule effective radius/height overlaps target');
+  assert(!shapeHits.some(h => [h.colliderA,h.colliderB].includes('accept_unsupported')), 'Unsupported convex hull excluded from Rapier overlap results');
+  for (const id of ['accept_sphere','accept_sphere_target','accept_capsule','accept_capsule_target','accept_unsupported']) Physics.removeCollider(id);
+  poseAt(1);
+
   for (let i=0;i<8;i++) { poseAt(0); poseAt(2); poseAt(1); }
   const stableCounts = counts();
   assert(Physics.list().length === 3, 'Three collider definitions remain registered after repeated scrubbing');
