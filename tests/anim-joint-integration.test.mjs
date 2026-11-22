@@ -155,7 +155,30 @@ Master.addObject(cyc);
 const ca = new THREE.Object3D(), cb = new THREE.Object3D();
 Master.setObjectBinding('cyc', new Map([['a', ca], ['b', cb]]));
 const cev = Master.evaluate(0);
-assert(cev.objects.cyc.a.jointError || cev.objects.cyc.b.jointError, 'Cycle produces structured error');
+assert(cev.objects.cyc.a.jointError === 'parent_cycle', 'Cycle error is parent_cycle');
+assert(near(ca.position.x, 0) && near(cb.position.x, 0), 'Cycle nodes unchanged');
+
+
+// Missing parent
+const miss = { id: 'miss', tracks: [{ time: 0, animVersion: 1, components: [{ id: 'child', jointValue: 0 }] }], components: [
+  { id: 'child', parentId: 'nope', joint: { kind: 'hinge', axis: { x: 1, y: 0, z: 0 }, pivot: { x: 0, y: 0, z: 0 } }, local: { position: { x: 1, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 } } },
+]};
+Objects.deserialize(miss);
+Master.addObject(miss);
+const mn = new THREE.Object3D();
+Master.setObjectBinding('miss', new Map([['child', mn]]));
+const mev = Master.evaluate(0);
+assert(mev.objects.miss.child.jointError === 'unknown_parent', 'Missing parent error');
+assert(near(mn.position.x, 0), 'Missing-parent node unchanged');
+
+// Nested hinge movement
+Objects.setJointValue('nest', nlid.id, Math.PI / 2);
+Objects.captureKeyframe('nest', 1);
+const closed = Master.evaluate(0);
+const open = Master.evaluate(1);
+assert(!closed.objects.nest[nlid.id].jointError && !open.objects.nest[nlid.id].jointError, 'No error at either time');
+assert(near(rootNode.position.x, 1) && near(frameNode.position.x, 1), 'Ancestors unchanged');
+assert(Math.abs(nlidNode.quaternion.y) > 0.1 || Math.abs(nlidNode.position.z) > 0.1, 'Lid moved at open');
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);
