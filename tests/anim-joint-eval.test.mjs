@@ -106,3 +106,23 @@ assert(Eval.evaluate(hinge, 0, badParent).reason === 'invalid_parent_position', 
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);
+
+assert(Eval.evaluate(hinge).reason === 'non_finite_value', 'Undefined value rejected');
+assert(Eval.evaluate(hinge, null).reason === 'non_finite_value', 'Null value rejected');
+assert(Eval.evaluate(hinge, '0').reason === 'non_finite_value', 'Numeric string rejected');
+assert(Eval.evaluate(fixed, 0).ok === true, 'Explicit zero accepted');
+
+assert(Eval.evaluate(hinge, 0, {}).reason === 'invalid_parent_position', 'Missing parent position rejected');
+assert(Eval.evaluate(hinge, 0, { position: { x: 0, y: 0, z: 0 } }).reason === 'invalid_parent_quaternion', 'Missing parent rotation rejected');
+assert(Eval.evaluate(hinge, 0, { position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 0 } }).reason === 'invalid_parent_quaternion', 'Zero parent quaternion rejected');
+assert(Eval.evaluate(hinge, 0, { position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 2 } }).reason === 'invalid_parent_quaternion', 'Non-normalized parent quaternion rejected');
+
+// Translated AND rotated parent: parent at (1,0,0), rotated 90 deg about Y, local (1,0,0)
+const y90 = { x: 0, y: Math.sin(Math.PI / 4), z: 0, w: Math.cos(Math.PI / 4) };
+const both = Eval.evaluate(fixed, 0, { position: { x: 1, y: 0, z: 0 }, rotation: y90 });
+// Local (1,0,0) rotated 90 about Y becomes (0,0,-1) or (0,0,1). Plus parent (1,0,0).
+assert(near(both.world.position.x, 1, 1e-4), 'Rotated+translated parent x stays 1');
+assert(near(Math.abs(both.world.position.z), 1, 1e-4), 'Rotated+translated parent z is ±1');
+
+console.log(`\n${passed} passed, ${failed} failed`);
+if (failed) process.exit(1);
