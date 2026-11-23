@@ -114,7 +114,12 @@ export class NIFProxyDeformer {
     for(let i=0;i<this.count;i++){
       const b=this.bindings[i],a=readVec(deformedVertices,b.ia),c=readVec(deformedVertices,b.ib),d=readVec(deformedVertices,b.ic);
       const current=frame(a,c,d);
-      const pos=world(current,b.offset);
+      const restA=readVec(this.rest,b.ia),restB=readVec(this.rest,b.ib),restC=readVec(this.rest,b.ic);
+      const edgeScaleX=len(sub(c,a))/Math.max(EPS,len(sub(restB,restA)));
+      const edgeScaleY=len(sub(d,a))/Math.max(EPS,len(sub(restC,restA)));
+      // Scale the offset with the proxy's in-plane deformation. Keep its
+      // normal offset unchanged: normal thickness belongs to the Gaussian.
+      const pos=world(current,[b.offset[0]*edgeScaleX,b.offset[1]*edgeScaleY,b.offset[2]]);
       const currentFrameQ=quatFromBasis(current.x,current.y,current.z);
       const restFrameQ=quatFromBasis(b.frame.x,b.frame.y,b.frame.z);
       const delta=quatNorm(quatMul(currentFrameQ,quatInv(restFrameQ)));
