@@ -116,7 +116,7 @@ To validate the NIF 1.2 decoder and timeline UI on an existing captured splat as
 node --experimental-default-type=module scripts/add-gaussian-animation-demo.mjs input.nif output-animated.nif
 ```
 
-The fixture adds a two-second vertical movement to an evenly sampled subset of up to 5,000 splats. It is deliberately synthetic and tests playback plumbing only; it is not evidence of captured or AI-reconstructed motion. Upload the output as a separate NIF and open it in the next-generation NIF editor to see the timeline controls.
+The fixture adds a two-second vertical movement to an evenly sampled subset of up to 5,000 splats. It is deliberately synthetic and tests playback plumbing only; it is not evidence of captured or AI-reconstructed motion. Start the local server with `npm run serve`, then open `http://localhost:8080/engine-next/editor/gaussian-animation-preview.html` and choose the generated file. This preview runs locally and does not upload or mutate cloud data.
 
 ### Current boundary
 
