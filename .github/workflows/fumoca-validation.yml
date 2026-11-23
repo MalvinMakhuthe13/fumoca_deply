@@ -49,6 +49,7 @@ jobs:
           grep -q "bindProxyDeformation" engine-next/viewer-src/renderer/NIFRenderer.js
           grep -q "updateProxyDeformation" engine-next/viewer-src/renderer/NIFRenderer.js
           python -m py_compile engine-next/reconstruction/pipeline.py
+          grep -q "hdr\[4\], hdr\[5\] = 1, 2" engine-next/reconstruction/pipeline.py
           grep -q "from('nif-videos').upload" js/modules/fourd-capture.js
           grep -q "from('reconstruction_jobs').insert" js/modules/fourd-capture.js
           grep -q "motion_sequence_id" js/modules/fourd-job-contract.js
