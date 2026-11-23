@@ -4,7 +4,9 @@ import { NIFManualGaussianDeformAuthor } from '../animation/NIFManualGaussianDef
 import { encodeManualAnimationNif, verifyManualAnimationNif } from '../animation/NIFManualAnimationExport.js';
 
 const $=id=>document.getElementById(id);
-const canvas=$('scene');let renderer=null,author=null,gaussians=null,sourceBytes=null;
+const canvas=$('scene');let renderer=null,author=null,gaussians=null,sourceBytes=null,selectMode=null,lassoPoints=[];
+const projectMatrix=(m,v)=>[m[0]*v[0]+m[4]*v[1]+m[8]*v[2]+m[12],m[1]*v[0]+m[5]*v[1]+m[9]*v[2]+m[13],m[2]*v[0]+m[6]*v[1]+m[10]*v[2]+m[14],m[3]*v[0]+m[7]*v[1]+m[11]*v[2]+m[15]];
+function projectedCenters(){const w=canvas.clientWidth,h=canvas.clientHeight,view=renderer.camera.viewMatrix(),proj=renderer.camera.projMatrix(w/h),out=new Float32Array(gaussians.count*2);for(let i=0;i<gaussians.count;i++){const o=i*14,p=[author.rest[o],author.rest[o+1],author.rest[o+2]],v=projectMatrix(view,p),c=projectMatrix(proj,v);if(c[3]<=0){out[i*2]=-1e6;out[i*2+1]=-1e6;continue;}out[i*2]=(c[0]/c[3]*.5+.5)*w;out[i*2+1]=(1-(c[1]/c[3]*.5+.5))*h;}return out;}
 const val=id=>Number($(id).value);
 function message(s){$('message').textContent=s;}
 function bounds(data,count){
@@ -40,6 +42,25 @@ $('clear').onclick=()=>{author?.clearSelection();message('Selection cleared.');}
 $('undo').onclick=()=>{if(author?.undo()){sync();message('Undo complete.');}else message('Nothing to undo.');};
 $('redo').onclick=()=>{if(author?.redo()){sync();message('Redo complete.');}else message('Nothing to redo.');};
 $('box').onclick=()=>{if(author)selectionBox();};
+$('brushMode').onclick=()=>{selectMode='brush';lassoPoints=[];message('Viewport brush active: drag on the object to select splats.');};
+$('lassoMode').onclick=()=>{selectMode='lasso';lassoPoints=[];message('Viewport lasso active: draw a closed selection polygon on the object.');};
+$('stopSelect').onclick=()=>{selectMode=null;lassoPoints=[];message('Viewport selection stopped.');};
+canvas.addEventListener('pointerdown',e=>{
+  if(!author||!selectMode)return;
+  const r=canvas.getBoundingClientRect(),p=[e.clientX-r.left,e.clientY-r.top];
+  if(selectMode==='brush'){author.selectScreenBrush(projectedCenters(),p,val('brushRadius'),{falloff:.35,mode:e.shiftKey?'add':e.altKey?'subtract':'replace'});message('Brush selected '+author.selection.filter(w=>w>0).length.toLocaleString()+' splats.');}
+  else {lassoPoints=[p];canvas.setPointerCapture(e.pointerId);}
+});
+canvas.addEventListener('pointermove',e=>{
+  if(!author||selectMode!=='brush'||!(e.buttons&1))return;
+  const r=canvas.getBoundingClientRect();author.selectScreenBrush(projectedCenters(),[e.clientX-r.left,e.clientY-r.top],val('brushRadius'),{falloff:.35,mode:'add'});
+});
+canvas.addEventListener('pointerup',e=>{
+  if(!author||selectMode!=='lasso'||lassoPoints.length<1)return;
+  const r=canvas.getBoundingClientRect();lassoPoints.push([e.clientX-r.left,e.clientY-r.top]);
+  if(lassoPoints.length>=3){author.selectLasso(projectedCenters(),lassoPoints,{mode:e.shiftKey?'add':e.altKey?'subtract':'replace'});message('Lasso selected '+author.selection.filter(w=>w>0).length.toLocaleString()+' splats.');}
+  lassoPoints=[];
+});
 function apply(type){
   if(!author)return message('Load a NIF first.');
   author.apply({type,axis:[val('ax'),val('ay'),val('az')],pivot:[val('px'),val('py'),val('pz')],angle:val('angle')*Math.PI/180,scale:[val('sx'),val('sy'),val('sz')]});
