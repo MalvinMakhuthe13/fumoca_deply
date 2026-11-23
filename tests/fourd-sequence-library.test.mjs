@@ -18,6 +18,12 @@ assert.equal(manifest.frames[1].sourceTime, 2.5);
 assert.equal(manifest.frames[0].url, 'https://cdn.example/u/a.nif');
 assert.notEqual(manifest.frames[0].topologyId, manifest.frames[1].topologyId);
 assert.ok(manifest.duration > 2);
+const complete = buildMotionSequenceManifest([
+  ...rows.slice(0, 2),
+  { id: 'nif-c', title: 'Finish', r2_key: 'u/c.nif', gaussian_count: 800, meta: { motion_sequence_id: 'seq', motion_state_index: 2, motion_state_count: 3, motion_state_time: 4, motion_state_label: 'Finish' } }
+], 'seq', key => `https://cdn.example/${key}`);
+assert.equal(complete.status, 'complete');
+assert.deepEqual(complete.missingStateIndices, []);
 assert.throws(() => buildMotionSequenceManifest(rows.slice(0, 1), 'seq'), /at least two/);
 assert.throws(() => buildMotionSequenceManifest([
   rows[1], { ...rows[0], meta: { ...rows[0].meta, motion_state_time: 0.5 } }
