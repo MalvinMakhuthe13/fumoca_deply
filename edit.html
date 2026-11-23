@@ -689,7 +689,7 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
     <button class="tb-btn" id="compareBtn" title="Compare loaded scene with current edits" disabled>◧ Compare</button>
     <button class="tb-btn" id="screenshotBtn" title="Screenshot viewport">📷 Capture</button>
     <button class="tb-btn" id="authorBtn" title="Articulate objects">Animate</button>
-    <button class="tb-btn" id="manualGaussianLabBtn" title="Open manual Gaussian deformation and animation editor" onclick="window.open('/engine-next/editor/manual-gaussian-deformation-lab.html','_blank','noopener')">Gaussian Lab</button>
+    <button class="tb-btn" id="manualGaussianLabBtn" title="Open the active NIF in the manual Gaussian deformation editor">Gaussian Lab</button>
     <button class="tb-btn" id="loadGlbBtn" title="Load a GLB to articulate" style="background:rgba(120,180,255,.12);border-color:rgba(120,180,255,.4);color:#9cf;">Load GLB</button>
     <input type="file" id="loadGlbFile" accept=".glb,.gltf" style="display:none"/>
     <button class="tb-btn" id="hotspotBtn" title="Hotspots — place, edit, tour" style="background:rgba(200,255,0,.1);border-color:rgba(200,255,0,.4);color:#c8ff00;">📍 Hotspots</button>
@@ -1974,6 +1974,13 @@ const S = {
 };
 // Expose globally so modules and guard checks can reference it
 window.S = S;
+document.getElementById('manualGaussianLabBtn')?.addEventListener('click',()=>{
+  if(!S.gaussianSourceBytes){setStatus('Load a NIF first to open the manual Gaussian Lab.','warn');return;}
+  const lab=window.open('/engine-next/editor/manual-gaussian-deformation-lab.html?studio=1','_blank');
+  if(!lab){setStatus('Allow pop-ups to open the Manual Gaussian Lab.','warn');return;}
+  const payload=S.gaussianSourceBytes.slice(0),name=S.fileName||'studio-source.nif';
+  lab.addEventListener('load',()=>lab.postMessage({type:'FUMOCA_MANUAL_GAUSSIAN_SOURCE',name,buffer:payload},location.origin),{once:true});
+});
 let _sourceToRender = null;
 let _gizmoGesture = false;
 let _previousGizmoTransform = null;
@@ -2916,6 +2923,8 @@ async function loadFile(file, urlOverride) {
     const decoded = await decodeNif(buf);         // { reader, meta, thumbnailBytes, gaussians }
     const rows = geometryToSplatRows(decoded.gaussians); // Uint8Array, 32 bytes/point
     S.fileType = 'nif';
+    S.gaussianSourceBytes = buf.slice(0);
+    window._fumocaLastGaussianBytes = S.gaussianSourceBytes;
     S.sourceBuffer = rows.buffer;
     S.nifMeta = decoded.meta || {};
     S.nifThumbnailBytes = decoded.thumbnailBytes || null;
