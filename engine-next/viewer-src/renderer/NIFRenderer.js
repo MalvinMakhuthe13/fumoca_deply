@@ -47,6 +47,7 @@ import { m4, v3, Quat, smoothstep, EPS } from '../../math/NIFMath.js';
 import { raycastGaussians } from '../../physics/NIFPhysics.js';
 import { detectTier } from '../NIFDeviceTier.js';
 import { NIFAnimator } from '../../animation/NIFAnimator.js';
+import { NIFProxyDeformer } from '../../animation/NIFProxyDeformer.js';
 
 // Maximum device pixel ratio we'll render at.
 // 2.0 is indistinguishable from 3.0 at normal viewing distance and
@@ -453,6 +454,48 @@ void main() {
     return this.animator.playSlide(label, opts);
   }
 
+  /**
+   * Bind a rest-pose proxy mesh to the currently loaded Gaussian data.
+   * The caller supplies a proxy mesh's triangle indices and xyz vertex buffer.
+   * Animate the proxy elsewhere (e.g. GLB/Three.js) and call
+   * updateProxyDeformation() with its current world-space vertex positions.
+   *
+   * This does not load a rig or infer a skeleton. It is the deformation
+   * transfer bridge; proxy rigging/animation authoring remains upstream.
+   */
+  bindProxyDeformation(restVertices, triangles, options = {}) {
+    if (!this.gaussians) throw new Error('Load Gaussian data before binding a proxy');
+    this.proxyDeformer = new NIFProxyDeformer(restVertices, triangles, this.gaussians.data, options);
+    this._proxyBaseData = this.gaussians.data.slice();
+    return { gaussianCount: this.gaussians.count, proxyTriangleCount: triangles.length / 3 };
+  }
+
+  /**
+   * Apply one evaluated proxy-mesh pose to the bound Gaussian cloud.
+   * The renderer's existing sort/upload path sees the updated data next frame.
+   */
+  updateProxyDeformation(deformedVertices) {
+    if (!this.proxyDeformer) throw new Error('No proxy deformation binding exists');
+    this.gaussians.data = this.proxyDeformer.update(deformedVertices);
+    this._sortFrame = -999;
+    this._wakeFromIdle?.();
+    return this.gaussians.data;
+  }
+
+  clearProxyDeformation({ restore = true } = {}) {
+    if (!this.proxyDeformer) return false;
+    if (restore && this._proxyBaseData) {
+      this.gaussians.data = this._proxyBaseData.slice();
+      this._sortFrame = -999;
+      this._wakeFromIdle?.();
+    }
+    this.proxyDeformer = null;
+    this._proxyBaseData = null;
+    return true;
+  }
+
+  /**
+   * Load per-pixel depth map (for parallax and depth-of-field effects).
   /**
    * Load per-pixel depth map (for parallax and depth-of-field effects).
    * @param {{ width, height, data:Float32Array }} depthMap
