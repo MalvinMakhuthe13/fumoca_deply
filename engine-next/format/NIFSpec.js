@@ -16,8 +16,7 @@
 
 export const NIF_MAGIC         = 0x4E494600; // 'NIF\0'
 export const NIF_VERSION_MAJOR = 1;
-export const NIF_VERSION_MINOR = 1;  // 1.1: added CALIBRATION (0x0017) and
-                                      // VERIFICATION (0x0018) chunk types.
+export const NIF_VERSION_MINOR = 2;  // 1.2: adds native GAUSSIAN_ANIMATION (0x001A).
                                       // Per §12 of NIF_SPEC_v1.0.md, this is
                                       // a minor bump — old readers that
                                       // ignore unknown chunks stay compatible.
@@ -90,6 +89,7 @@ export const CHUNK = Object.freeze({
                            // engine-next/reconstruction/verify.py and encodeVerificationChunk()
                            // below. Absence means "not verified", never inferred as "passed".
   LIDAR_ATTR:    0x0019,  // Optional per-point LiDAR intensity/class/return arrays (v1; see nif-format.js).
+  GAUSSIAN_ANIMATION: 0x001A, // Stable-ID per-Gaussian transform tracks; see encodeGaussianAnimationChunk().
   SPATIAL_AUDIO: 0x0300,  // RESERVED — ambisonics B-format + HRTF source positions.
                            // Shared ID with SPAXSpec.js's SPAX_CHUNK.SPATIAL_AUDIO — see the
                            // "Shared chunk-ID registry" note above CHUNK for why this moved
@@ -526,6 +526,73 @@ export async function decodeVerificationChunk(chunk) {
     console.warn('[NIFSpec] VERIFICATION chunk failed to decode:', e.message);
     return null;
   }
+}
+
+/**
+ * GAUSSIAN_ANIMATION chunk (NIF 1.2).
+ *
+ * JSON schema:
+ * {
+ *   schema: 'fumoca.gaussian-animation', version: 1, duration: seconds,
+ *   tracks: [{ id: uint32, keyframes: [
+ *     { time: seconds, position?: [x,y,z], scale?: [logX,logY,logZ],
+ *       rotation?: [w,x,y,z] }
+ *   ]}]
+ * }
+ *
+ * IDs refer to stable Gaussian identities, never renderer depth-sort indices.
+ * Scale is stored in the renderer's log-scale space. Appearance (opacity/SH)
+ * remains in KEYFRAME_GEO and is not implicitly animated by this v1 schema.
+ */
+function validateGaussianAnimation(animation) {
+  if (!animation || animation.schema !== 'fumoca.gaussian-animation' || animation.version !== 1) {
+    throw new Error('Unsupported Gaussian animation schema/version');
+  }
+  if (!Number.isFinite(animation.duration) || animation.duration < 0) {
+    throw new Error('Gaussian animation duration must be finite and non-negative');
+  }
+  if (!Array.isArray(animation.tracks)) throw new Error('Gaussian animation tracks must be an array');
+  const ids = new Set();
+  const vec = (value, n) => Array.isArray(value) && value.length === n && value.every(Number.isFinite);
+  for (const track of animation.tracks) {
+    if (!Number.isInteger(track?.id) || track.id < 0 || track.id > 0xFFFFFFFF) {
+      throw new Error('Gaussian track id must be an unsigned 32-bit integer');
+    }
+    if (ids.has(track.id)) throw new Error(`Duplicate Gaussian animation track id: ${track.id}`);
+    ids.add(track.id);
+    if (!Array.isArray(track.keyframes) || !track.keyframes.length) throw new Error('Each Gaussian track needs keyframes');
+    let previous = -Infinity;
+    for (const key of track.keyframes) {
+      if (!Number.isFinite(key.time) || key.time < 0 || key.time > animation.duration || key.time <= previous) {
+        throw new Error('Gaussian keyframe times must be increasing and within animation duration');
+      }
+      previous = key.time;
+      if (key.position != null && !vec(key.position, 3)) throw new Error('Gaussian position must be finite xyz');
+      if (key.scale != null && !vec(key.scale, 3)) throw new Error('Gaussian log-scale must be finite xyz');
+      if (key.rotation != null) {
+        if (!vec(key.rotation, 4)) throw new Error('Gaussian rotation must be finite wxyz');
+        const norm = Math.hypot(...key.rotation);
+        if (Math.abs(norm - 1) > 1e-3) throw new Error('Gaussian rotation quaternion must be normalized');
+      }
+      if (key.position == null && key.scale == null && key.rotation == null) {
+        throw new Error('Gaussian keyframe must animate at least one transform property');
+      }
+    }
+  }
+  return animation;
+}
+
+export function encodeGaussianAnimationChunk(animation) {
+  const valid = validateGaussianAnimation(animation);
+  return new NIFChunk(CHUNK.GAUSSIAN_ANIMATION, new TextEncoder().encode(JSON.stringify(valid)), CODEC.RAW);
+}
+
+export async function decodeGaussianAnimationChunk(chunk) {
+  if (!chunk) return null;
+  if (chunk.type !== CHUNK.GAUSSIAN_ANIMATION) throw new Error('Not a GAUSSIAN_ANIMATION chunk');
+  const bytes = await decompressChunk(chunk);
+  const animation = JSON.parse(new TextDecoder().decode(bytes));
+  return validateGaussianAnimation(animation);
 }
 
 // ─── Writer (Node.js pipeline — server-side) ──────────────────────────────────
