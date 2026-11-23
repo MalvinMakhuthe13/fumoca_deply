@@ -112,7 +112,7 @@ Objects.captureKeyframe('pot', 1);
 assert(near(Objects.evaluate('pot', 1)[potLid.id].jointValue, 0.3), 'Lift 0.3');
 
 // Simulation owned
-window.FumocaPhysics = { isSimulationOwned: () => true, queryOverlaps: () => [], syncFromEvaluation: () => {} };
+window.FumocaPhysics = { setJointClaim: () => {}, poseOwner: () => 'simulation', queryOverlaps: () => [], syncFromEvaluation: () => {} };
 const owned = lidNode.position.clone();
 Master.evaluate(1);
 assert(near(lidNode.position.x, owned.x) && near(lidNode.position.z, owned.z), 'Simulation-owned node unchanged');
