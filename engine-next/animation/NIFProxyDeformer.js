@@ -73,6 +73,7 @@ function quatMul(a,b) {
   return [w*W-x*X-y*Y-z*Z,w*X+x*W+y*Z-z*Y,w*Y-x*Z+y*W+z*X,w*Z+x*Y-y*X+z*W];
 }
 function quatNorm(q){const l=Math.hypot(...q)||1;return q.map(x=>x/l);}
+function quatInv(q){return [q[0],-q[1],-q[2],-q[3]];}
 function quatRotate(q,p) {
   const [w,x,y,z]=q, u=[x,y,z];
   return add(p,add(mul(cross(u,p),2*w),mul(cross(u,cross(u,p)),2)));
@@ -112,12 +113,12 @@ export class NIFProxyDeformer {
     for(let i=0;i<this.count;i++){
       const b=this.bindings[i],a=readVec(deformedVertices,b.ia),c=readVec(deformedVertices,b.ib),d=readVec(deformedVertices,b.ic);
       const current=frame(a,c,d);
-      const surface=add(add(mul(a,b.w[0]),mul(c,b.w[1])),mul(d,b.w[2]));
       const pos=world(current,b.offset);
-      const delta=quatFromBasis(current.x,current.y,current.z);
+      const currentFrameQ=quatFromBasis(current.x,current.y,current.z);
+      const restFrameQ=quatFromBasis(b.frame.x,b.frame.y,b.frame.z);
+      const delta=quatNorm(quatMul(currentFrameQ,quatInv(restFrameQ)));
       const restQ=[this.base[i*14+6],this.base[i*14+7],this.base[i*14+8],this.base[i*14+9]];
       const q=quatNorm(quatMul(delta,restQ));
-      const restFrame=b.frame;
       const ratios=[
         len(sub(c,a))/Math.max(EPS,len(sub(readVec(this.rest,b.ib),readVec(this.rest,b.ia)))),
         len(sub(d,a))/Math.max(EPS,len(sub(readVec(this.rest,b.ic),readVec(this.rest,b.ia)))),
