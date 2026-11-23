@@ -26,7 +26,7 @@ function selectionBox(){
 $('file').addEventListener('change',async()=>{
   try{
     const file=$('file').files?.[0];if(!file)return;
-    message('Reading NIF…');sourceBytes=await file.arrayBuffer();
+    stopPreview();message('Reading NIF…');sourceBytes=await file.arrayBuffer();
     const reader=new NIFReader(sourceBytes);
     if(!reader.isVersionSupported||reader.isCorrupted)throw new Error('Invalid or unsupported NIF file');
     gaussians=await reader.getGeometry();if(!gaussians)throw new Error('NIF has no Gaussian geometry');
@@ -113,4 +113,4 @@ $('exportNif').onclick=async()=>{
     message('Verified NIF '+report.version+' · '+report.geometryCount.toLocaleString()+' splats · '+report.trackCount.toLocaleString()+' tracks · '+report.duration+'s. Original untouched.');
   }catch(e){message('Export failed: '+(e.stack||String(e)));}
 };
-window.addEventListener('beforeunload',()=>renderer?.stop());
+window.addEventListener('beforeunload',()=>{stopPreview();renderer?.stop();});
