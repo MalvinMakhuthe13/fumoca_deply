@@ -173,6 +173,12 @@ async function _startViewerPlayback(manifest) {
       controls.time.textContent = _formatTime(context.time);
       controls.count.textContent = `${context.frameIndex + 1} / ${manifest.expectedFrameCount || manifest.frames.length}${manifest.status === 'partial' ? ' · partial' : ''}`;
     },
+    onError(error) {
+      _activePlayer?.pause();
+      controls.button.textContent = 'Play';
+      controls.count.textContent = 'Load error';
+      console.error('[FUMOCA 4D] Motion frame could not be loaded:', error);
+    },
     disposeFrame() {}
   };
   _activePlayer = FourDSequence.create(manifest, adapter, { loop: true });
