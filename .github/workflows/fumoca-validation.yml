@@ -23,6 +23,19 @@ jobs:
         run: node --input-type=module --check < js/modules/fourd-sequence.js
       - name: Run animation and 4D sequence test suite
         run: node scripts/run-anim-tests.mjs
+      - name: Test 4D capture reconstruction job contract
+        run: node --experimental-default-type=module tests/fourd-job-contract.test.mjs
+      - name: Check 4D capture and NIF worker integration
+        run: |
+          node --input-type=module --check < js/modules/fourd-capture.js
+          node --input-type=module --check < js/modules/fourd-job-contract.js
+          python -m py_compile engine-next/reconstruction/pipeline.py
+          grep -q "from('nif-videos').upload" js/modules/fourd-capture.js
+          grep -q "from('reconstruction_jobs').insert" js/modules/fourd-capture.js
+          grep -q "motion_sequence_id" js/modules/fourd-job-contract.js
+          grep -q "_extract_frames(raw, capture_mode, meta)" engine-next/reconstruction/pipeline.py
+          grep -q "Extracted.*motion-selected frames" engine-next/reconstruction/pipeline.py
+          grep -q "camera_sync_warning" js/modules/fourd-capture.js
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
