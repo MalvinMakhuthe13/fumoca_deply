@@ -177,7 +177,10 @@ async function _startViewerPlayback(manifest) {
         const requestedId = recordId;
         loadingRecordId = requestedId;
         loadingRecordPromise = window._fumocaLoadMotionSequenceNif(requestedId)
-          .then(() => { activeRecordId = requestedId; })
+          .then(loaded => {
+            if (loaded === false) throw new Error('Motion moment load was superseded');
+            activeRecordId = requestedId;
+          })
           .finally(() => { loadingRecordId = null; loadingRecordPromise = null; });
       }
       await loadingRecordPromise;
