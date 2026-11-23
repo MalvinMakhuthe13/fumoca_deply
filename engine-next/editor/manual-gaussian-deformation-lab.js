@@ -45,7 +45,7 @@ $('file').addEventListener('change',async()=>{
     if(!reader.isVersionSupported||reader.isCorrupted)throw new Error('Invalid or unsupported NIF file');
     gaussians=await reader.getGeometry();if(!gaussians)throw new Error('NIF has no Gaussian geometry');
     renderer?.stop();renderer=new NIFRenderer(canvas);renderer.loadGaussians(gaussians);renderer.setVertical(reader.header.vertical);renderer.start();
-    author=new NIFManualGaussianDeformAuthor(gaussians.data);startGizmoAnimation();
+    author=new NIFManualGaussianDeformAuthor(gaussians.data);projectionCache=null;startGizmoAnimation();
     const b=bounds(gaussians.data,gaussians.count);gizmoWorldSize=Math.max(.1,...b.max.map((v,i)=>v-b.min[i]))*.22;
     ['minx','miny','minz'].forEach((id,i)=>set(id,b.min[i]));
     ['maxx','maxy','maxz'].forEach((id,i)=>set(id,b.max[i]));
@@ -81,6 +81,7 @@ canvas.addEventListener('pointermove',e=>{
   if(selectMode!=='brush')return;
   {const p=[e.clientX-r.left,e.clientY-r.top],xy=projectedCenters(),depths=projectedDepths();author.selectScreenBrush(xy,p,val('brushRadius'),{falloff:.35,mode:'add',depths,depthRange:brushDepthRange(xy,depths,p,val('brushRadius'))});}renderSelection();
 });
+canvas.addEventListener('pointercancel',()=>{gizmoDrag=null;lassoPoints=[];});
 canvas.addEventListener('pointerup',e=>{
   if(gizmoDrag){gizmoDrag=null;return;}
   if(!author||selectMode!=='lasso'||lassoPoints.length<1)return;
