@@ -330,21 +330,22 @@ const FourDCapture = (() => {
       });
 
       _updateProgress(0.84, 'Creating reconstruction jobs…');
-      let queued = 0;
-      for (let i = 0; i < jobPayloads.length; i++) {
+      const { data: createdJobs, error: jobsError } = await sb
+        .from('reconstruction_jobs')
+        .insert(jobPayloads)
+        .select('id,status,progress');
+      if (jobsError) throw jobsError;
+      if (!Array.isArray(createdJobs) || createdJobs.length !== jobPayloads.length) {
+        throw new Error('The reconstruction queue did not confirm every motion moment.');
+      }
+      createdJobs.forEach((job, i) => {
         const payload = jobPayloads[i];
-        const { data: job, error: jobError } = await sb
-          .from('reconstruction_jobs')
-          .insert(payload)
-          .select('id,status,progress')
-          .single();
-        if (jobError) throw jobError;
         _addJob(job.id, payload.meta.title, 'pending');
         _updateJobStatus(job.id, 'pending', 'Queued for GPU worker');
         Object.assign(_sessionJobs[_sessionJobs.length - 1], { sequenceId, stateIndex: i });
-        _renderJobList();
-        queued++;
-      }
+      });
+      _renderJobList();
+      const queued = createdJobs.length;
 
       _updateProgress(1, `${queued} reconstruction job${queued === 1 ? '' : 's'} queued`);
       const status = document.getElementById('fourDProgressLabel');
