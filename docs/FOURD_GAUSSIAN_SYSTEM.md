@@ -75,8 +75,10 @@ Each selected motion moment currently becomes an independent reconstruction job 
 | 3 | Worker extracts selected timestamps and retains motion provenance in NIF metadata | Implemented on this branch |
 | 4 | Multi-camera relative-time extraction, ZIP upload and burst job dispatch | Implemented on this branch; synchronization is assumed, not calibrated |
 | 5 | Worker/GPU run against real footage, confirm job lifecycle and output artifacts | Requires live GPU-worker acceptance |
-| 6 | Assemble completed moment jobs into a durable sequence manifest | Not implemented |
-| 7 | Decode NIF/PLY frames and connect the sequence clock to Spark/Studio/viewer | Not implemented |
+| 6 | Discover completed sibling NIF jobs and assemble a hold-only sequence manifest | Implemented on this branch |
+| 7 | Connect the sequence clock to viewer NIF record loading and moment playback | Implemented on this branch; reload-based, not continuous |
+| 8 | Spark/Studio per-frame Gaussian decoder and GPU resource adapter | Not implemented |
+| 9 | True continuous dynamic Gaussian reconstruction with validated correspondence | Not implemented |
 
 
 ## Acceptance gates
