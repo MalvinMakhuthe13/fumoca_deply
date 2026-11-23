@@ -23,6 +23,8 @@ try{
  await page.waitForFunction(()=>document.getElementById('message')?.textContent.includes('Ready.'));
  await page.locator('#all').click();await page.locator('#gizmoRotate').click();await page.locator('#gizmoScale').click();await page.locator('#gizmoMove').click();
  await page.locator('#angle').fill('30');await page.locator('#fold').click();await page.locator('#time').fill('0.5');await page.locator('#easing').selectOption('ease-in-out');await page.locator('#key').click();await page.locator('#previewPlay').click();await page.waitForTimeout(150);await page.locator('#previewStop').click();
+ const projectDownload=page.waitForEvent('download');await page.locator('#exportProject').click();const project=await projectDownload,projectPath=await project.path();assert.ok(projectPath);
+ await page.locator('#importProject').click();await page.locator('#projectFile').setInputFiles(projectPath);await page.waitForFunction(()=>document.getElementById('message')?.textContent.includes('Restored'));
  const firstDownload=page.waitForEvent('download');await page.locator('#exportNif').click();const first=await firstDownload,firstPath=await first.path();assert.ok(firstPath);
  await page.locator('#file').setInputFiles(firstPath);await page.waitForFunction(()=>document.getElementById('message')?.textContent.includes('existing animation tracks reopened'));
  await page.locator('#all').click();await page.locator('#time').fill('0.75');await page.locator('#translate').click();await page.locator('#key').click();
