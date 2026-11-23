@@ -1,5 +1,6 @@
 import { NIFHeader, NIFChunk, NIFWriter, NIFReader, NIFCertificate, CHUNK, CODEC, CRS, ENCODER_TIER, crc32,
-  encodeCalibrationChunk, decodeCalibrationChunk, encodeVerificationChunk, decodeVerificationChunk }
+  encodeCalibrationChunk, decodeCalibrationChunk, encodeVerificationChunk, decodeVerificationChunk,
+  encodeGaussianAnimationChunk, decodeGaussianAnimationChunk }
   from '../format/NIFSpec.js';
 import { SPAX_CHUNK } from '../format/SPAXSpec.js';
 
@@ -27,7 +28,14 @@ writer.add(CHUNK.MATERIAL, new TextEncoder().encode(materialJson), CODEC.RAW);
 
 // timeline chunk
 const timelineJson = JSON.stringify({ keyframes: [0, 1.0, 2.0, 3.5], interp: 'catmull-rom' });
-writer.add(CHUNK.TIMELINE, new TextEncoder().encode(timelineJson), CODEC.RAW);
+writer.add(CHUNK.TIMELINE, new TextEncoder().encode(timelineJson), CODEC.RAW); // legacy reserved-ID compatibility test
+
+const gaussianAnimation = { schema: 'fumoca.gaussian-animation', version: 1, duration: 1,
+  tracks: [{ id: 17, keyframes: [
+    { time: 0, position: [0,0,0], scale: [0,0,0], rotation: [1,0,0,0] },
+    { time: 1, position: [1,2,3], scale: [0.1,0.2,0.3], rotation: [1,0,0,0] },
+  ] }] };
+writer.chunks.push(encodeGaussianAnimationChunk(gaussianAnimation));
 
 // signed certificate (COMMERCIAL tier)
 const rawKey = crypto.getRandomValues(new Uint8Array(32));
@@ -44,7 +52,7 @@ check('total byteLength matches writer.byteLength getter', bytes.length === writ
 // --- TEST 2: read it back ---
 const reader = new NIFReader(bytes.buffer);
 check('magic number correct', reader.header.magic === 0x4E494600);
-check('version correct', reader.header.versionMajor === 1 && reader.header.versionMinor === 1);
+check('version correct', reader.header.versionMajor === 1 && reader.header.versionMinor === 2);
 check('captureMode round-trips', reader.header.captureMode === 'video', reader.header.captureMode);
 check('vertical round-trips', reader.header.vertical === 'automotive', reader.header.vertical);
 check('frameCount round-trips', reader.header.frameCount === 120, reader.header.frameCount);
@@ -52,7 +60,7 @@ check('fps round-trips', reader.header.fps === 30, reader.header.fps);
 check('duration round-trips (float32 precision)', Math.abs(reader.header.duration - 4.0) < 0.001, reader.header.duration);
 check('originLat round-trips (float64 precision)', Math.abs(reader.header.originLat - (-26.2041)) < 1e-9, reader.header.originLat);
 check('originLon round-trips (float64 precision)', Math.abs(reader.header.originLon - 28.0473) < 1e-9, reader.header.originLon);
-check('chunk count correct', reader.chunks.length === 4, reader.chunks.length);
+check('chunk count correct', reader.chunks.length === 5, reader.chunks.length);
 
 // --- TEST 3: chunk data integrity ---
 const geoChunk = reader.getChunk(CHUNK.KEYFRAME_GEO);
@@ -66,6 +74,12 @@ const readMat = JSON.parse(new TextDecoder().decode(matChunk.data));
 check('material chunk round-trips', readMat.roughness === 0.4 && readMat.albedo[0] === 0.8);
 
 check('hasChunk/allChunks work', reader.hasChunk(CHUNK.TIMELINE) && reader.allChunks(CHUNK.MATERIAL).length === 1);
+const animationOut = await decodeGaussianAnimationChunk(reader.getChunk(CHUNK.GAUSSIAN_ANIMATION));
+check('GAUSSIAN_ANIMATION chunk round-trips stable IDs and transform tracks', animationOut.tracks[0].id === 17 && animationOut.tracks[0].keyframes[1].position[2] === 3);
+let badAnimationRejected = false;
+try { encodeGaussianAnimationChunk({ ...gaussianAnimation, tracks: [{ id: 17, keyframes: [{ time: 2, position: [0,0,0] }] }] }); }
+catch { badAnimationRejected = true; }
+check('GAUSSIAN_ANIMATION rejects keyframes beyond duration', badAnimationRejected);
 
 // --- TEST 4: certificate round-trip + HMAC verification ---
 const readCert = reader.getCertificate();
