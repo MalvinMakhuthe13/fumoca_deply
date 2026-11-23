@@ -122,6 +122,9 @@ function download(bytes,name,type){
   const blob=new Blob([bytes],{type}),url=URL.createObjectURL(blob),a=document.createElement('a');
   a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),10000);
 }
+$('exportProject').onclick=()=>{if(!author)return message('Load a NIF first.');const project=author.exportProject();download(JSON.stringify(project,null,2),'fumoca-manual-gaussian-project.json','application/json');message('Saved editable project with '+project.layers.length+' layers, '+project.keyframes.length+' tracks and '+project.selectionSets.length+' selection sets.');};
+$('importProject').onclick=()=>{if(!author)return message('Load the matching source NIF first.');$('projectFile').click();};
+$('projectFile').addEventListener('change',async()=>{try{const file=$('projectFile').files?.[0];if(!file)return;const project=JSON.parse(await file.text()),report=author.importProject(project),select=$('activeLayer');select.replaceChildren(...[...author.layers.keys()].map(name=>{const option=document.createElement('option');option.value=name;option.textContent=name;return option;}));select.value=author.activeLayer;renderSelection();message('Restored '+report.layerCount+' layers, '+report.trackCount+' tracks and '+report.selectionSetCount+' selection sets.');}catch(error){message('Project import failed: '+error.message);}finally{$('projectFile').value='';}});
 $('export').onclick=()=>{
   if(!author)return;
   const payload={format:'NIF_GAUSSIAN_ANIMATION_TRACKS',version:1,duration:Math.max(0,...author.exportTracks().flatMap(t=>t.keyframes.map(k=>k.time))),gaussianCount:gaussians.count,tracks:author.exportTracks()};
