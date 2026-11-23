@@ -1,0 +1,49 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { NIFWriter, CHUNK, CODEC, NIFReader, decodeGaussianAnimationChunk } from '../format/NIFSpec.js';
+import { NIFManualGaussianDeformAuthor } from '../animation/NIFManualGaussianDeformAuthor.js';
+import { encodeManualAnimationNif, verifyManualAnimationNif } from '../animation/NIFManualAnimationExport.js';
+
+function geometryChunk(points){
+  const out=new Uint8Array(5+points.length*14*4),dv=new DataView(out.buffer);
+  dv.setUint8(0,0);dv.setUint32(1,points.length,false);
+  points.forEach((p,i)=>p.forEach((v,k)=>dv.setFloat32(5+(i*14+k)*4,v,false)));
+  return out;
+}
+function sourceNif(){
+  const record=[0,0,0,0,0,0,1,0,0,0,0.8,0.2,0.3,0.4];
+  return new NIFWriter({captureMode:'video',fps:30,vertical:'generic'}).add(CHUNK.KEYFRAME_GEO,geometryChunk([record]),CODEC.RAW).build();
+}
+
+test('NIF export preserves original geometry and embeds validated manual animation',async()=>{
+  const source=sourceNif(),reader=new NIFReader(source),geometry=await reader.getGeometry();
+  const author=new NIFManualGaussianDeformAuthor(geometry.data);
+  author.selectIds([0]);author.apply({type:'fold',axis:[0,0,1],pivot:[0,0,0],angle:Math.PI/3});author.capture(0.5);
+  const output=await encodeManualAnimationNif(source,author.exportTracks(),{duration:1});
+  const report=await verifyManualAnimationNif(output);
+  assert.equal(report.geometryCount,1);assert.equal(report.trackCount,1);assert.equal(report.duration,1);
+  const result=new NIFReader(output),after=await result.getGeometry();
+  assert.deepEqual(Array.from(after.data.slice(10,14)),Array.from(geometry.data.slice(10,14)));
+  assert.ok(result.hasChunk(CHUNK.GAUSSIAN_ANIMATION));
+  const animation=await decodeGaussianAnimationChunk(result.getChunk(CHUNK.GAUSSIAN_ANIMATION));
+  assert.equal(animation.tracks[0].keyframes[0].time,0);
+});
+
+test('manual author undo and redo restore data and keyframe state',()=>{
+  const data=new Float32Array([1,0,0,0,0,0,1,0,0,0,0.8,0.2,0.3,0.4]);
+  const author=new NIFManualGaussianDeformAuthor(data);author.selectIds([0]);
+  author.apply({type:'fold',axis:[0,0,1],pivot:[0,0,0],angle:Math.PI/2});
+  const changed=Array.from(data);
+  assert.equal(author.undo(),true);assert.ok(Math.abs(data[0]-1)<1e-6);
+  assert.equal(author.redo(),true);assert.deepEqual(Array.from(data),changed);
+});
+
+test('screen-space brush and lasso selection operate on projected Gaussian centers',()=>{
+  const data=new Float32Array(3*14);
+  const author=new NIFManualGaussianDeformAuthor(data);
+  const projected=new Float32Array([0,0,10,10,20,20]);
+  author.selectScreenBrush(projected,[0,0],5);
+  assert.equal(author.selection[0],1);assert.equal(author.selection[1],0);
+  author.selectLasso(projected,[[-1,-1],[15,-1],[15,15],[-1,15]]);
+  assert.equal(author.selection[0],1);assert.equal(author.selection[1],1);assert.equal(author.selection[2],0);
+});
