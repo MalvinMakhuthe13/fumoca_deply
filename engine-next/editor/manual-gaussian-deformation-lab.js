@@ -5,7 +5,7 @@ import { NIFGaussianAnimator } from '../animation/NIFGaussianAnimator.js';
 import { encodeManualAnimationNif, verifyManualAnimationNif } from '../animation/NIFManualAnimationExport.js';
 
 const $=id=>document.getElementById(id);
-const canvas=$('scene'),gizmoCanvas=$('gizmo'),gctx=gizmoCanvas.getContext('2d');let gizmoEnabled=true,gizmoOperation='translate',gizmoDrag=null;let renderer=null,author=null,gaussians=null,sourceBytes=null,selectMode=null,lassoPoints=[],previewAnimator=null,previewSet=null,previewRaf=null,previewStart=0,previewDuration=0;
+const canvas=$('scene'),gizmoCanvas=$('gizmo'),gctx=gizmoCanvas.getContext('2d');let gizmoEnabled=true,gizmoOperation='translate',gizmoDrag=null,gizmoWorldSize=1;let renderer=null,author=null,gaussians=null,sourceBytes=null,selectMode=null,lassoPoints=[],previewAnimator=null,previewSet=null,previewRaf=null,previewStart=0,previewDuration=0;
 const projectMatrix=(m,v)=>[m[0]*v[0]+m[4]*v[1]+m[8]*v[2]+m[12],m[1]*v[0]+m[5]*v[1]+m[9]*v[2]+m[13],m[2]*v[0]+m[6]*v[1]+m[10]*v[2]+m[14],m[3]*v[0]+m[7]*v[1]+m[11]*v[2]+m[15]];
 function projectedDepths(){const view=renderer.camera.viewMatrix(),out=new Float32Array(gaussians.count);for(let i=0;i<gaussians.count;i++){const o=i*14,v=projectMatrix(view,[author.rest[o],author.rest[o+1],author.rest[o+2]]);out[i]=v[2]<0?-v[2]:Infinity;}return out;}
 function brushDepthRange(xy,depths,center,radius){if(!$('frontOnly').checked)return null;let nearest=Infinity;for(let i=0;i<depths.length;i++)if(Math.hypot(xy[i*2]-center[0],xy[i*2+1]-center[1])<=radius)nearest=Math.min(nearest,depths[i]);return Number.isFinite(nearest)?[Math.max(0,nearest-Math.max(.01,nearest*.002)),nearest+Math.max(.03,nearest*.015)]:null;}
@@ -13,7 +13,7 @@ function lassoDepthRange(xy,depths,polygon){if(!$('frontOnly').checked)return nu
 function projectedCenters(){const w=canvas.clientWidth,h=canvas.clientHeight,view=renderer.camera.viewMatrix(),proj=renderer.camera.projMatrix(w/h),out=new Float32Array(gaussians.count*2);for(let i=0;i<gaussians.count;i++){const o=i*14,p=[author.rest[o],author.rest[o+1],author.rest[o+2]],v=projectMatrix(view,p),c=projectMatrix(proj,v);if(c[3]<=0){out[i*2]=-1e6;out[i*2+1]=-1e6;continue;}out[i*2]=(c[0]/c[3]*.5+.5)*w;out[i*2+1]=(1-(c[1]/c[3]*.5+.5))*h;}return out;}
 const val=id=>Number($(id).value);
 function projectPoint(p){const w=canvas.clientWidth,h=canvas.clientHeight,view=renderer.camera.viewMatrix(),proj=renderer.camera.projMatrix(w/h),v=projectMatrix(view,p),q=projectMatrix(proj,v);if(q[3]<=0)return null;return [(q[0]/q[3]*.5+.5)*w,(1-(q[1]/q[3]*.5+.5))*h,-v[2]];}
-function gizmoAxes(){if(!author||!renderer||!gizmoEnabled)return [];const pivot=['px','py','pz'].map(val),b=bounds(author.rest,author.count),size=Math.max(.1,...b.max.map((v,i)=>v-b.min[i]))*.22,origin=projectPoint(pivot);if(!origin)return [];return [[1,0,0],[0,1,0],[0,0,1]].map(axis=>({axis,origin,end:projectPoint([pivot[0]+axis[0]*size,pivot[1]+axis[1]*size,pivot[2]+axis[2]*size]),size})).filter(a=>a.end);}
+function gizmoAxes(){if(!author||!renderer||!gizmoEnabled)return [];const pivot=['px','py','pz'].map(val),size=gizmoWorldSize,origin=projectPoint(pivot);if(!origin)return [];return [[1,0,0],[0,1,0],[0,0,1]].map(axis=>({axis,origin,end:projectPoint([pivot[0]+axis[0]*size,pivot[1]+axis[1]*size,pivot[2]+axis[2]*size]),size})).filter(a=>a.end);}
 function drawGizmo(){if(!gctx)return;const w=canvas.clientWidth,h=canvas.clientHeight,dpr=Math.min(devicePixelRatio||1,2);if(gizmoCanvas.width!==Math.round(w*dpr)||gizmoCanvas.height!==Math.round(h*dpr)){gizmoCanvas.width=Math.round(w*dpr);gizmoCanvas.height=Math.round(h*dpr);gizmoCanvas.style.width=w+'px';gizmoCanvas.style.height=h+'px';}gctx.setTransform(dpr,0,0,dpr,0,0);gctx.clearRect(0,0,w,h);if(!gizmoEnabled||!author)return;const axes=gizmoAxes();if(!axes.length)return;const o=axes[0].origin,colors=['#ff5b5b','#62e28b','#65a9ff'];gctx.lineWidth=3;axes.forEach((a,i)=>{gctx.strokeStyle=colors[i];gctx.fillStyle=colors[i];gctx.beginPath();gctx.moveTo(o[0],o[1]);gctx.lineTo(a.end[0],a.end[1]);gctx.stroke();gctx.beginPath();gctx.arc(a.end[0],a.end[1],6,0,Math.PI*2);gctx.fill();gctx.font='bold 12px system-ui';gctx.fillText(['X','Y','Z'][i],a.end[0]+8,a.end[1]-8);});gctx.fillStyle='#fff';gctx.beginPath();gctx.arc(o[0],o[1],4,0,Math.PI*2);gctx.fill();}
 
 function message(s){$('message').textContent=s;}
@@ -45,7 +45,7 @@ $('file').addEventListener('change',async()=>{
     gaussians=await reader.getGeometry();if(!gaussians)throw new Error('NIF has no Gaussian geometry');
     renderer?.stop();renderer=new NIFRenderer(canvas);renderer.loadGaussians(gaussians);renderer.setVertical(reader.header.vertical);renderer.start();
     author=new NIFManualGaussianDeformAuthor(gaussians.data);startGizmoAnimation();
-    const b=bounds(gaussians.data,gaussians.count);
+    const b=bounds(gaussians.data,gaussians.count);gizmoWorldSize=Math.max(.1,...b.max.map((v,i)=>v-b.min[i]))*.22;
     ['minx','miny','minz'].forEach((id,i)=>set(id,b.min[i]));
     ['maxx','maxy','maxz'].forEach((id,i)=>set(id,b.max[i]));
     ['px','py','pz'].forEach((id,i)=>set(id,b.center[i]));
