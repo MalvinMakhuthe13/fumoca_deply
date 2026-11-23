@@ -79,6 +79,7 @@ function quatRotate(q,p) {
   return add(p,add(mul(cross(u,p),2*w),mul(cross(u,cross(u,p)),2)));
 }
 function readVec(array,i){return [array[i*3],array[i*3+1],array[i*3+2]];}
+function readGaussianPosition(array,i){const o=i*14;return [array[o],array[o+1],array[o+2]];}
 
 export class NIFProxyDeformer {
   constructor(restVertices, triangles, gaussianData, options={}) {
@@ -92,7 +93,7 @@ export class NIFProxyDeformer {
     this.bindings=[];
     const count=this.base.length/14;
     for(let i=0;i<count;i++){
-      const p=readVec(this.base,i).slice();
+      const p=readGaussianPosition(this.base,i);
       let best=null,bestD=Infinity;
       for(let t=0;t<this.triangles.length;t+=3){
         const ia=this.triangles[t],ib=this.triangles[t+1],ic=this.triangles[t+2];
