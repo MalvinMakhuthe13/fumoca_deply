@@ -1979,7 +1979,8 @@ document.getElementById('manualGaussianLabBtn')?.addEventListener('click',()=>{
   const lab=window.open('/engine-next/editor/manual-gaussian-deformation-lab.html?studio=1','_blank');
   if(!lab){setStatus('Allow pop-ups to open the Manual Gaussian Lab.','warn');return;}
   const payload=S.gaussianSourceBytes.slice(0),name=S.fileName||'studio-source.nif';
-  lab.addEventListener('load',()=>lab.postMessage({type:'FUMOCA_MANUAL_GAUSSIAN_SOURCE',name,buffer:payload},location.origin),{once:true});
+  const onReady=event=>{if(event.origin!==location.origin||event.source!==lab||event.data?.type!=='FUMOCA_MANUAL_GAUSSIAN_READY')return;window.removeEventListener('message',onReady);lab.postMessage({type:'FUMOCA_MANUAL_GAUSSIAN_SOURCE',name,buffer:payload},location.origin);};
+  window.addEventListener('message',onReady);
 });
 let _sourceToRender = null;
 let _gizmoGesture = false;
