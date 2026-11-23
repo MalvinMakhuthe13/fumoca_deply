@@ -41,6 +41,7 @@ From Studio, load a NIF and use **Gaussian Lab** to open that active source NIF 
 - Position, log-scale, and quaternion transforms are written to the native Gaussian animation chunk. Easing metadata is validated and evaluated by the native animator.
 - Export never mutates the source byte array or writes to Supabase, R2, or production.
 - The Studio handoff only opens the original NIF source. It does not import unsaved Studio edits back into the lab.
+- Animation layers are editable authoring groups with mute/unmute and are preserved in the project sidecar. The current native NIF export flattens enabled layer keys into one playback timeline; independent clip blending and weighted multi-clip compositing are not implemented yet.
 
 ## Acceptance gates still required
 
