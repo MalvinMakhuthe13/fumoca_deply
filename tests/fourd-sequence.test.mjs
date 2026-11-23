@@ -50,6 +50,8 @@ assert.equal(player.play(), true);
 assert.equal(player.play(), false);
 const tick = queue.shift();
 tick(1000);
+const tickAgain = queue.shift();
+tickAgain(1100);
 assert.equal(player.time, 0.95);
 player.pause();
 assert.equal(player.playing, false);
