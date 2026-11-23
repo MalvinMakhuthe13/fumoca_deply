@@ -345,6 +345,7 @@ const FourDCapture = (() => {
       });
       _renderJobList();
       const queued = createdJobs.length;
+      _watchSessionJobs();
 
       _updateProgress(1, `${queued} reconstruction job${queued === 1 ? '' : 's'} queued`);
       const status = document.getElementById('fourDProgressLabel');
@@ -581,6 +582,7 @@ const FourDCapture = (() => {
       _updateJobStatus(job.id, 'pending', 'Queued for GPU worker');
       Object.assign(_sessionJobs[_sessionJobs.length - 1], { sequenceId });
       _renderJobList();
+      _watchSessionJobs();
       _updateProgress(1, 'Multi-camera reconstruction queued.');
       button.textContent = 'Queued — check Pipeline tab';
       _switchTab('pipeline');
@@ -643,6 +645,53 @@ const FourDCapture = (() => {
         <span style="flex:1">${j.label}</span>
         <span style="color:rgba(255,255,255,.35);font-size:11px">${j.statusText || j.status}</span>
       </div>`).join('');
+  }
+
+  let _jobPollTimer = null;
+  let _jobPollInFlight = false;
+  function _watchSessionJobs() {
+    if (_jobPollTimer) clearInterval(_jobPollTimer);
+    const poll = async () => {
+      if (_jobPollInFlight) return;
+      const sb = window._fumocaSupabase;
+      const ids = _sessionJobs.map(j => j.id).filter(Boolean);
+      if (!sb || !ids.length) return;
+      _jobPollInFlight = true;
+      try {
+        const { data, error } = await sb.from('reconstruction_jobs')
+          .select('id,status,progress,error_message')
+          .in('id', ids);
+        if (error) throw error;
+        for (const row of data || []) {
+          const job = _sessionJobs.find(item => item.id === row.id);
+          if (!job) continue;
+          const status = String(row.status || 'queued').toLowerCase();
+          job.status = status === 'complete' ? 'done'
+            : status === 'failed' || status === 'needs_retry' ? 'failed'
+            : status === 'processing' || status === 'running' ? 'running' : 'pending';
+          const pct = Number.isFinite(Number(row.progress)) ? Math.round(Number(row.progress)) : null;
+          job.statusText = status === 'needs_retry'
+            ? (row.error_message || 'Needs recapture')
+            : status === 'failed'
+              ? (row.error_message || 'Failed')
+              : status === 'complete'
+                ? 'Complete'
+                : `${status}${pct == null ? '' : ` · ${pct}%`}`;
+        }
+        _renderJobList();
+        const terminal = _sessionJobs.length && _sessionJobs.every(j => ['done', 'failed'].includes(j.status));
+        if (terminal && _jobPollTimer) {
+          clearInterval(_jobPollTimer);
+          _jobPollTimer = null;
+        }
+      } catch (error) {
+        console.warn('[FUMOCA 4D] Job status refresh failed:', error);
+      } finally {
+        _jobPollInFlight = false;
+      }
+    };
+    poll();
+    _jobPollTimer = setInterval(poll, 5000);
   }
 
   // ─── Helpers ───────────────────────────────────────────────────────────────
