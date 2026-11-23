@@ -1,12 +1,11 @@
 /**
  * FUMOCA 4D Capture UI
- * Orchestrates: video upload → motion analysis → subject isolation → pipeline dispatch
+ * Orchestrates: video analysis → R2 source upload → NIF reconstruction job dispatch
  * Works for both single-phone and multi-camera capture.
  * Handles slow/fast motion, people and vehicles.
  */
 
 import MA from './motion-analyzer.js';
-import SI from './subject-isolator.js';
 import MS from './motion-states.js';
 import MT from './motion-tracking.js';
 import r2 from '../r2Client.js';
