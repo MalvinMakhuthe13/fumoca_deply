@@ -42,10 +42,26 @@ export class NIFManualGaussianDeformAuthor {
     this.indexById=new Map();
     for(let i=0;i<this.count;i++){if(this.indexById.has(this.ids[i]))throw new Error('Duplicate stable Gaussian ID');this.indexById.set(this.ids[i],i);}
     this.selection=new Float32Array(this.count);
-    this.keyframes=new Map();\n    this.undoStack=[];\n    this.redoStack=[];\n    this.historyLimit=Math.max(1,Math.min(80,Math.floor((96*1024*1024)/Math.max(1,this.data.byteLength))));
+    this.keyframes=new Map();
+    this.selectionSets=new Map();\n    this.undoStack=[];\n    this.redoStack=[];\n    this.historyLimit=Math.max(1,Math.min(80,Math.floor((96*1024*1024)/Math.max(1,this.data.byteLength))));
   }
 
   clearSelection(){ this.selection.fill(0); return this.selection; }
+
+  invertSelection(){for(let i=0;i<this.count;i++)this.selection[i]=1-this.selection[i];return this.selection;}
+
+  saveSelection(name){
+    if(typeof name!=='string'||!name.trim())throw new TypeError('Selection set needs a name');
+    this.selectionSets.set(name.trim(),this.selection.slice());return name.trim();
+  }
+
+  loadSelection(name){
+    const saved=this.selectionSets.get(name);if(!saved)return false;
+    this.selection.set(saved);return this.selection;
+  }
+
+  deleteSelection(name){return this.selectionSets.delete(name);}
+
 
   _checkpoint(label='edit') {
     this.undoStack.push({label,data:this.data.slice(),keyframes:new Map([...this.keyframes].map(([id,keys])=>[id,keys.map(k=>({...k}))]))});
