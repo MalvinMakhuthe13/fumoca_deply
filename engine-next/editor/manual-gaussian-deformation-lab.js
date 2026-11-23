@@ -1,9 +1,10 @@
 import { NIFReader } from '../format/NIFSpec.js';
 import { NIFRenderer } from '../viewer-src/renderer/NIFRenderer.js';
 import { NIFManualGaussianDeformAuthor } from '../animation/NIFManualGaussianDeformAuthor.js';
+import { encodeManualAnimationNif, verifyManualAnimationNif } from '../animation/NIFManualAnimationExport.js';
 
 const $=id=>document.getElementById(id);
-const canvas=$('scene');let renderer=null,author=null,gaussians=null;
+const canvas=$('scene');let renderer=null,author=null,gaussians=null,sourceBytes=null;
 const val=id=>Number($(id).value);
 function message(s){$('message').textContent=s;}
 function bounds(data,count){
@@ -12,9 +13,7 @@ function bounds(data,count){
   return {min,max,center:min.map((v,i)=>(v+max[i])/2)};
 }
 function set(id,v){$(id).value=Number(v.toFixed(4));}
-function sync(){
-  renderer._sortFrame=-999;
-}
+function sync(){if(renderer){renderer.gaussians.data=author.data;renderer._sortFrame=-999;}}
 function selectionBox(){
   author.selectBox(['minx','miny','minz'].map(val),['maxx','maxy','maxz'].map(val),{falloff:val('falloff')});
   message('Selected '+author.selection.reduce((n,w)=>n+(w>0),0).toLocaleString()+' splats (weighted selection).');
@@ -22,8 +21,8 @@ function selectionBox(){
 $('file').addEventListener('change',async()=>{
   try{
     const file=$('file').files?.[0];if(!file)return;
-    message('Reading NIF…');
-    const reader=new NIFReader(await file.arrayBuffer());
+    message('Reading NIF…');sourceBytes=await file.arrayBuffer();
+    const reader=new NIFReader(sourceBytes);
     if(!reader.isVersionSupported||reader.isCorrupted)throw new Error('Invalid or unsupported NIF file');
     gaussians=await reader.getGeometry();if(!gaussians)throw new Error('NIF has no Gaussian geometry');
     renderer?.stop();renderer=new NIFRenderer(canvas);renderer.loadGaussians(gaussians);renderer.setVertical(reader.header.vertical);renderer.start();
@@ -33,11 +32,13 @@ $('file').addEventListener('change',async()=>{
     ['maxx','maxy','maxz'].forEach((id,i)=>set(id,b.max[i]));
     ['px','py','pz'].forEach((id,i)=>set(id,b.center[i]));
     $('status').textContent=gaussians.count.toLocaleString()+' splats · manual mode';
-    message('Ready. Select a region, set pivot and axis, then apply a transform.');
+    message('Ready. Source loaded locally; no upload or production write.');
   }catch(e){message(e.stack||String(e));}
 });
 $('all').onclick=()=>{author?.selectIds(author.ids);message('All splats selected.');};
 $('clear').onclick=()=>{author?.clearSelection();message('Selection cleared.');};
+$('undo').onclick=()=>{if(author?.undo()){sync();message('Undo complete.');}else message('Nothing to undo.');};
+$('redo').onclick=()=>{if(author?.redo()){sync();message('Redo complete.');}else message('Nothing to redo.');};
 $('box').onclick=()=>{if(author)selectionBox();};
 function apply(type){
   if(!author)return message('Load a NIF first.');
@@ -47,11 +48,26 @@ function apply(type){
 $('fold').onclick=()=>apply('fold');$('rotate').onclick=()=>apply('rotate');$('twist').onclick=()=>apply('twist');$('scale').onclick=()=>apply('scale');
 $('key').onclick=()=>{if(!author)return;const tracks=author.capture(val('time'));message('Captured '+tracks.length+' Gaussian tracks at '+val('time')+'s.');};
 $('reset').onclick=()=>{if(!author)return;author.reset();sync();message('Rest pose restored. Keyframes retained.');};
+function download(bytes,name,type){
+  const blob=new Blob([bytes],{type}),url=URL.createObjectURL(blob),a=document.createElement('a');
+  a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),10000);
+}
 $('export').onclick=()=>{
   if(!author)return;
-  const payload={format:'NIF_GAUSSIAN_ANIMATION_TRACKS',version:1,gaussianCount:gaussians.count,tracks:author.exportTracks()};
-  const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
-  const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='fumoca-manual-gaussian-tracks.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),5000);
-  message('Exported '+payload.tracks.length+' manually authored Gaussian tracks.');
+  const payload={format:'NIF_GAUSSIAN_ANIMATION_TRACKS',version:1,duration:Math.max(0,...author.exportTracks().flatMap(t=>t.keyframes.map(k=>k.time))),gaussianCount:gaussians.count,tracks:author.exportTracks()};
+  download(JSON.stringify(payload,null,2),'fumoca-manual-gaussian-tracks.json','application/json');
+  message('Exported '+payload.tracks.length+' manually-authored Gaussian tracks.');
+};
+$('exportNif').onclick=async()=>{
+  try{
+    if(!author||!sourceBytes)return message('Load a source NIF first.');
+    const tracks=author.exportTracks();if(!tracks.length)return message('Capture at least one keyframe before exporting.');
+    message('Packaging animation and verifying NIF…');
+    const duration=Math.max(0,...tracks.flatMap(t=>t.keyframes.map(k=>k.time)));
+    const bytes=await encodeManualAnimationNif(sourceBytes,tracks,{duration});
+    const report=await verifyManualAnimationNif(bytes);
+    download(bytes,'fumoca-manual-animated.nif','application/octet-stream');
+    message('Verified NIF '+report.version+' · '+report.geometryCount.toLocaleString()+' splats · '+report.trackCount.toLocaleString()+' tracks · '+report.duration+'s. Original untouched.');
+  }catch(e){message('Export failed: '+(e.stack||String(e)));}
 };
 window.addEventListener('beforeunload',()=>renderer?.stop());
