@@ -365,7 +365,7 @@ def pack_nif(chunks: list, vertical: str, fps: int = 30) -> bytes:
     """Pack a list of (chunk_type, data_bytes) into a complete .nif binary."""
     hdr = bytearray(256)
     struct.pack_into('>I', hdr, 0,  NIF_MAGIC)
-    hdr[4], hdr[5] = 1, 1          # version 1.1 — added CALIBRATION/VERIFICATION chunks
+    hdr[4], hdr[5] = 1, 2          # version 1.2 — adds optional GAUSSIAN_ANIMATION chunk
     struct.pack_into('>q', hdr, 8,  int(time.time() * 1000))
     hdr[16] = 0                     # CRS: LOCAL
     struct.pack_into('>H', hdr, 18, 1)   # frameCount
