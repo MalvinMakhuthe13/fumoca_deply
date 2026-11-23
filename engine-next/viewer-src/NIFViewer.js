@@ -255,6 +255,7 @@ export class NIFViewer {
   }
 
   stop() {
+    this.pauseGaussianAnimation();
     this._renderer?.stop();
     this._preview?.destroy();
   }
