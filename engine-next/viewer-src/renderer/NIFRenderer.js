@@ -387,6 +387,8 @@ void main() {
 
     this.gaussians    = gaussians;
     this.gaussianAnimator = null; // animation bindings belong to one loaded asset only
+    this.proxyDeformer = null;
+    this._proxyBaseData = null;
     this._drawnCount  = count;
     this._activeLayer = null; // null = render all layers
 
