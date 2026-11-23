@@ -45,6 +45,13 @@ export function buildMotionSequenceManifest(records, sequenceId, publicUrl = (ke
       throw new Error('Motion moment timestamps must be strictly increasing');
     }
   }
+  const expectedFrameCount = Math.max(
+    frames.length,
+    ...ordered.map(item => Number(item.row.meta.motion_state_count) || 0)
+  );
+  const presentIndices = new Set(ordered.map(item => item.index));
+  const missingStateIndices = Array.from({ length: expectedFrameCount }, (_, index) => index)
+    .filter(index => !presentIndices.has(index));
   const frameRate = 30;
   const duration = Math.max(frames[frames.length - 1].time + 1 / frameRate, 1 / frameRate);
   return {
@@ -54,6 +61,9 @@ export function buildMotionSequenceManifest(records, sequenceId, publicUrl = (ke
     duration,
     frameRate,
     interpolation: 'hold',
+    status: missingStateIndices.length ? 'partial' : 'complete',
+    expectedFrameCount,
+    missingStateIndices,
     frames
   };
 }
@@ -156,7 +166,7 @@ async function _startViewerPlayback(manifest) {
       controls.seek.max = String(manifest.duration);
       controls.seek.value = String(context.time);
       controls.time.textContent = _formatTime(context.time);
-      controls.count.textContent = `${context.frameIndex + 1} / ${manifest.frames.length}`;
+      controls.count.textContent = `${context.frameIndex + 1} / ${manifest.expectedFrameCount || manifest.frames.length}${manifest.status === 'partial' ? ' · partial' : ''}`;
     },
     disposeFrame() {}
   };
