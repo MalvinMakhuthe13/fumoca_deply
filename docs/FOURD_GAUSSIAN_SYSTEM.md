@@ -52,7 +52,7 @@ The manifest deliberately does not pretend that topology equality has already be
 
 ## Implementation status on this branch
 
-<badge>Phase 1 — foundation</badge>
+### Phase 1 — foundation
 
 - Added `js/modules/fourd-sequence.js`: manifest validation, timestamp-to-frame lookup, one playback clock, seek/play/pause/speed/loop, prefetch cache, adapter lifecycle, and cleanup.
 - Added `tests/fourd-sequence.test.mjs` and included it in `scripts/run-anim-tests.mjs`.
