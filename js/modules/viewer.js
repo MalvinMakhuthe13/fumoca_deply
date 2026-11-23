@@ -2514,6 +2514,15 @@ window._fumocaLoadMotionSequenceNif = async function(recordId) {
   if (!nextUrl) throw new Error('Could not resolve the motion sequence NIF URL');
   if (token !== _motionSequenceLoadToken) return false;
 
+  const previousCamera = window._fumocaViewerCamera || window._fumocaViewer?.camera || null;
+  const previousControls = window._fumocaViewerControls || window._fumocaViewer?.controls || null;
+  const cameraPose = previousCamera ? {
+    position: previousCamera.position?.toArray?.() || null,
+    quaternion: previousCamera.quaternion?.toArray?.() || null,
+    fov: previousCamera.fov,
+    zoom: previousCamera.zoom,
+    target: previousControls?.target?.toArray?.() || null
+  } : null;
   try { _fumocaClearRendererPreview(); } catch (_) {}
   currentRecord = row;
   fileUrl = nextUrl;
@@ -2531,7 +2540,19 @@ window._fumocaLoadMotionSequenceNif = async function(recordId) {
   if (nifTitle) nifTitle.textContent = row.title || 'Motion moment';
   const loaded = await mountInteractiveViewer(true);
   if (!loaded) throw new Error('Viewer could not mount the requested motion moment');
-  return token === _motionSequenceLoadToken;
+  if (token !== _motionSequenceLoadToken) return false;
+  const nextCamera = window._fumocaViewerCamera || window._fumocaViewer?.camera || null;
+  const nextControls = window._fumocaViewerControls || window._fumocaViewer?.controls || null;
+  if (cameraPose && nextCamera) {
+    if (cameraPose.position) nextCamera.position.fromArray(cameraPose.position);
+    if (cameraPose.quaternion) nextCamera.quaternion.fromArray(cameraPose.quaternion);
+    if (Number.isFinite(cameraPose.fov)) nextCamera.fov = cameraPose.fov;
+    if (Number.isFinite(cameraPose.zoom)) nextCamera.zoom = cameraPose.zoom;
+    if (cameraPose.target && nextControls?.target) nextControls.target.fromArray(cameraPose.target);
+    nextCamera.updateProjectionMatrix?.();
+    nextControls?.update?.();
+  }
+  return true;
 };
 
 function activatePreset(name) {
