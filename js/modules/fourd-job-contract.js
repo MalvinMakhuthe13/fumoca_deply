@@ -3,7 +3,7 @@
  * Converts the browser's motion analysis into the existing reconstruction_jobs schema.
  * No database or storage access lives here, so the contract can be tested without credentials.
  */
-export function build4DCaptureJobs({ analysis, recordId = null, sourceKey, userId, sequenceId, requestedIsolation = true }) {
+export function build4DCaptureJobs({ analysis, recordId = null, sourceKey, userId, sequenceId, vertical = 'generic', requestedIsolation = true }) {
   if (!analysis || !Array.isArray(analysis.jobs) || !analysis.jobs.length) {
     throw new TypeError('4D capture analysis contains no reconstruction jobs');
   }
@@ -25,7 +25,7 @@ export function build4DCaptureJobs({ analysis, recordId = null, sourceKey, userI
       user_id: userId,
       status: 'queued',
       progress: 0,
-      vertical: 'generic',
+      vertical: String(vertical || 'generic'),
       capture_mode: 'video',
       raw_r2_key: sourceKey,
       meta: {
