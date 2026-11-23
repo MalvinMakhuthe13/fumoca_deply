@@ -47,3 +47,25 @@ test('screen-space brush and lasso selection operate on projected Gaussian cente
   author.selectLasso(projected,[[-1,-1],[15,-1],[15,15],[-1,15]]);
   assert.equal(author.selection[0],1);assert.equal(author.selection[1],1);assert.equal(author.selection[2],0);
 });
+
+test('manual layers, keyframe editing and easing survive track export',()=>{
+  const data=new Float32Array([1,0,0,0,0,0,1,0,0,0,.8,.2,.3,.4]);
+  const author=new NIFManualGaussianDeformAuthor(data);
+  author.selectIds([0]);
+  author.createLayer('Arm');
+  author.apply({type:'translate',direction:[1,0,0],amount:1});
+  author.capture(.5,{easing:'ease-in-out'});
+  const tracks=author.exportTracks();
+  assert.equal(tracks[0].keyframes[1].easing,'ease-in-out');
+  assert.equal(author.moveKeyframe(.5,.75),1);
+  assert.equal(author.deleteKeyframe(.75),1);
+  assert.equal(author.exportTracks().length,0);
+});
+test('world-space nonuniform scale updates Gaussian covariance orientation and radii',()=>{
+  const angle=Math.PI/4,q=[Math.cos(angle/2),0,0,Math.sin(angle/2)];
+  const data=new Float32Array([1,0,0,0,0,0,...q,.8,.2,.3,.4]);
+  const author=new NIFManualGaussianDeformAuthor(data);author.selectIds([0]);
+  author.apply({type:'scale',pivot:[0,0,0],scale:[2,1,1]});
+  assert.ok(data.slice(6,10).some((v,i)=>Math.abs(v-q[i])>1e-3));
+  assert.ok(data[3]>0);
+});
