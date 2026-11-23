@@ -25,6 +25,8 @@ jobs:
         run: node scripts/run-anim-tests.mjs
       - name: Test 4D capture reconstruction job contract
         run: node --experimental-default-type=module tests/fourd-job-contract.test.mjs
+      - name: Test completed 4D NIF sequence assembly
+        run: node --experimental-default-type=module tests/fourd-sequence-library.test.mjs
       - name: Check 4D capture and NIF worker integration
         run: |
           node --input-type=module --check < js/modules/fourd-capture.js
