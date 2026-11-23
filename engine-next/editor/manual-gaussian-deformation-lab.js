@@ -1,10 +1,11 @@
 import { NIFReader } from '../format/NIFSpec.js';
 import { NIFRenderer } from '../viewer-src/renderer/NIFRenderer.js';
 import { NIFManualGaussianDeformAuthor } from '../animation/NIFManualGaussianDeformAuthor.js';
+import { NIFGaussianAnimator } from '../animation/NIFGaussianAnimator.js';
 import { encodeManualAnimationNif, verifyManualAnimationNif } from '../animation/NIFManualAnimationExport.js';
 
 const $=id=>document.getElementById(id);
-const canvas=$('scene');let renderer=null,author=null,gaussians=null,sourceBytes=null,selectMode=null,lassoPoints=[];
+const canvas=$('scene');let renderer=null,author=null,gaussians=null,sourceBytes=null,selectMode=null,lassoPoints=[],previewAnimator=null,previewSet=null,previewRaf=null,previewStart=0,previewDuration=0;
 const projectMatrix=(m,v)=>[m[0]*v[0]+m[4]*v[1]+m[8]*v[2]+m[12],m[1]*v[0]+m[5]*v[1]+m[9]*v[2]+m[13],m[2]*v[0]+m[6]*v[1]+m[10]*v[2]+m[14],m[3]*v[0]+m[7]*v[1]+m[11]*v[2]+m[15]];
 function projectedCenters(){const w=canvas.clientWidth,h=canvas.clientHeight,view=renderer.camera.viewMatrix(),proj=renderer.camera.projMatrix(w/h),out=new Float32Array(gaussians.count*2);for(let i=0;i<gaussians.count;i++){const o=i*14,p=[author.rest[o],author.rest[o+1],author.rest[o+2]],v=projectMatrix(view,p),c=projectMatrix(proj,v);if(c[3]<=0){out[i*2]=-1e6;out[i*2+1]=-1e6;continue;}out[i*2]=(c[0]/c[3]*.5+.5)*w;out[i*2+1]=(1-(c[1]/c[3]*.5+.5))*h;}return out;}
 const val=id=>Number($(id).value);
@@ -15,7 +16,9 @@ function bounds(data,count){
   return {min,max,center:min.map((v,i)=>(v+max[i])/2)};
 }
 function set(id,v){$(id).value=Number(v.toFixed(4));}
-function sync(){if(renderer){renderer.gaussians.data=author.data;renderer._sortFrame=-999;}}
+function sync(){stopPreview();if(renderer){renderer.gaussians=gaussians;gaussians.data=author.data;renderer._sortFrame=-999;}}
+function stopPreview(){if(previewRaf!=null)cancelAnimationFrame(previewRaf);previewRaf=null;previewAnimator=null;previewSet=null;if(renderer&&author){renderer.gaussians=gaussians;gaussians.data=author.data;renderer._sortFrame=-999;}}
+function evaluatePreview(t){if(!previewAnimator)return;previewAnimator.evaluate(Math.max(0,Math.min(previewDuration,t)));renderer.gaussians=previewSet;renderer._sortFrame=-999;$('timeline').value=String(t);$('timelineTime').textContent=t.toFixed(2)+'s';}
 function selectionBox(){
   author.selectBox(['minx','miny','minz'].map(val),['maxx','maxy','maxz'].map(val),{falloff:val('falloff')});
   message('Selected '+author.selection.reduce((n,w)=>n+(w>0),0).toLocaleString()+' splats (weighted selection).');
@@ -70,6 +73,19 @@ function apply(type){
   sync();message(type+' applied to selected splats.');
 }
 $('fold').onclick=()=>apply('fold');$('rotate').onclick=()=>apply('rotate');$('twist').onclick=()=>apply('twist');$('scale').onclick=()=>apply('scale');$('translate').onclick=()=>apply('translate');$('inflate').onclick=()=>apply('inflate');$('deflate').onclick=()=>apply('deflate');
+
+$('timeline').oninput=()=>{if(!author)return;const tracks=author.exportTracks();if(!tracks.length)return message('Capture keyframes first.');if(!previewAnimator){previewSet={count:gaussians.count,data:author.rest.slice()};previewAnimator=new NIFGaussianAnimator(previewSet,tracks,author.ids);previewDuration=Math.max(.001,...tracks.flatMap(t=>t.keyframes.map(k=>k.time)));$('timeline').max=String(previewDuration);}evaluatePreview(val('timeline'));};
+$('previewStop').onclick=()=>{stopPreview();$('timeline').value='0';$('timelineTime').textContent='0.00s';message('Animation preview stopped.');};
+$('previewPlay').onclick=()=>{
+  if(!author)return message('Load a NIF first.');
+  const tracks=author.exportTracks();if(!tracks.length)return message('Capture keyframes first.');
+  stopPreview();previewSet={count:gaussians.count,data:author.rest.slice()};previewAnimator=new NIFGaussianAnimator(previewSet,tracks,author.ids);
+  previewDuration=Math.max(.001,...tracks.flatMap(t=>t.keyframes.map(k=>k.time)));$('timeline').max=String(previewDuration);
+  previewStart=performance.now()-val('timeline')*1000;
+  const tick=now=>{const t=((now-previewStart)/1000)%previewDuration;evaluatePreview(t);previewRaf=requestAnimationFrame(tick);};previewRaf=requestAnimationFrame(tick);
+  message('Playing manually-authored Gaussian animation preview.');
+};
+
 $('key').onclick=()=>{if(!author)return;const tracks=author.capture(val('time'));message('Captured '+tracks.length+' Gaussian tracks at '+val('time')+'s.');};
 $('reset').onclick=()=>{if(!author)return;author.reset();sync();message('Rest pose restored. Keyframes retained.');};
 function download(bytes,name,type){
