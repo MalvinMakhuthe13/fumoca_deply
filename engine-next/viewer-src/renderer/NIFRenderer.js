@@ -1152,6 +1152,7 @@ export class Camera {
   }
 
   _onZoom(delta) {
+    this._renderer?._wakeFromIdle?.();
     const d = v3.sub(this.position, this.target);
     const r = Math.max(this.near * 10, v3.len(d) * (1 + delta * 0.0008));
     this.position = v3.add(this.target, v3.scale(v3.norm(d), r));
@@ -1161,7 +1162,11 @@ export class Camera {
 
   _bindEvents() {
     const c   = this.canvas;
-    const on  = (e, fn, opt) => c.addEventListener(e, fn, opt ?? { passive: e !== 'wheel' });
+    // Any handler that calls preventDefault must be explicitly non-passive.
+    // Keep passive defaults for high-frequency listeners that do not cancel input.
+    const on  = (e, fn, opt) => c.addEventListener(e, fn, opt ?? {
+      passive: !['wheel', 'contextmenu', 'touchmove'].includes(e),
+    });
     const won = (e, fn) => window.addEventListener(e, fn, { passive: true });
 
     on('mousedown', e => {
@@ -1217,6 +1222,7 @@ export class Camera {
   }
 
   _onMouseMove(cx, cy) {
+    this._renderer?._wakeFromIdle?.();
     const dx = cx - this._last.x;
     const dy = cy - this._last.y;
     this._last = { x: cx, y: cy };
