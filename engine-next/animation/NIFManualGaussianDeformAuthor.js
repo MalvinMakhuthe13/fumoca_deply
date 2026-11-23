@@ -42,10 +42,52 @@ export class NIFManualGaussianDeformAuthor {
     this.indexById=new Map();
     for(let i=0;i<this.count;i++){if(this.indexById.has(this.ids[i]))throw new Error('Duplicate stable Gaussian ID');this.indexById.set(this.ids[i],i);}
     this.selection=new Float32Array(this.count);
-    this.keyframes=new Map();
+    this.keyframes=new Map();\n    this.undoStack=[];\n    this.redoStack=[];\n    this.historyLimit=80;
   }
 
   clearSelection(){ this.selection.fill(0); return this.selection; }
+
+  _checkpoint(label='edit') {
+    this.undoStack.push({label,data:this.data.slice(),keyframes:new Map([...this.keyframes].map(([id,keys])=>[id,keys.map(k=>({...k}))]))});
+    if(this.undoStack.length>this.historyLimit)this.undoStack.shift();
+    this.redoStack.length=0;
+  }
+
+  undo() {
+    const previous=this.undoStack.pop();if(!previous)return false;
+    this.redoStack.push({label:previous.label,data:this.data.slice(),keyframes:new Map([...this.keyframes].map(([id,keys])=>[id,keys.map(k=>({...k}))]))});
+    this.data.set(previous.data);this.output.set(previous.data);this.keyframes=previous.keyframes;return true;
+  }
+
+  redo() {
+    const next=this.redoStack.pop();if(!next)return false;
+    this.undoStack.push({label:next.label,data:this.data.slice(),keyframes:new Map([...this.keyframes].map(([id,keys])=>[id,keys.map(k=>({...k}))]))});
+    this.data.set(next.data);this.output.set(next.data);this.keyframes=next.keyframes;return true;
+  }
+
+  selectScreenBrush(projectedXY, center, radius, {falloff=0,mode='replace',weight=1}={}) {
+    if(!(projectedXY instanceof Float32Array)||projectedXY.length!==this.count*2)throw new TypeError('projectedXY must contain one screen-space xy pair per Gaussian');
+    if(!vec(center)||!(radius>0))throw new TypeError('Brush needs a screen-space center and positive radius');
+    if(mode==='replace')this.clearSelection();
+    const inner=radius*(1-clamp(falloff,0,1)),w=clamp(weight,0,1);
+    for(let i=0;i<this.count;i++){
+      const dx=projectedXY[i*2]-center[0],dy=projectedXY[i*2+1]-center[1],d=Math.hypot(dx,dy);
+      if(d>radius)continue;
+      const value=w*(d<=inner?1:1-smooth((d-inner)/Math.max(EPS,radius-inner)));
+      this.selection[i]=mode==='subtract'?0:mode==='add'?Math.max(this.selection[i],value):value;
+    }
+    return this.selection;
+  }
+
+  selectLasso(projectedXY, polygon, {mode='replace',weight=1}={}) {
+    if(!(projectedXY instanceof Float32Array)||projectedXY.length!==this.count*2)throw new TypeError('projectedXY must contain one screen-space xy pair per Gaussian');
+    if(!Array.isArray(polygon)||polygon.length<3||polygon.some(p=>!vec(p)))throw new TypeError('Lasso needs at least three screen-space xy points');
+    if(mode==='replace')this.clearSelection();
+    const inside=(x,y)=>{let hit=false;for(let i=0,j=polygon.length-1;i<polygon.length;j=i++){const a=polygon[i],b=polygon[j];if(((a[1]>y)!==(b[1]>y))&&(x<(b[0]-a[0])*(y-a[1])/(b[1]-a[1])+a[0]))hit=!hit;}return hit;};
+    const w=clamp(weight,0,1);
+    for(let i=0;i<this.count;i++)if(inside(projectedXY[i*2],projectedXY[i*2+1]))this.selection[i]=mode==='subtract'?0:mode==='add'?Math.max(this.selection[i],w):w;
+    return this.selection;
+  }
 
   selectIds(ids,{mode='replace',weight=1}={}) {
     if(mode==='replace') this.clearSelection();
@@ -152,7 +194,7 @@ export class NIFManualGaussianDeformAuthor {
   }
 
   reset({clearKeyframes=false}={}) {
-    this.output.set(this.rest);this.data.set(this.rest);this.selection.fill(0);
+    this._checkpoint('reset');\n    this.output.set(this.rest);this.data.set(this.rest);this.selection.fill(0);
     if(clearKeyframes)this.keyframes.clear();
     return this.data;
   }
