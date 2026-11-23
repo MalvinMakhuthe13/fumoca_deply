@@ -216,9 +216,9 @@ void main() {
   // Build 3D covariance in camera space: Σ = (R·diag(s))·(R·diag(s))ᵀ
   vec3 s   = exp(a_scale);
   mat3 R   = mat3(u_view) * q2m(a_rot);
-  mat3 M   = mat3(R[0]*s.x, R[1]*s.x, R[2]*s.x,
-                  R[0]*s.y, R[1]*s.y, R[2]*s.y,
-                  R[0]*s.z, R[1]*s.z, R[2]*s.z);
+  // GLSL mat3 accepts three column vectors (or nine scalar values).
+  // Scale each rotation column by its corresponding Gaussian axis scale.
+  mat3 M   = mat3(R[0]*s.x, R[1]*s.y, R[2]*s.z);
   mat3 Sigma3 = M * transpose(M);
 
   // Jacobian of perspective projection at cam
