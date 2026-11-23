@@ -69,3 +69,18 @@ test('world-space nonuniform scale updates Gaussian covariance orientation and r
   assert.ok(data.slice(6,10).some((v,i)=>Math.abs(v-q[i])>1e-3));
   assert.ok(data[3]>0);
 });
+
+test('connected selection growth remains practical on Puma-sized Gaussian sets',()=>{
+  const count=23485,data=new Float32Array(count*14);
+  for(let i=0;i<count;i++){const o=i*14;data[o]=(i%97)*.01;data[o+1]=Math.floor(i/97)*.01;data[o+2]=0;data[o+6]=1;data[o+10]=.8;}
+  const author=new NIFManualGaussianDeformAuthor(data);author.selectIds([0]);
+  const start=performance.now();author.growSelection(.035,{iterations:2,falloff:.35});const elapsed=performance.now()-start;
+  assert.ok(author.selection.some(v=>v>0));
+  assert.ok(elapsed<5000, 'spatially indexed selection growth exceeded 5 seconds');
+});
+test('inflate and deflate safely handle a selected Gaussian at the pivot',()=>{
+  const data=new Float32Array([0,0,0,0,0,0,1,0,0,0,.8,.2,.3,.4]);
+  const author=new NIFManualGaussianDeformAuthor(data);author.selectIds([0]);
+  assert.doesNotThrow(()=>author.apply({type:'inflate',pivot:[0,0,0],amount:.1}));
+  assert.ok(Number.isFinite(data[0])&&Number.isFinite(data[3]));
+});
