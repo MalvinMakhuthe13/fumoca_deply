@@ -111,7 +111,8 @@ $('previewPlay').onclick=()=>{
   message('Playing manually-authored Gaussian animation preview.');
 };
 
-$('addLayer').onclick=()=>{if(!author)return;try{author.createLayer($('layerName').value);message('Created and activated layer '+author.activeLayer+'.');}catch(e){message(e.message);}};
+$('addLayer').onclick=()=>{if(!author)return;try{author.createLayer($('layerName').value);const option=document.createElement('option');option.value=author.activeLayer;option.textContent=author.activeLayer;$('activeLayer').append(option);$('activeLayer').value=author.activeLayer;message('Created and activated layer '+author.activeLayer+'.');}catch(e){message(e.message);}};
+$('activeLayer').onchange=()=>{if(author)author.setActiveLayer($('activeLayer').value);};
 $('toggleLayer').onclick=()=>{if(!author)return;author.setLayerEnabled(author.activeLayer,!author.layers.get(author.activeLayer));message('Layer '+author.activeLayer+' '+(author.layers.get(author.activeLayer)?'enabled':'muted')+'.');};
 $('deleteKey').onclick=()=>{if(!author)return;message('Deleted '+author.deleteKeyframe(val('time'))+' keyframes at '+val('time')+'s.');};
 $('moveKey').onclick=()=>{if(!author)return;message('Moved '+author.moveKeyframe(val('moveFrom'),val('time'))+' keyframes to '+val('time')+'s.');};
