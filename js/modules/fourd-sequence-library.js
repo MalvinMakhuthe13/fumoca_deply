@@ -122,6 +122,13 @@ function _ensurePlaybackControls() {
   return _activeControls;
 }
 
+async function _stopViewerPlayback() {
+  if (_activePlayer) await _activePlayer.dispose();
+  _activePlayer = null;
+  if (window._fumocaMotionSequencePlayer) window._fumocaMotionSequencePlayer = null;
+  if (_activeControls?.root) _activeControls.root.style.display = 'none';
+}
+
 async function _startViewerPlayback(manifest) {
   if (!window._fumocaLoadMotionSequenceNif || !window.Fumoca4DSequence) {
     throw new Error('Viewer NIF frame loader is not ready');
@@ -165,12 +172,22 @@ async function _startViewerPlayback(manifest) {
 async function _onRecordLoaded(event) {
   const record = event?.detail?.record || window._fumocaCurrentRecord || null;
   const sequenceId = record?.meta?.motion_sequence_id;
-  if (!sequenceId || !window._fumocaSupabase) return;
+  if (!sequenceId) {
+    _loadGeneration++;
+    _lastSequenceId = null;
+    _sequenceRetryCount = 0;
+    if (_sequenceRetryTimer) clearTimeout(_sequenceRetryTimer);
+    _sequenceRetryTimer = null;
+    await _stopViewerPlayback();
+    return;
+  }
+  if (!window._fumocaSupabase) return;
   if (sequenceId !== _lastSequenceId) {
     _lastSequenceId = sequenceId;
     _sequenceRetryCount = 0;
     if (_sequenceRetryTimer) clearTimeout(_sequenceRetryTimer);
     _sequenceRetryTimer = null;
+    await _stopViewerPlayback();
   }
   const generation = ++_loadGeneration;
   try {
