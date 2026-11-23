@@ -2200,7 +2200,7 @@ async function mountPublishedSparkPly(url) {
 }
 async function mountInteractiveViewer(forceReload = false) {
   const activeUrl = getActivenifUrl();
-  if ((!forceReload && viewerInstance) || !activeUrl) return;
+  if ((!forceReload && viewerInstance) || !activeUrl) return false;
   if (forceReload) { rendererPreviewPending = true; showStageFreeze(); _fumocaShowPipelineIllusion('Applying editsâ€¦', 1680); }
   if (forceReload) await destroyViewer();
   setLoading(forceReload ? 'Refreshing cleanupâ€¦' : 'Loading interactive nifâ€¦');
@@ -2482,6 +2482,7 @@ window._fumocaRenderer = {
         }));
       }
     }, 800); // 800ms â€” enough for first sort pass to complete
+    return true;
   } catch (err) {
     rendererPreviewPending = false;
     console.error('[FUMOCA viewer]', err);
@@ -2498,6 +2499,7 @@ window._fumocaRenderer = {
       } catch (_) {}
     }
     showError(`Failed to load nif: ${msg}`);
+    return false;
   }
 }
 
@@ -2527,7 +2529,8 @@ window._fumocaLoadMotionSequenceNif = async function(recordId) {
     record: row,
   };
   if (nifTitle) nifTitle.textContent = row.title || 'Motion moment';
-  await mountInteractiveViewer(true);
+  const loaded = await mountInteractiveViewer(true);
+  if (!loaded) throw new Error('Viewer could not mount the requested motion moment');
   return token === _motionSequenceLoadToken;
 };
 
