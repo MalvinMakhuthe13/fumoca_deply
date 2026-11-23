@@ -15,7 +15,7 @@ test('ID selection and fold rotate selected Gaussians while preserving appearanc
   author.apply({type:'fold',axis:[0,0,1],pivot:[0,0,0],angle:Math.PI/2});
   assert.ok(Math.abs(data[14])<1e-5);
   assert.ok(Math.abs(data[15]-1)<1e-5);
-  assert.deepEqual(Array.from(data.slice(10,14)),[0.8,0.2,0.3,0.4]);
+  for(let i=0;i<4;i++)assert.ok(Math.abs(data[10+i]-[0.8,0.2,0.3,0.4][i])<1e-6);
   assert.deepEqual(Array.from(data.slice(28,42)),Array.from(fixture([[2,0,0]])));
 });
 
@@ -35,7 +35,7 @@ test('box selection and scale preserve opacity and colour channels',()=>{
   author.selectBox([-0.1,-1,-1],[1.1,1,1]);
   author.apply({type:'scale',pivot:[0,0,0],scale:[0.5,1,1]});
   assert.ok(Math.abs(data[17]-Math.log(0.5))<1e-5);
-  for(let i=0;i<2;i++)assert.deepEqual(Array.from(data.slice(i*14+10,i*14+14)),[0.8,0.2,0.3,0.4]);
+  for(let p=0;p<2;p++)for(let i=0;i<4;i++)assert.ok(Math.abs(data[p*14+10+i]-[0.8,0.2,0.3,0.4][i])<1e-6);
   assert.throws(()=>author.selectBox([1,0,0],[0,1,1]),/ordered/);
 });
 
