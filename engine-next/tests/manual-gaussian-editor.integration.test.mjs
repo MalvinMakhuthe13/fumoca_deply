@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { NIFWriter, CHUNK, CODEC, NIFReader, decodeGaussianAnimationChunk } from '../format/NIFSpec.js';
 import { NIFManualGaussianDeformAuthor } from '../animation/NIFManualGaussianDeformAuthor.js';
+import { NIFGaussianAnimator } from '../animation/NIFGaussianAnimator.js';
 import { encodeManualAnimationNif, verifyManualAnimationNif } from '../animation/NIFManualAnimationExport.js';
 
 function geometryChunk(points){
@@ -83,4 +84,12 @@ test('inflate and deflate safely handle a selected Gaussian at the pivot',()=>{
   const author=new NIFManualGaussianDeformAuthor(data);author.selectIds([0]);
   assert.doesNotThrow(()=>author.apply({type:'inflate',pivot:[0,0,0],amount:.1}));
   assert.ok(Number.isFinite(data[0])&&Number.isFinite(data[3]));
+});
+
+test('native animator applies easing without changing colour or opacity',()=>{
+  const data=new Float32Array([0,0,0,0,0,0,1,0,0,0,.8,.2,.3,.4]),g={count:1,data};
+  const animator=new NIFGaussianAnimator(g,[{id:0,keyframes:[{time:0,position:[0,0,0],easing:'ease-in'},{time:1,position:[1,0,0]}]}]);
+  animator.evaluate(.5);
+  assert.ok(Math.abs(g.data[0]-.25)<1e-5);
+  assert.deepEqual(Array.from(g.data.slice(10,14)),[.8,.2,.3,.4].map(Math.fround));
 });
