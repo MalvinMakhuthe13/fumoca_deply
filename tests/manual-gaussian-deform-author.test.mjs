@@ -34,7 +34,9 @@ test('box selection and scale preserve opacity and colour channels',()=>{
   const author=new NIFManualGaussianDeformAuthor(data);
   author.selectBox([-0.1,-1,-1],[1.1,1,1]);
   author.apply({type:'scale',pivot:[0,0,0],scale:[0.5,1,1]});
-  const scales=Array.from(data.slice(17,20)).sort((a,b)=>a-b);\n  assert.ok(Math.abs(scales[0]-Math.log(0.5))<1e-5);\n  assert.ok(Math.abs(scales[1])<1e-5&&Math.abs(scales[2])<1e-5);
+  const scales=Array.from(data.slice(17,20)).sort((a,b)=>a-b);
+  assert.ok(Math.abs(scales[0]-Math.log(0.5))<1e-5);
+  assert.ok(Math.abs(scales[1])<1e-5&&Math.abs(scales[2])<1e-5);
   for(let p=0;p<2;p++)for(let i=0;i<4;i++)assert.ok(Math.abs(data[p*14+10+i]-[0.8,0.2,0.3,0.4][i])<1e-6);
   assert.throws(()=>author.selectBox([1,0,0],[0,1,1]),/ordered/);
 });
