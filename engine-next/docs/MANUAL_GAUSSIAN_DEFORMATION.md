@@ -24,7 +24,7 @@ From Studio, load a NIF and use **Gaussian Lab** to open that active source NIF 
 3. Enable front-surface-only selection to filter brush/lasso hits by camera-space depth. This is a centre-depth approximation, not a per-pixel depth-buffer or semantic surface test.
 4. Grow a selection through nearby Gaussian centres using a spatial hash. The growth radius and falloff are adjustable in the authoring core.
 5. Save and restore named selection sets for the current session.
-6. Set a pivot and axis, or drag the XYZ translation gizmo in the viewport. A gizmo drag is grouped into one undoable edit.
+6. Set a pivot and axis, or drag the XYZ gizmo in move, rotate, or scale mode in the viewport. A gizmo drag is grouped into one undoable edit.
 7. Apply fold/bend, rotation, twist, translation, inflate/deflate, or non-uniform scale/compression.
 8. Undo or redo edits. History is bounded by an approximate memory budget.
 9. Create named animation layers, mute/unmute them, and choose the active layer.
