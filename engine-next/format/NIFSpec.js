@@ -191,8 +191,14 @@ function concat(...arrays) {
   const out   = new Uint8Array(total);
   let offset  = 0;
   for (const a of arrays) {
-    out.set(new Uint8Array(a instanceof ArrayBuffer ? a : a.buffer ?? a), offset);
-    offset += a.byteLength;
+    // Preserve the exact view range. Typed-array views (including Node Buffers)
+    // may share a larger backing ArrayBuffer; copying a.buffer alone also copies
+    // unrelated prefix/suffix bytes and can overflow the destination.
+    const view = a instanceof ArrayBuffer
+      ? new Uint8Array(a)
+      : new Uint8Array(a.buffer, a.byteOffset, a.byteLength);
+    out.set(view, offset);
+    offset += view.byteLength;
   }
   return out;
 }
