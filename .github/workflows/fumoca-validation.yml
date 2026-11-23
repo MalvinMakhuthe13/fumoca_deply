@@ -41,6 +41,9 @@ jobs:
           grep -q "camera_sync_warning" js/modules/fourd-capture.js
           grep -q "motionSequence" engine-next/reconstruction/pipeline.py
           grep -q "fourd-sequence-library.js" viewer.html
+          grep -q "_fumocaLoadMotionSequenceNif" js/modules/viewer.js
+          grep -q "FourDSequence.create(manifest, adapter" js/modules/fourd-sequence-library.js
+          grep -q "fumoca4dSequenceControls" js/modules/fourd-sequence-library.js
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
