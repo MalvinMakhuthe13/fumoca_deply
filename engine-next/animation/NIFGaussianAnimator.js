@@ -109,9 +109,9 @@ export class NIFGaussianAnimator {
       if(!keys.some(k=>k.position||k.scale||k.rotation)) throw new Error('Track has no animated properties');
       return {
         offset:this.indexById.get(track.id)*STRIDE,
-        positionKeys:keys.filter(k=>k.position).map(k=>({time:k.time,value:k.position})),
-        scaleKeys:keys.filter(k=>k.scale).map(k=>({time:k.time,value:k.scale})),
-        rotationKeys:keys.filter(k=>k.rotation).map(k=>({time:k.time,value:k.rotation})),
+        positionKeys:keys.filter(k=>k.position).map(k=>({time:k.time,value:k.position,easing:k.easing})),
+        scaleKeys:keys.filter(k=>k.scale).map(k=>({time:k.time,value:k.scale,easing:k.easing})),
+        rotationKeys:keys.filter(k=>k.rotation).map(k=>({time:k.time,value:k.rotation,easing:k.easing})),
       };
     });
   }
