@@ -31,6 +31,8 @@ jobs:
         run: node --experimental-default-type=module tests/nif-proxy-deformer.test.mjs
       - name: Test native Gaussian animation tracks
         run: node --experimental-default-type=module tests/nif-gaussian-animator.test.mjs
+      - name: Test NIF binary format round trips
+        run: node --experimental-default-type=module engine-next/tests/format.test.mjs
       - name: Check 4D capture and NIF worker integration
         run: |
           node --input-type=module --check < js/modules/fourd-capture.js
@@ -39,6 +41,8 @@ jobs:
           node --input-type=module --check < engine-next/animation/NIFProxyDeformer.js
           node --input-type=module --check < engine-next/animation/NIFGaussianAnimator.js
           node --input-type=module --check < engine-next/viewer-src/renderer/NIFRenderer.js
+          node --input-type=module --check < engine-next/viewer-src/NIFViewer.js
+          node --input-type=module --check < engine-next/format/NIFSpec.js
           grep -q "bindGaussianAnimation" engine-next/viewer-src/renderer/NIFRenderer.js
           grep -q "updateGaussianAnimation" engine-next/viewer-src/renderer/NIFRenderer.js
           grep -q "bindProxyDeformation" engine-next/viewer-src/renderer/NIFRenderer.js
