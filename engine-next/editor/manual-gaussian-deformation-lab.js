@@ -7,6 +7,9 @@ import { encodeManualAnimationNif, verifyManualAnimationNif } from '../animation
 const $=id=>document.getElementById(id);
 const canvas=$('scene'),gizmoCanvas=$('gizmo'),gctx=gizmoCanvas.getContext('2d');let gizmoEnabled=true,gizmoDrag=null;let renderer=null,author=null,gaussians=null,sourceBytes=null,selectMode=null,lassoPoints=[],previewAnimator=null,previewSet=null,previewRaf=null,previewStart=0,previewDuration=0;
 const projectMatrix=(m,v)=>[m[0]*v[0]+m[4]*v[1]+m[8]*v[2]+m[12],m[1]*v[0]+m[5]*v[1]+m[9]*v[2]+m[13],m[2]*v[0]+m[6]*v[1]+m[10]*v[2]+m[14],m[3]*v[0]+m[7]*v[1]+m[11]*v[2]+m[15]];
+function projectedDepths(){const view=renderer.camera.viewMatrix(),out=new Float32Array(gaussians.count);for(let i=0;i<gaussians.count;i++){const o=i*14,v=projectMatrix(view,[author.rest[o],author.rest[o+1],author.rest[o+2]]);out[i]=v[2]<0?-v[2]:Infinity;}return out;}
+function brushDepthRange(xy,depths,center,radius){if(!$('frontOnly').checked)return null;let nearest=Infinity;for(let i=0;i<depths.length;i++)if(Math.hypot(xy[i*2]-center[0],xy[i*2+1]-center[1])<=radius)nearest=Math.min(nearest,depths[i]);return Number.isFinite(nearest)?[Math.max(0,nearest-Math.max(.01,nearest*.002)),nearest+Math.max(.03,nearest*.015)]:null;}
+function lassoDepthRange(xy,depths,polygon){if(!$('frontOnly').checked)return null;let nearest=Infinity;for(let i=0;i<depths.length;i++){const x=xy[i*2],y=xy[i*2+1];let inside=false;for(let a=0,b=polygon.length-1;a<polygon.length;b=a++){const p=polygon[a],q=polygon[b];if(((p[1]>y)!==(q[1]>y))&&(x<(q[0]-p[0])*(y-p[1])/(q[1]-p[1])+p[0]))inside=!inside;}if(inside)nearest=Math.min(nearest,depths[i]);}return Number.isFinite(nearest)?[Math.max(0,nearest-Math.max(.01,nearest*.002)),nearest+Math.max(.03,nearest*.015)]:null;}
 function projectedCenters(){const w=canvas.clientWidth,h=canvas.clientHeight,view=renderer.camera.viewMatrix(),proj=renderer.camera.projMatrix(w/h),out=new Float32Array(gaussians.count*2);for(let i=0;i<gaussians.count;i++){const o=i*14,p=[author.rest[o],author.rest[o+1],author.rest[o+2]],v=projectMatrix(view,p),c=projectMatrix(proj,v);if(c[3]<=0){out[i*2]=-1e6;out[i*2+1]=-1e6;continue;}out[i*2]=(c[0]/c[3]*.5+.5)*w;out[i*2+1]=(1-(c[1]/c[3]*.5+.5))*h;}return out;}
 const val=id=>Number($(id).value);
 function projectPoint(p){const w=canvas.clientWidth,h=canvas.clientHeight,view=renderer.camera.viewMatrix(),proj=renderer.camera.projMatrix(w/h),v=projectMatrix(view,p),q=projectMatrix(proj,v);if(q[3]<=0)return null;return [(q[0]/q[3]*.5+.5)*w,(1-(q[1]/q[3]*.5+.5))*h,-v[2]];}
@@ -53,6 +56,7 @@ $('loadSelection').onclick=()=>{if(author?.loadSelection($('selectionName').valu
 $('undo').onclick=()=>{if(author?.undo()){sync();message('Undo complete.');}else message('Nothing to undo.');};
 $('redo').onclick=()=>{if(author?.redo()){sync();message('Redo complete.');}else message('Nothing to redo.');};
 $('box').onclick=()=>{if(author){selectionBox();renderSelection();}};
+$('grow').onclick=()=>{if(!author)return;author.growSelection(val('growRadius'),{iterations:1,falloff:.5});renderSelection();message('Expanded connected selection to '+author.selection.filter(w=>w>0).length.toLocaleString()+' splats.');};
 $('brushMode').onclick=()=>{selectMode='brush';lassoPoints=[];message('Viewport brush active: drag on the object to select splats.');};
 $('lassoMode').onclick=()=>{selectMode='lasso';lassoPoints=[];message('Viewport lasso active: draw a closed selection polygon on the object.');};
 $('stopSelect').onclick=()=>{selectMode=null;lassoPoints=[];message('Viewport selection stopped.');};
@@ -60,7 +64,7 @@ canvas.addEventListener('pointerdown',e=>{
   if(author&&gizmoEnabled&&!selectMode){const r=canvas.getBoundingClientRect(),p=[e.clientX-r.left,e.clientY-r.top],axes=gizmoAxes();let best=null,bestD=14;for(const a of axes){const dx=a.end[0]-a.origin[0],dy=a.end[1]-a.origin[1],len2=dx*dx+dy*dy;if(len2<1)continue;const t=Math.max(0,Math.min(1,((p[0]-a.origin[0])*dx+(p[1]-a.origin[1])*dy)/len2)),d=Math.hypot(p[0]-(a.origin[0]+t*dx),p[1]-(a.origin[1]+t*dy));if(d<bestD){bestD=d;best={...a,screen:[dx,dy],pixelsPerUnit:Math.sqrt(len2)/a.size,start:p};}}if(best){author.checkpoint('gizmo-translate');gizmoDrag=best;canvas.setPointerCapture(e.pointerId);e.preventDefault();return;}}
   if(!author||!selectMode)return;
   const r=canvas.getBoundingClientRect(),p=[e.clientX-r.left,e.clientY-r.top];
-  if(selectMode==='brush'){author.selectScreenBrush(projectedCenters(),p,val('brushRadius'),{falloff:.35,mode:e.shiftKey?'add':e.altKey?'subtract':'replace'});renderSelection();message('Brush selected '+author.selection.filter(w=>w>0).length.toLocaleString()+' splats.');}
+  if(selectMode==='brush'){{const xy=projectedCenters(),depths=projectedDepths();author.selectScreenBrush(xy,p,val('brushRadius'),{falloff:.35,mode:e.shiftKey?'add':e.altKey?'subtract':'replace',depths,depthRange:brushDepthRange(xy,depths,p,val('brushRadius'))});}renderSelection();message('Brush selected '+author.selection.filter(w=>w>0).length.toLocaleString()+' splats.');}
   else {lassoPoints=[p];canvas.setPointerCapture(e.pointerId);}
 });
 canvas.addEventListener('pointermove',e=>{
@@ -69,13 +73,13 @@ canvas.addEventListener('pointermove',e=>{
   const r=canvas.getBoundingClientRect();
   if(selectMode==='lasso'){const p=[e.clientX-r.left,e.clientY-r.top],last=lassoPoints[lassoPoints.length-1];if(!last||Math.hypot(p[0]-last[0],p[1]-last[1])>=4)lassoPoints.push(p);return;}
   if(selectMode!=='brush')return;
-  author.selectScreenBrush(projectedCenters(),[e.clientX-r.left,e.clientY-r.top],val('brushRadius'),{falloff:.35,mode:'add'});renderSelection();
+  {const p=[e.clientX-r.left,e.clientY-r.top],xy=projectedCenters(),depths=projectedDepths();author.selectScreenBrush(xy,p,val('brushRadius'),{falloff:.35,mode:'add',depths,depthRange:brushDepthRange(xy,depths,p,val('brushRadius'))});}renderSelection();
 });
 canvas.addEventListener('pointerup',e=>{
   if(gizmoDrag){gizmoDrag=null;return;}
   if(!author||selectMode!=='lasso'||lassoPoints.length<1)return;
   const r=canvas.getBoundingClientRect();lassoPoints.push([e.clientX-r.left,e.clientY-r.top]);
-  if(lassoPoints.length>=3){author.selectLasso(projectedCenters(),lassoPoints,{mode:e.shiftKey?'add':e.altKey?'subtract':'replace'});renderSelection();message('Lasso selected '+author.selection.filter(w=>w>0).length.toLocaleString()+' splats.');}
+  if(lassoPoints.length>=3){{const xy=projectedCenters(),depths=projectedDepths();author.selectLasso(xy,lassoPoints,{mode:e.shiftKey?'add':e.altKey?'subtract':'replace',depths,depthRange:lassoDepthRange(xy,depths,lassoPoints)});}renderSelection();message('Lasso selected '+author.selection.filter(w=>w>0).length.toLocaleString()+' splats.');}
   lassoPoints=[];
 });
 function apply(type){
