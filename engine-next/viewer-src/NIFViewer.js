@@ -31,6 +31,7 @@
 
 import { NIFRenderer }      from './renderer/NIFRenderer.js';
 import { NIFPreviewSystem } from './preview/NIFPreviewSystem.js';
+import { NIFGaussianTimelinePanel } from '../editor/NIFGaussianTimelinePanel.js';
 import { CHUNK, CODEC, ENCODER_TIER, decodeMetaChunk, decodeGaussianAnimationChunk } from '../format/NIFSpec.js';
 
 export class NIFViewer {
@@ -78,6 +79,7 @@ export class NIFViewer {
     this._gaussianAnimationSpeed = 1;
     this._gaussianAnimationLoop = false;
     this._gaussianAnimationTime = 0;
+    this._timelinePanel = null;
     this._state      = 'idle'; // idle | loading | preview | transition | live | error
   }
 
@@ -87,6 +89,7 @@ export class NIFViewer {
   get renderer() { return this._renderer; }
   get gaussianAnimation() { return this._gaussianAnimation; }
   get gaussianAnimationTime() { return this._gaussianAnimationTime; }
+  get isGaussianAnimationPlaying() { return this._gaussianAnimationFrame != null; }
 
   /** Start native per-splat playback. Times and duration are in seconds. */
   playGaussianAnimation({ from = this._gaussianAnimationTime, speed = 1, loop = false } = {}) {
@@ -221,6 +224,7 @@ export class NIFViewer {
         onTransitionEnd:  () => {
           if (rendererReady) {
             this._startRenderer();
+            this._mountGaussianTimelinePanel();
           } else {
             // WebGL2 failed — show error or keep video
             this._setState('error');
@@ -254,7 +258,17 @@ export class NIFViewer {
     this._preview?._triggerTransition();
   }
 
+  _mountGaussianTimelinePanel() {
+    this._timelinePanel?.destroy();
+    this._timelinePanel = null;
+    if (this._gaussianAnimation) {
+      this._timelinePanel = new NIFGaussianTimelinePanel(this.container, this);
+    }
+  }
+
   stop() {
+    this._timelinePanel?.destroy();
+    this._timelinePanel = null;
     this.pauseGaussianAnimation();
     this._renderer?.stop();
     this._preview?.destroy();
