@@ -37,7 +37,10 @@ jobs:
           node --input-type=module --check < js/modules/fourd-job-contract.js
           node --input-type=module --check < js/modules/fourd-sequence-library.js
           node --input-type=module --check < engine-next/animation/NIFProxyDeformer.js
+          node --input-type=module --check < engine-next/animation/NIFGaussianAnimator.js
           node --input-type=module --check < engine-next/viewer-src/renderer/NIFRenderer.js
+          grep -q "bindGaussianAnimation" engine-next/viewer-src/renderer/NIFRenderer.js
+          grep -q "updateGaussianAnimation" engine-next/viewer-src/renderer/NIFRenderer.js
           grep -q "bindProxyDeformation" engine-next/viewer-src/renderer/NIFRenderer.js
           grep -q "updateProxyDeformation" engine-next/viewer-src/renderer/NIFRenderer.js
           python -m py_compile engine-next/reconstruction/pipeline.py
