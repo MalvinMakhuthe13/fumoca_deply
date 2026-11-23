@@ -11,7 +11,12 @@
 const FumocaFounderGate = (() => {
   function isPreviewTestingHost() {
     const hostname = window.location?.hostname?.toLowerCase() || '';
-    return hostname.endsWith('.fumoca-deply.pages.dev');
+    // Keep local development and PR preview deployments open during testing.
+    // Re-enable founder restrictions only after the manual workflow is accepted.
+    return hostname === 'localhost'
+      || hostname === '127.0.0.1'
+      || hostname === '[::1]'
+      || hostname.endsWith('.fumoca-deply.pages.dev');
   }
 
   function allowlist() {
