@@ -16,7 +16,7 @@ function bounds(data,count){
   return {min,max,center:min.map((v,i)=>(v+max[i])/2)};
 }
 function set(id,v){$(id).value=Number(v.toFixed(4));}
-function sync(){stopPreview();if(renderer){renderer.gaussians=gaussians;gaussians.data=author.data;renderer._sortFrame=-999;}}
+function renderSelection(){if(!renderer||!author)return;const preview=author.data.slice();for(let i=0;i<author.count;i++){const w=author.selection[i];if(w<=0)continue;const o=i*14;preview[o+11]=preview[o+11]*(1-w)+2.0*w;preview[o+12]=preview[o+12]*(1-w)+1.5*w;preview[o+13]=preview[o+13]*(1-w)-1.5*w;}renderer.gaussians=gaussians;gaussians.data=preview;renderer._sortFrame=-999;}\nfunction sync(){stopPreview();if(renderer){gaussians.data=author.data;renderSelection();}}
 function stopPreview(){if(previewRaf!=null)cancelAnimationFrame(previewRaf);previewRaf=null;previewAnimator=null;previewSet=null;if(renderer&&author){renderer.gaussians=gaussians;gaussians.data=author.data;renderer._sortFrame=-999;}}
 function evaluatePreview(t){if(!previewAnimator)return;previewAnimator.evaluate(Math.max(0,Math.min(previewDuration,t)));renderer.gaussians=previewSet;renderer._sortFrame=-999;$('timeline').value=String(t);$('timelineTime').textContent=t.toFixed(2)+'s';}
 function selectionBox(){
@@ -40,18 +40,18 @@ $('file').addEventListener('change',async()=>{
     message('Ready. Source loaded locally; no upload or production write.');
   }catch(e){message(e.stack||String(e));}
 });
-$('all').onclick=()=>{author?.selectIds(author.ids);message('All splats selected.');};
-$('clear').onclick=()=>{author?.clearSelection();message('Selection cleared.');};
+$('all').onclick=()=>{author?.selectIds(author.ids);renderSelection();message('All splats selected.');};
+$('clear').onclick=()=>{author?.clearSelection();renderSelection();message('Selection cleared.');};
 $('undo').onclick=()=>{if(author?.undo()){sync();message('Undo complete.');}else message('Nothing to undo.');};
 $('redo').onclick=()=>{if(author?.redo()){sync();message('Redo complete.');}else message('Nothing to redo.');};
-$('box').onclick=()=>{if(author)selectionBox();};
+$('box').onclick=()=>{if(author){selectionBox();renderSelection();}};
 $('brushMode').onclick=()=>{selectMode='brush';lassoPoints=[];message('Viewport brush active: drag on the object to select splats.');};
 $('lassoMode').onclick=()=>{selectMode='lasso';lassoPoints=[];message('Viewport lasso active: draw a closed selection polygon on the object.');};
 $('stopSelect').onclick=()=>{selectMode=null;lassoPoints=[];message('Viewport selection stopped.');};
 canvas.addEventListener('pointerdown',e=>{
   if(!author||!selectMode)return;
   const r=canvas.getBoundingClientRect(),p=[e.clientX-r.left,e.clientY-r.top];
-  if(selectMode==='brush'){author.selectScreenBrush(projectedCenters(),p,val('brushRadius'),{falloff:.35,mode:e.shiftKey?'add':e.altKey?'subtract':'replace'});message('Brush selected '+author.selection.filter(w=>w>0).length.toLocaleString()+' splats.');}
+  if(selectMode==='brush'){author.selectScreenBrush(projectedCenters(),p,val('brushRadius'),{falloff:.35,mode:e.shiftKey?'add':e.altKey?'subtract':'replace'});renderSelection();message('Brush selected '+author.selection.filter(w=>w>0).length.toLocaleString()+' splats.');}
   else {lassoPoints=[p];canvas.setPointerCapture(e.pointerId);}
 });
 canvas.addEventListener('pointermove',e=>{
@@ -59,12 +59,12 @@ canvas.addEventListener('pointermove',e=>{
   const r=canvas.getBoundingClientRect();
   if(selectMode==='lasso'){const p=[e.clientX-r.left,e.clientY-r.top],last=lassoPoints[lassoPoints.length-1];if(!last||Math.hypot(p[0]-last[0],p[1]-last[1])>=4)lassoPoints.push(p);return;}
   if(selectMode!=='brush')return;
-  author.selectScreenBrush(projectedCenters(),[e.clientX-r.left,e.clientY-r.top],val('brushRadius'),{falloff:.35,mode:'add'});
+  author.selectScreenBrush(projectedCenters(),[e.clientX-r.left,e.clientY-r.top],val('brushRadius'),{falloff:.35,mode:'add'});renderSelection();
 });
 canvas.addEventListener('pointerup',e=>{
   if(!author||selectMode!=='lasso'||lassoPoints.length<1)return;
   const r=canvas.getBoundingClientRect();lassoPoints.push([e.clientX-r.left,e.clientY-r.top]);
-  if(lassoPoints.length>=3){author.selectLasso(projectedCenters(),lassoPoints,{mode:e.shiftKey?'add':e.altKey?'subtract':'replace'});message('Lasso selected '+author.selection.filter(w=>w>0).length.toLocaleString()+' splats.');}
+  if(lassoPoints.length>=3){author.selectLasso(projectedCenters(),lassoPoints,{mode:e.shiftKey?'add':e.altKey?'subtract':'replace'});renderSelection();message('Lasso selected '+author.selection.filter(w=>w>0).length.toLocaleString()+' splats.');}
   lassoPoints=[];
 });
 function apply(type){
