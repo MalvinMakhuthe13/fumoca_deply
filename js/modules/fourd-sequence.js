@@ -194,5 +194,5 @@ const Fumoca4DSequence = (() => {
   return { validateManifest, locateFrames, create };
 })();
 
-window.Fumoca4DSequence = Fumoca4DSequence;
+if (typeof window !== 'undefined') window.Fumoca4DSequence = Fumoca4DSequence;
 export default Fumoca4DSequence;
