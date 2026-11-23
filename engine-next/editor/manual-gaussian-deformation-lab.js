@@ -1,4 +1,4 @@
-import { NIFReader } from '../format/NIFSpec.js';
+import { NIFReader, CHUNK, decodeGaussianAnimationChunk } from '../format/NIFSpec.js';
 import { NIFRenderer } from '../viewer-src/renderer/NIFRenderer.js';
 import { NIFManualGaussianDeformAuthor } from '../animation/NIFManualGaussianDeformAuthor.js';
 import { NIFGaussianAnimator } from '../animation/NIFGaussianAnimator.js';
@@ -45,13 +45,13 @@ $('file').addEventListener('change',async()=>{
     if(!reader.isVersionSupported||reader.isCorrupted)throw new Error('Invalid or unsupported NIF file');
     gaussians=await reader.getGeometry();if(!gaussians)throw new Error('NIF has no Gaussian geometry');
     renderer?.stop();renderer=new NIFRenderer(canvas);renderer.loadGaussians(gaussians);renderer.setVertical(reader.header.vertical);renderer.start();
-    author=new NIFManualGaussianDeformAuthor(gaussians.data);projectionCache=null;startGizmoAnimation();
+    author=new NIFManualGaussianDeformAuthor(gaussians.data);let importedTrackCount=0;if(reader.hasChunk(CHUNK.GAUSSIAN_ANIMATION)){const animation=await decodeGaussianAnimationChunk(reader.getChunk(CHUNK.GAUSSIAN_ANIMATION));importedTrackCount=author.loadTracks(animation.tracks);$('timeline').max=String(Math.max(.01,animation.duration));}projectionCache=null;startGizmoAnimation();
     const b=bounds(gaussians.data,gaussians.count);gizmoWorldSize=Math.max(.1,...b.max.map((v,i)=>v-b.min[i]))*.22;
     ['minx','miny','minz'].forEach((id,i)=>set(id,b.min[i]));
     ['maxx','maxy','maxz'].forEach((id,i)=>set(id,b.max[i]));
     ['px','py','pz'].forEach((id,i)=>set(id,b.center[i]));
     $('status').textContent=gaussians.count.toLocaleString()+' splats · manual mode';
-    drawGizmo();message('Ready. Source loaded locally; no upload or production write.');
+    drawGizmo();message('Ready. Source loaded locally; '+importedTrackCount.toLocaleString()+' existing animation tracks reopened. No upload or production write.');
   }catch(e){message(e.stack||String(e));}
 });
 $('all').onclick=()=>{author?.selectIds(author.ids);renderSelection();message('All splats selected.');};
