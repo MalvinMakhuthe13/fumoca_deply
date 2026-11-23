@@ -7,6 +7,7 @@ export class NIFGaussianTimelinePanel {
     if (!container || !viewer) throw new Error('Timeline panel requires a container and NIFViewer');
     if (!viewer.gaussianAnimation) throw new Error('NIF has no native Gaussian animation');
     this.container=container;
+    if(getComputedStyle(this.container).position==='static')this.container.style.position='relative';
     this.viewer=viewer;
     this.duration=viewer.gaussianAnimation.duration;
     this._raf=null;
