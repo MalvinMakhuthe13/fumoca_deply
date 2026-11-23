@@ -49,6 +49,14 @@ const bytes = writer.build();
 check('writer produces a byte buffer', bytes instanceof Uint8Array && bytes.length > 256);
 check('total byteLength matches writer.byteLength getter', bytes.length === writer.byteLength, `${bytes.length} vs ${writer.byteLength}`);
 
+// Regression: chunk payloads may be typed-array views into a larger backing buffer.
+const backing = new Uint8Array([0xEE, 0x11, 0x22, 0x33, 0xDD]);
+const viewChunk = new NIFChunk(0x7FFE, backing.subarray(1, 4), CODEC.RAW).toUint8Array();
+check('chunk serialization copies only the typed-array view range',
+  viewChunk.length === NIFChunk.HEADER_SIZE + 3
+  && viewChunk[16] === 0x11 && viewChunk[17] === 0x22 && viewChunk[18] === 0x33,
+  `length=${viewChunk.length}, payload=${Array.from(viewChunk.slice(16)).join(',')}`);
+
 // --- TEST 2: read it back ---
 const reader = new NIFReader(bytes.buffer);
 check('magic number correct', reader.header.magic === 0x4E494600);
