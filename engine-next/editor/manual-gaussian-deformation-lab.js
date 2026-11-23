@@ -5,10 +5,14 @@ import { NIFGaussianAnimator } from '../animation/NIFGaussianAnimator.js';
 import { encodeManualAnimationNif, verifyManualAnimationNif } from '../animation/NIFManualAnimationExport.js';
 
 const $=id=>document.getElementById(id);
-const canvas=$('scene');let renderer=null,author=null,gaussians=null,sourceBytes=null,selectMode=null,lassoPoints=[],previewAnimator=null,previewSet=null,previewRaf=null,previewStart=0,previewDuration=0;
+const canvas=$('scene'),gizmoCanvas=$('gizmo'),gctx=gizmoCanvas.getContext('2d');let gizmoEnabled=true,gizmoDrag=null;let renderer=null,author=null,gaussians=null,sourceBytes=null,selectMode=null,lassoPoints=[],previewAnimator=null,previewSet=null,previewRaf=null,previewStart=0,previewDuration=0;
 const projectMatrix=(m,v)=>[m[0]*v[0]+m[4]*v[1]+m[8]*v[2]+m[12],m[1]*v[0]+m[5]*v[1]+m[9]*v[2]+m[13],m[2]*v[0]+m[6]*v[1]+m[10]*v[2]+m[14],m[3]*v[0]+m[7]*v[1]+m[11]*v[2]+m[15]];
 function projectedCenters(){const w=canvas.clientWidth,h=canvas.clientHeight,view=renderer.camera.viewMatrix(),proj=renderer.camera.projMatrix(w/h),out=new Float32Array(gaussians.count*2);for(let i=0;i<gaussians.count;i++){const o=i*14,p=[author.rest[o],author.rest[o+1],author.rest[o+2]],v=projectMatrix(view,p),c=projectMatrix(proj,v);if(c[3]<=0){out[i*2]=-1e6;out[i*2+1]=-1e6;continue;}out[i*2]=(c[0]/c[3]*.5+.5)*w;out[i*2+1]=(1-(c[1]/c[3]*.5+.5))*h;}return out;}
 const val=id=>Number($(id).value);
+function projectPoint(p){const w=canvas.clientWidth,h=canvas.clientHeight,view=renderer.camera.viewMatrix(),proj=renderer.camera.projMatrix(w/h),v=projectMatrix(view,p),q=projectMatrix(proj,v);if(q[3]<=0)return null;return [(q[0]/q[3]*.5+.5)*w,(1-(q[1]/q[3]*.5+.5))*h,-v[2]];}
+function gizmoAxes(){if(!author||!renderer||!gizmoEnabled)return [];const pivot=['px','py','pz'].map(val),b=bounds(author.rest,author.count),size=Math.max(.1,...b.max.map((v,i)=>v-b.min[i]))*.22,origin=projectPoint(pivot);if(!origin)return [];return [[1,0,0],[0,1,0],[0,0,1]].map(axis=>({axis,origin,end:projectPoint([pivot[0]+axis[0]*size,pivot[1]+axis[1]*size,pivot[2]+axis[2]*size]),size})).filter(a=>a.end);}
+function drawGizmo(){if(!gctx)return;const w=canvas.clientWidth,h=canvas.clientHeight,dpr=Math.min(devicePixelRatio||1,2);if(gizmoCanvas.width!==Math.round(w*dpr)||gizmoCanvas.height!==Math.round(h*dpr)){gizmoCanvas.width=Math.round(w*dpr);gizmoCanvas.height=Math.round(h*dpr);gizmoCanvas.style.width=w+'px';gizmoCanvas.style.height=h+'px';}gctx.setTransform(dpr,0,0,dpr,0,0);gctx.clearRect(0,0,w,h);if(!gizmoEnabled||!author)return;const axes=gizmoAxes();if(!axes.length)return;const o=axes[0].origin,colors=['#ff5b5b','#62e28b','#65a9ff'];gctx.lineWidth=3;axes.forEach((a,i)=>{gctx.strokeStyle=colors[i];gctx.fillStyle=colors[i];gctx.beginPath();gctx.moveTo(o[0],o[1]);gctx.lineTo(a.end[0],a.end[1]);gctx.stroke();gctx.beginPath();gctx.arc(a.end[0],a.end[1],6,0,Math.PI*2);gctx.fill();gctx.font='bold 12px system-ui';gctx.fillText(['X','Y','Z'][i],a.end[0]+8,a.end[1]-8);});gctx.fillStyle='#fff';gctx.beginPath();gctx.arc(o[0],o[1],4,0,Math.PI*2);gctx.fill();}
+
 function message(s){$('message').textContent=s;}
 function bounds(data,count){
   const min=[Infinity,Infinity,Infinity],max=[-Infinity,-Infinity,-Infinity];
@@ -37,7 +41,7 @@ $('file').addEventListener('change',async()=>{
     ['maxx','maxy','maxz'].forEach((id,i)=>set(id,b.max[i]));
     ['px','py','pz'].forEach((id,i)=>set(id,b.center[i]));
     $('status').textContent=gaussians.count.toLocaleString()+' splats · manual mode';
-    message('Ready. Source loaded locally; no upload or production write.');
+    drawGizmo();message('Ready. Source loaded locally; no upload or production write.');
   }catch(e){message(e.stack||String(e));}
 });
 $('all').onclick=()=>{author?.selectIds(author.ids);renderSelection();message('All splats selected.');};
@@ -52,12 +56,14 @@ $('brushMode').onclick=()=>{selectMode='brush';lassoPoints=[];message('Viewport 
 $('lassoMode').onclick=()=>{selectMode='lasso';lassoPoints=[];message('Viewport lasso active: draw a closed selection polygon on the object.');};
 $('stopSelect').onclick=()=>{selectMode=null;lassoPoints=[];message('Viewport selection stopped.');};
 canvas.addEventListener('pointerdown',e=>{
+  if(author&&gizmoEnabled&&!selectMode){const r=canvas.getBoundingClientRect(),p=[e.clientX-r.left,e.clientY-r.top],axes=gizmoAxes();let best=null,bestD=14;for(const a of axes){const dx=a.end[0]-a.origin[0],dy=a.end[1]-a.origin[1],len2=dx*dx+dy*dy;if(len2<1)continue;const t=Math.max(0,Math.min(1,((p[0]-a.origin[0])*dx+(p[1]-a.origin[1])*dy)/len2)),d=Math.hypot(p[0]-(a.origin[0]+t*dx),p[1]-(a.origin[1]+t*dy));if(d<bestD){bestD=d;best={...a,screen:[dx,dy],pixelsPerUnit:Math.sqrt(len2)/a.size,start:p};}}if(best){gizmoDrag=best;canvas.setPointerCapture(e.pointerId);e.preventDefault();return;}}
   if(!author||!selectMode)return;
   const r=canvas.getBoundingClientRect(),p=[e.clientX-r.left,e.clientY-r.top];
   if(selectMode==='brush'){author.selectScreenBrush(projectedCenters(),p,val('brushRadius'),{falloff:.35,mode:e.shiftKey?'add':e.altKey?'subtract':'replace'});renderSelection();message('Brush selected '+author.selection.filter(w=>w>0).length.toLocaleString()+' splats.');}
   else {lassoPoints=[p];canvas.setPointerCapture(e.pointerId);}
 });
 canvas.addEventListener('pointermove',e=>{
+  if(gizmoDrag&&author&&(e.buttons&1)){const r=canvas.getBoundingClientRect(),p=[e.clientX-r.left,e.clientY-r.top],dx=gizmoDrag.screen[0],dy=gizmoDrag.screen[1],len=Math.hypot(dx,dy),unit=[dx/len,dy/len],pixels=(p[0]-gizmoDrag.start[0])*unit[0]+(p[1]-gizmoDrag.start[1])*unit[1],amount=pixels/gizmoDrag.pixelsPerUnit;author.apply({type:'translate',direction:gizmoDrag.axis,amount,pivot:['px','py','pz'].map(val)});sync();$('amount').value=amount.toFixed(4);return;}
   if(!author||!(e.buttons&1))return;
   const r=canvas.getBoundingClientRect();
   if(selectMode==='lasso'){const p=[e.clientX-r.left,e.clientY-r.top],last=lassoPoints[lassoPoints.length-1];if(!last||Math.hypot(p[0]-last[0],p[1]-last[1])>=4)lassoPoints.push(p);return;}
@@ -65,6 +71,7 @@ canvas.addEventListener('pointermove',e=>{
   author.selectScreenBrush(projectedCenters(),[e.clientX-r.left,e.clientY-r.top],val('brushRadius'),{falloff:.35,mode:'add'});renderSelection();
 });
 canvas.addEventListener('pointerup',e=>{
+  if(gizmoDrag){gizmoDrag=null;return;}
   if(!author||selectMode!=='lasso'||lassoPoints.length<1)return;
   const r=canvas.getBoundingClientRect();lassoPoints.push([e.clientX-r.left,e.clientY-r.top]);
   if(lassoPoints.length>=3){author.selectLasso(projectedCenters(),lassoPoints,{mode:e.shiftKey?'add':e.altKey?'subtract':'replace'});renderSelection();message('Lasso selected '+author.selection.filter(w=>w>0).length.toLocaleString()+' splats.');}
@@ -75,6 +82,7 @@ function apply(type){
   author.apply({type,axis:[val('ax'),val('ay'),val('az')],pivot:[val('px'),val('py'),val('pz')],angle:val('angle')*Math.PI/180,amount:val('amount'),direction:[val('ax'),val('ay'),val('az')],scale:[val('sx'),val('sy'),val('sz')]});
   sync();message(type+' applied to selected splats.');
 }
+$('gizmoMove').onclick=()=>{gizmoEnabled=!gizmoEnabled;$('gizmoMove').textContent='3D move gizmo: '+(gizmoEnabled?'ON':'OFF');drawGizmo();};
 $('fold').onclick=()=>apply('fold');$('rotate').onclick=()=>apply('rotate');$('twist').onclick=()=>apply('twist');$('scale').onclick=()=>apply('scale');$('translate').onclick=()=>apply('translate');$('inflate').onclick=()=>apply('inflate');$('deflate').onclick=()=>apply('deflate');
 
 $('timeline').oninput=()=>{if(!author)return;const tracks=author.exportTracks();if(!tracks.length)return message('Capture keyframes first.');if(!previewAnimator){previewSet={count:gaussians.count,data:author.rest.slice()};previewAnimator=new NIFGaussianAnimator(previewSet,tracks,author.ids);previewDuration=Math.max(.001,...tracks.flatMap(t=>t.keyframes.map(k=>k.time)));$('timeline').max=String(previewDuration);}evaluatePreview(val('timeline'));};
@@ -113,4 +121,5 @@ $('exportNif').onclick=async()=>{
     message('Verified NIF '+report.version+' · '+report.geometryCount.toLocaleString()+' splats · '+report.trackCount.toLocaleString()+' tracks · '+report.duration+'s. Original untouched.');
   }catch(e){message('Export failed: '+(e.stack||String(e)));}
 };
+window.addEventListener('resize',drawGizmo);
 window.addEventListener('beforeunload',()=>{stopPreview();renderer?.stop();});
