@@ -67,7 +67,7 @@ export class NIFManualGaussianDeformAuthor {
 
   selectScreenBrush(projectedXY, center, radius, {falloff=0,mode='replace',weight=1}={}) {
     if(!(projectedXY instanceof Float32Array)||projectedXY.length!==this.count*2)throw new TypeError('projectedXY must contain one screen-space xy pair per Gaussian');
-    if(!vec(center)||!(radius>0))throw new TypeError('Brush needs a screen-space center and positive radius');
+    if(!Array.isArray(center)||center.length!==2||!center.every(Number.isFinite)||!(radius>0))throw new TypeError('Brush needs a finite screen-space xy center and positive radius');
     if(mode==='replace')this.clearSelection();
     const inner=radius*(1-clamp(falloff,0,1)),w=clamp(weight,0,1);
     for(let i=0;i<this.count;i++){
@@ -81,7 +81,7 @@ export class NIFManualGaussianDeformAuthor {
 
   selectLasso(projectedXY, polygon, {mode='replace',weight=1}={}) {
     if(!(projectedXY instanceof Float32Array)||projectedXY.length!==this.count*2)throw new TypeError('projectedXY must contain one screen-space xy pair per Gaussian');
-    if(!Array.isArray(polygon)||polygon.length<3||polygon.some(p=>!vec(p)))throw new TypeError('Lasso needs at least three screen-space xy points');
+    if(!Array.isArray(polygon)||polygon.length<3||polygon.some(p=>!Array.isArray(p)||p.length!==2||!p.every(Number.isFinite)))throw new TypeError('Lasso needs at least three screen-space xy points');
     if(mode==='replace')this.clearSelection();
     const inside=(x,y)=>{let hit=false;for(let i=0,j=polygon.length-1;i<polygon.length;j=i++){const a=polygon[i],b=polygon[j];if(((a[1]>y)!==(b[1]>y))&&(x<(b[0]-a[0])*(y-a[1])/(b[1]-a[1])+a[0]))hit=!hit;}return hit;};
     const w=clamp(weight,0,1);
