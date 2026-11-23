@@ -108,6 +108,16 @@ This is the primary animation direction. It animates the Gaussian records themse
 - `NIFSpec.js` validates and round-trips the versioned chunk. The legacy `TIMELINE` chunk ID (0x0006) remains reserved; it is not repurposed.
 - The Python reconstruction worker now writes NIF 1.2 headers, but does not yet produce dynamic Gaussian tracks automatically.
 
+### Controlled playback test fixture
+
+To validate the NIF 1.2 decoder and timeline UI on an existing captured splat asset, create a separate synthetic QA copy (the source file is not modified):
+
+```bash
+node --experimental-default-type=module scripts/add-gaussian-animation-demo.mjs input.nif output-animated.nif
+```
+
+The fixture adds a two-second vertical movement to an evenly sampled subset of up to 5,000 splats. It is deliberately synthetic and tests playback plumbing only; it is not evidence of captured or AI-reconstructed motion. Upload the output as a separate NIF and open it in the next-generation NIF editor to see the timeline controls.
+
 ### Current boundary
 
 This is a real native-track runtime and file-format foundation, not yet an automatic video-to-dynamic-Gaussian reconstruction pipeline. Track authoring/selection, stable correspondence generation across independently reconstructed frames, Spark integration and production viewer routing still require implementation and validation. Existing 4D capture moment sequences remain hold-only until correspondence is proven.
