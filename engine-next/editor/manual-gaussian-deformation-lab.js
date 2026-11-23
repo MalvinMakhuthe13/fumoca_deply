@@ -57,14 +57,14 @@ $('brushMode').onclick=()=>{selectMode='brush';lassoPoints=[];message('Viewport 
 $('lassoMode').onclick=()=>{selectMode='lasso';lassoPoints=[];message('Viewport lasso active: draw a closed selection polygon on the object.');};
 $('stopSelect').onclick=()=>{selectMode=null;lassoPoints=[];message('Viewport selection stopped.');};
 canvas.addEventListener('pointerdown',e=>{
-  if(author&&gizmoEnabled&&!selectMode){const r=canvas.getBoundingClientRect(),p=[e.clientX-r.left,e.clientY-r.top],axes=gizmoAxes();let best=null,bestD=14;for(const a of axes){const dx=a.end[0]-a.origin[0],dy=a.end[1]-a.origin[1],len2=dx*dx+dy*dy;if(len2<1)continue;const t=Math.max(0,Math.min(1,((p[0]-a.origin[0])*dx+(p[1]-a.origin[1])*dy)/len2)),d=Math.hypot(p[0]-(a.origin[0]+t*dx),p[1]-(a.origin[1]+t*dy));if(d<bestD){bestD=d;best={...a,screen:[dx,dy],pixelsPerUnit:Math.sqrt(len2)/a.size,start:p};}}if(best){gizmoDrag=best;canvas.setPointerCapture(e.pointerId);e.preventDefault();return;}}
+  if(author&&gizmoEnabled&&!selectMode){const r=canvas.getBoundingClientRect(),p=[e.clientX-r.left,e.clientY-r.top],axes=gizmoAxes();let best=null,bestD=14;for(const a of axes){const dx=a.end[0]-a.origin[0],dy=a.end[1]-a.origin[1],len2=dx*dx+dy*dy;if(len2<1)continue;const t=Math.max(0,Math.min(1,((p[0]-a.origin[0])*dx+(p[1]-a.origin[1])*dy)/len2)),d=Math.hypot(p[0]-(a.origin[0]+t*dx),p[1]-(a.origin[1]+t*dy));if(d<bestD){bestD=d;best={...a,screen:[dx,dy],pixelsPerUnit:Math.sqrt(len2)/a.size,start:p};}}if(best){author.checkpoint('gizmo-translate');gizmoDrag=best;canvas.setPointerCapture(e.pointerId);e.preventDefault();return;}}
   if(!author||!selectMode)return;
   const r=canvas.getBoundingClientRect(),p=[e.clientX-r.left,e.clientY-r.top];
   if(selectMode==='brush'){author.selectScreenBrush(projectedCenters(),p,val('brushRadius'),{falloff:.35,mode:e.shiftKey?'add':e.altKey?'subtract':'replace'});renderSelection();message('Brush selected '+author.selection.filter(w=>w>0).length.toLocaleString()+' splats.');}
   else {lassoPoints=[p];canvas.setPointerCapture(e.pointerId);}
 });
 canvas.addEventListener('pointermove',e=>{
-  if(gizmoDrag&&author&&(e.buttons&1)){const r=canvas.getBoundingClientRect(),p=[e.clientX-r.left,e.clientY-r.top],dx=gizmoDrag.screen[0],dy=gizmoDrag.screen[1],len=Math.hypot(dx,dy),unit=[dx/len,dy/len],pixels=(p[0]-gizmoDrag.start[0])*unit[0]+(p[1]-gizmoDrag.start[1])*unit[1],amount=pixels/gizmoDrag.pixelsPerUnit;author.apply({type:'translate',direction:gizmoDrag.axis,amount,pivot:['px','py','pz'].map(val)});sync();$('amount').value=amount.toFixed(4);return;}
+  if(gizmoDrag&&author&&(e.buttons&1)){const r=canvas.getBoundingClientRect(),p=[e.clientX-r.left,e.clientY-r.top],dx=gizmoDrag.screen[0],dy=gizmoDrag.screen[1],len=Math.hypot(dx,dy),unit=[dx/len,dy/len],pixels=(p[0]-gizmoDrag.start[0])*unit[0]+(p[1]-gizmoDrag.start[1])*unit[1],amount=pixels/gizmoDrag.pixelsPerUnit;author.apply({type:'translate',direction:gizmoDrag.axis,amount,pivot:['px','py','pz'].map(val),history:false});sync();$('amount').value=amount.toFixed(4);return;}
   if(!author||!(e.buttons&1))return;
   const r=canvas.getBoundingClientRect();
   if(selectMode==='lasso'){const p=[e.clientX-r.left,e.clientY-r.top],last=lassoPoints[lassoPoints.length-1];if(!last||Math.hypot(p[0]-last[0],p[1]-last[1])>=4)lassoPoints.push(p);return;}
