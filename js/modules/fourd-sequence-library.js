@@ -45,6 +45,11 @@ export function buildMotionSequenceManifest(records, sequenceId, publicUrl = (ke
       throw new Error('Motion moment timestamps must be strictly increasing');
     }
   }
+  const sourceStartTime = frames[0].time;
+  frames.forEach(frame => {
+    frame.sourceTime = frame.time;
+    frame.time = Math.round((frame.time - sourceStartTime) * 1000) / 1000;
+  });
   const expectedFrameCount = Math.max(
     frames.length,
     ...ordered.map(item => Number(item.row.meta.motion_state_count) || 0)
