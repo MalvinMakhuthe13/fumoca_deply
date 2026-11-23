@@ -52,8 +52,11 @@ canvas.addEventListener('pointerdown',e=>{
   else {lassoPoints=[p];canvas.setPointerCapture(e.pointerId);}
 });
 canvas.addEventListener('pointermove',e=>{
-  if(!author||selectMode!=='brush'||!(e.buttons&1))return;
-  const r=canvas.getBoundingClientRect();author.selectScreenBrush(projectedCenters(),[e.clientX-r.left,e.clientY-r.top],val('brushRadius'),{falloff:.35,mode:'add'});
+  if(!author||!(e.buttons&1))return;
+  const r=canvas.getBoundingClientRect();
+  if(selectMode==='lasso'){const p=[e.clientX-r.left,e.clientY-r.top],last=lassoPoints[lassoPoints.length-1];if(!last||Math.hypot(p[0]-last[0],p[1]-last[1])>=4)lassoPoints.push(p);return;}
+  if(selectMode!=='brush')return;
+  author.selectScreenBrush(projectedCenters(),[e.clientX-r.left,e.clientY-r.top],val('brushRadius'),{falloff:.35,mode:'add'});
 });
 canvas.addEventListener('pointerup',e=>{
   if(!author||selectMode!=='lasso'||lassoPoints.length<1)return;
