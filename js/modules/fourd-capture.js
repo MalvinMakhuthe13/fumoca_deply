@@ -364,7 +364,6 @@ const FourDCapture = (() => {
       _renderError('4D capture could not be queued: ' + (e?.message || String(e)));
       runBtn.disabled = false;
       runBtn.textContent = 'Retry upload + queue';
-      throw e;
     } finally {
       _showProgress(false);
       runBtn.disabled = false;
