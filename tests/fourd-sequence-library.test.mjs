@@ -13,10 +13,11 @@ assert.equal(manifest.status, 'partial');
 assert.deepEqual(manifest.missingStateIndices, [2]);
 assert.equal(manifest.frames.length, 2);
 assert.equal(manifest.frames[0].stateId, 'nif-a');
-assert.equal(manifest.frames[1].time, 2.5);
+assert.equal(manifest.frames[1].time, 2);
+assert.equal(manifest.frames[1].sourceTime, 2.5);
 assert.equal(manifest.frames[0].url, 'https://cdn.example/u/a.nif');
 assert.notEqual(manifest.frames[0].topologyId, manifest.frames[1].topologyId);
-assert.ok(manifest.duration > 2.5);
+assert.ok(manifest.duration > 2);
 assert.throws(() => buildMotionSequenceManifest(rows.slice(0, 1), 'seq'), /at least two/);
 assert.throws(() => buildMotionSequenceManifest([
   rows[1], { ...rows[0], meta: { ...rows[0].meta, motion_state_time: 0.5 } }
