@@ -534,6 +534,7 @@ export async function decodeVerificationChunk(chunk) {
  * JSON schema:
  * {
  *   schema: 'fumoca.gaussian-animation', version: 1, duration: seconds,
+ *   gaussianIds: [uint32, ...] (one stable ID per KEYFRAME_GEO record),
  *   tracks: [{ id: uint32, keyframes: [
  *     { time: seconds, position?: [x,y,z], scale?: [logX,logY,logZ],
  *       rotation?: [w,x,y,z] }
@@ -551,6 +552,13 @@ function validateGaussianAnimation(animation) {
   if (!Number.isFinite(animation.duration) || animation.duration < 0) {
     throw new Error('Gaussian animation duration must be finite and non-negative');
   }
+  if (!Array.isArray(animation.gaussianIds) || !animation.gaussianIds.length) throw new Error('Gaussian animation needs one gaussianIds entry per base splat');
+  const baseIds = new Set();
+  for (const id of animation.gaussianIds) {
+    if (!Number.isInteger(id) || id < 0 || id > 0xFFFFFFFF) throw new Error('Stable Gaussian IDs must be unsigned 32-bit integers');
+    if (baseIds.has(id)) throw new Error(`Duplicate stable Gaussian ID: ${id}`);
+    baseIds.add(id);
+  }
   if (!Array.isArray(animation.tracks)) throw new Error('Gaussian animation tracks must be an array');
   const ids = new Set();
   const vec = (value, n) => Array.isArray(value) && value.length === n && value.every(Number.isFinite);
@@ -558,6 +566,7 @@ function validateGaussianAnimation(animation) {
     if (!Number.isInteger(track?.id) || track.id < 0 || track.id > 0xFFFFFFFF) {
       throw new Error('Gaussian track id must be an unsigned 32-bit integer');
     }
+    if (!baseIds.has(track.id)) throw new Error(`Gaussian animation track references unknown ID: ${track.id}`);
     if (ids.has(track.id)) throw new Error(`Duplicate Gaussian animation track id: ${track.id}`);
     ids.add(track.id);
     if (!Array.isArray(track.keyframes) || !track.keyframes.length) throw new Error('Each Gaussian track needs keyframes');
