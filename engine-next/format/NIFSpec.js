@@ -592,6 +592,7 @@ function validateGaussianAnimation(animation) {
       if (key.position == null && key.scale == null && key.rotation == null) {
         throw new Error('Gaussian keyframe must animate at least one transform property');
       }
+      if (key.easing != null && !['linear','ease-in','ease-out','ease-in-out'].includes(key.easing)) throw new Error('Unsupported Gaussian keyframe easing');
     }
   }
   return animation;
