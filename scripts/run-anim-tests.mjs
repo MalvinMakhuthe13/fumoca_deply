@@ -6,7 +6,7 @@ import { readdirSync } from 'fs';
 import { spawnSync } from 'child_process';
 import { join } from 'path';
 
-const files = readdirSync('tests').filter(name => (name.startsWith('anim-') || name.startsWith('fourd-')) && name.endsWith('.test.mjs')).sort();
+const files = readdirSync('tests').filter(name => (name.startsWith('anim-') || name.startsWith('fourd-') || name.startsWith('manual-gaussian-')) && name.endsWith('.test.mjs')).sort();
 let failed = 0;
 for (const name of files) {
   const file = join('tests', name);
