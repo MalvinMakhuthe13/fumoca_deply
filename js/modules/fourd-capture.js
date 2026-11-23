@@ -563,7 +563,7 @@ const FourDCapture = (() => {
         meta: {
           title: `Multi-camera motion capture ${sequenceId.slice(0, 8)}`,
           source: 'fourd_multicam',
-          motion_sequence_id: sequenceId,
+          multicam_session_id: sequenceId,
           multi_camera: true,
           camera_count: cameras.length,
           frames_per_camera: sampleCount,
