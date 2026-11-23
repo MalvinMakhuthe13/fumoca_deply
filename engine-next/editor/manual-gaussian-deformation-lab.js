@@ -20,7 +20,8 @@ function bounds(data,count){
   return {min,max,center:min.map((v,i)=>(v+max[i])/2)};
 }
 function set(id,v){$(id).value=Number(v.toFixed(4));}
-function renderSelection(){if(!renderer||!author)return;const preview=author.data.slice();for(let i=0;i<author.count;i++){const w=author.selection[i];if(w<=0)continue;const o=i*14;preview[o+11]=preview[o+11]*(1-w)+2.0*w;preview[o+12]=preview[o+12]*(1-w)+1.5*w;preview[o+13]=preview[o+13]*(1-w)-1.5*w;}renderer.gaussians=gaussians;gaussians.data=preview;renderer._sortFrame=-999;}\nfunction sync(){stopPreview();if(renderer){gaussians.data=author.data;renderSelection();}}
+function renderSelection(){if(!renderer||!author)return;const preview=author.data.slice();for(let i=0;i<author.count;i++){const w=author.selection[i];if(w<=0)continue;const o=i*14;preview[o+11]=preview[o+11]*(1-w)+2.0*w;preview[o+12]=preview[o+12]*(1-w)+1.5*w;preview[o+13]=preview[o+13]*(1-w)-1.5*w;}renderer.gaussians=gaussians;gaussians.data=preview;renderer._sortFrame=-999;drawGizmo();}
+function sync(){stopPreview();if(renderer){gaussians.data=author.data;renderSelection();drawGizmo();}}
 function stopPreview(){if(previewRaf!=null)cancelAnimationFrame(previewRaf);previewRaf=null;previewAnimator=null;previewSet=null;if(renderer&&author){renderer.gaussians=gaussians;gaussians.data=author.data;renderer._sortFrame=-999;}}
 function evaluatePreview(t){if(!previewAnimator)return;previewAnimator.evaluate(Math.max(0,Math.min(previewDuration,t)));renderer.gaussians=previewSet;renderer._sortFrame=-999;$('timeline').value=String(t);$('timelineTime').textContent=t.toFixed(2)+'s';}
 function selectionBox(){
@@ -121,5 +122,6 @@ $('exportNif').onclick=async()=>{
     message('Verified NIF '+report.version+' · '+report.geometryCount.toLocaleString()+' splats · '+report.trackCount.toLocaleString()+' tracks · '+report.duration+'s. Original untouched.');
   }catch(e){message('Export failed: '+(e.stack||String(e)));}
 };
+let gizmoRaf=0;function animateGizmo(){drawGizmo();gizmoRaf=requestAnimationFrame(animateGizmo);}animateGizmo();
 window.addEventListener('resize',drawGizmo);
 window.addEventListener('beforeunload',()=>{stopPreview();renderer?.stop();});
