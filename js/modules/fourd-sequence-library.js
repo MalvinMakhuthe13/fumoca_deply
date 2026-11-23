@@ -70,6 +70,9 @@ export async function loadMotionSequence(supabase, sequenceId) {
 }
 
 let _loadGeneration = 0;
+let _sequenceRetryTimer = null;
+let _sequenceRetryCount = 0;
+let _lastSequenceId = null;
 let _activePlayer = null;
 let _activeControls = null;
 
@@ -163,11 +166,20 @@ async function _onRecordLoaded(event) {
   const record = event?.detail?.record || window._fumocaCurrentRecord || null;
   const sequenceId = record?.meta?.motion_sequence_id;
   if (!sequenceId || !window._fumocaSupabase) return;
+  if (sequenceId !== _lastSequenceId) {
+    _lastSequenceId = sequenceId;
+    _sequenceRetryCount = 0;
+    if (_sequenceRetryTimer) clearTimeout(_sequenceRetryTimer);
+    _sequenceRetryTimer = null;
+  }
   const generation = ++_loadGeneration;
   try {
     const manifest = await loadMotionSequence(window._fumocaSupabase, sequenceId);
     if (generation !== _loadGeneration) return;
     window._fumocaMotionSequenceManifest = manifest;
+    if (_sequenceRetryTimer) clearTimeout(_sequenceRetryTimer);
+    _sequenceRetryTimer = null;
+    _sequenceRetryCount = 0;
     await _startViewerPlayback(manifest);
     window.dispatchEvent(new CustomEvent('fumoca:motionSequenceReady', {
       detail: { sequenceId, manifest, frameCount: manifest.frames.length }
@@ -178,6 +190,15 @@ async function _onRecordLoaded(event) {
     window.dispatchEvent(new CustomEvent('fumoca:motionSequenceUnavailable', {
       detail: { sequenceId, message: error?.message || String(error) }
     }));
+    // A moment NIF can finish before its siblings. Keep checking this same
+    // sequence while the viewer remains open, but bound retries to 5 minutes.
+    if (_sequenceRetryCount < 30 && !_sequenceRetryTimer) {
+      _sequenceRetryCount++;
+      _sequenceRetryTimer = setTimeout(() => {
+        _sequenceRetryTimer = null;
+        _onRecordLoaded({ detail: { record } });
+      }, 10000);
+    }
   }
 }
 
