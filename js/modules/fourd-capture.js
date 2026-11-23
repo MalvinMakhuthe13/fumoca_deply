@@ -9,6 +9,8 @@ import MA from './motion-analyzer.js';
 import SI from './subject-isolator.js';
 import MS from './motion-states.js';
 import MT from './motion-tracking.js';
+import r2 from '../r2Client.js';
+import { build4DCaptureJobs, createMotionSequenceId } from './fourd-job-contract.js';
 
 const FourDCapture = (() => {
 
@@ -283,63 +285,90 @@ const FourDCapture = (() => {
     if (trackBtn) { trackBtn.style.display = ''; trackBtn._file = file; trackBtn._result = result; }
   }
 
-  // ─── Isolation + dispatch ──────────────────────────────────────────────────
+  // ─── Upload source once, then queue real reconstruction_jobs ───────────────
   async function _runIsolationAndDispatch() {
     const runBtn = document.getElementById('fourDRunIsolation');
-    const trackBtn = document.getElementById('fourDRunTracking');
-    const file = runBtn._file;
-    const result = runBtn._result;
+    const file = runBtn?._file || _analysisFile;
+    const result = runBtn?._result || _analysisResult;
     if (!file || !result) return;
 
-    const doIsolate = document.getElementById('fourDIsolateSubject')?.checked ?? true;
-    const subjectType = SI.detectSubjectType(_record);
-    const pipelineData = MA.exportForPipeline(result);
-
+    const sb = window._fumocaSupabase;
+    if (!sb) return _renderError('Supabase is not ready. Reload the viewer and try again.');
     runBtn.disabled = true;
-    runBtn.textContent = 'Processing…';
+    runBtn.textContent = 'Uploading source video…';
+    _showProgress(true);
+    _updateProgress(0.02, 'Checking signed-in account…');
 
-    for (const job of pipelineData.jobs) {
-      _addJob(job.jobId, job.label, 'pending');
-      try {
-        let frames = job.frameTimes;
-        if (doIsolate) {
-          _updateJobStatus(job.jobId, 'running', 'Isolating subject…');
-          const isolated = await SI.isolateFrameBatch(file, frames, subjectType, p => {
-            _updateJobStatus(job.jobId, 'running', `Isolating ${Math.round(p*100)}%`);
-          });
-          frames = isolated.map(f => f.time); // times preserved; blobs sent to pipeline
-        }
-        _updateJobStatus(job.jobId, 'running', 'Queuing reconstruction…');
-        await _dispatchToPipeline(job, file, frames);
-        _updateJobStatus(job.jobId, 'done', 'Queued');
-        _sessionJobs.push({ ...job, status: 'queued' });
-      } catch (e) {
-        _updateJobStatus(job.jobId, 'failed', e.message);
+    try {
+      const { data: authData, error: authError } = await sb.auth.getUser();
+      if (authError) throw authError;
+      const user = authData?.user;
+      if (!user?.id) throw new Error('Sign in before queuing a 4D reconstruction.');
+
+      const sequenceId = createMotionSequenceId();
+      const safeName = String(file.name || 'capture-video')
+        .replace(/\\s+/g, '_').replace(/[^a-zA-Z0-9._-]/g, '').slice(-100);
+      const ext = /\\.(mp4|mov|webm|m4v)$/i.exec(safeName)?.[1]?.toLowerCase() || 'mp4';
+      const sourcePath = `raw/${user.id}/4d/${sequenceId}/source.${ext}`;
+
+      _updateProgress(0.08, 'Uploading original video to FUMOCA storage…');
+      const { fileKey, error: uploadError } = await r2.from('nif-videos').upload(sourcePath, file, {
+        contentType: file.type || 'video/mp4',
+        onProgress: pct => _updateProgress(0.08 + (pct / 100) * 0.72, `Uploading source video… ${pct}%`)
+      });
+      if (uploadError) throw uploadError;
+      if (!fileKey) throw new Error('Storage did not return a source video key.');
+
+      const doIsolate = document.getElementById('fourDIsolateSubject')?.checked ?? true;
+      const jobPayloads = build4DCaptureJobs({
+        analysis: result,
+        recordId: _record?.id || null,
+        sourceKey: fileKey,
+        userId: user.id,
+        sequenceId,
+        requestedIsolation: doIsolate
+      });
+
+      _updateProgress(0.84, 'Creating reconstruction jobs…');
+      let queued = 0;
+      for (let i = 0; i < jobPayloads.length; i++) {
+        const payload = jobPayloads[i];
+        const { data: job, error: jobError } = await sb
+          .from('reconstruction_jobs')
+          .insert(payload)
+          .select('id,status,progress')
+          .single();
+        if (jobError) throw jobError;
+        _addJob(job.id, payload.meta.title, 'pending');
+        _updateJobStatus(job.id, 'done', 'Queued for GPU worker');
+        _sessionJobs[_sessionJobs.length - 1] = {
+          id: job.id,
+          label: payload.meta.title,
+          status: 'queued',
+          statusText: 'Queued for GPU worker',
+          sequenceId,
+          stateIndex: i
+        };
+        queued++;
       }
-    }
 
-    runBtn.disabled = false;
-    runBtn.textContent = 'Done — check Pipeline tab';
-    _switchTab('pipeline');
-  }
-
-  async function _dispatchToPipeline(job, videoFile, frameTimes) {
-    const payload = {
-      job_id: job.jobId,
-      label: job.label,
-      motion_class: job.motionClass,
-      colmap_mode: job.colmapMode,
-      frame_times: frameTimes,
-      subject_isolation: job.subjectIsolation,
-      record_id: _record?.id || null,
-      source: 'fourd_capture'
-    };
-    if (window._fumocaQueuePipeline) {
-      await window._fumocaQueuePipeline('fourd_reconstruction', payload);
-    } else {
-      console.log('[4D Capture] Pipeline dispatch:', payload);
+      _updateProgress(1, `${queued} reconstruction job${queued === 1 ? '' : 's'} queued`);
+      const status = document.getElementById('fourDProgressLabel');
+      if (status) status.textContent = `Sequence ${sequenceId.slice(0, 8)} · ${queued} job(s) queued. Original video stored once.`;
+      runBtn.textContent = 'Queued — check Pipeline tab';
+      _switchTab('pipeline');
+      window.dispatchEvent(new CustomEvent('fumoca:fourDSequenceQueued', {
+        detail: { sequenceId, sourceKey: fileKey, jobCount: queued, jobIds: _sessionJobs.filter(j => j.sequenceId === sequenceId).map(j => j.id) }
+      }));
+    } catch (e) {
+      _renderError('4D capture could not be queued: ' + (e?.message || String(e)));
+      runBtn.disabled = false;
+      runBtn.textContent = 'Retry upload + queue';
+      throw e;
+    } finally {
+      _showProgress(false);
+      runBtn.disabled = false;
     }
-    window.dispatchEvent(new CustomEvent('fumoca:fourDJobQueued', { detail: payload }));
   }
 
   async function _runTracking() {
