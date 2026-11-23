@@ -340,15 +340,9 @@ const FourDCapture = (() => {
           .single();
         if (jobError) throw jobError;
         _addJob(job.id, payload.meta.title, 'pending');
-        _updateJobStatus(job.id, 'done', 'Queued for GPU worker');
-        _sessionJobs[_sessionJobs.length - 1] = {
-          id: job.id,
-          label: payload.meta.title,
-          status: 'queued',
-          statusText: 'Queued for GPU worker',
-          sequenceId,
-          stateIndex: i
-        };
+        _updateJobStatus(job.id, 'pending', 'Queued for GPU worker');
+        Object.assign(_sessionJobs[_sessionJobs.length - 1], { sequenceId, stateIndex: i });
+        _renderJobList();
         queued++;
       }
 
@@ -581,11 +575,9 @@ const FourDCapture = (() => {
       }).select('id,status,progress').single();
       if (jobError) throw jobError;
       _addJob(job.id, 'Multi-camera reconstruction', 'pending');
-      _updateJobStatus(job.id, 'done', 'Queued for GPU worker');
-      _sessionJobs[_sessionJobs.length - 1] = {
-        id: job.id, label: 'Multi-camera reconstruction', status: 'queued',
-        statusText: 'Queued for GPU worker', sequenceId
-      };
+      _updateJobStatus(job.id, 'pending', 'Queued for GPU worker');
+      Object.assign(_sessionJobs[_sessionJobs.length - 1], { sequenceId });
+      _renderJobList();
       _updateProgress(1, 'Multi-camera reconstruction queued.');
       button.textContent = 'Queued — check Pipeline tab';
       _switchTab('pipeline');
