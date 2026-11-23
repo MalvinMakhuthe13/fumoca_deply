@@ -292,7 +292,7 @@ const FourDCapture = (() => {
     if (!file || !result) return;
 
     const sb = window._fumocaSupabase;
-    if (!sb) return _renderError('Supabase is not ready. Reload the viewer and try again.');
+    if (!sb) return _renderDispatchError('Supabase is not ready. Reload the viewer and try again.');
     runBtn.disabled = true;
     runBtn.textContent = 'Uploading source video…';
     _showProgress(true);
@@ -304,6 +304,7 @@ const FourDCapture = (() => {
       const user = authData?.user;
       if (!user?.id) throw new Error('Sign in before queuing a 4D reconstruction.');
 
+      _clearDispatchError();
       const sequenceId = createMotionSequenceId();
       const safeName = String(file.name || 'capture-video')
         .replace(/\s+/g, '_').replace(/[^a-zA-Z0-9._-]/g, '').slice(-100);
@@ -356,7 +357,7 @@ const FourDCapture = (() => {
         detail: { sequenceId, sourceKey: fileKey, jobCount: queued, jobIds: _sessionJobs.filter(j => j.sequenceId === sequenceId).map(j => j.id) }
       }));
     } catch (e) {
-      _renderError('4D capture could not be queued: ' + (e?.message || String(e)));
+      _renderDispatchError('4D capture could not be queued: ' + (e?.message || String(e)));
       runBtn.disabled = false;
       runBtn.textContent = 'Retry upload + queue';
     } finally {
@@ -465,7 +466,7 @@ const FourDCapture = (() => {
     const button = document.getElementById('fourDMergeAndDispatch');
     if (cameras.length < 2 || !button) return;
     const sb = window._fumocaSupabase;
-    if (!sb) return _renderError('Supabase is not ready. Reload the viewer and try again.');
+    if (!sb) return _renderDispatchError('Supabase is not ready. Reload the viewer and try again.', 'fourDMultiCamList');
     button.disabled = true;
     button.textContent = 'Extracting synchronized frames…';
     _showProgress(true);
@@ -477,6 +478,7 @@ const FourDCapture = (() => {
       const user = authData?.user;
       if (!user?.id) throw new Error('Sign in before queuing a multi-camera reconstruction.');
 
+      _clearDispatchError('fourDMultiCamList');
       const sequenceId = createMotionSequenceId();
       const streams = [];
       let commonDuration = Infinity;
@@ -591,7 +593,7 @@ const FourDCapture = (() => {
       }));
     } catch (e) {
       button.textContent = 'Retry multi-camera queue';
-      _renderError('Multi-camera capture could not be queued: ' + (e?.message || String(e)));
+      _renderDispatchError('Multi-camera capture could not be queued: ' + (e?.message || String(e)), 'fourDMultiCamList');
     } finally {
       loaded.forEach(({ video, objectUrl }) => {
         video.pause();
@@ -711,6 +713,22 @@ const FourDCapture = (() => {
   function _renderError(msg) {
     const el = document.getElementById('fourDAnalysisResult');
     if (el) { el.style.display=''; el.innerHTML=`<div style="color:#f09595;font-size:12px;padding:8px">${msg}</div>`; }
+  }
+
+  function _renderDispatchError(msg, targetId = 'fourDAnalysisResult') {
+    const el = document.getElementById(targetId);
+    if (!el) return;
+    let error = el.querySelector('.fourDDispatchError');
+    if (!error) {
+      error = document.createElement('div');
+      error.className = 'fourDDispatchError';
+      error.style.cssText = 'color:#f09595;font-size:11px;line-height:1.5;padding:8px 10px;margin:8px 0;border:1px solid rgba(240,149,149,.25);border-radius:7px;background:rgba(240,149,149,.06)';
+      el.prepend(error);
+    }
+    error.textContent = msg;
+  }
+  function _clearDispatchError(targetId = 'fourDAnalysisResult') {
+    document.getElementById(targetId)?.querySelector('.fourDDispatchError')?.remove();
   }
   function _switchTab(name) {
     document.querySelectorAll('.fourDTab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
