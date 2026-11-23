@@ -18,6 +18,10 @@ const qmul=(a,b)=>{const [w,x,y,z]=a,[W,X,Y,Z]=b;return [w*W-x*X-y*Y-z*Z,w*X+x*W
 const qaxis=(axis,angle)=>{const h=angle/2,s=Math.sin(h),a=norm(axis);return [Math.cos(h),a[0]*s,a[1]*s,a[2]*s];};
 const qrotate=(q,p)=>{const u=[q[1],q[2],q[3]];return add(p,add(mul(cross(u,p),2*q[0]),mul(cross(u,cross(u,p)),2)));};
 const smooth=x=>{x=clamp(x,0,1);return x*x*(3-2*x);};
+function quatMatrix(q){const [w,x,y,z]=q;return [[1-2*(y*y+z*z),2*(x*y-z*w),2*(x*z+y*w)],[2*(x*y+z*w),1-2*(x*x+z*z),2*(y*z-x*w)],[2*(x*z-y*w),2*(y*z+x*w),1-2*(x*x+y*y)]];}
+function quatFromMatrix(m){const tr=m[0][0]+m[1][1]+m[2][2];let w,x,y,z;if(tr>0){const s=Math.sqrt(tr+1)*2;w=.25*s;x=(m[2][1]-m[1][2])/s;y=(m[0][2]-m[2][0])/s;z=(m[1][0]-m[0][1])/s;}else if(m[0][0]>m[1][1]&&m[0][0]>m[2][2]){const s=Math.sqrt(1+m[0][0]-m[1][1]-m[2][2])*2;w=(m[2][1]-m[1][2])/s;x=.25*s;y=(m[0][1]+m[1][0])/s;z=(m[0][2]+m[2][0])/s;}else if(m[1][1]>m[2][2]){const s=Math.sqrt(1+m[1][1]-m[0][0]-m[2][2])*2;w=(m[0][2]-m[2][0])/s;x=(m[0][1]+m[1][0])/s;y=.25*s;z=(m[1][2]+m[2][1])/s;}else{const s=Math.sqrt(1+m[2][2]-m[0][0]-m[1][1])*2;w=(m[1][0]-m[0][1])/s;x=(m[0][2]+m[2][0])/s;y=(m[1][2]+m[2][1])/s;z=.25*s;}return qnorm([w,x,y,z]);}
+function scaleGaussianCovariance(q,logScale,factors){const R=quatMatrix(q),D=logScale.map(v=>Math.exp(2*v)),C=Array.from({length:3},(_,i)=>Array.from({length:3},(_,j)=>R[i][0]*D[0]*R[j][0]+R[i][1]*D[1]*R[j][1]+R[i][2]*D[2]*R[j][2]));for(let i=0;i<3;i++)for(let j=0;j<3;j++)C[i][j]*=factors[i]*factors[j];const V=[[1,0,0],[0,1,0],[0,0,1]];for(let n=0;n<18;n++){let p=0,r=1;if(Math.abs(C[0][2])>Math.abs(C[p][r])){p=0;r=2;}if(Math.abs(C[1][2])>Math.abs(C[p][r])){p=1;r=2;}if(Math.abs(C[p][r])<1e-12)break;const tau=(C[r][r]-C[p][p])/(2*C[p][r]),t=Math.sign(tau||1)/(Math.abs(tau)+Math.sqrt(1+tau*tau)),cs=1/Math.sqrt(1+t*t),sn=t*cs;const app=C[p][p],arr=C[r][r],apr=C[p][r];C[p][p]=app-t*apr;C[r][r]=arr+t*apr;C[p][r]=C[r][p]=0;for(let k=0;k<3;k++)if(k!==p&&k!==r){const ckp=C[k][p],ckr=C[k][r];C[k][p]=C[p][k]=cs*ckp-sn*ckr;C[k][r]=C[r][k]=sn*ckp+cs*ckr;}for(let k=0;k<3;k++){const vkp=V[k][p],vkr=V[k][r];V[k][p]=cs*vkp-sn*vkr;V[k][r]=sn*vkp+cs*vkr;}}const order=[0,1,2].sort((a,b)=>C[b][b]-C[a][a]),axes=order.map(i=>Math.sqrt(Math.max(EPS,C[i][i]))),M=Array.from({length:3},(_,row)=>order.map(i=>V[row][i]));if((M[0][0]*(M[1][1]*M[2][2]-M[1][2]*M[2][1])-M[0][1]*(M[1][0]*M[2][2]-M[1][2]*M[2][0])+M[0][2]*(M[1][0]*M[2][1]-M[1][1]*M[2][0]))<0)for(let row=0;row<3;row++)M[row][2]*=-1;return {rotation:quatFromMatrix(M),scale:axes.map(v=>Math.log(v))};}
+
 
 export class NIFManualGaussianDeformAuthor {
   constructor(data,stableIds=null){
@@ -68,8 +72,8 @@ export class NIFManualGaussianDeformAuthor {
       else if(type==='inflate'||type==='deflate'){const radial=norm(sub(p,pivot));const delta=localAmount*(type==='deflate'?-1:1);next=add(p,mul(radial,delta));const f=Math.max(EPS,1+delta/Math.max(EPS,Math.hypot(...sub(p,pivot))));scaleMul=[f,f,f];}
       else if(type==='scale'||type==='compress'){scaleMul=scale.map(v=>Math.exp(Math.log(Math.max(EPS,v))*w));const rel=sub(p,pivot);next=add(pivot,[rel[0]*scaleMul[0],rel[1]*scaleMul[1],rel[2]*scaleMul[2]]);}
       else throw new Error('Unsupported deformation type: '+type);
-      const nq=qnorm(qmul(rot,q));this.output[o]=next[0];this.output[o+1]=next[1];this.output[o+2]=next[2];
-      this.output[o+3]=s[0]+Math.log(Math.max(EPS,scaleMul[0]));this.output[o+4]=s[1]+Math.log(Math.max(EPS,scaleMul[1]));this.output[o+5]=s[2]+Math.log(Math.max(EPS,scaleMul[2]));
+      let nq=qnorm(qmul(rot,q)),nextScale=s.map((v,i)=>v+Math.log(Math.max(EPS,scaleMul[i])));if(type==='scale'||type==='compress'){const covariance=scaleGaussianCovariance(q,s,scaleMul);nq=covariance.rotation;nextScale=covariance.scale;}this.output[o]=next[0];this.output[o+1]=next[1];this.output[o+2]=next[2];
+      this.output[o+3]=nextScale[0];this.output[o+4]=nextScale[1];this.output[o+5]=nextScale[2];
       this.output[o+6]=nq[0];this.output[o+7]=nq[1];this.output[o+8]=nq[2];this.output[o+9]=nq[3];
       this.output[o+10]=this.rest[o+10];this.output[o+11]=this.rest[o+11];this.output[o+12]=this.rest[o+12];this.output[o+13]=this.rest[o+13];
     }this.data.set(this.output);return this.data;
