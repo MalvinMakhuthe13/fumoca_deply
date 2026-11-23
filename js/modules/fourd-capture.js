@@ -109,7 +109,7 @@ const FourDCapture = (() => {
   <div class="fourDTabContent" id="tab_multicam">
     <div class="fourDSection">
       <div class="fourDLabel">Multi-camera session</div>
-      <div class="fourDNote">Each phone captures the subject simultaneously from a different angle. Upload all videos here — frames are merged before reconstruction for full-360 coverage.</div>
+      <div class="fourDNote">Start all cameras together and keep them recording simultaneously. FUMOCA aligns frames by relative timestamps; hardware sync and camera calibration are not assumed.</div>
     </div>
     <div id="fourDMultiCamList"></div>
     <button id="fourDAddCam" class="fourDGhostBtn">+ Add camera angle</button>
@@ -467,12 +467,145 @@ const FourDCapture = (() => {
     };
   }
   async function _mergeAndDispatch() {
-    const streams = _camSlots.filter(c => c.file).map((c, i) => ({ cameraId: i, file: c.file, frames: [] }));
-    if (streams.length < 2) return;
-    document.getElementById('fourDMergeAndDispatch').textContent = 'Merging…';
-    window.dispatchEvent(new CustomEvent('fumoca:multiCamDispatch', { detail: { cameras: streams.length } }));
-    document.getElementById('fourDMergeAndDispatch').textContent = 'Dispatched — check Pipeline tab';
-    _switchTab('pipeline');
+    const cameras = _camSlots.filter(c => c.file);
+    const button = document.getElementById('fourDMergeAndDispatch');
+    if (cameras.length < 2 || !button) return;
+    const sb = window._fumocaSupabase;
+    if (!sb) return _renderError('Supabase is not ready. Reload the viewer and try again.');
+    button.disabled = true;
+    button.textContent = 'Extracting synchronized frames…';
+    _showProgress(true);
+
+    const loaded = [];
+    try {
+      const { data: authData, error: authError } = await sb.auth.getUser();
+      if (authError) throw authError;
+      const user = authData?.user;
+      if (!user?.id) throw new Error('Sign in before queuing a multi-camera reconstruction.');
+
+      const sequenceId = createMotionSequenceId();
+      const streams = [];
+      let commonDuration = Infinity;
+      for (let cameraId = 0; cameraId < cameras.length; cameraId++) {
+        const video = document.createElement('video');
+        video.muted = true;
+        video.playsInline = true;
+        video.preload = 'metadata';
+        const objectUrl = URL.createObjectURL(cameras[cameraId].file);
+        loaded.push({ video, objectUrl });
+        await new Promise((resolve, reject) => {
+          video.addEventListener('loadedmetadata', resolve, { once: true });
+          video.addEventListener('error', () => reject(new Error(`Could not read Camera ${cameraId + 1} video metadata`)), { once: true });
+          video.src = objectUrl;
+          video.load();
+        });
+        if (!Number.isFinite(video.duration) || video.duration < 1) {
+          throw new Error(`Camera ${cameraId + 1} video is too short or has no readable duration.`);
+        }
+        commonDuration = Math.min(commonDuration, video.duration);
+        streams.push({ cameraId, video, file: cameras[cameraId].file, frames: [] });
+      }
+
+      // These videos are assumed to share a common start. This is explicit in
+      // metadata; no false claim of hardware/genlock synchronization is made.
+      const sampleCount = Math.min(30, Math.max(3, Math.floor(commonDuration * 2)));
+      const times = Array.from({ length: sampleCount }, (_, i) =>
+        sampleCount === 1 ? 0 : 0.05 + (Math.max(0.1, commonDuration - 0.1) * i / (sampleCount - 1))
+      );
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Could not create a frame extraction canvas.');
+
+      let extracted = 0;
+      for (const stream of streams) {
+        for (const time of times) {
+          await new Promise((resolve, reject) => {
+            const onSeeked = () => { cleanup(); resolve(); };
+            const onError = () => { cleanup(); reject(new Error(`Camera ${stream.cameraId + 1} failed at ${time.toFixed(2)}s`)); };
+            const cleanup = () => {
+              stream.video.removeEventListener('seeked', onSeeked);
+              stream.video.removeEventListener('error', onError);
+            };
+            stream.video.addEventListener('seeked', onSeeked, { once: true });
+            stream.video.addEventListener('error', onError, { once: true });
+            stream.video.currentTime = time;
+          });
+          const scale = Math.min(1, 1280 / stream.video.videoWidth);
+          canvas.width = Math.max(1, Math.round(stream.video.videoWidth * scale));
+          canvas.height = Math.max(1, Math.round(stream.video.videoHeight * scale));
+          ctx.drawImage(stream.video, 0, 0, canvas.width, canvas.height);
+          const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.9));
+          if (!blob) throw new Error('Could not encode an extracted camera frame.');
+          const name = `t${String(Math.round(time * 1000)).padStart(8, '0')}_cam${String(stream.cameraId).padStart(2, '0')}.jpg`;
+          stream.frames.push({ time, file: new File([blob], name, { type: 'image/jpeg' }) });
+          extracted++;
+          _updateProgress(extracted / (cameras.length * sampleCount) * 0.75, `Extracting camera frames… ${extracted}/${cameras.length * sampleCount}`);
+        }
+      }
+
+      const merged = MA.mergeMultiCameraFrames(streams.map(s => ({
+        cameraId: s.cameraId,
+        frames: s.frames.map(f => ({ time: f.time, file: f.file }))
+      })));
+      const zipFiles = merged.map(item => item.file);
+      const { buildStoreZipFromFiles } = await import('./zip-writer.js');
+      const zipBytes = await buildStoreZipFromFiles(zipFiles);
+      const zipBlob = new Blob([zipBytes], { type: 'application/zip' });
+      const zipPath = `raw/${user.id}/4d/${sequenceId}/multicam.zip`;
+      button.textContent = 'Uploading synchronized frame set…';
+      const { fileKey, error: uploadError } = await r2.from('nif-videos').upload(zipPath, zipBlob, {
+        contentType: 'application/zip',
+        onProgress: pct => _updateProgress(0.75 + pct / 100 * 0.2, `Uploading frame set… ${pct}%`)
+      });
+      if (uploadError) throw uploadError;
+      if (!fileKey) throw new Error('Storage did not return the multi-camera frame-set key.');
+
+      const { data: job, error: jobError } = await sb.from('reconstruction_jobs').insert({
+        user_id: user.id,
+        status: 'queued',
+        progress: 0,
+        vertical: 'generic',
+        capture_mode: 'burst',
+        raw_r2_key: fileKey,
+        meta: {
+          title: `Multi-camera motion capture ${sequenceId.slice(0, 8)}`,
+          source: 'fourd_multicam',
+          motion_sequence_id: sequenceId,
+          multi_camera: true,
+          camera_count: cameras.length,
+          frames_per_camera: sampleCount,
+          frame_count: zipFiles.length,
+          camera_sync: 'relative-start-assumed',
+          camera_sync_warning: 'Videos are aligned by relative timestamps; hardware synchronization and camera calibration are not available in this capture.',
+          source_capture: { type: 'multi_camera_frame_zip', r2_key: fileKey, camera_count: cameras.length, frame_count: zipFiles.length }
+        }
+      }).select('id,status,progress').single();
+      if (jobError) throw jobError;
+      _addJob(job.id, 'Multi-camera reconstruction', 'pending');
+      _updateJobStatus(job.id, 'done', 'Queued for GPU worker');
+      _sessionJobs[_sessionJobs.length - 1] = {
+        id: job.id, label: 'Multi-camera reconstruction', status: 'queued',
+        statusText: 'Queued for GPU worker', sequenceId
+      };
+      _updateProgress(1, 'Multi-camera reconstruction queued.');
+      button.textContent = 'Queued — check Pipeline tab';
+      _switchTab('pipeline');
+      window.dispatchEvent(new CustomEvent('fumoca:multiCamDispatch', {
+        detail: { sequenceId, jobId: job.id, cameras: cameras.length, frames: zipFiles.length, sourceKey: fileKey }
+      }));
+    } catch (e) {
+      button.textContent = 'Retry multi-camera queue';
+      _renderError('Multi-camera capture could not be queued: ' + (e?.message || String(e)));
+    } finally {
+      loaded.forEach(({ video, objectUrl }) => {
+        video.pause();
+        video.removeAttribute('src');
+        video.load();
+        URL.revokeObjectURL(objectUrl);
+      });
+      _showProgress(false);
+      button.disabled = false;
+    }
   }
 
   // ─── Manual moment ─────────────────────────────────────────────────────────
