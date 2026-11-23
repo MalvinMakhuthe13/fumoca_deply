@@ -137,6 +137,23 @@ function _ensurePlaybackControls() {
   return _activeControls;
 }
 
+function _waitForInitialViewer(timeoutMs = 20000) {
+  if (window._fumocaViewerInstance) return Promise.resolve(true);
+  return new Promise(resolve => {
+    let settled = false;
+    const finish = value => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      window.removeEventListener('fumoca:viewerReady', onReady);
+      resolve(value);
+    };
+    const onReady = () => finish(true);
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    window.addEventListener('fumoca:viewerReady', onReady, { once: true });
+  });
+}
+
 async function _stopViewerPlayback() {
   if (_activePlayer) await _activePlayer.dispose();
   _activePlayer = null;
@@ -215,6 +232,8 @@ async function _onRecordLoaded(event) {
     const manifest = await loadMotionSequence(window._fumocaSupabase, sequenceId);
     if (generation !== _loadGeneration) return;
     window._fumocaMotionSequenceManifest = manifest;
+    const viewerReady = await _waitForInitialViewer();
+    if (!viewerReady) throw new Error('Viewer did not finish its initial NIF load in time');
     if (_sequenceRetryTimer) clearTimeout(_sequenceRetryTimer);
     _sequenceRetryTimer = null;
     await _startViewerPlayback(manifest);
