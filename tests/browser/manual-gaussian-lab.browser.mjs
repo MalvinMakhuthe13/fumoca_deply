@@ -25,7 +25,7 @@ try{
  await page.locator('#angle').fill('30');await page.locator('#fold').click();await page.locator('#time').fill('0.5');await page.locator('#easing').selectOption('ease-in-out');await page.locator('#key').click();await page.locator('#previewPlay').click();await page.waitForTimeout(150);await page.locator('#previewStop').click();
  const firstDownload=page.waitForEvent('download');await page.locator('#exportNif').click();const first=await firstDownload,firstPath=await first.path();assert.ok(firstPath);
  await page.locator('#file').setInputFiles(firstPath);await page.waitForFunction(()=>document.getElementById('message')?.textContent.includes('existing animation tracks reopened'));
- await page.locator('#time').fill('0.75');await page.locator('#translate').click();await page.locator('#key').click();
+ await page.locator('#all').click();await page.locator('#time').fill('0.75');await page.locator('#translate').click();await page.locator('#key').click();
  const secondDownload=page.waitForEvent('download');await page.locator('#exportNif').click();const second=await secondDownload;assert.ok(await second.path());
  assert.deepEqual(errors,[],'manual Gaussian Lab must not emit uncaught browser errors');
  console.log('Manual Gaussian Lab browser acceptance passed: NIF load, selection, deformation, easing, preview, export, reopen, edit and re-export.');
