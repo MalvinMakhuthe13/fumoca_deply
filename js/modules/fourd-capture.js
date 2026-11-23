@@ -495,6 +495,9 @@ const FourDCapture = (() => {
         if (!Number.isFinite(video.duration) || video.duration < 1) {
           throw new Error(`Camera ${cameraId + 1} video is too short or has no readable duration.`);
         }
+        if (!video.videoWidth || !video.videoHeight) {
+          throw new Error(`Camera ${cameraId + 1} video has no readable frame dimensions.`);
+        }
         commonDuration = Math.min(commonDuration, video.duration);
         streams.push({ cameraId, video, file: cameras[cameraId].file, frames: [] });
       }
