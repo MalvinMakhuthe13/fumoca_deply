@@ -68,7 +68,7 @@ const FourDCapture = (() => {
       <div id="fourDMotionClass"></div>
       <div id="fourDStrategyBox"></div>
       <div id="fourDMomentsList"></div>
-      <button id="fourDRunIsolation" class="fourDPrimaryBtn" style="display:none">Isolate subject + dispatch to pipeline</button>
+      <button id="fourDRunIsolation" class="fourDPrimaryBtn" style="display:none">Upload + queue motion reconstruction</button>
     </div>
   </div>
 
@@ -124,7 +124,7 @@ const FourDCapture = (() => {
     </div>
     <div class="fourDSection">
       <div class="fourDLabel">Settings</div>
-      <label class="fourDCheckRow"><input type="checkbox" id="fourDIsolateSubject" checked> Subject isolation (recommended)</label>
+      <label class="fourDCheckRow"><input type="checkbox" id="fourDIsolateSubject" checked> Track isolated subject across frames (SAM2 when available)</label>
       <label class="fourDCheckRow"><input type="checkbox" id="fourDAutoComposite" checked> Composite onto venue background</label>
       <label class="fourDCheckRow"><input type="checkbox" id="fourDAutoTour" checked> Auto-create motion tour on completion</label>
     </div>
