@@ -460,10 +460,19 @@ void main() {
    * Attach native per-Gaussian animation tracks to the loaded splat asset.
    * Tracks address stable Gaussian IDs; renderer sort order is never used.
    */
-  bindGaussianAnimation(tracks, stableIds = null) {
+  bindGaussianAnimation(animation) {
     if (!this.gaussians) throw new Error('Load Gaussian data before binding animation');
-    this.gaussianAnimator = new NIFGaussianAnimator(this.gaussians, tracks, stableIds);
-    return { gaussianCount: this.gaussians.count, trackCount: tracks.length };
+    if (this.proxyDeformer) throw new Error('Clear proxy deformation before binding native Gaussian animation');
+    if (!animation || !Array.isArray(animation.tracks) || !Array.isArray(animation.gaussianIds)) {
+      throw new TypeError('Expected decoded GAUSSIAN_ANIMATION data with tracks and gaussianIds');
+    }
+    if (animation.gaussianIds.length !== this.gaussians.count) {
+      throw new Error('Animation stable-ID table must match the loaded Gaussian count');
+    }
+    this.gaussianAnimator = new NIFGaussianAnimator(
+      this.gaussians, animation.tracks, Uint32Array.from(animation.gaussianIds)
+    );
+    return { gaussianCount: this.gaussians.count, trackCount: animation.tracks.length };
   }
 
   /** Evaluate native Gaussian tracks at seconds from the animation start. */
@@ -497,6 +506,7 @@ void main() {
    */
   bindProxyDeformation(restVertices, triangles, options = {}) {
     if (!this.gaussians) throw new Error('Load Gaussian data before binding a proxy');
+    if (this.gaussianAnimator) throw new Error('Clear native Gaussian animation before binding proxy deformation');
     this.proxyDeformer = new NIFProxyDeformer(restVertices, triangles, this.gaussians.data, options);
     this._proxyBaseData = this.gaussians.data.slice();
     return { gaussianCount: this.gaussians.count, proxyTriangleCount: triangles.length / 3 };
