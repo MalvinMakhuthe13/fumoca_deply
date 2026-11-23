@@ -205,6 +205,7 @@ mat3 q2m(vec4 q) {
 }
 
 float sigmoid(float x) { return 1.0 / (1.0 + exp(-x)); }
+vec3 sigmoid(vec3 x) { return 1.0 / (1.0 + exp(-x)); }
 
 void main() {
   // Camera-space position
