@@ -326,6 +326,7 @@ const FourDCapture = (() => {
         sourceKey: fileKey,
         userId: user.id,
         sequenceId,
+        vertical: _record?.vertical || _record?.category || 'generic',
         requestedIsolation: doIsolate
       });
 
