@@ -10,10 +10,11 @@ const analysis = {
 };
 const jobs = build4DCaptureJobs({
   analysis, recordId: 'source-record', sourceKey: 'raw/user/4d/source.mp4',
-  userId: 'user-1', sequenceId: 'sequence-1', requestedIsolation: true,
+  userId: 'user-1', sequenceId: 'sequence-1', vertical: 'person', requestedIsolation: true,
 });
 assert.equal(jobs.length, 2);
 assert.equal(jobs[0].capture_mode, 'video');
+assert.equal(jobs[0].vertical, 'person');
 assert.equal(jobs[0].raw_r2_key, 'raw/user/4d/source.mp4');
 assert.deepEqual(jobs[0].meta.frame_times, [0.4, 0.8, 1.2]);
 assert.equal(jobs[0].meta.motion_sequence_id, 'sequence-1');
