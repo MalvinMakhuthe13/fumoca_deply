@@ -21,6 +21,7 @@ const normalizeQuat = q => {
   return q.map(x => x / n);
 };
 
+function ease(t,mode){if(mode==='ease-in')return t*t;if(mode==='ease-out')return 1-(1-t)*(1-t);if(mode==='ease-in-out')return t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2;return t;}
 function segment(keys, time) {
   if (time <= keys[0].time) return -1;
   if (time >= keys[keys.length - 1].time) return keys.length - 1;
@@ -46,7 +47,7 @@ function writeVec3(keys, time, base, out, offset) {
     const v = keys[i].value;
     out[offset]=v[0]; out[offset+1]=v[1]; out[offset+2]=v[2]; return;
   }
-  const a=keys[i], b=keys[i+1], t=(time-a.time)/(b.time-a.time);
+  const a=keys[i], b=keys[i+1], t=ease((time-a.time)/(b.time-a.time),a.easing);
   out[offset]=a.value[0]+(b.value[0]-a.value[0])*t;
   out[offset+1]=a.value[1]+(b.value[1]-a.value[1])*t;
   out[offset+2]=a.value[2]+(b.value[2]-a.value[2])*t;
@@ -60,7 +61,7 @@ function writeQuat(keys, time, base, out, offset) {
   let a,b,t;
   if(i<0){a=keys[0].value;b=a;t=0;}
   else if(i===keys.length-1){a=keys[i].value;b=a;t=0;}
-  else {a=keys[i].value;b=keys[i+1].value;t=(time-keys[i].time)/(keys[i+1].time-keys[i].time);}
+  else {a=keys[i].value;b=keys[i+1].value;t=ease((time-keys[i].time)/(keys[i+1].time-keys[i].time),keys[i].easing);}
   let dot=a[0]*b[0]+a[1]*b[1]+a[2]*b[2]+a[3]*b[3];
   let bw=b[0],bx=b[1],by=b[2],bz=b[3];
   if(dot<0){dot=-dot;bw=-bw;bx=-bx;by=-by;bz=-bz;}
@@ -99,7 +100,7 @@ export class NIFGaussianAnimator {
       const keys=track.keyframes.map(key=>{
         if(!Number.isFinite(key.time)||key.time<0||key.time<=previous) throw new Error('Keyframe times must be finite, non-negative and strictly increasing');
         previous=key.time;
-        const out={time:key.time};
+        const out={time:key.time,easing:key.easing??'linear'};
         if(key.position!=null){if(!finite3(key.position))throw new Error('position must be a finite xyz triple');out.position=key.position.slice();}
         if(key.scale!=null){if(!finite3(key.scale))throw new Error('scale must be a finite xyz triple');out.scale=key.scale.slice();}
         if(key.rotation!=null){if(!finite4(key.rotation))throw new Error('rotation must be a finite wxyz quaternion');out.rotation=normalizeQuat(key.rotation);}
