@@ -45,6 +45,7 @@ jobs:
           node --input-type=module --check < engine-next/viewer-src/renderer/NIFRenderer.js
           node --input-type=module --check < engine-next/viewer-src/NIFViewer.js
           node --input-type=module --check < engine-next/editor/NIFGaussianTimelinePanel.js
+          node --input-type=module --check < engine-next/editor/gaussian-animation-preview.js
           node --input-type=module --check < engine-next/format/NIFSpec.js
           node --input-type=module --check < scripts/add-gaussian-animation-demo.mjs
           grep -q "bindGaussianAnimation" engine-next/viewer-src/renderer/NIFRenderer.js
