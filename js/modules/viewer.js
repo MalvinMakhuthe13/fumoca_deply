@@ -2500,6 +2500,37 @@ window._fumocaRenderer = {
     showError(`Failed to load nif: ${msg}`);
   }
 }
+
+let _motionSequenceLoadToken = 0;
+window._fumocaLoadMotionSequenceNif = async function(recordId) {
+  if (!recordId) throw new TypeError('Motion sequence NIF record id is required');
+  const token = ++_motionSequenceLoadToken;
+  const { data: row, error } = await supabase.from('nif_files').select('*').eq('id', recordId).single();
+  if (error) throw error;
+  if (!row?.r2_key) throw new Error('Motion sequence NIF has no stored artifact key');
+  const nextUrl = r2.publicUrl('nif-files', row.r2_key);
+  if (!nextUrl) throw new Error('Could not resolve the motion sequence NIF URL');
+  if (token !== _motionSequenceLoadToken) return false;
+
+  try { _fumocaClearRendererPreview(); } catch (_) {}
+  currentRecord = row;
+  fileUrl = nextUrl;
+  window._fumocaCurrentRecord = row;
+  window._fumocaSplatUrl = nextUrl;
+  window._fumocaViewer = {
+    ...(window._fumocaViewer || {}),
+    viewer: viewerInstance || null,
+    camera: window._fumocaViewerCamera || null,
+    controls: window._fumocaViewerControls || null,
+    stage: stageHost || stageEl || null,
+    fileUrl: nextUrl,
+    record: row,
+  };
+  if (nifTitle) nifTitle.textContent = row.title || 'Motion moment';
+  await mountInteractiveViewer(true);
+  return token === _motionSequenceLoadToken;
+};
+
 function activatePreset(name) {
   const presets = {
     balanced: { cleanup: 5, sharpness: 20, presence: 100, focus: 42, focusX: 50, focusY: 42, suppression: 24, feather: 10, scale: 100, isolation: 0, cropWidth: 36, cropHeight: 42, cropDepth: 65, maskShape: 'ellipse', sceneMode: 'product' },
