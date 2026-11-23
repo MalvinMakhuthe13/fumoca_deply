@@ -20,7 +20,7 @@ test('ID selection and fold rotate selected Gaussians while preserving appearanc
 });
 
 test('sphere selection uses a smooth falloff and additive ID selection',()=>{
-  const author=new NIFManualGaussianDeformAuthor(fixture([[0,0,0],[0.5,0,0],[1,0,0],[2,0,0]]));
+  const author=new NIFManualGaussianDeformAuthor(fixture([[0,0,0],[0.75,0,0],[1,0,0],[2,0,0]]));
   author.selectSphere([0,0,0],1,{falloff:0.5});
   assert.equal(author.selection[0],1);
   assert.ok(author.selection[1]>0&&author.selection[1]<1);
