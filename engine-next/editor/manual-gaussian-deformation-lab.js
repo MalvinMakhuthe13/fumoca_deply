@@ -102,7 +102,11 @@ $('previewPlay').onclick=()=>{
   message('Playing manually-authored Gaussian animation preview.');
 };
 
-$('key').onclick=()=>{if(!author)return;const tracks=author.capture(val('time'));message('Captured '+tracks.length+' Gaussian tracks at '+val('time')+'s.');};
+$('addLayer').onclick=()=>{if(!author)return;try{author.createLayer($('layerName').value);message('Created and activated layer '+author.activeLayer+'.');}catch(e){message(e.message);}};
+$('toggleLayer').onclick=()=>{if(!author)return;author.setLayerEnabled(author.activeLayer,!author.layers.get(author.activeLayer));message('Layer '+author.activeLayer+' '+(author.layers.get(author.activeLayer)?'enabled':'muted')+'.');};
+$('deleteKey').onclick=()=>{if(!author)return;message('Deleted '+author.deleteKeyframe(val('time'))+' keyframes at '+val('time')+'s.');};
+$('moveKey').onclick=()=>{if(!author)return;message('Moved '+author.moveKeyframe(val('moveFrom'),val('time'))+' keyframes to '+val('time')+'s.');};
+$('key').onclick=()=>{if(!author)return;const tracks=author.capture(val('time'),{easing:$('easing').value});message('Captured '+tracks.length+' Gaussian tracks at '+val('time')+'s.');};
 $('reset').onclick=()=>{if(!author)return;author.reset();sync();message('Rest pose restored. Keyframes retained.');};
 function download(bytes,name,type){
   const blob=new Blob([bytes],{type}),url=URL.createObjectURL(blob),a=document.createElement('a');
