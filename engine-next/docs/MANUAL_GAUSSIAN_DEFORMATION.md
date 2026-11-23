@@ -30,7 +30,7 @@ From Studio, load a NIF and use **Gaussian Lab** to open that active source NIF 
 9. Create named animation layers, mute/unmute them, and choose the active layer.
 10. Capture selected Gaussian transforms at timeline times. Delete or move keyframes and choose linear, ease-in, ease-out, or ease-in-out interpolation.
 11. Scrub or play the manually authored animation in the local preview.
-12. Export JSON tracks or a new NIF 1.2 file. The NIF export preserves original chunk payloads, replaces any prior Gaussian animation chunk, and reopens the output for structural and animation validation before download.
+12. Save a full editable authoring-project JSON sidecar (layers, keyframes, easing, and weighted selection sets), export flattened JSON tracks, or export a new NIF 1.2 playback file. Reopen the matching source NIF and import its authoring-project sidecar to continue editing; loading an animated NIF alone restores its flattened playback tracks. The NIF export preserves original chunk payloads, replaces any prior Gaussian animation chunk, and reopens the output for structural and animation validation before download.
 
 ## Data and fidelity guarantees
 
