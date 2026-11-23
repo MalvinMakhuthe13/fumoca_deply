@@ -18,12 +18,21 @@ const FumocaFounderGate = (() => {
   }
 
   async function isFounder() {
-    const list = allowlist();
-    if (!list.length) return { ok: false, reason: 'allowlist_empty' };
     const user = await currentUser();
     if (!user) return { ok: false, reason: 'unauthenticated' };
     const email = (user.email || '').toLowerCase();
-    return { ok: list.includes(email), reason: list.includes(email) ? 'founder' : 'not_founder', email };
+
+    // Temporary access for authenticated users on the PR #33 branch preview.
+    // Keep the production founder allowlist enforced on every other hostname.
+    const previewTestingHost = 'cursor-anim-client-demo-c441.fumoca-deply.pages.dev';
+    if (window.location?.hostname === previewTestingHost) {
+      return { ok: true, reason: 'preview_testing', email };
+    }
+
+    const list = allowlist();
+    if (!list.length) return { ok: false, reason: 'allowlist_empty' };
+    const ok = list.includes(email);
+    return { ok, reason: ok ? 'founder' : 'not_founder', email };
   }
 
   async function requireFounder(redirectTo = 'login.html') {
