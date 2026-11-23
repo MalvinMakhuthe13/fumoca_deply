@@ -28,6 +28,11 @@ test('NIF export preserves original geometry and embeds validated manual animati
   assert.ok(result.hasChunk(CHUNK.GAUSSIAN_ANIMATION));
   const animation=await decodeGaussianAnimationChunk(result.getChunk(CHUNK.GAUSSIAN_ANIMATION));
   assert.equal(animation.tracks[0].keyframes[0].time,0);
+  const reopenedGeometry=await result.getGeometry(),reopened=new NIFManualGaussianDeformAuthor(reopenedGeometry.data);
+  assert.equal(reopened.loadTracks(animation.tracks),1);
+  reopened.selectIds([0]);reopened.apply({type:'translate',direction:[0,1,0],amount:.25});reopened.capture(.75);
+  const secondPass=await encodeManualAnimationNif(output,reopened.exportTracks(),{duration:1});
+  assert.equal((await verifyManualAnimationNif(secondPass)).trackCount,1);
 });
 
 test('manual author undo and redo restore data and keyframe state',()=>{
