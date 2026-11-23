@@ -1,5 +1,5 @@
 # NIF — Neural Interactive Format
-## Public Specification · Version 1.0
+## Public Specification · Version 1.2
 ### © Fumoca Technologies · fumoca.co.za
 #### Effective date: 2025
 
@@ -143,6 +143,7 @@ and continue reading. This ensures forward compatibility.
 | 0x0016 | SEMANTIC_MAP  | **Reserved, not implemented.** Per-voxel semantic labels (vertical-specific schema) (planned). |
 | 0x0017 | CALIBRATION   | Real-world scale record. See §6c. |
 | 0x0018 | VERIFICATION  | Product-verification report against a reference mesh. See §6d. |
+| 0x001A | GAUSSIAN_ANIMATION | Stable-ID per-Gaussian position, log-scale and quaternion tracks. NIF 1.2; see §6e. Opacity and SH appearance remain in KEYFRAME_GEO. |
 | 0x0020 | CERT          | Encoder certificate. See §10. |
 | 0x0300 | SPATIAL_AUDIO | **Reserved, not implemented.** Ambisonics B-format audio + HRTF source positions (planned). ID shared with .spax's SPAX_CHUNK.SPATIAL_AUDIO — see §11a. |
 | 0x0500 | EDIT_HISTORY  | **Reserved, not implemented.** Non-destructive edit operations (reversible) (planned). ID shared with .spax's SPAX_CHUNK.EDIT_HISTORY — see §11a. |
