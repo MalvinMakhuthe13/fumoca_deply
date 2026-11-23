@@ -59,6 +59,7 @@ export class NIFManualGaussianDeformAuthor {
   apply({type='bend',axis=[0,1,0],pivot=[0,0,0],angle=0,amount=0,scale=[1,1,1],direction=[0,0,0],gradientAxis=null,gradientRange=null,history=true}={}){
     if(!vec(axis)||!vec(pivot)||!vec(scale)||!vec(direction)||![angle,amount].every(Number.isFinite)||scale.some(v=>v<=0))throw new TypeError('Invalid deformation parameters');
     const a=norm(axis),range=gradientAxis?norm(gradientAxis):null;
+    if(history)if(!['bend','fold','rotate','twist','translate','inflate','deflate','scale','compress'].includes(type))throw new Error('Unsupported deformation type: '+type);
     if(history)this._checkpoint(type);
     let minAx=Infinity,maxAx=-Infinity;if(type==='twist'){for(let i=0;i<this.count;i++){const o=i*STRIDE,v=dot(sub([this.rest[o],this.rest[o+1],this.rest[o+2]],pivot),a);minAx=Math.min(minAx,v);maxAx=Math.max(maxAx,v);}}
     const extent=Math.max(EPS,maxAx-minAx);
@@ -69,7 +70,7 @@ export class NIFManualGaussianDeformAuthor {
       if(type==='bend'||type==='fold'||type==='rotate'){rot=qaxis(a,localAngle);next=add(pivot,qrotate(rot,sub(p,pivot)));}
       else if(type==='twist'){const axial=dot(sub(p,pivot),a);rot=qaxis(a,localAngle*(axial-minAx)/extent);next=add(pivot,qrotate(rot,sub(p,pivot)));}
       else if(type==='translate'){next=add(p,mul(direction,localAmount));}
-      else if(type==='inflate'||type==='deflate'){const radial=norm(sub(p,pivot));const delta=localAmount*(type==='deflate'?-1:1);next=add(p,mul(radial,delta));const f=Math.max(EPS,1+delta/Math.max(EPS,Math.hypot(...sub(p,pivot))));scaleMul=[f,f,f];}
+      else if(type==='inflate'||type==='deflate'){const radialVector=sub(p,pivot),radialLength=Math.hypot(...radialVector),radial=radialLength<EPS?[0,1,0]:mul(radialVector,1/radialLength);const delta=localAmount*(type==='deflate'?-1:1);next=add(p,mul(radial,delta));const f=Math.max(EPS,1+delta/Math.max(EPS,Math.hypot(...sub(p,pivot))));scaleMul=[f,f,f];}
       else if(type==='scale'||type==='compress'){scaleMul=scale.map(v=>Math.exp(Math.log(Math.max(EPS,v))*w));const rel=sub(p,pivot);next=add(pivot,[rel[0]*scaleMul[0],rel[1]*scaleMul[1],rel[2]*scaleMul[2]]);}
       else throw new Error('Unsupported deformation type: '+type);
       let nq=qnorm(qmul(rot,q)),nextScale=s.map((v,i)=>v+Math.log(Math.max(EPS,scaleMul[i])));if(type==='scale'||type==='compress'){const covariance=scaleGaussianCovariance(q,s,scaleMul);nq=covariance.rotation;nextScale=covariance.scale;}this.output[o]=next[0];this.output[o+1]=next[1];this.output[o+2]=next[2];
