@@ -27,6 +27,7 @@ function renderSelection(){if(!renderer||!author)return;const preview=author.dat
 function sync(){stopPreview();if(renderer){gaussians.data=author.data;renderSelection();drawGizmo();}}
 function stopPreview(){if(previewRaf!=null)cancelAnimationFrame(previewRaf);previewRaf=null;previewAnimator=null;previewSet=null;if(renderer&&author){renderer.gaussians=gaussians;gaussians.data=author.data;renderer._sortFrame=-999;}}
 function evaluatePreview(t){if(!previewAnimator)return;previewAnimator.evaluate(Math.max(0,Math.min(previewDuration,t)));renderer.gaussians=previewSet;renderer._sortFrame=-999;$('timeline').value=String(t);$('timelineTime').textContent=t.toFixed(2)+'s';}
+window.addEventListener('load',()=>{if(window.opener)window.opener.postMessage({type:'FUMOCA_MANUAL_GAUSSIAN_READY'},location.origin);},{once:true});
 window.addEventListener('message',event=>{
   if(event.origin!==location.origin||event.source!==window.opener||event.data?.type!=='FUMOCA_MANUAL_GAUSSIAN_SOURCE')return;
   try{const transfer=new DataTransfer();transfer.items.add(new File([event.data.buffer],event.data.name||'studio-source.nif',{type:'application/octet-stream'}));$('file').files=transfer.files;$('file').dispatchEvent(new Event('change'));message('Receiving active Studio NIF…');}catch(error){message('Could not receive Studio NIF: '+error.message);}
