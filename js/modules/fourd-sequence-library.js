@@ -179,8 +179,8 @@ async function _onRecordLoaded(event) {
     window._fumocaMotionSequenceManifest = manifest;
     if (_sequenceRetryTimer) clearTimeout(_sequenceRetryTimer);
     _sequenceRetryTimer = null;
-    _sequenceRetryCount = 0;
     await _startViewerPlayback(manifest);
+    _sequenceRetryCount = 0;
     window.dispatchEvent(new CustomEvent('fumoca:motionSequenceReady', {
       detail: { sequenceId, manifest, frameCount: manifest.frames.length }
     }));
