@@ -171,20 +171,24 @@ async function _startViewerPlayback(manifest) {
   let activeRecordId = null;
   let loadingRecordId = null;
   let loadingRecordPromise = null;
+  async function ensureRecordLoaded(recordId) {
+    while (recordId && recordId !== activeRecordId) {
+      if (!loadingRecordPromise) {
+        const requestedId = recordId;
+        loadingRecordId = requestedId;
+        loadingRecordPromise = window._fumocaLoadMotionSequenceNif(requestedId)
+          .then(() => { activeRecordId = requestedId; })
+          .finally(() => { loadingRecordId = null; loadingRecordPromise = null; });
+      }
+      await loadingRecordPromise;
+    }
+  }
   const adapter = {
     async loadFrame(frame) {
       return { recordId: frame.stateId, url: frame.url };
     },
     async presentFrame(handle, context) {
-      if (handle.recordId && handle.recordId !== activeRecordId) {
-        if (loadingRecordId !== handle.recordId) {
-          loadingRecordId = handle.recordId;
-          loadingRecordPromise = window._fumocaLoadMotionSequenceNif(handle.recordId)
-            .then(() => { activeRecordId = handle.recordId; })
-            .finally(() => { loadingRecordId = null; loadingRecordPromise = null; });
-        }
-        await loadingRecordPromise;
-      }
+      await ensureRecordLoaded(handle.recordId);
       controls.seek.max = String(manifest.duration);
       controls.seek.value = String(context.time);
       controls.time.textContent = _formatTime(context.time);
