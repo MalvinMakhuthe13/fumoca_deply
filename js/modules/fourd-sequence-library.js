@@ -3,8 +3,6 @@
  * This intentionally uses hold playback: independently trained reconstructions
  * do not share proven Gaussian identity or ordering.
  */
-import r2 from '../r2Client.js';
-
 export function buildMotionSequenceManifest(records, sequenceId, publicUrl = (key) => key) {
   if (!Array.isArray(records)) throw new TypeError('NIF records must be an array');
   if (!sequenceId || typeof sequenceId !== 'string') throw new TypeError('motion sequence id is required');
@@ -66,6 +64,7 @@ export async function loadMotionSequence(supabase, sequenceId) {
     .select('id,title,r2_key,gaussian_count,meta,created_at')
     .contains('meta', { motion_sequence_id: sequenceId });
   if (error) throw error;
+  const { default: r2 } = await import('../r2Client.js');
   return buildMotionSequenceManifest(data || [], sequenceId, key => r2.publicUrl('nif-files', key));
 }
 
