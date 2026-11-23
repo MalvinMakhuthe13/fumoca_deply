@@ -1628,7 +1628,11 @@ class ReconstructionWorker:
             # track_primary_object()'s docstring for the real caveat: this
             # is unexecuted here, no GPU/SAM2 in this environment.
             self._tick('processing', 36)
-            object_masks = track_primary_object(frames, alpha_masks)
+            if meta.get('subject_isolation_requested', True):
+                object_masks = track_primary_object(frames, alpha_masks)
+            else:
+                object_masks = alpha_masks
+                print('[NIF] Cross-frame subject tracking disabled by capture metadata; retaining per-frame background masks')
 
             # ── Segmentation ──────────────────────────────────────────────────
             self._tick('processing', 38)
