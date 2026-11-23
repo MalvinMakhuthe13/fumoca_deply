@@ -7,7 +7,7 @@ import { encodeManualAnimationNif, verifyManualAnimationNif } from '../animation
 function geometryChunk(points){
   const out=new Uint8Array(5+points.length*14*4),dv=new DataView(out.buffer);
   dv.setUint8(0,0);dv.setUint32(1,points.length,false);
-  points.forEach((p,i)=>p.forEach((v,k)=>dv.setFloat32(5+(i*14+k)*4,v,false)));
+  points.forEach((p,i)=>p.forEach((v,k)=>dv.setFloat32(5+(i*14+k)*4,v,true)));
   return out;
 }
 function sourceNif(){
