@@ -101,9 +101,9 @@ test('native animator applies easing without changing colour or opacity',()=>{
 
 test('authoring project restores named layers, keyframes and weighted selection sets',()=>{
   const data=new Float32Array([1,0,0,0,0,0,1,0,0,0,.8,.2,.3,.4]);
-  const author=new NIFManualGaussianDeformAuthor(data);author.selectIds([0]);author.saveSelection('Subject');
+  const original=data.slice(),author=new NIFManualGaussianDeformAuthor(data);author.selectIds([0]);author.saveSelection('Subject');
   author.createLayer('Arm');author.apply({type:'translate',direction:[0,1,0],amount:.5});author.capture(.5,{easing:'ease-out'});
-  const project=author.exportProject(),restored=new NIFManualGaussianDeformAuthor(data.slice());
+  const project=author.exportProject(),restored=new NIFManualGaussianDeformAuthor(original);
   const report=restored.importProject(project);
   assert.equal(report.layerCount,2);assert.equal(report.trackCount,1);assert.equal(report.selectionSetCount,1);
   assert.equal(restored.activeLayer,'Arm');assert.equal(restored.loadSelection('Subject')[0],1);
