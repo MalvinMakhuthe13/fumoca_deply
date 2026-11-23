@@ -42,7 +42,7 @@ export class NIFManualGaussianDeformAuthor {
     this.indexById=new Map();
     for(let i=0;i<this.count;i++){if(this.indexById.has(this.ids[i]))throw new Error('Duplicate stable Gaussian ID');this.indexById.set(this.ids[i],i);}
     this.selection=new Float32Array(this.count);
-    this.keyframes=new Map();\n    this.undoStack=[];\n    this.redoStack=[];\n    this.historyLimit=80;
+    this.keyframes=new Map();\n    this.undoStack=[];\n    this.redoStack=[];\n    this.historyLimit=Math.max(1,Math.min(80,Math.floor((96*1024*1024)/Math.max(1,this.data.byteLength))));
   }
 
   clearSelection(){ this.selection.fill(0); return this.selection; }
