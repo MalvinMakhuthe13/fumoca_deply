@@ -31,7 +31,7 @@
 
 import { NIFRenderer }      from './renderer/NIFRenderer.js';
 import { NIFPreviewSystem } from './preview/NIFPreviewSystem.js';
-import { CHUNK, ENCODER_TIER, decodeMetaChunk, decodePhysicsChunk } from '../format/NIFSpec.js';
+import { CHUNK, CODEC, ENCODER_TIER, decodeMetaChunk, decodeGaussianAnimationChunk } from '../format/NIFSpec.js';
 
 export class NIFViewer {
   /**
@@ -117,6 +117,7 @@ export class NIFViewer {
       try {
         this._renderer = new NIFRenderer(this._canvas);
         this._renderer.loadGaussians(gaussians);
+        if (gaussianAnimation) this._renderer.bindGaussianAnimation(gaussianAnimation);
         // Expose on window so compare viewer camera sync can reach it
         if (typeof window !== 'undefined') window._nifRenderer = this._renderer;
         // Load depth/layer data if present — enables foreground/background separation
@@ -373,6 +374,24 @@ export class NIFViewer {
 
     const gaussians = { count, data: geoData };
 
+    // Native per-splat animation — stable identity table is validated against
+    // the base geometry before the renderer binds tracks.
+    let gaussianAnimation = null;
+    const animationChunk = await getChunk(CHUNK.GAUSSIAN_ANIMATION);
+    if (animationChunk) {
+      try {
+        gaussianAnimation = await decodeGaussianAnimationChunk({
+          type: CHUNK.GAUSSIAN_ANIMATION, codec: CODEC.RAW, data: animationChunk.data,
+        });
+        if (gaussianAnimation.gaussianIds.length !== count) {
+          throw new Error('Stable Gaussian ID table length does not match KEYFRAME_GEO count');
+        }
+      } catch (e) {
+        console.warn('[NIFViewer] GAUSSIAN_ANIMATION chunk ignored:', e.message);
+        gaussianAnimation = null;
+      }
+    }
+
     // ── Depth map — float16 (H×W) ─────────────────────────────────────────────
     let depthMap = null;
     const depthChunk = await getChunk(CHUNK.DEPTH_MAP);
@@ -454,7 +473,7 @@ export class NIFViewer {
     const reader = { getChunk: getChunkSync };
 
     return { reader, gaussians, depthMap, alphaMask, layers, vertical, meta, thumbnailBytes,
-             physics, calibration, verification };
+             physics, calibration, verification, gaussianAnimation };
   }
 
   // ── Static helpers ─────────────────────────────────────────────────────────
