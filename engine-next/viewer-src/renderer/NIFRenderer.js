@@ -676,24 +676,27 @@ void main() {
       depths[i] = -(v0*data[j] + v1*data[j+1] + v2*data[j+2] + v3_);
     }
 
-    if (this._sortWorker && this._sortWorkerReady) {
-      // Async path: transfer index array to worker (zero-copy)
+    if (this._sortWorker) {
+      if (!this._sortWorkerReady) {
+        // The index buffer is currently owned by the worker and is detached
+        // on the main thread. Keep the last uploaded ordering until it returns.
+        this._sortFrame = this._frame;
+        return false;
+      }
+
+      // Async path: transfer index array to worker (zero-copy).
       this._sortWorkerReady = false;
       this._sortWorkerCount = count;
-      // Send a copy of depths (not transferable — main thread still needs it)
-      // Send indices as transferable — worker will send it back
       const depthsCopy = depths.slice(0, count);
       this._sortWorker.postMessage(
         { type: 'sort', depths: depthsCopy, indices, count },
-        [indices.buffer],   // transfer indices ownership to worker
+        [indices.buffer],
       );
-      // _sortIndices is now detached — _gatherAndUpload will restore it
       this._sortFrame = this._frame;
       return true;
     }
 
-    // Synchronous fallback (no worker, or worker busy)
-    // Only runs on the main thread if worker unavailable.
+    // Synchronous fallback is used only when no worker exists.
     // Cap to 20k even on sync path to keep it under 2ms.
     const syncCount = Math.min(count, 20_000);
     indices.sort((a, b) => depths[a] - depths[b]);
