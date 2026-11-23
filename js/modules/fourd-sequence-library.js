@@ -185,7 +185,7 @@ async function _startViewerPlayback(manifest) {
 }
 
 async function _onRecordLoaded(event) {
-  const record = event?.detail?.record || window._fumocaCurrentRecord || null;
+  const record = event?.detail?.record || event?.detail || window._fumocaCurrentRecord || null;
   const sequenceId = record?.meta?.motion_sequence_id;
   if (!sequenceId) {
     _loadGeneration++;
