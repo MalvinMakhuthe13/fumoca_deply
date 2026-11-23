@@ -63,7 +63,7 @@ export class NIFManualGaussianDeformAuthor {
       if(range&&gradientRange){const t=clamp((dot(sub(p,pivot),range)-gradientRange[0])/(gradientRange[1]-gradientRange[0]||1),0,1);localAngle*=t;localAmount*=t;}
       if(type==='bend'||type==='fold'||type==='rotate'){rot=qaxis(a,localAngle);next=add(pivot,qrotate(rot,sub(p,pivot)));}
       else if(type==='twist'){const axial=dot(sub(p,pivot),a);rot=qaxis(a,localAngle*(axial-minAx)/extent);next=add(pivot,qrotate(rot,sub(p,pivot)));}
-      else if(type==='translate'){next=add(p,mul(direction,w));}
+      else if(type==='translate'){next=add(p,mul(direction,localAmount));}
       else if(type==='inflate'||type==='deflate'){const radial=norm(sub(p,pivot));const delta=localAmount*(type==='deflate'?-1:1);next=add(p,mul(radial,delta));const f=Math.max(EPS,1+delta/Math.max(EPS,Math.hypot(...sub(p,pivot))));scaleMul=[f,f,f];}
       else if(type==='scale'||type==='compress'){scaleMul=scale.map(v=>Math.exp(Math.log(Math.max(EPS,v))*w));const rel=sub(p,pivot);next=add(pivot,[rel[0]*scaleMul[0],rel[1]*scaleMul[1],rel[2]*scaleMul[2]]);}
       else throw new Error('Unsupported deformation type: '+type);
