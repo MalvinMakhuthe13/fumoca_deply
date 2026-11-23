@@ -44,7 +44,7 @@ $('file').addEventListener('change',async()=>{
     if(!reader.isVersionSupported||reader.isCorrupted)throw new Error('Invalid or unsupported NIF file');
     gaussians=await reader.getGeometry();if(!gaussians)throw new Error('NIF has no Gaussian geometry');
     renderer?.stop();renderer=new NIFRenderer(canvas);renderer.loadGaussians(gaussians);renderer.setVertical(reader.header.vertical);renderer.start();
-    author=new NIFManualGaussianDeformAuthor(gaussians.data);
+    author=new NIFManualGaussianDeformAuthor(gaussians.data);startGizmoAnimation();
     const b=bounds(gaussians.data,gaussians.count);
     ['minx','miny','minz'].forEach((id,i)=>set(id,b.min[i]));
     ['maxx','maxy','maxz'].forEach((id,i)=>set(id,b.max[i]));
@@ -135,6 +135,6 @@ $('exportNif').onclick=async()=>{
     message('Verified NIF '+report.version+' · '+report.geometryCount.toLocaleString()+' splats · '+report.trackCount.toLocaleString()+' tracks · '+report.duration+'s. Original untouched.');
   }catch(e){message('Export failed: '+(e.stack||String(e)));}
 };
-let gizmoRaf=0;function animateGizmo(){drawGizmo();gizmoRaf=requestAnimationFrame(animateGizmo);}animateGizmo();
+let gizmoRaf=0;function animateGizmo(){if(!author){gizmoRaf=0;return;}drawGizmo();gizmoRaf=requestAnimationFrame(animateGizmo);}function startGizmoAnimation(){if(!gizmoRaf)gizmoRaf=requestAnimationFrame(animateGizmo);}
 window.addEventListener('resize',drawGizmo);
 window.addEventListener('beforeunload',()=>{stopPreview();renderer?.stop();});
