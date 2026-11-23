@@ -27,7 +27,7 @@ jobs:
         run: node --experimental-default-type=module tests/fourd-job-contract.test.mjs
       - name: Test completed 4D NIF sequence assembly
         run: node --experimental-default-type=module tests/fourd-sequence-library.test.mjs
-      - name: Test proxy deformation transfer to Gaussian records
+      - name: Test manual Gaussian editor and NIF round trip\n        run: node --experimental-default-type=module engine-next/tests/manual-gaussian-editor.integration.test.mjs\n      - name: Test proxy deformation transfer to Gaussian records
         run: node --experimental-default-type=module tests/nif-proxy-deformer.test.mjs
       - name: Test native Gaussian animation tracks
         run: node --experimental-default-type=module tests/nif-gaussian-animator.test.mjs
@@ -41,7 +41,7 @@ jobs:
           node --input-type=module --check < js/modules/fourd-job-contract.js
           node --input-type=module --check < js/modules/fourd-sequence-library.js
           node --input-type=module --check < engine-next/animation/NIFProxyDeformer.js
-          node --input-type=module --check < engine-next/animation/NIFGaussianAnimator.js
+          node --input-type=module --check < engine-next/animation/NIFGaussianAnimator.js\n          node --input-type=module --check < engine-next/animation/NIFManualGaussianDeformAuthor.js\n          node --input-type=module --check < engine-next/animation/NIFManualAnimationExport.js\n          node --input-type=module --check < engine-next/editor/manual-gaussian-deformation-lab.js
           node --input-type=module --check < engine-next/viewer-src/renderer/NIFRenderer.js
           node --input-type=module --check < engine-next/viewer-src/NIFViewer.js
           node --input-type=module --check < engine-next/editor/NIFGaussianTimelinePanel.js
