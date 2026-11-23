@@ -1,6 +1,11 @@
 # Manual Gaussian deformation authoring
 
-The manual-first authoring core lives in `engine-next/animation/NIFManualGaussianDeformAuthor.js`.
+The manual-first editor is implemented in:
+
+- `engine-next/animation/NIFManualGaussianDeformAuthor.js`
+- `engine-next/animation/NIFManualAnimationExport.js`
+- `engine-next/editor/manual-gaussian-deformation-lab.html`
+- `engine-next/editor/manual-gaussian-deformation-lab.js`
 
 ## Local preview
 
@@ -8,22 +13,35 @@ Serve the repository root and open:
 
 `/engine-next/editor/manual-gaussian-deformation-lab.html`
 
-Load an original NIF file; it does not need an animation chunk. The lab is local-only and never uploads or edits the source file.
+Load an original NIF file. It does not need an animation chunk. The lab runs locally and does not upload, overwrite, or publish the source file.
 
-## Workflow
+## Manual editing workflow
 
-1. Select all splats or select a local-space box with adjustable soft-edge falloff.
-2. Set a pivot and axis.
-3. Apply fold/bend, rotate, twist, or scale/compress.
-4. Capture the current selected Gaussian transforms at a timeline time.
-5. Export the authored native Gaussian track JSON.
+1. Select all splats, a local-space box, a screen-space brush, or a screen-space lasso.
+2. Use soft selection falloff for box and brush selections. Shift adds to the current selection; Alt subtracts from it.
+3. Selected splats are tinted in the preview only; original colour and opacity remain unchanged in the authoring data.
+4. Set a pivot and axis.
+5. Apply fold/bend, rotation, twist, translation, inflate/deflate, or scale/compression.
+6. Undo or redo edits. History is bounded by an approximate 96 MiB memory budget, with at least one history step retained.
+7. Capture the selected Gaussian transforms at timeline times.
+8. Scrub or play the authored animation in the local preview.
+9. Export a JSON track file or export a new NIF 1.2 file. The NIF export preserves the original chunk payloads, replaces any prior Gaussian animation chunk, and reopens the output for structural and animation validation before download.
 
-Selection is stored per stable Gaussian ID. Deformation is evaluated from the immutable rest pose on every operation to avoid cumulative drift. Opacity and colour channels are copied unchanged from the rest pose.
+## Data and fidelity guarantees
 
-## Current scope and limitations
+- Selection and tracks address stable Gaussian IDs, not renderer depth-sort order.
+- Deformations are recomputed from an immutable rest pose to avoid cumulative drift.
+- Opacity and colour channels are not animated or modified by the deformation core.
+- Gaussian position, log-scale, and quaternion are written to the native NIF Gaussian animation schema.
+- Export never mutates the source byte array or writes to Supabase, R2, or production.
 
-- The box selector and stable-ID selector are implemented. A screen-space paint brush, lasso, per-part semantic selection, and selection masking UI are not implemented yet.
-- The preview exports track JSON; it does not yet package the edited animation into a new NIF file.
-- The deformation core supports weighted fold/bend/rotate, twist, and scale/compress. Translation is available in the core API but not yet exposed in the preview UI.
-- This is a manual authoring foundation, not AI motion generation. AI integration is explicitly downstream of the manual controls.
-- Gaussian appearance channels are preserved, but high-quality shape folding still needs visual validation on representative assets and may require deformation-aware covariance updates and local density correction.
+## Current scope and remaining acceptance work
+
+- The preview has viewport brush/lasso selection and numerical pivot/axis controls. A visual 3D transform gizmo with drag handles is still outstanding.
+- Named selection sets are supported by the authoring core; the preview UI does not yet expose their management.
+- The current native animation schema is linear interpolation for position/log-scale and quaternion interpolation for rotation. Per-key easing curves, grouped named animation layers, and clip blending need a schema/runtime extension before they can be honestly called supported.
+- Undo/redo and local export are implemented in the editor core, but large-scene performance and memory behaviour still require profiling on real assets.
+- Gaussian appearance channels are preserved, but realistic folding can still expose density gaps, overlaps, and covariance artefacts. This needs visual validation and further deformation-aware covariance/density work.
+- A screen-space brush/lasso uses projected Gaussian centers; it is not depth-aware surface painting yet. Occlusion-aware selection, connected-component growth, semantic segmentation and selection masks are future improvements.
+- FUMOCA Studio's production editor entry point is not yet wired to this lab. The standalone local lab is the current safe acceptance surface.
+- No AI motion generation is used. AI integration is explicitly downstream of a tested manual workflow.
