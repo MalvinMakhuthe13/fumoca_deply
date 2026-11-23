@@ -50,7 +50,8 @@ From Studio, load a NIF and use **Gaussian Lab** to open that active source NIF 
 - Validate frontmost depth filtering on overlapping real surfaces; current depth range is a camera-space centre-depth heuristic.
 - Visually inspect covariance decomposition and deformation density. Eigen-decomposition preserves each Gaussian's transformed covariance under the applied affine scale, but it cannot prevent all cloud-level gaps, overlaps, or fold self-intersections.
 - Extend the gizmo beyond translation with rotation and scale handles, and provide a more complete Studio round-trip that can import unsaved Studio state.
-- Verify CI and browser behaviour before considering this ready for user acceptance.
+- The CI pipeline includes a Chromium workflow that loads a synthetic NIF, deforms it, captures/eases a keyframe, previews, exports, reopens, edits, and exports again. The Puma and larger real-scene browser acceptance still needs to be run manually.
+- Verify all CI checks and real-asset browser behaviour before considering this ready for user acceptance.
 
 ## Explicitly excluded
 
