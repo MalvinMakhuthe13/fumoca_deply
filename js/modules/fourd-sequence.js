@@ -82,19 +82,21 @@ const Fumoca4DSequence = (() => {
     }
     const frames = manifest.frames;
     const duration = manifest.duration;
-    const loop = options.loop !== false;
+    let loop = options.loop !== false;
     let time = 0, speed = 1, playing = false, disposed = false;
     let lastTick = null, raf = null, activeHandle = null, activeIndex = -1;
     let pending = new Map();
+    const cache = new Map();
     let generation = 0;
     const requestFrame = options.requestAnimationFrame || globalThis.requestAnimationFrame?.bind(globalThis);
     const cancelFrame = options.cancelAnimationFrame || globalThis.cancelAnimationFrame?.bind(globalThis);
     const now = options.now || (() => (globalThis.performance?.now?.() ?? Date.now()));
 
     async function load(index) {
+      if (cache.has(index)) return { handle: cache.get(index), index };
       if (pending.has(index)) return pending.get(index);
       const promise = Promise.resolve(adapter.loadFrame(frames[index], index))
-        .then(handle => ({ handle, index }))
+        .then(handle => { cache.set(index, handle); return { handle, index }; })
         .finally(() => pending.delete(index));
       pending.set(index, promise);
       return promise;
@@ -127,10 +129,7 @@ const Fumoca4DSequence = (() => {
       }
       // Prefetch the next frame without blocking the render clock.
       const next = Math.min(frames.length - 1, index + 1);
-      if (next !== index) load(next).then(({ handle, index: loadedIndex }) => {
-        if (disposed || loadedIndex === activeIndex) return;
-        adapter.disposeFrame?.(handle);
-      }).catch(() => {});
+      if (next !== index) load(next).catch(error => adapter.onError?.(error));
       return true;
     }
 
@@ -174,12 +173,13 @@ const Fumoca4DSequence = (() => {
         if (!Number.isFinite(value) || value < 0.1 || value > 4) throw new RangeError('speed must be between 0.1x and 4x');
         speed = value; return speed;
       },
-      setLoop(value) { return options.loop = !!value; },
+      setLoop(value) { loop = !!value; return loop; },
       async dispose() {
         this.pause(); disposed = true; generation++;
         for (const promise of pending.values()) promise.then(x => adapter.disposeFrame?.(x.handle)).catch(() => {});
         pending.clear();
-        if (activeHandle) adapter.disposeFrame?.(activeHandle);
+        for (const handle of cache.values()) adapter.disposeFrame?.(handle);
+        cache.clear();
         activeHandle = null; activeIndex = -1;
         await adapter.dispose?.();
       },
