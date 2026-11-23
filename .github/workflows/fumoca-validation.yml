@@ -19,7 +19,9 @@ jobs:
           node-version: "20"
       - name: Install animation runtime dependencies
         run: npm install --no-save --no-package-lock three@0.180.0 @dimforge/rapier3d-compat@0.21.0
-      - name: Run animation test suite
+      - name: Check 4D Gaussian sequence module syntax
+        run: node --input-type=module --check < js/modules/fourd-sequence.js
+      - name: Run animation and 4D sequence test suite
         run: node scripts/run-anim-tests.mjs
       - name: Set up Python
         uses: actions/setup-python@v5
