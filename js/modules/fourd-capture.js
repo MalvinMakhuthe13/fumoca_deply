@@ -668,7 +668,7 @@ const FourDCapture = (() => {
           const job = _sessionJobs.find(item => item.id === row.id);
           if (!job) continue;
           const status = String(row.status || 'queued').toLowerCase();
-          job.status = status === 'complete' ? 'done'
+          job.status = ['complete', 'completed', 'done'].includes(status) ? 'done'
             : status === 'failed' || status === 'needs_retry' ? 'failed'
             : status === 'processing' || status === 'running' ? 'running' : 'pending';
           const pct = Number.isFinite(Number(row.progress)) ? Math.round(Number(row.progress)) : null;
@@ -676,7 +676,7 @@ const FourDCapture = (() => {
             ? (row.error_message || 'Needs recapture')
             : status === 'failed'
               ? (row.error_message || 'Failed')
-              : status === 'complete'
+              : ['complete', 'completed', 'done'].includes(status)
                 ? 'Complete'
                 : `${status}${pct == null ? '' : ` · ${pct}%`}`;
         }
