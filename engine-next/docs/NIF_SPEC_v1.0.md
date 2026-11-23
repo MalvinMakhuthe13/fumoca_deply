@@ -143,13 +143,17 @@ and continue reading. This ensures forward compatibility.
 | 0x0016 | SEMANTIC_MAP  | **Reserved, not implemented.** Per-voxel semantic labels (vertical-specific schema) (planned). |
 | 0x0017 | CALIBRATION   | Real-world scale record. See §6c. |
 | 0x0018 | VERIFICATION  | Product-verification report against a reference mesh. See §6d. |
-| 0x001A | GAUSSIAN_ANIMATION | Stable-ID per-Gaussian position, log-scale and quaternion tracks. NIF 1.2; see §6e. Opacity and SH appearance remain in KEYFRAME_GEO. |
+| 0x001A | GAUSSIAN_ANIMATION | Stable-ID per-Gaussian position, log-scale and quaternion tracks, with one gaussianIds entry per base geometry record. NIF 1.2; see §6e. Opacity and SH appearance remain in KEYFRAME_GEO. |
 | 0x0020 | CERT          | Encoder certificate. See §10. |
 | 0x0300 | SPATIAL_AUDIO | **Reserved, not implemented.** Ambisonics B-format audio + HRTF source positions (planned). ID shared with .spax's SPAX_CHUNK.SPATIAL_AUDIO — see §11a. |
 | 0x0500 | EDIT_HISTORY  | **Reserved, not implemented.** Non-destructive edit operations (reversible) (planned). ID shared with .spax's SPAX_CHUNK.EDIT_HISTORY — see §11a. |
 | 0x0600 | INTERACTION   | **Reserved, not implemented.** Clickable object graph + trigger/action pairs (planned). ID shared with .spax's SPAX_CHUNK.INTERACTION — see §11a. |
 | 0x00FF | WATERMARK     | **Reserved, not implemented.** Steganographic ownership mark (planned). |
 | 0x8000–0xFFFF | VENDOR | Reserved for licensed third-party vendor extensions. |
+
+### §6e. Native Gaussian animation (NIF 1.2)
+
+`GAUSSIAN_ANIMATION` (0x001A) is a JSON chunk describing sparse transform tracks over the base `KEYFRAME_GEO` splats. Its `gaussianIds` array maps every base geometry record to a stable unsigned 32-bit identity; each track references one of those IDs. Track identity is independent of renderer depth sorting. Keyframes carry seconds and optional position, log-scale and normalized quaternion values. Scale values use the renderer's stored logarithmic scale representation. v1 leaves opacity and spherical-harmonic appearance in the base geometry and does not interpolate them. Readers that do not understand this new chunk can continue to load the static base geometry under the v1.x unknown-chunk compatibility rule.
 
 **§11a — Shared chunk-ID registry with .spax.** SPATIAL_AUDIO, EDIT_HISTORY,
 and INTERACTION exist as concepts in both .nif and .spax. As of this
