@@ -90,7 +90,7 @@ export class NIFViewer {
       const nifBytes  = await this._fetchNIF(streamUrl);
 
       // 3. Parse
-      const { reader, gaussians, depthMap, alphaMask, layers, vertical, meta, thumbnailBytes, physics } = await this._parseNIF(nifBytes);
+      const { reader, gaussians, depthMap, alphaMask, layers, vertical, meta, thumbnailBytes, physics, gaussianAnimation } = await this._parseNIF(nifBytes);
       this._reader   = reader;
       this._gaussians= gaussians;
       this._vertical = vertical;
