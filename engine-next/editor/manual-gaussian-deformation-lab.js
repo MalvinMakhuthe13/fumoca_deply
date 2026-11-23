@@ -42,6 +42,9 @@ $('file').addEventListener('change',async()=>{
 });
 $('all').onclick=()=>{author?.selectIds(author.ids);renderSelection();message('All splats selected.');};
 $('clear').onclick=()=>{author?.clearSelection();renderSelection();message('Selection cleared.');};
+$('invert').onclick=()=>{author?.invertSelection();renderSelection();message('Selection inverted.');};
+$('saveSelection').onclick=()=>{try{author?.saveSelection($('selectionName').value);message('Selection set saved in this session.');}catch(e){message(e.message);}};
+$('loadSelection').onclick=()=>{if(author?.loadSelection($('selectionName').value)){renderSelection();message('Selection set loaded.');}else message('No selection set with that name.');};
 $('undo').onclick=()=>{if(author?.undo()){sync();message('Undo complete.');}else message('Nothing to undo.');};
 $('redo').onclick=()=>{if(author?.redo()){sync();message('Redo complete.');}else message('Nothing to redo.');};
 $('box').onclick=()=>{if(author){selectionBox();renderSelection();}};
