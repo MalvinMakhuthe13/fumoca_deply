@@ -66,10 +66,10 @@ canvas.addEventListener('pointerup',e=>{
 });
 function apply(type){
   if(!author)return message('Load a NIF first.');
-  author.apply({type,axis:[val('ax'),val('ay'),val('az')],pivot:[val('px'),val('py'),val('pz')],angle:val('angle')*Math.PI/180,scale:[val('sx'),val('sy'),val('sz')]});
+  author.apply({type,axis:[val('ax'),val('ay'),val('az')],pivot:[val('px'),val('py'),val('pz')],angle:val('angle')*Math.PI/180,amount:val('amount'),direction:[val('ax'),val('ay'),val('az')],scale:[val('sx'),val('sy'),val('sz')]});
   sync();message(type+' applied to selected splats.');
 }
-$('fold').onclick=()=>apply('fold');$('rotate').onclick=()=>apply('rotate');$('twist').onclick=()=>apply('twist');$('scale').onclick=()=>apply('scale');
+$('fold').onclick=()=>apply('fold');$('rotate').onclick=()=>apply('rotate');$('twist').onclick=()=>apply('twist');$('scale').onclick=()=>apply('scale');$('translate').onclick=()=>apply('translate');$('inflate').onclick=()=>apply('inflate');$('deflate').onclick=()=>apply('deflate');
 $('key').onclick=()=>{if(!author)return;const tracks=author.capture(val('time'));message('Captured '+tracks.length+' Gaussian tracks at '+val('time')+'s.');};
 $('reset').onclick=()=>{if(!author)return;author.reset();sync();message('Rest pose restored. Keyframes retained.');};
 function download(bytes,name,type){
