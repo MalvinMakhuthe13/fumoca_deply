@@ -1,12 +1,24 @@
 /**
  * Founder-only gate for Studio and admin.
- * An obscure URL is not access control. This checks the signed-in user.
- * Configure window.FUMOCA_FOUNDER_EMAILS before load, or set it in config.js.
+ *
+ * PR preview deployments on the FUMOCA Pages project are intentionally open
+ * for anonymous feature testing. This is a client-side preview convenience,
+ * not an authorization boundary for private data or cloud publishing.
+ *
+ * Production and all non-preview hosts continue to require a signed-in user
+ * whose email is in FUMOCA_FOUNDER_EMAILS.
  */
 const FumocaFounderGate = (() => {
+  function isPreviewTestingHost() {
+    const hostname = window.location?.hostname?.toLowerCase() || '';
+    return hostname.endsWith('.fumoca-deply.pages.dev');
+  }
+
   function allowlist() {
     const fromWindow = window.FUMOCA_FOUNDER_EMAILS;
-    if (Array.isArray(fromWindow) && fromWindow.length) return fromWindow.map(e => String(e).toLowerCase());
+    if (Array.isArray(fromWindow) && fromWindow.length) {
+      return fromWindow.map(e => String(e).toLowerCase());
+    }
     return [];
   }
 
@@ -18,16 +30,15 @@ const FumocaFounderGate = (() => {
   }
 
   async function isFounder() {
+    // Preview-only bypass must happen before Supabase user lookup so anonymous
+    // testers can use Studio. This does not change worker-side publish checks.
+    if (isPreviewTestingHost()) {
+      return { ok: true, reason: 'preview_testing', email: null };
+    }
+
     const user = await currentUser();
     if (!user) return { ok: false, reason: 'unauthenticated' };
     const email = (user.email || '').toLowerCase();
-
-    // Temporary access for authenticated users on the PR #33 branch preview.
-    // Keep the production founder allowlist enforced on every other hostname.
-    const previewTestingHost = 'cursor-anim-client-demo-c441.fumoca-deply.pages.dev';
-    if (window.location?.hostname === previewTestingHost) {
-      return { ok: true, reason: 'preview_testing', email };
-    }
 
     const list = allowlist();
     if (!list.length) return { ok: false, reason: 'allowlist_empty' };
