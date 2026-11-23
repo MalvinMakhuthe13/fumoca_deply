@@ -69,6 +69,36 @@ export async function loadMotionSequence(supabase, sequenceId) {
   return buildMotionSequenceManifest(data || [], sequenceId, key => r2.publicUrl('nif-files', key));
 }
 
-const Fumoca4DSequenceLibrary = { buildMotionSequenceManifest, loadMotionSequence };
-if (typeof window !== 'undefined') window.Fumoca4DSequenceLibrary = Fumoca4DSequenceLibrary;
+let _loadGeneration = 0;
+async function _onRecordLoaded(event) {
+  const record = event?.detail?.record || window._fumocaCurrentRecord || null;
+  const sequenceId = record?.meta?.motion_sequence_id;
+  if (!sequenceId || !window._fumocaSupabase) return;
+  const generation = ++_loadGeneration;
+  try {
+    const manifest = await loadMotionSequence(window._fumocaSupabase, sequenceId);
+    if (generation !== _loadGeneration) return;
+    window._fumocaMotionSequenceManifest = manifest;
+    window.dispatchEvent(new CustomEvent('fumoca:motionSequenceReady', {
+      detail: { sequenceId, manifest, frameCount: manifest.frames.length }
+    }));
+  } catch (error) {
+    if (generation !== _loadGeneration) return;
+    console.warn('[FUMOCA 4D] Motion sequence is not ready yet:', error);
+    window.dispatchEvent(new CustomEvent('fumoca:motionSequenceUnavailable', {
+      detail: { sequenceId, message: error?.message || String(error) }
+    }));
+  }
+}
+
+const Fumoca4DSequenceLibrary = {
+  buildMotionSequenceManifest,
+  loadMotionSequence,
+  refresh: _onRecordLoaded
+};
+if (typeof window !== 'undefined') {
+  window.Fumoca4DSequenceLibrary = Fumoca4DSequenceLibrary;
+  window.addEventListener('fumoca:recordLoaded', _onRecordLoaded);
+  if (window._fumocaCurrentRecord) _onRecordLoaded({ detail: { record: window._fumocaCurrentRecord } });
+}
 export default Fumoca4DSequenceLibrary;
