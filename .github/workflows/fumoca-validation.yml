@@ -31,6 +31,7 @@ jobs:
         run: |
           node --input-type=module --check < js/modules/fourd-capture.js
           node --input-type=module --check < js/modules/fourd-job-contract.js
+          node --input-type=module --check < js/modules/fourd-sequence-library.js
           python -m py_compile engine-next/reconstruction/pipeline.py
           grep -q "from('nif-videos').upload" js/modules/fourd-capture.js
           grep -q "from('reconstruction_jobs').insert" js/modules/fourd-capture.js
@@ -38,6 +39,8 @@ jobs:
           grep -q "_extract_frames(raw, capture_mode, meta)" engine-next/reconstruction/pipeline.py
           grep -q "Extracted.*motion-selected frames" engine-next/reconstruction/pipeline.py
           grep -q "camera_sync_warning" js/modules/fourd-capture.js
+          grep -q "motionSequence" engine-next/reconstruction/pipeline.py
+          grep -q "fourd-sequence-library.js" viewer.html
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
