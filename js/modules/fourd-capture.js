@@ -437,6 +437,12 @@ const FourDCapture = (() => {
     if (el) { el.style.display=''; el.innerHTML=`<div style="color:#f09595;font-size:12px;padding:8px">${msg}</div>`; }
   }
 
+  function _escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, char => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    })[char]);
+  }
+
   // ─── Multi-camera ──────────────────────────────────────────────────────────
   let _camSlots = [];
   function _addCameraSlot() {
@@ -450,7 +456,7 @@ const FourDCapture = (() => {
     list.innerHTML = _camSlots.map((c, i) => `
       <div class="fourDCamRow" data-cam="${c.id}">
         <span style="color:rgba(255,255,255,.4);font-size:11px">CAM ${i+1}</span>
-        <span style="flex:1;color:${c.file ? '#c8ff00' : 'rgba(255,255,255,.5)'}">${c.file ? c.file.name : 'No file'}</span>
+        <span style="flex:1;color:${c.file ? '#c8ff00' : 'rgba(255,255,255,.5)'}">${c.file ? _escapeHtml(c.file.name) : 'No file'}</span>
         <button onclick="document.getElementById('camFile_${c.id}').click()" style="background:none;border:1px solid rgba(255,255,255,.15);border-radius:4px;color:rgba(255,255,255,.5);font-size:10px;padding:3px 7px;cursor:pointer">${c.file?'Change':'Select'}</button>
         <input type="file" id="camFile_${c.id}" accept="video/*" style="display:none" onchange="window.__fumocaCamFileChange('${c.id}', this.files[0])">
       </div>`).join('');
@@ -644,8 +650,8 @@ const FourDCapture = (() => {
     el.innerHTML = _sessionJobs.map(j => `
       <div class="fourDJobRow">
         <div class="fourDJobStatus status-${j.status}"></div>
-        <span style="flex:1">${j.label}</span>
-        <span style="color:rgba(255,255,255,.35);font-size:11px">${j.statusText || j.status}</span>
+        <span style="flex:1">${_escapeHtml(j.label)}</span>
+        <span style="color:rgba(255,255,255,.35);font-size:11px">${_escapeHtml(j.statusText || j.status)}</span>
       </div>`).join('');
   }
 
