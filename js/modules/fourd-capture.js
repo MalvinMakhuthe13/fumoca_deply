@@ -307,8 +307,8 @@ const FourDCapture = (() => {
 
       const sequenceId = createMotionSequenceId();
       const safeName = String(file.name || 'capture-video')
-        .replace(/\\s+/g, '_').replace(/[^a-zA-Z0-9._-]/g, '').slice(-100);
-      const ext = /\\.(mp4|mov|webm|m4v)$/i.exec(safeName)?.[1]?.toLowerCase() || 'mp4';
+        .replace(/\s+/g, '_').replace(/[^a-zA-Z0-9._-]/g, '').slice(-100);
+      const ext = /\.(mp4|mov|webm|m4v)$/i.exec(safeName)?.[1]?.toLowerCase() || 'mp4';
       const sourcePath = `raw/${user.id}/4d/${sequenceId}/source.${ext}`;
 
       _updateProgress(0.08, 'Uploading original video to FUMOCA storage…');
