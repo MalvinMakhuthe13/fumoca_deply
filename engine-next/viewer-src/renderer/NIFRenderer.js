@@ -48,6 +48,7 @@ import { raycastGaussians } from '../../physics/NIFPhysics.js';
 import { detectTier } from '../NIFDeviceTier.js';
 import { NIFAnimator } from '../../animation/NIFAnimator.js';
 import { NIFProxyDeformer } from '../../animation/NIFProxyDeformer.js';
+import { NIFGaussianAnimator } from '../../animation/NIFGaussianAnimator.js';
 
 // Maximum device pixel ratio we'll render at.
 // 2.0 is indistinguishable from 3.0 at normal viewing distance and
@@ -385,6 +386,7 @@ void main() {
     const count    = Math.min(rawCount, this._maxGaussiansDrawn);
 
     this.gaussians    = gaussians;
+    this.gaussianAnimator = null; // animation bindings belong to one loaded asset only
     this._drawnCount  = count;
     this._activeLayer = null; // null = render all layers
 
@@ -452,6 +454,36 @@ void main() {
       return false;
     }
     return this.animator.playSlide(label, opts);
+  }
+
+  /**
+   * Attach native per-Gaussian animation tracks to the loaded splat asset.
+   * Tracks address stable Gaussian IDs; renderer sort order is never used.
+   */
+  bindGaussianAnimation(tracks, stableIds = null) {
+    if (!this.gaussians) throw new Error('Load Gaussian data before binding animation');
+    this.gaussianAnimator = new NIFGaussianAnimator(this.gaussians, tracks, stableIds);
+    return { gaussianCount: this.gaussians.count, trackCount: tracks.length };
+  }
+
+  /** Evaluate native Gaussian tracks at seconds from the animation start. */
+  updateGaussianAnimation(timeSeconds) {
+    if (!this.gaussianAnimator) throw new Error('No native Gaussian animation is bound');
+    const data = this.gaussianAnimator.evaluate(timeSeconds);
+    this._sortFrame = -999;
+    this._wakeFromIdle?.();
+    return data;
+  }
+
+  clearGaussianAnimation({ restore = true } = {}) {
+    if (!this.gaussianAnimator) return false;
+    if (restore) {
+      this.gaussianAnimator.reset();
+      this._sortFrame = -999;
+      this._wakeFromIdle?.();
+    }
+    this.gaussianAnimator = null;
+    return true;
   }
 
   /**
