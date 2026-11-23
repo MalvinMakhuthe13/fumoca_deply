@@ -94,3 +94,29 @@ Each selected motion moment currently becomes an independent reconstruction job 
 - [ ] Viewer playback changes the actual reconstructed subject across frames.
 - [ ] Static NIF assets continue to load unchanged.
 - [ ] No production deployment or schema migration occurs before preview and real-worker acceptance.
+
+
+## Proxy-driven Gaussian deformation (new development)
+
+The Blender 3DGS Render and Houdini references demonstrate a second 4D route alongside video-derived motion moments:
+
+1. Keep the captured Gaussian representation as the appearance source.
+2. Create or derive a corresponding lower-complexity proxy surface.
+3. Rig/skin/animate the proxy using conventional tools (armature/GLB, KineFX/APEX, or another animation system).
+4. Bind Gaussian centres to the proxy surface in its rest pose.
+5. Transfer each evaluated proxy deformation to Gaussian positions, orientations and scales.
+6. Bake the resulting states as PLY/NIF frame data or stream evaluated poses to a compatible renderer.
+
+### FUMOCA implementation started
+
+- `engine-next/animation/NIFProxyDeformer.js` implements rest-pose binding using closest proxy triangles, barycentric surface coordinates and a local-frame offset per Gaussian. Runtime updates are O(Gaussians) after the bind.
+- `NIFRenderer.bindProxyDeformation()` binds a proxy to the currently loaded Gaussian buffer.
+- `NIFRenderer.updateProxyDeformation()` applies an evaluated proxy pose and wakes the existing renderer sort/upload path.
+- `NIFRenderer.clearProxyDeformation()` can restore the original Gaussian buffer.
+- `tests/nif-proxy-deformer.test.mjs` validates translated/non-uniformly scaled proxy deformation, attribute preservation, reset and invalid input handling.
+
+### Explicit limitations
+
+This is a first deformation-transfer bridge, not a complete Houdini/Blender replacement or a production character-rigging UI. The caller must supply a valid proxy rest mesh and evaluated vertex positions in the same coordinate space. Current binding is brute-force closest-triangle search and should be moved to a worker/spatial index for large assets. The initial transfer approximates scale using proxy frame edge/area ratios; complex shear, topology changes, cloth, remeshing and robust polar-decomposition of the full deformation gradient are not solved. The current renderer's Gaussian shader does not yet consume full anisotropic orientation/SH data in all paths, so orientation transfer must be visually validated before claiming fidelity.
+
+The proxy deformation route should ultimately feed the NIF timeline/bake pipeline. It must not be confused with the independent-NIF moment sequence, which remains hold playback.
