@@ -37,8 +37,8 @@ Load an original NIF file. It does not need an animation chunk. The lab runs loc
 
 ## Current scope and remaining acceptance work
 
-- The preview has viewport brush/lasso selection and numerical pivot/axis controls. A visual 3D transform gizmo with drag handles is still outstanding.
-- Named selection sets are supported by the authoring core; the preview UI does not yet expose their management.
+- The preview has viewport brush/lasso selection, weighted selection tint, numerical pivot/axis controls, and named selection sets. A true 3D transform gizmo with draggable axis/plane handles is still outstanding.
+- Named selection sets, invert, and selection management are exposed in the preview UI.
 - The current native animation schema is linear interpolation for position/log-scale and quaternion interpolation for rotation. Per-key easing curves, grouped named animation layers, and clip blending need a schema/runtime extension before they can be honestly called supported.
 - Undo/redo and local export are implemented in the editor core, but large-scene performance and memory behaviour still require profiling on real assets.
 - Gaussian appearance channels are preserved, but realistic folding can still expose density gaps, overlaps, and covariance artefacts. This needs visual validation and further deformation-aware covariance/density work.
