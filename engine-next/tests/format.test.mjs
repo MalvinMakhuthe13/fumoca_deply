@@ -30,7 +30,7 @@ writer.add(CHUNK.MATERIAL, new TextEncoder().encode(materialJson), CODEC.RAW);
 const timelineJson = JSON.stringify({ keyframes: [0, 1.0, 2.0, 3.5], interp: 'catmull-rom' });
 writer.add(CHUNK.TIMELINE, new TextEncoder().encode(timelineJson), CODEC.RAW); // legacy reserved-ID compatibility test
 
-const gaussianAnimation = { schema: 'fumoca.gaussian-animation', version: 1, duration: 1,
+const gaussianAnimation = { schema: 'fumoca.gaussian-animation', version: 1, duration: 1, gaussianIds: [17, 18],
   tracks: [{ id: 17, keyframes: [
     { time: 0, position: [0,0,0], scale: [0,0,0], rotation: [1,0,0,0] },
     { time: 1, position: [1,2,3], scale: [0.1,0.2,0.3], rotation: [1,0,0,0] },
