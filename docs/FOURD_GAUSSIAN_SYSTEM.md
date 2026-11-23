@@ -55,8 +55,8 @@ Each selected motion moment currently becomes an independent reconstruction job 
 - The current Python NIF encoder writes a single-frame header (`frameCount = 1`, duration 0).
 - NIF `TIMELINE` chunk `0x0006` is reserved and has no encoder/decoder implementation.
 - The current worker reconstructs each job independently. Stable Gaussian identity/order across separate jobs is not established.
-- The browser does not yet query completed sibling jobs, assemble a durable sequence manifest, or expose a Spark/NIF frame adapter.
-- The existing sequence clock is not yet connected to a production renderer frame-loading implementation.
+- The viewer now queries completed sibling NIF records by `motion_sequence_id`, assembles a hold-only manifest, and drives the existing sequence clock through a NIF record loader. Playback swaps between independently reconstructed NIF moments; it is not continuous per-Gaussian deformation.
+- The sequence clock is connected to the viewer's existing NIF load path. It is not a Spark per-frame Gaussian-attribute adapter and does not perform GPU-side interpolation.
 - The old `4d-engine.js` persistence path and the new NIF motion-sequence metadata are separate. Do not write new 4D capture jobs to the legacy `splats` / `processing_jobs` path.
 
 ## Playback safety rules
@@ -77,7 +77,7 @@ Each selected motion moment currently becomes an independent reconstruction job 
 | 5 | Worker/GPU run against real footage, confirm job lifecycle and output artifacts | Requires live GPU-worker acceptance |
 | 6 | Assemble completed moment jobs into a durable sequence manifest | Not implemented |
 | 7 | Decode NIF/PLY frames and connect the sequence clock to Spark/Studio/viewer | Not implemented |
-| 8 | True continuous dynamic Gaussian reconstruction with validated correspondence | Not implemented |
+
 
 ## Acceptance gates
 
