@@ -121,6 +121,36 @@ except ImportError:
     gsplat = None
     print('[NIF] gsplat unavailable; mesh-only CPU jobs remain supported')
 
+
+def gs_render(means, quats, scales, opacities, colors, viewmat, K, width, height):
+    """
+    Version-proof gsplat call. Every gsplat 1.x release accepts the plain
+    (un-batched) form: means [N,3], quats [N,4], scales [N,3], opacities [N],
+    colors [N,3], viewmats [C,4,4], Ks [C,3,3]. Earlier code passed extra
+    batch dimensions, which only some gsplat versions accept — on Kaggle that
+    surfaced as "torch.Size([1, 4, 4])", "tensor a (3) must match ... 1280",
+    "torch.Size([1, 20000, 1])" and permute() dimension errors.
+    Returns rgb [H,W,3] and alpha [H,W].
+    """
+    if gsplat is None:
+        raise RuntimeError('gsplat is not installed — neural training is unavailable on this worker.')
+    n = means.shape[-2] if means.ndim > 1 else means.shape[0]
+    rgb, alpha, _info = gsplat.rasterization(
+        means=means.reshape(-1, 3),
+        quats=quats.reshape(-1, 4),
+        scales=scales.reshape(-1, 3),
+        opacities=opacities.reshape(-1),
+        colors=colors.reshape(n, -1)[:, :3],
+        viewmats=viewmat.reshape(-1, 4, 4)[:1],
+        Ks=K.reshape(-1, 3, 3)[:1],
+        width=int(width), height=int(height),
+        near_plane=0.01, far_plane=100.0,
+        render_mode='RGB',
+    )
+    rgb = rgb.reshape(int(height), int(width), -1)[..., :3]
+    alpha = alpha.reshape(int(height), int(width))
+    return rgb, alpha
+
 # ─── NIF binary constants ─────────────────────────────────────────────────────
 NIF_MAGIC    = 0x4E494600
 CHUNK_GEO    = 0x0003
@@ -1105,20 +1135,8 @@ class GaussianSplatTrainer:
         # unlike the old value it can actually converge toward black.
         colours   = torch.sigmoid(self.sh0)
 
-        rendered, alpha, _info = gsplat.rasterization(
-            means=self.means.unsqueeze(0),
-            quats=quats_n.unsqueeze(0),
-            scales=scales.unsqueeze(0),
-            opacities=opacities.unsqueeze(0),
-            colors=colours.unsqueeze(0),
-            viewmats=viewmat.unsqueeze(0).unsqueeze(1),
-            Ks=K.unsqueeze(0).unsqueeze(1),
-            width=W, height=H,
-            near_plane=0.01, far_plane=100.0,
-            render_mode='RGB',
-        )
-        rendered = rendered.squeeze(0).squeeze(0)  # H,W,3
-        gt_rgb   = gt.to(DEVICE)
+        rendered, alpha = gs_render(self.means, quats_n, scales, opacities, colours, viewmat, K, W, H)
+        gt_rgb   = gt.to(DEVICE)[..., :3]
 
         if alpha_mask is not None:
             target_mask = alpha_mask.clamp(0.0, 1.0)
@@ -2337,13 +2355,35 @@ class ReconstructionWorker:
             # when it isn't, instead of spending the full budget optimizing
             # against poses already known to be a synthetic fallback.
             self._tick('processing', 52)
-            n, geo_bytes, eval_psnr = self._train_gaussians(
-                frames,
-                poses,
-                sparse_points,
-                pose_source,
-                object_masks=object_masks
-            )
+            try:
+                n, geo_bytes, eval_psnr = self._train_gaussians(
+                    frames,
+                    poses,
+                    sparse_points,
+                    pose_source,
+                    object_masks=object_masks
+                )
+            except Exception as train_error:
+                # GPU out of memory: retry once at half resolution (intrinsics
+                # are derived from frame size inside _train_gaussians, so the
+                # poses stay valid). Any other error is re-raised unchanged.
+                if 'out of memory' not in str(train_error).lower():
+                    raise
+                print(f'[NIF] GPU out of memory ({train_error}); retrying at half resolution')
+                try:
+                    torch.cuda.empty_cache()
+                except Exception:
+                    pass
+                frames = [np.ascontiguousarray(f[::2, ::2]) for f in frames]
+                if object_masks is not None:
+                    object_masks = [None if m is None else np.ascontiguousarray(np.asarray(m)[::2, ::2]) for m in object_masks]
+                n, geo_bytes, eval_psnr = self._train_gaussians(
+                    frames,
+                    poses,
+                    sparse_points,
+                    pose_source,
+                    object_masks=object_masks
+                )
 
             # Dequantize for internal use (mesh extraction, layer splitting need
             # the canonical float32 form regardless of which format was written).
@@ -3558,14 +3598,8 @@ class ReconstructionWorker:
                     scales  = torch.exp(trainer.log_scales).clamp(min=1e-6)
                     opacities = torch.sigmoid(trainer.log_opacity)
                     colours   = torch.sigmoid(trainer.sh0)
-                    rendered, _a, _i = gsplat.rasterization(
-                        means=trainer.means.unsqueeze(0), quats=quats_n.unsqueeze(0),
-                        scales=scales.unsqueeze(0), opacities=opacities.unsqueeze(0),
-                        colors=colours.unsqueeze(0), viewmats=vm.unsqueeze(0).unsqueeze(1), Ks=K.unsqueeze(0).unsqueeze(1),
-                        width=gt.shape[1], height=gt.shape[0],
-                        near_plane=0.01, far_plane=100.0, render_mode='RGB',
-                    )
-                    mses.append(float(F.mse_loss(rendered.squeeze(0).squeeze(0), gt)))
+                    rendered, _a = gs_render(trainer.means, quats_n, scales, opacities, colours, vm, K, gt.shape[1], gt.shape[0])
+                    mses.append(float(F.mse_loss(rendered, gt[..., :3])))
                 mean_mse = sum(mses) / len(mses)
                 eval_psnr = 10.0 * math.log10(1.0 / max(mean_mse, 1e-10))
             print(f'[NIF] Held-out PSNR: {eval_psnr:.2f}dB over {len(holdout_idxs)} held-out frames '
@@ -3589,22 +3623,7 @@ class ReconstructionWorker:
                 opacities = torch.sigmoid(trainer.log_opacity)
                 colours = torch.sigmoid(trainer.sh0)
 
-                debug_rendered, _, _ = gsplat.rasterization(
-                    means=trainer.means.unsqueeze(0),
-                    quats=quats_n.unsqueeze(0),
-                    scales=scales.unsqueeze(0),
-                    opacities=opacities.unsqueeze(0),
-                    colors=colours.unsqueeze(0),
-                    viewmats=debug_vm.unsqueeze(0).unsqueeze(1),
-                    Ks=K.unsqueeze(0).unsqueeze(1),
-                    width=debug_gt.shape[1],
-                    height=debug_gt.shape[0],
-                    near_plane=0.01,
-                    far_plane=100.0,
-                    render_mode='RGB',
-                )
-
-                debug_rendered = debug_rendered.squeeze(0).squeeze(0)
+                debug_rendered, _ = gs_render(trainer.means, quats_n, scales, opacities, colours, debug_vm, K, debug_gt.shape[1], debug_gt.shape[0])
 
                 debug_img = (
                     debug_rendered.clamp(0, 1).cpu().numpy() * 255
