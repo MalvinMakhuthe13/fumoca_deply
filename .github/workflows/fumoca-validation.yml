@@ -256,6 +256,12 @@ jobs:
         run: node --experimental-default-type=module tests/viewer-scale.mjs
       - name: Test R2 worker auth boundaries
         run: node --experimental-default-type=module cloudflare/tests/auth.test.mjs
+      - name: Test private capture files are owner-only
+        run: node --experimental-default-type=module cloudflare/tests/read-auth.test.mjs
+      - name: Test NIF decoding refuses zip bombs and garbage
+        run: node --experimental-default-type=module tests/nif-hardening.test.mjs
+      - name: Test NIF meta saves never erase newer changes
+        run: node --experimental-default-type=module tests/meta-patch.test.mjs
       - name: Test engine-next NIF format, graph and edit round-trip
         run: |
           node --experimental-default-type=module engine-next/tests/format.test.mjs

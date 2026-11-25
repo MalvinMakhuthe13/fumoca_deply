@@ -671,6 +671,25 @@ export default {
       const fileKey = decodeURIComponent(path.slice('/file/'.length));
       if (!fileKey) return json({ error: 'Missing key' }, 400, cors);
 
+      // Private capture material: owner (or server) only, never cached.
+      const { canRead, privateOwner } = await import('./read-auth.js');
+      if (privateOwner(bucketParam, sanitiseKey(fileKey))) {
+        const principal = await authorize(request, env);
+        const gate = canRead(principal, bucketParam, sanitiseKey(fileKey));
+        if (!gate.ok) return json({ error: gate.status === 401 ? 'Sign in to open this file' : 'Not found' }, gate.status, cors);
+        const privBucket = getBucket(bucketParam, env);
+        const privObj = privBucket ? await privBucket.get(sanitiseKey(fileKey)) : null;
+        if (!privObj) return json({ error: 'Not found' }, 404, cors);
+        return new Response(privObj.body, {
+          headers: {
+            'Content-Type': privObj.httpMetadata?.contentType || 'application/octet-stream',
+            'Cache-Control': 'private, no-store',
+            'ETag': privObj.etag,
+            ...cors,
+          },
+        });
+      }
+
       const cache = caches.default;
       // Cache the file bytes independent of Origin, but never replay a cached
       // Access-Control-Allow-Origin value from a different site/preview.

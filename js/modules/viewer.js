@@ -3055,8 +3055,15 @@ async function _fumocaFlushPipelineQueue() {
         queue.unshift(item.payload);
         currentMeta.processing_requests = queue.slice(0, 50);
         currentMeta.last_processing_request = item.payload;
-        const { error } = await supabase.from('nif_files').update({ meta: currentMeta }).eq('id', currentRecord.id);
-        if (error) throw error;
+        const { patchNifMeta } = await import('./meta-patch.js');
+        const saved = await patchNifMeta(supabase, currentRecord.id, (latest) => {
+          const q2 = Array.isArray(latest.processing_requests) ? latest.processing_requests.slice() : [];
+          if (!q2.find((q) => q && q.id === item.payload?.id)) q2.unshift(item.payload);
+          latest.processing_requests = q2.slice(0, 50);
+          latest.last_processing_request = item.payload;
+          return latest;
+        });
+        Object.assign(currentMeta, saved);
         currentRecord = { ...(currentRecord || {}), meta: currentMeta };
         window._fumocaCurrentRecord = currentRecord;
       }
@@ -3400,8 +3407,14 @@ async function _fumocaSaveVariant(name = null) {
   let savedRemote = false;
   if (supabase && rec.id) {
     try {
-      const { error } = await supabase.from('nif_files').update({ meta: metadata }).eq('id', rec.id);
-      if (error) throw error;
+      const { patchNifMeta } = await import('./meta-patch.js');
+      const saved = await patchNifMeta(supabase, rec.id, (latest) => {
+        const v2 = Array.isArray(latest.variants) ? latest.variants.slice() : [];
+        v2.unshift(recipe);
+        latest.variants = v2.slice(0, 25);
+        return latest;
+      });
+      Object.assign(metadata, saved);
       savedRemote = true;
     } catch (err) {
       console.warn('[fumoca] variant remote save failed', err);
@@ -3459,8 +3472,15 @@ async function _fumocaQueuePipeline(kind = 'mesh_cleanup', extraPayload = {}) {
   let savedRemote = false;
   if (supabase && rec.id) {
     try {
-      const { error } = await supabase.from('nif_files').update({ meta: metadata }).eq('id', rec.id);
-      if (error) throw error;
+      const { patchNifMeta } = await import('./meta-patch.js');
+      const saved = await patchNifMeta(supabase, rec.id, (latest) => {
+        const q2 = Array.isArray(latest.processing_requests) ? latest.processing_requests.slice() : [];
+        q2.unshift(payload);
+        latest.processing_requests = q2.slice(0, 50);
+        latest.last_processing_request = payload;
+        return latest;
+      });
+      Object.assign(metadata, saved);
       savedRemote = true;
     } catch (err) {
       console.warn('[fumoca] queue pipeline remote save failed', err);

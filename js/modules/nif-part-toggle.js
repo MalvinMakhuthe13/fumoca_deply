@@ -103,7 +103,7 @@ export async function authorPartToggle(nifUrl, labelOrParts, opts = {}) {
   const buf = await res.arrayBuffer();
 
   const { reader, meta, gaussians } = await decodeNif(buf);
-  const layers = await decodeLayers(reader);
+  const layers = await decodeLayers(reader, gaussians?.count ?? null);
   const physics = await decodePhysics(reader);
 
   const parts = Array.isArray(labelOrParts)

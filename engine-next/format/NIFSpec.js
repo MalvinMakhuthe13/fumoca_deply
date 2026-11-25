@@ -214,20 +214,30 @@ function concat(...arrays) {
 // payload bytes or pass an unsupported codec to a semantic decoder.
 // Uses the browser/Node native CompressionStream/DecompressionStream — no WASM
 // dependency, same approach already used in SPAXSpec.js.
-export async function gzipDecompress(bytes) {
+// A NIF is untrusted input (anyone can publish one), so decompression is
+// capped: a tiny "zip bomb" chunk must not expand into gigabytes in a
+// viewer's tab. 768 MiB is far above any real chunk.
+export const MAX_DECOMPRESSED_CHUNK_BYTES = 768 * 1024 * 1024;
+
+export async function gzipDecompress(bytes, maxBytes = MAX_DECOMPRESSED_CHUNK_BYTES) {
   if (typeof DecompressionStream === 'undefined') {
     throw new Error('[NIFSpec] DecompressionStream unsupported in this environment — cannot decode gzip chunk');
   }
   const ds     = new DecompressionStream('gzip');
   const writer = ds.writable.getWriter();
   const reader = ds.readable.getReader();
-  writer.write(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes));
-  writer.close();
+  writer.write(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)).catch(() => {});
+  writer.close().catch(() => {});
   const parts = []; let total = 0;
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
-    parts.push(value); total += value.length;
+    total += value.length;
+    if (total > maxBytes) {
+      try { await reader.cancel(); } catch (_) {}
+      throw new Error(`[NIFSpec] gzip chunk expands beyond ${Math.round(maxBytes / 1048576)} MiB — refusing to decode`);
+    }
+    parts.push(value);
   }
   const out = new Uint8Array(total); let off = 0;
   for (const p of parts) { out.set(p, off); off += p.length; }
