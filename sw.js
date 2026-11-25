@@ -11,7 +11,7 @@
  * and potentially failing because of service-worker routing.
  */
 
-const CACHE_NAME = 'fumoca-v97';
+const CACHE_NAME = 'fumoca-v98';
 
 const PLAYER_ASSETS = [
   '/sdk/fumoc-player.js',

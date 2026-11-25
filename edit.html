@@ -16,7 +16,7 @@
 <link rel="stylesheet" href="css/fumoca-layouts.css"/>
 <script type="module" src="js/modules/anim-studio.js"></script>
 <script type="module" src="js/modules/review-video.js?v=20261025-bglayer"></script>
-<script type="module" src="js/modules/present-tab.js?v=20261108-splatpick01"></script>
+<script type="module" src="js/modules/present-tab.js?v=20261125-rig01"></script>
 
 <style>
 /* ═══════════════════════════════════════════════════════
@@ -773,10 +773,14 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
       <div class="ptab" data-tab="transform">Transform</div>
       <div class="ptab" data-tab="clean">Clean</div>
       <div class="ptab" data-tab="mesh">Mesh</div>
+      <div class="ptab" data-tab="rig">Rig</div>
       <div class="ptab" data-tab="present">Present · Music</div>
       <div class="ptab" data-tab="import">Import</div>
       <div class="ptab" data-tab="layers">Layers</div>
     </div>
+
+    <!-- TAB: RIG (skeleton + motion, mounted by splat-rig-panel.js) -->
+    <div class="panel-body" id="tab-rig" style="display:none"></div>
 
     <!-- TAB: TOOLS -->
     <div class="panel-body" id="tab-tools">
@@ -7739,6 +7743,14 @@ if (!window._fumocaBooted) {
     import('./js/modules/solid-mesh-panel.js')
       .then((m) => m.mountSolidMeshPanel(solidRoot, { onStatus: status }))
       .catch((e) => console.warn('[Studio] solid mesh panel', e));
+  }
+
+  // Skeleton + motion for splats (CPU skinning, saved with the NIF).
+  const rigRoot = document.getElementById('tab-rig');
+  if (rigRoot) {
+    import('./js/modules/splat-rig-panel.js?v=20261125-rig')
+      .then((m) => m.mountSplatRigPanel(rigRoot, { onStatus: status }))
+      .catch((e) => console.warn('[Studio] rig panel', e));
   }
 
   // Single-photo depth estimate → explicitly inferred 2.5D splat.
