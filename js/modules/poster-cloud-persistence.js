@@ -50,6 +50,16 @@ export async function persistPosterImagesToR2(poster, userId, recordId, r2Client
     throw error;
   }
 }
+/** Upload a platform's unsaved (data URL) logo so the public viewer can load it. */
+export async function persistPlatformLogoToR2(platform, userId, recordId, r2Client) {
+  if (!platform || !/^data:image\//i.test(platform.logoSrc || '')) return [];
+  const blob = dataUrlToBlob(platform.logoSrc);
+  const result = await r2Client.from('thumbnails').upload('poster-assets/' + userId + '/' + recordId + '/platform-logo-' + Date.now() + '.png', blob, { contentType: blob.type });
+  if (result.error || !result.publicUrl || !result.fileKey) throw result.error || new Error('Platform logo upload did not return a public URL.');
+  platform.logoSrc = result.publicUrl;
+  platform.logoR2Key = result.fileKey;
+  return [result.fileKey];
+}
 export async function savePosterSnapshot({ record, supabase, r2Client, createSnapshot }) {
   if (!record?.id) throw new Error('Open a saved NIF asset before saving a poster to the cloud.');
   if (!supabase?.auth?.getUser || !supabase?.from) throw new Error('Account connection is not ready.');
@@ -61,6 +71,7 @@ export async function savePosterSnapshot({ record, supabase, r2Client, createSna
   try {
     const savedData = createSnapshot();
     uploadedKeys = await persistPosterImagesToR2(savedData.poster, authData.user.id, record.id, r2Client);
+    uploadedKeys = uploadedKeys.concat(await persistPlatformLogoToR2(savedData.platform, authData.user.id, record.id, r2Client));
     // Uploads can take long enough for the user to sign out or switch accounts.
     // Re-check identity immediately before committing metadata; rollback below
     // removes any objects uploaded under the earlier session if it changed.

@@ -1593,6 +1593,8 @@ function destroyPlyViewer() {
   _publishedSparkMesh = null;
   _publishedSparkRenderer = null;
   if (window._fumocaPublishedSpark) window._fumocaPublishedSpark = null;
+  window._fumocaPublishedSparkGroup = null; window._fumocaPublishedSparkMesh = null;
+  import('./platform-viewer.js').then(m => m.clearPlatform()).catch(() => {});
   if (window.FumocaPosterPicking) window.FumocaPosterPicking = null;
   _plyScene = _plyCamera = _plyControls = null;
 }
@@ -2254,6 +2256,9 @@ async function mountPublishedSparkPly(url) {
     },
   });
   window._fumocaPublishedSpark = _publishedSparkRenderer;
+  window._fumocaPublishedSparkGroup = _publishedSparkGroup;
+  window._fumocaPublishedSparkMesh = _publishedSparkMesh;
+  window._fumocaViewerScene = _plyScene;
   window._fumocaViewerCamera = _plyCamera;
   window._fumocaViewerControls = _plyControls;
   window._fumocaCaptureCanvas = _plyRenderer.domElement;
