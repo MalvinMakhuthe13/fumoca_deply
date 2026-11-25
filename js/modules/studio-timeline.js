@@ -4,6 +4,7 @@
  */
 const FumocaStudio = (() => {
   let _canvas = null, _ctx = null, _record = null, _raf = null, _flyToAnim = null;
+  const escapeHtml = value => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
   async function init() {
     _canvas = document.getElementById('motionCanvas');
@@ -132,8 +133,8 @@ const FumocaStudio = (() => {
     }
     container.innerHTML = states.map((st, i) => `
       <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.06);">
-        <span style="color:#c8ff00;font-size:12px;font-weight:700;min-width:90px;">${st.step_label || 'Keyframe ' + (i+1)}</span>
-        <span style="color:#555;font-size:11px;">t=${(st.time_offset || 0).toFixed(1)}s</span>
+        <span style="color:#c8ff00;font-size:12px;font-weight:700;min-width:90px;">${escapeHtml(st.step_label || 'Keyframe ' + (i+1))}</span>
+        <span style="color:#555;font-size:11px;">t=${Number(st.time_offset || 0).toFixed(1)}s</span>
         <button onclick="window._fumoca4DFlyTo(${i})" style="font-size:11px;padding:3px 7px;">Fly To</button>
         <button onclick="window._fumoca4DRename(${i})" style="font-size:11px;padding:3px 7px;">Rename</button>
         <button onclick="window._fumoca4DUpdatePose(${i})" style="font-size:11px;padding:3px 7px;">Update Pose</button>
