@@ -1,0 +1,10 @@
+# CPU-only dependencies for reconstructing meshes from existing Gaussian geometry.
+# No torch, torchvision, gsplat, CUDA, rembg, SAM2, or depth model is required.
+numpy>=1.26,<2.3
+scipy>=1.11
+scikit-image>=0.21
+trimesh>=4.0
+Pillow>=10.0
+boto3>=1.34
+supabase>=2.4
+requests>=2.31

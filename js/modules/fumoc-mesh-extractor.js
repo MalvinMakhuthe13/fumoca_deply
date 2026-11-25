@@ -73,6 +73,8 @@
 
 'use strict';
 
+import { bridgeDensityField } from './gaussian-density-bridging.js';
+
 // ═══ MARCHING CUBES TABLES ═══════════════════════════════════════════════════
 // Edge table: which of the 12 edges are intersected for each of 256 cases.
 // Triangle table: which edges form triangles for each case.
@@ -280,8 +282,46 @@ async function buildDensityField(gaussians, opts = {}) {
     }
   }
 
-  // Add small padding so Gaussians at edges don't get clipped
-  const padding = 0.05 * Math.max(maxX-minX, maxY-minY, maxZ-minZ);
+  // Expand the grid to contain each active Gaussian's rotated 3σ support.
+  // Bounds based only on Gaussian centres clip broad/anisotropic splats at the
+  // volume edge, creating artificial open cuts and missing surface patches.
+  // The world-axis extent is sqrt(diag(R * diag(s²) * Rᵀ)).
+  for (let i = 0; i < N; i++) {
+    const opacity = (colA?.[i] ?? 255) / 255;
+    if (opacity < 0.05) continue;
+    const sx = Math.exp(sclX?.[i] ?? -3);
+    const sy = Math.exp(sclY?.[i] ?? -3);
+    const sz = Math.exp(sclZ?.[i] ?? -3);
+    let qw = gaussians.rotW?.[i] ?? 1;
+    let qx = gaussians.rotX?.[i] ?? 0;
+    let qy = gaussians.rotY?.[i] ?? 0;
+    let qz = gaussians.rotZ?.[i] ?? 0;
+    const qLength = Math.hypot(qw, qx, qy, qz);
+    if (qLength > 1e-8) {
+      const inv = 1 / qLength;
+      qw *= inv; qx *= inv; qy *= inv; qz *= inv;
+    } else {
+      qw = 1; qx = qy = qz = 0;
+    }
+    const r00 = 1 - 2 * (qy*qy + qz*qz);
+    const r01 = 2 * (qx*qy - qz*qw);
+    const r02 = 2 * (qx*qz + qy*qw);
+    const r10 = 2 * (qx*qy + qz*qw);
+    const r11 = 1 - 2 * (qx*qx + qz*qz);
+    const r12 = 2 * (qy*qz - qx*qw);
+    const r20 = 2 * (qx*qz - qy*qw);
+    const r21 = 2 * (qy*qz + qx*qw);
+    const r22 = 1 - 2 * (qx*qx + qy*qy);
+    const ex = 3 * sigmaScale * Math.sqrt((r00*sx)**2 + (r01*sy)**2 + (r02*sz)**2);
+    const ey = 3 * sigmaScale * Math.sqrt((r10*sx)**2 + (r11*sy)**2 + (r12*sz)**2);
+    const ez = 3 * sigmaScale * Math.sqrt((r20*sx)**2 + (r21*sy)**2 + (r22*sz)**2);
+    minX = Math.min(minX, posX[i] - ex); maxX = Math.max(maxX, posX[i] + ex);
+    minY = Math.min(minY, posY[i] - ey); maxY = Math.max(maxY, posY[i] + ey);
+    minZ = Math.min(minZ, posZ[i] - ez); maxZ = Math.max(maxZ, posZ[i] + ez);
+  }
+
+  // A small extra margin keeps interpolation away from the volume boundary.
+  const padding = 0.01 * Math.max(maxX-minX, maxY-minY, maxZ-minZ);
   minX -= padding; minY -= padding; minZ -= padding;
   maxX += padding; maxY += padding; maxZ += padding;
 
@@ -322,10 +362,20 @@ async function buildDensityField(gaussians, opts = {}) {
       const invVx = 1 / (2 * sx * sx * sigmaScale * sigmaScale);
       const invVy = 1 / (2 * sy * sy * sigmaScale * sigmaScale);
       const invVz = 1 / (2 * sz * sz * sigmaScale * sigmaScale);
-      const qw = gaussians.rotW?.[i] ?? 1;
-      const qx = gaussians.rotX?.[i] ?? 0;
-      const qy = gaussians.rotY?.[i] ?? 0;
-      const qz = gaussians.rotZ?.[i] ?? 0;
+      // Normalize the source quaternion before rotating into Gaussian-local
+      // space. Imported/editable splats can contain slightly non-unit values;
+      // using them directly distorts the covariance and inflates the surface.
+      let qw = gaussians.rotW?.[i] ?? 1;
+      let qx = gaussians.rotX?.[i] ?? 0;
+      let qy = gaussians.rotY?.[i] ?? 0;
+      let qz = gaussians.rotZ?.[i] ?? 0;
+      const qLength = Math.hypot(qw, qx, qy, qz);
+      if (qLength > 1e-8) {
+        const qInv = 1 / qLength;
+        qw *= qInv; qx *= qInv; qy *= qInv; qz *= qInv;
+      } else {
+        qw = 1; qx = qy = qz = 0;
+      }
 
       // Voxel-space centre
       const vcx = (cx - minX) / voxelSize;
@@ -351,12 +401,18 @@ async function buildDensityField(gaussians, opts = {}) {
             const dx = vx - vcx;
             let gx = dx * voxelSize, gy = dy * voxelSize, gz = dz * voxelSize;
             if (qx || qy || qz) {
-              const tx = 2 * (qy * gz - qz * gy);
-              const ty = 2 * (qz * gx - qx * gz);
-              const tz = 2 * (qx * gy - qy * gx);
-              gx = gx - qw * tx + (qy * tz - qz * ty);
-              gy = gy - qw * ty + (qz * tx - qx * tz);
-              gz = gz - qw * tz + (qx * ty - qy * tx);
+              // The renderer builds world covariance as R * diag(scale²) * Rᵀ.
+              // Density evaluation therefore needs Rᵀ * offset (world → local),
+              // i.e. the inverse unit quaternion, not the forward rotation.
+              // Using the forward rotation mirrors general 3D orientations and
+              // gives the mesh a different covariance from the visible splat.
+              const iqx = -qx, iqy = -qy, iqz = -qz;
+              const tx = 2 * (iqy * gz - iqz * gy);
+              const ty = 2 * (iqz * gx - iqx * gz);
+              const tz = 2 * (iqx * gy - iqy * gx);
+              gx = gx - qw * tx + (iqy * tz - iqz * ty);
+              gy = gy - qw * ty + (iqz * tx - iqx * tz);
+              gz = gz - qw * tz + (iqx * ty - iqy * tx);
             }
             const exponent = gx * gx * invVx + gy * gy * invVy + gz * gz * invVz;
             if (exponent > 9) continue; // > 3σ on weighted distance — skip
@@ -945,6 +1001,52 @@ end_header
  * }
  */
 /**
+ * Apply a small separable [1,2,1] Gaussian blur to the voxel density field.
+ * This regularizes one-voxel gaps between neighbouring splat contributions
+ * before isosurface extraction. It does not merge distant objects or alter
+ * the source Gaussian data. Each pass is separable to keep the cost O(3R^3).
+ */
+function smoothDensityField(field, iterations = 1) {
+  const { density, resolution: R } = field;
+  const passes = Math.max(0, Math.min(3, Math.floor(Number(iterations) || 0)));
+  if (!passes || !density?.length || !R) return field;
+  let current = density;
+  const plane = R * R;
+  const blurAxis = (input, axis) => {
+    const output = new Float32Array(input.length);
+    for (let z = 0; z < R; z++) {
+      for (let y = 0; y < R; y++) {
+        for (let x = 0; x < R; x++) {
+          const i = z * plane + y * R + x;
+          let a, b, c;
+          if (axis === 0) {
+            a = input[z * plane + y * R + Math.max(0, x - 1)];
+            b = input[i];
+            c = input[z * plane + y * R + Math.min(R - 1, x + 1)];
+          } else if (axis === 1) {
+            a = input[z * plane + Math.max(0, y - 1) * R + x];
+            b = input[i];
+            c = input[z * plane + Math.min(R - 1, y + 1) * R + x];
+          } else {
+            a = input[Math.max(0, z - 1) * plane + y * R + x];
+            b = input[i];
+            c = input[Math.min(R - 1, z + 1) * plane + y * R + x];
+          }
+          output[i] = (a + 2 * b + c) * 0.25;
+        }
+      }
+    }
+    return output;
+  };
+  for (let pass = 0; pass < passes; pass++) {
+    current = blurAxis(current, 0);
+    current = blurAxis(current, 1);
+    current = blurAxis(current, 2);
+  }
+  return { ...field, density: current, densitySmoothing: passes };
+}
+
+/**
  * Auto-tune the iso-surface threshold from the density field histogram.
  * Finds the threshold that produces the sharpest gradient — the inflection
  * point where density transitions from "inside object" to "empty space".
@@ -954,45 +1056,44 @@ end_header
  * the absolute density values, which vary per scene.
  */
 function autoTuneThreshold(density) {
-  // Build a 100-bin histogram of non-zero densities
-  const N = density.length;
+  // Use the positive-density distribution rather than the steepest raw
+  // histogram drop. The old derivative heuristic often selected a very low
+  // tail bin, producing an oversized, blobby shell. A robust quantile gives a
+  // repeatable boundary level across differently scaled captures.
   let maxD = 0;
-  for (let i = 0; i < N; i++) if (density[i] > maxD) maxD = density[i];
-  if (maxD === 0) return 0.5;
+  let positiveCount = 0;
+  for (let i = 0; i < density.length; i++) {
+    const value = density[i];
+    if (Number.isFinite(value) && value > 0) {
+      if (value > maxD) maxD = value;
+      positiveCount++;
+    }
+  }
+  if (!positiveCount || !(maxD > 0)) return 0.5;
 
-  const BINS = 100;
-  const hist = new Uint32Array(BINS);
-  for (let i = 0; i < N; i++) {
-    if (density[i] > 0) {
-      const b = Math.min(BINS - 1, Math.floor(density[i] / maxD * BINS));
-      hist[b]++;
+  const BINS = 512;
+  const histogram = new Uint32Array(BINS);
+  const invMax = (BINS - 1) / maxD;
+  for (let i = 0; i < density.length; i++) {
+    const value = density[i];
+    if (Number.isFinite(value) && value > 0) {
+      const bin = Math.min(BINS - 1, Math.floor(value * invMax));
+      histogram[bin]++;
     }
   }
 
-  // Smooth the histogram (3-tap)
-  const smooth = new Float32Array(BINS);
-  for (let b = 0; b < BINS; b++) {
-    smooth[b] = (hist[Math.max(0,b-1)] + hist[b]*2 + hist[Math.min(BINS-1,b+1)]) / 4;
+  // Select the 62nd percentile of occupied voxels. Clamp it to a useful
+  // fraction of the peak so sparse tails cannot pull the surface outward and
+  // a few dense overlaps cannot push the threshold into the interior.
+  const target = Math.ceil(positiveCount * 0.62);
+  let cumulative = 0;
+  let quantileBin = 0;
+  for (; quantileBin < BINS; quantileBin++) {
+    cumulative += histogram[quantileBin];
+    if (cumulative >= target) break;
   }
-
-  // The surface boundary sits at the inflection point — where the
-  // density distribution transitions from "lots of low-density empty"
-  // to "fewer high-density solid". Find the bin where the log-derivative
-  // changes most sharply.
-  let bestBin = BINS / 4;
-  let bestDelta = 0;
-  for (let b = 5; b < BINS - 5; b++) {
-    // Compare average count in (b-5..b) vs (b..b+5)
-    let before = 0, after = 0;
-    for (let k = 0; k < 5; k++) {
-      before += smooth[b - k - 1];
-      after  += smooth[b + k];
-    }
-    const delta = before - after; // positive = transition from many to few
-    if (delta > bestDelta) { bestDelta = delta; bestBin = b; }
-  }
-
-  return (bestBin / BINS) * maxD;
+  const quantile = (quantileBin / (BINS - 1)) * maxD;
+  return Math.max(maxD * 0.12, Math.min(maxD * 0.38, quantile));
 }
 
 /**
@@ -1113,12 +1214,20 @@ async function extractMesh(gaussians, opts = {}) {
 
   const t0 = performance.now();
   const {
-    smooth          = 2,         // Laplacian smoothing iterations
+    smooth          = 2,         // Taubin mesh smoothing iterations
     smoothLambda    = 0.5,       // smoothing strength
+    densitySmoothing = 1,        // pre-MC voxel regularization passes (0–3)
+    minComponentTriangles = 32,   // discard tiny disconnected MC islands
   } = opts;
+  const densityBridgingPasses = opts.densityBridgingPasses ?? densitySmoothing;
 
   // Stage 1: density field
-  const field = await buildDensityField(gaussians, { resolution, sigmaScale, onProgress });
+  let field = await buildDensityField(gaussians, { resolution, sigmaScale, onProgress });
+  if (densitySmoothing > 0) {
+    onProgress?.(46, 'Bridging only locally enclosed density gaps…');
+    await _yield();
+    field = bridgeDensityField(field, densityBridgingPasses);
+  }
 
   // Stage 1b: auto-tune threshold if not specified
   let useThreshold = threshold;
@@ -1152,6 +1261,12 @@ async function extractMesh(gaussians, opts = {}) {
     throw new Error('[MeshExtractor] No surface formed from this point cloud. Increase splat scale or use a denser capture.');
   }
 
+  // Remove isolated speckle components as part of the normal extraction path.
+  // The largest component is always preserved; users can set the face cutoff
+  // to zero to retain every component, or run the repair control afterwards.
+  const componentCleanup = removeSmallComponents(mesh, minComponentTriangles);
+  mesh = componentCleanup.mesh;
+
   // Stage 2b: Taubin smoothing softens MC stair-stepping with less shrinkage.
   if (smooth > 0) {
     onProgress?.(72, `Smoothing mesh (${smooth} iterations)…`);
@@ -1179,6 +1294,7 @@ async function extractMesh(gaussians, opts = {}) {
 
   onProgress?.(100, 'Done');
 
+  const components = splitMeshComponents(mesh);
   const stats = {
     vertices:    mesh.vertices.length / 3,
     triangles:   mesh.triangles.length / 3,
@@ -1187,17 +1303,194 @@ async function extractMesh(gaussians, opts = {}) {
     printable:   validation.printable,
     openEdges:   validation.openEdges,
     nonManifoldEdges: validation.nonManifoldEdges,
-    components: validation.components,
+    components: components.length,
     largestComponentTriangles: validation.largestComponentTriangles,
     elapsedMs:   Math.round(performance.now() - t0),
     resolution,
     threshold: useThreshold,
     sigmaScale,
     smoothing: { method: 'taubin', iterations: smooth, lambda: smoothLambda },
+    densityBridging: field.densityBridging || { passes: 0, bridgedVoxels: 0, method: 'disabled' },
+    densitySmoothing: 0,
+    componentCleanup: { minTriangles: Math.max(0, Number(minComponentTriangles) || 0), removedComponents: componentCleanup.removedComponents, removedTriangles: componentCleanup.removedTriangles },
     format,
   };
 
-  return { mesh, blob, stats };
+  return { mesh, components, blob, stats };
+}
+
+/**
+ * Clip a mesh into two open, independently editable halves using a plane.
+ * This only subdivides observed triangles; it never caps the cut or invents
+ * faces. The positive side is dot(position, normal) >= offset.
+ */
+function splitMeshByPlane(mesh, { normal = [0, 1, 0], offset = 0, epsilon = 1e-6 } = {}) {
+  if (!mesh?.vertices?.length || !mesh?.triangles?.length || mesh.triangles.length % 3) {
+    throw new Error('[MeshExtractor] A valid triangle mesh is required for plane splitting.');
+  }
+  const n = Math.hypot(...normal);
+  if (!Number.isFinite(n) || n < 1e-9 || !Number.isFinite(offset)) {
+    throw new Error('[MeshExtractor] Split plane requires a finite non-zero normal and offset.');
+  }
+  const unit = normal.map(value => value / n);
+  const source = mesh.vertices, faces = mesh.triangles, sourceColors = mesh.colours;
+  const makeSide = (sign) => {
+    const vertices = [], triangles = [], colours = [];
+    const vertexMap = new Map();
+    const addVertex = (vertex) => {
+      const key = vertex.position.map(value => Math.round(value / Math.max(epsilon, 1e-9))).join(',');
+      let index = vertexMap.get(key);
+      if (index !== undefined) return index;
+      index = vertices.length / 3;
+      vertices.push(...vertex.position);
+      if (sourceColors) colours.push(...vertex.color);
+      vertexMap.set(key, index);
+      return index;
+    };
+    const signedDistance = (position) =>
+      position[0] * unit[0] + position[1] * unit[1] + position[2] * unit[2] - offset;
+    const clip = (polygon) => {
+      const output = [];
+      for (let i = 0; i < polygon.length; i++) {
+        const current = polygon[i], next = polygon[(i + 1) % polygon.length];
+        const dc = signedDistance(current.position) * sign;
+        const dn = signedDistance(next.position) * sign;
+        const currentInside = dc >= -epsilon, nextInside = dn >= -epsilon;
+        if (currentInside) output.push(current);
+        if (currentInside !== nextInside) {
+          const t = dc / (dc - dn);
+          output.push({
+            position: current.position.map((value, axis) => value + (next.position[axis] - value) * t),
+            color: current.color.map((value, axis) => value + (next.color[axis] - value) * t),
+          });
+        }
+      }
+      return output;
+    };
+    for (let face = 0; face < faces.length; face += 3) {
+      const polygon = [0, 1, 2].map(corner => {
+        const index = faces[face + corner];
+        return {
+          position: Array.from(source.subarray(index * 3, index * 3 + 3)),
+          color: sourceColors ? Array.from(sourceColors.subarray(index * 3, index * 3 + 3)) : [200, 200, 200],
+        };
+      });
+      const distances = polygon.map(vertex => signedDistance(vertex.position));
+      // Assign fully coplanar triangles to the positive side exactly once.
+      if (distances.every(value => Math.abs(value) <= epsilon) && sign < 0) continue;
+      const clipped = clip(polygon);
+      if (clipped.length < 3) continue;
+      const indices = clipped.map(addVertex);
+      for (let i = 1; i < indices.length - 1; i++) triangles.push(indices[0], indices[i], indices[i + 1]);
+    }
+    return {
+      vertices: new Float32Array(vertices),
+      triangles: new Uint32Array(triangles),
+      colours: sourceColors ? new Uint8Array(colours.map(value => Math.max(0, Math.min(255, Math.round(value))))) : null,
+    };
+  };
+  const positive = makeSide(1), negative = makeSide(-1);
+  const positiveHasFaces = positive.triangles.length > 0;
+  const negativeHasFaces = negative.triangles.length > 0;
+  return {
+    positive: positiveHasFaces ? positive : null,
+    negative: negativeHasFaces ? negative : null,
+    split: positiveHasFaces && negativeHasFaces,
+    cutIsOpen: positiveHasFaces && negativeHasFaces,
+  };
+}
+
+/**
+ * Split triangle geometry into independently addressable vertex-connected
+ * components. Components retain source vertex colors and local face indices.
+ * This is geometric connectivity, not semantic object recognition.
+ */
+function stableMeshComponentId(vertices, triangles) {
+  // Hash the component's local geometry, not its size rank in the scene. This
+  // keeps IDs unchanged when disconnected components are reordered.
+  const view = new DataView(new ArrayBuffer(4));
+  let a = 0x811c9dc5, b = 0x9e3779b9;
+  const feed = (value) => {
+    view.setUint32(0, Number(value) >>> 0, true);
+    const word = view.getUint32(0, true);
+    a = Math.imul(a ^ word, 0x01000193) >>> 0;
+    b = Math.imul(b ^ (word + 0x7ed55d16), 0x85ebca6b) >>> 0;
+  };
+  for (const value of vertices) { view.setFloat32(0, value, true); feed(view.getUint32(0, true)); }
+  for (const value of triangles) feed(value);
+  return `mesh-${a.toString(16).padStart(8, '0')}${b.toString(16).padStart(8, '0')}`;
+}
+
+function splitMeshComponents(mesh) {
+  const vertices = mesh?.vertices;
+  const triangles = mesh?.triangles;
+  if (!vertices?.length || !triangles?.length || triangles.length % 3) return [];
+  const faceCount = triangles.length / 3;
+  const parent = new Int32Array(faceCount);
+  for (let i = 0; i < faceCount; i++) parent[i] = i;
+  const find = (value) => {
+    let root = value;
+    while (parent[root] !== root) root = parent[root];
+    while (parent[value] !== value) { const next = parent[value]; parent[value] = root; value = next; }
+    return root;
+  };
+  const unite = (a, b) => {
+    const ra = find(a), rb = find(b);
+    if (ra !== rb) parent[rb] = ra;
+  };
+  const owner = new Map();
+  for (let face = 0; face < faceCount; face++) {
+    for (let corner = 0; corner < 3; corner++) {
+      const vertex = triangles[face * 3 + corner];
+      const previous = owner.get(vertex);
+      if (previous === undefined) owner.set(vertex, face);
+      else unite(face, previous);
+    }
+  }
+  const groups = new Map();
+  for (let face = 0; face < faceCount; face++) {
+    const root = find(face);
+    if (!groups.has(root)) groups.set(root, []);
+    groups.get(root).push(face);
+  }
+  const ordered = [...groups.values()].sort((a, b) => b.length - a.length);
+  const idOccurrences = new Map();
+  return ordered.map((faces) => {
+    const vertexMap = new Map();
+    const oldVertices = [];
+    const localFaces = new Uint32Array(faces.length * 3);
+    let at = 0;
+    for (const face of faces) {
+      for (let corner = 0; corner < 3; corner++) {
+        const oldIndex = triangles[face * 3 + corner];
+        let localIndex = vertexMap.get(oldIndex);
+        if (localIndex === undefined) {
+          localIndex = oldVertices.length;
+          vertexMap.set(oldIndex, localIndex);
+          oldVertices.push(oldIndex);
+        }
+        localFaces[at++] = localIndex;
+      }
+    }
+    const localVertices = new Float32Array(oldVertices.length * 3);
+    const localColours = mesh.colours ? new Uint8Array(oldVertices.length * 3) : null;
+    oldVertices.forEach((oldIndex, localIndex) => {
+      localVertices.set(vertices.subarray(oldIndex * 3, oldIndex * 3 + 3), localIndex * 3);
+      if (localColours) localColours.set(mesh.colours.subarray(oldIndex * 3, oldIndex * 3 + 3), localIndex * 3);
+    });
+    const componentMesh = { vertices: localVertices, triangles: localFaces, colours: localColours };
+    const topology = validateWatertight(componentMesh);
+    const stableId = stableMeshComponentId(localVertices, localFaces);
+    const occurrence = idOccurrences.get(stableId) || 0;
+    idOccurrences.set(stableId, occurrence + 1);
+    return {
+      id: occurrence ? `${stableId}-${occurrence + 1}` : stableId,
+      ...componentMesh,
+      watertight: topology.watertight,
+      visible: true,
+      stats: { triangles: faces.length, vertices: oldVertices.length, ...topology },
+    };
+  });
 }
 
 // ═══ HELPERS ═════════════════════════════════════════════════════════════════
@@ -1213,8 +1506,12 @@ const FumocMeshExtractor = {
   laplacianSmooth,
   taubinSmooth,
   autoTuneThreshold,
+  smoothDensityField,
+  bridgeDensityField,
   transferColours,
   validateWatertight,
+  splitMeshComponents,
+  splitMeshByPlane,
   fillSmallHoles,
   removeSmallComponents,
   exportSTL,

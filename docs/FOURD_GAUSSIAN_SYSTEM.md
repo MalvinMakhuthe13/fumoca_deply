@@ -100,7 +100,7 @@ Each selected motion moment currently becomes an independent reconstruction job 
 
 This is the primary animation direction. It animates the Gaussian records themselves; it is not a mesh-rigging product.
 
-- NIF chunk `GAUSSIAN_ANIMATION` (0x001A) stores a stable uint32 ID for every base Gaussian and sparse per-splat transform tracks.
+- NIF chunk `GAUSSIAN_ANIMATION` (0x001D) stores a stable uint32 ID for every base Gaussian and sparse per-splat transform tracks.
 - v1 tracks interpolate position, renderer log-scale and normalized quaternion rotation. Opacity and SH colour remain in the base geometry.
 - `NIFGaussianAnimator` evaluates tracks by stable ID, independently of depth-sort order, using one reusable Float32 output buffer.
 - `NIFRenderer` binds the decoded track payload and evaluates it at a requested time.
