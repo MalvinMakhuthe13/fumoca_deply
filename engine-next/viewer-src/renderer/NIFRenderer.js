@@ -47,6 +47,8 @@ import { m4, v3, Quat, smoothstep, EPS } from '../../math/NIFMath.js';
 import { raycastGaussians } from '../../physics/NIFPhysics.js';
 import { detectTier } from '../NIFDeviceTier.js';
 import { NIFAnimator } from '../../animation/NIFAnimator.js';
+import { NIFProxyDeformer } from '../../animation/NIFProxyDeformer.js';
+import { NIFGaussianAnimator } from '../../animation/NIFGaussianAnimator.js';
 
 // Maximum device pixel ratio we'll render at.
 // 2.0 is indistinguishable from 3.0 at normal viewing distance and
@@ -203,6 +205,7 @@ mat3 q2m(vec4 q) {
 }
 
 float sigmoid(float x) { return 1.0 / (1.0 + exp(-x)); }
+vec3 sigmoid(vec3 x) { return 1.0 / (1.0 + exp(-x)); }
 
 void main() {
   // Camera-space position
@@ -213,9 +216,9 @@ void main() {
   // Build 3D covariance in camera space: Σ = (R·diag(s))·(R·diag(s))ᵀ
   vec3 s   = exp(a_scale);
   mat3 R   = mat3(u_view) * q2m(a_rot);
-  mat3 M   = mat3(R[0]*s.x, R[1]*s.x, R[2]*s.x,
-                  R[0]*s.y, R[1]*s.y, R[2]*s.y,
-                  R[0]*s.z, R[1]*s.z, R[2]*s.z);
+  // GLSL mat3 accepts three column vectors (or nine scalar values).
+  // Scale each rotation column by its corresponding Gaussian axis scale.
+  mat3 M   = mat3(R[0]*s.x, R[1]*s.y, R[2]*s.z);
   mat3 Sigma3 = M * transpose(M);
 
   // Jacobian of perspective projection at cam
@@ -384,6 +387,9 @@ void main() {
     const count    = Math.min(rawCount, this._maxGaussiansDrawn);
 
     this.gaussians    = gaussians;
+    this.gaussianAnimator = null; // animation bindings belong to one loaded asset only
+    this.proxyDeformer = null;
+    this._proxyBaseData = null;
     this._drawnCount  = count;
     this._activeLayer = null; // null = render all layers
 
@@ -453,6 +459,88 @@ void main() {
     return this.animator.playSlide(label, opts);
   }
 
+  /**
+   * Attach native per-Gaussian animation tracks to the loaded splat asset.
+   * Tracks address stable Gaussian IDs; renderer sort order is never used.
+   */
+  bindGaussianAnimation(animation) {
+    if (!this.gaussians) throw new Error('Load Gaussian data before binding animation');
+    if (this.proxyDeformer) throw new Error('Clear proxy deformation before binding native Gaussian animation');
+    if (!animation || !Array.isArray(animation.tracks) || !Array.isArray(animation.gaussianIds)) {
+      throw new TypeError('Expected decoded GAUSSIAN_ANIMATION data with tracks and gaussianIds');
+    }
+    if (animation.gaussianIds.length !== this.gaussians.count) {
+      throw new Error('Animation stable-ID table must match the loaded Gaussian count');
+    }
+    this.gaussianAnimator = new NIFGaussianAnimator(
+      this.gaussians, animation.tracks, Uint32Array.from(animation.gaussianIds)
+    );
+    return { gaussianCount: this.gaussians.count, trackCount: animation.tracks.length };
+  }
+
+  /** Evaluate native Gaussian tracks at seconds from the animation start. */
+  updateGaussianAnimation(timeSeconds) {
+    if (!this.gaussianAnimator) throw new Error('No native Gaussian animation is bound');
+    const data = this.gaussianAnimator.evaluate(timeSeconds);
+    this._sortFrame = -999;
+    this._wakeFromIdle?.();
+    return data;
+  }
+
+  clearGaussianAnimation({ restore = true } = {}) {
+    if (!this.gaussianAnimator) return false;
+    if (restore) {
+      this.gaussianAnimator.reset();
+      this._sortFrame = -999;
+      this._wakeFromIdle?.();
+    }
+    this.gaussianAnimator = null;
+    return true;
+  }
+
+  /**
+   * Bind a rest-pose proxy mesh to the currently loaded Gaussian data.
+   * The caller supplies a proxy mesh's triangle indices and xyz vertex buffer.
+   * Animate the proxy elsewhere (e.g. GLB/Three.js) and call
+   * updateProxyDeformation() with its current world-space vertex positions.
+   *
+   * This does not load a rig or infer a skeleton. It is the deformation
+   * transfer bridge; proxy rigging/animation authoring remains upstream.
+   */
+  bindProxyDeformation(restVertices, triangles, options = {}) {
+    if (!this.gaussians) throw new Error('Load Gaussian data before binding a proxy');
+    if (this.gaussianAnimator) throw new Error('Clear native Gaussian animation before binding proxy deformation');
+    this.proxyDeformer = new NIFProxyDeformer(restVertices, triangles, this.gaussians.data, options);
+    this._proxyBaseData = this.gaussians.data.slice();
+    return { gaussianCount: this.gaussians.count, proxyTriangleCount: triangles.length / 3 };
+  }
+
+  /**
+   * Apply one evaluated proxy-mesh pose to the bound Gaussian cloud.
+   * The renderer's existing sort/upload path sees the updated data next frame.
+   */
+  updateProxyDeformation(deformedVertices) {
+    if (!this.proxyDeformer) throw new Error('No proxy deformation binding exists');
+    this.gaussians.data = this.proxyDeformer.update(deformedVertices);
+    this._sortFrame = -999;
+    this._wakeFromIdle?.();
+    return this.gaussians.data;
+  }
+
+  clearProxyDeformation({ restore = true } = {}) {
+    if (!this.proxyDeformer) return false;
+    if (restore && this._proxyBaseData) {
+      this.gaussians.data = this._proxyBaseData.slice();
+      this._sortFrame = -999;
+      this._wakeFromIdle?.();
+    }
+    this.proxyDeformer = null;
+    this._proxyBaseData = null;
+    return true;
+  }
+
+  /**
+   * Load per-pixel depth map (for parallax and depth-of-field effects).
   /**
    * Load per-pixel depth map (for parallax and depth-of-field effects).
    * @param {{ width, height, data:Float32Array }} depthMap
@@ -588,24 +676,27 @@ void main() {
       depths[i] = -(v0*data[j] + v1*data[j+1] + v2*data[j+2] + v3_);
     }
 
-    if (this._sortWorker && this._sortWorkerReady) {
-      // Async path: transfer index array to worker (zero-copy)
+    if (this._sortWorker) {
+      if (!this._sortWorkerReady) {
+        // The index buffer is currently owned by the worker and is detached
+        // on the main thread. Keep the last uploaded ordering until it returns.
+        this._sortFrame = this._frame;
+        return false;
+      }
+
+      // Async path: transfer index array to worker (zero-copy).
       this._sortWorkerReady = false;
       this._sortWorkerCount = count;
-      // Send a copy of depths (not transferable — main thread still needs it)
-      // Send indices as transferable — worker will send it back
       const depthsCopy = depths.slice(0, count);
       this._sortWorker.postMessage(
         { type: 'sort', depths: depthsCopy, indices, count },
-        [indices.buffer],   // transfer indices ownership to worker
+        [indices.buffer],
       );
-      // _sortIndices is now detached — _gatherAndUpload will restore it
       this._sortFrame = this._frame;
       return true;
     }
 
-    // Synchronous fallback (no worker, or worker busy)
-    // Only runs on the main thread if worker unavailable.
+    // Synchronous fallback is used only when no worker exists.
     // Cap to 20k even on sync path to keep it under 2ms.
     const syncCount = Math.min(count, 20_000);
     indices.sort((a, b) => depths[a] - depths[b]);
@@ -1061,6 +1152,7 @@ export class Camera {
   }
 
   _onZoom(delta) {
+    this._renderer?._wakeFromIdle?.();
     const d = v3.sub(this.position, this.target);
     const r = Math.max(this.near * 10, v3.len(d) * (1 + delta * 0.0008));
     this.position = v3.add(this.target, v3.scale(v3.norm(d), r));
@@ -1070,7 +1162,11 @@ export class Camera {
 
   _bindEvents() {
     const c   = this.canvas;
-    const on  = (e, fn, opt) => c.addEventListener(e, fn, opt ?? { passive: e !== 'wheel' });
+    // Any handler that calls preventDefault must be explicitly non-passive.
+    // Keep passive defaults for high-frequency listeners that do not cancel input.
+    const on  = (e, fn, opt) => c.addEventListener(e, fn, opt ?? {
+      passive: !['wheel', 'contextmenu', 'touchmove'].includes(e),
+    });
     const won = (e, fn) => window.addEventListener(e, fn, { passive: true });
 
     on('mousedown', e => {
@@ -1126,6 +1222,7 @@ export class Camera {
   }
 
   _onMouseMove(cx, cy) {
+    this._renderer?._wakeFromIdle?.();
     const dx = cx - this._last.x;
     const dy = cy - this._last.y;
     this._last = { x: cx, y: cy };

@@ -911,6 +911,23 @@ function setSceneMode(mode) {
   setVariantDirty(true);
 }
 async function fetchRecord() {
+  const localNif = params.get('localNif');
+  if (localNif) {
+    try {
+      const res = await fetch(localNif, { cache: 'no-store' });
+      if (!res.ok) {
+        console.warn('[FUMOCA viewer] local NIF fetch failed', res.status);
+        return null;
+      }
+      const rec = await res.json();
+      rec.id = rec.id || 'local-nif';
+      rec._localMock = true;
+      return rec;
+    } catch (error) {
+      console.warn('[FUMOCA viewer] local NIF failed', error);
+      return null;
+    }
+  }
   if (!nifId) return null;
 
   console.log('[FUMOCA viewer] fetchRecord() starting', {
@@ -2184,7 +2201,7 @@ async function mountPublishedSparkPly(url) {
 }
 async function mountInteractiveViewer(forceReload = false) {
   const activeUrl = getActivenifUrl();
-  if ((!forceReload && viewerInstance) || !activeUrl) return;
+  if ((!forceReload && viewerInstance) || !activeUrl) return false;
   if (forceReload) { rendererPreviewPending = true; showStageFreeze(); _fumocaShowPipelineIllusion('Applying editsâ€¦', 1680); }
   if (forceReload) await destroyViewer();
   setLoading(forceReload ? 'Refreshing cleanupâ€¦' : 'Loading interactive nifâ€¦');
@@ -2466,6 +2483,7 @@ window._fumocaRenderer = {
         }));
       }
     }, 800); // 800ms â€” enough for first sort pass to complete
+    return true;
   } catch (err) {
     rendererPreviewPending = false;
     console.error('[FUMOCA viewer]', err);
@@ -2482,8 +2500,62 @@ window._fumocaRenderer = {
       } catch (_) {}
     }
     showError(`Failed to load nif: ${msg}`);
+    return false;
   }
 }
+
+let _motionSequenceLoadToken = 0;
+window._fumocaLoadMotionSequenceNif = async function(recordId) {
+  if (!recordId) throw new TypeError('Motion sequence NIF record id is required');
+  const token = ++_motionSequenceLoadToken;
+  const { data: row, error } = await supabase.from('nif_files').select('*').eq('id', recordId).single();
+  if (error) throw error;
+  if (!row?.r2_key) throw new Error('Motion sequence NIF has no stored artifact key');
+  const nextUrl = r2.publicUrl('nif-files', row.r2_key);
+  if (!nextUrl) throw new Error('Could not resolve the motion sequence NIF URL');
+  if (token !== _motionSequenceLoadToken) return false;
+
+  const previousCamera = window._fumocaViewerCamera || window._fumocaViewer?.camera || null;
+  const previousControls = window._fumocaViewerControls || window._fumocaViewer?.controls || null;
+  const cameraPose = previousCamera ? {
+    position: previousCamera.position?.toArray?.() || null,
+    quaternion: previousCamera.quaternion?.toArray?.() || null,
+    fov: previousCamera.fov,
+    zoom: previousCamera.zoom,
+    target: previousControls?.target?.toArray?.() || null
+  } : null;
+  try { _fumocaClearRendererPreview(); } catch (_) {}
+  currentRecord = row;
+  fileUrl = nextUrl;
+  window._fumocaCurrentRecord = row;
+  window._fumocaSplatUrl = nextUrl;
+  window._fumocaViewer = {
+    ...(window._fumocaViewer || {}),
+    viewer: viewerInstance || null,
+    camera: window._fumocaViewerCamera || null,
+    controls: window._fumocaViewerControls || null,
+    stage: stageHost || stageEl || null,
+    fileUrl: nextUrl,
+    record: row,
+  };
+  if (nifTitle) nifTitle.textContent = row.title || 'Motion moment';
+  const loaded = await mountInteractiveViewer(true);
+  if (!loaded) throw new Error('Viewer could not mount the requested motion moment');
+  if (token !== _motionSequenceLoadToken) return false;
+  const nextCamera = window._fumocaViewerCamera || window._fumocaViewer?.camera || null;
+  const nextControls = window._fumocaViewerControls || window._fumocaViewer?.controls || null;
+  if (cameraPose && nextCamera) {
+    if (cameraPose.position) nextCamera.position.fromArray(cameraPose.position);
+    if (cameraPose.quaternion) nextCamera.quaternion.fromArray(cameraPose.quaternion);
+    if (Number.isFinite(cameraPose.fov)) nextCamera.fov = cameraPose.fov;
+    if (Number.isFinite(cameraPose.zoom)) nextCamera.zoom = cameraPose.zoom;
+    if (cameraPose.target && nextControls?.target) nextControls.target.fromArray(cameraPose.target);
+    nextCamera.updateProjectionMatrix?.();
+    nextControls?.update?.();
+  }
+  return true;
+};
+
 function activatePreset(name) {
   const presets = {
     balanced: { cleanup: 5, sharpness: 20, presence: 100, focus: 42, focusX: 50, focusY: 42, suppression: 24, feather: 10, scale: 100, isolation: 0, cropWidth: 36, cropHeight: 42, cropDepth: 65, maskShape: 'ellipse', sceneMode: 'product' },
@@ -2551,6 +2623,10 @@ async function boot() {
   applyStageFilters();
   setVariantDirty(false);
   const status = normalizeStatus(currentRecord?.status, fileUrl);
+  if (!fileUrl && currentRecord?._localMock && currentRecord?.meta?.demo_glb) {
+    hideLoading();
+    return;
+  }
   if (!fileUrl) {
     if (status === 'processing' || status === 'queued') {
       showError('This nif is still processing. Open the teaser while the interactive version finishes.');

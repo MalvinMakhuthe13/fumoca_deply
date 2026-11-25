@@ -2,9 +2,9 @@ name: FUMOCA validation
 
 on:
   push:
-    branches: [main, "feat/**", "platform-integration-audit"]
+    branches: [main, "feat/**", "feature/**", "platform-integration-audit"]
   pull_request:
-    branches: [main]
+    branches: [main, "feature/**"]
   workflow_dispatch:
 
 jobs:
@@ -17,6 +17,59 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
+      - name: Install animation runtime dependencies
+        run: npm install --no-save --no-package-lock three@0.180.0 @dimforge/rapier3d-compat@0.21.0
+      - name: Check 4D Gaussian sequence module syntax
+        run: node --input-type=module --check < js/modules/fourd-sequence.js
+      - name: Run animation and 4D sequence test suite
+        run: node scripts/run-anim-tests.mjs
+      - name: Test 4D capture reconstruction job contract
+        run: node --experimental-default-type=module tests/fourd-job-contract.test.mjs
+      - name: Test completed 4D NIF sequence assembly
+        run: node --experimental-default-type=module tests/fourd-sequence-library.test.mjs
+      - name: Test manual Gaussian editor and NIF round trip
+        run: node --experimental-default-type=module engine-next/tests/manual-gaussian-editor.integration.test.mjs
+      - name: Test proxy deformation transfer to Gaussian records
+        run: node --experimental-default-type=module tests/nif-proxy-deformer.test.mjs
+      - name: Test native Gaussian animation tracks
+        run: node --experimental-default-type=module tests/nif-gaussian-animator.test.mjs
+      - name: Test native Gaussian viewer playback controls
+        run: node --experimental-default-type=module tests/nif-viewer-gaussian-timeline.test.mjs
+      - name: Test NIF binary format round trips
+        run: node --experimental-default-type=module engine-next/tests/format.test.mjs
+      - name: Check 4D capture and NIF worker integration
+        run: |
+          node --input-type=module --check < js/modules/fourd-capture.js
+          node --input-type=module --check < js/modules/fourd-job-contract.js
+          node --input-type=module --check < js/modules/fourd-sequence-library.js
+          node --input-type=module --check < engine-next/animation/NIFProxyDeformer.js
+          node --input-type=module --check < engine-next/animation/NIFGaussianAnimator.js
+          node --input-type=module --check < engine-next/animation/NIFManualGaussianDeformAuthor.js
+          node --input-type=module --check < engine-next/animation/NIFManualAnimationExport.js
+          node --input-type=module --check < engine-next/editor/manual-gaussian-deformation-lab.js
+          node --input-type=module --check < engine-next/viewer-src/renderer/NIFRenderer.js
+          node --input-type=module --check < engine-next/viewer-src/NIFViewer.js
+          node --input-type=module --check < engine-next/editor/NIFGaussianTimelinePanel.js
+          node --input-type=module --check < engine-next/editor/gaussian-animation-preview.js
+          node --input-type=module --check < engine-next/format/NIFSpec.js
+          node --input-type=module --check < scripts/add-gaussian-animation-demo.mjs
+          grep -q "bindGaussianAnimation" engine-next/viewer-src/renderer/NIFRenderer.js
+          grep -q "updateGaussianAnimation" engine-next/viewer-src/renderer/NIFRenderer.js
+          grep -q "bindProxyDeformation" engine-next/viewer-src/renderer/NIFRenderer.js
+          grep -q "updateProxyDeformation" engine-next/viewer-src/renderer/NIFRenderer.js
+          python -m py_compile engine-next/reconstruction/pipeline.py
+          grep -q "hdr\[4\], hdr\[5\] = 1, 2" engine-next/reconstruction/pipeline.py
+          grep -q "from('nif-videos').upload" js/modules/fourd-capture.js
+          grep -q "from('reconstruction_jobs').insert" js/modules/fourd-capture.js
+          grep -q "motion_sequence_id" js/modules/fourd-job-contract.js
+          grep -q "_extract_frames(raw, capture_mode, meta)" engine-next/reconstruction/pipeline.py
+          grep -q "Extracted.*motion-selected frames" engine-next/reconstruction/pipeline.py
+          grep -q "camera_sync_warning" js/modules/fourd-capture.js
+          grep -q "motionSequence" engine-next/reconstruction/pipeline.py
+          grep -q "fourd-sequence-library.js" viewer.html
+          grep -q "_fumocaLoadMotionSequenceNif" js/modules/viewer.js
+          grep -q "FourDSequence.create(manifest, adapter" js/modules/fourd-sequence-library.js
+          grep -q "fumoca4dSequenceControls" js/modules/fourd-sequence-library.js
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -179,6 +232,8 @@ jobs:
         run: npm install --no-save playwright@1.58.2
       - name: Install Chromium for browser tests
         run: npx playwright install --with-deps chromium
+      - name: Test manual Gaussian Lab end-to-end in Chromium
+        run: node --experimental-default-type=module tests/browser/manual-gaussian-lab.browser.mjs
       - name: Test free 3D poster trackball interactions in Chromium
         run: node tests/browser/poster-trackball.browser.mjs
       - name: Test poster asset interactions in Chromium

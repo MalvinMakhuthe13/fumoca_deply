@@ -152,6 +152,7 @@ const FumocaPublish = (() => {
     const { data: authData, error: authError } = await sb.auth.getUser();
     const user = authData?.user;
     if (authError || !user?.id) throw new Error('Sign in before publishing this asset.');
+    await assertFounderPublish(sb, user);
     // Never trust an editor URL parameter or an in-memory record as proof
     // of ownership. Resolve the candidate against nif_files before preparing
     // or uploading any bytes. If it is not an asset owned by this user, treat
@@ -304,6 +305,10 @@ const FumocaPublish = (() => {
         viewer_engine: 'spark',
         published_from: 'studio_gaussian',
       };
+    }
+    const timeline = window.FumocaMaster?.serialize?.();
+    if (timeline?.objects?.length) {
+      payload.meta = { ...(payload.meta || {}), anim_timeline: timeline, has_4d: true };
     }
 
     let finalId = splatId;
@@ -502,7 +507,26 @@ const FumocaPublish = (() => {
     }
   }
 
-  return { publish, buildPublishPanel, _handlePublishClick };
+  async function assertFounderPublish(sb, user) {
+    const worker = String(window.FUMOCA_RUNTIME_CONFIG?.r2WorkerUrl || window.FUMOCA_CONFIG?.r2WorkerUrl || '').replace(/\/$/, '');
+    const { data: sessionData } = await sb.auth.getSession();
+    const token = sessionData?.session?.access_token;
+    if (worker && token) {
+      const res = await fetch(worker + '/founder/me', { headers: { Authorization: 'Bearer ' + token } });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || body.ok === false) {
+        throw new Error('Publish stopped: server founder check refused (' + (body.reason || ('HTTP ' + res.status)) + '). Nothing was uploaded.');
+      }
+      return { via: 'canPublish', userId: user.id };
+    }
+    const local = await window.FumocaFounderGate?.isFounder?.();
+    if (!local?.ok) {
+      throw new Error('Publish stopped: founder check failed (' + (local?.reason || 'no gate') + '). Nothing was uploaded.');
+    }
+    return { via: 'client-allowlist', userId: user.id };
+  }
+
+  return { publish, buildPublishPanel, _handlePublishClick, assertFounderPublish };
 })();
 
 window.FumocaPublish = FumocaPublish;

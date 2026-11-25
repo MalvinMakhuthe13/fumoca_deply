@@ -8,7 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Oxanium:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Bebas+Neue&family=Cormorant+Garamond:wght@400;500;600;700&family=Playfair+Display:wght@400;500;600;700;800&family=DM+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <!-- config.js MUST load before any ES modules so window.FUMOCA_CONFIG is set -->
 <script src="config.js"></script>
-<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/","@sparkjsdev/spark":"https://sparkjs.dev/releases/spark/2.4.0/spark.module.js"}}</script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/","@sparkjsdev/spark":"https://sparkjs.dev/releases/spark/2.4.0/spark.module.js","@dimforge/rapier3d-compat":"https://cdn.jsdelivr.net/npm/@dimforge/rapier3d-compat@0.21.0/dist/rapier.mjs"}}</script>
 <link rel="stylesheet" href="css/present-magazine.css"/>
 <link rel="stylesheet" href="css/review-video.css?v=20261025-bglayer"/>
 <link rel="stylesheet" href="css/present-unified.css?v=20261106-creativeworkspace01"/>
@@ -688,6 +688,10 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
     <div class="tb-sep"></div>
     <button class="tb-btn" id="compareBtn" title="Compare loaded scene with current edits" disabled>◧ Compare</button>
     <button class="tb-btn" id="screenshotBtn" title="Screenshot viewport">📷 Capture</button>
+    <button class="tb-btn" id="authorBtn" title="Articulate objects">Animate</button>
+    <button class="tb-btn" id="manualGaussianLabBtn" title="Open the active NIF in the manual Gaussian deformation editor">Gaussian Lab</button>
+    <button class="tb-btn" id="loadGlbBtn" title="Load a GLB to articulate" style="background:rgba(120,180,255,.12);border-color:rgba(120,180,255,.4);color:#9cf;">Load GLB</button>
+    <input type="file" id="loadGlbFile" accept=".glb,.gltf" style="display:none"/>
     <button class="tb-btn" id="hotspotBtn" title="Hotspots — place, edit, tour" style="background:rgba(200,255,0,.1);border-color:rgba(200,255,0,.4);color:#c8ff00;">📍 Hotspots</button>
     <button class="tb-btn" id="extractObjectBtn" title="Extract an object (e.g. a car) as its own 3D listing" style="background:rgba(0,200,255,.08);border-color:rgba(0,200,255,.35);color:#7ee2ff;">🎯 Extract</button>
     <button class="tb-btn cyan" id="captureVideoBtn">⏺ Record</button>
@@ -1914,6 +1918,7 @@ window.controls = controls;
 // Expose for auto-fix.js and other modules
 window._fumocaViewerCamera = camera;
 window._fumocaViewerControls = controls;
+if (window.FumocaStudioInit) window.FumocaStudioInit.init();
 // rebuildGeometry stub — replaced by real function once main script runs
 window.rebuildGeometry = () => window.dispatchEvent(new CustomEvent('fumoca:rebuildGeometry'));
 // Stub renderer so auto-fix can get positions and camera distance info
@@ -1969,6 +1974,14 @@ const S = {
 };
 // Expose globally so modules and guard checks can reference it
 window.S = S;
+document.getElementById('manualGaussianLabBtn')?.addEventListener('click',()=>{
+  if(!S.gaussianSourceBytes){setStatus('Load a NIF first to open the manual Gaussian Lab.','warn');return;}
+  const lab=window.open('/engine-next/editor/manual-gaussian-deformation-lab.html?studio=1','_blank');
+  if(!lab){setStatus('Allow pop-ups to open the Manual Gaussian Lab.','warn');return;}
+  const payload=S.gaussianSourceBytes.slice(0),name=S.fileName||'studio-source.nif';
+  const onReady=event=>{if(event.origin!==location.origin||event.source!==lab||event.data?.type!=='FUMOCA_MANUAL_GAUSSIAN_READY')return;window.removeEventListener('message',onReady);lab.postMessage({type:'FUMOCA_MANUAL_GAUSSIAN_SOURCE',name,buffer:payload},location.origin);};
+  window.addEventListener('message',onReady);
+});
 let _sourceToRender = null;
 let _gizmoGesture = false;
 let _previousGizmoTransform = null;
@@ -2911,6 +2924,8 @@ async function loadFile(file, urlOverride) {
     const decoded = await decodeNif(buf);         // { reader, meta, thumbnailBytes, gaussians }
     const rows = geometryToSplatRows(decoded.gaussians); // Uint8Array, 32 bytes/point
     S.fileType = 'nif';
+    S.gaussianSourceBytes = buf.slice(0);
+    window._fumocaLastGaussianBytes = S.gaussianSourceBytes;
     S.sourceBuffer = rows.buffer;
     S.nifMeta = decoded.meta || {};
     S.nifThumbnailBytes = decoded.thumbnailBytes || null;
@@ -3048,6 +3063,9 @@ async function loadFile(file, urlOverride) {
       output_url: S.splatSourceUrl || null,
       title: file.name
     };
+  }
+  if (window._fumocaCurrentRecord?.id && window.FumocaMaster?.load) {
+    window.FumocaMaster.load(window._fumocaCurrentRecord.id).catch(() => {});
   }
 
   // Run PLY validation and load camera positions
@@ -6199,6 +6217,75 @@ animBg();
 <!-- ═══════════════════════════════════════════════════════════════
      FUMOCA v60 — New module imports
      ═══════════════════════════════════════════════════════════════ -->
+<script type="module" src="js/modules/founder-gate.js"></script>
+<script type="module" src="js/modules/anim-joint-eval.js"></script>
+<script type="module" src="js/modules/anim-object.js"></script>
+<script type="module" src="js/modules/anim-glb-bind.js"></script>
+<script type="module" src="js/modules/anim-physics.js"></script>
+<script type="module" src="js/modules/anim-physics-boot.js"></script>
+<script type="module" src="js/modules/anim-scenes.js"></script>
+<script type="module" src="js/modules/anim-skeleton.js"></script>
+<script type="module" src="js/modules/anim-scenes.js"></script>
+<script type="module" src="js/modules/anim-afford.js"></script>
+<script type="module" src="js/modules/anim-live.js"></script>
+<script type="module" src="js/modules/anim-author.js"></script>
+<script type="module">
+window.FumocaFounderGate?.requireFounder?.();
+document.getElementById('authorBtn')?.addEventListener('click', () => window.FumocaAuthor?.open());
+window.FumocaPhysicsBoot?.start?.();
+document.getElementById('loadGlbBtn')?.addEventListener('click', () => document.getElementById('loadGlbFile')?.click());
+document.getElementById('loadGlbFile')?.addEventListener('change', async (e) => {
+  const file = e.target.files?.[0];
+  if (!file || !window.FumocaGLBBind) return;
+  window._fumocaLastGlbName = file.name;
+  const opts = { name: file.name };
+  try {
+    const saved = JSON.parse(sessionStorage.getItem('fumoca:preparedAnim') || 'null');
+    if (saved && saved.glbName === file.name && saved.object && saved.objectId) {
+      opts.prepared = saved.object;
+      opts.objectId = saved.objectId;
+    }
+  } catch (_) {}
+  const result = await window.FumocaGLBBind.load(file, opts);
+  console.log('[FUMOCA] GLB bound', result);
+  if (result.ok && window.FumocaAuthor?.attach) window.FumocaAuthor.attach(result.objectId);
+  else alert(result.ok ? `Loaded ${result.components} components` : `Load failed: ${result.reason || 'unknown'}`);
+});
+</script>
+
+<script type="module" src="js/modules/anim-master.js"></script>
+<script type="module" src="js/modules/anim-studio-init.js"></script>
+<script type="module">
+  // First live articulated object. Cooler base + hinged lid on the master timeline.
+  function bootArticulated() {
+    const scene = window.scene || window._fumocaScene;
+    if (!scene || !window.FumocaStudioInit?.createDemoCooler || !window.FumocaObjectAnim) {
+      setTimeout(bootArticulated, 300);
+      return;
+    }
+    window.FumocaStudioInit.init();
+    const result = window.FumocaStudioInit.createDemoCooler(scene);
+    console.log('[Articulated] demo cooler', result);
+
+    const bar = document.createElement('div');
+    bar.id = 'articulatedBar';
+    bar.style.cssText = 'position:fixed;bottom:196px;left:50%;transform:translateX(-50%);z-index:220;display:flex;gap:8px;align-items:center;background:rgba(7,10,16,.94);border:1px solid rgba(200,255,0,.35);border-radius:14px;padding:8px 12px;color:#c8ff00;font:12px/1.2 system-ui';
+    bar.innerHTML = '<strong>Cooler</strong><button id="artPlay" style="background:#c8ff00;color:#111;border:0;border-radius:8px;padding:6px 10px;font-weight:700;cursor:pointer">Play</button><input id="artScrub" type="range" min="0" max="2" step="0.01" value="0" style="width:160px">';
+    document.body.appendChild(bar);
+    document.getElementById('artPlay').onclick = () => {
+      const playing = window.FumocaStudioInit.isPlaying();
+      if (playing) window.FumocaStudioInit.pause();
+      else window.FumocaStudioInit.play();
+      document.getElementById('artPlay').textContent = playing ? 'Play' : 'Pause';
+    };
+    document.getElementById('artScrub').oninput = (e) => {
+      window.FumocaStudioInit.scrub(Number(e.target.value));
+    };
+  }
+  bootArticulated();
+</script>
+<script type="module" src="js/modules/anim-light.js"></script>
+<script type="module" src="js/modules/anim-physics.js"></script>
 <script type="module" src="js/modules/4d-engine.js"></script>
 <script type="module" src="js/modules/auto-fix.js"></script>
 <script type="module" src="js/modules/visual-fx.js"></script>
@@ -6748,7 +6835,11 @@ function _wireButtons() {
   // 4D: Toggle
   document.getElementById('v604DToggleBtn')?.addEventListener('click', () => {
     const btn = document.getElementById('v604DToggleBtn');
-    if (window.Fumoca4D) {
+    if (window.FumocaStudioInit?.isInitialized?.() && window.FumocaStudioInit.isCameraBound?.()) {
+      if (window.FumocaStudioInit.isPlaying()) window.FumocaStudioInit.pause();
+      else window.FumocaStudioInit.play();
+      if (btn) btn.textContent = window.FumocaStudioInit.isPlaying() ? '⏸ Pause 4D Playback' : '⏳ Toggle 4D Playback';
+    } else if (window.Fumoca4D) {
       window.Fumoca4D.toggle4D();
       if (btn) btn.textContent = window.Fumoca4D.isActive() ? '⏸ Pause 4D Playback' : '⏳ Toggle 4D Playback';
     }

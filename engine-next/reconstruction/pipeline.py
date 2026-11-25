@@ -365,7 +365,7 @@ def pack_nif(chunks: list, vertical: str, fps: int = 30) -> bytes:
     """Pack a list of (chunk_type, data_bytes) into a complete .nif binary."""
     hdr = bytearray(256)
     struct.pack_into('>I', hdr, 0,  NIF_MAGIC)
-    hdr[4], hdr[5] = 1, 1          # version 1.1 — added CALIBRATION/VERIFICATION chunks
+    hdr[4], hdr[5] = 1, 2          # version 1.2 — adds optional GAUSSIAN_ANIMATION chunk
     struct.pack_into('>q', hdr, 8,  int(time.time() * 1000))
     hdr[16] = 0                     # CRS: LOCAL
     struct.pack_into('>H', hdr, 18, 1)   # frameCount
@@ -1565,7 +1565,7 @@ class ReconstructionWorker:
             raw = self._download(raw_r2_key)
 
             self._tick('processing', 10)
-            frames, fps = self._extract_frames(raw, capture_mode)
+            frames, fps = self._extract_frames(raw, capture_mode, meta)
             print(f'[NIF] {len(frames)} frames at {fps}fps')
 
             # ── Frame usefulness filter — analyze all extracted frames,
@@ -1628,7 +1628,11 @@ class ReconstructionWorker:
             # track_primary_object()'s docstring for the real caveat: this
             # is unexecuted here, no GPU/SAM2 in this environment.
             self._tick('processing', 36)
-            object_masks = track_primary_object(frames, alpha_masks)
+            if meta.get('subject_isolation_requested', True):
+                object_masks = track_primary_object(frames, alpha_masks)
+            else:
+                object_masks = alpha_masks
+                print('[NIF] Cross-frame subject tracking disabled by capture metadata; retaining per-frame background masks')
 
             # ── Segmentation ──────────────────────────────────────────────────
             self._tick('processing', 38)
@@ -1966,7 +1970,7 @@ class ReconstructionWorker:
         return path
 
     # ── Frame extraction ───────────────────────────────────────────────────────
-    def _extract_frames(self, src: Path, mode: str) -> tuple:
+    def _extract_frames(self, src: Path, mode: str, meta: dict | None = None) -> tuple:
         out_dir = self.tmp / 'frames'
         out_dir.mkdir()
         fps = 5
@@ -2002,6 +2006,35 @@ class ReconstructionWorker:
             # Copying the same file twice used to pretend there were two cameras.
             shutil.copy(src, out_dir / 'frame_00000.jpg')
             fps = 1
+
+        elif (meta or {}).get('frame_times') and mode not in ('burst', 'image', 'photo'):
+            # 4D capture supplies frame timestamps selected by the browser's
+            # motion analysis. Extract only those timestamps rather than
+            # silently re-sampling the entire clip at a fixed 5fps.
+            raw_times = (meta or {}).get('frame_times') or []
+            selected_times = sorted({
+                round(float(t), 3) for t in raw_times
+                if isinstance(t, (int, float)) and np.isfinite(float(t)) and float(t) >= 0
+            })
+            if len(selected_times) < 3:
+                raise RuntimeError(
+                    f'4D frame selection needs at least 3 valid timestamps; got {len(selected_times)}.'
+                )
+            for i, timestamp in enumerate(selected_times):
+                target = out_dir / f'frame_{i:05d}.jpg'
+                r = subprocess.run([
+                    'ffmpeg', '-hide_banner', '-loglevel', 'error',
+                    '-ss', f'{timestamp:.3f}', '-i', str(src),
+                    '-frames:v', '1', '-q:v', '2', '-vf', 'scale=1280:-2',
+                    str(target),
+                ], capture_output=True, text=True)
+                if r.returncode != 0 or not target.exists() or target.stat().st_size == 0:
+                    raise RuntimeError(
+                        f'ffmpeg could not extract selected 4D frame at {timestamp:.3f}s: '
+                        f'{(r.stderr or "")[-400:]}'
+                    )
+            print(f'[NIF] Extracted {len(selected_times)} motion-selected frames '
+                  f'from {selected_times[0]:.3f}s to {selected_times[-1]:.3f}s')
 
         else:
             # Default: everything else really is a video file — this
@@ -3302,6 +3335,16 @@ class ReconstructionWorker:
             'vertical':    vertical,
             'hotspots':    meta.get('hotspots') or [],
             'tourStops':   meta.get('tourStops') or [],
+            'motionSequence': ({
+                'id': meta.get('motion_sequence_id'),
+                'stateIndex': meta.get('motion_state_index'),
+                'stateCount': meta.get('motion_state_count'),
+                'stateLabel': meta.get('motion_state_label'),
+                'stateTime': meta.get('motion_state_time'),
+                'motionClass': meta.get('motion_class'),
+                'frameTimes': meta.get('frame_times') or [],
+                'source': 'fourd_capture',
+            } if meta.get('motion_sequence_id') else None),
             'createdAt':   _now_iso(),
         }
         return json.dumps(payload).encode('utf-8')
@@ -3326,8 +3369,9 @@ class ReconstructionWorker:
             except Exception:
                 thumb_url = None  # non-fatal
 
-        SB.table('nif_files').insert({
-            'id':             self.job_id,
+        existing = SB.table('nif_files').select('id').eq('job_id', self.job_id).limit(1).execute()
+        row = {
+            'job_id':         self.job_id,
             'user_id':        self.user_id,
             'title':          title,
             'vertical':       vertical,
@@ -3340,8 +3384,12 @@ class ReconstructionWorker:
             # needs-a-retry; it never auto-publishes anything either way.
             'is_public':      False,
             'thumbnail_url':  thumb_url,
-            'meta':           {**meta, **capabilities},
-        }).execute()
+            'meta':           {**meta, **capabilities, 'pose_quality': meta.get('pose_source', 'unknown')},
+        }
+        if existing.data:
+            SB.table('nif_files').update(row).eq('id', existing.data[0]['id']).execute()
+        else:
+            SB.table('nif_files').insert(row).execute()
         # status is set by the caller's self._tick() right after this
         # (either 'complete' or 'needs_retry') — _register() only creates
         # the nif_files row so a below-bar capture is still inspectable

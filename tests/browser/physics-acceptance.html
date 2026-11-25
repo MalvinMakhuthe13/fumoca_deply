@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<title>FUMOCA Physics Acceptance</title>
+<script type="importmap">{"imports":{"@dimforge/rapier3d-compat":"https://cdn.jsdelivr.net/npm/@dimforge/rapier3d-compat@0.21.0/dist/rapier.mjs"}}</script>
+</head>
+<body>
+<pre id="out">Loading...</pre>
+<script type="module">
+import Physics from '../../js/modules/anim-physics.js';
+const out = document.getElementById('out');
+const lines = [];
+function log(s) { lines.push(s); out.textContent = lines.join('\n'); }
+
+const init = await Physics.initRapier();
+log('init: ' + JSON.stringify(init));
+log('backend: ' + Physics.getBackend());
+log('rapierReady: ' + Physics.isRapierReady());
+log('error: ' + (Physics.getRapierError() || 'none'));
+
+Physics.registerHierarchy('cooler', [
+  { id: 'base', parentId: null },
+  { id: 'lid', parentId: 'base' },
+]);
+Physics.createCollider({ id: 'base', type: 'box', bodyType: 'static', halfExtents: { x: 0.4, y: 0.3, z: 0.3 }, owner: { kind: 'component', objectId: 'cooler', componentId: 'base' } });
+Physics.createCollider({ id: 'lid', type: 'box', bodyType: 'kinematic', halfExtents: { x: 0.4, y: 0.02, z: 0.3 }, localPosition: { x: 0, y: 0.3, z: 0 }, owner: { kind: 'component', objectId: 'cooler', componentId: 'lid' } });
+Physics.createCollider({ id: 'bottle', type: 'capsule', bodyType: 'kinematic', radius: 0.04, height: 0.2, owner: { kind: 'component', objectId: 'bottle', componentId: 'body' } });
+
+function evalAt(lidAngle, bottleX) {
+  return {
+    objects: {
+      cooler: {
+        base: { pos: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0 } },
+        lid: { pos: { x: 0, y: 0, z: 0 }, rot: { x: lidAngle, y: 0, z: 0 } },
+      },
+      bottle: { body: { pos: { x: bottleX, y: 0.2, z: 0 }, rot: { x: 0, y: 0, z: 0 } } },
+    },
+  };
+}
+
+Physics.syncFromEvaluation(evalAt(0, -1));
+log('t0 overlaps: ' + Physics.queryOverlaps().length);
+Physics.syncFromEvaluation(evalAt(45, -0.2));
+log('mid overlaps: ' + Physics.queryOverlaps().length);
+Physics.syncFromEvaluation(evalAt(0, -1));
+log('scrub back overlaps: ' + Physics.queryOverlaps().length);
+log('colliders: ' + Physics.list().length);
+log('backend after run: ' + Physics.getBackend());
+log(Physics.isRapierReady() ? 'RESULT: RAPER_ACTIVE' : 'RESULT: REFERENCE_FALLBACK');
+</script>
+</body>
+</html>

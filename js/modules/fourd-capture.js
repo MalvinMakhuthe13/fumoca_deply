@@ -1,14 +1,15 @@
 /**
  * FUMOCA 4D Capture UI
- * Orchestrates: video upload → motion analysis → subject isolation → pipeline dispatch
+ * Orchestrates: video analysis → R2 source upload → NIF reconstruction job dispatch
  * Works for both single-phone and multi-camera capture.
  * Handles slow/fast motion, people and vehicles.
  */
 
 import MA from './motion-analyzer.js';
-import SI from './subject-isolator.js';
 import MS from './motion-states.js';
 import MT from './motion-tracking.js';
+import r2 from '../r2Client.js';
+import { build4DCaptureJobs, createMotionSequenceId } from './fourd-job-contract.js';
 
 const FourDCapture = (() => {
 
@@ -66,7 +67,7 @@ const FourDCapture = (() => {
       <div id="fourDMotionClass"></div>
       <div id="fourDStrategyBox"></div>
       <div id="fourDMomentsList"></div>
-      <button id="fourDRunIsolation" class="fourDPrimaryBtn" style="display:none">Isolate subject + dispatch to pipeline</button>
+      <button id="fourDRunIsolation" class="fourDPrimaryBtn" style="display:none">Upload + queue motion reconstruction</button>
     </div>
   </div>
 
@@ -107,7 +108,7 @@ const FourDCapture = (() => {
   <div class="fourDTabContent" id="tab_multicam">
     <div class="fourDSection">
       <div class="fourDLabel">Multi-camera session</div>
-      <div class="fourDNote">Each phone captures the subject simultaneously from a different angle. Upload all videos here — frames are merged before reconstruction for full-360 coverage.</div>
+      <div class="fourDNote">Start all cameras together and keep them recording simultaneously. FUMOCA aligns frames by relative timestamps; hardware sync and camera calibration are not assumed.</div>
     </div>
     <div id="fourDMultiCamList"></div>
     <button id="fourDAddCam" class="fourDGhostBtn">+ Add camera angle</button>
@@ -122,7 +123,7 @@ const FourDCapture = (() => {
     </div>
     <div class="fourDSection">
       <div class="fourDLabel">Settings</div>
-      <label class="fourDCheckRow"><input type="checkbox" id="fourDIsolateSubject" checked> Subject isolation (recommended)</label>
+      <label class="fourDCheckRow"><input type="checkbox" id="fourDIsolateSubject" checked> Track isolated subject across frames (SAM2 when available)</label>
       <label class="fourDCheckRow"><input type="checkbox" id="fourDAutoComposite" checked> Composite onto venue background</label>
       <label class="fourDCheckRow"><input type="checkbox" id="fourDAutoTour" checked> Auto-create motion tour on completion</label>
     </div>
@@ -283,63 +284,87 @@ const FourDCapture = (() => {
     if (trackBtn) { trackBtn.style.display = ''; trackBtn._file = file; trackBtn._result = result; }
   }
 
-  // ─── Isolation + dispatch ──────────────────────────────────────────────────
+  // ─── Upload source once, then queue real reconstruction_jobs ───────────────
   async function _runIsolationAndDispatch() {
     const runBtn = document.getElementById('fourDRunIsolation');
-    const trackBtn = document.getElementById('fourDRunTracking');
-    const file = runBtn._file;
-    const result = runBtn._result;
+    const file = runBtn?._file || _analysisFile;
+    const result = runBtn?._result || _analysisResult;
     if (!file || !result) return;
 
-    const doIsolate = document.getElementById('fourDIsolateSubject')?.checked ?? true;
-    const subjectType = SI.detectSubjectType(_record);
-    const pipelineData = MA.exportForPipeline(result);
-
+    const sb = window._fumocaSupabase;
+    if (!sb) return _renderDispatchError('Supabase is not ready. Reload the viewer and try again.');
     runBtn.disabled = true;
-    runBtn.textContent = 'Processing…';
+    runBtn.textContent = 'Uploading source video…';
+    _showProgress(true);
+    _updateProgress(0.02, 'Checking signed-in account…');
 
-    for (const job of pipelineData.jobs) {
-      _addJob(job.jobId, job.label, 'pending');
-      try {
-        let frames = job.frameTimes;
-        if (doIsolate) {
-          _updateJobStatus(job.jobId, 'running', 'Isolating subject…');
-          const isolated = await SI.isolateFrameBatch(file, frames, subjectType, p => {
-            _updateJobStatus(job.jobId, 'running', `Isolating ${Math.round(p*100)}%`);
-          });
-          frames = isolated.map(f => f.time); // times preserved; blobs sent to pipeline
-        }
-        _updateJobStatus(job.jobId, 'running', 'Queuing reconstruction…');
-        await _dispatchToPipeline(job, file, frames);
-        _updateJobStatus(job.jobId, 'done', 'Queued');
-        _sessionJobs.push({ ...job, status: 'queued' });
-      } catch (e) {
-        _updateJobStatus(job.jobId, 'failed', e.message);
+    try {
+      const { data: authData, error: authError } = await sb.auth.getUser();
+      if (authError) throw authError;
+      const user = authData?.user;
+      if (!user?.id) throw new Error('Sign in before queuing a 4D reconstruction.');
+
+      _clearDispatchError();
+      const sequenceId = createMotionSequenceId();
+      const safeName = String(file.name || 'capture-video')
+        .replace(/\s+/g, '_').replace(/[^a-zA-Z0-9._-]/g, '').slice(-100);
+      const ext = /\.(mp4|mov|webm|m4v)$/i.exec(safeName)?.[1]?.toLowerCase() || 'mp4';
+      const sourcePath = `raw/${user.id}/4d/${sequenceId}/source.${ext}`;
+
+      _updateProgress(0.08, 'Uploading original video to FUMOCA storage…');
+      const { fileKey, error: uploadError } = await r2.from('nif-videos').upload(sourcePath, file, {
+        contentType: file.type || 'video/mp4',
+        onProgress: pct => _updateProgress(0.08 + (pct / 100) * 0.72, `Uploading source video… ${pct}%`)
+      });
+      if (uploadError) throw uploadError;
+      if (!fileKey) throw new Error('Storage did not return a source video key.');
+
+      const doIsolate = document.getElementById('fourDIsolateSubject')?.checked ?? true;
+      const jobPayloads = build4DCaptureJobs({
+        analysis: result,
+        recordId: _record?.id || null,
+        sourceKey: fileKey,
+        userId: user.id,
+        sequenceId,
+        vertical: _record?.vertical || _record?.category || 'generic',
+        requestedIsolation: doIsolate
+      });
+
+      _updateProgress(0.84, 'Creating reconstruction jobs…');
+      const { data: createdJobs, error: jobsError } = await sb
+        .from('reconstruction_jobs')
+        .insert(jobPayloads)
+        .select('id,status,progress');
+      if (jobsError) throw jobsError;
+      if (!Array.isArray(createdJobs) || createdJobs.length !== jobPayloads.length) {
+        throw new Error('The reconstruction queue did not confirm every motion moment.');
       }
-    }
+      createdJobs.forEach((job, i) => {
+        const payload = jobPayloads[i];
+        _addJob(job.id, payload.meta.title, 'pending');
+        _updateJobStatus(job.id, 'pending', 'Queued for GPU worker');
+        Object.assign(_sessionJobs[_sessionJobs.length - 1], { sequenceId, stateIndex: i });
+      });
+      _renderJobList();
+      const queued = createdJobs.length;
+      _watchSessionJobs();
 
-    runBtn.disabled = false;
-    runBtn.textContent = 'Done — check Pipeline tab';
-    _switchTab('pipeline');
-  }
-
-  async function _dispatchToPipeline(job, videoFile, frameTimes) {
-    const payload = {
-      job_id: job.jobId,
-      label: job.label,
-      motion_class: job.motionClass,
-      colmap_mode: job.colmapMode,
-      frame_times: frameTimes,
-      subject_isolation: job.subjectIsolation,
-      record_id: _record?.id || null,
-      source: 'fourd_capture'
-    };
-    if (window._fumocaQueuePipeline) {
-      await window._fumocaQueuePipeline('fourd_reconstruction', payload);
-    } else {
-      console.log('[4D Capture] Pipeline dispatch:', payload);
+      _updateProgress(1, `${queued} reconstruction job${queued === 1 ? '' : 's'} queued`);
+      const status = document.getElementById('fourDProgressLabel');
+      if (status) status.textContent = `Sequence ${sequenceId.slice(0, 8)} · ${queued} job(s) queued. Original video stored once.`;
+      runBtn.textContent = 'Queued — check Pipeline tab';
+      _switchTab('pipeline');
+      window.dispatchEvent(new CustomEvent('fumoca:fourDSequenceQueued', {
+        detail: { sequenceId, sourceKey: fileKey, jobCount: queued, jobIds: _sessionJobs.filter(j => j.sequenceId === sequenceId).map(j => j.id) }
+      }));
+    } catch (e) {
+      _renderDispatchError('4D capture could not be queued: ' + (e?.message || String(e)));
+      runBtn.disabled = false;
+      runBtn.textContent = 'Retry upload + queue';
+    } finally {
+      _showProgress(false);
+      runBtn.disabled = false;
     }
-    window.dispatchEvent(new CustomEvent('fumoca:fourDJobQueued', { detail: payload }));
   }
 
   async function _runTracking() {
@@ -413,6 +438,12 @@ const FourDCapture = (() => {
     if (el) { el.style.display=''; el.innerHTML=`<div style="color:#f09595;font-size:12px;padding:8px">${msg}</div>`; }
   }
 
+  function _escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, char => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    })[char]);
+  }
+
   // ─── Multi-camera ──────────────────────────────────────────────────────────
   let _camSlots = [];
   function _addCameraSlot() {
@@ -426,7 +457,7 @@ const FourDCapture = (() => {
     list.innerHTML = _camSlots.map((c, i) => `
       <div class="fourDCamRow" data-cam="${c.id}">
         <span style="color:rgba(255,255,255,.4);font-size:11px">CAM ${i+1}</span>
-        <span style="flex:1;color:${c.file ? '#c8ff00' : 'rgba(255,255,255,.5)'}">${c.file ? c.file.name : 'No file'}</span>
+        <span style="flex:1;color:${c.file ? '#c8ff00' : 'rgba(255,255,255,.5)'}">${c.file ? _escapeHtml(c.file.name) : 'No file'}</span>
         <button onclick="document.getElementById('camFile_${c.id}').click()" style="background:none;border:1px solid rgba(255,255,255,.15);border-radius:4px;color:rgba(255,255,255,.5);font-size:10px;padding:3px 7px;cursor:pointer">${c.file?'Change':'Select'}</button>
         <input type="file" id="camFile_${c.id}" accept="video/*" style="display:none" onchange="window.__fumocaCamFileChange('${c.id}', this.files[0])">
       </div>`).join('');
@@ -438,12 +469,148 @@ const FourDCapture = (() => {
     };
   }
   async function _mergeAndDispatch() {
-    const streams = _camSlots.filter(c => c.file).map((c, i) => ({ cameraId: i, file: c.file, frames: [] }));
-    if (streams.length < 2) return;
-    document.getElementById('fourDMergeAndDispatch').textContent = 'Merging…';
-    window.dispatchEvent(new CustomEvent('fumoca:multiCamDispatch', { detail: { cameras: streams.length } }));
-    document.getElementById('fourDMergeAndDispatch').textContent = 'Dispatched — check Pipeline tab';
-    _switchTab('pipeline');
+    const cameras = _camSlots.filter(c => c.file);
+    const button = document.getElementById('fourDMergeAndDispatch');
+    if (cameras.length < 2 || !button) return;
+    const sb = window._fumocaSupabase;
+    if (!sb) return _renderDispatchError('Supabase is not ready. Reload the viewer and try again.', 'fourDMultiCamList');
+    button.disabled = true;
+    button.textContent = 'Extracting synchronized frames…';
+    _showProgress(true);
+
+    const loaded = [];
+    try {
+      const { data: authData, error: authError } = await sb.auth.getUser();
+      if (authError) throw authError;
+      const user = authData?.user;
+      if (!user?.id) throw new Error('Sign in before queuing a multi-camera reconstruction.');
+
+      _clearDispatchError('fourDMultiCamList');
+      const sequenceId = createMotionSequenceId();
+      const streams = [];
+      let commonDuration = Infinity;
+      for (let cameraId = 0; cameraId < cameras.length; cameraId++) {
+        const video = document.createElement('video');
+        video.muted = true;
+        video.playsInline = true;
+        video.preload = 'metadata';
+        const objectUrl = URL.createObjectURL(cameras[cameraId].file);
+        loaded.push({ video, objectUrl });
+        await new Promise((resolve, reject) => {
+          video.addEventListener('loadedmetadata', resolve, { once: true });
+          video.addEventListener('error', () => reject(new Error(`Could not read Camera ${cameraId + 1} video metadata`)), { once: true });
+          video.src = objectUrl;
+          video.load();
+        });
+        if (!Number.isFinite(video.duration) || video.duration < 1) {
+          throw new Error(`Camera ${cameraId + 1} video is too short or has no readable duration.`);
+        }
+        if (!video.videoWidth || !video.videoHeight) {
+          throw new Error(`Camera ${cameraId + 1} video has no readable frame dimensions.`);
+        }
+        commonDuration = Math.min(commonDuration, video.duration);
+        streams.push({ cameraId, video, file: cameras[cameraId].file, frames: [] });
+      }
+
+      // These videos are assumed to share a common start. This is explicit in
+      // metadata; no false claim of hardware/genlock synchronization is made.
+      const sampleCount = Math.min(30, Math.max(3, Math.floor(commonDuration * 2)));
+      const times = Array.from({ length: sampleCount }, (_, i) =>
+        sampleCount === 1 ? 0 : 0.05 + (Math.max(0.1, commonDuration - 0.1) * i / (sampleCount - 1))
+      );
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Could not create a frame extraction canvas.');
+
+      let extracted = 0;
+      for (const stream of streams) {
+        for (const time of times) {
+          await new Promise((resolve, reject) => {
+            const onSeeked = () => { cleanup(); resolve(); };
+            const onError = () => { cleanup(); reject(new Error(`Camera ${stream.cameraId + 1} failed at ${time.toFixed(2)}s`)); };
+            const cleanup = () => {
+              stream.video.removeEventListener('seeked', onSeeked);
+              stream.video.removeEventListener('error', onError);
+            };
+            stream.video.addEventListener('seeked', onSeeked, { once: true });
+            stream.video.addEventListener('error', onError, { once: true });
+            stream.video.currentTime = time;
+          });
+          const scale = Math.min(1, 1280 / stream.video.videoWidth);
+          canvas.width = Math.max(1, Math.round(stream.video.videoWidth * scale));
+          canvas.height = Math.max(1, Math.round(stream.video.videoHeight * scale));
+          ctx.drawImage(stream.video, 0, 0, canvas.width, canvas.height);
+          const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.9));
+          if (!blob) throw new Error('Could not encode an extracted camera frame.');
+          const name = `t${String(Math.round(time * 1000)).padStart(8, '0')}_cam${String(stream.cameraId).padStart(2, '0')}.jpg`;
+          stream.frames.push({ time, file: new File([blob], name, { type: 'image/jpeg' }) });
+          extracted++;
+          _updateProgress(extracted / (cameras.length * sampleCount) * 0.75, `Extracting camera frames… ${extracted}/${cameras.length * sampleCount}`);
+        }
+      }
+
+      const merged = MA.mergeMultiCameraFrames(streams.map(s => ({
+        cameraId: s.cameraId,
+        frames: s.frames.map(f => ({ time: f.time, file: f.file }))
+      })));
+      const zipFiles = merged.map(item => item.file);
+      const { buildStoreZipFromFiles } = await import('./zip-writer.js');
+      const zipBytes = await buildStoreZipFromFiles(zipFiles);
+      const zipBlob = new Blob([zipBytes], { type: 'application/zip' });
+      const zipPath = `raw/${user.id}/4d/${sequenceId}/multicam.zip`;
+      button.textContent = 'Uploading synchronized frame set…';
+      const { fileKey, error: uploadError } = await r2.from('nif-videos').upload(zipPath, zipBlob, {
+        contentType: 'application/zip',
+        onProgress: pct => _updateProgress(0.75 + pct / 100 * 0.2, `Uploading frame set… ${pct}%`)
+      });
+      if (uploadError) throw uploadError;
+      if (!fileKey) throw new Error('Storage did not return the multi-camera frame-set key.');
+
+      const { data: job, error: jobError } = await sb.from('reconstruction_jobs').insert({
+        user_id: user.id,
+        status: 'queued',
+        progress: 0,
+        vertical: 'generic',
+        capture_mode: 'burst',
+        raw_r2_key: fileKey,
+        meta: {
+          title: `Multi-camera motion capture ${sequenceId.slice(0, 8)}`,
+          source: 'fourd_multicam',
+          multicam_session_id: sequenceId,
+          multi_camera: true,
+          camera_count: cameras.length,
+          frames_per_camera: sampleCount,
+          frame_count: zipFiles.length,
+          camera_sync: 'relative-start-assumed',
+          camera_sync_warning: 'Videos are aligned by relative timestamps; hardware synchronization and camera calibration are not available in this capture.',
+          source_capture: { type: 'multi_camera_frame_zip', r2_key: fileKey, camera_count: cameras.length, frame_count: zipFiles.length }
+        }
+      }).select('id,status,progress').single();
+      if (jobError) throw jobError;
+      _addJob(job.id, 'Multi-camera reconstruction', 'pending');
+      _updateJobStatus(job.id, 'pending', 'Queued for GPU worker');
+      Object.assign(_sessionJobs[_sessionJobs.length - 1], { sequenceId });
+      _renderJobList();
+      _watchSessionJobs();
+      _updateProgress(1, 'Multi-camera reconstruction queued.');
+      button.textContent = 'Queued — check Pipeline tab';
+      _switchTab('pipeline');
+      window.dispatchEvent(new CustomEvent('fumoca:multiCamDispatch', {
+        detail: { sequenceId, jobId: job.id, cameras: cameras.length, frames: zipFiles.length, sourceKey: fileKey }
+      }));
+    } catch (e) {
+      button.textContent = 'Retry multi-camera queue';
+      _renderDispatchError('Multi-camera capture could not be queued: ' + (e?.message || String(e)), 'fourDMultiCamList');
+    } finally {
+      loaded.forEach(({ video, objectUrl }) => {
+        video.pause();
+        video.removeAttribute('src');
+        video.load();
+        URL.revokeObjectURL(objectUrl);
+      });
+      _showProgress(false);
+      button.disabled = false;
+    }
   }
 
   // ─── Manual moment ─────────────────────────────────────────────────────────
@@ -484,9 +651,56 @@ const FourDCapture = (() => {
     el.innerHTML = _sessionJobs.map(j => `
       <div class="fourDJobRow">
         <div class="fourDJobStatus status-${j.status}"></div>
-        <span style="flex:1">${j.label}</span>
-        <span style="color:rgba(255,255,255,.35);font-size:11px">${j.statusText || j.status}</span>
+        <span style="flex:1">${_escapeHtml(j.label)}</span>
+        <span style="color:rgba(255,255,255,.35);font-size:11px">${_escapeHtml(j.statusText || j.status)}</span>
       </div>`).join('');
+  }
+
+  let _jobPollTimer = null;
+  let _jobPollInFlight = false;
+  function _watchSessionJobs() {
+    if (_jobPollTimer) clearInterval(_jobPollTimer);
+    const poll = async () => {
+      if (_jobPollInFlight) return;
+      const sb = window._fumocaSupabase;
+      const ids = _sessionJobs.map(j => j.id).filter(Boolean);
+      if (!sb || !ids.length) return;
+      _jobPollInFlight = true;
+      try {
+        const { data, error } = await sb.from('reconstruction_jobs')
+          .select('id,status,progress,error_message')
+          .in('id', ids);
+        if (error) throw error;
+        for (const row of data || []) {
+          const job = _sessionJobs.find(item => item.id === row.id);
+          if (!job) continue;
+          const status = String(row.status || 'queued').toLowerCase();
+          job.status = ['complete', 'completed', 'done'].includes(status) ? 'done'
+            : status === 'failed' || status === 'needs_retry' ? 'failed'
+            : status === 'processing' || status === 'running' ? 'running' : 'pending';
+          const pct = Number.isFinite(Number(row.progress)) ? Math.round(Number(row.progress)) : null;
+          job.statusText = status === 'needs_retry'
+            ? (row.error_message || 'Needs recapture')
+            : status === 'failed'
+              ? (row.error_message || 'Failed')
+              : ['complete', 'completed', 'done'].includes(status)
+                ? 'Complete'
+                : `${status}${pct == null ? '' : ` · ${pct}%`}`;
+        }
+        _renderJobList();
+        const terminal = _sessionJobs.length && _sessionJobs.every(j => ['done', 'failed'].includes(j.status));
+        if (terminal && _jobPollTimer) {
+          clearInterval(_jobPollTimer);
+          _jobPollTimer = null;
+        }
+      } catch (error) {
+        console.warn('[FUMOCA 4D] Job status refresh failed:', error);
+      } finally {
+        _jobPollInFlight = false;
+      }
+    };
+    poll();
+    _jobPollTimer = setInterval(poll, 5000);
   }
 
   // ─── Helpers ───────────────────────────────────────────────────────────────
@@ -506,6 +720,22 @@ const FourDCapture = (() => {
   function _renderError(msg) {
     const el = document.getElementById('fourDAnalysisResult');
     if (el) { el.style.display=''; el.innerHTML=`<div style="color:#f09595;font-size:12px;padding:8px">${msg}</div>`; }
+  }
+
+  function _renderDispatchError(msg, targetId = 'fourDAnalysisResult') {
+    const el = document.getElementById(targetId);
+    if (!el) return;
+    let error = el.querySelector('.fourDDispatchError');
+    if (!error) {
+      error = document.createElement('div');
+      error.className = 'fourDDispatchError';
+      error.style.cssText = 'color:#f09595;font-size:11px;line-height:1.5;padding:8px 10px;margin:8px 0;border:1px solid rgba(240,149,149,.25);border-radius:7px;background:rgba(240,149,149,.06)';
+      el.prepend(error);
+    }
+    error.textContent = msg;
+  }
+  function _clearDispatchError(targetId = 'fourDAnalysisResult') {
+    document.getElementById(targetId)?.querySelector('.fourDDispatchError')?.remove();
   }
   function _switchTab(name) {
     document.querySelectorAll('.fourDTab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
