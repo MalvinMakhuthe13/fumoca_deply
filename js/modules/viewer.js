@@ -8,6 +8,7 @@ import { supabase } from '../supabaseClient.js';
 import { triggerRevealForViewer } from './reveal-hook.js';
 import FumocDecoder from './fumoc-decoder.js';
 import { decodeNif, geometryToSplatRows } from './nif-format.js?v=20261024-realscale';
+import { readNifInteractiveManifest } from './nif-interactive-loader.js';
 import { chooseRenderMode, solidPointScale } from './industry-math.js';
 import './adaptive-presentation.js';
 import './poster-composer.js';
@@ -2585,6 +2586,21 @@ async function boot() {
   const companionKey = currentRecord?.meta?.view_ply_r2_key;
   if (companionKey && _isNifUrl(fileUrl)) {
     try {
+      // The PLY companion is the preferred visual path, but the NIF remains
+      // the source of truth for optional interaction/animation metadata.
+      // Read only its manifest here; do not decode/rebuild the Gaussian data.
+      try {
+        const manifestResp = await fetch(fileUrl);
+        if (!manifestResp.ok) throw new Error('NIF manifest source returned HTTP ' + manifestResp.status);
+        const manifest = await readNifInteractiveManifest(await manifestResp.arrayBuffer());
+        window._fumocaInteractiveManifest = manifest;
+        window.dispatchEvent(new CustomEvent('fumoca:nifInteractiveManifest', { detail: manifest }));
+        if (manifest) console.info('[FUMOCA Viewer] Interactive NIF manifest loaded', manifest.sceneId);
+      } catch (manifestError) {
+        window._fumocaInteractiveManifest = null;
+        console.warn('[FUMOCA Viewer] Optional NIF interaction manifest unavailable:', manifestError);
+      }
+
       const companionUrl = r2.publicUrl('nif-files', companionKey);
       if (companionUrl) {
         setLoading('Loading high-fidelity Spark splat…');
@@ -2606,7 +2622,16 @@ async function boot() {
       const nifResp   = await fetch(fileUrl);
       const nifBuffer = await nifResp.arrayBuffer();
       if (fileUrl.startsWith('blob:')) URL.revokeObjectURL(fileUrl);
-      const { meta, gaussians, calibration, verification, mesh } = await decodeNif(nifBuffer);
+      const { reader, meta, gaussians, calibration, verification, mesh } = await decodeNif(nifBuffer);
+      try {
+        const manifest = await readNifInteractiveManifest(reader);
+        window._fumocaInteractiveManifest = manifest;
+        window.dispatchEvent(new CustomEvent('fumoca:nifInteractiveManifest', { detail: manifest }));
+        if (manifest) console.info('[FUMOCA Viewer] Interactive NIF manifest loaded', manifest.sceneId);
+      } catch (manifestError) {
+        window._fumocaInteractiveManifest = null;
+        console.warn('[FUMOCA Viewer] Optional NIF interaction manifest unavailable:', manifestError);
+      }
       // Keep decoded NIF positions available for camera fitting and integrations.
       // The Gaussian renderer does not expose its internal buffer consistently.
       const gaussianData = gaussians.data;
