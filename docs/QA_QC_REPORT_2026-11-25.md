@@ -81,3 +81,18 @@ Results: baseline — all 48 CI steps pass. Integration — all 72 CI steps pass
 * `config.js` is tracked although ignored. It only holds the public anon key, which is fine. Per its own comment, rotate `r2ApiSecret` if it was ever live.
 * Dead code: `js/modules/pipeline.js` (no importers); `cloudflare/workers/delete-auth.js` (never wired in).
 * Remap animation IDs on Studio save instead of only warning.
+
+## Addendum: Spark resilience in Studio
+
+**Problem:** each edit removed the visible Spark splat before the edited copy had decoded, so the viewport flashed empty. A failed decode left it empty, because the editor's own view stayed hidden. Edits made during a decode were dropped. A lost WebGL context showed nothing.
+
+**Fixed (both branches):**
+- The new splat decodes off-screen and swaps in when ready.
+- A failed sync is retried once with the latest edits.
+- After repeated failures, a 45 s timeout or GPU context loss, Studio switches to its built-in view (always current) and tells the user.
+
+`tests/browser/spark-fallback.browser.mjs` fails on the old code and passes now; it's in CI.
+
+**Still to do (needs real Spark on a preview deploy):**
+- Live in-place updates through `packedSplats.setSplat` instead of re-encoding and re-decoding the whole PLY on every edit. This is what makes large scans feel smooth.
+- Edits on `.splat` and ASCII PLY sources: these can't be re-encoded yet, so they now fall back to the editor view.
