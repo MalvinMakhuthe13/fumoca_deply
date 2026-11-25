@@ -1,3 +1,4 @@
+import { safeHttpUrl, safeMediaUrl } from './safe-url.js';
 /**
  * FUMOCA Hotspot Actions v1
  * ══════════════════════════════════════════════════════════════════════════
@@ -123,6 +124,7 @@ function getVideoOverlay() {
 }
 
 function showVideo(url) {
+  url = safeMediaUrl(url);
   if (!url) return;
   const overlay = getVideoOverlay();
   const player = overlay.querySelector('#fumocaVideoOverlayPlayer');
@@ -170,9 +172,10 @@ function showInfo({ title, body, cta }) {
   const actions = card.querySelector('#fumocaInfoCardActions');
   actions.innerHTML = '';
 
-  if (cta?.url && cta?.label) {
+  const ctaUrl = safeHttpUrl(cta?.url);
+  if (ctaUrl && cta?.label) {
     const a = document.createElement('a');
-    a.href = cta.url;
+    a.href = ctaUrl;
     a.target = '_blank';
     a.rel = 'noopener';
     a.textContent = cta.label;
@@ -232,7 +235,7 @@ export async function runAction(action, context = {}) {
       if (action.url) {
         // rel=noopener prevents the opened page from reaching back into ours
         // via window.opener. Always include it for external links.
-        window.open(action.url, action.target || '_blank', 'noopener,noreferrer');
+        { const safe = safeHttpUrl(action.url); if (safe) window.open(safe, '_blank', 'noopener,noreferrer'); }
       }
       return;
 
