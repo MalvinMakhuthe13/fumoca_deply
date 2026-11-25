@@ -2,7 +2,7 @@ name: FUMOCA validation
 
 on:
   push:
-    branches: [main, "feat/**", "feature/**", "platform-integration-audit"]
+    branches: [main, "feat/**", "feature/**", "platform-integration-audit", "whole-platform-reference-audit"]
   pull_request:
     branches: [main, "feature/**"]
   workflow_dispatch:
@@ -267,6 +267,8 @@ jobs:
         run: python engine-next/tests/physics.test.py
       - name: Test CPU-only splat to NIF conversion
         run: node --experimental-default-type=module tests/splat-to-nif-smoke.mjs
+      - name: Test whole-platform audit contract
+        run: node --test tests/whole-platform-audit.test.mjs
       - name: Compile Kaggle preflight script
         run: python -m py_compile kaggle/mesh2splat_preflight.py
       - name: Install preflight dependencies
