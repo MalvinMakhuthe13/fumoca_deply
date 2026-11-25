@@ -2,7 +2,7 @@ name: FUMOCA validation
 
 on:
   push:
-    branches: [main, "feat/**", "feature/**", "platform-integration-audit", "whole-platform-reference-audit"]
+    branches: [main, "feat/**", "feature/**", "platform-integration-audit", "whole-platform-reference-audit", "lidar-splat-integrity-cleanup", "lichtfeld-inspired-clean-run"]
   pull_request:
     branches: [main, "feature/**"]
   workflow_dispatch:
@@ -269,6 +269,26 @@ jobs:
         run: node --experimental-default-type=module tests/splat-to-nif-smoke.mjs
       - name: Test whole-platform audit contract
         run: node --test tests/whole-platform-audit.test.mjs
+      - name: Check LiDAR importer ES module syntax
+        run: node --input-type=module --check < js/modules/lidar-import.js
+      - name: Check upload page ES module syntax
+        run: node --input-type=module --check < js/modules/upload-page.js
+      - name: Test LiDAR intensity normalization
+        run: node --test tests/lidar-intensity.test.mjs
+      - name: Test header-aware LiDAR text import
+        run: node --test tests/lidar-text-parser.test.mjs
+      - name: Test uncompressed LAS parser fixtures
+        run: node --test tests/lidar-las-parser.test.mjs
+      - name: Test portable PLY coordinate metadata
+        run: node --test tests/lidar-coordinate-metadata.test.mjs
+      - name: Test point-cloud downsampling alignment
+        run: node --test tests/lidar-cloud-utils.test.mjs
+      - name: Test LiDAR preflight quality gates
+        run: node --test tests/lidar-quality-report.test.mjs
+      - name: Test Studio LiDAR visibility and validation gates
+        run: node --test tests/studio-lidar-visible.test.mjs
+      - name: Check standalone LiDAR report syntax
+        run: node --input-type=module --check < js/modules/lidar-quality-report.mjs
       - name: Compile Kaggle preflight script
         run: python -m py_compile kaggle/mesh2splat_preflight.py
       - name: Install preflight dependencies
