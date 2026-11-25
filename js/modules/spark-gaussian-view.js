@@ -10,6 +10,10 @@ const SparkGaussianView = (() => {
   let _lastFileName = 'export.ply';
   let _failureCount = 0, _contextLossBound = false, _loadToken = 0;
   const LOAD_TIMEOUT_MS = 45000;
+  // In-place editing: what the current Spark mesh holds, so moves, rotations
+  // and deletions can be written straight into it with setSplat instead of
+  // re-encoding and re-decoding the whole file (the old lag on big scans).
+  let _built = null;
 
   function _scene() { return window._fumocaScene || window.scene || null; }
   function _renderer() { return window._fumocaGlRenderer || window.renderer || null; }
@@ -250,6 +254,95 @@ const SparkGaussianView = (() => {
     window.showToast?.('Photoreal paused', 'Spark could not keep up, so Studio switched to its built-in view. Your edits are safe — turn Photoreal back on to retry.', 'warn');
   }
 
+  // Copy what is about to be encoded, before the (async) decode starts, so
+  // edits made while Spark decodes are still seen as changes afterwards.
+  function _capture(state) {
+    if (!state?.alive || !state.positions) return null;
+    return {
+      positions: Float32Array.from(state.positions),
+      rotation: state.rotation ? Float32Array.from(state.rotation) : null,
+      alive: Uint8Array.from(state.alive, v => (v ? 1 : 0)),
+    };
+  }
+
+  function _snapshot(state) {
+    _built = null;
+    const splats = _mesh?.packedSplats;
+    if (!state?.alive || !state.positions || !splats?.setSplat) return;
+    const meshToS = [];
+    for (let i = 0; i < state.alive.length; i++) if (state.alive[i]) meshToS.push(i);
+    const n = splats.numSplats ?? meshToS.length;
+    if (n !== meshToS.length) return;              // can't map rows safely
+    const sToMesh = new Int32Array(state.alive.length).fill(-1);
+    meshToS.forEach((s, m) => { sToMesh[s] = m; });
+    _built = {
+      mesh: _mesh, sToMesh, count: n,
+      positions: Float32Array.from(state.positions),
+      rotations: state.rotation ? Float32Array.from(state.rotation) : null,
+      alive: Uint8Array.from(state.alive, v => (v ? 1 : 0)),
+      attrs: null,
+    };
+  }
+
+  function _readAttrs() {
+    const splats = _built.mesh.packedSplats, n = _built.count;
+    const scales = new Float32Array(n * 3), colors = new Float32Array(n * 3), opacity = new Float32Array(n);
+    splats.forEachSplat((i, c, sc, q, a, col) => {
+      if (i >= n) return;
+      scales[i * 3] = sc.x; scales[i * 3 + 1] = sc.y; scales[i * 3 + 2] = sc.z;
+      colors[i * 3] = col.r; colors[i * 3 + 1] = col.g; colors[i * 3 + 2] = col.b;
+      opacity[i] = a;
+    });
+    _built.attrs = { scales, colors, opacity };
+  }
+
+  /** Write changed splats into the live mesh. Returns the number written, or −1 if a full rebuild is needed. */
+  function _tryInPlace(state) {
+    const b = _built;
+    if (!b || b.mesh !== _mesh || !state?.alive || state.alive.length !== b.sToMesh.length) return -1;
+    // A rigged splat is being posed in place too; rebuild instead so the rig
+    // re-attaches to clean rest data rather than mixing edits into a pose.
+    if (window.FumocaRig?.driver) return -1;
+    const THREE = window.THREE;
+    if (!THREE?.Vector3 || !THREE?.Quaternion || !THREE?.Color) return -1;
+    const n = state.alive.length;
+    for (let i = 0; i < n; i++) if (state.alive[i] && b.sToMesh[i] < 0) return -1;   // restored a splat the mesh doesn't hold
+    if (!b.attrs) _readAttrs();
+    const splats = _mesh.packedSplats, { scales, colors, opacity } = b.attrs;
+    const P = state.positions, Q = state.rotation, BP = b.positions, BQ = b.rotations;
+    const c = new THREE.Vector3(), sc = new THREE.Vector3(), q = new THREE.Quaternion(), col = new THREE.Color();
+    let written = 0;
+    for (let i = 0; i < n; i++) {
+      const m = b.sToMesh[i];
+      if (m < 0) continue;
+      const alive = state.alive[i] ? 1 : 0;
+      let moved = BP[i * 3] !== P[i * 3] || BP[i * 3 + 1] !== P[i * 3 + 1] || BP[i * 3 + 2] !== P[i * 3 + 2];
+      if (!moved && Q && BQ) moved = BQ[i * 4] !== Q[i * 4] || BQ[i * 4 + 1] !== Q[i * 4 + 1] || BQ[i * 4 + 2] !== Q[i * 4 + 2] || BQ[i * 4 + 3] !== Q[i * 4 + 3];
+      if (!moved && alive === b.alive[i]) continue;
+      if (!Number.isFinite(P[i * 3]) || !Number.isFinite(P[i * 3 + 1]) || !Number.isFinite(P[i * 3 + 2])) return -1;
+      c.set(P[i * 3], P[i * 3 + 1], P[i * 3 + 2]);
+      sc.set(scales[m * 3], scales[m * 3 + 1], scales[m * 3 + 2]);
+      if (Q) {
+        const w = Q[i * 4], x = Q[i * 4 + 1], y = Q[i * 4 + 2], z = Q[i * 4 + 3];
+        const len = Math.hypot(w, x, y, z);
+        if (!(len > 1e-8)) return -1;
+        q.set(x / len, y / len, z / len, w / len);           // FUMOCA stores w,x,y,z
+      } else q.set(0, 0, 0, 1);
+      col.setRGB(colors[m * 3], colors[m * 3 + 1], colors[m * 3 + 2]);
+      splats.setSplat(m, c, sc, q, alive ? opacity[m] : 0, col);
+      BP[i * 3] = P[i * 3]; BP[i * 3 + 1] = P[i * 3 + 1]; BP[i * 3 + 2] = P[i * 3 + 2];
+      if (Q && BQ) for (let k = 0; k < 4; k++) BQ[i * 4 + k] = Q[i * 4 + k];
+      b.alive[i] = alive;
+      written++;
+    }
+    if (written) {
+      splats.needsUpdate = true;
+      _mesh.updateVersion?.();
+      window.dispatchEvent(new CustomEvent('fumoca:sparkInPlaceUpdate', { detail: { written } }));
+    }
+    return written;
+  }
+
   async function syncEditorState(state = window.S) {
     if (!_enabled || !_originalBytes || !state?.alive || !state?.positions) return false;
     if (_loading) { _syncQueued = false; refreshEditorState(state); return false; }
@@ -257,11 +350,24 @@ const SparkGaussianView = (() => {
     _updateSelectionOverlay(state);
     _hideLegacy();
     if (signature === _lastStateSignature) return true;
+    try {
+      const written = _tryInPlace(state);
+      if (written >= 0) {
+        _lastStateSignature = signature;
+        _failureCount = 0;
+        return true;
+      }
+    } catch (error) {
+      console.warn('[FUMOCA] in-place Spark update failed; rebuilding instead', error);
+      _built = null;
+    }
     _loading = true;
     let ok = false;
     try {
+      const encoded = _capture(state);
       const edited = _makeEditedBytes(state);
       await loadFromBytes(edited, _lastFileName);
+      _snapshot(encoded);
       _lastStateSignature = signature;
       _failureCount = 0;
       ok = true;
@@ -318,6 +424,7 @@ const SparkGaussianView = (() => {
       _lastFileName = name;
       await loadFromBytes(_originalBytes, name);
       _enabled = true;
+      _snapshot(_capture(S));
       _lastStateSignature = _stateSignature(S);
       _hideLegacy();
       _updateSelectionOverlay(S);
@@ -335,6 +442,7 @@ const SparkGaussianView = (() => {
 
   function disable() {
     _enabled = false;
+    _built = null;
     _loadToken++;
     _failureCount = 0;
     _hideLegacy();

@@ -286,6 +286,8 @@ jobs:
         run: node --experimental-default-type=module tests/splat-rig.test.mjs && node --experimental-default-type=module tests/splat-rig-driver.test.mjs
       - name: Test Studio Rig tab end-to-end in Chromium
         run: node tests/browser/splat-rig-panel.browser.mjs
+      - name: Test smooth in-place Spark editing in Chromium
+        run: node tests/browser/spark-inplace-edit.browser.mjs
       - name: Test living photo (one image, no AI)
         run: node --experimental-default-type=module tests/living-photo.test.mjs
       - name: Test Studio living photo panel end-to-end in Chromium
