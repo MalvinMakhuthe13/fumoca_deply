@@ -1,4 +1,5 @@
-import Reconstructor from './fumoc-scene-reconstructor.js';
+import { loadPhoto, estimateDepth } from './photo-depth.js';
+import { normalizeDepth, depthToGaussians, encodeGaussianPly } from './depth-to-splat.js';
 
 const STYLE = `
   #imageAnglePreview{display:none;width:100%;margin-top:8px;border-radius:8px;background:#080a0e;border:1px solid rgba(255,255,255,.12)}
@@ -17,12 +18,7 @@ export function mountImageAngleImport(container, { onStatus } = {}) {
         <div class="hint">Estimate depth from one photo and make a shallow splat you can orbit and edit. This cannot recover hidden sides or create genuine scan views.</div>
         <input type="file" id="imageAngleFile" accept="image/*" hidden>
         <button type="button" class="ac-btn full" id="imageAngleChoose">Choose a photo</button>
-        <label style="display:block;font-size:11px;margin-top:8px">Depth model
-          <select id="imageAngleMethod" style="display:block;width:100%;padding:7px;margin-top:4px;background:var(--surface2);color:var(--text);border:1px solid var(--border2);border-radius:7px">
-            <option value="auto">Depth model, with local fallback</option>
-            <option value="heuristic">Local depth heuristic</option>
-          </select>
-        </label>
+        <div class="hint" style="margin-top:6px">AI depth (Depth Anything V2) runs on this device. For 3D posters and more controls, open <a href="photo-to-3d.html" style="color:var(--lime,#c8ff00)">Photo → 3D</a>.</div>
         <div id="imageAnglePreview"><canvas id="imageAngleDepth" aria-label="Estimated depth preview"></canvas><div class="hint" style="padding:6px 8px">Estimated depth · near and far are model guesses</div></div>
         <button type="button" class="ac-btn lime full" id="imageAngleBuild" disabled style="margin-top:8px">Build inferred splat</button>
         <button type="button" class="ac-btn cyan full" id="imageAngleOpen" disabled style="margin-top:6px">Open in editor</button>
@@ -60,19 +56,21 @@ export function mountImageAngleImport(container, { onStatus } = {}) {
     open.disabled = true;
     q('#imageAnglePreview').style.display = 'none';
     try {
-      result = await Reconstructor.reconstruct(selectedFile, {
-        depthMethod: q('#imageAngleMethod').value,
-        resolution: 384,
-        depthScale: 2,
-        sourceType: 'single_image_inferred',
-        filename: selectedFile.name,
-        onProgress: (_pct, message) => status(message),
-      });
-      Reconstructor.visualiseDepth(result.depthMap, result.imageData.width, result.imageData.height, q('#imageAngleDepth'));
+      status('Reading photo…');
+      const photo = await loadPhoto(selectedFile);
+      const est = await estimateDepth(photo.canvas, { onProgress: (_f, message) => status(message) });
+      const depth = normalizeDepth(est.raw);
+      const g = depthToGaussians({ rgba: photo.rgba, width: photo.width, height: photo.height, depth, depthWidth: est.width, depthHeight: est.height }, { near: 1, far: 3.2 });
+      result = { bytes: encodeGaussianPly(g), count: g.count };
+      const canvas = q('#imageAngleDepth');
+      canvas.width = est.width; canvas.height = est.height;
+      const ctx = canvas.getContext('2d');
+      const img = ctx.createImageData(est.width, est.height);
+      for (let i = 0; i < depth.length; i++) { const v = Math.round(depth[i] * 255); img.data.set([v, v, v, 255], i * 4); }
+      ctx.putImageData(img, 0, 0);
       q('#imageAnglePreview').style.display = 'block';
       open.disabled = false;
-      const points = Math.floor(result.splatBinary.byteLength / 32);
-      status(`Depth estimate ready · ${points.toLocaleString()} points · ${result.depthMethod}. Inferred 2.5D only; back and side surfaces are unknown.`);
+      status(`Depth estimate ready · ${g.count.toLocaleString()} Gaussians. Inferred from one photo; hidden sides are unknown.`);
     } catch (error) {
       result = null;
       status(`Could not build depth estimate: ${error.message || error}`);
@@ -83,9 +81,9 @@ export function mountImageAngleImport(container, { onStatus } = {}) {
   });
 
   open.addEventListener('click', () => {
-    if (!result?.splatBinary) return;
+    if (!result?.bytes) return;
     window.dispatchEvent(new CustomEvent('fumoca:openReconstructedSplat', {
-      detail: { bytes: result.splatBinary, filename: `${selectedFile?.name || 'image'}.splat` },
+      detail: { bytes: result.bytes, filename: `${(selectedFile?.name || 'image').replace(/\.[^.]+$/, '')}-3d.ply` },
     }));
   });
 

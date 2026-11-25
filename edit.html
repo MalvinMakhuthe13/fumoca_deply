@@ -5816,9 +5816,27 @@ window.addEventListener('fumoca:openReconstructedSplat', async (event) => {
   try {
     await loadFile(new File([bytes], filename || 'image-popout.splat', { type: 'application/octet-stream' }));
     S.reconstructionMeta = { kind: 'inferred-2.5d', source: filename || 'image' };
-    showToast('Inferred 2.5D scene loaded', 'This depth-based result is not a measured multi-view scan.');
+    showToast('Photo → 3D loaded', 'Made from one photo: hidden sides are guessed. Edit, add a platform, then publish.');
   } catch (err) { setStatus(err.message || String(err), 'warn'); }
 });
+// Photo → 3D (and other pages) hand a generated splat over via IndexedDB.
+{
+  const handoffId = new URLSearchParams(location.search).get('handoff');
+  if (handoffId) {
+    const openHandoff = async () => {
+      try {
+        const { takeHandoff } = await import('./js/modules/handoff-store.js');
+        const item = await takeHandoff(handoffId);
+        const clean = new URL(location.href); clean.searchParams.delete('handoff');
+        history.replaceState(null, '', clean.pathname + clean.search + clean.hash);
+        if (!item?.bytes) { setStatus('That hand-off has expired. Generate the splat again.', 'warn'); return; }
+        window.dispatchEvent(new CustomEvent('fumoca:openReconstructedSplat', { detail: { bytes: item.bytes, filename: item.filename } }));
+      } catch (err) { setStatus('Could not open the generated splat: ' + (err.message || err), 'warn'); }
+    };
+    if (document.readyState === 'complete') setTimeout(openHandoff, 300);
+    else window.addEventListener('load', () => setTimeout(openHandoff, 300), { once: true });
+  }
+}
 $('addSplatBtn')?.addEventListener('click', () => $('addSplatInput')?.click());
 $('addSplatInput')?.addEventListener('change', async e => {
   const files = Array.from(e.target.files || []); e.target.value = '';
