@@ -79,7 +79,7 @@ export async function restorePlatform(saved) {
     raf = requestAnimationFrame(tick);
   }
   current = { group, rig, stop() { cancelAnimationFrame(raf); } };
-  window.dispatchEvent(new CustomEvent('fumoca:platformRestored', { detail: cfg }));
+  globalThis.dispatchEvent?.(new CustomEvent('fumoca:platformRestored', { detail: cfg }));
   return true;
 }
 
