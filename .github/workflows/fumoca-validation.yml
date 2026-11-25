@@ -274,6 +274,8 @@ jobs:
           node --experimental-default-type=module tests/audio-url-security-contract.mjs
           node --experimental-default-type=module tests/mobile-asset-html-security.mjs
           node --experimental-default-type=module tests/persisted-ui-xss-contract.mjs
+      - name: Test Studio Spark fallback (no blank viewport when Spark fails) in Chromium
+        run: node tests/browser/spark-fallback.browser.mjs
       - name: Test CPU-only splat to NIF conversion
         run: node --experimental-default-type=module tests/splat-to-nif-smoke.mjs
       - name: Test whole-platform audit contract

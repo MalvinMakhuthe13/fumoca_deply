@@ -8,6 +8,8 @@ const SparkGaussianView = (() => {
   let _enabled = false, _loading = false, _syncQueued = false;
   let _originalBytes = null, _lastStateSignature = '';
   let _lastFileName = 'export.ply';
+  let _failureCount = 0, _contextLossBound = false, _loadToken = 0;
+  const LOAD_TIMEOUT_MS = 45000;
 
   function _scene() { return window._fumocaScene || window.scene || null; }
   function _renderer() { return window._fumocaGlRenderer || window.renderer || null; }
@@ -31,6 +33,13 @@ const SparkGaussianView = (() => {
     });
     _spark.name = 'fumoca-spark-renderer';
     scene.add(_spark);
+    const canvas = renderer.domElement;
+    if (canvas && !_contextLossBound) {
+      _contextLossBound = true;
+      canvas.addEventListener('webglcontextlost', () => {
+        if (_enabled) _fallback('The graphics context was lost (GPU reset or memory pressure).');
+      });
+    }
     return _spark;
   }
 
@@ -180,43 +189,101 @@ const SparkGaussianView = (() => {
     try { obj?.parent?.remove(obj); } catch (_) {}
   }
 
+  function _withTimeout(promise, ms, message) {
+    let timer = null;
+    return Promise.race([
+      promise,
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(message)), ms); }),
+    ]).finally(() => clearTimeout(timer));
+  }
+
+  // Build the new Spark mesh off-screen and only swap it in once it has fully
+  // decoded. The previous mesh stays visible the whole time, so edits never
+  // flash an empty viewport, and a failed load leaves the last good view.
   async function loadFromBytes(bytes, fileName = 'scene.ply') {
     await _ensureSpark();
     const scene = _scene();
     const { SplatMesh } = await import('@sparkjsdev/spark');
-    if (_mesh) { _unparent(_mesh); _mesh.dispose?.(); _mesh = null; }
+    const token = ++_loadToken;
     const fileBytes = bytes instanceof Uint8Array ? new Uint8Array(bytes) : new Uint8Array(bytes.slice ? bytes.slice(0) : bytes);
-    _mesh = new SplatMesh({ fileBytes, fileName, enableLod: false, onLoad: () => console.info('[FUMOCA] Spark Gaussian data loaded:', fileName) });
-    _mesh.name = 'fumoca-spark-splat';
-    scene.add(_mesh);
-    if (_mesh.initialized) await _mesh.initialized;
+    let next = null;
+    try {
+      next = new SplatMesh({ fileBytes, fileName, enableLod: false, onLoad: () => console.info('[FUMOCA] Spark Gaussian data loaded:', fileName) });
+      next.name = 'fumoca-spark-splat';
+      next.visible = false;
+      scene.add(next);
+      if (next.initialized) await _withTimeout(next.initialized, LOAD_TIMEOUT_MS, 'Spark took too long to decode the splat');
+    } catch (error) {
+      if (next) { _unparent(next); try { next.dispose?.(); } catch (_) {} }
+      throw error;
+    }
+    if (token !== _loadToken) {
+      // A newer load started while this one decoded; discard this result.
+      _unparent(next); try { next.dispose?.(); } catch (_) {}
+      return _mesh;
+    }
+    const previous = _mesh;
+    next.visible = true;
+    _mesh = next;
+    if (previous) { _unparent(previous); try { previous.dispose?.(); } catch (_) {} }
     window.FumocaPresentation?.adoptVisuals?.();
     return _mesh;
   }
 
+  // Spark failed while active: never leave the viewport blank. Drop back to
+  // the editor's own Gaussian/point view (which always reflects the current
+  // edits), tell the user, and let them re-enable Photoreal later.
+  function _fallback(reason) {
+    if (!_enabled && !_mesh) return;
+    console.warn('[FUMOCA] Spark unavailable — falling back to the editor renderer:', reason);
+    _enabled = false;
+    _loadToken++;
+    if (_overlay) { try { _unparent(_overlay); _overlay.geometry?.dispose?.(); _overlay.material?.dispose?.(); } catch (_) {} _overlay = null; }
+    if (_mesh) { try { _unparent(_mesh); _mesh.dispose?.(); } catch (_) {} _mesh = null; }
+    _hideLegacy();
+    try {
+      const gr = window.FumocaGaussianRenderer;
+      if (gr && !gr.isEnabled?.()) gr.enable?.(false);
+      window.rebuildGeometry?.();
+    } catch (error) { console.warn('[FUMOCA] Legacy renderer fallback failed', error); }
+    window.dispatchEvent(new CustomEvent('fumoca:sparkFallback', { detail: { reason: String(reason || 'unknown') } }));
+    window.showToast?.('Photoreal paused', 'Spark could not keep up, so Studio switched to its built-in view. Your edits are safe — turn Photoreal back on to retry.', 'warn');
+  }
+
   async function syncEditorState(state = window.S) {
-    if (!_enabled || !_originalBytes || !state?.alive || !state?.positions || _loading) return false;
+    if (!_enabled || !_originalBytes || !state?.alive || !state?.positions) return false;
+    if (_loading) { _syncQueued = false; refreshEditorState(state); return false; }
     const signature = _stateSignature(state);
     _updateSelectionOverlay(state);
     _hideLegacy();
     if (signature === _lastStateSignature) return true;
     _loading = true;
+    let ok = false;
     try {
       const edited = _makeEditedBytes(state);
       await loadFromBytes(edited, _lastFileName);
       _lastStateSignature = signature;
+      _failureCount = 0;
+      ok = true;
       console.info('[FUMOCA] Spark synced with editor state', {
         originalCount: state.alive.length,
         remaining: state.alive.reduce((n,v)=>n+(v?1:0),0)
       });
       return true;
     } catch (error) {
-      console.error('[FUMOCA] Spark editor sync refused to apply changes safely', error);
+      _failureCount++;
+      console.error('[FUMOCA] Spark editor sync failed (attempt ' + _failureCount + ')', error);
+      // One retry with the latest state; after that stop fighting Spark.
+      if (_failureCount >= 2) _fallback(error?.message || error);
       return false;
     } finally {
       _loading = false;
-      _hideLegacy();
-      _updateSelectionOverlay(state);
+      if (_enabled) {
+        _hideLegacy();
+        _updateSelectionOverlay(state);
+        // Edits made while Spark was decoding must not be lost.
+        if (!ok || _stateSignature(window.S || state) !== _lastStateSignature) refreshEditorState(window.S || state);
+      }
     }
   }
 
@@ -258,6 +325,7 @@ const SparkGaussianView = (() => {
       return true;
     } catch (error) {
       console.error('[FUMOCA] Spark renderer could not load the source file', error);
+      window.dispatchEvent(new CustomEvent('fumoca:sparkFallback', { detail: { reason: String(error?.message || error), phase: 'enable' } }));
       _enabled = false;
       _hideLegacy();
       if (_mesh) { try { _unparent(_mesh); _mesh.dispose?.(); } catch (_) {} _mesh = null; }
@@ -267,6 +335,8 @@ const SparkGaussianView = (() => {
 
   function disable() {
     _enabled = false;
+    _loadToken++;
+    _failureCount = 0;
     _hideLegacy();
     if (_overlay) { try { _unparent(_overlay); _overlay.geometry?.dispose?.(); _overlay.material?.dispose?.(); } catch (_) {} _overlay = null; }
     if (_mesh) { try { _unparent(_mesh); _mesh.dispose?.(); } catch (_) {} _mesh = null; }
