@@ -931,6 +931,27 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
              <span id="photorealLabel" style="font-size:12px;font-weight:700;color:#c8ff00;">✨ Photoreal: OFF</span>
              <span style="font-size:10px;color:rgba(255,255,255,.4);">tap to toggle</span>
           </div>
+          <!-- Clean view: hide faint haze + oversized floaters (view only, never changes your data) -->
+          <div id="cleanViewRow" style="margin:0 0 10px;padding:8px 10px;border-radius:8px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08)">
+            <div class="ctrl-row"><span class="ctrl-label" title="Hides faint haze and oversized floaters in the viewport only. Exports and published files are unchanged.">Clean view</span><span class="ctrl-val" id="cleanViewVal">Off</span></div>
+            <input type="range" id="cleanViewSlider" min="0" max="4" step="1" value="0" style="width:100%">
+            <div class="hint" style="font-size:10px;opacity:.6">Off · Light · Clean · Crisp · Max — view only, your data is untouched</div>
+          </div>
+          <script>
+          (function(){
+            const LEVELS=[['Off',0,Infinity],['Light',0.04,40],['Clean',0.08,20],['Crisp',0.14,12],['Max',0.22,8]];
+            const slider=document.getElementById('cleanViewSlider'), val=document.getElementById('cleanViewVal');
+            function apply(){
+              const [label,minOpacity,maxScaleFactor]=LEVELS[+slider.value]||LEVELS[0];
+              const spark=window.FumocaSparkGaussian;
+              if(!spark?.isEnabled?.()||!spark.setViewFilter){ val.textContent=label+' (needs Photoreal)'; return; }
+              const hidden=spark.setViewFilter({minOpacity,maxScaleFactor});
+              val.textContent=+slider.value? label+' · '+hidden.toLocaleString()+' hidden' : 'Off';
+            }
+            slider.addEventListener('input',apply);
+            window.addEventListener('fumoca:fileLoaded',()=>{ setTimeout(()=>{ if(+slider.value) apply(); }, 2500); });
+          })();
+          </script>
           <!-- Reveal / Dissolve controls — shown when photoreal is on -->
           <div id="revealRow" style="display:none;gap:5px;margin-bottom:10px;">
             <button onclick="window.FumocaGaussianRenderer?.playReveal(2200)"
@@ -1983,10 +2004,10 @@ const S = {
 // Expose globally so modules and guard checks can reference it
 window.S = S;
 document.getElementById('manualGaussianLabBtn')?.addEventListener('click',()=>{
-  if(!S.gaussianSourceBytes){setStatus('Load a NIF first to open the manual Gaussian Lab.','warn');return;}
+  if(!(S.nifSourceBytes||S.gaussianSourceBytes)){setStatus('Load a NIF first to open the manual Gaussian Lab.','warn');return;}
   const lab=window.open('/engine-next/editor/manual-gaussian-deformation-lab.html?studio=1','_blank');
   if(!lab){setStatus('Allow pop-ups to open the Manual Gaussian Lab.','warn');return;}
-  const payload=S.gaussianSourceBytes.slice(0),name=S.fileName||'studio-source.nif';
+  const payload=(S.nifSourceBytes||S.gaussianSourceBytes).slice(0),name=S.fileName||'studio-source.nif';
   const onReady=event=>{if(event.origin!==location.origin||event.source!==lab||event.data?.type!=='FUMOCA_MANUAL_GAUSSIAN_READY')return;window.removeEventListener('message',onReady);lab.postMessage({type:'FUMOCA_MANUAL_GAUSSIAN_SOURCE',name,buffer:payload},location.origin);};
   window.addEventListener('message',onReady);
 });
@@ -3121,6 +3142,7 @@ async function loadFile(file, urlOverride) {
   try { window.FumocaSparkGaussian?.disable(); } catch (_) {}
   try { window.FumocaGaussianRenderer?.disable?.(); } catch (_) {}
   S.gaussianSourceBytes = null;
+  S.nifSourceBytes = null;
   S.isGaussianPly = false;
   window._fumocaLastGaussianBytes = null;
   const extSource = (urlOverride || file.name).split(/[?#]/, 1)[0];
@@ -3145,13 +3167,21 @@ async function loadFile(file, urlOverride) {
       const plyBytes = decoded.gaussianPlyBytes;
       const plyBuffer = plyBytes.buffer.slice(plyBytes.byteOffset, plyBytes.byteOffset + plyBytes.byteLength);
       parsed = parsePLY(plyBuffer);
-      S.gaussianSourceBytes = plyBuffer.slice(0);
+      // Older saves embedded ASCII PLY, which Spark's in-place editing can't
+      // map; let Studio rebuild a binary copy from the decoded data instead.
+      const plyHead = new TextDecoder().decode(new Uint8Array(plyBuffer, 0, Math.min(400, plyBuffer.byteLength)));
+      if (/format\s+binary_little_endian/.test(plyHead)) S.gaussianSourceBytes = plyBuffer.slice(0);
       S.isGaussianPly = true;
       window._fumocaLastGaussianBytes = S.gaussianSourceBytes;
     }
     S.fileType = 'nif';
-    S.gaussianSourceBytes = buf.slice(0);
-    window._fumocaLastGaussianBytes = S.gaussianSourceBytes;
+    // The original NIF (for the Manual Gaussian Lab and re-encoding). Spark
+    // needs Gaussian PLY bytes: the embedded GAUSSIAN_PLY chunk if present,
+    // otherwise one built from the decoded Gaussians once they are loaded
+    // (see _ensureSparkSourceFromState). Overwriting gaussianSourceBytes with
+    // the NIF here made Spark fail on every NIF, which left Studio on the
+    // soft, smoky legacy renderer.
+    S.nifSourceBytes = buf.slice(0);
     S.sourceBuffer = rows.buffer;
     S.nifMeta = decoded.meta || {};
     S.nifThumbnailBytes = decoded.thumbnailBytes || null;
@@ -3444,6 +3474,18 @@ async function loadFile(file, urlOverride) {
     const spark = window.FumocaSparkGaussian;
     const gr = window.FumocaGaussianRenderer;
     let sparkOn = false;
+    if (spark && !S.gaussianSourceBytes && S.positions?.length && S.alive?.length && S.fileType === 'nif') {
+      // NIFs without an embedded Gaussian PLY (and other Gaussian sources):
+      // build one from the decoded Gaussians so Spark — the crisp renderer —
+      // is used instead of the legacy point view.
+      try {
+        const all = Array.from({ length: S.alive.length }, (_, i) => i);
+        S.gaussianSourceBytes = await _encodeGaussianPly(all).arrayBuffer();
+        window._fumocaLastGaussianBytes = S.gaussianSourceBytes;
+        S.isGaussianPly = true;
+        S.gaussianSourceSynthesized = true;
+      } catch (e) { console.warn('[FUMOCA] could not prepare Gaussian data for Spark', e); }
+    }
     if (spark && S.gaussianSourceBytes) {
       try { sparkOn = await spark.enable(); } catch (e) { console.warn('[FUMOCA] Spark auto-enable failed', e); }
     }
@@ -4296,15 +4338,19 @@ function _encodeGaussianPly(indices) {
     const ga = a.startsWith('f_dc_') ? 0 : 1, gb = b.startsWith('f_dc_') ? 0 : 1;
     return ga - gb || Number(a.split('_').pop()) - Number(b.split('_').pop());
   });
-  const lines = [
-    'ply', 'format ascii 1.0', `element vertex ${indices.length}`,
-    'property float x', 'property float y', 'property float z',
-    ...attributes.map(attr => `property float ${attr}`), 'property float opacity',
-    'property float scale_0', 'property float scale_1', 'property float scale_2',
-    'property float rot_0', 'property float rot_1', 'property float rot_2', 'property float rot_3', 'end_header',
-  ];
+  // Binary little-endian: what Spark, SuperSplat and every trainer read
+  // natively (the old ASCII output could not be re-opened by Spark, so
+  // Studio silently fell back to the soft legacy renderer).
+  const props = ['x', 'y', 'z', ...attributes, 'opacity', 'scale_0', 'scale_1', 'scale_2', 'rot_0', 'rot_1', 'rot_2', 'rot_3'];
+  const header = new TextEncoder().encode(['ply', 'format binary_little_endian 1.0', `element vertex ${indices.length}`,
+    ...props.map(p => `property float ${p}`), 'end_header', ''].join('\n'));
+  const stride = props.length * 4;
+  const out = new Uint8Array(header.length + indices.length * stride);
+  out.set(header);
+  const dv = new DataView(out.buffer, header.length);
   const shIndex = new Map((S.shAttributes || []).map((attr, j) => [attr, j]));
   const shC0 = 0.28209479177387814;
+  let row = 0;
   for (const i of indices) {
     const color = _splatColorAt(i);
     const painted = [0,1,2].some(c => S.paintColors?.[i * 3 + c] >= 0);
@@ -4317,10 +4363,13 @@ function _encodeGaussianPly(indices) {
     });
     const alpha = clamp(S.opacity?.[i] ?? 1, 0.0001, 0.9999);
     const scale = [0,1,2].map(c => Math.log(Math.max(1e-6, S.scaleXYZ?.[i * 3 + c] || S.scale?.[i] || 0.01)));
-    lines.push([S.positions[i*3], S.positions[i*3+1], S.positions[i*3+2], ...coeff,
-      Math.log(alpha / (1 - alpha)), ...scale, ..._rotationAt(i)].join(' '));
+    const values = [S.positions[i*3], S.positions[i*3+1], S.positions[i*3+2], ...coeff,
+      Math.log(alpha / (1 - alpha)), ...scale, ..._rotationAt(i)];
+    const o = row * stride;
+    for (let k = 0; k < values.length; k++) dv.setFloat32(o + k * 4, Number.isFinite(values[k]) ? values[k] : 0, true);
+    row++;
   }
-  return new Blob([lines.join('\n')], { type: 'text/plain' });
+  return new Blob([out], { type: 'application/octet-stream' });
 }
 
 // Rebuild the photoreal source payload after geometric transforms so toggling
@@ -6802,7 +6851,7 @@ document.getElementById('loadGlbFile')?.addEventListener('change', async (e) => 
 <script type="module" src="js/modules/ply-validator.js"></script>
 <script type="module" src="js/modules/camera-view.js"></script>
 <script type="module" src="js/modules/publish-to-fumoca.js?v=20261125-metapatch01"></script>
-<script type="module" src="js/modules/spark-gaussian-view.js?v=20261125-inplace01"></script>
+<script type="module" src="js/modules/spark-gaussian-view.js?v=20261125-clean01"></script>
 <script type="module" src="js/modules/gaussian-renderer.js"></script>
 <script type="module" src="js/modules/smart-select.js"></script>
 <script src="js/modules/gap-fill-engine.js"></script>

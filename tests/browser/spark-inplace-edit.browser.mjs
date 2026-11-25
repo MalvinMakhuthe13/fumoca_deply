@@ -54,12 +54,12 @@ Object.prototype.removeFromParent;
 const scene = new Obj();
 window._fumocaScene = scene;
 window._fumocaGlRenderer = { domElement: document.getElementById('c') };
-class Geo { setAttribute(){} dispose(){} }
+class Geo { setAttribute(k, a){ if (k === 'position') this.n = a.n; } dispose(){} }
 class V3 { set(x,y,z){this.x=x;this.y=y;this.z=z;return this;} }
 class Q4 { set(x,y,z,w){this.x=x;this.y=y;this.z=z;this.w=w;return this;} }
 class C3 { setRGB(r,g,b){this.r=r;this.g=g;this.b=b;return this;} }
 window.__plyCount = (b) => +new TextDecoder().decode(b.slice(0, 200)).match(/element vertex (\\d+)/)[1];
-window.THREE = { Vector3: V3, Quaternion: Q4, Color: C3, BufferGeometry: Geo, Float32BufferAttribute: class { constructor(){} }, PointsMaterial: class { dispose(){} }, Points: class extends Obj { constructor(g,m){ super(); this.geometry=g; this.material=m; } } };
+window.THREE = { Vector3: V3, Quaternion: Q4, Color: C3, BufferGeometry: Geo, Float32BufferAttribute: class { constructor(arr){ this.n = arr.length; } }, LineBasicMaterial: class { dispose(){} }, LineSegments: class extends Obj { constructor(g,m){ super(); this.geometry=g; this.material=m; } }, PointsMaterial: class { dispose(){} }, Points: class extends Obj { constructor(g,m){ super(); this.geometry=g; this.material=m; } } };
 // Patch remove-from-parent used by the module (obj.parent.remove(obj)).
 // Build a 3-splat binary little-endian PLY with x,y,z,rot_0..3.
 function ply(n){
@@ -135,6 +135,24 @@ try {
   m = await mesh();
   assert.ok(Math.abs(m.rows[0].a - 0.8) < 1e-6, 'undo restores opacity');
   assert.equal(await page.evaluate(() => window.__loads), 1);
+
+  // 4b. view filter: hide faint splats (view only), edits keep respecting it, then restore
+  let hidden = await page.evaluate(() => window.view.setViewFilter({ minOpacity: 0.9 }));
+  m = await mesh();
+  assert.equal(hidden, 3); assert.ok(m.rows.every(r => r.a === 0), 'faint splats hidden in view');
+  await page.evaluate(() => { window.S.positions[3] = 7; return window.view.syncEditorState(window.S); });
+  m = await mesh();
+  assert.deepEqual(m.rows[1].c, [7, 0, 0]); assert.equal(m.rows[1].a, 0, 'moved splat stays hidden by the filter');
+  hidden = await page.evaluate(() => window.view.setViewFilter({ minOpacity: 0 }));
+  m = await mesh();
+  assert.equal(hidden, 0); assert.ok(m.rows.every(r => Math.abs(r.a - 0.8) < 1e-6), 'filter off restores everything');
+  const exportedLen = await page.evaluate(() => window.view.exportEditedBytes(window.S).length);
+  assert.ok(exportedLen > 0, 'export unaffected by the view filter');
+
+  // 4c. selection gets dots + a box outline
+  await page.evaluate(() => { window.S.selected[1] = 1; window.S.selected[2] = 1; window.S.positions[3] = 7.0001; return window.view.syncEditorState(window.S); });
+  const box = await page.evaluate(() => { const b = window._fumocaScene.children.find(c => c.name === 'fumoca-spark-selection-box'); return b && { visible: b.visible, n: b.geometry.n }; });
+  assert.ok(box && box.visible && box.n === 72, 'selection box drawn: ' + JSON.stringify(box));
 
   // 5. after a real rebuild (delete + export path) the mapping follows the new mesh
   await page.evaluate(() => { window.S.alive[0] = 0; });
