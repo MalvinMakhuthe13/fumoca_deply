@@ -11,14 +11,23 @@ export function assertUpload(principal, bucket, rawKey) {
   const key = String(rawKey || '').replace(/\.\./g, '').replace(/^\/+/, '');
   if (!key) return { ok: false, status: 400, reason: 'invalid_key' };
   const prefix = principal.id + '/';
-  if (key.startsWith(prefix) || key.startsWith('poster-assets/' + principal.id + '/')) {
-    return { ok: true, status: 200, key, reason: 'owner' };
+  if (key.startsWith(prefix)) return { ok: true, status: 200, key, reason: 'owner' };
+  // Namespaced layouts the app already writes: <namespace>/<userId>/...
+  // The user-id segment must be the caller's own id.
+  const scoped = key.match(SCOPED_NAMESPACE);
+  if (scoped) {
+    return scoped[2] === principal.id
+      ? { ok: true, status: 200, key, reason: 'owner' }
+      : { ok: false, status: 403, reason: 'foreign_prefix' };
   }
-  if (key.includes('/') && !key.startsWith(prefix)) {
-    return { ok: false, status: 403, reason: 'foreign_prefix' };
-  }
+  // Any other layout (bare names, '<splatId>/edited_….nif', 'review/…',
+  // 'open-variants/…', …) is bound under the caller's own prefix. The caller
+  // can never land outside its prefix, and existing clients keep working
+  // because r2Client returns the stored fileKey/publicUrl to them.
   return { ok: true, status: 200, key: prefix + key, reason: 'bound' };
 }
+
+const SCOPED_NAMESPACE = /^(raw|vehicle-captures|poster-assets|poster-subjects|verify-refs|print-source)\/([^/]+)\//;
 
 /** Same prefix rule for presign, PUT /upload/:key, and multipart. */
 export function authorizeStoredKey(principal, bucket, rawKey) {
