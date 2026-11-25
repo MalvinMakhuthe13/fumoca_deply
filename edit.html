@@ -5662,6 +5662,16 @@ window.saveLiveEdit = async function saveLiveEdit(extra = {}) {
       if (meshFreshness && !meshFreshness.ok) throw new Error(meshFreshness.message);
       const meshComponents = S.nifMeshComponents?.length ? S.nifMeshComponents : [];
       const savedDocumentModel = _documentModelForSave(aliveIdx);
+      // GAUSSIAN_ANIMATION (0x001D) tracks address every base splat by position
+      // in KEYFRAME_GEO. The chunk is carried through unchanged, so deleting
+      // splats here leaves it pointing at the wrong records and viewers will
+      // ignore it. Warn instead of silently losing the animation.
+      if (aliveIdx.length !== S.alive.length &&
+          (S.nifPassthroughChunks || []).some(chunk => chunk.type === 0x001D)) {
+        const animationWarning = 'This NIF has Gaussian animation tracks. Deleting splats in Studio invalidates them — re-open it in the Manual Gaussian Lab to re-author the animation.';
+        console.warn('[Studio save]', animationWarning);
+        showToast('Animation tracks need re-authoring', animationWarning, 'warn');
+      }
       const gaussianPlyBytes = hasSh
         ? new Uint8Array(await _encodeGaussianPly(aliveIdx).arrayBuffer())
         : undefined;
