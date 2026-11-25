@@ -87,17 +87,23 @@ try{
    document.getElementById('viewport').appendChild(node);
    return node;
  });
+ // Select the main subject and drag over empty poster space (no picking hit),
+ // so the gesture must fall back to the selected subject. A drag at x<350
+ // would pick 'subject_second' through the fixture picker instead.
+ await page.evaluate(()=>window.FumocaPoster.selectSubject('subject_main'));
  const beforeLayerDrag=await page.evaluate(()=>({...window.FumocaPoster.getState().composition.subjects[0]}));
  await page.evaluate(()=>{
    const layer=document.getElementById('poster-background-layer');
-   layer.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,button:0,pointerId:14,clientX:300,clientY:300}));
-   layer.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,button:0,pointerId:14,clientX:340,clientY:330}));
-   layer.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,button:0,pointerId:14,clientX:340,clientY:330}));
+   layer.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,button:0,pointerId:14,clientX:500,clientY:400}));
+   layer.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,button:0,pointerId:14,clientX:540,clientY:430}));
+   layer.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,button:0,pointerId:14,clientX:540,clientY:430}));
  });
  const afterLayerDrag=await page.evaluate(()=>window.FumocaPoster.getState().composition.subjects[0]);
  assert.ok(afterLayerDrag.x>beforeLayerDrag.x && afterLayerDrag.y>beforeLayerDrag.y,
    'Poster Move must work when the pointer target is a background/editor layer DIV above the WebGL canvas');
  await layer.dispose();
+ // Restore the main subject so the handle-drag assertions below start from centre.
+ await page.evaluate(()=>window.FumocaPoster.updateSubject('subject_main',{x:.5,y:.5}));
  const sidePick=page.getByRole('button',{name:'Select Side product'});
  await sidePick.click();
  assert.equal(await page.evaluate(()=>window.FumocaPoster.getState().selectedSubjectId),'subject_second','clicking a visible poster subject should select that 3D object');
@@ -125,10 +131,11 @@ try{
  // Verify real pointer dragging can place the selected Gaussian at the poster edges.
  await page.evaluate(()=>window.FumocaPoster.updateSubject('subject_main',{x:.5,y:.5,scale:1,rotation:0}));
  await page.evaluate(()=>window.overlay.refresh());
- await drag(move,-470,-370);
+ // 1000x800 viewport → 640x800 poster frame; -390px vertical reaches y≈0.0125.
+ await drag(move,-470,-390);
  state=await page.evaluate(()=>window.FumocaPoster.getState().composition.subjects[0]);
  assert.ok(state.x<=.03 && state.y<=.03,'dragging toward the upper-left poster edge must not be pulled back toward the centre');
- await drag(move,940,740);
+ await drag(move,940,790);
  state=await page.evaluate(()=>window.FumocaPoster.getState().composition.subjects[0]);
  assert.ok(state.x>=.97 && state.y>=.97,'dragging toward the lower-right poster edge must remain reachable');
  await page.evaluate(()=>window.FumocaPoster.updateSubject('subject_main',{x:0,y:0}));
@@ -150,8 +157,9 @@ try{
  const mainBefore=await page.evaluate(()=>({...window.FumocaPoster.getState().composition.subjects[0]}));
  await drag(page.getByRole('button',{name:'Move Side product'}),48,32);
  let sideState=await page.evaluate(()=>window.FumocaPoster.getState().composition.subjects[1]);
- assert.ok(Math.abs(sideState.x-.76)<.003,'secondary subject move must use its own poster position');
- assert.ok(Math.abs(sideState.y-.65)<.003,'secondary subject vertical move must be independent');
+ // 640x800 poster frame: +48px → +0.075 x, +32px → +0.04 y.
+ assert.ok(Math.abs(sideState.x-.775)<.003,'secondary subject move must use its own poster position');
+ assert.ok(Math.abs(sideState.y-.64)<.003,'secondary subject vertical move must be independent');
  await drag(page.getByRole('button',{name:'Drag to resize selected object'}),24,0);
  sideState=await page.evaluate(()=>window.FumocaPoster.getState().composition.subjects[1]);
  assert.ok(sideState.scale>1,'secondary subject scale must update independently');
