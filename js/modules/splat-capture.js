@@ -55,6 +55,153 @@ const SplatCapture = (() => {
     return document.querySelector('canvas');
   }
 
+  // Capture the composed poster, not only the WebGL canvas. Poster typography
+  // and supporting artwork are DOM layers above/around the renderer canvas.
+  function createCaptureSurface(sourceCanvas, fps) {
+    const stage = sourceCanvas.closest?.('#stageHost, #stage, [data-fumoca-poster-viewport]')
+      || document.getElementById('stageHost')
+      || document.getElementById('stage');
+    const posterRoot = stage?.querySelector?.('[data-fumoca-poster-canvas]')
+      || stage?.querySelector?.('#magazineTextLayer, [data-fumoca-poster-assets]')
+      || null;
+    if (!stage || !posterRoot) {
+      return { canvas: sourceCanvas, stop() {} };
+    }
+
+    const bounds = stage.getBoundingClientRect();
+    const ratio = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round((bounds.width || sourceCanvas.clientWidth || sourceCanvas.width) * ratio));
+    canvas.height = Math.max(1, Math.round((bounds.height || sourceCanvas.clientHeight || sourceCanvas.height) * ratio));
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return { canvas: sourceCanvas, stop() {} };
+
+    const relativeRect = (el) => {
+      const r = el.getBoundingClientRect();
+      return {
+        x: (r.left - bounds.left) * ratio,
+        y: (r.top - bounds.top) * ratio,
+        w: r.width * ratio,
+        h: r.height * ratio,
+      };
+    };
+    const visible = (el) => {
+      const s = getComputedStyle(el);
+      const r = el.getBoundingClientRect();
+      return s.display !== 'none' && s.visibility !== 'hidden' && Number(s.opacity || 1) > 0 && r.width > 0 && r.height > 0;
+    };
+    const drawImageElement = (el, rect) => {
+      if (!(el instanceof HTMLImageElement) || !el.complete || !el.naturalWidth) return;
+      const style = getComputedStyle(el);
+      const fit = style.objectFit || 'fill';
+      if (fit === 'contain' || fit === 'cover') {
+        const iw = el.naturalWidth, ih = el.naturalHeight;
+        const scale = fit === 'cover' ? Math.max(rect.w / iw, rect.h / ih) : Math.min(rect.w / iw, rect.h / ih);
+        const dw = iw * scale, dh = ih * scale;
+        ctx.save();
+        ctx.beginPath(); ctx.rect(rect.x, rect.y, rect.w, rect.h); ctx.clip();
+        ctx.drawImage(el, rect.x + (rect.w - dw) / 2, rect.y + (rect.h - dh) / 2, dw, dh);
+        ctx.restore();
+      } else {
+        ctx.drawImage(el, rect.x, rect.y, rect.w, rect.h);
+      }
+    };
+    const wrapText = (text, maxWidth, font) => {
+      ctx.font = font;
+      const lines = [];
+      for (const paragraph of String(text || '').split(/\\n/)) {
+        const words = paragraph.split(/\\s+/).filter(Boolean);
+        if (!words.length) { lines.push(''); continue; }
+        let line = '';
+        for (const word of words) {
+          const next = line ? line + ' ' + word : word;
+          if (line && ctx.measureText(next).width > maxWidth) { lines.push(line); line = word; }
+          else line = next;
+        }
+        lines.push(line);
+      }
+      return lines;
+    };
+    const drawTextElement = (el, rect) => {
+      const style = getComputedStyle(el);
+      const text = (el.innerText || el.textContent || '').trim();
+      if (!text) return;
+      const fontSize = Math.max(1, parseFloat(style.fontSize) || 16) * ratio;
+      const font = [style.fontStyle, style.fontVariant, style.fontWeight, fontSize + 'px', style.fontFamily].filter(Boolean).join(' ');
+      const lineHeightCss = parseFloat(style.lineHeight);
+      const lineHeight = (Number.isFinite(lineHeightCss) ? lineHeightCss : fontSize / ratio * 1.2) * ratio;
+      const padL = (parseFloat(style.paddingLeft) || 0) * ratio;
+      const padR = (parseFloat(style.paddingRight) || 0) * ratio;
+      const padT = (parseFloat(style.paddingTop) || 0) * ratio;
+      const maxWidth = Math.max(1, rect.w - padL - padR);
+      const lines = wrapText(text, maxWidth, font);
+      const align = style.textAlign === 'start' ? 'left' : style.textAlign === 'end' ? 'right' : style.textAlign;
+      ctx.save();
+      ctx.globalAlpha = Number(style.opacity || 1);
+      ctx.font = font;
+      ctx.fillStyle = style.color || '#fff';
+      ctx.textAlign = ['left','right','center'].includes(align) ? align : 'left';
+      ctx.textBaseline = 'top';
+      const letterSpacing = parseFloat(style.letterSpacing) || 0;
+      const totalHeight = lines.length * lineHeight;
+      let y = rect.y + padT + Math.max(0, (rect.h - padT - totalHeight) / 2);
+      for (const line of lines) {
+        const x = ctx.textAlign === 'center' ? rect.x + rect.w / 2 : ctx.textAlign === 'right' ? rect.x + rect.w - padR : rect.x + padL;
+        if (letterSpacing && line.length < 240) {
+          let cursor = x;
+          const chars = [...line];
+          if (ctx.textAlign === 'center') cursor -= (ctx.measureText(line).width + letterSpacing * chars.length) / 2;
+          if (ctx.textAlign === 'right') cursor -= ctx.measureText(line).width + letterSpacing * chars.length;
+          for (const char of chars) { ctx.fillText(char, cursor, y); cursor += ctx.measureText(char).width + letterSpacing * ratio; }
+        } else ctx.fillText(line, x, y, maxWidth);
+        y += lineHeight;
+      }
+      ctx.restore();
+    };
+
+    let stopped = false;
+    let raf = 0;
+    const draw = () => {
+      if (stopped) return;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const stageStyle = getComputedStyle(stage);
+      ctx.fillStyle = stageStyle.backgroundColor && stageStyle.backgroundColor !== 'rgba(0, 0, 0, 0)' ? stageStyle.backgroundColor : '#000';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Poster background sits behind the live 3D render.
+      const bg = stage.querySelector('[data-fumoca-poster-background]');
+      if (bg && visible(bg)) {
+        const br = relativeRect(bg);
+        const bs = getComputedStyle(bg);
+        if (bs.backgroundColor && bs.backgroundColor !== 'rgba(0, 0, 0, 0)') {
+          ctx.fillStyle = bs.backgroundColor; ctx.fillRect(br.x, br.y, br.w, br.h);
+        }
+        const bgImg = bg.querySelector('img');
+        if (bgImg) drawImageElement(bgImg, relativeRect(bgImg));
+      }
+
+      const cr = relativeRect(sourceCanvas);
+      try { ctx.drawImage(sourceCanvas, cr.x, cr.y, cr.w, cr.h); } catch (_) {}
+
+      // Draw editorial headline, independent text layers, then supporting images.
+      const title = stage.querySelector('[data-fumoca-poster-title]');
+      if (title && visible(title)) drawTextElement(title, relativeRect(title));
+      stage.querySelectorAll('#magazineTextLayer > *, #magazineTextLayer [data-magazine-text-id]').forEach((el) => {
+        if (visible(el) && !el.matches('[data-fpe-control],button,input,textarea,select')) drawTextElement(el, relativeRect(el));
+      });
+      stage.querySelectorAll('[data-fumoca-poster-assets] img').forEach((img) => {
+        const wrapper = img.closest('[data-poster-asset-id]') || img;
+        if (visible(wrapper) && visible(img)) drawImageElement(img, relativeRect(img));
+      });
+      raf = requestAnimationFrame(draw);
+    };
+    draw();
+    return {
+      canvas,
+      stop() { stopped = true; if (raf) cancelAnimationFrame(raf); },
+    };
+  }
+
   function bestMimeType() {
     const types = [
       'video/webm;codecs=vp9',
@@ -101,10 +248,12 @@ const SplatCapture = (() => {
       return Promise.reject(new Error('No canvas found'));
     }
 
+    const surface = createCaptureSurface(canvas, _options.fps);
+    const captureCanvas = surface.canvas;
     const mimeType = bestMimeType();
     let stream;
     try {
-      stream = canvas.captureStream(_options.fps);
+      stream = captureCanvas.captureStream(_options.fps);
     } catch (err) {
       emit('fumoca:captureError', { error: err.message });
       return Promise.reject(err);
@@ -133,6 +282,8 @@ const SplatCapture = (() => {
       const duration = Date.now() - startTime;
       const frameCount = Math.round(duration / 1000 * _options.fps);
       clearInterval(progressTimer);
+      surface.stop();
+      try { stream.getTracks().forEach(track => track.stop()); } catch (_) {}
       emit('fumoca:captureStopped', { videoUrl, videoBlob: blob, duration, frames: frameCount });
       emit('fumoca:captureReady', {
         videoUrl,
@@ -153,7 +304,7 @@ const SplatCapture = (() => {
     startTime = Date.now();
 
     // Grab thumbnail at start
-    setTimeout(() => { thumbnailDataUrl = captureThumbnail(canvas); }, 80);
+    setTimeout(() => { thumbnailDataUrl = captureThumbnail(captureCanvas); }, 80);
 
     recorder.start(200); // collect chunks every 200ms
     emit('fumoca:captureStarted', { fps: _options.fps, duration: _options.duration });
@@ -186,10 +337,12 @@ const SplatCapture = (() => {
 
   /** Capture a single PNG frame */
   function capture() {
-    const canvas = findCanvas();
-    if (!canvas) return null;
+    const sourceCanvas = findCanvas();
+    if (!sourceCanvas) return null;
+    const surface = createCaptureSurface(sourceCanvas, 1);
     try {
-      const dataUrl = canvas.toDataURL('image/png');
+      const dataUrl = surface.canvas.toDataURL('image/png');
+      surface.stop();
       window._fumocaLastSnapshot = dataUrl;
       emit('fumoca:snapshotReady', { dataUrl });
       return dataUrl;

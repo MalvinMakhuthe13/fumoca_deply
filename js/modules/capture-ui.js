@@ -4,7 +4,7 @@
  * Owner/admin only for recording. Anyone can view the resulting preview.
  */
 
-import SplatCapture from './splat-capture.js';
+import SplatCapture from './splat-capture.js?v=20261108-compositeposter01';
 
 const CaptureUI = (() => {
   let panel = null;
