@@ -1478,7 +1478,7 @@ function mountMeshViewer(mesh, calibration, meshComponents = [], meshDiagnostics
   // the whole time; this just shows/hides the mesh canvas on top of it.
   const btn = document.createElement('button');
   btn.id = 'fumocaMeshToggle';
-  btn.textContent = 'â— Points view';
+  btn.textContent = '● Points view';
   Object.assign(btn.style, {
     position: 'absolute', top: '12px', right: '12px', zIndex: '4',
     padding: '6px 12px', borderRadius: '999px', border: '1px solid rgba(255,255,255,0.25)',
@@ -1489,7 +1489,7 @@ function mountMeshViewer(mesh, calibration, meshComponents = [], meshDiagnostics
   btn.addEventListener('click', () => {
     showingMesh = !showingMesh;
     _meshRenderer.domElement.style.display = showingMesh ? '' : 'none';
-    btn.textContent = showingMesh ? 'â— Points view' : '▲ Solid view';
+    btn.textContent = showingMesh ? '● Points view' : '▲ Solid view';
   });
   container.appendChild(btn);
 
@@ -2950,14 +2950,14 @@ exportFigurineBtn?.addEventListener('click', async () => {
         setStatus('⚠ï¸ ' + (job.error_message || 'This capture didn\'t reconstruct solidly enough to export — try recapturing with fuller coverage.'));
         exportFigurineBtn.disabled = false;
       } else if (job.status === 'failed') {
-        setStatus('âŒ ' + (job.error_message || 'Export failed — see server logs.'));
+        setStatus('❌ ' + (job.error_message || 'Export failed — see server logs.'));
         exportFigurineBtn.disabled = false;
       } else {
         setStatus(`Processing… (${job.progress || 0}%)`);
       }
     });
   } catch (err) {
-    setStatus('âŒ ' + err.message);
+    setStatus('❌ ' + err.message);
     exportFigurineBtn.disabled = false;
   }
 });
