@@ -16,7 +16,7 @@
 <link rel="stylesheet" href="css/fumoca-layouts.css"/>
 <script type="module" src="js/modules/anim-studio.js"></script>
 <script type="module" src="js/modules/review-video.js?v=20261025-bglayer"></script>
-<script type="module" src="js/modules/present-tab.js?v=20261125-rig01"></script>
+<script type="module" src="js/modules/present-tab.js?v=20261125-living01"></script>
 
 <style>
 /* ═══════════════════════════════════════════════════════
@@ -5819,8 +5819,10 @@ window.addEventListener('fumoca:openReconstructedSplat', async (event) => {
   if (!bytes?.byteLength) return setStatus('Image reconstruction returned no splat data.', 'warn');
   try {
     await loadFile(new File([bytes], filename || 'image-popout.splat', { type: 'application/octet-stream' }));
-    S.reconstructionMeta = { kind: 'inferred-2.5d', source: filename || 'image' };
-    showToast('Inferred 2.5D scene loaded', 'This depth-based result is not a measured multi-view scan.');
+    const living = event.detail?.kind === 'living-photo';
+    S.reconstructionMeta = { kind: living ? 'living-photo' : 'inferred-2.5d', source: filename || 'image' };
+    if (living) showToast('Living photo ready', 'Built from one photo — a moving 2.5D moment, not a multi-view scan.');
+    else showToast('Inferred 2.5D scene loaded', 'This depth-based result is not a measured multi-view scan.');
   } catch (err) { setStatus(err.message || String(err), 'warn'); }
 });
 $('addSplatBtn')?.addEventListener('click', () => $('addSplatInput')?.click());
@@ -7712,7 +7714,6 @@ if (!window._fumocaBooted) {
   import { mountMeshPrintPanel } from './js/modules/studio-mesh-print.js';
   import { boostSparseCapture } from './js/modules/sparse-quality.js';
   import { mountBreakFrameUI } from './js/modules/break-frame.js';
-  import { mountImageAngleImport } from './js/modules/image-angle-import.js';
 
   function status(msg) {
     const el = document.getElementById('statusMsg') || document.getElementById('statusText');
@@ -7753,9 +7754,13 @@ if (!window._fumocaBooted) {
       .catch((e) => console.warn('[Studio] rig panel', e));
   }
 
-  // Single-photo depth estimate → explicitly inferred 2.5D splat.
+  // Single photo → living photo (no AI). Replaces the old AI-first panel.
   const imageAngleRoot = document.getElementById('imageAngleImportRoot');
-  if (imageAngleRoot) mountImageAngleImport(imageAngleRoot, { onStatus: status });
+  if (imageAngleRoot) {
+    import('./js/modules/living-photo-panel.js?v=20261125-living')
+      .then((m) => m.mountLivingPhotoPanel(imageAngleRoot, { onStatus: status }))
+      .catch((e) => console.warn('[Studio] living photo panel', e));
+  }
 
   // Camera paths
   const camRoot = document.getElementById('studioCameraPathsRoot');

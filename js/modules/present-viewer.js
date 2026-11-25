@@ -53,6 +53,7 @@ export function initPresentViewer() {
   let reviewApplied = false;
   let platformApplied = false;
   let rigApplied = false;
+  let livingApplied = false;
   const tryApply = () => {
     const data = resolvePresent();
     if (!data) return;
@@ -101,6 +102,14 @@ export function initPresentViewer() {
         .catch(error => { console.warn('[present-viewer] rig could not be restored', error); });
     }
 
+    // Living photo: gentle camera motion saved in Studio.
+    if (!livingApplied && data.living?.enabled && window._fumocaViewerCamera && window._fumocaPublishedSparkMesh) {
+      livingApplied = true;
+      Promise.all([import('three'), import('./living-photo-motion.js')])
+        .then(([THREE, m]) => { window._fumocaLivingMotion = m.startLivingMotionOnViewer(THREE, data.living); })
+        .catch(error => console.warn('[present-viewer] living photo motion could not start', error));
+    }
+
     const review =
       data.reviewUrl ||
       new URLSearchParams(location.search).get('review') ||
@@ -132,6 +141,8 @@ export function initPresentViewer() {
       platformApplied = false;
       window._fumocaRigDriver?.dispose?.(); window._fumocaRigDriver = null;
       rigApplied = false;
+      window._fumocaLivingMotion?.dispose?.(); window._fumocaLivingMotion = null;
+      livingApplied = false;
       tryApply();
     },
   };
