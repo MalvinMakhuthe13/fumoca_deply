@@ -103,10 +103,12 @@ assert.match(editorOverlay, /pick\.style\.left = clampToFrame/,
   'Secondary-object selection handles stay inside the poster frame');
 assert.match(editorOverlay, /const px=clampToFrame/,
   'The selected subject move handle stays inside the poster frame');
-assert.match(editorOverlay, /scaleHandle\.style\.left=clampToFrame/,
-  'The scale handle cannot drift outside the poster frame');
-assert.match(editorOverlay, /rotateHandle\.style\.left=clampToFrame/,
-  'The rotate handle cannot drift outside the poster frame');
+assert.match(editorOverlay, /handle\.style\.left = clampToFrame/,
+  'Orbiting scale/rotate handles cannot drift outside the poster frame');
+assert.match(editorOverlay, /placeHandle\(scaleHandle,/,
+  'The scale handle is placed through the edge-aware placement helper');
+assert.match(editorOverlay, /placeHandle\(rotateHandle,/,
+  'The rotate handle is placed through the edge-aware placement helper');
 
 const editorSubject = readFileSync(new URL('../js/modules/poster-editor-overlay.js', import.meta.url), 'utf8');
 assert.match(editorSubject, /const x=clamp\(Number\(subject\.x\?\?\.5\),0,1\)/,
