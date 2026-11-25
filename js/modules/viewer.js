@@ -182,7 +182,7 @@ const nifId = params.get('nifId') || params.get('splatId') || '';
 let previewVideoUrl = params.get('previewVideo') || '';
 let thumbnailUrl = params.get('thumbnail') || '';
 const autoplayPreview = params.get('autoplayPreview') === '1';
-// â”€â”€ PUBLIC / EMBED MODE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── PUBLIC / EMBED MODE ──────────────────────────────────────────
 // Detect three ways a public viewer link arrives:
 //   1. ?embed=1  — explicit embed iframe
 //   2. ?public=1 — explicit public share link
@@ -1357,7 +1357,7 @@ async function destroyViewer() {
 function getActivenifUrl() {
   return rendererPreviewUrl || fileUrl || originalnifUrl || '';
 }
-// â”€â”€ Solid mesh overlay — renders the KEYFRAME_MESH chunk (when present) as
+// ── Solid mesh overlay — renders the KEYFRAME_MESH chunk (when present) as
 // an actual lit triangle surface instead of the point-cloud splat render.
 // This is additive, not a replacement: the Gaussian splat renderer
 // (mountInteractiveViewer, below) still mounts underneath exactly as
@@ -1474,7 +1474,7 @@ function mountMeshViewer(mesh, calibration, meshComponents = [], meshDiagnostics
     _meshRenderer.render(_meshScene, _meshCamera);
   }
   loop();
-  // â”€â”€ Solid ⇄ Points toggle — the splat renderer keeps running underneath
+  // ── Solid ⇄ Points toggle — the splat renderer keeps running underneath
   // the whole time; this just shows/hides the mesh canvas on top of it.
   const btn = document.createElement('button');
   btn.id = 'fumocaMeshToggle';
@@ -1573,7 +1573,7 @@ function mountMeshViewer(mesh, calibration, meshComponents = [], meshDiagnostics
               `${mesh.nFaces.toLocaleString()} faces` +
               (calibration?.confidence && calibration.confidence !== 'none' ? ` (${calibration.confidence} calibration)` : ' (uncalibrated)'));
 }
-// â”€â”€ PLY point cloud viewer using Three.js â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── PLY point cloud viewer using Three.js ────────────────────────────────────
 // Called when fileUrl is a .ply — renders via THREE.js with Gaussian shader
 let _plyRenderer = null, _plyScene = null, _plyCamera = null, _plyControls = null, _plyFrame = null, _plyAttributeControl = null;
 function destroyPlyViewer() {
@@ -1667,7 +1667,7 @@ async function mountPlyViewer(url) {
       for (let i = 0; i < count; i++) { colors[i*3]=0.65; colors[i*3+1]=0.60; colors[i*3+2]=0.55; }
     }
     const sourceColors = colors.slice();
-    // â”€â”€ Per-point opacity (sigmoid-decoded from log-odds if present) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Per-point opacity (sigmoid-decoded from log-odds if present) ──────────
     const opacities = new Float32Array(count);
     const opAttr = geo.getAttribute('opacity');
     if (opAttr) {
@@ -1678,7 +1678,7 @@ async function mountPlyViewer(url) {
     } else {
       opacities.fill(1.0);
     }
-    // â”€â”€ Per-point size: scale_* from 3DGS are log-scale world units â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Per-point size: scale_* from 3DGS are log-scale world units ──────────
     // exp-decoded they are tiny (0.001–0.15). Use scene radius to compute a
     // sensible base size so nif_files are always visible, with scale as a soft multiplier.
     const sizes = new Float32Array(count);
@@ -1747,7 +1747,7 @@ async function mountPlyViewer(url) {
     }
     geo.setAttribute('aOpacity', new THREE.BufferAttribute(opacities, 1));
     geo.setAttribute('aSize',    new THREE.BufferAttribute(sizes, 1));
-    // â”€â”€ Photoreal Gaussian nif shader â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Photoreal Gaussian nif shader ───────────────────────────────────────
     const mat = new THREE.ShaderMaterial({
       uniforms: {
         uBaseSize:   { value: 1.0 },   // set after boundingSphere below
@@ -2324,7 +2324,7 @@ async function mountInteractiveViewer(forceReload = false) {
     applyStageFilters();
     setTimeout(() => hint.classList.add('hidden'), 4500);
     if (!forceReload) await incrementViewCount();
-    // â”€â”€ Post-load: extract Gaussian positions and fire fumoca:viewerReady â”€â”€
+    // ── Post-load: extract Gaussian positions and fire fumoca:viewerReady ──
     // Gaussiannif_files3D doesn't expose positions synchronously — wait one frame
     // for the internal sort worker to finish, then probe the nifMesh.
     setTimeout(() => {
@@ -2373,7 +2373,7 @@ let controls = viewerInstance.controls || viewerInstance.orbitControls || null;
 
 if (cam) window._fumocaViewerCamera = cam;
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€─
+// ─────────────────────────────────────────────────────────────
 // FUMOCA PUBLIC PRODUCT VIEWER CONTROLS
 // Full 360 around subject, framed on load, no drift off-screen, no auto-spin
 // =============================================================================
@@ -2943,11 +2943,11 @@ exportFigurineBtn?.addEventListener('click', async () => {
         const warning = job.meta?.print_warning;  // set server-side when mesh_watertight is false
         exportFigurineStatus.innerHTML = stlUrl
           ? `✅ Ready — <a href="${stlUrl}" target="_blank" style="color:#C8FF00;">Download STL</a>` +
-            (warning ? `<br><span style="color:#ffb020;">âš ï¸ ${warning}</span>` : '')
+            (warning ? `<br><span style="color:#ffb020;">⚠ï¸ ${warning}</span>` : '')
           : '✅ Done, but no download link came back — check the job record.';
         exportFigurineBtn.disabled = false;
       } else if (job.status === 'needs_retry') {
-        setStatus('âš ï¸ ' + (job.error_message || 'This capture didn\'t reconstruct solidly enough to export — try recapturing with fuller coverage.'));
+        setStatus('⚠ï¸ ' + (job.error_message || 'This capture didn\'t reconstruct solidly enough to export — try recapturing with fuller coverage.'));
         exportFigurineBtn.disabled = false;
       } else if (job.status === 'failed') {
         setStatus('âŒ ' + (job.error_message || 'Export failed — see server logs.'));
@@ -3079,7 +3079,7 @@ function _fumocaTrack(event, detail = {}) {
     window.dispatchEvent(new CustomEvent('fumoca:track', { detail: { event, ...detail } }));
   } catch (_) {}
 }
-// â”€â”€ STUDIO PANEL CONTROLS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── STUDIO PANEL CONTROLS ────────────────────────────────────────
 // (variant save / queue / range inputs wired once here; a second
 //  block further down handles the _fumocaSaveVariant path — kept
 //  there so the canManage guard applies correctly)
@@ -3099,7 +3099,7 @@ cropDepthRange?.addEventListener('input', () => { studioState.cropDepth = Number
 maskOvalBtn?.addEventListener('click', () => { studioState.maskShape = 'ellipse'; maskOvalBtn.classList.add('active'); maskBoxBtn?.classList.remove('active'); applyStageFilters(); setVariantDirty(true); });
 maskBoxBtn?.addEventListener('click', () => { studioState.maskShape = 'inset'; maskBoxBtn.classList.add('active'); maskOvalBtn?.classList.remove('active'); applyStageFilters(); setVariantDirty(true); });
 applyStudioBtn?.addEventListener('click', () => mountInteractiveViewer(true));
-// â”€â”€ GPU Image Quality sliders — realtime, no geometry rebuild â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€─
+// ── GPU Image Quality sliders — realtime, no geometry rebuild ─────────────────
 const Q_PRESETS = {
   balanced:  { brightness:1.00, contrast:1.08, saturation:1.12, sharpness:0.72, bloom:0.55 },
   postshot:  { brightness:1.05, contrast:1.18, saturation:1.28, sharpness:0.88, bloom:0.80 },
@@ -3226,7 +3226,7 @@ maskLayer?.addEventListener('click', (e) => {
   setVariantDirty(true);
 });
 deleteUploadBtn?.addEventListener('click', () => { _fumocaTrack('delete_upload_click', { recordId: currentRecord?.id || null }); return deleteCurrentUpload(); });
-// â”€â”€ EXPOSE STATE TO EDIT ENGINE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── EXPOSE STATE TO EDIT ENGINE ──────────────────────────────────
 // edit-engine.js reads these window properties to access the live
 // nif URL, Supabase client, and current record without coupling.
 function exposeToEditEngine() {
@@ -3246,7 +3246,7 @@ const _bootInterval = setInterval(() => {
 window.addEventListener('fumoca:recordLoaded', exposeToEditEngine);
 // Also expose immediately in case already set
 exposeToEditEngine();
-// â”€â”€ V29 bridge patch: expose session, viewer, camera, controls for admin-only tools â”€â”€
+// ── V29 bridge patch: expose session, viewer, camera, controls for admin-only tools ──
 async function _fumocaExposeSession() {
   try {
     if (!window._fumocaSupabase?.auth?.getSession) return;
@@ -3324,7 +3324,7 @@ window.addEventListener('fumoca:recordLoaded', () => {
   _fumocaExposeSession();
   _fumocaExposeViewerBridge();
 });
-// â”€â”€ V31 FULL-FORCE PLATFORM PATCH â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── V31 FULL-FORCE PLATFORM PATCH ───────────────────────────────
 window._fumocaPermissions = {
   isOwner: false,
   isAdmin: false,
@@ -3577,7 +3577,7 @@ _fumocaExposePlatform();
 _fumocaSyncPermissions();
 _fumocaSchedulePipelineFlush(1200);
 window.dispatchEvent(new CustomEvent('fumoca:requestEditPreview'));
-// â”€â”€ nif CAPTURE BRIDGE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€─
+// ── nif CAPTURE BRIDGE ─────────────────────────────────────────
 // Exposes the renderer canvas so nifCapture can record the live viewer.
 function _fumocaExposeCaptureBridge() {
   try {
@@ -3603,7 +3603,7 @@ const _captureBridgeInterval = setInterval(() => {
   if (window._fumocaCaptureCanvas) clearInterval(_captureBridgeInterval);
 }, 500);
 setTimeout(() => clearInterval(_captureBridgeInterval), 12000);
-// â”€â”€ AUTO PREVIEW GENERATION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€─
+// ── AUTO PREVIEW GENERATION ─────────────────────────────────────
 function _fumocaSupportsAutoCapture() {
   try {
     return !!(window.nifCapture && window.MediaRecorder && HTMLCanvasElement.prototype.captureStream);
