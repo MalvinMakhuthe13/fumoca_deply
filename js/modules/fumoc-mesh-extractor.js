@@ -1520,5 +1520,6 @@ const FumocMeshExtractor = {
 };
 
 if (typeof module !== 'undefined' && module.exports) module.exports = FumocMeshExtractor;
-window.FumocMeshExtractor = FumocMeshExtractor;
+if (typeof window !== 'undefined') window.FumocMeshExtractor = FumocMeshExtractor;
+export { MC_EDGE_TABLE, _loadTriTable as loadMarchingCubesTriTable };
 export default FumocMeshExtractor;
