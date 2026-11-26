@@ -15,24 +15,74 @@
 import { readRest } from './splat-rig-driver.js';
 
 export const DEFAULT_LIGHTING = Object.freeze({
-  version: 1, enabled: false,
-  azimuth: 35, elevation: 50,        // degrees; elevation from the ground plane
+  version: 2, enabled: false, preset: 'custom',
+  azimuth: 35, elevation: 50,        // key light, degrees; elevation from the ground plane
   intensity: 0.9, ambient: 0.55, color: '#fff4e6',
+  ambientColor: '#ffffff',
+  // second light: fill, rim or a coloured accent
+  light2: false, azimuth2: -150, elevation2: 25, intensity2: 0.6, color2: '#8fb8ff',
+  // colour grade
+  exposure: 0, contrast: 0, saturation: 0, warmth: 0, tint: 0,
+  // atmosphere (background + vignette in Studio and the viewer)
+  background: '', vignette: 0,
   shadow: true, shadowOpacity: 0.55, shadowSoftness: 0.5,
 });
 
-const num = (v, lo, hi, d) => (Number.isFinite(+v) ? Math.min(hi, Math.max(lo, +v)) : d);
+const num = (v, lo, hi, d) => (Number.isFinite(+v) && v !== '' && v !== null ? Math.min(hi, Math.max(lo, +v)) : d);
+const hex = (v, d) => (/^#[0-9a-f]{6}$/i.test(v || '') ? v.toLowerCase() : d);
 
 export function normalizeLighting(input) {
   if (!input || typeof input !== 'object') return null;
-  const color = /^#[0-9a-f]{6}$/i.test(input.color || '') ? input.color : DEFAULT_LIGHTING.color;
+  const D = DEFAULT_LIGHTING;
   return {
-    version: 1, enabled: !!input.enabled,
-    azimuth: num(input.azimuth, -360, 360, 35), elevation: num(input.elevation, 2, 90, 50),
-    intensity: num(input.intensity, 0, 3, 0.9), ambient: num(input.ambient, 0, 2, 0.55), color,
-    shadow: input.shadow !== false, shadowOpacity: num(input.shadowOpacity, 0, 1, 0.55),
-    shadowSoftness: num(input.shadowSoftness, 0, 1, 0.5),
+    version: 2, enabled: !!input.enabled, preset: String(input.preset || 'custom').slice(0, 24),
+    azimuth: num(input.azimuth, -360, 360, D.azimuth), elevation: num(input.elevation, 2, 90, D.elevation),
+    intensity: num(input.intensity, 0, 3, D.intensity), ambient: num(input.ambient, 0, 2, D.ambient),
+    color: hex(input.color, D.color), ambientColor: hex(input.ambientColor, D.ambientColor),
+    light2: !!input.light2, azimuth2: num(input.azimuth2, -360, 360, D.azimuth2), elevation2: num(input.elevation2, -30, 90, D.elevation2),
+    intensity2: num(input.intensity2, 0, 3, D.intensity2), color2: hex(input.color2, D.color2),
+    exposure: num(input.exposure, -2, 2, 0), contrast: num(input.contrast, -1, 1, 0), saturation: num(input.saturation, -1, 1, 0),
+    warmth: num(input.warmth, -1, 1, 0), tint: num(input.tint, -1, 1, 0),
+    background: input.background ? hex(input.background, '') : '', vignette: num(input.vignette, 0, 1, 0),
+    shadow: input.shadow !== false, shadowOpacity: num(input.shadowOpacity, 0, 1, D.shadowOpacity),
+    shadowSoftness: num(input.shadowSoftness, 0, 1, D.shadowSoftness),
   };
+}
+
+/**
+ * Mood presets — one click to set the scene, then tweak anything.
+ * Values are only the ones each mood changes; the rest come from defaults.
+ */
+export const MOODS = {
+  natural:  { label: 'Natural', enabled: false },
+  golden:   { label: 'Golden hour', azimuth: 70, elevation: 14, intensity: 1.15, color: '#ffb35c', ambient: 0.42, ambientColor: '#8aa4d6',
+              light2: true, azimuth2: -120, elevation2: 30, intensity2: 0.25, color2: '#7fa2ff', warmth: 0.35, contrast: 0.15, saturation: 0.15,
+              background: '#2a1a12', vignette: 0.35, shadowOpacity: 0.6, shadowSoftness: 0.35 },
+  studio:   { label: 'Studio softbox', azimuth: 35, elevation: 45, intensity: 0.8, color: '#ffffff', ambient: 0.7, ambientColor: '#ffffff',
+              light2: true, azimuth2: -140, elevation2: 35, intensity2: 0.45, color2: '#ffffff', contrast: 0.05,
+              background: '#e9eaec', vignette: 0.1, shadowOpacity: 0.35, shadowSoftness: 0.85 },
+  overcast: { label: 'Overcast', azimuth: 0, elevation: 80, intensity: 0.35, color: '#e9eef5', ambient: 0.85, ambientColor: '#dfe6ee',
+              warmth: -0.1, saturation: -0.15, contrast: -0.1, background: '#9aa3ad', vignette: 0.15, shadowOpacity: 0.25, shadowSoftness: 1 },
+  night:    { label: 'Moonlit night', azimuth: -60, elevation: 35, intensity: 0.7, color: '#9db8ff', ambient: 0.22, ambientColor: '#2b3a66',
+              exposure: -0.5, warmth: -0.45, saturation: -0.25, contrast: 0.2, background: '#05070d', vignette: 0.6, shadowOpacity: 0.7, shadowSoftness: 0.5 },
+  neon:     { label: 'Neon', azimuth: 60, elevation: 25, intensity: 1.1, color: '#ff3fb4', ambient: 0.2, ambientColor: '#2a1440',
+              light2: true, azimuth2: -110, elevation2: 20, intensity2: 1.0, color2: '#25e2ff', saturation: 0.35, contrast: 0.25,
+              background: '#0b0614', vignette: 0.5, shadowOpacity: 0.5, shadowSoftness: 0.4 },
+  noir:     { label: 'Noir', azimuth: 50, elevation: 30, intensity: 1.3, color: '#ffffff', ambient: 0.18, ambientColor: '#ffffff',
+              saturation: -1, contrast: 0.45, exposure: -0.1, background: '#050505', vignette: 0.7, shadowOpacity: 0.85, shadowSoftness: 0.2 },
+  sunsetRim:{ label: 'Sunset rim', azimuth: 170, elevation: 12, intensity: 1.4, color: '#ff8a3d', ambient: 0.35, ambientColor: '#5a6fa8',
+              light2: true, azimuth2: 20, elevation2: 30, intensity2: 0.35, color2: '#9fb5ff', warmth: 0.2, contrast: 0.2,
+              background: '#1a0f14', vignette: 0.45, shadowOpacity: 0.55, shadowSoftness: 0.4 },
+  product:  { label: 'Clean product', azimuth: 25, elevation: 55, intensity: 0.6, color: '#ffffff', ambient: 0.9, ambientColor: '#ffffff',
+              light2: true, azimuth2: 180, elevation2: 40, intensity2: 0.4, color2: '#ffffff', exposure: 0.15, saturation: 0.05,
+              background: '#ffffff', vignette: 0, shadowOpacity: 0.3, shadowSoftness: 0.9 },
+};
+
+export function moodSettings(name, base = {}) {
+  const m = MOODS[name];
+  if (!m) return normalizeLighting(base);
+  const { label, ...values } = m;
+  return normalizeLighting({ ...DEFAULT_LIGHTING, shadow: base.shadow ?? true, enabled: true, ...values, preset: name });
 }
 
 /** Direction *towards* the light (y up). */
@@ -68,19 +118,41 @@ export function splatNormals(rest) {
   return N;
 }
 
-/** Lit colours (0..1) for every splat. */
+/** Colour grade one linear-ish RGB triple in place (exposure, white balance, contrast, saturation). */
+function grade(rgb, g) {
+  let [r, gg, b] = rgb;
+  const e = Math.pow(2, g.exposure);
+  r *= e; gg *= e; b *= e;
+  r *= 1 + 0.18 * g.warmth; b *= 1 - 0.18 * g.warmth;            // warm ↔ cool
+  gg *= 1 - 0.12 * g.tint; r *= 1 + 0.06 * g.tint; b *= 1 + 0.06 * g.tint;   // green ↔ magenta
+  const c = 1 + g.contrast;
+  r = (r - 0.5) * c + 0.5; gg = (gg - 0.5) * c + 0.5; b = (b - 0.5) * c + 0.5;
+  const l = 0.2126 * r + 0.7152 * gg + 0.0722 * b, sat = 1 + g.saturation;
+  r = l + (r - l) * sat; gg = l + (gg - l) * sat; b = l + (b - l) * sat;
+  rgb[0] = Math.min(1, Math.max(0, r)); rgb[1] = Math.min(1, Math.max(0, gg)); rgb[2] = Math.min(1, Math.max(0, b));
+}
+
+/** Lit + graded colours (0..1) for every splat. */
 export function relightColors(baseColors, normals, settings, out = null) {
-  const s = normalizeLighting(settings) || { ...DEFAULT_LIGHTING };
+  const s = normalizeLighting(settings) || normalizeLighting(DEFAULT_LIGHTING);
   const n = baseColors.length / 3;
   out = out || new Float32Array(baseColors.length);
   if (!s.enabled) { out.set(baseColors); return out; }
-  const L = lightDirection(s.azimuth, s.elevation), lc = hexRgb(s.color);
+  const L1 = lightDirection(s.azimuth, s.elevation), c1 = hexRgb(s.color);
+  const L2 = lightDirection(s.azimuth2, Math.max(-89, s.elevation2)), c2 = hexRgb(s.color2), on2 = s.light2 ? s.intensity2 : 0;
+  const ca = hexRgb(s.ambientColor);
+  const graded = s.exposure || s.contrast || s.saturation || s.warmth || s.tint;
+  const rgb = [0, 0, 0];
   for (let i = 0; i < n; i++) {
-    const d = Math.max(0, normals[i * 3] * L[0] + normals[i * 3 + 1] * L[1] + normals[i * 3 + 2] * L[2]);
-    const k = s.ambient + s.intensity * d;
-    out[i * 3] = Math.min(1, baseColors[i * 3] * k * lc[0]);
-    out[i * 3 + 1] = Math.min(1, baseColors[i * 3 + 1] * k * lc[1]);
-    out[i * 3 + 2] = Math.min(1, baseColors[i * 3 + 2] * k * lc[2]);
+    const nx = normals[i * 3], ny = normals[i * 3 + 1], nz = normals[i * 3 + 2];
+    const d1 = Math.max(0, nx * L1[0] + ny * L1[1] + nz * L1[2]) * s.intensity;
+    const d2 = on2 ? Math.max(0, nx * L2[0] + ny * L2[1] + nz * L2[2]) * on2 : 0;
+    for (let k = 0; k < 3; k++) {
+      const light = s.ambient * ca[k] + d1 * c1[k] + d2 * c2[k];
+      rgb[k] = baseColors[i * 3 + k] * light;
+    }
+    if (graded) grade(rgb, s);
+    out[i * 3] = Math.min(1, rgb[0]); out[i * 3 + 1] = Math.min(1, rgb[1]); out[i * 3 + 2] = Math.min(1, rgb[2]);
   }
   return out;
 }
@@ -134,9 +206,41 @@ export function shadowMap(positions, count, opacity, settings, { size = 256, gro
 /**
  * Drives lighting + shadow on one Spark SplatMesh (Studio and viewer).
  */
+/**
+ * Mood atmosphere: background colour and a soft vignette over the view.
+ * Remembers what was there so turning it off restores it.
+ */
+export class Atmosphere {
+  constructor(THREE, scene, host) { this.THREE = THREE; this.scene = scene; this.host = host; this.saved = undefined; this.el = null; }
+  apply(settings) {
+    const s = normalizeLighting(settings);
+    const on = !!(s?.enabled);
+    if (this.scene) {
+      if (on && s.background) {
+        if (this.saved === undefined) this.saved = this.scene.background ?? null;
+        this.scene.background = new this.THREE.Color(s.background);
+      } else if (this.saved !== undefined) { this.scene.background = this.saved; this.saved = undefined; }
+    }
+    if (this.host && typeof document !== 'undefined') {
+      if (!this.el) {
+        this.el = document.createElement('div');
+        this.el.className = 'fumoca-vignette';
+        this.el.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:2;transition:opacity .25s';
+        if (getComputedStyle(this.host).position === 'static') this.host.style.position = 'relative';
+        this.host.appendChild(this.el);
+      }
+      const v = on ? s.vignette : 0;
+      this.el.style.opacity = v > 0 ? '1' : '0';
+      this.el.style.background = `radial-gradient(ellipse at center, rgba(0,0,0,0) ${Math.round(70 - v * 35)}%, rgba(0,0,0,${(0.25 + v * 0.6).toFixed(2)}) 100%)`;
+    }
+  }
+  dispose() { this.apply({ enabled: false }); this.el?.remove(); this.el = null; }
+}
+
 export class SplatLighting {
-  constructor(THREE, mesh, settings = null) {
+  constructor(THREE, mesh, settings = null, { scene = null, host = null } = {}) {
     this.THREE = THREE; this.mesh = mesh;
+    this.atmosphere = scene || host ? new Atmosphere(THREE, scene, host) : null;
     this.rest = readRest(mesh);
     if (!this.rest) throw new Error('Splat is not ready for lighting yet.');
     this.normals = splatNormals(this.rest);
@@ -170,6 +274,7 @@ export class SplatLighting {
     splats.needsUpdate = true;
     this.mesh.updateVersion?.();
     this.updateShadow();
+    this.atmosphere?.apply(this.settings);
     globalThis.dispatchEvent?.(new CustomEvent('fumoca:lightingApplied', { detail: this.settings }));
   }
 
@@ -211,6 +316,7 @@ export class SplatLighting {
 
   dispose() {
     try { this.reset(); } catch (_) {}
+    this.atmosphere?.dispose();
     if (this.plane) { this.plane.parent?.remove(this.plane); this.plane.geometry.dispose(); this.plane.material.map?.dispose(); this.plane.material.dispose(); }
     this.plane = null;
   }
@@ -221,7 +327,8 @@ export async function applyLightingOnViewer(THREE, mesh, saved) {
   const s = normalizeLighting(saved);
   if (!s?.enabled || !mesh) return null;
   if (mesh.initialized) await mesh.initialized;
-  const l = new SplatLighting(THREE, mesh, s);
+  const renderer = globalThis._fumocaViewerRenderer;
+  const l = new SplatLighting(THREE, mesh, s, { scene: globalThis._fumocaViewerScene || null, host: renderer?.domElement?.parentElement || null });
   l.apply(s);
   return l;
 }

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { splatNormals, relightColors, shadowMap, lightDirection, normalizeLighting, SplatLighting } from '../js/modules/splat-lighting.js';
+import { splatNormals, relightColors, shadowMap, lightDirection, normalizeLighting, SplatLighting, MOODS, moodSettings } from '../js/modules/splat-lighting.js';
 
 // A flat disc of splats on the ground (normals up) + a vertical wall facing +z.
 function scene() {
@@ -63,4 +63,20 @@ assert.ok(Math.abs(plane.position.y - 0) < 1e-3, 'shadow on the ground');
 lighting.reset();
 assert.ok(rows.every(r => Math.abs(r.col[0] - 0.6) < 1e-6), 'reset restores the scan colours');
 assert.equal(plane.visible, false);
+// moods + grade
+for (const name of Object.keys(MOODS)) {
+  const m = moodSettings(name);
+  assert.equal(m.preset, name);
+  const out = relightColors(rest.colors, N, m);
+  for (const v of out) assert.ok(v >= 0 && v <= 1 && Number.isFinite(v), name + ' colours valid');
+}
+assert.equal(moodSettings('natural').enabled, false, 'Natural = the scan\'s own light');
+const noir = relightColors(rest.colors.map((_, i) => [0.8, 0.3, 0.1][i % 3]), N, moodSettings('noir'));
+assert.ok(Math.abs(noir[450 * 3] - noir[450 * 3 + 1]) < 1e-6 && Math.abs(noir[450 * 3 + 1] - noir[450 * 3 + 2]) < 1e-6, 'noir is black & white');
+const warm = relightColors(rest.colors, N, { enabled: true, ambient: 1, intensity: 0, color: '#ffffff', warmth: 1 });
+assert.ok(warm[0] > warm[2] + 0.1, 'warmth pushes red over blue');
+const neon = relightColors(rest.colors, N, moodSettings('neon'));
+assert.ok(neon[450 * 3] > neon[450 * 3 + 1], 'neon key light is pink on the lit side');
+const bright = relightColors(rest.colors, N, { enabled: true, ambient: 0.5, intensity: 0, exposure: 1 });
+assert.ok(Math.abs(bright[0] - 0.6 * 0.5 * 2) < 1e-6, '+1 exposure doubles');
 console.log('splat-lighting: all tests passed');

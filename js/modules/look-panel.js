@@ -7,7 +7,7 @@
  * Both are saved with the NIF and applied in the public viewer.
  */
 import * as THREE from 'three';
-import { SplatLighting, normalizeLighting, DEFAULT_LIGHTING } from './splat-lighting.js';
+import { SplatLighting, normalizeLighting, DEFAULT_LIGHTING, MOODS, moodSettings } from './splat-lighting.js';
 import { ViewController, normalizeViewSettings, captureView, DEFAULT_VIEW } from './view-settings.js';
 
 const row = (id, label, min, max, step, value, fmt = (v) => v) =>
@@ -22,13 +22,31 @@ export function mountLookPanel(container, { onStatus } = {}) {
     <div class="section">
       <div class="sec-head"><span class="sec-label">Lighting &amp; shadow</span><span class="sec-badge">CPU</span></div>
       <div class="sec-body" style="padding:10px">
-        <div class="hint">Light the splat from any side and drop a soft shadow under it. The shadow follows the splat, the platform and any rig animation. Turn it off to get the scan's own colours back exactly.</div>
+        <div class="hint">Set the mood of a scan: pick a look, then tweak anything. The shadow follows the splat, the platform and any rig animation. Turn it off to get the scan's own colours back exactly.</div>
+        <div id="lkMoods" style="display:flex;flex-wrap:wrap;gap:5px;margin:8px 0">${Object.entries(MOODS).map(([k, m]) => `<button type="button" class="ac-btn" data-mood="${k}" style="padding:5px 8px;font-size:11px">${m.label}</button>`).join('')}</div>
         ${check('lkOn', 'Use lighting')}
+        <div class="hint" style="margin-top:8px;opacity:.8">Key light</div>
         ${row('lkAz', 'Direction', -180, 180, 1, L.azimuth, v => Math.round(v) + '°')}
         ${row('lkEl', 'Height', 2, 90, 1, L.elevation, v => Math.round(v) + '°')}
         ${row('lkInt', 'Light strength', 0, 2, 0.05, L.intensity, v => Math.round(v * 100) + '%')}
-        ${row('lkAmb', 'Fill (ambient)', 0, 1.5, 0.05, L.ambient, v => Math.round(v * 100) + '%')}
         <div class="ctrl-row"><span class="ctrl-label">Light colour</span><input type="color" id="lkCol" value="${L.color}" style="width:48px;height:22px;border:0;background:none"></div>
+        ${row('lkAmb', 'Fill (ambient)', 0, 1.5, 0.05, L.ambient, v => Math.round(v * 100) + '%')}
+        <div class="ctrl-row"><span class="ctrl-label">Fill colour</span><input type="color" id="lkAmbCol" value="${L.ambientColor}" style="width:48px;height:22px;border:0;background:none"></div>
+        ${check('lk2', 'Second light (rim, back or coloured accent)')}
+        ${row('lkAz2', 'Direction', -180, 180, 1, L.azimuth2, v => Math.round(v) + '°')}
+        ${row('lkEl2', 'Height', -30, 90, 1, L.elevation2, v => Math.round(v) + '°')}
+        ${row('lkInt2', 'Strength', 0, 2, 0.05, L.intensity2, v => Math.round(v * 100) + '%')}
+        <div class="ctrl-row"><span class="ctrl-label">Colour</span><input type="color" id="lkCol2" value="${L.color2}" style="width:48px;height:22px;border:0;background:none"></div>
+        <div class="hint" style="margin-top:8px;opacity:.8">Colour grade</div>
+        ${row('lkExp', 'Exposure', -2, 2, 0.05, 0, v => (v > 0 ? '+' : '') + (+v).toFixed(2))}
+        ${row('lkCon', 'Contrast', -1, 1, 0.05, 0, v => Math.round(v * 100))}
+        ${row('lkSat', 'Saturation', -1, 1, 0.05, 0, v => Math.round(v * 100))}
+        ${row('lkWarm', 'Warmth', -1, 1, 0.05, 0, v => Math.round(v * 100))}
+        ${row('lkTint', 'Tint', -1, 1, 0.05, 0, v => Math.round(v * 100))}
+        <div class="hint" style="margin-top:8px;opacity:.8">Atmosphere</div>
+        <div class="ctrl-row"><span class="ctrl-label">Background</span><span><input type="checkbox" id="lkBgOn"> <input type="color" id="lkBg" value="#0b0d10" style="width:48px;height:22px;border:0;background:none"></span></div>
+        ${row('lkVig', 'Vignette', 0, 1, 0.05, 0, v => Math.round(v * 100) + '%')}
+        <div class="hint" style="margin-top:8px;opacity:.8">Shadow</div>
         ${check('lkSh', 'Shadow', true)}
         ${row('lkShOp', 'Shadow darkness', 0, 1, 0.05, L.shadowOpacity, v => Math.round(v * 100) + '%')}
         ${row('lkShSoft', 'Shadow softness', 0, 1, 0.05, L.shadowSoftness, v => Math.round(v * 100) + '%')}
@@ -63,11 +81,27 @@ export function mountLookPanel(container, { onStatus } = {}) {
   let lighting = null, lightingMesh = null, startView = null, preview = null;
 
   const sparkMesh = () => (window.FumocaSparkGaussian?.isEnabled?.() ? window.FumocaSparkGaussian.getMesh?.() : null);
+  let preset = 'custom';
   const lightState = () => normalizeLighting({
-    enabled: q('#lkOn').checked, azimuth: +q('#lkAz').value, elevation: +q('#lkEl').value,
-    intensity: +q('#lkInt').value, ambient: +q('#lkAmb').value, color: q('#lkCol').value,
+    enabled: q('#lkOn').checked, preset,
+    azimuth: +q('#lkAz').value, elevation: +q('#lkEl').value, intensity: +q('#lkInt').value, color: q('#lkCol').value,
+    ambient: +q('#lkAmb').value, ambientColor: q('#lkAmbCol').value,
+    light2: q('#lk2').checked, azimuth2: +q('#lkAz2').value, elevation2: +q('#lkEl2').value, intensity2: +q('#lkInt2').value, color2: q('#lkCol2').value,
+    exposure: +q('#lkExp').value, contrast: +q('#lkCon').value, saturation: +q('#lkSat').value, warmth: +q('#lkWarm').value, tint: +q('#lkTint').value,
+    background: q('#lkBgOn').checked ? q('#lkBg').value : '', vignette: +q('#lkVig').value,
     shadow: q('#lkSh').checked, shadowOpacity: +q('#lkShOp').value, shadowSoftness: +q('#lkShSoft').value,
   });
+  function setLightControls(ls) {
+    const set = (id, v) => { const el = q('#' + id); if (el.type === 'checkbox') el.checked = !!v; else el.value = v; };
+    set('lkOn', ls.enabled); set('lkAz', ls.azimuth); set('lkEl', ls.elevation); set('lkInt', ls.intensity); set('lkCol', ls.color);
+    set('lkAmb', ls.ambient); set('lkAmbCol', ls.ambientColor);
+    set('lk2', ls.light2); set('lkAz2', ls.azimuth2); set('lkEl2', ls.elevation2); set('lkInt2', ls.intensity2); set('lkCol2', ls.color2);
+    set('lkExp', ls.exposure); set('lkCon', ls.contrast); set('lkSat', ls.saturation); set('lkWarm', ls.warmth); set('lkTint', ls.tint);
+    set('lkBgOn', !!ls.background); if (ls.background) set('lkBg', ls.background); set('lkVig', ls.vignette);
+    set('lkSh', ls.shadow); set('lkShOp', ls.shadowOpacity); set('lkShSoft', ls.shadowSoftness);
+    preset = ls.preset || 'custom';
+    container.querySelectorAll('[data-mood]').forEach(b => b.classList.toggle('lime', b.dataset.mood === preset));
+  }
   const viewState = () => normalizeViewSettings({
     startView, zoomMin: +q('#vwMin').value, zoomMax: +q('#vwMax').value,
     lockZoom: q('#vwLockZoom').checked, lockRotate: q('#vwLockRot').checked, allowPan: q('#vwPan').checked,
@@ -80,7 +114,7 @@ export function mountLookPanel(container, { onStatus } = {}) {
     if (!mesh) return null;
     if (lighting && lightingMesh === mesh) return lighting;
     lighting?.dispose?.();
-    try { lighting = new SplatLighting(THREE, mesh); lightingMesh = mesh; }
+    try { lighting = new SplatLighting(THREE, mesh, null, { scene: window.scene || null, host: window.renderer?.domElement?.parentElement || null }); lightingMesh = mesh; }
     catch (e) { lighting = null; status(e.message); }
     return lighting;
   }
@@ -97,8 +131,19 @@ export function mountLookPanel(container, { onStatus } = {}) {
       catch (e) { status(e.message); }
     }, 60);
   }
-  ['lkOn', 'lkAz', 'lkEl', 'lkInt', 'lkAmb', 'lkCol', 'lkSh', 'lkShOp', 'lkShSoft'].forEach(id => {
-    q('#' + id).addEventListener('input', () => { syncLabels(); applyLighting(); });
+  const LIGHT_IDS = ['lkOn', 'lkAz', 'lkEl', 'lkInt', 'lkCol', 'lkAmb', 'lkAmbCol', 'lk2', 'lkAz2', 'lkEl2', 'lkInt2', 'lkCol2',
+    'lkExp', 'lkCon', 'lkSat', 'lkWarm', 'lkTint', 'lkBgOn', 'lkBg', 'lkVig', 'lkSh', 'lkShOp', 'lkShSoft'];
+  container.querySelectorAll('[data-mood]').forEach(btn => btn.addEventListener('click', () => {
+    const ls = moodSettings(btn.dataset.mood, lightState());
+    setLightControls(ls); syncLabels(); applyLighting();
+    window.dispatchEvent(new CustomEvent('fumoca:lookChange'));
+    status(MOODS[btn.dataset.mood].label + (ls.enabled ? ' — tweak any slider to make it yours.' : ' — the scan\'s own light.'));
+  }));
+  LIGHT_IDS.forEach(id => {
+    q('#' + id).addEventListener('input', () => {
+      if (id !== 'lkOn' && preset !== 'custom') { preset = 'custom'; container.querySelectorAll('[data-mood]').forEach(b => b.classList.remove('lime')); }
+      syncLabels(); applyLighting();
+    });
     q('#' + id).addEventListener('change', () => window.dispatchEvent(new CustomEvent('fumoca:lookChange')));
   });
 
@@ -116,6 +161,9 @@ export function mountLookPanel(container, { onStatus } = {}) {
   function syncLabels() {
     const fmt = {
       lkAz: v => Math.round(v) + '°', lkEl: v => Math.round(v) + '°', lkInt: v => Math.round(v * 100) + '%', lkAmb: v => Math.round(v * 100) + '%',
+      lkAz2: v => Math.round(v) + '°', lkEl2: v => Math.round(v) + '°', lkInt2: v => Math.round(v * 100) + '%',
+      lkExp: v => (v > 0 ? '+' : '') + (+v).toFixed(2), lkCon: v => Math.round(v * 100), lkSat: v => Math.round(v * 100),
+      lkWarm: v => Math.round(v * 100), lkTint: v => Math.round(v * 100), lkVig: v => Math.round(v * 100) + '%',
       lkShOp: v => Math.round(v * 100) + '%', lkShSoft: v => Math.round(v * 100) + '%',
       vwMin: v => Math.round(v * 100) + '% of start', vwMax: v => (+v).toFixed(2) + '× start', vwSpin: v => (+v === 0 ? 'off' : Math.round(v) + '°/s'),
     };
@@ -163,8 +211,7 @@ export function mountLookPanel(container, { onStatus } = {}) {
     const present = window._fumocaCurrentRecord?.meta?.present || {};
     const ls = normalizeLighting(present.lighting), vs = normalizeViewSettings(present.view);
     if (ls) {
-      q('#lkOn').checked = ls.enabled; q('#lkAz').value = ls.azimuth; q('#lkEl').value = ls.elevation; q('#lkInt').value = ls.intensity;
-      q('#lkAmb').value = ls.ambient; q('#lkCol').value = ls.color; q('#lkSh').checked = ls.shadow; q('#lkShOp').value = ls.shadowOpacity; q('#lkShSoft').value = ls.shadowSoftness;
+      setLightControls(ls);
       if (ls.enabled) setTimeout(applyLighting, 2500);
     } else q('#lkOn').checked = false;
     if (vs) {

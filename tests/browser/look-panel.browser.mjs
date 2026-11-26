@@ -15,7 +15,6 @@ export class Vector3 { constructor(x=0,y=0,z=0){this.x=x;this.y=y;this.z=z;}
   distanceTo(v){return Math.hypot(this.x-v.x,this.y-v.y,this.z-v.z);}
   applyAxisAngle(a,t){const c=Math.cos(t),s=Math.sin(t),d=a.x*this.x+a.y*this.y+a.z*this.z;const cx=a.y*this.z-a.z*this.y,cy=a.z*this.x-a.x*this.z,cz=a.x*this.y-a.y*this.x;return this.set(this.x*c+cx*s+a.x*d*(1-c),this.y*c+cy*s+a.y*d*(1-c),this.z*c+cz*s+a.z*d*(1-c));} }
 export class Quaternion { set(x,y,z,w){this.x=x;this.y=y;this.z=z;this.w=w;return this;} }
-export class Color { setRGB(r,g,b){this.r=r;this.g=g;this.b=b;return this;} }
 class Obj { constructor(){this.children=[];this.position=new Vector3();this.scale=new Vector3(1,1,1);this.rotation={};this.visible=true;} add(o){o.parent=this;this.children.push(o);} remove(o){this.children=this.children.filter(c=>c!==o);} }
 export class Group extends Obj {}
 export class Mesh extends Obj { constructor(g,m){super();this.geometry=g;this.material=m;} }
@@ -23,6 +22,7 @@ export class PlaneGeometry { dispose(){} }
 export class MeshBasicMaterial { constructor(o){Object.assign(this,o);} dispose(){} }
 export class DataTexture { constructor(d,w,h){this.image={data:d,width:w,height:h};} dispose(){} }
 export const RGBAFormat = 1, LinearFilter = 1;
+export class Color { constructor(h){ this.hex = h; } setRGB(r,g,b){this.r=r;this.g=g;this.b=b;return this;} }
 `;
 const fixture = `<!doctype html><meta charset=utf-8>
 <script type="importmap">{"imports":{"three":"/stub-three.js"}}</script>
@@ -42,6 +42,9 @@ mesh.packedSplats = { numSplats: N, needsUpdate: false,
   setSplat(i, c, s, q, a, col) { rows[i] = { c: [c.x, c.y, c.z], s: [s.x, s.y, s.z], q: [q.x, q.y, q.z, q.w], a, col: [col.r, col.g, col.b] }; } };
 window.rows = rows; window.mesh = mesh;
 window.FumocaSparkGaussian = { isEnabled: () => true, getMesh: () => mesh };
+window.scene = { background: 'orig' };
+window.renderer = { domElement: Object.assign(document.createElement('canvas'), {}) };
+document.body.appendChild(Object.assign(document.createElement('div'), { id: 'host' })).appendChild(window.renderer.domElement);
 window.camera = { position: new T.Vector3(0, 1, 4), up: new T.Vector3(0, 1, 0), fov: 50, lookAt() {}, updateProjectionMatrix() {} };
 window.controls = { target: new T.Vector3(0, 0.5, 0), enableZoom: true, enableRotate: true, enablePan: false, minDistance: 0, maxDistance: Infinity, update() {}, domElement: document.body };
 window.__changes = 0; window.addEventListener('fumoca:lookChange', () => window.__changes++);
@@ -95,6 +98,22 @@ try {
   await page.click('#lkOn');
   await page.waitForTimeout(200);
   assert.equal(await page.evaluate(() => window.panel.getLighting().enabled), true);
+
+  // Moods: Neon tints, sets background + vignette; Natural restores everything
+  await page.click('[data-mood="neon"]');
+  await page.waitForTimeout(400);
+  const neon = await page.evaluate(() => ({ bg: window.scene.background?.hex, vig: document.querySelector('.fumoca-vignette')?.style.opacity, on: document.getElementById('lkOn').checked,
+    pinkSide: window.rows.slice(1000).some(r => r.col[0] > r.col[1] + 0.05), preset: window.panel.getLighting()?.preset }));
+  assert.deepEqual([neon.bg, neon.vig, neon.on, neon.preset], ['#0b0614', '1', true, 'neon'], JSON.stringify(neon));
+  assert.ok(neon.pinkSide, 'neon pink key light visible');
+  await page.evaluate(() => { const el = document.getElementById('lkExp'); el.value = '0.5'; el.dispatchEvent(new Event('input')); });
+  assert.equal(await page.evaluate(() => window.panel.getLighting().preset), 'custom', 'tweaking makes it your own');
+  await page.click('[data-mood="natural"]');
+  await page.waitForTimeout(400);
+  const nat = await page.evaluate(() => ({ bg: window.scene.background, vig: document.querySelector('.fumoca-vignette')?.style.opacity,
+    clean: window.rows.every(r => Math.abs(r.col[0] - 0.5) < 1e-6) }));
+  assert.deepEqual(nat, { bg: 'orig', vig: '0', clean: true }, 'Natural restores scan colours, background and no vignette');
+  await page.click('#lkOn'); await page.waitForTimeout(200);
 
   // View: capture start, zoom limits, spin, steady; preview applies to the Studio camera
   await page.click('#vwCapture');
