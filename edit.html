@@ -4016,7 +4016,9 @@ function selectVisibleRegion(contains) {
     },
     contains,
     cellSize: 4,
-    depthTolerance: 0.006
+    // a splat surface has thickness: 2.5 % of the distance keeps the whole skin
+    depthTolerance: 0.025,
+    isOccluder: i => (S.opacity?.[i] ?? 1) >= 0.35
   });
 }
 

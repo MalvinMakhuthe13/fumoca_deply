@@ -12,6 +12,9 @@ export function selectVisibleScreenPoints({
   contains,
   cellSize = 4,
   depthTolerance = 0.006,
+  // Only splats that can actually hide what's behind them decide the front
+  // (faint haze / floaters in front of an object must not block selecting it).
+  isOccluder = null,
 }) {
   const nearest = new Map();
   const projected = new Array(count);
@@ -23,6 +26,7 @@ export function selectVisibleScreenPoints({
     if (!p || p.visible === false || !Number.isFinite(p.x) ||
         !Number.isFinite(p.y) || !Number.isFinite(p.depth) || p.depth <= 0) continue;
     projected[i] = p;
+    if (isOccluder && !isOccluder(i)) continue;
     const key = keyFor(p.x, p.y);
     const old = nearest.get(key);
     if (old === undefined || p.depth < old) nearest.set(key, p.depth);
@@ -33,6 +37,7 @@ export function selectVisibleScreenPoints({
     const p = projected[i];
     if (!p || !contains(p.x, p.y)) continue;
     const front = nearest.get(keyFor(p.x, p.y));
+    if (front === undefined) { indices.push(i); continue; }   // nothing solid in this cell
     const tolerance = Math.max(0.004, Math.abs(front) * depthTolerance);
     if (p.depth <= front + tolerance) indices.push(i);
   }
