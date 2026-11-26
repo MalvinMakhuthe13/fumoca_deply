@@ -320,6 +320,8 @@ jobs:
         run: node --experimental-default-type=module tests/food-pick.test.mjs
       - name: Mesh clean-up test
         run: node --experimental-default-type=module tests/mesh-cleanup.test.mjs
+      - name: House tour test
+        run: node --experimental-default-type=module tests/tour-mode.test.mjs
       - name: Test Studio Look tab end-to-end in Chromium
         run: node tests/browser/look-panel.browser.mjs
       - name: Test living photo (one image, no AI)

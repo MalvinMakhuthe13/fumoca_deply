@@ -786,6 +786,7 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
       <div class="ptab" data-tab="parts">Parts</div>
       <div class="ptab" data-tab="guide">Guide</div>
       <div class="ptab" data-tab="link">Inside</div>
+      <div class="ptab" data-tab="tour">Tour</div>
       <div class="ptab" data-tab="present">Present · Music</div>
       <div class="ptab" data-tab="import">Import</div>
       <div class="ptab" data-tab="layers">Layers</div>
@@ -801,6 +802,8 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
     <div class="panel-body" id="tab-guide" style="display:none"></div>
     <!-- TAB: INSIDE (link a second scan: interiors, open doors; mounted by link-panel.js) -->
     <div class="panel-body" id="tab-link" style="display:none"></div>
+    <!-- TAB: TOUR (house / building tours: dollhouse, floor plan, walk; mounted by tour-panel.js) -->
+    <div class="panel-body" id="tab-tour" style="display:none"></div>
 
     <!-- TAB: TOOLS -->
     <div class="panel-body" id="tab-tools">
@@ -7912,6 +7915,14 @@ if (!window._fumocaBooted) {
     import('./js/modules/link-panel.js?v=20261126-link01')
       .then((m) => m.mountLinkPanel(linkRoot, { onStatus: status }))
       .catch((e) => console.warn('[Studio] inside panel', e));
+  }
+
+  // House / building tours (Matterport-style).
+  const tourRoot = document.getElementById('tab-tour');
+  if (tourRoot) {
+    import('./js/modules/tour-panel.js?v=20261126-tour01')
+      .then((m) => m.mountTourPanel(tourRoot, { onStatus: status }))
+      .catch((e) => console.warn('[Studio] tour panel', e));
   }
 
   // Single photo → living photo (no AI). Replaces the old AI-first panel.

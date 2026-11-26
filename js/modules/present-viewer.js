@@ -58,6 +58,7 @@ export function initPresentViewer() {
   let lightingApplied = false;
   let partsApplied = false;
   let tutorialApplied = false;
+  let tourApplied = false;
   const tryApply = () => {
     const data = resolvePresent();
     if (!data) return;
@@ -89,7 +90,7 @@ export function initPresentViewer() {
     }
 
     // Presentation platform saved in Studio (base + logo + turntable).
-    if (!platformApplied && data.platform?.enabled && window._fumocaPublishedSparkGroup) {
+    if (!platformApplied && data.platform?.enabled && !data.tour?.enabled && window._fumocaPublishedSparkGroup) {   // buildings are not put on a turntable
       platformApplied = true;
       import('./platform-viewer.js')
         .then(m => m.restorePlatform(data.platform))
@@ -107,7 +108,8 @@ export function initPresentViewer() {
     }
 
     // How it's viewed (start view, zoom limits, locks, spin) + embed URL overrides.
-    if (!viewApplied && window._fumocaViewerCamera && window._fumocaViewerControls && window._fumocaPublishedSparkMesh) {
+    // (a building tour drives the camera itself: no spin, no product view settings)
+    if (!viewApplied && !data.tour?.enabled && window._fumocaViewerCamera && window._fumocaViewerControls && window._fumocaPublishedSparkMesh) {
       viewApplied = true;
       Promise.all([import('three'), import('./view-settings.js')]).then(([THREE, m]) => {
         const settings = m.viewSettingsFromUrl(location.search, m.normalizeViewSettings(data.view));
@@ -146,6 +148,30 @@ export function initPresentViewer() {
           }
         })
         .catch(error => console.warn('[present-viewer] moving parts failed', error));
+    }
+
+    // House / building tour: dollhouse, floor plan, walk-through (no flipping).
+    if (!tourApplied && data.tour?.enabled && window._fumocaViewerCamera && window._fumocaPublishedSparkMesh) {
+      tourApplied = true;
+      Promise.all([import('three'), import('./tour-mode.js'), import('./splat-rig-driver.js')]).then(async ([THREE, m, rig]) => {
+        const mesh = window._fumocaPublishedSparkMesh;
+        if (mesh.initialized) await mesh.initialized;
+        const rest = rig.readRest(mesh);
+        mesh.updateMatrixWorld(true);
+        // world-space positions for picking the floor
+        const P = new Float32Array(rest.positions.length), v = new THREE.Vector3();
+        for (let i = 0; i < rest.count; i++) { v.set(rest.positions[i * 3], rest.positions[i * 3 + 1], rest.positions[i * 3 + 2]).applyMatrix4(mesh.matrixWorld); P[i * 3] = v.x; P[i * 3 + 1] = v.y; P[i * 3 + 2] = v.z; }
+        const ctrl = new m.TourController(data.tour, {
+          THREE, camera: window._fumocaViewerCamera, controls: window._fumocaViewerControls,
+          dom: window._fumocaViewerRenderer?.domElement, parent: window._fumocaViewerScene || mesh.parent, mesh,
+          positions: P, count: rest.count, accept: (i) => rest.opacity[i] >= 0.3,
+          host: window._fumocaViewerRenderer?.domElement?.parentElement,
+        });
+        // a building doesn't spin
+        if (window._fumocaViewController) { window._fumocaViewController.s.spin = 0; }
+        ctrl.setMode(m.normalizeTour(data.tour).start);
+        window._fumocaTour = ctrl;
+      }).catch(error => console.warn('[present-viewer] tour failed', error));
     }
 
     // Product guide: "How it works" button and step-by-step player.
@@ -205,6 +231,7 @@ export function initPresentViewer() {
       window._fumocaLighting?.dispose?.(); window._fumocaLighting = null; lightingApplied = false;
       window._fumocaInsideReveal?.dispose?.(); window._fumocaInsideReveal = null;
       window._fumocaPartAnimator?.dispose?.(); window._fumocaPartAnimator = null; partsApplied = false;
+      window._fumocaTour?.dispose?.(); window._fumocaTour = null; tourApplied = false;
       window._fumocaTutorial?.player?.dispose?.(); window._fumocaTutorial?.button?.remove?.(); window._fumocaTutorial = null; tutorialApplied = false;
       tryApply();
     },
