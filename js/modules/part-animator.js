@@ -11,7 +11,7 @@
  * Parts animate smoothly and in place in the live Spark mesh (setSplat),
  * open ↔ closed with easing — no swapping whole files.
  */
-import { readRest } from './splat-rig-driver.js';
+import { readRest, refreshRestGeometry } from './splat-rig-driver.js';
 
 const finite3 = (v) => Array.isArray(v) && v.length === 3 && v.every(Number.isFinite);
 const num = (v, lo, hi, d) => (Number.isFinite(+v) && v !== null && v !== '' ? Math.min(hi, Math.max(lo, +v)) : d);
@@ -203,6 +203,14 @@ export class PartAnimator {
   }
 
   closeAll() { return Promise.all([...this.parts.keys()].map(id => this.run(id, 'close'))); }
+
+  /** After an in-place edit: new geometry, parts re-found in their boxes. */
+  refreshGeometry() {
+    if (this.anims.size || [...this.parts.values()].some(e => e.t)) return false;   // not while a part is open
+    if (!refreshRestGeometry(this.rest, this.mesh)) return false;
+    this.setParts([...this.parts.values()].map(e => e.part));
+    return true;
+  }
 
   dispose() {
     for (const id of this.anims.keys()) cancelAnimationFrame(this.anims.get(id));

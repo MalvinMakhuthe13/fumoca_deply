@@ -20,7 +20,8 @@ function walk(dir, out = []) {
 }
 
 for (const pkg of cfg.packages) {
-  const dest = join(root, 'vendor', pkg.name, pkg.version);
+  // No '@' in served paths: the host does not serve folders named like '@scope'.
+  const dest = join(root, 'vendor', pkg.name.replace(/^@/, '').replace('/', '-'), pkg.version);
   rmSync(dest, { recursive: true, force: true });
   mkdirSync(dest, { recursive: true });
   const work = mkdtempSync(join(tmpdir(), 'vendor-'));

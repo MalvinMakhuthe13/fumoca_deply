@@ -10,7 +10,7 @@ import { chromium } from 'playwright';
 const root = new URL('../../', import.meta.url);
 const TYPES = { '.js': 'text/javascript', '.mjs': 'text/javascript', '.wasm': 'application/wasm', '.html': 'text/html', '.json': 'application/json' };
 const fixture = `<!doctype html><meta charset=utf-8><body style="margin:0;background:#000">
-<script type="importmap">{"imports":{"three":"/vendor/three/0.180.0/build/three.module.js","three/addons/":"/vendor/three/0.180.0/examples/jsm/","@sparkjsdev/spark":"/vendor/@sparkjsdev/spark/2.4.0/dist/spark.module.js"}}</script>
+<script type="importmap">{"imports":{"three":"/vendor/three/0.180.0/build/three.module.js","three/addons/":"/vendor/three/0.180.0/examples/jsm/","@sparkjsdev/spark":"/vendor/sparkjsdev-spark/2.4.0/dist/spark.module.js"}}</script>
 <canvas id="c" width="320" height="240"></canvas>
 <script type="module">
 try {

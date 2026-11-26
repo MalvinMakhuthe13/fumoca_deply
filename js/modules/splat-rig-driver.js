@@ -232,3 +232,16 @@ export async function restoreRigOnViewer(THREE, mesh, saved) {
   if (state.autoplay) driver.play();
   return driver;
 }
+
+
+/**
+ * After an in-place edit (move, sit flat, delete) the mesh holds the new
+ * geometry but may hold lit colours: take positions / rotations / scales /
+ * opacity from the mesh and keep the scan colours we already have.
+ */
+export function refreshRestGeometry(rest, mesh) {
+  const fresh = readRest(mesh);
+  if (!fresh || !rest || fresh.count !== rest.count) return false;
+  rest.positions = fresh.positions; rest.rotations = fresh.rotations; rest.scales = fresh.scales; rest.opacity = fresh.opacity;
+  return true;
+}

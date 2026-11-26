@@ -79,6 +79,7 @@ export function mountPartsPanel(container, { onStatus } = {}) {
     catch (e) { animator = null; status(e.message); }
     return animator;
   }
+  window.addEventListener('fumoca:sparkInPlaceUpdate', () => { animator?.refreshGeometry?.(); });
   const changed = () => {
     window.dispatchEvent(new CustomEvent('fumoca:partsChange', { detail: parts }));
     ensureAnimator()?.setParts(parts);

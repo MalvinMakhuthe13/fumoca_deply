@@ -113,12 +113,13 @@ export function mountLookPanel(container, { onStatus } = {}) {
   let preset = 'custom';
   let lamps = [];
   let motionKeys = [], motionPreset = 'custom', animator = null;
+  // Size of the subject (2–98 %: floaters far out must not count)
   const sceneSize = () => {
     const S = window.S; if (!S?.positions?.length) return 1;
-    let lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
-    for (let i = 0; i < S.positions.length; i += 3 * Math.max(1, Math.floor(S.positions.length / 3 / 20000)))
-      for (let k = 0; k < 3; k++) { const v = S.positions[i + k]; if (v < lo[k]) lo[k] = v; if (v > hi[k]) hi[k] = v; }
-    return Math.max(1e-3, ...hi.map((v, k) => v - lo[k]));
+    const ax = [[], [], []], st = Math.max(1, Math.floor(S.positions.length / 3 / 20000));
+    for (let i = 0; i < S.positions.length / 3; i += st) if (!S.alive || S.alive[i]) for (let k = 0; k < 3; k++) ax[k].push(S.positions[i * 3 + k]);
+    if (!ax[0].length) return 1;
+    return Math.max(1e-3, ...ax.map(a => { a.sort((x, y) => x - y); return a[Math.floor(a.length * 0.98)] - a[Math.floor(a.length * 0.02)]; }));
   };
   function addLamp(position) {
     const size = sceneSize();
@@ -234,7 +235,13 @@ export function mountLookPanel(container, { onStatus } = {}) {
   });
 
   // Edits written in place use the scan's colours; light them again.
-  window.addEventListener('fumoca:sparkInPlaceUpdate', () => { if (lightState().enabled) applyLighting(); });
+  // (they also move splats — take the new geometry first so the light and
+  // the shadow follow, and nothing is written back to where it was)
+  window.addEventListener('fumoca:sparkInPlaceUpdate', () => {
+    if (lighting) lighting.refreshGeometry?.();
+    if (sun?.visible) { centre = subjectCentre(); radius = sceneSize() * 0.85; }
+    if (lightState().enabled) applyLighting();
+  });
   // Keep the shadow under a playing rig.
   setInterval(() => {
     const d = window.FumocaRig?.driver;

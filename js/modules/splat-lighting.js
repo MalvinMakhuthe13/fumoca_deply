@@ -12,7 +12,7 @@
  * on a plane parented to the mesh — so the shadow follows the splats, the
  * platform and the turntable.
  */
-import { readRest } from './splat-rig-driver.js';
+import { readRest, refreshRestGeometry } from './splat-rig-driver.js';
 
 export const DEFAULT_LIGHTING = Object.freeze({
   version: 2, enabled: false, preset: 'custom',
@@ -278,6 +278,14 @@ export class SplatLighting {
     this.settings = normalizeLighting(settings) || { ...DEFAULT_LIGHTING };
     this.plane = null;
     (globalThis._fumocaLightingByMesh ||= new WeakMap()).set(mesh, this);
+  }
+
+  /** The splats were edited in place: take their new geometry, keep the scan colours. */
+  refreshGeometry() {
+    if (!refreshRestGeometry(this.rest, this.mesh)) return false;
+    this.normals = splatNormals(this.rest);
+    this.groundY = null;                // the shadow goes to the new ground
+    return true;
   }
 
   /** Positions to cast the shadow from: a posed rig if one is driving this mesh. */
