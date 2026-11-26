@@ -16,7 +16,7 @@
 <link rel="stylesheet" href="css/fumoca-layouts.css"/>
 <script type="module" src="js/modules/anim-studio.js"></script>
 <script type="module" src="js/modules/review-video.js?v=20261025-bglayer"></script>
-<script type="module" src="js/modules/present-tab.js?v=20261126-parts01"></script>
+<script type="module" src="js/modules/present-tab.js?v=20261126-guide01"></script>
 
 <style>
 /* ═══════════════════════════════════════════════════════
@@ -776,6 +776,7 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
       <div class="ptab" data-tab="rig">Rig</div>
       <div class="ptab" data-tab="look">Look</div>
       <div class="ptab" data-tab="parts">Parts</div>
+      <div class="ptab" data-tab="guide">Guide</div>
       <div class="ptab" data-tab="present">Present · Music</div>
       <div class="ptab" data-tab="import">Import</div>
       <div class="ptab" data-tab="layers">Layers</div>
@@ -787,6 +788,8 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
     <div class="panel-body" id="tab-look" style="display:none"></div>
     <!-- TAB: PARTS (doors, lids, caps, recliners; mounted by parts-panel.js) -->
     <div class="panel-body" id="tab-parts" style="display:none"></div>
+    <!-- TAB: GUIDE (step-by-step product tutorials; mounted by tutorial-panel.js) -->
+    <div class="panel-body" id="tab-guide" style="display:none"></div>
 
     <!-- TAB: TOOLS -->
     <div class="panel-body" id="tab-tools">
@@ -7823,6 +7826,14 @@ if (!window._fumocaBooted) {
     import('./js/modules/parts-panel.js?v=20261126-parts01')
       .then((m) => m.mountPartsPanel(partsRoot, { onStatus: status }))
       .catch((e) => console.warn('[Studio] parts panel', e));
+  }
+
+  // Step-by-step product guides (how to use it).
+  const guideRoot = document.getElementById('tab-guide');
+  if (guideRoot) {
+    import('./js/modules/tutorial-panel.js?v=20261126-guide01')
+      .then((m) => m.mountTutorialPanel(guideRoot, { onStatus: status }))
+      .catch((e) => console.warn('[Studio] guide panel', e));
   }
 
   // Single photo → living photo (no AI). Replaces the old AI-first panel.

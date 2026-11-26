@@ -110,6 +110,7 @@ function payload() {
     lighting: window.FumocaLook?.getLighting?.() || null,
     view: window.FumocaLook?.getView?.() || null,
     parts: window.FumocaParts?.getParts?.() || [],
+    tutorial: window.FumocaTutorial?.getTutorial?.() || null,
     updatedAt: Date.now(),
   };
 }
@@ -120,6 +121,7 @@ window.addEventListener('fumoca:rigChange', () => { try { persist(); } catch (_)
 window.addEventListener('fumoca:livingChange', () => { try { persist(); } catch (_) {} });
 window.addEventListener('fumoca:lookChange', () => { try { persist(); } catch (_) {} });
 window.addEventListener('fumoca:partsChange', () => { try { persist(); } catch (_) {} });
+window.addEventListener('fumoca:tutorialChange', () => { try { persist(); } catch (_) {} });
 
 function persist() {
   const data = payload();

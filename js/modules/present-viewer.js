@@ -57,6 +57,7 @@ export function initPresentViewer() {
   let viewApplied = false;
   let lightingApplied = false;
   let partsApplied = false;
+  let tutorialApplied = false;
   const tryApply = () => {
     const data = resolvePresent();
     if (!data) return;
@@ -141,6 +142,18 @@ export function initPresentViewer() {
         .catch(error => console.warn('[present-viewer] moving parts failed', error));
     }
 
+    // Product guide: "How it works" button and step-by-step player.
+    if (!tutorialApplied && data.tutorial?.steps?.length && window._fumocaViewerCamera && window._fumocaPublishedSparkMesh) {
+      tutorialApplied = true;
+      Promise.all([import('three'), import('./tutorial.js'), import('./hotspot-actions.js')]).then(([THREE, m, actions]) => {
+        const host = window._fumocaViewerRenderer?.domElement?.parentElement;
+        window._fumocaTutorial = m.mountTutorialOnViewer(THREE, data.tutorial, {
+          camera: window._fumocaViewerCamera, controls: window._fumocaViewerControls, host,
+          parent: window._fumocaPublishedSparkMesh, runAction: (a) => actions.runAction(a),
+        });
+      }).catch(error => console.warn('[present-viewer] guide failed', error));
+    }
+
     // Living photo: gentle camera motion saved in Studio.
     if (!livingApplied && data.living?.enabled && window._fumocaViewerCamera && window._fumocaPublishedSparkMesh) {
       livingApplied = true;
@@ -185,6 +198,7 @@ export function initPresentViewer() {
       window._fumocaViewController?.dispose?.(); window._fumocaViewController = null; viewApplied = false;
       window._fumocaLighting?.dispose?.(); window._fumocaLighting = null; lightingApplied = false;
       window._fumocaPartAnimator?.dispose?.(); window._fumocaPartAnimator = null; partsApplied = false;
+      window._fumocaTutorial?.player?.dispose?.(); window._fumocaTutorial?.button?.remove?.(); window._fumocaTutorial = null; tutorialApplied = false;
       tryApply();
     },
   };
