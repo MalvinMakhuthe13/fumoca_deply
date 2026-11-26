@@ -345,12 +345,16 @@ const Fumoca4D = (() => {
       else window.FumocaStudioInit.play();
       return;
     }
+    if (!S.active && !(S.states && S.states.length >= 2)) {
+      try { window.showToast?.('4D playback', 'Capture at least two keyframes first', 'warn'); } catch (_) {}
+      return;
+    }
     S.active = !S.active;
     if (S.active) { S.paused = false; S.startTime = performance.now() - S.pauseOffset; requestAnimationFrame(_blendLoop); }
   }
   function pause() { if (S.active && !S.paused) { S.paused = true; S.pauseOffset = performance.now() - S.startTime; } }
   function resume() { if (S.active && S.paused) { S.paused = false; S.startTime = performance.now() - S.pauseOffset; requestAnimationFrame(_blendLoop); } }
-  function restart() { S.pauseOffset = 0; S.startTime = performance.now(); S.paused = false; S.active = true; requestAnimationFrame(_blendLoop); }
+  function restart() { if (!(S.states && S.states.length >= 2)) return; S.pauseOffset = 0; S.startTime = performance.now(); S.paused = false; S.active = true; requestAnimationFrame(_blendLoop); }
   function stop() { S.active = false; S.paused = false; S.pauseOffset = 0; }
 
   return {

@@ -2012,7 +2012,7 @@ async function mountPublishedSparkPly(url) {
   _plyRenderer.setClearColor(0x000000, 0);
   Object.assign(_plyRenderer.domElement.style, { position:'absolute', inset:'0', width:'100%', height:'100%', zIndex:'2' });
   container.appendChild(_plyRenderer.domElement);
-  _publishedSparkRenderer = new SparkRenderer((await import('./spark-preset.js')).sparkOptions({ renderer: _plyRenderer, autoUpdate: true }));
+  _publishedSparkRenderer = new SparkRenderer(((await import('./spark-preset.js').catch(() => null))?.sparkOptions || ((o = {}) => ({ maxStdDev: Math.sqrt(8), preBlurAmount: 0.3, blurAmount: 0, focalAdjustment: 1, sortRadial: false, ...o })))({ renderer: _plyRenderer, autoUpdate: true }));
   _plyScene.add(_publishedSparkRenderer);
   _publishedSparkMesh = new SplatMesh({ fileBytes: bytes, fileName: 'published-edited.ply', enableLod: false });
   _publishedSparkMesh.name = 'fumoca-published-spark-splat';

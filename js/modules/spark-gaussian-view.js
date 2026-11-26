@@ -29,7 +29,8 @@ const SparkGaussianView = (() => {
     if (!renderer || !scene) throw new Error('FUMOCA scene/renderer is not ready');
     const { SparkRenderer } = await import('@sparkjsdev/spark');
     // Same look as the published page (classic 3DGS drawing — see spark-preset.js).
-    const { sparkOptions } = await import('./spark-preset.js');
+    // Falls back to the same values if the preset file can't be reached (inlined/blob loads).
+    const sparkOptions = (await import('./spark-preset.js').catch(() => null))?.sparkOptions || ((o = {}) => ({ maxStdDev: Math.sqrt(8), preBlurAmount: 0.3, blurAmount: 0, focalAdjustment: 1, sortRadial: false, ...o }));
     _spark = new SparkRenderer(sparkOptions({ renderer, autoUpdate: true }));
     _spark.name = 'fumoca-spark-renderer';
     scene.add(_spark);

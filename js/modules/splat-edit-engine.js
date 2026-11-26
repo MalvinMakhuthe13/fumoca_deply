@@ -262,7 +262,7 @@ async function mountSplatViewer(url) {
     splatCamera.quaternion.copy(camera.quaternion);
     splatCamera.updateProjectionMatrix();
 
-    spark = new SparkRenderer((await import('./spark-preset.js')).sparkOptions({ renderer: splatRenderer }));
+    spark = new SparkRenderer(((await import('./spark-preset.js').catch(() => null))?.sparkOptions || ((o = {}) => ({ maxStdDev: Math.sqrt(8), preBlurAmount: 0.3, blurAmount: 0, focalAdjustment: 1, sortRadial: false, ...o })))({ renderer: splatRenderer }));
     splatScene.add(spark);
 
     const sourceOptions = { url };

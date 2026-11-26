@@ -181,7 +181,8 @@ export function mountLinkPanel(container, { onStatus } = {}) {
 
   async function busy(label, fn) {
     status(label + '…'); await wait();
-    try { await fn(); } catch (e) { console.error(e); status(e.message || String(e)); }
+    // guidance ("choose the second scan first") is shown, not logged as an error
+    try { await fn(); } catch (e) { if (!(e instanceof Error) || e.stack?.includes('similarityFromPairs') || !/first|select|make|pick|could not|not enough|barely/i.test(e.message)) console.warn('[Inside]', e); status(e.message || String(e)); }
   }
 
   async function commit(label) {
