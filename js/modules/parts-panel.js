@@ -4,7 +4,7 @@
  * couch — and wire them to hotspots in the viewer. CPU only, no AI.
  */
 import * as THREE from 'three';
-import { PartAnimator, normalizeParts, suggestHinge } from './part-animator.js';
+import { PartAnimator, normalizeParts, suggestHinge, cellsFromIndices } from './part-animator.js';
 import { regionFromPoints } from './food-pick.js';
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -84,6 +84,7 @@ export function mountPartsPanel(container, { onStatus } = {}) {
           <button type="button" class="ac-btn" id="ptFlip" style="flex:1" title="Swings or slides the wrong way? Reverse it.">⇄ Other way</button>
           <button type="button" class="ac-btn" id="ptDelete" style="flex:1">Delete part</button>
         </div>
+        <button type="button" class="ac-btn full" id="ptReselect" style="margin-top:6px" title="Select the part's area again (lasso, box or outline points), then press this">Area = current selection</button>
       </div>
     </div>
     <div class="section">
@@ -121,15 +122,15 @@ export function mountPartsPanel(container, { onStatus } = {}) {
     const S = window.S;
     if (!S?.selected || !S.positions) return null;
     const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
-    let n = 0;
+    let n = 0; const indices = [];
     for (let i = 0; i < S.selected.length; i++) {
       if (!S.selected[i] || (S.alive && !S.alive[i])) continue;
-      n++;
+      n++; indices.push(i);
       for (let k = 0; k < 3; k++) { const v = S.positions[i * 3 + k]; if (v < min[k]) min[k] = v; if (v > max[k]) max[k] = v; }
     }
     if (n < 10) return null;
     const pad = Math.max(...max.map((v, i) => v - min[i])) * 0.015;
-    return { box: { min: min.map(v => v - pad), max: max.map(v => v + pad) }, n };
+    return { box: { min: min.map(v => v - pad), max: max.map(v => v + pad) }, n, indices };
   }
 
   function motionFromKind(kindKey, box) {
@@ -276,7 +277,9 @@ export function mountPartsPanel(container, { onStatus } = {}) {
     const base = KINDS[kind];
     let name = base.name, k = 2;
     while (parts.some(p => p.name === name)) name = `${base.name} ${k++}`;
-    const part = { id: 'part_' + Date.now().toString(36), name, box: sel.box, motion: motionFromKind(kind, sel.box) };
+    // Exact area (cells hugging the selected splats), so only what you picked moves.
+    const cells = base.type === 'pick' ? null : cellsFromIndices(window.S.positions, sel.indices);
+    const part = { id: 'part_' + Date.now().toString(36), name, box: sel.box, ...(cells ? { cells } : {}), motion: motionFromKind(kind, sel.box) };
     if (base.type === 'pick') Object.assign(part, foodFromSelection(base.food, sel.box));
     parts = normalizeParts([...parts, part]).map(p => (p.id === part.id ? { ...p, motion: { ...p.motion, side: part.motion.side, axisKey: part.motion.axisKey } } : p));
     changed();
@@ -301,6 +304,17 @@ export function mountPartsPanel(container, { onStatus } = {}) {
     if (!editing) return;
     q('#ptAngle').value = -(+q('#ptAngle').value); q('#ptDist').value = -(+q('#ptDist').value);
     syncEditLabels(); readEdit(); changed();
+  });
+  q('#ptReselect').addEventListener('click', () => {
+    if (!editing) return;
+    const sel = selectionBox();
+    if (!sel) { status('Select the part again first (at least a few splats), then press this.'); return; }
+    const a = ensureAnimator(); a?.set(editing.id, 0);
+    const cells = cellsFromIndices(window.S.positions, sel.indices);
+    parts = parts.map(p => (p.id === editing.id ? { ...p, box: sel.box, ...(cells ? { cells } : {}) } : p));
+    try { window.S.selected.fill(0); window.rebuildGeometry?.(); } catch (_) {}
+    changed(); edit(editing.id);
+    status(`${editing.name}: area updated from ${sel.n.toLocaleString()} selected splats.`);
   });
   q('#ptDelete').addEventListener('click', () => {
     if (!editing) return;

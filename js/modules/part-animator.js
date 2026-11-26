@@ -51,6 +51,7 @@ export function normalizePart(p) {
       } : {}),
     },
     ...(normalizeRegion(p.region) ? { region: normalizeRegion(p.region) } : {}),
+    ...(normalizeCells(p.cells) ? { cells: normalizeCells(p.cells) } : {}),
     startOpen: !!p.startOpen,
     // on the published page: only when clicked, open once, or keep opening and closing
     autoplay: ['none', 'once', 'loop'].includes(p.autoplay) ? p.autoplay : 'none',
@@ -112,9 +113,75 @@ export function partTransform(part, t) {
   };
 }
 
-/** Splat indices inside a part's box. */
+// ── Exact part area ─────────────────────────────────────────────────────────
+// A part remembers the small 3D cells its selected splats sit in, not just a
+// box. An axis-aligned box around an angled car door covers half the car (and
+// the far side); the cells hug the door's own surface. Cells are in the
+// splat's own coordinates, so they work on any copy of the file.
+const b64 = {
+  enc(u8) { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return (globalThis.btoa ? btoa(s) : Buffer.from(u8).toString('base64')); },
+  dec(str) { const bin = globalThis.atob ? atob(str) : Buffer.from(str, 'base64').toString('binary'); const u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i); return u8; },
+};
+
+/** Cells covering the given splats. `size` defaults to the area's diagonal / 64. */
+export function cellsFromIndices(positions, indices, { size = 0 } = {}) {
+  if (!indices?.length) return null;
+  const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+  for (const i of indices) for (let k = 0; k < 3; k++) { const v = positions[i * 3 + k]; if (v < min[k]) min[k] = v; if (v > max[k]) max[k] = v; }
+  const diag = Math.hypot(max[0] - min[0], max[1] - min[1], max[2] - min[2]) || 1e-3;
+  const s = size > 0 ? size : Math.max(diag / 64, 1e-4);
+  const origin = min.map(v => v - s);
+  const dims = [0, 1, 2].map(k => Math.floor((max[k] - origin[k]) / s) + 2);
+  if (dims[0] * dims[1] * dims[2] > 2 ** 31) return null;
+  const set = new Set();
+  for (const i of indices) {
+    const x = Math.floor((positions[i * 3] - origin[0]) / s), y = Math.floor((positions[i * 3 + 1] - origin[1]) / s), z = Math.floor((positions[i * 3 + 2] - origin[2]) / s);
+    set.add(x + dims[0] * (y + dims[1] * z));
+  }
+  const keys = Uint32Array.from([...set].sort((a, b) => a - b));
+  return { size: s, origin, dims, keys: b64.enc(new Uint8Array(keys.buffer)) };
+}
+
+function normalizeCells(c) {
+  if (!c || typeof c !== 'object' || !(c.size > 0) || !finite3(c.origin) || !Array.isArray(c.dims) || c.dims.length !== 3 || typeof c.keys !== 'string') return null;
+  if (!c.dims.every(d => Number.isInteger(d) && d > 0)) return null;
+  return { size: +c.size, origin: c.origin.map(Number), dims: c.dims.map(Number), keys: c.keys };
+}
+
+/**
+ * Splats in a part's cells, plus gaps inside it: an empty cell joins when most
+ * of its neighbours are part cells (a hole in the door), but not when only a
+ * few are (just past the door's edge) — so the part fills in without spilling.
+ */
+export function cellMembers(positions, count, cells, { fill = 5 } = {}) {
+  const u8 = b64.dec(cells.keys);
+  const keys = new Uint32Array(u8.buffer, u8.byteOffset, Math.floor(u8.byteLength / 4));
+  const set = new Set(keys);
+  const { size: s, origin, dims } = cells, [nx, ny, nz] = dims, out = [];
+  const gap = new Map();   // cached decision for empty cells
+  for (let i = 0; i < count; i++) {
+    const x = Math.floor((positions[i * 3] - origin[0]) / s), y = Math.floor((positions[i * 3 + 1] - origin[1]) / s), z = Math.floor((positions[i * 3 + 2] - origin[2]) / s);
+    if (x < 0 || y < 0 || z < 0 || x >= nx || y >= ny || z >= nz) continue;
+    const k = x + nx * (y + ny * z);
+    if (set.has(k)) { out.push(i); continue; }
+    let inside = gap.get(k);
+    if (inside === undefined) {
+      let c = 0;
+      for (let dz = -1; dz <= 1; dz++) for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const X = x + dx, Y = y + dy, Z = z + dz;
+        if ((dx || dy || dz) && X >= 0 && Y >= 0 && Z >= 0 && X < nx && Y < ny && Z < nz && set.has(X + nx * (Y + ny * Z))) c++;
+      }
+      inside = c >= fill; gap.set(k, inside);
+    }
+    if (inside) out.push(i);
+  }
+  return Int32Array.from(out);
+}
+
+/** Splat indices that belong to a part: its exact cells, food region, or box. */
 export function partMembers(positions, count, part) {
   if (part.region) return regionMembers(positions, count, part.region);
+  if (part.cells) return cellMembers(positions, count, part.cells);
   const { min, max } = part.box, out = [];
   for (let i = 0; i < count; i++) {
     const x = positions[i * 3], y = positions[i * 3 + 1], z = positions[i * 3 + 2];
@@ -165,8 +232,12 @@ export class PartAnimator {
     const next = new Map();
     for (const p of normalizeParts(parts)) {
       const prev = this.parts.get(p.id);
-      const members = partMembers(this.rest.positions, this.rest.count, p);
-      const entry = { part: p, members, t: prev ? prev.t : (p.startOpen ? 1 : 0) };
+      // Only re-find members when the part's area changed (sliders call this often).
+      const areaKey = JSON.stringify([p.box, p.cells?.keys?.length, p.cells?.size, p.cells?.origin, p.cells?.keys?.slice(0, 64), p.cells?.keys?.slice(-64), p.region]);
+      const members = prev && prev.areaKey === areaKey ? prev.members : partMembers(this.rest.positions, this.rest.count, p);
+      // Splats that left an open part go back to rest before the new pose is written.
+      if (prev && prev.t && prev.members !== members) this._write(prev.members, null);
+      const entry = { part: p, members, areaKey, t: prev ? prev.t : (p.startOpen ? 1 : 0) };
       if (p.motion.type === 'pick') {
         const same = prev && prev.part.motion.type === 'pick' && prev.part.motion.zone === p.motion.zone && prev.members.length === members.length;
         entry.strands = same && prev.strands ? prev.strands : findStrands(this.rest.positions, this.rest.count, members, p.motion.zone);
@@ -294,6 +365,7 @@ export class PartAnimator {
     if (this.anims.size || [...this.parts.values()].some(e => e.t)) return false;   // not while a part is open
     if (!refreshRestGeometry(this.rest, this.mesh)) return false;
     this.posed = Float32Array.from(this.rest.positions);
+    for (const e of this.parts.values()) e.areaKey = null;   // geometry changed: re-find members
     this.setParts([...this.parts.values()].map(e => e.part));
     return true;
   }

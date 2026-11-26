@@ -733,6 +733,7 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
     <button class="tool-btn" id="toolSphere" title="3D Sphere Select (brush radius)">◯</button>
     <button class="tool-btn" id="toolBox" title="Box Select (X)">▭</button>
     <button class="tool-btn" id="toolLasso" title="Lasso (L)">⟡</button>
+    <button class="tool-btn" id="toolOutline" title="Outline with points (O): click dots around the area, click the first dot (or double-click / Enter) to select the visible surface inside. You can orbit between dots.">⬠</button>
     <button class="tool-btn" id="toolMagic" title="Magic Select (M)">✦</button>
   </div>
   <div class="tool-group">
@@ -4016,6 +4017,7 @@ function selectVisibleRegion(contains) {
   const W = vp.clientWidth, H = vp.clientHeight;
   camera.updateMatrixWorld(true);
   const view = new THREE.Vector3(), projected = new THREE.Vector3();
+  const focalPx = H / (2 * Math.tan((camera.fov || 50) * Math.PI / 360));
   return selectVisibleScreenPoints({
     count: S.alive.length,
     isAlive: i => !!S.alive[i] && !S.layerHidden?.[i],
@@ -4035,7 +4037,14 @@ function selectVisibleRegion(contains) {
     cellSize: 4,
     // a splat surface has thickness: 2.5 % of the distance keeps the whole skin
     depthTolerance: 0.025,
-    isOccluder: i => (S.opacity?.[i] ?? 1) >= 0.35
+    isOccluder: i => (S.opacity?.[i] ?? 1) >= 0.35,
+    // each solid splat blocks what's behind its whole footprint, so the far
+    // side of an object can't leak through gaps between front splat centres
+    width: W, height: H,
+    radius: (i, p) => {
+      const s = S.scale?.[i]; if (!(s > 0)) return 0;
+      return Math.min(24, s * 1.5 * focalPx / p.depth);
+    }
   });
 }
 
@@ -4957,7 +4966,7 @@ document.querySelectorAll('[data-transform-scope]').forEach(button => {
 
 const toolMap = {
   toolOrbit: 'orbit', toolPan: 'pan', toolZoom: 'zoom-tool',
-  toolBox: 'box', toolSphere: 'sphere', toolLasso: 'lasso', toolMagic: 'magic',
+  toolBox: 'box', toolSphere: 'sphere', toolLasso: 'lasso', toolOutline: 'outline', toolMagic: 'magic',
   toolBrushErase: 'brush-erase', toolBrushSelect: 'brush-select',
   toolPaint: 'paint', toolSmear: 'smear', toolFill: 'fill',
   toolMove: 'move', toolScale: 'scale-tool', toolRotate: 'rotate', toolCrop: 'crop', toolMeasure: 'measure'
@@ -5071,6 +5080,21 @@ function renderLasso() {
     poly.setAttribute('points', S.lassoPoints.map(p => `${p.x},${p.y}`).join(' '));
     poly.setAttribute('class', 'lasso-ghost'); lassoSvg.appendChild(poly);
   }
+  if (S.outlinePts?.length) {
+    const NS = 'http://www.w3.org/2000/svg', pts = _outlineScreen();
+    if (pts.length >= 2) {
+      const poly = document.createElementNS(NS, 'polygon');
+      poly.setAttribute('points', pts.map(p => `${p.x},${p.y}`).join(' '));
+      poly.setAttribute('style', 'fill:rgba(200,255,0,.10);stroke:#c8ff00;stroke-width:1.5;stroke-dasharray:5 4');
+      lassoSvg.appendChild(poly);
+    }
+    pts.forEach((p, i) => {
+      const c = document.createElementNS(NS, 'circle');
+      c.setAttribute('cx', p.x); c.setAttribute('cy', p.y); c.setAttribute('r', i === 0 ? 6 : 4);
+      c.setAttribute('style', `fill:${i === 0 ? '#c8ff00' : '#ffffff'};stroke:#05070b;stroke-width:1.5;opacity:${p.behind ? 0.3 : 1}`);
+      lassoSvg.appendChild(c);
+    });
+  }
   renderMeasurementOverlay();
 }
 
@@ -5166,6 +5190,7 @@ function _vpCoords(e) {
 let _brushActive = false, _brushTimer;
 renderer.domElement.addEventListener('dblclick', e => {
   if (!S.positions || !S.alive?.length) return;
+  if (S.mode === 'outline') { e.preventDefault(); e.stopPropagation(); finishOutline(e); return; }
   if (S.mode === 'measure' || S.mode === 'paint' || S.mode === 'brush-erase') return;
   e.preventDefault();
   e.stopPropagation();
@@ -5184,8 +5209,62 @@ renderer.domElement.addEventListener('dblclick', e => {
   }
 });
 
+// ─── OUTLINE WITH POINTS ─────────────────────────────────────────────────────
+// Dots sit on the scan's surface (3D), so you can orbit between clicks. Closing
+// the outline selects only the visible surface inside it (never the far side).
+S.outlinePts = [];
+function _outlineScreen() {
+  const vp = document.getElementById('viewport'); const W = vp.clientWidth, H = vp.clientHeight;
+  camera.updateMatrixWorld(true);
+  return S.outlinePts.map(p => { const v = p.clone().project(camera); return { x: (v.x * 0.5 + 0.5) * W, y: (-v.y * 0.5 + 0.5) * H, behind: v.z > 1 }; });
+}
+// The dot stays exactly under the cursor, at the depth of the nearest surface there.
+function _outlineDotAt(clientX, clientY) {
+  if (!S.points || !S.positions) return null;
+  const rect = viewport.getBoundingClientRect();
+  const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+  const distance = camera.position.distanceTo(controls.target);
+  _measureRaycaster.params.Points.threshold = Math.max(1e-6, 2 * distance * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * 6 / Math.max(1, rect.height));
+  _measureRaycaster.setFromCamera(ndc, camera);
+  const hits = _measureRaycaster.intersectObject(S.points, false);
+  if (!hits.length) return null;
+  // nearest few hits, take the closest depth (front surface)
+  const d = Math.min(...hits.slice(0, 8).map(h => h.distance));
+  return _measureRaycaster.ray.at(d, new THREE.Vector3());
+}
+function finishOutline(e = {}) {
+  if (S.outlinePts.length < 3) { setStatus('Place at least 3 dots around the area first', 'warn'); return false; }
+  const pts = _outlineScreen();
+  if (pts.some(p => p.behind)) { setStatus('Turn the view so every dot is in front of you, then finish the outline', 'warn'); return false; }
+  S.outlinePts = [];
+  selectByLasso(pts, { additive: !!e.shiftKey, subtract: !!e.altKey });
+  renderLasso(); syncTransformGizmo();
+  setStatus(`Outline selected ${fmt(selectedPointCount())} splats on the visible surface`, 'ok');
+  return true;
+}
+function cancelOutline() { if (S.outlinePts.length) { S.outlinePts = []; renderLasso(); setStatus('Outline cleared'); } }
+window.FumocaOutline = { finish: finishOutline, cancel: cancelOutline, points: () => S.outlinePts.length };
+window.addEventListener('keydown', e => {
+  if (!S.outlinePts?.length || /input|textarea|select/i.test(e.target?.tagName || '')) return;
+  if (e.key === 'Enter') { e.preventDefault(); finishOutline(e); }
+  else if (e.key === 'Escape') { e.preventDefault(); cancelOutline(); }
+  else if (e.key === 'Backspace') { e.preventDefault(); S.outlinePts.pop(); renderLasso(); }
+});
+
 renderer.domElement.addEventListener('pointerdown', e => {
   if (S.mode === 'orbit') return;
+  if (S.mode === 'outline') {
+    e.preventDefault(); e.stopPropagation();
+    const { x, y } = _vpCoords(e);
+    const pts = _outlineScreen();
+    if (pts.length >= 3 && Math.hypot(pts[0].x - x, pts[0].y - y) <= 12) { finishOutline(e); return; }
+    const dot = _outlineDotAt(e.clientX, e.clientY);
+    if (!dot) { setStatus('Click on the scan itself to place a dot (zoom closer if needed)', 'warn'); return; }
+    S.outlinePts.push(dot);
+    renderLasso();
+    setStatus(`${S.outlinePts.length} dot${S.outlinePts.length === 1 ? '' : 's'} — keep going around the edge; click the first dot, double-click or press Enter to select. Backspace undoes a dot, Esc clears.`);
+    return;
+  }
   if (S.mode === 'measure') {
     e.preventDefault();e.stopPropagation();
     const endpoint=_measurementPointAt(e.clientX,e.clientY);
@@ -5407,6 +5486,7 @@ function animate(now = performance.now()) {
   _lastViewportRender = now;
   controls.update();
   renderer.render(scene, camera);
+  if (S.outlinePts?.length) renderLasso();   // keep outline dots on the surface while orbiting
   // Reference photo overlay for Fill / collect-from-image
   try {
     const GF = window.FumocaGapFill;
@@ -6743,7 +6823,7 @@ window.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); return; }
   if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteSelected(); return; }
   if (e.key === 'Escape') { clearSelection(); S.lassoPoints = []; renderLasso(); return; }
-  const keyMap = { b: 'orbit', h: 'pan', z: 'zoom-tool', x: 'box', l: 'lasso', m: 'magic', e: 'brush-erase', s: 'brush-select', p: 'paint', v: 'move', r: 'rotate' };
+  const keyMap = { b: 'orbit', h: 'pan', z: 'zoom-tool', x: 'box', l: 'lasso', o: 'outline', m: 'magic', e: 'brush-erase', s: 'brush-select', p: 'paint', v: 'move', r: 'rotate' };
   if (keyMap[e.key.toLowerCase()]) setMode(keyMap[e.key.toLowerCase()]);
   if (e.key.toLowerCase() === 'i') { setMode('fill'); setStatus('Fill gaps — paint holes; load a photo to match real colour', 'ok'); }
   if (e.key.toLowerCase() === 'g') setDisplayMode(S.displayMode === 'blob' ? 'dot' : 'blob');
@@ -7915,7 +7995,7 @@ if (!window._fumocaBooted) {
   // Moving parts (doors, bonnet, caps, recliners) for interactive hotspots.
   const partsRoot = document.getElementById('tab-parts');
   if (partsRoot) {
-    import('./js/modules/parts-panel.js?v=20261126-anim02')
+    import('./js/modules/parts-panel.js?v=20261126-area03')
       .then((m) => m.mountPartsPanel(partsRoot, { onStatus: status }))
       .catch((e) => console.warn('[Studio] parts panel', e));
   }
