@@ -58,8 +58,9 @@ const VERT = `
     float fy = projectionMatrix[1][1] * uViewport.y * 0.5;
     vec3 jx = vec3(fx/z, 0.0, fx*mvPos.x/(z*z));
     vec3 jy = vec3(0.0, -fy/z, -fy*mvPos.y/(z*z));
-    float cxx = max(dot(jx, covariance * jx), 0.25);
-    float cyy = max(dot(jy, covariance * jy), 0.25);
+    // +0.3 px² low-pass (as in 3DGS / Spark): no sparkle or holes at a distance
+    float cxx = dot(jx, covariance * jx) + 0.3;
+    float cyy = dot(jy, covariance * jy) + 0.3;
     float cxy = dot(jx, covariance * jy);
     float lambdaMax = 0.5*(cxx+cyy) + sqrt(max(0.0, 0.25*(cxx-cyy)*(cxx-cyy)+cxy*cxy));
     vCov2D = vec3(cxx, cxy, cyy);
@@ -88,7 +89,9 @@ const FRAG = `
     float cxx = vCov2D.x, cxy = vCov2D.y, cyy = vCov2D.z;
     float determinant = max(cxx*cyy-cxy*cxy, 1e-5);
     float mahalanobis = max(0.0, (cyy*pixelOffset.x*pixelOffset.x - 2.0*cxy*pixelOffset.x*pixelOffset.y + cxx*pixelOffset.y*pixelOffset.y) / determinant);
-    float gaussFall = exp(-0.68 * mahalanobis);
+    // Standard Gaussian falloff, cut at 3σ like the trainers render it
+    if (mahalanobis > 9.0 && uTransition > 0.99) discard;
+    float gaussFall = exp(-0.5 * mahalanobis);
     float r2 = dot(gl_PointCoord - 0.5, gl_PointCoord - 0.5);
 
     // Hard dot for point-cloud phase
@@ -111,8 +114,9 @@ const FRAG = `
       col *= 1.0 + shimmer * (1.0 - abs(uTransition - 0.5) * 2.0) * 0.16;
     }
 
+    // Splat colours are already display colours (sRGB) — converting them again
+    // washed everything out and gave the fallback its hazy, smoky look.
     gl_FragColor = vec4(clamp(col, 0.0, 1.0), alpha);
-    #include <colorspace_fragment>
   }
 `;
 
@@ -189,8 +193,8 @@ const FumocaGaussianRenderer = (() => {
         uBrightness: { value: brightness },
         uTransition: { value: _transition },
         uTime:       { value: 0 },
-        uContrast:   { value: 1.08 },
-        uSaturation: { value: 1.14 },
+        uContrast:   { value: 1.0 },   // faithful colours, same as Spark
+        uSaturation: { value: 1.0 },
         uSharpness:  { value: 0.9 },   // tighter gaussian so the subject reads solid
         uViewport:   { value: new T.Vector2(document.getElementById('viewport')?.clientWidth || window.innerWidth, document.getElementById('viewport')?.clientHeight || window.innerHeight) },
       },
