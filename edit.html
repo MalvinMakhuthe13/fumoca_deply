@@ -7915,7 +7915,7 @@ if (!window._fumocaBooted) {
   // Moving parts (doors, bonnet, caps, recliners) for interactive hotspots.
   const partsRoot = document.getElementById('tab-parts');
   if (partsRoot) {
-    import('./js/modules/parts-panel.js?v=20261126-food01')
+    import('./js/modules/parts-panel.js?v=20261126-anim02')
       .then((m) => m.mountPartsPanel(partsRoot, { onStatus: status }))
       .catch((e) => console.warn('[Studio] parts panel', e));
   }

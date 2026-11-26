@@ -281,6 +281,8 @@ export function mountPartsPanel(container, { onStatus } = {}) {
     parts = normalizeParts([...parts, part]).map(p => (p.id === part.id ? { ...p, motion: { ...p.motion, side: part.motion.side, axisKey: part.motion.axisKey } } : p));
     changed();
     edit(part.id);
+    // Clear the selection so its dots don't sit on top of the part and hide it moving.
+    try { const S = window.S; if (S?.selected) { S.selected.fill(0); window.rebuildGeometry?.(); } } catch (_) {}
     status(`${name} made from ${sel.n.toLocaleString()} selected splats. Press ▶ to try it; adjust the hinge side if it swings the wrong way.`);
   });
   const EDIT_IDS = ['ptName', 'ptType', 'ptSide', 'ptAxis', 'ptAngle', 'ptDist', 'ptLift', 'ptDur', 'ptEase', 'ptAuto', 'ptHold', 'ptUtensil', 'ptReach', 'ptStretch', 'ptDroop'];
