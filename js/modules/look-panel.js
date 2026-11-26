@@ -312,7 +312,7 @@ export function mountLookPanel(container, { onStatus } = {}) {
     syncLabels();
     const l = ensureLighting();
     const s = lightState();
-    if (l) { try { l.apply(s, { fast: true, shadow: (grabFrame++ % 3) === 0 }); } catch (_) {} }
+    if (l) { try { l.apply(s, { fast: true, shadow: 'auto' }); } catch (_) {} }
     placeSun(s);
   }
   const canvasEl = () => window.renderer?.domElement;

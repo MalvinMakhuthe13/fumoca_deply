@@ -137,7 +137,7 @@ export function initPresentViewer() {
         .then(a => {
           if (!a) return;
           window._fumocaPartAnimator = a;
-          window.FumocaParts = { run: (id, to) => a.run(id, to), list: () => a.list().map(p => ({ id: p.id, name: p.name })) };
+          window.FumocaParts = { run: (id, to) => a.run(id, to, { by: 'visitor' }), list: () => a.list().map(p => ({ id: p.id, name: p.name })) };
           // Linked insides (cabin, rooms, inside a fridge) fade in as their doors open.
           if (Array.isArray(data.links) && data.links.length) {
             return Promise.all([import('three'), import('./scan-link.js')]).then(([THREE, sl]) => {

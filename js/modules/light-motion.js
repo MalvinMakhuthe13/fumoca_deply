@@ -106,7 +106,7 @@ export class LightAnimator {
       const s = sampleMotion(this.motion, this.getBase(), p);
       const started = performance.now();
       // colours every frame; the shadow (heavier) every few frames
-      try { this.lighting.apply(s, { fast: true, shadow: this.frame % 4 === 0 }); } catch (e) { this.stop(false); return; }
+      try { this.lighting.apply(s, { fast: true, shadow: 'auto' }); } catch (e) { this.stop(false); return; }
       this.frame++;
       this.lastMs = performance.now() - started;
       globalThis.dispatchEvent?.(new CustomEvent('fumoca:lightMotionFrame', { detail: { phase: p, settings: s } }));

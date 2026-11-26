@@ -100,4 +100,17 @@ console.log('splat-lighting: all tests passed');
   assert.ok(Math.abs(rows[nearWall].col[0] - before) < 1e-6, 'and off again');
   l2.dispose();
 }
+// shadow: haze below doesn't drag the ground down; a very low sun gives a bounded, soft-edged shadow
+{
+  const { shadowMap } = await import('../js/modules/splat-lighting.js');
+  const P = [], O = [];
+  for (let i = 0; i < 3000; i++) { P.push(Math.random() * 0.2 - 0.1, Math.random() * 0.3, Math.random() * 0.2 - 0.1); O.push(0.9); }
+  for (let i = 0; i < 300; i++) { P.push(Math.random() * 4 - 2, -1 - Math.random(), Math.random() * 4 - 2); O.push(0.05); }
+  const m = shadowMap(Float32Array.from(P), P.length / 3, Float32Array.from(O), { enabled: true, azimuth: 30, elevation: 2, shadowOpacity: 0.6, shadowSoftness: 0.5 }, { size: 128 });
+  assert.ok(Math.abs(m.groundY) < 0.01, 'ground from the object, not the haze: ' + m.groundY);
+  assert.ok(m.bounds.x1 - m.bounds.x0 < 4, 'low sun: shadow stays bounded ' + (m.bounds.x1 - m.bounds.x0));
+  let edgeMax = 0; for (let x = 0; x < 128; x++) edgeMax = Math.max(edgeMax, m.data[x], m.data[127 * 128 + x], m.data[x * 128], m.data[x * 128 + 127]);
+  assert.ok(edgeMax < 1e-6, 'no square border');
+  assert.ok(Math.max(...m.data) > 0.3, 'there is a shadow');
+}
 console.log('splat-lighting lamps: all tests passed');

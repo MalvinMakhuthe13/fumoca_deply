@@ -18,6 +18,16 @@ const KINDS = {
   cap:      { label: 'Bottle cap',      name: 'Cap',         type: 'twist', side: 'center', axisKey: 'y', angle: -540, liftFrac: 1.6, ease: 'ease-in-out', duration: 1.6 },
   canLid:   { label: 'Can ring / lid',  name: 'Ring pull',   type: 'hinge', side: 'back', axisKey: 'x', angle: -75, ease: 'spring', duration: 0.8 },
   recline:  { label: 'Recliner back',   name: 'Backrest',    type: 'hinge', side: 'bottom', axisKey: 'x', angle: -28, ease: 'ease-in-out', duration: 2.2 },
+  binLid:   { label: 'Bin lid (flips up)', name: 'Bin lid',    type: 'hinge', side: 'back', axisKey: 'x', angle: -105, ease: 'spring', duration: 1.1 },
+  boxLid:   { label: 'Box / chest lid',  name: 'Lid',          type: 'hinge', side: 'back', axisKey: 'x', angle: -100, ease: 'ease-in-out', duration: 1.6 },
+  potLid:   { label: 'Pot / pan lid (lifts off)', name: 'Pot lid', type: 'lift', side: 'center', axisKey: 'y', angle: 14, liftSpanFrac: 0.45, ease: 'ease-out', duration: 1.0 },
+  jarLid:   { label: 'Jar / tub lid (unscrews)', name: 'Jar lid', type: 'twist', side: 'center', axisKey: 'y', angle: -360, liftFrac: 1.4, ease: 'ease-in-out', duration: 1.4 },
+  laptop:   { label: 'Laptop / case lid', name: 'Screen',      type: 'hinge', side: 'back', axisKey: 'x', angle: -110, ease: 'ease-in-out', duration: 1.8 },
+  toiletLid:{ label: 'Toilet / seat lid', name: 'Seat lid',    type: 'hinge', side: 'back', axisKey: 'x', angle: -95, ease: 'ease-out', duration: 1.2 },
+  ovenDoor: { label: 'Oven / dishwasher door (drops down)', name: 'Oven door', type: 'hinge', side: 'bottom', axisKey: 'x', angle: 85, ease: 'ease-in-out', duration: 1.4 },
+  cupboard: { label: 'Cupboard / wardrobe door', name: 'Cupboard door', type: 'hinge', side: 'left', angle: -100, ease: 'ease-in-out', duration: 1.3 },
+  fridge:   { label: 'Fridge door',      name: 'Fridge door',  type: 'hinge', side: 'left', angle: -110, ease: 'spring', duration: 1.5 },
+  sliding:  { label: 'Sliding door / panel', name: 'Sliding door', type: 'slide', axisKey: 'x', distanceFrac: 0.9, ease: 'ease-in-out', duration: 1.4 },
 };
 const AXES = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] };
 
@@ -38,7 +48,7 @@ export function mountPartsPanel(container, { onStatus } = {}) {
       <div class="sec-body" style="padding:10px">
         <input id="ptName" class="ac-input" style="width:100%;padding:6px 8px" maxlength="60">
         <div class="ctrl-row" style="margin-top:6px"><span class="ctrl-label">Motion</span></div>
-        <select id="ptType" class="ac-select" style="width:100%"><option value="hinge">Swing on a hinge</option><option value="slide">Slide</option><option value="twist">Twist off (caps, lids)</option></select>
+        <select id="ptType" class="ac-select" style="width:100%"><option value="hinge">Swing on a hinge</option><option value="slide">Slide</option><option value="twist">Twist off (caps, lids)</option><option value="lift">Lift off (pot lids)</option></select>
         <div class="ctrl-row" style="margin-top:6px"><span class="ctrl-label">Hinge / pivot on</span></div>
         <select id="ptSide" class="ac-select" style="width:100%">${['left', 'right', 'front', 'back', 'top', 'bottom', 'center'].map(s => `<option value="${s}">${s[0].toUpperCase() + s.slice(1)} edge</option>`).join('').replace('Center edge', 'Centre')}</select>
         <div class="ctrl-row" style="margin-top:6px"><span class="ctrl-label">Axis</span></div>
@@ -50,6 +60,9 @@ export function mountPartsPanel(container, { onStatus } = {}) {
         <input type="range" id="ptDur" min="0.2" max="6" step="0.1" style="width:100%">
         <div class="ctrl-row" style="margin-top:6px"><span class="ctrl-label">Feel</span></div>
         <select id="ptEase" class="ac-select" style="width:100%"><option value="ease-in-out">Smooth</option><option value="spring">Sprung (little bounce)</option><option value="ease-out">Quick then soft</option><option value="linear">Mechanical</option></select>
+        <div class="ctrl-row" style="margin-top:6px"><span class="ctrl-label">On the published page</span></div>
+        <select id="ptAuto" class="ac-select" style="width:100%"><option value="none">Opens when clicked (hotspot)</option><option value="once">Opens by itself once</option><option value="loop">Keeps opening and closing</option></select>
+        <div id="ptHoldRow"><div class="ctrl-row"><span class="ctrl-label">Pause open / closed</span><span class="ctrl-val" id="ptHoldVal"></span></div><input type="range" id="ptHold" min="0" max="6" step="0.1" style="width:100%"></div>
         <div class="ctrl-row" style="margin-top:6px"><span class="ctrl-label">Try it</span><span class="ctrl-val" id="ptOpenVal">closed</span></div>
         <input type="range" id="ptOpen" min="0" max="1" step="0.01" value="0" style="width:100%">
         <div style="display:flex;gap:6px;margin-top:6px">
@@ -109,7 +122,7 @@ export function mountPartsPanel(container, { onStatus } = {}) {
     const span = Math.max(...box.max.map((v, i) => v - box.min[i]));
     return {
       type: k.type, pivot: h.pivot, axis: k.axisKey ? AXES[k.axisKey] : h.axis,
-      angle: k.angle ?? 0, distance: (k.distanceFrac || 0) * span, lift: (k.liftFrac || 0) * (box.max[1] - box.min[1]),
+      angle: k.angle ?? 0, distance: (k.distanceFrac || 0) * span, lift: (k.liftSpanFrac ? k.liftSpanFrac * span : (k.liftFrac || 0) * (box.max[1] - box.min[1])),
       duration: k.duration, ease: k.ease, side: k.side || 'center', axisKey: k.axisKey || 'auto',
     };
   }
@@ -125,6 +138,7 @@ export function mountPartsPanel(container, { onStatus } = {}) {
     q('#ptAngle').value = m.angle; q('#ptDur').value = m.duration; q('#ptEase').value = m.ease;
     q('#ptDist').min = -2 * span; q('#ptDist').max = 2 * span; q('#ptDist').step = span / 500; q('#ptDist').value = m.distance;
     q('#ptLift').max = 2 * span; q('#ptLift').step = span / 500; q('#ptLift').value = m.lift;
+    q('#ptAuto').value = editing.autoplay || 'none'; q('#ptHold').value = editing.hold ?? 1.2;
     syncEditLabels();
   }
 
@@ -133,7 +147,10 @@ export function mountPartsPanel(container, { onStatus } = {}) {
     const t = q('#ptType').value;
     q('#ptAngleRow').style.display = t === 'slide' ? 'none' : '';
     q('#ptDistRow').style.display = t === 'slide' ? '' : 'none';
-    q('#ptLiftRow').style.display = t === 'twist' ? '' : 'none';
+    q('#ptLiftRow').style.display = t === 'twist' || t === 'lift' ? '' : 'none';
+    q('#ptAngleRow').querySelector('.ctrl-label').textContent = t === 'lift' ? 'Tips by' : t === 'twist' ? 'Turns by' : 'Opens by';
+    q('#ptHoldRow').style.display = q('#ptAuto').value === 'loop' ? '' : 'none';
+    q('#ptHoldVal').textContent = (+q('#ptHold').value).toFixed(1) + ' s';
     q('#ptAngleVal').textContent = Math.round(+q('#ptAngle').value) + '°';
     q('#ptDistVal').textContent = (+q('#ptDist').value).toFixed(3);
     q('#ptLiftVal').textContent = (+q('#ptLift').value).toFixed(3);
@@ -147,6 +164,7 @@ export function mountPartsPanel(container, { onStatus } = {}) {
     const side = q('#ptSide').value, axisKey = q('#ptAxis').value;
     const h = suggestHinge(editing.box, side);
     editing.name = q('#ptName').value.trim().slice(0, 60) || 'Part';
+    editing.autoplay = q('#ptAuto').value; editing.hold = +q('#ptHold').value;
     editing.motion = {
       ...editing.motion,
       type: q('#ptType').value, side, axisKey, pivot: h.pivot, axis: axisKey === 'auto' ? h.axis : AXES[axisKey],
@@ -194,9 +212,9 @@ export function mountPartsPanel(container, { onStatus } = {}) {
     edit(part.id);
     status(`${name} made from ${sel.n.toLocaleString()} selected splats. Press ▶ to try it; adjust the hinge side if it swings the wrong way.`);
   });
-  ['ptName', 'ptType', 'ptSide', 'ptAxis', 'ptAngle', 'ptDist', 'ptLift', 'ptDur', 'ptEase'].forEach(id =>
+  ['ptName', 'ptType', 'ptSide', 'ptAxis', 'ptAngle', 'ptDist', 'ptLift', 'ptDur', 'ptEase', 'ptAuto', 'ptHold'].forEach(id =>
     q('#' + id).addEventListener('input', () => { syncEditLabels(); readEdit(); }));
-  ['ptName', 'ptType', 'ptSide', 'ptAxis', 'ptAngle', 'ptDist', 'ptLift', 'ptDur', 'ptEase'].forEach(id =>
+  ['ptName', 'ptType', 'ptSide', 'ptAxis', 'ptAngle', 'ptDist', 'ptLift', 'ptDur', 'ptEase', 'ptAuto', 'ptHold'].forEach(id =>
     q('#' + id).addEventListener('change', () => changed()));
   q('#ptOpen').addEventListener('input', () => { syncEditLabels(); if (editing) ensureAnimator()?.set(editing.id, +q('#ptOpen').value); });
   q('#ptPlay').addEventListener('click', async () => {

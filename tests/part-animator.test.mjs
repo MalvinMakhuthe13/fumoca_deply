@@ -54,4 +54,15 @@ await anim.run('door', 'open');
 globalThis.dispatchEvent?.(new Event('fumoca:lightingApplied'));
 anim.dispose();
 assert.ok(rows[doorStart + 19].c.every((v, k) => Math.abs(v - far[k]) < 1e-6), 'dispose returns parts to rest');
+// lift (pot lid): rises along the axis and tips a little
+{
+  const { partTransform, normalizePart } = await import('../js/modules/part-animator.js');
+  const lid = normalizePart({ id: 'lid', box: { min: [-1, 1, -1], max: [1, 1.1, 1] }, motion: { type: 'lift', axis: [0, 1, 0], pivot: [0, 1.05, 0], angle: 14, lift: 0.5 }, autoplay: 'loop', hold: 2 });
+  assert.equal(lid.motion.type, 'lift'); assert.equal(lid.autoplay, 'loop'); assert.equal(lid.hold, 2);
+  const top = partTransform(lid, 1).apply([0, 1.05, 0]);
+  assert.ok(Math.abs(top[1] - 1.55) < 1e-9 && Math.abs(top[0]) < 1e-9, 'centre rises by the lift');
+  const edge = partTransform(lid, 1).apply([1, 1.05, 0]);
+  assert.ok(Math.abs(edge[1] - 1.55) > 0.1, 'and tips');
+  assert.equal(normalizePart({ box: { min: [0, 0, 0], max: [1, 1, 1] }, autoplay: 'bad' }).autoplay, 'none');
+}
 console.log('part-animator: all tests passed');

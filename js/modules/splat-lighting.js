@@ -194,27 +194,42 @@ export function relightColors(baseColors, normals, settings, out = null, positio
 export function shadowMap(positions, count, opacity, settings, { size = 256, groundY = null, stride = 1 } = {}) {
   const s = normalizeLighting(settings) || { ...DEFAULT_LIGHTING };
   const L = lightDirection(s.azimuth, s.elevation);
-  let minY = Infinity, minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
-  for (let i = 0; i < count; i += stride) {
-    const y = positions[i * 3 + 1]; if (y < minY) minY = y;
-  }
-  const gy = groundY ?? minY;
-  const px = new Float32Array(Math.ceil(count / stride) * 2);
+  // Only splats that are really there cast a shadow: faint haze / floaters
+  // would set the ground too low and smear the shadow into a dark rectangle.
+  const solid = (i) => !opacity || opacity[i] >= 0.2;
+  const ys = [];
+  for (let i = 0; i < count; i += stride) if (solid(i)) ys.push(positions[i * 3 + 1]);
+  if (!ys.length) for (let i = 0; i < count; i += stride) ys.push(positions[i * 3 + 1]);
+  ys.sort((a, b) => a - b);
+  const gy = groundY ?? ys[Math.floor(ys.length * 0.005)];
+  const height = Math.max(1e-4, ys[Math.floor((ys.length - 1) * 0.98)] - gy);
+  // a very low sun is capped (~12°) so shadows stay long but readable
+  const ly = Math.max(0.21, L[1]), hl = Math.hypot(L[0], L[2]) || 1, sx = (L[0] / hl) * Math.sqrt(Math.max(0, 1 - ly * ly)), sz = (L[2] / hl) * Math.sqrt(Math.max(0, 1 - ly * ly));
+  const n = Math.ceil(count / stride), px = new Float32Array(n * 2), w = new Float32Array(n);
   let k = 0;
   for (let i = 0; i < count; i += stride, k++) {
+    if (!solid(i)) { w[k] = 0; continue; }
     const h = Math.max(0, positions[i * 3 + 1] - gy);
-    const t = h / Math.max(0.05, L[1]);
-    const x = positions[i * 3] - L[0] * t, z = positions[i * 3 + 2] - L[2] * t;
-    px[k * 2] = x; px[k * 2 + 1] = z;
-    if (x < minX) minX = x; if (x > maxX) maxX = x; if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+    const t = h / ly;
+    px[k * 2] = positions[i * 3] - sx * t; px[k * 2 + 1] = positions[i * 3 + 2] - sz * t;
+    // contact is darkest; far up the object the shadow fades out
+    w[k] = (opacity ? opacity[i] : 1) * (0.35 + 0.65 * Math.exp(-2.2 * h / height));
   }
-  const span = Math.max(maxX - minX, maxZ - minZ, 1e-6) * 1.35;
-  const cx = (minX + maxX) / 2, cz = (minZ + maxZ) / 2;
+  // bounds from the bulk of the shadow, not its stragglers
+  const xs = [], zs = [];
+  for (let j = 0; j < k; j++) if (w[j] > 0) { xs.push(px[j * 2]); zs.push(px[j * 2 + 1]); }
+  if (!xs.length) return { size, data: new Float32Array(size * size), bounds: { x0: -1, z0: -1, x1: 1, z1: 1 }, groundY: gy };
+  xs.sort((a, b) => a - b); zs.sort((a, b) => a - b);
+  const pct = (a, p) => a[Math.min(a.length - 1, Math.max(0, Math.floor(p * (a.length - 1))))];
+  const x0 = pct(xs, 0.01), x1 = pct(xs, 0.99), z0 = pct(zs, 0.01), z1 = pct(zs, 0.99);
+  const span = Math.max(x1 - x0, z1 - z0, 1e-6) * 1.5;
+  const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
   const b = { x0: cx - span / 2, z0: cz - span / 2, x1: cx + span / 2, z1: cz + span / 2 };
   const data = new Float32Array(size * size);
-  for (let j = 0, i = 0; j < k; j++, i += stride) {
+  for (let j = 0; j < k; j++) {
+    if (!w[j]) continue;
     const u = Math.floor((px[j * 2] - b.x0) / span * size), v = Math.floor((px[j * 2 + 1] - b.z0) / span * size);
-    if (u >= 0 && v >= 0 && u < size && v < size) data[v * size + u] += opacity ? opacity[i] : 1;
+    if (u >= 0 && v >= 0 && u < size && v < size) data[v * size + u] += w[j];
   }
   // soften: box blur (radius from softness), then normalise to a robust max
   const r = Math.max(1, Math.round(1 + s.shadowSoftness * size / 40));
@@ -226,10 +241,16 @@ export function shadowMap(positions, count, opacity, settings, { size = 256, gro
       for (let y = 0; y < size; y++) { dst[y * size + x] = a; a += tmp[Math.min(size - 1, y + r + 1) * size + x] - tmp[Math.max(0, y - r) * size + x]; } }
     return dst;
   };
-  let d = blur(blur(data));
+  const d = blur(blur(data));
   const sorted = Float32Array.from(d).filter(v => v > 0).sort();
-  const ref = sorted.length ? sorted[Math.floor(sorted.length * 0.9)] : 1;
-  for (let i = 0; i < d.length; i++) d[i] = Math.min(1, d[i] / (ref || 1)) * s.shadowOpacity;
+  const ref = sorted.length ? sorted[Math.floor(sorted.length * 0.85)] : 1;
+  // fade to nothing at the edges, so the shadow never shows a square border
+  const edge = Math.max(2, Math.round(size * 0.12));
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    const e = Math.min(x, y, size - 1 - x, size - 1 - y) / edge, f = e >= 1 ? 1 : e * e * (3 - 2 * e);
+    const i = y * size + x;
+    d[i] = Math.min(1, d[i] / (ref || 1)) * s.shadowOpacity * f;
+  }
   return { size, data: d, bounds: b, groundY: gy };
 }
 
@@ -288,11 +309,51 @@ export class SplatLighting {
     return true;
   }
 
-  /** Positions to cast the shadow from: a posed rig if one is driving this mesh. */
-  _positions() {
+  /** Positions to cast the shadow from: a posed rig, or open parts, if any. */
+  _rigPositions() {
     const d = globalThis.FumocaRig?.driver || globalThis._fumocaRigDriver;
-    if (d?.mesh === this.mesh && d.out?.positions && d.prevMats) return d.out.positions;
+    return d?.mesh === this.mesh && d.out?.positions && d.prevMats ? d.out.positions : null;
+  }
+  _partAnimator() { return globalThis._fumocaPartAnimatorByMesh?.get?.(this.mesh) || null; }
+  _positions() {
+    const rig = this._rigPositions();
+    if (rig) return rig;
+    const a = this._partAnimator();
+    if (a?.posed?.length === this.rest.positions.length && a.openTransforms().length) return a.posed;
     return this.rest.positions;
+  }
+  /** Normals, turned with any open door / lid so it is lit as it now faces. */
+  _normals() {
+    const a = this._partAnimator(), open = a?.openTransforms?.() || [];
+    if (!open.length) return this.normals;
+    const N = this._turned && this._turned.length === this.normals.length ? this._turned : (this._turned = new Float32Array(this.normals.length));
+    N.set(this.normals);
+    for (const { members, q } of open) {
+      const [x, y, z, w] = q;
+      for (const i of members) {
+        const v0 = N[i * 3], v1 = N[i * 3 + 1], v2 = N[i * 3 + 2];
+        const tx = 2 * (y * v2 - z * v1), ty = 2 * (z * v0 - x * v2), tz = 2 * (x * v1 - y * v0);
+        N[i * 3] = v0 + w * tx + (y * tz - z * ty); N[i * 3 + 1] = v1 + w * ty + (z * tx - x * tz); N[i * 3 + 2] = v2 + w * tz + (x * ty - y * tx);
+      }
+    }
+    return N;
+  }
+  /** While a door / lid moves: relight it as it turns, shadow following. */
+  _listenParts() {
+    if (this._onPartFrame) return;
+    let queued = false, frame = 0;
+    this._onPartFrame = (e) => {
+      if (e.detail?.mesh && e.detail.mesh !== this.mesh) return;
+      if (!this.settings.enabled || queued) return;
+      queued = true;
+      requestAnimationFrame(() => { queued = false; try { this.apply(this.settings, { fast: true, shadow: (frame++ % 2) === 0 ? 'auto' : false }); } catch (_) {} });
+    };
+    this._onPartSettled = (e) => {
+      if (e.detail?.mesh && e.detail.mesh !== this.mesh) return;
+      if (this.settings.enabled) try { this.apply(this.settings, { fast: true, shadow: true }); } catch (_) {}
+    };
+    globalThis.addEventListener?.('fumoca:partFrame', this._onPartFrame);
+    globalThis.addEventListener?.('fumoca:partSettled', this._onPartSettled);
   }
 
   /**
@@ -319,13 +380,16 @@ export class SplatLighting {
     this.settings = settings === this.settings ? settings : (normalizeLighting(settings) || this.settings);
     const splats = this.mesh.packedSplats || this.mesh.splats;
     if (!splats?.setSplat) throw new Error('This Spark build cannot relight splats in place.');
+    this._listenParts();
     const P = this._positions();
-    relightColors(this.rest.colors, this.normals, this.settings, this.lit, P);
-    const rigOn = P !== this.rest.positions;
+    relightColors(this.rest.colors, this._normals(), this.settings, this.lit, P);
+    const rigOn = !!this._rigPositions();
+    // 'auto': update the shadow every frame while it is cheap, less often on big scans
+    const doShadow = shadow === 'auto' ? ((this._shadowMs ?? 0) < 12 || ((this._shadowSkip = (this._shadowSkip || 0) + 1) % Math.ceil((this._shadowMs || 12) / 12) === 0)) : !!shadow;
     if (fast && !rigOn && this._writeColoursOnly(splats)) {
       splats.needsUpdate = true;
       this.mesh.updateVersion?.();
-      if (shadow) this.updateShadow();
+      if (doShadow) this.updateShadow();
       this.atmosphere?.apply(this.settings);
       globalThis.dispatchEvent?.(new CustomEvent('fumoca:lightingApplied', { detail: this.settings }));
       return;
@@ -341,12 +405,17 @@ export class SplatLighting {
     }
     splats.needsUpdate = true;
     this.mesh.updateVersion?.();
-    if (shadow) this.updateShadow();
+    if (doShadow) this.updateShadow();
     this.atmosphere?.apply(this.settings);
     globalThis.dispatchEvent?.(new CustomEvent('fumoca:lightingApplied', { detail: this.settings }));
   }
 
   updateShadow() {
+    const started = performance.now();
+    try { return this._updateShadow(); } finally { this._shadowMs = performance.now() - started; }
+  }
+
+  _updateShadow() {
     const { THREE, settings: s } = this;
     if (!s.enabled || !s.shadow) { if (this.plane) this.plane.visible = false; return; }
     const map = shadowMap(this._positions(), this.rest.count, this.rest.opacity, s,
@@ -404,6 +473,7 @@ export class SplatLighting {
   }
 
   dispose() {
+    if (this._onPartFrame) { globalThis.removeEventListener?.('fumoca:partFrame', this._onPartFrame); globalThis.removeEventListener?.('fumoca:partSettled', this._onPartSettled); }
     try { this.reset(); } catch (_) {}
     this.atmosphere?.dispose();
     if (this.plane) { this.plane.parent?.remove(this.plane); this.plane.geometry.dispose(); this.plane.material.map?.dispose(); this.plane.material.dispose(); }

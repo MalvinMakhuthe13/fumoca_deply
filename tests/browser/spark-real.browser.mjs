@@ -119,9 +119,20 @@ try {
     const P = await import('/js/modules/part-animator.js');
     const parts = new P.PartAnimator(T, window.mesh, [{ id: 'right', name: 'Right half', box: { min: [0, -1, -0.1], max: [1, 1, 0.1] }, motion: { type: 'hinge', pivot: [0, 0, 0], axis: [0, 1, 0], angle: -90, duration: 0.1 } }]);
     out.members = parts.list()[0].members;
+    // light from the side (+x): the closed half faces ±z (side-lit), the open half faces x
+    const side = new L.SplatLighting(T, window.mesh, null, { scene: window.scene });
+    side.apply({ enabled: true, azimuth: 90, elevation: 5, intensity: 1.5, ambient: 0.05, color: '#ffffff', shadow: true });
+    const member = parts.parts.get('right').members[0];
+    const colourOf = (k) => { let v; ps.forEachSplat((i, c, s, q, a, col) => { if (i === k) v = col.r + col.g + col.b; }); return v; };
+    const shadowBounds = () => { const pl = window.mesh.children.find(x => x.name === 'fumoca-splat-shadow'); return pl && [pl.position.x, pl.position.z, pl.scale.x, pl.scale.y].map(v => +v.toFixed(3)).join(','); };
+    const closedLit = colourOf(member), closedShadow = shadowBounds();
     await parts.run('right', 'open');
+    await new Promise(r => setTimeout(r, 200));
     let maxZ = 0; ps.forEachSplat((i, c) => { if (c.z > maxZ) maxZ = c.z; });
     out.swungZ = maxZ;
+    out.relitOpen = Math.abs(colourOf(member) - closedLit) > 0.05;
+    out.shadowFollowed = shadowBounds() !== closedShadow;
+    side.dispose();
     parts.dispose();
     const R = await import('/js/modules/splat-rig-driver.js');
     const rest = R.readRest(window.mesh);
@@ -139,6 +150,8 @@ try {
   assert.ok(real.members > 150 && real.members < 250, 'part region picked half the disc: ' + real.members);
   assert.ok(real.swungZ > 0.5, 'part swung open in the real mesh: ' + real.swungZ);
   assert.ok(real.rigWritten > 0, 'rig posed the real mesh');
+  assert.equal(real.relitOpen, true, 'an opened part is relit as it now faces');
+  assert.equal(real.shadowFollowed, true, 'the shadow follows the opened part');
 
   assert.deepEqual(errors, []);
   console.log('real Spark (self-hosted) browser: all checks passed');

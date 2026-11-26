@@ -28,7 +28,7 @@ export function normalizePart(p) {
   if (!box || !finite3(box.min) || !finite3(box.max)) return null;
   const min = box.min.map((v, i) => Math.min(v, box.max[i])), max = box.max.map((v, i) => Math.max(v, box.min[i]));
   const m = p.motion || {};
-  const type = ['hinge', 'slide', 'twist'].includes(m.type) ? m.type : 'hinge';
+  const type = ['hinge', 'slide', 'twist', 'lift'].includes(m.type) ? m.type : 'hinge';
   const axis = finite3(m.axis) && Math.hypot(...m.axis) > 1e-9 ? m.axis.map(v => v / Math.hypot(...m.axis)) : [0, 1, 0];
   const pivot = finite3(m.pivot) ? m.pivot.slice() : min.map((v, i) => (v + max[i]) / 2);
   return {
@@ -44,6 +44,10 @@ export function normalizePart(p) {
       ease: EASE[m.ease] ? m.ease : 'ease-in-out',
     },
     startOpen: !!p.startOpen,
+    // on the published page: only when clicked, open once, or keep opening and closing
+    autoplay: ['none', 'once', 'loop'].includes(p.autoplay) ? p.autoplay : 'none',
+    hold: num(p.hold, 0, 30, 1.2),
+    delay: num(p.delay, 0, 60, 0),
   };
 }
 
@@ -73,6 +77,20 @@ export function partTransform(part, t) {
   if (m.type === 'slide') {
     const d = m.distance * t;
     return { q: [0, 0, 0, 1], apply: (p) => [p[0] + m.axis[0] * d, p[1] + m.axis[1] * d, p[2] + m.axis[2] * d] };
+  }
+  if (m.type === 'lift') {
+    // a pot lid: rises along the axis and tips a little about a level axis
+    const up = m.axis, side = Math.abs(up[0]) < 0.9 ? [1, 0, 0] : [0, 0, 1];
+    let tilt = [up[1] * side[2] - up[2] * side[1], up[2] * side[0] - up[0] * side[2], up[0] * side[1] - up[1] * side[0]];
+    const tl = Math.hypot(...tilt) || 1; tilt = tilt.map(v => v / tl);
+    const q = axisAngleQuat(tilt, (m.angle * Math.PI / 180) * t), d = m.lift * t;
+    return {
+      q,
+      apply: (p) => {
+        const r = rotate(q, [p[0] - m.pivot[0], p[1] - m.pivot[1], p[2] - m.pivot[2]]);
+        return [r[0] + m.pivot[0] + up[0] * d, r[1] + m.pivot[1] + up[1] * d, r[2] + m.pivot[2] + up[2] * d];
+      },
+    };
   }
   const q = axisAngleQuat(m.axis, (m.angle * Math.PI / 180) * t);
   const lift = m.type === 'twist' ? m.lift * t : 0;
@@ -124,6 +142,9 @@ export class PartAnimator {
     if (!this.rest) throw new Error('Splat is not ready for moving parts yet.');
     this.parts = new Map();
     this.anims = new Map();
+    // where every splat is now (parts moved) — lighting and the shadow use it
+    this.posed = Float32Array.from(this.rest.positions);
+    (globalThis._fumocaPartAnimatorByMesh ||= new WeakMap()).set(mesh, this);
     this._v = { c: new THREE.Vector3(), s: new THREE.Vector3(), q: new THREE.Quaternion(), col: new THREE.Color() };
     this.setParts(parts);
     this._onLit = () => this.reapply();
@@ -160,6 +181,7 @@ export class PartAnimator {
       let rq = [r.rotations[i * 4 + 1], r.rotations[i * 4 + 2], r.rotations[i * 4 + 3], r.rotations[i * 4]];
       if (tf) rq = qMul(tf.q, rq);
       c.set(np[0], np[1], np[2]);
+      this.posed[i * 3] = np[0]; this.posed[i * 3 + 1] = np[1]; this.posed[i * 3 + 2] = np[2];
       s.set(r.scales[i * 3], r.scales[i * 3 + 1], r.scales[i * 3 + 2]);
       q.set(rq[0], rq[1], rq[2], rq[3]);
       col.setRGB(C[i * 3], C[i * 3 + 1], C[i * 3 + 2]);
@@ -180,8 +202,16 @@ export class PartAnimator {
 
   reapply() { for (const e of this.parts.values()) if (e.t) this._write(e.members, e.part, e.t); }
 
+  /** Parts that are (partly) open: their splats and turn — for relighting. */
+  openTransforms() {
+    const out = [];
+    for (const e of this.parts.values()) if (e.t > 1e-4) out.push({ members: e.members, q: partTransform(e.part, e.t).q });
+    return out;
+  }
+  get moving() { return this.anims.size > 0; }
+
   /** Animate to open (1), closed (0) or 'toggle'. Resolves when it arrives. */
-  run(id, to = 'toggle') {
+  run(id, to = 'toggle', { by = 'auto' } = {}) {
     const e = this.parts.get(id);
     if (!e) return Promise.resolve(false);
     const target = to === 'toggle' ? (e.t > 0.5 ? 0 : 1) : (to === 'open' || to === 1 || to === true ? 1 : 0);
@@ -189,14 +219,19 @@ export class PartAnimator {
     const from = e.t, dur = e.part.motion.duration * 1000 * Math.max(0.15, Math.abs(target - from));
     const ease = EASE[e.part.motion.ease];
     const t0 = performance.now();
-    globalThis.dispatchEvent?.(new CustomEvent('fumoca:partMove', { detail: { id, to: target ? 'open' : 'closed' } }));
+    globalThis.dispatchEvent?.(new CustomEvent('fumoca:partMove', { detail: { id, to: target ? 'open' : 'closed', by } }));
     return new Promise((resolve) => {
       const step = (now) => {
         const k = Math.min(1, (now - t0) / Math.max(1, dur));
         e.t = from + (target - from) * ease(k);
         this._write(e.members, e.part, e.t);
+        globalThis.dispatchEvent?.(new CustomEvent('fumoca:partFrame', { detail: { mesh: this.mesh } }));
         if (k < 1) this.anims.set(id, requestAnimationFrame(step));
-        else { e.t = target; this._write(e.members, e.part, e.t); this.anims.delete(id); resolve(true); }
+        else {
+          e.t = target; this._write(e.members, e.part, e.t); this.anims.delete(id);
+          globalThis.dispatchEvent?.(new CustomEvent('fumoca:partSettled', { detail: { mesh: this.mesh, id } }));
+          resolve(true);
+        }
       };
       this.anims.set(id, requestAnimationFrame(step));
     });
@@ -208,11 +243,13 @@ export class PartAnimator {
   refreshGeometry() {
     if (this.anims.size || [...this.parts.values()].some(e => e.t)) return false;   // not while a part is open
     if (!refreshRestGeometry(this.rest, this.mesh)) return false;
+    this.posed = Float32Array.from(this.rest.positions);
     this.setParts([...this.parts.values()].map(e => e.part));
     return true;
   }
 
   dispose() {
+    this.stopAutoplay?.();
     for (const id of this.anims.keys()) cancelAnimationFrame(this.anims.get(id));
     for (const e of this.parts.values()) if (e.t) this._write(e.members, null);
     globalThis.removeEventListener?.('fumoca:lightingApplied', this._onLit);
@@ -224,5 +261,38 @@ export async function restorePartsOnViewer(THREE, mesh, saved) {
   const parts = normalizeParts(saved);
   if (!parts.length || !mesh) return null;
   if (mesh.initialized) await mesh.initialized;
-  return new PartAnimator(THREE, mesh, parts);
+  const a = new PartAnimator(THREE, mesh, parts);
+  a.stopAutoplay = startPartAutoplay(a);
+  return a;
+}
+
+/**
+ * Parts set to play on their own: open once, or keep opening and closing
+ * (a bin lid, a pot lid, a laptop…). A visitor's click takes over that part.
+ * Returns a stop function.
+ */
+export function startPartAutoplay(animator, { only = null } = {}) {
+  let stopped = false;
+  const timers = [];
+  const wait = (s) => new Promise(r => timers.push(setTimeout(r, s * 1000)));
+  const taken = new Set();
+  const onMove = (e) => { if (e.detail?.by === 'visitor') taken.add(e.detail.id); };
+  globalThis.addEventListener?.('fumoca:partMove', onMove);
+  for (const e of animator.parts.values()) {
+    const p = e.part;
+    if (p.autoplay === 'none' || (only && !only.includes(p.id))) continue;
+    (async () => {
+      await wait(p.delay + 0.6);
+      do {
+        if (stopped || taken.has(p.id)) return;
+        await animator.run(p.id, 'open');
+        if (p.autoplay === 'once' || stopped || taken.has(p.id)) return;
+        await wait(p.hold);
+        if (stopped || taken.has(p.id)) return;
+        await animator.run(p.id, 'close');
+        await wait(p.hold);
+      } while (!stopped);
+    })();
+  }
+  return () => { stopped = true; timers.forEach(clearTimeout); globalThis.removeEventListener?.('fumoca:partMove', onMove); };
 }
