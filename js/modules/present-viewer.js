@@ -56,6 +56,7 @@ export function initPresentViewer() {
   let livingApplied = false;
   let viewApplied = false;
   let lightingApplied = false;
+  let partsApplied = false;
   const tryApply = () => {
     const data = resolvePresent();
     if (!data) return;
@@ -127,6 +128,19 @@ export function initPresentViewer() {
         .catch(error => console.warn('[present-viewer] lighting failed', error));
     }
 
+    // Moving parts (doors, lids, caps…) driven by hotspots.
+    if (!partsApplied && Array.isArray(data.parts) && data.parts.length && window._fumocaPublishedSparkMesh) {
+      partsApplied = true;
+      Promise.all([import('three'), import('./part-animator.js')])
+        .then(([THREE, m]) => m.restorePartsOnViewer(THREE, window._fumocaPublishedSparkMesh, data.parts))
+        .then(a => {
+          if (!a) return;
+          window._fumocaPartAnimator = a;
+          window.FumocaParts = { run: (id, to) => a.run(id, to), list: () => a.list().map(p => ({ id: p.id, name: p.name })) };
+        })
+        .catch(error => console.warn('[present-viewer] moving parts failed', error));
+    }
+
     // Living photo: gentle camera motion saved in Studio.
     if (!livingApplied && data.living?.enabled && window._fumocaViewerCamera && window._fumocaPublishedSparkMesh) {
       livingApplied = true;
@@ -170,6 +184,7 @@ export function initPresentViewer() {
       livingApplied = false;
       window._fumocaViewController?.dispose?.(); window._fumocaViewController = null; viewApplied = false;
       window._fumocaLighting?.dispose?.(); window._fumocaLighting = null; lightingApplied = false;
+      window._fumocaPartAnimator?.dispose?.(); window._fumocaPartAnimator = null; partsApplied = false;
       tryApply();
     },
   };

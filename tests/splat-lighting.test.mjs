@@ -80,3 +80,24 @@ assert.ok(neon[450 * 3] > neon[450 * 3 + 1], 'neon key light is pink on the lit 
 const bright = relightColors(rest.colors, N, { enabled: true, ambient: 0.5, intensity: 0, exposure: 1 });
 assert.ok(Math.abs(bright[0] - 0.6 * 0.5 * 2) < 1e-6, '+1 exposure doubles');
 console.log('splat-lighting: all tests passed');
+
+// lamps: a room light only brightens what is near it; switching fades on/off
+{
+  const lampOn = { enabled: true, ambient: 0.2, intensity: 0, lamps: [{ id: 'ceiling', position: [-0.5, 0.45, 1.45], radius: 0.5, intensity: 2, color: '#ffffff', on: true }] };
+  const lit2 = relightColors(rest.colors, N, lampOn, null, rest.positions);
+  const nearWall = 445, farFloor = 5;   // wall splats sit at z=1.2 near the lamp; floor centre is far away
+  assert.ok(lit2[nearWall * 3] > 0.6 * 0.2 * 2, 'lamp lights the wall near it: ' + lit2[nearWall * 3]);
+  assert.ok(Math.abs(lit2[farFloor * 3] - 0.6 * 0.2) < 0.05, 'far away stays dark');
+  const off2 = relightColors(rest.colors, N, { ...lampOn, lamps: [{ ...lampOn.lamps[0], on: false }] }, null, rest.positions);
+  assert.ok(Math.abs(off2[nearWall * 3] - 0.6 * 0.2) < 1e-6, 'switched off');
+  const l2 = new SplatLighting(THREE, mesh, null);
+  l2.apply({ ...lampOn, lamps: [{ ...lampOn.lamps[0], on: false }] });
+  const before = rows[nearWall].col[0];
+  await l2.setLamp('ceiling', 'toggle', { fadeMs: 60 });
+  assert.ok(rows[nearWall].col[0] > before + 0.1, 'light switch turns the room light on');
+  assert.equal(l2.settings.lamps[0].on, true);
+  await l2.setLamp('ceiling', 'off', { fadeMs: 30 });
+  assert.ok(Math.abs(rows[nearWall].col[0] - before) < 1e-6, 'and off again');
+  l2.dispose();
+}
+console.log('splat-lighting lamps: all tests passed');

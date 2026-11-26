@@ -115,6 +115,20 @@ try {
   assert.deepEqual(nat, { bg: 'orig', vig: '0', clean: true }, 'Natural restores scan colours, background and no vignette');
   await page.click('#lkOn'); await page.waitForTimeout(200);
 
+  // Lamps: add one at the view centre (a room light), switch it off/on like a hotspot would
+  await page.click('#lkLampView');
+  await page.waitForTimeout(300);
+  const lampId = await page.evaluate(() => window.panel.lamps()[0].id);
+  const nearLamp = await page.evaluate(() => window.rows.findIndex(r => Math.hypot(r.c[0], r.c[1] - 0.5, r.c[2]) < 0.12));
+  const onCol = await page.evaluate(i => window.rows[i].col[0], nearLamp);
+  await page.evaluate(id => window.panel.setLamp(id, 'off'), lampId);
+  const offCol = await page.evaluate(i => window.rows[i].col[0], nearLamp);
+  assert.ok(onCol > offCol + 0.02, `light switch dims the room ${onCol} → ${offCol}`);
+  assert.equal(await page.evaluate(() => window.panel.lamps()[0].on), false);
+  await page.evaluate(id => window.panel.setLamp(id, 'on'), lampId);
+  assert.ok(Math.abs((await page.evaluate(i => window.rows[i].col[0], nearLamp)) - onCol) < 1e-6, 'and back on');
+  assert.equal(await page.evaluate(() => window.panel.getLighting().lamps.length), 1, 'lamp saved with the look');
+
   // View: capture start, zoom limits, spin, steady; preview applies to the Studio camera
   await page.click('#vwCapture');
   await page.evaluate(() => { const s = document.getElementById('vwSpin'); s.value = '30'; s.dispatchEvent(new Event('input'));

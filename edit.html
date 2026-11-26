@@ -16,7 +16,7 @@
 <link rel="stylesheet" href="css/fumoca-layouts.css"/>
 <script type="module" src="js/modules/anim-studio.js"></script>
 <script type="module" src="js/modules/review-video.js?v=20261025-bglayer"></script>
-<script type="module" src="js/modules/present-tab.js?v=20261125-look01"></script>
+<script type="module" src="js/modules/present-tab.js?v=20261126-parts01"></script>
 
 <style>
 /* ═══════════════════════════════════════════════════════
@@ -775,6 +775,7 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
       <div class="ptab" data-tab="mesh">Mesh</div>
       <div class="ptab" data-tab="rig">Rig</div>
       <div class="ptab" data-tab="look">Look</div>
+      <div class="ptab" data-tab="parts">Parts</div>
       <div class="ptab" data-tab="present">Present · Music</div>
       <div class="ptab" data-tab="import">Import</div>
       <div class="ptab" data-tab="layers">Layers</div>
@@ -784,6 +785,8 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
     <div class="panel-body" id="tab-rig" style="display:none"></div>
     <!-- TAB: LOOK (lighting, shadow, how it's viewed; mounted by look-panel.js) -->
     <div class="panel-body" id="tab-look" style="display:none"></div>
+    <!-- TAB: PARTS (doors, lids, caps, recliners; mounted by parts-panel.js) -->
+    <div class="panel-body" id="tab-parts" style="display:none"></div>
 
     <!-- TAB: TOOLS -->
     <div class="panel-body" id="tab-tools">
@@ -7809,9 +7812,17 @@ if (!window._fumocaBooted) {
   // Lighting, shadow and viewer settings.
   const lookRoot = document.getElementById('tab-look');
   if (lookRoot) {
-    import('./js/modules/look-panel.js?v=20261126-mood01')
+    import('./js/modules/look-panel.js?v=20261126-lamps01')
       .then((m) => m.mountLookPanel(lookRoot, { onStatus: status }))
       .catch((e) => console.warn('[Studio] look panel', e));
+  }
+
+  // Moving parts (doors, bonnet, caps, recliners) for interactive hotspots.
+  const partsRoot = document.getElementById('tab-parts');
+  if (partsRoot) {
+    import('./js/modules/parts-panel.js?v=20261126-parts01')
+      .then((m) => m.mountPartsPanel(partsRoot, { onStatus: status }))
+      .catch((e) => console.warn('[Studio] parts panel', e));
   }
 
   // Single photo → living photo (no AI). Replaces the old AI-first panel.

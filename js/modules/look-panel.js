@@ -46,6 +46,13 @@ export function mountLookPanel(container, { onStatus } = {}) {
         <div class="hint" style="margin-top:8px;opacity:.8">Atmosphere</div>
         <div class="ctrl-row"><span class="ctrl-label">Background</span><span><input type="checkbox" id="lkBgOn"> <input type="color" id="lkBg" value="#0b0d10" style="width:48px;height:22px;border:0;background:none"></span></div>
         ${row('lkVig', 'Vignette', 0, 1, 0.05, 0, v => Math.round(v * 100) + '%')}
+        <div class="hint" style="margin-top:8px;opacity:.8">Lamps — room lights, headlights, a glowing screen</div>
+        <div class="hint" style="font-size:10px;opacity:.6">Select the light fitting (or aim the view at it) and add a lamp. Hotspots can switch lamps on and off in the viewer.</div>
+        <div style="display:flex;gap:6px;margin-top:4px">
+          <button type="button" class="ac-btn" id="lkLampSel" style="flex:1">＋ Lamp at selection</button>
+          <button type="button" class="ac-btn" id="lkLampView" style="flex:1">＋ Lamp at view centre</button>
+        </div>
+        <div id="lkLamps" style="margin-top:6px"></div>
         <div class="hint" style="margin-top:8px;opacity:.8">Shadow</div>
         ${check('lkSh', 'Shadow', true)}
         ${row('lkShOp', 'Shadow darkness', 0, 1, 0.05, L.shadowOpacity, v => Math.round(v * 100) + '%')}
@@ -82,6 +89,42 @@ export function mountLookPanel(container, { onStatus } = {}) {
 
   const sparkMesh = () => (window.FumocaSparkGaussian?.isEnabled?.() ? window.FumocaSparkGaussian.getMesh?.() : null);
   let preset = 'custom';
+  let lamps = [];
+  const sceneSize = () => {
+    const S = window.S; if (!S?.positions?.length) return 1;
+    let lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+    for (let i = 0; i < S.positions.length; i += 3 * Math.max(1, Math.floor(S.positions.length / 3 / 20000)))
+      for (let k = 0; k < 3; k++) { const v = S.positions[i + k]; if (v < lo[k]) lo[k] = v; if (v > hi[k]) hi[k] = v; }
+    return Math.max(1e-3, ...hi.map((v, k) => v - lo[k]));
+  };
+  function addLamp(position) {
+    const size = sceneSize();
+    lamps.push({ id: 'lamp' + Date.now().toString(36), name: 'Light ' + (lamps.length + 1), position, color: '#ffd9a0', intensity: 1.4, radius: size * 0.18, on: true });
+    if (!q('#lkOn').checked) q('#lkOn').checked = true;
+    renderLamps(); applyLighting(); window.dispatchEvent(new CustomEvent('fumoca:lookChange'));
+  }
+  function renderLamps() {
+    const size = sceneSize();
+    q('#lkLamps').innerHTML = lamps.map((l, i) => `
+      <div style="border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:6px;margin-bottom:6px">
+        <div style="display:flex;gap:6px;align-items:center">
+          <input type="checkbox" data-lamp-on="${i}" ${l.on ? 'checked' : ''} title="On / off">
+          <input data-lamp-name="${i}" value="${l.name.replace(/"/g, '&quot;')}" maxlength="40" style="flex:1;min-width:0;background:transparent;border:1px solid rgba(255,255,255,.1);color:inherit;border-radius:6px;padding:2px 6px;font-size:11px">
+          <input type="color" data-lamp-col="${i}" value="${l.color}" style="width:28px;height:20px;border:0;background:none">
+          <button type="button" class="ac-btn" data-lamp-del="${i}" style="padding:2px 6px">✕</button>
+        </div>
+        <div class="ctrl-row"><span class="ctrl-label">Strength</span></div><input type="range" data-lamp-int="${i}" min="0" max="5" step="0.05" value="${l.intensity}" style="width:100%">
+        <div class="ctrl-row"><span class="ctrl-label">Reach</span></div><input type="range" data-lamp-rad="${i}" min="${(size * 0.01).toFixed(4)}" max="${(size * 1.2).toFixed(4)}" step="${(size / 500).toFixed(5)}" value="${l.radius}" style="width:100%">
+      </div>`).join('');
+    const bind = (sel, fn, ev = 'input') => q('#lkLamps').querySelectorAll(sel).forEach(el => el.addEventListener(ev, () => { fn(el); applyLighting(); }));
+    bind('[data-lamp-on]', el => { lamps[+el.dataset.lampOn].on = el.checked; }, 'change');
+    bind('[data-lamp-name]', el => { lamps[+el.dataset.lampName].name = el.value.slice(0, 40); });
+    bind('[data-lamp-col]', el => { lamps[+el.dataset.lampCol].color = el.value; });
+    bind('[data-lamp-int]', el => { lamps[+el.dataset.lampInt].intensity = +el.value; });
+    bind('[data-lamp-rad]', el => { lamps[+el.dataset.lampRad].radius = +el.value; });
+    q('#lkLamps').querySelectorAll('[data-lamp-del]').forEach(b => b.addEventListener('click', () => { lamps.splice(+b.dataset.lampDel, 1); renderLamps(); applyLighting(); window.dispatchEvent(new CustomEvent('fumoca:lookChange')); }));
+    q('#lkLamps').querySelectorAll('input').forEach(el => el.addEventListener('change', () => window.dispatchEvent(new CustomEvent('fumoca:lookChange'))));
+  }
   const lightState = () => normalizeLighting({
     enabled: q('#lkOn').checked, preset,
     azimuth: +q('#lkAz').value, elevation: +q('#lkEl').value, intensity: +q('#lkInt').value, color: q('#lkCol').value,
@@ -90,6 +133,7 @@ export function mountLookPanel(container, { onStatus } = {}) {
     exposure: +q('#lkExp').value, contrast: +q('#lkCon').value, saturation: +q('#lkSat').value, warmth: +q('#lkWarm').value, tint: +q('#lkTint').value,
     background: q('#lkBgOn').checked ? q('#lkBg').value : '', vignette: +q('#lkVig').value,
     shadow: q('#lkSh').checked, shadowOpacity: +q('#lkShOp').value, shadowSoftness: +q('#lkShSoft').value,
+    lamps,
   });
   function setLightControls(ls) {
     const set = (id, v) => { const el = q('#' + id); if (el.type === 'checkbox') el.checked = !!v; else el.value = v; };
@@ -100,6 +144,7 @@ export function mountLookPanel(container, { onStatus } = {}) {
     set('lkBgOn', !!ls.background); if (ls.background) set('lkBg', ls.background); set('lkVig', ls.vignette);
     set('lkSh', ls.shadow); set('lkShOp', ls.shadowOpacity); set('lkShSoft', ls.shadowSoftness);
     preset = ls.preset || 'custom';
+    if (Array.isArray(ls.lamps)) { lamps = ls.lamps.map(l => ({ ...l })); renderLamps(); }
     container.querySelectorAll('[data-mood]').forEach(b => b.classList.toggle('lime', b.dataset.mood === preset));
   }
   const viewState = () => normalizeViewSettings({
@@ -131,10 +176,20 @@ export function mountLookPanel(container, { onStatus } = {}) {
       catch (e) { status(e.message); }
     }, 60);
   }
+  q('#lkLampSel').addEventListener('click', () => {
+    const S = window.S; let c = [0, 0, 0], n = 0;
+    if (S?.selected) for (let i = 0; i < S.selected.length; i++) if (S.selected[i] && (!S.alive || S.alive[i])) { c[0] += S.positions[i * 3]; c[1] += S.positions[i * 3 + 1]; c[2] += S.positions[i * 3 + 2]; n++; }
+    if (!n) { status('Select the light fitting first (or use "Lamp at view centre").'); return; }
+    addLamp(c.map(v => v / n)); status('Lamp added at the selection. Adjust its reach to fill the room.');
+  });
+  q('#lkLampView').addEventListener('click', () => {
+    const t = window.controls?.target; if (!t) return;
+    addLamp([t.x, t.y, t.z]); status('Lamp added where the view is pointing.');
+  });
   const LIGHT_IDS = ['lkOn', 'lkAz', 'lkEl', 'lkInt', 'lkCol', 'lkAmb', 'lkAmbCol', 'lk2', 'lkAz2', 'lkEl2', 'lkInt2', 'lkCol2',
     'lkExp', 'lkCon', 'lkSat', 'lkWarm', 'lkTint', 'lkBgOn', 'lkBg', 'lkVig', 'lkSh', 'lkShOp', 'lkShSoft'];
   container.querySelectorAll('[data-mood]').forEach(btn => btn.addEventListener('click', () => {
-    const ls = moodSettings(btn.dataset.mood, lightState());
+    const ls = { ...moodSettings(btn.dataset.mood, lightState()), lamps };
     setLightControls(ls); syncLabels(); applyLighting();
     window.dispatchEvent(new CustomEvent('fumoca:lookChange'));
     status(MOODS[btn.dataset.mood].label + (ls.enabled ? ' — tweak any slider to make it yours.' : ' — the scan\'s own light.'));
@@ -224,6 +279,9 @@ export function mountLookPanel(container, { onStatus } = {}) {
   syncLabels();
   const api = {
     getLighting: () => { const s = lightState(); return s.enabled ? s : null; },
+    lamps: () => lamps.map(l => ({ id: l.id, name: l.name, on: l.on })),
+    setLamp: async (id, to) => { const l = ensureLighting(); if (!l) return false; l.settings = lightState(); const ok = await l.setLamp(id, to); const lamp = lamps.find(x => x.id === id); if (lamp) lamp.on = l.settings.lamps.find(x => x.id === id)?.on ?? lamp.on; renderLamps(); return ok; },
+    setMood: (name) => container.querySelector(`[data-mood="${name}"]`)?.click(),
     getView: () => viewState(),
     get lighting() { return lighting; },
   };

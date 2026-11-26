@@ -26,7 +26,24 @@ export const DEFAULT_LIGHTING = Object.freeze({
   // atmosphere (background + vignette in Studio and the viewer)
   background: '', vignette: 0,
   shadow: true, shadowOpacity: 0.55, shadowSoftness: 0.5,
+  // lamps: room lights, headlights, a glowing product — switchable from hotspots
+  lamps: [],
 });
+
+const finite3 = (v) => Array.isArray(v) && v.length === 3 && v.every(Number.isFinite);
+export function normalizeLamp(l, i = 0) {
+  if (!l || !finite3(l.position)) return null;
+  return {
+    id: String(l.id || 'lamp' + i).replace(/[^\w-]/g, '').slice(0, 32) || 'lamp' + i,
+    name: String(l.name || 'Light ' + (i + 1)).slice(0, 40),
+    position: l.position.map(Number),
+    color: /^#[0-9a-f]{6}$/i.test(l.color || '') ? l.color.toLowerCase() : '#ffd9a0',
+    intensity: Math.min(5, Math.max(0, Number.isFinite(+l.intensity) ? +l.intensity : 1.2)),
+    radius: Math.min(1e4, Math.max(1e-4, Number.isFinite(+l.radius) ? +l.radius : 1)),
+    on: l.on !== false,
+    ...(Number.isFinite(l.fade) ? { fade: Math.min(1, Math.max(0, l.fade)) } : {}),
+  };
+}
 
 const num = (v, lo, hi, d) => (Number.isFinite(+v) && v !== '' && v !== null ? Math.min(hi, Math.max(lo, +v)) : d);
 const hex = (v, d) => (/^#[0-9a-f]{6}$/i.test(v || '') ? v.toLowerCase() : d);
@@ -46,6 +63,7 @@ export function normalizeLighting(input) {
     background: input.background ? hex(input.background, '') : '', vignette: num(input.vignette, 0, 1, 0),
     shadow: input.shadow !== false, shadowOpacity: num(input.shadowOpacity, 0, 1, D.shadowOpacity),
     shadowSoftness: num(input.shadowSoftness, 0, 1, D.shadowSoftness),
+    lamps: (Array.isArray(input.lamps) ? input.lamps : []).slice(0, 12).map(normalizeLamp).filter(Boolean),
   };
 }
 
@@ -133,7 +151,7 @@ function grade(rgb, g) {
 }
 
 /** Lit + graded colours (0..1) for every splat. */
-export function relightColors(baseColors, normals, settings, out = null) {
+export function relightColors(baseColors, normals, settings, out = null, positions = null) {
   const s = normalizeLighting(settings) || normalizeLighting(DEFAULT_LIGHTING);
   const n = baseColors.length / 3;
   out = out || new Float32Array(baseColors.length);
@@ -142,13 +160,24 @@ export function relightColors(baseColors, normals, settings, out = null) {
   const L2 = lightDirection(s.azimuth2, Math.max(-89, s.elevation2)), c2 = hexRgb(s.color2), on2 = s.light2 ? s.intensity2 : 0;
   const ca = hexRgb(s.ambientColor);
   const graded = s.exposure || s.contrast || s.saturation || s.warmth || s.tint;
+  const lamps = positions ? s.lamps.filter(l => l.on && l.intensity > 0).map(l => ({ ...l, c: hexRgb(l.color), fade: l.fade ?? 1 })) : [];
   const rgb = [0, 0, 0];
   for (let i = 0; i < n; i++) {
     const nx = normals[i * 3], ny = normals[i * 3 + 1], nz = normals[i * 3 + 2];
     const d1 = Math.max(0, nx * L1[0] + ny * L1[1] + nz * L1[2]) * s.intensity;
     const d2 = on2 ? Math.max(0, nx * L2[0] + ny * L2[1] + nz * L2[2]) * on2 : 0;
+    let lr = 0, lg = 0, lb = 0;
+    for (const l of lamps) {
+      const dx = l.position[0] - positions[i * 3], dy = l.position[1] - positions[i * 3 + 1], dz = l.position[2] - positions[i * 3 + 2];
+      const d = Math.hypot(dx, dy, dz) || 1e-6, x = d / l.radius;
+      if (x > 3) continue;                                     // out of reach
+      const facing = 0.35 + 0.65 * Math.max(0, (nx * dx + ny * dy + nz * dz) / d);
+      const k = l.intensity * l.fade * facing / (1 + 4 * x * x) * (x > 2 ? (3 - x) : 1);
+      lr += k * l.c[0]; lg += k * l.c[1]; lb += k * l.c[2];
+    }
+    const add = [lr, lg, lb];
     for (let k = 0; k < 3; k++) {
-      const light = s.ambient * ca[k] + d1 * c1[k] + d2 * c2[k];
+      const light = s.ambient * ca[k] + d1 * c1[k] + d2 * c2[k] + add[k];
       rgb[k] = baseColors[i * 3 + k] * light;
     }
     if (graded) grade(rgb, s);
@@ -258,11 +287,12 @@ export class SplatLighting {
   }
 
   apply(settings = this.settings) {
-    this.settings = normalizeLighting(settings) || this.settings;
+    this.settings = settings === this.settings ? settings : (normalizeLighting(settings) || this.settings);
     const splats = this.mesh.packedSplats || this.mesh.splats;
     if (!splats?.setSplat) throw new Error('This Spark build cannot relight splats in place.');
-    relightColors(this.rest.colors, this.normals, this.settings, this.lit);
-    const { THREE } = this, r = this.rest, P = this._positions();
+    const P = this._positions();
+    relightColors(this.rest.colors, this.normals, this.settings, this.lit, P);
+    const { THREE } = this, r = this.rest;
     const c = new THREE.Vector3(), sc = new THREE.Vector3(), q = new THREE.Quaternion(), col = new THREE.Color();
     for (let i = 0; i < r.count; i++) {
       c.set(P[i * 3], P[i * 3 + 1], P[i * 3 + 2]);
@@ -306,6 +336,27 @@ export class SplatLighting {
     this.plane.scale.set(b.x1 - b.x0, b.z1 - b.z0, 1);
     this.plane.position.set((b.x0 + b.x1) / 2, this.groundY + 1e-4, (b.z0 + b.z1) / 2);
     this.plane.visible = true;
+  }
+
+  /**
+   * Switch a lamp on/off (or 'toggle') with a short fade — the "light switch"
+   * hotspot. Resolves when done.
+   */
+  async setLamp(id, to = 'toggle', { fadeMs = 450 } = {}) {
+    const lamp = this.settings.lamps.find(l => l.id === id);
+    if (!lamp) return false;
+    const on = to === 'toggle' ? !lamp.on : !!(to === true || to === 'on');
+    const steps = Math.max(1, Math.round(fadeMs / 90));
+    lamp.on = true;
+    for (let k = 1; k <= steps; k++) {
+      lamp.fade = on ? k / steps : 1 - k / steps;
+      this.apply(this.settings);
+      await new Promise(r => setTimeout(r, fadeMs / steps));
+    }
+    lamp.on = on; delete lamp.fade;
+    this.apply(this.settings);
+    globalThis.dispatchEvent?.(new CustomEvent('fumoca:lampChange', { detail: { id, on } }));
+    return true;
   }
 
   /** Back to the scan's own colours, shadow removed. */

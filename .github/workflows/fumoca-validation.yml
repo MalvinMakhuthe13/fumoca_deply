@@ -296,6 +296,10 @@ jobs:
         run: node tests/browser/spark-inplace-edit.browser.mjs
       - name: Test lighting, shadows and viewer settings
         run: node --experimental-default-type=module tests/splat-lighting.test.mjs && node --experimental-default-type=module tests/view-settings.test.mjs
+      - name: Test moving parts (doors, lids, caps)
+        run: node --experimental-default-type=module tests/part-animator.test.mjs
+      - name: Test Studio Parts tab + interactive hotspot actions in Chromium
+        run: node tests/browser/parts-panel.browser.mjs
       - name: Test Studio Look tab end-to-end in Chromium
         run: node tests/browser/look-panel.browser.mjs
       - name: Test living photo (one image, no AI)
