@@ -147,6 +147,25 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     </div>
 
     <div class="section">
+      <div class="sec-head"><span class="sec-label">Clean up the mesh</span><span class="sec-badge">NEW</span></div>
+      <div class="sec-body">
+        <div class="hint">For lumpy surfaces, frayed edges, stretched spikes and speckled colours. Each step can be undone with Undo in the top bar.</div>
+        <button type="button" class="ac-btn lime full" id="meshAutoClean" style="margin-top:6px">✨ Auto clean (spikes, edge, smooth, colours)</button>
+        <div class="ctrl-row" style="margin-top:8px"><span class="ctrl-label">Smoothing</span><span class="ctrl-val" id="meshSmoothVal">40%</span></div>
+        <input type="range" id="meshSmooth" min="0.05" max="1" step="0.05" value="0.4" style="width:100%">
+        <div class="btn-grid col2" style="margin-top:6px">
+          <button type="button" class="ac-btn full" id="meshSmoothBtn">Smooth surface</button>
+          <button type="button" class="ac-btn full" id="meshSpikesBtn">Remove spikes</button>
+          <button type="button" class="ac-btn full" id="meshTrimBtn">Trim frayed edge</button>
+          <button type="button" class="ac-btn full" id="meshColoursBtn">Even out colours</button>
+        </div>
+        <div class="ctrl-row" style="margin-top:8px"><span class="ctrl-label">Keep faces</span><span class="ctrl-val" id="meshSimplifyVal">50%</span></div>
+        <input type="range" id="meshSimplify" min="0.1" max="0.9" step="0.05" value="0.5" style="width:100%">
+        <button type="button" class="ac-btn full" id="meshSimplifyBtn" style="margin-top:6px">Simplify (lighter file)</button>
+      </div>
+    </div>
+
+    <div class="section">
       <div class="sec-head"><span class="sec-label">Print prep</span></div>
       <div class="sec-body">
         <div class="ctrl-row">
@@ -2222,6 +2241,78 @@ export function mountMeshPrintPanel(container, { onStatus } = {}) {
     lastMeshData = result.mesh;
     refreshMeshAfterRepair(`Removed ${result.removedComponents} small island${result.removedComponents === 1 ? '' : 's'} (${result.removedTriangles} faces).`);
   });
+
+  // ── Clean up the mesh ──
+  const cleanupHistory = [];
+  const applyCleanup = async (label, run) => {
+    const { compact } = await import('./mesh-cleanup.js');
+    const components = window.S?.nifMeshComponents || [];
+    if (!components.length && !lastMeshData) return meshStatus('Extract or reconstruct a mesh first (buttons above).');
+    meshStatus(label + '…');
+    await new Promise(r => setTimeout(r, 30));
+    try {
+      if (components.length) {
+        cleanupHistory.push({ components: window.S.nifMeshComponents });
+        const notes = [];
+        const next = components.map(c => {
+          const res = run(c);
+          if (!res?.mesh?.triangles?.length) return c;
+          if (res.note) notes.push(res.note);
+          const m = compact(res.mesh), topology = FumocMeshExtractor.validateWatertight(m);
+          return { ...c, vertices: m.vertices, triangles: m.triangles, colours: m.colours, watertight: topology.watertight,
+            diagnostics: { ...(c.diagnostics || {}), ...topology, n_boundary_edges: topology.openEdges, n_nonmanifold_edges: topology.nonManifoldEdges },
+            provenance: { ...(c.provenance || {}), operation: label, previousOperation: c.provenance?.operation || null }, transformUndoVertices: null };
+        });
+        window.S.nifMeshComponents = normalizeMeshComponents(next);
+        window.S.nifMesh = null;
+        window.S.nifMeta = { ...(window.S.nifMeta || {}), mesh_components_edited: true };
+        refreshCombinedMeshFromComponents();
+        window.previewSolidMeshComponents?.(window.S.nifMeshComponents, { visible: true, opacity: 0.95 });
+        renderMeshComponents(window.S.nifMeshComponents);
+        meshStatus(`${label}: done on ${next.length} component(s). ${notes.slice(0, 3).join(' · ')}`);
+      } else {
+        cleanupHistory.push({ mesh: lastMeshData });
+        const res = run(lastMeshData);
+        if (!res?.mesh?.triangles?.length) return meshStatus(label + ': nothing to change.');
+        lastMeshData = compact(res.mesh);
+        refreshMeshAfterRepair(`${label}${res.note ? ' — ' + res.note : ''}.`);
+      }
+      if (cleanupHistory.length > 8) cleanupHistory.shift();
+    } catch (e) { meshStatus(label + ' failed: ' + (e.message || e)); }
+  };
+  const sliderVal = (id) => Number(container.querySelector(id)?.value || 0);
+  container.querySelector('#meshSmooth')?.addEventListener('input', (e) => { container.querySelector('#meshSmoothVal').textContent = Math.round(e.target.value * 100) + '%'; });
+  container.querySelector('#meshSimplify')?.addEventListener('input', (e) => { container.querySelector('#meshSimplifyVal').textContent = Math.round(e.target.value * 100) + '%'; });
+  container.querySelector('#meshAutoClean')?.addEventListener('click', async () => {
+    const { autoClean } = await import('./mesh-cleanup.js');
+    applyCleanup('Auto clean', (m) => { const r = autoClean(m, { smooth: sliderVal('#meshSmooth') }); return { mesh: r.mesh, note: r.log.join(', ') }; });
+  });
+  container.querySelector('#meshSmoothBtn')?.addEventListener('click', async () => {
+    const { smoothSurface } = await import('./mesh-cleanup.js');
+    applyCleanup('Smooth surface', (m) => { const r = smoothSurface(m, { strength: sliderVal('#meshSmooth') }); return { mesh: r.mesh, note: `${r.iterations} passes` }; });
+  });
+  container.querySelector('#meshSpikesBtn')?.addEventListener('click', async () => {
+    const { removeSpikes } = await import('./mesh-cleanup.js');
+    applyCleanup('Remove spikes', (m) => { const r = removeSpikes(m, { factor: 4 }); return { mesh: r.mesh, note: `${r.removedTriangles} stretched faces removed` }; });
+  });
+  container.querySelector('#meshTrimBtn')?.addEventListener('click', async () => {
+    const { trimRaggedEdges } = await import('./mesh-cleanup.js');
+    applyCleanup('Trim frayed edge', (m) => { const r = trimRaggedEdges(m, { rings: 1 }); return { mesh: r.mesh, note: `${r.removedTriangles} edge faces trimmed` }; });
+  });
+  container.querySelector('#meshColoursBtn')?.addEventListener('click', async () => {
+    const { evenColours } = await import('./mesh-cleanup.js');
+    applyCleanup('Even out colours', (m) => { const r = evenColours(m); return { mesh: r.mesh, note: `${r.changed.toLocaleString()} colour values evened` }; });
+  });
+  container.querySelector('#meshSimplifyBtn')?.addEventListener('click', async () => {
+    const { simplify } = await import('./mesh-cleanup.js');
+    applyCleanup('Simplify', (m) => { const r = simplify(m, { ratio: sliderVal('#meshSimplify') }); return { mesh: r.mesh, note: `${r.before.toLocaleString()} → ${r.after.toLocaleString()} faces` }; });
+  });
+  window.FumocaMeshCleanup = { undo() {
+    const last = cleanupHistory.pop(); if (!last) return false;
+    if (last.components) { window.S.nifMeshComponents = last.components; refreshCombinedMeshFromComponents(); window.previewSolidMeshComponents?.(last.components, { visible: true, opacity: 0.95 }); renderMeshComponents(last.components); }
+    else { lastMeshData = last.mesh; refreshMeshAfterRepair('Mesh clean-up undone.'); }
+    return true;
+  } };
 
   container.querySelector('#saveMeshBtn')?.addEventListener('click', async (event) => {
     const button = event.currentTarget;
