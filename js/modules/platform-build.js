@@ -177,7 +177,8 @@ export async function logoFileToDataUrl(file, maxSide = 512) {
 export function seatFromPoints(xs, ys, zs) {
   if (xs.length < 20) return null;
   const at = (arr, p) => { const s = arr.slice().sort((a, b) => a - b); return s[Math.min(s.length - 1, Math.max(0, Math.round(p * (s.length - 1))))]; };
-  const min = [at(xs, 0.12), at(ys, 0.08), at(zs, 0.12)];
+  // the base: the lowest real splats (1 %), not 8 % up into the object
+  const min = [at(xs, 0.12), at(ys, 0.01), at(zs, 0.12)];
   const max = [at(xs, 0.88), at(ys, 0.98), at(zs, 0.88)];
   return {
     center: [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2],

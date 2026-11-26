@@ -35,7 +35,7 @@ async function loadSubject(subject) {
     return;
   }
   const url = subject.source.url;
-  if (!/^https?:\\/\\//i.test(url || '')) return;
+  if (!/^https?:\/\//i.test(url || '')) return;
   const entry = { id, signature: signature(subject), loading: true, group: null, mesh: null, center: null, phase: 0 };
   entries.set(id, entry);
   try {

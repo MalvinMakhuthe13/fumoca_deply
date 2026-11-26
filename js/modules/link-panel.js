@@ -22,9 +22,9 @@ export function mountLinkPanel(container, { onStatus } = {}) {
       <div class="sec-head"><span class="sec-label">Inside &amp; open-door scans</span><span class="sec-badge">NEW</span></div>
       <div class="sec-body" style="padding:10px">
         <div class="hint">Scan the object twice: closed (this scan), then with doors open or from inside. Link the second scan here and the inside shows when a door opens — cars, houses, fridges, wardrobes, cupboards.</div>
-        <button type="button" class="ac-btn lime full" id="lkAdd" style="margin-top:6px">＋ Add the second scan</button>
-        <select id="lkLayer" style="${css};margin-top:6px"></select>
-        <select id="lkKind" style="${css};margin-top:6px">
+        <button type="button" class="ac-btn lime full" id="lnAdd" style="margin-top:6px">＋ Add the second scan</button>
+        <select id="lnLayer" style="${css};margin-top:6px"></select>
+        <select id="lnKind" style="${css};margin-top:6px">
           <option value="inside">It's the inside (cabin, rooms, inside the fridge)</option>
           <option value="open">It's the object with doors / lids open</option>
         </select>
@@ -34,44 +34,44 @@ export function mountLinkPanel(container, { onStatus } = {}) {
       <div class="sec-head"><span class="sec-label">① Line it up</span></div>
       <div class="sec-body" style="padding:10px">
         <div class="hint">Click a spot on this scan, then the same spot on the second scan. 4 pairs spread over the object work best (badge, mirror base, wheel centre, door handle; window corners in a house).</div>
-        <button type="button" class="ac-btn full" id="lkPick" style="margin-top:6px">🎯 Pick matching points</button>
-        <div id="lkPairs" style="margin-top:6px;font-size:11px"></div>
-        <label style="display:flex;gap:6px;align-items:center;font-size:11px;margin-top:6px"><input type="checkbox" id="lkScale" checked> The scans may be different sizes</label>
-        <button type="button" class="ac-btn lime full" id="lkAlign" style="margin-top:6px">Line up</button>
-        <button type="button" class="ac-btn full" id="lkSnap" style="margin-top:6px">Snap tighter</button>
+        <button type="button" class="ac-btn full" id="lnPick" style="margin-top:6px">🎯 Pick matching points</button>
+        <div id="lnPairs" style="margin-top:6px;font-size:11px"></div>
+        <label style="display:flex;gap:6px;align-items:center;font-size:11px;margin-top:6px"><input type="checkbox" id="lnScale" checked> The scans may be different sizes</label>
+        <button type="button" class="ac-btn lime full" id="lnAlign" style="margin-top:6px">Line up</button>
+        <button type="button" class="ac-btn full" id="lnSnap" style="margin-top:6px">Snap tighter</button>
       </div>
     </div>
     <div class="section">
       <div class="sec-head"><span class="sec-label">② Blend</span></div>
       <div class="sec-body" style="padding:10px;display:grid;gap:6px">
-        <button type="button" class="ac-btn full" id="lkColour">Match colours</button>
-        <button type="button" class="ac-btn full" id="lkDoubles">Remove doubles (surfaces both scans saw)</button>
+        <button type="button" class="ac-btn full" id="lnColour">Match colours</button>
+        <button type="button" class="ac-btn full" id="lnDoubles">Remove doubles (surfaces both scans saw)</button>
       </div>
     </div>
     <div class="section">
       <div class="sec-head"><span class="sec-label">③ Doors &amp; lids</span></div>
       <div class="sec-body" style="padding:10px">
         <div class="hint">In the second scan, select an opened door (inside and out), pick its part, and attach. Fumoca finds how far it was open, puts it back closed, drops the outer skin this scan already has and keeps the inner panel — so it shows when the door swings.</div>
-        <select id="lkPart" style="${css};margin-top:6px"></select>
-        <button type="button" class="ac-btn full" id="lkAttach" style="margin-top:6px">Attach selection to this part</button>
+        <select id="lnPart" style="${css};margin-top:6px"></select>
+        <button type="button" class="ac-btn full" id="lnAttach" style="margin-top:6px">Attach selection to this part</button>
       </div>
     </div>
     <div class="section">
       <div class="sec-head"><span class="sec-label">④ Show the inside</span></div>
       <div class="sec-body" style="padding:10px">
-        <select id="lkReveal" style="${css}">
+        <select id="lnReveal" style="${css}">
           <option value="opened">Only when a door opens (fades in)</option>
           <option value="always">Always</option>
         </select>
-        <div id="lkWith" style="margin-top:6px;font-size:11px"></div>
-        <button type="button" class="ac-btn full" id="lkClean" style="margin-top:6px">Clean loose splats around the openings</button>
-        <label style="display:flex;gap:6px;align-items:center;font-size:11px;margin-top:6px"><input type="checkbox" id="lkPreview"> Preview the reveal here (then open a part)</label>
+        <div id="lnWith" style="margin-top:6px;font-size:11px"></div>
+        <button type="button" class="ac-btn full" id="lnClean" style="margin-top:6px">Clean loose splats around the openings</button>
+        <label style="display:flex;gap:6px;align-items:center;font-size:11px;margin-top:6px"><input type="checkbox" id="lnPreview"> Preview the reveal here (then open a part)</label>
       </div>
     </div>
-    <div class="hint" id="lkStatus" role="status" style="margin:8px 10px"></div>`;
+    <div class="hint" id="lnStatus" role="status" style="margin:8px 10px"></div>`;
 
   const q = (s) => container.querySelector(s);
-  const status = (m) => { q('#lkStatus').textContent = m; onStatus?.(m); };
+  const status = (m) => { q('#lnStatus').textContent = m; onStatus?.(m); };
   const S = () => window.S;
   const hooks = () => window.FumocaStudioHooks || {};
 
@@ -95,7 +95,7 @@ export function mountLinkPanel(container, { onStatus } = {}) {
     if (!L) return null;
     let l = links.find(x => x.layerId === layerId);
     if (!l) {
-      l = { id: 'link' + Date.now().toString(36), name: L.name || 'Second scan', kind: q('#lkKind').value, reveal: 'opened', revealWith: [], layerId, mask: Uint8Array.from(L.mask) };
+      l = { id: 'link' + Date.now().toString(36), name: L.name || 'Second scan', kind: q('#lnKind').value, reveal: 'opened', revealWith: [], layerId, mask: Uint8Array.from(L.mask) };
       links.push(l);
     }
     active = l.id; pairs = []; renderAll(); changed();
@@ -107,15 +107,15 @@ export function mountLinkPanel(container, { onStatus } = {}) {
     const opts = ['<option value="">Choose the second scan…</option>']
       .concat(links.filter(l => !l.layerId).map(l => `<option value="link:${esc(l.id)}" ${l.id === active ? 'selected' : ''}>${esc(l.name)} (saved)</option>`))
       .concat(ls.slice(1).map(L => { const l = links.find(x => x.layerId === L.id); return `<option value="${esc(L.id)}" ${l && l.id === active ? 'selected' : ''}>${esc(L.name || L.id)}</option>`; }));
-    q('#lkLayer').innerHTML = opts.join('');
+    q('#lnLayer').innerHTML = opts.join('');
     const l = cur();
-    if (l) { q('#lkKind').value = l.kind; q('#lkReveal').value = l.reveal; }
+    if (l) { q('#lnKind').value = l.kind; q('#lnReveal').value = l.reveal; }
     const parts = window.FumocaParts?.list?.() || [];
-    q('#lkPart').innerHTML = parts.length ? parts.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('') : '<option value="">Make the doors in the Parts tab first</option>';
-    q('#lkWith').innerHTML = !l ? '' : parts.length
+    q('#lnPart').innerHTML = parts.length ? parts.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('') : '<option value="">Make the doors in the Parts tab first</option>';
+    q('#lnWith').innerHTML = !l ? '' : parts.length
       ? '<div style="opacity:.7;margin-bottom:4px">Fade in when these open:</div>' + parts.map(p => `<label style="display:flex;gap:6px;align-items:center"><input type="checkbox" data-with="${esc(p.id)}" ${l.revealWith.includes(p.id) ? 'checked' : ''}> ${esc(p.name)}</label>`).join('')
       : '<div style="opacity:.7">Make the doors / lids in the Parts tab, then tick them here.</div>';
-    q('#lkWith').querySelectorAll('[data-with]').forEach(el => el.addEventListener('change', () => {
+    q('#lnWith').querySelectorAll('[data-with]').forEach(el => el.addEventListener('change', () => {
       const id = el.dataset.with;
       l.revealWith = el.checked ? [...new Set([...l.revealWith, id])] : l.revealWith.filter(x => x !== id);
       changed(); restartPreview();
@@ -127,9 +127,9 @@ export function mountLinkPanel(container, { onStatus } = {}) {
     const rows = pairs.map((p, i) => `<div style="display:flex;gap:6px;align-items:center;margin-bottom:3px">
       <span style="color:#c8ff00;font-weight:800">${i + 1}</span><span style="flex:1;opacity:.8">${p.base ? 'this scan ✓' : '—'} · ${p.link ? 'second ✓' : 'click the same spot on the second scan'}</span>
       <button type="button" class="ac-btn" data-del="${i}" style="padding:2px 6px">✕</button></div>`).join('');
-    q('#lkPairs').innerHTML = rows || '<div style="opacity:.6">No pairs yet.</div>';
-    q('#lkPairs').querySelectorAll('[data-del]').forEach(el => el.addEventListener('click', () => { pairs.splice(+el.dataset.del, 1); renderPairs(); drawMarkers(); }));
-    q('#lkPick').textContent = picking ? `⏹ Stop picking (next: ${pickSide === 'base' ? 'this scan' : 'second scan'})` : '🎯 Pick matching points';
+    q('#lnPairs').innerHTML = rows || '<div style="opacity:.6">No pairs yet.</div>';
+    q('#lnPairs').querySelectorAll('[data-del]').forEach(el => el.addEventListener('click', () => { pairs.splice(+el.dataset.del, 1); renderPairs(); drawMarkers(); }));
+    q('#lnPick').textContent = picking ? `⏹ Stop picking (next: ${pickSide === 'base' ? 'this scan' : 'second scan'})` : '🎯 Pick matching points';
   }
 
   function drawMarkers() {
@@ -192,7 +192,7 @@ export function mountLinkPanel(container, { onStatus } = {}) {
   }
 
   // ── actions ──
-  q('#lkAdd').addEventListener('click', () => {
+  q('#lnAdd').addEventListener('click', () => {
     if (!S()?.alive) { status('Open the first scan (closed) first.'); return; }
     document.getElementById('addSplatInput')?.click();
   });
@@ -200,25 +200,25 @@ export function mountLinkPanel(container, { onStatus } = {}) {
     const L = layers()[layers().length - 1];
     if (L && layers().length > 1) { linkFromLayer(L.id); status(`“${L.name}” linked. Now pick matching points to line it up.`); }
   });
-  q('#lkLayer').addEventListener('change', () => {
-    const v = q('#lkLayer').value;
+  q('#lnLayer').addEventListener('change', () => {
+    const v = q('#lnLayer').value;
     if (v.startsWith('link:')) { active = v.slice(5); pairs = []; renderAll(); return; }
     if (v) linkFromLayer(v);
   });
-  q('#lkKind').addEventListener('change', () => { const l = cur(); if (l) { l.kind = q('#lkKind').value; changed(); } });
-  q('#lkReveal').addEventListener('change', () => { const l = cur(); if (l) { l.reveal = q('#lkReveal').value; changed(); restartPreview(); } });
-  q('#lkPick').addEventListener('click', () => { if (!cur()) { status('Choose the second scan first.'); return; } setPicking(!picking); });
+  q('#lnKind').addEventListener('change', () => { const l = cur(); if (l) { l.kind = q('#lnKind').value; changed(); } });
+  q('#lnReveal').addEventListener('change', () => { const l = cur(); if (l) { l.reveal = q('#lnReveal').value; changed(); restartPreview(); } });
+  q('#lnPick').addEventListener('click', () => { if (!cur()) { status('Choose the second scan first.'); return; } setPicking(!picking); });
 
-  q('#lkAlign').addEventListener('click', () => busy('Lining up', async () => {
+  q('#lnAlign').addEventListener('click', () => busy('Lining up', async () => {
     const l = cur(); if (!l) throw new Error('Choose the second scan first.');
     const done = pairs.filter(p => p.base && p.link);
     if (done.length < 3) throw new Error('Pick at least 3 matching pairs first.');
-    const T0 = similarityFromPairs(done.map(p => p.link), done.map(p => p.base), { scale: q('#lkScale').checked });
+    const T0 = similarityFromPairs(done.map(p => p.link), done.map(p => p.base), { scale: q('#lnScale').checked });
     const pickErr = pairError(T0, done.map(p => p.link), done.map(p => p.base));
     const s = S(), base = indicesOf(false), link = indicesOf(true);
     const sp = estimateSpacing(s.positions, base);
     status('Matched the points — snapping onto the surfaces both scans saw…'); await wait();
-    const fit = refineAlignment(s.positions, base, link, T0, { spacing: sp, scale: q('#lkScale').checked });
+    const fit = refineAlignment(s.positions, base, link, T0, { spacing: sp, scale: q('#lnScale').checked });
     const T = fit.overlap > 0.03 && fit.rms < Math.max(pickErr, sp * 4) ? fit.T : T0;
     hooks().pushHistory?.('Line up second scan');
     transformSplats(s, link, T);
@@ -230,11 +230,11 @@ export function mountLinkPanel(container, { onStatus } = {}) {
       : `Lined up from your points (within about ${unit(pickErr)}). The scans share little surface, so snapping was skipped.`);
   }));
 
-  q('#lkSnap').addEventListener('click', () => busy('Snapping', async () => {
+  q('#lnSnap').addEventListener('click', () => busy('Snapping', async () => {
     const l = cur(); if (!l) throw new Error('Choose the second scan first.');
     const s = S(), base = indicesOf(false), link = indicesOf(true);
     const sp = l.spacing || estimateSpacing(s.positions, base);
-    const fit = refineAlignment(s.positions, base, link, { R: [1, 0, 0, 0, 1, 0, 0, 0, 1], s: 1, t: [0, 0, 0], q: [1, 0, 0, 0] }, { spacing: sp, scale: q('#lkScale').checked });
+    const fit = refineAlignment(s.positions, base, link, { R: [1, 0, 0, 0, 1, 0, 0, 0, 1], s: 1, t: [0, 0, 0], q: [1, 0, 0, 0] }, { spacing: sp, scale: q('#lnScale').checked });
     if (fit.overlap < 0.03) throw new Error('The scans barely touch — line them up from matching points first.');
     hooks().pushHistory?.('Snap second scan');
     transformSplats(s, link, fit.T);
@@ -242,7 +242,7 @@ export function mountLinkPanel(container, { onStatus } = {}) {
     status(`Snapped — surfaces within about ${unit(fit.rms)}.`);
   }));
 
-  q('#lkColour').addEventListener('click', () => busy('Matching colours', async () => {
+  q('#lnColour').addEventListener('click', () => busy('Matching colours', async () => {
     const l = cur(); if (!l) throw new Error('Choose the second scan first.');
     const s = S(), base = indicesOf(false), link = indicesOf(true);
     const sp = l.spacing || estimateSpacing(s.positions, base);
@@ -254,7 +254,7 @@ export function mountLinkPanel(container, { onStatus } = {}) {
     status(`Colours matched on ${m.samples.toLocaleString()} shared spots.`);
   }));
 
-  q('#lkDoubles').addEventListener('click', () => busy('Finding doubles', async () => {
+  q('#lnDoubles').addEventListener('click', () => busy('Finding doubles', async () => {
     const l = cur(); if (!l) throw new Error('Choose the second scan first.');
     const s = S(), base = indicesOf(false), link = indicesOf(true);
     const sp = l.spacing || estimateSpacing(s.positions, base);
@@ -265,9 +265,9 @@ export function mountLinkPanel(container, { onStatus } = {}) {
     status(`Removed ${dbl.length.toLocaleString()} splats this scan already had.`);
   }));
 
-  q('#lkAttach').addEventListener('click', () => busy('Attaching', async () => {
+  q('#lnAttach').addEventListener('click', () => busy('Attaching', async () => {
     const l = cur(); if (!l) throw new Error('Choose the second scan first.');
-    const P = window.FumocaParts, id = q('#lkPart').value, part = id && P?.get?.(id);
+    const P = window.FumocaParts, id = q('#lnPart').value, part = id && P?.get?.(id);
     if (!part) throw new Error('Make the door in the Parts tab first, then pick it here.');
     const s = S(), m = maskOf(l);
     const open = []; for (let i = 0; i < s.alive.length; i++) if (s.alive[i] && s.selected?.[i] && m[i]) open.push(i);
@@ -288,7 +288,7 @@ export function mountLinkPanel(container, { onStatus } = {}) {
     status(`It was open ${deg}. Attached ${res.attached.length.toLocaleString()} splats of the inner panel to “${part.name}”, removed ${res.removed.length.toLocaleString()} doubles of the outer skin.`);
   }));
 
-  q('#lkClean').addEventListener('click', () => busy('Cleaning', async () => {
+  q('#lnClean').addEventListener('click', () => busy('Cleaning', async () => {
     const l = cur(); if (!l) throw new Error('Choose the second scan first.');
     const P = window.FumocaParts, ids = l.revealWith.length ? l.revealWith : (P?.list?.() || []).map(p => p.id);
     if (!ids.length) throw new Error('Make the doors in the Parts tab first.');
@@ -304,14 +304,14 @@ export function mountLinkPanel(container, { onStatus } = {}) {
   // ── reveal preview in Studio ──
   function restartPreview() {
     reveal?.dispose?.(); reveal = null;
-    if (!q('#lkPreview').checked) return;
+    if (!q('#lnPreview').checked) return;
     const mesh = window.FumocaSparkGaussian?.isEnabled?.() ? window.FumocaSparkGaussian.getMesh?.() : null;
     const animator = window.FumocaParts?.animator;
     if (!mesh || !animator) { status('Turn Spark on and make a part to preview the reveal.'); return; }
     try { reveal = new InsideReveal(THREE, mesh, animator, getLinks()); status('Preview on — open a linked part (Parts tab ▶) to see the inside fade in.'); }
     catch (e) { status(e.message); }
   }
-  q('#lkPreview').addEventListener('change', restartPreview);
+  q('#lnPreview').addEventListener('change', restartPreview);
   window.addEventListener('fumoca:splatsEdited', () => setTimeout(restartPreview, 900));
 
   // ── saving ──

@@ -238,6 +238,15 @@ input[type=range].amber::-webkit-slider-thumb{background:var(--amber);box-shadow
 .btn-grid{display:grid;gap:5px}
 .btn-grid.col2{grid-template-columns:1fr 1fr}
 .btn-grid.col3{grid-template-columns:1fr 1fr 1fr}
+:where(.panel-body, #rightPanel, .right-panel) :is(select, textarea, input:not([type]), input[type="text"], input[type="number"], input[type="url"], input[type="search"]),
+.ac-select, .ac-input {
+  background: var(--surface2); border: 1px solid var(--border2); border-radius: 6px; color: var(--text);
+  font: inherit; font-size: 11px; padding: 6px 8px; box-sizing: border-box; color-scheme: dark;
+}
+:where(.panel-body) :is(select, textarea, input:not([type]), input[type="text"], input[type="number"], input[type="url"]):focus { outline: none; border-color: var(--lime-b); }
+:where(.panel-body) input[type="range"] { accent-color: var(--lime); }
+:where(.panel-body) input[type="checkbox"], :where(.panel-body) input[type="radio"] { accent-color: var(--lime); }
+:where(.panel-body) input[type="color"] { background: none; border: 1px solid var(--border2); border-radius: 4px; padding: 0; height: 22px; }
 .ac-btn{
   padding:8px 10px;border-radius:9px;border:1px solid var(--border);
   background:var(--surface);color:var(--text);cursor:pointer;
@@ -1375,7 +1384,7 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
         <button type="button" data-hud-view="side" title="View from the side">Side</button>
         <button type="button" data-hud-view="top" title="View from above">Top</button>
       </div>
-      <button type="button" class="hud-more" id="levelSubjectBtn">Auto level subject (Y up)</button>
+      <button type="button" class="hud-more" id="levelSubjectBtn" title="Finds what it stands on (or uses the selected base) and sets it flat on the grid">Sit flat on the grid</button>
       <button type="button" class="hud-more" id="centerSubjectBtn">Center subject at origin</button>
       <button type="button" class="hud-more" data-hud-tab="transform">More transform controls…</button>
       <div class="hud-hint" id="viewportHudHint">Choose a tool, then drag its gizmo on the model.</div>
@@ -1972,6 +1981,7 @@ const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
 dirLight.position.set(3, 5, 4); scene.add(dirLight);
 // Blender-style world orientation reference, placed at the scene's lower Y bound after load.
 const orientationGrid = new THREE.GridHelper(20, 24, 0x6d7a82, 0x354047);
+window._fumocaOrientationGrid = orientationGrid;
 const gridMats = Array.isArray(orientationGrid.material)
   ? orientationGrid.material
   : [orientationGrid.material];
@@ -2195,7 +2205,8 @@ function _updateGroundGrid(recenter = false) {
   const center=new THREE.Vector3((x0+x1)/2,(y0+y1)/2,(z0+z1)/2);
   // Keep the floor below the Gaussian tails and wheel/body silhouette.
   const groundMargin = Math.max((y1-y0)*0.08, 1e-4);
-  orientationGrid.position.set(center.x,y0-groundMargin,center.z);
+  // After “Sit flat” the base is exactly y = 0: keep the grid there.
+  orientationGrid.position.set(S._sitFlat ? 0 : center.x, S._sitFlat ? 0 : y0-groundMargin, S._sitFlat ? 0 : center.z);
   orientationGrid.scale.setScalar(Math.max(.1,Math.max(x1-x0,z1-z0)*.15));
   const axes=scene.children.find(obj=>obj.isAxesHelper);
   if(axes){axes.position.copy(center);axes.scale.setScalar(Math.max(.1,Math.max(x1-x0,y1-y0,z1-z0)*.1));}
@@ -3239,7 +3250,7 @@ async function loadFile(file, urlOverride) {
   S.measurements = []; S.measurementStart = null; renderMeasurementList();
   $('measureMultiplier').value='1';$('measureUnit').value='units';$('measureKnownLength').value='';
   $('measureCalibrationStatus').textContent='Uncalibrated — distances display in source units.';
-  S.opacity = parsed.opacity; S.scale = parsed.scale;
+  S.opacity = parsed.opacity; S.scale = parsed.scale; S._sitFlat = false;
   S.scaleXYZ = parsed.scaleXYZ || new Float32Array(parsed.count * 3).fill(0.01);
   S.rotation = parsed.rotation || new Float32Array(parsed.count * 4);
   if (!parsed.rotation) for (let i = 0; i < parsed.count; i++) S.rotation[i * 4] = 1;
@@ -5614,39 +5625,26 @@ document.querySelectorAll('[data-hud-view]').forEach(button => {
     renderMeasurementOverlay();
   });
 });
-$('levelSubjectBtn')?.addEventListener('click',()=>{
-  if(!S.positions||!S.alive)return;
-  const stride=Math.max(1,Math.floor(S.alive.length/12000));let samples=[];
-  for(let i=0;i<S.alive.length;i+=stride)if(S.alive[i])samples.push([S.positions[i*3],S.positions[i*3+1],S.positions[i*3+2]]);
-  if(samples.length<3)return showToast('Not enough points','Load a denser subject before auto leveling.','warn');
-  const limits=[0,1,2].map(axis=>{const values=samples.map(point=>point[axis]).sort((a,b)=>a-b);return [values[Math.floor(values.length*.005)],values[Math.floor(values.length*.995)]];});
-  samples=samples.filter(point=>point.every((value,axis)=>value>=limits[axis][0]&&value<=limits[axis][1]));
-  const mean=[0,0,0];for(const p of samples)for(let a=0;a<3;a++)mean[a]+=p[a]/samples.length;
-  const A=[[0,0,0],[0,0,0],[0,0,0]],V=[[1,0,0],[0,1,0],[0,0,1]];
-  for(const p of samples)for(let r=0;r<3;r++)for(let c=0;c<3;c++)A[r][c]+=(p[r]-mean[r])*(p[c]-mean[c])/samples.length;
-  for(let iter=0;iter<18;iter++){
-    let p=0,q=1;if(Math.abs(A[0][2])>Math.abs(A[p][q])){p=0;q=2;}if(Math.abs(A[1][2])>Math.abs(A[p][q])){p=1;q=2;}
-    if(Math.abs(A[p][q])<1e-12)break;
-    const theta=.5*Math.atan2(2*A[p][q],A[q][q]-A[p][p]),c=Math.cos(theta),s=Math.sin(theta),app=A[p][p],aqq=A[q][q],apq=A[p][q];
-    A[p][p]=c*c*app-2*s*c*apq+s*s*aqq;A[q][q]=s*s*app+2*s*c*apq+c*c*aqq;A[p][q]=A[q][p]=0;
-    for(let k=0;k<3;k++)if(k!==p&&k!==q){const akp=A[k][p],akq=A[k][q];A[k][p]=A[p][k]=c*akp-s*akq;A[k][q]=A[q][k]=s*akp+c*akq;}
-    for(let k=0;k<3;k++){const vkp=V[k][p],vkq=V[k][q];V[k][p]=c*vkp-s*vkq;V[k][q]=s*vkp+c*vkq;}
-  }
-  let axisIndex=0;if(A[1][1]<A[axisIndex][axisIndex])axisIndex=1;if(A[2][2]<A[axisIndex][axisIndex])axisIndex=2;
-  const up=new THREE.Vector3(V[0][axisIndex],V[1][axisIndex],V[2][axisIndex]).normalize();if(up.y<0)up.negate();
-  const angle=Math.acos(THREE.MathUtils.clamp(up.y,-1,1));
-  if(angle<THREE.MathUtils.degToRad(.5))return showToast('Already level','The thinnest point-cloud axis is already aligned with Y-up.','ok');
-  const rotation=new THREE.Quaternion().setFromUnitVectors(up,new THREE.Vector3(0,1,0)),pivot=S.pivot||controls.target;
-  pushHistory('transform level');
-  const point=new THREE.Vector3();
-  for(let i=0;i<S.alive.length;i++)if(S.alive[i]){
-    point.set(S.positions[i*3],S.positions[i*3+1],S.positions[i*3+2]).sub(pivot).applyQuaternion(rotation).add(pivot);
-    S.positions[i*3]=point.x;S.positions[i*3+1]=point.y;S.positions[i*3+2]=point.z;
-    if(S.rotation){const q=new THREE.Quaternion(S.rotation[i*4+1],S.rotation[i*4+2],S.rotation[i*4+3],S.rotation[i*4]).premultiply(rotation).normalize();S.rotation.set([q.w,q.x,q.y,q.z],i*4);}
-  }
-  window.FumocaGaussianRenderer?.invalidateSort();rebuildGeometry();_refreshSceneReference(true);syncTransformGizmo();renderMeasurementList();renderMeasurementOverlay();
-  showToast('Subject leveled',`Aligned its thinnest principal axis to Y-up (${THREE.MathUtils.radToDeg(angle).toFixed(1)}° correction). Undo restores the prior orientation.`,'ok');
-});
+// Sit flat: find what the object stands on (or use the selected base), turn
+// it to face down, and put it on the grid at y = 0, centred.
+window.FumocaSitFlat = async function sitFlatNow() {
+  if (!S.positions || !S.alive) return null;
+  const { sitFlat } = await import('./js/modules/sit-flat.js?v=20261126-flat01');
+  pushHistory('sit flat');
+  let res;
+  try { res = sitFlat(S); }
+  catch (e) { showToast('Could not sit it flat', e.message, 'warn'); return null; }
+  S._sitFlat = true;
+  S.pivot = new THREE.Vector3(0, 0, 0);
+  window.FumocaGaussianRenderer?.invalidateSort?.(); rebuildGeometry(); _refreshSceneReference(true); syncTransformGizmo();
+  try { renderMeasurementList(); renderMeasurementOverlay(); } catch (_) {}
+  const r = Math.max(0.05, (() => { let m = 0; for (let i = 0; i < S.alive.length; i += 37) if (S.alive[i]) m = Math.max(m, Math.hypot(S.positions[i*3], S.positions[i*3+2])); return m; })());
+  controls.target.set(0, r * 0.35, 0); camera.position.set(r * 2.4, r * 1.8, r * 3.4); camera.lookAt(controls.target); controls.update();
+  window.dispatchEvent(new CustomEvent('fumoca:sitFlat', { detail: { angle: res.angleDeg, source: res.base.source } }));
+  showToast('Sitting flat', `${res.base.source === 'selection' ? 'Used your selected base' : 'Found the base it stands on'} — turned ${res.angleDeg.toFixed(1)}° and set it on the grid. Undo restores it.`, 'ok');
+  return res;
+};
+$('levelSubjectBtn')?.addEventListener('click', () => window.FumocaSitFlat());
 $('centerSubjectBtn')?.addEventListener('click',()=>{
   if(!S.positions||!S.alive)return;
   const pivot=S.pivot||controls.target,delta=pivot.clone().negate();

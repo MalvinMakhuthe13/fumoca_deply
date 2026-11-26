@@ -84,10 +84,10 @@ try {
     window.__parts.push({ ...door });
     window.dispatchEvent(new CustomEvent('fumoca:splatAdded'));
   }, { P, nBase, door });
-  assert.match(await page.textContent('#lkStatus'), /linked/);
+  assert.match(await page.textContent('#lnStatus'), /linked/);
 
   // pick 4 pairs by clicking the canvas centre after aiming the camera at each spot
-  await page.click('#lkPick');
+  await page.click('#lnPick');
   const aim = (target, normal) => page.evaluate(([t, nrm]) => { window.camera.position.set(t[0] + nrm[0] * 3, t[1] + nrm[1] * 3, t[2] + nrm[2] * 3); window.camera.lookAt(t[0], t[1], t[2]); window.camera.updateMatrixWorld(); }, [target, normal]);
   for (const sp of spots) {
     const nrm = sp[1] === 0 ? [0.3, -1, 0.2] : sp[2] > 0 ? [0.2, 0.1, 1] : [0.2, 0.1, -1];
@@ -97,24 +97,24 @@ try {
   const pairs = await page.evaluate(() => window.panel.pairs.filter(p => p.base && p.link).length);
   assert.equal(pairs, 4, 'four pairs picked by clicking');
 
-  await page.click('#lkAlign');
-  await page.waitForFunction(() => /Lined up/.test(document.querySelector('#lkStatus').textContent), null, { timeout: 60000 });
+  await page.click('#lnAlign');
+  await page.waitForFunction(() => /Lined up/.test(document.querySelector('#lnStatus').textContent), null, { timeout: 60000 });
   const lined = await page.evaluate(({ nBase }) => { const S = window.S; return Array.from({ length: 6 }, (_, k) => nBase + k * 997).map(i => [S.positions[i * 3], S.positions[i * 3 + 1], S.positions[i * 3 + 2]]); }, { nBase });
   const want = [0, 1, 2, 3, 4, 5].map(k => second[k * 997]);
   const worst = Math.max(...lined.map((p, k) => Math.hypot(p[0] - want[k][0], p[1] - want[k][1], p[2] - want[k][2])));
-  console.log('  ' + await page.textContent('#lkStatus') + ` (worst error ${worst.toFixed(4)})`);
+  console.log('  ' + await page.textContent('#lnStatus') + ` (worst error ${worst.toFixed(4)})`);
   assert.ok(worst < 0.01, 'second scan lined up onto the car: ' + worst);
 
-  await page.click('#lkDoubles');
-  await page.waitForFunction(() => /Removed/.test(document.querySelector('#lkStatus').textContent), null, { timeout: 60000 });
+  await page.click('#lnDoubles');
+  await page.waitForFunction(() => /Removed/.test(document.querySelector('#lnStatus').textContent), null, { timeout: 60000 });
   const dead = await page.evaluate(({ nBase, kinds }) => { const c = {}; kinds.forEach((k, j) => { c[k] = c[k] || [0, 0]; c[k][1]++; if (!window.S.alive[nBase + j]) c[k][0]++; }); return c; }, { nBase, kinds });
   assert.ok(dead.shell[0] / dead.shell[1] > 0.8 && dead.seat[0] / dead.seat[1] < 0.05, 'doubles: shell removed, seats kept ' + JSON.stringify(dead));
 
   // select the opened door in the second scan, attach to the part
   await page.evaluate(({ nBase, kinds }) => { kinds.forEach((k, j) => { if (k.startsWith('door')) window.S.selected[nBase + j] = 1; }); }, { nBase, kinds });
-  await page.click('#lkAttach');
-  await page.waitForFunction(() => /It was open|Could not|Select|Make/.test(document.querySelector('#lkStatus').textContent), null, { timeout: 60000 });
-  const att = await page.textContent('#lkStatus');
+  await page.click('#lnAttach');
+  await page.waitForFunction(() => /It was open|Could not|Select|Make/.test(document.querySelector('#lnStatus').textContent), null, { timeout: 60000 });
+  const att = await page.textContent('#lnStatus');
   console.log('  ' + att);
   assert.match(att, /It was open (4[89]|5[012])°/);
   const doorCheck = await page.evaluate(({ nBase, kinds }) => {
