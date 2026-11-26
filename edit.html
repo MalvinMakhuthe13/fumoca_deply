@@ -4322,9 +4322,21 @@ function estimateCore() {
   return { c: [ax, ay, az], s: [Math.max(sx * 3, 0.05), Math.max(sy * 3, 0.05), Math.max(sz * 3, 0.05)] };
 }
 
-function autoClean() {
+// Density + connectivity floater finder (js/modules/floater-clean.js).
+async function _floaterMask() {
+  const { floaterMask } = await import('./js/modules/floater-clean.js?v=20261126-fl01');
+  const aggr = Math.max(0, Math.min(1, Number($('cleanAggr')?.value ?? 50) / 100));
+  return floaterMask(S.positions, S.alive, { aggression: aggr, opacity: S.opacity || null });
+}
+async function autoClean() {
   const core = estimateCore(); if (!core) return;
   pushHistory('auto clean');
+  let floaters = 0;
+  try {
+    setStatus('Finding floaters…');
+    const mask = await _floaterMask();
+    for (let i = 0; i < S.alive.length; i++) if (mask[i] && S.alive[i]) { S.alive[i] = 0; floaters++; }
+  } catch (error) { console.warn('[Auto clean] floater pass skipped', error); }
   const aggr = Number($('cleanAggr').value) / 100;
   const factor = 1.0 + (1 - aggr) * 0.5;
   const [cx, cy, cz] = core.c, [sx, sy, sz] = core.s;
@@ -4340,25 +4352,23 @@ function autoClean() {
     const weak = op < opT || sc > scT;
     if (far && weak) { S.alive[i] = 0; removed++; }
   }
-  rebuildGeometry(); setStatus(`Auto-removed ${fmt(removed)} noise points`, 'ok');
+  removed += floaters;
+  rebuildGeometry(); setStatus(`Auto-removed ${fmt(removed)} noise points (${fmt(floaters)} floaters) — Undo brings them back`, 'ok');
   showToast('Auto Clean', `${fmt(removed)} points removed`);
 }
 
-function selectFloaters() {
-  const core = estimateCore(); if (!core) return;
+async function selectFloaters() {
+  if (!S.positions || !S.alive) return;
   clearSelection();
-  const [cx, cy, cz] = core.c, [sx, sy, sz] = core.s;
-  const rad = Number($('selRad').value), minN = Number($('selNeigh').value);
-  // simplified: select far + low density
   let hits = 0;
-  for (let i = 0; i < S.alive.length; i++) {
-    if (!S.alive[i]) continue;
-    const nx = Math.abs((S.positions[i * 3] - cx) / sx);
-    const ny = Math.abs((S.positions[i * 3 + 1] - cy) / sy);
-    const nz = Math.abs((S.positions[i * 3 + 2] - cz) / sz);
-    if (nx > 1.4 || ny > 1.4 || nz > 1.4) { S.selected[i] = 1; hits++; }
+  try {
+    setStatus('Finding floaters…');
+    const mask = await _floaterMask();
+    for (let i = 0; i < S.alive.length; i++) if (mask[i] && S.alive[i] && !S.layerHidden?.[i]) { S.selected[i] = 1; hits++; }
+  } catch (error) {
+    console.warn('[Select floaters]', error);
   }
-  rebuildGeometry(); setStatus(`Selected ${fmt(hits)} potential floaters`);
+  rebuildGeometry(); setStatus(`Selected ${fmt(hits)} floaters — press Delete to remove, or adjust Aggression and try again`);
 }
 
 function selectLowOpacity() {

@@ -127,28 +127,49 @@ const SparkGaussianView = (() => {
       float:[4,'getFloat32','setFloat32'], float32:[4,'getFloat32','setFloat32'],
       double:[8,'getFloat64','setFloat64'], float64:[8,'getFloat64','setFloat64']
     };
-    let inVertex = false, rowBytes = 0;
-    const properties = [];
+    // Scanners often add other elements (cameras, faces) or a trailing newline.
+    // Only the vertex element matters for editing; others before it must be
+    // fixed-size so we can skip them, anything after it is ignored.
+    let inVertex = false, seenVertex = false, rowBytes = 0, before = 0, curCount = 0, curSize = 0, curList = false;
+    const properties = [], keepLines = [];
+    const closeElement = () => { if (!seenVertex && !inVertex && curCount) { if (curList) throw new Error('A list element before the vertex data is unsupported'); before += curCount * curSize; } };
     for (const line of header.split(/\r?\n/)) {
-      if (line.startsWith('element ')) { inVertex = /^element vertex \d+$/.test(line); continue; }
-      if (!inVertex || !line.startsWith('property ')) continue;
-      const parts = line.trim().split(/\s+/);
-      if (parts[1] === 'list') throw new Error('Vertex list properties are unsupported');
-      const info = typeInfo[parts[1]];
-      if (!info) throw new Error('Unsupported vertex property type: ' + parts[1]);
-      properties.push({ name:parts[2], type:parts[1], offset:rowBytes, size:info[0], getter:info[1], setter:info[2] });
-      rowBytes += info[0];
+      if (line.startsWith('element ')) {
+        closeElement();
+        if (inVertex) seenVertex = true;
+        inVertex = /^element vertex \d+$/.test(line.trim());
+        const m = line.trim().split(/\s+/); curCount = Number(m[2]) || 0; curSize = 0; curList = false;
+        if (inVertex) keepLines.push(line.trim());
+        continue;
+      }
+      if (line.startsWith('property ')) {
+        const parts = line.trim().split(/\s+/);
+        if (!inVertex) { if (parts[1] === 'list') curList = true; else curSize += typeInfo[parts[1]]?.[0] || 0; continue; }
+        if (parts[1] === 'list') throw new Error('Vertex list properties are unsupported');
+        const info = typeInfo[parts[1]];
+        if (!info) throw new Error('Unsupported vertex property type: ' + parts[1]);
+        properties.push({ name:parts[2], type:parts[1], offset:rowBytes, size:info[0], getter:info[1], setter:info[2] });
+        rowBytes += info[0];
+        keepLines.push(line.trim());
+        continue;
+      }
     }
+    const dataStart = headerEnd + before;
+    // Header for re-encoded files: ply, format, comments, then only the vertex element.
+    const lines = header.split(/\r?\n/).map(l => l.trim());
+    const vertexHeader = ['ply', lines.find(l => l.startsWith('format ')),
+      ...lines.filter(l => l.startsWith('comment ') || l.startsWith('obj_info ')),
+      ...keepLines, 'end_header'].join('\n') + '\n';
     const xyz = ['x','y','z'].map(name => properties.find(p => p.name === name));
     if (xyz.some(p => !p || !['float','float32','double','float64'].includes(p.type))) {
       throw new Error('PLY must contain scalar floating-point x, y, z properties');
     }
-    const dataEnd = headerEnd + count * rowBytes;
-    if (dataEnd !== src.length) throw new Error('PLY contains trailing elements or unexpected data; safe sync refused');
+    const dataEnd = dataStart + count * rowBytes;
+    if (dataEnd > src.length) throw new Error('PLY is shorter than its header says (truncated file)');
     const scaleProps = [0, 1, 2].map(i => properties.find(p => p.name === 'scale_' + i));
     const rotationProps = [0, 1, 2, 3].map(i => properties.find(p => p.name === 'rot_' + i));
     const opacityProp = properties.find(p => p.name === 'opacity');
-    return { src, header, headerEnd, count, rowBytes, properties, xyz, scaleProps, rotationProps, opacityProp };
+    return { src, header, vertexHeader, headerEnd, dataStart, count, rowBytes, properties, xyz, scaleProps, rotationProps, opacityProp };
   }
 
   function _stateSignature(state) {
@@ -177,7 +198,7 @@ const SparkGaussianView = (() => {
     const dataView = new DataView(parsed.src.buffer, parsed.src.byteOffset, parsed.src.byteLength);
     for (let i=0;i<parsed.count;i++) {
       if (!state.alive[i]) continue;
-      const row = parsed.src.slice(parsed.headerEnd + i*parsed.rowBytes, parsed.headerEnd + (i+1)*parsed.rowBytes);
+      const row = parsed.src.slice(parsed.dataStart + i*parsed.rowBytes, parsed.dataStart + (i+1)*parsed.rowBytes);
       const view = new DataView(row.buffer, row.byteOffset, row.byteLength);
       for (let axis=0;axis<3;axis++) {
         const prop = parsed.xyz[axis], value = state.positions[i*3+axis];
@@ -198,7 +219,7 @@ const SparkGaussianView = (() => {
       }
       rows.push(row);
     }
-    const header = parsed.header.replace(/^element vertex \d+$/m, 'element vertex ' + rows.length);
+    const header = parsed.vertexHeader.replace(/^element vertex \d+$/m, 'element vertex ' + rows.length);
     const headerBytes = new TextEncoder().encode(header);
     const out = new Uint8Array(headerBytes.length + rows.length*parsed.rowBytes);
     out.set(headerBytes);
