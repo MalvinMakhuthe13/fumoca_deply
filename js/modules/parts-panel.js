@@ -119,6 +119,8 @@ export function mountPartsPanel(container, { onStatus } = {}) {
   function boxSpan(p) { return Math.max(...p.box.max.map((v, i) => v - p.box.min[i])); }
 
   function selectionBox() {
+    // an outline still open (dots placed, not finished): use it
+    if (window.FumocaOutline?.points?.() >= 3) window.FumocaOutline.finish();
     const S = window.S;
     if (!S?.selected || !S.positions) return null;
     const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
@@ -352,6 +354,15 @@ export function mountPartsPanel(container, { onStatus } = {}) {
       parts[i] = next; changed(); return true;
     },
     get(id) { const p = parts.find(x => x.id === id); return p ? JSON.parse(JSON.stringify(p)) : null; },
+    /** Add a part made elsewhere (e.g. found from an open and a closed scan). Returns its id. */
+    addPart(part) {
+      let name = part.name || 'Part', k = 2;
+      while (parts.some(p => p.name === name)) name = `${part.name || 'Part'} ${k++}`;
+      const next = normalizeParts([{ ...part, name, id: part.id || 'part_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5) }])[0];
+      if (!next) return null;
+      parts = [...parts, next]; changed(); renderList();
+      return next.id;
+    },
   };
   window.FumocaParts = api;
   return api;

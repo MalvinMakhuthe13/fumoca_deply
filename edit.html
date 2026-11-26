@@ -1127,7 +1127,20 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
     <!-- TAB: CLEAN -->
     <div class="panel-body" id="tab-clean" style="display:none">
       <div class="section">
-        <div class="sec-head"><span class="sec-label">AI Smart Cleanup</span><span class="sec-badge">AUTO</span></div>
+        <div class="sec-head"><span class="sec-label">Solid splats</span><span class="sec-badge">NEW</span></div>
+        <div class="sec-body">
+          <div class="hint">Makes the scan read as a clean, solid surface: faint splats become opaque, each splat lies flat on the surface, long streaks are trimmed and haze goes. Selection, lighting and moving parts work better on solid scans. Saved when you publish.</div>
+          <div class="ctrl-row"><span class="ctrl-label">How solid</span><span class="ctrl-val" id="solidVal">70%</span></div>
+          <input type="range" id="solidStrength" min="10" max="100" value="70">
+          <label style="display:flex;gap:6px;align-items:center;font-size:11px;margin-top:4px"><input type="checkbox" id="solidHaze" checked> Remove haze (splats too faint to be a surface)</label>
+          <div style="display:flex;gap:6px;margin-top:6px">
+            <button class="ac-btn lime" id="solidBtn" style="flex:1">◼ Make solid</button>
+            <button class="ac-btn" id="solidOffBtn" style="flex:1">Back to original</button>
+          </div>
+        </div>
+      </div>
+      <div class="section">
+        <div class="sec-head"><span class="sec-label">Smart cleanup</span><span class="sec-badge">AUTO</span></div>
         <div class="sec-body">
           <button class="ac-btn lime full" id="autoCleanBtn">⚡ Auto Clean Subject</button>
           <div class="hint">Detects core subject, removes outer floaters and noise automatically.</div>
@@ -2053,6 +2066,7 @@ const studioEditHistory = new UnifiedEditHistory({
     selected: S.selected,
     paintColors: S.paintColors,
     shCoefficients: S.shCoefficients,
+    attrEdited: S.attrEdited || null,
     documentModel: S.documentModel || null,
     nifMesh: S.nifMesh || null,
     nifMeshComponents: S.nifMeshComponents || [],
@@ -2078,6 +2092,16 @@ const studioEditHistory = new UnifiedEditHistory({
     S.activeLayerId = snapshot.activeLayerId || null;
     S.measurements = snapshot.measurements || [];
     S.pivot = snapshot.pivot ? new THREE.Vector3(...snapshot.pivot) : null;
+    // opacity / size edits (Solidify): restore which splats are edited, and
+    // let Spark put back the scan's own values on the ones that no longer are
+    if (S.attrEdited || snapshot.attrEdited) {
+      const before = S.attrEdited, after = snapshot.attrEdited ? Uint8Array.from(snapshot.attrEdited) : new Uint8Array(S.alive?.length || 0);
+      const touched = new Uint8Array(after.length);
+      if (before) for (let i = 0; i < touched.length; i++) touched[i] = before[i] || before.touched?.[i] || 0;
+      after.touched = touched;
+      S.attrEdited = after;
+      S.attrVersion = (S.attrVersion || 0) + 1;
+    }
     rebuildGeometry();
     _refreshSceneReference(true);
     window.refreshStudioMeshDerivedState?.();
@@ -4331,6 +4355,56 @@ function estimateCore() {
   return { c: [ax, ay, az], s: [Math.max(sx * 3, 0.05), Math.max(sy * 3, 0.05), Math.max(sz * 3, 0.05)] };
 }
 
+// ─── SOLID SPLATS (js/modules/solidify.js) ──────────────────────────────────
+// Always computed from the scan's own values, so the slider re-applies cleanly.
+function _solidOrig() {
+  const n = S.alive?.length || 0;
+  if (!S._solidOrig || S._solidOrig.n !== n) {
+    S._solidOrig = { n, opacity: Float32Array.from(S.opacity || new Float32Array(n).fill(1)), scaleXYZ: Float32Array.from(S.scaleXYZ || new Float32Array(n * 3).fill(0.01)), removed: new Uint8Array(n) };
+  }
+  return S._solidOrig;
+}
+function _markAttrEdited(edited) {
+  const prev = S.attrEdited, touched = new Uint8Array(edited.length);
+  if (prev) for (let i = 0; i < touched.length; i++) touched[i] = prev[i] || prev.touched?.[i] || 0;
+  edited.touched = touched;
+  S.attrEdited = edited;
+  S.attrVersion = (S.attrVersion || 0) + 1;
+}
+async function makeSolid() {
+  if (!S.alive?.length || !S.opacity || !S.scaleXYZ) { showToast('Make solid', 'Open a Gaussian splat (.ply) first', 'warn'); return; }
+  const { solidify } = await import('./js/modules/solidify.js?v=20261127-solid01');
+  const orig = _solidOrig();
+  pushHistory('make solid');
+  for (let i = 0; i < orig.n; i++) if (orig.removed[i]) S.alive[i] = 1;   // haze from an earlier pass comes back first
+  orig.removed.fill(0);
+  const r = solidify(orig, S.alive, { strength: Number($('solidStrength').value) / 100, removeHaze: $('solidHaze').checked });
+  S.opacity.set(r.opacity); S.scaleXYZ.set(r.scaleXYZ);
+  if (S.scale) for (let i = 0; i < orig.n; i++) if (r.edited[i]) S.scale[i] = (S.scaleXYZ[i * 3] + S.scaleXYZ[i * 3 + 1] + S.scaleXYZ[i * 3 + 2]) / 3;
+  for (let i = 0; i < orig.n; i++) if (r.remove[i] && S.alive[i]) { S.alive[i] = 0; orig.removed[i] = 1; }
+  _markAttrEdited(r.edited);
+  rebuildGeometry();
+  const st = r.stats;
+  setStatus(`Solid: ${fmt(st.solid)} splats made opaque, ${fmt(st.flattened)} flattened, ${fmt(st.capped)} streaks trimmed, ${fmt(st.haze)} haze removed`, 'ok');
+  showToast('Solid splats', 'Undo or “Back to original” returns the scan exactly');
+}
+function solidBackToOriginal() {
+  const orig = S._solidOrig;
+  if (!orig || orig.n !== (S.alive?.length || 0)) { setStatus('The scan is already original'); return; }
+  pushHistory('back to original');
+  S.opacity.set(orig.opacity); S.scaleXYZ.set(orig.scaleXYZ);
+  if (S.scale) for (let i = 0; i < orig.n; i++) S.scale[i] = (S.scaleXYZ[i * 3] + S.scaleXYZ[i * 3 + 1] + S.scaleXYZ[i * 3 + 2]) / 3;
+  for (let i = 0; i < orig.n; i++) if (orig.removed[i]) S.alive[i] = 1;
+  orig.removed.fill(0);
+  _markAttrEdited(new Uint8Array(orig.n));
+  rebuildGeometry();
+  setStatus('Back to the original scan', 'ok');
+}
+$('solidStrength')?.addEventListener('input', () => { $('solidVal').textContent = $('solidStrength').value + '%'; });
+$('solidBtn')?.addEventListener('click', makeSolid);
+$('solidOffBtn')?.addEventListener('click', solidBackToOriginal);
+window.addEventListener('fumoca:fileLoaded', () => { S._solidOrig = null; S.attrEdited = null; S.attrVersion = 0; });
+
 // Density + connectivity floater finder (js/modules/floater-clean.js).
 async function _floaterMask() {
   const { floaterMask } = await import('./js/modules/floater-clean.js?v=20261126-fl01');
@@ -5080,6 +5154,7 @@ function renderLasso() {
     poly.setAttribute('points', S.lassoPoints.map(p => `${p.x},${p.y}`).join(' '));
     poly.setAttribute('class', 'lasso-ghost'); lassoSvg.appendChild(poly);
   }
+  _outlineBar(S.outlinePts?.length && S.mode === 'outline' ? _outlineScreen() : (S.outlinePts?.length ? _outlineScreen() : null));
   if (S.outlinePts?.length) {
     const NS = 'http://www.w3.org/2000/svg', pts = _outlineScreen();
     if (pts.length >= 2) {
@@ -5228,8 +5303,11 @@ function _outlineDotAt(clientX, clientY) {
   _measureRaycaster.setFromCamera(ndc, camera);
   const hits = _measureRaycaster.intersectObject(S.points, false);
   if (!hits.length) return null;
-  // nearest few hits, take the closest depth (front surface)
-  const d = Math.min(...hits.slice(0, 8).map(h => h.distance));
+  // the first SOLID splat along the ray (haze and floaters in front don't count)
+  const src = S.points.geometry.getAttribute('sourceIndex');
+  const solid = hits.filter(h => { const i = src ? Math.round(src.array[h.index]) : h.index; return (S.opacity?.[i] ?? 1) >= 0.35 && !S.layerHidden?.[i]; });
+  const use = solid.length ? solid : hits;
+  const d = Math.min(...use.slice(0, 8).map(h => h.distance));
   return _measureRaycaster.ray.at(d, new THREE.Vector3());
 }
 function finishOutline(e = {}) {
@@ -5243,6 +5321,30 @@ function finishOutline(e = {}) {
   return true;
 }
 function cancelOutline() { if (S.outlinePts.length) { S.outlinePts = []; renderLasso(); setStatus('Outline cleared'); } }
+// Floating bar next to the outline, so finishing is obvious.
+function _outlineBar(pts) {
+  let bar = document.getElementById('outlineBar');
+  if (!pts || pts.length < 1) { if (bar) bar.style.display = 'none'; return; }
+  if (!bar) {
+    bar = document.createElement('div'); bar.id = 'outlineBar';
+    bar.style.cssText = 'position:absolute;z-index:30;display:flex;gap:6px;padding:6px;border-radius:10px;background:rgba(5,7,11,.88);border:1px solid rgba(200,255,0,.35);box-shadow:0 6px 20px rgba(0,0,0,.4);font:600 12px/1 inherit;pointer-events:auto';
+    bar.innerHTML = '<button type="button" class="ac-btn lime" data-o="ok">✓ Select inside</button><button type="button" class="ac-btn" data-o="undo">↶ Undo dot</button><button type="button" class="ac-btn" data-o="clear">✕ Clear</button>';
+    bar.addEventListener('pointerdown', e => e.stopPropagation());
+    bar.addEventListener('click', e => {
+      const b = e.target.closest('[data-o]'); if (!b) return; e.stopPropagation();
+      if (b.dataset.o === 'ok') finishOutline(e); else if (b.dataset.o === 'undo') { S.outlinePts.pop(); renderLasso(); } else cancelOutline();
+    });
+    document.getElementById('viewport').appendChild(bar);
+  }
+  const ok = bar.querySelector('[data-o=ok]');
+  ok.disabled = pts.length < 3; ok.style.opacity = pts.length < 3 ? .5 : 1;
+  ok.textContent = pts.length < 3 ? `Place ${3 - pts.length} more dot${3 - pts.length === 1 ? '' : 's'}` : '✓ Select inside';
+  const vp = document.getElementById('viewport'), W = vp.clientWidth, H = vp.clientHeight;
+  const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
+  const x = Math.max(8, Math.min(W - 300, (Math.min(...xs) + Math.max(...xs)) / 2 - 140));
+  const y = Math.max(8, Math.min(H - 48, Math.max(...ys) + 18));
+  bar.style.left = x + 'px'; bar.style.top = y + 'px'; bar.style.display = 'flex';
+}
 window.FumocaOutline = { finish: finishOutline, cancel: cancelOutline, points: () => S.outlinePts.length };
 window.addEventListener('keydown', e => {
   if (!S.outlinePts?.length || /input|textarea|select/i.test(e.target?.tagName || '')) return;
@@ -7032,7 +7134,7 @@ document.getElementById('loadGlbFile')?.addEventListener('change', async (e) => 
 <script type="module" src="js/modules/ply-validator.js"></script>
 <script type="module" src="js/modules/camera-view.js"></script>
 <script type="module" src="js/modules/publish-to-fumoca.js?v=20261126-link01"></script>
-<script type="module" src="js/modules/spark-gaussian-view.js?v=20261126-crisp01"></script>
+<script type="module" src="js/modules/spark-gaussian-view.js?v=20261127-states01"></script>
 <script type="module" src="js/modules/gaussian-renderer.js?v=20261126-clean01"></script>
 <script type="module" src="js/modules/smart-select.js"></script>
 <script src="js/modules/gap-fill-engine.js"></script>
@@ -7995,7 +8097,7 @@ if (!window._fumocaBooted) {
   // Moving parts (doors, bonnet, caps, recliners) for interactive hotspots.
   const partsRoot = document.getElementById('tab-parts');
   if (partsRoot) {
-    import('./js/modules/parts-panel.js?v=20261126-area03')
+    import('./js/modules/parts-panel.js?v=20261127-states02')
       .then((m) => m.mountPartsPanel(partsRoot, { onStatus: status }))
       .catch((e) => console.warn('[Studio] parts panel', e));
   }
@@ -8011,7 +8113,7 @@ if (!window._fumocaBooted) {
   // Link a second scan (inside / doors open) and reveal it with the doors.
   const linkRoot = document.getElementById('tab-link');
   if (linkRoot) {
-    import('./js/modules/link-panel.js?v=20261126-link01')
+    import('./js/modules/link-panel.js?v=20261127-states02')
       .then((m) => m.mountLinkPanel(linkRoot, { onStatus: status }))
       .catch((e) => console.warn('[Studio] inside panel', e));
   }

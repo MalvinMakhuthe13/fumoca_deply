@@ -192,10 +192,11 @@ export function estimateSpacing(positions, indices) {
  * Returns { T, rms, overlap } — overlap is the share of sampled second-scan
  * splats that found a partner.
  */
-export function refineAlignment(positions, baseIdx, linkIdx, T0, { spacing, iterations = 40, samples = 12000, scale = true, onIter } = {}) {
+export function refineAlignment(positions, baseIdx, linkIdx, T0, { spacing, iterations = 40, samples = 12000, scale = true, onIter, startRadius = 0 } = {}) {
   const sp = spacing || estimateSpacing(positions, baseIdx);
   const base = sample(baseIdx, 250000, 5), src = sample(linkIdx, samples, 9).map(i => pos(positions, i));
-  let T = { ...T0 }, r = Math.max(sp * 8, 1e-6), rms = Infinity, overlap = 0;
+  // startRadius: how far apart matching surfaces may start (wider for a rough start)
+  let T = { ...T0 }, r = Math.max(sp * 8, startRadius, 1e-6), rms = Infinity, overlap = 0;
   let grid = buildGrid(positions, base, r);
   for (let it = 0; it < iterations; it++) {
     const a = [], b = [], d = [];
@@ -213,13 +214,115 @@ export function refineAlignment(positions, baseIdx, linkIdx, T0, { spacing, iter
     T = composeT(step, T);
     rms = pairError(step, A, B);
     onIter?.(it, rms, overlap);
-    const nr = Math.max(sp * 1.5, r * 0.7);
-    if (nr < r * 0.95) { r = nr; grid = buildGrid(positions, base, r); }
     const turn = Math.acos(Math.min(1, Math.max(-1, (step.R[0] + step.R[4] + step.R[8] - 1) / 2)));
+    // narrow the matching range only once this range has settled (a rough start
+    // needs several rounds at a wide range before the scans are close)
+    const settled = Math.hypot(...step.t) < r * 0.15 && turn < 0.003;
+    const nr = Math.max(sp * 1.5, r * 0.7);
+    if (settled && nr < r * 0.95) { r = nr; grid = buildGrid(positions, base, r); }
     if (r <= sp * 1.5 + 1e-12 && Math.hypot(...step.t) < sp * 0.005 && turn < 1e-4 && Math.abs(step.s - 1) < 1e-4) break;
   }
   return { T, rms, overlap, spacing: sp };
 }
+
+// ─── point-to-plane snap ─────────────────────────────────────────────────────
+// Point-to-point matching slides along smooth panels (car sides, cabinet faces)
+// and barely corrects a turn. Point-to-plane measures each match along the
+// surface normal, so a turn or shift shows up even on flat, plain surfaces.
+function eig3min(C) {   // smallest eigenvector of a symmetric 3×3 (Jacobi)
+  const a = [[C[0], C[1], C[2]], [C[1], C[4], C[5]], [C[2], C[5], C[8]]], v = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+  for (let sweep = 0; sweep < 30; sweep++) {
+    let off = 0; for (let p = 0; p < 3; p++) for (let q = p + 1; q < 3; q++) off += a[p][q] * a[p][q];
+    if (off < 1e-30) break;
+    for (let p = 0; p < 3; p++) for (let q = p + 1; q < 3; q++) {
+      if (Math.abs(a[p][q]) < 1e-40) continue;
+      const th = (a[q][q] - a[p][p]) / (2 * a[p][q]), t = Math.sign(th || 1) / (Math.abs(th) + Math.sqrt(th * th + 1));
+      const c = 1 / Math.sqrt(t * t + 1), sn = t * c;
+      for (let k = 0; k < 3; k++) { const kp = a[k][p], kq = a[k][q]; a[k][p] = c * kp - sn * kq; a[k][q] = sn * kp + c * kq; }
+      for (let k = 0; k < 3; k++) { const pk = a[p][k], qk = a[q][k]; a[p][k] = c * pk - sn * qk; a[q][k] = sn * pk + c * qk; }
+      for (let k = 0; k < 3; k++) { const kp = v[k][p], kq = v[k][q]; v[k][p] = c * kp - sn * kq; v[k][q] = sn * kp + c * kq; }
+    }
+  }
+  let m = 0; for (let i = 1; i < 3; i++) if (a[i][i] < a[m][m]) m = i;
+  return { n: [v[0][m], v[1][m], v[2][m]], flat: a[m][m] / Math.max(1e-30, a[0][0] + a[1][1] + a[2][2]) };
+}
+function solve6(M, b) {   // Gaussian elimination with partial pivoting
+  const A = M.map((r, i) => [...r, b[i]]);
+  for (let c = 0; c < 6; c++) {
+    let piv = c; for (let r = c + 1; r < 6; r++) if (Math.abs(A[r][c]) > Math.abs(A[piv][c])) piv = r;
+    if (Math.abs(A[piv][c]) < 1e-18) return null;
+    [A[c], A[piv]] = [A[piv], A[c]];
+    for (let r = c + 1; r < 6; r++) { const f = A[r][c] / A[c][c]; for (let k = c; k < 7; k++) A[r][k] -= f * A[c][k]; }
+  }
+  const x = new Array(6);
+  for (let r = 5; r >= 0; r--) { let v = A[r][6]; for (let k = r + 1; k < 6; k++) v -= A[r][k] * x[k]; x[r] = v / A[r][r]; }
+  return x;
+}
+const rotFromVec = (w) => {
+  const a = Math.hypot(w[0], w[1], w[2]); if (a < 1e-15) return [1, 0, 0, 0, 1, 0, 0, 0, 1];
+  const [x, y, z] = [w[0] / a, w[1] / a, w[2] / a], c = Math.cos(a), sn = Math.sin(a), C = 1 - c;
+  return [c + x * x * C, x * y * C - z * sn, x * z * C + y * sn, y * x * C + z * sn, c + y * y * C, y * z * C - x * sn, z * x * C - y * sn, z * y * C + x * sn, c + z * z * C];
+};
+
+/**
+ * Rigid snap of the second scan onto the first (point-to-plane ICP, trimmed).
+ * Same return shape as refineAlignment: { T, rms, overlap, spacing }.
+ */
+export function snapPointToPlane(positions, baseIdx, linkIdx, T0, { spacing, iterations = 60, samples = 6000, startRadius = 0 } = {}) {
+  const sp = spacing || estimateSpacing(positions, baseIdx);
+  const base = sample(baseIdx, 250000, 5), src = sample(linkIdx, samples, 9).map(i => pos(positions, i));
+  const rn = sp * 5, ngrid = buildGrid(positions, base, rn), normals = new Map();
+  const normalOf = (i) => {
+    let n = normals.get(i); if (n !== undefined) return n;
+    const p = pos(positions, i), { cell, map, sorted } = ngrid, reach = Math.ceil(rn / cell);
+    const cx = Math.floor(p[0] / cell), cy = Math.floor(p[1] / cell), cz = Math.floor(p[2] / cell);
+    const pts = [];
+    for (let dx = -reach; dx <= reach && pts.length < 40; dx++) for (let dy = -reach; dy <= reach && pts.length < 40; dy++) for (let dz = -reach; dz <= reach && pts.length < 40; dz++) {
+      const span = map.get(cellKey(cx + dx, cy + dy, cz + dz)); if (!span) continue;
+      for (let k = span[0]; k < span[1] && pts.length < 40; k++) { const j = sorted[k]; const q = pos(positions, j); if ((q[0] - p[0]) ** 2 + (q[1] - p[1]) ** 2 + (q[2] - p[2]) ** 2 <= rn * rn) pts.push(q); }
+    }
+    if (pts.length < 6) { normals.set(i, null); return null; }
+    const c = [0, 0, 0]; for (const q of pts) for (let k = 0; k < 3; k++) c[k] += q[k] / pts.length;
+    const C = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+    for (const q of pts) { const d = [q[0] - c[0], q[1] - c[1], q[2] - c[2]]; for (let r = 0; r < 3; r++) for (let k = 0; k < 3; k++) C[r * 3 + k] += d[r] * d[k]; }
+    const e = eig3min(C); n = e.flat < 0.08 ? e.n : null;   // only where the surface is clearly a surface
+    normals.set(i, n); return n;
+  };
+  let T = { ...T0 }, r = Math.max(sp * 8, startRadius, 1e-6), rms = Infinity, overlap = 0;
+  let grid = buildGrid(positions, base, r);
+  for (let it = 0; it < iterations; it++) {
+    const rows = [];
+    let matched = 0;
+    for (const p0 of src) {
+      const p = applyT(T, p0), hit = nearest(grid, p, r);
+      if (!hit) continue;
+      matched++;
+      const n = normalOf(hit.index); if (!n) continue;
+      const q = pos(positions, hit.index), res = (q[0] - p[0]) * n[0] + (q[1] - p[1]) * n[1] + (q[2] - p[2]) * n[2];
+      rows.push({ a: [p[1] * n[2] - p[2] * n[1], p[2] * n[0] - p[0] * n[2], p[0] * n[1] - p[1] * n[0], n[0], n[1], n[2]], b: res });
+    }
+    overlap = matched / src.length;
+    if (rows.length < 30) break;
+    const cut = rows.map(x => Math.abs(x.b)).sort((x, y) => x - y)[Math.floor(rows.length * 0.8)];
+    const M = Array.from({ length: 6 }, () => new Array(6).fill(0)), B = new Array(6).fill(0);
+    let e2 = 0, ne = 0;
+    for (const { a, b } of rows) { if (Math.abs(b) > cut) continue; e2 += b * b; ne++; for (let i = 0; i < 6; i++) { B[i] += a[i] * b; for (let j = 0; j < 6; j++) M[i][j] += a[i] * a[j]; } }
+    for (let i = 0; i < 6; i++) M[i][i] += 1e-9;
+    const x = solve6(M, B); if (!x) break;
+    rms = Math.sqrt(e2 / Math.max(1, ne));
+    const R = rotFromVec([x[0], x[1], x[2]]);
+    const step = { R, s: 1, t: [x[3], x[4], x[5]], q: matToQuat(R) };
+    T = composeT(step, T);
+    onIterNoop(it);
+    const turn = Math.hypot(x[0], x[1], x[2]);
+    const settled = Math.hypot(x[3], x[4], x[5]) < r * 0.1 && turn < 0.002;
+    const nr = Math.max(sp * 1.5, r * 0.7);
+    if (settled && nr < r * 0.95) { r = nr; grid = buildGrid(positions, base, r); }
+    else if (settled && r <= sp * 1.5 + 1e-12 && Math.hypot(x[3], x[4], x[5]) < sp * 0.005 && turn < 1e-4) break;
+  }
+  return { T, rms, overlap, spacing: sp };
+}
+const onIterNoop = () => {};
 
 // ─── editing the Studio state (S) ────────────────────────────────────────────
 const qmul = (a, b) => [   // [w,x,y,z]
