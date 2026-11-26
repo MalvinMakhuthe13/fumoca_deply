@@ -84,4 +84,31 @@ mesh.data.forEach((v, i) => v.c.forEach((x, k) => assert.ok(Math.abs(x - origina
   assert.equal(await restoreRigOnViewer(THREE, m3, { rig, clip: null }), null, 'no motion → nothing to play');
   assert.equal(await restoreRigOnViewer(THREE, m3, { rig: { bones: [] } }), null, 'bad rig ignored');
 }
+// whole-object motion keys + ground collision
+{
+  const m4 = fakeMesh(400);
+  const r4 = fitTemplate('pivot', readRest(m4));
+  const d4 = new SplatRigDriver(THREE, m4, r4);
+  const clip = normalizeClip({ name: 'slide', duration: 2, loop: true, tracks: {}, root: [{ t: 0, p: [0, 0, 0] }, { t: 1, p: [1, 0, 0] }] }, r4);
+  assert.equal(clip.root.length, 2);
+  const { sampleRoot } = await import('../js/modules/splat-rig.js');
+  assert.ok(Math.abs(sampleRoot(clip, 0.5)[0] - 0.5) < 1e-9, 'root eases to the midpoint');
+  d4.applyPose({ __root: [1, 0, 0] });
+  assert.ok(Math.abs(m4.data[0].c[0] - (readRest(fakeMesh(400)).positions[0] + 1)) < 1e-5, 'whole object moved +1 x');
+  // push it into the floor: with collision on it is lifted back out
+  d4.groundCollision = false;
+  d4.applyPose({ __root: [0, -0.5, 0] });
+  const sunk = Math.min(...m4.data.map(r => r.c[1]));
+  assert.ok(sunk < -0.4, 'without collision it sinks');
+  d4.groundCollision = true;
+  d4.applyPose({ __root: [0, -0.5, 0.0001] });
+  const floor = Math.min(...m4.data.map(r => r.c[1]));
+  assert.ok(Math.abs(floor - 0) < 0.02, 'ground collision keeps it on the floor: ' + floor);
+  d4.applyPose({ __root: [0, 0.7, 0] });
+  assert.ok(Math.min(...m4.data.map(r => r.c[1])) > 0.6, 'jumps above the floor are allowed');
+  // bending a bone through the floor lifts the object
+  d4.applyPose({ top: qFromEulerDeg(0, 0, 179), __root: [0, 0, 0] });
+  assert.ok(Math.min(...m4.data.map(r => r.c[1])) > -0.02, 'a bone swung into the floor lifts the body');
+  assert.ok(normalizeClip({ duration: 1, tracks: {}, root: [{ t: 0, p: [1e9, 0, 0] }, { t: 'x', p: [0, 0, 0] }] }, r4).root === undefined, 'bad root keys dropped');
+}
 console.log('splat-rig-driver: all tests passed');

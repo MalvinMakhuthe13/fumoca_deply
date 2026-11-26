@@ -2387,6 +2387,8 @@ if (cam) {
   try { document.body.classList.add('product-free-orbit'); } catch (_) {}
 
   const fitSubjectInView = () => {
+    // A view saved in Studio ("how it's viewed") wins over auto-framing.
+    if (window._fumocaViewSettings?.startView) return;
     try {
       const pos = activeGaussianPositions;
       if (!pos || pos.length < 24 || !cam?.position || !controls?.target) return;
@@ -2428,10 +2430,16 @@ if (cam) {
         if (typeof cam.updateProjectionMatrix === 'function') cam.updateProjectionMatrix();
       }
 
-      // Published Spark splats must remain zoomable beyond the default fit range.
-      // Do not let this delayed auto-fit routine reintroduce distance clamps.
-      if ('minDistance' in controls) controls.minDistance = 0;
-      if ('maxDistance' in controls) controls.maxDistance = Infinity;
+      // Published Spark splats must remain zoomable beyond the default fit range,
+      // unless the owner set zoom limits in Studio (view settings).
+      const vs = window._fumocaViewSettings;
+      if (vs) {
+        const d = cam.position.distanceTo ? cam.position.distanceTo(controls.target) : null;
+        if (d) { controls.minDistance = d * vs.zoomMin; controls.maxDistance = d * vs.zoomMax; }
+      } else {
+        if ('minDistance' in controls) controls.minDistance = 0;
+        if ('maxDistance' in controls) controls.maxDistance = Infinity;
+      }
       try {
         if (cam && cam.near != null) {
           cam.near = Math.min(Number(cam.near) || 0.1, 0.005);
@@ -2514,7 +2522,7 @@ if (cam) {
     const tick = () => {
       try {
         if (controls.autoRotate) controls.autoRotate = false;
-        if (controls.enablePan) controls.enablePan = false;
+        if (controls.enablePan && !window._fumocaViewSettings?.allowPan) controls.enablePan = false;
         if (typeof controls.update === 'function') controls.update();
       } catch (_) {}
       window._fumocaOrbitDampRaf = requestAnimationFrame(tick);

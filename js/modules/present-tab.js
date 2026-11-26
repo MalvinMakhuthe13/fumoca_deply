@@ -107,6 +107,8 @@ function payload() {
     platform: window.FumocaPresentation?.getConfig?.() || null,
     rig: window.FumocaRig?.getState?.() || null,
     living: window.FumocaLivingPhoto?.getState?.() || null,
+    lighting: window.FumocaLook?.getLighting?.() || null,
+    view: window.FumocaLook?.getView?.() || null,
     updatedAt: Date.now(),
   };
 }
@@ -115,6 +117,7 @@ function payload() {
 window.addEventListener('fumoca:platformChange', () => { try { persist(); } catch (_) {} });
 window.addEventListener('fumoca:rigChange', () => { try { persist(); } catch (_) {} });
 window.addEventListener('fumoca:livingChange', () => { try { persist(); } catch (_) {} });
+window.addEventListener('fumoca:lookChange', () => { try { persist(); } catch (_) {} });
 
 function persist() {
   const data = payload();

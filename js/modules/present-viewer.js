@@ -54,6 +54,8 @@ export function initPresentViewer() {
   let platformApplied = false;
   let rigApplied = false;
   let livingApplied = false;
+  let viewApplied = false;
+  let lightingApplied = false;
   const tryApply = () => {
     const data = resolvePresent();
     if (!data) return;
@@ -102,6 +104,29 @@ export function initPresentViewer() {
         .catch(error => { console.warn('[present-viewer] rig could not be restored', error); });
     }
 
+    // How it's viewed (start view, zoom limits, locks, spin) + embed URL overrides.
+    if (!viewApplied && window._fumocaViewerCamera && window._fumocaViewerControls && window._fumocaPublishedSparkMesh) {
+      viewApplied = true;
+      Promise.all([import('three'), import('./view-settings.js')]).then(([THREE, m]) => {
+        const settings = m.viewSettingsFromUrl(location.search, m.normalizeViewSettings(data.view));
+        if (!settings) return;
+        window._fumocaViewController?.dispose?.();
+        const vc = new m.ViewController(THREE, window._fumocaViewerCamera, window._fumocaViewerControls, settings,
+          { domElement: window._fumocaViewerRenderer?.domElement || window._fumocaPublishedSpark?.renderer?.domElement || null });
+        // let the first auto-framing settle, then take over
+        setTimeout(() => { vc.apply(); window._fumocaViewController = vc; }, settings.startView ? 0 : 2300);
+      }).catch(error => console.warn('[present-viewer] view settings failed', error));
+    }
+
+    // Lighting & shadow saved in Studio's Look tab.
+    if (!lightingApplied && data.lighting?.enabled && window._fumocaPublishedSparkMesh) {
+      lightingApplied = true;
+      Promise.all([import('three'), import('./splat-lighting.js')])
+        .then(([THREE, m]) => m.applyLightingOnViewer(THREE, window._fumocaPublishedSparkMesh, data.lighting))
+        .then(l => { if (l) { window._fumocaLighting = l; console.info('[present-viewer] lighting applied'); } })
+        .catch(error => console.warn('[present-viewer] lighting failed', error));
+    }
+
     // Living photo: gentle camera motion saved in Studio.
     if (!livingApplied && data.living?.enabled && window._fumocaViewerCamera && window._fumocaPublishedSparkMesh) {
       livingApplied = true;
@@ -143,6 +168,8 @@ export function initPresentViewer() {
       rigApplied = false;
       window._fumocaLivingMotion?.dispose?.(); window._fumocaLivingMotion = null;
       livingApplied = false;
+      window._fumocaViewController?.dispose?.(); window._fumocaViewController = null; viewApplied = false;
+      window._fumocaLighting?.dispose?.(); window._fumocaLighting = null; lightingApplied = false;
       tryApply();
     },
   };

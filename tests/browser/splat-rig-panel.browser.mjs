@@ -138,13 +138,22 @@ try {
   assert.ok(saved.clip.tracks['thigh.L'], 'walk tracks kept');
   assert.ok(JSON.stringify(saved).length < 60000, 'saved state is small');
 
+  // 5b. move the whole object and key it
+  await page.evaluate(() => { const t = document.getElementById('rigTime'); t.value = '1.0'; t.dispatchEvent(new Event('input')); });
+  await page.evaluate(() => { const r = document.getElementById('rigRX'); r.value = '0.3'; r.dispatchEvent(new Event('input')); });
+  await page.click('#rigKey');
+  const withRoot = await page.evaluate(() => window.panel.getState());
+  assert.ok(withRoot.clip.root?.some(k => Math.abs(k.t - 1) < 1e-6 && Math.abs(k.p[0] - 0.3) < 0.01), 'object position keyed: ' + JSON.stringify(withRoot.clip.root));
+  assert.equal(withRoot.ground, true, 'ground collision on by default and saved');
+
   // 6. restore from saved state (as when reopening the NIF)
   await page.click('#rigRemove');
   const restored = await page.evaluate(() => window.meshData.every((d, i) => d.c.every((v, k) => Math.abs(v - window.restCopy[i].c[k]) < 1e-5)));
   assert.equal(restored, true, 'remove puts every splat back');
   assert.equal(await page.evaluate(() => window.panel.getState()), null);
-  assert.equal(await page.evaluate(s => window.panel.setState(s), saved), true, 'saved rig restores');
+  assert.equal(await page.evaluate(s => window.panel.setState(s), withRoot), true, 'saved rig restores');
   assert.equal(await page.evaluate(() => window.panel.getState().clip.tracks.head.length >= 2), true, 'motion restored');
+  assert.equal(await page.evaluate(() => window.panel.getState().clip.root.length >= 2), true, 'object motion restored');
 
   // 7. hostile saved state is refused
   assert.equal(await page.evaluate(() => window.panel.setState({ rig: { bones: [{ name: '<img src=x onerror=alert(1)>', head: [0, 0, 0], tail: [0, 1, 0], parent: 'nope' }] } })), false);
