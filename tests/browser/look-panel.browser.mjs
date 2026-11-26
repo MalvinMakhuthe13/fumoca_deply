@@ -81,8 +81,9 @@ try {
   await page.evaluate(() => { const el = document.getElementById('lkEl'); el.value = '80'; el.dispatchEvent(new Event('input')); });
   await page.click('#lkOn');
   await page.waitForFunction(() => window.mesh.children.some(c => c.name === 'fumoca-splat-shadow' && c.visible), null, { timeout: 5000 });
-  const lit = await page.evaluate(() => ({ floor: window.rows[10].col[0], shadowY: window.mesh.children.find(c => c.name === 'fumoca-splat-shadow').position.y }));
-  assert.ok(lit.floor > 0.6, 'floor lit by the overhead light: ' + lit.floor);
+  const lit = await page.evaluate(() => ({ floor: window.rows[900].col[0], under: window.rows[10].col[0], shadowY: window.mesh.children.find(c => c.name === 'fumoca-splat-shadow').position.y }));
+  assert.ok(lit.floor > 0.6, 'open floor lit by the overhead light: ' + lit.floor);
+  assert.ok(lit.under < lit.floor - 0.15, `floor under the column is in its shadow: ${lit.under.toFixed(2)} vs ${lit.floor.toFixed(2)}`);
   assert.ok(Math.abs(lit.shadowY) < 0.01, 'shadow on the floor');
   // move the light to a low angle: shadow stretches, floor dims
   await page.evaluate(() => { const el = document.getElementById('lkEl'); el.value = '15'; el.dispatchEvent(new Event('input')); });

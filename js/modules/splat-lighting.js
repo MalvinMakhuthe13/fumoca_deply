@@ -26,6 +26,8 @@ export const DEFAULT_LIGHTING = Object.freeze({
   // atmosphere (background + vignette in Studio and the viewer)
   background: '', vignette: 0,
   shadow: true, shadowOpacity: 0.55, shadowSoftness: 0.5,
+  // shadows on the object itself (a brim on the crown, a wall on the floor)
+  selfShadow: true, selfShadowStrength: 0.85,
   // lamps: room lights, headlights, a glowing product — switchable from hotspots
   lamps: [],
 });
@@ -63,6 +65,8 @@ export function normalizeLighting(input) {
     background: input.background ? hex(input.background, '') : '', vignette: num(input.vignette, 0, 1, 0),
     shadow: input.shadow !== false, shadowOpacity: num(input.shadowOpacity, 0, 1, D.shadowOpacity),
     shadowSoftness: num(input.shadowSoftness, 0, 1, D.shadowSoftness),
+    selfShadow: input.selfShadow !== false,
+    selfShadowStrength: num(input.selfShadowStrength, 0, 1, D.selfShadowStrength),
     lamps: (Array.isArray(input.lamps) ? input.lamps : []).slice(0, 12).map(normalizeLamp).filter(Boolean),
     ...(input.motion && typeof input.motion === 'object' ? { motion: input.motion } : {}),
   };
@@ -152,7 +156,83 @@ function grade(rgb, g) {
 }
 
 /** Lit + graded colours (0..1) for every splat. */
-export function relightColors(baseColors, normals, settings, out = null, positions = null) {
+/**
+ * Which splats the light reaches: a shadow map seen from the light, built from
+ * the splats themselves. Each splat looks up the nearest surface towards the
+ * light; if something solid is in front, it is in shadow (soft, PCF).
+ * Returns visibility 0 (in shadow) … 1 (lit) per splat.
+ */
+export function selfShadow(positions, count, opacity, L, { softness = 0.5, out = null } = {}) {
+  const vis = out && out.length >= count ? out : new Float32Array(count);
+  const l = Math.hypot(L[0], L[1], L[2]) || 1, Lx = L[0] / l, Ly = L[1] / l, Lz = L[2] / l;
+  // a basis across the light's view
+  let ux = Ly * 0 - Lz * 1, uy = Lz * 0 - Lx * 0, uz = Lx * 1 - Ly * 0;          // L × up
+  if (Math.hypot(ux, uy, uz) < 1e-6) { ux = 1; uy = 0; uz = 0; }
+  const ul = Math.hypot(ux, uy, uz); ux /= ul; uy /= ul; uz /= ul;
+  const vx = Ly * uz - Lz * uy, vy = Lz * ux - Lx * uz, vz = Lx * uy - Ly * ux;
+  const solid = (i) => !opacity || opacity[i] >= 0.25;
+  // robust bounds of the solid splats across the light
+  const stride = Math.max(1, Math.floor(count / 40000)), us = [], vs = [];
+  let nSolid = 0;
+  for (let i = 0; i < count; i++) if (solid(i)) nSolid++;
+  for (let i = 0; i < count; i += stride) if (solid(i)) {
+    const x = positions[i * 3], y = positions[i * 3 + 1], z = positions[i * 3 + 2];
+    us.push(x * ux + y * uy + z * uz); vs.push(x * vx + y * vy + z * vz);
+  }
+  if (us.length < 16) { vis.fill(1, 0, count); return vis; }
+  us.sort((a, b) => a - b); vs.sort((a, b) => a - b);
+  const q = (a, p) => a[Math.floor(p * (a.length - 1))];
+  const u0 = q(us, 0.002), u1 = q(us, 0.998), v0 = q(vs, 0.002), v1 = q(vs, 0.998);
+  const G = Math.max(64, Math.min(512, Math.round(Math.sqrt(nSolid) / 1.6)));
+  const span = Math.max(u1 - u0, v1 - v0, 1e-6) * 1.04, cu0 = (u0 + u1) / 2 - span / 2, cv0 = (v0 + v1) / 2 - span / 2;
+  const cell = span / G;
+  // nearest-to-light depth per cell
+  const grid = new Float32Array(G * G).fill(-Infinity);
+  const cellOf = new Int32Array(count), depth = new Float32Array(count);
+  for (let i = 0; i < count; i++) {
+    const x = positions[i * 3], y = positions[i * 3 + 1], z = positions[i * 3 + 2];
+    const cu = Math.floor(((x * ux + y * uy + z * uz) - cu0) / cell), cv = Math.floor(((x * vx + y * vy + z * vz) - cv0) / cell);
+    const d = x * Lx + y * Ly + z * Lz;
+    depth[i] = d;
+    if (cu < 0 || cv < 0 || cu >= G || cv >= G) { cellOf[i] = -1; continue; }
+    const c = cv * G + cu; cellOf[i] = c;
+    if (solid(i) && d > grid[c]) grid[c] = d;
+  }
+  // close pin-holes between splats (one-cell max filter)
+  const closed = new Float32Array(G * G);
+  for (let y = 0; y < G; y++) for (let x = 0; x < G; x++) {
+    let m = grid[y * G + x];
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const xx = x + dx, yy = y + dy;
+      if (xx >= 0 && yy >= 0 && xx < G && yy < G) { const g = grid[yy * G + xx]; if (g > m && (dx === 0 || dy === 0)) m = g; }
+    }
+    closed[y * G + x] = m;
+  }
+  // soft lookup: a (2r+1)² neighbourhood, surface thickness as bias
+  const r = count > 800000 ? 1 : Math.max(1, Math.round(1 + softness * 2));
+  // bias grows with the tap's distance, so sloped surfaces (a floor under a
+  // low sun) don't shadow themselves ("shadow acne")
+  const bias0 = cell * 2.2, slope = cell * 1.6, taps = (2 * r + 1) * (2 * r + 1);
+  const tapBias = [];
+  for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) tapBias.push(bias0 + slope * Math.hypot(dx, dy));
+  for (let i = 0; i < count; i++) {
+    const c = cellOf[i];
+    if (c < 0) { vis[i] = 1; continue; }
+    const cx = c % G, cy = (c - cx) / G, d = depth[i];
+    let hit = 0, t = 0;
+    for (let dy = -r; dy <= r; dy++) {
+      const yy = cy + dy;
+      for (let dx = -r; dx <= r; dx++, t++) {
+        const xx = cx + dx; if (yy < 0 || yy >= G || xx < 0 || xx >= G) continue;
+        if (closed[yy * G + xx] > d + tapBias[t]) hit++;
+      }
+    }
+    vis[i] = 1 - hit / taps;
+  }
+  return vis;
+}
+
+export function relightColors(baseColors, normals, settings, out = null, positions = null, extra = {}) {
   const s = normalizeLighting(settings) || normalizeLighting(DEFAULT_LIGHTING);
   const n = baseColors.length / 3;
   out = out || new Float32Array(baseColors.length);
@@ -163,10 +243,12 @@ export function relightColors(baseColors, normals, settings, out = null, positio
   const graded = s.exposure || s.contrast || s.saturation || s.warmth || s.tint;
   const lamps = positions ? s.lamps.filter(l => l.on && l.intensity > 0).map(l => ({ ...l, c: hexRgb(l.color), fade: l.fade ?? 1 })) : [];
   const rgb = [0, 0, 0];
+  const vis1 = extra.vis1 || null, vis2 = extra.vis2 || null, ss = s.selfShadowStrength ?? 0.85, op = extra.opacity || null;
   for (let i = 0; i < n; i++) {
     const nx = normals[i * 3], ny = normals[i * 3 + 1], nz = normals[i * 3 + 2];
-    const d1 = Math.max(0, nx * L1[0] + ny * L1[1] + nz * L1[2]) * s.intensity;
-    const d2 = on2 ? Math.max(0, nx * L2[0] + ny * L2[1] + nz * L2[2]) * on2 : 0;
+    const v1 = vis1 ? 1 - ss * (1 - vis1[i]) : 1, v2 = vis2 ? 1 - ss * (1 - vis2[i]) : 1;
+    const d1 = Math.max(0, nx * L1[0] + ny * L1[1] + nz * L1[2]) * s.intensity * v1;
+    const d2 = on2 ? Math.max(0, nx * L2[0] + ny * L2[1] + nz * L2[2]) * on2 * v2 : 0;
     let lr = 0, lg = 0, lb = 0;
     for (const l of lamps) {
       const dx = l.position[0] - positions[i * 3], dy = l.position[1] - positions[i * 3 + 1], dz = l.position[2] - positions[i * 3 + 2];
@@ -182,6 +264,11 @@ export function relightColors(baseColors, normals, settings, out = null, positio
       rgb[k] = baseColors[i * 3 + k] * light;
     }
     if (graded) grade(rgb, s);
+    // faint haze / floaters keep their own colour: lighting them up makes a scan look smoky
+    if (op && op[i] < 0.45) {
+      const k = Math.max(0, (op[i] - 0.08) / 0.37);
+      for (let c = 0; c < 3; c++) rgb[c] = baseColors[i * 3 + c] * (1 - k) + rgb[c] * k;
+    }
     out[i * 3] = Math.min(1, rgb[0]); out[i * 3 + 1] = Math.min(1, rgb[1]); out[i * 3 + 2] = Math.min(1, rgb[2]);
   }
   return out;
@@ -197,10 +284,12 @@ export function shadowMap(positions, count, opacity, settings, { size = 256, gro
   // Only splats that are really there cast a shadow: faint haze / floaters
   // would set the ground too low and smear the shadow into a dark rectangle.
   const solid = (i) => !opacity || opacity[i] >= 0.2;
-  const ys = [];
-  for (let i = 0; i < count; i += stride) if (solid(i)) ys.push(positions[i * 3 + 1]);
-  if (!ys.length) for (let i = 0; i < count; i += stride) ys.push(positions[i * 3 + 1]);
-  ys.sort((a, b) => a - b);
+  // percentiles from a sample (sorting millions of splats took seconds)
+  const sampleStep = Math.max(stride, Math.floor(count / 60000));
+  let ys = [];
+  for (let i = 0; i < count; i += sampleStep) if (solid(i)) ys.push(positions[i * 3 + 1]);
+  if (!ys.length) for (let i = 0; i < count; i += sampleStep) ys.push(positions[i * 3 + 1]);
+  ys = Float32Array.from(ys).sort();
   const gy = groundY ?? ys[Math.floor(ys.length * 0.005)];
   const height = Math.max(1e-4, ys[Math.floor((ys.length - 1) * 0.98)] - gy);
   // a very low sun is capped (~12°) so shadows stay long but readable
@@ -216,10 +305,11 @@ export function shadowMap(positions, count, opacity, settings, { size = 256, gro
     w[k] = (opacity ? opacity[i] : 1) * (0.35 + 0.65 * Math.exp(-2.2 * h / height));
   }
   // bounds from the bulk of the shadow, not its stragglers
-  const xs = [], zs = [];
-  for (let j = 0; j < k; j++) if (w[j] > 0) { xs.push(px[j * 2]); zs.push(px[j * 2 + 1]); }
+  let xs = [], zs = [];
+  const bstep = Math.max(1, Math.floor(k / 60000));
+  for (let j = 0; j < k; j += bstep) if (w[j] > 0) { xs.push(px[j * 2]); zs.push(px[j * 2 + 1]); }
   if (!xs.length) return { size, data: new Float32Array(size * size), bounds: { x0: -1, z0: -1, x1: 1, z1: 1 }, groundY: gy };
-  xs.sort((a, b) => a - b); zs.sort((a, b) => a - b);
+  xs = Float32Array.from(xs).sort(); zs = Float32Array.from(zs).sort();
   const pct = (a, p) => a[Math.min(a.length - 1, Math.max(0, Math.floor(p * (a.length - 1))))];
   const x0 = pct(xs, 0.01), x1 = pct(xs, 0.99), z0 = pct(zs, 0.01), z1 = pct(zs, 0.99);
   const span = Math.max(x1 - x0, z1 - z0, 1e-6) * 1.5;
@@ -242,7 +332,7 @@ export function shadowMap(positions, count, opacity, settings, { size = 256, gro
     return dst;
   };
   const d = blur(blur(data));
-  const sorted = Float32Array.from(d).filter(v => v > 0).sort();
+  const sorted = d.filter(v => v > 0).sort();
   const ref = sorted.length ? sorted[Math.floor(sorted.length * 0.85)] : 1;
   // fade to nothing at the edges, so the shadow never shows a square border
   const edge = Math.max(2, Math.round(size * 0.12));
@@ -338,6 +428,23 @@ export class SplatLighting {
     }
     return N;
   }
+  /** Self-shadow visibility for the key (and second) light, cached until the light or pose changes. */
+  _visibility(P) {
+    const s = this.settings;
+    if (!s.selfShadow) return {};
+    const n = this.rest.count, posed = P !== this.rest.positions;
+    const key = (a, e) => `${a.toFixed(1)}|${e.toFixed(1)}|${s.shadowSoftness}|${posed ? this._poseStamp = (this._poseStamp || 0) + 1 : 0}`;
+    const k1 = key(s.azimuth, s.elevation);
+    if (k1 !== this._vis1Key) { this._vis1 = selfShadow(P, n, this.rest.opacity, lightDirection(s.azimuth, s.elevation), { softness: s.shadowSoftness, out: this._vis1 }); this._vis1Key = k1; }
+    let vis2 = null;
+    if (s.light2 && s.intensity2 > 0) {
+      const k2 = key(s.azimuth2, s.elevation2);
+      if (k2 !== this._vis2Key) { this._vis2 = selfShadow(P, n, this.rest.opacity, lightDirection(s.azimuth2, Math.max(-89, s.elevation2)), { softness: s.shadowSoftness, out: this._vis2 }); this._vis2Key = k2; }
+      vis2 = this._vis2;
+    }
+    return { vis1: this._vis1, vis2 };
+  }
+
   /** While a door / lid moves: relight it as it turns, shadow following. */
   _listenParts() {
     if (this._onPartFrame) return;
@@ -382,7 +489,7 @@ export class SplatLighting {
     if (!splats?.setSplat) throw new Error('This Spark build cannot relight splats in place.');
     this._listenParts();
     const P = this._positions();
-    relightColors(this.rest.colors, this._normals(), this.settings, this.lit, P);
+    relightColors(this.rest.colors, this._normals(), this.settings, this.lit, P, { ...this._visibility(P), opacity: this.rest.opacity });
     const rigOn = !!this._rigPositions();
     // 'auto': update the shadow every frame while it is cheap, less often on big scans
     const doShadow = shadow === 'auto' ? ((this._shadowMs ?? 0) < 12 || ((this._shadowSkip = (this._shadowSkip || 0) + 1) % Math.ceil((this._shadowMs || 12) / 12) === 0)) : !!shadow;

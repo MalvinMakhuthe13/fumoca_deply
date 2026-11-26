@@ -113,4 +113,26 @@ console.log('splat-lighting: all tests passed');
   assert.ok(edgeMax < 1e-6, 'no square border');
   assert.ok(Math.max(...m.data) > 0.3, 'there is a shadow');
 }
+// self-shadow: a disc (brim) above a floor shades the floor under it, not beside it; slant moves it
+{
+  const { selfShadow, lightDirection } = await import('../js/modules/splat-lighting.js');
+  const P = [], kind = [];
+  for (let i = 0; i < 20000; i++) { P.push(Math.random() * 2 - 1, 0, Math.random() * 2 - 1); kind.push('floor'); }
+  for (let i = 0; i < 6000; i++) { const a = Math.random() * 6.283, r = Math.sqrt(Math.random()) * 0.3; P.push(Math.cos(a) * r, 0.4, Math.sin(a) * r); kind.push('disc'); }
+  const pos = Float32Array.from(P), n = pos.length / 3, op = new Float32Array(n).fill(0.9);
+  const vis = selfShadow(pos, n, op, lightDirection(0, 90));
+  const avg = (f) => { let s = 0, c = 0; kind.forEach((k, i) => { if (f(k, i)) { s += vis[i]; c++; } }); return s / c; };
+  const r2 = (i) => pos[i * 3] ** 2 + pos[i * 3 + 2] ** 2;
+  const under = avg((k, i) => k === 'floor' && r2(i) < 0.2 ** 2), outside = avg((k, i) => k === 'floor' && r2(i) > 0.45 ** 2), top = avg(k => k === 'disc');
+  assert.ok(under < 0.15 && outside > 0.95 && top > 0.95, `overhead: under ${under.toFixed(2)}, outside ${outside.toFixed(2)}, disc ${top.toFixed(2)}`);
+  // light from 45° on +x: the shadow moves to −x by ~0.4
+  const vs = selfShadow(pos, n, op, lightDirection(90, 45));
+  const at = (cx) => { let s = 0, c = 0; kind.forEach((k, i) => { if (k === 'floor' && (pos[i * 3] - cx) ** 2 + pos[i * 3 + 2] ** 2 < 0.15 ** 2) { s += vs[i]; c++; } }); return s / c; };
+  assert.ok(at(-0.4) < 0.2 && at(0.4) > 0.9, `slanted: shadow at −x ${at(-0.4).toFixed(2)}, lit at +x ${at(0.4).toFixed(2)}`);
+  // haze does not cast shadows
+  const hz = new Float32Array(n).fill(0.9); kind.forEach((k, i) => { if (k === 'disc') hz[i] = 0.1; });
+  const vh = selfShadow(pos, n, hz, lightDirection(0, 90));
+  let u = 0, c = 0; kind.forEach((k, i) => { if (k === 'floor' && r2(i) < 0.04) { u += vh[i]; c++; } });
+  assert.ok(u / c > 0.95, 'faint splats cast no shadow');
+}
 console.log('splat-lighting lamps: all tests passed');

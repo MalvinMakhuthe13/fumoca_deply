@@ -59,7 +59,9 @@ export function mountLookPanel(container, { onStatus } = {}) {
         </div>
         <div id="lkLamps" style="margin-top:6px"></div>
         <div class="hint" style="margin-top:8px;opacity:.8">Shadow</div>
-        ${check('lkSh', 'Shadow', true)}
+        ${check('lkSelf', 'Shadows on the object (brim on the crown, walls on the floor)', true)}
+        ${row('lkSelfOp', 'Object shadow darkness', 0, 1, 0.05, 0.85, v => Math.round(v * 100) + '%')}
+        ${check('lkSh', 'Shadow on the ground', true)}
         ${row('lkShOp', 'Shadow darkness', 0, 1, 0.05, L.shadowOpacity, v => Math.round(v * 100) + '%')}
         ${row('lkShSoft', 'Shadow softness', 0, 1, 0.05, L.shadowSoftness, v => Math.round(v * 100) + '%')}
       </div>
@@ -157,6 +159,7 @@ export function mountLookPanel(container, { onStatus } = {}) {
     exposure: +q('#lkExp').value, contrast: +q('#lkCon').value, saturation: +q('#lkSat').value, warmth: +q('#lkWarm').value, tint: +q('#lkTint').value,
     background: q('#lkBgOn').checked ? q('#lkBg').value : '', vignette: +q('#lkVig').value,
     shadow: q('#lkSh').checked, shadowOpacity: +q('#lkShOp').value, shadowSoftness: +q('#lkShSoft').value,
+    selfShadow: q('#lkSelf').checked, selfShadowStrength: +q('#lkSelfOp').value,
     lamps,
     ...(motionKeys.length >= 2 ? { motion: motionState() } : {}),
   });
@@ -168,6 +171,7 @@ export function mountLookPanel(container, { onStatus } = {}) {
     set('lkExp', ls.exposure); set('lkCon', ls.contrast); set('lkSat', ls.saturation); set('lkWarm', ls.warmth); set('lkTint', ls.tint);
     set('lkBgOn', !!ls.background); if (ls.background) set('lkBg', ls.background); set('lkVig', ls.vignette);
     set('lkSh', ls.shadow); set('lkShOp', ls.shadowOpacity); set('lkShSoft', ls.shadowSoftness);
+    set('lkSelf', ls.selfShadow !== false); set('lkSelfOp', ls.selfShadowStrength ?? 0.85);
     preset = ls.preset || 'custom';
     if (Array.isArray(ls.lamps)) { lamps = ls.lamps.map(l => ({ ...l })); renderLamps(); }
     container.querySelectorAll('[data-mood]').forEach(b => b.classList.toggle('lime', b.dataset.mood === preset));
@@ -219,7 +223,7 @@ export function mountLookPanel(container, { onStatus } = {}) {
     addLamp([t.x, t.y, t.z]); status('Lamp added where the view is pointing.');
   });
   const LIGHT_IDS = ['lkOn', 'lkAz', 'lkEl', 'lkInt', 'lkCol', 'lkAmb', 'lkAmbCol', 'lk2', 'lkAz2', 'lkEl2', 'lkInt2', 'lkCol2',
-    'lkExp', 'lkCon', 'lkSat', 'lkWarm', 'lkTint', 'lkBgOn', 'lkBg', 'lkVig', 'lkSh', 'lkShOp', 'lkShSoft'];
+    'lkExp', 'lkCon', 'lkSat', 'lkWarm', 'lkTint', 'lkBgOn', 'lkBg', 'lkVig', 'lkSh', 'lkShOp', 'lkShSoft', 'lkSelf', 'lkSelfOp'];
   container.querySelectorAll('[data-mood]').forEach(btn => btn.addEventListener('click', () => {
     const ls = { ...moodSettings(btn.dataset.mood, lightState()), lamps };
     setLightControls(ls); syncLabels(); applyLighting();
@@ -240,7 +244,7 @@ export function mountLookPanel(container, { onStatus } = {}) {
   // the shadow follow, and nothing is written back to where it was)
   window.addEventListener('fumoca:sparkInPlaceUpdate', () => {
     if (lighting) lighting.refreshGeometry?.();
-    if (sun?.visible) { centre = subjectCentre(); radius = sceneSize() * 0.85; }
+    if (sun?.visible) { centre = subjectCentre(); radius = subjectRadius() * 1.6; }
     if (lightState().enabled) applyLighting();
   });
   // Keep the shadow under a playing rig.
@@ -255,8 +259,17 @@ export function mountLookPanel(container, { onStatus } = {}) {
   const subjectCentre = () => {
     const S = window.S; if (!S?.positions?.length) return [0, 0, 0];
     const c = [0, 0, 0]; let n = 0; const st = Math.max(1, Math.floor(S.alive.length / 20000));
-    for (let i = 0; i < S.alive.length; i += st) if (S.alive[i]) { for (let k = 0; k < 3; k++) c[k] += S.positions[i * 3 + k]; n++; }
+    for (let i = 0; i < S.alive.length; i += st) if (S.alive[i] && (S.opacity?.[i] ?? 1) >= 0.25) { for (let k = 0; k < 3; k++) c[k] += S.positions[i * 3 + k]; n++; }
     return n ? c.map(v => v / n) : c;
+  };
+  /** Size of the object itself (solid splats, 2–98 %), so the sun sits just outside it, on screen. */
+  const subjectRadius = () => {
+    const S = window.S; if (!S?.positions?.length) return 1;
+    const st = Math.max(1, Math.floor(S.alive.length / 20000)), c = subjectCentre(), d = [];
+    for (let i = 0; i < S.alive.length; i += st) if (S.alive[i] && (S.opacity?.[i] ?? 1) >= 0.25) d.push(Math.hypot(S.positions[i * 3] - c[0], S.positions[i * 3 + 1] - c[1], S.positions[i * 3 + 2] - c[2]));
+    if (!d.length) return sceneSize() * 0.5;
+    d.sort((a, b) => a - b);
+    return Math.max(1e-3, d[Math.floor(d.length * 0.9)]);
   };
   let grab = false, dragging = false, sun = null, grabFrame = 0, centre = [0, 0, 0], radius = 1;
   function ensureSun() {
@@ -288,7 +301,7 @@ export function mountLookPanel(container, { onStatus } = {}) {
   // the light; drag anywhere else to orbit / pan as usual.
   function setGrab(on) {
     grab = on;
-    centre = subjectCentre(); radius = sceneSize() * 0.85;
+    centre = subjectCentre(); radius = subjectRadius() * 1.6;
     ensureSun(); if (sun) sun.visible = on;
     q('#lkGrab').classList.toggle('lime', on);
     q('#lkGrab').textContent = on ? '☀ Hide the light handle' : '☀ Show the light in the scene';
@@ -395,7 +408,7 @@ export function mountLookPanel(container, { onStatus } = {}) {
     const go = (l) => {
       if (!animator || animator.lighting !== l) { animator?.stop(false); animator = new LightAnimator(l, baseLight, m); }
       else animator.setMotion(m);
-      ensureSun(); if (sun) { centre = subjectCentre(); radius = sceneSize() * 0.85; sun.visible = true; }
+      ensureSun(); if (sun) { centre = subjectCentre(); radius = subjectRadius() * 1.6; sun.visible = true; }
       animator.play();
       q('#lmPlay').textContent = '■ Stop';
       status('Playing — the sun marker shows where the light is. Press Stop to edit.');
@@ -441,7 +454,7 @@ export function mountLookPanel(container, { onStatus } = {}) {
       lkAz2: v => Math.round(v) + '°', lkEl2: v => Math.round(v) + '°', lkInt2: v => Math.round(v * 100) + '%',
       lkExp: v => (v > 0 ? '+' : '') + (+v).toFixed(2), lkCon: v => Math.round(v * 100), lkSat: v => Math.round(v * 100),
       lkWarm: v => Math.round(v * 100), lkTint: v => Math.round(v * 100), lkVig: v => Math.round(v * 100) + '%',
-      lkShOp: v => Math.round(v * 100) + '%', lkShSoft: v => Math.round(v * 100) + '%', lmDur: v => (+v).toFixed(1) + ' s',
+      lkShOp: v => Math.round(v * 100) + '%', lkSelfOp: v => Math.round(v * 100) + '%', lkShSoft: v => Math.round(v * 100) + '%', lmDur: v => (+v).toFixed(1) + ' s',
       vwMin: v => Math.round(v * 100) + '% of start', vwMax: v => (+v).toFixed(2) + '× start', vwSpin: v => (+v === 0 ? 'off' : Math.round(v) + '°/s'),
     };
     for (const [id, f] of Object.entries(fmt)) { const el = q('#' + id + 'Val'); if (el) el.textContent = f(+q('#' + id).value); }

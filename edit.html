@@ -6930,7 +6930,7 @@ document.getElementById('loadGlbFile')?.addEventListener('change', async (e) => 
 <script type="module" src="js/modules/ply-validator.js"></script>
 <script type="module" src="js/modules/camera-view.js"></script>
 <script type="module" src="js/modules/publish-to-fumoca.js?v=20261126-link01"></script>
-<script type="module" src="js/modules/spark-gaussian-view.js?v=20261126-link01"></script>
+<script type="module" src="js/modules/spark-gaussian-view.js?v=20261126-crisp01"></script>
 <script type="module" src="js/modules/gaussian-renderer.js?v=20261126-clean01"></script>
 <script type="module" src="js/modules/smart-select.js"></script>
 <script src="js/modules/gap-fill-engine.js"></script>
@@ -7885,7 +7885,7 @@ if (!window._fumocaBooted) {
   // Lighting, shadow and viewer settings.
   const lookRoot = document.getElementById('tab-look');
   if (lookRoot) {
-    import('./js/modules/look-panel.js?v=20261126-handle01')
+    import('./js/modules/look-panel.js?v=20261126-selfshadow01')
       .then((m) => m.mountLookPanel(lookRoot, { onStatus: status }))
       .catch((e) => console.warn('[Studio] look panel', e));
   }

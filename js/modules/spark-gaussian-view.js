@@ -28,17 +28,9 @@ const SparkGaussianView = (() => {
     const renderer = _renderer(), scene = _scene();
     if (!renderer || !scene) throw new Error('FUMOCA scene/renderer is not ready');
     const { SparkRenderer } = await import('@sparkjsdev/spark');
-    // Fidelity preset tuned for a sharper SuperSplat-like result:
-    // tighter Gaussian cutoff, no added covariance blur, and depth sorting.
-    _spark = new SparkRenderer({
-      renderer,
-      autoUpdate: true,
-      maxStdDev: Math.sqrt(6),
-      preBlurAmount: 0,
-      blurAmount: 0,
-      focalAdjustment: 1.5,
-      sortRadial: false
-    });
+    // Same look as the published page (classic 3DGS drawing — see spark-preset.js).
+    const { sparkOptions } = await import('./spark-preset.js');
+    _spark = new SparkRenderer(sparkOptions({ renderer, autoUpdate: true }));
     _spark.name = 'fumoca-spark-renderer';
     scene.add(_spark);
     const canvas = renderer.domElement;
