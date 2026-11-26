@@ -223,9 +223,14 @@ export function mountSplatRigPanel(container, { onStatus } = {}) {
   }
 
   // ── actions ──
-  function fit() {
-    const mesh = sparkMesh();
-    if (!mesh) { status('Turn on Photoreal (Spark) first — the rig moves the photoreal splats.'); return; }
+  async function fit() {
+    let mesh = sparkMesh();
+    if (!mesh) {
+      status('Turning Photoreal (Spark) on — the rig moves the photoreal splats…');
+      mesh = await window.FumocaStudioHooks?.ensureSpark?.();
+      if (!mesh) { status('Photoreal (Spark) could not start on this device — the rig needs it.'); return; }
+      await new Promise(r => setTimeout(r, 600));
+    }
     const rest = readRest(mesh);
     if (!rest) { status('The splat is still loading. Try again in a moment.'); return; }
     driver?.reset(); driver = null;

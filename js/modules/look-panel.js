@@ -169,8 +169,15 @@ export function mountLookPanel(container, { onStatus } = {}) {
     lightTimer = setTimeout(() => {
       const s = lightState();
       if (!s.enabled && !lighting) return;
-      const l = ensureLighting();
-      if (!l) { status('Turn on Photoreal (Spark) to light the splat.'); return; }
+      let l = ensureLighting();
+      if (!l) {
+        status('Turning Photoreal (Spark) on to light the splat…');
+        window.FumocaStudioHooks?.ensureSpark?.().then((mesh) => {
+          if (!mesh) { status('Photoreal (Spark) could not start on this device — lighting needs it.'); return; }
+          setTimeout(applyLighting, 600);
+        });
+        return;
+      }
       const t0 = performance.now();
       try { l.apply(s); status(s.enabled ? `Lit in ${Math.round(performance.now() - t0)} ms.` : 'Lighting off — original colours.'); }
       catch (e) { status(e.message); }

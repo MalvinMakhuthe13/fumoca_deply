@@ -4447,6 +4447,28 @@ function _encodeGaussianPly(indices) {
 window.FumocaStudioHooks = {
   pushHistory: (label) => pushHistory(label),
   setMode: (mode) => { try { setMode(mode); } catch (_) {} },
+  /**
+   * Turn Photoreal (Spark) on if it is off — lighting, parts and the rig work
+   * on the Spark splats. Builds the Gaussian data from the scene when needed.
+   */
+  async ensureSpark() {
+    const spark = window.FumocaSparkGaussian;
+    if (!spark || !S.alive?.length) return null;
+    if (spark.isEnabled?.()) return spark.getMesh?.() || null;
+    let ok = false;
+    try {
+      const all = Array.from({ length: S.alive.length }, (_, i) => i);
+      const bytes = new Uint8Array(await _encodeGaussianPly(all).arrayBuffer());
+      S.isGaussianPly = true;
+      ok = await spark.enable({ bytes });
+    } catch (e) { console.warn('[Studio] could not turn Photoreal on', e); }
+    if (ok) {
+      try { window.FumocaGaussianRenderer?.disable?.(); } catch (_) {}
+      const lbl = document.getElementById('photorealLabel'); if (lbl) lbl.textContent = '✨ Photoreal: ON';
+      setStatus('Photoreal (Spark) turned on', 'ok');
+    }
+    return ok ? (spark.getMesh?.() || null) : null;
+  },
   /** After a bulk edit of S: redraw, and keep Spark on with the new data. */
   async commit() {
     rebuildGeometry(); try { renderLayers(); } catch (_) {} try { updateStats(); } catch (_) {}

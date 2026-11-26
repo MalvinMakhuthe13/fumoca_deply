@@ -175,8 +175,12 @@ export function mountPartsPanel(container, { onStatus } = {}) {
     q('#ptList').querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => edit(b.dataset.edit)));
   }
 
-  q('#ptMake').addEventListener('click', () => {
-    if (!sparkMesh()) { status('Turn on Photoreal (Spark) first — parts move the photoreal splats.'); return; }
+  q('#ptMake').addEventListener('click', async () => {
+    if (!sparkMesh()) {
+      status('Turning Photoreal (Spark) on — parts move the photoreal splats…');
+      if (!(await window.FumocaStudioHooks?.ensureSpark?.())) { status('Photoreal (Spark) could not start on this device — parts need it.'); return; }
+      await new Promise(r => setTimeout(r, 600));
+    }
     const sel = selectionBox();
     if (!sel) { status('Select the part first (at least a few splats), e.g. with the lasso on the door.'); return; }
     const kind = q('#ptKind').value;
