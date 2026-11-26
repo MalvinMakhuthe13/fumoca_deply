@@ -27,7 +27,7 @@ export function mountLookPanel(container, { onStatus } = {}) {
         <div id="lkMoods" style="display:flex;flex-wrap:wrap;gap:5px;margin:8px 0">${Object.entries(MOODS).map(([k, m]) => `<button type="button" class="ac-btn" data-mood="${k}" style="padding:5px 8px;font-size:11px">${m.label}</button>`).join('')}</div>
         ${check('lkOn', 'Use lighting')}
         <div style="display:flex;gap:6px;margin-top:8px;align-items:center">
-          <button type="button" class="ac-btn" id="lkGrab" style="flex:1" title="Drag in the viewport to move the light around the object">☀ Move the light in the scene</button>
+          <button type="button" class="ac-btn" id="lkGrab" style="flex:1" title="Shows the light as a sun in the scene: drag it to move the light">☀ Show the light in the scene</button>
           <select id="lkGrabWhich" style="width:92px" title="Which light to move"><option value="key">Key light</option><option value="second">Second light</option></select>
         </div>
         <div class="hint" style="margin-top:8px;opacity:.8">Key light</div>
@@ -226,6 +226,7 @@ export function mountLookPanel(container, { onStatus } = {}) {
     window.dispatchEvent(new CustomEvent('fumoca:lookChange'));
     status(MOODS[btn.dataset.mood].label + (ls.enabled ? ' — tweak any slider to make it yours.' : ' — the scan\'s own light.'));
   }));
+  q('#lkOn').addEventListener('change', () => { if (!q('#lkOn').checked && grab) setGrab(false); });
   LIGHT_IDS.forEach(id => {
     q('#' + id).addEventListener('input', () => {
       if (id !== 'lkOn' && preset !== 'custom') { preset = 'custom'; container.querySelectorAll('[data-mood]').forEach(b => b.classList.remove('lime')); }
@@ -283,17 +284,33 @@ export function mountLookPanel(container, { onStatus } = {}) {
     line.geometry.setFromPoints([new THREE.Vector3(...centre), new THREE.Vector3(...p)]); line.computeLineDistances();
   }
   window.addEventListener('fumoca:lightingApplied', (e) => { if (sun?.visible && e.detail) placeSun(e.detail); });
+  // The handle sits in the scene with everything else: drag the sun to move
+  // the light; drag anywhere else to orbit / pan as usual.
   function setGrab(on) {
     grab = on;
     centre = subjectCentre(); radius = sceneSize() * 0.85;
     ensureSun(); if (sun) sun.visible = on;
     q('#lkGrab').classList.toggle('lime', on);
-    q('#lkGrab').textContent = on ? '■ Done moving the light' : '☀ Move the light in the scene';
+    q('#lkGrab').textContent = on ? '☀ Hide the light handle' : '☀ Show the light in the scene';
+    if (!on && canvasEl()) canvasEl().style.cursor = '';
     if (on) {
       if (!q('#lkOn').checked) { q('#lkOn').checked = true; }
       placeSun(lightState()); applyLighting();
-      status('Drag anywhere in the viewport — the light follows your cursor around the object. Drag over the top for light from above.');
+      status('Drag the sun to move the light. Drag anywhere else to turn the view as usual.');
     }
+  }
+  /** Is the pointer on the sun handle? (screen distance to its centre) */
+  function overSun(e) {
+    if (!grab || !sun?.visible || !window.camera) return false;
+    const el = canvasEl(); if (!el) return false;
+    const r = el.getBoundingClientRect(), ball = sun.userData.ball;
+    const p = ball.position.clone().project(window.camera);
+    if (p.z > 1) return false;
+    const sx = (p.x * 0.5 + 0.5) * r.width + r.left, sy = (-p.y * 0.5 + 0.5) * r.height + r.top;
+    // how big the ball looks on screen, at least a comfortable finger / mouse target
+    const edge = ball.position.clone().add(new THREE.Vector3(ball.scale.x * 1.9, 0, 0).applyQuaternion(window.camera.quaternion)).project(window.camera);
+    const px = Math.abs((edge.x - p.x) * 0.5 * r.width);
+    return Math.hypot(e.clientX - sx, e.clientY - sy) <= Math.max(18, px);
   }
   function dragTo(e) {
     const el = window.renderer?.domElement, cam = window.camera;
@@ -317,25 +334,31 @@ export function mountLookPanel(container, { onStatus } = {}) {
   }
   const canvasEl = () => window.renderer?.domElement;
   function onGrabDown(e) {
-    if (!grab || e.button !== 0) return;
+    if (!grab || e.button !== 0 || !overSun(e)) return;      // not on the sun: the view works as usual
+    const vp = canvasEl()?.parentElement;
+    if (vp && !vp.contains(e.target) && e.target !== canvasEl()) return;   // a panel or button, not the view
     e.stopImmediatePropagation(); e.preventDefault();
     dragging = true; if (window.controls) window.controls.enabled = false;
     dragTo(e);
   }
   let pending = null, raf = 0;
   function onGrabMove(e) {
-    if (!dragging) return;
+    if (!dragging) { if (grab && canvasEl()) canvasEl().style.cursor = overSun(e) ? 'grab' : ''; return; }
+    if (canvasEl()) canvasEl().style.cursor = 'grabbing';
     pending = e;
     if (!raf) raf = requestAnimationFrame(() => { raf = 0; if (pending) dragTo(pending); pending = null; });
   }
   function onGrabUp() {
     if (!dragging) return;
     dragging = false; if (window.controls) window.controls.enabled = true;
+    if (canvasEl()) canvasEl().style.cursor = 'grab';
     applyLighting(); window.dispatchEvent(new CustomEvent('fumoca:lookChange'));
   }
   q('#lkGrab').addEventListener('click', () => {
     const el = canvasEl();
-    if (el && !el._lkGrabBound) { el.addEventListener('pointerdown', onGrabDown, true); window.addEventListener('pointermove', onGrabMove); window.addEventListener('pointerup', onGrabUp); el._lkGrabBound = true; }
+    // Listen on the window, first: overlays sit on top of the canvas and the
+    // orbit controls would otherwise take a press that lands on the sun.
+    if (el && !el._lkGrabBound) { window.addEventListener('pointerdown', onGrabDown, true); window.addEventListener('pointermove', onGrabMove); window.addEventListener('pointerup', onGrabUp); el._lkGrabBound = true; }
     setGrab(!grab);
   });
   q('#lkGrabWhich').addEventListener('change', () => { if (sun?.visible) placeSun(lightState()); });
@@ -372,7 +395,6 @@ export function mountLookPanel(container, { onStatus } = {}) {
     const go = (l) => {
       if (!animator || animator.lighting !== l) { animator?.stop(false); animator = new LightAnimator(l, baseLight, m); }
       else animator.setMotion(m);
-      if (grab) setGrab(false);
       ensureSun(); if (sun) { centre = subjectCentre(); radius = sceneSize() * 0.85; sun.visible = true; }
       animator.play();
       q('#lmPlay').textContent = '■ Stop';

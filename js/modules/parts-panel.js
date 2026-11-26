@@ -5,6 +5,7 @@
  */
 import * as THREE from 'three';
 import { PartAnimator, normalizeParts, suggestHinge } from './part-animator.js';
+import { regionFromPoints } from './food-pick.js';
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -28,6 +29,12 @@ const KINDS = {
   cupboard: { label: 'Cupboard / wardrobe door', name: 'Cupboard door', type: 'hinge', side: 'left', angle: -100, ease: 'ease-in-out', duration: 1.3 },
   fridge:   { label: 'Fridge door',      name: 'Fridge door',  type: 'hinge', side: 'left', angle: -110, ease: 'spring', duration: 1.5 },
   sliding:  { label: 'Sliding door / panel', name: 'Sliding door', type: 'slide', axisKey: 'x', distanceFrac: 0.9, ease: 'ease-in-out', duration: 1.4 },
+  // food that reacts when picked up (select the piece: a slice, a bite, a dumpling)
+  pizza:    { label: '🍕 Pizza slice (cheese pull)', name: 'Pizza slice', type: 'pick', food: { utensil: 'none', hold: 'crust', lift: 0.55, dist: 0.45, angle: 10, droop: 0.4, stretch: 0.95, zone: 0.2 }, ease: 'ease-in-out', duration: 2.2 },
+  pie:      { label: '🥧 Pie / cake / lasagne slice (server)', name: 'Pie slice', type: 'pick', food: { utensil: 'server', hold: 'bottom', lift: 0.5, dist: 0.5, angle: 4, droop: 0.05, stretch: 0.45, zone: 0.12 }, ease: 'ease-in-out', duration: 2.4 },
+  chop:     { label: '🥢 With chopsticks (meat, sushi, dumpling)', name: 'Bite', type: 'pick', food: { utensil: 'chopsticks', hold: 'top', lift: 1.1, dist: 0.25, angle: 14, droop: 0.12, stretch: 0.2, zone: 0.08 }, ease: 'ease-in-out', duration: 1.8 },
+  noodles:  { label: '🍜 Noodles / salad with chopsticks', name: 'Noodles', type: 'pick', food: { utensil: 'chopsticks', hold: 'top', lift: 1.3, dist: 0.15, angle: 6, droop: 0.9, stretch: 0.6, zone: 0.12 }, ease: 'ease-in-out', duration: 2.2 },
+  fork:     { label: '🍴 On a fork (steak, salad, cake)', name: 'Fork bite', type: 'pick', food: { utensil: 'fork', hold: 'top', lift: 1.0, dist: 0.3, angle: 10, droop: 0.06, stretch: 0.15, zone: 0.06 }, ease: 'ease-in-out', duration: 1.8 },
 };
 const AXES = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] };
 
@@ -48,7 +55,7 @@ export function mountPartsPanel(container, { onStatus } = {}) {
       <div class="sec-body" style="padding:10px">
         <input id="ptName" class="ac-input" style="width:100%;padding:6px 8px" maxlength="60">
         <div class="ctrl-row" style="margin-top:6px"><span class="ctrl-label">Motion</span></div>
-        <select id="ptType" class="ac-select" style="width:100%"><option value="hinge">Swing on a hinge</option><option value="slide">Slide</option><option value="twist">Twist off (caps, lids)</option><option value="lift">Lift off (pot lids)</option></select>
+        <select id="ptType" class="ac-select" style="width:100%"><option value="hinge">Swing on a hinge</option><option value="slide">Slide</option><option value="twist">Twist off (caps, lids)</option><option value="lift">Lift off (pot lids)</option><option value="pick">Pick up (food)</option></select>
         <div class="ctrl-row" style="margin-top:6px"><span class="ctrl-label">Hinge / pivot on</span></div>
         <select id="ptSide" class="ac-select" style="width:100%">${['left', 'right', 'front', 'back', 'top', 'bottom', 'center'].map(s => `<option value="${s}">${s[0].toUpperCase() + s.slice(1)} edge</option>`).join('').replace('Center edge', 'Centre')}</select>
         <div class="ctrl-row" style="margin-top:6px"><span class="ctrl-label">Axis</span></div>
@@ -56,6 +63,13 @@ export function mountPartsPanel(container, { onStatus } = {}) {
         <div id="ptAngleRow"><div class="ctrl-row"><span class="ctrl-label">Opens by</span><span class="ctrl-val" id="ptAngleVal"></span></div><input type="range" id="ptAngle" min="-720" max="720" step="1" style="width:100%"></div>
         <div id="ptDistRow"><div class="ctrl-row"><span class="ctrl-label">Slides by</span><span class="ctrl-val" id="ptDistVal"></span></div><input type="range" id="ptDist" min="-1" max="1" step="0.001" style="width:100%"></div>
         <div id="ptLiftRow"><div class="ctrl-row"><span class="ctrl-label">Lifts by</span><span class="ctrl-val" id="ptLiftVal"></span></div><input type="range" id="ptLift" min="0" max="1" step="0.001" style="width:100%"></div>
+        <div id="ptFoodRows">
+          <div class="ctrl-row" style="margin-top:6px"><span class="ctrl-label">Picked up with</span></div>
+          <select id="ptUtensil" class="ac-select" style="width:100%"><option value="none">Nothing shown (by hand)</option><option value="chopsticks">Chopsticks</option><option value="fork">Fork</option><option value="server">Pie / cake server</option></select>
+          <div class="ctrl-row"><span class="ctrl-label">Pulls away by</span><span class="ctrl-val" id="ptReachVal"></span></div><input type="range" id="ptReach" min="0" max="1" step="0.001" style="width:100%">
+          <div class="ctrl-row"><span class="ctrl-label">Cheese / filling stretch</span><span class="ctrl-val" id="ptStretchVal"></span></div><input type="range" id="ptStretch" min="0" max="1" step="0.01" style="width:100%">
+          <div class="ctrl-row"><span class="ctrl-label">Floppiness (droops)</span><span class="ctrl-val" id="ptDroopVal"></span></div><input type="range" id="ptDroop" min="0" max="1.5" step="0.01" style="width:100%">
+        </div>
         <div class="ctrl-row"><span class="ctrl-label">Speed</span><span class="ctrl-val" id="ptDurVal"></span></div>
         <input type="range" id="ptDur" min="0.2" max="6" step="0.1" style="width:100%">
         <div class="ctrl-row" style="margin-top:6px"><span class="ctrl-label">Feel</span></div>
@@ -92,7 +106,9 @@ export function mountPartsPanel(container, { onStatus } = {}) {
     catch (e) { animator = null; status(e.message); }
     return animator;
   }
-  window.addEventListener('fumoca:sparkInPlaceUpdate', () => { animator?.refreshGeometry?.(); });
+  // Studio wrote the splats (an edit, a selection): take new geometry when all
+  // parts are closed; otherwise put the open parts back where they are.
+  window.addEventListener('fumoca:sparkInPlaceUpdate', () => { if (animator && !animator.refreshGeometry?.()) animator.reapply?.(); });
   const changed = () => {
     window.dispatchEvent(new CustomEvent('fumoca:partsChange', { detail: parts }));
     ensureAnimator()?.setParts(parts);
@@ -127,6 +143,38 @@ export function mountPartsPanel(container, { onStatus } = {}) {
     };
   }
 
+  /**
+   * A food piece from the selection: its outline (so a wedge stays a wedge),
+   * where it is held, which way it is pulled from the rest, and its size.
+   */
+  function foodFromSelection(f, box) {
+    const S = window.S, idx = [];
+    for (let i = 0; i < S.selected.length; i++) if (S.selected[i] && (!S.alive || S.alive[i])) idx.push(i);
+    const region = regionFromPoints(S.positions, idx);
+    const c = [0, 0, 0]; for (const i of idx) for (let k = 0; k < 3; k++) c[k] += S.positions[i * 3 + k] / idx.length;
+    // the dish: everything else nearby (centre of all live splats)
+    const all = [0, 0, 0]; let n = 0; const st = Math.max(1, Math.floor(S.alive.length / 30000));
+    for (let i = 0; i < S.alive.length; i += st) if (S.alive[i]) { for (let k = 0; k < 3; k++) all[k] += S.positions[i * 3 + k]; n++; }
+    for (let k = 0; k < 3; k++) all[k] /= n || 1;
+    const size = Math.max(box.max[0] - box.min[0], box.max[2] - box.min[2], 1e-4);
+    // pull away from the dish; a piece in the middle comes towards the viewer
+    let dir = [c[0] - all[0], 0, c[2] - all[2]];
+    if (Math.hypot(dir[0], dir[2]) < size * 0.15 && window.camera) dir = [window.camera.position.x - c[0], 0, window.camera.position.z - c[2]];
+    const dl = Math.hypot(dir[0], dir[2]) || 1; dir = [dir[0] / dl, 0, dir[2] / dl];
+    const top = region.ymax, bottom = region.ymin;
+    const pivot = f.hold === 'bottom' ? [c[0], bottom, c[2]]
+      : f.hold === 'crust' ? [c[0] + dir[0] * size * 0.4, (top + bottom) / 2, c[2] + dir[2] * size * 0.4]
+      : [c[0], top, c[2]];
+    return {
+      region,
+      motion: {
+        type: 'pick', pivot, axis: [0, 1, 0], dir, size, bottom,
+        lift: f.lift * size, distance: f.dist * size, angle: f.angle, droop: f.droop, stretch: f.stretch, zone: f.zone * size,
+        utensil: f.utensil, side: 'center', axisKey: 'auto',
+      },
+    };
+  }
+
   function edit(id) {
     editing = parts.find(p => p.id === id) || null;
     q('#ptEditSec').style.display = editing ? '' : 'none';
@@ -139,6 +187,12 @@ export function mountPartsPanel(container, { onStatus } = {}) {
     q('#ptDist').min = -2 * span; q('#ptDist').max = 2 * span; q('#ptDist').step = span / 500; q('#ptDist').value = m.distance;
     q('#ptLift').max = 2 * span; q('#ptLift').step = span / 500; q('#ptLift').value = m.lift;
     q('#ptAuto').value = editing.autoplay || 'none'; q('#ptHold').value = editing.hold ?? 1.2;
+    if (m.type === 'pick') {
+      const sz = m.size || span;
+      q('#ptUtensil').value = m.utensil || 'none';
+      q('#ptReach').max = 2 * sz; q('#ptReach').step = sz / 500; q('#ptReach').value = m.distance;
+      q('#ptStretch').value = m.stretch ?? 0; q('#ptDroop').value = m.droop ?? 0;
+    }
     syncEditLabels();
   }
 
@@ -150,6 +204,16 @@ export function mountPartsPanel(container, { onStatus } = {}) {
     q('#ptLiftRow').style.display = t === 'twist' || t === 'lift' ? '' : 'none';
     q('#ptAngleRow').querySelector('.ctrl-label').textContent = t === 'lift' ? 'Tips by' : t === 'twist' ? 'Turns by' : 'Opens by';
     q('#ptHoldRow').style.display = q('#ptAuto').value === 'loop' ? '' : 'none';
+    q('#ptFoodRows').style.display = t === 'pick' ? '' : 'none';
+    q('#ptSide').closest('select') && (q('#ptSide').style.display = t === 'pick' ? 'none' : '');
+    q('#ptAxis').style.display = t === 'pick' ? 'none' : '';
+    if (t === 'pick') {
+      q('#ptAngleRow').querySelector('.ctrl-label').textContent = 'Tips by';
+      q('#ptLiftRow').style.display = '';
+      q('#ptReachVal').textContent = (+q('#ptReach').value).toFixed(3);
+      q('#ptStretchVal').textContent = Math.round(+q('#ptStretch').value * 100) + '%';
+      q('#ptDroopVal').textContent = Math.round(+q('#ptDroop').value * 100) + '%';
+    }
     q('#ptHoldVal').textContent = (+q('#ptHold').value).toFixed(1) + ' s';
     q('#ptAngleVal').textContent = Math.round(+q('#ptAngle').value) + '°';
     q('#ptDistVal').textContent = (+q('#ptDist').value).toFixed(3);
@@ -165,12 +229,18 @@ export function mountPartsPanel(container, { onStatus } = {}) {
     const h = suggestHinge(editing.box, side);
     editing.name = q('#ptName').value.trim().slice(0, 60) || 'Part';
     editing.autoplay = q('#ptAuto').value; editing.hold = +q('#ptHold').value;
-    editing.motion = {
-      ...editing.motion,
-      type: q('#ptType').value, side, axisKey, pivot: h.pivot, axis: axisKey === 'auto' ? h.axis : AXES[axisKey],
-      angle: +q('#ptAngle').value, distance: +q('#ptDist').value, lift: +q('#ptLift').value,
-      duration: +q('#ptDur').value, ease: q('#ptEase').value,
-    };
+    const t = q('#ptType').value;
+    editing.motion = t === 'pick' && editing.motion.type === 'pick'
+      ? { ...editing.motion, angle: +q('#ptAngle').value, lift: +q('#ptLift').value, distance: +q('#ptReach').value,
+          stretch: +q('#ptStretch').value, droop: +q('#ptDroop').value, utensil: q('#ptUtensil').value,
+          duration: +q('#ptDur').value, ease: q('#ptEase').value }
+      : {
+        ...editing.motion,
+        type: t === 'pick' ? 'hinge' : t, side, axisKey, pivot: h.pivot, axis: axisKey === 'auto' ? h.axis : AXES[axisKey],
+        angle: +q('#ptAngle').value, distance: +q('#ptDist').value, lift: +q('#ptLift').value,
+        duration: +q('#ptDur').value, ease: q('#ptEase').value,
+      };
+    if (t === 'pick' && editing.motion.type !== 'pick') status('To make food, select the piece and pick a food type above, then “Make part”.');
     parts = normalizeParts(parts.map(p => (p.id === editing.id ? editing : p))).map((p) => {
       const src = p.id === editing.id ? editing : parts.find(x => x.id === p.id);
       return { ...p, motion: { ...p.motion, side: src?.motion?.side, axisKey: src?.motion?.axisKey } };
@@ -207,14 +277,16 @@ export function mountPartsPanel(container, { onStatus } = {}) {
     let name = base.name, k = 2;
     while (parts.some(p => p.name === name)) name = `${base.name} ${k++}`;
     const part = { id: 'part_' + Date.now().toString(36), name, box: sel.box, motion: motionFromKind(kind, sel.box) };
+    if (base.type === 'pick') Object.assign(part, foodFromSelection(base.food, sel.box));
     parts = normalizeParts([...parts, part]).map(p => (p.id === part.id ? { ...p, motion: { ...p.motion, side: part.motion.side, axisKey: part.motion.axisKey } } : p));
     changed();
     edit(part.id);
     status(`${name} made from ${sel.n.toLocaleString()} selected splats. Press ▶ to try it; adjust the hinge side if it swings the wrong way.`);
   });
-  ['ptName', 'ptType', 'ptSide', 'ptAxis', 'ptAngle', 'ptDist', 'ptLift', 'ptDur', 'ptEase', 'ptAuto', 'ptHold'].forEach(id =>
+  const EDIT_IDS = ['ptName', 'ptType', 'ptSide', 'ptAxis', 'ptAngle', 'ptDist', 'ptLift', 'ptDur', 'ptEase', 'ptAuto', 'ptHold', 'ptUtensil', 'ptReach', 'ptStretch', 'ptDroop'];
+  EDIT_IDS.forEach(id =>
     q('#' + id).addEventListener('input', () => { syncEditLabels(); readEdit(); }));
-  ['ptName', 'ptType', 'ptSide', 'ptAxis', 'ptAngle', 'ptDist', 'ptLift', 'ptDur', 'ptEase', 'ptAuto', 'ptHold'].forEach(id =>
+  EDIT_IDS.forEach(id =>
     q('#' + id).addEventListener('change', () => changed()));
   q('#ptOpen').addEventListener('input', () => { syncEditLabels(); if (editing) ensureAnimator()?.set(editing.id, +q('#ptOpen').value); });
   q('#ptPlay').addEventListener('click', async () => {

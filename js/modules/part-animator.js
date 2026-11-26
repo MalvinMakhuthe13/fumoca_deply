@@ -12,6 +12,7 @@
  * open ↔ closed with easing — no swapping whole files.
  */
 import { readRest, refreshRestGeometry } from './splat-rig-driver.js';
+import { pickTransform, pickPhases, strandPull, findStrands, regionMembers, normalizeRegion, makeUtensil, poseUtensil, UTENSILS } from './food-pick.js';
 
 const finite3 = (v) => Array.isArray(v) && v.length === 3 && v.every(Number.isFinite);
 const num = (v, lo, hi, d) => (Number.isFinite(+v) && v !== null && v !== '' ? Math.min(hi, Math.max(lo, +v)) : d);
@@ -28,7 +29,7 @@ export function normalizePart(p) {
   if (!box || !finite3(box.min) || !finite3(box.max)) return null;
   const min = box.min.map((v, i) => Math.min(v, box.max[i])), max = box.max.map((v, i) => Math.max(v, box.min[i]));
   const m = p.motion || {};
-  const type = ['hinge', 'slide', 'twist', 'lift'].includes(m.type) ? m.type : 'hinge';
+  const type = ['hinge', 'slide', 'twist', 'lift', 'pick'].includes(m.type) ? m.type : 'hinge';
   const axis = finite3(m.axis) && Math.hypot(...m.axis) > 1e-9 ? m.axis.map(v => v / Math.hypot(...m.axis)) : [0, 1, 0];
   const pivot = finite3(m.pivot) ? m.pivot.slice() : min.map((v, i) => (v + max[i]) / 2);
   return {
@@ -42,7 +43,14 @@ export function normalizePart(p) {
       lift: num(m.lift, -100, 100, 0),
       duration: num(m.duration, 0.1, 20, 1.2),
       ease: EASE[m.ease] ? m.ease : 'ease-in-out',
+      ...(type === 'pick' ? {
+        dir: finite3(m.dir) && Math.hypot(m.dir[0], m.dir[2]) > 1e-9 ? [m.dir[0], 0, m.dir[2]].map((v, i, a) => v / Math.hypot(a[0], a[2])) : [0, 0, 1],
+        droop: num(m.droop, 0, 2, 0.3), stretch: num(m.stretch, 0, 1, 0.5), zone: num(m.zone, 0, 100, 0),
+        size: num(m.size, 1e-6, 1e4, 1), bottom: Number.isFinite(+m.bottom) ? +m.bottom : undefined,
+        utensil: UTENSILS.includes(m.utensil) ? m.utensil : 'none',
+      } : {}),
     },
+    ...(normalizeRegion(p.region) ? { region: normalizeRegion(p.region) } : {}),
     startOpen: !!p.startOpen,
     // on the published page: only when clicked, open once, or keep opening and closing
     autoplay: ['none', 'once', 'loop'].includes(p.autoplay) ? p.autoplay : 'none',
@@ -74,6 +82,7 @@ function rotate(q, v) {
 /** Rigid transform of a part at openness t (0 closed … 1 open). */
 export function partTransform(part, t) {
   const m = part.motion;
+  if (m.type === 'pick') { const tf = pickTransform(m, pickPhases(t).lift); return { q: tf.q, apply: tf.apply }; }
   if (m.type === 'slide') {
     const d = m.distance * t;
     return { q: [0, 0, 0, 1], apply: (p) => [p[0] + m.axis[0] * d, p[1] + m.axis[1] * d, p[2] + m.axis[2] * d] };
@@ -105,6 +114,7 @@ export function partTransform(part, t) {
 
 /** Splat indices inside a part's box. */
 export function partMembers(positions, count, part) {
+  if (part.region) return regionMembers(positions, count, part.region);
   const { min, max } = part.box, out = [];
   for (let i = 0; i < count; i++) {
     const x = positions[i * 3], y = positions[i * 3 + 1], z = positions[i * 3 + 2];
@@ -155,10 +165,18 @@ export class PartAnimator {
     const next = new Map();
     for (const p of normalizeParts(parts)) {
       const prev = this.parts.get(p.id);
-      next.set(p.id, { part: p, members: partMembers(this.rest.positions, this.rest.count, p), t: prev ? prev.t : (p.startOpen ? 1 : 0) });
+      const members = partMembers(this.rest.positions, this.rest.count, p);
+      const entry = { part: p, members, t: prev ? prev.t : (p.startOpen ? 1 : 0) };
+      if (p.motion.type === 'pick') {
+        const same = prev && prev.part.motion.type === 'pick' && prev.part.motion.zone === p.motion.zone && prev.members.length === members.length;
+        entry.strands = same && prev.strands ? prev.strands : findStrands(this.rest.positions, this.rest.count, members, p.motion.zone);
+        if (prev?.utensil && prev.utensil.userData.kind === p.motion.utensil && Math.abs(prev.utensil.userData.size - p.motion.size) < 1e-9) entry.utensil = prev.utensil;
+        else { prev?.utensil?.parent?.remove(prev.utensil); entry.utensil = makeUtensil(this.THREE, p.motion.utensil, p.motion.size); if (entry.utensil) this.mesh.add(entry.utensil); }
+      } else if (prev?.utensil) prev.utensil.parent?.remove(prev.utensil);
+      next.set(p.id, entry);
     }
     // splats that left a part go back to rest
-    for (const [id, old] of this.parts) if (!next.has(id) && old.t) this._write(old.members, null);
+    for (const [id, old] of this.parts) if (!next.has(id)) { if (old.t) { this._write(old.members, null); if (old.strands) this._writeStrands(old, 0); } old.utensil?.parent?.remove(old.utensil); }
     this.parts = next;
     this.reapply();
   }
@@ -191,16 +209,48 @@ export class PartAnimator {
     this.mesh.updateVersion?.();
   }
 
+  /** Strands (cheese, filling) pulled out of the cut with a picked piece. */
+  _writeStrands(e, t) {
+    const st = e.strands; if (!st?.idx.length) return;
+    const splats = this.mesh.packedSplats || this.mesh.splats;
+    const r = this.rest, C = this._colors(), { c, s, q, col } = this._v, m = e.part.motion;
+    const u = pickPhases(t).lift, pull = strandPull(u) * m.stretch;
+    const tf = pull > 0 ? pickTransform(m, u) : null;
+    for (let k = 0; k < st.idx.length; k++) {
+      const i = st.idx[k], j = st.near[k];
+      let x = r.positions[i * 3], y = r.positions[i * 3 + 1], z = r.positions[i * 3 + 2], grow = 1;
+      if (tf) {
+        // follow the piece splat it is stuck to, part of the way, and stretch
+        const pj = [r.positions[j * 3], r.positions[j * 3 + 1], r.positions[j * 3 + 2]], dj = tf.apply(pj);
+        const f = st.w[k] * pull;
+        x += (dj[0] - pj[0]) * f; y += (dj[1] - pj[1]) * f; z += (dj[2] - pj[2]) * f;
+        grow = 1 + f * 1.6;
+      }
+      this.posed[i * 3] = x; this.posed[i * 3 + 1] = y; this.posed[i * 3 + 2] = z;
+      c.set(x, y, z);
+      s.set(r.scales[i * 3] * grow, r.scales[i * 3 + 1] * grow, r.scales[i * 3 + 2] * grow);
+      q.set(r.rotations[i * 4 + 1], r.rotations[i * 4 + 2], r.rotations[i * 4 + 3], r.rotations[i * 4]);
+      col.setRGB(C[i * 3], C[i * 3 + 1], C[i * 3 + 2]);
+      splats.setSplat(i, c, s, q, r.opacity[i], col);
+    }
+    splats.needsUpdate = true;
+  }
+
+  _writePart(e) {
+    this._write(e.members, e.part, e.t);
+    if (e.part.motion.type === 'pick') { this._writeStrands(e, e.t); poseUtensil(this.THREE, e.utensil, e.part.motion, e.t); }
+  }
+
   /** Put a part at openness t immediately. */
   set(id, t) {
     const e = this.parts.get(id);
     if (!e) return false;
     e.t = Math.min(1, Math.max(0, t));
-    this._write(e.members, e.part, e.t);
+    this._writePart(e);
     return true;
   }
 
-  reapply() { for (const e of this.parts.values()) if (e.t) this._write(e.members, e.part, e.t); }
+  reapply() { for (const e of this.parts.values()) if (e.t) this._writePart(e); }
 
   /** Parts that are (partly) open: their splats and turn — for relighting. */
   openTransforms() {
@@ -224,11 +274,11 @@ export class PartAnimator {
       const step = (now) => {
         const k = Math.min(1, (now - t0) / Math.max(1, dur));
         e.t = from + (target - from) * ease(k);
-        this._write(e.members, e.part, e.t);
+        this._writePart(e);
         globalThis.dispatchEvent?.(new CustomEvent('fumoca:partFrame', { detail: { mesh: this.mesh } }));
         if (k < 1) this.anims.set(id, requestAnimationFrame(step));
         else {
-          e.t = target; this._write(e.members, e.part, e.t); this.anims.delete(id);
+          e.t = target; this._writePart(e); this.anims.delete(id);
           globalThis.dispatchEvent?.(new CustomEvent('fumoca:partSettled', { detail: { mesh: this.mesh, id } }));
           resolve(true);
         }
@@ -251,7 +301,7 @@ export class PartAnimator {
   dispose() {
     this.stopAutoplay?.();
     for (const id of this.anims.keys()) cancelAnimationFrame(this.anims.get(id));
-    for (const e of this.parts.values()) if (e.t) this._write(e.members, null);
+    for (const e of this.parts.values()) { if (e.t) { this._write(e.members, null); if (e.strands) this._writeStrands(e, 0); } e.utensil?.parent?.remove(e.utensil); }
     globalThis.removeEventListener?.('fumoca:lightingApplied', this._onLit);
   }
 }
