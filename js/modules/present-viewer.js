@@ -1,7 +1,10 @@
 /**
  * Public viewer: restore magazine text + review video from ?present= / localStorage / meta
  */
-import { initMagazineText, importAll as importMagazine } from './present-magazine-text.js?v=20261107-rotationrestore01';
+import { initMagazineText, importAll as importMagazine } from './present-magazine-text.js?v=20261127-layouts01';
+import { restoreFonts } from './present-fonts.js';
+import { filterLayer } from './present-filters.js';
+import inspect from './present-inspect.js';
 import { initPresentNav, setNavStops } from './present-nav.js';
 
 function b64Json(s) {
@@ -59,9 +62,14 @@ export function initPresentViewer() {
   let partsApplied = false;
   let tutorialApplied = false;
   let tourApplied = false;
+  let fontsApplied = false;
+  let filterApplied = false;
   const tryApply = () => {
     const data = resolvePresent();
     if (!data) return;
+
+    // Uploaded fonts first, so the copy draws in them straight away.
+    if (!fontsApplied && Array.isArray(data.fonts) && data.fonts.length) { fontsApplied = true; restoreFonts(data.fonts).catch(() => {}); }
 
     if (!magazineApplied && Array.isArray(data.magazine) && data.magazine.length) {
       importMagazine(data.magazine);
@@ -83,10 +91,21 @@ export function initPresentViewer() {
         if (poster.composition) window.FumocaPoster.updateComposition(poster.composition);
         window.FumocaPoster.setEnabled(!!poster.enabled);
         posterApplied = true;
+        inspect.mountButton();   // ⛶ Inspect: out of the layout to full screen and back
+        // the viewer's dark focus vignette fights a layout's own look (it turns
+        // into a white blob on light paper): only show it with no layout on
+        const syncVignette = () => { const fo = document.getElementById('focusOverlay'); if (fo) fo.style.display = window.FumocaPoster?.getState?.()?.enabled ? 'none' : ''; };
+        syncVignette(); window.addEventListener('fumoca:posterChange', syncVignette);
         console.info('[present-viewer] poster composition restored', poster.preset || 'product');
       } catch (error) {
         console.warn('[present-viewer] poster composition could not be restored', error);
       }
+    }
+
+    // Camera filter (and tap-to-reveal real colour) once the 3D canvas exists.
+    if (!filterApplied && data.filter && data.filter.id && data.filter.id !== 'none' && (window._fumocaViewerRenderer || document.querySelector('canvas'))) {
+      filterApplied = true;
+      setTimeout(() => { try { filterLayer().set(data.filter); } catch (error) { console.warn('[present-viewer] filter', error); } }, 400);
     }
 
     // Presentation platform saved in Studio (base + logo + turntable).

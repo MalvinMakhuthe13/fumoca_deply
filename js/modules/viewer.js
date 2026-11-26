@@ -12,8 +12,8 @@ import { readNifInteractiveManifest } from './nif-interactive-loader.js';
 import { chooseRenderMode, solidPointScale } from './industry-math.js';
 import './adaptive-presentation.js';
 import './poster-composer.js';
-import './poster-viewport.js?v=20261106-backgroundlayers01';
-import './poster-assets.js?v=20261106-layercontrols02';
+import './poster-viewport.js?v=20261127-remount01';
+import './poster-assets.js?v=20261108-edgeanchor02';
 import { advancePosterMotionPhase, applyPosterLiveTransform, applyPosterMotionRotation, posterMotionSpeed } from './poster-live-transform.js';
 let _fumocaPosterStateCache = null;
 window.addEventListener('fumoca:posterChange', (event) => {
@@ -1344,6 +1344,8 @@ function rebuildStageHost() {
     stageEl.appendChild(next);
   }
   stageHost = next;
+  // poster layers (background, frame, title) re-attach to the new host
+  window.dispatchEvent(new CustomEvent('fumoca:stageHostRebuilt'));
 }
 async function destroyViewer() {
   const instance = viewerInstance;

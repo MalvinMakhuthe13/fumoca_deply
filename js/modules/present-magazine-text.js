@@ -2,7 +2,12 @@
  * FUMOCA Present — Magazine Text Layer (clean layouts)
  */
 
+import { ensureFont } from './present-fonts.js';
+
 const FONT_STACK = {
+  body:     '"Libre Baskerville","Georgia",serif',
+  dateline: '"Old Standard TT","Times New Roman",serif',
+  rule:     'inherit',
   cover:    '"Bebas Neue","Impact",sans-serif',
   masthead: '"Cormorant Garamond","Georgia",serif',
   kicker:   '"IBM Plex Mono","SF Mono",monospace',
@@ -107,7 +112,23 @@ function styleFor(item) {
     item.shadow === false
       ? 'none'
       : item.shadow || '0 2px 24px rgba(0,0,0,.55), 0 0 1px rgba(0,0,0,.8)';
+  if (item.fontFamily) ensureFont(item.fontFamily); else if (FONT_STACK[kind]) ensureFont(FONT_STACK[kind]);
+  // optional box behind the text (tabloid mastheads, price tags, stamps)
+  const box = /^#[0-9a-f]{3,8}$|^rgba?\(/i.test(String(item.bg || '')) ? { background: item.bg, padding: '0.12em 0.32em', borderRadius: (item.radius ?? 0) + 'px' } : {};
+  if (kind === 'body') {
+    return {
+      fontFamily: item.fontFamily || FONT_STACK.body, fontSize: `calc(${size}px * var(--mt-scale, 1))`, fontWeight: item.weight || 400,
+      letterSpacing: `${item.tracking ?? 0}em`, color, opacity, textShadow: item.shadow ? item.shadow : 'none', textTransform: 'none',
+      lineHeight: 1.42, textAlign: item.align === 'center' || item.align === 'right' ? item.align : 'justify', hyphens: 'auto',
+      columnCount: Math.max(1, Math.min(4, Number(item.columns) || 1)), columnGap: '1.2em', columnRule: item.columns > 1 ? `1px solid ${item.ruleColor || 'rgba(0,0,0,.25)'}` : 'none',
+      ...box,
+    };
+  }
+  if (kind === 'rule') {
+    return { height: '0', borderTop: `${Math.max(1, Number(item.thickness) || 2)}px ${item.dashed ? 'dashed' : 'solid'} ${color}`, opacity, fontSize: '0', lineHeight: 0, color: 'transparent', textShadow: 'none' };
+  }
   return {
+    ...box,
     fontFamily: item.fontFamily || FONT_STACK[kind] || FONT_STACK.deck,
     fontSize: `calc(${size}px * var(--mt-scale, 1))`,
     fontWeight: weight,
@@ -133,7 +154,7 @@ function renderItem(item) {
   const el = document.createElement('div');
   el.className = `mt-item mt-${item.style || 'cover'} mt-mode-${item.mode || 'billboard'}`;
   el.dataset.id = item.id;
-  el.textContent = item.text || '';
+  el.textContent = item.style === 'rule' ? '' : (item.text || '');
   if (editing && selectedTextId === item.id) {
     el.classList.add('mt-selected');
     ['nw', 'ne', 'sw', 'se'].forEach(position => {
@@ -167,6 +188,7 @@ function renderItem(item) {
     wordBreak: 'normal',
     boxSizing: 'border-box',
     maxWidth: item.maxWidth || (item.style === 'deck' ? '28ch' : '42%'),
+    ...(item.style === 'rule' || item.style === 'body' ? { width: item.maxWidth || '88%' } : {}),
     userSelect: 'none',
     cursor: editing ? 'move' : 'default',
     zIndex: 20 + (item.z || 0),
@@ -307,10 +329,22 @@ export function setEditable(v) {
   rebuild();
 }
 
+// Layout extras: box behind the text, newspaper columns, rule lines.
+function extraFields(p) {
+  const out = {};
+  if (/^#[0-9a-f]{3,8}$|^rgba?\([\d\s.,%]+\)$/i.test(String(p.bg || ''))) out.bg = p.bg;
+  if (Number.isFinite(+p.radius) && p.radius !== undefined && p.radius !== null && p.radius !== '') out.radius = Math.max(0, Math.min(60, +p.radius));
+  if (Number(p.columns) > 1) out.columns = Math.min(4, Math.round(+p.columns));
+  if (Number(p.thickness) > 0) out.thickness = Math.min(20, +p.thickness);
+  if (p.dashed) out.dashed = true;
+  if (/^#[0-9a-f]{3,8}$|^rgba?\([\d\s.,%]+\)$/i.test(String(p.ruleColor || ''))) out.ruleColor = p.ruleColor;
+  return out;
+}
+
 export function addText(partial = {}) {
   const item = {
     id: uid(),
-    text: partial.text || 'TITLE',
+    text: partial.style === 'rule' ? '' : (partial.text || 'TITLE'),
     style: partial.style || 'cover',
     mode: partial.mode || 'locked',
     sx: partial.sx ?? 50,
@@ -330,6 +364,7 @@ export function addText(partial = {}) {
     maxWidth: partial.maxWidth,
     uppercase: partial.uppercase,
     shadow: partial.shadow,
+    ...extraFields(partial),
   };
   items.push(item);
   selectedTextId = item.id;
@@ -396,6 +431,7 @@ export function importAll(list = []) {
     maxWidth: i.maxWidth, uppercase: i.uppercase, z: i.z || 0,
     weight: i.weight, tracking: i.tracking, wrap: !!i.wrap, shadow: i.shadow,
     rotation: Number(i.rotation) || 0, locked: !!i.locked,
+    ...extraFields(i),
   }));
   rebuild();
 }
@@ -419,6 +455,12 @@ export function applyPreset(name) {
     launch: { x: 0.69, y: 0.52, scale: 0.96 },
     architecture: { x: 0.68, y: 0.52, scale: 0.9 },
     hero: { x: 0.5, y: 0.55, scale: 1.08 },
+    newspaper: { x: 0.34, y: 0.52, scale: 0.62 },
+    tabloid: { x: 0.62, y: 0.6, scale: 0.85 },
+    billboard: { x: 0.68, y: 0.52, scale: 1 },
+    polaroid: { x: 0.5, y: 0.44, scale: 0.85 },
+    vintage: { x: 0.5, y: 0.6, scale: 0.8 },
+    street: { x: 0.5, y: 0.56, scale: 0.95 },
   };
   if (poster?.enabled && subjectLayouts[name]) {
     window.FumocaPoster.updateComposition({ object: subjectLayouts[name] });
@@ -426,6 +468,50 @@ export function applyPreset(name) {
   const add = (text, style, sx, sy, fontSize, color, extra = {}) =>
     addText({ text, style, mode: 'locked', sx, sy, fontSize, color, ...extra });
 
+  const today = new Date().toLocaleDateString('en-ZA', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).toUpperCase();
+  if (name === 'newspaper') {
+    const ink = '#15130f';
+    add('', 'rule', 50, 5.2, 10, ink, { align: 'center', maxWidth: '92%', thickness: 1 });
+    add('The Fumoca Times', 'masthead', 50, 11, 58, ink, { align: 'center', fontFamily: '"UnifrakturMaguntia", "Old English Text MT", serif', weight: 400, tracking: 0, uppercase: false, shadow: false, maxWidth: '92%' });
+    add('', 'rule', 50, 17.3, 10, ink, { align: 'center', maxWidth: '92%', thickness: 3 });
+    add(`VOL. I · No. 01      ${today}      LATE EDITION`, 'dateline', 50, 19.4, 10, ink, { align: 'center', maxWidth: '92%', shadow: false, tracking: 0.08, uppercase: false });
+    add('', 'rule', 50, 22, 10, ink, { align: 'center', maxWidth: '92%', thickness: 1 });
+    add('A CLOSER LOOK, FROM EVERY ANGLE', 'masthead', 50, 26.5, 30, ink, { align: 'center', fontFamily: '"Old Standard TT", "Times New Roman", serif', weight: 700, tracking: 0.01, maxWidth: '92%', shadow: false, uppercase: false });
+    add('Turn it, zoom in, open it — the picture on this page is the real object in live 3D.', 'deck', 6, 80, 11, '#2b2720', { maxWidth: '56%', wrap: true, shadow: false, fontFamily: '"Libre Baskerville", Georgia, serif', weight: 400 });
+    add('Readers can now handle the story themselves. Drag to walk around it, pinch to lean in close and inspect every seam, stitch and finish, then step back to the page.\n\nEvery detail you see was captured from the real thing — no renders, no retouching.', 'body', 66, 33, 11, '#1d1a15', { maxWidth: '28%', wrap: true, shadow: false });
+    add('The object at the centre of this page was captured in full 3D and set into the layout like a photograph — except it can be turned, opened and explored. Tap it to bring back its true colour, or use Inspect to take it out of the page and look closer, then return to read on. Shops, galleries, estate agents and brands can publish pages like this one and send them anywhere a link can go.', 'body', 6, 85, 10, '#1d1a15', { maxWidth: '88%', wrap: true, columns: 3, shadow: false });
+    return;
+  }
+  if (name === 'tabloid') {
+    add('DAILY SCOOP', 'cover', 50, 9, 70, '#FFFFFF', { align: 'center', bg: '#d6001c', fontFamily: 'Anton, Impact, sans-serif', weight: 400, shadow: false, maxWidth: '92%' });
+    add(`${today} · EXCLUSIVE`, 'kicker', 50, 18.5, 11, '#111111', { align: 'center', shadow: false, tracking: 0.12 });
+    add('YOU WON’T BELIEVE\nWHAT’S INSIDE!', 'cover', 6, 28, 48, '#111111', { maxWidth: '60%', wrap: true, fontFamily: 'Anton, Impact, sans-serif', shadow: false });
+    add('SEE IT IN 3D', 'badge', 80, 30, 14, '#111111', { bg: '#ffe600', align: 'center', shadow: false, rotation: -8, weight: 800 });
+    add('Spin it. Zoom it. Open it. Only on this page.', 'deck', 6, 88, 14, '#111111', { maxWidth: '70%', wrap: true, shadow: false, weight: 700 });
+    return;
+  }
+  if (name === 'billboard') {
+    add('MADE FOR\nTHE ROAD AHEAD', 'cover', 4, 22, 64, '#FFFFFF', { maxWidth: '40%', wrap: true, fontFamily: 'Anton, Impact, sans-serif' });
+    add('Explore every angle in live 3D', 'deck', 4, 64, 18, '#E8EDF2', { maxWidth: '36%', wrap: true });
+    add('BOOK A VIEWING', 'badge', 4, 80, 14, '#10131A', { bg: '#C8FF00', weight: 800, shadow: false });
+    return;
+  }
+  if (name === 'polaroid') {
+    add('summer ’26 ♥', 'caption', 50, 88, 30, '#22201c', { align: 'center', fontFamily: '"Permanent Marker", cursive', uppercase: false, shadow: false, tracking: 0, rotation: -2 });
+    return;
+  }
+  if (name === 'vintage') {
+    add('GRAND OPENING', 'kicker', 50, 9, 14, '#7a2e14', { align: 'center', tracking: 0.3, shadow: false, weight: 700 });
+    add('The Finest\nCollection', 'masthead', 50, 17, 52, '#3b1d0e', { align: 'center', wrap: true, fontFamily: 'Shrikhand, Georgia, serif', uppercase: false, shadow: false, maxWidth: '86%' });
+    add('EST. 2026', 'badge', 50, 88, 12, '#f1e3c2', { align: 'center', bg: '#7a2e14', shadow: false, tracking: 0.2 });
+    return;
+  }
+  if (name === 'street') {
+    add('NO LIMITS', 'cover', 50, 12, 76, '#ff2bd6', { align: 'center', fontFamily: '"Rubik Spray Paint", Impact, sans-serif', weight: 400, rotation: -4, maxWidth: '96%' });
+    add('drop 001', 'caption', 82, 26, 26, '#c8ff00', { align: 'center', fontFamily: '"Permanent Marker", cursive', uppercase: false, rotation: 8 });
+    add('STREET · CULTURE · 3D', 'kicker', 50, 90, 12, '#FFFFFF', { align: 'center', fontFamily: '"Black Ops One", Impact, sans-serif', tracking: 0.12 });
+    return;
+  }
   if (name === 'weekly') {
     add('WEEKLY', 'cover', 50, 22, 88, '#FFFFFF', { align: 'center', weight: 800 });
   } else if (name === '48hours') {

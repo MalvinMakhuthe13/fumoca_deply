@@ -6,7 +6,10 @@ import { chromium } from 'playwright';
 
 const source = await readFile(new URL('../../js/modules/present-magazine-text.js', import.meta.url), 'utf8');
 const bridgeSource = await readFile(new URL('../../js/modules/present-bridge.js', import.meta.url), 'utf8');
-assert.match(bridgeSource, /from ['"]\.\/present-magazine-text\.js\?v=20261108-textdragcapture03['"]/, 'Studio bridge and Present tab must share one magazine-text module instance so pointer events act on the same item state as the visible text');
+const tabSource = await readFile(new URL('../../js/modules/present-tab.js', import.meta.url), 'utf8');
+const fontSource = await readFile(new URL('../../js/modules/present-fonts.js', import.meta.url), 'utf8');
+const versionOf = (src) => (src.match(/from ['"]\.\/present-magazine-text\.js\?v=([\w.-]+)['"]/) || [])[1];
+assert.ok(versionOf(bridgeSource) && versionOf(bridgeSource) === versionOf(tabSource), 'Studio bridge and Present tab must share one magazine-text module instance so pointer events act on the same item state as the visible text');
 const fixture = `<!doctype html>
 <style>html,body{margin:0;width:100%;height:100%}#viewport{position:relative;width:1000px;height:800px}#poster{position:absolute;inset:0;z-index:9;pointer-events:none}#assetOverlay{position:absolute;inset:0;z-index:8;pointer-events:none}#assetHit{position:absolute;inset:0;width:100%;height:100%;pointer-events:auto;opacity:0}</style>
 <div id="viewport"><div id="poster" data-fumoca-poster-canvas></div><div id="assetOverlay"><button id="assetHit" type="button"></button></div></div>
@@ -20,6 +23,7 @@ window.__textReady=true;
 const server=http.createServer((req,res)=>{
  if(req.url==='/'||req.url==='/edit.html'){res.writeHead(200,{'content-type':'text/html'});res.end(fixture);return;}
  if(req.url==='/present-magazine-text.js'){res.writeHead(200,{'content-type':'text/javascript'});res.end(source);return;}
+ if(req.url==='/present-fonts.js'){res.writeHead(200,{'content-type':'text/javascript'});res.end(fontSource);return;}
  res.writeHead(404);res.end('not found');
 });
 const socket=createServer();await new Promise(resolve=>socket.listen(0,'127.0.0.1',resolve));const port=socket.address().port;await new Promise(resolve=>socket.close(resolve));

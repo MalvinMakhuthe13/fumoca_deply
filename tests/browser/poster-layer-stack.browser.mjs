@@ -37,6 +37,7 @@ const files = {
   '/modules/poster-viewport.js':'js/modules/poster-viewport.js',
   '/modules/poster-assets.js':'js/modules/poster-assets.js',
   '/modules/present-magazine-text.js':'js/modules/present-magazine-text.js',
+  '/modules/present-fonts.js':'js/modules/present-fonts.js',
   '/css/present-magazine.css':'css/present-magazine.css'
 };
 const server=http.createServer(async(req,res)=>{

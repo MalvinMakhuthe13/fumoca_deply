@@ -16,7 +16,7 @@ assert.ok(poster, 'Poster Composer API should be exposed');
 assert.equal(poster.version, '0.2.1');
 
 const presets = poster.getPresets();
-assert.deepEqual(presets.map((item) => item.name), ['product', 'story', 'editorial', 'landscape']);
+assert.deepEqual(presets.map((item) => item.name), ['product', 'story', 'editorial', 'newspaper', 'tabloid', 'billboard', 'polaroid', 'vintage', 'street', 'landscape']);
 
 poster.setPreset('story');
 let state = poster.getState();

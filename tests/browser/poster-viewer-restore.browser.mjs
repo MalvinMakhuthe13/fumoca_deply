@@ -57,7 +57,10 @@ const server = http.createServer(async (req,res) => {
   const modules = {
     '/modules/poster-composer.js':'js/modules/poster-composer.js',
     '/modules/present-viewer.js':'js/modules/present-viewer.js',
-    '/modules/present-magazine-text.js':'js/modules/present-magazine-text.js'
+    '/modules/present-magazine-text.js':'js/modules/present-magazine-text.js',
+    '/modules/present-fonts.js':'js/modules/present-fonts.js',
+    '/modules/present-filters.js':'js/modules/present-filters.js',
+    '/modules/present-inspect.js':'js/modules/present-inspect.js'
   };
   const file = modules[req.url?.split('?')[0]];
   if (file) {
