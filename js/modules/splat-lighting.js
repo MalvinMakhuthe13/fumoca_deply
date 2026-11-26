@@ -64,6 +64,7 @@ export function normalizeLighting(input) {
     shadow: input.shadow !== false, shadowOpacity: num(input.shadowOpacity, 0, 1, D.shadowOpacity),
     shadowSoftness: num(input.shadowSoftness, 0, 1, D.shadowSoftness),
     lamps: (Array.isArray(input.lamps) ? input.lamps : []).slice(0, 12).map(normalizeLamp).filter(Boolean),
+    ...(input.motion && typeof input.motion === 'object' ? { motion: input.motion } : {}),
   };
 }
 
@@ -286,12 +287,41 @@ export class SplatLighting {
     return this.rest.positions;
   }
 
-  apply(settings = this.settings) {
+  /**
+   * Fast path for animation: only colours change, so write the colour bytes of
+   * Spark's packed splats directly and keep each splat's current opacity
+   * (parts / reveals may have changed it). Returns false if not possible.
+   */
+  _writeColoursOnly(splats) {
+    const arr = splats.packedArray, n = this.rest.count;
+    if (!(arr instanceof Uint32Array) || arr.length < n * 4 || splats.numSplats < n) return false;
+    const enc = splats.splatEncoding || {}, lo = enc.rgbMin ?? 0, range = (enc.rgbMax ?? 1) - lo;
+    const L = this.lit, k = 255 / (range || 1);
+    for (let i = 0; i < n; i++) {
+      const r = Math.max(0, Math.min(255, Math.round((L[i * 3] - lo) * k)));
+      const g = Math.max(0, Math.min(255, Math.round((L[i * 3 + 1] - lo) * k)));
+      const b = Math.max(0, Math.min(255, Math.round((L[i * 3 + 2] - lo) * k)));
+      const j = i * 4;
+      arr[j] = ((arr[j] & 0xff000000) | r | (g << 8) | (b << 16)) >>> 0;
+    }
+    return true;
+  }
+
+  apply(settings = this.settings, { shadow = true, fast = false } = {}) {
     this.settings = settings === this.settings ? settings : (normalizeLighting(settings) || this.settings);
     const splats = this.mesh.packedSplats || this.mesh.splats;
     if (!splats?.setSplat) throw new Error('This Spark build cannot relight splats in place.');
     const P = this._positions();
     relightColors(this.rest.colors, this.normals, this.settings, this.lit, P);
+    const rigOn = P !== this.rest.positions;
+    if (fast && !rigOn && this._writeColoursOnly(splats)) {
+      splats.needsUpdate = true;
+      this.mesh.updateVersion?.();
+      if (shadow) this.updateShadow();
+      this.atmosphere?.apply(this.settings);
+      globalThis.dispatchEvent?.(new CustomEvent('fumoca:lightingApplied', { detail: this.settings }));
+      return;
+    }
     const { THREE } = this, r = this.rest;
     const c = new THREE.Vector3(), sc = new THREE.Vector3(), q = new THREE.Quaternion(), col = new THREE.Color();
     for (let i = 0; i < r.count; i++) {
@@ -303,7 +333,7 @@ export class SplatLighting {
     }
     splats.needsUpdate = true;
     this.mesh.updateVersion?.();
-    this.updateShadow();
+    if (shadow) this.updateShadow();
     this.atmosphere?.apply(this.settings);
     globalThis.dispatchEvent?.(new CustomEvent('fumoca:lightingApplied', { detail: this.settings }));
   }
@@ -381,5 +411,14 @@ export async function applyLightingOnViewer(THREE, mesh, saved) {
   const renderer = globalThis._fumocaViewerRenderer;
   const l = new SplatLighting(THREE, mesh, s, { scene: globalThis._fumocaViewerScene || null, host: renderer?.domElement?.parentElement || null });
   l.apply(s);
+  // Light animation saved in Studio (orbit, sunrise, sweep…)
+  try {
+    const { normalizeLightMotion, LightAnimator } = await import('./light-motion.js');
+    const motion = normalizeLightMotion(saved?.motion);
+    if (motion?.enabled && motion.autoplay) {
+      l.animator = new LightAnimator(l, () => s, motion);
+      l.animator.play();
+    }
+  } catch (e) { console.warn('[lighting] light animation', e); }
   return l;
 }

@@ -314,6 +314,8 @@ jobs:
         run: node --experimental-default-type=module tests/screen-space-selection.test.mjs
       - name: Sit flat on the grid test
         run: node --experimental-default-type=module tests/sit-flat.test.mjs
+      - name: Light animation test
+        run: node --experimental-default-type=module tests/light-motion.test.mjs
       - name: Test Studio Look tab end-to-end in Chromium
         run: node tests/browser/look-panel.browser.mjs
       - name: Test living photo (one image, no AI)

@@ -9,6 +9,7 @@
 import * as THREE from 'three';
 import { SplatLighting, normalizeLighting, DEFAULT_LIGHTING, MOODS, moodSettings } from './splat-lighting.js';
 import { ViewController, normalizeViewSettings, captureView, DEFAULT_VIEW } from './view-settings.js';
+import { LIGHT_MOTIONS, motionFromPreset, normalizeLightMotion, LightAnimator, directionToAngles, raySphere } from './light-motion.js';
 
 const row = (id, label, min, max, step, value, fmt = (v) => v) =>
   `<div class="ctrl-row"><span class="ctrl-label">${label}</span><span class="ctrl-val" id="${id}Val">${fmt(value)}</span></div>
@@ -25,6 +26,10 @@ export function mountLookPanel(container, { onStatus } = {}) {
         <div class="hint">Set the mood of a scan: pick a look, then tweak anything. The shadow follows the splat, the platform and any rig animation. Turn it off to get the scan's own colours back exactly.</div>
         <div id="lkMoods" style="display:flex;flex-wrap:wrap;gap:5px;margin:8px 0">${Object.entries(MOODS).map(([k, m]) => `<button type="button" class="ac-btn" data-mood="${k}" style="padding:5px 8px;font-size:11px">${m.label}</button>`).join('')}</div>
         ${check('lkOn', 'Use lighting')}
+        <div style="display:flex;gap:6px;margin-top:8px;align-items:center">
+          <button type="button" class="ac-btn" id="lkGrab" style="flex:1" title="Drag in the viewport to move the light around the object">☀ Move the light in the scene</button>
+          <select id="lkGrabWhich" style="width:92px" title="Which light to move"><option value="key">Key light</option><option value="second">Second light</option></select>
+        </div>
         <div class="hint" style="margin-top:8px;opacity:.8">Key light</div>
         ${row('lkAz', 'Direction', -180, 180, 1, L.azimuth, v => Math.round(v) + '°')}
         ${row('lkEl', 'Height', 2, 90, 1, L.elevation, v => Math.round(v) + '°')}
@@ -60,6 +65,23 @@ export function mountLookPanel(container, { onStatus } = {}) {
       </div>
     </div>
     <div class="section">
+      <div class="sec-head"><span class="sec-label">Light animation</span><span class="sec-badge">NEW</span></div>
+      <div class="sec-body" style="padding:10px">
+        <div class="hint">Make the light move: pick one, or set the light, press “Add key”, change it, add another. Plays here and on the published page.</div>
+        <div id="lmPresets" style="display:flex;flex-wrap:wrap;gap:5px;margin:8px 0">${Object.entries(LIGHT_MOTIONS).map(([k, m]) => `<button type="button" class="ac-btn" data-lmotion="${k}" style="padding:5px 8px;font-size:11px">${m.label}</button>`).join('')}</div>
+        <div id="lmKeys" style="font-size:11px"></div>
+        <button type="button" class="ac-btn full" id="lmAddKey" style="margin-top:6px">＋ Add key (the light as it is now)</button>
+        ${row('lmDur', 'Length', 1, 60, 0.5, 8, v => (+v).toFixed(1) + ' s')}
+        <div class="ctrl-row" style="margin-top:6px"><span class="ctrl-label">Repeat</span>
+          <select id="lmLoop" style="width:130px"><option value="loop">Loop</option><option value="pingpong">Back and forth</option><option value="once">Play once</option></select></div>
+        ${check('lmAuto', 'Play on the published page', true)}
+        <div style="display:flex;gap:6px;margin-top:8px">
+          <button type="button" class="ac-btn lime" id="lmPlay" style="flex:2">▶ Play</button>
+          <button type="button" class="ac-btn" id="lmClear" style="flex:1">Clear</button>
+        </div>
+      </div>
+    </div>
+    <div class="section">
       <div class="sec-head"><span class="sec-label">How it's viewed · website &amp; embed</span></div>
       <div class="sec-body" style="padding:10px">
         <div class="hint">Set exactly how people first see it, how far they can zoom, and whether it spins. Great for a steady view on a website.</div>
@@ -90,6 +112,7 @@ export function mountLookPanel(container, { onStatus } = {}) {
   const sparkMesh = () => (window.FumocaSparkGaussian?.isEnabled?.() ? window.FumocaSparkGaussian.getMesh?.() : null);
   let preset = 'custom';
   let lamps = [];
+  let motionKeys = [], motionPreset = 'custom', animator = null;
   const sceneSize = () => {
     const S = window.S; if (!S?.positions?.length) return 1;
     let lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
@@ -134,6 +157,7 @@ export function mountLookPanel(container, { onStatus } = {}) {
     background: q('#lkBgOn').checked ? q('#lkBg').value : '', vignette: +q('#lkVig').value,
     shadow: q('#lkSh').checked, shadowOpacity: +q('#lkShOp').value, shadowSoftness: +q('#lkShSoft').value,
     lamps,
+    ...(motionKeys.length >= 2 ? { motion: motionState() } : {}),
   });
   function setLightControls(ls) {
     const set = (id, v) => { const el = q('#' + id); if (el.type === 'checkbox') el.checked = !!v; else el.value = v; };
@@ -219,6 +243,168 @@ export function mountLookPanel(container, { onStatus } = {}) {
     if (lighting && mesh && mesh !== lightingMesh && lightState().enabled) { lighting = null; applyLighting(); }
   }, 160);
 
+  // ── light in the scene: drag to move it ──
+  const subjectCentre = () => {
+    const S = window.S; if (!S?.positions?.length) return [0, 0, 0];
+    const c = [0, 0, 0]; let n = 0; const st = Math.max(1, Math.floor(S.alive.length / 20000));
+    for (let i = 0; i < S.alive.length; i += st) if (S.alive[i]) { for (let k = 0; k < 3; k++) c[k] += S.positions[i * 3 + k]; n++; }
+    return n ? c.map(v => v / n) : c;
+  };
+  let grab = false, dragging = false, sun = null, grabFrame = 0, centre = [0, 0, 0], radius = 1;
+  function ensureSun() {
+    if (sun || !window.scene) return sun;
+    sun = new THREE.Group(); sun.name = 'fumoca-light-handle'; sun.renderOrder = 60;
+    const ball = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 14), new THREE.MeshBasicMaterial({ color: 0xffd54a, depthTest: false, transparent: true, opacity: 0.95, toneMapped: false }));
+    const halo = new THREE.Mesh(new THREE.SphereGeometry(1.9, 20, 14), new THREE.MeshBasicMaterial({ color: 0xffd54a, depthTest: false, transparent: true, opacity: 0.18, toneMapped: false }));
+    const lineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(0, 0, 1)]);
+    const line = new THREE.Line(lineGeo, new THREE.LineDashedMaterial({ color: 0xffd54a, dashSize: 0.04, gapSize: 0.03, depthTest: false, transparent: true, opacity: 0.6 }));
+    ball.renderOrder = halo.renderOrder = line.renderOrder = 60;
+    sun.userData = { ball, halo, line }; sun.add(ball, halo, line);
+    window.scene.add(sun);
+    return sun;
+  }
+  function placeSun(settings) {
+    if (!sun) return;
+    const which = q('#lkGrabWhich').value === 'second' ? 2 : 1;
+    const az = (which === 2 ? settings.azimuth2 : settings.azimuth) * Math.PI / 180, el = (which === 2 ? settings.elevation2 : settings.elevation) * Math.PI / 180;
+    const d = [Math.cos(el) * Math.sin(az), Math.sin(el), Math.cos(el) * Math.cos(az)];
+    const p = centre.map((c, k) => c + d[k] * radius);
+    const size = radius * 0.05;
+    const { ball, halo, line } = sun.userData;
+    ball.position.set(...p); ball.scale.setScalar(size); halo.position.set(...p); halo.scale.setScalar(size);
+    ball.material.color.set(which === 2 ? settings.color2 : settings.color); halo.material.color.copy(ball.material.color);
+    line.geometry.setFromPoints([new THREE.Vector3(...centre), new THREE.Vector3(...p)]); line.computeLineDistances();
+  }
+  window.addEventListener('fumoca:lightingApplied', (e) => { if (sun?.visible && e.detail) placeSun(e.detail); });
+  function setGrab(on) {
+    grab = on;
+    centre = subjectCentre(); radius = sceneSize() * 0.85;
+    ensureSun(); if (sun) sun.visible = on;
+    q('#lkGrab').classList.toggle('lime', on);
+    q('#lkGrab').textContent = on ? '■ Done moving the light' : '☀ Move the light in the scene';
+    if (on) {
+      if (!q('#lkOn').checked) { q('#lkOn').checked = true; }
+      placeSun(lightState()); applyLighting();
+      status('Drag anywhere in the viewport — the light follows your cursor around the object. Drag over the top for light from above.');
+    }
+  }
+  function dragTo(e) {
+    const el = window.renderer?.domElement, cam = window.camera;
+    if (!el || !cam) return;
+    const r = el.getBoundingClientRect();
+    const ndc = new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+    const ray = new THREE.Raycaster(); ray.setFromCamera(ndc, cam);
+    const o = ray.ray.origin, d = ray.ray.direction;
+    const p = raySphere([o.x, o.y, o.z], [d.x, d.y, d.z], centre, radius);
+    const a = directionToAngles(p[0] - centre[0], p[1] - centre[1], p[2] - centre[2]);
+    const two = q('#lkGrabWhich').value === 'second';
+    if (two && !q('#lk2').checked) q('#lk2').checked = true;
+    q(two ? '#lkAz2' : '#lkAz').value = Math.round(a.azimuth);
+    q(two ? '#lkEl2' : '#lkEl').value = Math.round(Math.max(two ? -30 : 2, a.elevation));
+    if (preset !== 'custom') { preset = 'custom'; container.querySelectorAll('[data-mood]').forEach(b => b.classList.remove('lime')); }
+    syncLabels();
+    const l = ensureLighting();
+    const s = lightState();
+    if (l) { try { l.apply(s, { fast: true, shadow: (grabFrame++ % 3) === 0 }); } catch (_) {} }
+    placeSun(s);
+  }
+  const canvasEl = () => window.renderer?.domElement;
+  function onGrabDown(e) {
+    if (!grab || e.button !== 0) return;
+    e.stopImmediatePropagation(); e.preventDefault();
+    dragging = true; if (window.controls) window.controls.enabled = false;
+    dragTo(e);
+  }
+  let pending = null, raf = 0;
+  function onGrabMove(e) {
+    if (!dragging) return;
+    pending = e;
+    if (!raf) raf = requestAnimationFrame(() => { raf = 0; if (pending) dragTo(pending); pending = null; });
+  }
+  function onGrabUp() {
+    if (!dragging) return;
+    dragging = false; if (window.controls) window.controls.enabled = true;
+    applyLighting(); window.dispatchEvent(new CustomEvent('fumoca:lookChange'));
+  }
+  q('#lkGrab').addEventListener('click', () => {
+    const el = canvasEl();
+    if (el && !el._lkGrabBound) { el.addEventListener('pointerdown', onGrabDown, true); window.addEventListener('pointermove', onGrabMove); window.addEventListener('pointerup', onGrabUp); el._lkGrabBound = true; }
+    setGrab(!grab);
+  });
+  q('#lkGrabWhich').addEventListener('change', () => { if (sun?.visible) placeSun(lightState()); });
+
+  // ── light animation ──
+  const ANIM_FIELDS = ['azimuth', 'elevation', 'intensity', 'ambient', 'azimuth2', 'elevation2', 'intensity2', 'exposure', 'contrast', 'saturation', 'warmth', 'tint', 'vignette', 'color', 'ambientColor', 'color2'];
+  function motionState() {
+    return normalizeLightMotion({ enabled: motionKeys.length >= 2, preset: motionPreset, duration: +q('#lmDur').value, loop: q('#lmLoop').value, autoplay: q('#lmAuto').checked, keys: motionKeys });
+  }
+  function loadMotion(m) {
+    stopAnim(false);
+    motionKeys = m?.keys ? m.keys.map(k => ({ ...k })) : [];
+    motionPreset = m?.preset || 'custom';
+    if (m) { q('#lmDur').value = m.duration; q('#lmLoop').value = m.loop; q('#lmAuto').checked = m.autoplay; }
+    renderKeys(); syncLabels();
+  }
+  function spreadKeys() { motionKeys.forEach((k, i) => { k.t = motionKeys.length > 1 ? i / (motionKeys.length - 1) : 0; }); }
+  function renderKeys() {
+    q('#lmKeys').innerHTML = motionKeys.length
+      ? motionKeys.map((k, i) => `<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">
+          <span style="width:10px;height:10px;border-radius:50%;background:${k.color || '#fff4e6'};border:1px solid rgba(255,255,255,.3)"></span>
+          <span style="flex:1;opacity:.85">Key ${i + 1} · ${Math.round(k.t * 100)}%${k.azimuth !== undefined ? ` · ${Math.round(k.azimuth)}°` : ''}${k.elevation !== undefined ? ` / ${Math.round(k.elevation)}° up` : ''}</span>
+          <button type="button" class="ac-btn" data-lmdel="${i}" style="padding:2px 6px">✕</button></div>`).join('')
+      : '<div style="opacity:.6">No animation yet.</div>';
+    q('#lmKeys').querySelectorAll('[data-lmdel]').forEach(b => b.addEventListener('click', () => { motionKeys.splice(+b.dataset.lmdel, 1); spreadKeys(); motionPreset = 'custom'; renderKeys(); motionChanged(); }));
+    container.querySelectorAll('[data-lmotion]').forEach(b => b.classList.toggle('lime', b.dataset.lmotion === motionPreset && motionKeys.length >= 2));
+  }
+  const motionChanged = () => { if (animator?.playing) playAnim(); window.dispatchEvent(new CustomEvent('fumoca:lookChange')); };
+  const baseLight = () => { const s = lightState(); delete s.motion; return s; };
+  function playAnim() {
+    const m = motionState();
+    if (!m?.enabled) { status('Pick an animation, or add at least two keys.'); return; }
+    if (!q('#lkOn').checked) { q('#lkOn').checked = true; }
+    const go = (l) => {
+      if (!animator || animator.lighting !== l) { animator?.stop(false); animator = new LightAnimator(l, baseLight, m); }
+      else animator.setMotion(m);
+      if (grab) setGrab(false);
+      ensureSun(); if (sun) { centre = subjectCentre(); radius = sceneSize() * 0.85; sun.visible = true; }
+      animator.play();
+      q('#lmPlay').textContent = '■ Stop';
+      status('Playing — the sun marker shows where the light is. Press Stop to edit.');
+    };
+    const l = ensureLighting();
+    if (l) return go(l);
+    status('Turning Photoreal (Spark) on…');
+    window.FumocaStudioHooks?.ensureSpark?.().then(mesh => { const l2 = mesh && ensureLighting(); if (l2) setTimeout(() => go(l2), 600); else status('Photoreal (Spark) could not start on this device — lighting needs it.'); });
+  }
+  function stopAnim(restore = true) {
+    if (!animator?.playing) return;
+    animator.stop(restore);
+    if (sun && !grab) sun.visible = false;
+    q('#lmPlay').textContent = '▶ Play';
+  }
+  container.querySelectorAll('[data-lmotion]').forEach(b => b.addEventListener('click', () => {
+    if (!q('#lkOn').checked) { q('#lkOn').checked = true; syncLabels(); }
+    const base = baseLight();
+    const m = motionFromPreset(b.dataset.lmotion, base);
+    const extra = LIGHT_MOTIONS[b.dataset.lmotion].base;
+    if (extra) { if (extra.light2) q('#lk2').checked = true; if (extra.intensity2 !== undefined) q('#lkInt2').value = extra.intensity2; syncLabels(); }
+    loadMotion(m); motionPreset = b.dataset.lmotion; renderKeys();
+    playAnim(); window.dispatchEvent(new CustomEvent('fumoca:lookChange'));
+  }));
+  q('#lmAddKey').addEventListener('click', () => {
+    stopAnim(true);
+    if (!q('#lkOn').checked) { q('#lkOn').checked = true; applyLighting(); }
+    const s = baseLight(), key = {};
+    for (const f of ANIM_FIELDS) key[f] = s[f];
+    motionKeys.push(key); spreadKeys(); motionPreset = 'custom'; renderKeys();
+    status(motionKeys.length < 2 ? 'Key 1 added. Now move the light (drag it or use the sliders) and add key 2.' : `Key ${motionKeys.length} added — press Play.`);
+    motionChanged();
+  });
+  q('#lmPlay').addEventListener('click', () => (animator?.playing ? stopAnim(true) : playAnim()));
+  q('#lmClear').addEventListener('click', () => { stopAnim(true); motionKeys = []; motionPreset = 'custom'; renderKeys(); motionChanged(); status('Light animation cleared.'); });
+  ['lmDur', 'lmLoop', 'lmAuto'].forEach(id => { q('#' + id).addEventListener('input', () => { syncLabels(); if (id !== 'lmAuto') motionChanged(); }); q('#' + id).addEventListener('change', () => window.dispatchEvent(new CustomEvent('fumoca:lookChange'))); });
+  renderKeys();
+
   // ── view ──
   function syncLabels() {
     const fmt = {
@@ -226,7 +412,7 @@ export function mountLookPanel(container, { onStatus } = {}) {
       lkAz2: v => Math.round(v) + '°', lkEl2: v => Math.round(v) + '°', lkInt2: v => Math.round(v * 100) + '%',
       lkExp: v => (v > 0 ? '+' : '') + (+v).toFixed(2), lkCon: v => Math.round(v * 100), lkSat: v => Math.round(v * 100),
       lkWarm: v => Math.round(v * 100), lkTint: v => Math.round(v * 100), lkVig: v => Math.round(v * 100) + '%',
-      lkShOp: v => Math.round(v * 100) + '%', lkShSoft: v => Math.round(v * 100) + '%',
+      lkShOp: v => Math.round(v * 100) + '%', lkShSoft: v => Math.round(v * 100) + '%', lmDur: v => (+v).toFixed(1) + ' s',
       vwMin: v => Math.round(v * 100) + '% of start', vwMax: v => (+v).toFixed(2) + '× start', vwSpin: v => (+v === 0 ? 'off' : Math.round(v) + '°/s'),
     };
     for (const [id, f] of Object.entries(fmt)) { const el = q('#' + id + 'Val'); if (el) el.textContent = f(+q('#' + id).value); }
@@ -269,13 +455,15 @@ export function mountLookPanel(container, { onStatus } = {}) {
 
   // ── persistence ──
   window.addEventListener('fumoca:fileLoaded', () => {
+    stopAnim(false); animator = null; if (grab) setGrab(false);
     lighting?.dispose?.(); lighting = null; lightingMesh = null;
     const present = window._fumocaCurrentRecord?.meta?.present || {};
     const ls = normalizeLighting(present.lighting), vs = normalizeViewSettings(present.view);
     if (ls) {
       setLightControls(ls);
+      loadMotion(normalizeLightMotion(ls.motion));
       if (ls.enabled) setTimeout(applyLighting, 2500);
-    } else q('#lkOn').checked = false;
+    } else { q('#lkOn').checked = false; loadMotion(null); }
     if (vs) {
       startView = vs.startView; q('#vwMin').value = vs.zoomMin; q('#vwMax').value = vs.zoomMax; q('#vwLockZoom').checked = vs.lockZoom;
       q('#vwLockRot').checked = vs.lockRotate; q('#vwPan').checked = vs.allowPan; q('#vwFixed').checked = vs.fixed; q('#vwSpin').value = vs.spin;
@@ -291,6 +479,8 @@ export function mountLookPanel(container, { onStatus } = {}) {
     setMood: (name) => container.querySelector(`[data-mood="${name}"]`)?.click(),
     getView: () => viewState(),
     get lighting() { return lighting; },
+    playLight: () => playAnim(), stopLight: () => stopAnim(true),
+    get lightAnimator() { return animator; },
   };
   window.FumocaLook = api;
   return api;
