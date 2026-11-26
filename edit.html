@@ -688,9 +688,8 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
     <div class="tb-sep"></div>
     <button class="tb-btn" id="compareBtn" title="Compare loaded scene with current edits" disabled>◧ Compare</button>
     <button class="tb-btn" id="screenshotBtn" title="Screenshot viewport">📷 Capture</button>
-    <button class="tb-btn" id="authorBtn" title="Articulate objects">Animate</button>
+    <button class="tb-btn" id="authorBtn" title="Moving parts: doors, lids, caps, drawers">Animate</button>
     <button class="tb-btn" id="manualGaussianLabBtn" title="Open the active NIF in the manual Gaussian deformation editor">Gaussian Lab</button>
-    <button class="tb-btn" id="loadGlbBtn" title="Load a GLB to articulate" style="background:rgba(120,180,255,.12);border-color:rgba(120,180,255,.4);color:#9cf;">Load GLB</button>
     <input type="file" id="loadGlbFile" accept=".glb,.gltf" style="display:none"/>
     <button class="tb-btn" id="hotspotBtn" title="Hotspots — place, edit, tour" style="background:rgba(200,255,0,.1);border-color:rgba(200,255,0,.4);color:#c8ff00;">📍 Hotspots</button>
     <button class="tb-btn" id="extractObjectBtn" title="Extract an object (e.g. a car) as its own 3D listing" style="background:rgba(0,200,255,.08);border-color:rgba(0,200,255,.35);color:#7ee2ff;">🎯 Extract</button>
@@ -3897,7 +3896,52 @@ window.cancelStudioHistory = () => {
 
 // ─── SELECTION ──────────────────────────────────────────────────────────────
 function clearSelection() { if (S.selected) S.selected.fill(0); rebuildGeometry(); syncTransformGizmo(); selectedPointCount(); }
-function invertSelection() { if (!S.alive) return; for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) S.selected[i] ^= 1; rebuildGeometry(); syncTransformGizmo(); selectedPointCount(); }
+// Invert for splats. Selection tools pick the front surface you can see, so a
+// plain flip also grabbed the part's own back and inside. Here the part is
+// taken through its depth: splats behind the selected surface (within the
+// part's size) stay with it, and everything else is selected.
+// Shift+Invert does a plain flip.
+function invertSelection(e) {
+  if (!S.alive) return;
+  pushHistory('invert selection');
+  const n = S.alive.length, sel = [];
+  for (let i = 0; i < n; i++) if (S.alive[i] && S.selected[i] && !S.layerHidden?.[i]) sel.push(i);
+  if (e?.shiftKey || !sel.length || !window.camera) {
+    for (let i = 0; i < n; i++) if (S.alive[i] && !S.layerHidden?.[i]) S.selected[i] ^= 1;
+  } else {
+    const vp = document.getElementById('viewport'), W = vp.clientWidth || 1, H = vp.clientHeight || 1;
+    camera.updateMatrixWorld(true);
+    const V = camera.matrixWorldInverse.elements, Pm = camera.projectionMatrix.elements, CELL = 6;
+    const proj = (i) => {
+      const x = S.positions[i * 3], y = S.positions[i * 3 + 1], z = S.positions[i * 3 + 2];
+      const vx = V[0] * x + V[4] * y + V[8] * z + V[12], vy = V[1] * x + V[5] * y + V[9] * z + V[13], vz = V[2] * x + V[6] * y + V[10] * z + V[14];
+      if (vz >= 0) return null;
+      const cx = Pm[0] * vx + Pm[4] * vy + Pm[8] * vz + Pm[12], cy = Pm[1] * vx + Pm[5] * vy + Pm[9] * vz + Pm[13], cw = Pm[3] * vx + Pm[7] * vy + Pm[11] * vz + Pm[15];
+      return { cx: Math.floor((cx / cw * 0.5 + 0.5) * W / CELL), cy: Math.floor((-cy / cw * 0.5 + 0.5) * H / CELL), d: -vz };
+    };
+    // the part's size (robust) and its front depth per screen cell (dilated by one cell)
+    const ext = [0, 1, 2].map(k => { const v = sel.filter((_, j) => j % Math.max(1, Math.floor(sel.length / 20000)) === 0).map(i => S.positions[i * 3 + k]).sort((a, b) => a - b); return v[Math.floor(v.length * 0.98)] - v[Math.floor(v.length * 0.02)]; });
+    const size = Math.max(...ext, 1e-6);
+    const front = new Map(), key = (x, y) => x * 100003 + y;
+    for (const i of sel) {
+      const p = proj(i); if (!p) continue;
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+        const k = key(p.cx + dx, p.cy + dy), f = front.get(k);
+        if (f === undefined || p.d < f) front.set(k, p.d);
+      }
+    }
+    let kept = 0;
+    for (let i = 0; i < n; i++) {
+      if (!S.alive[i] || S.layerHidden?.[i]) continue;
+      if (S.selected[i]) { S.selected[i] = 0; continue; }
+      const p = proj(i), f = p && front.get(key(p.cx, p.cy));
+      if (f !== undefined && f !== null && p.d >= f - size * 0.05 && p.d <= f + size) { kept++; continue; }   // the part's hidden side
+      S.selected[i] = 1;
+    }
+    setStatus(`Selected everything around your part (kept ${fmt(kept)} splats of its hidden side with it). Shift+Invert flips plainly.`, 'ok');
+  }
+  rebuildGeometry(); syncTransformGizmo(); selectedPointCount();
+}
 function deleteSelected() {
   if (!S.alive) return;
   pushHistory('delete');
@@ -6098,7 +6142,7 @@ $('saveSupabaseBtn')?.addEventListener('click', async () => {
 // ─── LEFT PANEL BUTTONS ──────────────────────────────────────────────────────
 $('deleteBtn').addEventListener('click', deleteSelected);
 $('clearSelBtn').addEventListener('click', clearSelection);
-$('invertSelBtn').addEventListener('click', invertSelection);
+$('invertSelBtn').addEventListener('click', (e) => invertSelection(e));
 $('growSelBtn').addEventListener('click', () => {
   if (!S.alive) return;
   // simple grow: also select neighbours
@@ -6811,13 +6855,13 @@ animBg();
 <script type="module" src="js/modules/anim-physics-boot.js"></script>
 <script type="module" src="js/modules/anim-scenes.js"></script>
 <script type="module" src="js/modules/anim-skeleton.js"></script>
-<script type="module" src="js/modules/anim-scenes.js"></script>
 <script type="module" src="js/modules/anim-afford.js"></script>
 <script type="module" src="js/modules/anim-live.js"></script>
-<script type="module" src="js/modules/anim-author.js"></script>
 <script type="module">
 window.FumocaFounderGate?.requireFounder?.();
-document.getElementById('authorBtn')?.addEventListener('click', () => window.FumocaAuthor?.open());
+// "Animate" opens the Parts tab (doors, lids, caps, drawers…) — the old
+// Articulation prototype panel and its demo objects are gone.
+document.getElementById('authorBtn')?.addEventListener('click', () => document.querySelector('.ptab[data-tab="parts"]')?.click());
 window.FumocaPhysicsBoot?.start?.();
 document.getElementById('loadGlbBtn')?.addEventListener('click', () => document.getElementById('loadGlbFile')?.click());
 document.getElementById('loadGlbFile')?.addEventListener('change', async (e) => {
@@ -6842,33 +6886,11 @@ document.getElementById('loadGlbFile')?.addEventListener('change', async (e) => 
 <script type="module" src="js/modules/anim-master.js"></script>
 <script type="module" src="js/modules/anim-studio-init.js"></script>
 <script type="module">
-  // First live articulated object. Cooler base + hinged lid on the master timeline.
-  function bootArticulated() {
-    const scene = window.scene || window._fumocaScene;
-    if (!scene || !window.FumocaStudioInit?.createDemoCooler || !window.FumocaObjectAnim) {
-      setTimeout(bootArticulated, 300);
-      return;
-    }
+  // Master timeline camera binding (no built-in demo objects).
+  (function bootTimeline() {
+    if (!window.FumocaStudioInit?.init || !(window.scene || window._fumocaScene)) { setTimeout(bootTimeline, 300); return; }
     window.FumocaStudioInit.init();
-    const result = window.FumocaStudioInit.createDemoCooler(scene);
-    console.log('[Articulated] demo cooler', result);
-
-    const bar = document.createElement('div');
-    bar.id = 'articulatedBar';
-    bar.style.cssText = 'position:fixed;bottom:196px;left:50%;transform:translateX(-50%);z-index:220;display:flex;gap:8px;align-items:center;background:rgba(7,10,16,.94);border:1px solid rgba(200,255,0,.35);border-radius:14px;padding:8px 12px;color:#c8ff00;font:12px/1.2 system-ui';
-    bar.innerHTML = '<strong>Cooler</strong><button id="artPlay" style="background:#c8ff00;color:#111;border:0;border-radius:8px;padding:6px 10px;font-weight:700;cursor:pointer">Play</button><input id="artScrub" type="range" min="0" max="2" step="0.01" value="0" style="width:160px">';
-    document.body.appendChild(bar);
-    document.getElementById('artPlay').onclick = () => {
-      const playing = window.FumocaStudioInit.isPlaying();
-      if (playing) window.FumocaStudioInit.pause();
-      else window.FumocaStudioInit.play();
-      document.getElementById('artPlay').textContent = playing ? 'Play' : 'Pause';
-    };
-    document.getElementById('artScrub').oninput = (e) => {
-      window.FumocaStudioInit.scrub(Number(e.target.value));
-    };
-  }
-  bootArticulated();
+  })();
 </script>
 <script type="module" src="js/modules/anim-light.js"></script>
 <script type="module" src="js/modules/anim-physics.js"></script>
