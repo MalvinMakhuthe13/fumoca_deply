@@ -1,0 +1,23 @@
+{
+  "generated": "2026-11-26T04:42:28.936Z",
+  "packages": [
+    {
+      "name": "three",
+      "version": "0.180.0",
+      "files": 379,
+      "bytes": 16235239
+    },
+    {
+      "name": "@sparkjsdev/spark",
+      "version": "2.4.0",
+      "files": 63,
+      "bytes": 17179052
+    },
+    {
+      "name": "@dimforge/rapier3d-compat",
+      "version": "0.21.0",
+      "files": 52,
+      "bytes": 15023468
+    }
+  ]
+}

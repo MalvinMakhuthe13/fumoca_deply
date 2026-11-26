@@ -1,0 +1,262 @@
+[
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/coarena.d.ts",
+  "bytes": 372,
+  "sha256": "725e23eb72608995aa389ae6acbd6f719c13a8eae665c1e6c0012b0e6675803c"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/control/character_controller.d.ts",
+  "bytes": 8310,
+  "sha256": "9e8315c9f474d0b4960792b6c12ed4c10aef49758f2c7e400425877860c06da0"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/control/index.d.ts",
+  "bytes": 121,
+  "sha256": "924ad716eea184c044910281e437cbb3a22802d0bb5e4ab02da6d7cd384762bf"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/control/pid_controller.d.ts",
+  "bytes": 1801,
+  "sha256": "b891ce0325ce16c36a440ee3ff2aa967c9b2b8a5479ea21120e7e9b8218cbee8"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/control/ray_cast_vehicle_controller.d.ts",
+  "bytes": 10774,
+  "sha256": "448c4cfcf9a15895d6506fc4acb12d770f5d12ec2aad7821ef108a60d76f15ef"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/dynamics/ccd_solver.d.ts",
+  "bytes": 436,
+  "sha256": "f103aa89570932ae3d2257763cc9de257e608ed33ae052edf11aecdf2fe5c6c4"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/dynamics/coefficient_combine_rule.d.ts",
+  "bytes": 300,
+  "sha256": "ff3b75425ae1a5e723087a077061883092b7c8b87ca39418ae9e901f19fe2338"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/dynamics/impulse_joint.d.ts",
+  "bytes": 15540,
+  "sha256": "a1aff477394dbc65568d0870ab89ffbdfb33f2ba7244f3c818ff0886f820c385"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/dynamics/impulse_joint_set.d.ts",
+  "bytes": 3089,
+  "sha256": "7725508db200d2294ccd0037713496f093093abaa0fcdf651212147597efc577"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/dynamics/index.d.ts",
+  "bytes": 420,
+  "sha256": "fc56cbf2661969c926ebbb4b099ba58cac44a2f204ee51656096764c0cfb4e09"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/dynamics/integration_parameters.d.ts",
+  "bytes": 4144,
+  "sha256": "8c3c37ea2972a4835100ab6e6d2687b4c8c0b828f9f600821813e602e8fcf952"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/dynamics/island_manager.d.ts",
+  "bytes": 827,
+  "sha256": "555d769b11e202f31d2ed3524300ee6c266b82920865456527731b5de7824170"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/dynamics/multibody_joint.d.ts",
+  "bytes": 1492,
+  "sha256": "ae09009ba5f98a51d14cb8d7443b253e8792f25d0ec38123c735fd76404e53ae"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/dynamics/multibody_joint_set.d.ts",
+  "bytes": 2917,
+  "sha256": "887ba0d3284d495a6b9be7f933570e3d8155ae4af580bede84f4eabc44085395"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/dynamics/rigid_body.d.ts",
+  "bytes": 36609,
+  "sha256": "fba7353bae14afb9d22a355660ff346cab33627626d84c3d520cf3267e1e1695"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/dynamics/rigid_body_set.d.ts",
+  "bytes": 3544,
+  "sha256": "a168d96fc6c209a82269ecd9c761513f857e4b52162304d72ea87654624f79cf"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/dynamics/soft_body.d.ts",
+  "bytes": 41470,
+  "sha256": "a2e4260ea869de8f853a8b6c5f725c3d12c4ce52fb3440035bde65504a479420"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/dynamics/soft_body_set.d.ts",
+  "bytes": 4683,
+  "sha256": "c06b58b0563d88256550f5bf216ee913be85419f13aec3d3b7a5e20c2408e6ee"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/exports.d.ts",
+  "bytes": 272,
+  "sha256": "025e7d2d5951e63fdb1d32875f95a6afc5ffacc89255fc6544bb914ad0cc2898"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/geometry/broad_phase.d.ts",
+  "bytes": 12504,
+  "sha256": "5870e3157e830b643508a95d61547765e0bb6e62cfa3c7f52d224f4e78a36900"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/geometry/collider.d.ts",
+  "bytes": 44644,
+  "sha256": "fc595f8e8f1a1106aaed0f377c63f0dd2d2d88d25e0b88a860c1e975677ea75e"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/geometry/collider_set.d.ts",
+  "bytes": 4065,
+  "sha256": "f7a6e6e727a72a4f5c1d33a13b444a1aa5ed3b51d5d69fedbbba89fc3cdef21a"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/geometry/contact.d.ts",
+  "bytes": 1205,
+  "sha256": "1766cb07e0fa8b0eadcc1f3c0431d4d400cf441c7eb1a9ded1f523ff6badfd3d"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/geometry/feature.d.ts",
+  "bytes": 96,
+  "sha256": "2e8a26bcf5dcc690d5bcd53bcb268fc9841d730ba7a6d6d2deea219b684a1fd9"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/geometry/index.d.ts",
+  "bytes": 311,
+  "sha256": "c4901a47ca09589f782af8f7f73bf4102c53cf10f07f36f02c7fe5b81b0ab897"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/geometry/interaction_groups.d.ts",
+  "bytes": 776,
+  "sha256": "5f3f913e4942c29f5c924f12ba42661d4fe52ca21f8d00ab8b5cb58d402066fa"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/geometry/narrow_phase.d.ts",
+  "bytes": 5998,
+  "sha256": "4789e2241ff3e1f113f4a30e480f394ba66e71f2cb3c64a494bad9ad9e212d64"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/geometry/point.d.ts",
+  "bytes": 2032,
+  "sha256": "6bee78f28570d268b7b850df501d88bb4f29791bd67bc9d015cab1472cfdbdf2"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/geometry/ray.d.ts",
+  "bytes": 3624,
+  "sha256": "dcd44303a53f9345cc57728c1c31c7261966f59a6abfa9364b8e7d08215c4bab"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/geometry/shape.d.ts",
+  "bytes": 23398,
+  "sha256": "b0e43db4e4bb5f72fccaff3bb4bd6151e67f8587e98352a1f5263b104946a8b6"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/geometry/toi.d.ts",
+  "bytes": 2646,
+  "sha256": "61d02f90b3ebd4824c095baa86a6982fd771873d3c664ab98f6376dfead914f3"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/init.d.ts",
+  "bytes": 144,
+  "sha256": "eda2bd8fb187e2087babff76ef5b01a7cc8c563ee7d2749f9e3dc91245bc4f57"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/math.d.ts",
+  "bytes": 2441,
+  "sha256": "bdb9c07fca94b2c8a03b3a6a17f7e3e98622f6df0de15c8cfce9a508dd7182d4"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/pipeline/debug_render_pipeline.d.ts",
+  "bytes": 1807,
+  "sha256": "bb9dc8e4761e623d2ea89d5a77ca332b2d40bbb22b5672134c94daf09f84ded5"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/pipeline/event_queue.d.ts",
+  "bytes": 4220,
+  "sha256": "53e67e99cef9780c2c4acb445494f60df3908f98cd1c3e74359ca230480f1ba6"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/pipeline/index.d.ts",
+  "bytes": 242,
+  "sha256": "c4b89c3eeef14aa0c0fdf471ffc31918b2488ed751718cb67e5278f71d018b23"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/pipeline/physics_hooks.d.ts",
+  "bytes": 2025,
+  "sha256": "b540920dc7cb3fcd9f337cb53c2e30e029d1dd0a7fe0529229302dff4248a70b"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/pipeline/physics_pipeline.d.ts",
+  "bytes": 873,
+  "sha256": "983de8c13b87d358ce7fc313fd9b42b6984469376b7c995077de357c4a04aff5"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/pipeline/query_pipeline.d.ts",
+  "bytes": 1108,
+  "sha256": "d6f67708340458125b830c5c7ccbc99321a713fddea99e58077377dc15378010"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/pipeline/serialization_pipeline.d.ts",
+  "bytes": 1959,
+  "sha256": "3c9cfaa21c1af78a7c013f464c188aebc291c17b38bfe49e67655e7e3b560df0"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/pipeline/world.d.ts",
+  "bytes": 35082,
+  "sha256": "427ab396be6d8a628bac322ce8bdf7792a5ff0e3a161c64e5de1f1434d40079d"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/rapier.cjs",
+  "bytes": 4343409,
+  "sha256": "fca22b2f33d4e88d2992215f42df6312093476db7fea4197816fb8e4ce17cba4"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/rapier.cjs.map",
+  "bytes": 1188293,
+  "sha256": "653b48d17283e1011dc72377ec8e6c9da5ca5c1dc0634672917038d1e26cb55f"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/rapier.d.ts",
+  "bytes": 87,
+  "sha256": "d38a78daa72781b6fe046cd95e76c55924b4acde46409ca9705ca326642d2b10"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/rapier.mjs",
+  "bytes": 4340292,
+  "sha256": "02dc6a4e2fffc013bab08fbb44fa68f501d8303615e9afe4c7d89ad4eedda0d0"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/rapier.mjs.map",
+  "bytes": 1187846,
+  "sha256": "2e24c2791d3e50590ab464eb54f31840965b2b773e88b70e4326d0b8cd5ba19b"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/rapier_wasm3d.d.ts",
+  "bytes": 169098,
+  "sha256": "2f6b7f3ed27b9d94695969a3592548e15dd3550f03031fd90b6badcbf5b1bd63"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/rapier_wasm3d.js",
+  "bytes": 342560,
+  "sha256": "871d3ad44d82a952daa79dd98b62748c2f1fea4d0d38f737693a7bc5dba3c21e"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/rapier_wasm3d_bg.wasm",
+  "bytes": 3082103,
+  "sha256": "17cfa80eebd8de0291b948496dbffba724b98b489687f8272ca236a7bbf1dd4b"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/rapier_wasm3d_bg.wasm.d.ts",
+  "bytes": 80612,
+  "sha256": "54955c83fb2b1443bbcda61b18669bcdb520b527fc53c8bb21fce2402787d742"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/dist/raw.d.ts",
+  "bytes": 33,
+  "sha256": "d8c9d61ab63a35b5db813dddfee3c29b2fe4bf9504758a4fe8b20d4a44382824"
+ },
+ {
+  "path": "vendor/@dimforge/rapier3d-compat/0.21.0/package.json",
+  "bytes": 814,
+  "sha256": "5abcda69edc27faac2516ab958bf3bb8b1f912ee1e47df4d2b9aea67535a20b3"
+ }
+]
