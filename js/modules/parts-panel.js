@@ -231,7 +231,16 @@ export function mountPartsPanel(container, { onStatus } = {}) {
     getParts: () => parts.map(p => ({ ...p })),
     list: () => parts.map(p => ({ id: p.id, name: p.name })),
     run: (id, to) => ensureAnimator()?.run(id, to),
-    get animator() { return animator; },
+    get animator() { return ensureAnimator(); },
+    /** Change a part (used when a second scan's door panel is attached). */
+    updatePart(id, patch) {
+      const i = parts.findIndex(p => p.id === id);
+      if (i < 0) return false;
+      const next = normalizeParts([{ ...parts[i], ...patch, id }])[0];
+      if (!next) return false;
+      parts[i] = next; changed(); return true;
+    },
+    get(id) { const p = parts.find(x => x.id === id); return p ? JSON.parse(JSON.stringify(p)) : null; },
   };
   window.FumocaParts = api;
   return api;

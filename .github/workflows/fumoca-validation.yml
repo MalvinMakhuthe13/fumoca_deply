@@ -306,6 +306,10 @@ jobs:
         run: node --experimental-default-type=module tests/tutorial.test.mjs
       - name: Product guide browser test
         run: node tests/browser/tutorial.browser.mjs
+      - name: Linked inside / open-door scans unit tests
+        run: node --experimental-default-type=module tests/scan-link.test.mjs
+      - name: Studio Inside tab browser test
+        run: node tests/browser/link-panel.browser.mjs
       - name: Test Studio Look tab end-to-end in Chromium
         run: node tests/browser/look-panel.browser.mjs
       - name: Test living photo (one image, no AI)

@@ -16,7 +16,7 @@
 <link rel="stylesheet" href="css/fumoca-layouts.css"/>
 <script type="module" src="js/modules/anim-studio.js"></script>
 <script type="module" src="js/modules/review-video.js?v=20261025-bglayer"></script>
-<script type="module" src="js/modules/present-tab.js?v=20261126-guide01"></script>
+<script type="module" src="js/modules/present-tab.js?v=20261126-link01"></script>
 
 <style>
 /* ═══════════════════════════════════════════════════════
@@ -777,6 +777,7 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
       <div class="ptab" data-tab="look">Look</div>
       <div class="ptab" data-tab="parts">Parts</div>
       <div class="ptab" data-tab="guide">Guide</div>
+      <div class="ptab" data-tab="link">Inside</div>
       <div class="ptab" data-tab="present">Present · Music</div>
       <div class="ptab" data-tab="import">Import</div>
       <div class="ptab" data-tab="layers">Layers</div>
@@ -790,6 +791,8 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
     <div class="panel-body" id="tab-parts" style="display:none"></div>
     <!-- TAB: GUIDE (step-by-step product tutorials; mounted by tutorial-panel.js) -->
     <div class="panel-body" id="tab-guide" style="display:none"></div>
+    <!-- TAB: INSIDE (link a second scan: interiors, open doors; mounted by link-panel.js) -->
+    <div class="panel-body" id="tab-link" style="display:none"></div>
 
     <!-- TAB: TOOLS -->
     <div class="panel-body" id="tab-tools">
@@ -4383,6 +4386,23 @@ function _encodeGaussianPly(indices) {
 
 // Rebuild the photoreal source payload after geometric transforms so toggling
 // Spark off/on cannot reload stale pre-transform coordinates.
+// Hooks for Studio modules that edit splats in bulk (scan linking).
+window.FumocaStudioHooks = {
+  pushHistory: (label) => pushHistory(label),
+  setMode: (mode) => { try { setMode(mode); } catch (_) {} },
+  /** After a bulk edit of S: redraw, and keep Spark on with the new data. */
+  async commit() {
+    rebuildGeometry(); try { renderLayers(); } catch (_) {} try { updateStats(); } catch (_) {}
+    if (window.FumocaSparkGaussian?.isEnabled?.()) {
+      const all = Array.from({ length: S.alive.length }, (_, i) => i);
+      const bytes = new Uint8Array(await _encodeGaussianPly(all).arrayBuffer());
+      S.isGaussianPly = true;
+      await window.FumocaSparkGaussian.rebase(bytes, S);
+    }
+    window.dispatchEvent(new CustomEvent('fumoca:splatsEdited'));
+  },
+};
+
 window.refreshGaussianSourceBytes = async () => {
   if (!S.isGaussianPly || !S.positions?.length) return false;
   const indices = Array.from({ length: S.positions.length / 3 }, (_, index) => index);
@@ -6017,6 +6037,12 @@ $('addSplatInput')?.addEventListener('change', async e => {
   rebuildGeometry();
   renderLayers();
   updateStats();
+  // Spark draws from one source file; give it the joined scene so it stays on
+  // (otherwise the counts no longer match and Studio fell back to the soft renderer).
+  if (window.FumocaSparkGaussian?.isEnabled?.() && files.length) {
+    try { await window.FumocaStudioHooks.commit(); } catch (err) { console.warn('[Studio] Spark rebase after add', err); }
+  }
+  window.dispatchEvent(new CustomEvent('fumoca:splatAdded'));
   // Rebuild the source-index map and attach the gizmo after the appended layer
   // is selected, so transforms immediately target the newly added subject.
   refreshTransformSourceMap();
@@ -6859,15 +6885,15 @@ document.getElementById('loadGlbFile')?.addEventListener('change', async (e) => 
 <script type="module" src="js/modules/studio-timeline.js"></script>
 <script type="module" src="js/modules/ply-validator.js"></script>
 <script type="module" src="js/modules/camera-view.js"></script>
-<script type="module" src="js/modules/publish-to-fumoca.js?v=20261125-metapatch01"></script>
-<script type="module" src="js/modules/spark-gaussian-view.js?v=20261125-clean01"></script>
+<script type="module" src="js/modules/publish-to-fumoca.js?v=20261126-link01"></script>
+<script type="module" src="js/modules/spark-gaussian-view.js?v=20261126-link01"></script>
 <script type="module" src="js/modules/gaussian-renderer.js?v=20261126-clean01"></script>
 <script type="module" src="js/modules/smart-select.js"></script>
 <script src="js/modules/gap-fill-engine.js"></script>
 <script type="module" src="js/modules/sound-engine.js"></script>
 <script type="module" src="js/modules/splat-music-share.js"></script>
 <script type="module" src="js/modules/hotspot-pro.js"></script>
-<script type="module" src="js/modules/present-bridge.js"></script>
+<script type="module" src="js/modules/present-bridge.js?v=20261126-link01"></script>
 
 
 <!-- ═══════════════════════════════════════════════════════════════
@@ -7823,7 +7849,7 @@ if (!window._fumocaBooted) {
   // Moving parts (doors, bonnet, caps, recliners) for interactive hotspots.
   const partsRoot = document.getElementById('tab-parts');
   if (partsRoot) {
-    import('./js/modules/parts-panel.js?v=20261126-parts01')
+    import('./js/modules/parts-panel.js?v=20261126-link01')
       .then((m) => m.mountPartsPanel(partsRoot, { onStatus: status }))
       .catch((e) => console.warn('[Studio] parts panel', e));
   }
@@ -7834,6 +7860,14 @@ if (!window._fumocaBooted) {
     import('./js/modules/tutorial-panel.js?v=20261126-guide01')
       .then((m) => m.mountTutorialPanel(guideRoot, { onStatus: status }))
       .catch((e) => console.warn('[Studio] guide panel', e));
+  }
+
+  // Link a second scan (inside / doors open) and reveal it with the doors.
+  const linkRoot = document.getElementById('tab-link');
+  if (linkRoot) {
+    import('./js/modules/link-panel.js?v=20261126-link01')
+      .then((m) => m.mountLinkPanel(linkRoot, { onStatus: status }))
+      .catch((e) => console.warn('[Studio] inside panel', e));
   }
 
   // Single photo → living photo (no AI). Replaces the old AI-first panel.

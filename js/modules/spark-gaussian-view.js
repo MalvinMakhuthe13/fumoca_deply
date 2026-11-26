@@ -539,6 +539,32 @@ const SparkGaussianView = (() => {
     return _makeEditedBytes(state);
   }
 
+  /**
+   * Replace the source Gaussian file (after splats were added or rebuilt in
+   * Studio — e.g. a linked second scan) and redraw from it, keeping Spark on.
+   */
+  async function rebase(bytes, state = window.S) {
+    if (!bytes) return false;
+    const u8 = bytes instanceof Uint8Array ? new Uint8Array(bytes) : new Uint8Array(bytes);
+    if (!_enabled) return enable({ bytes: u8 });
+    while (_loading) await new Promise(r => setTimeout(r, 30));
+    _loading = true;
+    try {
+      _originalBytes = u8;
+      if (state) state.gaussianSourceBytes = new Uint8Array(u8);
+      window._fumocaLastGaussianBytes = new Uint8Array(u8);
+      _built = null;
+      await loadFromBytes(_makeEditedBytes(state), _lastFileName);
+      _snapshot(_capture(state));
+      _lastStateSignature = _stateSignature(state);
+      _hideLegacy(); _updateSelectionOverlay(state);
+      return true;
+    } catch (error) {
+      console.error('[FUMOCA] Spark rebase failed', error);
+      return false;
+    } finally { _loading = false; }
+  }
+
   function isEnabled() { return _enabled; }
   function getMesh() { return _mesh; }
   function isAvailable() { return true; }
@@ -547,7 +573,7 @@ const SparkGaussianView = (() => {
     if (_spark) { try { _scene()?.remove(_spark); _spark.dispose?.(); } catch (_) {} _spark = null; }
   }
 
-  return { enable, disable, isEnabled, getMesh, isAvailable, loadFromBytes, syncEditorState, refreshEditorState, exportEditedBytes, dispose, setViewFilter };
+  return { enable, disable, isEnabled, getMesh, isAvailable, loadFromBytes, syncEditorState, refreshEditorState, exportEditedBytes, dispose, setViewFilter, rebase };
 })();
 window.FumocaSparkGaussian = SparkGaussianView;
 export default SparkGaussianView;

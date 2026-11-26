@@ -68,6 +68,7 @@ function ply(n){
   const dv = new DataView(out.buffer, h.length); for (let i=0;i<n;i++){ dv.setFloat32(i*28, i, true); dv.setFloat32(i*28+12, 1, true); }
   return out;
 }
+window.__ply = ply;
 window.S = { isGaussianPly:true, fileName:'t.ply', gaussianSourceBytes: ply(3),
   positions: new Float32Array([0,0,0, 1,0,0, 2,0,0]), alive: new Uint8Array([1,1,1]), selected: new Uint8Array(3),
   rotation: new Float32Array([1,0,0,0, 1,0,0,0, 1,0,0,0]), points: { visible: true } };
@@ -169,6 +170,18 @@ try {
   // 6. edits are still exportable from the original source (SH etc. preserved)
   const exported = await page.evaluate(() => window.view.exportEditedBytes(window.S).length);
   assert.ok(exported > 0);
+
+  // 7. a second scan appended (more splats than the source file): rebase keeps
+  //    Spark on with the joined data instead of falling back, and exports it all
+  const after = await page.evaluate(async () => {
+    const S = window.S; S.alive = new Uint8Array([1, 1, 1, 1, 1]); S.selected = new Uint8Array(5);
+    S.positions = new Float32Array([0,0,0, 1,0,0, 2,0,0, 3,0,0, 4,0,0]);
+    S.rotation = new Float32Array(20).map((_, k) => (k % 4 ? 0 : 1));
+    const before = window.__events.length;
+    const ok = await window.view.rebase(window.__ply(5), S);
+    return { ok, enabled: window.view.isEnabled(), fallbacks: window.__events.length - before, exported: window.__plyCount(window.view.exportEditedBytes(S)), source: window.__plyCount(S.gaussianSourceBytes) };
+  });
+  assert.deepEqual(after, { ok: true, enabled: true, fallbacks: 0, exported: 5, source: 5 }, 'rebase after adding a scan: ' + JSON.stringify(after));
   assert.deepEqual(errors, []);
   console.log('spark in-place editing browser: all checks passed');
 } finally {

@@ -138,6 +138,12 @@ export function initPresentViewer() {
           if (!a) return;
           window._fumocaPartAnimator = a;
           window.FumocaParts = { run: (id, to) => a.run(id, to), list: () => a.list().map(p => ({ id: p.id, name: p.name })) };
+          // Linked insides (cabin, rooms, inside a fridge) fade in as their doors open.
+          if (Array.isArray(data.links) && data.links.length) {
+            return Promise.all([import('three'), import('./scan-link.js')]).then(([THREE, sl]) => {
+              window._fumocaInsideReveal = new sl.InsideReveal(THREE, window._fumocaPublishedSparkMesh, a, data.links);
+            });
+          }
         })
         .catch(error => console.warn('[present-viewer] moving parts failed', error));
     }
@@ -197,6 +203,7 @@ export function initPresentViewer() {
       livingApplied = false;
       window._fumocaViewController?.dispose?.(); window._fumocaViewController = null; viewApplied = false;
       window._fumocaLighting?.dispose?.(); window._fumocaLighting = null; lightingApplied = false;
+      window._fumocaInsideReveal?.dispose?.(); window._fumocaInsideReveal = null;
       window._fumocaPartAnimator?.dispose?.(); window._fumocaPartAnimator = null; partsApplied = false;
       window._fumocaTutorial?.player?.dispose?.(); window._fumocaTutorial?.button?.remove?.(); window._fumocaTutorial = null; tutorialApplied = false;
       tryApply();

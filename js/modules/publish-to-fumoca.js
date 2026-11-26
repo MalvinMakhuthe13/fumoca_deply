@@ -140,6 +140,7 @@ const FumocaPublish = (() => {
     }
     const S = window.S;
     let rec = window._fumocaCurrentRecord || null;
+    const liveRecord = rec;
 
     if (!sb) throw new Error(
       'Supabase not connected — make sure config.js is loaded before edit.html modules. ' +
@@ -195,6 +196,7 @@ const FumocaPublish = (() => {
       review = { ...review, include: true };
       console.info('[Publish] review video attached', review.url);
     }
+    try { window.dispatchEvent(new CustomEvent('fumoca:beforePublish')); } catch (_) {}
     onProgress?.('Preparing splat…', 12);
     const blob = await _buildNifBlob({ title, description, reviewVideo: includeReview ? review : null, skipLiveReview: !includeReview });
     onProgress?.('Uploading…', 20);
@@ -305,6 +307,14 @@ const FumocaPublish = (() => {
         viewer_engine: 'spark',
         published_from: 'studio_gaussian',
       };
+    }
+    // Studio's Present settings (lighting, view, moving parts, guides, linked
+    // insides, poster, platform…) live on the open record / in memory. `rec`
+    // above is the stored row, so without this they were never published and
+    // only showed in the browser that made them.
+    const livePresent = window.__FUMOCA_PRESENT__ || liveRecord?.meta?.present || null;
+    if (livePresent && typeof livePresent === 'object') {
+      payload.meta = { ...(payload.meta || {}), present: livePresent };
     }
     const timeline = window.FumocaMaster?.serialize?.();
     if (timeline?.objects?.length) {

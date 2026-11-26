@@ -111,6 +111,7 @@ function payload() {
     view: window.FumocaLook?.getView?.() || null,
     parts: window.FumocaParts?.getParts?.() || [],
     tutorial: window.FumocaTutorial?.getTutorial?.() || null,
+    links: window.FumocaLinks?.getLinks?.() || [],
     updatedAt: Date.now(),
   };
 }
@@ -122,6 +123,9 @@ window.addEventListener('fumoca:livingChange', () => { try { persist(); } catch 
 window.addEventListener('fumoca:lookChange', () => { try { persist(); } catch (_) {} });
 window.addEventListener('fumoca:partsChange', () => { try { persist(); } catch (_) {} });
 window.addEventListener('fumoca:tutorialChange', () => { try { persist(); } catch (_) {} });
+window.addEventListener('fumoca:linksChange', () => { try { persist(); } catch (_) {} });
+// Splat order can change with edits; save the latest right before publishing.
+window.addEventListener('fumoca:beforePublish', () => { try { persist(); } catch (_) {} });
 
 function persist() {
   const data = payload();
