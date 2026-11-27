@@ -52,6 +52,7 @@ export function initPresentViewer() {
   let posterApplied = false;
   let reviewApplied = false;
   let platformApplied = false;
+  let rigApplied = false;
   const tryApply = () => {
     const data = resolvePresent();
     if (!data) return;
@@ -91,6 +92,15 @@ export function initPresentViewer() {
         .catch(error => { platformApplied = false; console.warn('[present-viewer] platform could not be restored', error); });
     }
 
+    // Skeleton + motion saved in Studio's Rig tab.
+    if (!rigApplied && data.rig?.clip && data.rig.autoplay !== false && window._fumocaPublishedSparkMesh) {
+      rigApplied = true;
+      Promise.all([import('three'), import('./splat-rig-driver.js')])
+        .then(([THREE, m]) => m.restoreRigOnViewer(THREE, window._fumocaPublishedSparkMesh, data.rig))
+        .then(driver => { if (driver) { window._fumocaRigDriver = driver; console.info('[present-viewer] rig motion playing'); } })
+        .catch(error => { console.warn('[present-viewer] rig could not be restored', error); });
+    }
+
     const review =
       data.reviewUrl ||
       new URLSearchParams(location.search).get('review') ||
@@ -120,6 +130,8 @@ export function initPresentViewer() {
       posterApplied = false;
       reviewApplied = false;
       platformApplied = false;
+      window._fumocaRigDriver?.dispose?.(); window._fumocaRigDriver = null;
+      rigApplied = false;
       tryApply();
     },
   };
