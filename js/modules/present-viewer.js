@@ -51,6 +51,7 @@ export function initPresentViewer() {
   let navApplied = false;
   let posterApplied = false;
   let reviewApplied = false;
+  let platformApplied = false;
   const tryApply = () => {
     const data = resolvePresent();
     if (!data) return;
@@ -81,6 +82,15 @@ export function initPresentViewer() {
       }
     }
 
+    // Presentation platform saved in Studio (base + logo + turntable).
+    if (!platformApplied && data.platform?.enabled && window._fumocaPublishedSparkGroup) {
+      platformApplied = true;
+      import('./platform-viewer.js')
+        .then(m => m.restorePlatform(data.platform))
+        .then(ok => { if (!ok) platformApplied = false; else console.info('[present-viewer] platform restored'); })
+        .catch(error => { platformApplied = false; console.warn('[present-viewer] platform could not be restored', error); });
+    }
+
     const review =
       data.reviewUrl ||
       new URLSearchParams(location.search).get('review') ||
@@ -102,12 +112,14 @@ export function initPresentViewer() {
   // viewer.js imports poster-composer asynchronously; restore immediately when
   // its API becomes available, even if the initial boot retries have elapsed.
   window.addEventListener('fumoca:posterReady', tryApply);
+  window.addEventListener('fumoca:viewerReady', tryApply);
   window.FumocaPresentViewer = {
     reload: () => {
       magazineApplied = false;
       navApplied = false;
       posterApplied = false;
       reviewApplied = false;
+      platformApplied = false;
       tryApply();
     },
   };

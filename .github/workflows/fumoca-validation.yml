@@ -276,6 +276,12 @@ jobs:
           node --experimental-default-type=module tests/persisted-ui-xss-contract.mjs
       - name: Test Studio Spark fallback (no blank viewport when Spark fails) in Chromium
         run: node tests/browser/spark-fallback.browser.mjs
+      - name: Test presentation platform config and seating
+        run: node --test tests/platform-build.test.mjs
+      - name: Test splat → textured solid mesh (CPU, OpenMVS-style)
+        run: node --test tests/solid-mesh.test.mjs
+      - name: Test solid-mesh Web Worker in Chromium
+        run: node tests/browser/solid-mesh-worker.browser.mjs
       - name: Test CPU-only splat to NIF conversion
         run: node --experimental-default-type=module tests/splat-to-nif-smoke.mjs
       - name: Test whole-platform audit contract

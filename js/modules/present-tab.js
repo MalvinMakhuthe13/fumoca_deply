@@ -104,9 +104,13 @@ function payload() {
       ? window.FumocaReviewVideo.getSrc()
       : null,
     poster: window.FumocaPoster?.getState?.() || null,
+    platform: window.FumocaPresentation?.getConfig?.() || null,
     updatedAt: Date.now(),
   };
 }
+
+// Keep the saved Present payload in step with the Platform tab.
+window.addEventListener('fumoca:platformChange', () => { try { persist(); } catch (_) {} });
 
 function persist() {
   const data = payload();
