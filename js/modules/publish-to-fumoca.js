@@ -1,6 +1,7 @@
 import r2 from '../r2Client.js';
 import { encodeNif } from './nif-format.js';
-import { NIFReader, CHUNK } from '../../engine-next/format/NIFSpec.js';
+import { NIFReader, CHUNK, decodeGaussianAnimationChunk, encodeGaussianAnimationChunk } from '../../engine-next/format/NIFSpec.js';
+import { remapGaussianAnimation } from './gaussian-animation-remap.js';
 /**
  * FUMOCA Publish Engine v1
  * ══════════════════════════════════════════════════════
@@ -35,10 +36,38 @@ const FumocaPublish = (() => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const buf = await res.arrayBuffer();
         const reader = new NIFReader(buf);
+        const animationChunk = reader.getChunk(CHUNK.GAUSSIAN_ANIMATION);
         passthroughChunks = reader.chunks.filter(c =>
-          c.type !== CHUNK.KEYFRAME_GEO && c.type !== CHUNK.META && c.type !== CHUNK.THUMBNAIL);
+          c.type !== CHUNK.KEYFRAME_GEO && c.type !== CHUNK.META &&
+          c.type !== CHUNK.THUMBNAIL && c.type !== CHUNK.GAUSSIAN_ANIMATION);
         vertical = reader.header?.vertical || 'generic';
+
+        // KEYFRAME_GEO is compacted to live splats below. Keep the native
+        // animation chunk aligned with that exact order by filtering stable
+        // IDs and their tracks; never leave a chunk pointing at deleted rows.
+        if (animationChunk) {
+          try {
+            const animation = await decodeGaussianAnimationChunk(animationChunk);
+            const aliveIndices = [];
+            for (let i = 0; i < (window.S?.alive?.length || 0); i++) {
+              if (window.S.alive[i]) aliveIndices.push(i);
+            }
+            const remapped = remapGaussianAnimation(animation, aliveIndices, window.S.alive.length);
+            passthroughChunks.push(encodeGaussianAnimationChunk(remapped));
+            console.info('[Publish] Gaussian animation remapped to live splats:', {
+              before: animation.gaussianIds.length,
+              after: remapped.gaussianIds.length,
+              tracks: remapped.tracks.length,
+            });
+          } catch (animationError) {
+            console.error('[Publish] Could not safely remap native Gaussian animation:', animationError);
+            const stop = new Error('Publish stopped: the native Gaussian animation could not be safely matched to the edited splats. No asset was uploaded. Reopen the original NIF and review the animation before publishing.');
+            stop.code = 'FUMOCA_ANIMATION_REMAP_FAILED';
+            throw stop;
+          }
+        }
       } catch (e) {
+        if (e?.code === 'FUMOCA_ANIMATION_REMAP_FAILED') throw e;
         console.warn('[Publish] Could not read original .nif for passthrough — proceeding without it:', e.message);
       }
     }
