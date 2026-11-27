@@ -10,9 +10,10 @@
 const PRIVATE_RULES = {
   'nif-videos': [
     /^vehicle-captures\\/([0-9a-f-]{36})\\//i,
+    /^vehicle-captures\/([0-9a-f-]{36})\//i,
     /^raw\/([0-9a-f-]{36})\//i,
     /^verify-refs\/([0-9a-f-]{36})\//i,
-    /^([0-9a-f-]{36})\/sources\//i,
+    /^([0-9a-f-]{36})\//i,
   ],
 };
 
