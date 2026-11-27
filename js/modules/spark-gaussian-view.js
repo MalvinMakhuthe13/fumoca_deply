@@ -235,6 +235,25 @@ const SparkGaussianView = (() => {
           view[prop.setter](prop.offset, state.rotation[i*4+axis] / norm, true);
         }
       }
+      // Explicit Studio paint overrides must reach the published Spark PLY.
+      // The NIF path already uses paintColors; without this block the viewer
+      // companion kept the original source colour after a successful publish.
+      const painted = [0,1,2].some(axis => state.paintColors?.[i*3+axis] >= 0);
+      if (painted) {
+        const dc = [0,1,2].map(axis => parsed.properties.find(p => p.name === 'f_dc_' + axis));
+        if (dc.every(Boolean) && state.colors?.length >= (i+1)*3) {
+          const c0 = 0.28209479177387814;
+          for (let axis=0;axis<3;axis++) {
+            const paint = state.paintColors?.[i*3+axis];
+            const colour = Math.max(0, Math.min(1, paint >= 0 ? paint : state.colors[i*3+axis]));
+            dc[axis].setter && view[dc[axis].setter](dc[axis].offset, (colour - 0.5) / c0, true);
+          }
+          // A flat paint colour has no higher-order view-dependent terms.
+          for (const prop of parsed.properties) {
+            if (prop.name.startsWith('f_rest_')) view[prop.setter](prop.offset, 0, true);
+          }
+        }
+      }
       rows.push(row);
     }
     const header = parsed.vertexHeader.replace(/^element vertex \d+$/m, 'element vertex ' + rows.length);
