@@ -5,7 +5,7 @@
 -- nif_r2_key at any object. No client code updates jobs; only the workers
 -- (service role) do. Users now get: read own jobs, create a fresh queued job,
 -- delete their own failed/queued job, and retry a failed one through a
--- checked function (max 3 retries, only when the original upload exists).
+-- checked function (max 3 retries, only when an owner-scoped upload key is recorded).
 
 drop policy if exists "own jobs" on public.reconstruction_jobs;
 drop policy if exists "own jobs read" on public.reconstruction_jobs;
@@ -19,6 +19,14 @@ create policy "own jobs create" on public.reconstruction_jobs
   for insert to authenticated with check (
     auth.uid() = user_id
     and status in ('queued', 'staged', 'pending')
+    and raw_r2_key is not null
+    and (
+      split_part(raw_r2_key, '/', 1) = auth.uid()::text
+      or (
+        split_part(raw_r2_key, '/', 1) in ('raw', 'vehicle-captures', 'poster-assets', 'poster-subjects', 'verify-refs', 'print-source')
+        and split_part(raw_r2_key, '/', 2) = auth.uid()::text
+      )
+    )
     and nif_r2_key is null
     and coalesce(progress, 0) = 0
     and error_message is null
@@ -45,7 +53,23 @@ begin
   if coalesce(j.raw_r2_key, '') = '' then
     raise exception 'The original upload is missing — please upload again.' using errcode = '22023';
   end if;
-  tries := coalesce((j.meta->>'retry_count')::int, 0);
+  if not (
+    split_part(j.raw_r2_key, '/', 1) = auth.uid()::text
+    or (
+      split_part(j.raw_r2_key, '/', 1) in ('raw', 'vehicle-captures', 'poster-assets', 'poster-subjects', 'verify-refs', 'print-source')
+      and split_part(j.raw_r2_key, '/', 2) = auth.uid()::text
+    )
+  ) then
+    raise exception 'The original upload key is not owned by this account.' using errcode = '42501';
+  end if;
+  if not (coalesce(j.meta, '{}'::jsonb) ? 'retry_count') then
+    tries := 0;
+  elsif jsonb_typeof(j.meta->'retry_count') <> 'number'
+     or (j.meta->>'retry_count')::numeric <> trunc((j.meta->>'retry_count')::numeric) then
+    raise exception 'Retry counter is invalid — contact support before retrying.' using errcode = '22023';
+  else
+    tries := greatest(0, least(3, (j.meta->>'retry_count')::numeric))::int;
+  end if;
   if tries >= 3 then raise exception 'This job has been retried 3 times — please upload again.' using errcode = '22023'; end if;
   update public.reconstruction_jobs
      set status = 'queued', progress = 0, error_message = null,

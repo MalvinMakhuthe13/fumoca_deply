@@ -3,15 +3,18 @@
  *
  * Most objects are public by design (published NIFs, thumbnails, previews,
  * review videos). Raw capture material is not: burst-photo zips under
- * raw/<user>/, verification reference photos under verify-refs/<user>/, and
- * original uploads under <user>/sources/. Those are readable only by their
+ * raw/<user>/, vehicle captures under vehicle-captures/<user>/, verification
+ * reference photos under verify-refs/<user>/, and source uploads under
+ * <user>/sources/ or <user>/<filename>. Public review/<id> videos stay public. Those are readable only by their
  * owner (or the server workers), and are never put in the shared cache.
  */
 const PRIVATE_RULES = {
   'nif-videos': [
+    /^vehicle-captures\/([0-9a-f-]{36})\//i,
     /^raw\/([0-9a-f-]{36})\//i,
     /^verify-refs\/([0-9a-f-]{36})\//i,
     /^([0-9a-f-]{36})\/sources\//i,
+    /^([0-9a-f-]{36})\/[^/]+$/i,
   ],
 };
 
