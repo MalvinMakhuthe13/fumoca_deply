@@ -288,6 +288,10 @@ jobs:
           node --experimental-default-type=module tests/persisted-ui-xss-contract.mjs
       - name: Test Studio Spark fallback (no blank viewport when Spark fails) in Chromium
         run: node tests/browser/spark-fallback.browser.mjs
+      - name: Test Photo to 3D depth and Gaussian PLY encoding
+        run: node --test tests/depth-to-splat.test.mjs
+      - name: Test Photo to 3D browser flow and Spark preview fallback
+        run: node tests/browser/photo-to-3d.browser.mjs
       - name: Test presentation platform config and seating
         run: node --test tests/platform-build.test.mjs
       - name: Test splat → textured solid mesh (CPU, OpenMVS-style)
