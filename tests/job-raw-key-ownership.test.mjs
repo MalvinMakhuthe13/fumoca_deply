@@ -22,6 +22,8 @@ assert.equal(privateOwner('nif-videos', owner + '/review/clip.mp4'), null, 'publ
 
 const sql = await readFile(new URL('../supabase_migration_job_retry_and_rls.sql', import.meta.url), 'utf8');
 assert.match(sql, /raw_r2_key is not null/);
+assert.match(sql, /split_part\(j\.raw_r2_key, '\/', 1\) = auth\.uid\(\)::text/);
+assert.match(sql, /The original upload key is not owned by this account/);
 assert.match(sql, /split_part\(raw_r2_key, '\/', 1\) = auth\.uid\(\)::text/);
 assert.match(sql, /split_part\(raw_r2_key, '\/', 2\) = auth\.uid\(\)::text/);
 assert.match(sql, /jsonb_typeof\(j\.meta->'retry_count'\) <> 'number'/);
