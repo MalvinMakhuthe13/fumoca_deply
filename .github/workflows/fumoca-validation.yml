@@ -326,6 +326,8 @@ jobs:
         run: node --experimental-default-type=module tests/part-cells.test.mjs
       - name: Free move (animate anything) and shoe laces
         run: node --experimental-default-type=module tests/free-move-laces.test.mjs
+      - name: Zoom / rotation locks hold in the published viewer
+        run: node --experimental-default-type=module tests/view-lock.test.mjs
       - name: Solid splats and point-to-plane snap
         run: node --experimental-default-type=module tests/solidify.test.mjs
       - name: Scans as states (find what moved and how)

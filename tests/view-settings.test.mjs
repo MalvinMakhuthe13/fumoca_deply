@@ -43,8 +43,9 @@ vc.dispose();
 // TrackballControls-style: steady view
 const track = { target: new V3(), noZoom: false, noRotate: false, noPan: false, noRoll: false, update() {} };
 const cam2 = { position: new V3(0, 0, 5), up: new V3(0, 1, 0), lookAt() {} };
-new ViewController(THREE, cam2, track, { fixed: true }).apply();
+const steady = new ViewController(THREE, cam2, track, { fixed: true }); steady.apply();
 assert.deepEqual([track.noZoom, track.noRotate, track.noPan], [true, true, true], 'steady view locks everything');
+steady.dispose();   // the lock guard keeps running until disposed
 
 // spin: camera orbits the target at the set speed, keeps its distance, pauses on drag
 const cam3 = { position: new V3(0, 0, 5), up: new V3(0, 1, 0), lookAt() {} };

@@ -145,14 +145,16 @@ export function initPresentViewer() {
 
     // How it's viewed (start view, zoom limits, locks, spin) + embed URL overrides.
     // (a building tour drives the camera itself: no spin, no product view settings)
-    if (!viewApplied && !data.tour?.enabled && window._fumocaViewerCamera && window._fumocaViewerControls && window._fumocaPublishedSparkMesh) {
+    // (needs the camera only — locks hold on every renderer, not just Spark)
+    if (!viewApplied && !data.tour?.enabled && window._fumocaViewerCamera && window._fumocaViewerControls) {
       viewApplied = true;
       Promise.all([import('three'), import('./view-settings.js')]).then(([THREE, m]) => {
         const settings = m.viewSettingsFromUrl(location.search, m.normalizeViewSettings(data.view));
         if (!settings) return;
         window._fumocaViewController?.dispose?.();
         const vc = new m.ViewController(THREE, window._fumocaViewerCamera, window._fumocaViewerControls, settings,
-          { domElement: window._fumocaViewerRenderer?.domElement || window._fumocaPublishedSpark?.renderer?.domElement || null });
+          { domElement: window._fumocaViewerRenderer?.domElement || window._fumocaPublishedSpark?.renderer?.domElement || null,
+            getControls: () => window._fumocaViewerControls, getCamera: () => window._fumocaViewerCamera });
         // let the first auto-framing settle, then take over
         setTimeout(() => { vc.apply(); window._fumocaViewController = vc; }, settings.startView ? 0 : 2300);
       }).catch(error => console.warn('[present-viewer] view settings failed', error));

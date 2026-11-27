@@ -77,8 +77,9 @@ function setControlFlags(controls, s) {
 }
 
 export class ViewController {
-  constructor(THREE, camera, controls, settings, { domElement = null } = {}) {
+  constructor(THREE, camera, controls, settings, { domElement = null, getControls = null, getCamera = null } = {}) {
     this.THREE = THREE; this.camera = camera; this.controls = controls;
+    this.getControls = getControls; this.getCamera = getCamera;
     this.dom = domElement || controls?.domElement || null;
     this.s = normalizeViewSettings(settings) || { ...DEFAULT_VIEW };
     this.raf = 0; this.idleUntil = 0;
@@ -109,7 +110,49 @@ export class ViewController {
     // keep other code from undoing the framing / limits (see viewer fitSubjectInView)
     globalThis._fumocaViewSettings = { ...s, minDistance: controls.minDistance, maxDistance: controls.maxDistance };
     this.startSpin();
+    this.startGuard();
     return true;
+  }
+
+  /**
+   * Keep what the owner set, whatever else runs on the page: re-fits,
+   * poster mode, camera-mode buttons, full-screen inspect or a controls swap
+   * (orbit → trackball) must never unlock zoom / rotation or lift the limits.
+   */
+  enforce() {
+    const nc = this.getControls?.(), cam = this.getCamera?.();
+    if (cam && cam !== this.camera) this.camera = cam;
+    if (nc && nc !== this.controls) {
+      this.controls = nc;
+      if (this.s.startView) nc.target?.set?.(...this.s.startView.target);
+    }
+    const c = this.controls, s = this.s;
+    if (!c || !this.startDistance) return false;
+    let changed = false;
+    const zoomOn = !(s.lockZoom || s.fixed), rotateOn = !(s.lockRotate || s.fixed), panOn = s.allowPan && !s.fixed;
+    const want = { enableZoom: zoomOn, enableRotate: rotateOn, enablePan: panOn, noZoom: !zoomOn, noRotate: !rotateOn, noPan: !panOn, noRoll: !rotateOn };
+    for (const [k, v] of Object.entries(want)) if (k in c && c[k] !== v) { c[k] = v; changed = true; }
+    const lo = this.startDistance * s.zoomMin, hi = this.startDistance * s.zoomMax;
+    if ('minDistance' in c && c.minDistance !== lo) { c.minDistance = lo; changed = true; }
+    if ('maxDistance' in c && c.maxDistance !== hi) { c.maxDistance = hi; changed = true; }
+    // something moved the camera past the limits (a fly-to, a re-fit): bring it back inside
+    const t = c.target;
+    if (t && this.camera?.position) {
+      const d = this.camera.position.distanceTo(t);
+      if (d > 1e-9 && (d < lo * 0.999 || d > hi * 1.001)) {
+        const k = Math.min(hi, Math.max(lo, d)) / d;
+        this.camera.position.sub(t).multiplyScalar(k).add(t);
+        changed = true;
+      }
+    }
+    if (changed) c.update?.();
+    return changed;
+  }
+
+  startGuard() {
+    cancelAnimationFrame(this.guardRaf);
+    const tick = () => { this.guardRaf = requestAnimationFrame(tick); try { this.enforce(); } catch (_) {} };
+    this.guardRaf = requestAnimationFrame(tick);
   }
 
   startSpin() {
@@ -137,7 +180,7 @@ export class ViewController {
   }
 
   dispose() {
-    cancelAnimationFrame(this.raf);
+    cancelAnimationFrame(this.raf); cancelAnimationFrame(this.guardRaf);
     this.dom?.removeEventListener?.('pointerdown', this._down);
     this.dom?.removeEventListener?.('wheel', this._up);
     globalThis.removeEventListener?.('pointerup', this._up);
