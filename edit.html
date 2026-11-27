@@ -6203,8 +6203,10 @@ window.addEventListener('fumoca:openReconstructedSplat', async (event) => {
   try {
     await loadFile(new File([bytes], filename || 'image-popout.splat', { type: 'application/octet-stream' }));
     const living = event.detail?.kind === 'living-photo';
-    S.reconstructionMeta = { kind: living ? 'living-photo' : 'inferred-2.5d', source: filename || 'image' };
+    const photo3d = event.detail?.kind === 'photo-to-3d';
+    S.reconstructionMeta = { kind: living ? 'living-photo' : photo3d ? 'photo-to-3d' : 'inferred-2.5d', source: filename || 'image' };
     if (living) showToast('Living photo ready', 'Built from one photo — a moving 2.5D moment, not a multi-view scan.');
+    else if (photo3d) showToast('Photo → 3D loaded', 'Single-image depth reconstruction is ready to edit. Hidden sides are inferred, not measured.');
     else showToast('Inferred 2.5D scene loaded', 'This depth-based result is not a measured multi-view scan.');
   } catch (err) { setStatus(err.message || String(err), 'warn'); }
 });
