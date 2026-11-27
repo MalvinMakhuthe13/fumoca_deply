@@ -6203,11 +6203,40 @@ window.addEventListener('fumoca:openReconstructedSplat', async (event) => {
   try {
     await loadFile(new File([bytes], filename || 'image-popout.splat', { type: 'application/octet-stream' }));
     const living = event.detail?.kind === 'living-photo';
-    S.reconstructionMeta = { kind: living ? 'living-photo' : 'inferred-2.5d', source: filename || 'image' };
+    const photo3d = event.detail?.kind === 'photo-to-3d';
+    S.reconstructionMeta = { kind: living ? 'living-photo' : photo3d ? 'photo-to-3d' : 'inferred-2.5d', source: filename || 'image' };
     if (living) showToast('Living photo ready', 'Built from one photo — a moving 2.5D moment, not a multi-view scan.');
+    else if (photo3d) showToast('Photo → 3D loaded', 'Single-image depth reconstruction is ready to edit. Hidden sides are inferred, not measured.');
     else showToast('Inferred 2.5D scene loaded', 'This depth-based result is not a measured multi-view scan.');
   } catch (err) { setStatus(err.message || String(err), 'warn'); }
 });
+// Photo → 3D and other pages hand generated splats to Studio through a
+// one-time IndexedDB record, avoiding large base64 URLs or a storage upload.
+{
+  const handoffId = new URLSearchParams(location.search).get('handoff');
+  if (handoffId) {
+    const openHandoff = async () => {
+      try {
+        const { takeHandoff } = await import('./js/modules/handoff-store.js');
+        const item = await takeHandoff(handoffId);
+        const clean = new URL(location.href);
+        clean.searchParams.delete('handoff');
+        history.replaceState(null, '', clean.pathname + clean.search + clean.hash);
+        if (!item?.bytes) {
+          setStatus('That hand-off has expired. Generate the splat again.', 'warn');
+          return;
+        }
+        window.dispatchEvent(new CustomEvent('fumoca:openReconstructedSplat', {
+          detail: { bytes: item.bytes, filename: item.filename, kind: item.kind || 'photo-to-3d' },
+        }));
+      } catch (err) {
+        setStatus('Could not open the generated splat: ' + (err.message || err), 'warn');
+      }
+    };
+    if (document.readyState === 'complete') setTimeout(openHandoff, 300);
+    else window.addEventListener('load', () => setTimeout(openHandoff, 300), { once: true });
+  }
+}
 $('addSplatBtn')?.addEventListener('click', () => $('addSplatInput')?.click());
 $('addSplatInput')?.addEventListener('change', async e => {
   const files = Array.from(e.target.files || []); e.target.value = '';
