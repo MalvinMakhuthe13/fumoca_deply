@@ -354,6 +354,13 @@ const FumocaPublish = (() => {
       if (latestRow?.meta && typeof latestRow.meta === 'object' && payload.meta) {
         payload.meta = { ...latestRow.meta, ...payload.meta };
       }
+      // The latest-row merge above deliberately preserves unrelated metadata,
+      // but must not resurrect a Spark companion from the previous version.
+      if (!viewPlyKey && payload.meta) {
+        delete payload.meta.view_ply_r2_key;
+        delete payload.meta.viewer_engine;
+        delete payload.meta.published_from;
+      }
       const { data: updated, error } = await sb.from('nif_files')
         .update(payload).eq('id', splatId).eq('user_id', user.id).select('id').maybeSingle();
       if (error) throw new Error('The NIF was uploaded, but its asset record could not be updated: ' + error.message);
