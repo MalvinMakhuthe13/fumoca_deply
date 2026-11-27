@@ -111,19 +111,42 @@ const FumocaPublish = (() => {
       return new Blob([buf], { type: 'application/octet-stream' });
     }
 
-    // .splat source: filter alive Gaussians, pack straight into NIF KEYFRAME_GEO
-    if (!S.sourceBuffer) throw new Error('No source buffer');
-    const aliveIndices = [];
-    for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) aliveIndices.push(i);
-    const buf = encodeNif({
-      sourceBuffer: new Uint8Array(S.sourceBuffer),
-      aliveIndices,
-      rowSize: S.splatRowSize,
-      meta,
-      vertical,
-      passthroughChunks,
-      skipLiveReview: !!skipLiveReview,
+    // Legacy .splat source. Encode the live editor arrays, not the original
+    // packed sourceBuffer: transforms, painting, opacity/scale/rotation edits
+    // are held in S and are not reflected in sourceBuffer. Repacking the raw
+    // rows here silently discarded those edits on every publish.
+    if (!S.positions?.length || !S.colors?.length) throw new Error('No editable Gaussian arrays are available');
+    const alive = [];
+    for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) alive.push(i);
+    const positions = new Float32Array(alive.length * 3);
+    const colors01 = new Float32Array(alive.length * 3);
+    const opacities01 = new Float32Array(alive.length);
+    const scalesLinear = S.scaleXYZ ? new Float32Array(alive.length * 3) : null;
+    const quats = S.rotation ? new Float32Array(alive.length * 4) : null;
+    alive.forEach((i, row) => {
+      const pc = S.paintColors;
+      const r = pc && pc[i * 3] >= 0 ? pc[i * 3] : S.colors[i * 3];
+      const g = pc && pc[i * 3 + 1] >= 0 ? pc[i * 3 + 1] : S.colors[i * 3 + 1];
+      const b = pc && pc[i * 3 + 2] >= 0 ? pc[i * 3 + 2] : S.colors[i * 3 + 2];
+      positions[row * 3] = S.positions[i * 3];
+      positions[row * 3 + 1] = S.positions[i * 3 + 1];
+      positions[row * 3 + 2] = S.positions[i * 3 + 2];
+      colors01[row * 3] = r; colors01[row * 3 + 1] = g; colors01[row * 3 + 2] = b;
+      opacities01[row] = S.opacity?.[i] ?? 1;
+      const fallback = S.scale?.[i] || 0.01;
+      if (scalesLinear) {
+        scalesLinear[row * 3] = S.scaleXYZ[i * 3] || fallback;
+        scalesLinear[row * 3 + 1] = S.scaleXYZ[i * 3 + 1] || fallback;
+        scalesLinear[row * 3 + 2] = S.scaleXYZ[i * 3 + 2] || fallback;
+      }
+      if (quats) {
+        quats[row * 4] = S.rotation[i * 4] ?? 1;
+        quats[row * 4 + 1] = S.rotation[i * 4 + 1] ?? 0;
+        quats[row * 4 + 2] = S.rotation[i * 4 + 2] ?? 0;
+        quats[row * 4 + 3] = S.rotation[i * 4 + 3] ?? 0;
+      }
     });
+    const buf = encodeNif({ positions, colors01, opacities01, scalesLinear, quats, meta, vertical, passthroughChunks, skipLiveReview: !!skipLiveReview });
     return new Blob([buf], { type: 'application/octet-stream' });
   }
 
