@@ -22,7 +22,8 @@ assert.match(publish, /if \(sourcePlyBytes && \(isGaussianPly \|\| isLegacySplat
 // as Spark companions simply because their filename ends in .ply.
 assert.doesNotMatch(publish, /isGaussianPly \|\| sourceName\.endsWith\('\.ply'\)/);
 assert.match(publish, /if \(!viewPlyKey && payload\.meta\) \{/);
-assert.match(publish, /delete payload\.meta\.view_ply_r2_key/);\nassert.match(publish, /previousViewPlyKey && previousViewPlyKey !== viewPlyKey/);
+assert.match(publish, /delete payload\.meta\.view_ply_r2_key/);
+assert.match(publish, /previousViewPlyKey && previousViewPlyKey !== viewPlyKey/);
 assert.match(publish, /Legacy \.splat source\. Encode the live editor arrays/);
 assert.match(publish, /const buf = encodeNif\(\{ positions, colors01, opacities01, scalesLinear, quats, meta, vertical, passthroughChunks/);
 assert.doesNotMatch(publish, /sourceBuffer: new Uint8Array\(S\.sourceBuffer\)/);
