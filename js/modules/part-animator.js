@@ -57,6 +57,8 @@ export function normalizePart(p) {
     // the experience around it: a sound, an effect (perfume mist), and its place
     // in a sequence (suitcase: zip → clasps → lid). A press springs back.
     sound: SOUNDS.includes(p.sound) ? p.sound : 'none',
+    // your own recording (uploaded from your machine), used instead of the built-in sound
+    ...(normalizeSoundFile(p.soundFile) ? { soundFile: normalizeSoundFile(p.soundFile) } : {}),
     ...(normalizeEffect(p.effect) ? { effect: normalizeEffect(p.effect) } : {}),
     group: typeof p.group === 'string' ? p.group.replace(/[<>]/g, '').trim().slice(0, 30) : '',
     order: Number.isFinite(+p.order) ? Math.max(0, Math.min(99, Math.round(+p.order))) : 0,
@@ -70,6 +72,16 @@ export function normalizePart(p) {
 }
 
 export const SOUNDS = ['none', 'click', 'zip', 'spray', 'thunk', 'whoosh'];
+export const MAX_SOUND_BYTES = 1.5 * 1024 * 1024;
+function normalizeSoundFile(f) {
+  if (!f || typeof f !== 'object' || typeof f.dataUrl !== 'string') return null;
+  if (!/^data:audio\/[\w.+-]+;base64,[A-Za-z0-9+/=]+$/.test(f.dataUrl) || f.dataUrl.length > MAX_SOUND_BYTES * 1.4) return null;
+  return {
+    name: String(f.name || 'sound').replace(/[<>]/g, '').slice(0, 60), dataUrl: f.dataUrl,
+    on: ['open', 'close', 'both'].includes(f.on) ? f.on : 'open',
+    volume: Number.isFinite(+f.volume) ? Math.max(0, Math.min(1, +f.volume)) : 0.9,
+  };
+}
 function normalizeEffect(e) {
   if (!e || typeof e !== 'object' || e.type !== 'mist' || !finite3(e.origin)) return null;
   const d = finite3(e.dir) && Math.hypot(...e.dir) > 1e-9 ? e.dir.map(v => v / Math.hypot(...e.dir)) : [0, 0, 1];

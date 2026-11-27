@@ -4,7 +4,7 @@
  * couch — and wire them to hotspots in the viewer. CPU only, no AI.
  */
 import * as THREE from 'three';
-import { PartAnimator, normalizeParts, suggestHinge, cellsFromIndices } from './part-animator.js';
+import { PartAnimator, normalizeParts, suggestHinge, cellsFromIndices, MAX_SOUND_BYTES } from './part-animator.js';
 import './part-effects.js';   // sounds and mist for parts
 import { regionFromPoints } from './food-pick.js';
 
@@ -93,6 +93,15 @@ export function mountPartsPanel(container, { onStatus } = {}) {
         </div>
         <div class="ctrl-row" style="margin-top:6px"><span class="ctrl-label">Sound</span></div>
         <select id="ptSound" class="ac-select" style="width:100%"><option value="none">No sound</option><option value="click">Click (clasp, latch, button)</option><option value="zip">Zip</option><option value="spray">Spray hiss</option><option value="thunk">Thunk when it shuts</option><option value="whoosh">Whoosh</option></select>
+        <div style="margin-top:6px;padding:8px;border:1px dashed rgba(200,255,0,.3);border-radius:8px">
+          <div style="display:flex;gap:6px;align-items:center"><span class="ctrl-label" style="flex:1">Your own recording</span><button type="button" class="ac-btn" id="ptSoundUp">＋ Upload</button><input type="file" id="ptSoundFile" accept="audio/*,.mp3,.wav,.ogg,.m4a,.aac,.webm" hidden></div>
+          <div class="hint" id="ptSoundName">Record it yourself and upload it (.mp3 / .wav / .ogg / .m4a, up to 1.5 MB). It replaces the built-in sound and is saved with the asset.</div>
+          <div id="ptSoundRows" style="display:none">
+            <select id="ptSoundOn" class="ac-select" style="width:100%;margin-top:4px"><option value="open">Plays when it opens</option><option value="close">Plays when it closes</option><option value="both">Plays both ways</option></select>
+            <div class="ctrl-row"><span class="ctrl-label">Volume</span><span class="ctrl-val" id="ptSoundVolVal"></span></div><input type="range" id="ptSoundVol" min="0" max="1" step="0.05" style="width:100%">
+            <div style="display:flex;gap:6px;margin-top:4px"><button type="button" class="ac-btn" id="ptSoundTry" style="flex:1">▶ Listen</button><button type="button" class="ac-btn" id="ptSoundDel" style="flex:1">Remove</button></div>
+          </div>
+        </div>
         <label style="display:flex;gap:6px;align-items:center;font-size:11px;margin-top:6px"><input type="checkbox" id="ptSpring"> Springs back by itself (a press: nozzle, button)</label>
         <div class="ctrl-row" style="margin-top:6px"><span class="ctrl-label">Effect</span></div>
         <select id="ptEffect" class="ac-select" style="width:100%"><option value="none">None</option><option value="mist">Mist / spray (perfume, aerosol)</option></select>
@@ -286,6 +295,10 @@ export function mountPartsPanel(container, { onStatus } = {}) {
     q('#ptLift').max = 2 * span; q('#ptLift').step = span / 500; q('#ptLift').value = m.lift;
     q('#ptAuto').value = editing.autoplay || 'none'; q('#ptHold').value = editing.hold ?? 1.2;
     q('#ptSound').value = editing.sound || 'none'; q('#ptSpring').checked = !!editing.springBack;
+    const sf = editing.soundFile;
+    q('#ptSoundRows').style.display = sf ? '' : 'none';
+    q('#ptSoundName').textContent = sf ? `🎵 ${sf.name} — replaces the built-in sound` : 'Record it yourself and upload it (.mp3 / .wav / .ogg / .m4a, up to 1.5 MB). It replaces the built-in sound and is saved with the asset.';
+    if (sf) { q('#ptSoundOn').value = sf.on || 'open'; q('#ptSoundVol').value = sf.volume ?? 0.9; q('#ptSoundVolVal').textContent = Math.round((sf.volume ?? 0.9) * 100) + '%'; }
     q('#ptGroup').value = editing.group || ''; q('#ptOrder').value = editing.order ?? 0;
     const ef = editing.effect;
     q('#ptEffect').value = ef?.type || 'none';
@@ -344,6 +357,7 @@ export function mountPartsPanel(container, { onStatus } = {}) {
     const h = hingeChanged ? suggestHinge(editing.box, side) : { pivot: editing.motion.pivot, axis: editing.motion.axis };
     editing._shown = { side, axisKey };
     editing.sound = q('#ptSound').value; editing.springBack = q('#ptSpring').checked;
+    if (editing.soundFile) { editing.soundFile = { ...editing.soundFile, on: q('#ptSoundOn').value, volume: +q('#ptSoundVol').value }; q('#ptSoundVolVal').textContent = Math.round(+q('#ptSoundVol').value * 100) + '%'; }
     editing.group = q('#ptGroup').value.trim().slice(0, 30); editing.order = Math.max(0, Math.min(99, Math.round(+q('#ptOrder').value || 0)));
     editing.effect = q('#ptEffect').value === 'mist' ? mistFor(editing, q('#ptMistDir').value) : undefined;
     editing.name = q('#ptName').value.trim().slice(0, 60) || 'Part';
@@ -415,7 +429,7 @@ export function mountPartsPanel(container, { onStatus } = {}) {
     status(`${name} made from ${sel.n.toLocaleString()} selected splats. Press ▶ to try it; adjust the hinge side if it swings the wrong way.`);
   });
   const EDIT_IDS = ['ptName', 'ptType', 'ptSide', 'ptAxis', 'ptAngle', 'ptDist', 'ptLift', 'ptDur', 'ptEase', 'ptAuto', 'ptHold', 'ptUtensil', 'ptReach', 'ptStretch', 'ptDroop',
-    'ptSound', 'ptSpring', 'ptEffect', 'ptMistDir', 'ptMistColor', 'ptMistAmt', 'ptMistSpread', 'ptGroup', 'ptOrder'];
+    'ptSound', 'ptSoundOn', 'ptSoundVol', 'ptSpring', 'ptEffect', 'ptMistDir', 'ptMistColor', 'ptMistAmt', 'ptMistSpread', 'ptGroup', 'ptOrder'];
   // zip path
   q('#ptPathDots').addEventListener('click', () => {
     if (!editing) return;
@@ -439,6 +453,28 @@ export function mountPartsPanel(container, { onStatus } = {}) {
     parts = normalizeParts(parts.map(p => (p.id === id ? { ...p, motion: { ...p.motion, type: 'path', points: pts } } : p)))
       .map(p => { const old = parts.find(x => x.id === p.id); return { ...p, motion: { ...p.motion, side: old?.motion?.side, axisKey: old?.motion?.axisKey } }; });
     changed(); edit(id);
+  }
+  // your own recording
+  q('#ptSoundUp').addEventListener('click', () => q('#ptSoundFile').click());
+  q('#ptSoundFile').addEventListener('change', async (e) => {
+    const f = e.target.files?.[0]; e.target.value = '';
+    if (!f || !editing) return;
+    if (f.size > MAX_SOUND_BYTES) { status(`“${f.name}” is over 1.5 MB — trim it or export it as .mp3 / .m4a.`); return; }
+    const dataUrl = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => rej(new Error('read')); r.readAsDataURL(f); }).catch(() => null);
+    if (!dataUrl || !/^data:audio\//.test(dataUrl)) { status('That file is not an audio file this browser can read.'); return; }
+    const fx = await import('./part-effects.js');
+    const ok = await fx.playRecording({ name: f.name, dataUrl, volume: 0.9 });
+    if (!ok) { status(`This browser couldn’t play “${f.name}” — try .mp3 or .wav.`); return; }
+    setPartField(editing.id, { soundFile: { name: f.name, dataUrl, on: 'open', volume: 0.9 } });
+    status(`🎵 ${f.name} added — it plays when this part opens.`);
+  });
+  q('#ptSoundTry').addEventListener('click', async () => { if (editing?.soundFile) (await import('./part-effects.js')).playRecording(editing.soundFile); });
+  q('#ptSoundDel').addEventListener('click', () => { if (!editing) return; setPartField(editing.id, { soundFile: undefined }); status('Recording removed — the built-in sound is used again.'); });
+  function setPartField(id, patch) {
+    const shown = editing?._shown;
+    parts = normalizeParts(parts.map(p => (p.id === id ? { ...p, ...patch } : p)))
+      .map(p => { const old = parts.find(x => x.id === p.id); return { ...p, motion: { ...p.motion, side: old?.motion?.side, axisKey: old?.motion?.axisKey }, ...(old?.effect?._dirKey && p.effect ? { effect: { ...p.effect, _dirKey: old.effect._dirKey } } : {}) }; });
+    changed(); edit(id); if (editing) editing._shown = shown;
   }
   q('#ptMistTry').addEventListener('click', async () => {
     if (!editing) return;

@@ -71,8 +71,35 @@ export const sounds = {
   },
 };
 
+// ── your own recordings ──────────────────────────────────────────────────────
+const decoded = new Map();   // dataUrl → Promise<AudioBuffer>
+function decode(a, dataUrl) {
+  if (!decoded.has(dataUrl)) decoded.set(dataUrl, (async () => {
+    const b64 = dataUrl.slice(dataUrl.indexOf(',') + 1), bin = atob(b64), u8 = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    return a.decodeAudioData(u8.buffer);
+  })());
+  return decoded.get(dataUrl);
+}
+/** Play an uploaded recording. Returns a promise for when it has started. */
+export async function playRecording(file, { volume = file?.volume ?? 0.9, at = 0 } = {}) {
+  const a = audio(); if (!a || !file?.dataUrl) return false;
+  try {
+    const buf = await decode(a, file.dataUrl), src = a.createBufferSource(), g = a.createGain();
+    src.buffer = buf; g.gain.value = volume; src.connect(g); g.connect(a.destination);
+    src.start(a.currentTime + at);
+    return true;
+  } catch (e) { console.warn('[sound] could not play', file.name, e); return false; }
+}
+
 /** Play a part's sound for a move that has just started. */
 export function playPartSound(part, to, duration) {
+  // your own recording wins over the built-in sounds
+  const f = part?.soundFile;
+  if (f) {
+    if (f.on === 'both' || (f.on === 'open' && to === 'open') || (f.on === 'close' && to !== 'open')) playRecording(f);
+    return;
+  }
   const s = part?.sound; if (!s || s === 'none') return;
   if (s === 'click') sounds.click(to === 'open' ? 0 : Math.max(0, duration - 0.05));
   else if (s === 'zip') sounds.zip(duration);
@@ -164,5 +191,5 @@ if (typeof window !== 'undefined' && !window.__fumocaPartEffects) {
     try { playPartSound(part, d.to, d.duration || part.motion?.duration || 1); } catch (_) {}
     if (d.to === 'open' && part.effect?.type === 'mist' && d.THREE && d.mesh) sprayMist(d.THREE, d.mesh, part.effect).catch?.(() => {});
   });
-  window.FumocaPartEffects = { sounds, sprayMist, mute(v = true) { muted = !!v; } };
+  window.FumocaPartEffects = { sounds, sprayMist, playRecording, mute(v = true) { muted = !!v; } };
 }

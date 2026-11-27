@@ -43,4 +43,9 @@ const far = idx => idx.filter(i => tag[i] === 'far').length;
 assert.ok(far(dots) > 0, 'without footprints the far side leaks (sanity check of the test)');
 assert.equal(far(foot), 0, 'with footprints nothing on the far side is selected');
 assert.ok(foot.filter(i => tag[i] === 'door').length > 0, 'the door itself is still selected');
+// your own recordings: kept when valid, dropped when not audio or too big
+const rec = normalizePart({ id: 'r', box: { min: [0, 0, 0], max: [1, 1, 1] }, soundFile: { name: 'my zip.wav', dataUrl: 'data:audio/wav;base64,UklGRg==', on: 'both', volume: 2 } });
+assert.deepEqual(rec.soundFile, { name: 'my zip.wav', dataUrl: 'data:audio/wav;base64,UklGRg==', on: 'both', volume: 1 });
+assert.equal(normalizePart({ id: 'x', box: { min: [0, 0, 0], max: [1, 1, 1] }, soundFile: { name: 'x', dataUrl: 'data:text/html;base64,PHNjcmlwdD4=' } }).soundFile, undefined, 'only audio');
+assert.equal(normalizePart({ id: 'y', box: { min: [0, 0, 0], max: [1, 1, 1] }, soundFile: { name: 'big', dataUrl: 'data:audio/mp3;base64,' + 'A'.repeat(3e6) } }).soundFile, undefined, 'size cap');
 console.log('part cells + front-surface selection: all checks passed');
