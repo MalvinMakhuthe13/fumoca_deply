@@ -97,6 +97,7 @@ try {
   // Splat tab builds a real PLY and previews it.
   await page.click('[data-tab="splat"]');
   await page.waitForFunction(() => !document.getElementById('p3OpenStudio').disabled, null, { timeout: 15000 });
+  await page.waitForFunction(() => window.__splatBytes > 10000, null, { timeout: 15000 });
   const header = await page.evaluate(() => new TextDecoder().decode(window.FumocaPhoto3D.plyBytes.subarray(0, 300)));
   assert.match(header, /element vertex \d+/);
   assert.match(header, /property float f_dc_0/);
@@ -145,6 +146,7 @@ try {
   assert.deepEqual(await fallbackPage.evaluate(() => window.__pipelineAttempts), ['webgpu', 'wasm'], 'WebGPU inference failure retries the model on WASM');
   await fallbackPage.click('[data-tab="splat"]');
   await fallbackPage.waitForFunction(() => !document.getElementById('p3DownloadPly').disabled && !document.getElementById('p3OpenStudio').disabled, null, { timeout: 15000 });
+  await fallbackPage.waitForFunction(() => /preview is unavailable/i.test(document.getElementById('p3Status').textContent), null, { timeout: 15000 });
   assert.ok(await fallbackPage.evaluate(() => window.FumocaPhoto3D.plyBytes?.byteLength > 1000), 'PLY remains available without Spark');
   assert.match(await fallbackPage.locator('#p3Status').textContent(), /preview is unavailable/i);
   assert.deepEqual(errors, [], 'no uncaught errors when Spark preview is unavailable');
