@@ -4604,6 +4604,22 @@ window.FumocaStudioHooks = {
   },
 };
 
+/**
+ * Export the live Studio state as a binary Gaussian PLY for publishing.
+ * Used for legacy .splat sources, which Spark can display but its PLY editor
+ * bridge cannot round-trip directly. The NIF remains the canonical asset;
+ * this companion preserves the current live Gaussian attributes for Spark.
+ */
+window.exportGaussianPlyForPublish = async () => {
+  if (!S.positions?.length || !S.alive?.length || S.positions.length !== S.alive.length * 3) {
+    throw new Error('Studio Gaussian arrays are incomplete; cannot build the Spark companion.');
+  }
+  const indices = [];
+  for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) indices.push(i);
+  if (!indices.length) throw new Error('There are no live Gaussians to publish.');
+  return new Uint8Array(await _encodeGaussianPly(indices).arrayBuffer());
+};
+
 window.refreshGaussianSourceBytes = async () => {
   if (!S.isGaussianPly || !S.positions?.length) return false;
   const indices = Array.from({ length: S.positions.length / 3 }, (_, index) => index);
