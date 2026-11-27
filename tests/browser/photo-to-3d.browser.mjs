@@ -56,9 +56,9 @@ try {
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
   await page.route(/cdn\.jsdelivr\.net\/npm\/@huggingface\/transformers/, r => r.fulfill({ contentType: 'text/javascript', body: stubTransformers }));
-  await page.route(/three@0\.180\.0\/build\/three\.module\.js/, r => r.fulfill({ contentType: 'text/javascript', body: stubThree }));
-  await page.route(/OrbitControls\.js/, r => r.fulfill({ contentType: 'text/javascript', body: stubControls }));
-  await page.route(/sparkjs\.dev/, r => r.fulfill({ contentType: 'text/javascript', body: stubSpark }));
+  await page.route(/\\/vendor\\/three\\/0\\.180\\.0\\/build\\/three\\.module\\.js$/, r => r.fulfill({ contentType: 'text/javascript', body: stubThree }));
+  await page.route(/\\/vendor\\/three\\/0\\.180\\.0\\/examples\\/jsm\\/controls\\/OrbitControls\\.js$/, r => r.fulfill({ contentType: 'text/javascript', body: stubControls }));
+  await page.route(/\\/vendor\\/sparkjsdev-spark\\/2\\.4\\.0\\/dist\\/spark\\.module\\.js$/, r => r.fulfill({ contentType: 'text/javascript', body: stubSpark }));
   await page.route(/fonts\.googleapis|fonts\.gstatic/, r => r.fulfill({ body: '' }));
 
   await page.goto(`http://127.0.0.1:${port}/photo-to-3d.html`);
