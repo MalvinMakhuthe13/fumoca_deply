@@ -258,6 +258,8 @@ jobs:
         run: node --experimental-default-type=module tests/viewer-scale.mjs
       - name: Test R2 worker auth boundaries
         run: node --experimental-default-type=module cloudflare/tests/auth.test.mjs
+      - name: Test private capture reads and reconstruction job key ownership
+        run: node --experimental-default-type=module tests/job-raw-key-ownership.test.mjs
       - name: Test private capture files are owner-only
         run: node --experimental-default-type=module cloudflare/tests/read-auth.test.mjs
       - name: Test NIF decoding refuses zip bombs and garbage
