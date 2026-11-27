@@ -23,6 +23,7 @@ const sql = await readFile(new URL('../supabase_migration_job_retry_and_rls.sql'
 assert.match(sql, /raw_r2_key is not null/);
 assert.match(sql, /split_part\(raw_r2_key, '\/', 1\) = auth\.uid\(\)::text/);
 assert.match(sql, /split_part\(raw_r2_key, '\/', 2\) = auth\.uid\(\)::text/);
-assert.match(sql, /retry_count' ~ '\^\[0-9\]\+\$'/);
+assert.match(sql, /jsonb_typeof\(j\.meta->'retry_count'\) <> 'number'/);
+assert.match(sql, /greatest\(0, least\(3,/);
 assert.match(sql, /Retry counter is invalid/);
 console.log('Private capture read access and reconstruction-job raw-key ownership tests passed.');
