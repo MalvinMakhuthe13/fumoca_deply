@@ -5,7 +5,7 @@
 -- nif_r2_key at any object. No client code updates jobs; only the workers
 -- (service role) do. Users now get: read own jobs, create a fresh queued job,
 -- delete their own failed/queued job, and retry a failed one through a
--- checked function (max 3 retries, only when the original upload exists).
+-- checked function (max 3 retries, only when an owner-scoped upload key is recorded).
 
 drop policy if exists "own jobs" on public.reconstruction_jobs;
 drop policy if exists "own jobs read" on public.reconstruction_jobs;
@@ -53,26 +53,13 @@ begin
   if coalesce(j.raw_r2_key, '') = '' then
     raise exception 'The original upload is missing — please upload again.' using errcode = '22023';
   end if;
-  if coalesce(j.meta->>'retry_count', '') = '' then
+  if not (coalesce(j.meta, '{}'::jsonb) ? 'retry_count') then
     tries := 0;
-  elsif j.meta->>'retry_count' ~ '^[0-9]+
-  if tries >= 3 then raise exception 'This job has been retried 3 times — please upload again.' using errcode = '22023'; end if;
-  update public.reconstruction_jobs
-     set status = 'queued', progress = 0, error_message = null,
-         started_at = null, completed_at = null,
-         meta = coalesce(meta, '{}'::jsonb)
-                || jsonb_build_object('retry_count', tries + 1,
-                                      'last_error', j.error_message,
-                                      'retried_at', now())
-   where id = j.id returning * into j;
-  return j;
-end; $$;
-revoke all on function public.retry_reconstruction_job(uuid) from public, anon;
-grant execute on function public.retry_reconstruction_job(uuid) to authenticated;
- then
-    tries := (j.meta->>'retry_count')::int;
-  else
+  elsif jsonb_typeof(j.meta->'retry_count') <> 'number'
+     or (j.meta->>'retry_count')::numeric <> trunc((j.meta->>'retry_count')::numeric) then
     raise exception 'Retry counter is invalid — contact support before retrying.' using errcode = '22023';
+  else
+    tries := greatest(0, least(3, (j.meta->>'retry_count')::numeric))::int;
   end if;
   if tries >= 3 then raise exception 'This job has been retried 3 times — please upload again.' using errcode = '22023'; end if;
   update public.reconstruction_jobs
