@@ -129,6 +129,8 @@ async function buildSplat() {
       await splatView.show(plyBytes);
       done('3D splat ready — drag to orbit.');
     } catch (previewError) {
+      try { splatView?.dispose?.(); } catch (_) {}
+      splatView = null;
       console.warn('[Photo→3D] Spark preview unavailable; PLY export is still ready:', previewError);
       done('PLY ready. The optional 3D preview is unavailable, but Download PLY and Open in Studio still work.');
     }
