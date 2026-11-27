@@ -35,6 +35,13 @@ function extractStoragePath(urlString) {
 }
 
 async function deleteUploadRecord(item) {
+  if (item.source === 'reconstruction_jobs') {
+    // A capture that never produced a NIF: remove the job row only. The raw
+    // upload stays in storage until cleanup so a retry is never orphaned.
+    const { error } = await supabase.from('reconstruction_jobs').delete().eq('id', item.id).eq('user_id', item.user_id);
+    if (error) throw new Error(error.message || 'Could not remove this job.');
+    return;
+  }
   if (item.source === 'nif_files') {
     // Keep the row available for ownership verification until all storage
     // cleanup succeeds. Failed deletes leave the asset visible and retryable.
@@ -87,6 +94,29 @@ async function deleteUploadRecord(item) {
 let userId = null;
 let uploads = [];
 
+/** Turn raw worker errors into something a person can act on. */
+export function friendlyJobError(message) {
+  const m = String(message || '');
+  if (!m) return '';
+  if (/timed out|stopped responding/i.test(m)) return 'Processing stopped responding. Retry — it usually works the second time.';
+  if (/out of memory|CUDA/i.test(m)) return 'The capture was too large for the processor. Retry, or upload a shorter video / fewer photos.';
+  if (/registered only|COLMAP|pose/i.test(m)) return 'Not enough overlap between frames to work out the camera path. Re-capture moving slowly around the subject.';
+  if (/No such file|HeadObject|404|Not Found/i.test(m)) return 'The original upload is missing. Please upload it again.';
+  if (/torch|tensor|size of|permute|module named/i.test(m)) return 'The processing server hit an internal error. Retry — if it fails again, upload again.';
+  return m.length > 160 ? m.slice(0, 157) + '…' : m;
+}
+
+async function retryJob(item) {
+  const { data, error } = await supabase.rpc('retry_reconstruction_job', { p_job: item.job_id || item.id });
+  if (error) {
+    if (/function .* does not exist|PGRST202/i.test(error.message || error.code || '')) {
+      throw new Error('Retry is not switched on yet. Please try again later.');
+    }
+    throw new Error(error.message || 'Retry failed.');
+  }
+  return data;
+}
+
 function renderRecent() {
   const recent = document.getElementById('recentSplats');
   if (!uploads.length) {
@@ -113,15 +143,36 @@ function renderManage() {
       <div class="mini-item" data-id="${esc(item.id)}" style="display:flex;justify-content:space-between;gap:12px;align-items:center;">
         <div>
           <div class="mini-item-title">${esc(item.title || 'Untitled Splat')}</div>
-          <div class="mini-item-sub">${esc(status)} · ${new Date(item.created_at).toLocaleString()}</div>
+          <div class="mini-item-sub">${esc(status === 'processing' && item.processing_progress ? `processing ${Math.round(item.processing_progress)}%` : status)} · ${new Date(item.created_at).toLocaleString()}</div>
+          ${status === 'failed' && item.error_message ? `<div class="mini-item-sub" style="color:#ffb1b1;margin-top:4px">${esc(friendlyJobError(item.error_message))}</div>` : ''}
         </div>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-          ${status === 'done' ? `<a href="viewer.html?nifId=${encodeURIComponent(item.id)}" class="nav-item active" style="display:inline-flex;padding:10px 12px;">Open</a>` : ''}
+          ${status === 'done' && item.source !== 'reconstruction_jobs' ? `<a href="viewer.html?nifId=${encodeURIComponent(item.id)}" class="nav-item active" style="display:inline-flex;padding:10px 12px;">Open</a>` : ''}
+          ${status === 'failed' && item.source === 'reconstruction_jobs' && item.can_retry && (item.retry_count || 0) < 3 ? `<button class="upload-btn manage-retry-btn" type="button" data-retry-id="${esc(item.id)}" style="padding:10px 14px;">Retry</button>` : ''}
           <button class="upload-btn manage-delete-btn" type="button" data-delete-id="${esc(item.id)}" style="padding:10px 14px;background:rgba(255,72,72,0.12);border-color:rgba(255,72,72,0.28);color:#ffb1b1;">Delete</button>
         </div>
       </div>
     `;
   }).join('');
+
+  host.querySelectorAll('[data-retry-id]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const item = uploads.find(row => row.id === btn.getAttribute('data-retry-id'));
+      if (!item) return;
+      btn.disabled = true;
+      btn.textContent = 'Retrying…';
+      try {
+        const job = await retryJob(item);
+        Object.assign(item, { status: job?.status || 'queued', error_message: '', processing_progress: 0, retry_count: (item.retry_count || 0) + 1 });
+        renderRecent();
+        renderManage();
+      } catch (err) {
+        window.alert(err?.message || 'Retry failed.');
+        btn.disabled = false;
+        btn.textContent = 'Retry';
+      }
+    });
+  });
 
   host.querySelectorAll('[data-delete-id]').forEach(btn => {
     btn.addEventListener('click', async () => {
@@ -232,7 +283,31 @@ async function init() {
     };
   });
 
-  uploads = [...nifs, ...(Array.isArray(splats) ? splats : [])]
+  // Captures still processing, queued or failed have no NIF yet — show them
+  // so people can see what happened and retry.
+  const linked = new Set(nifList.map(row => row.job_id || row.id));
+  const { data: openJobs } = await supabase
+    .from('reconstruction_jobs')
+    .select('id,user_id,status,progress,error_message,created_at,capture_mode,raw_r2_key,meta')
+    .eq('user_id', user.id)
+    .in('status', ['queued', 'pending', 'processing', 'running', 'failed', 'error'])
+    .order('created_at', { ascending: false })
+    .limit(50);
+  const jobRows = (openJobs || []).filter(job => !linked.has(job.id)).map(job => ({
+    id: job.id,
+    job_id: job.id,
+    user_id: job.user_id,
+    status: job.status,
+    processing_progress: job.progress ?? 0,
+    error_message: job.error_message || '',
+    title: job.meta?.title || (job.capture_mode === 'video' ? 'Video capture' : job.capture_mode === 'burst' ? 'Photo capture' : 'Capture'),
+    created_at: job.created_at,
+    retry_count: Number(job.meta?.retry_count || 0),
+    can_retry: !!job.raw_r2_key,
+    source: 'reconstruction_jobs',
+  }));
+
+  uploads = [...nifs, ...jobRows, ...(Array.isArray(splats) ? splats : [])]
     .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
 
   document.getElementById('profileName').textContent = displayName;

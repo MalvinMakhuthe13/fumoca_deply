@@ -10,6 +10,14 @@ const SparkGaussianView = (() => {
   let _lastFileName = 'export.ply';
   let _failureCount = 0, _contextLossBound = false, _loadToken = 0;
   const LOAD_TIMEOUT_MS = 45000;
+  // In-place editing: what the current Spark mesh holds, so moves, rotations
+  // and deletions can be written straight into it with setSplat instead of
+  // re-encoding and re-decoding the whole file (the old lag on big scans).
+  let _built = null;
+  // View-only cleanup (never changes the data or exports): hide faint haze
+  // and oversized floaters, the main cause of a "smoky" look.
+  let _filter = { minOpacity: 0, maxScale: Infinity };
+  const _passes = (a, sx, sy, sz) => a >= _filter.minOpacity && Math.max(sx, sy, sz) <= _filter.maxScale;
 
   function _scene() { return window._fumocaScene || window.scene || null; }
   function _renderer() { return window._fumocaGlRenderer || window.renderer || null; }
@@ -48,36 +56,57 @@ const SparkGaussianView = (() => {
     if (pts) pts.visible = !_enabled;
   }
 
+  // SuperSplat-style selection: fine dots on the selected splats plus a crisp
+  // box around the selection, drawn on top so it reads clearly at any zoom.
+  let _box = null;
   function _updateSelectionOverlay(state = window.S) {
     const scene = _scene();
-    if (!scene || !state?.positions || !state?.alive || !state?.selected) return;
-    const positions = [], colors = [];
+    const THREE = window.THREE;
+    if (!scene || !THREE?.BufferGeometry || !state?.positions || !state?.alive || !state?.selected) return;
+    const positions = [];
+    let minX = Infinity, minY = Infinity, minZ = Infinity, maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
     for (let i = 0; i < state.alive.length; i++) {
       if (!state.alive[i] || !state.selected[i] || state.layerHidden?.[i]) continue;
-      positions.push(state.positions[i*3], state.positions[i*3+1], state.positions[i*3+2]);
-      colors.push(0.78, 1.0, 0.0);
+      const x = state.positions[i*3], y = state.positions[i*3+1], z = state.positions[i*3+2];
+      positions.push(x, y, z);
+      if (x < minX) minX = x; if (y < minY) minY = y; if (z < minZ) minZ = z;
+      if (x > maxX) maxX = x; if (y > maxY) maxY = y; if (z > maxZ) maxZ = z;
     }
     if (!_overlay) {
-      const THREE = window.THREE;
-      if (!THREE?.BufferGeometry || !THREE?.PointsMaterial || !THREE?.Points) return;
-      const geometry = new THREE.BufferGeometry();
-      geometry.setAttribute('position', new THREE.Float32BufferAttribute([], 3));
-      geometry.setAttribute('color', new THREE.Float32BufferAttribute([], 3));
-      const material = new THREE.PointsMaterial({ size: 6, sizeAttenuation: false, vertexColors: true, transparent: true, opacity: 1, depthTest: true });
-      _overlay = new THREE.Points(geometry, material);
+      const material = new THREE.PointsMaterial({ size: 2.5, sizeAttenuation: false, color: 0xffd400, transparent: true, opacity: 0.85, depthTest: false });
+      _overlay = new THREE.Points(new THREE.BufferGeometry(), material);
       _overlay.name = 'fumoca-spark-selection-overlay';
       _overlay.renderOrder = 20;
       scene.add(_overlay);
       window.FumocaPresentation?.adoptVisuals?.();
     }
-    const THREE = window.THREE;
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
     const previous = _overlay.geometry;
     _overlay.geometry = geometry;
     previous?.dispose?.();
     _overlay.visible = _enabled && positions.length > 0;
+
+    // bounding box outline
+    if (THREE.LineSegments && THREE.LineBasicMaterial) {
+      if (!_box) {
+        _box = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0xffd400, transparent: true, opacity: 0.9, depthTest: false }));
+        _box.name = 'fumoca-spark-selection-box';
+        _box.renderOrder = 21;
+        scene.add(_box);
+      }
+      const has = positions.length >= 6;
+      _box.visible = _enabled && has;
+      if (has) {
+        const pad = Math.max(maxX - minX, maxY - minY, maxZ - minZ) * 0.02;
+        const x0 = minX - pad, y0 = minY - pad, z0 = minZ - pad, x1 = maxX + pad, y1 = maxY + pad, z1 = maxZ + pad;
+        const c = [[x0,y0,z0],[x1,y0,z0],[x1,y1,z0],[x0,y1,z0],[x0,y0,z1],[x1,y0,z1],[x1,y1,z1],[x0,y1,z1]];
+        const e = [0,1,1,2,2,3,3,0,4,5,5,6,6,7,7,4,0,4,1,5,2,6,3,7];
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.Float32BufferAttribute(e.flatMap(k => c[k]), 3));
+        const prev = _box.geometry; _box.geometry = g; prev?.dispose?.();
+      }
+    }
   }
 
   function _parseBinaryPly(bytes) {
@@ -239,6 +268,7 @@ const SparkGaussianView = (() => {
     _enabled = false;
     _loadToken++;
     if (_overlay) { try { _unparent(_overlay); _overlay.geometry?.dispose?.(); _overlay.material?.dispose?.(); } catch (_) {} _overlay = null; }
+    if (_box) { try { _unparent(_box); _box.geometry?.dispose?.(); } catch (_) {} _box = null; }
     if (_mesh) { try { _unparent(_mesh); _mesh.dispose?.(); } catch (_) {} _mesh = null; }
     _hideLegacy();
     try {
@@ -250,6 +280,149 @@ const SparkGaussianView = (() => {
     window.showToast?.('Photoreal paused', 'Spark could not keep up, so Studio switched to its built-in view. Your edits are safe — turn Photoreal back on to retry.', 'warn');
   }
 
+  // Copy what is about to be encoded, before the (async) decode starts, so
+  // edits made while Spark decodes are still seen as changes afterwards.
+  function _capture(state) {
+    if (!state?.alive || !state.positions) return null;
+    return {
+      positions: Float32Array.from(state.positions),
+      rotation: state.rotation ? Float32Array.from(state.rotation) : null,
+      alive: Uint8Array.from(state.alive, v => (v ? 1 : 0)),
+    };
+  }
+
+  function _snapshot(state) {
+    _built = null;
+    const splats = _mesh?.packedSplats;
+    if (!state?.alive || !state.positions || !splats?.setSplat) return;
+    const meshToS = [];
+    for (let i = 0; i < state.alive.length; i++) if (state.alive[i]) meshToS.push(i);
+    const n = splats.numSplats ?? meshToS.length;
+    if (n !== meshToS.length) return;              // can't map rows safely
+    const sToMesh = new Int32Array(state.alive.length).fill(-1);
+    meshToS.forEach((s, m) => { sToMesh[s] = m; });
+    _built = {
+      mesh: _mesh, sToMesh, count: n,
+      positions: Float32Array.from(state.positions),
+      rotations: state.rotation ? Float32Array.from(state.rotation) : null,
+      alive: Uint8Array.from(state.alive, v => (v ? 1 : 0)),
+      attrs: null,
+    };
+  }
+
+  function _readAttrs() {
+    const splats = _built.mesh.packedSplats, n = _built.count;
+    const scales = new Float32Array(n * 3), colors = new Float32Array(n * 3), opacity = new Float32Array(n);
+    splats.forEachSplat((i, c, sc, q, a, col) => {
+      if (i >= n) return;
+      scales[i * 3] = sc.x; scales[i * 3 + 1] = sc.y; scales[i * 3 + 2] = sc.z;
+      colors[i * 3] = col.r; colors[i * 3 + 1] = col.g; colors[i * 3 + 2] = col.b;
+      opacity[i] = a;
+    });
+    _built.attrs = { scales, colors, opacity };
+  }
+
+  /** Write changed splats into the live mesh. Returns the number written, or −1 if a full rebuild is needed. */
+  function _tryInPlace(state) {
+    const b = _built;
+    if (!b || b.mesh !== _mesh || !state?.alive || state.alive.length !== b.sToMesh.length) return -1;
+    // A rigged splat is being posed in place too; rebuild instead so the rig
+    // re-attaches to clean rest data rather than mixing edits into a pose.
+    if (window.FumocaRig?.driver) return -1;
+    const THREE = window.THREE;
+    if (!THREE?.Vector3 || !THREE?.Quaternion || !THREE?.Color) return -1;
+    const n = state.alive.length;
+    for (let i = 0; i < n; i++) if (state.alive[i] && b.sToMesh[i] < 0) return -1;   // restored a splat the mesh doesn't hold
+    if (!b.attrs) _readAttrs();
+    const splats = _mesh.packedSplats, { scales, colors, opacity } = b.attrs;
+    const P = state.positions, Q = state.rotation, BP = b.positions, BQ = b.rotations;
+    const c = new THREE.Vector3(), sc = new THREE.Vector3(), q = new THREE.Quaternion(), col = new THREE.Color();
+    let written = 0;
+    for (let i = 0; i < n; i++) {
+      const m = b.sToMesh[i];
+      if (m < 0) continue;
+      const alive = state.alive[i] ? 1 : 0;
+      let moved = BP[i * 3] !== P[i * 3] || BP[i * 3 + 1] !== P[i * 3 + 1] || BP[i * 3 + 2] !== P[i * 3 + 2];
+      if (!moved && Q && BQ) moved = BQ[i * 4] !== Q[i * 4] || BQ[i * 4 + 1] !== Q[i * 4 + 1] || BQ[i * 4 + 2] !== Q[i * 4 + 2] || BQ[i * 4 + 3] !== Q[i * 4 + 3];
+      if (!moved && alive === b.alive[i]) continue;
+      if (!Number.isFinite(P[i * 3]) || !Number.isFinite(P[i * 3 + 1]) || !Number.isFinite(P[i * 3 + 2])) return -1;
+      c.set(P[i * 3], P[i * 3 + 1], P[i * 3 + 2]);
+      sc.set(scales[m * 3], scales[m * 3 + 1], scales[m * 3 + 2]);
+      if (Q) {
+        const w = Q[i * 4], x = Q[i * 4 + 1], y = Q[i * 4 + 2], z = Q[i * 4 + 3];
+        const len = Math.hypot(w, x, y, z);
+        if (!(len > 1e-8)) return -1;
+        q.set(x / len, y / len, z / len, w / len);           // FUMOCA stores w,x,y,z
+      } else q.set(0, 0, 0, 1);
+      col.setRGB(colors[m * 3], colors[m * 3 + 1], colors[m * 3 + 2]);
+      const show = alive && _passes(opacity[m], scales[m * 3], scales[m * 3 + 1], scales[m * 3 + 2]);
+      splats.setSplat(m, c, sc, q, show ? opacity[m] : 0, col);
+      if (b.shown) b.shown[m] = show ? 1 : 0;
+      BP[i * 3] = P[i * 3]; BP[i * 3 + 1] = P[i * 3 + 1]; BP[i * 3 + 2] = P[i * 3 + 2];
+      if (Q && BQ) for (let k = 0; k < 4; k++) BQ[i * 4 + k] = Q[i * 4 + k];
+      b.alive[i] = alive;
+      written++;
+    }
+    if (written) {
+      splats.needsUpdate = true;
+      _mesh.updateVersion?.();
+      window.dispatchEvent(new CustomEvent('fumoca:sparkInPlaceUpdate', { detail: { written } }));
+    }
+    return written;
+  }
+
+  /** Apply the view filter to every splat in the live mesh (no data change). */
+  function _applyFilter() {
+    const b = _built;
+    if (!b || b.mesh !== _mesh || !window.THREE?.Vector3) return 0;
+    if (!b.attrs) _readAttrs();
+    const THREE = window.THREE, splats = _mesh.packedSplats, { scales, colors, opacity } = b.attrs;
+    const c = new THREE.Vector3(), sc = new THREE.Vector3(), q = new THREE.Quaternion(), col = new THREE.Color();
+    let hidden = 0, written = 0;
+    const P = b.positions, Q = b.rotations;
+    for (let i = 0; i < b.sToMesh.length; i++) {
+      const m = b.sToMesh[i];
+      if (m < 0) continue;
+      const pass = _passes(opacity[m], scales[m * 3], scales[m * 3 + 1], scales[m * 3 + 2]);
+      if (!pass) hidden++;
+      const want = b.alive[i] && pass ? opacity[m] : 0;
+      const shown = b.shown ? b.shown[m] : 1;
+      if ((want > 0 ? 1 : 0) === shown && !b.forceAll) continue;
+      c.set(P[i * 3], P[i * 3 + 1], P[i * 3 + 2]);
+      sc.set(scales[m * 3], scales[m * 3 + 1], scales[m * 3 + 2]);
+      if (Q) { const w = Q[i * 4], x = Q[i * 4 + 1], y = Q[i * 4 + 2], z = Q[i * 4 + 3], l = Math.hypot(w, x, y, z) || 1; q.set(x / l, y / l, z / l, w / l); }
+      else q.set(0, 0, 0, 1);
+      col.setRGB(colors[m * 3], colors[m * 3 + 1], colors[m * 3 + 2]);
+      splats.setSplat(m, c, sc, q, want, col);
+      if (b.shown) b.shown[m] = want > 0 ? 1 : 0;
+      written++;
+    }
+    b.forceAll = false;
+    if (written) { splats.needsUpdate = true; _mesh.updateVersion?.(); }
+    return hidden;
+  }
+
+  /**
+   * View filter: hide splats fainter than minOpacity (0..1) or larger than
+   * maxScale × the scene's typical splat size. Returns how many are hidden.
+   */
+  function setViewFilter({ minOpacity = 0, maxScaleFactor = Infinity } = {}) {
+    if (!_built) return 0;
+    if (!_built.attrs) _readAttrs();
+    let typical = Infinity;
+    if (Number.isFinite(maxScaleFactor)) {
+      const sc = _built.attrs.scales, n = _built.count, sample = [];
+      for (let m = 0; m < n; m += Math.max(1, Math.floor(n / 20000))) sample.push(Math.max(sc[m * 3], sc[m * 3 + 1], sc[m * 3 + 2]));
+      sample.sort((a, b) => a - b);
+      typical = sample[Math.floor(sample.length * 0.5)] || Infinity;
+    }
+    _filter = { minOpacity: Math.max(0, Math.min(1, +minOpacity || 0)), maxScale: Number.isFinite(maxScaleFactor) ? typical * maxScaleFactor : Infinity };
+    if (!_built.shown) { _built.shown = new Uint8Array(_built.count).fill(1); _built.forceAll = true; }
+    const hidden = _applyFilter();
+    window.dispatchEvent(new CustomEvent('fumoca:viewFilter', { detail: { hidden, total: _built.count } }));
+    return hidden;
+  }
+
   async function syncEditorState(state = window.S) {
     if (!_enabled || !_originalBytes || !state?.alive || !state?.positions) return false;
     if (_loading) { _syncQueued = false; refreshEditorState(state); return false; }
@@ -257,11 +430,25 @@ const SparkGaussianView = (() => {
     _updateSelectionOverlay(state);
     _hideLegacy();
     if (signature === _lastStateSignature) return true;
+    try {
+      const written = _tryInPlace(state);
+      if (written >= 0) {
+        _lastStateSignature = signature;
+        _failureCount = 0;
+        return true;
+      }
+    } catch (error) {
+      console.warn('[FUMOCA] in-place Spark update failed; rebuilding instead', error);
+      _built = null;
+    }
     _loading = true;
     let ok = false;
     try {
+      const encoded = _capture(state);
       const edited = _makeEditedBytes(state);
       await loadFromBytes(edited, _lastFileName);
+      _snapshot(encoded);
+      if (_filter.minOpacity > 0 || Number.isFinite(_filter.maxScale)) { _built && (_built.shown = new Uint8Array(_built.count).fill(1), _built.forceAll = true); _applyFilter(); }
       _lastStateSignature = signature;
       _failureCount = 0;
       ok = true;
@@ -318,6 +505,7 @@ const SparkGaussianView = (() => {
       _lastFileName = name;
       await loadFromBytes(_originalBytes, name);
       _enabled = true;
+      _snapshot(_capture(S));
       _lastStateSignature = _stateSignature(S);
       _hideLegacy();
       _updateSelectionOverlay(S);
@@ -335,10 +523,12 @@ const SparkGaussianView = (() => {
 
   function disable() {
     _enabled = false;
+    _built = null;
     _loadToken++;
     _failureCount = 0;
     _hideLegacy();
     if (_overlay) { try { _unparent(_overlay); _overlay.geometry?.dispose?.(); _overlay.material?.dispose?.(); } catch (_) {} _overlay = null; }
+    if (_box) { try { _unparent(_box); _box.geometry?.dispose?.(); _box.material?.dispose?.(); } catch (_) {} _box = null; }
     if (_mesh) { try { _unparent(_mesh); _mesh.dispose?.(); } catch (_) {} _mesh = null; }
   }
   // Export the current edited Gaussian PLY without flattening it to NIF's
@@ -357,7 +547,7 @@ const SparkGaussianView = (() => {
     if (_spark) { try { _scene()?.remove(_spark); _spark.dispose?.(); } catch (_) {} _spark = null; }
   }
 
-  return { enable, disable, isEnabled, getMesh, isAvailable, loadFromBytes, syncEditorState, refreshEditorState, exportEditedBytes, dispose };
+  return { enable, disable, isEnabled, getMesh, isAvailable, loadFromBytes, syncEditorState, refreshEditorState, exportEditedBytes, dispose, setViewFilter };
 })();
 window.FumocaSparkGaussian = SparkGaussianView;
 export default SparkGaussianView;

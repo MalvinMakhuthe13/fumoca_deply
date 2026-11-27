@@ -621,8 +621,11 @@ export async function decodeNif(arrayBuffer) {
     try {
       const view = new DataView(lidarBytes.buffer, lidarBytes.byteOffset, lidarBytes.byteLength);
       if (view.getUint8(0) !== 1) throw new Error('unsupported LiDAR attribute chunk version');
+      if (view.byteLength < 6) throw new Error('truncated LiDAR attribute header');
       const flags = view.getUint8(1), n = view.getUint32(2, false);
       if (n !== geometry.count) throw new Error('LiDAR attribute count does not match geometry');
+      const perPoint = ((flags & 1) ? 2 : 0) + ((flags & 2) ? 1 : 0) + ((flags & 4) ? 1 : 0);
+      if (6 + n * perPoint > view.byteLength) throw new Error('truncated LiDAR attribute data');
       const attrs = { intensity: null, classification: null, returnNumber: null };
       for (const key of ['intensity', 'classification', 'returnNumber']) if (flags & ({ intensity: 1, classification: 2, returnNumber: 4 }[key])) attrs[key] = key === 'intensity' ? new Uint16Array(n) : new Uint8Array(n);
       let at = 6;
@@ -781,13 +784,14 @@ function decodeMeshBytes(bytes) {
  * buffer at all; files without it can be viewed as labeled groups but not
  * used to build an animated/toggled variant.
  */
-export async function decodeLayers(reader) {
+export async function decodeLayers(reader, geometryCount = null) {
   const chunk = reader.getChunk(CHUNK.LAYER_GEO);
   if (!chunk) return [];
   const bytes = await decompressChunk(chunk);
   const arrayBuffer = bytes.buffer ? bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) : bytes;
   const dv = new DataView(arrayBuffer);
-  const nLayers = dv.getUint32(0, false);
+  if (dv.byteLength < 4) return [];
+  const nLayers = Math.min(dv.getUint32(0, false), 4096);
   const layers = [];
   let offset = 4;
 
@@ -815,6 +819,13 @@ export async function decodeLayers(reader) {
       indices = new Uint32Array(nPoints);
       for (let p = 0; p < nPoints; p++) indices[p] = dv.getUint32(offset + p * 4, false);
       offset += idxByteLen;
+      // Indices address the main geometry buffer; an out-of-range one would
+      // write outside it when a layer is toggled, so drop the whole list.
+      const limit = geometryCount ?? reader.geometryCount ?? null;
+      if (limit != null && indices.some(v => v >= limit)) {
+        console.warn('[nif-format] LAYER_GEO indices out of range — layer kept for display only');
+        indices = null;
+      }
     }
     layers.push({ label, depthMin, depthMax, count: nPoints, data, indices });
   }

@@ -315,6 +315,13 @@ const FumocaPublish = (() => {
     try {
       if (payload.meta?.reviewVideo) payload.meta.reviewVideo.boundId = splatId || null;
       if (splatId) {
+      // Keep meta saved elsewhere since Studio opened (another tab, the
+      // viewer's variants/processing queue): start from the latest meta and
+      // overlay what this publish sets.
+      const { data: latestRow } = await sb.from('nif_files').select('meta').eq('id', splatId).eq('user_id', user.id).maybeSingle();
+      if (latestRow?.meta && typeof latestRow.meta === 'object' && payload.meta) {
+        payload.meta = { ...latestRow.meta, ...payload.meta };
+      }
       const { data: updated, error } = await sb.from('nif_files')
         .update(payload).eq('id', splatId).eq('user_id', user.id).select('id').maybeSingle();
       if (error) throw new Error('The NIF was uploaded, but its asset record could not be updated: ' + error.message);
