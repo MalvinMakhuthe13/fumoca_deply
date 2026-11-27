@@ -22,7 +22,7 @@ async function _hasWebGpu() {
 }
 
 /** Load (once) and return the depth pipeline. */
-export async function loadDepthModel({ onProgress } = {}) {
+export async function loadDepthModel({ onProgress, forceWasm = false } = {}) {
   if (_pipe) return _pipe;
   if (_loading) return _loading;
   _loading = (async () => {
@@ -37,9 +37,11 @@ export async function loadDepthModel({ onProgress } = {}) {
         onProgress?.(total ? loaded / total : 0, 'Downloading depth model (first time only)…');
       }
     };
-    const attempts = (await _hasWebGpu())
-      ? [{ device: 'webgpu', dtype: 'fp16' }, { device: 'wasm', dtype: 'q8' }]
-      : [{ device: 'wasm', dtype: 'q8' }];
+    const attempts = forceWasm
+      ? [{ device: 'wasm', dtype: 'q8' }]
+      : (await _hasWebGpu())
+        ? [{ device: 'webgpu', dtype: 'fp16' }, { device: 'wasm', dtype: 'q8' }]
+        : [{ device: 'wasm', dtype: 'q8' }];
     let lastError = null;
     for (const opt of attempts) {
       try {
@@ -87,7 +89,16 @@ export async function estimateDepth(canvas, { onProgress } = {}) {
   const { RawImage } = await import(TRANSFORMERS_URL);
   const blob = await new Promise((resolve, reject) => canvas.toBlob(b => b ? resolve(b) : reject(new Error('Could not encode photo')), 'image/png'));
   const image = await RawImage.fromBlob(blob);
-  const out = await pipe(image);
+  let out;
+  try {
+    out = await pipe(image);
+  } catch (error) {
+    if (_device !== 'webgpu') throw error;
+    console.warn('[Photo→3D] WebGPU inference failed; retrying on WASM', error);
+    _pipe = null; _device = null;
+    const fallback = await loadDepthModel({ onProgress, forceWasm: true });
+    out = await fallback(image);
+  }
   const t = out.predicted_depth;
   const dims = t.dims;
   const h = dims[dims.length - 2], w = dims[dims.length - 1];
