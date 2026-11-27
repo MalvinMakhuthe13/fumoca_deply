@@ -143,19 +143,26 @@ async function createSplatPreview(canvas) {
   const { OrbitControls } = await import('three/addons/controls/OrbitControls.js');
   const { SparkRenderer, SplatMesh } = await import('@sparkjsdev/spark');
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false });
-  renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
-  const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x05070b);
-  const camera = new THREE.PerspectiveCamera(50, 1, 0.01, 100);
-  const spark = new SparkRenderer({ renderer });
-  scene.add(spark);
-  const controls = new OrbitControls(camera, canvas);
-  controls.enableDamping = true; controls.enablePan = false;
-  controls.minAzimuthAngle = -0.6; controls.maxAzimuthAngle = 0.6;
-  controls.minPolarAngle = Math.PI / 2 - 0.45; controls.maxPolarAngle = Math.PI / 2 + 0.45;
+  let scene, camera, controls, spark;
+  try {
+    renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x05070b);
+    camera = new THREE.PerspectiveCamera(50, 1, 0.01, 100);
+    spark = new SparkRenderer({ renderer });
+    scene.add(spark);
+    controls = new OrbitControls(camera, canvas);
+    controls.enableDamping = true; controls.enablePan = false;
+    controls.minAzimuthAngle = -0.6; controls.maxAzimuthAngle = 0.6;
+    controls.minPolarAngle = Math.PI / 2 - 0.45; controls.maxPolarAngle = Math.PI / 2 + 0.45;
+  } catch (error) {
+    try { controls?.dispose?.(); } catch (_) {}
+    try { renderer.dispose?.(); } catch (_) {}
+    throw error;
+  }
   let mesh = null, raf = 0, disposed = false;
   const fit = () => {
-    const w = canvas.clientWidth, h = canvas.clientHeight;
+    const w = Math.max(1, canvas.clientWidth || 320), h = Math.max(1, canvas.clientHeight || 240);
     renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
   };
   const loop = () => { if (disposed) return; fit(); controls.update(); renderer.render(scene, camera); raf = requestAnimationFrame(loop); };
@@ -164,10 +171,14 @@ async function createSplatPreview(canvas) {
     async show(bytes) {
       const next = new SplatMesh({ fileBytes: bytes, fileName: 'photo-3d.ply' });
       scene.add(next);
-      if (next.initialized) await next.initialized;
+      try {
+        if (next.initialized) await next.initialized;
+      } catch (error) {
+        scene.remove(next); next.dispose?.();
+        throw error;
+      }
       if (mesh) { scene.remove(mesh); mesh.dispose?.(); }
       mesh = next;
-      // Frame the original camera viewpoint.
       const box = new THREE.Box3().setFromObject(mesh);
       const size = box.getSize(new THREE.Vector3());
       const dist = Math.max(size.x, size.y) / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))) * 1.08;
@@ -176,7 +187,11 @@ async function createSplatPreview(canvas) {
       controls.minDistance = dist * 0.4; controls.maxDistance = dist * 2.5;
       controls.update();
     },
-    dispose() { disposed = true; cancelAnimationFrame(raf); if (mesh) { scene.remove(mesh); mesh.dispose?.(); } renderer.dispose(); },
+    dispose() {
+      disposed = true; cancelAnimationFrame(raf);
+      if (mesh) { scene.remove(mesh); mesh.dispose?.(); }
+      controls?.dispose?.(); renderer.dispose();
+    },
   };
 }
 
