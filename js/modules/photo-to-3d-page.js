@@ -118,12 +118,20 @@ async function buildSplat() {
     }, { near: 1, far: range, maxSplats: detail, removeBackground: Number(els.background.value) });
     if (!g.count) throw new Error('Nothing left to build — lower "Remove background"');
     plyBytes = encodeGaussianPly(g);
-    progress(0.7, 'Loading preview…');
-    splatView = splatView || await createSplatPreview(els.splat);
-    await splatView.show(plyBytes);
+    // The PLY is the deliverable. Make download and Studio hand-off available
+    // before trying the optional Spark preview so a WebGL/CDN failure cannot
+    // destroy an otherwise successful on-device reconstruction.
     els.openStudio.disabled = false; els.downloadPly.disabled = false;
     els.splatInfo.textContent = `${g.count.toLocaleString()} Gaussians · ${(plyBytes.byteLength / 1048576).toFixed(1)} MB`;
-    done('3D splat ready — drag to orbit.');
+    progress(0.7, 'Loading optional Spark preview…');
+    try {
+      splatView = splatView || await createSplatPreview(els.splat);
+      await splatView.show(plyBytes);
+      done('3D splat ready — drag to orbit.');
+    } catch (previewError) {
+      console.warn('[Photo→3D] Spark preview unavailable; PLY export is still ready:', previewError);
+      done('PLY ready. The optional 3D preview is unavailable, but Download PLY and Open in Studio still work.');
+    }
   } catch (error) { fail(error); } finally { busy = false; }
 }
 
