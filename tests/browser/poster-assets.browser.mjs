@@ -10,8 +10,9 @@ const fixture = `<!doctype html>
 <style>
   html,body { margin:0; width:100%; height:100%; background:#111; }
   #viewport { position:relative; width:100%; height:100%; overflow:hidden; }
+  #viewport [data-fumoca-poster-canvas] { position:absolute; inset:0; pointer-events:none; }
 </style>
-<div id="viewport"><div data-fumoca-poster-canvas style="position:absolute;inset:0;pointer-events:none"></div></div>
+<div id="viewport"><div data-fumoca-poster-canvas></div></div>
 <script>
   const composition = { aspectRatio: 0.8, assets: { images: [
     { id:'fixed', name:'Fixed logo', src:'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect width="100" height="100" fill="red"/%3E%3C/svg%3E', x:0.5, y:0.5, width:0.25, sizeMode:'fixed', fixedWidthPx:200, anchor:'top-right', visible:true },
@@ -73,13 +74,25 @@ try {
   assert.ok(Math.abs(moved.x - 0.464) < 0.002, `drag should preserve the rendered centre and use 1000px host coordinates; got x=${moved.x}`);
 
   await page.locator('[data-poster-asset-id="fixed"]').click();
+  const moveHandle = page.getByRole('button', { name: 'Move Fixed logo' });
+  await moveHandle.waitFor();
+  const moveBox = await moveHandle.boundingBox();
+  assert.ok(moveBox, 'selected image should expose a dedicated move handle');
+  await page.mouse.move(moveBox.x + moveBox.width / 2, moveBox.y + moveBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(moveBox.x + moveBox.width / 2 + 100, moveBox.y + moveBox.height / 2 + 70, { steps:5 });
+  await page.mouse.up();
+  const handleMoved = await page.evaluate(() => window.FumocaPoster.getState().composition.assets.images.find(x => x.id === 'fixed'));
+  assert.ok(handleMoved.x > moved.x + 0.05 && handleMoved.y > 0.2, 'dedicated move handle must update image X/Y through a pointer-events-none poster canvas');
+
   const rotateHandle = page.getByRole('button', { name: 'Rotate Fixed logo' });
   await rotateHandle.waitFor();
   const handleBox = await rotateHandle.boundingBox();
   assert.ok(handleBox, 'selected image should expose a visible rotation handle');
   await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
   await page.mouse.down();
-  await page.mouse.move(524, 400, { steps:5 });
+  // Drag relative to the handle: the image was moved by the move handle above.
+  await page.mouse.move(handleBox.x + handleBox.width / 2 + 150, handleBox.y + handleBox.height / 2 + 120, { steps:5 });
   await page.mouse.up();
   const rotation = await page.evaluate(() => window.FumocaPoster.getState().composition.assets.images.find(x => x.id === 'fixed').rotation);
   assert.ok(Math.abs(rotation) > 20, `rotation handle should update the image rotation; got ${rotation}`);

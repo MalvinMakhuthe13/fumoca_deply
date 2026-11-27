@@ -30,7 +30,10 @@ assert.match(html,/Transforming the whole splat\. Every live point will change\.
 // not copied from the original source buffer after transforms have been applied.
 assert.match(html,/function _encodeSplatRows\(indices\)[\s\S]*?S\.positions\[i \* 3 \+ c\][\s\S]*?S\.scaleXYZ\?\.\[i \* 3 \+ c\][\s\S]*?_rotationAt\(i\)/);
 assert.match(html,/window\.saveLiveEdit = async function saveLiveEdit\(extra = \{\}\)[\s\S]*?rowBytes = _encodeSplatRows\(aliveIdx\)/);
-assert.match(html,/const savedBlob = hasSh \? _encodeGaussianPly\(aliveIdx\) : new Blob\(\[encodeNif\([\s\S]*?sourceBuffer: rowBytes/);
+// Saves are always NIF. Higher-order SH is preserved inside it as a GAUSSIAN_PLY
+// chunk (PR #25) instead of switching the saved file to a bare PLY.
+assert.match(html,/const gaussianPlyBytes = hasSh\s*\?\s*new Uint8Array\(await _encodeGaussianPly\(aliveIdx\)\.arrayBuffer\(\)\)/);
+assert.match(html,/const savedBlob = new Blob\(\[encodeNif\(\{[\s\S]*?sourceBuffer: rowBytes[\s\S]*?gaussianPlyBytes,/);
 assert.match(html,/\.from\('nif-files'\)[\s\S]*?\.upload\(path, savedBlob/);
 assert.match(html,/\.from\('nif_files'\)[\s\S]*?\.update\(\{ r2_key: fileKey, gaussian_count: aliveCount, meta \}\)/);
 assert.match(html,/if \(savedToNifFiles\) return true/);

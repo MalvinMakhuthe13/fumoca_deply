@@ -436,6 +436,8 @@
   body.fumoca-showroom #editCanvas,
   body.fumoca-showroom #editSelRect { display:none !important; }
   body.fumoca-showroom #viewerShell { inset:0 !important; }
+  body.fumoca-showroom #fumocaMeshToggle,
+  body.fumoca-showroom #fumocaMeshLighting { display:none !important; }
 
   /* ── PUBLIC VIEWER LOCK — hides all admin UI for embed/share links ── */
   body.fumoca-public-viewer #editModeBtn,
@@ -727,10 +729,21 @@
     border-radius: 12px !important;
     box-shadow: 0 8px 32px rgba(0,0,0,.4) !important;
   }
+/* Embedded mode: hide FUMOCA UI chrome so the host page owns the experience. */
+body.fumoca-embed-mode #menuBtn,
+body.fumoca-embed-mode #fumocFAB,
+body.fumoca-embed-mode #uiRevealBtn,
+body.fumoca-embed-mode #fumocMenu,
+body.fumoca-embed-mode #editModeBadge,
+body.fumoca-embed-mode #topbar,
+body.fumoca-embed-mode #bottomBar,
+body.fumoca-embed-mode .bottom-bar,
+body.fumoca-embed-mode .topbar { display:none !important; }
 </style>
 <link rel="stylesheet" href="css/present-magazine.css"/>
 </head>
 <body data-nav="none">
+<script>if(new URLSearchParams(location.search).get("embed")==="1")document.body.classList.add("fumoca-embed-mode");</script>
 
 <script>
 (() => {
@@ -751,6 +764,7 @@
       '#viewerMenuPanel', '#viewerMenuOverlay', '#toolbar', '#toolbarPanel',
       '#editToolbar', '#editTools', '#editControls', '#ownerControls',
       '#fumocaPresentTabPanel', '#presentNavLayer', '#magazineTextLayer',
+      '#fumocaMeshToggle', '#fumocaMeshLighting',
       '#fumocaExploreSceneButton', '#capTeaserBtn', '#teaserBtn', '#copyLinkBtn'
     ];
     document.querySelectorAll(selectors.join(',')).forEach((el) => {
@@ -1442,7 +1456,15 @@
   </div>
 </div>
 
-<script type="module" src="js/modules/viewer.js?v=20261106-editorialassets01"></script>
+<script type="module" src="js/modules/anim-joint-eval.js"></script>
+<script type="module" src="js/modules/anim-object.js"></script>
+<script type="module" src="js/modules/anim-master.js"></script>
+<script type="module" src="js/modules/anim-studio-init.js"></script>
+<script type="module" src="js/modules/anim-glb-bind.js"></script>
+<script type="module" src="js/modules/anim-afford.js"></script>
+<script type="module" src="js/modules/anim-live.js"></script>
+<script type="module" src="js/modules/anim-viewer-runtime.js"></script>
+<script type="module" src="js/modules/viewer.js?v=20261122-localnif01"></script>
 <script type="module" src="js/modules/sound-engine.js"></script>
 <script type="module" src="js/modules/edit-engine.js"></script>
 <script type="module" src="js/modules/camera-engine.js"></script>
@@ -1463,6 +1485,7 @@
 <script type="module" src="js/modules/subject-isolator.js"></script>
 <script type="module" src="js/modules/motion-states.js"></script>
 <script type="module" src="js/modules/motion-tracking.js"></script>
+<script type="module" src="js/modules/fourd-sequence-library.js"></script>
 <script type="module" src="js/modules/fourd-capture.js"></script>
 <script type="module" src="js/modules/4d-engine.js"></script>
 <script type="module" src="js/modules/hybrid-tri-splat.js"></script>

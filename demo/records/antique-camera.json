@@ -1,0 +1,1199 @@
+{
+  "id": "local-antique-camera",
+  "title": "Antique camera",
+  "description": "Press Camera body. The tripod stays put.",
+  "status": "done",
+  "meta": {
+    "demo_glb": "/demo/assets/AntiqueCamera.glb",
+    "prepared_object_id": "glb_mwsf2in3",
+    "anim_timeline": {
+      "version": 1,
+      "revision": 0,
+      "duration": 2,
+      "loopStart": 0,
+      "loopEnd": null,
+      "camera": [],
+      "skeletons": [],
+      "objects": [
+        {
+          "id": "glb_mwsf2in3",
+          "name": "AntiqueCamera.glb",
+          "version": 1,
+          "components": [
+            {
+              "id": "p_0_Scene",
+              "name": "Scene",
+              "parentId": null,
+              "type": "fixed",
+              "version": 1,
+              "pos": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "rot": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "local": {
+                "position": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "rotation": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0,
+                  "w": 1
+                }
+              },
+              "joint": {
+                "kind": "fixed",
+                "axis": {
+                  "x": 1,
+                  "y": 0,
+                  "z": 0
+                },
+                "pivot": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "limits": null
+              }
+            },
+            {
+              "id": "p_0_Scene/0_camera",
+              "name": "Camera body",
+              "parentId": "p_0_Scene",
+              "type": "fixed",
+              "version": 1,
+              "pos": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "rot": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "local": {
+                "position": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "rotation": {
+                  "x": 0,
+                  "y": -0.7071068286895752,
+                  "z": 0,
+                  "w": 0.7071067690849304
+                }
+              },
+              "joint": {
+                "kind": "hinge",
+                "pivot": {
+                  "x": -3.397650333303304e-8,
+                  "y": 5.355572432386282,
+                  "z": -4.551914400963142e-15
+                },
+                "axis": {
+                  "x": 1,
+                  "y": 0,
+                  "z": 0
+                },
+                "limits": {
+                  "min": 0,
+                  "max": 1.5707963267948966
+                },
+                "rest": {
+                  "position": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "rotation": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0,
+                    "w": 1
+                  }
+                },
+                "seat": null
+              },
+              "jointValue": 0
+            },
+            {
+              "id": "p_0_Scene/1_tripod",
+              "name": "tripod",
+              "parentId": "p_0_Scene",
+              "type": "fixed",
+              "version": 1,
+              "pos": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "rot": {
+                "x": 0,
+                "y": 0,
+                "z": 0
+              },
+              "local": {
+                "position": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "rotation": {
+                  "x": 0,
+                  "y": -0.7071068286895752,
+                  "z": 0,
+                  "w": 0.7071067690849304
+                }
+              },
+              "joint": {
+                "kind": "fixed",
+                "axis": {
+                  "x": 1,
+                  "y": 0,
+                  "z": 0
+                },
+                "pivot": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "limits": null
+              }
+            }
+          ],
+          "tracks": [
+            {
+              "time": 0,
+              "animVersion": 1,
+              "components": [
+                {
+                  "id": "p_0_Scene",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                {
+                  "id": "p_0_Scene/0_camera",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "jointValue": 0
+                },
+                {
+                  "id": "p_0_Scene/1_tripod",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                }
+              ]
+            },
+            {
+              "time": 0,
+              "animVersion": 1,
+              "components": [
+                {
+                  "id": "p_0_Scene",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                {
+                  "id": "p_0_Scene/0_camera",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "jointValue": 0
+                },
+                {
+                  "id": "p_0_Scene/1_tripod",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                }
+              ]
+            },
+            {
+              "time": 0,
+              "animVersion": 1,
+              "components": [
+                {
+                  "id": "p_0_Scene",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                {
+                  "id": "p_0_Scene/0_camera",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "jointValue": 0
+                },
+                {
+                  "id": "p_0_Scene/1_tripod",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                }
+              ]
+            },
+            {
+              "time": 0,
+              "animVersion": 1,
+              "components": [
+                {
+                  "id": "p_0_Scene",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                {
+                  "id": "p_0_Scene/0_camera",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "jointValue": 0
+                },
+                {
+                  "id": "p_0_Scene/1_tripod",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                }
+              ]
+            },
+            {
+              "time": 0,
+              "animVersion": 1,
+              "components": [
+                {
+                  "id": "p_0_Scene",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                {
+                  "id": "p_0_Scene/0_camera",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "jointValue": 0
+                },
+                {
+                  "id": "p_0_Scene/1_tripod",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                }
+              ]
+            },
+            {
+              "time": 0,
+              "animVersion": 1,
+              "components": [
+                {
+                  "id": "p_0_Scene",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                {
+                  "id": "p_0_Scene/0_camera",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "jointValue": 0
+                },
+                {
+                  "id": "p_0_Scene/1_tripod",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                }
+              ]
+            },
+            {
+              "time": 0,
+              "animVersion": 1,
+              "components": [
+                {
+                  "id": "p_0_Scene",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                {
+                  "id": "p_0_Scene/0_camera",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "jointValue": 0
+                },
+                {
+                  "id": "p_0_Scene/1_tripod",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                }
+              ]
+            },
+            {
+              "time": 0,
+              "animVersion": 1,
+              "components": [
+                {
+                  "id": "p_0_Scene",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                {
+                  "id": "p_0_Scene/0_camera",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "jointValue": 0
+                },
+                {
+                  "id": "p_0_Scene/1_tripod",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                }
+              ]
+            },
+            {
+              "time": 0,
+              "animVersion": 1,
+              "components": [
+                {
+                  "id": "p_0_Scene",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                {
+                  "id": "p_0_Scene/0_camera",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "jointValue": 0
+                },
+                {
+                  "id": "p_0_Scene/1_tripod",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                }
+              ]
+            },
+            {
+              "time": 0,
+              "animVersion": 1,
+              "components": [
+                {
+                  "id": "p_0_Scene",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                {
+                  "id": "p_0_Scene/0_camera",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "jointValue": 0
+                },
+                {
+                  "id": "p_0_Scene/1_tripod",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                }
+              ]
+            },
+            {
+              "time": 0,
+              "animVersion": 1,
+              "components": [
+                {
+                  "id": "p_0_Scene",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                {
+                  "id": "p_0_Scene/0_camera",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "jointValue": 0
+                },
+                {
+                  "id": "p_0_Scene/1_tripod",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                }
+              ]
+            },
+            {
+              "time": 2,
+              "animVersion": 1,
+              "components": [
+                {
+                  "id": "p_0_Scene",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                {
+                  "id": "p_0_Scene/0_camera",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "jointValue": 1.5707963267948966
+                },
+                {
+                  "id": "p_0_Scene/1_tripod",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                }
+              ]
+            },
+            {
+              "time": 2,
+              "animVersion": 1,
+              "components": [
+                {
+                  "id": "p_0_Scene",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                {
+                  "id": "p_0_Scene/0_camera",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "jointValue": 1.5707963267948966
+                },
+                {
+                  "id": "p_0_Scene/1_tripod",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                }
+              ]
+            },
+            {
+              "time": 2,
+              "animVersion": 1,
+              "components": [
+                {
+                  "id": "p_0_Scene",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                {
+                  "id": "p_0_Scene/0_camera",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "jointValue": 1.5707963267948966
+                },
+                {
+                  "id": "p_0_Scene/1_tripod",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                }
+              ]
+            },
+            {
+              "time": 2,
+              "animVersion": 1,
+              "components": [
+                {
+                  "id": "p_0_Scene",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                {
+                  "id": "p_0_Scene/0_camera",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "jointValue": 1.5707963267948966
+                },
+                {
+                  "id": "p_0_Scene/1_tripod",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                }
+              ]
+            },
+            {
+              "time": 2,
+              "animVersion": 1,
+              "components": [
+                {
+                  "id": "p_0_Scene",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                {
+                  "id": "p_0_Scene/0_camera",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "jointValue": 1.5707963267948966
+                },
+                {
+                  "id": "p_0_Scene/1_tripod",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                }
+              ]
+            },
+            {
+              "time": 2,
+              "animVersion": 1,
+              "components": [
+                {
+                  "id": "p_0_Scene",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                {
+                  "id": "p_0_Scene/0_camera",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "jointValue": 1.5707963267948966
+                },
+                {
+                  "id": "p_0_Scene/1_tripod",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                }
+              ]
+            },
+            {
+              "time": 2,
+              "animVersion": 1,
+              "components": [
+                {
+                  "id": "p_0_Scene",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                {
+                  "id": "p_0_Scene/0_camera",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "jointValue": 1.5707963267948966
+                },
+                {
+                  "id": "p_0_Scene/1_tripod",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                }
+              ]
+            },
+            {
+              "time": 2,
+              "animVersion": 1,
+              "components": [
+                {
+                  "id": "p_0_Scene",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                {
+                  "id": "p_0_Scene/0_camera",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "jointValue": 1.5707963267948966
+                },
+                {
+                  "id": "p_0_Scene/1_tripod",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                }
+              ]
+            },
+            {
+              "time": 2,
+              "animVersion": 1,
+              "components": [
+                {
+                  "id": "p_0_Scene",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                {
+                  "id": "p_0_Scene/0_camera",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "jointValue": 1.5707963267948966
+                },
+                {
+                  "id": "p_0_Scene/1_tripod",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                }
+              ]
+            },
+            {
+              "time": 2,
+              "animVersion": 1,
+              "components": [
+                {
+                  "id": "p_0_Scene",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                {
+                  "id": "p_0_Scene/0_camera",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "jointValue": 1.5707963267948966
+                },
+                {
+                  "id": "p_0_Scene/1_tripod",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                }
+              ]
+            },
+            {
+              "time": 2,
+              "animVersion": 1,
+              "components": [
+                {
+                  "id": "p_0_Scene",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                },
+                {
+                  "id": "p_0_Scene/0_camera",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "jointValue": 1.5707963267948966
+                },
+                {
+                  "id": "p_0_Scene/1_tripod",
+                  "rot": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  },
+                  "pos": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0
+                  }
+                }
+              ]
+            }
+          ],
+          "_migrationWarnings": []
+        }
+      ],
+      "lights": [],
+      "interactions": [],
+      "anchors": [],
+      "annotations": []
+    },
+    "local_only": true,
+    "license": "AntiqueCamera.glb is CC0. Source: Khronos glTF-Sample-Assets, UX3D."
+  }
+}

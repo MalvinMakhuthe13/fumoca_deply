@@ -8,6 +8,7 @@ import { supabase } from '../supabaseClient.js';
 import { triggerRevealForViewer } from './reveal-hook.js';
 import FumocDecoder from './fumoc-decoder.js';
 import { decodeNif, geometryToSplatRows } from './nif-format.js?v=20261024-realscale';
+import { readNifInteractiveManifest } from './nif-interactive-loader.js';
 import { chooseRenderMode, solidPointScale } from './industry-math.js';
 import './adaptive-presentation.js';
 import './poster-composer.js';
@@ -18,6 +19,7 @@ let _fumocaPosterStateCache = null;
 window.addEventListener('fumoca:posterChange', (event) => {
   _fumocaPosterStateCache = event.detail || window.FumocaPoster?.getState?.() || null;
 });
+import { normalizeIntensityForDisplay } from './lidar-intensity.mjs';
 window._fumocaSupabase = window._fumocaSupabase || supabase;
 const stageEl = document.getElementById('stage');
 let stageHost = document.getElementById('stageHost');
@@ -910,6 +912,23 @@ function setSceneMode(mode) {
   setVariantDirty(true);
 }
 async function fetchRecord() {
+  const localNif = params.get('localNif');
+  if (localNif) {
+    try {
+      const res = await fetch(localNif, { cache: 'no-store' });
+      if (!res.ok) {
+        console.warn('[FUMOCA viewer] local NIF fetch failed', res.status);
+        return null;
+      }
+      const rec = await res.json();
+      rec.id = rec.id || 'local-nif';
+      rec._localMock = true;
+      return rec;
+    } catch (error) {
+      console.warn('[FUMOCA viewer] local NIF failed', error);
+      return null;
+    }
+  }
   if (!nifId) return null;
 
   console.log('[FUMOCA viewer] fetchRecord() starting', {
@@ -1356,34 +1375,60 @@ let _meshRenderer = null, _meshScene = null, _meshCamera = null, _meshControls =
 let _meshLights = null, _meshLightingPanel = null;
 function destroyMeshViewer() {
   if (_meshFrame) { cancelAnimationFrame(_meshFrame); _meshFrame = null; }
+  if (_meshScene) {
+    const geometries = new Set(), materials = new Set();
+    _meshScene.traverse(object => {
+      if (object.geometry) geometries.add(object.geometry);
+      if (object.material) {
+        for (const material of Array.isArray(object.material) ? object.material : [object.material]) materials.add(material);
+      }
+    });
+    for (const geometry of geometries) geometry.dispose();
+    for (const material of materials) material.dispose();
+  }
   if (_meshRenderer) { _meshRenderer.dispose(); _meshRenderer.domElement.remove(); _meshRenderer = null; }
   _meshScene = _meshCamera = _meshControls = null;
   _meshLights = null;
   _meshLightingPanel?.remove(); _meshLightingPanel = null;
   document.getElementById('fumocaMeshToggle')?.remove();
 }
-function mountMeshViewer(mesh, calibration) {
+function mountMeshViewer(mesh, calibration, meshComponents = [], meshDiagnostics = null) {
   destroyMeshViewer();
   const container = stageHost || stageEl;
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(mesh.positions, 3));
-  // Colors arrive as 0-255 uint8 — THREE wants 0-1 floats for vertexColors.
-  const colorsF = new Float32Array(mesh.colors.length);
-  for (let i = 0; i < mesh.colors.length; i++) colorsF[i] = mesh.colors[i] / 255;
-  geo.setAttribute('color', new THREE.BufferAttribute(colorsF, 3));
-  geo.setIndex(new THREE.BufferAttribute(mesh.faces, 1));
-  geo.computeVertexNormals();  // required for lit shading — this is what makes it read as solid, not flat/blobby
-  // Lambertian-ish material with vertex colors: matte, physically-plausible
-  // shading (as opposed to the additive/transparent splat material above),
-  // which is precisely the visual cue that reads as "solid object" rather
-  // than "fuzzy point cloud."
   const mat = new THREE.MeshStandardMaterial({
     vertexColors: true, metalness: 0.05, roughness: 0.75,
-    side: THREE.DoubleSide,  // reconstructed meshes can have thin/open regions — avoid black backfaces
+    side: THREE.DoubleSide,
   });
-  const meshObj = new THREE.Mesh(geo, mat);
+  const meshGroup = new THREE.Group();
+  const renderParts = meshComponents?.length ? meshComponents : [mesh];
+  const componentObjects = [];
+  for (const part of renderParts) {
+    const positions = part.positions || part.vertices;
+    const colors = part.colors || part.colours;
+    const faces = part.faces || part.triangles;
+    if (!positions?.length || !faces?.length) continue;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const colorsF = new Float32Array(positions.length);
+    if (colors?.length === positions.length) {
+      for (let i = 0; i < colors.length; i++) colorsF[i] = colors[i] / 255;
+    } else {
+      colorsF.fill(0.72);
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(colorsF, 3));
+    geo.setIndex(new THREE.BufferAttribute(faces, 1));
+    geo.computeVertexNormals();
+    const meshObj = new THREE.Mesh(geo, mat);
+    meshObj.name = part.id || 'FUMOCA reconstructed component';
+    meshObj.userData.componentId = part.id || meshObj.name;
+    meshObj.userData.supportSurfaceCandidate = part.supportSurfaceCandidate === true;
+    meshObj.visible = part.visible !== false;
+    meshGroup.add(meshObj);
+    componentObjects.push(meshObj);
+  }
+  if (!componentObjects.length) return;
   _meshScene = new THREE.Scene();
-  _meshScene.add(meshObj);
+  _meshScene.add(meshGroup);
   const ambient = new THREE.AmbientLight(0xffffff, 0.55);
   const key = new THREE.DirectionalLight(0xffffff, 1.1);
   key.position.set(1, 1.2, 1.5);
@@ -1407,9 +1452,10 @@ function mountMeshViewer(mesh, calibration) {
   _meshControls.rotateSpeed = 1.15; _meshControls.zoomSpeed = 1.05;
   _meshControls.enablePan = false;
   _meshControls.minPolarAngle = 0; _meshControls.maxPolarAngle = Math.PI;
-  geo.computeBoundingSphere();
-  const r = geo.boundingSphere.radius || 1;
-  const c = geo.boundingSphere.center;
+  const meshBounds = new THREE.Box3().setFromObject(meshGroup);
+  const meshSphere = meshBounds.getBoundingSphere(new THREE.Sphere());
+  const r = meshSphere.radius || 1;
+  const c = meshSphere.center;
   _meshCamera.position.set(c.x, c.y - r * 0.25, c.z + r * 2.4);
   _meshCamera.lookAt(c.x, c.y, c.z);
   _meshControls.target.set(c.x, c.y, c.z);
@@ -1464,6 +1510,45 @@ function mountMeshViewer(mesh, calibration) {
   panelTitle.textContent = 'MESH LIGHTING';
   Object.assign(panelTitle.style, {fontWeight:'800', letterSpacing:'.12em', fontSize:'10px', marginBottom:'9px', color:'#c8ff00'});
   panel.appendChild(panelTitle);
+  const supportSuggestion = meshDiagnostics?.support_plane_candidate;
+  if (supportSuggestion?.detected) {
+    const supportNote = document.createElement('div');
+    supportNote.textContent = `Suggested support plane · Y=${Number(supportSuggestion.y).toFixed(4)} · ${Math.round(Number(supportSuggestion.confidence || 0) * 100)}% confidence · review separation in Studio`;
+    Object.assign(supportNote.style, {
+      margin: '4px 0 9px', padding: '7px', borderRadius: '7px',
+      background: 'rgba(200,255,0,.08)', color: '#d7f79a', fontSize: '10px', lineHeight: '1.4',
+    });
+    panel.appendChild(supportNote);
+  }
+  if (meshComponents?.length > 1) {
+    const componentTitle = document.createElement('div');
+    componentTitle.textContent = 'SCENE COMPONENTS';
+    Object.assign(componentTitle.style, {fontWeight:'800',fontSize:'10px',letterSpacing:'.1em',margin:'10px 0 6px',color:'#c8ff00'});
+    panel.appendChild(componentTitle);
+    for (const object of componentObjects) {
+      const row = document.createElement('label');
+      Object.assign(row.style, {display:'flex',alignItems:'center',gap:'7px',margin:'5px 0',fontSize:'11px'});
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox'; checkbox.checked = object.visible;
+      checkbox.addEventListener('change', () => { object.visible = checkbox.checked; });
+      const name = document.createElement('span');
+      const sourcePart = renderParts.find(part => (part.id || 'FUMOCA reconstructed component') === object.name);
+      const diagnostics = sourcePart?.diagnostics || {};
+      const role = object.userData.supportSurfaceCandidate ? ' · Support surface candidate' : '';
+      const watertight = diagnostics.watertight ?? sourcePart?.watertight;
+      const topology = watertight === true
+        ? ' · Watertight'
+        : Number.isFinite(Number(diagnostics.n_boundary_edges))
+          ? ` · Open ${Number(diagnostics.n_boundary_edges)} / NM ${Number(diagnostics.n_nonmanifold_edges || 0)}`
+          : watertight === false ? ' · Open topology' : '';
+      const supportConfidence = object.userData.supportSurfaceCandidate &&
+        Number.isFinite(Number(diagnostics.support_plane_confidence))
+        ? ` ${Math.round(Number(diagnostics.support_plane_confidence) * 100)}%` : '';
+      name.textContent = object.name + role + supportConfidence + topology;
+      row.append(checkbox, name);
+      panel.appendChild(row);
+    }
+  }
   const addRange = (label, min, max, step, initial, apply) => {
     const wrap = document.createElement('label');
     Object.assign(wrap.style, {display:'grid', gridTemplateColumns:'1fr auto', gap:'4px 8px', margin:'9px 0'});
@@ -1635,18 +1720,14 @@ async function mountPlyViewer(url) {
       const returnPalette = [[.1,.1,.1],[.1,.55,1],[.1,.9,.6],[1,.7,.1],[1,.2,.15]];
       control.addEventListener('change', () => {
         const mode = control.value;
-        let intensityMin = 0, intensityMax = 1;
-        if (mode === 'intensity' && intensityAttr) {
-          intensityMin = Infinity; intensityMax = -Infinity;
-          for (let i = 0; i < count; i++) { intensityMin = Math.min(intensityMin, intensityAttr.array[i]); intensityMax = Math.max(intensityMax, intensityAttr.array[i]); }
-          if (intensityMax <= 1) intensityMin = 0;
-          if (intensityMax === intensityMin) intensityMax = intensityMin + 1;
-        }
+        const intensityDisplay = mode === 'intensity' && intensityAttr
+          ? normalizeIntensityForDisplay(intensityAttr.array)
+          : null;
         for (let i = 0; i < count; i++) {
           const p = i * 3;
-          if (mode === 'intensity' && intensityAttr) {
-            const raw = Number(intensityAttr.array[i]) || 0;
-            const t = Math.max(0, Math.min(1, (raw - intensityMin) / (intensityMax - intensityMin)));
+          if (mode === 'intensity' && intensityDisplay) {
+            // Display-only percentile stretch; the PLY intensity attribute is never modified.
+            const t = intensityDisplay.values[i];
             colors[p] = t; colors[p+1] = Math.min(1, t * 1.8); colors[p+2] = Math.max(0, 1 - t * 1.7);
           } else if (mode === 'classification' && classificationAttr) {
             const c = classPalette[classificationAttr.array[i] % classPalette.length];
@@ -2183,7 +2264,7 @@ async function mountPublishedSparkPly(url) {
 }
 async function mountInteractiveViewer(forceReload = false) {
   const activeUrl = getActivenifUrl();
-  if ((!forceReload && viewerInstance) || !activeUrl) return;
+  if ((!forceReload && viewerInstance) || !activeUrl) return false;
   if (forceReload) { rendererPreviewPending = true; showStageFreeze(); _fumocaShowPipelineIllusion('Applying edits…', 1680); }
   if (forceReload) await destroyViewer();
   setLoading(forceReload ? 'Refreshing cleanup…' : 'Loading interactive nif…');
@@ -2465,6 +2546,7 @@ window._fumocaRenderer = {
         }));
       }
     }, 800); // 800ms — enough for first sort pass to complete
+    return true;
   } catch (err) {
     rendererPreviewPending = false;
     console.error('[FUMOCA viewer]', err);
@@ -2481,8 +2563,62 @@ window._fumocaRenderer = {
       } catch (_) {}
     }
     showError(`Failed to load nif: ${msg}`);
+    return false;
   }
 }
+
+let _motionSequenceLoadToken = 0;
+window._fumocaLoadMotionSequenceNif = async function(recordId) {
+  if (!recordId) throw new TypeError('Motion sequence NIF record id is required');
+  const token = ++_motionSequenceLoadToken;
+  const { data: row, error } = await supabase.from('nif_files').select('*').eq('id', recordId).single();
+  if (error) throw error;
+  if (!row?.r2_key) throw new Error('Motion sequence NIF has no stored artifact key');
+  const nextUrl = r2.publicUrl('nif-files', row.r2_key);
+  if (!nextUrl) throw new Error('Could not resolve the motion sequence NIF URL');
+  if (token !== _motionSequenceLoadToken) return false;
+
+  const previousCamera = window._fumocaViewerCamera || window._fumocaViewer?.camera || null;
+  const previousControls = window._fumocaViewerControls || window._fumocaViewer?.controls || null;
+  const cameraPose = previousCamera ? {
+    position: previousCamera.position?.toArray?.() || null,
+    quaternion: previousCamera.quaternion?.toArray?.() || null,
+    fov: previousCamera.fov,
+    zoom: previousCamera.zoom,
+    target: previousControls?.target?.toArray?.() || null
+  } : null;
+  try { _fumocaClearRendererPreview(); } catch (_) {}
+  currentRecord = row;
+  fileUrl = nextUrl;
+  window._fumocaCurrentRecord = row;
+  window._fumocaSplatUrl = nextUrl;
+  window._fumocaViewer = {
+    ...(window._fumocaViewer || {}),
+    viewer: viewerInstance || null,
+    camera: window._fumocaViewerCamera || null,
+    controls: window._fumocaViewerControls || null,
+    stage: stageHost || stageEl || null,
+    fileUrl: nextUrl,
+    record: row,
+  };
+  if (nifTitle) nifTitle.textContent = row.title || 'Motion moment';
+  const loaded = await mountInteractiveViewer(true);
+  if (!loaded) throw new Error('Viewer could not mount the requested motion moment');
+  if (token !== _motionSequenceLoadToken) return false;
+  const nextCamera = window._fumocaViewerCamera || window._fumocaViewer?.camera || null;
+  const nextControls = window._fumocaViewerControls || window._fumocaViewer?.controls || null;
+  if (cameraPose && nextCamera) {
+    if (cameraPose.position) nextCamera.position.fromArray(cameraPose.position);
+    if (cameraPose.quaternion) nextCamera.quaternion.fromArray(cameraPose.quaternion);
+    if (Number.isFinite(cameraPose.fov)) nextCamera.fov = cameraPose.fov;
+    if (Number.isFinite(cameraPose.zoom)) nextCamera.zoom = cameraPose.zoom;
+    if (cameraPose.target && nextControls?.target) nextControls.target.fromArray(cameraPose.target);
+    nextCamera.updateProjectionMatrix?.();
+    nextControls?.update?.();
+  }
+  return true;
+};
+
 function activatePreset(name) {
   const presets = {
     balanced: { cleanup: 5, sharpness: 20, presence: 100, focus: 42, focusX: 50, focusY: 42, suppression: 24, feather: 10, scale: 100, isolation: 0, cropWidth: 36, cropHeight: 42, cropDepth: 65, maskShape: 'ellipse', sceneMode: 'product' },
@@ -2550,6 +2686,10 @@ async function boot() {
   applyStageFilters();
   setVariantDirty(false);
   const status = normalizeStatus(currentRecord?.status, fileUrl);
+  if (!fileUrl && currentRecord?._localMock && currentRecord?.meta?.demo_glb) {
+    hideLoading();
+    return;
+  }
   if (!fileUrl) {
     if (status === 'processing' || status === 'queued') {
       showError('This nif is still processing. Open the teaser while the interactive version finishes.');
@@ -2585,6 +2725,21 @@ async function boot() {
   const companionKey = currentRecord?.meta?.view_ply_r2_key;
   if (companionKey && _isNifUrl(fileUrl)) {
     try {
+      // The PLY companion is the preferred visual path, but the NIF remains
+      // the source of truth for optional interaction/animation metadata.
+      // Read only its manifest here; do not decode/rebuild the Gaussian data.
+      try {
+        const manifestResp = await fetch(fileUrl);
+        if (!manifestResp.ok) throw new Error('NIF manifest source returned HTTP ' + manifestResp.status);
+        const manifest = await readNifInteractiveManifest(await manifestResp.arrayBuffer());
+        window._fumocaInteractiveManifest = manifest;
+        window.dispatchEvent(new CustomEvent('fumoca:nifInteractiveManifest', { detail: manifest }));
+        if (manifest) console.info('[FUMOCA Viewer] Interactive NIF manifest loaded', manifest.sceneId);
+      } catch (manifestError) {
+        window._fumocaInteractiveManifest = null;
+        console.warn('[FUMOCA Viewer] Optional NIF interaction manifest unavailable:', manifestError);
+      }
+
       const companionUrl = r2.publicUrl('nif-files', companionKey);
       if (companionUrl) {
         setLoading('Loading high-fidelity Spark splat…');
@@ -2606,7 +2761,16 @@ async function boot() {
       const nifResp   = await fetch(fileUrl);
       const nifBuffer = await nifResp.arrayBuffer();
       if (fileUrl.startsWith('blob:')) URL.revokeObjectURL(fileUrl);
-      const { meta, gaussians, calibration, verification, mesh } = await decodeNif(nifBuffer);
+      const { reader, meta, gaussians, calibration, verification, mesh, meshComponents } = await decodeNif(nifBuffer);
+      try {
+        const manifest = await readNifInteractiveManifest(reader);
+        window._fumocaInteractiveManifest = manifest;
+        window.dispatchEvent(new CustomEvent('fumoca:nifInteractiveManifest', { detail: manifest }));
+        if (manifest) console.info('[FUMOCA Viewer] Interactive NIF manifest loaded', manifest.sceneId);
+      } catch (manifestError) {
+        window._fumocaInteractiveManifest = null;
+        console.warn('[FUMOCA Viewer] Optional NIF interaction manifest unavailable:', manifestError);
+      }
       // Keep decoded NIF positions available for camera fitting and integrations.
       // The Gaussian renderer does not expose its internal buffer consistently.
       const gaussianData = gaussians.data;
@@ -2640,6 +2804,11 @@ async function boot() {
       window._fumocaCalibration  = calibration;
       window._fumocaVerification = verification;
       window._fumocaDecodedMesh  = mesh;
+      window._fumocaDecodedMeshDiagnostics = meta?.mesh_diagnostics || null;
+      window._fumocaDecodedMeshComponents = (meshComponents || []).map(component => ({
+        ...component,
+        diagnostics: meta?.mesh_diagnostics?.mesh_components?.find(item => item.id === component.id) || null,
+      }));
       renderTrustBadges(calibration, verification);
       const nifBytes = geometryToSplatRows(gaussians, { preserveScales: true });
       const nifBlob  = new Blob([nifBytes], { type: 'application/octet-stream' });
@@ -2696,7 +2865,7 @@ async function boot() {
     // before — mountInteractiveViewer owns stageHost/container setup, and
     // mounting the mesh canvas first would have it torn down along with it.
     if (window._fumocaDecodedMesh?.nVerts > 0) {
-      mountMeshViewer(window._fumocaDecodedMesh, window._fumocaCalibration);
+      mountMeshViewer(window._fumocaDecodedMesh, window._fumocaCalibration, window._fumocaDecodedMeshComponents, window._fumocaDecodedMeshDiagnostics);
     } else {
       destroyMeshViewer();  // clears any leftover toggle/canvas from a previously-viewed file
     }

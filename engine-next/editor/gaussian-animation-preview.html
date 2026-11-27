@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FUMOCA · Native Gaussian Animation Lab</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#090d12;color:#edf3fa;font:14px system-ui,sans-serif}
+#stage{position:relative;width:100%;height:100%}canvas{display:block;width:100%;height:100%;touch-action:none}
+#top{position:absolute;z-index:10;top:14px;left:14px;right:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 14px;border:1px solid #ffffff20;border-radius:12px;background:#0c131dcc;backdrop-filter:blur(12px)}
+#top strong{font-size:14px;letter-spacing:.02em}#top small{color:#a8b6c7}
+#file{max-width:280px;color:#dce7f4}#status{margin-left:auto;color:#9db0c5}
+#help{position:absolute;left:16px;top:76px;z-index:5;max-width:480px;color:#a8b6c7;background:#0c131dbb;padding:10px 12px;border-radius:8px;line-height:1.5}
+#error{color:#ff9b9b;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="scene"></canvas>
+  <header id="top">
+    <strong>FUMOCA · Gaussian Animation Lab</strong>
+    <input id="file" type="file" accept=".nif,application/octet-stream">
+    <small>Local-only preview · no upload</small>
+    <span id="status">Choose an animation-enabled NIF</span>
+  </header>
+  <div id="help">Open an NIF 1.2 file containing a <b>GAUSSIAN_ANIMATION</b> chunk. To create a synthetic QA copy from a captured NIF, use the generator command in the project documentation. The original file is not modified.</div>
+  <div id="error" role="alert"></div>
+</div>
+<script type="module" src="./gaussian-animation-preview.js"></script>
+</body>
+</html>

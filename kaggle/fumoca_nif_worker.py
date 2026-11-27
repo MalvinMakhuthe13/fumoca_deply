@@ -96,9 +96,9 @@ def main():
         f'DEVICE={pipeline.DEVICE}')
 
     if pipeline.DEVICE == 'cpu':
-        log('WARNING: no CUDA GPU detected. Gaussian training will be extremely slow '
-            'or impractical on CPU. On Kaggle, enable a GPU: Notebook Settings → '
-            'Accelerator → GPU T4 x2 (or P100).')
+        log('CPU mode active. Existing-geometry mesh_only jobs are supported without '
+            'PyTorch, gsplat, CUDA, or Gaussian training. Full video/photo reconstruction '
+            'still requires the neural training stack.')
 
     while True:
         try:
@@ -133,7 +133,9 @@ def main():
             continue
 
         try:
-            worker = pipeline.ReconstructionWorker(job_id, user_id)
+            worker = pipeline.ReconstructionWorker(
+                job_id, user_id, initialize_deblur=(capture_mode != 'mesh_only')
+            )
             if capture_mode == 'mesh_only':
                 worker.run_mesh_only(raw_r2_key, meta)
             else:

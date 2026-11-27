@@ -25,6 +25,7 @@ import {
   decompressChunk, decodePhysicsChunk,
   decodeCalibrationChunk, decodeVerificationChunk,
 } from '../../engine-next/format/NIFSpec.js';
+import { encodeDocumentModelChunk, decodeDocumentModelChunk } from './document-model-nif.js';
 
 const FLOATS_PER_POINT = 14;
 
@@ -286,6 +287,32 @@ export function encodeGeometryOnly(opts = {}) {
  *   vertical      string        header vertical tag (default 'generic')
  * @returns {ArrayBuffer}
  */
+function combineMeshComponents(components) {
+  if (!Array.isArray(components) || !components.length) return null;
+  const valid = components.filter(component => (component.vertices || component.positions)?.length &&
+    (component.triangles || component.faces)?.length);
+  if (!valid.length) return null;
+  const vertexCount = valid.reduce((sum, c) => sum + (c.vertices || c.positions).length / 3, 0);
+  const faceCount = valid.reduce((sum, c) => sum + (c.triangles || c.faces).length / 3, 0);
+  const vertices = new Float32Array(vertexCount * 3);
+  const triangles = new Uint32Array(faceCount * 3);
+  const colours = new Uint8Array(vertexCount * 3);
+  let vertexAt = 0, faceAt = 0, vertexOffset = 0;
+  for (const component of valid) {
+    const v = component.vertices || component.positions;
+    const f = component.triangles || component.faces;
+    const c = component.colours || component.colors;
+    vertices.set(v, vertexAt);
+    if (c?.length === v.length) colours.set(c, vertexAt);
+    else colours.fill(200, vertexAt, vertexAt + v.length);
+    for (let i = 0; i < f.length; i++) triangles[faceAt + i] = f[i] + vertexOffset;
+    vertexAt += v.length;
+    faceAt += f.length;
+    vertexOffset += v.length / 3;
+  }
+  return { vertices, triangles, colours };
+}
+
 export function encodeNif(opts = {}) {
   let geoData, count;
 
@@ -323,12 +350,14 @@ export function encodeNif(opts = {}) {
     : packGeometryQuantized(geoData, count);
   writer.add(CHUNK.KEYFRAME_GEO, geoBytes, CODEC.RAW);
 
-  // Keep the extracted solid as its own colored NIF component. Gaussian
-  // geometry remains independent so editors/viewers can toggle the two.
-  if (opts.mesh?.vertices?.length && opts.mesh?.triangles?.length) {
-    const vertices = opts.mesh.vertices;
-    const faces = opts.mesh.triangles;
-    const colors = opts.mesh.colours || new Uint8Array(vertices.length).fill(200);
+  // Keep the extracted solid as its own colored NIF component. When only
+  // independent components are supplied, rebuild the legacy combined mesh
+  // fallback so older viewers still render the full reconstructed scene.
+  const legacyMesh = opts.mesh || combineMeshComponents(opts.meshComponents);
+  if (legacyMesh?.vertices?.length && legacyMesh?.triangles?.length) {
+    const vertices = legacyMesh.vertices;
+    const faces = legacyMesh.triangles;
+    const colors = legacyMesh.colours || new Uint8Array(vertices.length).fill(200);
     const nVerts = Math.floor(vertices.length / 3);
     const nFaces = Math.floor(faces.length / 3);
     if (vertices.length % 3 || faces.length % 3 || colors.length !== nVerts * 3 ||
@@ -346,6 +375,31 @@ export function encodeNif(opts = {}) {
     meshBytes.set(colors, at); at += colors.length;
     for (const index of faces) { meshView.setUint32(at, index, false); at += 4; }
     writer.add(CHUNK.KEYFRAME_MESH, meshBytes, CODEC.RAW);
+  }
+
+  // Independently addressable reconstructed surfaces. The combined
+  // KEYFRAME_MESH remains for older viewers; this chunk preserves component
+  // identities and topology for editors that support per-object operations.
+  if (Array.isArray(opts.meshComponents) && opts.meshComponents.length) {
+    writer.add(CHUNK.MESH_COMPONENTS, encodeMeshComponentsChunk(opts.meshComponents), CODEC.RAW);
+  }
+
+  // Stable Gaussian identities and component lineage travel with the geometry.
+  if (opts.documentModel) {
+    writer.add(CHUNK.DOCUMENT_MODEL, encodeDocumentModelChunk(opts.documentModel), CODEC.RAW);
+  }
+
+  // Preserve the complete Gaussian PLY (including higher-order SH) alongside
+  // the canonical render geometry. This prevents the editor's previous PLY
+  // save path from discarding independently stored mesh/document chunks.
+  if (opts.gaussianPlyBytes) {
+    const plyBytes = opts.gaussianPlyBytes instanceof Uint8Array
+      ? opts.gaussianPlyBytes
+      : new Uint8Array(opts.gaussianPlyBytes);
+    if (plyBytes.byteLength < 16 || plyBytes.byteLength > 2 * 1024 * 1024 * 1024) {
+      throw new Error('[nif-format] invalid Gaussian PLY payload size');
+    }
+    writer.add(CHUNK.GAUSSIAN_PLY, plyBytes, CODEC.RAW);
   }
 
   // LiDAR measurements are per-point attributes. Store them in a separate
@@ -391,10 +445,130 @@ export function encodeNif(opts = {}) {
   // discarded everything except geometry — cameras, depth maps, meshes,
   // print-ready STL, and the poster thumbnail all vanished on first save.
   if (Array.isArray(opts.passthroughChunks)) {
-    for (const chunk of opts.passthroughChunks) writer.chunks.push(chunk);
+    for (const chunk of opts.passthroughChunks) {
+      // Rebuilt chunks must not be duplicated by the original-file passthrough.
+      if ((opts.documentModel && chunk.type === CHUNK.DOCUMENT_MODEL) ||
+          (opts.gaussianPlyBytes && chunk.type === CHUNK.GAUSSIAN_PLY)) continue;
+      writer.chunks.push(chunk);
+    }
   }
 
   return writer.build().buffer;
+}
+
+/**
+ * MESH_COMPONENTS v1 wire format (big-endian):
+ * [version:u8=1][count:u32]
+ * repeated: [id_length:u8][UTF-8 id][flags:u8][n_verts:u32][n_faces:u32]
+ *           [positions:n_verts×3×f32][colors:n_verts×3×u8][faces:n_faces×3×u32]
+ * flags bit 0 = measured watertightness. Open components are valid.
+ */
+function encodeMeshComponentsChunk(components) {
+  const encoder = new TextEncoder();
+  const seenIds = new Set();
+  const normalized = components.map((component, index) => {
+    const id = String(component.id ?? `component-${index + 1}`);
+    const idBytes = encoder.encode(id);
+    const vertices = component.vertices;
+    const faces = component.triangles ?? component.faces;
+    const nVerts = Math.floor((vertices?.length || 0) / 3);
+    const nFaces = Math.floor((faces?.length || 0) / 3);
+    const colours = component.colours || component.colors || new Uint8Array(nVerts * 3).fill(200);
+    let invalidVertex = false, invalidFace = false, invalidColour = false;
+    if (vertices) {
+      for (let i = 0; i < vertices.length; i++) {
+        if (!Number.isFinite(vertices[i])) { invalidVertex = true; break; }
+      }
+    }
+    if (colours) {
+      for (let i = 0; i < colours.length; i++) {
+        const value = colours[i];
+        if (!Number.isInteger(value) || value < 0 || value > 255) { invalidColour = true; break; }
+      }
+    }
+    if (faces) {
+      for (let i = 0; i < faces.length; i++) {
+        const value = faces[i];
+        if (!Number.isInteger(value) || value < 0 || value >= nVerts) {
+          invalidFace = true; break;
+        }
+      }
+    }
+    if (!idBytes.length || idBytes.length > 255 || seenIds.has(id) ||
+        !vertices || vertices.length !== nVerts * 3 ||
+        !faces || faces.length !== nFaces * 3 || !nVerts || !nFaces ||
+        colours.length !== nVerts * 3 || invalidVertex || invalidFace || invalidColour) {
+      throw new Error('[nif-format] invalid or duplicate mesh component geometry/ID');
+    }
+    seenIds.add(id);
+    return { idBytes, vertices, faces, colours, nVerts, nFaces, watertight: !!component.watertight, visible: component.visible !== false, supportSurfaceCandidate: component.supportSurfaceCandidate === true };
+  });
+  let byteLength = 5;
+  for (const c of normalized) byteLength += 1 + c.idBytes.length + 9 + c.nVerts * 15 + c.nFaces * 12;
+  const bytes = new Uint8Array(byteLength);
+  const view = new DataView(bytes.buffer);
+  view.setUint8(0, 1);
+  view.setUint32(1, normalized.length, false);
+  let at = 5;
+  for (const c of normalized) {
+    view.setUint8(at++, c.idBytes.length);
+    bytes.set(c.idBytes, at); at += c.idBytes.length;
+    view.setUint8(at++, (c.watertight ? 1 : 0) | (c.visible === false ? 0 : 2) | (c.supportSurfaceCandidate ? 4 : 0));
+    view.setUint32(at, c.nVerts, false); at += 4;
+    view.setUint32(at, c.nFaces, false); at += 4;
+    for (const value of c.vertices) { view.setFloat32(at, value, false); at += 4; }
+    bytes.set(c.colours, at); at += c.colours.length;
+    for (const face of c.faces) { view.setUint32(at, face, false); at += 4; }
+  }
+  return bytes;
+}
+
+function decodeMeshComponentsBytes(bytes) {
+  if (!bytes) return [];
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const decoder = new TextDecoder();
+  const components = [];
+  const seenIds = new Set();
+  try {
+    if (view.byteLength < 5 || view.getUint8(0) !== 1) throw new Error('unsupported component chunk version');
+    const count = view.getUint32(1, false);
+    if (count > 10000) throw new Error('component count exceeds safety limit');
+    let at = 5;
+    for (let i = 0; i < count; i++) {
+      if (at + 1 > view.byteLength) throw new Error('truncated component ID');
+      const idLength = view.getUint8(at++);
+      if (at + idLength + 9 > view.byteLength) throw new Error('truncated component header');
+      const id = decoder.decode(bytes.subarray(at, at + idLength)); at += idLength;
+      if (!id || seenIds.has(id)) throw new Error('empty or duplicate component ID');
+      seenIds.add(id);
+      const flags = view.getUint8(at++);
+      const nVerts = view.getUint32(at, false); at += 4;
+      const nFaces = view.getUint32(at, false); at += 4;
+      if (!id || !nVerts || !nFaces || nVerts > 50000000 || nFaces > 100000000) throw new Error('invalid component dimensions');
+      const required = nVerts * 15 + nFaces * 12;
+      if (!Number.isSafeInteger(required) || required > view.byteLength - at) throw new Error('truncated component geometry');
+      const positions = new Float32Array(nVerts * 3);
+      for (let p = 0; p < positions.length; p++) { positions[p] = view.getFloat32(at, false); at += 4; }
+      const colors = bytes.slice(at, at + nVerts * 3); at += nVerts * 3;
+      for (let c = 0; c < colors.length; c++) {
+        if (!Number.isInteger(colors[c]) || colors[c] < 0 || colors[c] > 255) throw new Error('invalid component color');
+      }
+      const faces = new Uint32Array(nFaces * 3);
+      for (let f = 0; f < faces.length; f++) {
+        faces[f] = view.getUint32(at, false); at += 4;
+        if (faces[f] >= nVerts) throw new Error('component face index out of range');
+      }
+      for (let p = 0; p < positions.length; p++) {
+        if (!Number.isFinite(positions[p])) throw new Error('non-finite component vertex');
+      }
+      components.push({ id, positions, colors, faces, nVerts, nFaces, watertight: !!(flags & 1), visible: !!(flags & 2), supportSurfaceCandidate: !!(flags & 4) });
+    }
+    if (at !== view.byteLength) throw new Error('unexpected trailing component bytes');
+    return components;
+  } catch (error) {
+    console.warn('[nif-format] MESH_COMPONENTS ignored:', error.message);
+    return [];
+  }
 }
 
 // ── Public: decode a .nif ArrayBuffer back into render-ready data ────────────
@@ -406,9 +580,18 @@ export async function decodeNif(arrayBuffer) {
   const geometry = await reader.getGeometry(); // { count, data: Float32Array(14/point) } | null
   if (!geometry) throw new Error('[nif-format] .nif file has no KEYFRAME_GEO chunk');
 
-  const meta = decodeMetaChunk(reader.getChunk(CHUNK.META));
-  const thumbChunk = reader.getChunk(CHUNK.THUMBNAIL);
-  const thumbnailBytes = thumbChunk ? thumbChunk.data : null;
+  // All semantic decoders receive decompressed payload bytes. Codec handling
+  // stays at this boundary so RAW and worker-GZIP files share one path.
+  const readBytes = async (type) => {
+    try { return await reader.getDecompressed(type); }
+    catch (error) {
+      console.warn(`[nif-format] chunk 0x${type.toString(16)} decompression failed:`, error.message);
+      return null;
+    }
+  };
+  const metaBytes = await readBytes(CHUNK.META);
+  const meta = decodeMetaChunk(metaBytes ? { data: metaBytes } : null);
+  const thumbnailBytes = await readBytes(CHUNK.THUMBNAIL);
 
   // CALIBRATION/VERIFICATION — this is the live app's only decode path, so
   // if these aren't read here, the calibration confidence and product-
@@ -424,13 +607,19 @@ export async function decodeNif(arrayBuffer) {
   // pipeline.py's ENABLE_DRACO_MESH is on). Async because Draco decode goes
   // through a wasm module — decodeNif already awaits everything else, so
   // this doesn't change the calling convention.
-  const mesh = await decodeMeshChunk(reader.getChunk(CHUNK.KEYFRAME_MESH));
+  const meshBytes = await readBytes(CHUNK.KEYFRAME_MESH);
+  const componentBytes = await readBytes(CHUNK.MESH_COMPONENTS);
+  const documentModelBytes = await readBytes(CHUNK.DOCUMENT_MODEL);
+  const gaussianPlyBytes = await readBytes(CHUNK.GAUSSIAN_PLY);
+  const mesh = await decodeMeshBytes(meshBytes);
+  const meshComponents = decodeMeshComponentsBytes(componentBytes);
+  const documentModel = decodeDocumentModelChunk(documentModelBytes);
 
   let lidarAttributes = null;
-  const lidarChunk = reader.getChunk(CHUNK.LIDAR_ATTR);
-  if (lidarChunk) {
+  const lidarBytes = await readBytes(CHUNK.LIDAR_ATTR);
+  if (lidarBytes) {
     try {
-      const view = new DataView(lidarChunk.data.buffer, lidarChunk.data.byteOffset, lidarChunk.data.byteLength);
+      const view = new DataView(lidarBytes.buffer, lidarBytes.byteOffset, lidarBytes.byteLength);
       if (view.getUint8(0) !== 1) throw new Error('unsupported LiDAR attribute chunk version');
       const flags = view.getUint8(1), n = view.getUint32(2, false);
       if (n !== geometry.count) throw new Error('LiDAR attribute count does not match geometry');
@@ -446,7 +635,7 @@ export async function decodeNif(arrayBuffer) {
     } catch (err) { console.warn('[nif-format] LiDAR attributes ignored:', err.message); }
   }
 
-  return { reader, meta, thumbnailBytes, gaussians: geometry, calibration, verification, mesh, lidarAttributes };
+  return { reader, meta, thumbnailBytes, gaussians: geometry, calibration, verification, mesh, meshComponents, documentModel, gaussianPlyBytes, lidarAttributes };
 }
 
 // ── Draco decoder — lazily created, reused across every mesh this session.
@@ -530,32 +719,46 @@ function clamp01(v) { return v < 0 ? 0 : v > 1 ? 1 : v; }
 //   flag 0x00: [n_verts:u32 BE][n_faces:u32 BE]
 //              [positions: n_verts×3×f32 BE][colors: n_verts×3×u8][faces: n_faces×3×u32 BE]
 //   flag 0x01: Draco buffer — decoded via _decodeDracoMesh() above.
-async function decodeMeshChunk(chunk) {
-  if (!chunk) return null;
+function decodeMeshBytes(bytes) {
+  if (!bytes) return null;
   try {
-    const dv = new DataView(chunk.data.buffer, chunk.data.byteOffset, chunk.data.byteLength);
+    const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     const formatFlag = dv.getUint8(0);
 
     if (formatFlag === 0x01) {
-      return await _decodeDracoMesh(chunk.data.subarray(1));
+      return _decodeDracoMesh(bytes.subarray(1));
     }
     if (formatFlag !== 0x00) {
       console.warn(`[nif-format] KEYFRAME_MESH has format_flag ${formatFlag} — ` +
                     `no decoder for this format, skipping mesh render.`);
       return null;
     }
+    if (dv.byteLength < 9) throw new Error('truncated mesh header');
     const nVerts = dv.getUint32(1, false);
     const nFaces = dv.getUint32(5, false);
+    if (!nVerts || !nFaces || nVerts > 50000000 || nFaces > 100000000) {
+      throw new Error('invalid mesh dimensions');
+    }
+    const required = 9 + nVerts * 15 + nFaces * 12;
+    if (!Number.isSafeInteger(required) || required !== dv.byteLength) {
+      throw new Error('mesh payload length does not match declared topology');
+    }
     let offset = 9;
 
     const positions = new Float32Array(nVerts * 3);
-    for (let i = 0; i < nVerts * 3; i++) { positions[i] = dv.getFloat32(offset, false); offset += 4; }
+    for (let i = 0; i < positions.length; i++) {
+      positions[i] = dv.getFloat32(offset, false); offset += 4;
+      if (!Number.isFinite(positions[i])) throw new Error('non-finite mesh vertex');
+    }
 
-    const colors = new Uint8Array(chunk.data.buffer, chunk.data.byteOffset + offset, nVerts * 3);
+    const colors = bytes.slice(offset, offset + nVerts * 3);
     offset += nVerts * 3;
 
     const faces = new Uint32Array(nFaces * 3);
-    for (let i = 0; i < nFaces * 3; i++) { faces[i] = dv.getUint32(offset, false); offset += 4; }
+    for (let i = 0; i < faces.length; i++) {
+      faces[i] = dv.getUint32(offset, false); offset += 4;
+      if (faces[i] >= nVerts) throw new Error('mesh face index out of range');
+    }
 
     return { positions, colors, faces, nVerts, nFaces };
   } catch (e) {

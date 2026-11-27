@@ -8,7 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Oxanium:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Bebas+Neue&family=Cormorant+Garamond:wght@400;500;600;700&family=Playfair+Display:wght@400;500;600;700;800&family=DM+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <!-- config.js MUST load before any ES modules so window.FUMOCA_CONFIG is set -->
 <script src="config.js"></script>
-<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/","@sparkjsdev/spark":"https://sparkjs.dev/releases/spark/2.4.0/spark.module.js"}}</script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/","@sparkjsdev/spark":"https://sparkjs.dev/releases/spark/2.4.0/spark.module.js","@dimforge/rapier3d-compat":"https://cdn.jsdelivr.net/npm/@dimforge/rapier3d-compat@0.21.0/dist/rapier.mjs"}}</script>
 <link rel="stylesheet" href="css/present-magazine.css"/>
 <link rel="stylesheet" href="css/review-video.css?v=20261025-bglayer"/>
 <link rel="stylesheet" href="css/present-unified.css?v=20261106-creativeworkspace01"/>
@@ -688,6 +688,10 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
     <div class="tb-sep"></div>
     <button class="tb-btn" id="compareBtn" title="Compare loaded scene with current edits" disabled>◧ Compare</button>
     <button class="tb-btn" id="screenshotBtn" title="Screenshot viewport">📷 Capture</button>
+    <button class="tb-btn" id="authorBtn" title="Articulate objects">Animate</button>
+    <button class="tb-btn" id="manualGaussianLabBtn" title="Open the active NIF in the manual Gaussian deformation editor">Gaussian Lab</button>
+    <button class="tb-btn" id="loadGlbBtn" title="Load a GLB to articulate" style="background:rgba(120,180,255,.12);border-color:rgba(120,180,255,.4);color:#9cf;">Load GLB</button>
+    <input type="file" id="loadGlbFile" accept=".glb,.gltf" style="display:none"/>
     <button class="tb-btn" id="hotspotBtn" title="Hotspots — place, edit, tour" style="background:rgba(200,255,0,.1);border-color:rgba(200,255,0,.4);color:#c8ff00;">📍 Hotspots</button>
     <button class="tb-btn" id="extractObjectBtn" title="Extract an object (e.g. a car) as its own 3D listing" style="background:rgba(0,200,255,.08);border-color:rgba(0,200,255,.35);color:#7ee2ff;">🎯 Extract</button>
     <button class="tb-btn cyan" id="captureVideoBtn">⏺ Record</button>
@@ -1244,6 +1248,7 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
           <label style="font-size:11px;margin-top:6px;display:block">Minimum nearby points<input id="lidarCleanNeighbors" type="number" min="2" max="32" step="1" value="4" style="display:block;width:100%;padding:6px;margin-top:3px;background:var(--surface2);color:var(--text);border:1px solid var(--border2);border-radius:6px"></label>
           <button type="button" class="ac-btn rose full" id="lidarCleanOutliersBtn" style="margin-top:7px">Remove isolated points</button>
         </div>
+          <div id="lidarQualityReport" role="status" aria-live="polite" style="display:none;margin-top:8px;padding:9px;border:1px solid rgba(0,229,255,.25);border-radius:8px;background:rgba(0,229,255,.04);font-size:11px;line-height:1.5;white-space:normal"></div>
           <div id="lidarStatus" class="hint" style="margin-top:8px"></div>
         </div>
       </div>
@@ -1828,10 +1833,14 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
 
 <script type="module">
 import * as THREE from 'three';
+import { selectVisibleScreenPoints } from './js/modules/screen-space-selection.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
 import { decodeNif, encodeNif, geometryToSplatRows, downloadNif } from './js/modules/nif-format.js';
+import { createDocumentModel, allocateGaussianIds, compactDocumentModel, syncDocumentComponentsFromMesh, UnifiedEditHistory } from './js/modules/document-model.js';
+import { normalizeMeshComponents } from './js/modules/mesh-component-contract.js';
+import { assignGaussianMemberships } from './js/modules/gaussian-component-membership.js';
 
 // Cloud storage is only needed for save/upload actions. Keep it out of the
 // editor's startup dependency graph so a temporary storage CDN failure cannot
@@ -1914,6 +1923,7 @@ window.controls = controls;
 // Expose for auto-fix.js and other modules
 window._fumocaViewerCamera = camera;
 window._fumocaViewerControls = controls;
+if (window.FumocaStudioInit) window.FumocaStudioInit.init();
 // rebuildGeometry stub — replaced by real function once main script runs
 window.rebuildGeometry = () => window.dispatchEvent(new CustomEvent('fumoca:rebuildGeometry'));
 // Stub renderer so auto-fix can get positions and camera distance info
@@ -1954,7 +1964,6 @@ const S = {
   displayMode: 'blob',
   brushSize: 28, brushStrength: 1.0, brushHardness: 0.8,
   brightness: 1.0, ptScale: 1.0, blobSoftness: 0.6,
-  history: [], historyIndex: -1,
   lassoPoints: [], dragging: false, dragStart: null, dragCurrent: null,
   bgType: 'transparent',
   bgImageUrl: null, bgOpacity: 1.0, bgBlur: 0, bgScale: 1.0,
@@ -1969,6 +1978,114 @@ const S = {
 };
 // Expose globally so modules and guard checks can reference it
 window.S = S;
+document.getElementById('manualGaussianLabBtn')?.addEventListener('click',()=>{
+  if(!S.gaussianSourceBytes){setStatus('Load a NIF first to open the manual Gaussian Lab.','warn');return;}
+  const lab=window.open('/engine-next/editor/manual-gaussian-deformation-lab.html?studio=1','_blank');
+  if(!lab){setStatus('Allow pop-ups to open the Manual Gaussian Lab.','warn');return;}
+  const payload=S.gaussianSourceBytes.slice(0),name=S.fileName||'studio-source.nif';
+  const onReady=event=>{if(event.origin!==location.origin||event.source!==lab||event.data?.type!=='FUMOCA_MANUAL_GAUSSIAN_READY')return;window.removeEventListener('message',onReady);lab.postMessage({type:'FUMOCA_MANUAL_GAUSSIAN_SOURCE',name,buffer:payload},location.origin);};
+  window.addEventListener('message',onReady);
+});
+
+let _pendingUnifiedHistory = null;
+const _cloneHistoryPivot = value => value ? [value.x, value.y, value.z] : null;
+const studioEditHistory = new UnifiedEditHistory({
+  limit: 80,
+  maxBytes: 256 * 1024 * 1024,
+  capture: () => ({
+    positions: S.positions,
+    colors: S.colors,
+    opacity: S.opacity,
+    scale: S.scale,
+    scaleXYZ: S.scaleXYZ,
+    rotation: S.rotation,
+    alive: S.alive,
+    selected: S.selected,
+    paintColors: S.paintColors,
+    shCoefficients: S.shCoefficients,
+    documentModel: S.documentModel || null,
+    nifMesh: S.nifMesh || null,
+    nifMeshComponents: S.nifMeshComponents || [],
+    activeMeshComponentId: S.activeMeshComponentId || null,
+    nifMeta: S.nifMeta || null,
+    layerHidden: S.layerHidden || null,
+    layers: S.layers || [],
+    activeLayerId: S.activeLayerId || null,
+    measurements: S.measurements || [],
+    pivot: _cloneHistoryPivot(S.pivot),
+  }),
+  restore: snapshot => {
+    for (const key of ['positions','colors','opacity','scale','scaleXYZ','rotation','alive','selected','paintColors','shCoefficients']) {
+      S[key] = snapshot[key] == null ? null : snapshot[key];
+    }
+    S.documentModel = snapshot.documentModel;
+    S.nifMesh = snapshot.nifMesh || null;
+    S.nifMeshComponents = snapshot.nifMeshComponents || [];
+    S.activeMeshComponentId = snapshot.activeMeshComponentId;
+    S.nifMeta = snapshot.nifMeta;
+    S.layerHidden = snapshot.layerHidden;
+    S.layers = snapshot.layers || [];
+    S.activeLayerId = snapshot.activeLayerId || null;
+    S.measurements = snapshot.measurements || [];
+    S.pivot = snapshot.pivot ? new THREE.Vector3(...snapshot.pivot) : null;
+    rebuildGeometry();
+    _refreshSceneReference(true);
+    window.refreshStudioMeshDerivedState?.();
+    syncTransformGizmo();
+    renderMeasurementList();
+    renderMeasurementOverlay();
+    updateHistoryBtns();
+  },
+  onChange: updateHistoryBtns,
+});
+function flushPendingUnifiedHistory() {
+  if (!_pendingUnifiedHistory) return false;
+  const pending = _pendingUnifiedHistory;
+  try {
+    // The live mesh collection is the writer during mesh editing. Reconcile it
+    // into the canonical identity graph before the journal captures its after-state.
+    if (Array.isArray(S.nifMeshComponents) && S.documentModel) {
+      S.documentModel = syncDocumentComponentsFromMesh(
+        S.documentModel, S.nifMeshComponents, S.activeMeshComponentId
+      );
+    }
+    const committed = studioEditHistory.commit(pending.label, { coalesceKey: pending.coalesceKey || null });
+    _pendingUnifiedHistory = null;
+    const historyError = studioEditHistory.state().error;
+    if (!committed && historyError) {
+      console.warn('[Studio history] Edit applied without an undo entry:', historyError);
+      setStatus(historyError, 'error');
+      showToast('Undo history limit reached', historyError);
+    }
+    updateHistoryBtns();
+    return committed;
+  } catch (error) {
+    // A failed canonical-model validation must not leave a half-applied mesh edit
+    // in Studio. Roll back to the journal's detached pre-gesture baseline.
+    console.error('[Studio history] Could not commit pending edit:', error);
+    try {
+      studioEditHistory.cancelPending();
+      _pendingUnifiedHistory = null;
+      setStatus('Edit rejected and rolled back: ' + (error.message || String(error)), 'error');
+    } catch (rollbackError) {
+      console.error('[Studio history] Rollback after commit validation failed:', rollbackError);
+      setStatus('Could not safely roll back this edit. Scene preserved; reload before continuing.', 'error');
+    }
+    updateHistoryBtns();
+    return false;
+  }
+}
+function settlePendingStudioHistory(action = 'save') {
+  if (!_pendingUnifiedHistory) return true;
+  flushPendingUnifiedHistory();
+  if (_pendingUnifiedHistory) {
+    const message = 'The current edit could not be committed safely; ' + action + ' was stopped to protect the document.';
+    setStatus(message, 'error');
+    showToast('Save/export stopped', message, 'warn');
+    return false;
+  }
+  return true;
+}
 let _sourceToRender = null;
 let _gizmoGesture = false;
 let _previousGizmoTransform = null;
@@ -2023,8 +2140,9 @@ function _updateViewportBounds() {
 }
 
 function selectedPointCount() {
-  if (!S.selected) return 0;
-  let n=0; for(let i=0;i<S.selected.length;i++) if(S.alive?.[i] && S.selected[i]) n++;
+  let n=0;
+  if (S.selected) for(let i=0;i<S.selected.length;i++) if(S.alive?.[i] && S.selected[i]) n++;
+  window.dispatchEvent(new CustomEvent('fumoca:selectionChanged', { detail: { count: n } }));
   return n;
 }
 function _updateGroundGrid(recenter = false) {
@@ -2554,9 +2672,22 @@ window.previewSolidMesh = (mesh, options = {}) => {
     }
     geometry.setIndex(new THREE.BufferAttribute(mesh.triangles, 1));
     geometry.computeVertexNormals();
-    const material = new THREE.MeshStandardMaterial({ vertexColors: !!mesh.colours, color: mesh.colours ? 0xffffff : 0x9ab3c7, roughness: 0.72, metalness: 0.05, side: THREE.DoubleSide });
+    const initialOpacity = Math.max(0.05, Math.min(1, Number(options.opacity ?? 0.38)));
+    const material = new THREE.MeshStandardMaterial({
+      vertexColors: !!mesh.colours,
+      color: mesh.colours ? 0xffffff : 0x9ab3c7,
+      roughness: 0.72,
+      metalness: 0.05,
+      side: THREE.DoubleSide,
+      transparent: initialOpacity < 0.999,
+      opacity: initialOpacity,
+      depthWrite: initialOpacity >= 0.999,
+    });
     _solidMeshPreviewObject = new THREE.Mesh(geometry, material);
     _solidMeshPreviewObject.name = 'FUMOCA extracted solid mesh';
+    // Draw the translucent reconstruction after the Gaussian layer so both
+    // representations remain legible in hybrid mode.
+    _solidMeshPreviewObject.renderOrder = 10;
     _solidMeshPreviewObject.frustumCulled = false;
     scene.add(_solidMeshPreviewObject);
     _solidMeshPreviewData = mesh;
@@ -2569,8 +2700,91 @@ window.previewSolidMesh = (mesh, options = {}) => {
   _solidMeshPreviewObject.material.emissiveIntensity = Math.max(0, Math.min(2, Number(options.light) || 0));
   _solidMeshPreviewObject.material.roughness = Math.max(0.05, Math.min(1, Number(options.roughness) || 0.72));
   _solidMeshPreviewObject.material.metalness = Math.max(0, Math.min(1, Number(options.metalness) || 0));
+  const opacity = Math.max(0.05, Math.min(1, Number(options.opacity ?? 0.38)));
+  _solidMeshPreviewObject.material.opacity = opacity;
+  _solidMeshPreviewObject.material.transparent = opacity < 0.999;
+  _solidMeshPreviewObject.material.depthWrite = opacity >= 0.999;
   _solidMeshPreviewObject.material.needsUpdate = true;
 };
+let _solidMeshComponentsGroup = null;
+const _solidMeshComponentObjects = new Map();
+const clearSolidMeshComponents = () => {
+  if (_solidMeshComponentsGroup) {
+    scene.remove(_solidMeshComponentsGroup);
+    _solidMeshComponentsGroup.traverse(object => {
+      if (object.geometry) object.geometry.dispose();
+      if (object.material) {
+        if (Array.isArray(object.material)) object.material.forEach(material => material.dispose());
+        else object.material.dispose();
+      }
+    });
+  }
+  _solidMeshComponentsGroup = null;
+  _solidMeshComponentObjects.clear();
+};
+window.previewSolidMeshComponents = (components = [], options = {}) => {
+  clearSolidMeshComponents();
+  if (!Array.isArray(components) || !components.length) return;
+  const group = new THREE.Group();
+  group.name = 'FUMOCA independent reconstructed components';
+  const opacity = Math.max(0.05, Math.min(1, Number(options.opacity ?? 0.9)));
+  for (const component of components) {
+    const positions = component.vertices || component.positions;
+    const faces = component.triangles || component.faces;
+    const colours = component.colours || component.colors;
+    if (!positions?.length || !faces?.length) continue;
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    if (colours?.length === positions.length) {
+      const color = new Float32Array(colours.length);
+      for (let i = 0; i < color.length; i++) color[i] = colours[i] / 255;
+      geometry.setAttribute('color', new THREE.BufferAttribute(color, 3));
+    }
+    geometry.setIndex(new THREE.BufferAttribute(faces, 1));
+    geometry.computeVertexNormals();
+    const material = new THREE.MeshStandardMaterial({
+      vertexColors: !!colours,
+      color: colours ? 0xffffff : 0x9ab3c7,
+      roughness: Math.max(0.05, Math.min(1, Number(options.roughness ?? 0.72))),
+      metalness: Math.max(0, Math.min(1, Number(options.metalness ?? 0.05))),
+      side: THREE.DoubleSide,
+      transparent: opacity < 0.999,
+      opacity,
+      depthWrite: opacity >= 0.999,
+    });
+    const object = new THREE.Mesh(geometry, material);
+    object.name = component.id || 'FUMOCA mesh component';
+    object.userData.meshComponentId = component.id || object.name;
+    object.visible = component.visible !== false && options.visible !== false;
+    object.renderOrder = 10;
+    object.frustumCulled = false;
+    group.add(object);
+    _solidMeshComponentObjects.set(object.userData.meshComponentId, object);
+  }
+  _solidMeshComponentsGroup = group;
+  scene.add(group);
+};
+window.setSolidMeshComponentVisibility = (id, visible) => {
+  const object = _solidMeshComponentObjects.get(String(id));
+  if (!object) return false;
+  object.visible = !!visible;
+  return true;
+};
+window.setSolidMeshComponentsVisibility = (visible) => {
+  // Global layer visibility belongs to the group. Do not overwrite each
+  // component's own visibility flag: a user-hidden support plane/object must
+  // remain hidden when the complete reconstructed layer is toggled back on.
+  if (!_solidMeshComponentsGroup) return false;
+  _solidMeshComponentsGroup.visible = !!visible;
+  return true;
+};
+window.highlightSolidMeshComponent = (id) => {
+  for (const [componentId, object] of _solidMeshComponentObjects) {
+    object.material.emissive.set(componentId === String(id) ? 0x334400 : 0x000000);
+    object.material.emissiveIntensity = componentId === String(id) ? 0.45 : 0;
+  }
+};
+
 window.fitLidarToScene = () => {
   if (!_lidarPreviewCloud) return false;
   const cloudBounds = _boundsForPositions(_lidarPreviewCloud.positions);
@@ -2599,6 +2813,7 @@ window.mergePointCloudIntoStudio = (cloud = _lidarPreviewCloud) => {
     lidarIntensity: S.lidarIntensity, lidarClassification: S.lidarClassification, lidarReturnNumber: S.lidarReturnNumber,
     alive: S.alive, selected: S.selected, sourceBuffer: S.sourceBuffer,
     fileType: S.fileType, fileName: S.fileName, splatRowSize: S.splatRowSize,
+    documentModel: S.documentModel,
   };
   const join = (a, b, stride = 1, fill = 0) => {
     const out = new Float32Array((a?.length || 0) + b.length);
@@ -2618,6 +2833,13 @@ window.mergePointCloudIntoStudio = (cloud = _lidarPreviewCloud) => {
     addedScale[i] = pointSize;
   }
   S.positions = join(S.positions, _lidarPreviewPositions);
+  if (S.documentModel) {
+    const allocation = allocateGaussianIds(added, S.documentModel.nextGaussianId);
+    const joinedIds = new Uint32Array(S.documentModel.gaussianIds.length + allocation.ids.length);
+    joinedIds.set(S.documentModel.gaussianIds);
+    joinedIds.set(allocation.ids, S.documentModel.gaussianIds.length);
+    S.documentModel = createDocumentModel({ ...S.documentModel, gaussianIds: joinedIds, nextGaussianId: allocation.nextId });
+  }
   S.colors = join(S.colors, addedColors);
   S.opacity = join(S.opacity, addedOpacity);
   S.scale = join(S.scale, addedScale);
@@ -2900,29 +3122,55 @@ async function loadFile(file, urlOverride) {
   const extSource = (urlOverride || file.name).split(/[?#]/, 1)[0];
   const ext = extSource.split('.').pop().toLowerCase();
   S.nifMesh = null;
+  S.nifMeshComponents = [];
+  S.activeMeshComponentId = null;
   S.nifPassthroughChunks = [];
   S.lidarIntensity = S.lidarClassification = S.lidarReturnNumber = null;
   window.previewSolidMesh?.(null, { visible: false });
+  window.previewSolidMeshComponents?.([], { visible: false });
   let parsed;
+  let decodedDocumentModel = null;
   if (ext === 'nif') {
     // Real .nif — decode canonical 14-float/point geometry, then convert to
     // the same 32-byte splat-row layout the rest of this editor already
     // understands (brush erase, export, save) so nothing else needs to change.
-    const decoded = await decodeNif(buf);         // { reader, meta, thumbnailBytes, gaussians }
+    const decoded = await decodeNif(buf);         // canonical NIF geometry + optional full-fidelity Gaussian PLY
     const rows = geometryToSplatRows(decoded.gaussians); // Uint8Array, 32 bytes/point
+    decodedDocumentModel = decoded.documentModel || null;
+    if (decoded.gaussianPlyBytes?.byteLength) {
+      const plyBytes = decoded.gaussianPlyBytes;
+      const plyBuffer = plyBytes.buffer.slice(plyBytes.byteOffset, plyBytes.byteOffset + plyBytes.byteLength);
+      parsed = parsePLY(plyBuffer);
+      S.gaussianSourceBytes = plyBuffer.slice(0);
+      S.isGaussianPly = true;
+      window._fumocaLastGaussianBytes = S.gaussianSourceBytes;
+    }
     S.fileType = 'nif';
+    S.gaussianSourceBytes = buf.slice(0);
+    window._fumocaLastGaussianBytes = S.gaussianSourceBytes;
     S.sourceBuffer = rows.buffer;
     S.nifMeta = decoded.meta || {};
     S.nifThumbnailBytes = decoded.thumbnailBytes || null;
-    S.nifPassthroughChunks = decoded.reader.chunks.filter(chunk => ![0x0001, 0x0003, 0x0004, 0x0015, 0x0019].includes(chunk.type));
+    S.nifPassthroughChunks = decoded.reader.chunks.filter(chunk => ![0x0001, 0x0003, 0x0004, 0x0015, 0x0019, 0x001A, 0x001B, 0x001C].includes(chunk.type));
     S.nifMesh = decoded.mesh ? {
       vertices: decoded.mesh.positions, colours: decoded.mesh.colors,
       triangles: decoded.mesh.faces,
     } : null;
+    S.nifMeshComponents = normalizeMeshComponents((decoded.meshComponents || []).map(component => ({
+      ...component,
+      vertices: component.positions,
+      colours: component.colors,
+      triangles: component.faces,
+      visible: component.visible !== false,
+      supportSurfaceCandidate: component.supportSurfaceCandidate === true,
+      diagnostics: decoded.meta?.mesh_diagnostics?.mesh_components?.find(item => item.id === component.id) || null,
+    })));
+    S.activeMeshComponentId = decoded.documentModel?.activeComponentId && S.nifMeshComponents.some(component => component.id === decoded.documentModel.activeComponentId)
+      ? decoded.documentModel.activeComponentId : (S.nifMeshComponents[0]?.id || null);
     S.lidarIntensity = decoded.lidarAttributes?.intensity || null;
     S.lidarClassification = decoded.lidarAttributes?.classification || null;
     S.lidarReturnNumber = decoded.lidarAttributes?.returnNumber || null;
-    parsed = parseSplat(rows.buffer);
+    if (!parsed) parsed = parseSplat(rows.buffer);
   } else if (ext === 'splat') {
     S.fileType = 'splat'; S.sourceBuffer = buf;
     S.gaussianSourceBytes = buf.slice(0);
@@ -2958,6 +3206,51 @@ async function loadFile(file, urlOverride) {
   S.lidarDisplayColors = null;
   S.alive = new Uint8Array(parsed.count).fill(1);
   S.selected = new Uint8Array(parsed.count);
+  // Gaussian IDs are stable document identities, never array offsets. Legacy
+  // NIF/PLY/splat files receive a fresh identity table on first editor load.
+  if (decodedDocumentModel && decodedDocumentModel.gaussianIds?.length === parsed.count) {
+    S.documentModel = decodedDocumentModel;
+  } else {
+    if (decodedDocumentModel) console.warn('[document-model] Stored Gaussian identity count does not match loaded geometry; allocating a new identity table.');
+    S.documentModel = createDocumentModel({
+      gaussianIds: allocateGaussianIds(parsed.count).ids,
+      components: (S.nifMeshComponents || []).map(component => ({
+        id: component.id, gaussianIds: [], visible: component.visible !== false,
+        geometrySource: 'gaussian-derived',
+        provenance: { source: 'legacy-nif-mesh-component' },
+      })),
+      activeComponentId: S.nifMeshComponents[0]?.id || null,
+    });
+  }
+  // Rehydrate per-component Gaussian membership from the document graph before
+  // using the conservative spatial fallback for legacy files without it.
+  if (S.nifMeshComponents?.length) {
+    const documentComponents = new Map((S.documentModel.components || []).map(component => [component.id, component]));
+    S.nifMeshComponents = S.nifMeshComponents.map(component => {
+      const stored = documentComponents.get(component.id);
+      return stored ? {
+        ...component,
+        gaussianIds: stored.gaussianIds || component.gaussianIds,
+        parentIds: stored.parentIds || component.parentIds,
+        provenance: stored.provenance || component.provenance,
+        geometrySource: stored.geometrySource || component.geometrySource,
+        selected: stored.selected === true,
+      } : component;
+    });
+    if (!S.nifMeshComponents.some(component => component.gaussianIds?.length)) {
+      const membership = assignGaussianMemberships(S.nifMeshComponents, {
+        positions: S.positions,
+        gaussianIds: S.documentModel.gaussianIds,
+        alive: S.alive,
+      });
+      S.nifMeshComponents = membership.components;
+      console.info('[document-model] Conservative component membership:', {
+        assigned: membership.assignedCount,
+        ambiguous: membership.ambiguousCount,
+        unassigned: membership.unassignedCount,
+      });
+    }
+  }
   S.paintColors = new Float32Array(parsed.count * 3).fill(-1);
   S.layers = []; S.activeLayerId = null; S.layerHidden = new Uint8Array(parsed.count);
   const lidarColorMode = document.getElementById('lidarColorMode');
@@ -2968,13 +3261,17 @@ async function loadFile(file, urlOverride) {
     lidarColorMode.value = 'rgb';
     _applyLidarSceneColorMode();
   }
-  S.history = []; S.historyIndex = -1;
+  _pendingUnifiedHistory = null;
+  studioEditHistory.clear();
   updateHistoryBtns();
   rebuildGeometry(); setProgress(100);
-  if (S.nifMesh) {
+  if (S.nifMeshComponents?.length) {
+    window.previewSolidMeshComponents?.(S.nifMeshComponents, { visible: true });
+  } else if (S.nifMesh) {
     window.previewSolidMesh?.(S.nifMesh, { visible: true });
   }
   window.dispatchEvent(new CustomEvent('fumoca:nifMeshLoaded', { detail: { mesh: S.nifMesh } }));
+  window.dispatchEvent(new CustomEvent('fumoca:nifMeshComponentsLoaded', { detail: { components: S.nifMeshComponents || [] } }));
   renderLayers();
   $('fileName').textContent = file.name;
   $('fileMeta').textContent = `${fmt(parsed.count)} points · ${(file.size / 1024 / 1024).toFixed(1)} MB · ${ext.toUpperCase()} · ${S.sourceColorAvailable ? 'source color' : 'no RGB color (neutral preview)'}`;
@@ -3048,6 +3345,9 @@ async function loadFile(file, urlOverride) {
       output_url: S.splatSourceUrl || null,
       title: file.name
     };
+  }
+  if (window._fumocaCurrentRecord?.id && window.FumocaMaster?.load) {
+    window.FumocaMaster.load(window._fumocaCurrentRecord.id).catch(() => {});
   }
 
   // Run PLY validation and load camera positions
@@ -3473,60 +3773,73 @@ function updateStats() {
 
 // ─── HISTORY ────────────────────────────────────────────────────────────────
 function pushHistory(label) {
-  const snap = { alive: S.alive.slice(), selected: S.selected.slice(), paintColors: S.paintColors?.slice(), pivot: S.pivot?.clone() };
-  if (/transform|move|rotate|scale-tool/i.test(label)) {
-    snap.positions = S.positions?.slice(); snap.scale = S.scale?.slice(); snap.scaleXYZ = S.scaleXYZ?.slice(); snap.rotation = S.rotation?.slice(); snap.opacity = S.opacity?.slice(); snap.shCoefficients = S.shCoefficients;
-  }
-  if (S.historyIndex < S.history.length - 1) S.history = S.history.slice(0, S.historyIndex + 1);
-  S.history.push({ label, snap });
-  if (S.history.length > 40) S.history.shift();
-  S.historyIndex = S.history.length - 1;
+  // Most Studio operations call this immediately before mutating authored data.
+  // Close the previous gesture now, then hold a single pending label for this one.
+  flushPendingUnifiedHistory();
+  studioEditHistory.syncBaseline();
+  _pendingUnifiedHistory = { label: String(label || 'Edit'), coalesceKey: null };
   updateHistoryBtns();
 }
 function undo() {
-  if (S.historyIndex < 0) return;
-  const entry = S.history[S.historyIndex];
-  const { snap } = entry;
-  entry.redoSnap = { alive:S.alive.slice(), selected:S.selected.slice(), paintColors:S.paintColors?.slice(), pivot:S.pivot?.clone() };
-  if (snap.positions) { entry.redoSnap.positions=S.positions?.slice(); entry.redoSnap.scale=S.scale?.slice(); entry.redoSnap.scaleXYZ=S.scaleXYZ?.slice(); entry.redoSnap.rotation=S.rotation?.slice(); entry.redoSnap.opacity=S.opacity?.slice(); entry.redoSnap.shCoefficients=S.shCoefficients; }
-  S.alive = snap.alive.slice(); S.selected = snap.selected.slice();
-  if (snap.paintColors) S.paintColors = snap.paintColors.slice();
-  if (snap.positions) S.positions=snap.positions.slice();
-  if (snap.scale) S.scale=snap.scale.slice();
-  if (snap.scaleXYZ) S.scaleXYZ=snap.scaleXYZ.slice();
-  if (snap.rotation) S.rotation=snap.rotation.slice();
-  if (snap.opacity) S.opacity=snap.opacity.slice();
-  if (snap.shCoefficients) S.shCoefficients=snap.shCoefficients;
-  if (snap.pivot) S.pivot=snap.pivot.clone();
-  S.historyIndex--;
-  rebuildGeometry(); _refreshSceneReference(true); syncTransformGizmo(); renderMeasurementList(); renderMeasurementOverlay(); updateHistoryBtns();
+  if (_pendingUnifiedHistory && !flushPendingUnifiedHistory() && _pendingUnifiedHistory) return;
+  if (!studioEditHistory.undo()) return;
   setStatus('Undone', 'ok');
 }
 function redo() {
-  if (S.historyIndex >= S.history.length - 1) return;
-  S.historyIndex++;
-  const entry = S.history[S.historyIndex];
-  const snap = entry.redoSnap || entry.snap;
-  S.alive = snap.alive.slice(); S.selected = snap.selected.slice();
-  if (snap.paintColors) S.paintColors = snap.paintColors.slice();
-  if (snap.positions) S.positions=snap.positions.slice();
-  if (snap.scale) S.scale=snap.scale.slice();
-  if (snap.scaleXYZ) S.scaleXYZ=snap.scaleXYZ.slice();
-  if (snap.rotation) S.rotation=snap.rotation.slice();
-  if (snap.opacity) S.opacity=snap.opacity.slice();
-  if (snap.shCoefficients) S.shCoefficients=snap.shCoefficients;
-  if (snap.pivot) S.pivot=snap.pivot.clone();
-  rebuildGeometry(); _refreshSceneReference(true); syncTransformGizmo(); renderMeasurementList(); renderMeasurementOverlay(); updateHistoryBtns();
+  if (!studioEditHistory.redo()) return;
   setStatus('Redone', 'ok');
 }
 function updateHistoryBtns() {
-  $('undoBtn').disabled = S.historyIndex < 0;
-  $('redoBtn').disabled = S.historyIndex >= S.history.length - 1;
+  const state = studioEditHistory.state();
+  $('undoBtn').disabled = !state.canUndo && !_pendingUnifiedHistory;
+  $('redoBtn').disabled = !state.canRedo;
 }
+window.beginStudioHistory = label => pushHistory(label);
+window.commitStudioHistory = () => flushPendingUnifiedHistory();
+window.syncStudioDocumentModelFromMesh = () => {
+  if (Array.isArray(S.nifMeshComponents) && S.documentModel) {
+    S.documentModel = syncDocumentComponentsFromMesh(S.documentModel, S.nifMeshComponents, S.activeMeshComponentId);
+  }
+  return S.documentModel || null;
+};
+window.commitStudioPatch = (label, options) => {
+  if (_pendingUnifiedHistory) throw new Error('Cannot commit a scoped patch while a full-snapshot edit is pending');
+  const applyPatch = options?.applyPatch;
+  if (typeof applyPatch !== 'function') throw new TypeError('A scoped patch requires applyPatch');
+  window.syncStudioDocumentModelFromMesh();
+  return studioEditHistory.commitPatch(label, {
+    ...options,
+    applyPatch: (patch, context) => {
+      const result = applyPatch(patch, context);
+      if (result && typeof result.then === 'function') throw new TypeError('Studio history patches must be synchronous');
+      if (Array.isArray(S.nifMeshComponents) && S.documentModel) {
+        S.documentModel = syncDocumentComponentsFromMesh(S.documentModel, S.nifMeshComponents, S.activeMeshComponentId);
+      }
+      window.refreshStudioMeshDerivedState?.();
+      return result;
+    },
+  });
+};
+window.cancelStudioHistory = () => {
+  if (!_pendingUnifiedHistory) return false;
+  try {
+    studioEditHistory.cancelPending();
+    _pendingUnifiedHistory = null;
+    updateHistoryBtns();
+    return true;
+  } catch (error) {
+    // Keep the pending marker so the user can retry recovery; the journal
+    // has already attempted to restore the pre-cancel scene on failure.
+    console.error('[Studio history] Could not cancel pending edit:', error);
+    setStatus('Could not safely cancel this edit. The scene was preserved; retry or reload before continuing.', 'error');
+    updateHistoryBtns();
+    return false;
+  }
+};
 
 // ─── SELECTION ──────────────────────────────────────────────────────────────
-function clearSelection() { if (S.selected) S.selected.fill(0); rebuildGeometry(); syncTransformGizmo(); }
-function invertSelection() { if (!S.alive) return; for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) S.selected[i] ^= 1; rebuildGeometry(); syncTransformGizmo(); }
+function clearSelection() { if (S.selected) S.selected.fill(0); rebuildGeometry(); syncTransformGizmo(); selectedPointCount(); }
+function invertSelection() { if (!S.alive) return; for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) S.selected[i] ^= 1; rebuildGeometry(); syncTransformGizmo(); selectedPointCount(); }
 function deleteSelected() {
   if (!S.alive) return;
   pushHistory('delete');
@@ -3577,27 +3890,73 @@ function selectSubjectAtScreen(x, y, radius = 28) {
   return true;
 }
 
-function selectByBox(x0, y0, x1, y1) {
-  if (!S.positions) return;
+// Selection is depth-aware: only the front visible layer in each small
+// screen cell is selected. Shift adds another camera view; Alt subtracts.
+function selectVisibleRegion(contains) {
   const vp = document.getElementById('viewport');
   const W = vp.clientWidth, H = vp.clientHeight;
-  const ndcX0 = (Math.min(x0, x1) / W) * 2 - 1, ndcX1 = (Math.max(x0, x1) / W) * 2 - 1;
-  const ndcY0 = -(Math.min(y0, y1) / H) * 2 + 1, ndcY1 = -(Math.max(y0, y1) / H) * 2 + 1;
-  const proj = new THREE.Vector3();
-  pushHistory('box select'); clearSelection();
-  let hits = 0;
-  for (let i = 0; i < S.alive.length; i++) {
-    if (!S.alive[i]) continue;
-    proj.set(S.positions[i * 3], S.positions[i * 3 + 1], S.positions[i * 3 + 2]).project(camera);
-    if (proj.x >= ndcX0 && proj.x <= ndcX1 && proj.y >= Math.min(ndcY0, ndcY1) && proj.y <= Math.max(ndcY0, ndcY1)) { S.selected[i] = 1; hits++; }
-  }
-  rebuildGeometry(); syncTransformGizmo(); setStatus(`Selected ${fmt(hits)} points`);
+  camera.updateMatrixWorld(true);
+  const view = new THREE.Vector3(), projected = new THREE.Vector3();
+  return selectVisibleScreenPoints({
+    count: S.alive.length,
+    isAlive: i => !!S.alive[i] && !S.layerHidden?.[i],
+    project: i => {
+      const x = S.positions[i * 3], y = S.positions[i * 3 + 1], z = S.positions[i * 3 + 2];
+      view.set(x, y, z).applyMatrix4(camera.matrixWorldInverse);
+      projected.set(x, y, z).project(camera);
+      const depth = -view.z;
+      return {
+        x: (projected.x * 0.5 + 0.5) * W,
+        y: (-projected.y * 0.5 + 0.5) * H,
+        depth,
+        visible: depth > 0 && projected.z >= -1 && projected.z <= 1
+      };
+    },
+    contains,
+    cellSize: 4,
+    depthTolerance: 0.006
+  });
 }
 
-function selectByLasso(pts) {
-  if (!S.positions || pts.length < 3) return;
-  const vp = document.getElementById('viewport');
-  const W = vp.clientWidth, H = vp.clientHeight;
+function applyVisibleSelection(indices, { additive = false, subtract = false, label = 'selection' } = {}) {
+  pushHistory(label);
+  if (!additive && !subtract) clearSelection();
+  for (const i of indices) S.selected[i] = subtract ? 0 : 1;
+  rebuildGeometry();
+  syncTransformGizmo();
+  const selectedTotal = selectedPointCount();
+  window.dispatchEvent(new CustomEvent('fumoca:selectionChanged', { detail: { count: selectedTotal, changed: indices.length } }));
+  setStatus(`${subtract ? 'Removed' : 'Selected'} ${fmt(indices.length)} visible points · ${fmt(selectedTotal)} total selected`);
+}
+
+function selectByBox(x0, y0, x1, y1, options = {}) {
+  if (!S.positions || !S.alive) return;
+  const left = Math.min(x0, x1), right = Math.max(x0, x1);
+  const top = Math.min(y0, y1), bottom = Math.max(y0, y1);
+  let indices;
+  if (options.through) {
+    // Scene crop is intentionally a through-selection: preserve every point
+    // projected into the rectangle, including hidden/back-side geometry.
+    const vp = document.getElementById('viewport');
+    const W = vp.clientWidth, H = vp.clientHeight;
+    const projected = new THREE.Vector3();
+    indices = [];
+    for (let i = 0; i < S.alive.length; i++) {
+      if (!S.alive[i] || S.layerHidden?.[i]) continue;
+      projected.set(S.positions[i * 3], S.positions[i * 3 + 1], S.positions[i * 3 + 2]).project(camera);
+      if (projected.z < -1 || projected.z > 1) continue;
+      const x = (projected.x * 0.5 + 0.5) * W;
+      const y = (-projected.y * 0.5 + 0.5) * H;
+      if (x >= left && x <= right && y >= top && y <= bottom) indices.push(i);
+    }
+  } else {
+    indices = selectVisibleRegion((x, y) => x >= left && x <= right && y >= top && y <= bottom);
+  }
+  applyVisibleSelection(indices, { ...options, label: 'box select' });
+}
+
+function selectByLasso(pts, options = {}) {
+  if (!S.positions || !S.alive || pts.length < 3) return;
   function inPoly(px, py) {
     let inside = false;
     for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
@@ -3606,15 +3965,8 @@ function selectByLasso(pts) {
     }
     return inside;
   }
-  pushHistory('lasso select'); clearSelection();
-  const proj = new THREE.Vector3(); let hits = 0;
-  for (let i = 0; i < S.alive.length; i++) {
-    if (!S.alive[i]) continue;
-    proj.set(S.positions[i * 3], S.positions[i * 3 + 1], S.positions[i * 3 + 2]).project(camera);
-    const sx = (proj.x * 0.5 + 0.5) * W, sy = (-proj.y * 0.5 + 0.5) * H;
-    if (inPoly(sx, sy)) { S.selected[i] = 1; hits++; }
-  }
-  rebuildGeometry(); syncTransformGizmo(); setStatus(`Selected ${fmt(hits)} points`);
+  const indices = selectVisibleRegion(inPoly);
+  applyVisibleSelection(indices, { ...options, label: 'lasso select' });
 }
 
 function applyBrush(cx, cy) {
@@ -3967,6 +4319,17 @@ function _encodeGaussianPly(indices) {
   return new Blob([lines.join('\n')], { type: 'text/plain' });
 }
 
+// Rebuild the photoreal source payload after geometric transforms so toggling
+// Spark off/on cannot reload stale pre-transform coordinates.
+window.refreshGaussianSourceBytes = async () => {
+  if (!S.isGaussianPly || !S.positions?.length) return false;
+  const indices = Array.from({ length: S.positions.length / 3 }, (_, index) => index);
+  const bytes = await _encodeGaussianPly(indices).arrayBuffer();
+  S.gaussianSourceBytes = bytes;
+  window._fumocaLastGaussianBytes = bytes;
+  return true;
+};
+
 function _compactLidarAttributes(indices) {
   const compact = (source) => source ? indices.map(i => source[i] ?? 0) : null;
   const intensity = S.lidarIntensity ? Uint16Array.from(compact(S.lidarIntensity)) : null;
@@ -3975,15 +4338,129 @@ function _compactLidarAttributes(indices) {
   return intensity || classification || returnNumber ? { intensity, classification, returnNumber } : null;
 }
 
-function exportFile(type = 'splat') {
+function _documentModelForSave(retainedIndices) {
+  const pointCount = Math.floor((S.positions?.length || 0) / 3);
+  let base = S.documentModel;
+  let changed = false;
+  if (!base) {
+    base = createDocumentModel({ gaussianIds: allocateGaussianIds(pointCount).ids });
+    changed = true;
+  }
+  if (base.gaussianIds.length > pointCount) {
+    throw new Error('Document Gaussian identity count exceeds the live point array. Refusing to save mismatched component identities.');
+  }
+  if (base.gaussianIds.length < pointCount) {
+    const allocation = allocateGaussianIds(pointCount - base.gaussianIds.length, base.nextGaussianId);
+    const extended = new Uint32Array(pointCount);
+    extended.set(base.gaussianIds);
+    extended.set(allocation.ids, base.gaussianIds.length);
+    base = createDocumentModel({ ...base, gaussianIds: extended, nextGaussianId: allocation.nextId });
+    changed = true;
+  }
+  const arraysEqual = (a, b) => {
+    if ((a?.length || 0) !== (b?.length || 0)) return false;
+    for (let i = 0; i < (a?.length || 0); i++) if (a[i] !== b[i]) return false;
+    return true;
+  };
+  const liveComponents = Array.isArray(S.nifMeshComponents) ? S.nifMeshComponents : [];
+  const liveById = new Map(liveComponents.map(component => [component.id, component]));
+  const knownIds = new Set((base.components || []).map(component => component.id));
+  const components = (base.components || []).map(component => {
+    const live = liveById.get(component.id);
+    if (!live) {
+      if (component.deleted !== true || component.visible !== false || component.selected === true) changed = true;
+      return { ...component, visible: false, selected: false, deleted: true };
+    }
+    const gaussianIds = live.gaussianIds || component.gaussianIds || [];
+    const visible = live.visible !== false;
+    const selected = live.selected === true;
+    const parentIds = [...new Set((live.parentIds || component.parentIds || []).map(String))];
+    const geometrySource = live.geometrySource || component.geometrySource || 'gaussian-derived';
+    const provenance = live.provenance || component.provenance || null;
+    const metadataChanged = JSON.stringify(component.parentIds || []) !== JSON.stringify(parentIds)
+      || component.geometrySource !== geometrySource
+      || JSON.stringify(component.provenance || null) !== JSON.stringify(provenance);
+    if (component.visible !== visible || component.selected !== selected
+        || component.deleted === true
+        || (live.watertight !== undefined && component.watertight !== (live.watertight === true))
+        || (live.supportSurfaceCandidate !== undefined && component.supportSurfaceCandidate !== (live.supportSurfaceCandidate === true))
+        || !arraysEqual(component.gaussianIds, gaussianIds)
+        || metadataChanged) changed = true;
+    return {
+      ...component,
+      parentIds,
+      gaussianIds,
+      visible,
+      selected,
+      geometrySource,
+      provenance,
+      ...(live.watertight !== undefined ? { watertight: live.watertight === true } : {}),
+      ...(live.supportSurfaceCandidate !== undefined ? { supportSurfaceCandidate: live.supportSurfaceCandidate === true } : {}),
+      deleted: false,
+    };
+  });
+  for (const live of liveComponents) {
+    if (knownIds.has(live.id)) continue;
+    changed = true;
+    components.push({
+      id: live.id,
+      parentIds: live.parentIds || [],
+      gaussianIds: live.gaussianIds || [],
+      visible: live.visible !== false,
+      selected: live.selected === true,
+      ...(live.watertight !== undefined ? { watertight: live.watertight === true } : {}),
+      ...(live.supportSurfaceCandidate !== undefined ? { supportSurfaceCandidate: live.supportSurfaceCandidate === true } : {}),
+      geometrySource: live.geometrySource || 'gaussian-derived',
+      provenance: live.provenance || { source: 'mesh-reconstruction' },
+    });
+  }
+  const activeComponentId = Array.isArray(S.nifMeshComponents)
+    ? (liveById.has(S.activeMeshComponentId) ? S.activeMeshComponentId : null)
+    : (base.activeComponentId || null);
+  if (activeComponentId !== (base.activeComponentId || null)) changed = true;
+  const sourceSignature = window.FUMOCA_StudioMeshPrint?.getSourceSignature?.()
+    || S.nifMeta?.dual_surface_source_signature;
+  const source = {
+    ...(base.source || {}),
+    ...(sourceSignature ? { geometrySignature: sourceSignature } : {}),
+  };
+  if (sourceSignature && base.source?.geometrySignature !== sourceSignature) changed = true;
+  if (sourceSignature) S.nifMeta = { ...(S.nifMeta || {}), dual_surface_source_signature: sourceSignature };
+  const updated = createDocumentModel({
+    ...base,
+    revision: base.revision + (changed ? 1 : 0),
+    source,
+    components,
+    activeComponentId,
+  });
+  S.documentModel = updated;
+  return compactDocumentModel(updated, retainedIndices);
+}
+
+async function exportFile(type = 'splat') {
   if (!S.alive) return;
+  if (!settlePendingStudioHistory('export')) return;
   const idx = []; for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) idx.push(i);
   let blob, name;
   const currentRows = _encodeSplatRows(idx);
   if (type === 'nif') {
+    // A mesh is derived from a specific Gaussian state. Never package a stale
+    // solid with edited source points and imply that the two still correspond.
+    const meshFreshness = window.FUMOCA_StudioMeshPrint?.checkSourceFreshness?.();
+    if (meshFreshness && !meshFreshness.ok) {
+      showToast('Solid mesh needs refresh', meshFreshness.message, 'warn');
+      setStatus(meshFreshness.message, 'warn');
+      return;
+    }
     // Real .nif export — canonical 14-float/point chunked binary, not a
     // renamed .splat. Carries forward the source file's meta/thumbnail when
     // this file was itself loaded from a .nif (S.nifMeta/S.nifThumbnailBytes).
+    const meshComponents = S.nifMeshComponents?.length ? S.nifMeshComponents : [];
+    const savedDocumentModel = _documentModelForSave(idx);
+    const hasSh = (S.shAttributes || []).length > 0;
+    const gaussianPlyBytes = hasSh
+      ? new Uint8Array(await _encodeGaussianPly(idx).arrayBuffer())
+      : undefined;
     const buf = encodeNif({
       sourceBuffer: currentRows,
       aliveIndices: Array.from({ length: idx.length }, (_, i) => i),
@@ -3991,6 +4468,9 @@ function exportFile(type = 'splat') {
       meta: S.nifMeta || {},
       thumbnailBytes: S.nifThumbnailBytes || undefined,
       mesh: S.nifMesh || undefined,
+      meshComponents: meshComponents.length ? meshComponents : undefined,
+      documentModel: savedDocumentModel,
+      gaussianPlyBytes,
       lidarAttributes: _compactLidarAttributes(idx),
       passthroughChunks: S.nifPassthroughChunks || [],
       vertical: (S.nifMeta && S.nifMeta.vertical) || 'generic',
@@ -4644,16 +5124,16 @@ window.addEventListener('pointerup', e => {
     if (dx <= 7 && dy <= 7) {
       // A click in Select mode picks the nearest visible subject/layer. Dragging
       // still performs normal box selection.
-      if (!selectSubjectAtScreen(x, y)) selectByBox(S.dragStart.x, S.dragStart.y, S.dragCurrent.x, S.dragCurrent.y);
-    } else selectByBox(S.dragStart.x, S.dragStart.y, S.dragCurrent.x, S.dragCurrent.y);
+      if (!selectSubjectAtScreen(x, y)) selectByBox(S.dragStart.x, S.dragStart.y, S.dragCurrent.x, S.dragCurrent.y, { additive: e.shiftKey, subtract: e.altKey });
+    } else selectByBox(S.dragStart.x, S.dragStart.y, S.dragCurrent.x, S.dragCurrent.y, { additive: e.shiftKey, subtract: e.altKey });
   }
   if (S.mode === 'crop' && S.dragStart && S.dragCurrent) {
-    selectByBox(S.dragStart.x,S.dragStart.y,S.dragCurrent.x,S.dragCurrent.y);
+    selectByBox(S.dragStart.x,S.dragStart.y,S.dragCurrent.x,S.dragCurrent.y,{ through: true });
     pushHistory('crop to box');
     for(let i=0;i<S.alive.length;i++) if(S.alive[i]&&!S.selected[i]) S.alive[i]=0;
     S.selected.fill(0); rebuildGeometry(); setStatus('Scene cropped to box selection','ok');
   }
-  if (S.mode === 'lasso' && S.lassoPoints.length >= 3) selectByLasso(S.lassoPoints);
+  if (S.mode === 'lasso' && S.lassoPoints.length >= 3) selectByLasso(S.lassoPoints, { additive: e.shiftKey, subtract: e.altKey });
   if (['box','sphere','lasso'].includes(S.mode)) syncTransformGizmo();
   if (['move','scale-tool','rotate'].includes(S.mode)) { window.FumocaGaussianRenderer?.invalidateSort(); rebuildGeometry(); syncTransformGizmo(); captureGizmoTransform(); _xformIndices = null; _xformPivot = null; _xformStartPos = null; _xformStartScale = null; _xformStartScaleXYZ = null; _xformStartRot = null; _xformAccum = null; }
   _xformPivot = null; _xformIndices = null;
@@ -5116,6 +5596,7 @@ window.saveLiveEdit = async function saveLiveEdit(extra = {}) {
   const params  = new URLSearchParams(location.search);
   const splatId = params.get('splatId') || params.get('nifId') || window._fumocaCurrentRecord?.id;
   if (!splatId) { console.warn('[saveLiveEdit] No splatId — cannot save'); return false; }
+  if (!settlePendingStudioHistory('save')) return false;
 
   let sb = window._fumocaSupabase || window.supabase;
   if (!sb) {
@@ -5178,19 +5659,39 @@ window.saveLiveEdit = async function saveLiveEdit(extra = {}) {
       const aliveIdx = [];
       for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) aliveIdx.push(i);
       const hasSh = (S.shAttributes || []).length > 0;
-      const savedBlob = hasSh ? _encodeGaussianPly(aliveIdx) : new Blob([encodeNif({
+      const meshFreshness = window.FUMOCA_StudioMeshPrint?.checkSourceFreshness?.();
+      if (meshFreshness && !meshFreshness.ok) throw new Error(meshFreshness.message);
+      const meshComponents = S.nifMeshComponents?.length ? S.nifMeshComponents : [];
+      const savedDocumentModel = _documentModelForSave(aliveIdx);
+      // GAUSSIAN_ANIMATION (0x001D) tracks address every base splat by position
+      // in KEYFRAME_GEO. The chunk is carried through unchanged, so deleting
+      // splats here leaves it pointing at the wrong records and viewers will
+      // ignore it. Warn instead of silently losing the animation.
+      if (aliveIdx.length !== S.alive.length &&
+          (S.nifPassthroughChunks || []).some(chunk => chunk.type === 0x001D)) {
+        const animationWarning = 'This NIF has Gaussian animation tracks. Deleting splats in Studio invalidates them — re-open it in the Manual Gaussian Lab to re-author the animation.';
+        console.warn('[Studio save]', animationWarning);
+        showToast('Animation tracks need re-authoring', animationWarning, 'warn');
+      }
+      const gaussianPlyBytes = hasSh
+        ? new Uint8Array(await _encodeGaussianPly(aliveIdx).arrayBuffer())
+        : undefined;
+      const savedBlob = new Blob([encodeNif({
         sourceBuffer: rowBytes,
         aliveIndices: Array.from({ length: aliveIdx.length }, (_, i) => i),
         rowSize: 32,
         meta: S.nifMeta || {},
         thumbnailBytes: S.nifThumbnailBytes || undefined,
         mesh: S.nifMesh || undefined,
+        meshComponents: meshComponents.length ? meshComponents : undefined,
+        documentModel: savedDocumentModel,
+        gaussianPlyBytes,
         lidarAttributes: _compactLidarAttributes(aliveIdx),
         passthroughChunks: S.nifPassthroughChunks || [],
         vertical: S.nifMeta?.vertical || 'generic',
       })], { type: 'application/octet-stream' });
-      const savedExt = hasSh ? 'ply' : 'nif';
-      const savedContentType = hasSh ? 'text/plain' : 'application/octet-stream';
+      const savedExt = 'nif';
+      const savedContentType = 'application/octet-stream';
       const path = `${splatId}/edited_${Date.now()}.${savedExt}`;
       const r2 = await getR2Client();
       const { fileKey, error: upErr } = await r2.from('nif-files')
@@ -5329,12 +5830,27 @@ $('addSplatInput')?.addEventListener('change', async e => {
       let parsed;
       if (ext === 'nif') {
         const decoded = await decodeNif(buffer);
-        parsed = parseSplat(geometryToSplatRows(decoded.gaussians).buffer);
+        if (decoded.gaussianPlyBytes?.byteLength) {
+          const plyBytes = decoded.gaussianPlyBytes;
+          parsed = parsePLY(plyBytes.buffer.slice(plyBytes.byteOffset, plyBytes.byteOffset + plyBytes.byteLength));
+        } else {
+          parsed = parseSplat(geometryToSplatRows(decoded.gaussians).buffer);
+        }
       } else if (ext === 'splat') parsed = parseSplat(buffer);
       else if (ext === 'ply') parsed = parsePLY(buffer);
       else throw new Error(`Unsupported splat format: .${ext}`);
       if (!parsed.count) throw new Error(`${file.name} has no readable points`);
       const oldN = S.alive.length, addN = parsed.count;
+      const currentDocument = S.documentModel || createDocumentModel({ gaussianIds: allocateGaussianIds(oldN).ids });
+      const newGaussianIds = allocateGaussianIds(addN, currentDocument.nextGaussianId);
+      const joinedGaussianIds = new Uint32Array(currentDocument.gaussianIds.length + newGaussianIds.ids.length);
+      joinedGaussianIds.set(currentDocument.gaussianIds);
+      joinedGaussianIds.set(newGaussianIds.ids, currentDocument.gaussianIds.length);
+      S.documentModel = createDocumentModel({
+        ...currentDocument,
+        gaussianIds: joinedGaussianIds,
+        nextGaussianId: newGaussianIds.nextId,
+      });
       const append = (a, b, stride = 1, fallback = 0) => {
         const out = new Float32Array((oldN + addN) * stride);
         if (a) out.set(a);
@@ -5530,7 +6046,7 @@ $('shrinkSelBtn').addEventListener('click', () => {
   }
   S.selected = newSel; rebuildGeometry(); setStatus(`Shrunk selection by ${fmt(removed)}`);
 });
-$('selAllBtn')?.addEventListener('click', () => { if (!S.alive) return; for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) S.selected[i] = 1; rebuildGeometry(); syncTransformGizmo(); setStatus('All selected'); });
+$('selAllBtn')?.addEventListener('click', () => { if (!S.alive) return; for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) S.selected[i] = 1; rebuildGeometry(); syncTransformGizmo(); setStatus(`All selected (${fmt(selectedPointCount())} points)`); });
 $('expandSelBtn')?.addEventListener('click', () => {
   if (!S.alive) return;
   // Stronger, multi-pass version of Grow — 3 iterations of the same real
@@ -5940,8 +6456,6 @@ function rotateEntireScene(axis, degrees) {
   $('trnScale').value = '100'; $('trnMoveX').value='0'; $('trnMoveY').value='0'; $('trnMoveZ').value='0'; $('trnOpac').value='0'; $('trnTemp').value='0';
   $('applyTrnBtn').click();
   $('trnTemp').value = previousTemp;
-  const historyEntry = S.history[S.history.length - 1];
-  if (historyEntry?.label === 'transform') historyEntry.snap.selected = previous.slice();
   S.selected.set(previous); rebuildGeometry(); syncTransformGizmo();
 }
 $('orientXPosBtn')?.addEventListener('click',()=>rotateEntireScene('x',90));
@@ -6199,6 +6713,75 @@ animBg();
 <!-- ═══════════════════════════════════════════════════════════════
      FUMOCA v60 — New module imports
      ═══════════════════════════════════════════════════════════════ -->
+<script type="module" src="js/modules/founder-gate.js"></script>
+<script type="module" src="js/modules/anim-joint-eval.js"></script>
+<script type="module" src="js/modules/anim-object.js"></script>
+<script type="module" src="js/modules/anim-glb-bind.js"></script>
+<script type="module" src="js/modules/anim-physics.js"></script>
+<script type="module" src="js/modules/anim-physics-boot.js"></script>
+<script type="module" src="js/modules/anim-scenes.js"></script>
+<script type="module" src="js/modules/anim-skeleton.js"></script>
+<script type="module" src="js/modules/anim-scenes.js"></script>
+<script type="module" src="js/modules/anim-afford.js"></script>
+<script type="module" src="js/modules/anim-live.js"></script>
+<script type="module" src="js/modules/anim-author.js"></script>
+<script type="module">
+window.FumocaFounderGate?.requireFounder?.();
+document.getElementById('authorBtn')?.addEventListener('click', () => window.FumocaAuthor?.open());
+window.FumocaPhysicsBoot?.start?.();
+document.getElementById('loadGlbBtn')?.addEventListener('click', () => document.getElementById('loadGlbFile')?.click());
+document.getElementById('loadGlbFile')?.addEventListener('change', async (e) => {
+  const file = e.target.files?.[0];
+  if (!file || !window.FumocaGLBBind) return;
+  window._fumocaLastGlbName = file.name;
+  const opts = { name: file.name };
+  try {
+    const saved = JSON.parse(sessionStorage.getItem('fumoca:preparedAnim') || 'null');
+    if (saved && saved.glbName === file.name && saved.object && saved.objectId) {
+      opts.prepared = saved.object;
+      opts.objectId = saved.objectId;
+    }
+  } catch (_) {}
+  const result = await window.FumocaGLBBind.load(file, opts);
+  console.log('[FUMOCA] GLB bound', result);
+  if (result.ok && window.FumocaAuthor?.attach) window.FumocaAuthor.attach(result.objectId);
+  else alert(result.ok ? `Loaded ${result.components} components` : `Load failed: ${result.reason || 'unknown'}`);
+});
+</script>
+
+<script type="module" src="js/modules/anim-master.js"></script>
+<script type="module" src="js/modules/anim-studio-init.js"></script>
+<script type="module">
+  // First live articulated object. Cooler base + hinged lid on the master timeline.
+  function bootArticulated() {
+    const scene = window.scene || window._fumocaScene;
+    if (!scene || !window.FumocaStudioInit?.createDemoCooler || !window.FumocaObjectAnim) {
+      setTimeout(bootArticulated, 300);
+      return;
+    }
+    window.FumocaStudioInit.init();
+    const result = window.FumocaStudioInit.createDemoCooler(scene);
+    console.log('[Articulated] demo cooler', result);
+
+    const bar = document.createElement('div');
+    bar.id = 'articulatedBar';
+    bar.style.cssText = 'position:fixed;bottom:196px;left:50%;transform:translateX(-50%);z-index:220;display:flex;gap:8px;align-items:center;background:rgba(7,10,16,.94);border:1px solid rgba(200,255,0,.35);border-radius:14px;padding:8px 12px;color:#c8ff00;font:12px/1.2 system-ui';
+    bar.innerHTML = '<strong>Cooler</strong><button id="artPlay" style="background:#c8ff00;color:#111;border:0;border-radius:8px;padding:6px 10px;font-weight:700;cursor:pointer">Play</button><input id="artScrub" type="range" min="0" max="2" step="0.01" value="0" style="width:160px">';
+    document.body.appendChild(bar);
+    document.getElementById('artPlay').onclick = () => {
+      const playing = window.FumocaStudioInit.isPlaying();
+      if (playing) window.FumocaStudioInit.pause();
+      else window.FumocaStudioInit.play();
+      document.getElementById('artPlay').textContent = playing ? 'Play' : 'Pause';
+    };
+    document.getElementById('artScrub').oninput = (e) => {
+      window.FumocaStudioInit.scrub(Number(e.target.value));
+    };
+  }
+  bootArticulated();
+</script>
+<script type="module" src="js/modules/anim-light.js"></script>
+<script type="module" src="js/modules/anim-physics.js"></script>
 <script type="module" src="js/modules/4d-engine.js"></script>
 <script type="module" src="js/modules/auto-fix.js"></script>
 <script type="module" src="js/modules/visual-fx.js"></script>
@@ -6748,7 +7331,11 @@ function _wireButtons() {
   // 4D: Toggle
   document.getElementById('v604DToggleBtn')?.addEventListener('click', () => {
     const btn = document.getElementById('v604DToggleBtn');
-    if (window.Fumoca4D) {
+    if (window.FumocaStudioInit?.isInitialized?.() && window.FumocaStudioInit.isCameraBound?.()) {
+      if (window.FumocaStudioInit.isPlaying()) window.FumocaStudioInit.pause();
+      else window.FumocaStudioInit.play();
+      if (btn) btn.textContent = window.FumocaStudioInit.isPlaying() ? '⏸ Pause 4D Playback' : '⏳ Toggle 4D Playback';
+    } else if (window.Fumoca4D) {
       window.Fumoca4D.toggle4D();
       if (btn) btn.textContent = window.Fumoca4D.isActive() ? '⏸ Pause 4D Playback' : '⏳ Toggle 4D Playback';
     }
@@ -7116,6 +7703,7 @@ if (!window._fumocaBooted) {
 <script type="module">
   import { StudioModes } from './js/modules/studio-modes.js';
   import { mountLidarImport } from './js/modules/lidar-import.js';
+  import { buildLidarQualityReport, formatLidarQualitySummary } from './js/modules/lidar-quality-report.mjs';
   import { mountCameraPathUI } from './js/modules/camera-paths.js';
   import { mountMeshPrintPanel } from './js/modules/studio-mesh-print.js';
   import { boostSparseCapture } from './js/modules/sparse-quality.js';
@@ -7128,8 +7716,19 @@ if (!window._fumocaBooted) {
     console.log('[studio]', msg);
   }
 
-  // Modes bar
-  try { StudioModes.init(); } catch (e) { console.warn(e); }
+  // Modes bar: expose the import/attribute controls on an empty Studio canvas.
+  try {
+    StudioModes.init();
+    const fileLabel = document.querySelector('.tb-file-name');
+    if (fileLabel && /no file loaded|drop \.splat or \.ply to begin/i.test(fileLabel.textContent || '')) {
+      window.setTimeout(() => {
+        const label = document.querySelector('.tb-file-name');
+        if (label && /no file loaded|drop \.splat or \.ply to begin/i.test(label.textContent || '')) {
+          StudioModes.set('import');
+        }
+      }, 300);
+    }
+  } catch (e) { console.warn(e); }
 
   // Mesh / print
   const meshRoot = document.getElementById('studioMeshPrintRoot');
@@ -7269,11 +7868,56 @@ if (!window._fumocaBooted) {
     },
     onCloud: (cloud) => {
       window._fumocaLidarCloud = cloud;
+      const qualityEl = document.getElementById('lidarQualityReport');
+      if (qualityEl) {
+        if (cloud.deferred) {
+          qualityEl.style.display = 'block';
+          qualityEl.textContent = cloud.message || 'This source needs conversion before it can be previewed.';
+        } else {
+          try {
+            const report = buildLidarQualityReport(cloud);
+            qualityEl.style.display = 'block';
+            qualityEl.replaceChildren();
+            const summary = document.createElement('div');
+            summary.style.fontWeight = '700';
+            summary.style.marginBottom = '4px';
+            summary.textContent = report.status === 'blocked' ? 'Scan preflight: blocked' : 'Scan preflight: preview ready with cautions';
+            const details = document.createElement('div');
+            details.textContent = formatLidarQualitySummary(report);
+            qualityEl.append(summary, details);
+            for (const warning of report.warnings) {
+              const row = document.createElement('div');
+              row.textContent = warning.severity.toUpperCase() + ': ' + warning.message;
+              row.style.marginTop = '3px';
+              row.style.color = warning.severity === 'error' ? '#ff8097' : warning.severity === 'warning' ? '#ffd166' : 'rgba(255,255,255,.62)';
+              qualityEl.appendChild(row);
+            }
+            for (const id of ['lidarFitBtn', 'lidarMergeBtn']) {
+              const button = document.getElementById(id);
+              if (button) button.disabled = !report.gates.preview || (id === 'lidarMergeBtn' && !report.gates.merge);
+            }
+          } catch (error) {
+            qualityEl.style.display = 'block';
+            qualityEl.textContent = 'Scan preflight failed: ' + (error.message || error);
+            ['lidarFitBtn', 'lidarMergeBtn'].forEach(id => { const button = document.getElementById(id); if (button) button.disabled = true; });
+          }
+        }
+      }
       if (cloud.deferred) return;
       window.previewLidarCloud(cloud);
       if (!S.alive?.some(Boolean)) window.fitLidarToScene();
-      ['lidarFitBtn', 'lidarMergeBtn', 'lidarClearBtn'].forEach(id => { const b = document.getElementById(id); if (b) b.disabled = false; });
-      status(`LiDAR preview ready (${cloud.count.toLocaleString()} points). Adjust alignment, then merge when ready.`);
+      const canProceed = (() => {
+        try { return buildLidarQualityReport(cloud).gates.preview; } catch { return false; }
+      })();
+      const clearButton = document.getElementById('lidarClearBtn');
+      if (clearButton) clearButton.disabled = false;
+      const fitButton = document.getElementById('lidarFitBtn');
+      const mergeButton = document.getElementById('lidarMergeBtn');
+      if (fitButton) fitButton.disabled = !canProceed;
+      if (mergeButton) mergeButton.disabled = !canProceed;
+      status(canProceed
+        ? `LiDAR preview ready (${cloud.count.toLocaleString()} points). Review scan cautions, adjust alignment, then merge.`
+        : 'LiDAR preview is blocked by scan validation. Review the preflight report before continuing.');
     },
   });
   document.getElementById('lidarPickBtn')?.addEventListener('click', () => lidarApi.openPicker());
@@ -7437,5 +8081,25 @@ if (!window._fumocaBooted) {
 </script>
 
 <script src="js/modules/platform-tab.js?v=20261031-look"></script>
+<!-- LiDAR-first empty-state: select Import after Studio's own mode/tab initialization. -->
+<script>
+(function () {
+  function exposeImportControls() {
+    const fileName = document.querySelector('.tb-file-name');
+    const header = (fileName?.textContent || '') + ' ' + (document.body.innerText || '').slice(0, 500);
+    const explicitlyEmpty = /no file loaded|drop \.splat or \.ply to begin/i.test(header);
+    if (!explicitlyEmpty) return;
+    const importTab = document.querySelector('#leftTabs .ptab[data-tab="import"]');
+    if (importTab && !importTab.classList.contains('active')) importTab.click();
+  }
+  function scheduleExpose() {
+    // StudioModes initializes its default Navigate tab asynchronously; run after it.
+    window.setTimeout(exposeImportControls, 400);
+  }
+  if (document.readyState === 'complete') scheduleExpose();
+  else window.addEventListener('load', scheduleExpose, { once: true });
+})();
+</script>
+
 </body>
 </html>

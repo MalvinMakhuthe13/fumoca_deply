@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<title>FUMOCA Scene Binding Acceptance</title>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js","@dimforge/rapier3d-compat":"https://cdn.jsdelivr.net/npm/@dimforge/rapier3d-compat@0.21.0/dist/rapier.mjs"}}</script>
+<style>body{font:13px/1.4 monospace;background:#111;color:#eee;padding:16px}.pass{color:#8f8}.fail{color:#f66;font-weight:bold}</style>
+</head>
+<body>
+<pre id="out">Loading...</pre>
+<script type="module">
+import * as THREE from 'three';
+import '../../js/modules/anim-physics.js';
+window.THREE = THREE;
+const out = document.getElementById('out');
+const lines = [];
+let failed = 0;
+const stages = [];
+function log(s, ok) {
+  const cls = ok === false ? 'fail' : ok === true ? 'pass' : '';
+  lines.push(cls ? `<span class="${cls}">${s}</span>` : s);
+  if (ok === false) failed++;
+  out.innerHTML = lines.join('\n');
+}
+function assert(cond, msg) { log((cond ? 'PASS: ' : 'FAIL: ') + msg, !!cond); }
+function worldOf(node) {
+  node.updateMatrixWorld(true);
+  const p = new THREE.Vector3();
+  const q = new THREE.Quaternion();
+  node.getWorldPosition(p);
+  node.getWorldQuaternion(q);
+  return { position: { x: p.x, y: p.y, z: p.z }, quaternion: { x: q.x, y: q.y, z: q.z, w: q.w } };
+}
+function near(a, b, eps = 0.08) { return Math.abs(a - b) < eps; }
+
+const Physics = window.FumocaPhysics;
+const init = await Physics.initRapier();
+assert(init.ok === true, 'Rapier initialized');
+
+const bottle = new THREE.Object3D();
+Physics.createCollider({ id: 'floor', type: 'box', bodyType: 'static', halfExtents: { x: 1, y: 0.05, z: 1 }, owner: { kind: 'component', objectId: 'c', componentId: 'base' } });
+Physics.createCollider({ id: 'bottle', type: 'capsule', bodyType: 'dynamic', radius: 0.1, height: 0.3, mass: 0.5, owner: { kind: 'component', objectId: 'b', componentId: 'body' } });
+Physics.bindSceneNode('bottle', { node: bottle });
+Physics.syncFromEvaluation({
+  objects: {
+    c: { base: { pos: { x: 0, y: 0, z: 0 }, rot: { x: 0, y: 0, z: 0 } } },
+    b: { body: { pos: { x: 0, y: 1.2, z: 0 }, rot: { x: 0, y: 0, z: 0 } } },
+  },
+});
+const initApply = Physics.applyDynamicPoses();
+stages.push(initApply);
+const initialWorld = worldOf(bottle);
+
+for (let i = 0; i < 60; i++) { Physics.step(1/60); stages.push(Physics.applyDynamicPoses()); }
+const fallenWorld = worldOf(bottle);
+assert(fallenWorld.position.y < initialWorld.position.y, 'Bottle fell');
+assert(fallenWorld.position.y > 0.05, 'Bottle above floor');
+
+const resetResult = Physics.reset();
+const resetApply = Physics.applyDynamicPoses();
+stages.push(resetApply);
+const resetWorld = worldOf(bottle);
+assert(near(resetWorld.position.y, initialWorld.position.y), 'Reset matches initial Y');
+
+for (let i = 0; i < 30; i++) { Physics.step(1/60); stages.push(Physics.applyDynamicPoses()); }
+const replayWorld = worldOf(bottle);
+assert(replayWorld.position.y < resetWorld.position.y, 'Falls again after reset');
+
+const parent = new THREE.Object3D();
+parent.position.set(2, 0, 0);
+parent.rotation.y = Math.PI / 4;
+parent.updateMatrixWorld(true);
+const nested = new THREE.Object3D();
+nested.parent = parent;
+Physics.createCollider({ id: 'nested', type: 'sphere', bodyType: 'dynamic', radius: 0.1, owner: { kind: 'object', objectId: 'n' } });
+Physics.bindSceneNode('nested', { node: nested, parent });
+Physics.syncFromEvaluation({ objects: { n: { c: { pos: { x: 2, y: 1, z: 0 }, rot: { x: 0, y: 0, z: 0 } } } } });
+const nestedApply = Physics.applyDynamicPoses();
+stages.push(nestedApply);
+const nestedActualWorld = worldOf(nested);
+const nestedExpectedWorld = { position: { x: 2, y: 1, z: 0 } };
+assert(near(nestedActualWorld.position.x, nestedExpectedWorld.position.x, 0.15), 'Nested world x near 2');
+assert(near(nestedActualWorld.position.y, nestedExpectedWorld.position.y, 0.15), 'Nested world y near 1');
+
+const appliedCount = stages.reduce((s, a) => s + (a.applied || 0), 0);
+const skippedCount = stages.reduce((s, a) => s + (a.skipped || 0), 0);
+const failedCount = stages.reduce((s, a) => s + (a.failed || 0), 0);
+const errors = stages.flatMap(a => a.errors || []);
+if (failedCount > 0) failed++;
+
+const result = {
+  status: failed === 0 ? 'PASS' : 'FAIL',
+  passed: lines.filter(l => l.includes('PASS:')).length,
+  failed,
+  initialWorld, fallenWorld, resetWorld, replayWorld,
+  nestedExpectedWorld, nestedActualWorld,
+  appliedCount, skippedCount, failedCount, errors,
+  reset: resetResult,
+  backend: Physics.getBackend(),
+  rapierReady: Physics.isRapierReady(),
+};
+window.PHYSICS_SCENE_BINDING_ACCEPTANCE = result;
+log('FINAL: ' + result.status, failed === 0);
+</script>
+</body>
+</html>

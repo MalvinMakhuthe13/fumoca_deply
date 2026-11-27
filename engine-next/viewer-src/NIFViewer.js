@@ -31,7 +31,8 @@
 
 import { NIFRenderer }      from './renderer/NIFRenderer.js';
 import { NIFPreviewSystem } from './preview/NIFPreviewSystem.js';
-import { CHUNK, ENCODER_TIER, decodeMetaChunk, decodePhysicsChunk } from '../format/NIFSpec.js';
+import { NIFGaussianTimelinePanel } from '../editor/NIFGaussianTimelinePanel.js';
+import { CHUNK, CODEC, ENCODER_TIER, decodeMetaChunk, decodeGaussianAnimationChunk } from '../format/NIFSpec.js';
 
 export class NIFViewer {
   /**
@@ -71,6 +72,14 @@ export class NIFViewer {
     this._gaussians  = null;
     this._vertical   = 'generic';
     this._meta       = null;
+    this._gaussianAnimation = null;
+    this._gaussianAnimationFrame = null;
+    this._gaussianAnimationStart = 0;
+    this._gaussianAnimationFrom = 0;
+    this._gaussianAnimationSpeed = 1;
+    this._gaussianAnimationLoop = false;
+    this._gaussianAnimationTime = 0;
+    this._timelinePanel = null;
     this._state      = 'idle'; // idle | loading | preview | transition | live | error
   }
 
@@ -78,6 +87,74 @@ export class NIFViewer {
   get state()    { return this._state; }
   get meta()     { return this._meta; }
   get renderer() { return this._renderer; }
+  get gaussianAnimation() { return this._gaussianAnimation; }
+  get gaussianAnimationTime() { return this._gaussianAnimationTime; }
+  get isGaussianAnimationPlaying() { return this._gaussianAnimationFrame != null; }
+
+  /** Start native per-splat playback. Times and duration are in seconds. */
+  playGaussianAnimation({ from = this._gaussianAnimationTime, speed = 1, loop = false } = {}) {
+    if (!this._renderer || !this._gaussianAnimation) throw new Error('This NIF has no playable Gaussian animation');
+    if (!Number.isFinite(from) || from < 0 || !Number.isFinite(speed) || speed <= 0) {
+      throw new RangeError('Animation start and speed must be finite; speed must be positive');
+    }
+    this.pauseGaussianAnimation();
+    const duration = this._gaussianAnimation.duration;
+    this._gaussianAnimationSpeed = speed;
+    this._gaussianAnimationLoop = !!loop;
+    this._gaussianAnimationFrom = Math.min(from, duration);
+    this._gaussianAnimationStart = performance.now();
+    const tick = now => {
+      const elapsed = (now - this._gaussianAnimationStart) / 1000 * this._gaussianAnimationSpeed;
+      let time = this._gaussianAnimationFrom + elapsed;
+      if (time >= duration) {
+        if (this._gaussianAnimationLoop && duration > 0) {
+          time = time % duration;
+          this._gaussianAnimationFrom = time;
+          this._gaussianAnimationStart = now;
+        } else {
+          time = duration;
+          this._gaussianAnimationTime = time;
+          this._renderer.updateGaussianAnimation(time);
+          this._gaussianAnimationFrame = null;
+          return;
+        }
+      }
+      this._gaussianAnimationTime = time;
+      this._renderer.updateGaussianAnimation(time);
+      this._gaussianAnimationFrame = requestAnimationFrame(tick);
+    };
+    this._gaussianAnimationTime = this._gaussianAnimationFrom;
+    this._renderer.updateGaussianAnimation(this._gaussianAnimationTime);
+    this._gaussianAnimationFrame = requestAnimationFrame(tick);
+    return true;
+  }
+
+  pauseGaussianAnimation() {
+    if (this._gaussianAnimationFrame != null) cancelAnimationFrame(this._gaussianAnimationFrame);
+    this._gaussianAnimationFrame = null;
+    return this._gaussianAnimationTime;
+  }
+
+  seekGaussianAnimation(timeSeconds) {
+    if (!this._renderer || !this._gaussianAnimation) throw new Error('This NIF has no playable Gaussian animation');
+    if (!Number.isFinite(timeSeconds)) throw new RangeError('Seek time must be finite');
+    const time = Math.max(0, Math.min(this._gaussianAnimation.duration, timeSeconds));
+    this._gaussianAnimationTime = time;
+    this._renderer.updateGaussianAnimation(time);
+    if (this._gaussianAnimationFrame != null) {
+      this._gaussianAnimationFrom = time;
+      this._gaussianAnimationStart = performance.now();
+    }
+    return time;
+  }
+
+  setGaussianAnimationSpeed(speed) {
+    if (!Number.isFinite(speed) || speed <= 0) throw new RangeError('Animation speed must be positive');
+    const wasPlaying = this._gaussianAnimationFrame != null;
+    this._gaussianAnimationSpeed = speed;
+    if (wasPlaying) this.playGaussianAnimation({ from: this._gaussianAnimationTime, speed, loop: this._gaussianAnimationLoop });
+    return speed;
+  }
 
   async load() {
     try {
@@ -90,11 +167,13 @@ export class NIFViewer {
       const nifBytes  = await this._fetchNIF(streamUrl);
 
       // 3. Parse
-      const { reader, gaussians, depthMap, alphaMask, layers, vertical, meta, thumbnailBytes, physics } = await this._parseNIF(nifBytes);
+      const { reader, gaussians, depthMap, alphaMask, layers, vertical, meta, thumbnailBytes, physics, gaussianAnimation } = await this._parseNIF(nifBytes);
       this._reader   = reader;
       this._gaussians= gaussians;
       this._vertical = vertical;
       this._meta     = meta;
+      this._gaussianAnimation = gaussianAnimation;
+      this._gaussianAnimationTime = 0;
       this._thumbnailBytes = thumbnailBytes;
       this._physics = physics;
 
@@ -117,6 +196,7 @@ export class NIFViewer {
       try {
         this._renderer = new NIFRenderer(this._canvas);
         this._renderer.loadGaussians(gaussians);
+        if (gaussianAnimation) this._renderer.bindGaussianAnimation(gaussianAnimation);
         // Expose on window so compare viewer camera sync can reach it
         if (typeof window !== 'undefined') window._nifRenderer = this._renderer;
         // Load depth/layer data if present — enables foreground/background separation
@@ -144,6 +224,7 @@ export class NIFViewer {
         onTransitionEnd:  () => {
           if (rendererReady) {
             this._startRenderer();
+            this._mountGaussianTimelinePanel();
           } else {
             // WebGL2 failed — show error or keep video
             this._setState('error');
@@ -177,7 +258,18 @@ export class NIFViewer {
     this._preview?._triggerTransition();
   }
 
+  _mountGaussianTimelinePanel() {
+    this._timelinePanel?.destroy();
+    this._timelinePanel = null;
+    if (this._gaussianAnimation) {
+      this._timelinePanel = new NIFGaussianTimelinePanel(this.container, this);
+    }
+  }
+
   stop() {
+    this._timelinePanel?.destroy();
+    this._timelinePanel = null;
+    this.pauseGaussianAnimation();
     this._renderer?.stop();
     this._preview?.destroy();
   }
@@ -373,6 +465,24 @@ export class NIFViewer {
 
     const gaussians = { count, data: geoData };
 
+    // Native per-splat animation — stable identity table is validated against
+    // the base geometry before the renderer binds tracks.
+    let gaussianAnimation = null;
+    const animationChunk = await getChunk(CHUNK.GAUSSIAN_ANIMATION);
+    if (animationChunk) {
+      try {
+        gaussianAnimation = await decodeGaussianAnimationChunk({
+          type: CHUNK.GAUSSIAN_ANIMATION, codec: CODEC.RAW, data: animationChunk.data,
+        });
+        if (gaussianAnimation.gaussianIds.length !== count) {
+          throw new Error('Stable Gaussian ID table length does not match KEYFRAME_GEO count');
+        }
+      } catch (e) {
+        console.warn('[NIFViewer] GAUSSIAN_ANIMATION chunk ignored:', e.message);
+        gaussianAnimation = null;
+      }
+    }
+
     // ── Depth map — float16 (H×W) ─────────────────────────────────────────────
     let depthMap = null;
     const depthChunk = await getChunk(CHUNK.DEPTH_MAP);
@@ -454,7 +564,7 @@ export class NIFViewer {
     const reader = { getChunk: getChunkSync };
 
     return { reader, gaussians, depthMap, alphaMask, layers, vertical, meta, thumbnailBytes,
-             physics, calibration, verification };
+             physics, calibration, verification, gaussianAnimation };
   }
 
   // ── Static helpers ─────────────────────────────────────────────────────────
