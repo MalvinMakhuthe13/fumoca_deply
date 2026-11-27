@@ -8,15 +8,15 @@
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Oxanium:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Bebas+Neue&family=Cormorant+Garamond:wght@400;500;600;700&family=Playfair+Display:wght@400;500;600;700;800&family=DM+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <!-- config.js MUST load before any ES modules so window.FUMOCA_CONFIG is set -->
 <script src="config.js"></script>
-<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/","@sparkjsdev/spark":"https://sparkjs.dev/releases/spark/2.4.0/spark.module.js","@dimforge/rapier3d-compat":"https://cdn.jsdelivr.net/npm/@dimforge/rapier3d-compat@0.21.0/dist/rapier.mjs"}}</script>
+<script type="importmap">{"imports":{"three":"/vendor/three/0.180.0/build/three.module.js","three/addons/":"/vendor/three/0.180.0/examples/jsm/","@sparkjsdev/spark":"/vendor/sparkjsdev-spark/2.4.0/dist/spark.module.js","@dimforge/rapier3d-compat":"/vendor/dimforge-rapier3d-compat/0.21.0/dist/rapier.mjs"}}</script>
 <link rel="stylesheet" href="css/present-magazine.css"/>
 <link rel="stylesheet" href="css/review-video.css?v=20261025-bglayer"/>
 <link rel="stylesheet" href="css/present-unified.css?v=20261106-creativeworkspace01"/>
 <link rel="stylesheet" href="css/anim-studio.css"/>
 <link rel="stylesheet" href="css/fumoca-layouts.css"/>
 <script type="module" src="js/modules/anim-studio.js"></script>
-<script type="module" src="js/modules/review-video.js?v=20261025-bglayer"></script>
-<script type="module" src="js/modules/present-tab.js?v=20261125-living01"></script>
+<script type="module" src="js/modules/review-video.js?v=20261025-embedcolor"></script>
+<script type="module" src="js/modules/present-tab.js?v=20261127-free01"></script>
 
 <style>
 /* ═══════════════════════════════════════════════════════
@@ -238,6 +238,15 @@ input[type=range].amber::-webkit-slider-thumb{background:var(--amber);box-shadow
 .btn-grid{display:grid;gap:5px}
 .btn-grid.col2{grid-template-columns:1fr 1fr}
 .btn-grid.col3{grid-template-columns:1fr 1fr 1fr}
+:where(.panel-body, #rightPanel, .right-panel) :is(select, textarea, input:not([type]), input[type="text"], input[type="number"], input[type="url"], input[type="search"]),
+.ac-select, .ac-input {
+  background: var(--surface2); border: 1px solid var(--border2); border-radius: 6px; color: var(--text);
+  font: inherit; font-size: 11px; padding: 6px 8px; box-sizing: border-box; color-scheme: dark;
+}
+:where(.panel-body) :is(select, textarea, input:not([type]), input[type="text"], input[type="number"], input[type="url"]):focus { outline: none; border-color: var(--lime-b); }
+:where(.panel-body) input[type="range"] { accent-color: var(--lime); }
+:where(.panel-body) input[type="checkbox"], :where(.panel-body) input[type="radio"] { accent-color: var(--lime); }
+:where(.panel-body) input[type="color"] { background: none; border: 1px solid var(--border2); border-radius: 4px; padding: 0; height: 22px; }
 .ac-btn{
   padding:8px 10px;border-radius:9px;border:1px solid var(--border);
   background:var(--surface);color:var(--text);cursor:pointer;
@@ -688,9 +697,8 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
     <div class="tb-sep"></div>
     <button class="tb-btn" id="compareBtn" title="Compare loaded scene with current edits" disabled>◧ Compare</button>
     <button class="tb-btn" id="screenshotBtn" title="Screenshot viewport">📷 Capture</button>
-    <button class="tb-btn" id="authorBtn" title="Articulate objects">Animate</button>
+    <button class="tb-btn" id="authorBtn" title="Moving parts: doors, lids, caps, drawers">Animate</button>
     <button class="tb-btn" id="manualGaussianLabBtn" title="Open the active NIF in the manual Gaussian deformation editor">Gaussian Lab</button>
-    <button class="tb-btn" id="loadGlbBtn" title="Load a GLB to articulate" style="background:rgba(120,180,255,.12);border-color:rgba(120,180,255,.4);color:#9cf;">Load GLB</button>
     <input type="file" id="loadGlbFile" accept=".glb,.gltf" style="display:none"/>
     <button class="tb-btn" id="hotspotBtn" title="Hotspots — place, edit, tour" style="background:rgba(200,255,0,.1);border-color:rgba(200,255,0,.4);color:#c8ff00;">📍 Hotspots</button>
     <button class="tb-btn" id="extractObjectBtn" title="Extract an object (e.g. a car) as its own 3D listing" style="background:rgba(0,200,255,.08);border-color:rgba(0,200,255,.35);color:#7ee2ff;">🎯 Extract</button>
@@ -725,6 +733,7 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
     <button class="tool-btn" id="toolSphere" title="3D Sphere Select (brush radius)">◯</button>
     <button class="tool-btn" id="toolBox" title="Box Select (X)">▭</button>
     <button class="tool-btn" id="toolLasso" title="Lasso (L)">⟡</button>
+    <button class="tool-btn" id="toolOutline" title="Outline with points (O): click dots around the area, click the first dot (or double-click / Enter) to select the visible surface inside. You can orbit between dots.">⬠</button>
     <button class="tool-btn" id="toolMagic" title="Magic Select (M)">✦</button>
   </div>
   <div class="tool-group">
@@ -774,6 +783,11 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
       <div class="ptab" data-tab="clean">Clean</div>
       <div class="ptab" data-tab="mesh">Mesh</div>
       <div class="ptab" data-tab="rig">Rig</div>
+      <div class="ptab" data-tab="look">Look</div>
+      <div class="ptab" data-tab="parts">Parts</div>
+      <div class="ptab" data-tab="guide">Guide</div>
+      <div class="ptab" data-tab="link">Inside</div>
+      <div class="ptab" data-tab="tour">Tour</div>
       <div class="ptab" data-tab="present">Present · Music</div>
       <div class="ptab" data-tab="import">Import</div>
       <div class="ptab" data-tab="layers">Layers</div>
@@ -781,6 +795,16 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
 
     <!-- TAB: RIG (skeleton + motion, mounted by splat-rig-panel.js) -->
     <div class="panel-body" id="tab-rig" style="display:none"></div>
+    <!-- TAB: LOOK (lighting, shadow, how it's viewed; mounted by look-panel.js) -->
+    <div class="panel-body" id="tab-look" style="display:none"></div>
+    <!-- TAB: PARTS (doors, lids, caps, recliners; mounted by parts-panel.js) -->
+    <div class="panel-body" id="tab-parts" style="display:none"></div>
+    <!-- TAB: GUIDE (step-by-step product tutorials; mounted by tutorial-panel.js) -->
+    <div class="panel-body" id="tab-guide" style="display:none"></div>
+    <!-- TAB: INSIDE (link a second scan: interiors, open doors; mounted by link-panel.js) -->
+    <div class="panel-body" id="tab-link" style="display:none"></div>
+    <!-- TAB: TOUR (house / building tours: dollhouse, floor plan, walk; mounted by tour-panel.js) -->
+    <div class="panel-body" id="tab-tour" style="display:none"></div>
 
     <!-- TAB: TOOLS -->
     <div class="panel-body" id="tab-tools">
@@ -1103,7 +1127,20 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
     <!-- TAB: CLEAN -->
     <div class="panel-body" id="tab-clean" style="display:none">
       <div class="section">
-        <div class="sec-head"><span class="sec-label">AI Smart Cleanup</span><span class="sec-badge">AUTO</span></div>
+        <div class="sec-head"><span class="sec-label">Solid splats</span><span class="sec-badge">NEW</span></div>
+        <div class="sec-body">
+          <div class="hint">Makes the scan read as a clean, solid surface: faint splats become opaque, each splat lies flat on the surface, long streaks are trimmed and haze goes. Selection, lighting and moving parts work better on solid scans. Saved when you publish.</div>
+          <div class="ctrl-row"><span class="ctrl-label">How solid</span><span class="ctrl-val" id="solidVal">70%</span></div>
+          <input type="range" id="solidStrength" min="10" max="100" value="70">
+          <label style="display:flex;gap:6px;align-items:center;font-size:11px;margin-top:4px"><input type="checkbox" id="solidHaze" checked> Remove haze (splats too faint to be a surface)</label>
+          <div style="display:flex;gap:6px;margin-top:6px">
+            <button class="ac-btn lime" id="solidBtn" style="flex:1">◼ Make solid</button>
+            <button class="ac-btn" id="solidOffBtn" style="flex:1">Back to original</button>
+          </div>
+        </div>
+      </div>
+      <div class="section">
+        <div class="sec-head"><span class="sec-label">Smart cleanup</span><span class="sec-badge">AUTO</span></div>
         <div class="sec-body">
           <button class="ac-btn lime full" id="autoCleanBtn">⚡ Auto Clean Subject</button>
           <div class="hint">Detects core subject, removes outer floaters and noise automatically.</div>
@@ -1310,6 +1347,16 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
             <span class="ctrl-val" id="layerOpacVal">100%</span>
           </div>
           <input type="range" id="layerOpac" min="0" max="100" value="100">
+          <label style="display:flex;gap:6px;align-items:center;font-size:11px;margin-top:8px"><input type="checkbox" id="layerSolid"> Solid — stops when it meets other solid layers</label>
+          <div style="display:flex;gap:6px;margin-top:6px">
+            <button class="ac-btn" id="layerDropBtn" style="flex:1" title="Let it fall onto whatever is below (another object or the floor)">⬇ Drop</button>
+            <button class="ac-btn" id="layerVoxBtn" style="flex:1" title="Show the voxels used for collision">▦ Show voxels</button>
+          </div>
+          <div style="display:flex;gap:6px;margin-top:8px">
+            <button class="ac-btn" id="layerFocusBtn" style="flex:1" title="Turn the view to the selected layer">🎯 Focus</button>
+            <button class="ac-btn" id="layerSoloBtn" style="flex:1" title="Show only the selected layer (click again to show all)">◎ Solo</button>
+          </div>
+          <div class="hint" style="margin-top:6px">Click a layer to select it, then Move / Rotate / Scale it on its own. 🔒 locks a layer so nothing can move or change it. Double-click a name to rename. Double-click a splat in the view to pick its layer.</div>
         </div>
       </div>
     </div>
@@ -1364,7 +1411,7 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
         <button type="button" data-hud-view="side" title="View from the side">Side</button>
         <button type="button" data-hud-view="top" title="View from above">Top</button>
       </div>
-      <button type="button" class="hud-more" id="levelSubjectBtn">Auto level subject (Y up)</button>
+      <button type="button" class="hud-more" id="levelSubjectBtn" title="Finds what it stands on (or uses the selected base) and sets it flat on the grid">Sit flat on the grid</button>
       <button type="button" class="hud-more" id="centerSubjectBtn">Center subject at origin</button>
       <button type="button" class="hud-more" data-hud-tab="transform">More transform controls…</button>
       <div class="hud-hint" id="viewportHudHint">Choose a tool, then drag its gizmo on the model.</div>
@@ -1666,7 +1713,7 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
         </div>
                     <div id="studioAudioRoot" style="margin-top:12px"></div>
                          <div id="animStudioMount" style="margin-top:16px"></div>
-                         <script type="module" src="js/modules/industry-layer.js?v=20261024-tools"></script>
+                         <script type="module" src="js/modules/industry-layer.js?v=20261025-reviewonly"></script>
       </div>
 
       <div class="section">
@@ -1961,6 +2008,7 @@ const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
 dirLight.position.set(3, 5, 4); scene.add(dirLight);
 // Blender-style world orientation reference, placed at the scene's lower Y bound after load.
 const orientationGrid = new THREE.GridHelper(20, 24, 0x6d7a82, 0x354047);
+window._fumocaOrientationGrid = orientationGrid;
 const gridMats = Array.isArray(orientationGrid.material)
   ? orientationGrid.material
   : [orientationGrid.material];
@@ -2028,6 +2076,7 @@ const studioEditHistory = new UnifiedEditHistory({
     selected: S.selected,
     paintColors: S.paintColors,
     shCoefficients: S.shCoefficients,
+    attrEdited: S.attrEdited || null,
     documentModel: S.documentModel || null,
     nifMesh: S.nifMesh || null,
     nifMeshComponents: S.nifMeshComponents || [],
@@ -2050,9 +2099,21 @@ const studioEditHistory = new UnifiedEditHistory({
     S.nifMeta = snapshot.nifMeta;
     S.layerHidden = snapshot.layerHidden;
     S.layers = snapshot.layers || [];
+    S._lockFreeze = null; _refreshLayerLocks();
+    try { renderLayers(); } catch (_) {}
     S.activeLayerId = snapshot.activeLayerId || null;
     S.measurements = snapshot.measurements || [];
     S.pivot = snapshot.pivot ? new THREE.Vector3(...snapshot.pivot) : null;
+    // opacity / size edits (Solidify): restore which splats are edited, and
+    // let Spark put back the scan's own values on the ones that no longer are
+    if (S.attrEdited || snapshot.attrEdited) {
+      const before = S.attrEdited, after = snapshot.attrEdited ? Uint8Array.from(snapshot.attrEdited) : new Uint8Array(S.alive?.length || 0);
+      const touched = new Uint8Array(after.length);
+      if (before) for (let i = 0; i < touched.length; i++) touched[i] = before[i] || before.touched?.[i] || 0;
+      after.touched = touched;
+      S.attrEdited = after;
+      S.attrVersion = (S.attrVersion || 0) + 1;
+    }
     rebuildGeometry();
     _refreshSceneReference(true);
     window.refreshStudioMeshDerivedState?.();
@@ -2184,7 +2245,8 @@ function _updateGroundGrid(recenter = false) {
   const center=new THREE.Vector3((x0+x1)/2,(y0+y1)/2,(z0+z1)/2);
   // Keep the floor below the Gaussian tails and wheel/body silhouette.
   const groundMargin = Math.max((y1-y0)*0.08, 1e-4);
-  orientationGrid.position.set(center.x,y0-groundMargin,center.z);
+  // After “Sit flat” the base is exactly y = 0: keep the grid there.
+  orientationGrid.position.set(S._sitFlat ? 0 : center.x, S._sitFlat ? 0 : y0-groundMargin, S._sitFlat ? 0 : center.z);
   orientationGrid.scale.setScalar(Math.max(.1,Math.max(x1-x0,z1-z0)*.15));
   const axes=scene.children.find(obj=>obj.isAxesHelper);
   if(axes){axes.position.copy(center);axes.scale.setScalar(Math.max(.1,Math.max(x1-x0,y1-y0,z1-z0)*.1));}
@@ -2255,7 +2317,7 @@ function syncTransformGizmo() {
   let x=0,y=0,z=0,n=0;
   const useSelection = S.transformScope === 'selection';
   for (let i = 0; i < count; i++) {
-    if (!S.alive[i] || (useSelection && !S.selected[i])) continue;
+    if (!S.alive[i] || (useSelection && !S.selected[i]) || S.layerLocked?.[i]) continue;
     x += S.positions[i * 3];
     y += S.positions[i * 3 + 1];
     z += S.positions[i * 3 + 2];
@@ -2306,12 +2368,14 @@ function _gizmoCollectIndices() {
   for (let i = 0; i < S.alive.length; i++) {
     if (!S.alive[i]) continue;
     if (useSelection && !(S.selected && S.selected[i])) continue;
+    if (S.layerLocked?.[i]) continue;   // locked layers don't move with the scene
     indices.push(i);
   }
   return indices;
 }
 
 function beginGizmoGesture() {
+  _noteMoveStart();
   const indices = _gizmoCollectIndices();
   if (!indices.length || !S.positions) {
     _gizmoGestureSnap = null;
@@ -2493,6 +2557,7 @@ function endGizmoGesture() {
   renderMeasurementOverlay();
   _gizmoGesture = false;
   _gizmoGestureSnap = null;
+  _collideAfterMove();
   _xformIndices = null;
   _xformPivot = null;
   _xformStartPos = null;
@@ -2932,20 +2997,23 @@ const fmt = n => Number(n || 0).toLocaleString();
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const hexToRgb = h => { const r = parseInt(h.slice(1, 3), 16) / 255, g = parseInt(h.slice(3, 5), 16) / 255, b = parseInt(h.slice(5, 7), 16) / 255; return [r, g, b]; };
 
+// Messages must never crash an action: other tools can rebuild these bars.
 function setStatus(msg, type = '') {
-  $('statusText').textContent = msg;
-  const sb = $('statusBar');
-  sb.className = type ? type : '';
+  const st = $('statusText'); if (st) st.textContent = msg;
+  const sb = $('statusBar'); if (sb) sb.className = type ? type : '';
 }
 function setProgress(pct) {
-  $('progressBar').style.width = pct + '%';
-  if (pct >= 100) setTimeout(() => $('progressBar').style.width = '0%', 600);
+  const pb = $('progressBar'); if (!pb) return;
+  pb.style.width = pct + '%';
+  if (pct >= 100) setTimeout(() => { const b = $('progressBar'); if (b) b.style.width = '0%'; }, 600);
 }
 function showToast(title, msg, type = 'lime') {
-  const t = $('toast'); const tit = $('toastTitle'); const m = $('toastMsg');
-  tit.textContent = title; m.textContent = msg;
+  let t = $('toast');
+  if (!t) { t = document.createElement('div'); t.id = 'toast'; document.body.appendChild(t); }
+  if (!$('toastTitle') || !$('toastMsg')) t.innerHTML = '<div class="toast-title" id="toastTitle"></div><div class="toast-msg" id="toastMsg"></div>';
+  $('toastTitle').textContent = title; $('toastMsg').textContent = msg;
   t.className = `show ${type}`; clearTimeout(t._timer);
-  t._timer = setTimeout(() => t.className = '', 3200);
+  t._timer = setTimeout(() => { t.className = ''; }, 3200);
 }
 
 // ─── PARSE ──────────────────────────────────────────────────────────────────
@@ -3228,7 +3296,7 @@ async function loadFile(file, urlOverride) {
   S.measurements = []; S.measurementStart = null; renderMeasurementList();
   $('measureMultiplier').value='1';$('measureUnit').value='units';$('measureKnownLength').value='';
   $('measureCalibrationStatus').textContent='Uncalibrated — distances display in source units.';
-  S.opacity = parsed.opacity; S.scale = parsed.scale;
+  S.opacity = parsed.opacity; S.scale = parsed.scale; S._sitFlat = false;
   S.scaleXYZ = parsed.scaleXYZ || new Float32Array(parsed.count * 3).fill(0.01);
   S.rotation = parsed.rotation || new Float32Array(parsed.count * 4);
   if (!parsed.rotation) for (let i = 0; i < parsed.count; i++) S.rotation[i * 4] = 1;
@@ -3286,7 +3354,7 @@ async function loadFile(file, urlOverride) {
     }
   }
   S.paintColors = new Float32Array(parsed.count * 3).fill(-1);
-  S.layers = []; S.activeLayerId = null; S.layerHidden = new Uint8Array(parsed.count);
+  S.layers = []; S.activeLayerId = null; S.layerHidden = new Uint8Array(parsed.count); S.layerLocked = null; S._lockFreeze = null;
   const lidarColorMode = document.getElementById('lidarColorMode');
   if (lidarColorMode) {
     const has = { intensity: !!S.lidarIntensity, classification: !!S.lidarClassification, return: !!S.lidarReturnNumber };
@@ -3520,6 +3588,7 @@ async function loadFile(file, urlOverride) {
 function rebuildGeometry() {
 
   window.rebuildGeometry = rebuildGeometry; // keep window ref up to date
+  if (S._lockFreeze) _enforceLayerLocks();   // locked layers never change
   // Invalidate hotspot point cloud cache so anchors use fresh edited positions
   if (window.FumocaHotspotProCache !== undefined) {
     window.FumocaHotspotProCache = false;
@@ -3885,7 +3954,52 @@ window.cancelStudioHistory = () => {
 
 // ─── SELECTION ──────────────────────────────────────────────────────────────
 function clearSelection() { if (S.selected) S.selected.fill(0); rebuildGeometry(); syncTransformGizmo(); selectedPointCount(); }
-function invertSelection() { if (!S.alive) return; for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) S.selected[i] ^= 1; rebuildGeometry(); syncTransformGizmo(); selectedPointCount(); }
+// Invert for splats. Selection tools pick the front surface you can see, so a
+// plain flip also grabbed the part's own back and inside. Here the part is
+// taken through its depth: splats behind the selected surface (within the
+// part's size) stay with it, and everything else is selected.
+// Shift+Invert does a plain flip.
+function invertSelection(e) {
+  if (!S.alive) return;
+  pushHistory('invert selection');
+  const n = S.alive.length, sel = [];
+  for (let i = 0; i < n; i++) if (S.alive[i] && S.selected[i] && !S.layerHidden?.[i]) sel.push(i);
+  if (e?.shiftKey || !sel.length || !window.camera) {
+    for (let i = 0; i < n; i++) if (S.alive[i] && !S.layerHidden?.[i]) S.selected[i] ^= 1;
+  } else {
+    const vp = document.getElementById('viewport'), W = vp.clientWidth || 1, H = vp.clientHeight || 1;
+    camera.updateMatrixWorld(true);
+    const V = camera.matrixWorldInverse.elements, Pm = camera.projectionMatrix.elements, CELL = 6;
+    const proj = (i) => {
+      const x = S.positions[i * 3], y = S.positions[i * 3 + 1], z = S.positions[i * 3 + 2];
+      const vx = V[0] * x + V[4] * y + V[8] * z + V[12], vy = V[1] * x + V[5] * y + V[9] * z + V[13], vz = V[2] * x + V[6] * y + V[10] * z + V[14];
+      if (vz >= 0) return null;
+      const cx = Pm[0] * vx + Pm[4] * vy + Pm[8] * vz + Pm[12], cy = Pm[1] * vx + Pm[5] * vy + Pm[9] * vz + Pm[13], cw = Pm[3] * vx + Pm[7] * vy + Pm[11] * vz + Pm[15];
+      return { cx: Math.floor((cx / cw * 0.5 + 0.5) * W / CELL), cy: Math.floor((-cy / cw * 0.5 + 0.5) * H / CELL), d: -vz };
+    };
+    // the part's size (robust) and its front depth per screen cell (dilated by one cell)
+    const ext = [0, 1, 2].map(k => { const v = sel.filter((_, j) => j % Math.max(1, Math.floor(sel.length / 20000)) === 0).map(i => S.positions[i * 3 + k]).sort((a, b) => a - b); return v[Math.floor(v.length * 0.98)] - v[Math.floor(v.length * 0.02)]; });
+    const size = Math.max(...ext, 1e-6);
+    const front = new Map(), key = (x, y) => x * 100003 + y;
+    for (const i of sel) {
+      const p = proj(i); if (!p) continue;
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+        const k = key(p.cx + dx, p.cy + dy), f = front.get(k);
+        if (f === undefined || p.d < f) front.set(k, p.d);
+      }
+    }
+    let kept = 0;
+    for (let i = 0; i < n; i++) {
+      if (!S.alive[i] || S.layerHidden?.[i]) continue;
+      if (S.selected[i]) { S.selected[i] = 0; continue; }
+      const p = proj(i), f = p && front.get(key(p.cx, p.cy));
+      if (f !== undefined && f !== null && p.d >= f - size * 0.05 && p.d <= f + size) { kept++; continue; }   // the part's hidden side
+      S.selected[i] = 1;
+    }
+    setStatus(`Selected everything around your part (kept ${fmt(kept)} splats of its hidden side with it). Shift+Invert flips plainly.`, 'ok');
+  }
+  rebuildGeometry(); syncTransformGizmo(); selectedPointCount();
+}
 function deleteSelected() {
   if (!S.alive) return;
   pushHistory('delete');
@@ -3916,6 +4030,7 @@ function selectSubjectAtScreen(x, y, radius = 28) {
 
   // Hit in a layer → that subject. Else whole live cloud (single PLY has no layers).
   const layer = (S.layers || []).find(L => L.visible !== false && L.mask?.[best]);
+  if (layer?.locked) { setStatus(`${layer.name} is locked — unlock it in Layers to move it`, 'warn'); return true; }
   S.selected.fill(0);
   if (layer) {
     S.activeLayerId = layer.id;
@@ -3943,6 +4058,7 @@ function selectVisibleRegion(contains) {
   const W = vp.clientWidth, H = vp.clientHeight;
   camera.updateMatrixWorld(true);
   const view = new THREE.Vector3(), projected = new THREE.Vector3();
+  const focalPx = H / (2 * Math.tan((camera.fov || 50) * Math.PI / 360));
   return selectVisibleScreenPoints({
     count: S.alive.length,
     isAlive: i => !!S.alive[i] && !S.layerHidden?.[i],
@@ -3960,7 +4076,16 @@ function selectVisibleRegion(contains) {
     },
     contains,
     cellSize: 4,
-    depthTolerance: 0.006
+    // a splat surface has thickness: 2.5 % of the distance keeps the whole skin
+    depthTolerance: 0.025,
+    isOccluder: i => (S.opacity?.[i] ?? 1) >= 0.35,
+    // each solid splat blocks what's behind its whole footprint, so the far
+    // side of an object can't leak through gaps between front splat centres
+    width: W, height: H,
+    radius: (i, p) => {
+      const s = S.scale?.[i]; if (!(s > 0)) return 0;
+      return Math.min(24, s * 1.5 * focalPx / p.depth);
+    }
   });
 }
 
@@ -4247,9 +4372,71 @@ function estimateCore() {
   return { c: [ax, ay, az], s: [Math.max(sx * 3, 0.05), Math.max(sy * 3, 0.05), Math.max(sz * 3, 0.05)] };
 }
 
-function autoClean() {
+// ─── SOLID SPLATS (js/modules/solidify.js) ──────────────────────────────────
+// Always computed from the scan's own values, so the slider re-applies cleanly.
+function _solidOrig() {
+  const n = S.alive?.length || 0;
+  if (!S._solidOrig || S._solidOrig.n !== n) {
+    S._solidOrig = { n, opacity: Float32Array.from(S.opacity || new Float32Array(n).fill(1)), scaleXYZ: Float32Array.from(S.scaleXYZ || new Float32Array(n * 3).fill(0.01)), removed: new Uint8Array(n) };
+  }
+  return S._solidOrig;
+}
+function _markAttrEdited(edited) {
+  const prev = S.attrEdited, touched = new Uint8Array(edited.length);
+  if (prev) for (let i = 0; i < touched.length; i++) touched[i] = prev[i] || prev.touched?.[i] || 0;
+  edited.touched = touched;
+  S.attrEdited = edited;
+  S.attrVersion = (S.attrVersion || 0) + 1;
+}
+async function makeSolid() {
+  if (!S.alive?.length || !S.opacity || !S.scaleXYZ) { showToast('Make solid', 'Open a Gaussian splat (.ply) first', 'warn'); return; }
+  const { solidify } = await import('./js/modules/solidify.js?v=20261127-solid01');
+  const orig = _solidOrig();
+  pushHistory('make solid');
+  for (let i = 0; i < orig.n; i++) if (orig.removed[i]) S.alive[i] = 1;   // haze from an earlier pass comes back first
+  orig.removed.fill(0);
+  const r = solidify(orig, S.alive, { strength: Number($('solidStrength').value) / 100, removeHaze: $('solidHaze').checked });
+  S.opacity.set(r.opacity); S.scaleXYZ.set(r.scaleXYZ);
+  if (S.scale) for (let i = 0; i < orig.n; i++) if (r.edited[i]) S.scale[i] = (S.scaleXYZ[i * 3] + S.scaleXYZ[i * 3 + 1] + S.scaleXYZ[i * 3 + 2]) / 3;
+  for (let i = 0; i < orig.n; i++) if (r.remove[i] && S.alive[i]) { S.alive[i] = 0; orig.removed[i] = 1; }
+  _markAttrEdited(r.edited);
+  rebuildGeometry();
+  const st = r.stats;
+  setStatus(`Solid: ${fmt(st.solid)} splats made opaque, ${fmt(st.flattened)} flattened, ${fmt(st.capped)} streaks trimmed, ${fmt(st.haze)} haze removed`, 'ok');
+  showToast('Solid splats', 'Undo or “Back to original” returns the scan exactly');
+}
+function solidBackToOriginal() {
+  const orig = S._solidOrig;
+  if (!orig || orig.n !== (S.alive?.length || 0)) { setStatus('The scan is already original'); return; }
+  pushHistory('back to original');
+  S.opacity.set(orig.opacity); S.scaleXYZ.set(orig.scaleXYZ);
+  if (S.scale) for (let i = 0; i < orig.n; i++) S.scale[i] = (S.scaleXYZ[i * 3] + S.scaleXYZ[i * 3 + 1] + S.scaleXYZ[i * 3 + 2]) / 3;
+  for (let i = 0; i < orig.n; i++) if (orig.removed[i]) S.alive[i] = 1;
+  orig.removed.fill(0);
+  _markAttrEdited(new Uint8Array(orig.n));
+  rebuildGeometry();
+  setStatus('Back to the original scan', 'ok');
+}
+$('solidStrength')?.addEventListener('input', () => { $('solidVal').textContent = $('solidStrength').value + '%'; });
+$('solidBtn')?.addEventListener('click', makeSolid);
+$('solidOffBtn')?.addEventListener('click', solidBackToOriginal);
+window.addEventListener('fumoca:fileLoaded', () => { S._solidOrig = null; S.attrEdited = null; S.attrVersion = 0; });
+
+// Density + connectivity floater finder (js/modules/floater-clean.js).
+async function _floaterMask() {
+  const { floaterMask } = await import('./js/modules/floater-clean.js?v=20261126-fl01');
+  const aggr = Math.max(0, Math.min(1, Number($('cleanAggr')?.value ?? 50) / 100));
+  return floaterMask(S.positions, S.alive, { aggression: aggr, opacity: S.opacity || null });
+}
+async function autoClean() {
   const core = estimateCore(); if (!core) return;
   pushHistory('auto clean');
+  let floaters = 0;
+  try {
+    setStatus('Finding floaters…');
+    const mask = await _floaterMask();
+    for (let i = 0; i < S.alive.length; i++) if (mask[i] && S.alive[i]) { S.alive[i] = 0; floaters++; }
+  } catch (error) { console.warn('[Auto clean] floater pass skipped', error); }
   const aggr = Number($('cleanAggr').value) / 100;
   const factor = 1.0 + (1 - aggr) * 0.5;
   const [cx, cy, cz] = core.c, [sx, sy, sz] = core.s;
@@ -4265,25 +4452,23 @@ function autoClean() {
     const weak = op < opT || sc > scT;
     if (far && weak) { S.alive[i] = 0; removed++; }
   }
-  rebuildGeometry(); setStatus(`Auto-removed ${fmt(removed)} noise points`, 'ok');
+  removed += floaters;
+  rebuildGeometry(); setStatus(`Auto-removed ${fmt(removed)} noise points (${fmt(floaters)} floaters) — Undo brings them back`, 'ok');
   showToast('Auto Clean', `${fmt(removed)} points removed`);
 }
 
-function selectFloaters() {
-  const core = estimateCore(); if (!core) return;
+async function selectFloaters() {
+  if (!S.positions || !S.alive) return;
   clearSelection();
-  const [cx, cy, cz] = core.c, [sx, sy, sz] = core.s;
-  const rad = Number($('selRad').value), minN = Number($('selNeigh').value);
-  // simplified: select far + low density
   let hits = 0;
-  for (let i = 0; i < S.alive.length; i++) {
-    if (!S.alive[i]) continue;
-    const nx = Math.abs((S.positions[i * 3] - cx) / sx);
-    const ny = Math.abs((S.positions[i * 3 + 1] - cy) / sy);
-    const nz = Math.abs((S.positions[i * 3 + 2] - cz) / sz);
-    if (nx > 1.4 || ny > 1.4 || nz > 1.4) { S.selected[i] = 1; hits++; }
+  try {
+    setStatus('Finding floaters…');
+    const mask = await _floaterMask();
+    for (let i = 0; i < S.alive.length; i++) if (mask[i] && S.alive[i] && !S.layerHidden?.[i]) { S.selected[i] = 1; hits++; }
+  } catch (error) {
+    console.warn('[Select floaters]', error);
   }
-  rebuildGeometry(); setStatus(`Selected ${fmt(hits)} potential floaters`);
+  rebuildGeometry(); setStatus(`Selected ${fmt(hits)} floaters — press Delete to remove, or adjust Aggression and try again`);
 }
 
 function selectLowOpacity() {
@@ -4374,6 +4559,67 @@ function _encodeGaussianPly(indices) {
 
 // Rebuild the photoreal source payload after geometric transforms so toggling
 // Spark off/on cannot reload stale pre-transform coordinates.
+// Hooks for Studio modules that edit splats in bulk (scan linking).
+// Older plain (non-module) scripts in this page call these by name; module
+// functions aren't global, so those buttons crashed ("setStatus is not defined").
+for (const [name, fn] of Object.entries({ setStatus, showToast, pushHistory, fmt, setMode })) {
+  if (typeof window[name] !== 'function') window[name] = fn;
+}
+
+window.FumocaStudioHooks = {
+  pushHistory: (label) => pushHistory(label),
+  setMode: (mode) => { try { setMode(mode); } catch (_) {} },
+  /**
+   * Turn Photoreal (Spark) on if it is off — lighting, parts and the rig work
+   * on the Spark splats. Builds the Gaussian data from the scene when needed.
+   */
+  async ensureSpark() {
+    const spark = window.FumocaSparkGaussian;
+    if (!spark || !S.alive?.length) return null;
+    if (spark.isEnabled?.()) return spark.getMesh?.() || null;
+    let ok = false;
+    try {
+      const all = Array.from({ length: S.alive.length }, (_, i) => i);
+      const bytes = new Uint8Array(await _encodeGaussianPly(all).arrayBuffer());
+      S.isGaussianPly = true;
+      ok = await spark.enable({ bytes });
+    } catch (e) { console.warn('[Studio] could not turn Photoreal on', e); }
+    if (ok) {
+      try { window.FumocaGaussianRenderer?.disable?.(); } catch (_) {}
+      const lbl = document.getElementById('photorealLabel'); if (lbl) lbl.textContent = '✨ Photoreal: ON';
+      setStatus('Photoreal (Spark) turned on', 'ok');
+    }
+    return ok ? (spark.getMesh?.() || null) : null;
+  },
+  /** After a bulk edit of S: redraw, and keep Spark on with the new data. */
+  async commit() {
+    rebuildGeometry(); try { renderLayers(); } catch (_) {} try { updateStats(); } catch (_) {}
+    if (window.FumocaSparkGaussian?.isEnabled?.()) {
+      const all = Array.from({ length: S.alive.length }, (_, i) => i);
+      const bytes = new Uint8Array(await _encodeGaussianPly(all).arrayBuffer());
+      S.isGaussianPly = true;
+      await window.FumocaSparkGaussian.rebase(bytes, S);
+    }
+    window.dispatchEvent(new CustomEvent('fumoca:splatsEdited'));
+  },
+};
+
+/**
+ * Export the live Studio state as a binary Gaussian PLY for publishing.
+ * Used for legacy .splat sources, which Spark can display but its PLY editor
+ * bridge cannot round-trip directly. The NIF remains the canonical asset;
+ * this companion preserves the current live Gaussian attributes for Spark.
+ */
+window.exportGaussianPlyForPublish = async () => {
+  if (!S.positions?.length || !S.alive?.length || S.positions.length !== S.alive.length * 3) {
+    throw new Error('Studio Gaussian arrays are incomplete; cannot build the Spark companion.');
+  }
+  const indices = [];
+  for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) indices.push(i);
+  if (!indices.length) throw new Error('There are no live Gaussians to publish.');
+  return new Uint8Array(await _encodeGaussianPly(indices).arrayBuffer());
+};
+
 window.refreshGaussianSourceBytes = async () => {
   if (!S.isGaussianPly || !S.positions?.length) return false;
   const indices = Array.from({ length: S.positions.length / 3 }, (_, index) => index);
@@ -4827,7 +5073,7 @@ document.querySelectorAll('[data-transform-scope]').forEach(button => {
 
 const toolMap = {
   toolOrbit: 'orbit', toolPan: 'pan', toolZoom: 'zoom-tool',
-  toolBox: 'box', toolSphere: 'sphere', toolLasso: 'lasso', toolMagic: 'magic',
+  toolBox: 'box', toolSphere: 'sphere', toolLasso: 'lasso', toolOutline: 'outline', toolMagic: 'magic',
   toolBrushErase: 'brush-erase', toolBrushSelect: 'brush-select',
   toolPaint: 'paint', toolSmear: 'smear', toolFill: 'fill',
   toolMove: 'move', toolScale: 'scale-tool', toolRotate: 'rotate', toolCrop: 'crop', toolMeasure: 'measure'
@@ -4941,6 +5187,22 @@ function renderLasso() {
     poly.setAttribute('points', S.lassoPoints.map(p => `${p.x},${p.y}`).join(' '));
     poly.setAttribute('class', 'lasso-ghost'); lassoSvg.appendChild(poly);
   }
+  _outlineBar(S.outlinePts?.length && S.mode === 'outline' ? _outlineScreen() : (S.outlinePts?.length ? _outlineScreen() : null));
+  if (S.outlinePts?.length) {
+    const NS = 'http://www.w3.org/2000/svg', pts = _outlineScreen();
+    if (pts.length >= 2) {
+      const poly = document.createElementNS(NS, 'polygon');
+      poly.setAttribute('points', pts.map(p => `${p.x},${p.y}`).join(' '));
+      poly.setAttribute('style', 'fill:rgba(200,255,0,.10);stroke:#c8ff00;stroke-width:1.5;stroke-dasharray:5 4');
+      lassoSvg.appendChild(poly);
+    }
+    pts.forEach((p, i) => {
+      const c = document.createElementNS(NS, 'circle');
+      c.setAttribute('cx', p.x); c.setAttribute('cy', p.y); c.setAttribute('r', i === 0 ? 6 : 4);
+      c.setAttribute('style', `fill:${i === 0 ? '#c8ff00' : '#ffffff'};stroke:#05070b;stroke-width:1.5;opacity:${p.behind ? 0.3 : 1}`);
+      lassoSvg.appendChild(c);
+    });
+  }
   renderMeasurementOverlay();
 }
 
@@ -5036,6 +5298,7 @@ function _vpCoords(e) {
 let _brushActive = false, _brushTimer;
 renderer.domElement.addEventListener('dblclick', e => {
   if (!S.positions || !S.alive?.length) return;
+  if (S.mode === 'outline') { e.preventDefault(); e.stopPropagation(); finishOutline(e); return; }
   if (S.mode === 'measure' || S.mode === 'paint' || S.mode === 'brush-erase') return;
   e.preventDefault();
   e.stopPropagation();
@@ -5054,8 +5317,89 @@ renderer.domElement.addEventListener('dblclick', e => {
   }
 });
 
+// ─── OUTLINE WITH POINTS ─────────────────────────────────────────────────────
+// Dots sit on the scan's surface (3D), so you can orbit between clicks. Closing
+// the outline selects only the visible surface inside it (never the far side).
+S.outlinePts = [];
+function _outlineScreen() {
+  const vp = document.getElementById('viewport'); const W = vp.clientWidth, H = vp.clientHeight;
+  camera.updateMatrixWorld(true);
+  return S.outlinePts.map(p => { const v = p.clone().project(camera); return { x: (v.x * 0.5 + 0.5) * W, y: (-v.y * 0.5 + 0.5) * H, behind: v.z > 1 }; });
+}
+// The dot stays exactly under the cursor, at the depth of the nearest surface there.
+function _outlineDotAt(clientX, clientY) {
+  if (!S.points || !S.positions) return null;
+  const rect = viewport.getBoundingClientRect();
+  const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+  const distance = camera.position.distanceTo(controls.target);
+  _measureRaycaster.params.Points.threshold = Math.max(1e-6, 2 * distance * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * 6 / Math.max(1, rect.height));
+  _measureRaycaster.setFromCamera(ndc, camera);
+  const hits = _measureRaycaster.intersectObject(S.points, false);
+  if (!hits.length) return null;
+  // the first SOLID splat along the ray (haze and floaters in front don't count)
+  const src = S.points.geometry.getAttribute('sourceIndex');
+  const solid = hits.filter(h => { const i = src ? Math.round(src.array[h.index]) : h.index; return (S.opacity?.[i] ?? 1) >= 0.35 && !S.layerHidden?.[i]; });
+  const use = solid.length ? solid : hits;
+  const d = Math.min(...use.slice(0, 8).map(h => h.distance));
+  return _measureRaycaster.ray.at(d, new THREE.Vector3());
+}
+function finishOutline(e = {}) {
+  if (S.outlinePts.length < 3) { setStatus('Place at least 3 dots around the area first', 'warn'); return false; }
+  const pts = _outlineScreen();
+  if (pts.some(p => p.behind)) { setStatus('Turn the view so every dot is in front of you, then finish the outline', 'warn'); return false; }
+  S.outlinePts = [];
+  selectByLasso(pts, { additive: !!e.shiftKey, subtract: !!e.altKey });
+  renderLasso(); syncTransformGizmo();
+  setStatus(`Outline selected ${fmt(selectedPointCount())} splats on the visible surface`, 'ok');
+  return true;
+}
+function cancelOutline() { if (S.outlinePts.length) { S.outlinePts = []; renderLasso(); setStatus('Outline cleared'); } }
+// Floating bar next to the outline, so finishing is obvious.
+function _outlineBar(pts) {
+  let bar = document.getElementById('outlineBar');
+  if (!pts || pts.length < 1) { if (bar) bar.style.display = 'none'; return; }
+  if (!bar) {
+    bar = document.createElement('div'); bar.id = 'outlineBar';
+    bar.style.cssText = 'position:absolute;z-index:30;display:flex;gap:6px;padding:6px;border-radius:10px;background:rgba(5,7,11,.88);border:1px solid rgba(200,255,0,.35);box-shadow:0 6px 20px rgba(0,0,0,.4);font:600 12px/1 inherit;pointer-events:auto';
+    bar.innerHTML = '<button type="button" class="ac-btn lime" data-o="ok">✓ Select inside</button><button type="button" class="ac-btn" data-o="undo">↶ Undo dot</button><button type="button" class="ac-btn" data-o="clear">✕ Clear</button>';
+    bar.addEventListener('pointerdown', e => e.stopPropagation());
+    bar.addEventListener('click', e => {
+      const b = e.target.closest('[data-o]'); if (!b) return; e.stopPropagation();
+      if (b.dataset.o === 'ok') finishOutline(e); else if (b.dataset.o === 'undo') { S.outlinePts.pop(); renderLasso(); } else cancelOutline();
+    });
+    document.getElementById('viewport').appendChild(bar);
+  }
+  const ok = bar.querySelector('[data-o=ok]');
+  ok.disabled = pts.length < 3; ok.style.opacity = pts.length < 3 ? .5 : 1;
+  ok.textContent = pts.length < 3 ? `Place ${3 - pts.length} more dot${3 - pts.length === 1 ? '' : 's'}` : '✓ Select inside';
+  const vp = document.getElementById('viewport'), W = vp.clientWidth, H = vp.clientHeight;
+  const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
+  const x = Math.max(8, Math.min(W - 300, (Math.min(...xs) + Math.max(...xs)) / 2 - 140));
+  const y = Math.max(8, Math.min(H - 48, Math.max(...ys) + 18));
+  bar.style.left = x + 'px'; bar.style.top = y + 'px'; bar.style.display = 'flex';
+}
+window.FumocaOutline = { finish: finishOutline, cancel: cancelOutline, points: () => S.outlinePts.length, dotAt: (x, y) => _outlineDotAt(x, y) };
+window.addEventListener('keydown', e => {
+  if (!S.outlinePts?.length || /input|textarea|select/i.test(e.target?.tagName || '')) return;
+  if (e.key === 'Enter') { e.preventDefault(); finishOutline(e); }
+  else if (e.key === 'Escape') { e.preventDefault(); cancelOutline(); }
+  else if (e.key === 'Backspace') { e.preventDefault(); S.outlinePts.pop(); renderLasso(); }
+});
+
 renderer.domElement.addEventListener('pointerdown', e => {
   if (S.mode === 'orbit') return;
+  if (S.mode === 'outline') {
+    e.preventDefault(); e.stopPropagation();
+    const { x, y } = _vpCoords(e);
+    const pts = _outlineScreen();
+    if (pts.length >= 3 && Math.hypot(pts[0].x - x, pts[0].y - y) <= 12) { finishOutline(e); return; }
+    const dot = _outlineDotAt(e.clientX, e.clientY);
+    if (!dot) { setStatus('Click on the scan itself to place a dot (zoom closer if needed)', 'warn'); return; }
+    S.outlinePts.push(dot);
+    renderLasso();
+    setStatus(`${S.outlinePts.length} dot${S.outlinePts.length === 1 ? '' : 's'} — keep going around the edge; click the first dot, double-click or press Enter to select. Backspace undoes a dot, Esc clears.`);
+    return;
+  }
   if (S.mode === 'measure') {
     e.preventDefault();e.stopPropagation();
     const endpoint=_measurementPointAt(e.clientX,e.clientY);
@@ -5072,6 +5416,7 @@ renderer.domElement.addEventListener('pointerdown', e => {
   _brushActive = true;
   const {x, y} = _vpCoords(e);
   S.dragging = true; S.dragStart = { x, y }; S.dragCurrent = { x, y };
+  if (['move', 'scale-tool', 'rotate'].includes(S.mode)) _noteMoveStart();
   if (S.mode === 'lasso') S.lassoPoints = [{ x, y }];
   if (S.mode === 'magic') { window._smartSelectPending = true; _brushActive = false; S.dragging = false; return; }
   if (['move','scale-tool','rotate'].includes(S.mode)) {
@@ -5172,6 +5517,7 @@ window.addEventListener('pointerup', e => {
   _brushActive = false;
   if (!S.dragging) return;
   const {x, y} = _vpCoords(e);
+  if (['move', 'scale-tool', 'rotate'].includes(S.mode) && S._moveStart) _collideAfterMove();
   if (S.mode === 'box' && S.dragStart && S.dragCurrent) {
     const dx = Math.abs(S.dragCurrent.x - S.dragStart.x), dy = Math.abs(S.dragCurrent.y - S.dragStart.y);
     if (dx <= 7 && dy <= 7) {
@@ -5277,6 +5623,7 @@ function animate(now = performance.now()) {
   _lastViewportRender = now;
   controls.update();
   renderer.render(scene, camera);
+  if (S.outlinePts?.length) renderLasso();   // keep outline dots on the surface while orbiting
   // Reference photo overlay for Fill / collect-from-image
   try {
     const GF = window.FumocaGapFill;
@@ -5539,39 +5886,26 @@ document.querySelectorAll('[data-hud-view]').forEach(button => {
     renderMeasurementOverlay();
   });
 });
-$('levelSubjectBtn')?.addEventListener('click',()=>{
-  if(!S.positions||!S.alive)return;
-  const stride=Math.max(1,Math.floor(S.alive.length/12000));let samples=[];
-  for(let i=0;i<S.alive.length;i+=stride)if(S.alive[i])samples.push([S.positions[i*3],S.positions[i*3+1],S.positions[i*3+2]]);
-  if(samples.length<3)return showToast('Not enough points','Load a denser subject before auto leveling.','warn');
-  const limits=[0,1,2].map(axis=>{const values=samples.map(point=>point[axis]).sort((a,b)=>a-b);return [values[Math.floor(values.length*.005)],values[Math.floor(values.length*.995)]];});
-  samples=samples.filter(point=>point.every((value,axis)=>value>=limits[axis][0]&&value<=limits[axis][1]));
-  const mean=[0,0,0];for(const p of samples)for(let a=0;a<3;a++)mean[a]+=p[a]/samples.length;
-  const A=[[0,0,0],[0,0,0],[0,0,0]],V=[[1,0,0],[0,1,0],[0,0,1]];
-  for(const p of samples)for(let r=0;r<3;r++)for(let c=0;c<3;c++)A[r][c]+=(p[r]-mean[r])*(p[c]-mean[c])/samples.length;
-  for(let iter=0;iter<18;iter++){
-    let p=0,q=1;if(Math.abs(A[0][2])>Math.abs(A[p][q])){p=0;q=2;}if(Math.abs(A[1][2])>Math.abs(A[p][q])){p=1;q=2;}
-    if(Math.abs(A[p][q])<1e-12)break;
-    const theta=.5*Math.atan2(2*A[p][q],A[q][q]-A[p][p]),c=Math.cos(theta),s=Math.sin(theta),app=A[p][p],aqq=A[q][q],apq=A[p][q];
-    A[p][p]=c*c*app-2*s*c*apq+s*s*aqq;A[q][q]=s*s*app+2*s*c*apq+c*c*aqq;A[p][q]=A[q][p]=0;
-    for(let k=0;k<3;k++)if(k!==p&&k!==q){const akp=A[k][p],akq=A[k][q];A[k][p]=A[p][k]=c*akp-s*akq;A[k][q]=A[q][k]=s*akp+c*akq;}
-    for(let k=0;k<3;k++){const vkp=V[k][p],vkq=V[k][q];V[k][p]=c*vkp-s*vkq;V[k][q]=s*vkp+c*vkq;}
-  }
-  let axisIndex=0;if(A[1][1]<A[axisIndex][axisIndex])axisIndex=1;if(A[2][2]<A[axisIndex][axisIndex])axisIndex=2;
-  const up=new THREE.Vector3(V[0][axisIndex],V[1][axisIndex],V[2][axisIndex]).normalize();if(up.y<0)up.negate();
-  const angle=Math.acos(THREE.MathUtils.clamp(up.y,-1,1));
-  if(angle<THREE.MathUtils.degToRad(.5))return showToast('Already level','The thinnest point-cloud axis is already aligned with Y-up.','ok');
-  const rotation=new THREE.Quaternion().setFromUnitVectors(up,new THREE.Vector3(0,1,0)),pivot=S.pivot||controls.target;
-  pushHistory('transform level');
-  const point=new THREE.Vector3();
-  for(let i=0;i<S.alive.length;i++)if(S.alive[i]){
-    point.set(S.positions[i*3],S.positions[i*3+1],S.positions[i*3+2]).sub(pivot).applyQuaternion(rotation).add(pivot);
-    S.positions[i*3]=point.x;S.positions[i*3+1]=point.y;S.positions[i*3+2]=point.z;
-    if(S.rotation){const q=new THREE.Quaternion(S.rotation[i*4+1],S.rotation[i*4+2],S.rotation[i*4+3],S.rotation[i*4]).premultiply(rotation).normalize();S.rotation.set([q.w,q.x,q.y,q.z],i*4);}
-  }
-  window.FumocaGaussianRenderer?.invalidateSort();rebuildGeometry();_refreshSceneReference(true);syncTransformGizmo();renderMeasurementList();renderMeasurementOverlay();
-  showToast('Subject leveled',`Aligned its thinnest principal axis to Y-up (${THREE.MathUtils.radToDeg(angle).toFixed(1)}° correction). Undo restores the prior orientation.`,'ok');
-});
+// Sit flat: find what the object stands on (or use the selected base), turn
+// it to face down, and put it on the grid at y = 0, centred.
+window.FumocaSitFlat = async function sitFlatNow() {
+  if (!S.positions || !S.alive) return null;
+  const { sitFlat } = await import('./js/modules/sit-flat.js?v=20261126-flat01');
+  pushHistory('sit flat');
+  let res;
+  try { res = sitFlat(S); }
+  catch (e) { showToast('Could not sit it flat', e.message, 'warn'); return null; }
+  S._sitFlat = true;
+  S.pivot = new THREE.Vector3(0, 0, 0);
+  window.FumocaGaussianRenderer?.invalidateSort?.(); rebuildGeometry(); _refreshSceneReference(true); syncTransformGizmo();
+  try { renderMeasurementList(); renderMeasurementOverlay(); } catch (_) {}
+  const r = Math.max(0.05, (() => { let m = 0; for (let i = 0; i < S.alive.length; i += 37) if (S.alive[i]) m = Math.max(m, Math.hypot(S.positions[i*3], S.positions[i*3+2])); return m; })());
+  controls.target.set(0, r * 0.35, 0); camera.position.set(r * 2.4, r * 1.8, r * 3.4); camera.lookAt(controls.target); controls.update();
+  window.dispatchEvent(new CustomEvent('fumoca:sitFlat', { detail: { angle: res.angleDeg, source: res.base.source } }));
+  showToast('Sitting flat', `${res.base.source === 'selection' ? 'Used your selected base' : 'Found the base it stands on'} — turned ${res.angleDeg.toFixed(1)}° and set it on the grid. Undo restores it.`, 'ok');
+  return res;
+};
+$('levelSubjectBtn')?.addEventListener('click', () => window.FumocaSitFlat());
 $('centerSubjectBtn')?.addEventListener('click',()=>{
   if(!S.positions||!S.alive)return;
   const pivot=S.pivot||controls.target,delta=pivot.clone().negate();
@@ -6008,6 +6342,12 @@ $('addSplatInput')?.addEventListener('change', async e => {
   rebuildGeometry();
   renderLayers();
   updateStats();
+  // Spark draws from one source file; give it the joined scene so it stays on
+  // (otherwise the counts no longer match and Studio fell back to the soft renderer).
+  if (window.FumocaSparkGaussian?.isEnabled?.() && files.length) {
+    try { await window.FumocaStudioHooks.commit(); } catch (err) { console.warn('[Studio] Spark rebase after add', err); }
+  }
+  window.dispatchEvent(new CustomEvent('fumoca:splatAdded'));
   // Rebuild the source-index map and attach the gizmo after the appended layer
   // is selected, so transforms immediately target the newly added subject.
   refreshTransformSourceMap();
@@ -6063,7 +6403,7 @@ $('saveSupabaseBtn')?.addEventListener('click', async () => {
 // ─── LEFT PANEL BUTTONS ──────────────────────────────────────────────────────
 $('deleteBtn').addEventListener('click', deleteSelected);
 $('clearSelBtn').addEventListener('click', clearSelection);
-$('invertSelBtn').addEventListener('click', invertSelection);
+$('invertSelBtn').addEventListener('click', (e) => invertSelection(e));
 $('growSelBtn').addEventListener('click', () => {
   if (!S.alive) return;
   // simple grow: also select neighbours
@@ -6316,6 +6656,51 @@ $('applyColorBtn')?.addEventListener('click', () => {
   rebuildGeometry();drawToneCurve();
   showToast('Color grade applied','The visible points now keep this grade in exports. Undo restores their previous colors.','ok');
 });
+// ─── LAYER LOCKS ─────────────────────────────────────────────────────────────
+// A locked layer is frozen: whatever tool runs (move, rotate, whole-scene,
+// brush, paint, clean-ups, Solidify…), its splats are put back exactly and
+// never stay selected. Done centrally in rebuildGeometry so new tools are
+// covered too.
+const _LOCK_FIELDS = [['positions', 3], ['rotation', 4], ['opacity', 1], ['scaleXYZ', 3], ['scale', 1], ['colors', 3], ['paintColors', 3], ['alive', 1]];
+function _refreshLayerLocks() {
+  const n = S.alive?.length || 0;
+  const locked = new Uint8Array(n); let any = false;
+  (S.layers || []).forEach(L => { if (!L.locked || !L.mask) return; for (let i = 0; i < Math.min(n, L.mask.length); i++) if (L.mask[i]) { locked[i] = 1; any = true; } });
+  if (!any) { S.layerLocked = null; S._lockFreeze = null; return; }
+  const prev = S._lockFreeze, prevAt = new Map();
+  if (prev) prev.idx.forEach((i, k) => prevAt.set(i, k));
+  const idx = []; for (let i = 0; i < n; i++) if (locked[i]) idx.push(i);
+  const freeze = { idx, data: {} };
+  for (const [key, w] of _LOCK_FIELDS) {
+    const src = S[key]; if (!src || typeof src.length !== 'number') continue;
+    const out = new (src.constructor)(idx.length * w);
+    idx.forEach((i, k) => {
+      const pk = prevAt.get(i), old = prev?.data?.[key];
+      for (let j = 0; j < w; j++) out[k * w + j] = (pk !== undefined && old) ? old[pk * w + j] : src[i * w + j];
+    });
+    freeze.data[key] = out;
+  }
+  S.layerLocked = locked; S._lockFreeze = freeze;
+}
+function _enforceLayerLocks() {
+  const f = S._lockFreeze; if (!f || !S.alive) return 0;
+  let restored = 0;
+  for (const [key, w] of _LOCK_FIELDS) {
+    const dst = S[key], src = f.data[key]; if (!dst || !src) continue;
+    f.idx.forEach((i, k) => {
+      if (i * w + w > dst.length) return;
+      for (let j = 0; j < w; j++) if (dst[i * w + j] !== src[k * w + j]) { dst[i * w + j] = src[k * w + j]; restored++; }
+    });
+  }
+  if (S.selected) for (const i of f.idx) if (i < S.selected.length) S.selected[i] = 0;
+  if (restored && !_enforceLayerLocks._warned) {
+    _enforceLayerLocks._warned = true; setTimeout(() => { _enforceLayerLocks._warned = false; }, 2500);
+    setStatus('Locked layers stay as they are — unlock them in Layers to edit', 'warn');
+  }
+  return restored;
+}
+window.FumocaLayerLocks = { refresh: _refreshLayerLocks, enforce: _enforceLayerLocks };
+
 function renderLayers() {
   const list = $('layerList'); if (!list) return;
   list.innerHTML = '';
@@ -6342,8 +6727,29 @@ function renderLayers() {
     const row = document.createElement('div');
     row.className = 'layer-item' + (S.activeLayerId === L.id ? ' active' : '');
     row.dataset.layer = L.id;
-    row.innerHTML = `<div class="layer-icon">${L.icon||'📦'}</div><div class="layer-name">${L.name}</div><span class="layer-vis">${L.visible ? '👁' : '🚫'}</span>`;
+    const safeName = String(L.name || 'Layer').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    row.innerHTML = `<div class="layer-icon">${L.icon||'📦'}</div><div class="layer-name" title="Double-click to rename">${safeName}</div><span class="layer-lock" title="${L.locked ? 'Locked — click to unlock' : 'Lock: nothing can move or change it'}" style="cursor:pointer;padding:0 4px;opacity:${L.locked ? 1 : .45}">${L.locked ? '🔒' : '🔓'}</span><span class="layer-vis">${L.visible ? '👁' : '🚫'}</span>`;
+    if (L.locked) row.style.boxShadow = 'inset 3px 0 0 #f5b301';
+    row.querySelector('.layer-name').addEventListener('dblclick', (e) => {
+      e.stopPropagation();
+      const name = prompt('Layer name', L.name || '');
+      if (!name || !name.trim()) return;
+      S.layers = S.layers.map(x => (x.id === L.id ? { ...x, name: name.trim().slice(0, 60) } : x));
+      renderLayers(); setStatus(`Renamed to “${name.trim().slice(0, 60)}”`, 'ok');
+    });
+    row.querySelector('.layer-lock').addEventListener('click', (e) => {
+      e.stopPropagation();
+      const curL = S.layers.find(x => x.id === L.id) || L;   // undo may have swapped the objects
+      pushHistory(curL.locked ? 'unlock layer' : 'lock layer');
+      const next = { ...curL, locked: !curL.locked };
+      S.layers = S.layers.map(x => (x.id === L.id ? next : x));
+      _refreshLayerLocks();
+      if (next.locked) { for (let i = 0; i < S.selected.length; i++) if (next.mask[i]) S.selected[i] = 0; if (S.activeLayerId === L.id) S.activeLayerId = null; }
+      rebuildGeometry(); renderLayers(); refreshTransformSourceMap(); syncTransformGizmo(); _syncViewportHud();
+      setStatus(next.locked ? `${next.name} is locked — it stays exactly where it is` : `${next.name} unlocked — you can move and edit it`, 'ok');
+    });
     row.addEventListener('click', (e) => {
+      if (L.locked && !e.target.classList.contains('layer-vis')) { setStatus(`${L.name} is locked — click 🔒 to unlock it first`, 'warn'); return; }
       if (e.target.classList.contains('layer-vis')) {
         L.visible = !L.visible;
         S.layerHidden = new Uint8Array(S.alive.length);
@@ -6368,6 +6774,7 @@ function renderLayers() {
         S.selected[i] = (S.alive[i] && L.mask[i] && !S.layerHidden?.[i]) ? 1 : 0;
       }
       $('layerOpac').value = Math.round((L.opacity??1)*100);
+      if ($('layerSolid')) $('layerSolid').checked = !!L.solid;
       $('layerOpacVal').textContent = Math.round((L.opacity??1)*100)+'%';
       rebuildGeometry();
       renderLayers();
@@ -6406,6 +6813,110 @@ function hexToRgb01(hex){
   return [((n>>16)&255)/255, ((n>>8)&255)/255, (n&255)/255];
 }
 
+// ─── COLLISION BETWEEN LAYERS (js/modules/splat-collision.js) ───────────────
+const _collision = import('./js/modules/splat-collision.js?v=20261127-collide01');
+const _activeLayer = () => (S.layers || []).find(x => x.id === S.activeLayerId) || null;
+const _layerIdx = (L) => { const out = []; for (let i = 0; i < Math.min(L.mask.length, S.alive.length); i++) if (L.mask[i] && S.alive[i]) out.push(i); return out; };
+const _centroidOf = (idx) => { const c = [0, 0, 0]; for (const i of idx) for (let k = 0; k < 3; k++) c[k] += S.positions[i * 3 + k]; return c.map(v => v / Math.max(1, idx.length)); };
+function _obstacleIdx(except, { solidOnly = true } = {}) {
+  const inOther = new Uint8Array(S.alive.length), grouped = new Uint8Array(S.alive.length);
+  (S.layers || []).forEach(L => { for (let i = 0; i < Math.min(L.mask.length, S.alive.length); i++) if (L.mask[i]) { grouped[i] = 1; if (L.id !== except.id && L.visible !== false && (!solidOnly || L.solid)) inOther[i] = 1; } });
+  const out = [];
+  for (let i = 0; i < S.alive.length; i++) if (S.alive[i] && !S.layerHidden?.[i] && (inOther[i] || (!solidOnly && !grouped[i]))) out.push(i);
+  return out;
+}
+// remember where a solid layer started, so a move into something stops at contact
+function _noteMoveStart() {
+  const L = _activeLayer();
+  S._moveStart = L?.solid ? { id: L.id, c: _centroidOf(_layerIdx(L)) } : null;
+}
+async function _collideAfterMove() {
+  const start = S._moveStart; S._moveStart = null;
+  const L = _activeLayer(); if (!start || !L || L.id !== start.id || !L.solid) return;
+  const C = await _collision, idx = _layerIdx(L), obst = _obstacleIdx(L);
+  if (!idx.length || !obst.length) return;
+  const now = _centroidOf(idx), delta = now.map((v, k) => v - start.c[k]);
+  if (Math.hypot(...delta) < 1e-9) return;
+  const cell = C.cellFor(S.positions, S.alive), vox = C.voxelize(S.positions, obst, cell, { opacity: S.opacity });
+  const f = C.backOff(C.samplePoints(S.positions, idx, { opacity: S.opacity }), vox, delta);
+  if (f === null || f >= 1) return;
+  const back = delta.map(v => -(1 - f) * v);
+  for (const i of idx) for (let k = 0; k < 3; k++) S.positions[i * 3 + k] += back[k];
+  rebuildGeometry(); refreshTransformSourceMap(); syncTransformGizmo();
+  setStatus(`${L.name} stopped where it meets another solid object`, 'ok');
+}
+window.FumocaLayerCollision = { noteStart: _noteMoveStart, afterMove: _collideAfterMove };
+$('layerSolid')?.addEventListener('change', (e) => {
+  const L = _activeLayer(); if (!L) { e.target.checked = false; setStatus('Click a layer first', 'warn'); return; }
+  S.layers = S.layers.map(x => (x.id === L.id ? { ...x, solid: e.target.checked } : x));
+  setStatus(e.target.checked ? `${L.name} is solid — it stops when it meets other solid layers` : `${L.name} can pass through others`, 'ok');
+});
+$('layerDropBtn')?.addEventListener('click', async () => {
+  const L = _activeLayer(); if (!L) { setStatus('Click a layer first', 'warn'); return; }
+  if (L.locked) { setStatus(`${L.name} is locked`, 'warn'); return; }
+  const C = await _collision, idx = _layerIdx(L), obst = _obstacleIdx(L, { solidOnly: false });
+  if (!idx.length) return;
+  const cell = C.cellFor(S.positions, S.alive), vox = C.voxelize(S.positions, obst, cell, { opacity: S.opacity });
+  // the floor: the lowest solid point of everything else, or the layer's own ground if it's alone
+  let floor = Infinity; for (const i of obst) floor = Math.min(floor, S.positions[i * 3 + 1]);
+  if (!Number.isFinite(floor)) floor = 0;
+  const pts = C.samplePoints(S.positions, idx, { opacity: S.opacity });
+  const d = C.dropDistance(pts, vox, floor);
+  if (d < cell * 0.25) { setStatus(`${L.name} is already resting on something`, 'ok'); return; }
+  pushHistory('drop layer');
+  // fall with a little acceleration
+  const steps = 14; let done = 0;
+  for (let k = 1; k <= steps; k++) {
+    const target = d * (k / steps) ** 2, dy = target - done; done = target;
+    for (const i of idx) S.positions[i * 3 + 1] -= dy;
+    rebuildGeometry();
+    await new Promise(r => requestAnimationFrame(r));
+  }
+  refreshTransformSourceMap(); syncTransformGizmo();
+  setStatus(`${L.name} dropped ${d.toFixed(3)} and is resting on what's below`, 'ok');
+});
+let _voxView = null;
+$('layerVoxBtn')?.addEventListener('click', async () => {
+  if (_voxView) { scene.remove(_voxView); _voxView.geometry.dispose(); _voxView.material.dispose(); _voxView = null; $('layerVoxBtn').textContent = '▦ Show voxels'; return; }
+  const L = _activeLayer(); if (!L) { setStatus('Click a layer first', 'warn'); return; }
+  const C = await _collision, cell = C.cellFor(S.positions, S.alive), vox = C.voxelize(S.positions, _layerIdx(L), cell, { opacity: S.opacity });
+  const keys = [...vox.set].slice(0, 40000);
+  const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(cell * 0.92, cell * 0.92, cell * 0.92), new THREE.MeshBasicMaterial({ color: 0xc8ff00, wireframe: true, transparent: true, opacity: 0.35, depthWrite: false }), keys.length);
+  const m = new THREE.Matrix4();
+  keys.forEach((k, j) => { const [x, y, z] = k.split(',').map(Number); m.makeTranslation((x + 0.5) * cell, (y + 0.5) * cell, (z + 0.5) * cell); mesh.setMatrixAt(j, m); });
+  mesh.name = 'fumoca-voxels'; mesh.frustumCulled = false;
+  scene.add(mesh); _voxView = mesh;
+  $('layerVoxBtn').textContent = '▦ Hide voxels';
+  setStatus(`${L.name}: ${fmt(vox.set.size)} voxels (${cell.toFixed(3)} each) — its collision shape, filled inside where it's closed`, 'ok');
+});
+$('layerFocusBtn')?.addEventListener('click', () => {
+  const L = (S.layers || []).find(x => x.id === S.activeLayerId);
+  if (!L) { setStatus('Click a layer first', 'warn'); return; }
+  const box = new THREE.Box3(), p = new THREE.Vector3(); let n = 0;
+  for (let i = 0; i < L.mask.length; i++) if (L.mask[i] && S.alive[i]) { box.expandByPoint(p.set(S.positions[i*3], S.positions[i*3+1], S.positions[i*3+2])); n++; }
+  if (!n) return;
+  const c = box.getCenter(new THREE.Vector3()), r = Math.max(1e-3, box.getSize(new THREE.Vector3()).length() / 2);
+  const dir = camera.position.clone().sub(controls.target).normalize();
+  controls.target.copy(c); camera.position.copy(c).addScaledVector(dir, r / Math.sin(THREE.MathUtils.degToRad(camera.fov / 2)) * 1.1);
+  camera.updateProjectionMatrix(); controls.update();
+  setStatus(`Focused on ${L.name}`, 'ok');
+});
+$('layerSoloBtn')?.addEventListener('click', () => {
+  const L = (S.layers || []).find(x => x.id === S.activeLayerId);
+  const soloing = (S.layers || []).some(x => x._soloHidden);
+  if (soloing) {
+    S.layers = S.layers.map(x => (x._soloHidden ? { ...x, visible: true, _soloHidden: false } : x));
+  } else {
+    if (!L) { setStatus('Click a layer first', 'warn'); return; }
+    S.layers = S.layers.map(x => (x.id !== L.id && x.visible !== false ? { ...x, visible: false, _soloHidden: true } : x));
+  }
+  S.layerHidden = new Uint8Array(S.alive.length);
+  S.layers.forEach(LL => { if (!LL.visible) for (let i = 0; i < LL.mask.length; i++) if (LL.mask[i]) S.layerHidden[i] = 1; });
+  for (let i = 0; i < S.selected.length; i++) if (S.layerHidden[i]) S.selected[i] = 0;
+  rebuildGeometry(); renderLayers(); syncTransformGizmo(); _syncViewportHud();
+  $('layerSoloBtn').textContent = soloing ? '◎ Solo' : '◎ Show all';
+  setStatus(soloing ? 'Showing every layer' : `Only ${L.name} is showing`, 'ok');
+});
 $('addLayerBtn')?.addEventListener('click', () => {
   if (!S.alive) { showToast('Add Layer', 'Load a file first', 'warn'); return; }
   let n=0; for (let i=0;i<S.selected.length;i++) if (S.selected[i]) n++;
@@ -6620,7 +7131,7 @@ window.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); return; }
   if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteSelected(); return; }
   if (e.key === 'Escape') { clearSelection(); S.lassoPoints = []; renderLasso(); return; }
-  const keyMap = { b: 'orbit', h: 'pan', z: 'zoom-tool', x: 'box', l: 'lasso', m: 'magic', e: 'brush-erase', s: 'brush-select', p: 'paint', v: 'move', r: 'rotate' };
+  const keyMap = { b: 'orbit', h: 'pan', z: 'zoom-tool', x: 'box', l: 'lasso', o: 'outline', m: 'magic', e: 'brush-erase', s: 'brush-select', p: 'paint', v: 'move', r: 'rotate' };
   if (keyMap[e.key.toLowerCase()]) setMode(keyMap[e.key.toLowerCase()]);
   if (e.key.toLowerCase() === 'i') { setMode('fill'); setStatus('Fill gaps — paint holes; load a photo to match real colour', 'ok'); }
   if (e.key.toLowerCase() === 'g') setDisplayMode(S.displayMode === 'blob' ? 'dot' : 'blob');
@@ -6776,13 +7287,13 @@ animBg();
 <script type="module" src="js/modules/anim-physics-boot.js"></script>
 <script type="module" src="js/modules/anim-scenes.js"></script>
 <script type="module" src="js/modules/anim-skeleton.js"></script>
-<script type="module" src="js/modules/anim-scenes.js"></script>
 <script type="module" src="js/modules/anim-afford.js"></script>
 <script type="module" src="js/modules/anim-live.js"></script>
-<script type="module" src="js/modules/anim-author.js"></script>
 <script type="module">
 window.FumocaFounderGate?.requireFounder?.();
-document.getElementById('authorBtn')?.addEventListener('click', () => window.FumocaAuthor?.open());
+// "Animate" opens the Parts tab (doors, lids, caps, drawers…) — the old
+// Articulation prototype panel and its demo objects are gone.
+document.getElementById('authorBtn')?.addEventListener('click', () => document.querySelector('.ptab[data-tab="parts"]')?.click());
 window.FumocaPhysicsBoot?.start?.();
 document.getElementById('loadGlbBtn')?.addEventListener('click', () => document.getElementById('loadGlbFile')?.click());
 document.getElementById('loadGlbFile')?.addEventListener('change', async (e) => {
@@ -6807,33 +7318,11 @@ document.getElementById('loadGlbFile')?.addEventListener('change', async (e) => 
 <script type="module" src="js/modules/anim-master.js"></script>
 <script type="module" src="js/modules/anim-studio-init.js"></script>
 <script type="module">
-  // First live articulated object. Cooler base + hinged lid on the master timeline.
-  function bootArticulated() {
-    const scene = window.scene || window._fumocaScene;
-    if (!scene || !window.FumocaStudioInit?.createDemoCooler || !window.FumocaObjectAnim) {
-      setTimeout(bootArticulated, 300);
-      return;
-    }
+  // Master timeline camera binding (no built-in demo objects).
+  (function bootTimeline() {
+    if (!window.FumocaStudioInit?.init || !(window.scene || window._fumocaScene)) { setTimeout(bootTimeline, 300); return; }
     window.FumocaStudioInit.init();
-    const result = window.FumocaStudioInit.createDemoCooler(scene);
-    console.log('[Articulated] demo cooler', result);
-
-    const bar = document.createElement('div');
-    bar.id = 'articulatedBar';
-    bar.style.cssText = 'position:fixed;bottom:196px;left:50%;transform:translateX(-50%);z-index:220;display:flex;gap:8px;align-items:center;background:rgba(7,10,16,.94);border:1px solid rgba(200,255,0,.35);border-radius:14px;padding:8px 12px;color:#c8ff00;font:12px/1.2 system-ui';
-    bar.innerHTML = '<strong>Cooler</strong><button id="artPlay" style="background:#c8ff00;color:#111;border:0;border-radius:8px;padding:6px 10px;font-weight:700;cursor:pointer">Play</button><input id="artScrub" type="range" min="0" max="2" step="0.01" value="0" style="width:160px">';
-    document.body.appendChild(bar);
-    document.getElementById('artPlay').onclick = () => {
-      const playing = window.FumocaStudioInit.isPlaying();
-      if (playing) window.FumocaStudioInit.pause();
-      else window.FumocaStudioInit.play();
-      document.getElementById('artPlay').textContent = playing ? 'Play' : 'Pause';
-    };
-    document.getElementById('artScrub').oninput = (e) => {
-      window.FumocaStudioInit.scrub(Number(e.target.value));
-    };
-  }
-  bootArticulated();
+  })();
 </script>
 <script type="module" src="js/modules/anim-light.js"></script>
 <script type="module" src="js/modules/anim-physics.js"></script>
@@ -6850,15 +7339,15 @@ document.getElementById('loadGlbFile')?.addEventListener('change', async (e) => 
 <script type="module" src="js/modules/studio-timeline.js"></script>
 <script type="module" src="js/modules/ply-validator.js"></script>
 <script type="module" src="js/modules/camera-view.js"></script>
-<script type="module" src="js/modules/publish-to-fumoca.js?v=20261125-metapatch01"></script>
-<script type="module" src="js/modules/spark-gaussian-view.js?v=20261125-clean01"></script>
-<script type="module" src="js/modules/gaussian-renderer.js"></script>
+<script type="module" src="js/modules/publish-to-fumoca.js?v=20261126-link01"></script>
+<script type="module" src="js/modules/spark-gaussian-view.js?v=20261127-states01"></script>
+<script type="module" src="js/modules/gaussian-renderer.js?v=20261126-clean01"></script>
 <script type="module" src="js/modules/smart-select.js"></script>
 <script src="js/modules/gap-fill-engine.js"></script>
 <script type="module" src="js/modules/sound-engine.js"></script>
 <script type="module" src="js/modules/splat-music-share.js"></script>
 <script type="module" src="js/modules/hotspot-pro.js"></script>
-<script type="module" src="js/modules/present-bridge.js"></script>
+<script type="module" src="js/modules/present-bridge.js?v=20261126-link01"></script>
 
 
 <!-- ═══════════════════════════════════════════════════════════════
@@ -7798,9 +8287,52 @@ if (!window._fumocaBooted) {
   // Skeleton + motion for splats (CPU skinning, saved with the NIF).
   const rigRoot = document.getElementById('tab-rig');
   if (rigRoot) {
-    import('./js/modules/splat-rig-panel.js?v=20261125-rig')
+    import('./js/modules/splat-rig-panel.js?v=20261125-rig02')
       .then((m) => m.mountSplatRigPanel(rigRoot, { onStatus: status }))
       .catch((e) => console.warn('[Studio] rig panel', e));
+  }
+
+  // Lighting, shadow and viewer settings.
+  const lookRoot = document.getElementById('tab-look');
+  if (lookRoot) {
+    import('./js/modules/look-panel.js?v=20261127-depth01')
+      .then((m) => m.mountLookPanel(lookRoot, { onStatus: status }))
+      .catch((e) => console.warn('[Studio] look panel', e));
+  }
+
+  // Moving parts (doors, bonnet, caps, recliners) for interactive hotspots.
+  const partsRoot = document.getElementById('tab-parts');
+  if (partsRoot) {
+    import('./js/modules/parts-panel.js?v=20261127-free01')
+      .then((m) => m.mountPartsPanel(partsRoot, { onStatus: status }))
+      // free move (animate anything, no part needed) and shoe laces
+      .then(() => import('./js/modules/motion-extras-panel.js?v=20261127-free01'))
+      .then((m) => m.mountMotionExtras(partsRoot, { onStatus: status }))
+      .catch((e) => console.warn('[Studio] parts panel', e));
+  }
+
+  // Step-by-step product guides (how to use it).
+  const guideRoot = document.getElementById('tab-guide');
+  if (guideRoot) {
+    import('./js/modules/tutorial-panel.js?v=20261126-guide01')
+      .then((m) => m.mountTutorialPanel(guideRoot, { onStatus: status }))
+      .catch((e) => console.warn('[Studio] guide panel', e));
+  }
+
+  // Link a second scan (inside / doors open) and reveal it with the doors.
+  const linkRoot = document.getElementById('tab-link');
+  if (linkRoot) {
+    import('./js/modules/link-panel.js?v=20261127-states02')
+      .then((m) => m.mountLinkPanel(linkRoot, { onStatus: status }))
+      .catch((e) => console.warn('[Studio] inside panel', e));
+  }
+
+  // House / building tours (Matterport-style).
+  const tourRoot = document.getElementById('tab-tour');
+  if (tourRoot) {
+    import('./js/modules/tour-panel.js?v=20261126-tour01')
+      .then((m) => m.mountTourPanel(tourRoot, { onStatus: status }))
+      .catch((e) => console.warn('[Studio] tour panel', e));
   }
 
   // Single photo → living photo (no AI). Replaces the old AI-first panel.

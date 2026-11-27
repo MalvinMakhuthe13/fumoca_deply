@@ -111,19 +111,42 @@ const FumocaPublish = (() => {
       return new Blob([buf], { type: 'application/octet-stream' });
     }
 
-    // .splat source: filter alive Gaussians, pack straight into NIF KEYFRAME_GEO
-    if (!S.sourceBuffer) throw new Error('No source buffer');
-    const aliveIndices = [];
-    for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) aliveIndices.push(i);
-    const buf = encodeNif({
-      sourceBuffer: new Uint8Array(S.sourceBuffer),
-      aliveIndices,
-      rowSize: S.splatRowSize,
-      meta,
-      vertical,
-      passthroughChunks,
-      skipLiveReview: !!skipLiveReview,
+    // Legacy .splat source. Encode the live editor arrays, not the original
+    // packed sourceBuffer: transforms, painting, opacity/scale/rotation edits
+    // are held in S and are not reflected in sourceBuffer. Repacking the raw
+    // rows here silently discarded those edits on every publish.
+    if (!S.positions?.length || !S.colors?.length) throw new Error('No editable Gaussian arrays are available');
+    const alive = [];
+    for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) alive.push(i);
+    const positions = new Float32Array(alive.length * 3);
+    const colors01 = new Float32Array(alive.length * 3);
+    const opacities01 = new Float32Array(alive.length);
+    const scalesLinear = S.scaleXYZ ? new Float32Array(alive.length * 3) : null;
+    const quats = S.rotation ? new Float32Array(alive.length * 4) : null;
+    alive.forEach((i, row) => {
+      const pc = S.paintColors;
+      const r = pc && pc[i * 3] >= 0 ? pc[i * 3] : S.colors[i * 3];
+      const g = pc && pc[i * 3 + 1] >= 0 ? pc[i * 3 + 1] : S.colors[i * 3 + 1];
+      const b = pc && pc[i * 3 + 2] >= 0 ? pc[i * 3 + 2] : S.colors[i * 3 + 2];
+      positions[row * 3] = S.positions[i * 3];
+      positions[row * 3 + 1] = S.positions[i * 3 + 1];
+      positions[row * 3 + 2] = S.positions[i * 3 + 2];
+      colors01[row * 3] = r; colors01[row * 3 + 1] = g; colors01[row * 3 + 2] = b;
+      opacities01[row] = S.opacity?.[i] ?? 1;
+      const fallback = S.scale?.[i] || 0.01;
+      if (scalesLinear) {
+        scalesLinear[row * 3] = S.scaleXYZ[i * 3] || fallback;
+        scalesLinear[row * 3 + 1] = S.scaleXYZ[i * 3 + 1] || fallback;
+        scalesLinear[row * 3 + 2] = S.scaleXYZ[i * 3 + 2] || fallback;
+      }
+      if (quats) {
+        quats[row * 4] = S.rotation[i * 4] ?? 1;
+        quats[row * 4 + 1] = S.rotation[i * 4 + 1] ?? 0;
+        quats[row * 4 + 2] = S.rotation[i * 4 + 2] ?? 0;
+        quats[row * 4 + 3] = S.rotation[i * 4 + 3] ?? 0;
+      }
     });
+    const buf = encodeNif({ positions, colors01, opacities01, scalesLinear, quats, meta, vertical, passthroughChunks, skipLiveReview: !!skipLiveReview });
     return new Blob([buf], { type: 'application/octet-stream' });
   }
 
@@ -140,6 +163,7 @@ const FumocaPublish = (() => {
     }
     const S = window.S;
     let rec = window._fumocaCurrentRecord || null;
+    const liveRecord = rec;
 
     if (!sb) throw new Error(
       'Supabase not connected — make sure config.js is loaded before edit.html modules. ' +
@@ -195,6 +219,7 @@ const FumocaPublish = (() => {
       review = { ...review, include: true };
       console.info('[Publish] review video attached', review.url);
     }
+    try { window.dispatchEvent(new CustomEvent('fumoca:beforePublish')); } catch (_) {}
     onProgress?.('Preparing splat…', 12);
     const blob = await _buildNifBlob({ title, description, reviewVideo: includeReview ? review : null, skipLiveReview: !includeReview });
     onProgress?.('Uploading…', 20);
@@ -217,6 +242,7 @@ const FumocaPublish = (() => {
     let sourcePlyBytes = window.S?.gaussianSourceBytes || window._fumocaLastGaussianBytes || null;
     const sourceName = String(window.S?.fileName || '').toLowerCase();
     const isGaussianPly = !!window.S?.isGaussianPly;
+    const isLegacySplat = window.S?.fileType === 'splat' || sourceName.endsWith('.splat');
 
     if (isGaussianPly) {
       if (!window.FumocaSparkGaussian?.isEnabled?.()) {
@@ -232,12 +258,25 @@ const FumocaPublish = (() => {
         console.error('[Publish] Edited Gaussian export failed; refusing a degraded publish:', err);
         throw new Error('High-fidelity publish stopped because the edited Gaussian PLY could not be exported. Nothing was registered; reload the editor and try again.');
       }
+    } else if (isLegacySplat) {
+      // Legacy .splat files are editable/renderable in Spark but cannot be
+      // round-tripped by Spark's binary-PLY editor bridge. Encode the live
+      // Studio arrays (including deletions and edits) as a Gaussian PLY.
+      try {
+        sourcePlyBytes = await window.exportGaussianPlyForPublish?.();
+        if (!(sourcePlyBytes instanceof Uint8Array) || !sourcePlyBytes.byteLength) {
+          throw new Error('Studio did not return a valid Gaussian PLY companion.');
+        }
+        console.info('[Publish] Converted edited .splat state to Spark Gaussian PLY:', sourcePlyBytes.byteLength, 'bytes');
+      } catch (err) {
+        console.error('[Publish] .splat companion conversion failed; refusing a degraded publish:', err);
+        throw new Error('High-fidelity publish stopped because the edited .splat could not be converted to a Spark companion. Nothing was registered; reload the editor and try again.');
+      }
     }
 
-    // Spark's companion endpoint expects a Gaussian PLY, not the legacy
-    // 32-byte .splat row format. Never upload raw .splat bytes with a .ply key.
-    // Legacy .splat assets remain fully publishable through the converted NIF.
-    if (sourcePlyBytes && (isGaussianPly || sourceName.endsWith('.ply'))) {
+    // Only genuine Gaussian PLY companions belong at view_ply_r2_key. A
+    // generic point/mesh PLY is not a Gaussian PLY and must use the NIF path.
+    if (sourcePlyBytes && (isGaussianPly || isLegacySplat)) {
       const viewPath = `${assetPath}/view_${timestamp}.ply`;
       const viewBlob = new Blob([sourcePlyBytes], { type: 'application/octet-stream' });
       const { fileKey: companionKey, error: companionError } = await r2
@@ -249,11 +288,10 @@ const FumocaPublish = (() => {
       }
       viewPlyKey = companionKey;
       console.info('[Publish] Spark companion PLY uploaded:', viewPlyKey);
-    } else if (isGaussianPly) {
-      throw new Error('High-fidelity publish stopped: no Gaussian PLY bytes were available.');
     } else {
       console.info('[Publish] No Gaussian PLY companion required; publishing compatible NIF.');
     }
+
 
     // Upload the converted NIF after its optional high-fidelity companion.
     // This avoids leaving an orphan NIF behind when Gaussian export/upload fails.
@@ -305,6 +343,23 @@ const FumocaPublish = (() => {
         viewer_engine: 'spark',
         published_from: 'studio_gaussian',
       };
+    } else {
+      // If an existing Gaussian asset is republished as a non-Gaussian
+      // source, do not leave its previous companion pointer behind. The
+      // viewer would otherwise keep rendering stale geometry from the old
+      // upload while the NIF record points at the newly published content.
+      payload.meta = { ...(payload.meta || rec?.meta || rec?.metadata || {}) };
+      delete payload.meta.view_ply_r2_key;
+      delete payload.meta.viewer_engine;
+      delete payload.meta.published_from;
+    }
+    // Studio's Present settings (lighting, view, moving parts, guides, linked
+    // insides, poster, platform…) live on the open record / in memory. `rec`
+    // above is the stored row, so without this they were never published and
+    // only showed in the browser that made them.
+    const livePresent = window.__FUMOCA_PRESENT__ || liveRecord?.meta?.present || null;
+    if (livePresent && typeof livePresent === 'object') {
+      payload.meta = { ...(payload.meta || {}), present: livePresent };
     }
     const timeline = window.FumocaMaster?.serialize?.();
     if (timeline?.objects?.length) {
@@ -312,6 +367,7 @@ const FumocaPublish = (() => {
     }
 
     let finalId = splatId;
+    let previousViewPlyKey = null;
     try {
       if (payload.meta?.reviewVideo) payload.meta.reviewVideo.boundId = splatId || null;
       if (splatId) {
@@ -319,14 +375,30 @@ const FumocaPublish = (() => {
       // viewer's variants/processing queue): start from the latest meta and
       // overlay what this publish sets.
       const { data: latestRow } = await sb.from('nif_files').select('meta').eq('id', splatId).eq('user_id', user.id).maybeSingle();
+      previousViewPlyKey = latestRow?.meta?.view_ply_r2_key || rec?.meta?.view_ply_r2_key || null;
       if (latestRow?.meta && typeof latestRow.meta === 'object' && payload.meta) {
         payload.meta = { ...latestRow.meta, ...payload.meta };
+      }
+      // The latest-row merge above deliberately preserves unrelated metadata,
+      // but must not resurrect a Spark companion from the previous version.
+      if (!viewPlyKey && payload.meta) {
+        delete payload.meta.view_ply_r2_key;
+        delete payload.meta.viewer_engine;
+        delete payload.meta.published_from;
       }
       const { data: updated, error } = await sb.from('nif_files')
         .update(payload).eq('id', splatId).eq('user_id', user.id).select('id').maybeSingle();
       if (error) throw new Error('The NIF was uploaded, but its asset record could not be updated: ' + error.message);
       if (!updated?.id) throw new Error('The NIF was uploaded, but no owned asset record was updated. Open the asset from your account and retry.');
       finalId = updated.id;
+      if (previousViewPlyKey && previousViewPlyKey !== viewPlyKey) {
+        try {
+          const cleanup = await r2.from('nif-files').remove([previousViewPlyKey]);
+          if (cleanup.error) console.warn('[Publish] Previous Spark companion is no longer referenced but could not be removed:', cleanup.error);
+        } catch (cleanupError) {
+          console.warn('[Publish] Previous Spark companion is no longer referenced but could not be removed:', cleanupError);
+        }
+      }
     } else {
       const { data: newRec, error } = await sb.from('nif_files').insert({
         ...payload,

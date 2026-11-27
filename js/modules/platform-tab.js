@@ -96,9 +96,10 @@ import { buildPlatform, normalizePlatformConfig, DEFAULT_PLATFORM, loadLogoTextu
           <input type="range" id="platTilt" min="0" max="180" value="0" style="width:100%">
           <label style="font-size:11px;color:rgba(255,255,255,.55)">Turntable <span id="platTurntableVal">0</span>°/s</label>
           <input type="range" id="platTurntable" min="-60" max="60" value="0" style="width:100%">
-          <button type="button" id="platApplyBtn" style="width:100%;margin-top:10px;height:36px;border-radius:8px;border:1px solid rgba(212,255,0,.45);background:rgba(212,255,0,.16);color:#d4ff00;font-weight:700;cursor:pointer">Seat on platform</button>
-          <button type="button" id="platBottomBtn" style="width:100%;margin-top:6px;height:32px;border-radius:8px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#fff;cursor:pointer">Show underside</button>
-          <button type="button" id="platRemoveBtn" style="width:100%;margin-top:6px;height:32px;border-radius:8px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);color:#fff;cursor:pointer">Remove platform</button>
+          <button type="button" id="platFlatBtn" class="ac-btn full" style="width:100%;margin-top:10px" title="Finds what it stands on (or uses the selected base) and sets it flat on the grid">① Sit flat on the grid</button>
+          <button type="button" id="platApplyBtn" class="ac-btn lime full" style="width:100%;margin-top:6px">② Seat on platform</button>
+          <button type="button" id="platBottomBtn" class="ac-btn full" style="width:100%;margin-top:6px">Show underside</button>
+          <button type="button" id="platRemoveBtn" class="ac-btn full" style="width:100%;margin-top:6px">Remove platform</button>
           <div id="platStatus" style="margin-top:8px;font-size:11px;color:rgba(255,255,255,.45)">Load a splat, then seat it.</div>
         </div>
       </div>`;
@@ -263,7 +264,9 @@ import { buildPlatform, normalizePlatformConfig, DEFAULT_PLATFORM, loadLogoTextu
     if (!seatInfo) return false;
     footprint = seatInfo.footprint;
     seatCenter = new T.Vector3(...seatInfo.center);
-    seatMinY = seatInfo.minY;
+    // After “Sit flat” the base is exactly y = 0. The top sits a hair below the
+    // splats so the two never fight for the same pixels (that was the flicker).
+    seatMinY = (window.S?._sitFlat ? Math.min(0, seatInfo.minY) : seatInfo.minY) - footprint * 0.003;
     pivot = new T.Vector3(seatCenter.x, seatMinY - footprint * (state.drop / 100), seatCenter.z);
     if (!root) {
       root = new T.Group();
@@ -276,6 +279,8 @@ import { buildPlatform, normalizePlatformConfig, DEFAULT_PLATFORM, loadLogoTextu
       root.add(holder);
     }
     active = true;
+    // The editor grid would cut through the platform and flicker against it.
+    if (window._fumocaOrientationGrid) window._fumocaOrientationGrid.visible = false;
     applyPose();
     makeBase();
     adoptVisuals();
@@ -306,6 +311,7 @@ import { buildPlatform, normalizePlatformConfig, DEFAULT_PLATFORM, loadLogoTextu
 
   function removePlatform() {
     releaseVisuals();
+    if (window._fumocaOrientationGrid) window._fumocaOrientationGrid.visible = true;
     if (baseGroup) { [...baseGroup.children].forEach(disposeMesh); baseGroup = null; }
     if (root) root.parent?.remove(root);
     root = null;
@@ -373,6 +379,14 @@ import { buildPlatform, normalizePlatformConfig, DEFAULT_PLATFORM, loadLogoTextu
     bindRange("platLogoScale", "logoScale", "platLogoScaleVal", "", () => active && makeLogo());
     bindRange("platLogoRot", "logoRot", "platLogoRotVal", "", () => active && makeLogo());
     bindRange("platLogoShift", "logoShift", "platLogoShiftVal", "", () => active && makeLogo());
+    $("platFlatBtn")?.addEventListener("click", async () => {
+      const wasActive = active;
+      if (wasActive) removePlatform();
+      const res = await window.FumocaSitFlat?.();
+      if (!res) { status("Could not find a flat base — select what it stands on (sole, table, wheels) and press ① again."); return; }
+      if (wasActive) seat();
+      status(`Sitting flat (turned ${res.angleDeg.toFixed(1)}°). Now press ② to seat it on the platform.`);
+    });
     $("platApplyBtn").addEventListener("click", () => {
       status(seat() ? "Seated. Spin turns it. Tilt shows the underside." : "Load a splat first, then seat it.");
     });

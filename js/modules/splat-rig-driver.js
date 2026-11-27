@@ -10,7 +10,7 @@
  * and to express poses, so presets like "walk" swing the right way however
  * the scan is oriented.
  */
-import { computeWeights, solvePose, skin, sampleClip, normalizeRig, normalizeClip, qMul, qNormalize, rigFromTemplate } from './splat-rig.js';
+import { computeWeights, solvePose, skin, sampleClip, sampleRoot, normalizeRig, normalizeClip, qMul, qNormalize, rigFromTemplate } from './splat-rig.js';
 
 const conj = (q) => [-q[0], -q[1], -q[2], q[3]];
 function rotVec(q, v) { // q * v * q^-1
@@ -78,7 +78,7 @@ export function fitTemplate(name, rest, frame = [0, 0, 0, 1]) {
 export function poseToLocal(pose, frame) {
   if (!frame || (frame[0] === 0 && frame[1] === 0 && frame[2] === 0)) return pose;
   const inv = conj(frame), out = {};
-  for (const [k, q] of Object.entries(pose)) out[k] = qMul(qMul(inv, q), frame);
+  for (const [k, q] of Object.entries(pose)) out[k] = k.startsWith('__') ? q : qMul(qMul(inv, q), frame);
   return out;
 }
 
@@ -90,7 +90,7 @@ export function normalizeRigState(input) {
   rig.frame = Array.isArray(f) && f.length === 4 && f.every(Number.isFinite) ? qNormalize(f) : [0, 0, 0, 1];
   const clip = input.clip ? normalizeClip(input.clip, rig) : null;
   const speed = Math.min(4, Math.max(0.1, Number(input.speed) || 1));
-  return { version: 1, rig, clip, speed, autoplay: input.autoplay !== false && !!clip, splatCount: Number.isInteger(input.splatCount) ? input.splatCount : null };
+  return { version: 1, rig, clip, speed, autoplay: input.autoplay !== false && !!clip, ground: input.ground !== false, splatCount: Number.isInteger(input.splatCount) ? input.splatCount : null };
 }
 
 export class SplatRigDriver {
@@ -104,13 +104,50 @@ export class SplatRigDriver {
     this._v = { c: new THREE.Vector3(), s: new THREE.Vector3(), q: new THREE.Quaternion(), col: new THREE.Color() };
     this.clip = null; this.speed = 1; this.time = 0; this.playing = false; this._raf = 0; this._last = 0;
     this.manualPose = {};
+    this.manualRoot = [0, 0, 0];       // whole-object offset (upright frame)
+    this.groundCollision = false;      // keep the posed splat from sinking through the floor
     this.lastFrameMs = 0;
+    // a small sample for fast floor checks
+    const n = this.rest.count, step = Math.max(1, Math.floor(n / 3000));
+    this._probe = [];
+    for (let i = 0; i < n; i += step) this._probe.push(i);
+    const f = this.rig.frame || [0, 0, 0, 1];
+    this._restFloor = Math.min(...this._probe.map(i => rotVec(f, [this.rest.positions[i * 3], this.rest.positions[i * 3 + 1], this.rest.positions[i * 3 + 2]])[1]));
+  }
+
+  /** Lowest point (upright frame) of the probe splats under a solved pose. */
+  _posedFloor(solved) {
+    const f = this.rig.frame || [0, 0, 0, 1], W = this.weights, P = this.rest.positions;
+    let min = Infinity;
+    for (const i of this._probe) {
+      let x = 0, y = 0, z = 0;
+      for (let k = 0; k < 4; k++) {
+        const w = W.weights[i * 4 + k]; if (!w) continue;
+        const m = solved.mats[W.indices[i * 4 + k]];
+        const px = P[i * 3], py = P[i * 3 + 1], pz = P[i * 3 + 2];
+        x += w * (m[0] * px + m[1] * py + m[2] * pz + m[9]);
+        y += w * (m[3] * px + m[4] * py + m[5] * pz + m[10]);
+        z += w * (m[6] * px + m[7] * py + m[8] * pz + m[11]);
+      }
+      const up = rotVec(f, [x, y, z])[1];
+      if (up < min) min = up;
+    }
+    return min;
   }
 
   /** Apply a pose given in the upright frame. Returns number of splats rewritten. */
   applyPose(pose = {}) {
     const t0 = performance.now();
-    const solved = solvePose(this.rig, poseToLocal(pose, this.rig.frame));
+    const local = poseToLocal(pose, this.rig.frame);
+    const f = this.rig.frame || [0, 0, 0, 1], inv = conj(f);
+    const rootUp = (pose.__root || [0, 0, 0]).map((v, i) => v + this.manualRoot[i]);
+    let solved = solvePose(this.rig, local, rotVec(inv, rootUp));
+    if (this.groundCollision) {
+      const lift = this._restFloor - this._posedFloor(solved);
+      // only push up out of the floor; jumps (root above ground) are left alone
+      if (lift > 1e-6) solved = solvePose(this.rig, local, rotVec(inv, [rootUp[0], rootUp[1] + lift, rootUp[2]]));
+      this.lastLift = Math.max(0, lift);
+    }
     const B = this.rig.bones.length;
     const changed = new Uint8Array(B);
     let any = false;
@@ -125,6 +162,9 @@ export class SplatRigDriver {
     const splats = this.mesh.packedSplats || this.mesh.splats;
     if (!splats?.setSplat) throw new Error('This Spark build cannot update splats in place.');
     const { c, s, q, col } = this._v, r = this.rest, o = this.out, W = this.weights;
+    // If the splat is lit (Look tab), keep writing the lit colours.
+    const lit = globalThis._fumocaLightingByMesh?.get?.(this.mesh);
+    const C = lit?.settings?.enabled && lit.lit?.length === r.colors.length ? lit.lit : r.colors;
     let written = 0;
     for (let i = 0; i < r.count; i++) {
       const j = i * 4;
@@ -133,7 +173,7 @@ export class SplatRigDriver {
       c.set(o.positions[i * 3], o.positions[i * 3 + 1], o.positions[i * 3 + 2]);
       s.set(r.scales[i * 3], r.scales[i * 3 + 1], r.scales[i * 3 + 2]);
       q.set(o.rotations[j + 1], o.rotations[j + 2], o.rotations[j + 3], o.rotations[j]);
-      col.setRGB(r.colors[i * 3], r.colors[i * 3 + 1], r.colors[i * 3 + 2]);
+      col.setRGB(C[i * 3], C[i * 3 + 1], C[i * 3 + 2]);
       splats.setSplat(i, c, s, q, r.opacity[i], col);
       written++;
     }
@@ -159,7 +199,7 @@ export class SplatRigDriver {
       if (this.lastFrameMs > 24 && now - this._last < this.lastFrameMs * 1.5) return;
       this._last = now;
       this.time += dt * this.speed;
-      try { this.applyPose({ ...sampleClip(this.clip, this.time), ...this.manualPose }); }
+      try { this.applyPose({ ...sampleClip(this.clip, this.time), ...this.manualPose, __root: sampleRoot(this.clip, this.time) }); }
       catch (e) { this.stop(); console.warn('[FUMOCA] rig playback stopped', e); this.onError?.(e); }
       this.onFrame?.(this.time);
     };
@@ -188,6 +228,20 @@ export async function restoreRigOnViewer(THREE, mesh, saved) {
   // Weights are recomputed from this mesh's own splats, so a re-ordered or
   // re-compressed published copy still follows the same bones.
   driver.setClip(state.clip, state.speed);
+  driver.groundCollision = state.ground;
   if (state.autoplay) driver.play();
   return driver;
+}
+
+
+/**
+ * After an in-place edit (move, sit flat, delete) the mesh holds the new
+ * geometry but may hold lit colours: take positions / rotations / scales /
+ * opacity from the mesh and keep the scan colours we already have.
+ */
+export function refreshRestGeometry(rest, mesh) {
+  const fresh = readRest(mesh);
+  if (!fresh || !rest || fresh.count !== rest.count) return false;
+  rest.positions = fresh.positions; rest.rotations = fresh.rotations; rest.scales = fresh.scales; rest.opacity = fresh.opacity;
+  return true;
 }

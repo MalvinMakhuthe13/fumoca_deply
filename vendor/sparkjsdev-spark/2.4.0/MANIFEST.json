@@ -1,0 +1,317 @@
+[
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/assets/worker-CfEXfboN.js.map",
+  "bytes": 99324,
+  "sha256": "aef485d7eab90def57242ea2270346b0709fd774da7d61c9db051cdb325c072a"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/assets/worker-CnszsmU-.js.map",
+  "bytes": 100842,
+  "sha256": "b1518271a6ed873a3546b5dce28a030b894434a171a92cf0e9daba40e16d1d8b"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/spark.cjs.js",
+  "bytes": 3001556,
+  "sha256": "2eada837e271d92cd5a07da2849152cccffa2a94f688128a6abf535890ca64f3"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/spark.cjs.js.map",
+  "bytes": 1288872,
+  "sha256": "64b2b12810dac1f1c2f8c34d54e3e7e700bec611440b35b07d1f194575334708"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/spark.cjs.min.js",
+  "bytes": 2776632,
+  "sha256": "4213a5913c32b253fda3f63fe12f1836b708fac243162d881ae038ca7c6fc6d0"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/spark.cjs.min.js.map",
+  "bytes": 1271432,
+  "sha256": "def6bd0894f0a8206e19608e72afac72a71fad3d55989793d046a1002aa15024"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/spark.module.js",
+  "bytes": 2997944,
+  "sha256": "5ae86ab35d4ceb655db486dcc336299775bb314c280d7e5b39f64e4539f8e0e9"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/spark.module.js.map",
+  "bytes": 1288737,
+  "sha256": "c40990df57f127f5dbbcd9749425b882ec4539935ee845788ced2a8b347728da"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/spark.module.min.js",
+  "bytes": 2852378,
+  "sha256": "a2f01f68dbcd5e060d55348f803e509fc789b97904e01b98763fcf0314351aaf"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/spark.module.min.js.map",
+  "bytes": 1274951,
+  "sha256": "b8b6cdb100181f4b7f02fa843faadfe976e025de1997009229dac04b6fb272bc"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/ExtSplats.d.ts",
+  "bytes": 4539,
+  "sha256": "863774fcbb2cb678130b33d465bf2b616a52c59bd6ad776d2c5f059179a701a1"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/PackedSplats.d.ts",
+  "bytes": 5860,
+  "sha256": "194f94a53acdec4105762a866f18186ac897ca2672f9912a6b87942c66c09b22"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/PagedSplats.d.ts",
+  "bytes": 3787,
+  "sha256": "ab8380e5d9dd6866a0927fa55b81c572a37ecf155fd2a5d5eb3489265cbdf5ef"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/PagedSplatsFetcher.d.ts",
+  "bytes": 2330,
+  "sha256": "c9839967491f012345f8c713c83b8d59647a82eeb888b67818a6c676771f1ebb"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/Readback.d.ts",
+  "bytes": 1814,
+  "sha256": "05792aa50393e74c5245d4a1372683728591cbd6286f62dfa39121b1e58d11d8"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/RgbaArray.d.ts",
+  "bytes": 1522,
+  "sha256": "4c4f0ff9ffe9d15700f0f7eeca46a8544bba4b60d7e77413f616675e78d3e807"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/SparkPortals.d.ts",
+  "bytes": 9448,
+  "sha256": "1ad2504556d93d8b6c909737e38455dc95d43885c634b7e3f9f20f5c51b2dc3d"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/SparkRenderer.d.ts",
+  "bytes": 19672,
+  "sha256": "c4db8c4d6316c664630f91364cc2ae1159738c2f5ea9fa4bec94fe15e43d4979"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/SparkXr.d.ts",
+  "bytes": 8035,
+  "sha256": "d627e5f9a1a7893c6773698b41d04f86d582e37ad96de84a318daccc63080b23"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/SplatAccumulator.d.ts",
+  "bytes": 3401,
+  "sha256": "9ff43126185b2ce8804d4054d3ea46e26abee87fc7819f02bebe0747c25ad97f"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/SplatEdit.d.ts",
+  "bytes": 2918,
+  "sha256": "d921a03f9dce0dfbdb7a04b83ef7143d3c76d47cb02e95b61d2c2973ec16a5c7"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/SplatGenerator.d.ts",
+  "bytes": 3265,
+  "sha256": "54adef949104955fda95e6656de24800f0287c87bd49006e30d00fe92a673411"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/SplatGeometry.d.ts",
+  "bytes": 128,
+  "sha256": "7340af49aa3716ae33bea2af13029037afd4afbab4a27dd99c079d0afeabaea5"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/SplatLoader.d.ts",
+  "bytes": 4850,
+  "sha256": "63724dba891bd5c47e4f032dabcea19799b195337581f4ae775f3d86341927e9"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/SplatMesh.d.ts",
+  "bytes": 6656,
+  "sha256": "d1da93e5ad254fc519a1643cf17564257bf5a9da9d1011993625d464ed23b8b6"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/SplatPager.d.ts",
+  "bytes": 4958,
+  "sha256": "cff304d9a96e18db0a5933d36e310b50d3ba58a021b23d71341f90438d1ac611"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/SplatSkinning.d.ts",
+  "bytes": 2520,
+  "sha256": "ba591708f356e5ef18bb8d3f6da5e0a4583728fd0523da853395fb3ea7f687db"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/SplatWorker.d.ts",
+  "bytes": 1247,
+  "sha256": "4bab0262727ed16b9a7c8083ebcb56a3f012ae5ffb31458f77e7cbd194007ae2"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/controls.d.ts",
+  "bytes": 4411,
+  "sha256": "ce730e3296f863393cb36ffd5919f8cceb7d8c30c8a3fcf6a31b3e6bfabe8ebd"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/defines.d.ts",
+  "bytes": 2865,
+  "sha256": "bd06278dd118a72d824b816839390541764f71c964fee0a16c309c6e6332408e"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/dyno/base.d.ts",
+  "bytes": 6362,
+  "sha256": "2a1176b6a95c740966774debc9bb19d40259c40c3a0a4da7a66bd33e4c177d2f"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/dyno/control.d.ts",
+  "bytes": 267,
+  "sha256": "1d4341766995cb7676d0eec3d3e26d1e6dc3b190feea80f92392ccde6a89fbc5"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/dyno/convert.d.ts",
+  "bytes": 9413,
+  "sha256": "980b53618a784321404bf4573b8752029925b3b3a6a3c9c0181b523593b5e319"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/dyno/logic.d.ts",
+  "bytes": 5583,
+  "sha256": "bc7c73b17bd47a1d7282b5f2f56945806c7bd5cb99f3f9122e01fafb155f29b1"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/dyno/math.d.ts",
+  "bytes": 9271,
+  "sha256": "28bba724d961b8063d6a83f52bc72f243c032219537d76fdd7702d91c9e21fe8"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/dyno/mathTypes.d.ts",
+  "bytes": 8399,
+  "sha256": "361cdc7f44037a4ce10151b82d88ce81bbc0c992e87ce9b44c443af7b51a341e"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/dyno/output.d.ts",
+  "bytes": 3099,
+  "sha256": "d8b1b934c57ebcde5390cdbede40d8b109e266dd6f05cf2f03c6127ac36dd66f"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/dyno/program.d.ts",
+  "bytes": 971,
+  "sha256": "acdec3d159fc10f0342b98c4730c0d29d3365e17dbf72eb186c26b6cbec9bee0"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/dyno/splats.d.ts",
+  "bytes": 10541,
+  "sha256": "a60af4427e05fadb26603c6a18a1410e1acd62b48ce625e98988e0d7166cc6a0"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/dyno/texture.d.ts",
+  "bytes": 2651,
+  "sha256": "421abb08f378f1ee834a9da1a91ddc667ad79bd9d3505fbbc6f1fd4cd2cb73ec"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/dyno/transform.d.ts",
+  "bytes": 1704,
+  "sha256": "e62c0610dc406c2e7666c6a1c747a812aa37109c5de9ab2265fc847a4c47bfb5"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/dyno/trig.d.ts",
+  "bytes": 3571,
+  "sha256": "bc45a15d7bd92a357d85b0336da59361cc80120f72a11b25ee504168b1a89ebc"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/dyno/types.d.ts",
+  "bytes": 6944,
+  "sha256": "2d2c5c154b07b4348186f5296b9c035ab564109891d51005d43ebff0ab64d34f"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/dyno/uniforms.d.ts",
+  "bytes": 17249,
+  "sha256": "7bc6e58fc6678b3bc1598b5d9a2d48dea1d6300755e514430552f73f0c7b2553"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/dyno/util.d.ts",
+  "bytes": 5039,
+  "sha256": "7c88f6cef4f8b3f7d0ada019b6ffef4a12b8e6319f36343d68866f5e055a174c"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/dyno/value.d.ts",
+  "bytes": 1447,
+  "sha256": "ca2dcf7177f78ec73fbac666bde868c964dd497afbb9b0702abff460cff9ce71"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/dyno/vecmat.d.ts",
+  "bytes": 9846,
+  "sha256": "f705a6cd123463a7af9b8770f0295eae756ae0eb4bebec82cb06cf4cf764497d"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/dyno.d.ts",
+  "bytes": 494,
+  "sha256": "8efef2255b0d6b27ec7ff503e284345306d9248aa74fa5fe5313c115326c8870"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/generators/snow.d.ts",
+  "bytes": 2256,
+  "sha256": "eb8f070892778d7c7fed696f176dd1f8e2bad1db7fba4d8bc5790cd38a0672ef"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/generators/static.d.ts",
+  "bytes": 299,
+  "sha256": "d8ba1d4f3a04de6c445653821725359673d84d2915d33c30dced6495aceb868e"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/generators.d.ts",
+  "bytes": 72,
+  "sha256": "e8c1137ff85b9179202a9960114b733935cc91935693f528471ccd88716393f0"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/hands.d.ts",
+  "bytes": 3297,
+  "sha256": "65a5ef6f2ee477b5e6248b5cfc13b75af3d41f4ccb47eecd5b809f71208dd5fe"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/hooks.d.ts",
+  "bytes": 763,
+  "sha256": "ac5e8348c4710fe12aca9edbb40272cb994f6d0f193d3a33614042bb36ea4a95"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/index.d.ts",
+  "bytes": 2298,
+  "sha256": "78259645e7461730b1ad88ae61685066771c8138e04c6f64bfdad32550ce5dd9"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/modifiers/depthColor.d.ts",
+  "bytes": 708,
+  "sha256": "9393452d016430712c68e02d12ab61b3906b91d9b5f1c5129d198365eb3da0ca"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/modifiers/normalColor.d.ts",
+  "bytes": 385,
+  "sha256": "d9273c5b9c949bf8137bfd8cb4cd805fb81332fe16903a53adc7c4e7a815fd84"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/modifiers.d.ts",
+  "bytes": 81,
+  "sha256": "a571c0516ac7d405a672f16e2805d8876944aac1e1e729230221107e39c9326e"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/shaders.d.ts",
+  "bytes": 62,
+  "sha256": "9d197fbcfddf47e0d7c0e74ad54666257a042948e180390c14c6098445959120"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/splatConstructors.d.ts",
+  "bytes": 1890,
+  "sha256": "e03f7a56cc78cf674aec48001a05d5d4e0c43823d717f79b428241718feec0a7"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/spz.d.ts",
+  "bytes": 1184,
+  "sha256": "f4e70417d43afb8806bebf3e3ce003e9b3693ac8ecc9adae5ec6d64e1d887a8c"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/utils.d.ts",
+  "bytes": 9951,
+  "sha256": "88b24b070e2ede33f56c48b52767c42583a3544e9a7bcb8e0a6e6802c598b9a8"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/wasm.d.ts",
+  "bytes": 354,
+  "sha256": "dcff59580e572305152878b63c0a832e343c7363448f8554b8d1962d73744874"
+ },
+ {
+  "path": "vendor/sparkjsdev-spark/2.4.0/dist/types/worker.d.ts",
+  "bytes": 5707,
+  "sha256": "e23c0d21b25820859ff5b4452494d96dc5292e06ec52f08cf4e7ffda33e5929a"
+ }
+]

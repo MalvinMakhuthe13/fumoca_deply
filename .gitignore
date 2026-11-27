@@ -1,6 +1,11 @@
 # Node
 node_modules/
-vendor/
+/vendor/*
+!/vendor/VERSIONS.json
+!/vendor/MANIFEST.json
+!/vendor/three/
+!/vendor/sparkjsdev-spark/
+!/vendor/dimforge-rapier3d-compat/
 
 # Python
 __pycache__/

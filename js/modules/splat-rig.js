@@ -247,7 +247,34 @@ export function normalizeClip(input, rig) {
       .sort((a, b) => a.t - b.t).slice(0, 240);
     if (clean.length) tracks[bone] = clean;
   }
-  return { name: String(input.name || 'Clip').slice(0, 40), duration, loop: input.loop !== false, tracks };
+  // Whole-object motion: position keys (upright frame, scene units).
+  const root = (Array.isArray(input.root) ? input.root : [])
+    .filter(k => Number.isFinite(k?.t) && Array.isArray(k.p) && k.p.length === 3 && k.p.every(v => Number.isFinite(v) && Math.abs(v) < 1e6))
+    .map(k => ({ t: Math.min(duration, Math.max(0, k.t)), p: k.p.map(Number), ease: EASE[k.ease] ? k.ease : 'ease-in-out' }))
+    .sort((a, b) => a.t - b.t).slice(0, 240);
+  const out = { name: String(input.name || 'Clip').slice(0, 40), duration, loop: input.loop !== false, tracks };
+  if (root.length) out.root = root;
+  return out;
+}
+
+/** Interpolated whole-object offset at time t ([0,0,0] when the clip has none). */
+export function sampleRoot(clip, time) {
+  const keys = clip?.root;
+  if (!keys?.length) return [0, 0, 0];
+  const t = clip.loop ? ((time % clip.duration) + clip.duration) % clip.duration : Math.min(clip.duration, Math.max(0, time));
+  const lerp = (a, b, f) => a.map((v, i) => v + (b[i] - v) * f);
+  if (t <= keys[0].t) return keys[0].p.slice();
+  const last = keys[keys.length - 1];
+  if (t >= last.t) {
+    if (clip.loop && keys.length > 1 && keys[0].t === 0) {
+      const span = clip.duration - last.t;
+      return span > 1e-6 ? lerp(last.p, keys[0].p, EASE[keys[0].ease]((t - last.t) / span)) : last.p.slice();
+    }
+    return last.p.slice();
+  }
+  let k = 0; while (keys[k + 1].t < t) k++;
+  const a = keys[k], b = keys[k + 1];
+  return lerp(a.p, b.p, EASE[b.ease]((t - a.t) / (b.t - a.t)));
 }
 
 export function sampleClip(clip, time) {
@@ -297,4 +324,4 @@ export function presetClip(name, rig) {
 
 export const PRESETS_FOR = { human: ['wave', 'walk', 'nod', 'breathe', 'spin'], quadruped: ['wag', 'nod', 'breathe', 'spin'], chain: ['wag', 'spin'], pivot: ['nod', 'spin'] };
 
-export default { TEMPLATES, rigFromTemplate, normalizeRig, computeWeights, solvePose, posedJoints, skin, normalizeClip, sampleClip, presetClip, qFromEulerDeg, PRESETS_FOR };
+export default { sampleRoot, TEMPLATES, rigFromTemplate, normalizeRig, computeWeights, solvePose, posedJoints, skin, normalizeClip, sampleClip, presetClip, qFromEulerDeg, PRESETS_FOR };

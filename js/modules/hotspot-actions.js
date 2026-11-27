@@ -382,6 +382,35 @@ export async function runAction(action, context = {}) {
       return;
     }
 
+    case 'part': {
+      // Smoothly open / close a moving part (car door, bonnet, cap, recliner…)
+      const parts = window.FumocaParts;
+      if (!parts?.run || !action.partId) { console.warn('[FumocaHotspotActions] part action: no moving parts loaded'); return; }
+      return parts.run(String(action.partId), ['open', 'close', 'toggle'].includes(action.to) ? action.to : 'toggle');
+    }
+
+    case 'lighting': {
+      // Light switch (a lamp) or a whole-scene mood change.
+      const look = window.FumocaLook;
+      const viewerLight = window._fumocaLighting;
+      if (action.lampId) {
+        const to = ['on', 'off', 'toggle'].includes(action.to) ? action.to : 'toggle';
+        if (look?.setLamp) return look.setLamp(String(action.lampId), to);
+        if (viewerLight?.setLamp) return viewerLight.setLamp(String(action.lampId), to);
+        console.warn('[FumocaHotspotActions] lighting action: no lighting on this scan');
+        return;
+      }
+      if (action.mood) {
+        if (look?.setMood) return look.setMood(String(action.mood));
+        if (viewerLight) {
+          const m = await import('./splat-lighting.js');
+          const next = { ...m.moodSettings(String(action.mood), viewerLight.settings), lamps: viewerLight.settings.lamps };
+          return viewerLight.apply(next.enabled ? next : { ...viewerLight.settings, enabled: false });
+        }
+      }
+      return;
+    }
+
     default:
       console.warn('[FumocaHotspotActions] Unknown action type:', action.type, action);
       return;
@@ -481,7 +510,7 @@ export function validateActions(actions) {
     return { valid: false, errors: ['actions must be an array'] };
   }
   const KNOWN = new Set(['audio', 'audio_stop', 'video', 'link',
-    'nested_splat', 'info', 'state', 'fly', 'multi', 'animate']);
+    'nested_splat', 'info', 'state', 'fly', 'multi', 'animate', 'part', 'lighting']);
   actions.forEach((a, idx) => {
     if (!a || typeof a !== 'object') {
       errors.push(`[${idx}] action entry is not an object`);
@@ -512,6 +541,12 @@ export function validateActions(actions) {
     }
     if (a.action.type === 'multi' && !Array.isArray(a.action.actions)) {
       errors.push(`[${idx}] multi action missing actions array`);
+    }
+    if (a.action.type === 'part' && !a.action.partId) {
+      errors.push(`[${idx}] part action missing partId`);
+    }
+    if (a.action.type === 'lighting' && !a.action.lampId && !a.action.mood) {
+      errors.push(`[${idx}] lighting action needs a lampId or a mood`);
     }
     if (a.action.type === 'animate' && !a.action.layer) {
       errors.push(`[${idx}] animate action missing layer`);

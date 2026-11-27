@@ -1,0 +1,8 @@
+{
+  "comment": "Self-hosted 3D libraries. Change a version here and push: the 'Vendor 3D libraries' workflow downloads it into vendor/ and commits it.",
+  "packages": [
+    { "name": "three", "version": "0.180.0", "copy": ["build/three.module.js", "build/three.core.js", "build/three.module.min.js", "build/three.core.min.js", "examples/jsm"] },
+    { "name": "@sparkjsdev/spark", "version": "2.4.0", "copy": ["dist"], "fallbackUrl": "https://sparkjs.dev/releases/spark/2.4.0/spark.module.js" },
+    { "name": "@dimforge/rapier3d-compat", "version": "0.21.0", "copy": ["rapier.mjs", "rapier_wasm3d_bg.wasm", "rapier.d.ts", "package.json", "dist"] }
+  ]
+}

@@ -28,20 +28,6 @@ const FumocaStudioInit = (() => {
         _retryTimer = setTimeout(() => { _retryTimer = null; init(); }, 250);
       }
     
-  async function createDropDemo(scene) {
-    if (!scene || !window.THREE || !window.FumocaPhysics) return { ok: false, reason: 'missing' };
-    const boot = await window.FumocaPhysicsBoot?.start?.();
-    const THREE = window.THREE;
-    const floor = new THREE.Mesh(new THREE.BoxGeometry(2, 0.1, 2), new THREE.MeshStandardMaterial({ color: 0x333333 }));
-    floor.position.y = -0.05;
-    const bottle = new THREE.Mesh(new THREE.CapsuleGeometry(0.08, 0.22, 6, 12), new THREE.MeshStandardMaterial({ color: 0xc8ff00 }));
-    bottle.position.y = 1.2;
-    scene.add(floor); scene.add(bottle);
-    window.FumocaPhysics.createCollider({ id: 'floor', type: 'box', bodyType: 'static', halfExtents: { x: 1, y: 0.05, z: 1 }, localPosition: { x: 0, y: -0.05, z: 0 } });
-    window.FumocaPhysics.createCollider({ id: 'bottle', type: 'capsule', bodyType: 'dynamic', radius: 0.08, height: 0.22, localPosition: { x: 0, y: 1.2, z: 0 } });
-    window.FumocaPhysics.bindSceneNode('bottle', bottle);
-    return { ok: true, physics: boot };
-  }
 
   return { ok: false, reason: 'camera_not_ready', retrying: true };
     }
@@ -65,20 +51,6 @@ const FumocaStudioInit = (() => {
     window._fumocaMasterOwnsPlayback = true;
     console.log('[StudioInit] Bound to camera and controls');
   
-  async function createDropDemo(scene) {
-    if (!scene || !window.THREE || !window.FumocaPhysics) return { ok: false, reason: 'missing' };
-    const boot = await window.FumocaPhysicsBoot?.start?.();
-    const THREE = window.THREE;
-    const floor = new THREE.Mesh(new THREE.BoxGeometry(2, 0.1, 2), new THREE.MeshStandardMaterial({ color: 0x333333 }));
-    floor.position.y = -0.05;
-    const bottle = new THREE.Mesh(new THREE.CapsuleGeometry(0.08, 0.22, 6, 12), new THREE.MeshStandardMaterial({ color: 0xc8ff00 }));
-    bottle.position.y = 1.2;
-    scene.add(floor); scene.add(bottle);
-    window.FumocaPhysics.createCollider({ id: 'floor', type: 'box', bodyType: 'static', halfExtents: { x: 1, y: 0.05, z: 1 }, localPosition: { x: 0, y: -0.05, z: 0 } });
-    window.FumocaPhysics.createCollider({ id: 'bottle', type: 'capsule', bodyType: 'dynamic', radius: 0.08, height: 0.22, localPosition: { x: 0, y: 1.2, z: 0 } });
-    window.FumocaPhysics.bindSceneNode('bottle', bottle);
-    return { ok: true, physics: boot };
-  }
 
   return { ok: true, cameraBound: true };
   }
@@ -147,20 +119,6 @@ const FumocaStudioInit = (() => {
     master.setObjectBinding(obj.id, componentMap);
     const missing = obj.components.filter(c => !componentMap?.get?.(c.id)).map(c => c.id);
   
-  async function createDropDemo(scene) {
-    if (!scene || !window.THREE || !window.FumocaPhysics) return { ok: false, reason: 'missing' };
-    const boot = await window.FumocaPhysicsBoot?.start?.();
-    const THREE = window.THREE;
-    const floor = new THREE.Mesh(new THREE.BoxGeometry(2, 0.1, 2), new THREE.MeshStandardMaterial({ color: 0x333333 }));
-    floor.position.y = -0.05;
-    const bottle = new THREE.Mesh(new THREE.CapsuleGeometry(0.08, 0.22, 6, 12), new THREE.MeshStandardMaterial({ color: 0xc8ff00 }));
-    bottle.position.y = 1.2;
-    scene.add(floor); scene.add(bottle);
-    window.FumocaPhysics.createCollider({ id: 'floor', type: 'box', bodyType: 'static', halfExtents: { x: 1, y: 0.05, z: 1 }, localPosition: { x: 0, y: -0.05, z: 0 } });
-    window.FumocaPhysics.createCollider({ id: 'bottle', type: 'capsule', bodyType: 'dynamic', radius: 0.08, height: 0.22, localPosition: { x: 0, y: 1.2, z: 0 } });
-    window.FumocaPhysics.bindSceneNode('bottle', bottle);
-    return { ok: true, physics: boot };
-  }
 
   return { ok: missing.length === 0, bound: obj.components.length - missing.length, missing };
   }
@@ -203,20 +161,6 @@ const FumocaStudioInit = (() => {
     if (window.FumocaMaster) window.FumocaMaster.setDuration(2);
     console.log('[StudioInit] Demo cooler registered', reg);
   
-  async function createDropDemo(scene) {
-    if (!scene || !window.THREE || !window.FumocaPhysics) return { ok: false, reason: 'missing' };
-    const boot = await window.FumocaPhysicsBoot?.start?.();
-    const THREE = window.THREE;
-    const floor = new THREE.Mesh(new THREE.BoxGeometry(2, 0.1, 2), new THREE.MeshStandardMaterial({ color: 0x333333 }));
-    floor.position.y = -0.05;
-    const bottle = new THREE.Mesh(new THREE.CapsuleGeometry(0.08, 0.22, 6, 12), new THREE.MeshStandardMaterial({ color: 0xc8ff00 }));
-    bottle.position.y = 1.2;
-    scene.add(floor); scene.add(bottle);
-    window.FumocaPhysics.createCollider({ id: 'floor', type: 'box', bodyType: 'static', halfExtents: { x: 1, y: 0.05, z: 1 }, localPosition: { x: 0, y: -0.05, z: 0 } });
-    window.FumocaPhysics.createCollider({ id: 'bottle', type: 'capsule', bodyType: 'dynamic', radius: 0.08, height: 0.22, localPosition: { x: 0, y: 1.2, z: 0 } });
-    window.FumocaPhysics.bindSceneNode('bottle', bottle);
-    return { ok: true, physics: boot };
-  }
 
   return { ok: reg.ok, objectId: 'cooler_demo', registration: reg };
   }

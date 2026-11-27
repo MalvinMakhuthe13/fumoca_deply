@@ -602,6 +602,9 @@ export function mountPosterViewport() {
   }
 
   const schedule = () => {
+    // The viewer can replace its stage host while loading; a detached host is
+    // finished — the new host gets its own mount (fumoca:stageHostRebuilt).
+    if (!host.isConnected) return;
     if (!frame) frame = requestAnimationFrame(update);
   };
   window.addEventListener('fumoca:viewerReady', event => {
@@ -630,6 +633,9 @@ export function mountPosterViewport() {
 }
 
 if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+  // The public viewer rebuilds #stageHost while loading a scan: mount the
+  // poster layers (background, frame, title) on the new host every time.
+  window.addEventListener('fumoca:stageHostRebuilt', () => { mountPosterViewport(); window.dispatchEvent(new CustomEvent('fumoca:posterChange', { detail: { reason: 'remount' } })); });
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', mountPosterViewport, { once: true });
   } else {

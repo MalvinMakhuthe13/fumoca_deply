@@ -4,7 +4,7 @@
 import {
   initMagazineText, addText, applyPreset, clearText,
   exportAll as exportMagazine, importAll as importMagazine, setEditable as setMagEditable,
-} from './present-magazine-text.js?v=20261108-textdragcapture03';
+} from './present-magazine-text.js?v=20261127-layouts01';
 import {
   initPresentNav, setNavStops, addNavStop, flyToStop,
   stopsFromHotspots, exportStops, importStops,
@@ -50,15 +50,17 @@ function payload() {
 function persist() {
   const data = payload();
   saveLocal(currentSplatId(), data);
-  window.__FUMOCA_PRESENT__ = data;
+  // Merge: the Present tab keeps lighting, parts, guides and more on the same
+  // object — replacing it here dropped them whenever text or stops changed.
+  window.__FUMOCA_PRESENT__ = { ...(window.__FUMOCA_PRESENT__ || {}), ...data };
   // Attach to record meta so publish paths can pick it up if they serialize metadata
   try {
     const rec = window._fumocaCurrentRecord;
     if (rec) {
       rec.meta = rec.meta || {};
       rec.metadata = rec.metadata || {};
-      rec.meta.present = data;
-      rec.metadata.present = data;
+      rec.meta.present = { ...(rec.meta.present || {}), ...data };
+      rec.metadata.present = { ...(rec.metadata.present || {}), ...data };
     }
   } catch (_) {}
 }

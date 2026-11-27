@@ -5,13 +5,16 @@
 import {
   initMagazineText, addText, updateText, removeText, applyPreset, clearText,
   exportAll as exportMagazine, importAll as importMagazine, setEditable as setMagEditable, selectText, getSelectedTextId, moveTextLayer,
-} from './present-magazine-text.js?v=20261108-textdragcapture03';
+} from './present-magazine-text.js?v=20261127-layouts01';
+import { fontOptions, addFontFile, getCustomFonts, restoreFonts, ensureFontsFor } from './present-fonts.js';
+import { FILTERS, normalizeFilter, filterLayer } from './present-filters.js';
+import inspect from './present-inspect.js';
 import {
   initPresentNav, setNavStops, addNavStop, removeNavStop, clearNavStops, flyToStop,
   stopsFromHotspots, exportStops, importStops,
 } from './present-nav.js';
-import './poster-composer.js?v=20261108-headlinepos01';
-import { mountPosterViewport } from './poster-viewport.js?v=20261108-posterrealcanvas01';
+import './poster-composer.js?v=20261127-layouts01';
+import { mountPosterViewport } from './poster-viewport.js?v=20261127-remount01';
 import './poster-assets.js?v=20261108-edgeanchor02';
 import { mountPosterEditorOverlay as createPosterEditorOverlay } from './poster-editor-overlay.js?v=20261108-splatpick01';
 import { mountPosterSceneManager } from './poster-scene-manager.js?v=20261108-multisubject02';
@@ -107,6 +110,16 @@ function payload() {
     platform: window.FumocaPresentation?.getConfig?.() || null,
     rig: window.FumocaRig?.getState?.() || null,
     living: window.FumocaLivingPhoto?.getState?.() || null,
+    lighting: window.FumocaLook?.getLighting?.() || null,
+    view: window.FumocaLook?.getView?.() || null,
+    parts: window.FumocaParts?.getParts?.() || [],
+    freeMoves: window.FumocaMotionExtrasStudio?.getFreeMoves?.() || [],
+    laces: window.FumocaMotionExtrasStudio?.getLaces?.() || [],
+    tutorial: window.FumocaTutorial?.getTutorial?.() || null,
+    links: window.FumocaLinks?.getLinks?.() || [],
+    tour: window.FumocaTour?.getTour?.() || null,
+    fonts: getCustomFonts(),
+    filter: filterLayer().get(),
     updatedAt: Date.now(),
   };
 }
@@ -115,6 +128,14 @@ function payload() {
 window.addEventListener('fumoca:platformChange', () => { try { persist(); } catch (_) {} });
 window.addEventListener('fumoca:rigChange', () => { try { persist(); } catch (_) {} });
 window.addEventListener('fumoca:livingChange', () => { try { persist(); } catch (_) {} });
+window.addEventListener('fumoca:lookChange', () => { try { persist(); } catch (_) {} });
+window.addEventListener('fumoca:partsChange', () => { try { persist(); } catch (_) {} });
+window.addEventListener('fumoca:motionExtrasChange', () => { try { persist(); } catch (_) {} });
+window.addEventListener('fumoca:tutorialChange', () => { try { persist(); } catch (_) {} });
+window.addEventListener('fumoca:linksChange', () => { try { persist(); } catch (_) {} });
+window.addEventListener('fumoca:tourChange', () => { try { persist(); } catch (_) {} });
+// Splat order can change with edits; save the latest right before publishing.
+window.addEventListener('fumoca:beforePublish', () => { try { persist(); } catch (_) {} });
 
 function persist() {
   const data = payload();
@@ -268,7 +289,9 @@ function renderTextManager() {
   const styles = [
     ['cover', 'Cover'], ['masthead', 'Masthead'], ['deck', 'Clean sans'],
     ['kicker', 'Mono / Kicker'], ['badge', 'Badge'], ['caption', 'Caption'],
+    ['body', 'Body text (columns)'], ['dateline', 'Dateline'], ['rule', 'Rule line'],
   ];
+  ensureFontsFor(items);
   const fonts = [
     ['"Bebas Neue", Impact, sans-serif', 'Bebas Neue'],
     ['"Cormorant Garamond", Georgia, serif', 'Cormorant Garamond'],
@@ -295,9 +318,13 @@ function renderTextManager() {
     fields.innerHTML = `
       <label>Text<input data-text-id="${item.id}" data-text-field="text" value="${escapeAttr(item.text || '')}" /></label>
       <label>Style<select data-text-id="${item.id}" data-text-field="style">${styles.map(([v, label]) => `<option value="${v}" ${(item.style || 'cover') === v ? 'selected' : ''}>${label}</option>`).join('')}</select></label>
-      <label>Font family<select data-text-id="${item.id}" data-text-field="fontFamily">${fonts.map(([v, label]) => `<option value="${escapeAttr(v)}" ${(item.fontFamily || '') === v ? 'selected' : ''}>${label}</option>`).join('')}</select></label>
+      <label>Font<select data-text-id="${item.id}" data-text-field="fontFamily"><option value="" ${item.fontFamily ? '' : 'selected'}>Style default</option>${fontOptions(item.fontFamily || '')}</select></label>
       <label>Size (px)<input type="number" min="8" max="240" step="1" data-text-id="${item.id}" data-text-field="fontSize" value="${Number(item.fontSize || (item.style === 'cover' ? 64 : item.style === 'masthead' ? 36 : 14))}" /></label>
       <label>Color<input type="color" data-text-id="${item.id}" data-text-field="color" value="${/^#[0-9a-f]{6}$/i.test(item.color || '') ? item.color : '#F2EFE6'}" /></label>
+      <label>Box behind<input type="color" data-text-id="${item.id}" data-text-field="bg" value="${/^#[0-9a-f]{6}$/i.test(item.bg || '') ? item.bg : '#000000'}" /></label>
+      <label class="ptp-text-check"><input type="checkbox" data-text-id="${item.id}" data-text-field="bgOn" ${item.bg ? 'checked' : ''}> Show box</label>
+      <label>Columns<input type="number" min="1" max="4" step="1" data-text-id="${item.id}" data-text-field="columns" value="${Number(item.columns) || 1}" /></label>
+      <label class="ptp-text-check"><input type="checkbox" data-text-id="${item.id}" data-text-field="shadowOn" ${item.shadow === false ? '' : 'checked'}> Text shadow</label>
       <label>Align<select data-text-id="${item.id}" data-text-field="align"><option value="left" ${(item.align || 'left') === 'left' ? 'selected' : ''}>Left</option><option value="center" ${item.align === 'center' ? 'selected' : ''}>Center</option><option value="right" ${item.align === 'right' ? 'selected' : ''}>Right</option></select></label>
       <label>Position X<input type="number" min="0" max="100" step="1" data-text-id="${item.id}" data-text-field="sx" value="${Math.round(item.sx ?? 50)}" /></label>
       <label>Position Y<input type="number" min="0" max="100" step="1" data-text-id="${item.id}" data-text-field="sy" value="${Math.round(item.sy ?? 30)}" /></label>
@@ -349,7 +376,7 @@ function mountPanel() {
     <div class="ptp-section" id="ptpPosterComposer">
       <div class="ptp-title">Poster Composer · fixed canvas</div>
       <div class="ptp-hint">The poster keeps its chosen aspect ratio while the 3D subject can be repositioned, scaled and rotated. Live transforms work in published Spark PLY, legacy PLY and decoded NIF cloud viewers.</div>
-      <label class="ptp-poster-field">Preset<select data-poster-field="preset"><option value="product">Product · 4:5</option><option value="story">Story · 9:16</option><option value="editorial">Editorial · 3:4</option><option value="landscape">Landscape · 16:9</option></select></label>
+      <label class="ptp-poster-field">Preset<select data-poster-field="preset"><option value="product">Product · 4:5</option><option value="story">Story · 9:16</option><option value="editorial">Editorial · 3:4</option><option value="landscape">Landscape · 16:9</option><option value="newspaper">Newspaper</option><option value="tabloid">Tabloid</option><option value="billboard">Billboard · wide</option><option value="polaroid">Instant photo</option><option value="vintage">Vintage poster</option><option value="street">Street poster</option></select></label>
       <label class="ptp-poster-toggle"><input type="checkbox" data-poster-field="enabled"> Enable poster composition</label>
       <label class="ptp-poster-field">Poster zoom <input type="range" min="50" max="250" step="1" value="100" data-poster-field="zoom"><output data-poster-value="zoom">100%</output></label>\n      <label class="ptp-poster-field">3D motion<select data-poster-field="motion"><option value="still">Still · no automatic rotation</option><option value="gentle">Gentle · slow rotation</option><option value="normal">Normal · steady rotation</option><option value="dynamic">Dynamic · faster rotation</option></select></label>
       <div class="ptp-poster-hint">Set the exact subject framing here. Poster mode locks free camera pan and wheel zoom so the composition cannot drift outside the frame.</div>
@@ -378,6 +405,29 @@ function mountPanel() {
         <label class="ptp-poster-field">Brightness<input type="range" min="20" max="200" value="100" data-poster-field="backgroundBrightness"></label>
       </div>
     <div class="ptp-section">
+      <div class="ptp-title">Layouts · the scan lives inside the page</div>
+      <div class="ptp-row">
+        <button type="button" data-layout="newspaper">📰 Newspaper</button>
+        <button type="button" data-layout="tabloid">Tabloid</button>
+        <button type="button" data-layout="billboard">Billboard</button>
+        <button type="button" data-layout="polaroid">Instant photo</button>
+        <button type="button" data-layout="vintage">Vintage poster</button>
+        <button type="button" data-layout="street">Street / graffiti</button>
+      </div>
+      <div class="ptp-hint">Sets the page, its type and a matching filter. Everything stays editable below — wording, fonts, colours, positions, filter and background.</div>
+      <div class="ptp-row" style="margin-top:6px"><button type="button" data-act="inspect" class="primary">⛶ Inspect full screen</button></div>
+      <div class="ptp-hint">Viewers get the same button: the object leaves the page and fills the screen to turn and zoom, then “Back to the layout” returns.</div>
+    </div>
+    <div class="ptp-section">
+      <div class="ptp-title">Camera filter</div>
+      <label class="ptp-poster-field">Filter<select data-filter-field="id">${Object.entries(FILTERS).map(([k, f]) => `<option value="${k}">${f.label}</option>`).join('')}</select></label>
+      <label class="ptp-poster-field">Strength<input type="range" min="0" max="100" value="100" data-filter-field="strength"></label>
+      <label class="ptp-poster-field">Real colour<select data-filter-field="reveal"><option value="none">Always filtered</option><option value="tap">Shows where the viewer taps</option></select></label>
+      <label class="ptp-poster-field">Filter returns after (s, 0 = stays)<input type="number" min="0" max="60" step="1" value="0" data-filter-field="revealBack"></label>
+      <div class="ptp-row"><button type="button" data-act="filter-try">Try the tap reveal here</button></div>
+      <div class="ptp-hint">Filters change the 3D picture only — your text and layout stay crisp. With “Shows where the viewer taps”, the scan starts in the filter and its true colour spreads out from wherever they tap.</div>
+    </div>
+    <div class="ptp-section">
       <div class="ptp-title">Additional text & copy layers</div>
       <div class="ptp-row">
         <button type="button" data-act="weekly">WEEKLY</button>
@@ -395,6 +445,7 @@ function mountPanel() {
     </div>
     <div class="ptp-section">
       <div class="ptp-title">Text styling · edit each item</div>
+      <div class="ptp-upload-card"><div><strong>Your own fonts</strong><small>Upload any .ttf / .otf / .woff / .woff2 — street, graffiti, your brand font. Saved with the asset so viewers see it too.</small></div><button type="button" data-act="choose-font" class="ptp-upload-button">＋ Add a font</button><input type="file" accept=".ttf,.otf,.woff,.woff2" data-act-file="font" hidden><span data-upload-name="font">Up to 6 fonts · 2.5 MB each</span></div>
       <div id="ptpTextManager" class="ptp-text-manager"></div>
     </div>
       <div class="ptp-poster-subtitle">SUPPORTING IMAGES</div>
@@ -825,6 +876,10 @@ function mountPanel() {
     else if (key === 'rotation') patch.rotation = Math.max(-180, Math.min(180, Number(field.value) || 0));
     else if (key === 'maxWidth') patch.maxWidth = Math.max(10, Math.min(100, Number(field.value) || 42)) + '%';
     else if (key === 'wrap' || key === 'uppercase') patch[key] = field.checked;
+    else if (key === 'bg') { const on = field.closest('.ptp-text-fields')?.querySelector('[data-text-field="bgOn"]'); if (on) on.checked = true; patch.bg = field.value; }
+    else if (key === 'bgOn') { const c = field.closest('.ptp-text-fields')?.querySelector('[data-text-field="bg"]'); patch.bg = field.checked ? (c?.value || '#000000') : ''; }
+    else if (key === 'columns') patch.columns = Math.max(1, Math.min(4, Number(field.value) || 1));
+    else if (key === 'shadowOn') patch.shadow = field.checked ? undefined : false;
     else return;
     updateText(field.dataset.textId, patch);
     const heading = field.closest('.ptp-text-item')?.querySelector('.ptp-text-heading');
@@ -834,6 +889,42 @@ function mountPanel() {
   // Browsers fire input inconsistently for select/color controls; support both.
   panel.addEventListener('input', applyTextField);
   panel.addEventListener('change', applyTextField);
+
+  // ── layouts (newspaper, tabloid, billboard, instant photo, vintage, street) ──
+  const LAYOUT_FILTER = { newspaper: { id: 'newsprint', reveal: 'tap' }, polaroid: { id: 'polaroid' }, vintage: { id: 'vintage' }, street: { id: 'vivid' }, tabloid: { id: 'none' }, billboard: { id: 'cinematic', strength: 0.6 } };
+  panel.addEventListener('click', (e) => {
+    const b = e.target.closest?.('[data-layout]'); if (!b || !panel.contains(b)) return;
+    const name = b.dataset.layout;
+    try { window.FumocaPoster?.setPreset?.(name); window.FumocaPoster?.setEnabled?.(true); } catch (err) { console.warn('[Present] layout', err); }
+    applyPreset(name);
+    filterLayer().set({ strength: 1, revealBack: 0, reveal: 'none', ...(LAYOUT_FILTER[name] || {}) });
+    syncFilterUI(); renderTextManager(); persist();
+  });
+  // ── camera filter ──
+  function syncFilterUI() {
+    const st = filterLayer().get();
+    const set = (k, v) => { const el = panel.querySelector(`[data-filter-field="${k}"]`); if (el) el.value = v; };
+    set('id', st.id); set('strength', Math.round(st.strength * 100)); set('reveal', st.reveal); set('revealBack', st.revealBack);
+  }
+  const onFilter = (e) => {
+    const el = e.target.closest?.('[data-filter-field]'); if (!el || !panel.contains(el)) return;
+    const st = filterLayer().get(), k = el.dataset.filterField;
+    st[k] = k === 'strength' ? Number(el.value) / 100 : k === 'revealBack' ? Number(el.value) : el.value;
+    filterLayer().set(normalizeFilter(st)); persist();
+  };
+  panel.addEventListener('input', onFilter);
+  panel.addEventListener('change', onFilter);
+  // ── your own fonts ──
+  panel.addEventListener('change', async (e) => {
+    const input = e.target.closest?.('[data-act-file="font"]'); if (!input) return;
+    const name = panel.querySelector('[data-upload-name="font"]');
+    for (const f of input.files || []) {
+      try { await addFontFile(f); if (name) name.textContent = `Added “${f.name}” — pick it in any text's Font list`; }
+      catch (err) { if (name) name.textContent = err.message; }
+    }
+    input.value = ''; renderTextManager(); persist();
+  });
+  syncFilterUI();
 
   panel.addEventListener('click', (e) => {
     const uploadAction = e.target.closest?.('[data-act="choose-background"],[data-act="choose-overlays"]');
@@ -888,6 +979,16 @@ function mountPanel() {
     }
     if (act === 'clear-overlays') {
       window.FumocaPoster.updateComposition({ assets: { images: [] } }); persist(); renderPosterAssetList(); return;
+    }
+    if (act === 'inspect') { inspect.enter(); return; }
+    if (act === 'choose-font') { panel.querySelector('[data-act-file="font"]')?.click(); return; }
+    if (act === 'filter-try') {
+      const L = filterLayer(); const st = L.get();
+      if (st.id === 'none') { alert('Pick a filter first.'); return; }
+      L.set({ ...st, reveal: 'tap' }); const r = L.el?.getBoundingClientRect();
+      if (r) L.revealAt(r.left + r.width / 2, r.top + r.height / 2);
+      setTimeout(() => L.set(st), 2600);
+      return;
     }
     if (act === 'weekly') applyPreset('weekly');
     if (act === '48hours') applyPreset('48hours');
@@ -978,6 +1079,8 @@ export function initPresentTab() {
       window.FumocaPoster.setEnabled(!!saved.poster.enabled);
     } catch (error) { console.warn('[Poster Composer] Could not restore saved composition', error); }
   }
+  if (saved?.fonts?.length) restoreFonts(saved.fonts).then(() => renderTextManager());
+  if (saved?.filter) setTimeout(() => filterLayer().set(saved.filter), 600);
   if (saved?.magazine?.length) importMagazine(saved.magazine);
   if (saved?.nav?.length) importStops(saved.nav);
 

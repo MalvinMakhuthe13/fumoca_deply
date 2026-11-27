@@ -136,7 +136,7 @@ const SparkViewerBridge = (() => {
     _camera.up.set(0, 1, 0);
 
     const { SparkRenderer, SplatMesh } = await import('@sparkjsdev/spark');
-    _spark = new SparkRenderer({ renderer: _renderer, premultipliedAlpha: true });
+    _spark = new SparkRenderer(((await import('./spark-preset.js').catch(() => null))?.sparkOptions || ((o = {}) => ({ maxStdDev: Math.sqrt(8), preBlurAmount: 0.3, blurAmount: 0, focalAdjustment: 1, sortRadial: false, ...o })))({ renderer: _renderer, premultipliedAlpha: true }));
     _scene.add(_spark);
 
     const opts = { fileName };

@@ -28,17 +28,10 @@ const SparkGaussianView = (() => {
     const renderer = _renderer(), scene = _scene();
     if (!renderer || !scene) throw new Error('FUMOCA scene/renderer is not ready');
     const { SparkRenderer } = await import('@sparkjsdev/spark');
-    // Fidelity preset tuned for a sharper SuperSplat-like result:
-    // tighter Gaussian cutoff, no added covariance blur, and depth sorting.
-    _spark = new SparkRenderer({
-      renderer,
-      autoUpdate: true,
-      maxStdDev: Math.sqrt(6),
-      preBlurAmount: 0,
-      blurAmount: 0,
-      focalAdjustment: 1.5,
-      sortRadial: false
-    });
+    // Same look as the published page (classic 3DGS drawing — see spark-preset.js).
+    // Falls back to the same values if the preset file can't be reached (inlined/blob loads).
+    const sparkOptions = (await import('./spark-preset.js').catch(() => null))?.sparkOptions || ((o = {}) => ({ maxStdDev: Math.sqrt(8), preBlurAmount: 0.3, blurAmount: 0, focalAdjustment: 1, sortRadial: false, ...o }));
+    _spark = new SparkRenderer(sparkOptions({ renderer, autoUpdate: true }));
     _spark.name = 'fumoca-spark-renderer';
     scene.add(_spark);
     const canvas = renderer.domElement;
@@ -134,28 +127,59 @@ const SparkGaussianView = (() => {
       float:[4,'getFloat32','setFloat32'], float32:[4,'getFloat32','setFloat32'],
       double:[8,'getFloat64','setFloat64'], float64:[8,'getFloat64','setFloat64']
     };
-    let inVertex = false, rowBytes = 0;
-    const properties = [];
+    // Scanners often add other elements (cameras, faces) or a trailing newline.
+    // Only the vertex element matters for editing; others before it must be
+    // fixed-size so we can skip them, anything after it is ignored.
+    let inVertex = false, seenVertex = false, rowBytes = 0, before = 0, curCount = 0, curSize = 0, curList = false;
+    const properties = [], keepLines = [];
+    const closeElement = () => { if (!seenVertex && !inVertex && curCount) { if (curList) throw new Error('A list element before the vertex data is unsupported'); before += curCount * curSize; } };
     for (const line of header.split(/\r?\n/)) {
-      if (line.startsWith('element ')) { inVertex = /^element vertex \d+$/.test(line); continue; }
-      if (!inVertex || !line.startsWith('property ')) continue;
-      const parts = line.trim().split(/\s+/);
-      if (parts[1] === 'list') throw new Error('Vertex list properties are unsupported');
-      const info = typeInfo[parts[1]];
-      if (!info) throw new Error('Unsupported vertex property type: ' + parts[1]);
-      properties.push({ name:parts[2], type:parts[1], offset:rowBytes, size:info[0], getter:info[1], setter:info[2] });
-      rowBytes += info[0];
+      if (line.startsWith('element ')) {
+        closeElement();
+        if (inVertex) seenVertex = true;
+        inVertex = /^element vertex \d+$/.test(line.trim());
+        const m = line.trim().split(/\s+/); curCount = Number(m[2]) || 0; curSize = 0; curList = false;
+        if (inVertex) keepLines.push(line.trim());
+        continue;
+      }
+      if (line.startsWith('property ')) {
+        const parts = line.trim().split(/\s+/);
+        if (!inVertex) { if (parts[1] === 'list') curList = true; else curSize += typeInfo[parts[1]]?.[0] || 0; continue; }
+        if (parts[1] === 'list') throw new Error('Vertex list properties are unsupported');
+        const info = typeInfo[parts[1]];
+        if (!info) throw new Error('Unsupported vertex property type: ' + parts[1]);
+        properties.push({ name:parts[2], type:parts[1], offset:rowBytes, size:info[0], getter:info[1], setter:info[2] });
+        rowBytes += info[0];
+        keepLines.push(line.trim());
+        continue;
+      }
     }
+    const dataStart = headerEnd + before;
+    // Header for re-encoded files: ply, format, comments, then only the vertex element.
+    const lines = header.split(/\r?\n/).map(l => l.trim());
+    const vertexHeader = ['ply', lines.find(l => l.startsWith('format ')),
+      ...lines.filter(l => l.startsWith('comment ') || l.startsWith('obj_info ')),
+      ...keepLines, 'end_header'].join('\n') + '\n';
     const xyz = ['x','y','z'].map(name => properties.find(p => p.name === name));
     if (xyz.some(p => !p || !['float','float32','double','float64'].includes(p.type))) {
       throw new Error('PLY must contain scalar floating-point x, y, z properties');
     }
-    const dataEnd = headerEnd + count * rowBytes;
-    if (dataEnd !== src.length) throw new Error('PLY contains trailing elements or unexpected data; safe sync refused');
+    const dataEnd = dataStart + count * rowBytes;
+    if (dataEnd > src.length) throw new Error('PLY is shorter than its header says (truncated file)');
     const scaleProps = [0, 1, 2].map(i => properties.find(p => p.name === 'scale_' + i));
     const rotationProps = [0, 1, 2, 3].map(i => properties.find(p => p.name === 'rot_' + i));
     const opacityProp = properties.find(p => p.name === 'opacity');
-    return { src, header, headerEnd, count, rowBytes, properties, xyz, scaleProps, rotationProps, opacityProp };
+    return { src, header, vertexHeader, headerEnd, dataStart, count, rowBytes, properties, xyz, scaleProps, rotationProps, opacityProp };
+  }
+
+  let _countFor = null, _count = -1;
+  function _sourceCount() {
+    if (!_originalBytes) return -1;
+    if (_countFor === _originalBytes) return _count;
+    const head = new TextDecoder().decode(_originalBytes.subarray(0, Math.min(_originalBytes.length, 4096)));
+    const m = head.match(/^element vertex (\d+)\s*$/m);
+    _countFor = _originalBytes; _count = m ? Number(m[1]) : -1;
+    return _count;
   }
 
   function _stateSignature(state) {
@@ -171,7 +195,8 @@ const SparkGaussianView = (() => {
         }
       }
     }
-    return state.alive.length + ':' + (h1 >>> 0) + ':' + (h2 >>> 0);
+    // attrVersion: opacity / size edits (Solidify) bump it so they sync too.
+    return state.alive.length + ':' + (h1 >>> 0) + ':' + (h2 >>> 0) + ':' + (state.attrVersion || 0);
   }
 
   function _makeEditedBytes(state) {
@@ -184,7 +209,7 @@ const SparkGaussianView = (() => {
     const dataView = new DataView(parsed.src.buffer, parsed.src.byteOffset, parsed.src.byteLength);
     for (let i=0;i<parsed.count;i++) {
       if (!state.alive[i]) continue;
-      const row = parsed.src.slice(parsed.headerEnd + i*parsed.rowBytes, parsed.headerEnd + (i+1)*parsed.rowBytes);
+      const row = parsed.src.slice(parsed.dataStart + i*parsed.rowBytes, parsed.dataStart + (i+1)*parsed.rowBytes);
       const view = new DataView(row.buffer, row.byteOffset, row.byteLength);
       for (let axis=0;axis<3;axis++) {
         const prop = parsed.xyz[axis], value = state.positions[i*3+axis];
@@ -193,6 +218,13 @@ const SparkGaussianView = (() => {
       }
       // FUMOCA stores Gaussian rotations as normalized quaternion w,x,y,z,
       // matching the standard rot_0..rot_3 property order.
+      if (state.attrEdited?.[i]) {
+        const op = parsed.opacityProp, a = Math.min(0.9999, Math.max(0.0001, state.opacity?.[i] ?? 1));
+        if (op && state.opacity) view[op.setter](op.offset, Math.log(a / (1 - a)), true);
+        if (state.scaleXYZ && parsed.scaleProps.every(Boolean)) for (let k = 0; k < 3; k++) {
+          const sp = parsed.scaleProps[k]; view[sp.setter](sp.offset, Math.log(Math.max(1e-7, state.scaleXYZ[i * 3 + k])), true);
+        }
+      }
       if (state.rotation && parsed.rotationProps.every(Boolean)) {
         let norm = 0;
         for (let axis=0;axis<4;axis++) norm += state.rotation[i*4+axis] ** 2;
@@ -203,9 +235,28 @@ const SparkGaussianView = (() => {
           view[prop.setter](prop.offset, state.rotation[i*4+axis] / norm, true);
         }
       }
+      // Explicit Studio paint overrides must reach the published Spark PLY.
+      // The NIF path already uses paintColors; without this block the viewer
+      // companion kept the original source colour after a successful publish.
+      const painted = [0,1,2].some(axis => state.paintColors?.[i*3+axis] >= 0);
+      if (painted) {
+        const dc = [0,1,2].map(axis => parsed.properties.find(p => p.name === 'f_dc_' + axis));
+        if (dc.every(Boolean) && state.colors?.length >= (i+1)*3) {
+          const c0 = 0.28209479177387814;
+          for (let axis=0;axis<3;axis++) {
+            const paint = state.paintColors?.[i*3+axis];
+            const colour = Math.max(0, Math.min(1, paint >= 0 ? paint : state.colors[i*3+axis]));
+            dc[axis].setter && view[dc[axis].setter](dc[axis].offset, (colour - 0.5) / c0, true);
+          }
+          // A flat paint colour has no higher-order view-dependent terms.
+          for (const prop of parsed.properties) {
+            if (prop.name.startsWith('f_rest_')) view[prop.setter](prop.offset, 0, true);
+          }
+        }
+      }
       rows.push(row);
     }
-    const header = parsed.header.replace(/^element vertex \d+$/m, 'element vertex ' + rows.length);
+    const header = parsed.vertexHeader.replace(/^element vertex \d+$/m, 'element vertex ' + rows.length);
     const headerBytes = new TextEncoder().encode(header);
     const out = new Uint8Array(headerBytes.length + rows.length*parsed.rowBytes);
     out.set(headerBytes);
@@ -288,6 +339,7 @@ const SparkGaussianView = (() => {
       positions: Float32Array.from(state.positions),
       rotation: state.rotation ? Float32Array.from(state.rotation) : null,
       alive: Uint8Array.from(state.alive, v => (v ? 1 : 0)),
+      attrVersion: state.attrVersion || 0,
     };
   }
 
@@ -307,6 +359,7 @@ const SparkGaussianView = (() => {
       rotations: state.rotation ? Float32Array.from(state.rotation) : null,
       alive: Uint8Array.from(state.alive, v => (v ? 1 : 0)),
       attrs: null,
+      attrVersion: state.attrVersion || 0,
     };
   }
 
@@ -320,6 +373,8 @@ const SparkGaussianView = (() => {
       opacity[i] = a;
     });
     _built.attrs = { scales, colors, opacity };
+    // the scan's own values, to return to when an opacity / size edit is undone
+    _built.origAttrs = { scales: Float32Array.from(scales), opacity: Float32Array.from(opacity) };
   }
 
   /** Write changed splats into the live mesh. Returns the number written, or −1 if a full rebuild is needed. */
@@ -338,13 +393,26 @@ const SparkGaussianView = (() => {
     const P = state.positions, Q = state.rotation, BP = b.positions, BQ = b.rotations;
     const c = new THREE.Vector3(), sc = new THREE.Vector3(), q = new THREE.Quaternion(), col = new THREE.Color();
     let written = 0;
+    const attrDirty = (state.attrVersion || 0) !== (b.attrVersion || 0);
+    const AE = state.attrEdited;
     for (let i = 0; i < n; i++) {
       const m = b.sToMesh[i];
       if (m < 0) continue;
       const alive = state.alive[i] ? 1 : 0;
       let moved = BP[i * 3] !== P[i * 3] || BP[i * 3 + 1] !== P[i * 3 + 1] || BP[i * 3 + 2] !== P[i * 3 + 2];
       if (!moved && Q && BQ) moved = BQ[i * 4] !== Q[i * 4] || BQ[i * 4 + 1] !== Q[i * 4 + 1] || BQ[i * 4 + 2] !== Q[i * 4 + 2] || BQ[i * 4 + 3] !== Q[i * 4 + 3];
-      if (!moved && alive === b.alive[i]) continue;
+      const attr = attrDirty && AE && (AE[i] || AE.touched?.[i]);
+      if (attr) {
+        // opacity / size edits (Solidify) — or back to the scan's own values when undone
+        if (AE[i]) {
+          if (state.opacity) opacity[m] = state.opacity[i];
+          if (state.scaleXYZ) for (let k = 0; k < 3; k++) scales[m * 3 + k] = state.scaleXYZ[i * 3 + k];
+        } else if (b.origAttrs) {
+          opacity[m] = b.origAttrs.opacity[m];
+          for (let k = 0; k < 3; k++) scales[m * 3 + k] = b.origAttrs.scales[m * 3 + k];
+        }
+      }
+      if (!moved && alive === b.alive[i] && !attr) continue;
       if (!Number.isFinite(P[i * 3]) || !Number.isFinite(P[i * 3 + 1]) || !Number.isFinite(P[i * 3 + 2])) return -1;
       c.set(P[i * 3], P[i * 3 + 1], P[i * 3 + 2]);
       sc.set(scales[m * 3], scales[m * 3 + 1], scales[m * 3 + 2]);
@@ -363,6 +431,7 @@ const SparkGaussianView = (() => {
       b.alive[i] = alive;
       written++;
     }
+    b.attrVersion = state.attrVersion || 0;
     if (written) {
       splats.needsUpdate = true;
       _mesh.updateVersion?.();
@@ -441,6 +510,10 @@ const SparkGaussianView = (() => {
       console.warn('[FUMOCA] in-place Spark update failed; rebuilding instead', error);
       _built = null;
     }
+    // The editor holds a different number of splats than Spark's source file:
+    // a scan was just added and the joined file is on its way (rebase). Wait
+    // for it instead of failing — two failures used to switch Photoreal off.
+    if (_sourceCount() !== state.alive.length) return false;
     _loading = true;
     let ok = false;
     try {
@@ -539,6 +612,32 @@ const SparkGaussianView = (() => {
     return _makeEditedBytes(state);
   }
 
+  /**
+   * Replace the source Gaussian file (after splats were added or rebuilt in
+   * Studio — e.g. a linked second scan) and redraw from it, keeping Spark on.
+   */
+  async function rebase(bytes, state = window.S) {
+    if (!bytes) return false;
+    const u8 = bytes instanceof Uint8Array ? new Uint8Array(bytes) : new Uint8Array(bytes);
+    if (!_enabled) return enable({ bytes: u8 });
+    while (_loading) await new Promise(r => setTimeout(r, 30));
+    _loading = true;
+    try {
+      _originalBytes = u8;
+      if (state) state.gaussianSourceBytes = new Uint8Array(u8);
+      window._fumocaLastGaussianBytes = new Uint8Array(u8);
+      _built = null;
+      await loadFromBytes(_makeEditedBytes(state), _lastFileName);
+      _snapshot(_capture(state));
+      _lastStateSignature = _stateSignature(state);
+      _hideLegacy(); _updateSelectionOverlay(state);
+      return true;
+    } catch (error) {
+      console.error('[FUMOCA] Spark rebase failed', error);
+      return false;
+    } finally { _loading = false; }
+  }
+
   function isEnabled() { return _enabled; }
   function getMesh() { return _mesh; }
   function isAvailable() { return true; }
@@ -547,7 +646,19 @@ const SparkGaussianView = (() => {
     if (_spark) { try { _scene()?.remove(_spark); _spark.dispose?.(); } catch (_) {} _spark = null; }
   }
 
-  return { enable, disable, isEnabled, getMesh, isAvailable, loadFromBytes, syncEditorState, refreshEditorState, exportEditedBytes, dispose, setViewFilter };
+  /** Studio splat index → row in the live Spark mesh (−1 when not held). */
+  function getIndexMap() {
+    if (_built?.mesh === _mesh && _built.sToMesh) return _built.sToMesh;
+    const S = window.S, n = _mesh?.packedSplats?.numSplats ?? 0;
+    if (!S?.alive || !n) return null;
+    const map = new Int32Array(S.alive.length).fill(-1); let m = 0;
+    for (let i = 0; i < S.alive.length; i++) if (S.alive[i]) map[i] = m++;
+    return m === n ? map : null;
+  }
+  return { enable, disable, isEnabled, getMesh, isAvailable, loadFromBytes, syncEditorState, refreshEditorState, exportEditedBytes, dispose, setViewFilter, rebase, getIndexMap };
 })();
-window.FumocaSparkGaussian = SparkGaussianView;
-export default SparkGaussianView;
+// One instance per page: the module can be imported under different ?v= cache
+// keys (each is a separate module copy); the first copy wins and later copies
+// hand back the same object, so Studio never talks to two Spark bridges.
+if (!window.FumocaSparkGaussian) window.FumocaSparkGaussian = SparkGaussianView;
+export default window.FumocaSparkGaussian;

@@ -6,8 +6,13 @@ const root = process.cwd();
 const output = path.join(root, "dist-site");
 const MAX_BYTES = 25 * 1024 * 1024;
 
+// Skipped anywhere in the tree.
 const excludedDirs = new Set([
-  ".git", ".wrangler", ".pytest_cache", "node_modules",
+  ".git", ".wrangler", ".pytest_cache", "node_modules"
+]);
+// Skipped only at the top level. Library folders such as
+// vendor/sparkjsdev-spark/2.4.0/dist/ must still be published.
+const excludedTopDirs = new Set([
   "third_party", "engine-next", "test-artifacts",
   "kaggle", "cloudflare", "dist", "dist-site",
   "scripts"
@@ -40,6 +45,7 @@ function copyTree(source, destination) {
     if (entry.isDirectory()) {
       if (
         excludedDirs.has(name) ||
+        (source === root && excludedTopDirs.has(name)) ||
         name.startsWith(".venv") ||
         (name.startsWith(".") && name !== ".well-known")
       ) {
@@ -88,6 +94,18 @@ for (const required of [
   }
 }
 
+
+// Self-hosted 3D libraries: without these the photoreal view, moving parts
+// and physics silently fall back (the server answers with an HTML page).
+for (const lib of [
+  "vendor/sparkjsdev-spark/2.4.0/dist/spark.module.js",
+  "vendor/three/0.180.0/build/three.module.js",
+  "vendor/dimforge-rapier3d-compat/0.21.0/dist/rapier.mjs"
+]) {
+  if (!fs.existsSync(path.join(output, lib))) {
+    throw new Error(`Required 3D library missing from the site: ${lib}`);
+  }
+}
 
 const requiredEngineFiles = [
   ["engine-next/format/NIFSpec.js", "engine-next/format/NIFSpec.js"],

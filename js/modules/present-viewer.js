@@ -1,7 +1,11 @@
 /**
  * Public viewer: restore magazine text + review video from ?present= / localStorage / meta
  */
-import { initMagazineText, importAll as importMagazine } from './present-magazine-text.js?v=20261107-rotationrestore01';
+import { initMagazineText, importAll as importMagazine } from './present-magazine-text.js?v=20261127-layouts01';
+import { restoreFonts } from './present-fonts.js';
+import { filterLayer } from './present-filters.js';
+import inspect from './present-inspect.js';
+import './part-effects.js';   // part sounds (zip, clicks, spray) and perfume mist
 import { initPresentNav, setNavStops } from './present-nav.js';
 
 function b64Json(s) {
@@ -32,6 +36,21 @@ function resolvePresent() {
   } catch { return null; }
 }
 
+/** Hotspots play moving parts, free moves and laces through one api. */
+function installPartsApi() {
+  const by = { by: 'visitor' };
+  window.FumocaParts = {
+    run(id, to) {
+      const x = window._fumocaMotionExtras;
+      if (x?.has?.(String(id))) return x.run(String(id), to, by);
+      return window._fumocaPartAnimator?.run(id, to, by);
+    },
+    list() {
+      return [...(window._fumocaPartAnimator?.list?.() || []).map(p => ({ id: p.id, name: p.name })), ...(window._fumocaMotionExtras?.list?.() || []).map(p => ({ id: p.id, name: p.name }))];
+    },
+  };
+}
+
 export function initPresentViewer() {
   if (!document.querySelector('link[href*="present-unified.css"]') &&
       !document.querySelector('link[href*="present-magazine.css"]')) {
@@ -54,9 +73,20 @@ export function initPresentViewer() {
   let platformApplied = false;
   let rigApplied = false;
   let livingApplied = false;
+  let viewApplied = false;
+  let lightingApplied = false;
+  let partsApplied = false;
+  let extrasApplied = false;
+  let tutorialApplied = false;
+  let tourApplied = false;
+  let fontsApplied = false;
+  let filterApplied = false;
   const tryApply = () => {
     const data = resolvePresent();
     if (!data) return;
+
+    // Uploaded fonts first, so the copy draws in them straight away.
+    if (!fontsApplied && Array.isArray(data.fonts) && data.fonts.length) { fontsApplied = true; restoreFonts(data.fonts).catch(() => {}); }
 
     if (!magazineApplied && Array.isArray(data.magazine) && data.magazine.length) {
       importMagazine(data.magazine);
@@ -78,14 +108,25 @@ export function initPresentViewer() {
         if (poster.composition) window.FumocaPoster.updateComposition(poster.composition);
         window.FumocaPoster.setEnabled(!!poster.enabled);
         posterApplied = true;
+        inspect.mountButton();   // ⛶ Inspect: out of the layout to full screen and back
+        // the viewer's dark focus vignette fights a layout's own look (it turns
+        // into a white blob on light paper): only show it with no layout on
+        const syncVignette = () => { const fo = document.getElementById('focusOverlay'); if (fo) fo.style.display = window.FumocaPoster?.getState?.()?.enabled ? 'none' : ''; };
+        syncVignette(); window.addEventListener('fumoca:posterChange', syncVignette);
         console.info('[present-viewer] poster composition restored', poster.preset || 'product');
       } catch (error) {
         console.warn('[present-viewer] poster composition could not be restored', error);
       }
     }
 
+    // Camera filter (and tap-to-reveal real colour) once the 3D canvas exists.
+    if (!filterApplied && data.filter && data.filter.id && data.filter.id !== 'none' && (window._fumocaViewerRenderer || document.querySelector('canvas'))) {
+      filterApplied = true;
+      setTimeout(() => { try { filterLayer().set(data.filter); } catch (error) { console.warn('[present-viewer] filter', error); } }, 400);
+    }
+
     // Presentation platform saved in Studio (base + logo + turntable).
-    if (!platformApplied && data.platform?.enabled && window._fumocaPublishedSparkGroup) {
+    if (!platformApplied && data.platform?.enabled && !data.tour?.enabled && window._fumocaPublishedSparkGroup) {   // buildings are not put on a turntable
       platformApplied = true;
       import('./platform-viewer.js')
         .then(m => m.restorePlatform(data.platform))
@@ -100,6 +141,96 @@ export function initPresentViewer() {
         .then(([THREE, m]) => m.restoreRigOnViewer(THREE, window._fumocaPublishedSparkMesh, data.rig))
         .then(driver => { if (driver) { window._fumocaRigDriver = driver; console.info('[present-viewer] rig motion playing'); } })
         .catch(error => { console.warn('[present-viewer] rig could not be restored', error); });
+    }
+
+    // How it's viewed (start view, zoom limits, locks, spin) + embed URL overrides.
+    // (a building tour drives the camera itself: no spin, no product view settings)
+    // (needs the camera only — locks hold on every renderer, not just Spark)
+    if (!viewApplied && !data.tour?.enabled && window._fumocaViewerCamera && window._fumocaViewerControls) {
+      viewApplied = true;
+      Promise.all([import('three'), import('./view-settings.js')]).then(([THREE, m]) => {
+        const settings = m.viewSettingsFromUrl(location.search, m.normalizeViewSettings(data.view));
+        if (!settings) return;
+        window._fumocaViewController?.dispose?.();
+        const vc = new m.ViewController(THREE, window._fumocaViewerCamera, window._fumocaViewerControls, settings,
+          { domElement: window._fumocaViewerRenderer?.domElement || window._fumocaPublishedSpark?.renderer?.domElement || null,
+            getControls: () => window._fumocaViewerControls, getCamera: () => window._fumocaViewerCamera });
+        // let the first auto-framing settle, then take over
+        setTimeout(() => { vc.apply(); window._fumocaViewController = vc; }, settings.startView ? 0 : 2300);
+      }).catch(error => console.warn('[present-viewer] view settings failed', error));
+    }
+
+    // Lighting & shadow saved in Studio's Look tab.
+    if (!lightingApplied && data.lighting?.enabled && window._fumocaPublishedSparkMesh) {
+      lightingApplied = true;
+      Promise.all([import('three'), import('./splat-lighting.js')])
+        .then(([THREE, m]) => m.applyLightingOnViewer(THREE, window._fumocaPublishedSparkMesh, data.lighting))
+        .then(l => { if (l) { window._fumocaLighting = l; console.info('[present-viewer] lighting applied'); } })
+        .catch(error => console.warn('[present-viewer] lighting failed', error));
+    }
+
+    // Moving parts (doors, lids, caps…) driven by hotspots.
+    if (!partsApplied && Array.isArray(data.parts) && data.parts.length && window._fumocaPublishedSparkMesh) {
+      partsApplied = true;
+      Promise.all([import('three'), import('./part-animator.js')])
+        .then(([THREE, m]) => m.restorePartsOnViewer(THREE, window._fumocaPublishedSparkMesh, data.parts))
+        .then(a => {
+          if (!a) return;
+          window._fumocaPartAnimator = a;
+          installPartsApi();
+          // Linked insides (cabin, rooms, inside a fridge) fade in as their doors open.
+          if (Array.isArray(data.links) && data.links.length) {
+            return Promise.all([import('three'), import('./scan-link.js')]).then(([THREE, sl]) => {
+              window._fumocaInsideReveal = new sl.InsideReveal(THREE, window._fumocaPublishedSparkMesh, a, data.links);
+            });
+          }
+        })
+        .catch(error => console.warn('[present-viewer] moving parts failed', error));
+    }
+
+    // Free moves (animate anything) and shoe laces, played by hotspots or by themselves.
+    if (!extrasApplied && ((Array.isArray(data.freeMoves) && data.freeMoves.length) || (Array.isArray(data.laces) && data.laces.length)) && window._fumocaPublishedSparkMesh) {
+      extrasApplied = true;
+      Promise.all([import('three'), import('./motion-extras.js')])
+        .then(([THREE, m]) => m.restoreExtrasOnViewer(THREE, window._fumocaPublishedSparkMesh, data))
+        .then(x => { if (x) { window._fumocaMotionExtras = x; installPartsApi(); } })
+        .catch(error => console.warn('[present-viewer] free moves / laces failed', error));
+    }
+
+    // House / building tour: dollhouse, floor plan, walk-through (no flipping).
+    if (!tourApplied && data.tour?.enabled && window._fumocaViewerCamera && window._fumocaPublishedSparkMesh) {
+      tourApplied = true;
+      Promise.all([import('three'), import('./tour-mode.js'), import('./splat-rig-driver.js')]).then(async ([THREE, m, rig]) => {
+        const mesh = window._fumocaPublishedSparkMesh;
+        if (mesh.initialized) await mesh.initialized;
+        const rest = rig.readRest(mesh);
+        mesh.updateMatrixWorld(true);
+        // world-space positions for picking the floor
+        const P = new Float32Array(rest.positions.length), v = new THREE.Vector3();
+        for (let i = 0; i < rest.count; i++) { v.set(rest.positions[i * 3], rest.positions[i * 3 + 1], rest.positions[i * 3 + 2]).applyMatrix4(mesh.matrixWorld); P[i * 3] = v.x; P[i * 3 + 1] = v.y; P[i * 3 + 2] = v.z; }
+        const ctrl = new m.TourController(data.tour, {
+          THREE, camera: window._fumocaViewerCamera, controls: window._fumocaViewerControls,
+          dom: window._fumocaViewerRenderer?.domElement, parent: window._fumocaViewerScene || mesh.parent, mesh,
+          positions: P, count: rest.count, accept: (i) => rest.opacity[i] >= 0.3,
+          host: window._fumocaViewerRenderer?.domElement?.parentElement,
+        });
+        // a building doesn't spin
+        if (window._fumocaViewController) { window._fumocaViewController.s.spin = 0; }
+        ctrl.setMode(m.normalizeTour(data.tour).start);
+        window._fumocaTour = ctrl;
+      }).catch(error => console.warn('[present-viewer] tour failed', error));
+    }
+
+    // Product guide: "How it works" button and step-by-step player.
+    if (!tutorialApplied && data.tutorial?.steps?.length && window._fumocaViewerCamera && window._fumocaPublishedSparkMesh) {
+      tutorialApplied = true;
+      Promise.all([import('three'), import('./tutorial.js'), import('./hotspot-actions.js')]).then(([THREE, m, actions]) => {
+        const host = window._fumocaViewerRenderer?.domElement?.parentElement;
+        window._fumocaTutorial = m.mountTutorialOnViewer(THREE, data.tutorial, {
+          camera: window._fumocaViewerCamera, controls: window._fumocaViewerControls, host,
+          parent: window._fumocaPublishedSparkMesh, runAction: (a) => actions.runAction(a),
+        });
+      }).catch(error => console.warn('[present-viewer] guide failed', error));
     }
 
     // Living photo: gentle camera motion saved in Studio.
@@ -143,6 +274,13 @@ export function initPresentViewer() {
       rigApplied = false;
       window._fumocaLivingMotion?.dispose?.(); window._fumocaLivingMotion = null;
       livingApplied = false;
+      window._fumocaViewController?.dispose?.(); window._fumocaViewController = null; viewApplied = false;
+      window._fumocaLighting?.dispose?.(); window._fumocaLighting = null; lightingApplied = false;
+      window._fumocaInsideReveal?.dispose?.(); window._fumocaInsideReveal = null;
+      window._fumocaPartAnimator?.dispose?.(); window._fumocaPartAnimator = null; partsApplied = false;
+      window._fumocaMotionExtras?.stopAutoplay?.(); window._fumocaMotionExtras?.dispose?.(); window._fumocaMotionExtras = null; extrasApplied = false;
+      window._fumocaTour?.dispose?.(); window._fumocaTour = null; tourApplied = false;
+      window._fumocaTutorial?.player?.dispose?.(); window._fumocaTutorial?.button?.remove?.(); window._fumocaTutorial = null; tutorialApplied = false;
       tryApply();
     },
   };

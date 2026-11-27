@@ -12,8 +12,8 @@ import { readNifInteractiveManifest } from './nif-interactive-loader.js';
 import { chooseRenderMode, solidPointScale } from './industry-math.js';
 import './adaptive-presentation.js';
 import './poster-composer.js';
-import './poster-viewport.js?v=20261106-backgroundlayers01';
-import './poster-assets.js?v=20261106-layercontrols02';
+import './poster-viewport.js?v=20261127-remount01';
+import './poster-assets.js?v=20261108-edgeanchor02';
 import { advancePosterMotionPhase, applyPosterLiveTransform, applyPosterMotionRotation, posterMotionSpeed } from './poster-live-transform.js';
 let _fumocaPosterStateCache = null;
 window.addEventListener('fumoca:posterChange', (event) => {
@@ -1344,6 +1344,8 @@ function rebuildStageHost() {
     stageEl.appendChild(next);
   }
   stageHost = next;
+  // poster layers (background, frame, title) re-attach to the new host
+  window.dispatchEvent(new CustomEvent('fumoca:stageHostRebuilt'));
 }
 async function destroyViewer() {
   const instance = viewerInstance;
@@ -2012,10 +2014,7 @@ async function mountPublishedSparkPly(url) {
   _plyRenderer.setClearColor(0x000000, 0);
   Object.assign(_plyRenderer.domElement.style, { position:'absolute', inset:'0', width:'100%', height:'100%', zIndex:'2' });
   container.appendChild(_plyRenderer.domElement);
-  _publishedSparkRenderer = new SparkRenderer({
-    renderer: _plyRenderer, autoUpdate: true, maxStdDev: Math.sqrt(6),
-    preBlurAmount: 0, blurAmount: 0, focalAdjustment: 1.5, sortRadial: false
-  });
+  _publishedSparkRenderer = new SparkRenderer(((await import('./spark-preset.js').catch(() => null))?.sparkOptions || ((o = {}) => ({ maxStdDev: Math.sqrt(8), preBlurAmount: 0.3, blurAmount: 0, focalAdjustment: 1, sortRadial: false, ...o })))({ renderer: _plyRenderer, autoUpdate: true }));
   _plyScene.add(_publishedSparkRenderer);
   _publishedSparkMesh = new SplatMesh({ fileBytes: bytes, fileName: 'published-edited.ply', enableLod: false });
   _publishedSparkMesh.name = 'fumoca-published-spark-splat';
@@ -2387,6 +2386,8 @@ if (cam) {
   try { document.body.classList.add('product-free-orbit'); } catch (_) {}
 
   const fitSubjectInView = () => {
+    // A view saved in Studio ("how it's viewed") wins over auto-framing.
+    if (window._fumocaViewSettings?.startView) return;
     try {
       const pos = activeGaussianPositions;
       if (!pos || pos.length < 24 || !cam?.position || !controls?.target) return;
@@ -2428,10 +2429,16 @@ if (cam) {
         if (typeof cam.updateProjectionMatrix === 'function') cam.updateProjectionMatrix();
       }
 
-      // Published Spark splats must remain zoomable beyond the default fit range.
-      // Do not let this delayed auto-fit routine reintroduce distance clamps.
-      if ('minDistance' in controls) controls.minDistance = 0;
-      if ('maxDistance' in controls) controls.maxDistance = Infinity;
+      // Published Spark splats must remain zoomable beyond the default fit range,
+      // unless the owner set zoom limits in Studio (view settings).
+      const vs = window._fumocaViewSettings;
+      if (vs) {
+        const d = cam.position.distanceTo ? cam.position.distanceTo(controls.target) : null;
+        if (d) { controls.minDistance = d * vs.zoomMin; controls.maxDistance = d * vs.zoomMax; }
+      } else {
+        if ('minDistance' in controls) controls.minDistance = 0;
+        if ('maxDistance' in controls) controls.maxDistance = Infinity;
+      }
       try {
         if (cam && cam.near != null) {
           cam.near = Math.min(Number(cam.near) || 0.1, 0.005);
@@ -2514,7 +2521,7 @@ if (cam) {
     const tick = () => {
       try {
         if (controls.autoRotate) controls.autoRotate = false;
-        if (controls.enablePan) controls.enablePan = false;
+        if (controls.enablePan && !window._fumocaViewSettings?.allowPan) controls.enablePan = false;
         if (typeof controls.update === 'function') controls.update();
       } catch (_) {}
       window._fumocaOrbitDampRaf = requestAnimationFrame(tick);

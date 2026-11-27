@@ -2,7 +2,7 @@ window._fumocaUseHotspotPro = true;
 
 import * as THREE from 'three';
 import { safeHttpUrl, safeMediaUrl } from './safe-url.js';
-import { renderActionButtons } from './hotspot-actions.js';
+import { renderActionButtons, runAction } from './hotspot-actions.js';
 import { authorPartToggle } from './nif-part-toggle.js';
 
 const hotspotLayer = document.getElementById('hotspotLayer');
@@ -445,6 +445,13 @@ function normalizeHotspot(h, index = 0) {
     autoplayAudio: !!(h?.audioAutoplay ?? h?.autoplayAudio ?? action.audioAutoplay ?? false),
     openLinkOnActivate: !!(h?.openLinkOnActivate ?? action.openLinkOnActivate ?? false),
     presenterNotes: h?.presenterNotes || action.presenterNotes || '',
+    // Hover preview (desktop): a close-up photo / note shown on hover, e.g. a scratch or a detail
+    hoverImage: typeof h?.hoverImage === 'string' ? h.hoverImage : '',
+    hoverText: typeof h?.hoverText === 'string' ? h.hoverText.slice(0, 280) : '',
+    // Voice-over for guided tours: the tour waits for it to finish
+    narrationUrl: typeof h?.narrationUrl === 'string' ? h.narrationUrl : '',
+    // Run the experience actions (open door, light switch…) as soon as the hotspot is clicked
+    autoRunActions: !!h?.autoRunActions,
     action,
   };
 }
@@ -1088,6 +1095,10 @@ function activateHotspot(h) {
   if (rx.pulse) startScenePulse(h);
 
   if (rx.audio && h.audioUrl) playHotspotAudio(h);
+  if (h.autoRunActions && Array.isArray(h.actions)) {
+    for (const a of h.actions) if (a?.action && (a.fromExperience || a.auto)) runAction(a.action, { hotspot: h }).catch?.(() => {});
+  }
+  if (h.narrationUrl && state.tourActive) _playNarration(h);
 
   if (h.type === 'reveal' && h.revealTarget) {
     window.dispatchEvent(new CustomEvent('fumoca:reveal', { detail: { target: h.revealTarget, hotspot: h } }));
@@ -1268,10 +1279,44 @@ function renderHotspots() {
     el.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
+      _hideHoverCard();
       activateHotspot(h);
     });
+    if (h.hoverImage || h.hoverText) {
+      el.addEventListener('pointerenter', (e) => { if (e.pointerType !== 'touch') _showHoverCard(h, el); });
+      el.addEventListener('pointerleave', _hideHoverCard);
+      el.addEventListener('focus', () => _showHoverCard(h, el));
+      el.addEventListener('blur', _hideHoverCard);
+    }
     hotspotLayer.appendChild(el);
   }
+}
+
+// Hover preview card: a close-up image / short note next to the hotspot.
+let _hoverCard = null;
+function _showHoverCard(h, anchor) {
+  if (!_hoverCard) {
+    _hoverCard = document.createElement('div');
+    _hoverCard.className = 'fumoca-hover-card';
+    _hoverCard.setAttribute('role', 'tooltip');
+    Object.assign(_hoverCard.style, {
+      position: 'fixed', zIndex: 60, pointerEvents: 'none', maxWidth: '260px', borderRadius: '14px', overflow: 'hidden',
+      background: 'rgba(10,12,16,.92)', border: '1px solid rgba(255,255,255,.12)', boxShadow: '0 18px 40px rgba(0,0,0,.45)',
+      color: '#fff', font: '500 12px/1.45 system-ui, sans-serif', opacity: '0', transform: 'translateY(4px)',
+      transition: 'opacity .16s ease, transform .16s ease', backdropFilter: 'blur(8px)',
+    });
+    document.body.appendChild(_hoverCard);
+  }
+  const img = safeMediaUrl ? safeMediaUrl(h.hoverImage) : '';
+  _hoverCard.innerHTML = `${img ? `<img src="${escapeHtml(img)}" alt="" style="display:block;width:100%;max-height:200px;object-fit:cover">` : ''}` +
+    `<div style="padding:10px 12px"><div style="font-weight:700;margin-bottom:2px">${escapeHtml(h.title || '')}</div>${h.hoverText ? `<div style="opacity:.8">${escapeHtml(h.hoverText)}</div>` : ''}</div>`;
+  const r = anchor.getBoundingClientRect();
+  const left = Math.min(window.innerWidth - 270, r.right + 10), top = Math.max(10, Math.min(window.innerHeight - 260, r.top - 20));
+  _hoverCard.style.left = `${left}px`; _hoverCard.style.top = `${top}px`;
+  requestAnimationFrame(() => { _hoverCard.style.opacity = '1'; _hoverCard.style.transform = 'translateY(0)'; });
+}
+function _hideHoverCard() {
+  if (_hoverCard) { _hoverCard.style.opacity = '0'; _hoverCard.style.transform = 'translateY(4px)'; }
 }
 
 function _gotoTourIndex(idx) {
@@ -1306,6 +1351,7 @@ function prevHotspot() {
 
 function stopTour() {
   state.tourActive = false;
+  try { _narration.audio?.pause(); } catch (_) {}
   if (state.tourTimer) clearTimeout(state.tourTimer);
   state.tourTimer = null;
   window.dispatchEvent(new CustomEvent('fumoca:tourStopped'));
@@ -1321,8 +1367,32 @@ function _advanceTour() {
     return;
   }
   state.tourIndex = (state.tourIndex + 1) % state.hotspots.length;
-  activateHotspot(state.hotspots[state.tourIndex]);
-  state.tourTimer = setTimeout(_advanceTour, state.tourDelay);
+  const h = state.hotspots[state.tourIndex];
+  activateHotspot(h);
+  // With a voice-over, move on when the narration ends (never before the usual stop time).
+  if (h.narrationUrl && _narration.audio) {
+    const started = Date.now();
+    _narration.audio.onended = () => {
+      const wait = Math.max(600, state.tourDelay * 0.5 - (Date.now() - started));
+      if (state.tourActive) state.tourTimer = setTimeout(_advanceTour, wait);
+    };
+    _narration.audio.onerror = () => { if (state.tourActive) state.tourTimer = setTimeout(_advanceTour, state.tourDelay); };
+  } else {
+    state.tourTimer = setTimeout(_advanceTour, state.tourDelay);
+  }
+}
+
+const _narration = { audio: null };
+function _playNarration(h) {
+  try {
+    _narration.audio?.pause();
+    const url = safeHttpUrl(h.narrationUrl);
+    if (!url) return;
+    const a = new Audio(url);
+    a.preload = 'auto';
+    _narration.audio = a;
+    a.play().catch(() => {});
+  } catch (_) {}
 }
 
 function startTour() {
@@ -1446,6 +1516,25 @@ async function commitHotspotEditor() {
     state.draft.mediaImage = mediaImage;
     state.draft.audioUrl = audioUrl;
 
+    // Interactive experience
+    state.draft.hoverImage = form.querySelector('[name="hoverImage"]')?.value?.trim() || '';
+    state.draft.hoverText = (form.querySelector('[name="hoverText"]')?.value || '').trim().slice(0, 280);
+    state.draft.narrationUrl = form.querySelector('[name="narrationUrl"]')?.value?.trim() || '';
+    state.draft.autoRunActions = !!form.querySelector('[name="autoRunActions"]')?.checked;
+    const exp = form.querySelector('[name="experience"]')?.value || '';
+    const expLabel = (form.querySelector('[name="experienceLabel"]')?.value || '').trim().slice(0, 40);
+    const kept = (Array.isArray(state.draft.actions) ? state.draft.actions : []).filter(a => !a?.fromExperience);
+    if (exp) {
+      const [kind, ...rest] = exp.split(':'); const ref = rest.join(':');
+      const action = kind === 'part' ? { type: 'part', partId: ref, to: 'toggle' }
+        : kind === 'lamp' ? { type: 'lighting', lampId: ref, to: 'toggle' }
+        : { type: 'lighting', mood: ref };
+      const icon = kind === 'part' ? '🚪' : kind === 'lamp' ? '💡' : '🎨';
+      const opt = _experienceOptions().find(o => o.v === exp);
+      kept.push({ id: 'exp_' + Date.now().toString(36), fromExperience: true, icon, label: expLabel || opt?.l || 'Interact', action });
+    }
+    state.draft.actions = kept;
+
     // Custom flags (only meaningful when reaction === custom, but always stored)
     state.draft.flyOnActivate = !!form.querySelector('[name="flyOnActivate"]')?.checked;
     state.draft.showCard = !!form.querySelector('[name="showCard"]')?.checked;
@@ -1501,6 +1590,43 @@ async function commitHotspotEditor() {
   await saveRemote();
   activateHotspot(normalized);
   track('hotspot_saved', { id: normalized.id, type: normalized.type, reaction: normalized.reaction, isNew: existingIdx < 0 });
+}
+
+// Interactive experience fields: open a part, flip a light switch, set a mood,
+// hover close-ups and a voice-over for guided tours.
+function _experienceOptions() {
+  const opts = [{ v: '', l: 'Nothing extra' }];
+  for (const p of window.FumocaParts?.list?.() || []) opts.push({ v: 'part:' + p.id, l: `Open / close: ${p.name}` });
+  const lamps = window.FumocaLook?.lamps?.() || window._fumocaLighting?.settings?.lamps || [];
+  for (const l of lamps) opts.push({ v: 'lamp:' + l.id, l: `Light switch: ${l.name}` });
+  for (const [k, label] of [['natural', 'Natural'], ['golden', 'Golden hour'], ['studio', 'Studio softbox'], ['night', 'Moonlit night'], ['neon', 'Neon'], ['noir', 'Noir'], ['sunsetRim', 'Sunset rim'], ['product', 'Clean product']])
+    opts.push({ v: 'mood:' + k, l: `Mood: ${label}` });
+  return opts;
+}
+function _experienceFieldsHtml(h) {
+  const current = (h.actions || []).find(a => a?.fromExperience)?.action;
+  const sel = current?.type === 'part' ? 'part:' + current.partId : current?.type === 'lighting' ? (current.lampId ? 'lamp:' + current.lampId : 'mood:' + current.mood) : '';
+  const input = 'width:100%;padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.35);color:#fff;font-size:13px;';
+  return `
+    <div style="display:grid;gap:8px;padding:10px;border-radius:12px;border:1px solid rgba(200,255,0,.18);background:rgba(200,255,0,.03)">
+      <div style="font-size:11px;color:#c8ff00;font-weight:700">Interactive experience</div>
+      <label style="display:grid;gap:4px;font-size:11px;color:rgba(255,255,255,.55);">When clicked, also…
+        <select name="experience" style="${input}">${_experienceOptions().map(o => `<option value="${escapeHtml(o.v)}" ${o.v === sel ? 'selected' : ''}>${escapeHtml(o.l)}</option>`).join('')}</select>
+      </label>
+      <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:rgba(255,255,255,.8);"><input type="checkbox" name="autoRunActions" ${h.autoRunActions ? 'checked' : ''}> Do it straight away (otherwise visitors get a button)</label>
+      <label style="display:grid;gap:4px;font-size:11px;color:rgba(255,255,255,.55);">Button label
+        <input name="experienceLabel" value="${escapeHtml((h.actions || []).find(a => a?.fromExperience)?.label || '')}" placeholder="e.g. Open driver door · Lights on · Start engine" style="${input}">
+      </label>
+      <label style="display:grid;gap:4px;font-size:11px;color:rgba(255,255,255,.55);">Hover close-up image (shows when the pointer rests on the hotspot)
+        <input name="hoverImage" value="${escapeHtml(h.hoverImage || '')}" placeholder="https://…/close-up.jpg" style="${input}">
+      </label>
+      <label style="display:grid;gap:4px;font-size:11px;color:rgba(255,255,255,.55);">Hover note
+        <input name="hoverText" maxlength="280" value="${escapeHtml(h.hoverText || '')}" placeholder="e.g. Small scratch on the rear bumper" style="${input}">
+      </label>
+      <label style="display:grid;gap:4px;font-size:11px;color:rgba(255,255,255,.55);">Voice-over for the guided tour (the tour waits for it)
+        <input name="narrationUrl" value="${escapeHtml(h.narrationUrl || '')}" placeholder="https://…/voiceover-kitchen.mp3" style="${input}">
+      </label>
+    </div>`;
 }
 
 function _editorFormHtml(h) {
@@ -1597,6 +1723,7 @@ function _editorFormHtml(h) {
           <input name="audioUrl" value="${escapeHtml(h.audioUrl || '')}" placeholder="https://…/clip.mp3"
             style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.12);background:rgba(0,0,0,.35);color:#fff;font-size:13px;">
         </label>
+        ${_experienceFieldsHtml(h)}
         <div class="panel-actions" style="margin-top:4px;display:flex;gap:8px;flex-wrap:wrap;">
           <button type="button" class="e-btn e-btn-acid" id="hsEditorSave">${isNew ? 'Create hotspot' : 'Save changes'}</button>
           <button type="button" class="e-btn e-btn-ghost" id="hsEditorCancel">Cancel</button>

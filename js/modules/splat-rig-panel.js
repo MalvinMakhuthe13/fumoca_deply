@@ -4,7 +4,7 @@
  * are saved with the NIF and play back in the public viewer.
  */
 import * as THREE from 'three';
-import { TEMPLATES, PRESETS_FOR, presetClip, normalizeClip, sampleClip, solvePose, posedJoints, qFromEulerDeg, qIdentity } from './splat-rig.js';
+import { TEMPLATES, PRESETS_FOR, presetClip, normalizeClip, sampleClip, sampleRoot, solvePose, posedJoints, qFromEulerDeg, qIdentity } from './splat-rig.js';
 import { SplatRigDriver, fitTemplate, uprightFrame, poseToLocal, normalizeRigState, readRest } from './splat-rig-driver.js';
 
 const EPS = 1e-6;
@@ -52,6 +52,9 @@ export function mountSplatRigPanel(container, { onStatus } = {}) {
           <button type="button" class="ac-btn" id="rigKey" style="flex:1" title="Save the current pose as a keyframe at this time">◆ Add key</button>
           <button type="button" class="ac-btn" id="rigClear" style="flex:1">Clear</button>
         </div>
+        <div class="hint" style="margin-top:8px">Move the whole object (key it like a bone pose):</div>
+        <div id="rigRoot"></div>
+        <label style="display:flex;gap:6px;align-items:center;font-size:11px;margin-top:6px"><input type="checkbox" id="rigGround" checked> Ground collision — never sink through the floor</label>
         <div class="ctrl-row" style="margin-top:6px"><span class="ctrl-label">Time</span><span class="ctrl-val" id="rigTimeVal">0.00 s</span></div>
         <input type="range" id="rigTime" min="0" max="2" step="0.01" value="0" style="width:100%">
         <div class="ctrl-row"><span class="ctrl-label">Length</span><span class="ctrl-val" id="rigDurVal">2.0 s</span></div>
@@ -70,11 +73,14 @@ export function mountSplatRigPanel(container, { onStatus } = {}) {
   let rig = null, clip = null, speed = 1, autoplay = true, time = 0;
   let driver = null, overlay = null, bounds = null, selected = 0;
   const manual = {};          // bone → [ex, ey, ez] degrees (upright frame)
+  let manualRoot = [0, 0, 0]; // whole-object offset (upright frame)
+  let ground = true;
   let weightTimer = 0;
 
   const sparkMesh = () => window.FumocaSparkGaussian?.isEnabled?.() ? window.FumocaSparkGaussian.getMesh?.() : null;
   const manualPose = () => Object.fromEntries(Object.entries(manual).map(([b, e]) => [b, qFromEulerDeg(...e)]));
-  const currentPose = () => ({ ...(clip ? sampleClip(clip, time) : {}), ...manualPose() });
+  const currentRoot = () => (clip ? sampleRoot(clip, time) : [0, 0, 0]).map((v, i) => v + manualRoot[i]);
+  const currentPose = () => ({ ...(clip ? sampleClip(clip, time) : {}), ...manualPose(), __root: clip ? sampleRoot(clip, time) : [0, 0, 0] });
 
   function uprightBounds(rest, frame) {
     const n = rest.count, step = Math.max(1, Math.floor(n / 40000));
@@ -99,7 +105,8 @@ export function mountSplatRigPanel(container, { onStatus } = {}) {
     }
     if (overlay.parent !== mesh) { overlay.parent?.remove(overlay); mesh.add(overlay); }
     overlay.visible = true;
-    const joints = posedJoints(rig, solvePose(rig, poseToLocal(currentPose(), rig.frame)));
+    const inv = [-(rig.frame?.[0] || 0), -(rig.frame?.[1] || 0), -(rig.frame?.[2] || 0), rig.frame?.[3] ?? 1];
+    const joints = posedJoints(rig, solvePose(rig, poseToLocal(currentPose(), rig.frame), rotVec(inv, currentRoot().map((v, i) => v + (i === 1 ? (driver?.lastLift || 0) : 0)))));
     const lp = [], lc = [], pp = [], pc = [];
     joints.forEach((j, i) => {
       const c = i === selected ? [1, 0.85, 0.1] : [0.78, 1, 0];
@@ -127,6 +134,8 @@ export function mountSplatRigPanel(container, { onStatus } = {}) {
     driver.onFrame = (t) => { time = t % (clip?.duration || 1); syncTime(); drawOverlay(); };
     driver.onError = (e) => status('Playback stopped: ' + (e?.message || e));
     driver.manualPose = manualPose();
+    driver.manualRoot = manualRoot;
+    driver.groundCollision = ground;
     if (clip) driver.setClip(clip, speed);
     driver.time = time;
     if (wasPlaying) driver.play(); else apply();
@@ -157,6 +166,13 @@ export function mountSplatRigPanel(container, { onStatus } = {}) {
     q('#rigJoint').innerHTML = ['X', 'Y', 'Z'].map((a, k) => sliderRow('rigJ' + a, a, (bounds.min[k] - span[k] * 0.1).toFixed(4), (bounds.max[k] + span[k] * 0.1).toFixed(4), (span[k] / 400).toFixed(5), head[k].toFixed(4), v => (+v).toFixed(3))).join('');
     const e = manual[bone.name] || [0, 0, 0];
     q('#rigPose').innerHTML = [['X', 'tilt'], ['Y', 'turn'], ['Z', 'swing']].map(([a, l], k) => sliderRow('rigP' + a, `${a} · ${l}`, -180, 180, 1, e[k], v => Math.round(v) + '°')).join('');
+    const size = Math.max(...span);
+    q('#rigRoot').innerHTML = ['X', 'Y', 'Z'].map((a, k) => sliderRow('rigR' + a, a, (-size).toFixed(4), size.toFixed(4), (size / 200).toFixed(5), manualRoot[k].toFixed(4), v => (+v).toFixed(3))).join('');
+    ['X', 'Y', 'Z'].forEach((a, k) => q('#rigR' + a).addEventListener('input', (ev) => {
+      manualRoot[k] = +ev.target.value;
+      q('#rigR' + a + 'Val').textContent = manualRoot[k].toFixed(3);
+      if (driver) { driver.manualRoot = manualRoot; if (!driver.playing) apply(); }
+    }));
     ['X', 'Y', 'Z'].forEach((a, k) => {
       q('#rigJ' + a).addEventListener('input', (ev) => moveJoint(k, +ev.target.value));
       q('#rigP' + a).addEventListener('input', (ev) => {
@@ -207,9 +223,14 @@ export function mountSplatRigPanel(container, { onStatus } = {}) {
   }
 
   // ── actions ──
-  function fit() {
-    const mesh = sparkMesh();
-    if (!mesh) { status('Turn on Photoreal (Spark) first — the rig moves the photoreal splats.'); return; }
+  async function fit() {
+    let mesh = sparkMesh();
+    if (!mesh) {
+      status('Turning Photoreal (Spark) on — the rig moves the photoreal splats…');
+      mesh = await window.FumocaStudioHooks?.ensureSpark?.();
+      if (!mesh) { status('Photoreal (Spark) could not start on this device — the rig needs it.'); return; }
+      await new Promise(r => setTimeout(r, 600));
+    }
     const rest = readRest(mesh);
     if (!rest) { status('The splat is still loading. Try again in a moment.'); return; }
     driver?.reset(); driver = null;
@@ -240,21 +261,31 @@ export function mountSplatRigPanel(container, { onStatus } = {}) {
     const pose = currentPose();
     const tracks = { ...base.tracks };
     const bones = new Set([...Object.keys(manual), ...Object.keys(tracks)]);
-    if (!bones.size) { status('Pose a bone first, then add a key.'); return; }
+    if (!bones.size && !manualRoot.some(v => Math.abs(v) > 1e-9) && !(base.root || []).length) { status('Pose a bone or move the object first, then add a key.'); return; }
     for (const name of bones) {
       const keys = (tracks[name] || []).filter(k => Math.abs(k.t - time) > 1e-3);
       if (!keys.length && time > 0) keys.push({ t: 0, q: qIdentity(), ease: 'ease-in-out' });
       keys.push({ t: time, q: pose[name] || qIdentity(), ease: 'ease-in-out' });
       tracks[name] = keys;
     }
-    clip = normalizeClip({ ...base, name: base.name === 'Custom' ? 'Custom' : base.name + ' (edited)', tracks }, rig);
+    let root = Array.isArray(base.root) ? base.root.slice() : [];
+    if (root.length || manualRoot.some(v => Math.abs(v) > 1e-9)) {
+      const p = currentRoot();
+      root = root.filter(k => Math.abs(k.t - time) > 1e-3);
+      if (!root.length && time > 0) root.push({ t: 0, p: [0, 0, 0], ease: 'ease-in-out' });
+      root.push({ t: time, p, ease: 'ease-in-out' });
+    }
+    clip = normalizeClip({ ...base, name: base.name === 'Custom' ? 'Custom' : base.name + ' (edited)', tracks, root }, rig);
     for (const k of Object.keys(manual)) delete manual[k];
+    manualRoot = [0, 0, 0];
+    if (driver) driver.manualRoot = manualRoot;
     if (driver) { driver.manualPose = {}; driver.setClip(clip, speed); }
     renderAll(); apply(); changed();
     status(`Key added at ${time.toFixed(2)} s.`);
   }
 
   q('#rigFit').addEventListener('click', fit);
+  q('#rigGround').addEventListener('change', (e) => { ground = e.target.checked; if (driver) { driver.groundCollision = ground; if (!driver.playing) apply(); } changed(); });
   q('#rigShowBones').addEventListener('change', drawOverlay);
   q('#rigBone').addEventListener('change', (e) => { selected = +e.target.value; renderBoneControls(); drawOverlay(); });
   q('#rigResetBone').addEventListener('click', () => { delete manual[rig.bones[selected].name]; renderBoneControls(); if (driver) driver.manualPose = manualPose(); apply(); });
@@ -277,7 +308,7 @@ export function mountSplatRigPanel(container, { onStatus } = {}) {
     const d = +e.target.value; q('#rigDurVal').textContent = d.toFixed(1) + ' s';
     if (clip) {
       const f = d / clip.duration;
-      clip = normalizeClip({ ...clip, duration: d, tracks: Object.fromEntries(Object.entries(clip.tracks).map(([b, ks]) => [b, ks.map(k => ({ ...k, t: k.t * f }))])) }, rig);
+      clip = normalizeClip({ ...clip, duration: d, tracks: Object.fromEntries(Object.entries(clip.tracks).map(([b, ks]) => [b, ks.map(k => ({ ...k, t: k.t * f }))])), root: (clip.root || []).map(k => ({ ...k, t: k.t * f })) }, rig);
       driver?.setClip(clip, speed); time = Math.min(time, d);
     }
     q('#rigTime').max = d; syncTime();
@@ -304,7 +335,7 @@ export function mountSplatRigPanel(container, { onStatus } = {}) {
   // ── persistence ──
   function getState() {
     if (!rig) return null;
-    return { version: 1, rig: { ...rig, bones: rig.bones.map(b => ({ ...b })) }, clip, speed, autoplay, splatCount: driver?.rest?.count ?? null };
+    return { version: 1, rig: { ...rig, bones: rig.bones.map(b => ({ ...b })) }, clip, speed, autoplay, ground, splatCount: driver?.rest?.count ?? null };
   }
 
   async function setState(saved) {
@@ -317,6 +348,7 @@ export function mountSplatRigPanel(container, { onStatus } = {}) {
     if (!rest) return false;
     driver?.reset(); driver = null;
     rig = st.rig; clip = st.clip; speed = st.speed; autoplay = st.clip ? st.autoplay : true; time = 0; selected = 0;
+    ground = st.ground; manualRoot = [0, 0, 0]; q('#rigGround').checked = ground;
     bounds = uprightBounds(rest, rig.frame);
     ensureDriver({ rest });
     renderAll(); apply();

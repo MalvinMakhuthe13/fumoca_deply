@@ -149,6 +149,7 @@ function getProfile() {
 }
 
 function fitSphere(center, radius, options = {}) {
+  if (globalThis._fumocaViewSettings?.startView && !options.force) return true;   // saved view wins
   const camera = window._fumocaViewerCamera || state.camera;
   const controls = window._fumocaViewerControls || state.controls;
   if (!camera?.position || !controls?.target || !center) return false;
