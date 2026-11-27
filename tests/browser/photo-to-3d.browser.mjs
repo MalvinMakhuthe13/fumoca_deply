@@ -45,6 +45,7 @@ export class Box3 { setFromObject(){ return this; } getSize(v){ return v; } }
 export const MathUtils = { degToRad: d => d * Math.PI / 180 };`;
 const stubControls = `export class OrbitControls { constructor(){ this.target={ set(){} }; } update(){} }`;
 const stubSpark = `
+if (window.__failSpark) throw new Error('Simulated Spark preview failure');
 export class SparkRenderer { constructor(){} }
 export class SplatMesh { constructor({ fileBytes }) { window.__splatBytes = fileBytes.length; this.initialized = Promise.resolve(this); } dispose(){} }`;
 
@@ -117,7 +118,33 @@ try {
   assert.ok(handed.size > 1000, 'Studio receives the PLY bytes');
   assert.equal(handed.again, null, 'hand-off is one-time');
   assert.deepEqual(errors, [], 'no uncaught page errors');
-  console.log('Photo → 3D browser test passed: depth, moving poster, splat PLY, background removal, Studio hand-off.');
+
+  // Spark is an optional preview. If it cannot load, the generated PLY must
+  // still be downloadable and transferable to Studio.
+  const fallbackPage = await browser.newPage({ viewport: { width: 1200, height: 900 } });
+  fallbackPage.on('pageerror', e => errors.push(e.message));
+  await fallbackPage.route(/cdn\\.jsdelivr\\.net\\/npm\\/@huggingface\\/transformers/, r => r.fulfill({ contentType: 'text/javascript', body: stubTransformers }));
+  await fallbackPage.route(/\\/vendor\\/three\\/0\\.180\\.0\\/build\\/three\\.module\\.js$/, r => r.fulfill({ contentType: 'text/javascript', body: stubThree }));
+  await fallbackPage.route(/\\/vendor\\/three\\/0\\.180\\.0\\/examples\\/jsm\\/controls\\/OrbitControls\\.js$/, r => r.fulfill({ contentType: 'text/javascript', body: stubControls }));
+  await fallbackPage.route(/\\/vendor\\/sparkjsdev-spark\\/2\\.4\\.0\\/dist\\/spark\\.module\\.js$/, r => r.fulfill({ contentType: 'text/javascript', body: stubSpark }));
+  await fallbackPage.route(/fonts\\.googleapis|fonts\\.gstatic/, r => r.fulfill({ body: '' }));
+  await fallbackPage.goto(`http://127.0.0.1:${port}/photo-to-3d.html`);
+  await fallbackPage.waitForFunction(() => window.FumocaPhoto3D);
+  await fallbackPage.evaluate(async () => {
+    window.__failSpark = true;
+    const c = document.createElement('canvas'); c.width = 160; c.height = 120;
+    const x = c.getContext('2d'); x.fillStyle = '#0a8f8f'; x.fillRect(0, 0, 160, 120);
+    x.fillStyle = '#ff8800'; x.beginPath(); x.arc(80, 60, 30, 0, Math.PI * 2); x.fill();
+    const blob = await new Promise(r => c.toBlob(r, 'image/png'));
+    await window.FumocaPhoto3D.handleFile(new File([blob], 'fallback.png', { type: 'image/png' }));
+  });
+  await fallbackPage.click('[data-tab="splat"]');
+  await fallbackPage.waitForFunction(() => !document.getElementById('p3DownloadPly').disabled && !document.getElementById('p3OpenStudio').disabled, null, { timeout: 15000 });
+  assert.ok(await fallbackPage.evaluate(() => window.FumocaPhoto3D.plyBytes?.byteLength > 1000), 'PLY remains available without Spark');
+  assert.match(await fallbackPage.locator('#p3Status').textContent(), /preview is unavailable/i);
+  assert.deepEqual(errors, [], 'no uncaught errors when Spark preview is unavailable');
+  await fallbackPage.close();
+  console.log('Photo → 3D browser test passed: depth, moving poster, splat PLY, background removal, Studio hand-off and Spark-preview fallback.');
 } finally {
   if (browser) await browser.close();
   await new Promise(r => server.close(r));
