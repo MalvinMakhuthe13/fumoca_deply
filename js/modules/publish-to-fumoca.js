@@ -61,10 +61,13 @@ const FumocaPublish = (() => {
             });
           } catch (animationError) {
             console.error('[Publish] Could not safely remap native Gaussian animation:', animationError);
-            throw new Error('Publish stopped: the native Gaussian animation could not be safely matched to the edited splats. No asset was uploaded. Reopen the original NIF and review the animation before publishing.');
+            const stop = new Error('Publish stopped: the native Gaussian animation could not be safely matched to the edited splats. No asset was uploaded. Reopen the original NIF and review the animation before publishing.');
+            stop.code = 'FUMOCA_ANIMATION_REMAP_FAILED';
+            throw stop;
           }
         }
       } catch (e) {
+        if (e?.code === 'FUMOCA_ANIMATION_REMAP_FAILED') throw e;
         console.warn('[Publish] Could not read original .nif for passthrough — proceeding without it:', e.message);
       }
     }
