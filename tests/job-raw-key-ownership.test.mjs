@@ -18,6 +18,7 @@ for (const [key, expectedOwner] of privateKeys) {
   assert.equal(canRead(null, 'nif-videos', key).status, 401, 'anonymous cannot read ' + key);
 }
 assert.equal(privateOwner('nif-videos', 'published/demo.mp4'), null, 'non-private public assets remain public');
+assert.equal(privateOwner('nif-videos', owner + '/review/clip.mp4'), null, 'public review videos stay readable through the namespaced path');
 
 const sql = await readFile(new URL('../supabase_migration_job_retry_and_rls.sql', import.meta.url), 'utf8');
 assert.match(sql, /raw_r2_key is not null/);
