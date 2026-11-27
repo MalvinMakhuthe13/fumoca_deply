@@ -219,6 +219,7 @@ const FumocaPublish = (() => {
     let sourcePlyBytes = window.S?.gaussianSourceBytes || window._fumocaLastGaussianBytes || null;
     const sourceName = String(window.S?.fileName || '').toLowerCase();
     const isGaussianPly = !!window.S?.isGaussianPly;
+    const isLegacySplat = window.S?.fileType === 'splat' || sourceName.endsWith('.splat');
 
     if (isGaussianPly) {
       if (!window.FumocaSparkGaussian?.isEnabled?.()) {
@@ -234,12 +235,25 @@ const FumocaPublish = (() => {
         console.error('[Publish] Edited Gaussian export failed; refusing a degraded publish:', err);
         throw new Error('High-fidelity publish stopped because the edited Gaussian PLY could not be exported. Nothing was registered; reload the editor and try again.');
       }
+    } else if (isLegacySplat) {
+      // Legacy .splat files are editable/renderable in Spark but cannot be
+      // round-tripped by Spark's binary-PLY editor bridge. Encode the live
+      // Studio arrays (including deletions and edits) as a Gaussian PLY.
+      try {
+        sourcePlyBytes = await window.exportGaussianPlyForPublish?.();
+        if (!(sourcePlyBytes instanceof Uint8Array) || !sourcePlyBytes.byteLength) {
+          throw new Error('Studio did not return a valid Gaussian PLY companion.');
+        }
+        console.info('[Publish] Converted edited .splat state to Spark Gaussian PLY:', sourcePlyBytes.byteLength, 'bytes');
+      } catch (err) {
+        console.error('[Publish] .splat companion conversion failed; refusing a degraded publish:', err);
+        throw new Error('High-fidelity publish stopped because the edited .splat could not be converted to a Spark companion. Nothing was registered; reload the editor and try again.');
+      }
     }
 
-    // Spark's companion endpoint expects a Gaussian PLY, not the legacy
-    // 32-byte .splat row format. Never upload raw .splat bytes with a .ply key.
-    // Legacy .splat assets remain fully publishable through the converted NIF.
-    if (sourcePlyBytes && (isGaussianPly || sourceName.endsWith('.ply'))) {
+    // Only genuine Gaussian PLY companions belong at view_ply_r2_key. A
+    // generic point/mesh PLY is not a Gaussian PLY and must use the NIF path.
+    if (sourcePlyBytes && (isGaussianPly || isLegacySplat)) {
       const viewPath = `${assetPath}/view_${timestamp}.ply`;
       const viewBlob = new Blob([sourcePlyBytes], { type: 'application/octet-stream' });
       const { fileKey: companionKey, error: companionError } = await r2
@@ -251,11 +265,10 @@ const FumocaPublish = (() => {
       }
       viewPlyKey = companionKey;
       console.info('[Publish] Spark companion PLY uploaded:', viewPlyKey);
-    } else if (isGaussianPly) {
-      throw new Error('High-fidelity publish stopped: no Gaussian PLY bytes were available.');
     } else {
       console.info('[Publish] No Gaussian PLY companion required; publishing compatible NIF.');
     }
+
 
     // Upload the converted NIF after its optional high-fidelity companion.
     // This avoids leaving an orphan NIF behind when Gaussian export/upload fails.
