@@ -1347,6 +1347,11 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
             <span class="ctrl-val" id="layerOpacVal">100%</span>
           </div>
           <input type="range" id="layerOpac" min="0" max="100" value="100">
+          <div style="display:flex;gap:6px;margin-top:8px">
+            <button class="ac-btn" id="layerFocusBtn" style="flex:1" title="Turn the view to the selected layer">🎯 Focus</button>
+            <button class="ac-btn" id="layerSoloBtn" style="flex:1" title="Show only the selected layer (click again to show all)">◎ Solo</button>
+          </div>
+          <div class="hint" style="margin-top:6px">Click a layer to select it, then Move / Rotate / Scale it on its own. 🔒 locks a layer so nothing can move or change it. Double-click a name to rename. Double-click a splat in the view to pick its layer.</div>
         </div>
       </div>
     </div>
@@ -2089,6 +2094,8 @@ const studioEditHistory = new UnifiedEditHistory({
     S.nifMeta = snapshot.nifMeta;
     S.layerHidden = snapshot.layerHidden;
     S.layers = snapshot.layers || [];
+    S._lockFreeze = null; _refreshLayerLocks();
+    try { renderLayers(); } catch (_) {}
     S.activeLayerId = snapshot.activeLayerId || null;
     S.measurements = snapshot.measurements || [];
     S.pivot = snapshot.pivot ? new THREE.Vector3(...snapshot.pivot) : null;
@@ -2305,7 +2312,7 @@ function syncTransformGizmo() {
   let x=0,y=0,z=0,n=0;
   const useSelection = S.transformScope === 'selection';
   for (let i = 0; i < count; i++) {
-    if (!S.alive[i] || (useSelection && !S.selected[i])) continue;
+    if (!S.alive[i] || (useSelection && !S.selected[i]) || S.layerLocked?.[i]) continue;
     x += S.positions[i * 3];
     y += S.positions[i * 3 + 1];
     z += S.positions[i * 3 + 2];
@@ -2356,6 +2363,7 @@ function _gizmoCollectIndices() {
   for (let i = 0; i < S.alive.length; i++) {
     if (!S.alive[i]) continue;
     if (useSelection && !(S.selected && S.selected[i])) continue;
+    if (S.layerLocked?.[i]) continue;   // locked layers don't move with the scene
     indices.push(i);
   }
   return indices;
@@ -3339,7 +3347,7 @@ async function loadFile(file, urlOverride) {
     }
   }
   S.paintColors = new Float32Array(parsed.count * 3).fill(-1);
-  S.layers = []; S.activeLayerId = null; S.layerHidden = new Uint8Array(parsed.count);
+  S.layers = []; S.activeLayerId = null; S.layerHidden = new Uint8Array(parsed.count); S.layerLocked = null; S._lockFreeze = null;
   const lidarColorMode = document.getElementById('lidarColorMode');
   if (lidarColorMode) {
     const has = { intensity: !!S.lidarIntensity, classification: !!S.lidarClassification, return: !!S.lidarReturnNumber };
@@ -3573,6 +3581,7 @@ async function loadFile(file, urlOverride) {
 function rebuildGeometry() {
 
   window.rebuildGeometry = rebuildGeometry; // keep window ref up to date
+  if (S._lockFreeze) _enforceLayerLocks();   // locked layers never change
   // Invalidate hotspot point cloud cache so anchors use fresh edited positions
   if (window.FumocaHotspotProCache !== undefined) {
     window.FumocaHotspotProCache = false;
@@ -4014,6 +4023,7 @@ function selectSubjectAtScreen(x, y, radius = 28) {
 
   // Hit in a layer → that subject. Else whole live cloud (single PLY has no layers).
   const layer = (S.layers || []).find(L => L.visible !== false && L.mask?.[best]);
+  if (layer?.locked) { setStatus(`${layer.name} is locked — unlock it in Layers to move it`, 'warn'); return true; }
   S.selected.fill(0);
   if (layer) {
     S.activeLayerId = layer.id;
@@ -6621,6 +6631,51 @@ $('applyColorBtn')?.addEventListener('click', () => {
   rebuildGeometry();drawToneCurve();
   showToast('Color grade applied','The visible points now keep this grade in exports. Undo restores their previous colors.','ok');
 });
+// ─── LAYER LOCKS ─────────────────────────────────────────────────────────────
+// A locked layer is frozen: whatever tool runs (move, rotate, whole-scene,
+// brush, paint, clean-ups, Solidify…), its splats are put back exactly and
+// never stay selected. Done centrally in rebuildGeometry so new tools are
+// covered too.
+const _LOCK_FIELDS = [['positions', 3], ['rotation', 4], ['opacity', 1], ['scaleXYZ', 3], ['scale', 1], ['colors', 3], ['paintColors', 3], ['alive', 1]];
+function _refreshLayerLocks() {
+  const n = S.alive?.length || 0;
+  const locked = new Uint8Array(n); let any = false;
+  (S.layers || []).forEach(L => { if (!L.locked || !L.mask) return; for (let i = 0; i < Math.min(n, L.mask.length); i++) if (L.mask[i]) { locked[i] = 1; any = true; } });
+  if (!any) { S.layerLocked = null; S._lockFreeze = null; return; }
+  const prev = S._lockFreeze, prevAt = new Map();
+  if (prev) prev.idx.forEach((i, k) => prevAt.set(i, k));
+  const idx = []; for (let i = 0; i < n; i++) if (locked[i]) idx.push(i);
+  const freeze = { idx, data: {} };
+  for (const [key, w] of _LOCK_FIELDS) {
+    const src = S[key]; if (!src || typeof src.length !== 'number') continue;
+    const out = new (src.constructor)(idx.length * w);
+    idx.forEach((i, k) => {
+      const pk = prevAt.get(i), old = prev?.data?.[key];
+      for (let j = 0; j < w; j++) out[k * w + j] = (pk !== undefined && old) ? old[pk * w + j] : src[i * w + j];
+    });
+    freeze.data[key] = out;
+  }
+  S.layerLocked = locked; S._lockFreeze = freeze;
+}
+function _enforceLayerLocks() {
+  const f = S._lockFreeze; if (!f || !S.alive) return 0;
+  let restored = 0;
+  for (const [key, w] of _LOCK_FIELDS) {
+    const dst = S[key], src = f.data[key]; if (!dst || !src) continue;
+    f.idx.forEach((i, k) => {
+      if (i * w + w > dst.length) return;
+      for (let j = 0; j < w; j++) if (dst[i * w + j] !== src[k * w + j]) { dst[i * w + j] = src[k * w + j]; restored++; }
+    });
+  }
+  if (S.selected) for (const i of f.idx) if (i < S.selected.length) S.selected[i] = 0;
+  if (restored && !_enforceLayerLocks._warned) {
+    _enforceLayerLocks._warned = true; setTimeout(() => { _enforceLayerLocks._warned = false; }, 2500);
+    setStatus('Locked layers stay as they are — unlock them in Layers to edit', 'warn');
+  }
+  return restored;
+}
+window.FumocaLayerLocks = { refresh: _refreshLayerLocks, enforce: _enforceLayerLocks };
+
 function renderLayers() {
   const list = $('layerList'); if (!list) return;
   list.innerHTML = '';
@@ -6647,8 +6702,29 @@ function renderLayers() {
     const row = document.createElement('div');
     row.className = 'layer-item' + (S.activeLayerId === L.id ? ' active' : '');
     row.dataset.layer = L.id;
-    row.innerHTML = `<div class="layer-icon">${L.icon||'📦'}</div><div class="layer-name">${L.name}</div><span class="layer-vis">${L.visible ? '👁' : '🚫'}</span>`;
+    const safeName = String(L.name || 'Layer').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    row.innerHTML = `<div class="layer-icon">${L.icon||'📦'}</div><div class="layer-name" title="Double-click to rename">${safeName}</div><span class="layer-lock" title="${L.locked ? 'Locked — click to unlock' : 'Lock: nothing can move or change it'}" style="cursor:pointer;padding:0 4px;opacity:${L.locked ? 1 : .45}">${L.locked ? '🔒' : '🔓'}</span><span class="layer-vis">${L.visible ? '👁' : '🚫'}</span>`;
+    if (L.locked) row.style.boxShadow = 'inset 3px 0 0 #f5b301';
+    row.querySelector('.layer-name').addEventListener('dblclick', (e) => {
+      e.stopPropagation();
+      const name = prompt('Layer name', L.name || '');
+      if (!name || !name.trim()) return;
+      S.layers = S.layers.map(x => (x.id === L.id ? { ...x, name: name.trim().slice(0, 60) } : x));
+      renderLayers(); setStatus(`Renamed to “${name.trim().slice(0, 60)}”`, 'ok');
+    });
+    row.querySelector('.layer-lock').addEventListener('click', (e) => {
+      e.stopPropagation();
+      const curL = S.layers.find(x => x.id === L.id) || L;   // undo may have swapped the objects
+      pushHistory(curL.locked ? 'unlock layer' : 'lock layer');
+      const next = { ...curL, locked: !curL.locked };
+      S.layers = S.layers.map(x => (x.id === L.id ? next : x));
+      _refreshLayerLocks();
+      if (next.locked) { for (let i = 0; i < S.selected.length; i++) if (next.mask[i]) S.selected[i] = 0; if (S.activeLayerId === L.id) S.activeLayerId = null; }
+      rebuildGeometry(); renderLayers(); refreshTransformSourceMap(); syncTransformGizmo(); _syncViewportHud();
+      setStatus(next.locked ? `${next.name} is locked — it stays exactly where it is` : `${next.name} unlocked — you can move and edit it`, 'ok');
+    });
     row.addEventListener('click', (e) => {
+      if (L.locked && !e.target.classList.contains('layer-vis')) { setStatus(`${L.name} is locked — click 🔒 to unlock it first`, 'warn'); return; }
       if (e.target.classList.contains('layer-vis')) {
         L.visible = !L.visible;
         S.layerHidden = new Uint8Array(S.alive.length);
@@ -6711,6 +6787,34 @@ function hexToRgb01(hex){
   return [((n>>16)&255)/255, ((n>>8)&255)/255, (n&255)/255];
 }
 
+$('layerFocusBtn')?.addEventListener('click', () => {
+  const L = (S.layers || []).find(x => x.id === S.activeLayerId);
+  if (!L) { setStatus('Click a layer first', 'warn'); return; }
+  const box = new THREE.Box3(), p = new THREE.Vector3(); let n = 0;
+  for (let i = 0; i < L.mask.length; i++) if (L.mask[i] && S.alive[i]) { box.expandByPoint(p.set(S.positions[i*3], S.positions[i*3+1], S.positions[i*3+2])); n++; }
+  if (!n) return;
+  const c = box.getCenter(new THREE.Vector3()), r = Math.max(1e-3, box.getSize(new THREE.Vector3()).length() / 2);
+  const dir = camera.position.clone().sub(controls.target).normalize();
+  controls.target.copy(c); camera.position.copy(c).addScaledVector(dir, r / Math.sin(THREE.MathUtils.degToRad(camera.fov / 2)) * 1.1);
+  camera.updateProjectionMatrix(); controls.update();
+  setStatus(`Focused on ${L.name}`, 'ok');
+});
+$('layerSoloBtn')?.addEventListener('click', () => {
+  const L = (S.layers || []).find(x => x.id === S.activeLayerId);
+  const soloing = (S.layers || []).some(x => x._soloHidden);
+  if (soloing) {
+    S.layers = S.layers.map(x => (x._soloHidden ? { ...x, visible: true, _soloHidden: false } : x));
+  } else {
+    if (!L) { setStatus('Click a layer first', 'warn'); return; }
+    S.layers = S.layers.map(x => (x.id !== L.id && x.visible !== false ? { ...x, visible: false, _soloHidden: true } : x));
+  }
+  S.layerHidden = new Uint8Array(S.alive.length);
+  S.layers.forEach(LL => { if (!LL.visible) for (let i = 0; i < LL.mask.length; i++) if (LL.mask[i]) S.layerHidden[i] = 1; });
+  for (let i = 0; i < S.selected.length; i++) if (S.layerHidden[i]) S.selected[i] = 0;
+  rebuildGeometry(); renderLayers(); syncTransformGizmo(); _syncViewportHud();
+  $('layerSoloBtn').textContent = soloing ? '◎ Solo' : '◎ Show all';
+  setStatus(soloing ? 'Showing every layer' : `Only ${L.name} is showing`, 'ok');
+});
 $('addLayerBtn')?.addEventListener('click', () => {
   if (!S.alive) { showToast('Add Layer', 'Load a file first', 'warn'); return; }
   let n=0; for (let i=0;i<S.selected.length;i++) if (S.selected[i]) n++;
