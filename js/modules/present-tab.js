@@ -113,6 +113,8 @@ function payload() {
     lighting: window.FumocaLook?.getLighting?.() || null,
     view: window.FumocaLook?.getView?.() || null,
     parts: window.FumocaParts?.getParts?.() || [],
+    freeMoves: window.FumocaMotionExtrasStudio?.getFreeMoves?.() || [],
+    laces: window.FumocaMotionExtrasStudio?.getLaces?.() || [],
     tutorial: window.FumocaTutorial?.getTutorial?.() || null,
     links: window.FumocaLinks?.getLinks?.() || [],
     tour: window.FumocaTour?.getTour?.() || null,
@@ -128,6 +130,7 @@ window.addEventListener('fumoca:rigChange', () => { try { persist(); } catch (_)
 window.addEventListener('fumoca:livingChange', () => { try { persist(); } catch (_) {} });
 window.addEventListener('fumoca:lookChange', () => { try { persist(); } catch (_) {} });
 window.addEventListener('fumoca:partsChange', () => { try { persist(); } catch (_) {} });
+window.addEventListener('fumoca:motionExtrasChange', () => { try { persist(); } catch (_) {} });
 window.addEventListener('fumoca:tutorialChange', () => { try { persist(); } catch (_) {} });
 window.addEventListener('fumoca:linksChange', () => { try { persist(); } catch (_) {} });
 window.addEventListener('fumoca:tourChange', () => { try { persist(); } catch (_) {} });

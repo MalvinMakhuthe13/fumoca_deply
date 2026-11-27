@@ -229,7 +229,7 @@ export function refineAlignment(positions, baseIdx, linkIdx, T0, { spacing, iter
 // Point-to-point matching slides along smooth panels (car sides, cabinet faces)
 // and barely corrects a turn. Point-to-plane measures each match along the
 // surface normal, so a turn or shift shows up even on flat, plain surfaces.
-function eig3min(C) {   // smallest eigenvector of a symmetric 3×3 (Jacobi)
+export function eig3min(C) {   // smallest eigenvector of a symmetric 3×3 (Jacobi)
   const a = [[C[0], C[1], C[2]], [C[1], C[4], C[5]], [C[2], C[5], C[8]]], v = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
   for (let sweep = 0; sweep < 30; sweep++) {
     let off = 0; for (let p = 0; p < 3; p++) for (let q = p + 1; q < 3; q++) off += a[p][q] * a[p][q];

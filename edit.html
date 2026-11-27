@@ -16,7 +16,7 @@
 <link rel="stylesheet" href="css/fumoca-layouts.css"/>
 <script type="module" src="js/modules/anim-studio.js"></script>
 <script type="module" src="js/modules/review-video.js?v=20261025-embedcolor"></script>
-<script type="module" src="js/modules/present-tab.js?v=20261127-layouts01"></script>
+<script type="module" src="js/modules/present-tab.js?v=20261127-free01"></script>
 
 <style>
 /* ═══════════════════════════════════════════════════════
@@ -5362,7 +5362,7 @@ function _outlineBar(pts) {
   const y = Math.max(8, Math.min(H - 48, Math.max(...ys) + 18));
   bar.style.left = x + 'px'; bar.style.top = y + 'px'; bar.style.display = 'flex';
 }
-window.FumocaOutline = { finish: finishOutline, cancel: cancelOutline, points: () => S.outlinePts.length };
+window.FumocaOutline = { finish: finishOutline, cancel: cancelOutline, points: () => S.outlinePts.length, dotAt: (x, y) => _outlineDotAt(x, y) };
 window.addEventListener('keydown', e => {
   if (!S.outlinePts?.length || /input|textarea|select/i.test(e.target?.tagName || '')) return;
   if (e.key === 'Enter') { e.preventDefault(); finishOutline(e); }
@@ -8287,8 +8287,11 @@ if (!window._fumocaBooted) {
   // Moving parts (doors, bonnet, caps, recliners) for interactive hotspots.
   const partsRoot = document.getElementById('tab-parts');
   if (partsRoot) {
-    import('./js/modules/parts-panel.js?v=20261127-rec01')
+    import('./js/modules/parts-panel.js?v=20261127-free01')
       .then((m) => m.mountPartsPanel(partsRoot, { onStatus: status }))
+      // free move (animate anything, no part needed) and shoe laces
+      .then(() => import('./js/modules/motion-extras-panel.js?v=20261127-free01'))
+      .then((m) => m.mountMotionExtras(partsRoot, { onStatus: status }))
       .catch((e) => console.warn('[Studio] parts panel', e));
   }
 

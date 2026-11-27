@@ -36,6 +36,21 @@ function resolvePresent() {
   } catch { return null; }
 }
 
+/** Hotspots play moving parts, free moves and laces through one api. */
+function installPartsApi() {
+  const by = { by: 'visitor' };
+  window.FumocaParts = {
+    run(id, to) {
+      const x = window._fumocaMotionExtras;
+      if (x?.has?.(String(id))) return x.run(String(id), to, by);
+      return window._fumocaPartAnimator?.run(id, to, by);
+    },
+    list() {
+      return [...(window._fumocaPartAnimator?.list?.() || []).map(p => ({ id: p.id, name: p.name })), ...(window._fumocaMotionExtras?.list?.() || []).map(p => ({ id: p.id, name: p.name }))];
+    },
+  };
+}
+
 export function initPresentViewer() {
   if (!document.querySelector('link[href*="present-unified.css"]') &&
       !document.querySelector('link[href*="present-magazine.css"]')) {
@@ -61,6 +76,7 @@ export function initPresentViewer() {
   let viewApplied = false;
   let lightingApplied = false;
   let partsApplied = false;
+  let extrasApplied = false;
   let tutorialApplied = false;
   let tourApplied = false;
   let fontsApplied = false;
@@ -159,7 +175,7 @@ export function initPresentViewer() {
         .then(a => {
           if (!a) return;
           window._fumocaPartAnimator = a;
-          window.FumocaParts = { run: (id, to) => a.run(id, to, { by: 'visitor' }), list: () => a.list().map(p => ({ id: p.id, name: p.name })) };
+          installPartsApi();
           // Linked insides (cabin, rooms, inside a fridge) fade in as their doors open.
           if (Array.isArray(data.links) && data.links.length) {
             return Promise.all([import('three'), import('./scan-link.js')]).then(([THREE, sl]) => {
@@ -168,6 +184,15 @@ export function initPresentViewer() {
           }
         })
         .catch(error => console.warn('[present-viewer] moving parts failed', error));
+    }
+
+    // Free moves (animate anything) and shoe laces, played by hotspots or by themselves.
+    if (!extrasApplied && ((Array.isArray(data.freeMoves) && data.freeMoves.length) || (Array.isArray(data.laces) && data.laces.length)) && window._fumocaPublishedSparkMesh) {
+      extrasApplied = true;
+      Promise.all([import('three'), import('./motion-extras.js')])
+        .then(([THREE, m]) => m.restoreExtrasOnViewer(THREE, window._fumocaPublishedSparkMesh, data))
+        .then(x => { if (x) { window._fumocaMotionExtras = x; installPartsApi(); } })
+        .catch(error => console.warn('[present-viewer] free moves / laces failed', error));
     }
 
     // House / building tour: dollhouse, floor plan, walk-through (no flipping).
@@ -251,6 +276,7 @@ export function initPresentViewer() {
       window._fumocaLighting?.dispose?.(); window._fumocaLighting = null; lightingApplied = false;
       window._fumocaInsideReveal?.dispose?.(); window._fumocaInsideReveal = null;
       window._fumocaPartAnimator?.dispose?.(); window._fumocaPartAnimator = null; partsApplied = false;
+      window._fumocaMotionExtras?.stopAutoplay?.(); window._fumocaMotionExtras?.dispose?.(); window._fumocaMotionExtras = null; extrasApplied = false;
       window._fumocaTour?.dispose?.(); window._fumocaTour = null; tourApplied = false;
       window._fumocaTutorial?.player?.dispose?.(); window._fumocaTutorial?.button?.remove?.(); window._fumocaTutorial = null; tutorialApplied = false;
       tryApply();

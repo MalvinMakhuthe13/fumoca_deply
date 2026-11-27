@@ -73,7 +73,7 @@ export function normalizePart(p) {
 
 export const SOUNDS = ['none', 'click', 'zip', 'spray', 'thunk', 'whoosh'];
 export const MAX_SOUND_BYTES = 1.5 * 1024 * 1024;
-function normalizeSoundFile(f) {
+export function normalizeSoundFile(f) {
   if (!f || typeof f !== 'object' || typeof f.dataUrl !== 'string') return null;
   if (!/^data:audio\/[\w.+-]+;base64,[A-Za-z0-9+/=]+$/.test(f.dataUrl) || f.dataUrl.length > MAX_SOUND_BYTES * 1.4) return null;
   return {

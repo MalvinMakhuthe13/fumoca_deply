@@ -540,8 +540,9 @@ export function mountPartsPanel(container, { onStatus } = {}) {
 
   const api = {
     getParts: () => parts.map(p => ({ ...p })),
-    list: () => parts.map(p => ({ id: p.id, name: p.name })),
-    run: (id, to) => ensureAnimator()?.run(id, to),
+    // free moves and laces show up next to parts (hotspots can play them too)
+    list: () => [...parts.map(p => ({ id: p.id, name: p.name })), ...(window.FumocaMotionExtrasStudio?.list?.() || [])],
+    run: (id, to) => (window.FumocaMotionExtrasStudio?.has?.(id) ? window.FumocaMotionExtrasStudio.run(id, to) : ensureAnimator()?.run(id, to)),
     get animator() { return ensureAnimator(); },
     /** Change a part (used when a second scan's door panel is attached). */
     updatePart(id, patch) {
