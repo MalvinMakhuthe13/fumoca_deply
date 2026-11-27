@@ -5,6 +5,7 @@ import { initMagazineText, importAll as importMagazine } from './present-magazin
 import { restoreFonts } from './present-fonts.js';
 import { filterLayer } from './present-filters.js';
 import inspect from './present-inspect.js';
+import './part-effects.js';   // part sounds (zip, clicks, spray) and perfume mist
 import { initPresentNav, setNavStops } from './present-nav.js';
 
 function b64Json(s) {

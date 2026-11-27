@@ -1347,6 +1347,11 @@ body.rv-layout-split #fumocaReviewRoot.layout-split video { border-radius: 10px 
             <span class="ctrl-val" id="layerOpacVal">100%</span>
           </div>
           <input type="range" id="layerOpac" min="0" max="100" value="100">
+          <label style="display:flex;gap:6px;align-items:center;font-size:11px;margin-top:8px"><input type="checkbox" id="layerSolid"> Solid — stops when it meets other solid layers</label>
+          <div style="display:flex;gap:6px;margin-top:6px">
+            <button class="ac-btn" id="layerDropBtn" style="flex:1" title="Let it fall onto whatever is below (another object or the floor)">⬇ Drop</button>
+            <button class="ac-btn" id="layerVoxBtn" style="flex:1" title="Show the voxels used for collision">▦ Show voxels</button>
+          </div>
           <div style="display:flex;gap:6px;margin-top:8px">
             <button class="ac-btn" id="layerFocusBtn" style="flex:1" title="Turn the view to the selected layer">🎯 Focus</button>
             <button class="ac-btn" id="layerSoloBtn" style="flex:1" title="Show only the selected layer (click again to show all)">◎ Solo</button>
@@ -2370,6 +2375,7 @@ function _gizmoCollectIndices() {
 }
 
 function beginGizmoGesture() {
+  _noteMoveStart();
   const indices = _gizmoCollectIndices();
   if (!indices.length || !S.positions) {
     _gizmoGestureSnap = null;
@@ -2551,6 +2557,7 @@ function endGizmoGesture() {
   renderMeasurementOverlay();
   _gizmoGesture = false;
   _gizmoGestureSnap = null;
+  _collideAfterMove();
   _xformIndices = null;
   _xformPivot = null;
   _xformStartPos = null;
@@ -5393,6 +5400,7 @@ renderer.domElement.addEventListener('pointerdown', e => {
   _brushActive = true;
   const {x, y} = _vpCoords(e);
   S.dragging = true; S.dragStart = { x, y }; S.dragCurrent = { x, y };
+  if (['move', 'scale-tool', 'rotate'].includes(S.mode)) _noteMoveStart();
   if (S.mode === 'lasso') S.lassoPoints = [{ x, y }];
   if (S.mode === 'magic') { window._smartSelectPending = true; _brushActive = false; S.dragging = false; return; }
   if (['move','scale-tool','rotate'].includes(S.mode)) {
@@ -5493,6 +5501,7 @@ window.addEventListener('pointerup', e => {
   _brushActive = false;
   if (!S.dragging) return;
   const {x, y} = _vpCoords(e);
+  if (['move', 'scale-tool', 'rotate'].includes(S.mode) && S._moveStart) _collideAfterMove();
   if (S.mode === 'box' && S.dragStart && S.dragCurrent) {
     const dx = Math.abs(S.dragCurrent.x - S.dragStart.x), dy = Math.abs(S.dragCurrent.y - S.dragStart.y);
     if (dx <= 7 && dy <= 7) {
@@ -6749,6 +6758,7 @@ function renderLayers() {
         S.selected[i] = (S.alive[i] && L.mask[i] && !S.layerHidden?.[i]) ? 1 : 0;
       }
       $('layerOpac').value = Math.round((L.opacity??1)*100);
+      if ($('layerSolid')) $('layerSolid').checked = !!L.solid;
       $('layerOpacVal').textContent = Math.round((L.opacity??1)*100)+'%';
       rebuildGeometry();
       renderLayers();
@@ -6787,6 +6797,82 @@ function hexToRgb01(hex){
   return [((n>>16)&255)/255, ((n>>8)&255)/255, (n&255)/255];
 }
 
+// ─── COLLISION BETWEEN LAYERS (js/modules/splat-collision.js) ───────────────
+const _collision = import('./js/modules/splat-collision.js?v=20261127-collide01');
+const _activeLayer = () => (S.layers || []).find(x => x.id === S.activeLayerId) || null;
+const _layerIdx = (L) => { const out = []; for (let i = 0; i < Math.min(L.mask.length, S.alive.length); i++) if (L.mask[i] && S.alive[i]) out.push(i); return out; };
+const _centroidOf = (idx) => { const c = [0, 0, 0]; for (const i of idx) for (let k = 0; k < 3; k++) c[k] += S.positions[i * 3 + k]; return c.map(v => v / Math.max(1, idx.length)); };
+function _obstacleIdx(except, { solidOnly = true } = {}) {
+  const inOther = new Uint8Array(S.alive.length), grouped = new Uint8Array(S.alive.length);
+  (S.layers || []).forEach(L => { for (let i = 0; i < Math.min(L.mask.length, S.alive.length); i++) if (L.mask[i]) { grouped[i] = 1; if (L.id !== except.id && L.visible !== false && (!solidOnly || L.solid)) inOther[i] = 1; } });
+  const out = [];
+  for (let i = 0; i < S.alive.length; i++) if (S.alive[i] && !S.layerHidden?.[i] && (inOther[i] || (!solidOnly && !grouped[i]))) out.push(i);
+  return out;
+}
+// remember where a solid layer started, so a move into something stops at contact
+function _noteMoveStart() {
+  const L = _activeLayer();
+  S._moveStart = L?.solid ? { id: L.id, c: _centroidOf(_layerIdx(L)) } : null;
+}
+async function _collideAfterMove() {
+  const start = S._moveStart; S._moveStart = null;
+  const L = _activeLayer(); if (!start || !L || L.id !== start.id || !L.solid) return;
+  const C = await _collision, idx = _layerIdx(L), obst = _obstacleIdx(L);
+  if (!idx.length || !obst.length) return;
+  const now = _centroidOf(idx), delta = now.map((v, k) => v - start.c[k]);
+  if (Math.hypot(...delta) < 1e-9) return;
+  const cell = C.cellFor(S.positions, S.alive), vox = C.voxelize(S.positions, obst, cell, { opacity: S.opacity });
+  const f = C.backOff(C.samplePoints(S.positions, idx, { opacity: S.opacity }), vox, delta);
+  if (f === null || f >= 1) return;
+  const back = delta.map(v => -(1 - f) * v);
+  for (const i of idx) for (let k = 0; k < 3; k++) S.positions[i * 3 + k] += back[k];
+  rebuildGeometry(); refreshTransformSourceMap(); syncTransformGizmo();
+  setStatus(`${L.name} stopped where it meets another solid object`, 'ok');
+}
+window.FumocaLayerCollision = { noteStart: _noteMoveStart, afterMove: _collideAfterMove };
+$('layerSolid')?.addEventListener('change', (e) => {
+  const L = _activeLayer(); if (!L) { e.target.checked = false; setStatus('Click a layer first', 'warn'); return; }
+  S.layers = S.layers.map(x => (x.id === L.id ? { ...x, solid: e.target.checked } : x));
+  setStatus(e.target.checked ? `${L.name} is solid — it stops when it meets other solid layers` : `${L.name} can pass through others`, 'ok');
+});
+$('layerDropBtn')?.addEventListener('click', async () => {
+  const L = _activeLayer(); if (!L) { setStatus('Click a layer first', 'warn'); return; }
+  if (L.locked) { setStatus(`${L.name} is locked`, 'warn'); return; }
+  const C = await _collision, idx = _layerIdx(L), obst = _obstacleIdx(L, { solidOnly: false });
+  if (!idx.length) return;
+  const cell = C.cellFor(S.positions, S.alive), vox = C.voxelize(S.positions, obst, cell, { opacity: S.opacity });
+  // the floor: the lowest solid point of everything else, or the layer's own ground if it's alone
+  let floor = Infinity; for (const i of obst) floor = Math.min(floor, S.positions[i * 3 + 1]);
+  if (!Number.isFinite(floor)) floor = 0;
+  const pts = C.samplePoints(S.positions, idx, { opacity: S.opacity });
+  const d = C.dropDistance(pts, vox, floor);
+  if (d < cell * 0.25) { setStatus(`${L.name} is already resting on something`, 'ok'); return; }
+  pushHistory('drop layer');
+  // fall with a little acceleration
+  const steps = 14; let done = 0;
+  for (let k = 1; k <= steps; k++) {
+    const target = d * (k / steps) ** 2, dy = target - done; done = target;
+    for (const i of idx) S.positions[i * 3 + 1] -= dy;
+    rebuildGeometry();
+    await new Promise(r => requestAnimationFrame(r));
+  }
+  refreshTransformSourceMap(); syncTransformGizmo();
+  setStatus(`${L.name} dropped ${d.toFixed(3)} and is resting on what's below`, 'ok');
+});
+let _voxView = null;
+$('layerVoxBtn')?.addEventListener('click', async () => {
+  if (_voxView) { scene.remove(_voxView); _voxView.geometry.dispose(); _voxView.material.dispose(); _voxView = null; $('layerVoxBtn').textContent = '▦ Show voxels'; return; }
+  const L = _activeLayer(); if (!L) { setStatus('Click a layer first', 'warn'); return; }
+  const C = await _collision, cell = C.cellFor(S.positions, S.alive), vox = C.voxelize(S.positions, _layerIdx(L), cell, { opacity: S.opacity });
+  const keys = [...vox.set].slice(0, 40000);
+  const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(cell * 0.92, cell * 0.92, cell * 0.92), new THREE.MeshBasicMaterial({ color: 0xc8ff00, wireframe: true, transparent: true, opacity: 0.35, depthWrite: false }), keys.length);
+  const m = new THREE.Matrix4();
+  keys.forEach((k, j) => { const [x, y, z] = k.split(',').map(Number); m.makeTranslation((x + 0.5) * cell, (y + 0.5) * cell, (z + 0.5) * cell); mesh.setMatrixAt(j, m); });
+  mesh.name = 'fumoca-voxels'; mesh.frustumCulled = false;
+  scene.add(mesh); _voxView = mesh;
+  $('layerVoxBtn').textContent = '▦ Hide voxels';
+  setStatus(`${L.name}: ${fmt(vox.set.size)} voxels (${cell.toFixed(3)} each) — its collision shape, filled inside where it's closed`, 'ok');
+});
 $('layerFocusBtn')?.addEventListener('click', () => {
   const L = (S.layers || []).find(x => x.id === S.activeLayerId);
   if (!L) { setStatus('Click a layer first', 'warn'); return; }
@@ -8193,7 +8279,7 @@ if (!window._fumocaBooted) {
   // Lighting, shadow and viewer settings.
   const lookRoot = document.getElementById('tab-look');
   if (lookRoot) {
-    import('./js/modules/look-panel.js?v=20261126-selfshadow01')
+    import('./js/modules/look-panel.js?v=20261127-depth01')
       .then((m) => m.mountLookPanel(lookRoot, { onStatus: status }))
       .catch((e) => console.warn('[Studio] look panel', e));
   }
@@ -8201,7 +8287,7 @@ if (!window._fumocaBooted) {
   // Moving parts (doors, bonnet, caps, recliners) for interactive hotspots.
   const partsRoot = document.getElementById('tab-parts');
   if (partsRoot) {
-    import('./js/modules/parts-panel.js?v=20261127-states02')
+    import('./js/modules/parts-panel.js?v=20261127-fx01')
       .then((m) => m.mountPartsPanel(partsRoot, { onStatus: status }))
       .catch((e) => console.warn('[Studio] parts panel', e));
   }

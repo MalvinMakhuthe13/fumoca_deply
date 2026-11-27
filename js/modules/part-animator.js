@@ -29,7 +29,7 @@ export function normalizePart(p) {
   if (!box || !finite3(box.min) || !finite3(box.max)) return null;
   const min = box.min.map((v, i) => Math.min(v, box.max[i])), max = box.max.map((v, i) => Math.max(v, box.min[i]));
   const m = p.motion || {};
-  const type = ['hinge', 'slide', 'twist', 'lift', 'pick'].includes(m.type) ? m.type : 'hinge';
+  const type = ['hinge', 'slide', 'twist', 'lift', 'pick', 'path'].includes(m.type) ? m.type : 'hinge';
   const axis = finite3(m.axis) && Math.hypot(...m.axis) > 1e-9 ? m.axis.map(v => v / Math.hypot(...m.axis)) : [0, 1, 0];
   const pivot = finite3(m.pivot) ? m.pivot.slice() : min.map((v, i) => (v + max[i]) / 2);
   return {
@@ -43,6 +43,8 @@ export function normalizePart(p) {
       lift: num(m.lift, -100, 100, 0),
       duration: num(m.duration, 0.1, 20, 1.2),
       ease: EASE[m.ease] ? m.ease : 'ease-in-out',
+      // a zip pull running along the seam: the points it travels through
+      ...(type === 'path' ? { points: (Array.isArray(m.points) ? m.points.filter(finite3).slice(0, 64).map(v => v.map(Number)) : []) } : {}),
       ...(type === 'pick' ? {
         dir: finite3(m.dir) && Math.hypot(m.dir[0], m.dir[2]) > 1e-9 ? [m.dir[0], 0, m.dir[2]].map((v, i, a) => v / Math.hypot(a[0], a[2])) : [0, 0, 1],
         droop: num(m.droop, 0, 2, 0.3), stretch: num(m.stretch, 0, 1, 0.5), zone: num(m.zone, 0, 100, 0),
@@ -52,12 +54,45 @@ export function normalizePart(p) {
     },
     ...(normalizeRegion(p.region) ? { region: normalizeRegion(p.region) } : {}),
     ...(normalizeCells(p.cells) ? { cells: normalizeCells(p.cells) } : {}),
+    // the experience around it: a sound, an effect (perfume mist), and its place
+    // in a sequence (suitcase: zip → clasps → lid). A press springs back.
+    sound: SOUNDS.includes(p.sound) ? p.sound : 'none',
+    ...(normalizeEffect(p.effect) ? { effect: normalizeEffect(p.effect) } : {}),
+    group: typeof p.group === 'string' ? p.group.replace(/[<>]/g, '').trim().slice(0, 30) : '',
+    order: Number.isFinite(+p.order) ? Math.max(0, Math.min(99, Math.round(+p.order))) : 0,
+    springBack: !!p.springBack,
     startOpen: !!p.startOpen,
     // on the published page: only when clicked, open once, or keep opening and closing
     autoplay: ['none', 'once', 'loop'].includes(p.autoplay) ? p.autoplay : 'none',
     hold: num(p.hold, 0, 30, 1.2),
     delay: num(p.delay, 0, 60, 0),
   };
+}
+
+export const SOUNDS = ['none', 'click', 'zip', 'spray', 'thunk', 'whoosh'];
+function normalizeEffect(e) {
+  if (!e || typeof e !== 'object' || e.type !== 'mist' || !finite3(e.origin)) return null;
+  const d = finite3(e.dir) && Math.hypot(...e.dir) > 1e-9 ? e.dir.map(v => v / Math.hypot(...e.dir)) : [0, 0, 1];
+  const n = (v, lo, hi, def) => (Number.isFinite(+v) ? Math.min(hi, Math.max(lo, +v)) : def);
+  return {
+    type: 'mist', origin: e.origin.map(Number), dir: d,
+    color: /^#[0-9a-f]{6}$/i.test(e.color || '') ? e.color : '#e8f1ff',
+    amount: n(e.amount, 0.05, 1, 0.6), spread: n(e.spread, 2, 60, 16), reach: n(e.reach, 0.01, 1000, 0.3),
+    ...(['view', 'front', 'back', 'left', 'right', 'up'].includes(e._dirKey) ? { _dirKey: e._dirKey } : {}),
+  };
+}
+
+/** Point along a path at fraction t of its length. */
+export function pathPoint(points, t) {
+  if (!points || points.length < 2) return points?.[0] || [0, 0, 0];
+  const seg = []; let total = 0;
+  for (let i = 1; i < points.length; i++) { const a = points[i - 1], b = points[i]; const l = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]); seg.push(l); total += l; }
+  let d = Math.max(0, Math.min(1, t)) * total;
+  for (let i = 0; i < seg.length; i++) {
+    if (d <= seg[i] || i === seg.length - 1) { const a = points[i], b = points[i + 1], k = seg[i] ? Math.min(1, d / seg[i]) : 0; return [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k]; }
+    d -= seg[i];
+  }
+  return points[points.length - 1];
 }
 
 export function normalizeParts(list) {
@@ -84,6 +119,11 @@ function rotate(q, v) {
 export function partTransform(part, t) {
   const m = part.motion;
   if (m.type === 'pick') { const tf = pickTransform(m, pickPhases(t).lift); return { q: tf.q, apply: tf.apply }; }
+  if (m.type === 'path') {
+    // carried along the path (from where it starts) — a zip pull round a case
+    const a = m.points?.[0] || [0, 0, 0], b = pathPoint(m.points, t), d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    return { q: [0, 0, 0, 1], apply: (p) => [p[0] + d[0], p[1] + d[1], p[2] + d[2]] };
+  }
   if (m.type === 'slide') {
     const d = m.distance * t;
     return { q: [0, 0, 0, 1], apply: (p) => [p[0] + m.axis[0] * d, p[1] + m.axis[1] * d, p[2] + m.axis[2] * d] };
@@ -332,15 +372,22 @@ export class PartAnimator {
   get moving() { return this.anims.size > 0; }
 
   /** Animate to open (1), closed (0) or 'toggle'. Resolves when it arrives. */
-  run(id, to = 'toggle', { by = 'auto' } = {}) {
+  run(id, to = 'toggle', { by = 'auto', single = false } = {}) {
     const e = this.parts.get(id);
     if (!e) return Promise.resolve(false);
     const target = to === 'toggle' ? (e.t > 0.5 ? 0 : 1) : (to === 'open' || to === 1 || to === true ? 1 : 0);
+    // part of a sequence (suitcase: zip → clasps → lid): play the whole sequence
+    if (e.part.group && !single) return this.runSequence(e.part.group, target ? 'open' : 'close', { by });
+    // a press (perfume nozzle, button): goes down and springs back by itself
+    if (e.part.springBack && target === 1 && !this._pressing?.has(id)) {
+      (this._pressing ||= new Set()).add(id);
+      return this.run(id, 'open', { by, single: true }).then(() => new Promise(r => setTimeout(r, 120))).then(() => this.run(id, 'close', { by, single: true })).finally(() => this._pressing.delete(id));
+    }
     cancelAnimationFrame(this.anims.get(id) || 0);
     const from = e.t, dur = e.part.motion.duration * 1000 * Math.max(0.15, Math.abs(target - from));
     const ease = EASE[e.part.motion.ease];
     const t0 = performance.now();
-    globalThis.dispatchEvent?.(new CustomEvent('fumoca:partMove', { detail: { id, to: target ? 'open' : 'closed', by } }));
+    globalThis.dispatchEvent?.(new CustomEvent('fumoca:partMove', { detail: { id, to: target ? 'open' : 'closed', by, part: e.part, mesh: this.mesh, THREE: this.THREE, from, duration: dur / 1000 } }));
     return new Promise((resolve) => {
       const step = (now) => {
         const k = Math.min(1, (now - t0) / Math.max(1, dur));
@@ -358,7 +405,24 @@ export class PartAnimator {
     });
   }
 
-  closeAll() { return Promise.all([...this.parts.keys()].map(id => this.run(id, 'close'))); }
+  closeAll() { return Promise.all([...this.parts.keys()].map(id => this.run(id, 'close', { single: true }))); }
+
+  /** Parts sharing a group play in order to open, in reverse to close. */
+  async runSequence(group, to = 'toggle', { by = 'auto' } = {}) {
+    const list = [...this.parts.values()].filter(e => e.part.group === group).sort((a, b) => a.part.order - b.part.order);
+    if (!list.length) return false;
+    const open = to === 'toggle' ? !list.some(e => e.t > 0.5) : (to === 'open' || to === 1 || to === true);
+    if (this._seq?.get(group)) return false;   // already playing
+    (this._seq ||= new Map()).set(group, true);
+    try {
+      for (const e of open ? list : list.slice().reverse()) {
+        if (e.part.springBack && !open) continue;
+        await this.run(e.part.id, open ? 'open' : 'close', { by, single: true });
+        await new Promise(r => setTimeout(r, 90));
+      }
+    } finally { this._seq.delete(group); }
+    return true;
+  }
 
   /** After an in-place edit: new geometry, parts re-found in their boxes. */
   refreshGeometry() {

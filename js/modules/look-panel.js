@@ -61,6 +61,9 @@ export function mountLookPanel(container, { onStatus } = {}) {
         <div class="hint" style="margin-top:8px;opacity:.8">Shadow</div>
         ${check('lkSelf', 'Shadows on the object (brim on the crown, walls on the floor)', true)}
         ${row('lkSelfOp', 'Object shadow darkness', 0, 1, 0.05, 0.85, v => Math.round(v * 100) + '%')}
+        ${row('lkAo', 'Depth in folds and creases', 0, 1, 0.05, 0.5, v => Math.round(v * 100) + '%')}
+        ${row('lkContact', 'Contact shadow (where it touches the ground)', 0, 1, 0.05, 0.6, v => Math.round(v * 100) + '%')}
+        ${row('lkDelight', 'Soften shadows baked into the scan', 0, 1, 0.05, 0, v => Math.round(v * 100) + '%')}
         ${check('lkSh', 'Shadow on the ground', true)}
         ${row('lkShOp', 'Shadow darkness', 0, 1, 0.05, L.shadowOpacity, v => Math.round(v * 100) + '%')}
         ${row('lkShSoft', 'Shadow softness', 0, 1, 0.05, L.shadowSoftness, v => Math.round(v * 100) + '%')}
@@ -160,6 +163,7 @@ export function mountLookPanel(container, { onStatus } = {}) {
     background: q('#lkBgOn').checked ? q('#lkBg').value : '', vignette: +q('#lkVig').value,
     shadow: q('#lkSh').checked, shadowOpacity: +q('#lkShOp').value, shadowSoftness: +q('#lkShSoft').value,
     selfShadow: q('#lkSelf').checked, selfShadowStrength: +q('#lkSelfOp').value,
+    ao: +q('#lkAo').value, contactShadow: +q('#lkContact').value, delight: +q('#lkDelight').value,
     lamps,
     ...(motionKeys.length >= 2 ? { motion: motionState() } : {}),
   });
@@ -172,6 +176,7 @@ export function mountLookPanel(container, { onStatus } = {}) {
     set('lkBgOn', !!ls.background); if (ls.background) set('lkBg', ls.background); set('lkVig', ls.vignette);
     set('lkSh', ls.shadow); set('lkShOp', ls.shadowOpacity); set('lkShSoft', ls.shadowSoftness);
     set('lkSelf', ls.selfShadow !== false); set('lkSelfOp', ls.selfShadowStrength ?? 0.85);
+    set('lkAo', ls.ao ?? 0.5); set('lkContact', ls.contactShadow ?? 0.6); set('lkDelight', ls.delight ?? 0);
     preset = ls.preset || 'custom';
     if (Array.isArray(ls.lamps)) { lamps = ls.lamps.map(l => ({ ...l })); renderLamps(); }
     container.querySelectorAll('[data-mood]').forEach(b => b.classList.toggle('lime', b.dataset.mood === preset));
@@ -223,7 +228,7 @@ export function mountLookPanel(container, { onStatus } = {}) {
     addLamp([t.x, t.y, t.z]); status('Lamp added where the view is pointing.');
   });
   const LIGHT_IDS = ['lkOn', 'lkAz', 'lkEl', 'lkInt', 'lkCol', 'lkAmb', 'lkAmbCol', 'lk2', 'lkAz2', 'lkEl2', 'lkInt2', 'lkCol2',
-    'lkExp', 'lkCon', 'lkSat', 'lkWarm', 'lkTint', 'lkBgOn', 'lkBg', 'lkVig', 'lkSh', 'lkShOp', 'lkShSoft', 'lkSelf', 'lkSelfOp'];
+    'lkExp', 'lkCon', 'lkSat', 'lkWarm', 'lkTint', 'lkBgOn', 'lkBg', 'lkVig', 'lkSh', 'lkShOp', 'lkShSoft', 'lkSelf', 'lkSelfOp', 'lkAo', 'lkContact', 'lkDelight'];
   container.querySelectorAll('[data-mood]').forEach(btn => btn.addEventListener('click', () => {
     const ls = { ...moodSettings(btn.dataset.mood, lightState()), lamps };
     setLightControls(ls); syncLabels(); applyLighting();
@@ -454,7 +459,7 @@ export function mountLookPanel(container, { onStatus } = {}) {
       lkAz2: v => Math.round(v) + '°', lkEl2: v => Math.round(v) + '°', lkInt2: v => Math.round(v * 100) + '%',
       lkExp: v => (v > 0 ? '+' : '') + (+v).toFixed(2), lkCon: v => Math.round(v * 100), lkSat: v => Math.round(v * 100),
       lkWarm: v => Math.round(v * 100), lkTint: v => Math.round(v * 100), lkVig: v => Math.round(v * 100) + '%',
-      lkShOp: v => Math.round(v * 100) + '%', lkSelfOp: v => Math.round(v * 100) + '%', lkShSoft: v => Math.round(v * 100) + '%', lmDur: v => (+v).toFixed(1) + ' s',
+      lkShOp: v => Math.round(v * 100) + '%', lkSelfOp: v => Math.round(v * 100) + '%', lkAo: v => Math.round(v * 100) + '%', lkContact: v => Math.round(v * 100) + '%', lkDelight: v => Math.round(v * 100) + '%', lkShSoft: v => Math.round(v * 100) + '%', lmDur: v => (+v).toFixed(1) + ' s',
       vwMin: v => Math.round(v * 100) + '% of start', vwMax: v => (+v).toFixed(2) + '× start', vwSpin: v => (+v === 0 ? 'off' : Math.round(v) + '°/s'),
     };
     for (const [id, f] of Object.entries(fmt)) { const el = q('#' + id + 'Val'); if (el) el.textContent = f(+q('#' + id).value); }

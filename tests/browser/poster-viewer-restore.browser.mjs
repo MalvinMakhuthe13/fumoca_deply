@@ -60,7 +60,8 @@ const server = http.createServer(async (req,res) => {
     '/modules/present-magazine-text.js':'js/modules/present-magazine-text.js',
     '/modules/present-fonts.js':'js/modules/present-fonts.js',
     '/modules/present-filters.js':'js/modules/present-filters.js',
-    '/modules/present-inspect.js':'js/modules/present-inspect.js'
+    '/modules/present-inspect.js':'js/modules/present-inspect.js',
+    '/modules/part-effects.js':'js/modules/part-effects.js'
   };
   const file = modules[req.url?.split('?')[0]];
   if (file) {

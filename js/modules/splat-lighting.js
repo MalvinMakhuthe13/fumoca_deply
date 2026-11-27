@@ -28,6 +28,9 @@ export const DEFAULT_LIGHTING = Object.freeze({
   shadow: true, shadowOpacity: 0.55, shadowSoftness: 0.5,
   // shadows on the object itself (a brim on the crown, a wall on the floor)
   selfShadow: true, selfShadowStrength: 0.85,
+  // depth: shading in folds and crevices, a crisp dark contact shadow, and
+  // softening of the shadows that were baked into the capture
+  ao: 0.5, contactShadow: 0.6, delight: 0,
   // lamps: room lights, headlights, a glowing product — switchable from hotspots
   lamps: [],
 });
@@ -67,6 +70,7 @@ export function normalizeLighting(input) {
     shadowSoftness: num(input.shadowSoftness, 0, 1, D.shadowSoftness),
     selfShadow: input.selfShadow !== false,
     selfShadowStrength: num(input.selfShadowStrength, 0, 1, D.selfShadowStrength),
+    ao: num(input.ao, 0, 1, D.ao), contactShadow: num(input.contactShadow, 0, 1, D.contactShadow), delight: num(input.delight, 0, 1, D.delight),
     lamps: (Array.isArray(input.lamps) ? input.lamps : []).slice(0, 12).map(normalizeLamp).filter(Boolean),
     ...(input.motion && typeof input.motion === 'object' ? { motion: input.motion } : {}),
   };
@@ -244,6 +248,8 @@ export function relightColors(baseColors, normals, settings, out = null, positio
   const lamps = positions ? s.lamps.filter(l => l.on && l.intensity > 0).map(l => ({ ...l, c: hexRgb(l.color), fade: l.fade ?? 1 })) : [];
   const rgb = [0, 0, 0];
   const vis1 = extra.vis1 || null, vis2 = extra.vis2 || null, ss = s.selfShadowStrength ?? 0.85, op = extra.opacity || null;
+  const occ = extra.occlusion || null, aoK = s.ao ?? 0;
+  const lift = extra.lift || null, dl = s.delight ?? 0;
   for (let i = 0; i < n; i++) {
     const nx = normals[i * 3], ny = normals[i * 3 + 1], nz = normals[i * 3 + 2];
     const v1 = vis1 ? 1 - ss * (1 - vis1[i]) : 1, v2 = vis2 ? 1 - ss * (1 - vis2[i]) : 1;
@@ -259,9 +265,13 @@ export function relightColors(baseColors, normals, settings, out = null, positio
       lr += k * l.c[0]; lg += k * l.c[1]; lb += k * l.c[2];
     }
     const add = [lr, lg, lb];
+    // folds and crevices get less of the sky and a little less direct light
+    const o = occ && aoK ? occ[i] * aoK : 0, amb = 1 - 0.85 * o, dir = 1 - 0.35 * o;
+    // shadows baked into the capture: lift the base colour where it is darker than its surroundings
+    const up = lift && dl ? 1 + (lift[i] - 1) * dl : 1;
     for (let k = 0; k < 3; k++) {
-      const light = s.ambient * ca[k] + d1 * c1[k] + d2 * c2[k] + add[k];
-      rgb[k] = baseColors[i * 3 + k] * light;
+      const light = s.ambient * ca[k] * amb + (d1 * c1[k] + d2 * c2[k]) * dir + add[k];
+      rgb[k] = Math.min(1, baseColors[i * 3 + k] * up) * light;
     }
     if (graded) grade(rgb, s);
     // faint haze / floaters keep their own colour: lighting them up makes a scan look smoky
@@ -270,6 +280,87 @@ export function relightColors(baseColors, normals, settings, out = null, positio
       for (let c = 0; c < 3; c++) rgb[c] = baseColors[i * 3 + c] * (1 - k) + rgb[c] * k;
     }
     out[i * 3] = Math.min(1, rgb[0]); out[i * 3 + 1] = Math.min(1, rgb[1]); out[i * 3 + 2] = Math.min(1, rgb[2]);
+  }
+  return out;
+}
+
+// ─── depth: crevices and baked shadows ───────────────────────────────────────
+// Both work on a coarse grid of the scan (CPU, ~1 s per million splats) and are
+// cached per geometry by SplatLighting.
+function depthGrid(positions, count, opacity) {
+  const step = Math.max(1, Math.floor(count / 50000)), xs = [[], [], []];
+  for (let i = 0; i < count; i += step) if (!opacity || opacity[i] >= 0.2) for (let k = 0; k < 3; k++) xs[k].push(positions[i * 3 + k]);
+  if (!xs[0].length) return null;
+  const lo = [], hi = [];
+  for (let k = 0; k < 3; k++) { const a = Float32Array.from(xs[k]).sort(); lo[k] = a[Math.floor(a.length * 0.01)]; hi[k] = a[Math.floor((a.length - 1) * 0.99)]; }
+  const diag = Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) || 1, cell = diag / 96;
+  const o = lo.map(v => v - cell * 3), dims = [0, 1, 2].map(k => Math.min(200, Math.ceil((hi[k] - lo[k]) / cell) + 7));
+  return { cell, o, dims, idx: (x, y, z) => (x < 0 || y < 0 || z < 0 || x >= dims[0] || y >= dims[1] || z >= dims[2]) ? -1 : x + dims[0] * (y + dims[1] * z) };
+}
+function boxBlur3(src, dims, r) {   // separable box sum over (2r+1)^3
+  const [nx, ny, nz] = dims; let a = src, b = new Float32Array(src.length);
+  const pass = (ax) => {
+    const st = ax === 0 ? 1 : ax === 1 ? nx : nx * ny, len = dims[ax];
+    for (let i = 0; i < a.length; i++) {
+      const c = Math.floor(i / st) % len; let sum = 0;
+      for (let d = -r; d <= r; d++) { const cc = c + d; if (cc >= 0 && cc < len) sum += a[i + d * st]; }
+      b[i] = sum;
+    }
+    [a, b] = [b, a];
+  };
+  pass(0); pass(1); pass(2);
+  return a;
+}
+
+/** How enclosed each splat is (0 open … 1 deep in a fold). */
+export function ambientOcclusion(positions, count, normals, opacity) {
+  const g = depthGrid(positions, count, opacity), out = new Float32Array(count);
+  if (!g || !normals) return out;
+  const occ = new Float32Array(g.dims[0] * g.dims[1] * g.dims[2]);
+  for (let i = 0; i < count; i++) {
+    if (opacity && opacity[i] < 0.2) continue;
+    const j = g.idx(Math.floor((positions[i * 3] - g.o[0]) / g.cell), Math.floor((positions[i * 3 + 1] - g.o[1]) / g.cell), Math.floor((positions[i * 3 + 2] - g.o[2]) / g.cell));
+    if (j >= 0) occ[j] += 1;
+  }
+  const near = boxBlur3(occ, g.dims, 1);   // splats within a cell or so
+  const raw = new Float32Array(count);
+  for (let i = 0; i < count; i++) {
+    // look just outside the surface (along the normal): open air there means open surface
+    const x = positions[i * 3] + normals[i * 3] * g.cell * 1.5, y = positions[i * 3 + 1] + normals[i * 3 + 1] * g.cell * 1.5, z = positions[i * 3 + 2] + normals[i * 3 + 2] * g.cell * 1.5;
+    const j = g.idx(Math.floor((x - g.o[0]) / g.cell), Math.floor((y - g.o[1]) / g.cell), Math.floor((z - g.o[2]) / g.cell));
+    raw[i] = j >= 0 ? near[j] : 0;
+  }
+  const sample = []; for (let i = 0; i < count; i += Math.max(1, Math.floor(count / 40000))) sample.push(raw[i]);
+  sample.sort((a, b) => a - b);
+  const base = sample[Math.floor(sample.length * 0.5)] || 0, top = sample[Math.floor(sample.length * 0.97)] || 1;
+  const span = Math.max(1e-6, top - base);
+  for (let i = 0; i < count; i++) { const v = Math.max(0, Math.min(1, (raw[i] - base) / span)); out[i] = v * v * (3 - 2 * v); }
+  return out;
+}
+
+/**
+ * Shadows baked into the capture: a per-splat brightening factor that brings
+ * broad dark areas up to their surroundings while keeping fine detail
+ * (stripes, print, texture), which lives below the grid size.
+ */
+export function bakedShadowLift(baseColors, positions, count, opacity) {
+  const g = depthGrid(positions, count, opacity), out = new Float32Array(count).fill(1);
+  if (!g) return out;
+  const N = g.dims[0] * g.dims[1] * g.dims[2], lum = new Float32Array(N), cnt = new Float32Array(N), cellOf = new Int32Array(count);
+  for (let i = 0; i < count; i++) {
+    const j = g.idx(Math.floor((positions[i * 3] - g.o[0]) / g.cell), Math.floor((positions[i * 3 + 1] - g.o[1]) / g.cell), Math.floor((positions[i * 3 + 2] - g.o[2]) / g.cell));
+    cellOf[i] = j;
+    if (j < 0 || (opacity && opacity[i] < 0.2)) continue;
+    lum[j] += 0.2126 * baseColors[i * 3] + 0.7152 * baseColors[i * 3 + 1] + 0.0722 * baseColors[i * 3 + 2]; cnt[j] += 1;
+  }
+  const ls = boxBlur3(lum, g.dims, 1), cs = boxBlur3(cnt, g.dims, 1);       // local shade
+  const lb = boxBlur3(lum, g.dims, 4), cb = boxBlur3(cnt, g.dims, 4);       // surroundings
+  const lw = boxBlur3(lum, g.dims, 12), cw = boxBlur3(cnt, g.dims, 12);     // wider: a shadow bigger than the near surroundings
+  for (let i = 0; i < count; i++) {
+    const j = cellOf[i]; if (j < 0 || !cs[j] || !cb[j]) continue;
+    const local = ls[j] / cs[j], around = Math.max(lb[j] / cb[j], cw[j] ? lw[j] / cw[j] : 0);
+    if (local <= 1e-4 || local >= around) continue;
+    out[i] = Math.min(2.2, around / local);
   }
   return out;
 }
@@ -332,14 +423,32 @@ export function shadowMap(positions, count, opacity, settings, { size = 256, gro
     return dst;
   };
   const d = blur(blur(data));
+  // contact: where the object meets the ground, a crisp dark core (barely blurred)
+  const contact = new Float32Array(size * size);
+  if (s.contactShadow > 0) {
+    const ch = height * 0.06;
+    for (let i = 0, j = 0; i < count; i += stride, j++) {
+      if (!w[j]) continue;
+      const h = Math.max(0, positions[i * 3 + 1] - gy); if (h > ch) continue;
+      const u = Math.floor((px[j * 2] - b.x0) / span * size), v = Math.floor((px[j * 2 + 1] - b.z0) / span * size);
+      if (u >= 0 && v >= 0 && u < size && v < size) contact[v * size + u] += 1 - h / ch;
+    }
+  }
   const sorted = d.filter(v => v > 0).sort();
   const ref = sorted.length ? sorted[Math.floor(sorted.length * 0.85)] : 1;
+  let cfin = null, cref = 1;
+  if (s.contactShadow > 0) {
+    const rr = Math.max(1, Math.round(size / 160)), cb = (src) => { const t = new Float32Array(size * size); for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) { let a = 0; for (let dy = -rr; dy <= rr; dy++) for (let dx = -rr; dx <= rr; dx++) { const X = x + dx, Y = y + dy; if (X >= 0 && Y >= 0 && X < size && Y < size) a += src[Y * size + X]; } t[y * size + x] = a; } return t; };
+    cfin = cb(contact); const cs = cfin.filter(v => v > 0).sort(); cref = cs.length ? cs[Math.floor(cs.length * 0.8)] : 1;
+  }
   // fade to nothing at the edges, so the shadow never shows a square border
   const edge = Math.max(2, Math.round(size * 0.12));
   for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
     const e = Math.min(x, y, size - 1 - x, size - 1 - y) / edge, f = e >= 1 ? 1 : e * e * (3 - 2 * e);
     const i = y * size + x;
-    d[i] = Math.min(1, d[i] / (ref || 1)) * s.shadowOpacity * f;
+    const soft = Math.min(1, d[i] / (ref || 1)) * s.shadowOpacity;
+    const core = cfin ? Math.min(1, cfin[i] / (cref || 1)) * s.contactShadow * 0.95 : 0;
+    d[i] = Math.min(1, soft + core * (1 - soft)) * f;
   }
   return { size, data: d, bounds: b, groundY: gy };
 }
@@ -395,6 +504,7 @@ export class SplatLighting {
   refreshGeometry() {
     if (!refreshRestGeometry(this.rest, this.mesh)) return false;
     this.normals = splatNormals(this.rest);
+    this._occ = this._lift = null;   // crevices / baked shadows follow the new geometry
     this.groundY = null;                // the shadow goes to the new ground
     return true;
   }
@@ -427,6 +537,13 @@ export class SplatLighting {
       }
     }
     return N;
+  }
+  /** Crevice shading and baked-shadow lift — depend only on the scan, cached. */
+  _depth() {
+    const s = this.settings, out = {};
+    if (s.ao > 0) { if (!this._occ) this._occ = ambientOcclusion(this.rest.positions, this.rest.count, this.normals, this.rest.opacity); out.occlusion = this._occ; }
+    if (s.delight > 0) { if (!this._lift) this._lift = bakedShadowLift(this.rest.colors, this.rest.positions, this.rest.count, this.rest.opacity); out.lift = this._lift; }
+    return out;
   }
   /** Self-shadow visibility for the key (and second) light, cached until the light or pose changes. */
   _visibility(P) {
@@ -489,7 +606,7 @@ export class SplatLighting {
     if (!splats?.setSplat) throw new Error('This Spark build cannot relight splats in place.');
     this._listenParts();
     const P = this._positions();
-    relightColors(this.rest.colors, this._normals(), this.settings, this.lit, P, { ...this._visibility(P), opacity: this.rest.opacity });
+    relightColors(this.rest.colors, this._normals(), this.settings, this.lit, P, { ...this._visibility(P), ...this._depth(), opacity: this.rest.opacity });
     const rigOn = !!this._rigPositions();
     // 'auto': update the shadow every frame while it is cheap, less often on big scans
     const doShadow = shadow === 'auto' ? ((this._shadowMs ?? 0) < 12 || ((this._shadowSkip = (this._shadowSkip || 0) + 1) % Math.ceil((this._shadowMs || 12) / 12) === 0)) : !!shadow;
