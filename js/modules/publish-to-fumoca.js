@@ -367,6 +367,7 @@ const FumocaPublish = (() => {
     }
 
     let finalId = splatId;
+    let previousViewPlyKey = null;
     try {
       if (payload.meta?.reviewVideo) payload.meta.reviewVideo.boundId = splatId || null;
       if (splatId) {
@@ -374,6 +375,7 @@ const FumocaPublish = (() => {
       // viewer's variants/processing queue): start from the latest meta and
       // overlay what this publish sets.
       const { data: latestRow } = await sb.from('nif_files').select('meta').eq('id', splatId).eq('user_id', user.id).maybeSingle();
+      previousViewPlyKey = latestRow?.meta?.view_ply_r2_key || rec?.meta?.view_ply_r2_key || null;
       if (latestRow?.meta && typeof latestRow.meta === 'object' && payload.meta) {
         payload.meta = { ...latestRow.meta, ...payload.meta };
       }
@@ -389,6 +391,14 @@ const FumocaPublish = (() => {
       if (error) throw new Error('The NIF was uploaded, but its asset record could not be updated: ' + error.message);
       if (!updated?.id) throw new Error('The NIF was uploaded, but no owned asset record was updated. Open the asset from your account and retry.');
       finalId = updated.id;
+      if (previousViewPlyKey && previousViewPlyKey !== viewPlyKey) {
+        try {
+          const cleanup = await r2.from('nif-files').remove([previousViewPlyKey]);
+          if (cleanup.error) console.warn('[Publish] Previous Spark companion is no longer referenced but could not be removed:', cleanup.error);
+        } catch (cleanupError) {
+          console.warn('[Publish] Previous Spark companion is no longer referenced but could not be removed:', cleanupError);
+        }
+      }
     } else {
       const { data: newRec, error } = await sb.from('nif_files').insert({
         ...payload,
