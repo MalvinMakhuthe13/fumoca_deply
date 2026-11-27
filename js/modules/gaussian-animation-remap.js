@@ -32,7 +32,8 @@ export function remapGaussianAnimation(animation, aliveIndices, currentCount) {
   if (used.size !== ids.length || ids.some(id => !Number.isInteger(id) || id < 0 || id > 0xFFFFFFFF)) {
     throw new Error('Animation contains invalid or duplicate stable Gaussian IDs');
   }
-  let nextId = ids.length ? Math.max(...ids) + 1 : 0;
+  let nextId = 0;
+  for (const id of ids) if (id >= nextId) nextId = id + 1;
   while (ids.length < currentCount) {
     while (used.has(nextId) && nextId <= 0xFFFFFFFF) nextId++;
     if (nextId > 0xFFFFFFFF) throw new Error('No stable Gaussian IDs remain for newly added splats');
