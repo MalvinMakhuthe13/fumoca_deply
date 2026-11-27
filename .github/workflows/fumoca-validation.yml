@@ -331,7 +331,7 @@ jobs:
       - name: Mesh clean-up test
         run: node --experimental-default-type=module tests/mesh-cleanup.test.mjs
       - name: Website build includes the 3D libraries
-        run: node scripts/build-pages.js && test -f dist-site/vendor/sparkjsdev-spark/2.4.0/dist/spark.module.js && rm -rf dist-site
+        run: node scripts/build-pages.js && test -f dist-site/vendor/sparkjsdev-spark/2.4.0/dist/spark.module.js && test -f dist-site/photo-to-3d.html && test -f dist-site/js/modules/photo-to-3d-page.js && rm -rf dist-site
       - name: Parts move only their own area; selection stops at the front surface
         run: node --experimental-default-type=module tests/part-cells.test.mjs
       - name: Free move (animate anything) and shoe laces
