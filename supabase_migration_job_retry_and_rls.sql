@@ -53,6 +53,15 @@ begin
   if coalesce(j.raw_r2_key, '') = '' then
     raise exception 'The original upload is missing — please upload again.' using errcode = '22023';
   end if;
+  if not (
+    split_part(j.raw_r2_key, '/', 1) = auth.uid()::text
+    or (
+      split_part(j.raw_r2_key, '/', 1) in ('raw', 'vehicle-captures', 'poster-assets', 'poster-subjects', 'verify-refs', 'print-source')
+      and split_part(j.raw_r2_key, '/', 2) = auth.uid()::text
+    )
+  ) then
+    raise exception 'The original upload key is not owned by this account.' using errcode = '42501';
+  end if;
   if not (coalesce(j.meta, '{}'::jsonb) ? 'retry_count') then
     tries := 0;
   elsif jsonb_typeof(j.meta->'retry_count') <> 'number'
