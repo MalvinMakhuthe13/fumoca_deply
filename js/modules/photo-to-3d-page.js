@@ -96,7 +96,7 @@ async function handleFile(file) {
 function reset() {
   poster?.destroy(); poster = null;
   splatView?.dispose(); splatView = null;
-  plyBytes = null; depthNorm = null; photo = null;
+  plyBytes = null; depthNorm = null; photo = null; tab = 'poster';
   els.openStudio.disabled = true; els.downloadPly.disabled = true;
   els.splatInfo.textContent = '';
   els.drop.hidden = false; els.tabs.hidden = true;
