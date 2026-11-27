@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const [studio, publish] = await Promise.all([
+const [studio, publish, spark] = await Promise.all([
   readFile(new URL('../edit.html', import.meta.url), 'utf8'),
   readFile(new URL('../js/modules/publish-to-fumoca.js', import.meta.url), 'utf8'),
+  readFile(new URL('../js/modules/spark-gaussian-view.js', import.meta.url), 'utf8'),
 ]);
 
 // A legacy .splat can be rendered by Spark, but Spark's editor export bridge
@@ -25,4 +26,7 @@ assert.match(publish, /delete payload\.meta\.view_ply_r2_key/);
 assert.match(publish, /Legacy \.splat source\. Encode the live editor arrays/);
 assert.match(publish, /const buf = encodeNif\(\{ positions, colors01, opacities01, scalesLinear, quats, meta, vertical, passthroughChunks/);
 assert.doesNotMatch(publish, /sourceBuffer: new Uint8Array\(S\.sourceBuffer\)/);
+assert.match(spark, /Explicit Studio paint overrides must reach the published Spark PLY/);
+assert.match(spark, /state\.paintColors\?\.\[i\*3\+axis\]/);
+assert.match(spark, /f_rest_/);
 console.log('Spark companion publish contract passed: edited .splat conversion, deleted-point filtering, and non-Gaussian PLY exclusion.');
