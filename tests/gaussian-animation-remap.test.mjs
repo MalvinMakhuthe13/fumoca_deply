@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { remapGaussianAnimation } from '../js/modules/gaussian-animation-remap.js';
 import { encodeGaussianAnimationChunk, CHUNK } from '../engine-next/format/NIFSpec.js';
+import { readFile } from 'node:fs/promises';
 
 const source = {
   schema: 'fumoca.gaussian-animation',
@@ -32,4 +33,8 @@ assert.throws(() => remapGaussianAnimation(source, [0, 0], 4), /unique, ascendin
 assert.throws(() => remapGaussianAnimation(source, [4], 4), /within the current geometry/);
 assert.throws(() => remapGaussianAnimation(source, [0], 2), /do not match the current geometry/);
 assert.throws(() => remapGaussianAnimation({ ...source, gaussianIds: [1, 1] }, [0], 2), /duplicate stable/);
-console.log('Gaussian animation stable-ID remap tests passed.');
+const publish = await readFile(new URL('../js/modules/publish-to-fumoca.js', import.meta.url), 'utf8');
+assert.match(publish, /decodeGaussianAnimationChunk\(animationChunk\)/);
+assert.match(publish, /remapGaussianAnimation\(animation, aliveIndices, window\.S\.alive\.length\)/);
+assert.match(publish, /FUMOCA_ANIMATION_REMAP_FAILED/);
+console.log('Gaussian animation stable-ID remap and publish integration tests passed.');
