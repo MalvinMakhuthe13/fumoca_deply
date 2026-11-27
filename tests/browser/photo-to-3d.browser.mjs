@@ -26,7 +26,9 @@ export const env = {};
 export class RawImage { static async fromBlob(b) { const bm = await createImageBitmap(b); return { width: bm.width, height: bm.height }; } }
 export async function pipeline(task, model, opts) {
   window.__pipelineArgs = { task, model, device: opts.device };
+  window.__pipelineAttempts = [...(window.__pipelineAttempts || []), opts.device];
   return async (img) => {
+    if (opts.device === 'webgpu' && window.__failWebGpu) throw new Error('Simulated WebGPU inference failure');
     const w = img.width, h = img.height, data = new Float32Array(w * h);
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
       const dx = x / w - 0.5, dy = y / h - 0.5;
@@ -132,12 +134,15 @@ try {
   await fallbackPage.waitForFunction(() => window.FumocaPhoto3D);
   await fallbackPage.evaluate(async () => {
     window.__failSpark = true;
+    window.__failWebGpu = true;
+    Object.defineProperty(navigator, 'gpu', { configurable: true, value: { requestAdapter: async () => ({}) } });
     const c = document.createElement('canvas'); c.width = 160; c.height = 120;
     const x = c.getContext('2d'); x.fillStyle = '#0a8f8f'; x.fillRect(0, 0, 160, 120);
     x.fillStyle = '#ff8800'; x.beginPath(); x.arc(80, 60, 30, 0, Math.PI * 2); x.fill();
     const blob = await new Promise(r => c.toBlob(r, 'image/png'));
     await window.FumocaPhoto3D.handleFile(new File([blob], 'fallback.png', { type: 'image/png' }));
   });
+  assert.deepEqual(await fallbackPage.evaluate(() => window.__pipelineAttempts), ['webgpu', 'wasm'], 'WebGPU inference failure retries the model on WASM');
   await fallbackPage.click('[data-tab="splat"]');
   await fallbackPage.waitForFunction(() => !document.getElementById('p3DownloadPly').disabled && !document.getElementById('p3OpenStudio').disabled, null, { timeout: 15000 });
   assert.ok(await fallbackPage.evaluate(() => window.FumocaPhoto3D.plyBytes?.byteLength > 1000), 'PLY remains available without Spark');
