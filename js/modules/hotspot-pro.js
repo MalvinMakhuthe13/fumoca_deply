@@ -1,6 +1,7 @@
 window._fumocaUseHotspotPro = true;
 
 import * as THREE from 'three';
+import { safeHttpUrl, safeMediaUrl } from './safe-url.js';
 import { renderActionButtons } from './hotspot-actions.js';
 import { authorPartToggle } from './nif-part-toggle.js';
 
@@ -668,7 +669,9 @@ function playHotspotAudio(h) {
   if (!h.audioUrl) return;
   try {
     stopAudio();
-    const audio = new Audio(h.audioUrl);
+    const audioUrl = safeMediaUrl(h.audioUrl);
+    if (!audioUrl) return;
+    const audio = new Audio(audioUrl);
     audio.preload = 'auto';
     audio.play().catch(() => {});
     state.activeAudio = audio;
@@ -678,8 +681,10 @@ function playHotspotAudio(h) {
 
 function buildNestedSplatUrl(h) {
   if (h.overlayUrl) {
-    if (/viewer\.html/i.test(h.overlayUrl)) return h.overlayUrl;
-    return `embed/viewer.html?file=${encodeURIComponent(h.overlayUrl)}`;
+    const overlayUrl = safeHttpUrl(h.overlayUrl);
+    if (!overlayUrl) return '';
+    if (/viewer\.html/i.test(overlayUrl)) return overlayUrl;
+    return `embed/viewer.html?file=${encodeURIComponent(overlayUrl)}`;
   }
   if (h.overlaySplatId) return `embed/viewer.html?splatId=${encodeURIComponent(h.overlaySplatId)}`;
   if (h.link && /\.(splat|ply|ksplat)(\?|$)/i.test(h.link)) {
@@ -1092,7 +1097,7 @@ function activateHotspot(h) {
   if (rx.overlay && buildNestedSplatUrl(h)) openNestedSplat(h);
 
   if (rx.link) {
-    const url = h.ctaLink || h.link;
+    const url = safeHttpUrl(h.ctaLink || h.link);
     if (url) window.open(url, '_blank', 'noopener');
   }
 
@@ -1115,8 +1120,9 @@ function actionButtons(h) {
   const buttons = [];
   if (h.audioUrl) buttons.push(`<button class="e-btn e-btn-acid" data-hs-audio="${h.id}">${state.activeAudio ? 'Restart audio' : 'Play audio'}</button>`);
   if (buildNestedSplatUrl(h)) buttons.push(`<button class="e-btn e-btn-primary" data-hs-overlay="${h.id}">Open nested splat</button>`);
-  if (h.ctaLink) buttons.push(`<a href="${escapeHtml(h.ctaLink)}" target="_blank" rel="noopener" class="e-btn e-btn-warn" style="text-decoration:none;display:inline-block;">${escapeHtml(h.ctaLabel || 'Open')}</a>`);
-  else if (h.link) buttons.push(`<a href="${escapeHtml(h.link)}" target="_blank" rel="noopener" class="e-btn e-btn-warn" style="text-decoration:none;display:inline-block;">Open link</a>`);
+  const ctaUrl = safeHttpUrl(h.ctaLink), linkUrl = safeHttpUrl(h.link);
+  if (ctaUrl) buttons.push(`<a href="${escapeHtml(ctaUrl)}" target="_blank" rel="noopener" class="e-btn e-btn-warn" style="text-decoration:none;display:inline-block;">${escapeHtml(h.ctaLabel || 'Open')}</a>`);
+  else if (linkUrl) buttons.push(`<a href="${escapeHtml(linkUrl)}" target="_blank" rel="noopener" class="e-btn e-btn-warn" style="text-decoration:none;display:inline-block;">Open link</a>`);
   if (state.canManage) buttons.push(`<button class="e-btn e-btn-ghost" data-hs-edit="${h.id}">Edit hotspot</button><button class="e-btn e-btn-danger" data-hs-delete="${h.id}">Delete hotspot</button>`);
   if (state.hotspots.length > 1) buttons.push(`<button class="e-btn e-btn-acid" id="hsPrevBtn">← Prev</button>`);
   buttons.push(`<button class="e-btn e-btn-acid" id="hsNextBtn">Next →</button>`);
@@ -1125,12 +1131,13 @@ function actionButtons(h) {
 
 function renderGallery(h) {
   if (!Array.isArray(h.gallery) || !h.gallery.length) return '';
-  return `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(92px,1fr));gap:8px;">${h.gallery.slice(0,6).map(src => `<a href="${escapeHtml(src)}" target="_blank" rel="noopener" style="display:block;border-radius:12px;overflow:hidden;border:1px solid rgba(255,255,255,.08);"><img src="${escapeHtml(src)}" alt="gallery item" style="width:100%;height:84px;object-fit:cover;display:block;background:#0b0e14;"></a>`).join('')}</div>`;
+  return `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(92px,1fr));gap:8px;">${h.gallery.slice(0,6).map(safeHttpUrl).filter(Boolean).map(src => `<a href="${escapeHtml(src)}" target="_blank" rel="noopener" style="display:block;border-radius:12px;overflow:hidden;border:1px solid rgba(255,255,255,.08);"><img src="${escapeHtml(src)}" alt="gallery item" style="width:100%;height:84px;object-fit:cover;display:block;background:#0b0e14;"></a>`).join('')}</div>`;
 }
 
 function renderMedia(h) {
-  if (h.mediaVideo) return `<video src="${escapeHtml(h.mediaVideo)}" controls playsinline style="width:100%;border-radius:14px;background:#05070b;"></video>`;
-  if (h.mediaImage) return `<img src="${escapeHtml(h.mediaImage)}" alt="${escapeHtml(h.title)}" style="width:100%;border-radius:14px;display:block;background:#05070b;max-height:220px;object-fit:cover;">`;
+  const videoUrl = safeMediaUrl(h.mediaVideo), imageUrl = safeHttpUrl(h.mediaImage);
+  if (videoUrl) return `<video src="${escapeHtml(videoUrl)}" controls playsinline style="width:100%;border-radius:14px;background:#05070b;"></video>`;
+  if (imageUrl) return `<img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(h.title)}" style="width:100%;border-radius:14px;display:block;background:#05070b;max-height:220px;object-fit:cover;">`;
   return '';
 }
 

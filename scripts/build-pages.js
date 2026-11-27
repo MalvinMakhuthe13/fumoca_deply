@@ -56,8 +56,8 @@ function copyTree(source, destination) {
 
     if (
       /\.(log|txt|sql|d\.ts|jsonc)$/i.test(name) ||
-      /\.before-/i.test(name) ||
-      /\.backup-v\d+$/i.test(name)
+      /\.before[-_]/i.test(name) ||
+      /\.backup[-_]/i.test(name)
     ) {
       continue;
     }

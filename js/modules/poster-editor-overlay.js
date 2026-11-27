@@ -21,7 +21,7 @@ function ensureStyles() {
   style.id = STYLE_ID;
   style.textContent = `
     #${ROOT_ID}{position:absolute;inset:0;z-index:30;pointer-events:none;overflow:hidden}
-    #${ROOT_ID} .fpe-frame{position:absolute;border:1px solid rgba(200,255,0,.72);box-shadow:0 0 0 9999px rgba(0,0,0,.16);pointer-events:none}
+    #${ROOT_ID} .fpe-frame{position:absolute;box-sizing:border-box;border:1px solid rgba(200,255,0,.72);box-shadow:0 0 0 9999px rgba(0,0,0,.16);pointer-events:none}
     #${ROOT_ID} .fpe-frame:before{content:"POSTER SAFE FRAME";position:absolute;left:8px;top:7px;padding:3px 6px;border-radius:4px;background:rgba(8,10,14,.82);color:#d9ff67;font:700 8px/1.2 system-ui,sans-serif;letter-spacing:.12em}
     #${ROOT_ID} .fpe-control{position:absolute;pointer-events:auto;touch-action:none;display:grid;place-items:center;color:#10130a;background:#d4ff00;border:2px solid #fff;border-radius:50%;box-shadow:0 2px 14px #0009;cursor:grab}
     #${ROOT_ID} .fpe-subject{width:34px;height:34px;transform:translate(-50%,-50%);background:rgba(8,10,14,.8);border:2px solid #d4ff00;color:#d4ff00}
@@ -144,10 +144,26 @@ export function mountPosterEditorOverlay(options = {}) {
     const py=clampToFrame(poster.top+y*poster.height, poster.top, poster.height, 22);
     moveHandle.style.left=px+'px'; moveHandle.style.top=py+'px';
     const radians=(Number(subject.rotation)||0)*Math.PI/180, radius=clamp(42*(Number(subject.scale)||1),34,100);
-    scaleHandle.style.left=clampToFrame(px+Math.cos(radians)*radius, poster.left, poster.width, 14)+'px';
-    scaleHandle.style.top=clampToFrame(py+Math.sin(radians)*radius, poster.top, poster.height, 14)+'px';
-    rotateHandle.style.left=clampToFrame(px+Math.cos(radians-Math.PI/2)*(radius+26), poster.left, poster.width, 14)+'px';
-    rotateHandle.style.top=clampToFrame(py+Math.sin(radians-Math.PI/2)*(radius+26), poster.top, poster.height, 14)+'px';
+    // Place an orbiting handle at `angle`; if that would push it off the poster
+    // frame (subject near an edge/corner), mirror it to the opposite side so it
+    // never collapses onto the Move handle and steals its pointer events.
+    const placeHandle = (handle, angle, distance) => {
+      const fits = a => {
+        const hx = px + Math.cos(a) * distance, hy = py + Math.sin(a) * distance;
+        return hx >= poster.left + 14 && hx <= poster.left + poster.width - 14 &&
+               hy >= poster.top + 14 && hy <= poster.top + poster.height - 14;
+      };
+      const candidates = [angle, angle + Math.PI, angle + Math.PI / 2, angle - Math.PI / 2];
+      const a = candidates.find(fits) ?? angle;
+      handle.style.left = clampToFrame(px + Math.cos(a) * distance, poster.left, poster.width, 14) + 'px';
+      handle.style.top = clampToFrame(py + Math.sin(a) * distance, poster.top, poster.height, 14) + 'px';
+      return a;
+    };
+    const scaleAngle = placeHandle(scaleHandle, radians, radius);
+    const rotateCandidates = [radians - Math.PI / 2, radians + Math.PI / 2, radians + Math.PI, radians];
+    // Keep rotate and scale handles apart as well.
+    const rotateAngle = rotateCandidates.find(a => Math.abs(Math.atan2(Math.sin(a - scaleAngle), Math.cos(a - scaleAngle))) > 0.6) ?? radians - Math.PI / 2;
+    placeHandle(rotateHandle, rotateAngle, radius + 26);
     for (const handle of [moveHandle,scaleHandle,rotateHandle]) handle.disabled=!!subject.locked;
     moveHandle.title=subject.label+(subject.locked?' · Locked':' · Move');
     moveHandle.setAttribute('aria-label','Move '+subject.label);

@@ -18,6 +18,15 @@ let bed = null;
 let unlocked = false;
 let trimTimer = null;
 
+function safeMediaUrl(value) {
+  try {
+    const url = new URL(String(value || ''), window.location.href);
+    if (['http:', 'https:'].includes(url.protocol)) return url.href;
+    if (url.protocol === 'blob:' && url.origin === window.location.origin) return url.href;
+  } catch (_) {}
+  return '';
+}
+
 export function getSceneAudioConfig(meta = {}, record = {}) {
   if (meta?.sceneAudio?.bed?.url) return meta.sceneAudio;
   if (meta?.audio?.bed?.url) return meta.audio;
@@ -84,9 +93,10 @@ function _applyTrimLoop(el, trimStart, trimEnd) {
 }
 
 export async function playSceneBed(config, { force = false } = {}) {
-  if (!config?.bed?.url) return null;
+  const bedUrl = safeMediaUrl(config?.bed?.url);
+  if (!bedUrl) return null;
   stopSceneBed();
-  const el = new Audio(config.bed.url);
+  const el = new Audio(bedUrl);
   const start = Math.max(0, Number(config.bed.trimStart) || 0);
   const end = config.bed.trimEnd != null ? Number(config.bed.trimEnd) : null;
   el.loop = config.bed.loop !== false && end == null;
@@ -111,8 +121,9 @@ export async function playSceneBed(config, { force = false } = {}) {
 }
 
 export function playOneShot(url, { volume = 1 } = {}) {
-  if (!url) return;
-  const el = new Audio(url);
+  const safeUrl = safeMediaUrl(url);
+  if (!safeUrl) return;
+  const el = new Audio(safeUrl);
   el.volume = volume;
   el.play().catch(() => {});
   return el;
