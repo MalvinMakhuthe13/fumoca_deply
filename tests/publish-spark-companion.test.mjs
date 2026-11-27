@@ -20,4 +20,4 @@ assert.match(publish, /if \(sourcePlyBytes && \(isGaussianPly \|\| isLegacySplat
 // Ordinary point-cloud PLYs are not Gaussian PLYs. They must not be registered
 // as Spark companions simply because their filename ends in .ply.
 assert.doesNotMatch(publish, /isGaussianPly \|\| sourceName\.endsWith\('\.ply'\)/);
-console.log('Spark companion publish contract passed: edited .splat conversion, deleted-point filtering, and non-Gaussian PLY exclusion.');
+assert.match(publish, /if \(!viewPlyKey && payload\.meta\) \{/);\nassert.match(publish, /delete payload\.meta\.view_ply_r2_key/);\nconsole.log('Spark companion publish contract passed: edited .splat conversion, deleted-point filtering, and non-Gaussian PLY exclusion.');
