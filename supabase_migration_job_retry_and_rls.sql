@@ -19,6 +19,14 @@ create policy "own jobs create" on public.reconstruction_jobs
   for insert to authenticated with check (
     auth.uid() = user_id
     and status in ('queued', 'staged', 'pending')
+    and raw_r2_key is not null
+    and (
+      split_part(raw_r2_key, '/', 1) = auth.uid()::text
+      or (
+        split_part(raw_r2_key, '/', 1) in ('raw', 'vehicle-captures', 'poster-assets', 'poster-subjects', 'verify-refs', 'print-source')
+        and split_part(raw_r2_key, '/', 2) = auth.uid()::text
+      )
+    )
     and nif_r2_key is null
     and coalesce(progress, 0) = 0
     and error_message is null
@@ -45,7 +53,27 @@ begin
   if coalesce(j.raw_r2_key, '') = '' then
     raise exception 'The original upload is missing — please upload again.' using errcode = '22023';
   end if;
-  tries := coalesce((j.meta->>'retry_count')::int, 0);
+  if coalesce(j.meta->>'retry_count', '') = '' then
+    tries := 0;
+  elsif j.meta->>'retry_count' ~ '^[0-9]+
+  if tries >= 3 then raise exception 'This job has been retried 3 times — please upload again.' using errcode = '22023'; end if;
+  update public.reconstruction_jobs
+     set status = 'queued', progress = 0, error_message = null,
+         started_at = null, completed_at = null,
+         meta = coalesce(meta, '{}'::jsonb)
+                || jsonb_build_object('retry_count', tries + 1,
+                                      'last_error', j.error_message,
+                                      'retried_at', now())
+   where id = j.id returning * into j;
+  return j;
+end; $$;
+revoke all on function public.retry_reconstruction_job(uuid) from public, anon;
+grant execute on function public.retry_reconstruction_job(uuid) to authenticated;
+ then
+    tries := (j.meta->>'retry_count')::int;
+  else
+    raise exception 'Retry counter is invalid — contact support before retrying.' using errcode = '22023';
+  end if;
   if tries >= 3 then raise exception 'This job has been retried 3 times — please upload again.' using errcode = '22023'; end if;
   update public.reconstruction_jobs
      set status = 'queued', progress = 0, error_message = null,
