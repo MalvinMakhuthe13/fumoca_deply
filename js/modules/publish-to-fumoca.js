@@ -320,6 +320,15 @@ const FumocaPublish = (() => {
         viewer_engine: 'spark',
         published_from: 'studio_gaussian',
       };
+    } else {
+      // If an existing Gaussian asset is republished as a non-Gaussian
+      // source, do not leave its previous companion pointer behind. The
+      // viewer would otherwise keep rendering stale geometry from the old
+      // upload while the NIF record points at the newly published content.
+      payload.meta = { ...(payload.meta || rec?.meta || rec?.metadata || {}) };
+      delete payload.meta.view_ply_r2_key;
+      delete payload.meta.viewer_engine;
+      delete payload.meta.published_from;
     }
     // Studio's Present settings (lighting, view, moving parts, guides, linked
     // insides, poster, platform…) live on the open record / in memory. `rec`
