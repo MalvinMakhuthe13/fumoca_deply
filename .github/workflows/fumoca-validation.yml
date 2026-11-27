@@ -2,9 +2,9 @@ name: FUMOCA validation
 
 on:
   push:
-    branches: [main, "feat/**", "feature/**", "platform-integration-audit", "whole-platform-reference-audit", "lidar-splat-integrity-cleanup", "lichtfeld-inspired-clean-run"]
+    branches: [main, "feat/**", "feature/**", "audit/**", "platform-integration-audit", "whole-platform-reference-audit", "lidar-splat-integrity-cleanup", "lichtfeld-inspired-clean-run"]
   pull_request:
-    branches: [main, "feature/**"]
+    branches: [main, "feature/**", "feat/**"]
   workflow_dispatch:
 
 jobs:
