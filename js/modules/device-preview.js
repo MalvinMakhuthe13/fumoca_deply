@@ -152,7 +152,11 @@ function markDirtyFromEvents() {
   window.addEventListener('fumoca:platformChange', mark);
   window.addEventListener('fumoca:tutorialChange', mark);
   window.addEventListener('fumoca:tourChange', mark);
-  window.addEventListener('fumoca:fileLoaded', clear);
+  window.addEventListener('fumoca:fileLoaded', () => {
+    clear();
+    const preview = getDevicePreview();
+    if (preview.root?.classList.contains('is-open')) preview.load();
+  });
   window.addEventListener('fumoca:published', clear);
 }
 
@@ -483,12 +487,6 @@ class DevicePreviewController {
 
   load(force = false) {
     const url = buildPublishedViewerUrl();
-    let localSource = null;
-    try {
-      // Import lazily so the published-only viewer path does not load Spark twice.
-      // The helper snapshots current edited Gaussian bytes when Studio's Spark bridge is active.
-      localSource = window.S?.fileName ? null : null;
-    } catch (_) {}
     if (this.warn) this.warn.classList.toggle('is-on', isStudioDirty());
     const chooseLocalSource = async () => {
       const mod = await import('./device-preview-local.js');
@@ -555,35 +553,6 @@ class DevicePreviewController {
     });
   }
 
-  /* legacy-load-removed */
-  _legacyLoadRemoved(force = false) {
-    const url = buildPublishedViewerUrl();
-    if (this.warn) this.warn.classList.toggle('is-on', isStudioDirty());
-
-    if (url) {
-      this.mode = 'published';
-      this.exitStudioFrame();
-      if (this.empty) this.empty.style.display = 'none';
-      if (this.info) this.info.classList.remove('is-on');
-      if (this.iframe) {
-        this.iframe.style.display = 'block';
-        const finalUrl = force ? url + (url.includes('?') ? '&' : '?') + '_dp=' + Date.now() : url;
-        if (force || this.iframe.getAttribute('src') !== url) {
-          this.iframe.setAttribute('src', finalUrl);
-        }
-      }
-      this.layout();
-      return url;
-    }
-
-    this.mode = 'studio';
-    if (this.iframe) {
-      this.iframe.style.display = 'none';
-      this.iframe.removeAttribute('src');
-    }
-    this.enterStudioFrame();
-    return null;
-  }
 
   open(options = {}) {
     this.ensureDom();
