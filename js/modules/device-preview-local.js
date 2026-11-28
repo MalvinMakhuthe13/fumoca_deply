@@ -38,8 +38,10 @@ function fitCamera(THREE, mesh, camera, controls) {
   const center = bounds.getCenter(new THREE.Vector3());
   const size = bounds.getSize(new THREE.Vector3());
   const radius = Math.max(size.x, size.y, size.z, 0.05) * 0.5;
-  const fov = THREE.MathUtils.degToRad(camera.fov || 50);
-  const distance = Math.max(radius / Math.tan(fov * 0.5) * 1.65, radius * 2.3, 0.15);
+  const verticalFov = THREE.MathUtils.degToRad(camera.fov || 50);
+  const horizontalFov = 2 * Math.atan(Math.tan(verticalFov * 0.5) * Math.max(0.01, camera.aspect || 1));
+  const limitingFov = Math.min(verticalFov, horizontalFov);
+  const distance = Math.max(radius / Math.sin(limitingFov * 0.5) * 1.15, radius * 2.3, 0.15);
   const direction = new THREE.Vector3(0.38, 0.28, 1).normalize();
   camera.up.set(0, 1, 0);
   camera.position.copy(center).addScaledVector(direction, distance);
@@ -78,6 +80,11 @@ export async function mountLocalGaussianPreview(host, sourceBytes, fileName = 'l
   scene.background = new THREE.Color(0x05070b);
   const camera = new THREE.PerspectiveCamera(50, 1, 0.0005, 10000);
   const controls = new OrbitControls(camera, renderer.domElement);
+  const initialWidth = Math.max(2, host.clientWidth || 2);
+  const initialHeight = Math.max(2, host.clientHeight || 2);
+  camera.aspect = initialWidth / initialHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(initialWidth, initialHeight, false);
   controls.enableDamping = true;
   controls.dampingFactor = 0.075;
   controls.zoomSpeed = 1.2;
