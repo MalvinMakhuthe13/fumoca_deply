@@ -371,9 +371,13 @@ class DevicePreviewController {
   }
 
   exitLocalFrame() {
+    const hadLocalPreview = !!this._localPreview;
     try { this._localPreview?.dispose?.(); } catch (error) { console.warn('[DevicePreview] local preview cleanup', error); }
     this._localPreview = null;
-    if (this.studioHost) {
+    // studioHost is shared by the isolated local renderer and the temporarily
+    // reparented Studio canvas. Never clear it while the Studio canvas is still
+    // parked here; exitStudioFrame owns restoring that canvas to the editor.
+    if (this.studioHost && (hadLocalPreview || !this._canvasHome)) {
       this.studioHost.style.display = 'none';
       this.studioHost.replaceChildren();
     }
