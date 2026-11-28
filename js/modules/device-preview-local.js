@@ -149,7 +149,6 @@ export async function mountLocalGaussianPreview(host, sourceBytes, fileName = 'l
         try { spark.dispose?.(); } catch (_) {}
         renderer.dispose();
         renderer.domElement.remove();
-        host.replaceChildren();
       },
     };
   } catch (error) {
