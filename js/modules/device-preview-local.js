@@ -56,7 +56,7 @@ function fitCamera(THREE, mesh, camera, controls) {
 export async function mountLocalGaussianPreview(host, sourceBytes, fileName = 'local-scene.ply', settings = null) {
   if (!host) throw new Error('The device preview host is unavailable.');
   const bytes = copyBytes(sourceBytes);
-  const [{ default: THREE }, { OrbitControls }, { SparkRenderer, SplatMesh }] = await Promise.all([
+  const [THREE, { OrbitControls }, { SparkRenderer, SplatMesh }] = await Promise.all([
     import('three'),
     import('three/addons/controls/OrbitControls.js'),
     import('@sparkjsdev/spark'),
