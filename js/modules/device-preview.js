@@ -194,6 +194,9 @@ class DevicePreviewController {
     this.info = null;
     this.empty = null;
     this.studioHost = null;
+    this.modeSelect = null;
+    this.requestedMode = 'auto';
+    this._localPreview = null;
     this._viewPreview = null;
     this._savedControls = null;
     this._onKey = (e) => { if (e.key === 'Escape') this.close(); };
@@ -214,6 +217,12 @@ class DevicePreviewController {
     root.innerHTML = `
       <div class="dp-bar">
         <span class="dp-title">Device Preview</span>
+        <select data-dp="mode" title="Preview source">
+          <option value="auto">Auto</option>
+          <option value="local">Local PLY</option>
+          <option value="studio">Live Studio</option>
+          <option value="published">Published</option>
+        </select>
         <select data-dp="preset" title="Device">${DEVICE_PRESETS.map((p) =>
           `<option value="${p.id}">${p.label}</option>`).join('')}</select>
         <button type="button" data-dp="rotate" title="Rotate portrait / landscape">⟲ Rotate</button>
@@ -252,6 +261,11 @@ class DevicePreviewController {
     this.info = root.querySelector('[data-dp="info"]');
     this.empty = root.querySelector('[data-dp="empty"]');
     this.studioHost = root.querySelector('[data-dp="studio-host"]');
+    this.modeSelect = root.querySelector('[data-dp="mode"]');
+    this.modeSelect?.addEventListener('change', () => {
+      this.requestedMode = this.modeSelect.value;
+      this.load();
+    });
     this.stage = root.querySelector('[data-dp="stage"]');
     const presetSel = root.querySelector('[data-dp="preset"]');
     presetSel.value = this.presetId;
@@ -341,7 +355,57 @@ class DevicePreviewController {
     }
   }
 
+  exitLocalFrame() {
+    try { this._localPreview?.dispose?.(); } catch (error) { console.warn('[DevicePreview] local preview cleanup', error); }
+    this._localPreview = null;
+    if (this.studioHost) {
+      this.studioHost.style.display = 'none';
+      this.studioHost.replaceChildren();
+    }
+  }
+
+  async enterLocalFrame(source) {
+    this.exitStudioFrame();
+    this.exitLocalFrame();
+    if (this.empty) this.empty.style.display = 'none';
+    if (this.iframe) {
+      this.iframe.style.display = 'none';
+      this.iframe.removeAttribute('src');
+    }
+    if (this.info) {
+      this.info.textContent = source.edited
+        ? 'Local PLY preview — isolated Spark renderer using the current edited Gaussian data. Nothing is uploaded.'
+        : 'Local PLY preview — isolated Spark renderer using the loaded local Gaussian file. Nothing is uploaded.';
+      this.info.classList.add('is-on');
+    }
+    this.studioHost.style.display = 'block';
+    this.studioHost.replaceChildren();
+    this.mode = 'local';
+    this.layout();
+    const token = (this._localLoadToken || 0) + 1;
+    this._localLoadToken = token;
+    this.studioHost.textContent = 'Loading local Gaussian file…';
+    try {
+      const { mountLocalGaussianPreview } = await import('./device-preview-local.js');
+      const preview = await mountLocalGaussianPreview(this.studioHost, source.bytes, source.fileName, readLookViewSettings());
+      if (token !== this._localLoadToken || !this.root?.classList.contains('is-open') || this.mode !== 'local') {
+        preview.dispose();
+        return;
+      }
+      this._localPreview = preview;
+    } catch (error) {
+      if (token !== this._localLoadToken) return;
+      console.error('[DevicePreview] local PLY preview failed', error);
+      this.studioHost.innerHTML = '';
+      const message = document.createElement('div');
+      message.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center;color:#ffbf9b;font-size:12px;';
+      message.textContent = 'Local PLY preview could not start: ' + (error?.message || String(error));
+      this.studioHost.appendChild(message);
+    }
+  }
+
   enterStudioFrame() {
+    this.exitLocalFrame();
     if (this.empty) this.empty.style.display = 'none';
     if (this.iframe) {
       this.iframe.style.display = 'none';
@@ -419,6 +483,81 @@ class DevicePreviewController {
 
   load(force = false) {
     const url = buildPublishedViewerUrl();
+    let localSource = null;
+    try {
+      // Import lazily so the published-only viewer path does not load Spark twice.
+      // The helper snapshots current edited Gaussian bytes when Studio's Spark bridge is active.
+      localSource = window.S?.fileName ? null : null;
+    } catch (_) {}
+    if (this.warn) this.warn.classList.toggle('is-on', isStudioDirty());
+    const chooseLocalSource = async () => {
+      const mod = await import('./device-preview-local.js');
+      return mod.getLocalGaussianPreviewBytes(window.S || {});
+    };
+    const selectMode = async () => {
+      const source = await chooseLocalSource();
+      const wanted = this.requestedMode || 'auto';
+      const target = wanted === 'auto' ? (url ? 'published' : source ? 'local' : 'studio') : wanted;
+      if (this.modeSelect) {
+        const localOption = this.modeSelect.querySelector('option[value="local"]');
+        const publishedOption = this.modeSelect.querySelector('option[value="published"]');
+        if (localOption) localOption.disabled = !source;
+        if (publishedOption) publishedOption.disabled = !url;
+        this.modeSelect.value = target;
+      }
+      if (target === 'published') {
+        if (!url) {
+          this.exitLocalFrame();
+          this.exitStudioFrame();
+          this.mode = 'published';
+          if (this.info) { this.info.textContent = 'No published viewer URL is available. Save and publish this asset first.'; this.info.classList.add('is-on'); }
+          if (this.empty) this.empty.style.display = 'flex';
+          if (this.iframe) this.iframe.style.display = 'none';
+          this.layout();
+          return null;
+        }
+        this.exitLocalFrame();
+        this.mode = 'published';
+        this.exitStudioFrame();
+        if (this.empty) this.empty.style.display = 'none';
+        if (this.info) this.info.classList.remove('is-on');
+        if (this.iframe) {
+          this.iframe.style.display = 'block';
+          const finalUrl = force ? url + (url.includes('?') ? '&' : '?') + '_dp=' + Date.now() : url;
+          if (force || this.iframe.getAttribute('src') !== url) this.iframe.setAttribute('src', finalUrl);
+        }
+        this.layout();
+        return url;
+      }
+      if (target === 'local') {
+        if (!source) {
+          this.exitLocalFrame();
+          this.exitStudioFrame();
+          this.mode = 'local';
+          if (this.info) { this.info.textContent = 'No local Gaussian PLY is loaded. Open a Gaussian .ply file in Studio first.'; this.info.classList.add('is-on'); }
+          if (this.empty) this.empty.style.display = 'flex';
+          this.layout();
+          return null;
+        }
+        return this.enterLocalFrame(source);
+      }
+      this.mode = 'studio';
+      if (this.iframe) { this.iframe.style.display = 'none'; this.iframe.removeAttribute('src'); }
+      if (this.info) this.info.classList.remove('is-on');
+      this.enterStudioFrame();
+      return null;
+    };
+    return selectMode().catch((error) => {
+      console.error('[DevicePreview] mode selection failed', error);
+      this.mode = 'studio';
+      this.enterStudioFrame();
+      return null;
+    });
+  }
+
+  /* legacy-load-removed */
+  _legacyLoadRemoved(force = false) {
+    const url = buildPublishedViewerUrl();
     if (this.warn) this.warn.classList.toggle('is-on', isStudioDirty());
 
     if (url) {
@@ -449,9 +588,11 @@ class DevicePreviewController {
   open(options = {}) {
     this.ensureDom();
     if (options.presetId) this.presetId = options.presetId;
+    if (options.mode) this.requestedMode = options.mode;
     if (typeof options.landscape === 'boolean') this.landscape = options.landscape;
     const sel = this.root.querySelector('[data-dp="preset"]');
     if (sel) sel.value = this.presetId;
+    if (this.modeSelect) this.modeSelect.value = this.requestedMode;
     this.root.classList.add('is-open');
     document.body.classList.add('fumoca-device-preview-open');
     window.addEventListener('keydown', this._onKey);
@@ -463,6 +604,8 @@ class DevicePreviewController {
 
   close() {
     if (!this.root) return;
+    this._localLoadToken = (this._localLoadToken || 0) + 1;
+    this.exitLocalFrame();
     this.exitStudioFrame();
     this.root.classList.remove('is-open');
     document.body.classList.remove('fumoca-device-preview-open');
