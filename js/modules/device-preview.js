@@ -155,7 +155,15 @@ function markDirtyFromEvents() {
   window.addEventListener('fumoca:fileLoaded', () => {
     clear();
     const preview = getDevicePreview();
-    if (preview.root?.classList.contains('is-open')) preview.load();
+    if (preview.root?.classList.contains('is-open')) {
+      preview.load();
+      // Studio enables the high-fidelity Spark bridge shortly after fileLoaded.
+      // Refresh once it has had time to initialize so Local mode snapshots live edits.
+      setTimeout(() => {
+        if (preview.root?.classList.contains('is-open') &&
+            (preview.requestedMode === 'auto' || preview.requestedMode === 'local')) preview.load(true);
+      }, 2600);
+    }
   });
   window.addEventListener('fumoca:published', clear);
 }
