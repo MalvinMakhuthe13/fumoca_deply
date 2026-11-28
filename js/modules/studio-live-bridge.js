@@ -74,8 +74,9 @@ window._fumocaIsolateMainSubject = async function ({ strength = 78 } = {}) {
     return 0;
   }
   const center = _centroid(live);
+  // strength 50–95 → keep fraction 0.92 → 0.55 of points by distance to center
   const t = Math.max(0.5, Math.min(0.95, strength / 100));
-  const keepFrac = 1 - (t - 0.5) * 0.8;
+  const keepFrac = 1 - (t - 0.5) * 0.8; // 50%→1.0, 95%→0.64-ish
   const dists = live.map((i) => {
     const dx = S.positions[i * 3] - center.x;
     const dy = S.positions[i * 3 + 1] - center.y;
@@ -83,11 +84,14 @@ window._fumocaIsolateMainSubject = async function ({ strength = 78 } = {}) {
     return { i, d: Math.sqrt(dx * dx + dy * dy + dz * dz) };
   });
   dists.sort((a, b) => a.d - b.d);
-  const keepN = Math.max(20, Math.floor(dists.length * keepFrac));
+  const keepN = Math.max(20, Math.floor(dists.length * Math.min(1, Math.max(0.4, keepFrac))));
   const keep = new Set(dists.slice(0, keepN).map((x) => x.i));
   let killed = 0;
   for (const i of live) {
-    if (!keep.has(i)) { S.alive[i] = 0; killed++; }
+    if (!keep.has(i)) {
+      S.alive[i] = 0;
+      killed++;
+    }
   }
   _rebuild();
   _toast('Isolate', `Kept densest core · removed ${killed.toLocaleString()} points`, 'ok');
@@ -97,12 +101,12 @@ window._fumocaIsolateMainSubject = async function ({ strength = 78 } = {}) {
 function _ensureEmbedFallback() {}
 function _ensureMobileFallback() {}
 function _ensure4DFallback() {}
+
 function _ensurePartsFallback() {
   const el = document.getElementById('v61PartsList');
   if (!el) return;
-  const render = () => {
-    if (!el.childElementCount || /no parts/i.test(el.textContent || '')) {
-      el.innerHTML = `
+  if (!el.childElementCount || /no parts/i.test(el.textContent || '')) {
+    el.innerHTML = `
         <div class="hint" style="line-height:1.55">
           No named parts on this asset yet.<br><br>
           <b>How parts work:</b> they come from a saved cloud asset that has part metadata,
@@ -113,33 +117,31 @@ function _ensurePartsFallback() {
           📌 Label current selection as a part (session)
         </button>
         <div id="v61SessionParts" style="margin-top:8px"></div>`;
-      el.querySelector('#v61PartsFromSelection')?.addEventListener('click', () => {
-        const S = _S();
-        if (!S?.selected) {
-          _toast('Parts', 'Select points first (brush / lasso)', 'warn');
-          return;
-        }
-        let n = 0;
-        for (let i = 0; i < S.selected.length; i++) if (S.selected[i] && S.alive?.[i]) n++;
-        if (!n) {
-          _toast('Parts', 'Nothing selected', 'warn');
-          return;
-        }
-        const name = prompt('Part name', `Part ${(window._fumocaSessionParts?.length || 0) + 1}`);
-        if (!name) return;
-        window._fumocaSessionParts = window._fumocaSessionParts || [];
-        window._fumocaSessionParts.push({ name, count: n });
-        const list = document.getElementById('v61SessionParts');
-        if (list) {
-          list.innerHTML = window._fumocaSessionParts.map((p) =>
-            `<div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,.06);font-size:12px;">${p.name} · ${p.count.toLocaleString()} pts</div>`
-          ).join('');
-        }
-        _toast('Parts', `Labeled “${name}” (${n} points) for this session`, 'ok');
-      });
-    }
-  };
-  render();
+    el.querySelector('#v61PartsFromSelection')?.addEventListener('click', () => {
+      const S = _S();
+      if (!S?.selected) {
+        _toast('Parts', 'Select points first (brush / lasso)', 'warn');
+        return;
+      }
+      let n = 0;
+      for (let i = 0; i < S.selected.length; i++) if (S.selected[i] && S.alive?.[i]) n++;
+      if (!n) {
+        _toast('Parts', 'Nothing selected', 'warn');
+        return;
+      }
+      const name = prompt('Part name', `Part ${(window._fumocaSessionParts?.length || 0) + 1}`);
+      if (!name) return;
+      window._fumocaSessionParts = window._fumocaSessionParts || [];
+      window._fumocaSessionParts.push({ name, count: n });
+      const list = document.getElementById('v61SessionParts');
+      if (list) {
+        list.innerHTML = window._fumocaSessionParts.map((p) =>
+          `<div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,.06);font-size:12px;">${p.name} · ${p.count.toLocaleString()} pts</div>`
+        ).join('');
+      }
+      _toast('Parts', `Labeled “${name}” (${n} points) for this session`, 'ok');
+    });
+  }
 }
 
 function _boot() {
@@ -155,6 +157,7 @@ if (document.readyState === 'loading') {
 } else {
   setTimeout(_boot, 50);
 }
+// Also run after modules settle
 setTimeout(_boot, 800);
 setTimeout(_boot, 2000);
 
