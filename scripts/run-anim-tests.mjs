@@ -10,7 +10,7 @@ const files = readdirSync('tests').filter(name => (name.startsWith('anim-') || n
 let failed = 0;
 for (const name of files) {
   const file = join('tests', name);
-  const args = name.startsWith('manual-gaussian-') ? ['--experimental-default-type=module', file] : [file];
+  const args = (name.startsWith('manual-gaussian-') || name.startsWith('device-preview-')) ? ['--experimental-default-type=module', file] : [file];
   const result = spawnSync(process.execPath, args, { stdio: 'inherit' });
   if (result.status !== 0) {
     failed += 1;
