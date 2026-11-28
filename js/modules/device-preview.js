@@ -495,7 +495,7 @@ class DevicePreviewController {
     const selectMode = async () => {
       const source = await chooseLocalSource();
       const wanted = this.requestedMode || 'auto';
-      const target = wanted === 'auto' ? (url ? 'published' : source ? 'local' : 'studio') : wanted;
+      const target = wanted === 'auto' ? (source ? 'local' : url ? 'published' : 'studio') : wanted;
       if (this.modeSelect) {
         const localOption = this.modeSelect.querySelector('option[value="local"]');
         const publishedOption = this.modeSelect.querySelector('option[value="published"]');
