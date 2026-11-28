@@ -101,3 +101,8 @@ const FumocaCameraView = (() => {
 
 window.FumocaCameraView = FumocaCameraView;
 export default FumocaCameraView;
+
+// Device Preview / Experience Simulator
+try {
+  import('./device-preview.js').then((m) => m.mountDevicePreviewFab?.()).catch((e) => console.warn('[DevicePreview]', e));
+} catch (_) {}
