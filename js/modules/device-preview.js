@@ -203,6 +203,7 @@ class DevicePreviewController {
     this._localPreview = null;
     this._viewPreview = null;
     this._savedControls = null;
+    this._savedCamera = null;
     this._onKey = (e) => { if (e.key === 'Escape') this.close(); };
     this._onResize = () => this.layout();
   }
@@ -348,6 +349,16 @@ class DevicePreviewController {
           enablePan: controls.enablePan,
         };
       }
+      if (!this._savedCamera) {
+        const target = controls.target || { x: 0, y: 0, z: 0 };
+        this._savedCamera = {
+          camera,
+          position: [camera.position.x, camera.position.y, camera.position.z],
+          up: [camera.up.x, camera.up.y, camera.up.z],
+          target: [target.x, target.y, target.z],
+          fov: camera.fov,
+        };
+      }
       const { ViewController } = await import('./view-settings.js');
       this._viewPreview?.dispose?.();
       this._viewPreview = new ViewController(THREE, camera, controls, settings, {
@@ -457,6 +468,21 @@ class DevicePreviewController {
         c.update?.();
       }
       this._savedControls = null;
+    }
+    if (this._savedCamera) {
+      const saved = this._savedCamera;
+      const camera = saved.camera;
+      const controls = window.controls || window._fumocaOrbitControls || window._fumocaViewerControls;
+      try {
+        camera.position.set(...saved.position);
+        camera.up.set(...saved.up);
+        if (Number.isFinite(saved.fov)) camera.fov = saved.fov;
+        controls?.target?.set?.(...saved.target);
+        camera.updateProjectionMatrix?.();
+        camera.lookAt(...saved.target);
+        controls?.update?.();
+      } catch (error) { console.warn('[DevicePreview] camera restore', error); }
+      this._savedCamera = null;
     }
     const canvas = this.studioHost?.querySelector('canvas');
     if (canvas && this._canvasHome?.parent) {
